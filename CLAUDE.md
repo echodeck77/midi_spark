@@ -196,6 +196,111 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the 3 gesture pads become 4: TILT/HITS · OFFS/CNT · GATE/VEL · NOTE/OCT, and a new TILT
+  parameter biases a lane's own Euclidean hit distribution left/right (2026-10-09, on `fix/euclid-no-scroll-
+  direction-order-2x2-grid`; macOS 1242 green incl. +5, iOS builds clean, no new warnings). Paul: "I'm
+  interested in a TILT control to bias the distribution of hits to the left or right. This should be the
+  horizontal axis on the first xy box, with hits being the vertical. Next to that is another with offset on x
+  and count on y, then another with x as gate and y as velocity, then the final x/y as it is now." A genuinely
+  NEW algorithmic concept (no prior "temporal/positional tilt" anywhere in this codebase — the existing
+  `*Tilt` fields, velTilt/chanceTilt/strumVelocity's tilt, all bias VELOCITY by pool rank, a different axis
+  entirely) — built as a reasoned, deterministic first pass and flagged for ear-verification rather than
+  guessed silently. **`euclidTiltPattern`** (Derivations.swift, pure): reshapes an ALREADY-BUILT K-of-N
+  pattern (called right after `euclidPatternInto`, post-rotation) by taking the K existing hits in ascending
+  order, normalising each one's RANK among the K hits to 0...1, warping that rank through a power curve
+  (`t^gamma`, `gamma = 2^(-2×tilt)` — tilt=-1 ⇒ gamma=4, compresses hits early; tilt=+1 ⇒ gamma=0.25,
+  compresses them late), then re-placing each at `round(warpedRank × (N−1))` with a deterministic forward-
+  nudge on collision. `tilt=0` is an EXACT no-op (gamma=1, the identity warp) — chosen specifically because
+  this engine's own standing invariant (derived, never accumulated — replay-exact) rules out the more
+  obvious-sounding "randomly reshuffle toward one side" reading of "bias the distribution." `EuclidLine.tilt:
+  Double?` threaded through all 4 required sites (struct/decoder/resolved-accessor/SnapshotBuilder's fresh-
+  literal rebuild); `runEuclidLine` gained one `tilt: Double` parameter and ONE insertion point — every
+  downstream read of `euclidBuf` (the hit/rest test, the CYCLE/RANDOM ordinal walk, MISS's complement) picks
+  up the tilted shape for free, zero other changes needed anywhere in that function. **THE PAD RESHUFFLE:**
+  `EuclideousGestureTab` widened 3→4 (`tiltHits`/`offsetCount`/`gateVelocity`/`noteOctave`) — HITS and OFFSET
+  (rotate), which used to share one pad, now split across the first two pads, each paired with a NEW axis
+  (pad 1 Y stays HITS, X becomes TILT; pad 2 X stays OFFSET, Y becomes the step COUNT — a brand-new drag
+  control for STEPS, previously reachable only via pinch on the comet bar, now ALSO here, mirroring the
+  pinch's own clamp-pulses-down-if-steps-shrinks rule exactly); GATE/VELOCITY's axes SWAP (gate now X, was
+  Y); NOTE/OCT is byte-identical, per Paul's own "the final x/y as it is now." Two new HUD/face formatters
+  (`euclideousTiltHitsHUDInfo`/`euclideousOffsetCountHUDInfo`); the existing VEL/GATE formatter is reused
+  UNCHANGED for the swapped pad (it already showed both resolved values regardless of axis). **A DISCLOSED,
+  UNAVOIDABLE SIZE CONSEQUENCE:** `minLaneSize` (the touch-target floor every lane card's own minimum size
+  derives from) grows from `3×minPadSize` to `4×minPadSize` (132→176pt) — a lane can no longer usefully
+  shrink as far as before without its 4th pad going sub-floor. The gesture-pad row also now computes its OWN
+  width (`size/4`) SEPARATELY from the PATTERN tab's DIRECTION/HIT-MISS-RATE rows beneath it (still `size/3`,
+  untouched, nothing asked to change there) — meaning the two previously-aligned row sets no longer line up
+  column-for-column, a cosmetic side effect of widening one without the other, named here rather than quietly
+  absorbed. **DEVICE-OWED:** the TILT formula's actual musicality across a range of K/N combos (a first-pass
+  power-curve choice, not device-tuned); the 4-pad row's legibility/touch-feel at the new, necessarily-larger
+  minimum lane size; whether the gesture-pad-row/pattern-tab-row misalignment reads as a problem worth a
+  follow-up fix.**
+- **▶ EUCLIDEOUS — a CHORDS button beside KEY in the header opens a pop-up chord grid (degree matrix + rate),
+  giving the page its own self-contained progression generator — replacing the "find an external chord-door
+  receiver" CHORDS mechanism shipped minutes earlier the same day (2026-10-08, on `fix/euclid-no-scroll-
+  direction-order-2x2-grid`; macOS 1242 green incl. +5 new/+2 rewritten/-1 redundant, iOS builds clean). Paul:
+  "Move the key selector to the top header. Next to it place a chords button that opens a pop-up to a chord
+  grid with rate control. Base this on the existing chord grid used on the chord door." Read as — and flagged
+  as the judgment call it is — closing the exact gap named at the end of the PREVIOUS entry ("CHORDS needs an
+  actual receiver already configured as a chord door... no in-page way to tell which"): CHORDS now generates
+  its own content instead of depending on external configuration. **HEADER COLLAPSED TO ONE ROW:** KEY (−/
+  chip/+) moved from row 2 into row 1, alongside a new CHORDS button; row 2 had nothing left in it once KEY
+  left (its own LANES switch was already retired into the per-lane I/O tab the entry below built), so the
+  header simplified to a single row — freeing real vertical space for the lane/riff grids, not scope creep.
+  `headerScale`'s own width budget widened 620→860 to match the busier row. **MODEL:** `PluginState.
+  euclideousChords: MachineParams?` — the EXACT same storage shape the chord door's own `Receiver.chordSeqs:
+  [MachineParams]?` already uses (only `chords*` fields ever touched) — PATTERN mode only, no MODE/SCALE-FROM/
+  VOICING/SPREAD/WALK (named scope: "a chord grid with rate control," not the full chords-processor feature
+  set); nil ⇒ `MachineParams()`'s own already-sensible I-I-V-V-IV-IV-V-V default, audible immediately, not
+  silent. **ENGINE:** resolved in SnapshotBuilder directly into the SHARED `chordsMode`/`chordsDegrees`/
+  `chordsSteps`/`chordsRateBeats`/`chordsRotate`/`chordsVoicing`/`chordsSpread` SnapParams fields (confirmed
+  safe to reuse, not a parallel set — `chordSeqNotes`'s own doc comment explicitly designs it to take any
+  SnapParams: "SHARED by the CHORDS PROCESSOR stage AND the chord DOOR pool-fill... this is the 'future
+  processor work reflects on the door' contract") plus 2 new dedicated fields (`euclideousChordKeyRoot`/
+  `KeyTones`, since `chordSeqNotes` takes the key as explicit params, not read from the shared fields — fed
+  from Euclideous's OWN page-level KEY, not a receiver door, since this page has no door reference for CHORDS
+  the way the regular processor's SCALE FROM does). Router.swift's per-lane fill loop (built minutes earlier
+  the same day) now branches on `sourceModeResolved` directly for CHORDS — calling `chordSeqNotes` once per
+  cell-render (not per-tick, matching every other pool-fill's own "stable across the column" convention) —
+  instead of resolving a chord-door channel mask; the riff's own pool (already "follows lane 1") copies lane
+  0's resolved pool wholesale now (`laneNotes(0)`/`laneCount(0)`), so it transparently picks up whichever
+  source — MIDI, CHORDS, or the legacy-OMNI fallback — lane 0 is actually on, with zero separate logic.
+  `riffSrcChanMask`/`fillRiffSrcFromPool` deleted outright (confirmed zero remaining references anywhere,
+  tests included) — genuinely dead once riff stopped needing its own independent channel-mask resolution.
+  **A REAL, SIGNIFICANT GAP FOUND BY A FAILING TEST, not inspection:** a pre-existing top-level guard in
+  `Router.process()` — `guard pool.count > 0 || latchMask != 0 else { ...; return }` — silently skipped ALL
+  per-row tick emission (never even reaching `emitGeneratorRow`) whenever NOTHING was held or latched
+  ANYWHERE in the whole session. Totally safe before this feature (every processor type has always needed
+  SOME live input to make sound) — CHORDS breaks that assumption outright, generating content with zero live
+  input by design. Traced with two rounds of throwaway `FileHandle.standardError.write` RTCDEBUG tracing
+  (confirmed `emitGeneratorRow` was never even being called, not that chord resolution was computing the
+  wrong answer) after a test with a genuinely empty `NotePool()` kept failing both its assertions at once —
+  fixed by widening the guard's own condition with one cheap, allocation-free check
+  (`euclideousChordsActive`, `box.cells[Snap.euclideousRow].procs.first?.euclidLines.contains { $0.
+  sourceModeResolved == .chords } ?? false`), mirroring the SAME "must run regardless of the pool" exception
+  `emitFreeMod`/`emitColumnRatchetPattern` already get, just folded into this guard instead of a separate
+  pre-guard subsystem call since CHORDS rides the normal dispatch once past it. Without this fix, a
+  Euclideous session with every lane on CHORDS and nothing else held anywhere in the whole document would
+  have stayed PERMANENTLY SILENT. **UI (EuclideousPage.swift):** a new `chordsPopupCard` — NOT a literal
+  `ProcessorBox(type:.chords)` mount the way the chord door reuses the whole processor editor (that
+  component's own SCALE-FROM door-picker control would be a convincing-looking but genuinely dead control
+  here, since Euclideous has no doors and always feeds its own page-level key directly) — instead a bespoke
+  grid reusing the real PURE functions the matrix is built from (`chordsMatrixCell`/`degreeLabel`, already
+  free/shared in Derivations.swift), modelled closely on this page's own `riffGridView` tap-to-set pattern: a
+  STEPS stepper, a 6-case StepRate seg row, and an 8-row (I...vii + REST) × STEPS-column degree matrix, tap-
+  to-set (no toggle-to-clear — matches the regular CHORDS processor's own unconditional-write behaviour
+  exactly, not the riff grid's different convention). **TESTS:** 2 pre-existing tests from the earlier-same-
+  day per-lane-I/O work (`testEuclideousLanesEachResolveTheirOwnIndependentSourceMode`,
+  `testEuclideousRiffPoolIsGovernedByLane1EvenWhenADifferentLaneConsumesIt` — the latter rewritten TWICE in
+  one session as the CHORDS mechanism itself evolved) updated to configure `euclideousChords`/`euclideousKey-
+  Root/Type` instead of a `doorMode: .chord` receiver, verified against `diatonicChord`'s own exact formula
+  (C major degree 0 ⇒ triad [48,52,55]); a third, now-fully-redundant sibling test
+  (`testEuclideousRiffPoolFollowsLane1sOwnSourceChoice`) deleted outright rather than also rewritten, since
+  the kept test already subsumes its claim plus more. +2 SnapshotBuilderTests (chords resolve into the shared
+  fields on Euclideous's row only, a different row's cell stays at the bare SnapParams defaults; an untouched
+  config resolves to the audible default, not silence). **DEVICE-OWED:** the new one-row header's real-width
+  legibility with KEY+CHORDS both present; the chord grid popup's own size/legibility; confirm a CHORDS-mode
+  lane actually sounds correctly with the live plugin, not just in the test harness.**
 - **▶ EUCLIDEOUS — a new per-lane I/O TAB (MIDI IN · KEY · CHORDS + the lane's own OUT toggles), replacing
   the GLOBAL "LANES KEY|MIDI" switch and the riff's own "SOURCE KEY|MIDI" switch entire (2026-10-08, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1236 green incl. +4 new/+3 rewritten, iOS builds

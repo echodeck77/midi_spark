@@ -764,6 +764,47 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(st.euclideousResetSpanBarsResolved, 0, "reset span starts OFF")
     }
 
+    // CHORDS BUTTON (Paul 2026-10-08): euclideousChords resolves into the SHARED chords* SnapParams fields
+    // (reused directly from the regular CHORDS processor, not a parallel set — see Snapshot.swift's own doc
+    // comment on euclideousChordKeyRoot/KeyTones for why), on Euclideous's row only, PATTERN mode forced
+    // unconditionally (there's no MODE picker on this page). keyRoot/keyTones come from the page's own KEY.
+    func testEuclideousChordsResolveIntoTheSharedChordsFieldsOnItsOwnRowOnly() {
+        var st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: machineIDs[0], buses: [.a])
+                                  s.cells[0][0] = Cell(machineID: machineIDs[1], buses: [.a])   // a DIFFERENT row, same document
+                                  return s }()])
+        st.euclideousKeyRoot = 2; st.euclideousKeyType = .dorian
+        st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [3, 4]; m.chordsSteps = 2; m.chordsRate = .r1_2; return m }()
+        let box = SnapshotBuilder.build(from: st)
+        let p = box.cells[0 * Snap.rows + Snap.euclideousRow].procs[0]
+        XCTAssertEqual(p.chordsDegrees, [3, 4], "the authored degrees must survive the resolve")
+        XCTAssertEqual(p.chordsSteps, 2)
+        XCTAssertEqual(p.chordsRateBeats, StepRate.r1_2.beats, accuracy: 0.0001)
+        XCTAssertEqual(p.euclideousChordKeyRoot, 2, "the page's own KEY root, not a receiver door")
+        XCTAssertEqual(p.euclideousChordKeyTones, ScaleType.dorian.intervals, "the page's own KEY scale")
+        // a DIFFERENT row's cell, same document, must be untouched — this is Euclideous-row-only. chordsMode
+        // isn't useful here (SnapParams.chordsMode already DEFAULTS to .pattern everywhere) — chordsSteps/
+        // Degrees DO have distinct bare defaults (8 / the I-vi-IV-V loop), so a mismatch against THIS test's
+        // own authored values (2 / [3,4]) is the real signal that nothing leaked across rows.
+        let other = box.cells[0 * Snap.rows + 0].procs[0]
+        XCTAssertEqual(other.chordsSteps, 8, "a different row's cell keeps the bare SnapParams default, not Euclideous's authored steps")
+        XCTAssertEqual(other.chordsDegrees, [0, 0, 5, 5, 3, 3, 4, 4], "and the bare default degrees, not Euclideous's")
+    }
+    // An untouched euclideousChords (nil) must resolve to something AUDIBLE, not silence — MachineParams()'s
+    // own chordsDegreesResolved default is the sensible I-I-V-V-IV-IV-V-V loop (matches the regular CHORDS
+    // processor's own fresh-card default).
+    func testEuclideousChordsDefaultsToAnAudibleProgressionWhenUntouched() {
+        let st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: machineIDs[0], buses: [.a])
+                                  return s }()])
+        let box = SnapshotBuilder.build(from: st)
+        let p = box.cells[0 * Snap.rows + Snap.euclideousRow].procs[0]
+        XCTAssertEqual(p.chordsDegrees, [0, 0, 5, 5, 3, 3, 4, 4], "untouched ⇒ the same default loop MachineParams()'s own chordsDegreesResolved resolves to")
+        XCTAssertFalse(p.chordsDegrees.allSatisfy { $0 == 7 }, "must not default to all-REST")
+    }
+
     // RIFF ADVANCE: the page's own shared riff pattern CONTENT (steps/ranks only — direction moved per-lane,
     // see the EuclidLine test above) must also survive the build, resolved/clamped once here.
     func testEuclideousRiffSurvivesSnapshotBuild() {

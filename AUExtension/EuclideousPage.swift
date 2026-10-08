@@ -45,8 +45,15 @@ import SwiftUI
 /// exactly matches the comet bar's own original drag (X=rotate, Y=hits); the other two reinterpret
 /// the SAME `(Int) -> Void` callback slots `EuclidGesturePad` already exposes — no changes needed to
 /// that component itself, since its callback type was already a bare, meaning-free `(Int) -> Void`.
-enum EuclideousGestureTab: Int, CaseIterable { case hitsOffset = 0, velocityGate = 1, noteOctave = 2
-    var label: String { switch self { case .hitsOffset: "HITS/OFFS"; case .velocityGate: "VEL/GATE"; case .noteOctave: "NOTE/OCT" } }
+/// RESHUFFLED (Paul 2026-10-08): "a TILT control... this should be the horizontal axis on the first xy box,
+/// with hits being the vertical. Next to that is another with offset on x and count on y, then another with
+/// x as gate and y as velocity, then the final x/y as it is now." Widened 3→4; HITS and OFFSET (rotate), which
+/// used to share ONE pad, now split across the first two pads each paired with a NEW axis (TILT, step COUNT);
+/// GATE/VELOCITY swap which axis drives which (gate now X, velocity now Y — was the reverse); NOTE/OCT is
+/// unchanged, per Paul's own "the final x/y as it is now." Labels name X first, matching Paul's own dictation
+/// order for all three changed pads.
+enum EuclideousGestureTab: Int, CaseIterable { case tiltHits = 0, offsetCount = 1, gateVelocity = 2, noteOctave = 3
+    var label: String { switch self { case .tiltHits: "TILT/HITS"; case .offsetCount: "OFFS/CNT"; case .gateVelocity: "GATE/VEL"; case .noteOctave: "NOTE/OCT" } }
 }
 
 /// PER-LANE TABS (Paul 2026-10-07): PATTERN/RIFF/MASK, switching independently per lane — replaces
@@ -85,6 +92,12 @@ struct EuclideousPage: View {
     // now follows LANE 1's choice entirely in the ENGINE (SnapshotBuilder) — this view has no control for it
     // and no visibility into it either; see `riffGridView`'s own header note.
     let mainOutMask: UInt8
+    // CHORDS BUTTON (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a chord
+    // grid with rate control... base this on the existing chord grid used on the chord door." Stored/edited
+    // exactly like the chord door's own chord sequencer — a plain MachineParams, only its chords* fields ever
+    // touched — via the SAME generic mutate-closure convention every other page-level control here uses.
+    let chords: MachineParams
+    let onEditChords: (@escaping (inout MachineParams) -> Void) -> Void
     let clock: EuclidLiveClock
     let onEdit: (@escaping (inout [EuclidLine]) -> Void) -> Void
     let onEditRiff: (@escaping (inout EuclideousRiff) -> Void) -> Void
@@ -124,6 +137,7 @@ struct EuclideousPage: View {
     @State private var laneTab: [EuclideousLaneTab] = [.pattern, .pattern, .pattern, .pattern]
     @State private var resetSpanPopupOpen = false
     @State private var keyPopupOpen = false
+    @State private var chordsPopupOpen = false
 
     private let laneAccents: [Color] = [
         Color(red: 0.95, green: 0.35, blue: 0.35), Color(red: 0.35, green: 0.75, blue: 0.95),
@@ -136,11 +150,14 @@ struct EuclideousPage: View {
     // the hard floors every size computation below clamps against — spacing and text shrink FIRST (see
     // `headerScale`/the lane-card internals, which already use small fixed fonts with `minimumScaleFactor`),
     // never these. `minPadSize` is the HIG touch-target minimum (44pt); `minLaneSize` falls out of it since
-    // each lane's own 3 XY pads are literally `size/3` wide (unchanged rule) — a lane can't usefully shrink
-    // past 3×44 without its own pads going sub-floor. `minRiffCell` is a smaller, still-comfortable floor for
-    // the riff matrix's own toggle cells (a denser 8×8 grid of simple on/off toggles, not a drag surface).
+    // each lane's own 4 XY pads (Paul 2026-10-08: TILT/HITS·OFFS/CNT·GATE/VEL·NOTE/OCT, widened from 3 — see
+    // `EuclideousGestureTab`) are literally `size/4` wide — a lane can't usefully shrink past 4×44 without its
+    // own pads going sub-floor. A real, disclosed consequence of the 4th pad: lanes now need more width than
+    // before to hold the same per-pad touch-target floor (4×44=176 vs the old 3×44=132). `minRiffCell` is a
+    // smaller, still-comfortable floor for the riff matrix's own toggle cells (a denser 8×8 grid of simple
+    // on/off toggles, not a drag surface).
     private let minPadSize: CGFloat = 44
-    private var minLaneSize: CGFloat { minPadSize * 3 }
+    private var minLaneSize: CGFloat { minPadSize * 4 }
     private let minRiffCell: CGFloat = 24
     private let laneOutSize: CGFloat = 30    // PROTECTED — never smaller than this (ferry §3)
     private let mainOutSize: CGFloat = 36    // PROTECTED — never smaller than this (ferry §3)
@@ -213,6 +230,15 @@ struct EuclideousPage: View {
                         .zIndex(3)
                     keyPopupCard.position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
+                // THE CHORDS POP-UP (Paul 2026-10-08) — same scrim+card shape as RESET SPAN/KEY above, but
+                // sized from the real available space (like `buildReceiverChordPopup`'s own `min(620, size.width
+                // - 32)` precedent) since a full degree matrix needs much more room than those two small cards.
+                if chordsPopupOpen {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { chordsPopupOpen = false }
+                        .zIndex(3)
+                    chordsPopupCard(geo.size).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                }
             }
         }
     }
@@ -266,58 +292,81 @@ struct EuclideousPage: View {
         }
     }
 
-    // MARK: - Header (Paul 2026-10-07: two rows — title/reset-span/main-out/on/close, then key/lanes-source)
+    // MARK: - Header (Paul 2026-10-08: collapsed to ONE row — title/reset-span/KEY/CHORDS/main-out/on/close.
+    // KEY used to live on its own second row; moved up here per Paul's explicit "move the key selector to the
+    // top header," with CHORDS placed directly beside it ("next to it place a chords button"). Once KEY moved
+    // out, row 2 had nothing left in it (the LANES switch it used to share the row with was already retired
+    // into the per-lane I/O tab) — collapsing to one row is a direct consequence, not scope creep, and frees
+    // real vertical space for the lane/riff grids below.
 
-    /// `scale` (Paul 2026-10-08, ferry §3 — "reduce spacing and text size first") shrinks every label/chip/
-    /// button in the header proportionally when the available width is tight, so the row degrades gracefully
-    /// instead of letting its trailing elements (the ON button, the LANES switch) run off the edge — the
-    /// exact faults the ferry named. MAIN OUT's 4 circles are the one thing in this row explicitly protected
-    /// (`mainOutSize`, never scaled) — everything else (labels, the reset/key chips, ON/OFF, close) scales.
+    /// `scale` (ferry §3 — "reduce spacing and text size first") shrinks every label/chip/button in the header
+    /// proportionally when the available width is tight, so the row degrades gracefully instead of letting its
+    /// trailing elements run off the edge. MAIN OUT's 4 circles are the one thing in this row explicitly
+    /// protected (`mainOutSize`, never scaled) — everything else scales.
     private func headerScale(_ width: CGFloat) -> CGFloat {
-        // Reasoned, not measured (no on-device text-metrics pass is possible here): roughly the combined
-        // width headerRow1's content needs at scale 1.0 — title + 2 labels + a chip + 4×36pt circles + ON/OFF
-        // + close + inter-element gaps. Clamped to a floor so labels never vanish entirely, just shrink.
-        let neededAtFullScale: CGFloat = 620
+        // Reasoned, not measured (no on-device text-metrics pass is possible here): roughly the combined width
+        // this ONE row's content needs at scale 1.0 — title + RESET label+chip + KEY label+−+chip+plus +
+        // CHORDS button + MAIN OUT label+4×36pt circles + ON/OFF + close + inter-element gaps. Widened from
+        // the old 620 (when KEY lived on its own second row) now that everything shares one row.
+        let neededAtFullScale: CGFloat = 860
         return max(0.62, min(1, (width - outerPad * 2) / neededAtFullScale))
     }
     /// The header's own real height at a given scale — used by both layouts to reserve exactly the space the
     /// header will actually take, so lane/riff sizing can never silently assume a header height that doesn't
-    /// match what's actually drawn.
+    /// match what's actually drawn. One row now, not two.
     private func headerHeight(_ scale: CGFloat) -> CGFloat {
-        let row1H: CGFloat = max(28, 36 * scale)   // MAIN OUT's own 36pt circles set the floor for row 1's height
-        let row2H: CGFloat = max(26, 36 * scale)
-        return row1H + row2H + 10 /* inter-row spacing */ + outerPad /* top padding only; bottom comes from the gap to the next section */
+        let rowH: CGFloat = max(28, 36 * scale)   // MAIN OUT's own 36pt circles set the floor
+        return rowH + outerPad /* top padding only; bottom comes from the gap to the next section */
     }
 
-    private func header(_ scale: CGFloat) -> some View {
-        VStack(spacing: 10) { headerRow1(scale); headerRow2(scale) }
-    }
+    private func header(_ scale: CGFloat) -> some View { headerRow1(scale) }
 
     private func headerRow1(_ scale: CGFloat) -> some View {
-        HStack(spacing: max(4, 10 * scale)) {
-            Text("EUCLIDEOUS").font(.system(size: max(12, 18 * scale), weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.6)
-            Spacer(minLength: 4)
-            Text("RESET").font(.system(size: max(7, 10 * scale), weight: .heavy, design: .monospaced))
+        HStack(spacing: max(3, 8 * scale)) {
+            Text("EUCLIDEOUS").font(.system(size: max(11, 16 * scale), weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.5)
+            Spacer(minLength: 2)
+            Text("RESET").font(.system(size: max(7, 9 * scale), weight: .heavy, design: .monospaced))
                 .foregroundColor(.white.opacity(0.4)).lineLimit(1).minimumScaleFactor(0.6).fixedSize()
             Text(euclideousResetSpanLabel(resetSpanBars))
-                .font(.system(size: max(9, 12 * scale), weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                .font(.system(size: max(8, 11 * scale), weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
                 .lineLimit(1).minimumScaleFactor(0.6)
-                .padding(.horizontal, max(6, 12 * scale)).frame(height: max(24, 32 * scale))
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08)))
+                .padding(.horizontal, max(5, 10 * scale)).frame(height: max(22, 30 * scale))
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
                 .onTapGesture { resetSpanPopupOpen = true }
-            Text("MAIN OUT").font(.system(size: max(7, 10 * scale), weight: .heavy, design: .monospaced))
+            Text("KEY").font(.system(size: max(7, 9 * scale), weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(0.4)).lineLimit(1).minimumScaleFactor(0.6).fixedSize()
+            keyStepButton("−", scale)
+            Text("\(noteNames[((keyRoot % 12) + 12) % 12]) \(keyType.label)")
+                .font(.system(size: max(8, 11 * scale), weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .lineLimit(1).minimumScaleFactor(0.5)
+                .padding(.horizontal, max(5, 10 * scale)).frame(height: max(22, 30 * scale))
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.9)))
+                .contentShape(Rectangle())
+                .onTapGesture { keyPopupOpen = true }
+            keyStepButton("+", scale)
+            // CHORDS (Paul 2026-10-08) — "next to [KEY] place a chords button that opens a pop-up to a chord
+            // grid with rate control." A dot lights when a real progression has been authored (mirrors the
+            // per-lane tab dots' own "is this configured" convention) — always true in practice once touched,
+            // since a fresh MachineParams() already resolves to the sensible default loop, not silence.
+            Text("CHORDS").font(.system(size: max(8, 11 * scale), weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.6)
+                .padding(.horizontal, max(6, 12 * scale)).frame(height: max(22, 30 * scale))
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
+                .onTapGesture { chordsPopupOpen = true }
+            Text("MAIN OUT").font(.system(size: max(7, 9 * scale), weight: .heavy, design: .monospaced))
                 .foregroundColor(.white.opacity(0.4)).lineLimit(1).minimumScaleFactor(0.6).fixedSize()
             HStack(spacing: max(3, 5 * scale)) {
                 ForEach(0..<4, id: \.self) { b in mainOutToggle(b) }
             }
-            Text(enabled ? "ON" : "OFF").font(.system(size: max(9, 12 * scale), weight: .heavy, design: .monospaced))
+            Text(enabled ? "ON" : "OFF").font(.system(size: max(8, 11 * scale), weight: .heavy, design: .monospaced))
                 .foregroundColor(enabled ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.6)
-                .padding(.horizontal, max(8, 14 * scale)).frame(height: max(24, 32 * scale))
-                .background(RoundedRectangle(cornerRadius: 8).fill(enabled ? Color.green.opacity(0.85) : Color.white.opacity(0.08)))
+                .padding(.horizontal, max(6, 12 * scale)).frame(height: max(22, 30 * scale))
+                .background(RoundedRectangle(cornerRadius: 7).fill(enabled ? Color.green.opacity(0.85) : Color.white.opacity(0.08)))
                 .onTapGesture { onToggleEnabled() }
-            Image(systemName: "xmark.circle.fill").font(.system(size: max(14, 20 * scale)))
+            Image(systemName: "xmark.circle.fill").font(.system(size: max(13, 18 * scale)))
                 .foregroundColor(.white.opacity(0.5))
                 .onTapGesture { onClose() }
         }
@@ -358,27 +407,7 @@ struct EuclideousPage: View {
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
-    // MARK: - Header row 2: KEY + LANES source (Paul 2026-10-07, §2.4)
-
-    // PER-LANE I/O (Paul 2026-10-08): the old trailing "LANES [KEY|MIDI]" global switch is REMOVED — each lane
-    // now picks its own source independently, in its own I/O tab (`ioSourceRow`). This row is just the KEY
-    // picker now, left-hugging via the trailing Spacer.
-    private func headerRow2(_ scale: CGFloat) -> some View {
-        HStack(spacing: max(4, 8 * scale)) {
-            Text("KEY").font(.system(size: max(7, 10 * scale), weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4)).lineLimit(1).minimumScaleFactor(0.6).fixedSize()
-            keyStepButton("−", scale)
-            Text("\(noteNames[((keyRoot % 12) + 12) % 12]) \(keyType.label)")
-                .font(.system(size: max(9, 13 * scale), weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                .lineLimit(1).minimumScaleFactor(0.5)
-                .padding(.horizontal, max(6, 12 * scale)).frame(height: max(26, 36 * scale))
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.9)))
-                .contentShape(Rectangle())
-                .onTapGesture { keyPopupOpen = true }
-            keyStepButton("+", scale)
-            Spacer()
-        }
-    }
+    // MARK: - KEY (Paul 2026-10-08, moved into header row 1 above)
 
     private func keyStepButton(_ label: String, _ scale: CGFloat) -> some View {
         Text(label).font(.system(size: max(11, 16 * scale), weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
@@ -427,6 +456,103 @@ struct EuclideousPage: View {
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
+    // MARK: - The CHORDS pop-up (Paul 2026-10-08): "a pop-up to a chord grid with rate control... base this on
+    // the existing chord grid used on the chord door."
+    //
+    // SCOPED to PATTERN mode only — no MODE/SCALE-FROM/VOICING/SPREAD/WALK (the full feature set the regular
+    // CHORDS processor/chord door expose) — "a chord grid with rate control" names exactly two concerns, and
+    // SCALE FROM specifically would be a dead control here regardless (it points at a receiver door; Euclideous
+    // has none — this page's own KEY, right beside the CHORDS button, is the key already). VOICING/SPREAD sit
+    // at their sensible defaults (TRIAD/CLOSE), not exposed.
+    //
+    // NOT a literal `ProcessorBox(machine:...type: .chords)` mount (the way the chord door reuses the whole
+    // processor editor) — that component's own SCALE-FROM control has no meaning here and nothing in this
+    // page's own call would ever read it, which would make it a convincing-looking but inert control. Instead
+    // this reuses the exact PURE functions the real matrix is built from — `chordsMatrixCell`/`degreeLabel`
+    // (Derivations.swift, already free/shared) — in a bespoke grid modelled closely on `riffGridView`'s own
+    // tap-to-set pattern a few hundred lines below, not on the private `stateMatrixRadio` (which also drags in
+    // live-playhead/pulse-glow/E-BRUSH machinery this page's scoped-down popup doesn't need).
+    private func chordsPopupCard(_ size: CGSize) -> some View {
+        let steps = chords.chordsStepsResolved
+        let degrees = chords.chordsDegreesResolved(steps: steps)
+        let rows = Array(0...7)   // 0...6 = degrees I...vii, 7 = REST — matches the regular CHORDS processor's own matrix exactly
+        let cellGap: CGFloat = 3
+        let rowLabelW: CGFloat = 64
+        let maxW = min(640, size.width - 32)
+        let cellW = max(18, (maxW - 32 - rowLabelW - cellGap * CGFloat(max(1, steps) - 1)) / CGFloat(max(1, steps)))
+        let cellH: CGFloat = 24
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("CHORDS").font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+                Spacer()
+                Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.5))
+                    .contentShape(Rectangle()).onTapGesture { chordsPopupOpen = false }
+            }
+            HStack(spacing: 14) {
+                HStack(spacing: 6) {
+                    Text("STEPS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    chordsStepStepper("−") { onEditChords { $0.chordsSteps = max(1, steps - 1) } }
+                    Text("\(steps)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).frame(minWidth: 20)
+                    chordsStepStepper("+") { onEditChords { $0.chordsSteps = min(16, steps + 1) } }
+                }
+                HStack(spacing: 6) {
+                    Text("RATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    HStack(spacing: 2) {
+                        ForEach(StepRate.allCases, id: \.self) { r in
+                            let on = chords.chordsRateResolved == r
+                            Text(r.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.6)
+                                .frame(width: 34, height: 24)
+                                .background(RoundedRectangle(cornerRadius: 5).fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
+                                .contentShape(Rectangle())
+                                .onTapGesture { onEditChords { $0.chordsRate = r } }
+                        }
+                    }
+                }
+            }
+            VStack(spacing: cellGap) {
+                ForEach(rows, id: \.self) { opt in
+                    HStack(spacing: cellGap) {
+                        Text(opt == 7 ? "REST" : degreeLabel(degree: opt, scaleTones: keyType.intervals))
+                            .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
+                            .frame(width: rowLabelW, alignment: .leading)
+                        ForEach(0..<steps, id: \.self) { c in
+                            let cell = chordsMatrixCell(degrees, step: c, steps: steps)
+                            let on = cell.bright == opt
+                            let dimOn = !on && cell.faint == opt
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(on ? Color.white.opacity(0.9) : (dimOn ? Color.white.opacity(0.22) : Color.white.opacity(0.06)))
+                                .frame(width: cellW, height: cellH)
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: 1))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    // Matches the regular CHORDS processor's own set: closure exactly — an
+                                    // unconditional write, no tap-again-to-clear (REST is its own explicit row).
+                                    onEditChords { p in
+                                        var a = p.chordsDegreesResolved(steps: steps)
+                                        if c < a.count { a[c] = opt }
+                                        p.chordsDegrees = a
+                                    }
+                                }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: maxW)
+        .frame(maxHeight: size.height - 60)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
+    private func chordsStepStepper(_ label: String, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
+            .frame(width: 26, height: 26)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+
     // MARK: - Lane grid (Paul 2026-10-07, §2.8: square boxes — Paul 2026-10-08, ferry §3: sized from whatever
     // box the orientation-specific layout above hands it, never assumed)
 
@@ -449,7 +575,13 @@ struct EuclideousPage: View {
         // 2-line tab content all now live inside this FIXED budget — `.clipped()` below is a safety net if a
         // very narrow screen can't fit every fixed row, not an expected steady-state.
         let cometRowH: CGFloat = 56
-        let padSize = max(minPadSize, size / 3)   // the 3 XY pads stay literal squares, 1/3 the card's own width, floored (ferry §3)
+        let padSize = max(minPadSize, size / 3)   // DIRECTION/HIT-MISS-RATE stay 3 columns, unchanged — 1/3 the card's own width, floored (ferry §3)
+        // GESTURE PADS (Paul 2026-10-08): widened 3→4 (TILT/HITS·OFFS/CNT·GATE/VEL·NOTE/OCT) — this row now
+        // gets its OWN size, `size/4` rather than reusing `padSize`'s 3-column width. DISCLOSED CONSEQUENCE:
+        // the gesture-pad row no longer lines up column-for-column with the PATTERN tab's 3-column DIRECTION/
+        // HIT-MISS-RATE rows beneath it (a cosmetic side effect of adding a 4th pad where nothing else widened
+        // to match) — not asked to change, left alone.
+        let gesturePadSize = max(minPadSize, size / 4)
         let tabRowH: CGFloat = 30
         // 36, not 30: `maskCometRow`'s own play button/step badge insist on a 36pt minimum (a touch-target
         // floor, not an arbitrary number) regardless of what's budgeted here — at 30 that made the MASK tab's
@@ -470,7 +602,7 @@ struct EuclideousPage: View {
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
                           stepCountBadge: AnyView(stepCountBadge(steps)))
-            gesturePadRow(idx, line, accent, cellSize: padSize, rotateStepPt: rotateStepPt)
+            gesturePadRow(idx, line, accent, cellSize: gesturePadSize, rotateStepPt: rotateStepPt)
                 .frame(maxHeight: .infinity)
             laneTabRow(idx, line, accent, rowH: tabRowH)
             tabContent(idx, line, tab, accent, cellSize: padSize, rowH: contentLineH, fullWidth: size)
@@ -540,8 +672,9 @@ struct EuclideousPage: View {
                             guard let point else { dragHUDInfo = nil; return }
                             let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
                             switch t {
-                            case .hitsOffset: dragHUDInfo = euclidLaneDragHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
-                            case .velocityGate: dragHUDInfo = euclideousVelGateHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
+                            case .tiltHits: dragHUDInfo = euclideousTiltHitsHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
+                            case .offsetCount: dragHUDInfo = euclideousOffsetCountHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
+                            case .gateVelocity: dragHUDInfo = euclideousVelGateHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
                             case .noteOctave: dragHUDInfo = euclideousNoteOctHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
                             }
                         },
@@ -561,10 +694,9 @@ struct EuclideousPage: View {
     /// verbose form and nobody asked to compact that one.
     private func euclideousPadInfo(_ idx: Int, _ line: EuclidLine, _ t: EuclideousGestureTab) -> EuclidDragHUDInfo {
         switch t {
-        case .hitsOffset:
-            let r = line.rotate
-            return EuclidDragHUDInfo(label: "LANE \(idx + 1)", primary: "\(line.pulses)/\(line.steps) · \(r >= 0 ? "+" : "")\(r)", secondary: "", point: .zero)
-        case .velocityGate: return euclideousVelGateHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
+        case .tiltHits: return euclideousTiltHitsHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
+        case .offsetCount: return euclideousOffsetCountHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
+        case .gateVelocity: return euclideousVelGateHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
         case .noteOctave: return euclideousNoteOctHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
         }
     }
@@ -776,24 +908,31 @@ struct EuclideousPage: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    // MARK: - Pure per-lane X/Y mutation (the 3 gesture pads)
+    // MARK: - Pure per-lane X/Y mutation (the 4 gesture pads)
 
-    /// Pure per-line mutation, shared by the single-lane and all-lanes paths below — HITS/OFFSET (default) →
-    /// Δrotate; VELOCITY/GATE → Δvelocity (scaled); NOTE/OCTAVE → step the note-select cycle.
+    /// Pure per-line mutation, shared by the single-lane and all-lanes paths below (Paul 2026-10-08 reshuffle):
+    /// TILT/HITS → Δtilt; OFFS/CNT → Δrotate (unchanged from the old HITS/OFFS pad's own X mapping); GATE/VEL
+    /// → Δgate (SWAPPED onto X — was the Y-axis of the old VEL/GATE pad); NOTE/OCTAVE → step the note-select
+    /// cycle (unchanged).
     private func applyX(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
         switch tab {
-        case .hitsOffset: line.rotate = ((line.rotate - d) % 16 + 16) % 16
-        case .velocityGate: line.velocity = max(0, min(2, line.velocityResolved + Double(d) * 0.15))
+        case .tiltHits: line.tilt = max(-1, min(1, line.tiltResolved + Double(d) * 0.08))
+        case .offsetCount: line.rotate = ((line.rotate - d) % 16 + 16) % 16
+        case .gateVelocity: line.gate = max(0.05, min(1, line.gateResolved + Double(d) * 0.09))
         case .noteOctave:
             if line.useRiffResolved { line.riffRotate = line.riffRotateResolved + d }
             else { line.noteSel = euclideousStepNoteSel(line.noteSelResolved, by: d) }
         }
     }
-    /// Pure per-line mutation — HITS/OFFSET → Δhits; VELOCITY/GATE → Δgate (scaled); NOTE/OCTAVE → Δoctave.
+    /// Pure per-line mutation — TILT/HITS → Δhits (unchanged from the old HITS/OFFS pad's own Y mapping);
+    /// OFFS/CNT → Δsteps (NEW — mirrors the comet bar's own pinch-to-resize clamp exactly: pulling steps below
+    /// the current hit count pulls hits down with it); GATE/VEL → Δvelocity (SWAPPED onto Y); NOTE/OCTAVE →
+    /// Δoctave (unchanged).
     private func applyY(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
         switch tab {
-        case .hitsOffset: let v = max(1, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps)
-        case .velocityGate: line.gate = max(0.05, min(1, line.gateResolved + Double(d) * 0.09))
+        case .tiltHits: let v = max(1, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps)
+        case .offsetCount: let v = max(2, min(16, line.steps + d)); line.steps = v; if line.pulses > v { line.pulses = v }
+        case .gateVelocity: line.velocity = max(0, min(2, line.velocityResolved + Double(d) * 0.15))
         case .noteOctave:
             if line.useRiffResolved { line.riffOctave = max(-3, min(3, line.riffOctaveResolved + d)) }
             else { line.octave = max(-3, min(3, line.octaveResolved + d)) }
@@ -804,10 +943,25 @@ struct EuclideousPage: View {
     private func euclideousApplyAllX(_ tab: EuclideousGestureTab, _ d: Int) { onEdit { lines in for i in lines.indices { applyX(&lines[i], tab, d) } } }
     private func euclideousApplyAllY(_ tab: EuclideousGestureTab, _ d: Int) { onEdit { lines in for i in lines.indices { applyY(&lines[i], tab, d) } } }
 
+    // THE RESHUFFLED PADS' OWN FORMATTERS (Paul 2026-10-08) — mirror `euclidLaneDragHUDInfo`'s own (label,
+    // primary, secondary, point) shape exactly, same as the VEL/GATE and NOTE/OCT formatters below. Reused for
+    // both the pads' permanent face display (`euclideousPadInfo`) and the transient drag HUD (`onDragState`).
+    private func euclideousTiltHitsHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
+        let pct = Int((line.tiltResolved * 100).rounded())
+        return EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
+                                  primary: "\(line.pulses) HITS", secondary: "TILT \(pct >= 0 ? "+" : "")\(pct)%", point: point)
+    }
+    private func euclideousOffsetCountHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
+        let r = line.rotate
+        return EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
+                                  primary: "\(line.steps) STEPS", secondary: "OFFS \(r >= 0 ? "+" : "")\(r)", point: point)
+    }
     // THE OTHER TWO HUD FORMATTERS (Paul 2026-10-06: "we need different overlays for velocity, gate, etc.") —
     // Euclideous-only (the BUILD-page editor has no VEL/GATE or NOTE/OCT tab to show one for), mirroring
     // `euclidLaneDragHUDInfo`'s own (label, primary, secondary, point) shape exactly. Reused as-is (2026-10-07)
     // for the pads' own permanent face display, not just the transient HUD — see `euclideousPadInfo` above.
+    // UNCHANGED despite the GATE/VEL axis swap (Paul 2026-10-08) — it already shows both resolved values
+    // regardless of which one is driven by which axis, so there's nothing for the swap to invalidate here.
     private func euclideousVelGateHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
         EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
                            primary: "\(Int((line.velocityResolved * 100).rounded())) · \(Int((line.gateResolved * 100).rounded()))%",

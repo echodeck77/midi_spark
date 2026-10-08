@@ -618,21 +618,19 @@ final class Router {
     // cell's own resolved receiver fields — those belong to the lanes' source). Mirrors `fillSrcFromPool`
     // exactly, just keyed by a raw chanMask instead of a SnapCell. `chanMask == 0` (KEY mode, or no doc
     // receivers) naturally yields `c == 0` — an honest empty pool, no separate guard needed.
+    // RIFF'S OWN POOL (Paul 2026-10-07/08): still a dedicated buffer — filled, per render, by COPYING lane
+    // 0's ("lane 1"'s) own already-resolved pool, whatever source that lane is on (see the riff-fill block in
+    // `case .euclid:`) — not by its own independent chanMask-based fill anymore (that mechanism, and
+    // `riffSrcChanMask`, were removed once CHORDS mode stopped being a live-pool read at all).
     private var riffSrcNoteBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     private var riffSrcNoteCount = 0
-    private func fillRiffSrcFromPool(_ pool: NotePool, chanMask: UInt16) {
-        riffSrcNoteCount = 0
-        let c = pool.srcCount(chanMask: chanMask, cableMask: 0b1111)
-        for k in 0..<c where riffSrcNoteCount < riffSrcNoteBuf.count {
-            let n = pool.srcAscending(k, chanMask: chanMask, cableMask: 0b1111)
-            riffSrcNoteBuf[riffSrcNoteCount] = (Int(n), pool.velocity(n)); riffSrcNoteCount += 1
-        }
-    }
-    // PER-LANE I/O (Paul 2026-10-08): each Euclideous lane now independently resolves MIDI IN / KEY / CHORDS —
-    // mirrors `fillRiffSrcFromPool` exactly, just one buffer PER LANE (0...3) instead of one shared buffer.
-    // Only ever filled/consulted for Euclideous's own reserved row (`laneCount`/`laneNotes` in `case .euclid:`
-    // gate this) — every other `.euclid` cell in the grid keeps reading the single shared `srcNoteBuf`/
-    // `srcNoteCount` exactly as before this feature, untouched.
+    // PER-LANE I/O (Paul 2026-10-08): each Euclideous lane independently resolves MIDI IN / KEY / CHORDS — this
+    // fills ONE lane's buffer from the LIVE pool by an explicit chanMask (mirrors the old `fillRiffSrcFromPool`
+    // exactly, just one buffer PER LANE (0...3) instead of one shared buffer) — used for MIDI-mode lanes only;
+    // CHORDS-mode lanes are filled directly from `chordSeqNotes` instead (see `case .euclid:`'s own per-lane
+    // fill loop). Only ever consulted for Euclideous's own reserved row (`laneCount`/`laneNotes` gate this) —
+    // every other `.euclid` cell in the grid keeps reading the single shared `srcNoteBuf`/`srcNoteCount`
+    // exactly as before this feature, untouched.
     private var laneSrcBuf = [[(note: Int, vel: UInt8)]](repeating: [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128), count: 4)
     private var laneSrcCount = [Int](repeating: 0, count: 4)
     private func fillLaneSrcFromPool(_ pool: NotePool, lane: Int, chanMask: UInt16) {
@@ -2990,7 +2988,17 @@ final class Router {
                                  beatPos: beatPos, windowBeats: modWindowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                  beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
 
-        guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
+        // CHORDS BUTTON (Paul 2026-10-08): a real gap found while testing, not by inspection — this guard
+        // predates CHORDS mode and was always safe before it: EVERY processor type in this engine has always
+        // needed SOME held/latched input to produce sound, so "nothing held anywhere ⇒ nothing can play" was a
+        // completely sound assumption. A CHORDS-mode Euclideous lane breaks it — it generates its own content
+        // algorithmically and must keep playing even when nothing else in the whole session has anything held.
+        // Cheap, allocation-free check (euclidLines is always exactly 4 entries) mirrors the SAME "run me
+        // regardless of the pool" exception `emitFreeMod`/`emitColumnRatchetPattern` already get, just folded
+        // into this guard's own condition instead of a separate pre-guard call, since CHORDS rides the NORMAL
+        // emitTickRow→emitGeneratorRow dispatch once past this point (no separate subsystem needed).
+        let euclideousChordsActive = box.cells[Snap.euclideousRow].procs.first?.euclidLines.contains { $0.sourceModeResolved == .chords } ?? false
+        guard pool.count > 0 || latchMask != 0 || euclideousChordsActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             for i in euclidLineReady.indices { euclidLineReady[i] = 0 }   // nothing held/latched ⇒ nothing can play; case .euclid: won't run below to refresh this itself
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
@@ -3858,27 +3866,47 @@ final class Router {
             // (they differ by a shift of 2×rotate mod n), so this is a deliberate, tested composition order, not
             // an arbitrary one (see `testEuclidReverseFlipsReadIndexNotRebuiltBuffer`).
             let srcCount = srcNotes.count
-            // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): fill each lane's own pool BEFORE the readiness
-            // check below (which also needs the per-lane count now) — Euclideous's own reserved row only.
-            // Every other `.euclid` cell anywhere else in the grid keeps reading the single shared
+            // PER-LANE I/O (Paul 2026-10-08, the new I/O tab + CHORDS button): fill each lane's own pool BEFORE
+            // the readiness check below (which also needs the per-lane count now) — Euclideous's own reserved
+            // row only. Every other `.euclid` cell anywhere else in the grid keeps reading the single shared
             // `srcNotes`/`srcCount` this file always has, via `laneCount`/`laneNotes`'s own fallback branch —
-            // byte-identical to before this feature, since `isEuclideousRow` is false there.
-            // `hasLaneChanMasks` is false whenever doc.receivers was nil/empty at build time (SnapshotBuilder's
-            // own guard skips resolving laneSrcChanMasks entirely in that case) — a pre-existing "no receivers
-            // configured at all" legacy shape that the cell's own OMNI fallback (sc.inputChanMask = 0xFFFF)
-            // already handles via the shared srcNotes/srcCount. Without this check, an empty laneSrcChanMasks
-            // would silently read as "every lane's chanMask is 0" (silent) instead of falling back to that
-            // legacy OMNI pool — caught by 2 existing reset-span RouterTests regressing (neither sets
-            // st.receivers at all), not by inspection.
+            // byte-identical to before this feature, since `isEuclideousRow` is false there. Three sources,
+            // mode-dispatched per lane: MIDI reads the live pool by chanMask (`fillLaneSrcFromPool`, unchanged
+            // mechanism); CHORDS reads Euclideous's own on-page chord generator (`chordSeqNotes`, the SAME pure
+            // function the regular CHORDS processor and the chord door both already share — resolved ONCE per
+            // cell-render here, not per-tick, matching every other pool-fill's own "stable across the column"
+            // convention); KEY stays silent (§4.4 unresolved). `laneUsesLegacyPool[i]` is set ONLY for a
+            // MIDI-mode lane when `doc.receivers` was nil/empty at build time (SnapshotBuilder's guard skips
+            // resolving `laneSrcChanMasks` entirely then) — a pre-existing "no receivers configured at all"
+            // legacy shape the cell's own OMNI fallback (`sc.inputChanMask = 0xFFFF`) already handles via the
+            // shared `srcNotes`/`srcCount`; without this, an empty `laneSrcChanMasks` would silently read as
+            // "every MIDI lane's chanMask is 0" (silent) instead of falling back to that legacy OMNI pool —
+            // caught by 2 existing reset-span RouterTests regressing (neither sets `st.receivers` at all), not
+            // by inspection. CHORDS/KEY lanes never fall back — they have no "legacy" shape to honour.
             let isEuclideousRow = r == Snap.euclideousRow
             let hasLaneChanMasks = !p.laneSrcChanMasks.isEmpty
-            if isEuclideousRow && hasLaneChanMasks {
+            var laneUsesLegacyPool = [Bool](repeating: false, count: 4)
+            if isEuclideousRow {
+                let chordNotes = chordSeqNotes(beat: mWinStart, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
                 for i in 0..<4 {
-                    fillLaneSrcFromPool(pool, lane: i, chanMask: i < p.laneSrcChanMasks.count ? p.laneSrcChanMasks[i] : 0)
+                    let srcMode = i < p.euclidLines.count ? p.euclidLines[i].sourceModeResolved : .midi
+                    switch srcMode {
+                    case .chords:
+                        laneSrcCount[i] = min(laneSrcBuf[i].count, chordNotes.count)
+                        for k in 0..<laneSrcCount[i] { laneSrcBuf[i][k] = (chordNotes[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
+                    case .key:
+                        laneSrcCount[i] = 0
+                    case .midi:
+                        if hasLaneChanMasks {
+                            fillLaneSrcFromPool(pool, lane: i, chanMask: i < p.laneSrcChanMasks.count ? p.laneSrcChanMasks[i] : 0)
+                        } else {
+                            laneUsesLegacyPool[i] = true
+                        }
+                    }
                 }
             }
-            func laneCount(_ li: Int) -> Int { (isEuclideousRow && hasLaneChanMasks) ? laneSrcCount[li] : srcCount }
-            func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && hasLaneChanMasks) ? laneSrcBuf[li][0..<laneSrcCount[li]] : srcNotes }
+            func laneCount(_ li: Int) -> Int { (isEuclideousRow && !laneUsesLegacyPool[li]) ? laneSrcCount[li] : srcCount }
+            func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && !laneUsesLegacyPool[li]) ? laneSrcBuf[li][0..<laneSrcCount[li]] : srcNotes }
             // SEQUENTIAL SOURCES (Paul 2026-10-02): when the slot immediately before this EUCLID (chainDriver, the
             // index of EUCLID's own slot since emitGeneratorRow only dispatches here for the chain's driver) is
             // exactly RIFF or ARP, and NOT bypassed, a line set to the matching noteSel steps through that
@@ -3975,10 +4003,14 @@ final class Router {
             func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, rate: Double, busOverride: UInt8?,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
                                 useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0,
-                                riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0) {
+                                riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
+                // TILT (Paul 2026-10-08): a single insertion point, AFTER rotation — every downstream read of
+                // `euclidBuf` (the hit/rest test, the CYCLE/RANDOM ordinal walk, MISS's complement) picks up the
+                // tilted shape for free, with zero other changes needed anywhere in this function.
+                if tilt != 0 { euclidTiltPattern(&euclidBuf, pulses: k, steps: n, tilt: tilt) }
                 // RATE×ladder (Paul 2026-08-27): GRID = the fixed step grain (density lives here + K/N); SPAN re-syncs the
                 // pattern every N columns (FREE = 0 = free-run). Rate and loop decoupled — an odd N against an aligning
                 // span drifts then snaps back. (Was the WIDTH model `sub = spanWidth/n`, where SPAN just scaled the speed.)
@@ -4202,18 +4234,22 @@ final class Router {
             // line" count) is each line's OWN tick-dedup slot, so a lane keeps the SAME slot across windows
             // where a sibling lane happens to be silent — using `.enumerated()`'s offset directly, not a
             // separately-tracked "active line count", is what makes that stable.
-            // EUCLIDEOUS PAGE REWORK (2026-10-07): the riff's own pool is SEPARATE from the lanes' pool
-            // (`srcNotes`/`srcCount` above, read from `cell`'s own resolved receiver) ONLY on Euclideous's
-            // own reserved row — filled ONCE per cell, before the per-line loop, mirroring `fillSrcFromPool`'s
-            // own "once per cell, not per line" shape. `useRiff`/`euclideousRiff` are plain fields on the
-            // SHARED EuclidLine/MachineParams — row-agnostic in the model and in SnapshotBuilder's resolve —
-            // so a `.euclid` cell anywhere else in the grid (every pre-existing `useRiff` RouterTest places
-            // its cell at row 0, not Snap.euclideousRow) must keep reading the SAME pool the lanes themselves
-            // use, exactly as before this split. Falling back to a COPY of srcNoteBuf/srcNoteCount (already
-            // filled above, before the switch) rather than leaving riffSrcNoteBuf stale/empty keeps every
-            // non-Euclideous row byte-identical to its pre-split behaviour.
+            // EUCLIDEOUS PAGE REWORK (2026-10-07/08): the riff's own pool is SEPARATE from the lanes' pool
+            // ONLY on Euclideous's own reserved row — filled ONCE per cell, before the per-line loop, mirroring
+            // `fillSrcFromPool`'s own "once per cell, not per line" shape. Riff now FOLLOWS LANE 1's (array
+            // index 0's) own resolved pool directly — `laneNotes(0)`/`laneCount(0)` already correctly reflect
+            // whichever of MIDI/KEY/CHORDS lane 0 is on (including the legacy-OMNI-fallback case), so copying
+            // from them is both simpler and provably in sync with "what lane 1 itself would read" — no second,
+            // independently-drifting resolution. `useRiff`/`euclideousRiff` are plain fields on the SHARED
+            // EuclidLine/MachineParams — row-agnostic in the model and in SnapshotBuilder's resolve — so a
+            // `.euclid` cell anywhere else in the grid (every pre-existing `useRiff` RouterTest places its cell
+            // at row 0, not Snap.euclideousRow) must keep reading the SAME pool the lanes themselves use,
+            // exactly as before this split — the `else` branch's plain copy of srcNoteBuf/srcNoteCount is
+            // unchanged.
             if r == Snap.euclideousRow {
-                fillRiffSrcFromPool(pool, chanMask: p.riffSrcChanMask)
+                let notes = laneNotes(0)
+                riffSrcNoteCount = min(riffSrcNoteBuf.count, laneCount(0))
+                for (i, sn) in notes.enumerated() where i < riffSrcNoteCount { riffSrcNoteBuf[i] = sn }
                 // LIVE RIFF POOL DISPLAY (Paul 2026-10-08): a dedicated snapshot for the riff panel's own
                 // "show the resolved note, not just the rank" ask — see euclideousRiffLivePool()'s own doc.
                 euclideousRiffLiveCount = min(euclideousRiffLiveNotes.count, riffSrcNoteCount)
@@ -4231,7 +4267,8 @@ final class Router {
                               rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
                               useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved,
-                              riffDir: L.riffDirResolved, riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved)
+                              riffDir: L.riffDirResolved, riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved,
+                              tilt: L.tiltResolved)
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))

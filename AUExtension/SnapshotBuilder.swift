@@ -109,40 +109,41 @@ enum SnapshotBuilder {
                 sc.muted = cell.muted
                 sc.dormant = ladderOn && r != (ladderActive ?? -1)   // LADDER: non-active rungs are silent (visible + dimmed in the UI)
                 sc.busMask = busBitmask(cell.buses)
-                // PER-LANE I/O (Paul 2026-10-08, the new I/O tab — supersedes the old page-level GLOBAL "LANES
-                // KEY|MIDI" switch this block used to read): each of Euclideous's 4 lanes now independently
+                // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): each of Euclideous's 4 lanes independently
                 // resolves MIDI IN / KEY / CHORDS via its own EuclidLine.sourceModeResolved — resolved HERE,
                 // post-hoc, since `resolve()` (which built sc.procs above, including each line's sourceMode)
                 // is a context-free MachineParams→SnapParams mapper with no doc.receivers access. MIDI IN is
-                // the UNCHANGED lanes receiver (index 3, "receiver 4") the old global switch always meant.
-                // CHORDS scans the receivers for the FIRST one configured as a CHORD door (DoorMode.chord) and
-                // reads ITS channel mask — there is deliberately no picker for WHICH chord door (no receiver-
-                // picking UI returns to this page, per the original rework's own §2.5); an unconfigured CHORDS
-                // lane is honestly silent, not a guessed fallback. KEY stays silent (0) — §4.4's KEY-mode pool
-                // mapping is still unresolved, unchanged by this feature. The riff's OWN pool now FOLLOWS
-                // LANE 1's choice (Paul's ruling, "the riff reads from lane 1's own I/O choice") instead of its
-                // old separate global switch — simply index 0 of this same resolved array, not a second
-                // computation that could independently drift from it.
+                // the UNCHANGED lanes receiver (index 3, "receiver 4"). CHORDS and KEY need no receiver mask at
+                // all now — CHORDS reads Euclideous's own on-page chord generator (resolved below, into the
+                // shared chords* fields), KEY stays silent (0, §4.4 unresolved) — so `laneMasks` only ever
+                // carries a MEANINGFUL value for MIDI-mode lanes; Router.swift branches on `sourceModeResolved`
+                // directly rather than trusting a chanMask for the other two.
                 if r == Snap.euclideousRow, !sc.procs.isEmpty, let recs = doc.receivers, !recs.isEmpty {
-                    let chordDoorMask: UInt16 = {
-                        for rec in recs where !rec.muted && rec.doorModeResolved == .chord { return rec.channelMaskResolved }
-                        return 0
-                    }()
                     let midiLaneMask: UInt16 = recs.count > 3 && !recs[3].muted ? recs[3].channelMaskResolved : 0
-                    let laneMasks: [UInt16] = sc.procs[0].euclidLines.map { line in
-                        switch line.sourceModeResolved {
-                        case .midi: return midiLaneMask
-                        case .key: return 0
-                        case .chords: return chordDoorMask
-                        }
-                    }
-                    sc.procs[0].laneSrcChanMasks = laneMasks
-                    sc.procs[0].riffSrcChanMask = laneMasks.first ?? 0
+                    sc.procs[0].laneSrcChanMasks = sc.procs[0].euclidLines.map { $0.sourceModeResolved == .midi ? midiLaneMask : 0 }
                 }
                 // RESET SPAN (Paul 2026-10-08, §2.2): a SEPARATE, independent guard from the block above — this
                 // has nothing to do with receivers, so it must not be skipped just because none are configured.
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
                     sc.procs[0].euclideousResetSpanBars = doc.euclideousResetSpanBarsResolved
+                }
+                // EUCLIDEOUS CHORDS (Paul 2026-10-08): resolve the page's own chord grid into the SHARED
+                // chords* fields (see Snapshot.swift's own doc comment on euclideousChordKeyRoot/KeyTones for
+                // why reusing them, not a parallel set, is the right call) — PATTERN mode only, unconditionally
+                // (there's no MODE picker on this page; the popup only ever authors PATTERN-shaped content).
+                // keyRoot/keyTones come from Euclideous's own page-level KEY, not a receiver door.
+                if r == Snap.euclideousRow, !sc.procs.isEmpty {
+                    let chordCfg = doc.euclideousChordsResolved
+                    let steps = chordCfg.chordsStepsResolved
+                    sc.procs[0].chordsMode = .pattern
+                    sc.procs[0].chordsDegrees = chordCfg.chordsDegreesResolved(steps: steps)
+                    sc.procs[0].chordsSteps = steps
+                    sc.procs[0].chordsRateBeats = max(0.03125, chordCfg.chordsRateResolved.beats)
+                    sc.procs[0].chordsRotate = chordCfg.chordsRotate ?? 0
+                    sc.procs[0].chordsVoicing = chordCfg.chordsVoicingResolved
+                    sc.procs[0].chordsSpread = chordCfg.chordsSpreadResolved
+                    sc.procs[0].euclideousChordKeyRoot = doc.euclideousKeyRootResolved
+                    sc.procs[0].euclideousChordKeyTones = doc.euclideousKeyTypeResolved.intervals
                 }
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)
                 let vw = cell.velWindowResolved                 // §cell-edit D: the velocity window (1…127 default)
@@ -677,7 +678,8 @@ enum SnapshotBuilder {
                                                                       riffOctave: $0.riffOctave.map { clamp($0, -3, 3) },
                                                                       riffDir: $0.riffDir, riffDirSeed: $0.riffDirSeed,
                                                                       riffDirBias: $0.riffDirBias.map { clamp($0, -1, 1) },
-                                                                      mask: $0.mask, sourceMode: $0.sourceMode) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by)
+                                                                      mask: $0.mask, sourceMode: $0.sourceMode,
+                                                                      tilt: $0.tilt.map { clamp($0, -1, 1) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by)
         out.euclideousRiff = { let r = p.euclideousRiff ?? EuclideousRiff(); var rr = r
             rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved
             return rr }()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved/clamped once here

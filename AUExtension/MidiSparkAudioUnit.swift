@@ -519,6 +519,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiEuclideousRiffSourceMidi() -> Bool { document.euclideousRiffSourceMidiResolved }
     func uiEuclideousLanesSourceMidi() -> Bool { document.euclideousLanesSourceMidiResolved }
     func uiEuclideousMainOutMask() -> UInt8 { document.euclideousMainOutMaskResolved }
+    // CHORDS BUTTON (Paul 2026-10-08): the page's own self-contained chord grid.
+    func uiEuclideousChords() -> MachineParams { document.euclideousChordsResolved }
     /// Each of Euclideous's 4 lanes' own live riff-advance step index, polled on the SAME fast ~30fps cadence as
     /// `pollEuclideousLineReady` below (not the slow ~4Hz config-resync timer) — this is a per-hit, responsive
     /// indicator, not config.

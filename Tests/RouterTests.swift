@@ -5426,9 +5426,20 @@ final class RouterTests: XCTestCase {
     // exercise: a DIFFERENT line (lane 1, array index 1) can be the one consuming useRiff, and its OWN
     // sourceMode (here deliberately set to KEY, which would silence it if it mattered) is irrelevant — only
     // lane 0's choice ever governs the riff's shared pool.
+    // SUPERSEDES an earlier version of this test that read a `doorMode: .chord` receiver for CHORDS — that
+    // mechanism was itself superseded the same day once Euclideous grew its own on-page chord generator
+    // ("a chords button... base this on the existing chord grid"). Rank 2 (not 1) is deliberately picked for
+    // the riff so it resolves to a DIFFERENT note than lane 0's own plain `.low` pick (48 vs 52) — proving the
+    // riff reads lane 0's FULL chord pool independently, not merely echoing whatever lane 0 itself struck.
+    // ALSO the regression guard for a real gap this test caught (not inspection): this scene has a genuinely
+    // EMPTY live pool and no latch anywhere — `Router.process()`'s own top-level "nothing held/latched ⇒
+    // nothing can play, skip everything" guard predates CHORDS and was always safe before it (every other
+    // processor type needs SOME input); CHORDS breaks that assumption, so the guard now also opens whenever
+    // Euclideous has an active chords-mode lane (see its own fix comment in Router.swift). Without that fix
+    // this test's own `emitGeneratorRow` is never even called — caught by this test going red, not by review.
     func testEuclideousRiffPoolIsGovernedByLane1EvenWhenADifferentLaneConsumesIt() {
         var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [2])
         c.paramsA.euclidLines = [
             EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),   // lane 0 ("lane 1"): CHORDS — governs the riff pool too
             EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .key),       // lane 1: useRiff; its OWN sourceMode (KEY) must be ignored for riff purposes
@@ -5438,15 +5449,33 @@ final class RouterTests: XCTestCase {
                                   var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
-        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 3, doorMode: .chord), Receiver(name: "3"), Receiver(name: "4")]
-        let pool = NotePool()
-        pool.noteOn(72, velocity: 100, channel: 0)   // wire ch 0 → receiver[0] (ch 1) — the OLD fixed riff source; must NOT feed anything now
-        pool.noteOn(67, velocity: 100, channel: 2)   // wire ch 2 → receiver[1] (ch 3), the CHORD door — lane 0's own source
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        st.euclideousKeyRoot = 0; st.euclideousKeyType = .major
+        st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [0]; m.chordsSteps = 1; return m }()   // C major tonic triad, ascending [48, 52, 55]
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), NotePool(), beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        XCTAssertTrue(notes.contains(67), "both lane 0's own pick AND the riff (consumed by lane 1) must read the CHORD door — riff follows lane 1's own choice regardless of which line actually has useRiff on")
-        XCTAssertFalse(notes.contains(72), "the old fixed receiver-0 default must no longer feed anything")
+        XCTAssertTrue(notes.contains(48), "lane 0's own plain .low pick must read Euclideous's own chord generator")
+        XCTAssertTrue(notes.contains(52), "the riff (consumed by lane 1, whose OWN sourceMode is KEY) must ALSO read the chord generator via lane 1's choice — rank 2 of the triad, not lane 0's own picked note")
+        XCTAssertFalse(notes.contains(55), "the chord's third note was never selected by anything, so it must not sound")
+    }
+    // TILT (Paul 2026-10-08): proves the field threads all the way through SnapshotBuilder→Router — Derivations-
+    // Tests already proves the pure `euclidTiltPattern` function's own directionality in isolation; this
+    // confirms EuclidLine.tilt actually reaches it. A dense K=4/N=16 pattern's average onset SAMPLE time over
+    // one full cycle shifts earlier/later exactly as the pure function's own test already predicts.
+    func testEuclidTiltShiftsTheAverageOnsetTimingDirectionally() {
+        func avgOnsetSample(_ tilt: Double) -> Double {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 16, noteSel: .low, rate: .r1_16, tilt: tilt)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            let samples = e.ons.filter { $0.cable == 1 }.map { Double($0.sample) }
+            return samples.reduce(0, +) / Double(samples.count)
+        }
+        let neg = avgOnsetSample(-1), zero = avgOnsetSample(0), pos = avgOnsetSample(1)
+        XCTAssertLessThan(neg, zero, "negative tilt must pull the average onset EARLIER")
+        XCTAssertGreaterThan(pos, zero, "positive tilt must pull the average onset LATER")
     }
     // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES the old global `euclideousRiffSourceMidi` switch this test
     // used to set — riff's source now follows LANE 1's (array index 0's) own `sourceMode` directly. Rewritten,
@@ -5610,14 +5639,14 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Array(twoBars.prefix(8)), bar1, "bar 1 of the 2-bar run must match the standalone 1-bar run exactly (same seed, same starting state)")
         XCTAssertEqual(Array(twoBars.suffix(8)), bar1, "bar 2 must ALSO replay bar 1's exact rank sequence — proving the span boundary hard-reset DRUNK's walk back to its starting state, not merely let it continue wandering")
     }
-    // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): each lane now independently resolves MIDI IN / KEY /
-    // CHORDS via EuclidLine.sourceMode — supersedes the old page-level GLOBAL "LANES KEY|MIDI" switch.
-    // CHORDS resolves to whichever receiver is configured DoorMode.chord; Router.swift has no special-casing
-    // for how a note arrived (a real chord door's own live-note synthesis is a Kernel-level concern, never
-    // reached from this test harness) — so a plain `pool.noteOn` on that receiver's channel faithfully
-    // exercises the same read path a live chord door would feed, matching this file's own established
-    // convention for testing a receiver's live notes (see testEuclideousRiffKeyModeYieldsEmptyPoolNotMidi-
-    // Fallback's identical reasoning for the riff's own MIDI source).
+    // PER-LANE I/O (Paul 2026-10-08, the new I/O tab + CHORDS button): each lane now independently resolves
+    // MIDI IN / KEY / CHORDS via EuclidLine.sourceMode — supersedes the old page-level GLOBAL "LANES KEY|MIDI"
+    // switch. CHORDS now reads Euclideous's own on-page chord generator (SUPERSEDES an EARLIER version of this
+    // test that read a `doorMode: .chord` receiver — that mechanism was itself superseded the same day once
+    // "a chords button... base this on the existing chord grid" shipped) — `chordSeqNotes` against a known
+    // degree/key resolves to an exact, hand-verified note (see `diatonicChord`'s own formula: tone(k) =
+    // rootNote + scaleTones[k%n] + 12×⌊k/n⌋; degree 0 in C major, rootNote 48 ⇒ triad [48,52,55], `.low` picks
+    // the lowest, 48).
     func testEuclideousLanesEachResolveTheirOwnIndependentSourceMode() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [
@@ -5630,15 +5659,16 @@ final class RouterTests: XCTestCase {
                                   var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
-        st.receivers = [Receiver(name: "1"), Receiver(name: "2", channel: 5, doorMode: .chord), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
+        st.euclideousKeyRoot = 0; st.euclideousKeyType = .major   // C major
+        st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [0]; m.chordsSteps = 1; return m }()   // a 1-step I (tonic) progression
         let pool = NotePool()
         pool.noteOn(60, velocity: 100, channel: 1)   // wire ch 1 → receiver[3] (ch 2) — the MIDI lane's source
-        pool.noteOn(67, velocity: 100, channel: 4)   // wire ch 4 → receiver[1] (ch 5), the CHORD door — the CHORDS lane's source
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         XCTAssertTrue(notes.contains(60), "lane 0 (default/MIDI) must still read receiver index 3 — unchanged from before this feature")
-        XCTAssertTrue(notes.contains(67), "lane 1 (CHORDS) must read the chord-door receiver's own notes, independent of the MIDI lane's pool")
+        XCTAssertTrue(notes.contains(48), "lane 1 (CHORDS) must read Euclideous's own on-page chord generator — the C-major tonic triad's lowest note")
         XCTAssertEqual(notes.count, 2, "lane 2 (KEY) must contribute nothing — genuinely silent, not a stray third note")
     }
     // The RETIRED global `euclideousLanesSourceMidi` switch must no longer have ANY effect — only each lane's
@@ -5660,27 +5690,11 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertFalse(e.ons.filter { $0.cable == 1 }.isEmpty, "an untouched lane must still sound via MIDI — the retired global switch must not silence it anymore")
     }
-    // The riff's own pool now FOLLOWS LANE 1's own source choice (Paul's ruling, "the riff reads from lane 1's
-    // own I/O choice") instead of its old separate, fixed receiver-0 global switch.
-    func testEuclideousRiffPoolFollowsLane1sOwnSourceChoice() {
-        var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .chords)]   // lane 0 ("lane 1"): CHORDS — the riff must follow THIS
-        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                              scenes: [{ var s = SceneState.empty()
-                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
-                                  s.cells[0][Snap.euclideousRow] = cell
-                                  return s }()])
-        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 3, doorMode: .chord), Receiver(name: "3"), Receiver(name: "4")]
-        let pool = NotePool()
-        pool.noteOn(72, velocity: 100, channel: 0)   // wire ch 0 → receiver[0] (ch 1) — the OLD fixed riff source; must NOT sound now
-        pool.noteOn(67, velocity: 100, channel: 2)   // wire ch 2 → receiver[1] (ch 3), the CHORD door — lane 0's new source; MUST sound
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
-        assertNothingLeftSounding(e)
-        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        XCTAssertTrue(notes.contains(67), "the riff must sound from lane 1's own CHORDS source (the chord-door receiver)")
-        XCTAssertFalse(notes.contains(72), "the riff must NOT sound from the old fixed receiver-0 source anymore")
-    }
+    // NOTE: a second, simpler single-line test of this exact claim (testEuclideousRiffPoolFollowsLane1sOwn-
+    // SourceChoice) used to live here, built around the retired doorMode:.chord mechanism — removed outright
+    // (not rewritten) once CHORDS gained its own on-page generator, since testEuclideousRiffPoolIsGoverned-
+    // ByLane1EvenWhenADifferentLaneConsumesIt above already fully subsumes its claim (same core assertion,
+    // plus the "a different line consumes the riff" subtlety this simpler version never exercised).
     func testEuclidLinesPerLinePick() {
         // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick.
         func notesOf(_ line: EuclidLine) -> [Int] {

@@ -241,6 +241,11 @@ struct EuclidLine: Codable, Equatable {
     // access to) — this field only names the CHOICE, not which receiver answers it.
     var sourceMode: EuclideousLaneSource? = nil
     var sourceModeResolved: EuclideousLaneSource { sourceMode ?? .midi }
+    // TILT (Paul 2026-10-08): bias this lane's own K-of-N hit distribution toward the start (negative) or end
+    // (positive) of its N-step cycle — see `euclidTiltPattern`'s own doc comment for the exact mechanism.
+    // nil ⇒ 0 = no bias, byte-identical to before this field existed.
+    var tilt: Double? = nil
+    var tiltResolved: Double { max(-1, min(1, tilt ?? 0)) }
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -310,6 +315,7 @@ extension EuclidLine {
         riffDirBias = try c.decodeIfPresent(Double.self, forKey: .riffDirBias)
         mask = try c.decodeIfPresent(EuclidLineMask.self, forKey: .mask)
         sourceMode = try c.decodeIfPresent(EuclideousLaneSource.self, forKey: .sourceMode)
+        tilt = try c.decodeIfPresent(Double.self, forKey: .tilt)
     }
 }
 // EUCLID MASK, PER LANE (Paul/design-channel 2026-10-07, ratified): a small, nested, effect-less step
@@ -1904,6 +1910,19 @@ struct PluginState: Codable, Equatable {
     var euclideousKeyRootResolved: Int { ((euclideousKeyRoot ?? 0) % 12 + 12) % 12 }
     var euclideousKeyType: ScaleType? = nil
     var euclideousKeyTypeResolved: ScaleType { euclideousKeyType ?? .naturalMinor }
+    // EUCLIDEOUS CHORDS (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a
+    // chord grid with rate control... base this on the existing chord grid used on the chord door." Stored
+    // as a plain MachineParams — the EXACT same storage shape the chord door's own `Receiver.chordSeqs:
+    // [MachineParams]?` already uses (only its `chords*` fields are ever touched; everything else on it is
+    // inert) — so `chordsDegreesResolved(steps:)`/`chordsStepsResolved`/`chordsRateResolved`/
+    // `chordsVoicingResolved`/`chordsSpreadResolved` are all reused as-is, zero new resolve logic needed.
+    // PATTERN mode only (no MODE/SCALE-FROM/WALK/FOLLOW — "a chord grid with rate control" is the scoped ask);
+    // the KEY is Euclideous's own page-level `euclideousKeyRoot`/`Type` above, not a receiver-door reference
+    // (unlike the regular CHORDS processor's SCALE FROM, which doesn't apply here — Euclideous has no doors).
+    // nil ⇒ `MachineParams()`'s own defaults, which already resolve `chordsDegreesResolved` to a sensible
+    // I-I-V-V-IV-IV-V-V loop — a fresh, never-touched grid is audible immediately, not silent.
+    var euclideousChords: MachineParams? = nil
+    var euclideousChordsResolved: MachineParams { euclideousChords ?? MachineParams() }
     // SOURCE MODE, riff and lanes independently: nil ⇒ MIDI (true), NOT key — a fresh/never-touched doc, and
     // every EXISTING session saved before this rework, must keep sounding exactly as it did (its receiver-fed
     // MIDI pool), not go silent the instant this update lands (KEY mode currently resolves to an empty pool,

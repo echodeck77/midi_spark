@@ -477,6 +477,39 @@ final class DerivationsTests: XCTestCase {
         let base = euclidPattern(pulses: 3, steps: 8)
         XCTAssertEqual(euclidPattern(pulses: 3, steps: 8, rotation: 1), (0..<8).map { base[($0 + 1) % 8] }, "rotation cycles the pattern")
     }
+    // TILT (Paul 2026-10-08): "bias the distribution of hits to the left or right."
+    func testEuclidTiltPatternIsANoOpAtZero() {
+        var buf = euclidPattern(pulses: 3, steps: 8)
+        let before = buf
+        euclidTiltPattern(&buf, pulses: 3, steps: 8, tilt: 0)
+        XCTAssertEqual(buf, before, "tilt=0 must be byte-identical to not calling this at all")
+    }
+    func testEuclidTiltPatternPreservesExactHitCount() {
+        for (k, n) in [(3, 8), (5, 8), (2, 16), (7, 16), (1, 8)] {
+            for t in [-1.0, -0.5, 0.3, 1.0] {
+                var buf = euclidPattern(pulses: k, steps: n)
+                euclidTiltPattern(&buf, pulses: k, steps: n, tilt: t)
+                XCTAssertEqual(buf.filter { $0 }.count, k, "K=\(k) N=\(n) tilt=\(t): exactly K hits must survive, never dropped or duplicated")
+            }
+        }
+    }
+    func testEuclidTiltPatternShiftsWeightedAveragePositionDirectionally() {
+        func avgPos(_ buf: [Bool]) -> Double {
+            let idxs = buf.enumerated().filter { $0.element }.map { Double($0.offset) }
+            return idxs.reduce(0, +) / Double(idxs.count)
+        }
+        var neg = euclidPattern(pulses: 4, steps: 16); euclidTiltPattern(&neg, pulses: 4, steps: 16, tilt: -1)
+        let zero = euclidPattern(pulses: 4, steps: 16)
+        var pos = euclidPattern(pulses: 4, steps: 16); euclidTiltPattern(&pos, pulses: 4, steps: 16, tilt: 1)
+        XCTAssertLessThan(avgPos(neg), avgPos(zero), "negative tilt must pull the average hit position EARLIER")
+        XCTAssertGreaterThan(avgPos(pos), avgPos(zero), "positive tilt must pull the average hit position LATER")
+    }
+    func testEuclidTiltPatternLeavesATrivialPatternUntouched() {
+        var buf = euclidPattern(pulses: 1, steps: 8)
+        let before = buf
+        euclidTiltPattern(&buf, pulses: 1, steps: 8, tilt: 1)
+        XCTAssertEqual(buf, before, "a single hit has nothing to bias — tilt must be a no-op")
+    }
     // DIRECTION (2026-09-29): euclidReadIndex flips the READ into the already-rotated buffer, not a second
     // rotation. Rotate-then-reverse and reverse-then-rotate are NOT the same pattern in general (they differ by a
     // shift of 2×rotate mod n) — this worked example pins the composition order actually shipped, so a future

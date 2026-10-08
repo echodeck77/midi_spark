@@ -171,16 +171,25 @@ struct SnapParams {
     var euclidLines: [EuclidLine] = []       // EUCLID LINES (§10): up to 8 lines; EMPTY ⇒ the single euclid above (byte-identical)
     var euclideousRiff: EuclideousRiff = EuclideousRiff()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved
     // EUCLIDEOUS PAGE REWORK (2026-10-07): mainOutMask gates every chain's emission uniformly (default
-    // all-open, byte-identical for every non-Euclideous processor); riffSrcChanMask is Euclideous-only (every
-    // other chain's EuclidLine.useRiff branch, if ever reached, sees 0 = matches nothing — a safe no-op,
-    // since no other chain's SnapshotBuilder resolve path ever sets this).
+    // all-open, byte-identical for every non-Euclideous processor).
     var mainOutMask: UInt8 = 0b1111
-    var riffSrcChanMask: UInt16 = 0
     // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): each of Euclideous's 4 lanes' own resolved channel mask
-    // (MIDI IN/CHORDS-door, or 0 for KEY/silent) — empty for every non-Euclideous `.euclid` cell. Router.swift
-    // falls back to the shared srcNotes/srcCount whenever this is empty or short, or the cell isn't Euclideous's
-    // own row — a safe no-op, matching riffSrcChanMask's own convention exactly.
+    // for MIDI-mode lanes (0 for KEY/CHORDS, which read elsewhere — see the per-lane fill in Router.swift's
+    // `.euclid` case) — empty for every non-Euclideous `.euclid` cell. Router.swift falls back to the shared
+    // srcNotes/srcCount whenever this is empty or short, or the cell isn't Euclideous's own row.
     var laneSrcChanMasks: [UInt16] = []
+    // EUCLIDEOUS CHORDS (Paul 2026-10-08): the page's own self-contained chord progression reuses the SHARED
+    // chords* fields directly (chordsMode/chordsDegrees/chordsSteps/chordsRateBeats/chordsRotate/chordsVoicing/
+    // chordsSpread, already present on SnapParams for the regular CHORDS processor) rather than a parallel
+    // field set — chordSeqNotes (Derivations.swift) is EXPLICITLY designed to take any SnapParams, by its own
+    // doc comment: "SHARED by the CHORDS PROCESSOR stage AND the chord DOOR pool-fill... the 'future processor
+    // work reflects on the door' contract in one function." Safe: Router.swift's `.euclid` switch arm never
+    // reads chordsMode/chordsDegrees/etc itself — those fields are inert on an EUCLID-typed SnapParams except
+    // where THIS feature explicitly reads them for its own CHORDS-mode lanes. keyRoot/keyTones are the two
+    // things chordSeqNotes needs that AREN'T part of the shared chords* fields (it takes them as explicit
+    // params, resolved by whichever caller owns a key) — Euclideous's own page-level KEY, not a receiver door.
+    var euclideousChordKeyRoot: Int = 0
+    var euclideousChordKeyTones: [Int] = [0, 2, 4, 5, 7, 9, 11]   // natural minor's own intervals would be more apt as a default, but this is overwritten every render for Euclideous's row regardless — harmless placeholder
     var euclideousResetSpanBars: Int = 0   // 0 = OFF; resolved straight from doc.euclideousResetSpanBarsResolved, gated to Snap.euclideousRow
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
     var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns

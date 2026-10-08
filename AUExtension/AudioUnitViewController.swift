@@ -226,6 +226,10 @@ struct DiagView: View {
     @State var euclideousRiffSourceMidi: Bool = true            // MIDI is the default (preserves pre-rework behaviour)
     @State var euclideousLanesSourceMidi: Bool = true
     @State var euclideousMainOutMask: UInt8 = 0b1111            // all 4 buses open by default
+    // CHORDS BUTTON (Paul 2026-10-08): the page's own self-contained chord grid — same live-mirror treatment
+    // as the fields above (loaded in refreshFromDocument, written back via au?.editDocument on every edit,
+    // resynced on the slow timer below).
+    @State var euclideousChords: MachineParams = MachineParams()
     @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); the AnyView boundaries fixed the metadata-stack crash
     // BUILD page (user 2026-08-11): the selected PART's cast machine (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
@@ -698,6 +702,7 @@ struct DiagView: View {
         euclideousRiffSourceMidi = au.uiEuclideousRiffSourceMidi()
         euclideousLanesSourceMidi = au.uiEuclideousLanesSourceMidi()
         euclideousMainOutMask = au.uiEuclideousMainOutMask()
+        euclideousChords = au.uiEuclideousChords()
     }
 
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
@@ -935,6 +940,14 @@ struct DiagView: View {
                                    // from this call site — decode-safety for an old saved doc, matching how
                                    // euclideousReceiver was handled when ITS control was dropped.
                                    mainOutMask: euclideousMainOutMask,
+                                   chords: euclideousChords,
+                                   onEditChords: { mutate in
+                                       var c = euclideousChords
+                                       mutate(&c)
+                                       euclideousChords = c
+                                       au?.editDocument(coalesceKey: "euclideousChords") { $0.euclideousChords = c }
+                                       buildPublishScene()
+                                   },
                                    clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying),
                                    onEdit: { mutate in
                                        var lines = euclideousLines
@@ -1136,6 +1149,7 @@ struct DiagView: View {
             let erfm = au.uiEuclideousRiffSourceMidi(); if erfm != euclideousRiffSourceMidi { euclideousRiffSourceMidi = erfm; euclideousResynced = true }
             let elsm = au.uiEuclideousLanesSourceMidi(); if elsm != euclideousLanesSourceMidi { euclideousLanesSourceMidi = elsm; euclideousResynced = true }
             let emom = au.uiEuclideousMainOutMask(); if emom != euclideousMainOutMask { euclideousMainOutMask = emom; euclideousResynced = true }
+            let echd = au.uiEuclideousChords(); if echd != euclideousChords { euclideousChords = echd; euclideousResynced = true }
             if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)

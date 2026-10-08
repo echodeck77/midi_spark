@@ -2303,6 +2303,39 @@ func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
     let n = euclidPatternInto(&buf, pulses: pulses, steps: steps, rotation: rotation)
     return Array(buf[0..<n])
 }
+/// TILT (Paul 2026-10-08): "a TILT control to bias the distribution of hits to the left or right" — reshapes
+/// an ALREADY-BUILT K-of-N pattern (post-rotation; call this after `euclidPatternInto`) so the K hits cluster
+/// toward the START (negative tilt) or END (positive tilt) of the N-step cycle, without changing K or N.
+/// Deterministic, not random (this engine's own standing invariant: derived, never accumulated — a pattern
+/// must replay identically every time, so a probabilistic reshuffle would be wrong here even though "bias a
+/// distribution" might otherwise suggest one). Mechanism: take the K existing hits in ascending step order,
+/// normalise each one's RANK among the K hits to 0...1, warp that rank through a power curve (`t^gamma` —
+/// gamma<1 pulls ranks toward 1/late, gamma>1 pulls them toward 0/early), then re-place each hit at
+/// `round(warpedRank × (N−1))`. `tilt=0` ⇒ `gamma=1` ⇒ the identity warp ⇒ an EXACT no-op, byte-identical to
+/// not calling this at all. A warped position that collides with an already-placed hit is nudged forward
+/// (wrapping) to the next free step — deterministic and stable, never drops or duplicates a hit. K≤1 or N≤1
+/// has nothing to tilt (a single hit has no "distribution" to bias) and is left untouched. Pure/testable.
+func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double) {
+    guard tilt != 0, k > 1, n > 1 else { return }
+    var hits: [Int] = []
+    for i in 0..<n where i < buf.count && buf[i] { hits.append(i) }
+    guard hits.count == k else { return }   // a mismatched/empty buf (caller error) — leave untouched rather than guess
+    let clampedTilt = max(-1, min(1, tilt))
+    let gamma = pow(2.0, -2.0 * clampedTilt)   // tilt=-1 ⇒ gamma=4 (compress early) · tilt=+1 ⇒ gamma=0.25 (compress late)
+    var used = Set<Int>()
+    var placed: [Int] = []
+    for i in 0..<hits.count {
+        let rank = Double(i) / Double(k - 1)          // 0...1 ascending rank among the K hits
+        let warped = pow(rank, gamma)
+        var pos = Int((warped * Double(n - 1)).rounded())
+        pos = max(0, min(n - 1, pos))
+        while used.contains(pos) { pos = (pos + 1) % n }   // deterministic collision nudge — bounded: ≤ n iterations total across all k placements
+        used.insert(pos)
+        placed.append(pos)
+    }
+    for i in 0..<n where i < buf.count { buf[i] = false }
+    for p in placed where p < buf.count { buf[p] = true }
+}
 /// DIRECTION (Paul 2026-09-29, extended 2026-10-01 to 3-way FWD/BKW/PING-PONG) — maps a position already reduced
 /// mod `euclidCycleLen(dir, n:)` to the buffer index to read. FWD reads the already-rotated buffer in order; BKW
 /// reads it back-to-front — a genuine time-mirror of the hit pattern, NOT a second rotation (rotate-then-reverse
