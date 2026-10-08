@@ -15,6 +15,15 @@
 //  tabs under its XY pads; a brand-new per-lane EUCLID MASK (pattern/transport only — its
 //  actual effect is explicitly deferred, §4 of the spec); lane boxes are now square; hit/miss
 //  beacons are removed.
+//
+//  RESET SPAN + LIVE RIFF NOTES (Paul 2026-10-08, direct follow-up after reviewing the rework): reset
+//  span is now a REAL engine feature, not just a persisted-but-inert picker — it re-anchors every
+//  lane's own K/N/rotate pattern AND the riff's own advance ordinal every N bars (Router.swift,
+//  `runEuclidLine`'s span override — see its own doc comment), including a hard reset of DRUNK's walk
+//  specifically (every other riff direction resets for free via the ordinal alone). The riff panel now
+//  also shows each step's live-RESOLVED note alongside its rank (`riffLivePool`, a dedicated Router-
+//  thread snapshot of the riff's own pool, polled the same fast cadence as the cursor dots) — blank
+//  when the pool's empty or KEY mode is selected (§4.4 still genuinely open).
 
 import SwiftUI
 
@@ -48,6 +57,11 @@ struct EuclideousPage: View {
     // lane" into one shared pattern, not a single shared cursor.
     let riff: EuclideousRiff
     let riffPositions: [Int]
+    // RIFF PANEL — RESOLVED NOTES (Paul 2026-10-08): the ascending notes currently feeding the riff's own
+    // pool, live — lets the panel show the actual resolved note alongside each step's rank, not just the
+    // rank number alone. Empty when nothing's held/latched, or when the riff's own source is KEY (not built
+    // yet, §4.4) — a column with no resolvable note shows its rank only, same as before this was added.
+    let riffLivePool: [UInt8]
     // PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config (§2.2-§2.4).
     let resetSpanBars: Int
     let keyRoot: Int
@@ -337,7 +351,10 @@ struct EuclideousPage: View {
     private func laneGrid(_ pageSize: CGSize) -> some View {
         let gap: CGFloat = 12
         let fromWidth = max(1, (pageSize.width - 32 - gap) / 2)
-        let headerAllowance: CGFloat = 110, riffMinimum: CGFloat = 140, outerVSpacing: CGFloat = 32
+        // riffMinimum bumped 140→160 (2026-10-08): the riff panel's own cells gained a third text line (the
+        // resolved note, alongside the rank) — a few more points of reserved height keeps the cap's own
+        // estimate honest now that the panel needs slightly more room to stay legible.
+        let headerAllowance: CGFloat = 110, riffMinimum: CGFloat = 160, outerVSpacing: CGFloat = 32
         let heightBudget = pageSize.height - headerAllowance - riffMinimum - outerVSpacing
         let fromHeight = max(1, (heightBudget - gap) / 2)
         let size = min(fromWidth, fromHeight)
@@ -798,15 +815,22 @@ struct EuclideousPage: View {
 
     // MARK: - The riff panel (Paul 2026-10-07, §2.1/§3 — moved onto the page, fixed 8 steps, no popup)
 
-    /// A single row of 8 tall cells, one per step — note RANK (not a resolved note NAME: no live pool data
-    /// reaches this page today, only `riffPositions`, so there's nothing to resolve a real pitch from; the
-    /// pre-rework page also only ever showed ranks, never note names, so this isn't a regression — flagged
-    /// as a named simplification in the ferry acknowledgment, not a silent gap) + a bar whose height encodes
-    /// the rank. Per-lane position dots sit above the columns. HARDCODED to 8 steps (§2.1) — editing always
+    /// A single row of 8 tall cells, one per step — the RANK number AND its live-resolved NOTE (Paul 2026-10-08:
+    /// "I do want both the note number and the resolved note") + a bar whose height encodes the rank. The note
+    /// is resolved via the SAME `riffResolve` fold the real render path uses, against a live snapshot of the
+    /// riff's own pool (`riffLivePool`) — so what's shown is provably what would actually sound, not a guess;
+    /// it reads blank when the pool is empty or KEY mode is selected (§4.4 still open, no mapping to resolve
+    /// against yet). Per-lane position dots sit above the columns. HARDCODED to 8 steps (§2.1) — editing always
     /// writes back an 8-length `ranks` array + `steps = 8`, so a legacy riff longer than 8 steps becomes
     /// genuinely 8-long the moment it's first touched through this page (no separate migration pass, per the
     /// ruling: "no migration work required"). Tap-to-cycle (rank 0...8, wrapping) is an explicit INTERIM
     /// gesture — the real editing gesture for this layout is open (§4.6).
+    private func riffResolvedNoteLabel(rank: Int) -> String? {
+        guard rank >= 1, !riffLivePool.isEmpty,
+              let note = riffResolve(rank: rank, oct: 0, n: riffLivePool.count, wrap: .fold, asc: { Int(riffLivePool[$0]) })
+        else { return nil }
+        return noteNames[((note % 12) + 12) % 12]
+    }
     private var riffPanel: some View {
         let n = 8
         let resolved = riff.ranksResolved
@@ -835,15 +859,21 @@ struct EuclideousPage: View {
             HStack(spacing: 4) {
                 ForEach(0..<n, id: \.self) { col in
                     let rank = ranks[col]
-                    VStack(spacing: 4) {
+                    VStack(spacing: 2) {
                         Text(rank >= 1 ? "\(rank)" : "–")
                             .font(.system(size: 13, weight: .heavy, design: .monospaced))
                             .foregroundColor(.white.opacity(rank >= 1 ? 0.9 : 0.3))
                             .padding(.top, 6)
+                        // RESOLVED NOTE (Paul 2026-10-08): the live note this rank actually resolves to right
+                        // now, alongside the rank number — not instead of it. Blank (not a placeholder dash)
+                        // when nothing resolves, e.g. the pool's empty or KEY mode is selected (§4.4 still open).
+                        Text(riffResolvedNoteLabel(rank: rank) ?? " ")
+                            .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.5))
                         Spacer(minLength: 2)
                         RoundedRectangle(cornerRadius: 2)
                             .fill(rank >= 1 ? Color.white.opacity(0.85) : Color.clear)
-                            .frame(height: max(2, CGFloat(rank) / 8.0 * 44))
+                            .frame(height: max(2, CGFloat(rank) / 8.0 * 40))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08)))

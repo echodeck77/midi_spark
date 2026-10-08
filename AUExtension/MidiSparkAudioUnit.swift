@@ -523,6 +523,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// `pollEuclideousLineReady` below (not the slow ~4Hz config-resync timer) — this is a per-hit, responsive
     /// indicator, not config.
     func pollEuclideousRiffPositions() -> [Int] { kernel.euclideousRiffPositions() }
+    /// The ascending notes currently feeding the riff's own pool — same fast cadence as the riff positions
+    /// above, so the riff panel's resolved-note display can never lag its own cursor dots.
+    func pollEuclideousRiffLivePool() -> [UInt8] { kernel.euclideousRiffLivePool() }
     /// Euclideous's own beacon readiness, polled independent of the BUILD-page editor's own editorOpen-gated
     /// poll — Euclideous's page can be open (and its beacon needs updating) whether or not BuildPage's own
     /// processor editor happens to be open at the same time. Its cell always sits at column 0 of its own

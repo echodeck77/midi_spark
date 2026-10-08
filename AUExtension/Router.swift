@@ -350,6 +350,21 @@ final class Router {
     // lane, not `Snap.cells`) since Euclideous is always exactly 4 lines at one fixed, reserved cell.
     private var euclideousRiffDrunkPos = [Int](repeating: -1, count: 4)
     private var euclideousRiffDrunkLastOrd = [Int64](repeating: .min, count: 4)
+    // RESET SPAN (Paul 2026-10-08): per-lane "last observed span-start beat" — lets DRUNK detect a span
+    // boundary crossing and hard-reset its walk to 0, the same "fresh start" treatment the very-first-hit
+    // case already gives it. NaN = "never observed" (also the sentinel for "span is off" at the call site —
+    // see euclideousRiffDrunkStep). Every OTHER riff direction resets for free via `ord` alone (no new state
+    // needed) since `ord` is already derived from the span-re-anchored local beat.
+    private var euclideousRiffLastSpanStart = [Double](repeating: .nan, count: 4)
+    // LIVE RIFF POOL DISPLAY (Paul 2026-10-08): a stable, UI-pollable snapshot of the ascending notes
+    // currently feeding the riff's own pool — mirrors the `cellSoundingNotes`/`riffDrunkPos` precedent
+    // exactly (render-thread writes a plain array, a `pollXXX`-style accessor reads it from the UI timer, no
+    // locking — a torn read of a value-type array is tolerable for a once-per-frame display readout). NOT
+    // `riffSrcNoteBuf` itself — that's reused SCRATCH, overwritten by every `.euclid` cell this render window
+    // touches, not safe to expose directly; this is a DEDICATED copy, written only for Euclideous's own row.
+    private var euclideousRiffLiveNotes = [UInt8](repeating: 0, count: 16)
+    private var euclideousRiffLiveCount = 0
+    func euclideousRiffLivePool() -> [UInt8] { Array(euclideousRiffLiveNotes.prefix(euclideousRiffLiveCount)) }
     // Unified UI-poll surface: EVERY direction (not just DRUNK) writes its resolved step index here, so the poll
     // layer only ever reads one simple array regardless of which direction a lane is using.
     private var euclideousRiffStep = [Int](repeating: -1, count: 4)
@@ -2699,7 +2714,7 @@ final class Router {
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
             for i in riffDrunkPos.indices { riffDrunkPos[i] = -1; riffDrunkPrevPos[i] = -1; riffDrunkLastTick[i] = .min }   // RIFF DRUNK: a fresh play restarts the walk (Paul 2026-09-28)
-            for i in euclideousRiffDrunkPos.indices { euclideousRiffDrunkPos[i] = -1; euclideousRiffDrunkLastOrd[i] = .min; euclideousRiffStep[i] = -1 }   // EUCLIDEOUS RIFF: a fresh play restarts every lane's walk/cursor (Paul 2026-10-06)
+            for i in euclideousRiffDrunkPos.indices { euclideousRiffDrunkPos[i] = -1; euclideousRiffDrunkLastOrd[i] = .min; euclideousRiffStep[i] = -1; euclideousRiffLastSpanStart[i] = .nan }   // EUCLIDEOUS RIFF: a fresh play restarts every lane's walk/cursor (Paul 2026-10-06) + re-arms span-reset detection (2026-10-08)
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
@@ -2962,6 +2977,7 @@ final class Router {
 
         guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             for i in euclidLineReady.indices { euclidLineReady[i] = 0 }   // nothing held/latched ⇒ nothing can play; case .euclid: won't run below to refresh this itself
+            euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
 
@@ -3927,7 +3943,16 @@ final class Router {
                 // field — lets each of Euclideous's 4 lines run its own rate; every existing non-Euclideous call
                 // resolves to the exact same machine-wide value as before, byte-identical.
                 let sub = rate
-                let spanBeats = p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0
+                // RESET SPAN (Paul 2026-10-08, §2.2): Euclideous's own GLOBAL reset-span control — resolved
+                // directly from `doc.euclideousResetSpanBarsResolved` into `p.euclideousResetSpanBars` (gated
+                // to Euclideous's own row in SnapshotBuilder, 0 for every other `.euclid` cell) — OVERRIDES the
+                // regular machine-wide `euclidSpanN` ladder when set, rather than composing with it: Euclideous
+                // never exposes `euclidSpanN` on its own page, so the two can never both be meaningfully set at
+                // once for the same line. `cyc` (this render's own "one bar" beat-length, already computed
+                // above) is multiplied directly by the literal bar count — not routed through `spanLadderBeats`'s
+                // own ladder, which tops out at 8 bars (its n=64 case) and has no slot for 16.
+                let spanBeats = p.euclideousResetSpanBars > 0 ? Double(p.euclideousResetSpanBars) * cyc
+                    : (p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0)
                 // cycleLen (2n under PING-PONG, else n): looping the hit-count over the FULL cycle naturally
                 // double-counts a ping-pong's repeated endpoints the same way the real read-sequence does — no
                 // ×2 special-case needed (every buffer position 0..<n is visited exactly twice per 2n-tick lap).
@@ -3997,8 +4022,12 @@ final class Router {
                             // lanes can each be set to a different receiver/KEY|MIDI switch.
                             guard riffSrcNoteCount > 0 else { return }
                             let seed = UInt64(bitPattern: Int64(riffDirSeed))
+                            // RESET SPAN (Paul 2026-10-08): the span-re-anchored window start THIS hit falls
+                            // in — NaN when reset-span is off (spanBeats <= 0), matching euclideousRiffDrunkStep's
+                            // own "don't track this" sentinel.
+                            let spanStart = spanBeats > 0 ? columnStart(mTickBeat, spanBeats) : Double.nan
                             let stepIdx = riffDir == .drunk
-                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: ord, steps: riffN, bias: riffDirBias, seed: seed)
+                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: ord, steps: riffN, bias: riffDirBias, seed: seed, spanStart: spanStart)
                                 : riffStepAt(riffDir, raw: Int(ord), steps: riffN, seed: seed)
                             let rotIdx = riffRotateStep(stepIdx, by: riffRotate, steps: riffN)
                             let ranks = rp.ranks ?? []   // SnapshotBuilder always resolves this to a full, padded array (main thread) before Router ever sees it — `?? []` is a type-safety unwrap here, not a real fallback allocation
@@ -4141,6 +4170,10 @@ final class Router {
             // non-Euclideous row byte-identical to its pre-split behaviour.
             if r == Snap.euclideousRow {
                 fillRiffSrcFromPool(pool, chanMask: p.riffSrcChanMask)
+                // LIVE RIFF POOL DISPLAY (Paul 2026-10-08): a dedicated snapshot for the riff panel's own
+                // "show the resolved note, not just the rank" ask — see euclideousRiffLivePool()'s own doc.
+                euclideousRiffLiveCount = min(euclideousRiffLiveNotes.count, riffSrcNoteCount)
+                for i in 0..<euclideousRiffLiveCount { euclideousRiffLiveNotes[i] = UInt8(max(0, min(127, riffSrcNoteBuf[i].note))) }
             } else {
                 riffSrcNoteCount = srcNoteCount
                 for i in 0..<srcNoteCount { riffSrcNoteBuf[i] = srcNoteBuf[i] }
@@ -5398,10 +5431,25 @@ final class Router {
     /// riff by 1 step," not "each elapsed beat". Sized 4 (one per Euclideous lane), not `Snap.cells`, since
     /// Euclideous is always exactly 4 lines at one fixed, reserved cell. Same `previewMode` guard as
     /// `riffDrunkStep` — an audition pass must not perturb the real, persisted walk.
-    private func euclideousRiffDrunkStep(lane: Int, ord: Int64, steps: Int, bias: Double, seed: UInt64) -> Int {
+    /// RESET SPAN (Paul 2026-10-08): `spanStart` is the span-re-anchored beat this hit's window starts at
+    /// (NaN when reset-span is OFF, the sentinel for "don't track this"). Every OTHER riff direction resets
+    /// for free when a span boundary passes, since `ord` is already derived from the span-re-anchored local
+    /// beat and naturally restarts low — DRUNK's walk POSITION doesn't follow from that alone (a random walk's
+    /// position depends on its own history, not just "what time is it now"), so this is the one direction that
+    /// needs an explicit nudge: when `spanStart` changes from what was last observed, hard-reset the walk to 0,
+    /// the exact same "fresh start" treatment the very-first-hit-ever case below already gives it.
+    private func euclideousRiffDrunkStep(lane: Int, ord: Int64, steps: Int, bias: Double, seed: UInt64, spanStart: Double) -> Int {
         guard lane >= 0, lane < euclideousRiffDrunkPos.count else { return 0 }
         if previewMode { return euclideousRiffDrunkPos[lane] < 0 ? 0 : min(steps - 1, euclideousRiffDrunkPos[lane]) }
-        if euclideousRiffDrunkPos[lane] < 0 { euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord; return 0 }
+        if euclideousRiffDrunkPos[lane] < 0 {
+            euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord; euclideousRiffLastSpanStart[lane] = spanStart
+            return 0
+        }
+        if !spanStart.isNaN, spanStart != euclideousRiffLastSpanStart[lane] {
+            euclideousRiffLastSpanStart[lane] = spanStart
+            euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord
+            return 0
+        }
         if ord != euclideousRiffDrunkLastOrd[lane] {
             euclideousRiffDrunkLastOrd[lane] = ord
             var np = euclideousRiffDrunkPos[lane] + riffDrunkDelta(tick: ord, bias: bias, seed: seed)

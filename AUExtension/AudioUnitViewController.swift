@@ -202,6 +202,9 @@ struct DiagView: View {
     // is a live, responsive PER-LANE INDICATOR (not persisted config), polled on the fast meterTimer beside euclideousLineReady.
     @State var euclideousRiff: EuclideousRiff = EuclideousRiff()
     @State var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
+    // RIFF PANEL — RESOLVED NOTES (Paul 2026-10-08): the ascending notes currently feeding the riff's own
+    // pool — live, responsive (same fast poll as euclideousRiffPositions above), NOT persisted config.
+    @State var euclideousRiffLivePool: [UInt8] = []
     // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config — same
     // persisted/live-mirror treatment as the fields above (loaded in refreshFromDocument, written back via
     // au?.editDocument on every edit, resynced on the slow timer). Defaults here are the SAME defaults their
@@ -905,7 +908,7 @@ struct DiagView: View {
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
                     EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled,
                                    lineReady: euclideousLineReady,
-                                   riff: euclideousRiff, riffPositions: euclideousRiffPositions,
+                                   riff: euclideousRiff, riffPositions: euclideousRiffPositions, riffLivePool: euclideousRiffLivePool,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
                                    riffSourceMidi: euclideousRiffSourceMidi, lanesSourceMidi: euclideousLanesSourceMidi,
                                    mainOutMask: euclideousMainOutMask,
@@ -1039,6 +1042,8 @@ struct DiagView: View {
                 if er != euclideousLineReady { euclideousLineReady = er }
                 let rp = au.pollEuclideousRiffPositions()
                 if rp != euclideousRiffPositions { euclideousRiffPositions = rp }
+                let rlp = au.pollEuclideousRiffLivePool()
+                if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the
             // OUT piano above, same reason (a poll-driven held-note feed is visibly laggy at 4Hz). Deliberately does

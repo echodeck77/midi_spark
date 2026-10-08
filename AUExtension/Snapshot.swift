@@ -176,6 +176,7 @@ struct SnapParams {
     // since no other chain's SnapshotBuilder resolve path ever sets this).
     var mainOutMask: UInt8 = 0b1111
     var riffSrcChanMask: UInt16 = 0
+    var euclideousResetSpanBars: Int = 0   // 0 = OFF; resolved straight from doc.euclideousResetSpanBarsResolved, gated to Snap.euclideousRow
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
     var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns
     var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)

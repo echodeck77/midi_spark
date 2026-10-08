@@ -196,6 +196,61 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a self-review pass found + fixed one real bug, and Paul asked for two §4 items (reset
+  span, live riff notes) to be built properly rather than left open (2026-10-08, on `fix/euclid-no-scroll-
+  direction-order-2x2-grid`; macOS 1232 green incl. +2, iOS builds; DEVICE eye/ear owed on both). Paul asked me
+  to re-review the whole rework against his original request for shortfalls/shortcuts. **A fresh line-by-line
+  read (not a recall of what I'd already written) found ONE real bug**: `maskCometRow`'s play button/step
+  badge enforce a 36pt touch-target floor regardless of the budgeted row height (30pt), so the MASK tab
+  rendered 6pt taller than PATTERN/RIFF, shifting the card's layout on every tab switch. Fixed by raising the
+  shared per-tab content budget to 36pt instead of shrinking MASK's touch targets down to it (`d8a939f`) — all
+  three tabs now render identically, and PATTERN/RIFF's own touch targets grow slightly as a side effect.
+  **Flagged, not yet built, in that same review:** KEY mode's silence-not-alternate-source behaviour (by
+  design, named as a likely "feels broken on first touch" moment); the MASK tab's zero audible effect
+  (confirmed by grep — `line.mask` is read nowhere in Router.swift); RESET SPAN being UI-only, nothing
+  wired to it. **Paul's direct response: "I do want both the note number and the resolved note. I also want
+  reset span to be correctly implemented."** Both built as real engine features, not UI stubs.
+  **LIVE RIFF NOTES:** a new Router-owned stable snapshot (`euclideousRiffLiveNotes`/`Count`, written only for
+  Euclideous's own row right where the riff's pool is filled, zeroed at the SAME pool-empty guard
+  `euclidLineReady` already uses) — polled on the existing fast ~30fps cadence via the SAME 3-layer forward
+  (`Router.euclideousRiffLivePool()` → `Kernel` → `MidiSparkAudioUnit.pollEuclideousRiffLivePool()`) that
+  `euclideousRiffPositions` already established. The riff panel resolves each column's live note via the
+  EXISTING `riffResolve` fold (the SAME function the real render path uses) against this live pool — so what's
+  shown is provably what would actually sound, not a parallel guess. Shows blank (not a placeholder) when the
+  pool's empty or KEY mode is selected, honestly reflecting that §4.4's KEY-mode pool mapping is still unbuilt.
+  **RESET SPAN, built on the EXISTING span-re-anchor idiom already proven for the regular (non-Euclideous)
+  EUCLID processor** (`spanLadderBeats`/`runEuclidLine`'s own re-anchor), not a new mechanism: a bar count
+  (`SnapParams.euclideousResetSpanBars`, resolved from `doc.euclideousResetSpanBarsResolved`, gated to
+  `Snap.euclideousRow`) OVERRIDES the regular machine-wide `euclidSpanN` ladder when set, computed as a literal
+  `Double(bars) × cyc` rather than routed through `spanLadderBeats`'s own ladder — that ladder tops out at 8
+  bars (its n=64 case) with no slot for 16, confirmed by reading its switch statement before relying on it.
+  **Traced through what this actually resets, rather than assuming:** the lane's own K/N/rotate pattern phase
+  AND the riff's own per-hit advance ordinal (`ord`) are BOTH already pure functions of the span-re-anchored
+  local beat — re-anchoring needed zero new accumulated state for 5 of 6 riff directions, confirmed by reading
+  `ord`'s own formula (`cy × effHits + hitsUpTo − 1`, where `cy` is "cycles within the CURRENT re-anchored
+  span window"). **DRUNK is the one exception** — a random walk's POSITION depends on its own history, not
+  just "what time is it," so re-anchoring the ordinal alone doesn't reset the walk itself. Added a small,
+  scoped exception (`euclideousRiffLastSpanStart`, 4 entries, mirroring the EXISTING `euclideousRiffDrunkPos`
+  state-exception class already disclosed in this file): when a lane's hit detects the span-start beat has
+  changed since last observed, hard-resets the walk to position 0 — the identical "fresh start" treatment the
+  very-first-hit-ever case already gives it. Reset alongside the rest of DRUNK's state on a transport restart.
+  **TESTS, both self-caught wrong on the first attempt, fixed by tracing not re-guessing:** the first draft of
+  the pattern-reset test used a 4-of-8 Euclid pattern, which ALREADY naturally repeats every bar even with
+  span OFF (8 ticks/cycle happens to equal 1 bar exactly at the test's own rate) — made span's effect invisible
+  by construction, caught empirically when the "ON" and "OFF" cases produced identical onset counts. Rebuilt
+  around a 3-of-5 pattern (deliberately non-bar-dividing) using `noteSel: .cycle` to read the engine's own
+  `ord` state via which pool-rank note sounds — the same proven technique the DRUNK test already uses.
+  **A second self-caught mistake in the same test:** an early version compared reset-ON's bar-2 sequence
+  against FREE's bar-1 PREFIX, which is trivially identical regardless of span (any fresh run starts at
+  ord=0) — fixed to compare against FREE's own bar-2 SUFFIX, the actually meaningful comparison.
+  `testEuclideousResetSpanOneBarReAnchorsThePatternEveryBar` (bar 2 replays bar 1 exactly under a 1-bar reset;
+  FREE's bar 2 does not replay bar 1) + `testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary` (a 2-bar
+  DRUNK run's second bar exactly replays its first bar's rank sequence, proving the walk genuinely restarted,
+  not merely continued). **DEVICE-OWED:** the riff panel's new resolved-note text at real size (now a 3rd
+  stacked line per cell, on top of the rank number and the bar); whether "silence when source is empty/KEY"
+  reads clearly as "no note to show" rather than a blank-looking bug; the reset-span picker now has a real,
+  audible effect — confirm 1/2/4/8/16 bars all feel like genuine, musically distinct re-anchor points; DRUNK's
+  hard-reset feeling like a clean restart rather than an audible glitch at the boundary.**
 - **▶ EUCLIDEOUS — the FULL PAGE REWORK, ratified spec built end-to-end (2026-10-08, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1230 green incl. 7 new, iOS builds; DEVICE eye/ear
   owed on the whole UI). A design-channel spec (`FERRY-euclideous-page-rework.md`, ratified by Paul 2026-10-07

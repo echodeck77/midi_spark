@@ -5521,6 +5521,84 @@ final class RouterTests: XCTestCase {
         // be a materially bigger change than this rework asks for, to close a gap nothing can actually trigger.
         // Flagged honestly in the ferry acknowledgment rather than silently left untested or chased unscoped.
     }
+    // RESET SPAN (Paul 2026-10-08, §2.2, built on Paul's direct follow-up instruction: "I want reset span to
+    // be correctly implemented"): a GLOBAL control that re-anchors Euclideous's pattern/riff position every N
+    // bars, computed as a LITERAL bar multiplier (`Double(bars) * cyc`) rather than routed through the
+    // existing `spanLadderBeats` ladder — that ladder tops out at 8 bars (its n=64 case) with no slot for 16.
+    // Proven here by EQUIVALENCE against the regular EUCLID processor's own already-tested `euclidSpanN=8`
+    // case (also exactly 1 bar, confirmed via `testEuclidSpanReAnchorsThePattern`/line 289's own "spanN: 8 =
+    // the whole row" comment) — both formulas read the SAME `cyc`, so if they're both genuinely "1 bar" the
+    // two must produce byte-identical onset counts regardless of what `cyc` numerically is.
+    func testEuclideousResetSpanOneBarReAnchorsThePatternEveryBar() {
+        // K=3,N=5 (cycleLen=5 ticks=2.5 beats at rate=r1_8) deliberately does NOT evenly divide the 8-tick/
+        // 4-beat bar (stepRate=r1_8, Snap.cols=8) — a 4-of-8 pattern (this file's own usual go-to) ALREADY
+        // naturally repeats every bar even with span OFF (8 ticks/cycle happens to equal 1 bar exactly), which
+        // would make span's own effect invisible by construction, not absent — caught empirically while
+        // building this test (the first draft used 4-of-8 and couldn't tell the two cases apart). noteSel:
+        // .cycle strikes a DIFFERENT pool-rank note each hit, keyed directly on `ord` — the SAME "read the
+        // engine's own state from which note sounds" technique the DRUNK test above uses, here applied to the
+        // plain (non-riff) ordinal. A first attempt compared raw onset COUNTS between one bar and two bars —
+        // wrong: a steady process doubles its count over double the time regardless of phase-alignment, so
+        // count alone can't distinguish "replays exactly" from "merely as dense." Comparing the actual
+        // SEQUENCE of struck pool-ranks is the real proof.
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func cyclePicksStruck(resetSpanBars: Int, beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, noteSel: .cycle, rate: .r1_8)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.euclideousResetSpanBars = resetSpanBars
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        }
+        let span1Bar = cyclePicksStruck(resetSpanBars: 1, beats: 3.9)
+        let span2Bar = cyclePicksStruck(resetSpanBars: 1, beats: 7.9)
+        let free1Bar = cyclePicksStruck(resetSpanBars: 0, beats: 3.9)
+        let free2Bar = cyclePicksStruck(resetSpanBars: 0, beats: 7.9)
+        XCTAssertFalse(span1Bar.isEmpty, "the pattern must actually strike something in one bar")
+        XCTAssertEqual(Array(span2Bar.prefix(span1Bar.count)), span1Bar, "1 BAR: bar 2's CYCLE-pick sequence must exactly replay bar 1's — each bar hard-resets `ord` to 0, so the Nth hit of every bar reads the identical pool rank")
+        XCTAssertEqual(Array(span2Bar.suffix(span1Bar.count)), span1Bar, "bar 2 itself must ALSO match bar 1 exactly, not merely share a common prefix")
+        // NOTE: comparing against free2Bar's PREFIX would be trivial and prove nothing — the first N hits of
+        // ANY fresh run start from ord=0 regardless of reset-span, so bar 1 always "matches itself" either way.
+        // The real comparison is against free2Bar's SUFFIX (bar 2 proper) — self-caught before this test shipped,
+        // not after: a first draft checked the prefix here and the assertion failed for the wrong reason.
+        XCTAssertNotEqual(Array(free2Bar.suffix(free1Bar.count)), free1Bar, "FREE: `ord` keeps growing across the bar boundary — bar 2's CYCLE sequence must NOT replay bar 1's, since the two don't start from the same ordinal")
+    }
+    // DRUNK hard-resets its WALK (not just its ordinal) at a span boundary — every OTHER riff direction already
+    // resets for free since `ord` is derived from the span-re-anchored beat, but a random walk's POSITION
+    // depends on its own history, so it needs an explicit nudge (see euclideousRiffDrunkStep's own doc).
+    // Proven by DETERMINISM: bar 2 of a 2-bar run (reset-span=1 engaged) must replay bar 1's EXACT rank
+    // sequence, since a genuine hard-reset makes bar 2 start from the identical state (position 0, ord 0) bar
+    // 1 itself started from — a continuing (non-reset) walk would have diverged, almost certainly landing on
+    // a different sequence the second time around.
+    func testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func ranksStruck(beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])   // identity: riff step i ↔ rank i+1 ↔ pool[i]
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, riffDir: .drunk, riffDirSeed: 42, riffDirBias: 0)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.receivers = [Receiver(name: "1")]   // the riff's own pool resolves from receiver 0 — empty without this, confirmed by the same gap the earlier useRiff pool-split tests hit
+            st.euclideousResetSpanBars = 1
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }   // back out the rank from the struck note, preserving temporal order
+        }
+        let bar1 = ranksStruck(beats: 3.9)      // one full 8-step dense pass at 0.5 beats/step = exactly 1 bar (4 beats), just under to dodge the boundary edge
+        let twoBars = ranksStruck(beats: 7.9)   // two full bars
+        XCTAssertEqual(bar1.count, 8, "one dense 8-step pass must produce exactly 8 hits")
+        XCTAssertEqual(twoBars.count, 16, "two bars must produce exactly 16 hits")
+        XCTAssertEqual(Array(twoBars.prefix(8)), bar1, "bar 1 of the 2-bar run must match the standalone 1-bar run exactly (same seed, same starting state)")
+        XCTAssertEqual(Array(twoBars.suffix(8)), bar1, "bar 2 must ALSO replay bar 1's exact rank sequence — proving the span boundary hard-reset DRUNK's walk back to its starting state, not merely let it continue wandering")
+    }
     func testEuclidLinesPerLinePick() {
         // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick.
         func notesOf(_ line: EuclidLine) -> [Int] {

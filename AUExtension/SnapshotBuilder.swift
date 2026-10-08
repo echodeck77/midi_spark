@@ -118,6 +118,11 @@ enum SnapshotBuilder {
                 if r == Snap.euclideousRow, !sc.procs.isEmpty, let recs = doc.receivers, !recs.isEmpty {
                     sc.procs[0].riffSrcChanMask = doc.euclideousRiffSourceMidiResolved ? (recs[0].muted ? 0 : recs[0].channelMaskResolved) : 0
                 }
+                // RESET SPAN (Paul 2026-10-08, §2.2): a SEPARATE, independent guard from the block above — this
+                // has nothing to do with receivers, so it must not be skipped just because none are configured.
+                if r == Snap.euclideousRow, !sc.procs.isEmpty {
+                    sc.procs[0].euclideousResetSpanBars = doc.euclideousResetSpanBarsResolved
+                }
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)
                 let vw = cell.velWindowResolved                 // §cell-edit D: the velocity window (1…127 default)
                 sc.velFloor = UInt8(max(1, min(127, vw.floor)))
