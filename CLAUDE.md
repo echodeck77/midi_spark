@@ -196,6 +196,63 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a FERRY doc reverses the single-row riff + note display, and the page becomes genuinely
+  orientation-aware (2026-10-08, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no
+  warnings; no macOS test-target reach — UI-only; DEVICE eye owed on everything, more than usual — see the
+  note below). A FERRY message (relayed directly in chat, not via `_dear_claude_code/` this round) gave three
+  rulings. **(1) THE RIFF GRID IS BACK to the original 8-column × 8-rank MATRIX** — the 2026-10-07 single-row/
+  level-bar redesign (and its 2026-10-08 rank+note-name readout addition) is GONE entire, not layered
+  alongside the matrix. Tap sets a step's rank to the tapped row; tapping the already-selected cell again
+  clears it to rest — the exact `rr[col] = (rr[col] == rank ? 0 : rank)` toggle the original popup used.
+  Cells are NEUTRAL (`Color.white.opacity(0.85/0.08)` on/off) — not lane-coloured, since the pattern is
+  shared, not owned by any one lane; the per-lane position DOTS above the columns stay lane-coloured
+  (they're genuinely per-lane state) and are unchanged. **(2) THE NOTE-NAME READOUT IS FULLY REVERSED** —
+  not relocated as row labels, not kept anywhere — a direct, acknowledged reversal of the "I do want both
+  the note number and the resolved note" request from two messages earlier; `riffResolvedNoteLabel` and its
+  call site are deleted. The underlying poll plumbing (`riffLivePool`, Router→Kernel→AU→VC) is LEFT IN PLACE,
+  unused by the UI — cheap to keep, expensive to rebuild if a future ask wants it back. **(3) THE WHOLE PAGE
+  IS NOW ORIENTATION-AWARE**, not a single always-vertical stack: `body`'s GeometryReader computes
+  `isLandscape = geo.size.width > geo.size.height` FRESH on every layout pass (no caching) and branches to
+  `portraitLayout`/`landscapeLayout`. PORTRAIT keeps the existing header→2×2 lanes→riff-below stacking, with
+  the lane grid's own height budget reserving genuine room for the riff grid's real minimum (computed from
+  the SAME shared constants the riff grid itself draws with, not a re-guessed number — the RATCHET/DEST class
+  of bug this codebase's history keeps naming, caught and fixed here BEFORE shipping: an early draft had the
+  reservation's own chrome-height and cell-gap constants silently disagree with the grid's own drawing code
+  by 8pt and 1pt respectively). LANDSCAPE is a NEW layout: header across the top, lane grid on the LEFT sized
+  from the available height first (landscape is usually height-constrained, not width-constrained) and capped
+  at 60% of total width so the riff grid always keeps a meaningful share, riff grid on the RIGHT filling
+  whatever width remains, full height below the header. **PROTECTED MINIMUMS (ferry §3 — "do not shrink...
+  below comfortable touch size, and do not make lane OUT or MAIN OUT any smaller than they are now"):** XY
+  pads floored at 44pt (the HIG touch minimum — `minLaneSize` falls out of it, 3×44, since pads are literally
+  `laneSize/3`), riff cells floored at 24pt, lane OUT fixed at 30pt and MAIN OUT at 36pt regardless of any
+  scaling elsewhere. **THE SPECIFIC REPORTED FAULTS, traced to root cause, not patched symptom-by-symptom:**
+  portrait's cut-off ON button/LANES switch/step-count buttons/riff right edge were ALL the same bug — the
+  header's own HStack rows assumed "enough" width unconditionally, with zero adaptive behaviour, so trailing
+  content silently ran off the right edge on a narrower-than-assumed panel; fixed with an explicit
+  `headerScale(width)` (a reasoned, not measured, ratio against the row's own estimated full-size content
+  width) applied to every label/chip/button's font and padding — MAIN OUT's 4 circles are the one thing in
+  that row NEVER scaled, per the floor above. Landscape's lane-card overlap + top-clipping was the deeper
+  issue: the page had only ONE layout shape (always vertical: header, lanes, riff stacked top-to-bottom)
+  regardless of orientation — cramming three stacked sections into a WIDE-but-SHORT landscape frame is
+  structurally wrong for that aspect ratio, not a sizing bug fixable by tuning numbers; needed the genuinely
+  separate landscape layout built above. HITS/OFFS's "3 HITS OUT OF…" truncation was a reuse mismatch: the pad
+  face was calling the SAME formatter built for the much roomier floating drag-HUD overlay, which was never
+  going to fit a ~44-70pt pad face — fixed with a dedicated compact formatter ("K/N · ±R", e.g. "3/8 · +0",
+  matching the format VEL/GATE already used and the ratified mockup's own literal example string) for the
+  permanent face only; the transient drag-HUD keeps its original, roomier verbose form unchanged, since
+  nobody asked to compact that one and it has the space. **HONESTLY FLAGGED, found while hand-tracing the
+  geometry at a few plausible panel sizes (not device-measured, just arithmetic):** the riff grid's own cell
+  proportions come out quite different between orientations — wide-and-short in portrait (ample width, tight
+  reserved height), tall-and-narrow in landscape (the opposite ratio of constraints) — both avoid clipping
+  and respect the 24pt floor, but the matrix's look shifts noticeably between the two, which may read as
+  inconsistent on a real screen; worth a look once device-tested, not hidden as a surprise. **DEVICE-OWED,
+  more than the usual disclosure — this whole ferry is about pixel-level clipping/overlap/truncation that
+  cannot be verified without seeing a real render, and no screenshots could be produced for the requested
+  acknowledgment** (no device/simulator visual access exists in this environment): confirm nothing clips or
+  overlaps in EITHER orientation at AUM's windowed AND full-screen sizes (4 combinations minimum); confirm
+  the header's scale-down actually reads legibly rather than just small; confirm the riff matrix's shifting
+  proportions between orientations are acceptable or need a different sizing rule; confirm HITS/OFFS's new
+  compact format reads clearly without its old explanatory wording.**
 - **▶ EUCLIDEOUS — a self-review pass found + fixed one real bug, and Paul asked for two §4 items (reset
   span, live riff notes) to be built properly rather than left open (2026-10-08, on `fix/euclid-no-scroll-
   direction-order-2x2-grid`; macOS 1232 green incl. +2, iOS builds; DEVICE eye/ear owed on both). Paul asked me
