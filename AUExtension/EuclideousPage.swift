@@ -360,7 +360,13 @@ struct EuclideousPage: View {
         let cometRowH: CGFloat = 56
         let padSize = size / 3   // the 3 XY pads stay literal squares, 1/3 the card's own width — unchanged rule
         let tabRowH: CGFloat = 30
-        let contentLineH: CGFloat = 30
+        // 36, not 30 (shortcut-audit fix): `maskCometRow`'s own play button/step badge insist on a 36pt
+        // minimum (a touch-target floor, not an arbitrary number) regardless of what's budgeted here — at
+        // 30 that made the MASK tab's content render 6pt taller than PATTERN/RIFF's own budgeted rows,
+        // shifting the card's layout by a few points on every tab switch. Raising the shared floor to 36
+        // (rather than shrinking MASK's touch targets down to 30) keeps all three tabs' content height
+        // IDENTICAL, and modestly improves PATTERN/RIFF's own touch targets as a side effect, not a tradeoff.
+        let contentLineH: CGFloat = 36
         let outRowH: CGFloat = 34
         let steps = max(2, min(16, line.steps))
         let rotateStepPt = euclidBoxGeometry(n: steps, usableWidth: max(1, (size - 64) - 12)).pitch
