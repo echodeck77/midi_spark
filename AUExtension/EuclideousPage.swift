@@ -51,9 +51,13 @@ enum EuclideousGestureTab: Int, CaseIterable { case hitsOffset = 0, velocityGate
 
 /// PER-LANE TABS (Paul 2026-10-07): PATTERN/RIFF/MASK, switching independently per lane — replaces
 /// the old always-visible stacked DIRECTION/HIT-MISS-RATE/RIFF-direction rows with one tabbed slot.
+/// I/O (Paul 2026-10-08) joins as the FIRST tab — per-lane MIDI IN/KEY/CHORDS source + the lane's own OUT
+/// toggles (moved here from their old always-visible placement below every tab, see `laneCard`). This enum's
+/// `laneTab` state is purely ephemeral (never persisted), so reordering its raw values here has no migration
+/// concern — a fresh page open still starts every lane on PATTERN (unchanged default), I/O just sits first.
 enum EuclideousLaneTab: Int, CaseIterable {
-    case pattern = 0, riff = 1, mask = 2
-    var label: String { switch self { case .pattern: "PATTERN"; case .riff: "RIFF"; case .mask: "MASK" } }
+    case io = 0, pattern = 1, riff = 2, mask = 3
+    var label: String { switch self { case .io: "I/O"; case .pattern: "PATTERN"; case .riff: "RIFF"; case .mask: "MASK" } }
 }
 
 struct EuclideousPage: View {
@@ -74,8 +78,12 @@ struct EuclideousPage: View {
     let resetSpanBars: Int
     let keyRoot: Int
     let keyType: ScaleType
-    let riffSourceMidi: Bool
-    let lanesSourceMidi: Bool
+    // PER-LANE I/O (Paul 2026-10-08): the old GLOBAL riffSourceMidi/lanesSourceMidi switches + their setters
+    // are REMOVED from this view entirely — each lane now owns its own MIDI IN/KEY/CHORDS choice directly on
+    // EuclidLine (sourceMode), edited via the SAME generic `onEdit` every other per-lane field already uses
+    // (see `ioSourceRow`) — no separate onSet* closure needed for this feature at all. The riff's own pool
+    // now follows LANE 1's choice entirely in the ENGINE (SnapshotBuilder) — this view has no control for it
+    // and no visibility into it either; see `riffGridView`'s own header note.
     let mainOutMask: UInt8
     let clock: EuclidLiveClock
     let onEdit: (@escaping (inout [EuclidLine]) -> Void) -> Void
@@ -84,8 +92,6 @@ struct EuclideousPage: View {
     let onSetResetSpanBars: (Int) -> Void
     let onSetKeyRoot: (Int) -> Void
     let onSetKeyType: (ScaleType) -> Void
-    let onSetRiffSourceMidi: (Bool) -> Void
-    let onSetLanesSourceMidi: (Bool) -> Void
     let onSetMainOutMask: (UInt8) -> Void
     let onClose: () -> Void
 
@@ -354,6 +360,9 @@ struct EuclideousPage: View {
 
     // MARK: - Header row 2: KEY + LANES source (Paul 2026-10-07, §2.4)
 
+    // PER-LANE I/O (Paul 2026-10-08): the old trailing "LANES [KEY|MIDI]" global switch is REMOVED — each lane
+    // now picks its own source independently, in its own I/O tab (`ioSourceRow`). This row is just the KEY
+    // picker now, left-hugging via the trailing Spacer.
     private func headerRow2(_ scale: CGFloat) -> some View {
         HStack(spacing: max(4, 8 * scale)) {
             Text("KEY").font(.system(size: max(7, 10 * scale), weight: .heavy, design: .monospaced))
@@ -367,10 +376,7 @@ struct EuclideousPage: View {
                 .contentShape(Rectangle())
                 .onTapGesture { keyPopupOpen = true }
             keyStepButton("+", scale)
-            Spacer(minLength: 4)
-            Text("LANES").font(.system(size: max(7, 10 * scale), weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4)).lineLimit(1).minimumScaleFactor(0.6).fixedSize()
-            sourceSwitch(lanesSourceMidi, onSetLanesSourceMidi, scale)
+            Spacer()
         }
     }
 
@@ -421,25 +427,6 @@ struct EuclideousPage: View {
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
-    /// Shared KEY|MIDI segmented switch (Paul 2026-10-07) — ONE implementation serving both header row 2's
-    /// LANES switch and the riff panel's own SOURCE switch, so the two can't visually drift apart.
-    private func sourceSwitch(_ midiOn: Bool, _ onSet: @escaping (Bool) -> Void, _ scale: CGFloat = 1) -> some View {
-        HStack(spacing: 2) {
-            sourceSegButton("KEY", on: !midiOn, scale) { onSet(false) }
-            sourceSegButton("MIDI", on: midiOn, scale) { onSet(true) }
-        }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
-    }
-    private func sourceSegButton(_ label: String, on: Bool, _ scale: CGFloat, action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: max(8, 11 * scale), weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.6)
-            .frame(width: max(38, 50 * scale), height: max(22, 28 * scale))
-            .background(RoundedRectangle(cornerRadius: 8).fill(on ? Color.white.opacity(0.9) : Color.clear))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: action)
-    }
-
     // MARK: - Lane grid (Paul 2026-10-07, §2.8: square boxes — Paul 2026-10-08, ferry §3: sized from whatever
     // box the orientation-specific layout above hands it, never assumed)
 
@@ -470,7 +457,6 @@ struct EuclideousPage: View {
         // few points on every tab switch. Raising the shared floor to 36 (rather than shrinking MASK's touch
         // targets down to 30) keeps all three tabs' content height IDENTICAL.
         let contentLineH: CGFloat = 36
-        let outRowH: CGFloat = 34
         let steps = max(2, min(16, line.steps))
         let rotateStepPt = euclidBoxGeometry(n: steps, usableWidth: max(1, (size - 64) - 12)).pitch
         VStack(alignment: .leading, spacing: 6) {
@@ -488,8 +474,6 @@ struct EuclideousPage: View {
                 .frame(maxHeight: .infinity)
             laneTabRow(idx, line, accent, rowH: tabRowH)
             tabContent(idx, line, tab, accent, cellSize: padSize, rowH: contentLineH, fullWidth: size)
-            laneOutRow(idx, line, accent: accent)
-                .frame(height: outRowH)
         }
         .padding(8)
         .frame(width: size, height: size)
@@ -595,7 +579,8 @@ struct EuclideousPage: View {
                 // on for the lane — PATTERN never shows one (it's always "on"). MASK's "on" reads as "this
                 // lane has a mask configured at all" (line.mask != nil), the literal translation of the
                 // ratified mockup's own `!!d.mask` check — there's no further "effect enabled" concept yet
-                // since the mask's effect itself is deferred (§4.1).
+                // since the mask's effect itself is deferred (§4.1). I/O (Paul 2026-10-08) never shows one
+                // either — a lane always has SOME source, there's no "on/off" state to flag.
                 let dotOn: Bool = t == .riff ? line.useRiffResolved : (t == .mask ? (line.mask != nil) : false)
                 HStack(spacing: 5) {
                     Text(t.label).font(.system(size: 11, weight: .heavy, design: .monospaced))
@@ -617,6 +602,11 @@ struct EuclideousPage: View {
 
     @ViewBuilder private func tabContent(_ idx: Int, _ line: EuclidLine, _ tab: EuclideousLaneTab, _ accent: Color, cellSize: CGFloat, rowH: CGFloat, fullWidth: CGFloat) -> some View {
         switch tab {
+        case .io:
+            VStack(spacing: 2) {
+                ioSourceRow(idx, line, accent, rowH: rowH)
+                laneOutRow(idx, line, accent: accent).frame(height: rowH)
+            }
         case .pattern:
             VStack(spacing: 2) {
                 directionRow(idx, line, accent, cellSize: cellSize, rowH: rowH)
@@ -834,11 +824,37 @@ struct EuclideousPage: View {
                                   secondary: "OCT \(oct > 0 ? "+" : "")\(oct)", point: point)
     }
 
+    // MARK: - The I/O tab (Paul 2026-10-08): per-lane MIDI IN | KEY | CHORDS + the lane's own OUT toggles
+
+    /// MIDI IN | KEY | CHORDS (Paul 2026-10-08) — replaces the old page-level GLOBAL "LANES KEY|MIDI" switch:
+    /// each lane now picks its own source independently (`EuclidLine.sourceMode`). CHORDS reads whichever
+    /// receiver (if any) is configured as a CHORD door — resolved entirely in the engine (SnapshotBuilder);
+    /// this control has no idea which receiver that is, and there's deliberately no picker for it (no
+    /// receiver-picking UI returns to this page). Same 3-equal-width-button visual language as `directionRow`.
+    private func ioSourceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
+                let on = line.sourceModeResolved == src
+                let label = src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS")
+                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity).frame(height: rowH)
+                    .background(on ? accent.opacity(0.55) : Color.white.opacity(0.06))
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit(idx) { $0.sourceMode = src } }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
     // MARK: - OUT row (Paul 2026-10-07, §2.8/§3: smaller toggles, NO OUTPUT, dashed/hollow main-held chips)
 
-    /// `laneControls` from the pre-rework page collapses to just this one row now — the two `EuclidBeacon`
-    /// calls that used to sit above it are REMOVED entirely (§2.8: "remove the hit/miss beacons"). Fixed at
-    /// 30pt (ferry §3: "do not make lane OUT... any smaller than they are now") regardless of any outer scale.
+    /// `laneControls` from the pre-rework page collapses to just this one row — the two `EuclidBeacon` calls
+    /// that used to sit above it are REMOVED entirely (§2.8: "remove the hit/miss beacons"). Fixed at 30pt
+    /// (ferry §3: "do not make lane OUT... any smaller than they are now") regardless of any outer scale.
+    /// MOVED (Paul 2026-10-08) into the lane's own new I/O tab, row 2 — no longer always-visible below every
+    /// tab; switching to PATTERN/RIFF/MASK hides it, by design ("a new tab for input/output... the four
+    /// emitter toggles on the second row").
     @ViewBuilder private func laneOutRow(_ idx: Int, _ line: EuclidLine, accent: Color) -> some View {
         let mask = line.emitterMask ?? 0
         HStack(spacing: 5) {
@@ -931,12 +947,14 @@ struct EuclideousPage: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Text("RIFF").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                Text("8 STEPS · SHARED BY EVERY LANE WITH RIFF ON")
+                // PER-LANE I/O (Paul 2026-10-08): the riff's own "SOURCE KEY|MIDI" switch is REMOVED — its pool
+                // now FOLLOWS LANE 1's own I/O choice entirely in the engine (SnapshotBuilder), per Paul's
+                // ruling. No control, no indicator here beyond this note — a deliberate consequence named
+                // plainly, not hidden: changing lane 1's source silently changes what the riff sounds like too.
+                Text("8 STEPS · SHARED BY EVERY LANE WITH RIFF ON · FOLLOWS LANE 1'S SOURCE")
                     .font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                     .lineLimit(1).minimumScaleFactor(0.6)
                 Spacer(minLength: 8)
-                Text("SOURCE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                sourceSwitch(riffSourceMidi, onSetRiffSourceMidi)
             }
             HStack(spacing: cellGap) {
                 ForEach(0..<n, id: \.self) { col in

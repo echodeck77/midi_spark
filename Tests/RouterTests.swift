@@ -5418,63 +5418,70 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(notes.allSatisfy { pool.contains(UInt8($0)) }, "every DRUNK-resolved note must come from the held pool")
         XCTAssertGreaterThan(Set(notes).count, 1, "a random walk over many hits must visit more than one position, not stay stuck at the start")
     }
-    // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the riff's own pool is now a SEPARATE global receiver (index 0,
-    // "receiver 1") from the lanes' own pool (hardcoded to index 3, "receiver 4") — both resolved independently
-    // of whatever the cell's own inputReceiver happens to be. This split only engages on Snap.euclideousRow —
-    // every other row keeps reading ONE pool for both (see the fallback in Router.swift's `.euclid` case,
-    // proven safe by the testEuclidLineUseRiff* tests above, all placed at row 0, all still green).
-    func testEuclideousRiffPoolResolvesFromReceiverZeroIndependentOfLanesReceiverThree() {
+    // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES this test's original premise — the riff was once hardcoded to
+    // a FIXED separate receiver (index 0, "receiver 1"), independent of any lane. It now instead FOLLOWS
+    // LANE 1's (array index 0's) own sourceMode, whatever that happens to be — so riff and "the lanes pool"
+    // CAN still diverge, just not for the old fixed reason. Rewritten (not deleted) to prove the still-true
+    // part of the original claim under the new mechanism, PLUS the one subtlety the old test couldn't
+    // exercise: a DIFFERENT line (lane 1, array index 1) can be the one consuming useRiff, and its OWN
+    // sourceMode (here deliberately set to KEY, which would silence it if it mattered) is irrelevant — only
+    // lane 0's choice ever governs the riff's shared pool.
+    func testEuclideousRiffPoolIsGovernedByLane1EvenWhenADifferentLaneConsumesIt() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
         c.paramsA.euclidLines = [
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low),   // lane 0: plain pick — the LANES pool
-            EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true),   // lane 1: useRiff — the RIFF pool
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),   // lane 0 ("lane 1"): CHORDS — governs the riff pool too
+            EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .key),       // lane 1: useRiff; its OWN sourceMode (KEY) must be ignored for riff purposes
         ]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
                                   var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
-        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
+        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 3, doorMode: .chord), Receiver(name: "3"), Receiver(name: "4")]
         let pool = NotePool()
-        pool.noteOn(72, velocity: 100, channel: 0)   // wire ch 0 → receiver[0] (ch 1) — the RIFF source
-        pool.noteOn(60, velocity: 100, channel: 1)   // wire ch 1 → receiver[3] (ch 2) — the LANES source
+        pool.noteOn(72, velocity: 100, channel: 0)   // wire ch 0 → receiver[0] (ch 1) — the OLD fixed riff source; must NOT feed anything now
+        pool.noteOn(67, velocity: 100, channel: 2)   // wire ch 2 → receiver[1] (ch 3), the CHORD door — lane 0's own source
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        XCTAssertTrue(notes.contains(60), "lane 0 (plain LOW pick) must read the LANES pool — receiver index 3 (wire ch 1)")
-        XCTAssertTrue(notes.contains(72), "lane 1 (useRiff) must read the RIFF pool — receiver index 0 (wire ch 0) — independent of the lanes' own receiver")
+        XCTAssertTrue(notes.contains(67), "both lane 0's own pick AND the riff (consumed by lane 1) must read the CHORD door — riff follows lane 1's own choice regardless of which line actually has useRiff on")
+        XCTAssertFalse(notes.contains(72), "the old fixed receiver-0 default must no longer feed anything")
     }
+    // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES the old global `euclideousRiffSourceMidi` switch this test
+    // used to set — riff's source now follows LANE 1's (array index 0's) own `sourceMode` directly. Rewritten,
+    // not deleted, keeping this test's narrow single-concern focus (distinct from the broader multi-lane
+    // independence test alongside it).
     func testEuclideousRiffKeyModeYieldsEmptyPoolNotMidiFallback() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true)]
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .key)]   // lane 0 ("lane 1") KEY — must silence the riff it governs
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
                                   var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        st.euclideousRiffSourceMidi = false   // KEY mode — must NOT silently fall back to MIDI
         let pool = NotePool(); pool.noteOn(72, velocity: 100, channel: 0)   // real MIDI present on receiver[0]'s own channel
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "KEY mode must yield a genuinely empty riff pool, not silently fall back to the MIDI receiver")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "KEY mode on lane 1 must yield a genuinely empty riff pool, not silently fall back to MIDI")
     }
+    // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES the old global `euclideousLanesSourceMidi` switch this test
+    // used to set — each lane's own `sourceMode` governs it now. Rewritten, not deleted.
     func testEuclideousLanesKeyModeYieldsEmptyPoolNotMidiFallback() {
         var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low)]
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
                                   var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        st.euclideousLanesSourceMidi = false   // KEY mode on the lanes' own switch
         let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
-        XCTAssertTrue(e.ons.isEmpty, "KEY mode on the lanes' own switch must silence the lane, not fall back to MIDI")
+        XCTAssertTrue(e.ons.isEmpty, "a lane's own sourceMode set to KEY must silence it, not fall back to MIDI")
     }
     // EUCLIDEOUS PAGE REWORK: `mainOutMask` is a GLOBAL master gate applied AFTER chopMask's full result, not
     // pre-masked into `base` — proven by two cases, a plain strike and a CHOP-ALT-routed one, since CHOP-ALT
@@ -5586,7 +5593,11 @@ final class RouterTests: XCTestCase {
                                       s.stepRate = .r1_8
                                       s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                       return s }()])
-            st.receivers = [Receiver(name: "1")]   // the riff's own pool resolves from receiver 0 — empty without this, confirmed by the same gap the earlier useRiff pool-split tests hit
+            // PER-LANE I/O (Paul 2026-10-08): riff now follows LANE 1's own sourceMode (nil ⇒ MIDI ⇒ receiver
+            // INDEX 3, "receiver 4") — a realistic 4-entry array, matching every real document the app ever
+            // produces (receivers are always created as a fixed set of 4), not the old single-entry array
+            // this line used when riff was still hardcoded to a fixed receiver INDEX 0 directly.
+            st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
             st.euclideousResetSpanBars = 1
             let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
@@ -5598,6 +5609,77 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(twoBars.count, 16, "two bars must produce exactly 16 hits")
         XCTAssertEqual(Array(twoBars.prefix(8)), bar1, "bar 1 of the 2-bar run must match the standalone 1-bar run exactly (same seed, same starting state)")
         XCTAssertEqual(Array(twoBars.suffix(8)), bar1, "bar 2 must ALSO replay bar 1's exact rank sequence — proving the span boundary hard-reset DRUNK's walk back to its starting state, not merely let it continue wandering")
+    }
+    // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): each lane now independently resolves MIDI IN / KEY /
+    // CHORDS via EuclidLine.sourceMode — supersedes the old page-level GLOBAL "LANES KEY|MIDI" switch.
+    // CHORDS resolves to whichever receiver is configured DoorMode.chord; Router.swift has no special-casing
+    // for how a note arrived (a real chord door's own live-note synthesis is a Kernel-level concern, never
+    // reached from this test harness) — so a plain `pool.noteOn` on that receiver's channel faithfully
+    // exercises the same read path a live chord door would feed, matching this file's own established
+    // convention for testing a receiver's live notes (see testEuclideousRiffKeyModeYieldsEmptyPoolNotMidi-
+    // Fallback's identical reasoning for the riff's own MIDI source).
+    func testEuclideousLanesEachResolveTheirOwnIndependentSourceMode() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low),                       // lane 0: nil ⇒ MIDI (receiver 3), unchanged default
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),  // lane 1: CHORDS
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key),     // lane 2: KEY — must stay silent
+        ]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
+                                  s.cells[0][Snap.euclideousRow] = cell
+                                  return s }()])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2", channel: 5, doorMode: .chord), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 1)   // wire ch 1 → receiver[3] (ch 2) — the MIDI lane's source
+        pool.noteOn(67, velocity: 100, channel: 4)   // wire ch 4 → receiver[1] (ch 5), the CHORD door — the CHORDS lane's source
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notes.contains(60), "lane 0 (default/MIDI) must still read receiver index 3 — unchanged from before this feature")
+        XCTAssertTrue(notes.contains(67), "lane 1 (CHORDS) must read the chord-door receiver's own notes, independent of the MIDI lane's pool")
+        XCTAssertEqual(notes.count, 2, "lane 2 (KEY) must contribute nothing — genuinely silent, not a stray third note")
+    }
+    // The RETIRED global `euclideousLanesSourceMidi` switch must no longer have ANY effect — only each lane's
+    // own `sourceMode` governs its source now. A real regression risk on upgrade if this weren't true: an old
+    // saved doc with the global switch set to KEY would otherwise silently mute every lane that never touches
+    // the new per-lane field.
+    func testEuclideousRetiredGlobalLanesSwitchNoLongerAffectsAnyLane() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low)]   // sourceMode untouched ⇒ nil ⇒ MIDI
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
+                                  s.cells[0][Snap.euclideousRow] = cell
+                                  return s }()])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        st.euclideousLanesSourceMidi = false   // the OLD global switch, set to its "KEY" value — must now have NO effect
+        let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertFalse(e.ons.filter { $0.cable == 1 }.isEmpty, "an untouched lane must still sound via MIDI — the retired global switch must not silence it anymore")
+    }
+    // The riff's own pool now FOLLOWS LANE 1's own source choice (Paul's ruling, "the riff reads from lane 1's
+    // own I/O choice") instead of its old separate, fixed receiver-0 global switch.
+    func testEuclideousRiffPoolFollowsLane1sOwnSourceChoice() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .chords)]   // lane 0 ("lane 1"): CHORDS — the riff must follow THIS
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
+                                  s.cells[0][Snap.euclideousRow] = cell
+                                  return s }()])
+        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 3, doorMode: .chord), Receiver(name: "3"), Receiver(name: "4")]
+        let pool = NotePool()
+        pool.noteOn(72, velocity: 100, channel: 0)   // wire ch 0 → receiver[0] (ch 1) — the OLD fixed riff source; must NOT sound now
+        pool.noteOn(67, velocity: 100, channel: 2)   // wire ch 2 → receiver[1] (ch 3), the CHORD door — lane 0's new source; MUST sound
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notes.contains(67), "the riff must sound from lane 1's own CHORDS source (the chord-door receiver)")
+        XCTAssertFalse(notes.contains(72), "the riff must NOT sound from the old fixed receiver-0 source anymore")
     }
     func testEuclidLinesPerLinePick() {
         // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick.

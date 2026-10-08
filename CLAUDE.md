@@ -196,6 +196,81 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a new per-lane I/O TAB (MIDI IN · KEY · CHORDS + the lane's own OUT toggles), replacing
+  the GLOBAL "LANES KEY|MIDI" switch and the riff's own "SOURCE KEY|MIDI" switch entire (2026-10-08, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1236 green incl. +4 new/+3 rewritten, iOS builds
+  clean). Paul: "I a new tab for input/output per lane control, as the first tab. It will have midi in/key/
+  chords on the first row, and the four emitter toggles on the second row. Get rid of the similar controls on
+  the header and riff." Three real decisions needed before any code, asked via AskUserQuestion rather than
+  guessed (wrong guesses here meant real engine rework, not a UI redo): **CHORDS = a receiver configured as a
+  CHORD door** (not a key-built chord); **MIDI IN/KEY/CHORDS are independent PER LANE** (not a relocated
+  single global value); **the riff's shared pool now FOLLOWS LANE 1's own choice** (not a fixed receiver, not
+  its own separate control). **ENGINE (the real work — the UI tab itself is thin):** new `EuclideousLaneSource`
+  enum (`midi`/`key`/`chords`) + `EuclidLine.sourceMode: EuclideousLaneSource?` (nil ⇒ `.midi`, threaded
+  through all 4 EuclidLine sites — struct/decoder/resolved-accessor/SnapshotBuilder's fresh-literal rebuild,
+  this file's own standing hazard checklist). Needed NO separate MachineParams/PluginState hop — `EuclidLine`
+  already flows PluginState→(composeSceneMeta)→MachineParams→(resolve())→SnapParams end-to-end for every other
+  per-lane field (`useRiff`/`mask`/etc.), so `sourceMode` rides the same path for free. **NEW `SnapParams.
+  laneSrcChanMasks: [UInt16]`** (4 entries, Euclideous's row only) resolved in SnapshotBuilder's existing
+  post-hoc receiver block (same spot `riffSrcChanMask` already lived, since both need `doc.receivers`, which
+  `resolve()` itself has no row-aware access to): MIDI = the unchanged lanes receiver (index 3, "receiver 4");
+  CHORDS = the first receiver found with `doorModeResolved == .chord` (no picker for WHICH one — no receiver-
+  picking UI returns to this page, by design; an unconfigured CHORDS lane is honestly silent); KEY = 0, silent
+  (§4.4's KEY-mode pool mapping stays unresolved, untouched by this feature). `riffSrcChanMask` is now simply
+  `laneMasks.first ?? 0` — lane 1's own resolved mask, not a second independent computation. **ROUTER.SWIFT,
+  the real surgery:** `.euclid` previously filled ONE shared `srcNoteBuf`/`srcNoteCount` pool per CELL, used
+  by all 4 lines alike — now a NEW `fillLaneSrcFromPool` (mirrors the existing `fillRiffSrcFromPool` exactly)
+  fills 4 INDEPENDENT buffers (`laneSrcBuf`/`laneSrcCount`, fixed-size, no render-thread allocation), one per
+  lane, from that lane's own resolved chanMask — gated `isEuclideousRow`, so every OTHER `.euclid` cell
+  anywhere else in the grid (the regular BUILD-page processor) keeps reading the single shared pool exactly as
+  before, byte-identical. `resolveEuclidPick` gained an explicit `count:` parameter (was a closure-captured
+  shared `srcCount`); `strikeChord` gained an optional `srcOverride` (nil for every non-Euclideous caller,
+  byte-identical) so the HIT/MISS pick-and-strike calls inside `runEuclidLine` can target the CALLING line's
+  own pool, not the cell's. **A REAL REGRESSION CAUGHT BY THE TEST SUITE, not inspection:** the first cut
+  defaulted `laneCount`/`laneNotes` to the per-lane buffers whenever `isEuclideousRow`, full stop — broke 2
+  existing reset-span tests that never configure `doc.receivers` at all. Traced to the pre-existing LEGACY
+  fallback (no receivers configured ⇒ the cell's own `inputChanMask` resolves to OMNI `0xFFFF` via a
+  completely different code path) having no equivalent in the new per-lane world — SnapshotBuilder's post-hoc
+  block skips entirely when `doc.receivers` is nil/empty, leaving `laneSrcChanMasks` at its empty default,
+  which read as "every lane's mask is 0" (silent) instead of falling back to that legacy OMNI pool. Fixed by
+  gating the per-lane path on `!p.laneSrcChanMasks.isEmpty` too — empty ⇒ every lane transparently falls back
+  to the shared `srcCount`/`srcNotes`, restoring the pre-existing no-receivers-configured behaviour exactly.
+  **3 PRE-EXISTING TESTS REWRITTEN, not left broken or silently deleted** (their premises were genuinely
+  superseded, not merely stale): `testEuclideousRiffPoolResolvesFromReceiverZeroIndependentOfLanesReceiverThree`
+  asserted riff was FIXED to receiver index 0 regardless of the lanes — now rewritten as `…IsGovernedByLane1-
+  EvenWhenADifferentLaneConsumesIt`, proving the still-true spirit of the original claim (riff and a lane CAN
+  read different pools) under the new mechanism, PLUS the one new subtlety it exposes: a useRiff-line's OWN
+  sourceMode is irrelevant to what the riff plays — only lane 1's (array index 0's) choice ever governs it,
+  confirmed by setting the CONSUMING line's own sourceMode to KEY and showing it's ignored. The two KEY-mode-
+  yields-silence tests (riff's and the lanes') had set the now-fully-RETIRED global switches
+  (`euclideousRiffSourceMidi`/`euclideousLanesSourceMidi`) — rewritten to set the new per-line `sourceMode:
+  .key` directly instead, same narrow single-concern assertions. **+4 NEW tests:** per-lane independence (3
+  lanes, 3 different sourceModes, 3 genuinely different outcomes incl. KEY's silence) · the retired global
+  `euclideousLanesSourceMidi` switch is now provably inert (set to its old "KEY" value, confirm an untouched
+  lane still sounds via MIDI anyway) · `sourceMode` survives the SnapshotBuilder fresh-literal rebuild +
+  defaults to MIDI when untouched. **UI (EuclideousPage.swift):** `EuclideousLaneTab` gains `.io` as case 0
+  (PATTERN/RIFF/MASK shift to 1/2/3 — harmless, this state is purely ephemeral/never persisted); new
+  `ioSourceRow` (3 equal buttons, same visual language as `directionRow`, editing `sourceMode` via the SAME
+  generic `edit(idx){...}` every other per-lane field already uses — no new onEdit/AU plumbing needed for this
+  half of the feature at all) + the EXISTING `laneOutRow` MOVED here as row 2 (was always-visible below every
+  tab; now only visible on the I/O tab — a direct, named consequence of "a new tab for input/output," not an
+  accident). Removed: header row 2's trailing "LANES" switch (now just the KEY picker, left-hugging) and the
+  riff panel's own "SOURCE" switch (its subtitle now reads "...FOLLOWS LANE 1'S SOURCE" so the dependency
+  isn't invisible); the now-fully-unused `sourceSwitch`/`sourceSegButton` helpers deleted outright (confirmed
+  zero remaining call sites before removing). `riffSourceMidi`/`lanesSourceMidi`/`onSetRiffSourceMidi`/
+  `onSetLanesSourceMidi` dropped from `EuclideousPage`'s own parameter list; the underlying `@State` vars +
+  their AU getter/slow-timer-resync plumbing in `AudioUnitViewController.swift` are LEFT IN PLACE, just
+  unreachable from this call site — decode-safety for an old saved doc, matching how `euclideousReceiver` was
+  handled when its own control was dropped. **FLAGGED MISMATCHES, named plainly rather than absorbed:** the
+  lane's own OUT toggles are no longer always-visible — switching to PATTERN/RIFF/MASK now hides them
+  entirely, which is exactly what was asked but is a real, visible behaviour change from before; the riff's
+  source has NO visible control or indicator beyond one line of header subtitle text — changing lane 1's own
+  I/O silently changes what the riff sounds like, with nothing on screen pointing at why; CHORDS needs an
+  ACTUAL receiver already configured as a chord door somewhere in the document, or it's honestly silent, not a
+  guessed substitute — there is deliberately no in-page way to tell which receiver (if any) is currently
+  serving that role. **DEVICE-OWED:** the new tab's 3-button row legibility at real lane-card width; confirm a
+  CHORDS-mode lane genuinely tracks a live chord-door progression, not just a static pool; confirm the OUT-
+  toggles-now-tab-gated change doesn't read as "where did my routing go" on first touch.**
 - **▶ EUCLIDEOUS — a cog setting controls which view a FRESH plugin instance opens into (2026-10-08, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no warnings in the touched files; no macOS
   test-target reach — pure UI/@AppStorage glue; DEVICE eye owed). Context: Paul asked whether Euclideous was

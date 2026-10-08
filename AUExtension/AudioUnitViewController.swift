@@ -928,7 +928,12 @@ struct DiagView: View {
                                    lineReady: euclideousLineReady,
                                    riff: euclideousRiff, riffPositions: euclideousRiffPositions, riffLivePool: euclideousRiffLivePool,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
-                                   riffSourceMidi: euclideousRiffSourceMidi, lanesSourceMidi: euclideousLanesSourceMidi,
+                                   // PER-LANE I/O (Paul 2026-10-08): riffSourceMidi/lanesSourceMidi no longer passed —
+                                   // each lane now owns its own source directly on EuclidLine (sourceMode), edited via
+                                   // the existing generic onEdit below; euclideousRiffSourceMidi/euclideousLanesSourceMidi
+                                   // (the @State vars + their AU getter/setter plumbing) stay in place, just unreachable
+                                   // from this call site — decode-safety for an old saved doc, matching how
+                                   // euclideousReceiver was handled when ITS control was dropped.
                                    mainOutMask: euclideousMainOutMask,
                                    clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying),
                                    onEdit: { mutate in
@@ -963,16 +968,6 @@ struct DiagView: View {
                                    onSetKeyType: { v in
                                        euclideousKeyType = v
                                        au?.editDocument { $0.euclideousKeyType = v }
-                                       buildPublishScene()
-                                   },
-                                   onSetRiffSourceMidi: { v in
-                                       euclideousRiffSourceMidi = v
-                                       au?.editDocument { $0.euclideousRiffSourceMidi = v }
-                                       buildPublishScene()
-                                   },
-                                   onSetLanesSourceMidi: { v in
-                                       euclideousLanesSourceMidi = v
-                                       au?.editDocument { $0.euclideousLanesSourceMidi = v }
                                        buildPublishScene()
                                    },
                                    onSetMainOutMask: { v in

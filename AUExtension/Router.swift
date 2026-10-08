@@ -628,6 +628,21 @@ final class Router {
             riffSrcNoteBuf[riffSrcNoteCount] = (Int(n), pool.velocity(n)); riffSrcNoteCount += 1
         }
     }
+    // PER-LANE I/O (Paul 2026-10-08): each Euclideous lane now independently resolves MIDI IN / KEY / CHORDS —
+    // mirrors `fillRiffSrcFromPool` exactly, just one buffer PER LANE (0...3) instead of one shared buffer.
+    // Only ever filled/consulted for Euclideous's own reserved row (`laneCount`/`laneNotes` in `case .euclid:`
+    // gate this) — every other `.euclid` cell in the grid keeps reading the single shared `srcNoteBuf`/
+    // `srcNoteCount` exactly as before this feature, untouched.
+    private var laneSrcBuf = [[(note: Int, vel: UInt8)]](repeating: [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128), count: 4)
+    private var laneSrcCount = [Int](repeating: 0, count: 4)
+    private func fillLaneSrcFromPool(_ pool: NotePool, lane: Int, chanMask: UInt16) {
+        laneSrcCount[lane] = 0
+        let c = pool.srcCount(chanMask: chanMask, cableMask: 0b1111)
+        for k in 0..<c where laneSrcCount[lane] < laneSrcBuf[lane].count {
+            let n = pool.srcAscending(k, chanMask: chanMask, cableMask: 0b1111)
+            laneSrcBuf[lane][laneSrcCount[lane]] = (Int(n), pool.velocity(n)); laneSrcCount[lane] += 1
+        }
+    }
     // TICK DEDUP, keyed per (row, slot) not just per row (Paul 2026-10-05, fixing the timing smear investigated
     // and left open on 2026-10-03: "`lastTick[row]` is a SINGLE scalar SHARED across every line on this row —
     // safe for one real line; a known limitation for 2+ real lines sharing a row across a window boundary").
@@ -3782,7 +3797,11 @@ final class Router {
         // sufficient for that use. Since EuclidLine is shared with the existing, chainable BUILD-page EUCLID
         // processor too, a line with emitterMask SET there would also route independently of the cell's own
         // buses the moment a downstream processor exists — a disclosed, nil-default-safe consequence, not a bug.
-        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil) {
+        // PER-LANE I/O (Paul 2026-10-08): `srcOverride`, nil for every call site outside Euclideous's own
+        // per-lane loop — byte-identical for every other caller (ARP/RIFF/BURST/the lone-driver `.euclid` path
+        // elsewhere in the grid). Only the Euclideous per-line HIT/MISS pick calls below pass a real value
+        // (that lane's own resolved pool), so a chord can no longer be picked from the wrong lane's notes.
+        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil, srcOverride: ArraySlice<(note: Int, vel: UInt8)>? = nil) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             // EUCLIDEOUS PAGE REWORK (2026-10-07): a global MAIN OUT master gate, applied AFTER chopMask's
@@ -3811,7 +3830,8 @@ final class Router {
             // (an explicit note, or a srcNotes-indexed pick) run through identical transpose/octave/range/velocity/
             // downstream-fold-or-direct-emit logic — not a second, divergent copy of it.
             if let en = explicitNote { strikeOne(en, explicitVel ?? 100); return }
-            for (k, sn) in srcNotes.enumerated() {
+            let notes = srcOverride ?? srcNotes
+            for (k, sn) in notes.enumerated() {
                 if let only = onlyIndex, k != only { continue }
                 strikeOne(sn.note, sn.vel)
             }
@@ -3838,6 +3858,27 @@ final class Router {
             // (they differ by a shift of 2×rotate mod n), so this is a deliberate, tested composition order, not
             // an arbitrary one (see `testEuclidReverseFlipsReadIndexNotRebuiltBuffer`).
             let srcCount = srcNotes.count
+            // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): fill each lane's own pool BEFORE the readiness
+            // check below (which also needs the per-lane count now) — Euclideous's own reserved row only.
+            // Every other `.euclid` cell anywhere else in the grid keeps reading the single shared
+            // `srcNotes`/`srcCount` this file always has, via `laneCount`/`laneNotes`'s own fallback branch —
+            // byte-identical to before this feature, since `isEuclideousRow` is false there.
+            // `hasLaneChanMasks` is false whenever doc.receivers was nil/empty at build time (SnapshotBuilder's
+            // own guard skips resolving laneSrcChanMasks entirely in that case) — a pre-existing "no receivers
+            // configured at all" legacy shape that the cell's own OMNI fallback (sc.inputChanMask = 0xFFFF)
+            // already handles via the shared srcNotes/srcCount. Without this check, an empty laneSrcChanMasks
+            // would silently read as "every lane's chanMask is 0" (silent) instead of falling back to that
+            // legacy OMNI pool — caught by 2 existing reset-span RouterTests regressing (neither sets
+            // st.receivers at all), not by inspection.
+            let isEuclideousRow = r == Snap.euclideousRow
+            let hasLaneChanMasks = !p.laneSrcChanMasks.isEmpty
+            if isEuclideousRow && hasLaneChanMasks {
+                for i in 0..<4 {
+                    fillLaneSrcFromPool(pool, lane: i, chanMask: i < p.laneSrcChanMasks.count ? p.laneSrcChanMasks[i] : 0)
+                }
+            }
+            func laneCount(_ li: Int) -> Int { (isEuclideousRow && hasLaneChanMasks) ? laneSrcCount[li] : srcCount }
+            func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && hasLaneChanMasks) ? laneSrcBuf[li][0..<laneSrcCount[li]] : srcNotes }
             // SEQUENTIAL SOURCES (Paul 2026-10-02): when the slot immediately before this EUCLID (chainDriver, the
             // index of EUCLID's own slot since emitGeneratorRow only dispatches here for the chain's driver) is
             // exactly RIFF or ARP, and NOT bypassed, a line set to the matching noteSel steps through that
@@ -3888,14 +3929,14 @@ final class Router {
                                 hitOK = chainScratch.srcCount(filter: 0) > 0
                             }
                         } else if let rank = sel.specificRank {
-                            hitOK = srcCount >= rank
+                            hitOK = laneCount(li) >= rank
                         } else {
-                            hitOK = srcCount > 0
+                            hitOK = laneCount(li) > 0
                         }
                         if hitOK { ready |= UInt8(1 << (li * 2)) }
                     }
                     if let missSel = L.missNoteSel, missSel != .riff, missSel != .arp, L.missVelocityResolved > 0 {
-                        let missOK = missSel.specificRank.map { srcCount >= $0 } ?? (srcCount > 0)
+                        let missOK = missSel.specificRank.map { laneCount(li) >= $0 } ?? (laneCount(li) > 0)
                         if missOK { ready |= UInt8(1 << (li * 2 + 1)) }
                     }
                 }
@@ -3911,19 +3952,22 @@ final class Router {
             // CYCLE/RANDOM switch exists exactly once; RIFF/ARP are intentionally NOT handled here (they resolve
             // an explicit note via a separate mechanism entirely, and MISS never offers them — see the guard at
             // the MISS call site). A pure extraction of the pre-existing inline logic, not a behaviour change.
-            func resolveEuclidPick(_ sel: EuclidNoteSel, ord: Int64) -> (index: Int?, range: (lo: Int, hi: Int)?) {
+            // PER-LANE I/O (Paul 2026-10-08): `count` is now an explicit parameter (was the outer, cell-shared
+            // `srcCount`) — each call site passes `laneCount(lineIndex)`, so this resolves against whichever
+            // pool THAT lane actually reads (its own MIDI/KEY/CHORDS choice), not the cell's shared one.
+            func resolveEuclidPick(_ sel: EuclidNoteSel, ord: Int64, count: Int) -> (index: Int?, range: (lo: Int, hi: Int)?) {
                 if let rank = sel.specificRank { return (rank - 1, nil) }
                 switch sel {
                 case .all: return (nil, nil)
                 case .low: return (0, nil)
-                case .high: return (srcCount - 1, nil)
-                case .bottom2: return srcCount > 0 ? (nil, (0, min(1, srcCount - 1))) : (nil, nil)
-                case .top2: return srcCount > 0 ? (nil, (max(0, srcCount - 2), srcCount - 1)) : (nil, nil)
+                case .high: return (count - 1, nil)
+                case .bottom2: return count > 0 ? (nil, (0, min(1, count - 1))) : (nil, nil)
+                case .top2: return count > 0 ? (nil, (max(0, count - 2), count - 1)) : (nil, nil)
                 case .cycle, .random:
-                    guard srcCount > 0 else { return (nil, nil) }
+                    guard count > 0 else { return (nil, nil) }
                     let idx = sel == .cycle
-                        ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
-                        : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(srcCount))
+                        ? Int(((ord % Int64(count)) + Int64(count)) % Int64(count))
+                        : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(count))
                     return (idx, nil)
                 default: return (nil, nil)   // N1…N8 already resolved via specificRank above; .riff/.arp never reach here
                 }
@@ -4108,11 +4152,11 @@ final class Router {
                         // UTILITY/ARP); VELOCITY is a plain multiplier on the struck note's own inherited velocity,
                         // mirroring HARMONIZE's `harmVelScale` — nil resolves to 1.0, so an untouched lane is
                         // byte-identical to before this field existed.
-                        let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord)
+                        let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord, count: laneCount(lineIndex))
                         if let range = pickRange {
-                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave, busOverride: busOverride) }
+                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave, busOverride: busOverride, srcOverride: laneNotes(lineIndex)) }
                         } else {
-                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave, busOverride: busOverride)
+                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave, busOverride: busOverride, srcOverride: laneNotes(lineIndex))
                         }
                     } else if let missSel = missNoteSel {
                         // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — a REST step can now ALSO strike,
@@ -4131,11 +4175,11 @@ final class Router {
                         let effMisses = Int64(max(1, cycleLen - cycleHits))   // every cycle is hits+misses, so this is just the complement of effHits
                         var missesUpTo = 0; for s in 0...raw where !isHitAt(s) { missesUpTo += 1 }
                         let missOrd = cy * effMisses + Int64(missesUpTo - 1)
-                        let (pickIndex, pickRange) = resolveEuclidPick(missSel, ord: missOrd)
+                        let (pickIndex, pickRange) = resolveEuclidPick(missSel, ord: missOrd, count: laneCount(lineIndex))
                         if let range = pickRange {
-                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: idx, octave: missOctave, busOverride: busOverride) }
+                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: idx, octave: missOctave, busOverride: busOverride, srcOverride: laneNotes(lineIndex)) }
                         } else {
-                            strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: pickIndex, octave: missOctave, busOverride: busOverride)
+                            strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: pickIndex, octave: missOctave, busOverride: busOverride, srcOverride: laneNotes(lineIndex))
                         }
                     }
                 }

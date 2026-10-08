@@ -176,6 +176,11 @@ struct SnapParams {
     // since no other chain's SnapshotBuilder resolve path ever sets this).
     var mainOutMask: UInt8 = 0b1111
     var riffSrcChanMask: UInt16 = 0
+    // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): each of Euclideous's 4 lanes' own resolved channel mask
+    // (MIDI IN/CHORDS-door, or 0 for KEY/silent) — empty for every non-Euclideous `.euclid` cell. Router.swift
+    // falls back to the shared srcNotes/srcCount whenever this is empty or short, or the cell isn't Euclideous's
+    // own row — a safe no-op, matching riffSrcChanMask's own convention exactly.
+    var laneSrcChanMasks: [UInt16] = []
     var euclideousResetSpanBars: Int = 0   // 0 = OFF; resolved straight from doc.euclideousResetSpanBarsResolved, gated to Snap.euclideousRow
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
     var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns

@@ -144,6 +144,15 @@ enum KillStepMode: String, Codable, CaseIterable { case on = "ON", mute = "MUTE"
 // (K-of-N · ROTATE · INVERT) striking a TARGET (0 = ALL the chord, honouring the card's PICK · 1–8 = a specific pool
 // rank). Per-line STEPS = polyrhythm (kick/hat/pulse from one chord, one machine). Line 1 = today's single euclid; when
 // `euclidLines` is nil the engine uses the flat euclidPulses/Steps/Rot params (migration-invisible, byte-identical).
+/// PER-LANE I/O SOURCE (Paul 2026-10-08, the new I/O tab): each Euclideous lane independently picks where its
+/// notes come from. MIDI = the existing lanes receiver (index 3, "receiver 4") — unchanged from the old global
+/// LANES switch this replaces. KEY = the page's own global KEY pool — still genuinely silent today (§4.4's
+/// KEY-mode pool mapping remains unresolved by this feature). CHORDS = whichever receiver (if any) is
+/// configured as a CHORD door (DoorMode.chord) — resolved in SnapshotBuilder, which has the document access
+/// this enum's own cases don't carry; there's no picker for WHICH chord door, by design (no receiver-picking
+/// UI returns to this page) — an unconfigured CHORDS lane is honestly silent, not a guessed fallback.
+enum EuclideousLaneSource: String, Codable, CaseIterable { case midi, key, chords }
+
 struct EuclidLine: Codable, Equatable {
     var target: Int = 0      // 0 = ALL (honours PICK) · 1–8 = strike that pool rank (silent if the chord lacks it)
     var pulses: Int = 1      // K hits (Paul 2026-10-02: a fresh lane defaults to 1 of 8)
@@ -224,6 +233,14 @@ struct EuclidLine: Codable, Equatable {
     // must not alter the lane's output until that's designed). Carried wholesale into SnapParams, like
     // EuclidLine/EuclideousRiff themselves.
     var mask: EuclidLineMask? = nil
+    // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): replaces the old page-level GLOBAL "LANES KEY|MIDI"
+    // switch — each lane now independently picks MIDI IN / KEY / CHORDS. nil ⇒ .midi (byte-identical to every
+    // existing doc, which could only ever have used the old global switch's MIDI default anyway — the global
+    // switch's own KEY setting, if ever saved, doesn't migrate per-lane; see SnapshotBuilder's own note on
+    // this). CHORDS is resolved entirely in SnapshotBuilder (it needs doc.receivers, which this struct has no
+    // access to) — this field only names the CHOICE, not which receiver answers it.
+    var sourceMode: EuclideousLaneSource? = nil
+    var sourceModeResolved: EuclideousLaneSource { sourceMode ?? .midi }
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -292,6 +309,7 @@ extension EuclidLine {
         riffDirSeed = try c.decodeIfPresent(Int.self, forKey: .riffDirSeed)
         riffDirBias = try c.decodeIfPresent(Double.self, forKey: .riffDirBias)
         mask = try c.decodeIfPresent(EuclidLineMask.self, forKey: .mask)
+        sourceMode = try c.decodeIfPresent(EuclideousLaneSource.self, forKey: .sourceMode)
     }
 }
 // EUCLID MASK, PER LANE (Paul/design-channel 2026-10-07, ratified): a small, nested, effect-less step

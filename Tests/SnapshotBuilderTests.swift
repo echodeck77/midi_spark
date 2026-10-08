@@ -727,6 +727,24 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertNil(untouched.euclidLines[0].mask, "a line that never touched MASK must resolve with no mask at all")
     }
 
+    // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): sourceMode must thread through the fresh-literal
+    // EuclidLine rebuild like every other field here — the documented hazard spot a prior RATE-automation
+    // feature was bitten by.
+    func testEuclidLineSourceModeSurvivesSnapshotBuild() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, sourceMode: .chords)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(a.euclidLines[0].sourceMode, .chords, "sourceMode must survive the resolve, not silently reset")
+        // an untouched line defaults to nil ⇒ MIDI (byte-identical to every existing doc — the old global
+        // switch's default was also MIDI, and the old switch never had a way to express a per-lane KEY choice
+        // anyway, so nil⇒MIDI is the only migration-safe default)
+        let untouched = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
+        }) { _ in }.machines[0].a
+        XCTAssertNil(untouched.euclidLines[0].sourceMode, "a line that never touched I/O must resolve with sourceMode nil")
+        XCTAssertEqual(untouched.euclidLines[0].sourceModeResolved, .midi, "and resolve to MIDI, the safe default")
+    }
+
     // EUCLIDEOUS PAGE REWORK: the new GLOBAL main-out mask, mirroring emitterMask's own "only 4 bits meaningful" guard.
     func testEuclideousMainOutMaskResolvesAndMasksToFourBits() {
         let b = box(machines(customizing: 0) { $0.paramsA.mainOutMask = 0xFF }) { _ in }
