@@ -112,15 +112,30 @@ enum SnapshotBuilder {
                 // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): each of Euclideous's 4 lanes independently
                 // resolves MIDI IN / KEY / CHORDS via its own EuclidLine.sourceModeResolved — resolved HERE,
                 // post-hoc, since `resolve()` (which built sc.procs above, including each line's sourceMode)
-                // is a context-free MachineParams→SnapParams mapper with no doc.receivers access. MIDI IN is
-                // the UNCHANGED lanes receiver (index 3, "receiver 4"). CHORDS and KEY need no receiver mask at
-                // all now — CHORDS reads Euclideous's own on-page chord generator (resolved below, into the
-                // shared chords* fields), KEY stays silent (0, §4.4 unresolved) — so `laneMasks` only ever
-                // carries a MEANINGFUL value for MIDI-mode lanes; Router.swift branches on `sourceModeResolved`
-                // directly rather than trusting a chanMask for the other two.
-                if r == Snap.euclideousRow, !sc.procs.isEmpty, let recs = doc.receivers, !recs.isEmpty {
-                    let midiLaneMask: UInt16 = recs.count > 3 && !recs[3].muted ? recs[3].channelMaskResolved : 0
-                    sc.procs[0].laneSrcChanMasks = sc.procs[0].euclidLines.map { $0.sourceModeResolved == .midi ? midiLaneMask : 0 }
+                // is a context-free MachineParams→SnapParams mapper with no doc.receivers access.
+                //
+                // MIDI IN = OMNI across the WHOLE live pool, unconditionally — NOT one specific receiver index
+                // (Paul 2026-10-09, 2nd report: "midi in does nothing"). This file previously hardcoded receiver
+                // index 3 ("receiver 4") — my own unverified reading of the design spec's prose ordering during
+                // planning, FLAGGED AT THE TIME as an assumption needing confirmation, never actually confirmed.
+                // That guess silently mismatched whatever receiver Paul actually routes his controller into — and
+                // per this file's own factory-rig convention (`Receiver.defaultChordSeqs`'s neighbouring doc:
+                // "D → SCALE door... C → CHORD door"), receiver D/index 3 is typically ALREADY CLAIMED by a
+                // self-arming SCALE door, not free for a user's live MIDI at all — which is exactly how the
+                // FIRST report happened ("plays something even with nothing plumbed in": a self-arming door's
+                // synthesized content leaking through `effectivePool`'s substitution) and, once that leak was
+                // fixed to read genuinely-live input instead (Router.swift's `livePool`, not the substituted
+                // `pool`), why it then went silent (no real MIDI controller was ever plugged into THAT specific
+                // receiver to begin with). Rather than guess a THIRD specific index, MIDI IN now means exactly
+                // what it says: any live note reaching the plugin, full stop — independent of this document's
+                // receiver/door graph entirely, matching Euclideous's own standing design as a self-contained
+                // instrument page (this file's own top-of-file comment). CHORDS and KEY need no receiver mask
+                // at all — CHORDS reads Euclideous's own on-page chord generator (resolved below, into the
+                // shared chords* fields); KEY reads a scale pool DERIVED from that same page-level KEY picker
+                // (Router.swift's `.key` branch, fixed the same day this comment was written — see its own
+                // note there for why it was previously silent).
+                if r == Snap.euclideousRow, !sc.procs.isEmpty {
+                    sc.procs[0].laneSrcChanMasks = sc.procs[0].euclidLines.map { $0.sourceModeResolved == .midi ? 0xFFFF : 0 }
                 }
                 // RESET SPAN (Paul 2026-10-08, §2.2): a SEPARATE, independent guard from the block above — this
                 // has nothing to do with receivers, so it must not be skipped just because none are configured.

@@ -5518,27 +5518,33 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(pos, zero, "positive tilt must pull the average onset LATER")
     }
     // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES the old global `euclideousRiffSourceMidi` switch this test
-    // used to set — riff's source now follows LANE 1's (array index 0's) own `sourceMode` directly. Rewritten,
-    // not deleted, keeping this test's narrow single-concern focus (distinct from the broader multi-lane
-    // independence test alongside it).
-    func testEuclideousRiffKeyModeYieldsEmptyPoolNotMidiFallback() {
+    // used to set — riff's source now follows LANE 1's (array index 0's) own `sourceMode` directly.
+    // REWRITTEN AGAIN (Paul 2026-10-09, 2nd report — "key does nothing"): KEY mode is no longer silent — it
+    // now plays the page's own KEY+SCALE picker as a real pool (Router.swift's `.key` branch), a previously-
+    // disclosed-but-unbuilt gap (§4.4 of the original rework spec) finally closed. Renamed + rewritten from
+    // "yields empty pool" to the actual, opposite claim: real notes, from the SCALE (not live MIDI).
+    func testEuclideousRiffKeyModeReadsTheScalePoolNotLiveMidi() {
         var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .key)]   // lane 0 ("lane 1") KEY — must silence the riff it governs
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // rank 1 = the pool's own lowest note
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .key)]   // lane 0 ("lane 1") KEY governs the riff it drives
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
                                   var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let pool = NotePool(); pool.noteOn(72, velocity: 100, channel: 0)   // real MIDI present on receiver[0]'s own channel
+        let pool = NotePool(); pool.noteOn(72, velocity: 100, channel: 0)   // real MIDI present — KEY mode must ignore it entirely
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "KEY mode on lane 1 must yield a genuinely empty riff pool, not silently fall back to MIDI")
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertFalse(notes.isEmpty, "KEY mode must now generate real notes from the page's own scale")
+        XCTAssertFalse(notes.contains(72), "KEY mode must never sound the live MIDI note — it's independent of any held input")
+        XCTAssertTrue(notes.contains(48), "rank 1 of the default (untouched KEY picker) C natural-minor pool is C3 = MIDI 48")
     }
     // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES the old global `euclideousLanesSourceMidi` switch this test
-    // used to set — each lane's own `sourceMode` governs it now. Rewritten, not deleted.
-    func testEuclideousLanesKeyModeYieldsEmptyPoolNotMidiFallback() {
+    // used to set — each lane's own `sourceMode` governs it now.
+    // REWRITTEN AGAIN (Paul 2026-10-09, 2nd report), same reason as the riff test above.
+    func testEuclideousLanesKeyModeReadsTheScalePoolNotLiveMidi() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
@@ -5547,10 +5553,13 @@ final class RouterTests: XCTestCase {
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
+        let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)   // real MIDI present — must be ignored
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
-        XCTAssertTrue(e.ons.isEmpty, "a lane's own sourceMode set to KEY must silence it, not fall back to MIDI")
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertFalse(notes.isEmpty, "a lane's own sourceMode set to KEY must now sound the scale, not stay silent")
+        XCTAssertFalse(notes.contains(60), "KEY mode must never sound the live MIDI note")
+        XCTAssertEqual(notes, [48], "PICK LOW on the default C natural-minor pool strikes only its lowest note, C3 = MIDI 48")
     }
     // EUCLIDEOUS PAGE REWORK: `mainOutMask` is a GLOBAL master gate applied AFTER chopMask's full result, not
     // pre-masked into `base` — proven by two cases, a plain strike and a CHOP-ALT-routed one, since CHOP-ALT
@@ -5685,14 +5694,25 @@ final class RouterTests: XCTestCase {
     // test that read a `doorMode: .chord` receiver — that mechanism was itself superseded the same day once
     // "a chords button... base this on the existing chord grid" shipped) — `chordSeqNotes` against a known
     // degree/key resolves to an exact, hand-verified note (see `diatonicChord`'s own formula: tone(k) =
-    // rootNote + scaleTones[k%n] + 12×⌊k/n⌋; degree 0 in C major, rootNote 48 ⇒ triad [48,52,55], `.low` picks
-    // the lowest, 48).
+    // rootNote + scaleTones[k%n] + 12×⌊k/n⌋; degree 4 (the V) in C major, rootNote 48 ⇒ tone(4)=55/tone(6)=59/
+    // tone(8)=62, `.low` picks the lowest, 55).
+    //
+    // REWRITTEN AGAIN (Paul 2026-10-09, 2nd report — "key does nothing"/"midi in does nothing"): two real fixes
+    // landed the same day. (1) MIDI is no longer keyed to one hardcoded receiver index (an unverified guess from
+    // planning that never matched Paul's actual setup) — it's genuinely OMNI now (SnapshotBuilder.swift), so
+    // lane 0's assertion below is unchanged in OUTCOME (note 60 still sounds) but the comment explaining WHY is
+    // corrected. (2) KEY mode now generates a real pool from the page's own KEY picker (Router.swift's `.key`
+    // branch) instead of staying silent — CHORDS' own degree was moved from 0 (the tonic, I) to 4 (the V) so
+    // its lowest note (55) is DISTINCT from KEY's own lowest note (the scale's root, 48) — degree 0's tonic
+    // triad would otherwise always coincide with KEY's root by construction (both anchor at the same "root
+    // pitch class, base octave" convention), making the two lanes' contributions indistinguishable in a note-
+    // set assertion.
     func testEuclideousLanesEachResolveTheirOwnIndependentSourceMode() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low),                       // lane 0: nil ⇒ MIDI (receiver 3), unchanged default
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low),                       // lane 0: nil ⇒ MIDI, OMNI — unchanged default
             EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),  // lane 1: CHORDS
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key),     // lane 2: KEY — must stay silent
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key),     // lane 2: KEY — now sounds the scale's own root
         ]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
@@ -5701,15 +5721,16 @@ final class RouterTests: XCTestCase {
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
         st.euclideousKeyRoot = 0; st.euclideousKeyType = .major   // C major
-        st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [0]; m.chordsSteps = 1; return m }()   // a 1-step I (tonic) progression
+        st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [4]; m.chordsSteps = 1; return m }()   // a 1-step V progression
         let pool = NotePool()
-        pool.noteOn(60, velocity: 100, channel: 1)   // wire ch 1 → receiver[3] (ch 2) — the MIDI lane's source
+        pool.noteOn(60, velocity: 100, channel: 1)   // wire ch 1 — OMNI MIDI mode hears it regardless of receiver config
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        XCTAssertTrue(notes.contains(60), "lane 0 (default/MIDI) must still read receiver index 3 — unchanged from before this feature")
-        XCTAssertTrue(notes.contains(48), "lane 1 (CHORDS) must read Euclideous's own on-page chord generator — the C-major tonic triad's lowest note")
-        XCTAssertEqual(notes.count, 2, "lane 2 (KEY) must contribute nothing — genuinely silent, not a stray third note")
+        XCTAssertTrue(notes.contains(60), "lane 0 (default/MIDI) must hear genuinely live input — OMNI, not tied to any one receiver")
+        XCTAssertTrue(notes.contains(55), "lane 1 (CHORDS) must read Euclideous's own on-page chord generator — the C-major V triad's lowest note")
+        XCTAssertTrue(notes.contains(48), "lane 2 (KEY) must now sound the page's own scale — C3, the root of the default C-major pool")
+        XCTAssertEqual(notes.count, 3, "all three lanes contribute a genuinely distinct note — no silent lane, no accidental overlap")
     }
     // The RETIRED global `euclideousLanesSourceMidi` switch must no longer have ANY effect — only each lane's
     // own `sourceMode` governs its source now. A real regression risk on upgrade if this weren't true: an old

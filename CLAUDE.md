@@ -196,6 +196,53 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — MIDI IN made genuinely receiver-independent (OMNI), KEY mode finally wired to a real scale
+  pool (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1242 green incl. 3 rewritten, iOS
+  builds clean). Paul, after the entry below shipped: "The midi in is still shit. Chords work. Key does
+  nothing. Midi in does nothing." Two DIFFERENT, real gaps — not a re-report of the same bug, traced not
+  guessed. **MIDI IN'S ROOT CAUSE:** the per-lane MIDI fill had been reading `livePool` filtered by
+  `laneSrcChanMasks[i]`, which `SnapshotBuilder.swift` set to ONE HARDCODED receiver index (3, "receiver D") —
+  but that index was never Paul's own instruction; re-reading my own planning notes
+  (`~/.claude/plans/woolly-crafting-music.md`) found it explicitly FLAGGED AT THE TIME as an unverified
+  assumption from reading the design spec's prose ordering ("riff's MIDI mode = receiver 1, lanes' MIDI mode =
+  receiver 4 — not explicitly stated which number feeds which, flagging this as an assumption to confirm"),
+  never actually confirmed before shipping. Worse: this project's own factory-rig convention (the CHORD-door
+  entry's own neighbouring note, "D → SCALE door... C → CHORD door") means receiver D is typically ALREADY
+  CLAIMED by a self-arming SCALE door in practice, not free for a live controller at all — which independently
+  explains the FIRST round's bug too (a self-arming door's synthesized content leaking through
+  `effectivePool`'s substitution). Once that leak was fixed (entry below, reading `livePool` instead of the
+  substituted `pool`), MIDI IN went silent instead of wrong — because no live controller was ever plugged into
+  that one specific, invisible, hardcoded receiver to begin with. **FIX:** rather than guess a THIRD specific
+  index, MIDI IN now means exactly what it says — `SnapshotBuilder.swift`'s `laneSrcChanMasks` is unconditionally
+  `0xFFFF` (OMNI) for every MIDI-mode lane, with NO `doc.receivers` dependency at all (the old guard requiring
+  receivers to exist is gone too — a no-receivers-configured document already fell back to an equivalent OMNI
+  read via a different buffer, confirmed byte-identical by the full suite staying at 1242 green). Any live note
+  reaching the plugin now sounds through MIDI IN, independent of this document's receiver/door graph entirely —
+  matching Euclideous's own standing design as a self-contained instrument page. **KEY MODE, built for the
+  first time:** "KEY does nothing" wasn't a regression — §4.4 of the original 2026-10-07 page-rework spec
+  explicitly left "how KEY-mode notes map to a pool" UNRESOLVED, and it was never picked up after, just
+  silently left at `laneSrcCount[i] = 0`. Built now, directly from the SAME page-level KEY+SCALE picker CHORDS
+  already reads (`euclideousChordKeyRoot`/`KeyTones`, shared fields) — mirrors `scaleNotes`'s own exact formula
+  (Derivations.swift: root + 12×octave + each scale interval, ascending) rather than calling it directly, since
+  SnapParams only carries the already-resolved INTERVAL array, not the `ScaleType` enum `scaleNotes` itself
+  wants; baseOct 3 / octaves 2 matches `ScalePool`'s own standing default convention, not a new number invented
+  for this one case. A KEY-mode lane now plays that scale directly, completely independent of any live or
+  generated pool — the simplest reading of "play in this key" for a mode with no external source at all.
+  **TESTS, 3 rewritten (not left broken, not silently deleted):** the two tests that asserted "KEY mode ⇒
+  genuinely empty pool" (`…RiffKeyModeYieldsEmptyPoolNotMidiFallback`, `…LanesKeyModeYieldsEmptyPoolNotMidi-
+  Fallback`) renamed and rewritten to assert the now-opposite, correct claim — real notes from the default C
+  natural-minor pool (root C3 = MIDI 48), with the live-MIDI note proven absent from the result (KEY ignores
+  input entirely). The 3-lane independence test (`testEuclideousLanesEachResolveTheirOwnIndependentSourceMode`)
+  needed a real redesign, not just a relabel: CHORDS' own tested degree moved from 0 (the tonic) to 4 (the V),
+  because a tonic triad's lowest note and KEY's own lowest note ALWAYS coincide by construction (both anchor at
+  "root pitch class, base octave") — caught while writing the fix, not by a failing run — so degree 0 could
+  never distinguish "CHORDS contributed a note" from "KEY contributed the identical note." With degree 4, all
+  three lanes (MIDI/CHORDS/KEY) now produce three genuinely distinct, separately-asserted notes. Full suite
+  stayed at 1242 (rewrites, not additions) — confirmed green, not just assumed. **DEVICE-OWED:** confirm a real
+  MIDI controller, plugged into ANY receiver (or none at all — a bare, unconfigured input), now reaches a
+  MIDI-mode lane; confirm KEY mode audibly plays the picked key+scale with zero dependency on what's held
+  elsewhere; confirm the earlier self-arm-leak fix (CHORD/SCALE doors no longer bleeding into MIDI IN) still
+  holds now that the receiver dependency is gone entirely.**
 - **▶ EUCLIDEOUS — MIDI IN played without any live MIDI plumbed in, root-caused and fixed (2026-10-09, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1242 green incl. +1, iOS builds clean). Paul: "What's
   going on with midi in? It's playing even when it doesn't have MIDI being plumbed in." Traced, not guessed:

@@ -3892,6 +3892,30 @@ final class Router {
             var laneUsesLegacyPool = [Bool](repeating: false, count: 4)
             if isEuclideousRow {
                 let chordNotes = chordSeqNotes(beat: mWinStart, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+                // KEY MODE (Paul 2026-10-09, 2nd report: "key does nothing" — a real, previously-disclosed gap,
+                // not a regression: §4.4 of the original page-rework spec explicitly left "how KEY-mode notes
+                // map to a pool" unresolved, and it was never picked up after. Built now, directly from the
+                // SAME page-level KEY picker CHORDS already reads (`euclideousChordKeyRoot`/`KeyTones` — shared
+                // fields, see Snapshot.swift's own doc comment on them) — a lane set to KEY plays the notes of
+                // that scale directly, independent of any live or generated pool, the simplest reading of "play
+                // in this key" for a mode with no external source at all. Mirrors `scaleNotes`'s own exact
+                // formula (Derivations.swift — "every note of `type` rooted at `root`, realized ascending across
+                // `octaves` octaves from `baseOct`") rather than calling it directly, since SnapParams only
+                // carries the already-resolved INTERVAL array (`euclideousChordKeyTones`), not the `ScaleType`
+                // enum `scaleNotes` itself takes. baseOct 3 / octaves 2 matches `ScalePool`'s own standing
+                // default (home octave 3, a 2-octave span) — the established convention for "a scale as a pool"
+                // everywhere else in this codebase, not a new number invented for this one case.
+                var keyScaleNotes: [Int] = []
+                do {
+                    let root = ((p.euclideousChordKeyRoot % 12) + 12) % 12
+                    let base = 3 * 12 + 12   // baseOct 3 → MIDI 48 (C3), the C-1 convention `scaleNotes` itself uses
+                    for o in 0..<2 {
+                        for iv in p.euclideousChordKeyTones {
+                            let n = base + root + o * 12 + iv
+                            if n >= 0 && n <= 127 { keyScaleNotes.append(n) }
+                        }
+                    }
+                }
                 for i in 0..<4 {
                     let srcMode = i < p.euclidLines.count ? p.euclidLines[i].sourceModeResolved : .midi
                     switch srcMode {
@@ -3899,23 +3923,26 @@ final class Router {
                         laneSrcCount[i] = min(laneSrcBuf[i].count, chordNotes.count)
                         for k in 0..<laneSrcCount[i] { laneSrcBuf[i][k] = (chordNotes[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
                     case .key:
-                        laneSrcCount[i] = 0
+                        laneSrcCount[i] = min(laneSrcBuf[i].count, keyScaleNotes.count)
+                        for k in 0..<laneSrcCount[i] { laneSrcBuf[i][k] = (keyScaleNotes[k], 100) }   // same "no live velocity to inherit" default as CHORDS above
                     case .midi:
                         if hasLaneChanMasks {
-                            // LITERALLY LIVE (Paul 2026-10-09: "MIDI IN... playing even when it doesn't have MIDI
-                            // being plumbed in"): `pool` here is `emitGeneratorRow`'s own SHADOWED local
-                            // (`effectivePool(for: cell, live: livePool)`, set at this function's top) — it reads
-                            // Euclideous's cell's hardcoded receiver 4 THROUGH the generic self-arm/latch
-                            // substitution every regular grid cell gets: if receiver 4 happens to be configured
-                            // as a SCALE/CHORD/PIANO door (any self-arming mode), `effectivePool` silently swaps
-                            // in `latchedPools[3]` — content the door GENERATES, with zero relationship to any
-                            // actually-incoming MIDI message — because that substitution is keyed on the CELL's
-                            // resolved receiver only, with no awareness that THIS particular read is one of three
+                            // LITERALLY LIVE, OMNI (Paul 2026-10-09, two rounds): `pool` here is
+                            // `emitGeneratorRow`'s own SHADOWED local (`effectivePool(for: cell, live: livePool)`,
+                            // set at this function's top) — it applies the generic self-arm/latch substitution
+                            // every regular grid cell gets, with no awareness that THIS read is one of three
                             // explicit, mutually-exclusive choices (MIDI IN vs KEY vs CHORDS) where "MIDI IN"
-                            // specifically promises live input and nothing else. Reading `livePool` (this
-                            // function's own un-substituted parameter, still in scope under its original name)
-                            // instead of `pool` makes MIDI IN mean exactly that — genuinely incoming MIDI on
-                            // receiver 4's own channel filter, never a self-armed or latched substitute — for
+                            // specifically promises live input and nothing else — a self-arming door on whichever
+                            // receiver this cell nominally resolves to would silently leak its generated content
+                            // through here (round 1's bug: "plays something even with nothing plumbed in").
+                            // Reading `livePool` (this function's own un-substituted parameter, still in scope)
+                            // instead of `pool` fixes that leak — but `laneSrcChanMasks` ALSO used to key this
+                            // read to one specific hardcoded receiver's channel mask (round 2's bug: "midi in
+                            // does nothing" — an unverified guess at which receiver index, see
+                            // SnapshotBuilder.swift's own note on this, that never matched whatever receiver
+                            // Paul actually plugs a controller into). `laneSrcChanMasks[i]` is now always 0xFFFF
+                            // for a MIDI-mode lane (SnapshotBuilder.swift), so this reads EVERY live note on
+                            // EVERY channel — genuinely "any live input, no receiver dependency at all." For
                             // every other `.euclid` cell in the grid (where effectivePool's substitution is the
                             // correct, desired behaviour), this call is unreached entirely (gated by
                             // `isEuclideousRow` above), so nothing there changes.

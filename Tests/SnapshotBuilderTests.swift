@@ -755,7 +755,10 @@ final class SnapshotBuilderTests: XCTestCase {
 
     // EUCLIDEOUS PAGE REWORK: a document that has never touched any of the new global fields must resolve
     // to MIDI for both source switches — flipping this default would silently mute every existing Euclideous
-    // session the moment this feature ships (KEY mode resolves to an empty pool until §4.4 is answered).
+    // session the moment this feature ships. (These two RETIRED global switches are legacy decode-only fields
+    // now — per-lane `EuclidLine.sourceMode` governs real behaviour, see testEuclideousSourceModeSurvivesSnap-
+    // shotBuild above; KEY mode itself now generates a real scale pool, Router.swift's `.key` branch, not an
+    // empty one — the §4.4 gap this comment used to describe was closed 2026-10-09.)
     func testEuclideousSourceModeDefaultsToMidiOnAnUntouchedDocument() {
         let st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         XCTAssertTrue(st.euclideousRiffSourceMidiResolved, "an untouched document must default to MIDI for the riff's own source")
