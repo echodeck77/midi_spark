@@ -196,6 +196,47 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the page becomes SIX EQUAL BOXES: 4 lanes + the riff grid + a reserved placeholder, in both
+  orientations (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, zero new
+  warnings; no macOS test-target reach — pure UI). Paul's instruction arrived ambiguous (landscape named two
+  different width fractions — "25%" and "a third" — and two different height bases — "a third of the screen"
+  and "50% of the available height" — that don't reconcile under realistic header proportions), so asked
+  rather than guessed a second time on a page whose riff-sizing has already cycled through several corrections
+  this session. His clarification reframed the whole ask simpler: "make the grid equal in size to a Euclid
+  lane box... use all available space," confirmed as "a 5th box in the grid arrangement" — then, mid-turn,
+  corrected once more to the final, simplest form: **six equal-sized boxes total, the 6th a placeholder for
+  now.** Built exactly that, not the earlier 5-box framing. **LAYOUT:** `portraitLayout`/`landscapeLayout`
+  rebuilt around ONE shared `cellSize` per orientation (whichever of the width- or height-derived candidate is
+  smaller, so nothing overflows and the grid genuinely uses all available space) — PORTRAIT is 2 columns × 3
+  rows (lanes fill rows 1–2, riff + placeholder share row 3); LANDSCAPE is 3 columns × 2 rows (lanes fill the
+  first 2 columns, riff + placeholder share column 3, one per row) — the narrower/wider shape each orientation
+  already has, just extended by one more row/column instead of carving out an independently-proportioned riff
+  panel. The riff grid's own internal row height is solved from `cellSize` via `riffPanelHeight`'s inverse (the
+  SAME formula already shared with the panel's own drawing code, so the two can't disagree) — it is now, for
+  the first time, EXACTLY the same size as a lane box in both orientations, not a separately-tuned fraction.
+  **NEW:** `euclideousPlaceholderBox` — a plain dashed-border, near-invisible-fill box (reusing this page's own
+  existing "reserved/inactive" visual language — `laneOutRow`'s dashed chip for a routed-but-gated bus — rather
+  than inventing a new one), deliberately inert: no label, no tap target, so it can't read as a broken control
+  while its real purpose is still undecided. **DEAD CODE REMOVED, not left behind:** the old independent-riff-
+  sizing machinery this superseded — `riffRowHeight`, `laneCardFixedOverhead`/`laneCardMinHeight` (the "riff
+  flexes below its target to protect the lane minimum" mechanism from the immediately-prior ferry, now
+  structurally impossible to need since lanes/riff/placeholder are all unconditionally the same size), and
+  `laneGridView` itself (both layout functions now call `laneCard` directly, 4 times each, interleaved with the
+  riff/placeholder cells in one unified grid, rather than wrapping a separate 2×2-only helper) — confirmed via
+  grep that nothing else referenced any of them before deleting. **FLAGGED, not silently absorbed — a genuine,
+  deliberate trade-off of this redesign, not an oversight:** removing the old lane-card protection floor means
+  a lane card's own gesture-pad row can now shrink much further on a small screen than before. Checked
+  numerically across 4 sizes per orientation: at the smallest tested "windowed" portrait size (500×700),
+  `cellSize` (≈191pt) lands almost exactly AT the lane card's own fixed-content overhead (comet bar + tab row +
+  tab content ≈190pt) — meaning the gesture-pad row itself would get well under 1pt of height at that size,
+  i.e. essentially unusable. This is the direct, structural consequence of "six equal boxes, no special
+  protection for any one of them" — the previous ferry's own floor existed specifically to prevent this, and
+  removing it was implicit in the new instruction, not something I'm flagging as a bug, but it's worth knowing
+  about before it's hit on a real small panel. Every other tested size (768×1024 and up, both orientations)
+  gives each box 290pt+ with no such squeeze. **DEVICE-OWED, no screenshots possible in this environment:** the
+  whole six-box grid's real legibility and proportions at AUM's actual sizes; whether the placeholder box reads
+  as "intentionally reserved" rather than "a rendering bug"; the gesture-pad squeeze above at whatever the
+  smallest real panel size turns out to be.**
 - **▶ EUCLIDEOUS — three new per-lane RIFF options: FREE/LOCK, INVERT, ON REST (SKIP/FILL/TIE) (2026-10-09, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1248 green incl. +6, iOS builds clean, zero new
   warnings). A ratified ferry ("Paul's rulings. Build these."), the biggest single-ferry engine addition to

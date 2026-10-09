@@ -280,20 +280,14 @@ struct EuclideousPage: View {
     // sides for symmetry (top/bottom get the same sp16 — §2's own wording names left/right explicitly because
     // that's where the overflow bugs were, not because top/bottom should be bare).
     //
-    // The riff panel's own fixed per-tab-row height (ferry §5: "rows about 30pt tall") — ONE named constant,
-    // read by BOTH the layout functions below (which reserve space for it) and `riffGridView` itself (which
-    // draws it), so the two can never silently disagree about how tall the panel actually is (the RATCHET/
-    // DEST class of bug this codebase's own history keeps flagging).
-    private let riffRowHeight: CGFloat = 30
     /// The riff panel's total height at a given row height: top+bottom padding (sp8 each) + the header text
     /// row (~18pt) + a gap + the position-dot row (12pt) + a gap + 8 matrix rows with 7 gaps between them.
     private func riffPanelHeight(rowH: CGFloat) -> CGFloat {
         sp8 * 2 + 18 + sp4 + 12 + sp4 + rowH * 8 + sp4 * 7
     }
 
-    // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`) so
-    // `portraitLayout` can share the EXACT same numbers when deciding how much height a card needs, rather
-    // than guessing a second time (the RATCHET/DEST class of bug this file's own history keeps flagging). ---
+    // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`),
+    // read by `laneCard` itself for its internal row math. ---
     private let cometRowH: CGFloat = 56
     private let tabRowH: CGFloat = 30
     private let contentLineH: CGFloat = 36
@@ -302,88 +296,77 @@ struct EuclideousPage: View {
     /// `riffDirGrid`'s own 2 rows (OFF/direction-chip/FREE-LOCK, then INVERT/ON-REST — ferry 2026-10-09),
     /// `maskCometRow`+`maskStubRow`) — not a bare `36×2`.
     private var tabContentH: CGFloat { contentLineH * 2 + sp4 }
-    /// Every FIXED-height row in a lane card, summed — comet row + tab row + tab content + the card's own sp8
-    /// padding (top+bottom) + the sp4 gaps between the VStack's 4 children. This is "how tall a card needs to
-    /// be with ZERO room left for its own gesture pads" — i.e. not yet a usable minimum on its own.
-    private var laneCardFixedOverhead: CGFloat { cometRowH + tabRowH + tabContentH + sp8 * 2 + sp4 * 3 }
-    /// A sane functional floor for the gesture-pad row itself (HIG's own touch-target minimum is 44pt; 36 is
-    /// a deliberately smaller "still usable, genuinely tight" floor, not the comfortable target) — added to
-    /// the fixed overhead above to get a card's real functional minimum height. Read by `portraitLayout` to
-    /// decide how far the riff panel must flex DOWN (below its own `riffRowHeight` target) before it may
-    /// starve a lane card of this minimum (ferry §1.1's "fit always wins" still governs when the two
-    /// genuinely conflict on a short enough screen — see `portraitLayout`'s own doc comment).
-    private var laneCardMinHeight: CGFloat { laneCardFixedOverhead + 36 }
 
-    /// PORTRAIT (ferry §5): 2-row header; a 2×2 lane grid that FILLS the container width (two equal columns,
-    /// sp8 gap — no longer capped by height, so lane cards are NOT forced square here, a deliberate, explicit
-    /// departure from the landscape/original "square boxes" rule for this one orientation, per §5's own
-    /// wording); the riff panel spans the full container width below the lanes, aiming for `riffRowHeight`-
-    /// tall rows; any height left over after that goes to the lane cards (taller, not wider).
-    ///
-    /// RIFF FLEXES BELOW ITS OWN TARGET ON A SHORT SCREEN (found while verifying this rebuild's own numbers
-    /// by hand, not reported directly): a fixed 30pt-row riff panel plus a 2-row header leaves too little
-    /// remaining height for 2 STACKED lane cards to even fit their own fixed-height rows (comet bar + tab row
-    /// + tab content, ~188pt, BEFORE the gesture pads get any room at all) once the total screen height drops
-    /// much below ~950pt — a real possibility on a genuinely small "windowed" AUM panel, not just a
-    /// theoretical edge case. Ferry §1.1's "nothing may extend past the plugin view" and §8's "nothing
-    /// clipped" are unconditional; §5's "rows about 30pt tall" is a TARGET that must yield when the two
-    /// conflict, the same "fit always wins over protected sizing" principle an earlier ferry already
-    /// established. So: compute the riff row height that would leave both lane-card rows at their own
-    /// functional minimum (`laneCardMinHeight`), and use the SMALLER of that or the 30pt target — riff only
-    /// ever shrinks below 30, never grows past it.
+    /// SIX EQUAL BOXES (Paul 2026-10-09, 4th ferry — SUPERSEDES the independent-riff-sizing design below
+    /// entirely): "the plan is to have the app consisting of six equal sized boxes" — the 4 Euclid lanes, the
+    /// riff grid, and ONE RESERVED/placeholder box (6th), all exactly the same size, filling the available
+    /// space. PORTRAIT lays them out 2 columns × 3 rows (lanes fill rows 1–2, riff + placeholder share row
+    /// 3) — the narrower, taller shape matching portrait's own aspect ratio. One `cellSize` drives every box
+    /// on the page: whichever of the width- or height-derived candidate is smaller, so nothing overflows
+    /// either axis and the whole grid genuinely uses all available space (no independent "riff gets 36%"-
+    /// style carve-out anymore — riff is just another cell).
     private func portraitLayout(_ size: CGSize) -> some View {
         let headerH = portraitHeaderHeight
         let containerW = size.width - sp16 * 2
-        let cardWidth = max(1, (containerW - sp8) / 2)
-        // Fixed vertical overhead: sp16 top + sp16 bottom (the container's own margin) + 2× sp16 (the gaps
-        // between header↔lanes and lanes↔riff) — everything else is header/lane-grid/riff content itself.
-        let fixedVOverhead = sp16 * 2 + sp16 * 2
-        let heightForLanesAndRiff = max(1, size.height - fixedVOverhead - headerH)
-        let riffHAtMinLanes = max(1, heightForLanesAndRiff - (laneCardMinHeight * 2 + sp8))
-        let riffRowHActual = max(1, min(riffRowHeight, (riffHAtMinLanes - riffPanelHeight(rowH: 0)) / 8))
-        let riffH = riffPanelHeight(rowH: riffRowHActual)
-        let availableForLanes = max(1, heightForLanesAndRiff - riffH)
-        let cardHeight = max(1, (availableForLanes - sp8) / 2)
+        let fixedVOverhead = sp16 * 3   // top margin + header↔grid gap + bottom margin
+        let availableH = max(1, size.height - fixedVOverhead - headerH)
+        let cellW = max(1, (containerW - sp8) / 2)
+        let cellH = max(1, (availableH - sp8 * 2) / 3)
+        let cellSize = min(cellW, cellH)
+        let riffRowH = max(1, (cellSize - riffPanelHeight(rowH: 0)) / 8)
         return VStack(alignment: .leading, spacing: sp16) {
             portraitHeader().padding(.horizontal, sp16).padding(.top, sp16)
-            laneGridView(cardWidth: cardWidth, cardHeight: cardHeight)
-                .frame(width: containerW, alignment: .leading).padding(.horizontal, sp16)
-            riffGridView(maxWidth: containerW, rowH: riffRowHActual)
-                .padding(.horizontal, sp16).padding(.bottom, sp16)
+            VStack(spacing: sp8) {
+                HStack(spacing: sp8) { laneCard(0, width: cellSize, height: cellSize); laneCard(1, width: cellSize, height: cellSize) }
+                HStack(spacing: sp8) { laneCard(2, width: cellSize, height: cellSize); laneCard(3, width: cellSize, height: cellSize) }
+                HStack(spacing: sp8) {
+                    riffGridView(maxWidth: cellSize, rowH: riffRowH).frame(width: cellSize, height: cellSize)
+                    euclideousPlaceholderBox(size: cellSize)
+                }
+            }
+            .frame(width: containerW, alignment: .leading)
+            .padding(.horizontal, sp16).padding(.bottom, sp16)
         }
     }
 
-    /// LANDSCAPE (ferry §6): one-row header; the lane grid (square cards, left) and the riff panel (right)
-    /// SIDE BY SIDE, both exactly `belowH` tall so "their tops and bottoms line up" holds by construction —
-    /// riff's height is passed directly, never independently derived. Riff's WIDTH is a direct ~36% of the
-    /// container (not "whatever's left after the lane grid" — that leftover approach was the exact bug a
-    /// prior pass shipped and then had to fix: on a height-bound panel the lane grid never uses its own full
-    /// width share, so there was nothing to "win back" for riff, and it stayed as wide as before). Lane cards
-    /// stay square, sized by whichever of the 64%-width share or the available height is smaller — reliably
-    /// close to the target ratio on a typical landscape aspect ratio, confirmed by hand against several sizes
-    /// before shipping (see the ferry-response notes) — though on a very tall/short panel the riff CELLS can
-    /// end up noticeably non-square (8 rows filling the full shared height vs. 8 columns filling a narrower,
-    /// independently-set width) — accepted per §6's own "square OR CLOSE TO square," not solvable alongside
-    /// "same height" and "~36% width" simultaneously for every aspect ratio at once.
+    /// LANDSCAPE (ferry 2026-10-09, 4th ferry): the SAME six-equal-boxes rule as portrait, transposed to
+    /// landscape's wider-than-tall shape — 3 columns × 2 rows (lanes fill the first 2 columns, riff +
+    /// placeholder share the 3rd column, one per row).
     private func landscapeLayout(_ size: CGSize) -> some View {
         let headerH = landscapeHeaderHeight
         let containerW = size.width - sp16 * 2
-        let belowH = max(1, size.height - headerH - sp16 * 3)   // sp16 top + header↔below gap + bottom margin
-        let riffW = max(1, containerW * 0.36 - sp16 / 2)
-        let laneGridTargetW = max(1, containerW - riffW - sp16)
-        let cardTargetW = max(1, (laneGridTargetW - sp8) / 2)
-        let cardHeightDerived = max(1, (belowH - sp8) / 2)
-        let cardSize = min(cardTargetW, cardHeightDerived)
+        let belowH = max(1, size.height - headerH - sp16 * 3)   // sp16 top + header↔grid gap + bottom margin
+        let cellW = max(1, (containerW - sp8 * 2) / 3)
+        let cellH = max(1, (belowH - sp8) / 2)
+        let cellSize = min(cellW, cellH)
+        let riffRowH = max(1, (cellSize - riffPanelHeight(rowH: 0)) / 8)
         return VStack(alignment: .leading, spacing: sp16) {
             landscapeHeader().padding(.horizontal, sp16).padding(.top, sp16)
-            HStack(alignment: .top, spacing: sp16) {
-                laneGridView(cardWidth: cardSize, cardHeight: cardSize)
-                riffGridView(maxWidth: riffW, rowH: max(1, (belowH - riffPanelHeight(rowH: 0)) / 8))
-                    .frame(height: belowH)
+            VStack(spacing: sp8) {
+                HStack(spacing: sp8) {
+                    laneCard(0, width: cellSize, height: cellSize)
+                    laneCard(1, width: cellSize, height: cellSize)
+                    riffGridView(maxWidth: cellSize, rowH: riffRowH).frame(width: cellSize, height: cellSize)
+                }
+                HStack(spacing: sp8) {
+                    laneCard(2, width: cellSize, height: cellSize)
+                    laneCard(3, width: cellSize, height: cellSize)
+                    euclideousPlaceholderBox(size: cellSize)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, sp16).padding(.bottom, sp16)
         }
+    }
+    /// The 6th box (Paul 2026-10-09, 4th ferry: "have an empty space for now, or placeholder") — reserved
+    /// for a not-yet-decided future feature. Deliberately inert (no tap target, no label) so it can't read
+    /// as a broken control; the dashed border reuses this page's own existing "reserved/inactive" visual
+    /// language (`laneOutRow`'s dashed chip for a routed-but-MAIN-OUT-gated bus) rather than inventing a new one.
+    private func euclideousPlaceholderBox(size: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(Color.white.opacity(0.02))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+            .frame(width: size, height: size)
     }
 
     // MARK: - Header (Paul 2026-10-09, ferry §5/§6: REBUILT as two genuinely different, FIXED-size layouts —
@@ -695,17 +678,6 @@ struct EuclideousPage: View {
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
-    // MARK: - Lane grid (Paul 2026-10-09, ferry §3/§5/§6: EVERY row inside a card spans the SAME inner width
-    // — the card's own width minus sp8 padding each side — and the card's width/height are now INDEPENDENT
-    // parameters, not one shared "size." Landscape keeps lane cards SQUARE (width == height, unchanged from
-    // the original 2026-10-07 rule); portrait does NOT — §5 explicitly has the lane grid fill the container
-    // width and gives any leftover height to the lane cards, so a portrait card can be taller than it is wide.)
-    private func laneGridView(cardWidth: CGFloat, cardHeight: CGFloat) -> some View {
-        VStack(spacing: sp8) {
-            HStack(spacing: sp8) { laneCard(0, width: cardWidth, height: cardHeight); laneCard(1, width: cardWidth, height: cardHeight) }
-            HStack(spacing: sp8) { laneCard(2, width: cardWidth, height: cardHeight); laneCard(3, width: cardWidth, height: cardHeight) }
-        }
-    }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
@@ -1366,12 +1338,10 @@ struct EuclideousPage: View {
     /// 0 : rank)` the original popup used. Cells are a NEUTRAL colour (ferry §1 — not a lane colour, since the
     /// pattern is shared by every lane that has riff on, not owned by any one of them).
     ///
-    /// SIZED FROM THE CALLER'S OWN `rowH` DIRECTLY (ferry §5/§6, 2026-10-09 rebuild) — portrait passes the
-    /// fixed `riffRowHeight` (30pt, "rows about 30pt tall"); landscape passes whatever row height makes the
-    /// WHOLE panel exactly `belowH` tall (so "both are the same height" holds by construction, not as two
-    /// independently-computed numbers that could silently disagree — the RATCHET/DEST class of bug this
-    /// codebase's history keeps flagging). `cellW` is still derived from `maxWidth` here, since width has no
-    /// competing "must match something else exactly" constraint the way height does.
+    /// SIZED FROM THE CALLER'S OWN `maxWidth`/`rowH` DIRECTLY — since the 2026-10-09 "six equal boxes" rebuild,
+    /// BOTH orientations pass the same `cellSize` for `maxWidth` and a `rowH` solved to make the panel's total
+    /// height exactly `cellSize` too (`riffPanelHeight`'s own inverse) — the riff grid is just another box in
+    /// the shared grid now, not an independently-proportioned panel with its own width/height rule.
     ///
     /// Per-lane position dots sit above the columns (ferry §2.3, carried over twice now as "still missing" —
     /// the drawing code itself is unchanged and, read in isolation, looks correct: it reads `riffPositions[i]`
