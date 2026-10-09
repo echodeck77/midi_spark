@@ -196,6 +196,104 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the 4 gesture pads REBUILT: dead-zone/axis-lock dragging, absolute VELOCITY, a live
+  Canvas "picture" per pad, double-tap reset (2026-10-09/10, on `fix/euclid-no-scroll-direction-order-2x2-
+  grid`; macOS 1251 green incl. +4 new/2 rewritten, iOS builds clean). A fully-ratified ferry ("Paul's
+  rulings. Build these.") redesigning every axis of the 4 pads' interaction and look — planned first (3
+  parallel Explore agents + a Plan-agent validation pass that caught 2 real gaps before any code, detailed
+  below), confirmed via AskUserQuestion, then built. **THE INTERACTION MODEL IS GENUINELY NEW**, replacing
+  `EuclidGesturePad`'s continuous both-axes-live drag at this one call site (that shared component itself —
+  the regular BUILD-page EUCLID editor's comet bar, Euclideous's own neutered comet bar, the MASK pad — is
+  UNTOUCHED): a brand-new `EuclideousXYPad` (UIKit bridge, pan+double-tap recognizers) holds an 8pt DEAD ZONE,
+  then LOCKS to whichever axis moved further for the rest of the gesture, continuing to track even once the
+  finger leaves the pad's own bounds (a plain `UIPanGestureRecognizer` already does this — tracks by touch,
+  not by view frame). Reports TWO travel values once locked — raw (since touch-down) and rebased-to-0-at-
+  lock — because the one axis needing the RAW value (TILT, whose own "-8" detent term IS this same 8pt dead
+  zone, so the two combine into exactly one threshold) differs from the other seven delta-style fields, which
+  want the rebased value so their committed value starts exactly at its baseline with no pop the instant the
+  axis locks. The SwiftUI-side caller (`commitAxis`) computes each field's new ABSOLUTE value from (baseline
+  captured once at touch-down, travel) — not an incremental delta accumulation, a structurally different
+  shape from the old model specifically to support TILT's non-linear detent cleanly. 2-finger ALL-LANES
+  dragging is REIMPLEMENTED FROM SCRATCH in the new bridge (the old component is gone from this call site
+  entirely) but kept BEHAVIOURALLY the same shape (continuous, no dead zone, no axis-lock) — Paul's own §2
+  interaction rules never mention 2-finger dragging at all ("anything not mentioned stays as built") — with
+  one deliberate unification: its per-axis sensitivity now shares the SAME `pointsPerUnit` table the redesigned
+  single-finger path uses, rather than keeping a second, different sensitivity for the same field depending on
+  finger count. **VELOCITY BECOMES A GENUINE ABSOLUTE MIDI OVERRIDE (1-127), confirmed directly via
+  AskUserQuestion** — a NEW field, `EuclidLine.velocityAbsolute` (not a repurposed `velocity`, since reusing
+  that JSON key with a changed Swift type would throw decoding an old doc's saved `Double`), mirroring ARP's
+  own `arpVelocity` exactly. **TWO DISCLOSED CONSEQUENCES:** every existing Euclideous line now strikes at a
+  fixed velocity (default 100) instead of scaling with the source chord's own dynamics — an audible behaviour
+  change for every prior session; and the OLD `EuclidLine.velocity` field (a 0...2 scale, still present for
+  decode-compat) is now PERMANENTLY ORPHANED from any UI action — its own "velocity 0 mutes this lane" guard
+  in `runEuclidLine` (and the EUCLID-beacon readiness scan, itself dead UI since the 2026-10-05 beacon removal)
+  both still work for an OLD doc that saved `velocity: 0`, but nothing can reach that state going forward; the
+  lane's own PLAY/STOP toggle is the live equivalent. **THE ENGINE CHANGE TOUCHES SEVEN `strikeChord` CALL
+  SITES inside `runEuclidLine`, not one** (the main pool-indexed hit path ×2, the `useRiff` riff-sourced path,
+  the sequential `.riff`/`.arp` paths ×2, the ON-REST=FILL path ×2) — all now pass `velScale: 1.0` +
+  `explicitVel: line.velocityAbsoluteResolved`, since `strikeChord`'s own `clampVel(explicitVel × velScale)`
+  makes `velScale: 1.0` a true absolute value with no signature change needed. **A REAL GAP CAUGHT BY THE
+  PLAN-AGENT VALIDATION PASS, not shipped blind:** 4 of the 7 strike via `onlyIndex:` (a pool-relative index),
+  not `explicitNote:` — and `resolveEuclidPick` returns `(nil, nil)` for `.all`, the DEFAULT noteSel for every
+  untouched line, meaning there's no single index for a naive substitution to convert; the single most common
+  lane configuration would have silently kept the OLD scale-on-inherited-velocity behaviour forever. Fixed
+  with a new `resolvedPickIndices(pickIndex, pickRange, count:)`, normalizing every pick shape (a lone index, a
+  BOT2/TOP2 range, or ALL-as-nil) into a concrete index array struck via `explicitNote:` uniformly. **FOUR
+  JUDGMENT CALLS made explicit, not silently absorbed:** (1) TILT's two detent descriptions ("±3% rests at 0"
+  and "leaving 0 needs 8pt") don't both hold literally at face value — read as one mechanism,
+  `tilt% = sign(travel)×max(0,|travel|−8)`, a wider band that fully covers the ±3% language rather than
+  stacking a second constraint on top. (2) SHIFT wraps mod the riff's REAL step count (`riff.stepsResolved`,
+  ≤32), not a literal 8 — the ferry's own "0-7" wording is byte-identical to this in virtually every real
+  session (the riff grid's UI has been fixed at 8 columns since an earlier ferry) but correct in the rare
+  untouched-16-default case too, and guaranteed to never disagree with the existing display formatter, which
+  already wrapped this way. (3) OFFSET's drag sensitivity becomes a flat 12pt/step — the ferry names it
+  explicitly in the flat-12pt bucket, so implemented literally, DELIBERATELY ABANDONING its own prior adaptive
+  box-pitch-matched sensitivity (tuned in an earlier session specifically so finger-travel matched the comet
+  bar's own visual box width) — flagged plainly: this pad's feel no longer matches the comet bar directly above
+  it. (4) the OFFSET sign (`rotate - d` for a rightward drag) and SHIFT's sign (`riffRotate + d`) are
+  DELIBERATELY DIFFERENT from each other — OFFSET preserves the hard-won 2026-10-03 fix that makes a rightward
+  drag match the comet bar's own on-screen box movement; SHIFT has no such comet-bar-matching requirement and
+  was never part of that investigation, so its own pre-existing `+d` sign was left alone rather than
+  "corrected" to match OFFSET without being asked. **THE NEW PAD LAYOUT:** no heading text at all (the old
+  combined "TILT/HITS" string and `EuclideousGestureTab.label` are both GONE) — 2 centred, un-abbreviated value
+  lines (Y above X, e.g. "16 HITS" / "TILT +45%") → a live Canvas "picture" filling the rest → axis-name edge
+  labels (X along the bottom between arrows, Y along the left edge rotated bottom-to-top) in `#8A909A`. A new
+  2pt lane-colour border is the sole "I'm being touched" cue now (the old whole-pad accent-fill-while-touched
+  treatment is gone, since it would otherwise fight the riff-mode tint for the same visual channel). **THE
+  FLOATING VALUE BUBBLE REPLACES THE OLD SHARED PAGE-LEVEL HUD for these 4 pads specifically** (the OLD
+  `dragHUDInfo`/`euclideousDragHUD` mechanism is UNTOUCHED and still serves the separate MASK pad, confirmed
+  its own `onDragState` never touched the new `touchedPad`/`xyLockedAxis` state so the two could be cleanly
+  split) — anchored to the TOUCHED PAD'S OWN ON-SCREEN FRAME, not the finger position (a drag that leaves the
+  pad's bounds, now explicitly allowed, must not drag the bubble away from the control it reports on), via a
+  brand-new `EuclideousPadFramePreferenceKey` (there was no prior mechanism on this page for a view to learn
+  its own frame — every existing overlay anchors off the raw UIKit touch point instead). **THE 5 BESPOKE LIVE
+  CANVAS PICTURES**, each reading the lane's real, current state so none can silently disagree with what's
+  struck: RHYTHM reuses `euclidPatternInto`+`euclidTiltPattern` (Derivations.swift) — the EXACT pair, same
+  order, `Router.runEuclidLine` itself calls — to draw the actual tilted/rotated hit pattern as a row of cells;
+  LENGTH draws `steps` dots clockwise around a circle, the wrapped-OFFSET dot enlarged + lane-coloured (the
+  SAME wrap the value-line readout uses); NOTE/GATE draws a dashed max-extent box with a lane-colour rect sized
+  GATE(width)×VEL(height); RIFF (riff-on) draws an 8×7 SHIFT/OCT grid, the current cell lane-coloured; NOTE/OCT
+  (riff-off) draws a single 7-row OCT column, the same row geometry as RIFF's own rows. **DOUBLE-TAP RESET**
+  (per-pad, via a 3rd UIKit recognizer in the new bridge, mirroring the proven pan+pinch-coexistence delegate
+  pattern — NOT a SwiftUI `.onTapGesture` layered over a live UIKit pan recognizer, which has no precedent
+  anywhere on this page): Rhythm→tilt only · Length→offset only · Note/Gate→both vel and gate · Riff(on)→both
+  riffOctave and riffRotate · Note(riff-off)→octave only — never HITS/STEPS/NOTE-choice, per the ferry's own
+  list. **TESTS:** 2 pre-existing RouterTests REWRITTEN, not left broken (mirroring the exact ARP-velocity
+  precedent from 2026-09-30 — `testArpInheritsSourceVelocity`→`testArpUsesVelocityControlIgnoringSource`) —
+  `testEuclidVelocityScalesTheStruckNote`→`testEuclidVelocityAbsoluteSetsTheExactStruckVelocity` (now asserts
+  every note in a 3-note chord of WILDLY different inherited velocities strikes at the SAME overridden value,
+  the direct regression guard for the `.all`-pick gap above) and `testEuclidGeneratorInheritsSourceVelocity`→
+  `testEuclidGeneratorUsesVelocityControlIgnoringSource` (a standalone EUCLID generator, not just a Euclideous
+  lane, also now ignores source dynamics). +3 new (VELOCITY defaults to 100 on an untouched line; BOT2's
+  multi-strike range also honours the override; a SnapshotBuilderTest proving `velocityAbsolute` survives the
+  EuclidLine fresh-literal rebuild + clamps 1...127, the exact hazard class this file's own history keeps
+  guarding for). **DEVICE-OWED, the whole feature — nothing here can be confirmed off-device:** the dead-zone/
+  axis-lock feel in the hand; the TILT detent's actual feel at 8pt; whether 12pt/step (and the other 3 per-kind
+  sensitivities) feel right, especially OFFSET's now-divergent-from-the-comet-bar feel; double-tap's gesture
+  arbitration against the new pan recognizer; all 5 pictures' legibility at real pad size (likely small — these
+  pads sit inside a lane box sized to match 5 OTHER same-sized boxes per the most recent layout ferry); the
+  bubble's flip-below behaviour at real screen edges; the VELOCITY semantic change's audible effect on an
+  existing, previously-tuned session. Plan: `~/.claude/plans/woolly-crafting-music.md`.**
 - **▶ EUCLIDEOUS — the page becomes SIX EQUAL BOXES: 4 lanes + the riff grid + a reserved placeholder, in both
   orientations (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, zero new
   warnings; no macOS test-target reach — pure UI). Paul's instruction arrived ambiguous (landscape named two

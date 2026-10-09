@@ -688,6 +688,31 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(masked.euclidLines[0].emitterMask, 0x0F, "only the low 4 bits (A-D) are meaningful")
     }
 
+    // XY PAD REDESIGN (Paul 2026-10-09): velocityAbsolute threads through the SAME fresh-literal
+    // reconstruction as every other EuclidLine field above — the exact regression class this file keeps
+    // guarding for. A NEW field (not a repurposed `velocity`) specifically so an old doc's saved
+    // `"velocity": 1.5` (the Double-typed 0...2 scale) never collides with this Int-typed 1...127 override.
+    func testEuclidLineVelocityAbsoluteSurvivesSnapshotBuildAndClamps() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, velocityAbsolute: 55)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(a.euclidLines[0].velocityAbsoluteResolved, 55, "velocityAbsolute must survive the resolve, not silently reset")
+        // an untouched line defaults to 100, never 0 (an illegal MIDI velocity)
+        let untouched = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(untouched.euclidLines[0].velocityAbsoluteResolved, 100)
+        // clamped 1...127, mirroring octave's own clamp precedent above
+        let clampedHigh = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, velocityAbsolute: 255)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(clampedHigh.euclidLines[0].velocityAbsoluteResolved, 127)
+        let clampedLow = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, velocityAbsolute: 0)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(clampedLow.euclidLines[0].velocityAbsoluteResolved, 1)
+    }
+
     // RIFF ADVANCE (Paul 2026-10-06): useRiff/riffRotate/riffOctave are the newest three EuclidLine fields through
     // the SAME fresh-literal reconstruction — the exact regression class the entry above already guards for.
     func testEuclidLineRiffAdvanceFieldsSurviveSnapshotBuild() {

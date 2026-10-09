@@ -2199,14 +2199,17 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(!harm.isEmpty && harm.allSatisfy { $0.vel == 100 }, "the +12 harmony voice also takes the arp's own resolved velocity (100), unscaled")
         assertNothingLeftSounding(e)
     }
-    // A single-slot GENERATOR inherits too — euclid strikes each note at its own source velocity (envelope × source).
-    func testEuclidGeneratorInheritsSourceVelocity() {
+    // A single-slot GENERATOR also uses its own VELOCITY control now (Paul 2026-10-09, XY pad redesign) —
+    // SUPERSEDES the old "euclid strikes each note at its own source velocity" inheritance behaviour this
+    // test used to assert, mirroring the ARP precedent (`testAuditionUsesVelocityControlIgnoringSource`'s
+    // own naming) exactly: VELOCITY is now a genuine absolute override, not a scale on inherited dynamics.
+    func testEuclidGeneratorUsesVelocityControlIgnoringSource() {
         let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
             c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, velChord([(60, 50), (64, 110)]), beats: 2, into: e)
         let a = e.ons.filter { $0.cable == 1 }
-        XCTAssertTrue(a.filter { $0.note == 60 }.allSatisfy { $0.vel == 50 }, "euclid note 60 → source velocity 50")
-        XCTAssertTrue(a.filter { $0.note == 64 }.allSatisfy { $0.vel == 110 }, "euclid note 64 → source velocity 110")
+        XCTAssertFalse(a.isEmpty)
+        XCTAssertTrue(a.allSatisfy { $0.vel == 100 }, "euclid strikes at its own default VELOCITY control (100), ignoring the source chord's own 50/110 dynamics entirely")
         assertNothingLeftSounding(e)
     }
     // The soundcheck path matches playback (Paul 2026-09-30): a stopped-transport AUDITION of an arp cell also plays
@@ -5994,16 +5997,48 @@ final class RouterTests: XCTestCase {
     // VELOCITY (new 2026-10-02): a per-line SCALE on the struck note's own inherited velocity — reuses
     // strikeChord's existing velScale parameter (0…2), so a higher setting must produce a measurably louder
     // note than a lower one against the identical held note/pattern.
-    func testEuclidVelocityScalesTheStruckNote() {
-        func notes(_ velocity: Double) -> [RecordingEmitter.Ev] {
-            var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, velocity: velocity)]
-            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }
-        }
-        func vel(_ velocity: Double) -> UInt8 { notes(velocity).min { $0.sample < $1.sample }!.vel }
-        XCTAssertLessThan(vel(0.3), vel(1.5), "a higher per-line VELOCITY scale produces a measurably louder note than a lower one")
+    // XY PAD REDESIGN (Paul 2026-10-09): VELOCITY is now a genuine ABSOLUTE MIDI override (1...127),
+    // mirroring ARP's own `arpVelocity` — SUPERSEDES the old `EuclidLine.velocity` 0...2 SCALE-on-
+    // inherited-velocity behaviour this test used to assert (that field is now decode-only/orphaned,
+    // see `EuclidLine.velocityAbsolute`'s own doc comment — its mute-at-zero guard is untouched, still
+    // covered by `testEuclidBeaconReadinessOffWhenVelocityZero`).
+    func testEuclidVelocityAbsoluteSetsTheExactStruckVelocity() {
+        // .all pick (the DEFAULT noteSel for an untouched line) — the critical gap a first draft of this
+        // feature missed: resolveEuclidPick returns (nil, nil) for .all, so there's no single pool index
+        // to naively convert to an absolute strike. Every note in the chord must strike at the SAME
+        // overridden velocity, not its own, very different, inherited one.
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, velocityAbsolute: 77)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, velChord([(60, 10), (64, 40), (67, 127)]), beats: 2, into: e)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 }
+        XCTAssertFalse(ons.isEmpty)
+        XCTAssertTrue(ons.allSatisfy { $0.vel == 77 }, "VELOCITY overrides every struck note's own, very different inherited velocity with the SAME absolute value — not a scale on it")
+    }
+    func testEuclidVelocityAbsoluteDefaultsTo100() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8)]   // velocityAbsolute untouched → nil ⇒ 100
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, velChord([(60, 10)]), beats: 2, into: e)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.allSatisfy { $0.vel == 100 }, "an untouched line strikes at 100, ignoring the chord's own velocity 10 — never falls back to the old scale-on-inherited-velocity behaviour")
+    }
+    func testEuclidVelocityAbsoluteAppliesToBottom2MultiStrike() {
+        // BOT2 resolves a RANGE (2 pool indices) — the other pick shape `resolvedPickIndices` must
+        // normalize alongside .all — confirms the multi-strike substitution still strikes exactly the
+        // same two notes as before, now both at the overridden absolute velocity.
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, noteSel: .bottom2, velocityAbsolute: 55)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, velChord([(60, 10), (64, 40), (67, 127)]), beats: 2, into: e)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 }
+        XCTAssertEqual(Set(ons.map { $0.note }), [60, 64], "BOT2 still strikes exactly the bottom two pool notes")
+        XCTAssertTrue(ons.allSatisfy { $0.vel == 55 }, "both BOT2 notes strike at the overridden absolute velocity")
     }
     // EUCLIDEOUS (Paul 2026-10-05): per-line RATE overrides the machine-wide euclidRate — a line with its own
     // fast rate must strike measurably MORE often than a sibling line left at the (slow) machine-wide default,

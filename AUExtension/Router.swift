@@ -4048,7 +4048,19 @@ final class Router {
                 default: return (nil, nil)   // N1…N8 already resolved via specificRank above; .riff/.arp never reach here
                 }
             }
-            func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, rate: Double, busOverride: UInt8?,
+            // ABSOLUTE VELOCITY (Paul 2026-10-09, XY pad redesign): `resolveEuclidPick` answers either a single
+            // index, a closed range (BOT2/TOP2), or neither (ALL) — the `onlyIndex:`/`strikeChord` path reads an
+            // INHERITED velocity per note, which is exactly right for a SCALE multiplier but wrong once a lane's
+            // own VELOCITY pad is a genuine absolute override: there's no single inherited value for `.all` (no
+            // index at all) to apply an absolute override "instead of." Normalizing to a concrete, always-
+            // populated index list lets every pick shape strike via `explicitNote:` uniformly (one `strikeChord`
+            // call per note, each carrying the SAME absolute velocity) instead of forking on which pick shape it is.
+            func resolvedPickIndices(_ pickIndex: Int?, _ pickRange: (lo: Int, hi: Int)?, count: Int) -> [Int] {
+                if let range = pickRange { return Array(range.lo...range.hi) }
+                if let idx = pickIndex { return [idx] }
+                return Array(0..<count)
+            }
+            func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, velocityAbsolute: Int, rate: Double, busOverride: UInt8?,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
                                 useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0,
                                 riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0,
@@ -4258,22 +4270,19 @@ final class Router {
                                 case .fill:
                                     let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord, count: thisLaneCount)
                                     let gb = min(sub * gate, S * 0.95) + riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
-                                    if let range = pickRange {
-                                        for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: gb, onlyIndex: idx, octave: octave, busOverride: busOverride, srcOverride: notes) }
-                                    } else {
-                                        strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: gb, onlyIndex: pickIndex, octave: octave, busOverride: busOverride, srcOverride: notes)
+                                    let fillVel = UInt8(velocityAbsolute)
+                                    for idx in resolvedPickIndices(pickIndex, pickRange, count: notes.count) where idx >= 0 && idx < notes.count {
+                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: octave, explicitNote: notes[idx].note, explicitVel: fillVel, busOverride: busOverride)
                                     }
                                     return
                                 }
                             }
-                            // VELOCITY: read from the SAME pool index FOLD resolves the note from where possible —
-                            // an honest inherited velocity, not a guessed flat value. Not provably the exact FOLD
-                            // index for a rank that wraps the pool more than once (flagged in the plan; a listen
-                            // once built is the real check, not re-deriving FOLD's own index formula up front).
+                            // ABSOLUTE VELOCITY (Paul 2026-10-09): the riff-sourced note's own inherited velocity
+                            // is no longer read at all — VELOCITY is a genuine override now, same as every other
+                            // strike this lane makes (see EuclidLine.velocityAbsolute's own doc comment).
                             guard let note = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
-                            let velIdx = ((rank - 1) % thisLaneCount + thisLaneCount) % thisLaneCount
                             let gb = min(sub * gate, S * 0.95) + riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
-                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: gb, octave: 0, explicitNote: note, explicitVel: notes[velIdx].vel, busOverride: busOverride)
+                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: note, explicitVel: UInt8(velocityAbsolute), busOverride: busOverride)
                             return
                         }
                         // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
@@ -4303,18 +4312,14 @@ final class Router {
                                 }
                                 guard stepIdx >= 0 else { return }
                                 let roct = stepIdx < rp.riffOct.count ? rp.riffOct[stepIdx] : 0        // RIFF's own per-step OCT lane — stacks additively with this line's own `octave` at strikeChord
-                                let raccent = stepIdx < rp.riffAccent.count ? rp.riffAccent[stepIdx] : 0
-                                // RIFF's own exact velocity formula (emitRiffRow) — read off the CELL's raw/live pool
-                                // (`pool`, in scope since the top of emitGeneratorRow), NOT the pool composed below —
-                                // those differ in a 3+-slot chain, and using the wrong one would silently diverge from
-                                // what RIFF's own standalone emission computes for an equivalent chain.
-                                let rbaseVel = max(1, Int(coinVelFactor(pool) * 127))
-                                let rvel = clampVel(rbaseVel + raccent)
+                                // ABSOLUTE VELOCITY (Paul 2026-10-09): RIFF's own per-step velocity formula
+                                // (accent lane + coinVelFactor) is no longer read — VELOCITY overrides it, same
+                                // as every other strike this lane makes.
                                 composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the riff's own slot (a no-op pass-through when riff is slot 0)
                                 func strikeRiffRank(_ rank: Int) {
                                     guard rank >= 1 else { return }
                                     guard let base = riffResolve(rank: rank, oct: roct, n: chainScratch.srcCount(filter: 0), wrap: rp.riffWrap, asc: { Int(chainScratch.srcAscending($0, filter: 0)) }) else { return }
-                                    strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: rvel, busOverride: busOverride)
+                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: UInt8(velocityAbsolute), busOverride: busOverride)
                                 }
                                 if rp.riffPoly {   // POLY: a step strikes the whole set rank mask as a simultaneous chord-stab
                                     let polyMask = stepIdx < rp.riffMask.count ? rp.riffMask[stepIdx] : 0
@@ -4325,28 +4330,31 @@ final class Router {
                             } else {   // .arp
                                 composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the arp's own slot
                                 // `ord` becomes `phaseIndex` directly, unmodified — arpPick is fully pure/total in
-                                // phaseIndex (incl. RANDOM/RANDOM ONCE, both seeded hashes of phaseIndex alone) and
-                                // already respects the upstream ARP's own VELOCITY/VELOCITY TILT controls, so no
-                                // separate velocity formula is needed here (unlike RIFF above).
+                                // phaseIndex (incl. RANDOM/RANDOM ONCE, both seeded hashes of phaseIndex alone).
+                                // ABSOLUTE VELOCITY (Paul 2026-10-09): the upstream ARP's own VELOCITY/VELOCITY
+                                // TILT-resolved pick velocity is no longer read — this line's own VELOCITY
+                                // overrides it, same as every other strike this lane makes.
                                 let pick = arpPick(phaseIndex: ord, octaves: max(1, min(4, Int(rp.octaves))), pattern: rp.patternIndex, pool: chainScratch,
                                                    chanMask: 0xFFFF, cableMask: 0b1111,
                                                    octDown: rp.arpOctDown, randomAnchor: rp.arpRandomAnchor, seed: rp.arpSeed,
                                                    velocity: rp.arpVelocity, velTilt: rp.arpVelTilt)
                                 guard pick.note >= 0 else { return }   // empty predecessor-fed pool
-                                strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: pick.vel, busOverride: busOverride)
+                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: UInt8(velocityAbsolute), busOverride: busOverride)
                             }
                             return
                         }
                         // GATE loosens the column-boundary safety clamp 0.9→0.95 so an aggressive per-lane GATE still
                         // can't bleed past its own column; OCTAVE threads straight to strikeChord (clamped there, like
-                        // UTILITY/ARP); VELOCITY is a plain multiplier on the struck note's own inherited velocity,
-                        // mirroring HARMONIZE's `harmVelScale` — nil resolves to 1.0, so an untouched lane is
-                        // byte-identical to before this field existed.
+                        // UTILITY/ARP). VELOCITY (Paul 2026-10-09) is a genuine absolute MIDI override — the
+                        // inherited note's own velocity is never read; every pick shape (a single rank, BOT2/TOP2's
+                        // pair, or ALL) resolves to a concrete index list first (`resolvedPickIndices`) so it can
+                        // strike via `explicitNote:` uniformly, mirroring ARP's own `arpVelocity` convention.
                         let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord, count: laneCount(lineIndex))
-                        if let range = pickRange {
-                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: idx, octave: octave, busOverride: busOverride, srcOverride: laneNotes(lineIndex)) }
-                        } else {
-                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), onlyIndex: pickIndex, octave: octave, busOverride: busOverride, srcOverride: laneNotes(lineIndex))
+                        let hitNotes = laneNotes(lineIndex)
+                        let hitVel = UInt8(velocityAbsolute)
+                        let hitGate = min(sub * gate, S * 0.95)
+                        for idx in resolvedPickIndices(pickIndex, pickRange, count: hitNotes.count) where idx >= 0 && idx < hitNotes.count {
+                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: octave, explicitNote: hitNotes[idx].note, explicitVel: hitVel, busOverride: busOverride)
                         }
                     } else if let missSel = missNoteSel {
                         // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — a REST step can now ALSO strike,
@@ -4425,6 +4433,7 @@ final class Router {
                 // cell's own bm, via strikeChord's busOverride).
                 runEuclidLine(lineIndex: lineIndex, pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved,
+                              velocityAbsolute: L.velocityAbsoluteResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
                               useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved,

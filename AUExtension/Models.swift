@@ -185,6 +185,19 @@ struct EuclidLine: Codable, Equatable {
     // strike either a pool note (whose own velocity should still matter) or a RIFF/ARP-resolved note (which
     // already carries its own velocity formula this scale multiplies on top of). nil ⇒ 1.0 = unity, byte-identical.
     var velocity: Double? = nil
+    // VELOCITY, ABSOLUTE (Paul 2026-10-09, XY pad redesign): a genuine MIDI-velocity OVERRIDE (1...127),
+    // mirroring ARP's own `arpVelocity` — ignores the struck note's inherited dynamics entirely, unlike
+    // `velocity` above (a 0...2 SCALE on the inherited value). A NEW field, not a repurposed one: reusing
+    // `velocity`'s own JSON key with a changed Swift type would throw decoding any older doc that had
+    // already saved a `Double` there (`decodeIfPresent` only tolerates a MISSING key, not a wrong-typed
+    // one). nil ⇒ 100. Once the VEL pad writes here, `velocity` itself is never touched by any UI action
+    // again — a KNOWN, DISCLOSED consequence: `velocity`'s own "0 = mute this lane" guard in
+    // `runEuclidLine` (and the EUCLID-beacon readiness scan, `euclidLineReady`, itself dead UI since the
+    // 2026-10-05 beacon removal) both still work for an OLD doc that set `velocity: 0`, but there's no
+    // way to reach that state from the UI going forward — the lane's own PLAY/STOP toggle is the live
+    // equivalent.
+    var velocityAbsolute: Int? = nil
+    var velocityAbsoluteResolved: Int { max(1, min(127, velocityAbsolute ?? 100)) }
     // HIT/MISS SPLIT (Paul 2026-10-02): "the off notes" — a MISS (rest) step can now ALSO strike a note, with its
     // own note-select/velocity/gate/octave, fully independent of the HIT side. `missNoteSel` is the on/off switch
     // for the whole feature: nil ⇒ OFF (today's silent-rest behaviour, byte-identical for every existing doc) —

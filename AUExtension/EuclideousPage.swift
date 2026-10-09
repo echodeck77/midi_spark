@@ -34,6 +34,7 @@
 //  VEL/GATE already used and the ratified mockup's own literal example string.
 
 import SwiftUI
+import UIKit
 
 // EUCLIDEOUS INVERT (euclideousInvertLine/euclideousEnsureMissDefaults) and the NOTE/OCTAVE cycle
 // (euclideousNoteSelCycle/euclideousStepNoteSel) live in Derivations.swift (Paul 2026-10-05) —
@@ -52,8 +53,134 @@ import SwiftUI
 /// GATE/VELOCITY swap which axis drives which (gate now X, velocity now Y — was the reverse); NOTE/OCT is
 /// unchanged, per Paul's own "the final x/y as it is now." Labels name X first, matching Paul's own dictation
 /// order for all three changed pads.
-enum EuclideousGestureTab: Int, CaseIterable { case tiltHits = 0, offsetCount = 1, gateVelocity = 2, noteOctave = 3
-    var label: String { switch self { case .tiltHits: "TILT/HITS"; case .offsetCount: "OFFS/CNT"; case .gateVelocity: "GATE/VEL"; case .noteOctave: "NOTE/OCT" } }
+// `label` (the old combined "TILT/HITS" etc. heading string) REMOVED 2026-10-09, XY pad redesign — the
+// new pad layout has no heading at all; each axis now names itself on its own edge (`euclideousAxisNames`).
+enum EuclideousGestureTab: Int, CaseIterable { case tiltHits = 0, offsetCount = 1, gateVelocity = 2, noteOctave = 3 }
+
+/// A gesture pad's two drag axes (Paul 2026-10-09 ferry: "XY pad redesign" — one axis LOCKS per drag,
+/// decided once 8pt of travel picks whichever moved further; held until finger-lift).
+enum EuclideousXYAxis { case x, y }
+
+/// Publishes a VIEW's own on-screen frame up to an ancestor — there was previously no mechanism on this
+/// page for a view to learn its own position (every existing overlay anchors off the raw UIKit TOUCH
+/// point instead, via `EuclidDragHUDInfo.point`). The new per-pad value bubble needs the opposite: it
+/// must stay anchored to the PAD'S OWN frame even once a drag has carried the finger well outside it
+/// (the new gesture model explicitly keeps tracking past the pad's bounds) — so each of the 16 pads
+/// reports its frame once per layout pass, merged by key ("laneIdx-tabRawValue") into one dictionary.
+struct EuclideousPadFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// The two un-abbreviated value strings a pad shows (ferry §3/§4: "2 centered text lines for Y/X
+/// values"... "explicit, non-abbreviated value-format strings") — Y above X, matching every pad's own
+/// Y-axis-first dictation order. Reused for both the pad's own permanent face and the floating bubble
+/// (whichever axis is actively locked), so the two can never show conflicting text for the same value.
+struct EuclideousPadValues { let yText: String; let xText: String }
+
+/// The new XY pad gesture bridge (Paul 2026-10-09 ferry), replacing `EuclidGesturePad` at this ONE call
+/// site (`gesturePadRow`) — the shared component itself (EuclidLaneUI.swift, still used by the regular
+/// BUILD-page EUCLID editor, Euclideous's own neutered per-lane comet bar, and the MASK pad) is
+/// untouched; this is a SEPARATE, purpose-built bridge, not a variant bolted onto the old one, since the
+/// interaction shapes genuinely differ (a dead zone + single-axis lock has no equivalent in the old
+/// both-axes-always-live model).
+///
+/// SINGLE-FINGER: `.began` latches whether this is a 1- or 2-finger gesture (never re-read mid-drag,
+/// mirroring `EuclidGesturePad`'s own established reasoning for why this must be latched, not polled).
+/// Below an 8pt dead zone, nothing is reported (`onAxisDrag(nil, 0, 0)`) beyond the plain touch-down/up
+/// signal (`onDragState`, still used for the "a finger is down" 2pt border highlight). At/past 8pt, the
+/// axis that moved FURTHEST locks for the rest of the gesture — a plain UIKit `UIPanGestureRecognizer`
+/// already keeps tracking a touch that leaves the view's own bounds (it tracks by touch, not by frame),
+/// so "held until finger-lift even if it leaves the pad" needs no extra code.
+///
+/// TWO TRAVEL VALUES are reported once locked, because the ONE axis that needs the raw, un-rebased
+/// value (TILT, whose own "-8" detent term IS this same 8pt dead zone, so feeding it the raw value
+/// combines the two into exactly one threshold, not a doubled one) differs from the other seven fields
+/// (which want travel REBASED to 0 at the exact instant of lock, so their own committed value starts
+/// cleanly at its baseline with no visible pop the moment the axis decides).
+///
+/// 2-FINGER ALL LANES: reimplemented from scratch (Paul's own §2 interaction rules never mention
+/// 2-finger dragging at all — "anything not mentioned stays as built") but behaviourally the SAME
+/// continuous, no-dead-zone, no-axis-lock shape the old HITS/OFFS pad's own 2-finger gesture already
+/// had — both axes report independently and continuously, discretized into whole units via the SAME
+/// per-axis `pointsPerUnit` the single-finger path uses (a deliberate unification — the two gestures
+/// controlling the SAME field at two different granularities would have been a stranger inconsistency
+/// than sharing one sensitivity constant).
+struct EuclideousXYPad: UIViewRepresentable {
+    let xPointsPerUnit: CGFloat
+    let yPointsPerUnit: CGFloat
+    /// (lockedAxis, rawTravel, travelSinceLock) — nil axis + zero travel during the dead zone, at
+    /// touch-down, or once the touch lifts. Y is pre-negated (screen-down is +y; "up" reads as
+    /// positive travel, matching every Y-axis field's own "more = up" convention, same as the
+    /// established `EuclidGesturePad` vertical-axis convention).
+    let onAxisDrag: (EuclideousXYAxis?, CGFloat, CGFloat) -> Void
+    let onAllDelta: (EuclideousXYAxis, Int) -> Void
+    /// (location, isAllRows) — window-space; mirrors `EuclidGesturePad.onDragState` exactly, driving
+    /// the 2pt "I'm touched" border.
+    let onDragState: (CGPoint?, Bool) -> Void
+    let onDoubleTap: () -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView(); v.backgroundColor = .clear; v.isOpaque = false
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        pan.minimumNumberOfTouches = 1; pan.maximumNumberOfTouches = 2
+        pan.delegate = context.coordinator
+        pan.cancelsTouchesInView = false
+        v.addGestureRecognizer(pan)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
+        tap.numberOfTapsRequired = 2
+        tap.delegate = context.coordinator
+        v.addGestureRecognizer(tap)
+        return v
+    }
+    func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.owner = self }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var owner: EuclideousXYPad
+        init(_ o: EuclideousXYPad) { owner = o }
+        private var twoFinger = false
+        private var locked: EuclideousXYAxis? = nil
+        private var lockRawTravel: CGFloat = 0   // the raw travel value AT the instant of lock, for rebasing
+        private var appliedAllX = 0, appliedAllY = 0
+        private let deadZone: CGFloat = 8
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+        @objc func handleDoubleTap(_ g: UITapGestureRecognizer) { owner.onDoubleTap() }
+        @objc func handlePan(_ g: UIPanGestureRecognizer) {
+            switch g.state {
+            case .began:
+                twoFinger = g.numberOfTouches >= 2
+                locked = nil; lockRawTravel = 0
+                appliedAllX = 0; appliedAllY = 0
+                owner.onDragState(g.location(in: g.view?.window), twoFinger)
+            case .changed:
+                let t = g.translation(in: g.view)
+                if twoFinger {
+                    let stepsX = Int((t.x / owner.xPointsPerUnit).rounded())
+                    let stepsY = Int((-t.y / owner.yPointsPerUnit).rounded())
+                    if stepsX != appliedAllX { owner.onAllDelta(.x, stepsX - appliedAllX); appliedAllX = stepsX }
+                    if stepsY != appliedAllY { owner.onAllDelta(.y, stepsY - appliedAllY); appliedAllY = stepsY }
+                    owner.onDragState(g.location(in: g.view?.window), true)
+                } else {
+                    if locked == nil, max(abs(t.x), abs(t.y)) >= deadZone {
+                        locked = abs(t.x) >= abs(t.y) ? .x : .y
+                        lockRawTravel = locked == .x ? t.x : -t.y
+                    }
+                    if let axis = locked {
+                        let raw = axis == .x ? t.x : -t.y
+                        owner.onAxisDrag(axis, raw, raw - lockRawTravel)
+                    }
+                    owner.onDragState(g.location(in: g.view?.window), false)
+                }
+            case .ended, .cancelled, .failed:
+                owner.onAxisDrag(nil, 0, 0)
+                owner.onDragState(nil, twoFinger)
+            default: break
+            }
+        }
+    }
 }
 
 /// PER-LANE TABS (Paul 2026-10-07): PATTERN/RIFF/MASK, switching independently per lane — replaces
@@ -120,6 +247,18 @@ struct EuclideousPage: View {
     // the 3 pads (if any) currently has a finger down, for visual highlight only, matching the SAME
     // "local @State, never persisted" convention as `selectedLane`/`singleTouchedLanes` above.
     @State private var touchedPad: [Int?] = [nil, nil, nil, nil]
+    // XY PAD REDESIGN (Paul 2026-10-09 ferry): per-LANE drag state for the new dead-zone + axis-lock
+    // gesture model — `xyLockedAxis[idx]` is nil until 8pt of movement decides which axis this lane's
+    // CURRENT touch controls (see `EuclideousXYPad`); `xyBaseline[idx]` is the (x,y) value captured
+    // ONCE at touch-down (`padBaseline`), read back by `commitAxis` as the reference point every
+    // absolute value is computed from. Both purely ephemeral/local, same convention as `touchedPad`.
+    @State private var xyLockedAxis: [Int: EuclideousXYAxis] = [:]
+    @State private var xyBaseline: [Int: (x: Double, y: Double)] = [:]
+    // Per-pad on-screen frame, published by each of the 16 pads via `EuclideousPadFramePreferenceKey`
+    // (a GeometryReader+PreferenceKey — there was previously no mechanism on this page for a view to
+    // learn its OWN frame) — read by the new floating value bubble to anchor itself just above/below
+    // whichever pad is currently being dragged, keyed "idx-tabRawValue".
+    @State private var padFrames: [String: CGRect] = [:]
     // HIT|MISS SELECTOR (Paul 2026-10-06): "I want the outline of the hit button to look selected and the
     // misses to appear like hits do now" — a symmetric 2-way toggle (not the old single "INV" pill): exactly
     // one of HIT/MISS is "selected" (an outline, matching EuclidLaneBox's own `selected` convention) at a
@@ -270,8 +409,54 @@ struct EuclideousPage: View {
                         .zIndex(3)
                     chordsPopupCard(geo.size).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
+                // THE XY PAD VALUE BUBBLE (Paul 2026-10-09 ferry §3): one per lane currently mid-drag on one
+                // of its 4 gesture pads (axis already locked, past the dead zone) — multiple can show at once,
+                // matching this page's existing multi-touch support (`singleTouchedLanes`). Anchored to the
+                // TOUCHED PAD'S OWN on-screen frame (`padFrames`, published below), not the finger position —
+                // a drag that leaves the pad's bounds (explicitly allowed by the new gesture model) must not
+                // drag the bubble away from the control it's reporting on.
+                ForEach(activeXYBubbles, id: \.idx) { b in
+                    let line = b.idx < lines.count ? lines[b.idx] : EuclidLine(noteSel: .all)
+                    let values = euclideousPadValues(line, b.tab)
+                    let text = b.axis == .x ? values.xText : values.yText
+                    let accent = laneAccents[b.idx % laneAccents.count]
+                    if let frame = padFrames["\(b.idx)-\(b.tab.rawValue)"] {
+                        euclideousXYBubble(text, accent: accent)
+                            .position(x: frame.midX, y: euclideousBubbleY(frame, pageHeight: geo.size.height))
+                            .allowsHitTesting(false)
+                            .zIndex(5)
+                    }
+                }
             }
+            .coordinateSpace(name: "euclideousXY")
+            .onPreferenceChange(EuclideousPadFramePreferenceKey.self) { padFrames = $0 }
         }
+    }
+    /// Every (lane, locked-axis) pair currently mid-drag, past the dead zone — drives the bubble above.
+    private var activeXYBubbles: [(idx: Int, tab: EuclideousGestureTab, axis: EuclideousXYAxis)] {
+        (0..<4).compactMap { idx in
+            guard let tabRaw = touchedPad[idx], let axis = xyLockedAxis[idx],
+                  let tab = EuclideousGestureTab(rawValue: tabRaw) else { return nil }
+            return (idx, tab, axis)
+        }
+    }
+    /// Flips below the pad when there isn't room above (ferry §3: "flips below when there's no room above").
+    /// `pageHeight` isn't actually needed for the ABOVE case (a pad is never so close to the bottom that
+    /// placing the bubble above it runs out of room there) — kept as an explicit parameter anyway, matching
+    /// the "clamped inside the page" requirement, so a future vertical-clamp refinement has it in scope.
+    private func euclideousBubbleY(_ frame: CGRect, pageHeight: CGFloat) -> CGFloat {
+        let margin: CGFloat = 20
+        let above = frame.minY - margin
+        return above >= margin ? above : frame.maxY + margin
+    }
+    private func euclideousXYBubble(_ text: String, accent: Color) -> some View {
+        Text(text)
+            .font(.system(size: padValueSize, weight: .heavy, design: .monospaced))
+            .foregroundColor(.black).lineLimit(1)
+            .padding(.horizontal, sp8).padding(.vertical, sp4)
+            .background(RoundedRectangle(cornerRadius: 6).fill(accent))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.black.opacity(0.25), lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
     }
 
     // MARK: - ONE CONTAINER (ferry §2): "the plugin view's bounds minus 16pt on the left and right. Header,
@@ -699,7 +884,6 @@ struct EuclideousPage: View {
         let rowGaps: CGFloat = sp4 * 3     // VStack(spacing: sp4) between the 4 children = 3 gaps
         let gestureRowH = max(1, height - cometRowH - tabRowH - tabContentH - outerVPad - rowGaps)
         let steps = max(2, min(16, line.steps))
-        let rotateStepPt = euclidBoxGeometry(n: steps, usableWidth: max(1, innerWidth - 64)).pitch
         VStack(alignment: .leading, spacing: sp4) {
             EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                           // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
@@ -714,7 +898,7 @@ struct EuclideousPage: View {
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
                           stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0)))
-            gesturePadRow(idx, line, accent, cellSize: gesturePadW, rowHeight: gestureRowH, rotateStepPt: rotateStepPt)
+            gesturePadRow(idx, line, accent, cellSize: gesturePadW, rowHeight: gestureRowH)
             laneTabRow(idx, line, accent, rowH: tabRowH)
             tabContent(idx, line, tab, accent, cellSize: padSize, rowH: contentLineH, fullWidth: innerWidth)
         }
@@ -744,90 +928,381 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
     }
 
-    // MARK: - The 4 gesture pads (Paul 2026-10-06, faces now show their value permanently — 2026-10-07 §3)
+    // MARK: - The 4 gesture pads (Paul 2026-10-09 ferry: "XY pad redesign" — dead-zone + axis-lock drag,
+    // no heading, 2 centered value lines + a live Canvas "picture" + edge axis-name labels, a per-pad
+    // floating value bubble replacing the old shared page-level HUD, double-tap-to-reset.)
 
-    /// The 4 gesture PADS (TILT/HITS · OFFS/CNT · GATE/VEL · NOTE/OCT) — `cellSize` wide, `rowHeight` tall,
-    /// with `sp4` gaps between them (ferry §3: "the four pads in a lane are equal width, with 4pt gaps
-    /// between them" — were touching before). Each is its OWN independent 1-/2-finger drag surface (via a
-    /// dedicated `EuclidGesturePad` instance per button) wired directly to that button's own X/Y mapping.
-    /// PINCH (`onStepsDelta`) is a no-op here — that gesture stays on the comet bar itself.
-    ///
-    /// TYPE (ferry §4): heading/value/subtitle all use the SAME three fixed sizes in every pad, lane and
-    /// orientation — `padHeadingSize`/`padValueSize`/`padSubtitleSize` — with NO `.minimumScaleFactor`
-    /// anywhere here. The pad-face strings themselves (`euclideousPadInfo` and the HUD formatters below) are
-    /// written in COMPACT forms sized to fit the narrowest supported pad at these fixed sizes, not shrunk.
-    private func gesturePadRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowHeight: CGFloat, rotateStepPt: CGFloat) -> some View {
+    private let padAxisLabelColor = Color(hex: 0x8A909A)
+
+    /// The 4 gesture PADS (RHYTHM · LENGTH · NOTE/GATE · RIFF, by their own axis pairing — labels now
+    /// live on the pad's edges, not a heading) — `cellSize` wide, `rowHeight` tall, `sp4` gaps between
+    /// them (unchanged). Each is its own independent `EuclideousXYPad` drag surface; PINCH stays on the
+    /// comet bar, untouched by this redesign.
+    private func gesturePadRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowHeight: CGFloat) -> some View {
         HStack(spacing: sp4) {
             ForEach(EuclideousGestureTab.allCases, id: \.rawValue) { t in
                 let touched = touchedPad[idx] == t.rawValue
-                // RIFF ADVANCE (Paul 2026-10-06): once a lane's useRiff is on, this ONE pad's label/tint
-                // change to reflect the new role and its DRAG retargets to riffRotate/riffOctave instead of
-                // noteSel/octave. Heading compacted to "SHIFT/OCT" (was "RIFF SHIFT/OCT") — 9 characters,
-                // matching the other 3 pads' own heading length budget (ferry §4's fixed heading size is
-                // sized against a 9-character ceiling).
+                // RIFF ADVANCE (Paul 2026-10-06): once a lane's useRiff is on, this pad's tint + picture +
+                // axis labels switch from NOTE/OCT to SHIFT/OCT — unchanged by this redesign, just now
+                // expressed via `euclideousAxisNames`/`euclideousPadValues`/`euclideousPadPicture` instead
+                // of a swapped heading string.
                 let isRiffPad = t == .noteOctave && line.useRiffResolved
-                let info = euclideousPadInfo(idx, line, t)
+                let values = euclideousPadValues(line, t)
+                let names = euclideousAxisNames(line, t)
+                let ppu = pointsPerUnit(t)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(touched ? accent.opacity(0.4) : (isRiffPad ? accent.opacity(0.22) : Color.white.opacity(0.06)))
+                    RoundedRectangle(cornerRadius: 6).fill(isRiffPad ? accent.opacity(0.22) : Color(hex: 0x22252C))
                     VStack(spacing: sp4) {
-                        Text(isRiffPad ? "SHIFT/OCT" : t.label)
-                            .font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
-                            .foregroundColor(touched ? .black.opacity(0.75) : .white.opacity(0.5))
-                            .lineLimit(1)
-                        Text(info.primary)
-                            .font(.system(size: padValueSize, weight: .heavy, design: .monospaced))
-                            .foregroundColor(touched ? .black : .white.opacity(0.92))
-                            .lineLimit(1)
-                        if !info.secondary.isEmpty {
-                            Text(info.secondary)
+                        VStack(spacing: 1) {
+                            Text(values.yText)
+                                .font(.system(size: padValueSize, weight: .heavy, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.92)).lineLimit(1)
+                            Text(values.xText)
                                 .font(.system(size: padSubtitleSize, weight: .semibold, design: .monospaced))
-                                .foregroundColor(touched ? .black.opacity(0.7) : .white.opacity(0.55))
-                                .lineLimit(1)
+                                .foregroundColor(.white.opacity(0.6)).lineLimit(1)
                         }
+                        euclideousPadPicture(line, t, accent: accent)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .multilineTextAlignment(.center)
-                    .padding(sp4)
+                    .padding(.top, sp4).padding(.bottom, 9).padding(.horizontal, 9)
                 }
+                .overlay(alignment: .bottom) {
+                    HStack(spacing: 2) {
+                        Text("◀").font(.system(size: padHeadingSize, weight: .heavy))
+                        Text(names.x).font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
+                        Text("▶").font(.system(size: padHeadingSize, weight: .heavy))
+                    }
+                    .foregroundColor(padAxisLabelColor).lineLimit(1)
+                    .padding(.bottom, 1)
+                }
+                .overlay(alignment: .leading) {
+                    HStack(spacing: 2) {
+                        Text("▲").font(.system(size: padHeadingSize, weight: .heavy))
+                        Text(names.y).font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
+                    }
+                    .foregroundColor(padAxisLabelColor).lineLimit(1).fixedSize()
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 10)
+                    .padding(.leading, 1)
+                }
+                // THE 2pt TOUCH BORDER (ferry §3) — the new, single "I'm being dragged" cue; the old
+                // whole-pad accent-fill-while-touched treatment is gone, since it would otherwise fight
+                // the riff-tint fill above for the same visual channel.
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(touched ? accent : Color.clear, lineWidth: 2))
                 .frame(width: cellSize, height: rowHeight)
                 .contentShape(Rectangle())
+                // PAD FRAME PUBLISHING (ferry §3: the bubble anchors to the pad, not the finger) —
+                // see `EuclideousPadFramePreferenceKey`'s own doc comment.
+                .background(
+                    GeometryReader { g in
+                        Color.clear.preference(key: EuclideousPadFramePreferenceKey.self,
+                                                value: ["\(idx)-\(t.rawValue)": g.frame(in: .named("euclideousXY"))])
+                    }
+                )
                 .overlay(
-                    EuclidGesturePad(
-                        onRotateDelta: { d in euclideousApplyX(idx, t, d) },
-                        onHitsDelta: { d in euclideousApplyY(idx, t, d) },
-                        onStepsDelta: { _ in },                              // "except the pinch" — a deliberate no-op on these pads
-                        onAllRotateDelta: { d in euclideousApplyAllX(t, d) },
-                        onAllHitsDelta: { d in euclideousApplyAllY(t, d) },
-                        onDragState: { point, allRows in
-                            touchedPad[idx] = point == nil ? nil : t.rawValue
-                            guard let point else { dragHUDInfo = nil; return }
-                            let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
-                            switch t {
-                            case .tiltHits: dragHUDInfo = euclideousTiltHitsHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
-                            case .offsetCount: dragHUDInfo = euclideousOffsetCountHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
-                            case .gateVelocity: dragHUDInfo = euclideousVelGateHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
-                            case .noteOctave: dragHUDInfo = euclideousNoteOctHUDInfo(idx: idx, line: line, point: point, allRows: allRows)
+                    EuclideousXYPad(
+                        xPointsPerUnit: ppu.x, yPointsPerUnit: ppu.y,
+                        onAxisDrag: { axis, raw, sinceLock in
+                            guard let axis else { xyLockedAxis[idx] = nil; return }
+                            xyLockedAxis[idx] = axis
+                            let base = xyBaseline[idx] ?? padBaseline(line, t)
+                            // TILT's X axis wants the RAW travel (its own detent formula IS the dead
+                            // zone); every other axis wants travel rebased to 0 at the lock instant, so
+                            // its committed value starts exactly at baseline with no pop — see
+                            // `EuclideousXYPad`'s own doc comment.
+                            let travel = (t == .tiltHits && axis == .x) ? raw : sinceLock
+                            edit(idx) { commitAxis(&$0, t, axis: axis, baseline: axis == .x ? base.x : base.y, travel: travel) }
+                        },
+                        onAllDelta: { axis, d in euclideousApplyAllDelta(t, axis: axis, d) },
+                        onDragState: { point, _ in
+                            if point == nil {
+                                if touchedPad[idx] == t.rawValue { touchedPad[idx] = nil }
+                                xyLockedAxis[idx] = nil
+                            } else if touchedPad[idx] != t.rawValue {
+                                // A FRESH touch on this pad — capture the baseline exactly once, before
+                                // any commit can run, so a nudge is always relative to where the value
+                                // was when the finger first landed.
+                                touchedPad[idx] = t.rawValue
+                                xyLockedAxis[idx] = nil
+                                xyBaseline[idx] = padBaseline(line, t)
                             }
                         },
-                        rotateStepPt: rotateStepPt)
+                        onDoubleTap: { edit(idx) { doubleTapReset(&$0, t) } })
                 )
             }
         }
     }
 
-    /// The permanent-face equivalent of the transient drag HUD. HITS/OFFS gets its OWN compact formatter
-    /// (Paul 2026-10-08, ferry §3: "3 HITS OUT OF…" truncated at small pad sizes) — "K/N · ±R" in one line,
-    /// matching the format VEL/GATE already used and the ratified mockup's own literal example string
-    /// ("5/16 · +0"), rather than reusing `euclidLaneDragHUDInfo`'s verbose "N HITS OUT OF M"/"OFFSET BY K"
-    /// pair, which was built for the much roomier floating drag-HUD card and was never going to fit a ~44pt
-    /// pad face. The transient drag HUD (below, `onDragState`) is UNCHANGED — it has the room for the
-    /// verbose form and nobody asked to compact that one.
-    private func euclideousPadInfo(_ idx: Int, _ line: EuclidLine, _ t: EuclideousGestureTab) -> EuclidDragHUDInfo {
+    /// The two un-abbreviated value strings a pad shows (ferry §4) — Y above X, reused by both the
+    /// permanent face (above) and the floating drag bubble (the body's own `activeXYBubbles`), so the
+    /// two can never disagree about what a value currently reads.
+    private func euclideousPadValues(_ line: EuclidLine, _ t: EuclideousGestureTab) -> EuclideousPadValues {
         switch t {
-        case .tiltHits: return euclideousTiltHitsHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
-        case .offsetCount: return euclideousOffsetCountHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
-        case .gateVelocity: return euclideousVelGateHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
-        case .noteOctave: return euclideousNoteOctHUDInfo(idx: idx, line: line, point: .zero, allRows: false)
+        case .tiltHits:
+            let pct = Int((line.tiltResolved * 100).rounded())
+            let hitWord = line.pulses == 1 ? "HIT" : "HITS"
+            return EuclideousPadValues(yText: "\(line.pulses) \(hitWord)", xText: "TILT \(pct >= 0 ? "+" : "")\(pct)%")
+        case .offsetCount:
+            let n = max(2, min(16, line.steps))
+            let r = ((line.rotate % n) + n) % n
+            return EuclideousPadValues(yText: "\(line.steps) STEPS", xText: "OFFSET \(r)")
+        case .gateVelocity:
+            let gatePct = Int((line.gateResolved * 100).rounded())
+            return EuclideousPadValues(yText: "VEL \(line.velocityAbsoluteResolved)", xText: "GATE \(gatePct)%")
+        case .noteOctave:
+            if line.useRiffResolved {
+                let n = max(1, riff.stepsResolved)
+                let shift = ((line.riffRotateResolved % n) + n) % n
+                let oct = line.riffOctaveResolved
+                return EuclideousPadValues(yText: "OCT \(oct >= 0 ? "+" : "")\(oct)", xText: "SHIFT \(shift)")
+            }
+            let oct = line.octaveResolved
+            return EuclideousPadValues(yText: "OCT \(oct >= 0 ? "+" : "")\(oct)", xText: "NOTE \(line.noteSelResolved.rawValue)")
         }
+    }
+    /// The edge-label axis names (ferry §3) — short, un-abbreviated field names, Y then X.
+    private func euclideousAxisNames(_ line: EuclidLine, _ t: EuclideousGestureTab) -> (y: String, x: String) {
+        switch t {
+        case .tiltHits: return ("HITS", "TILT")
+        case .offsetCount: return ("STEPS", "OFFSET")
+        case .gateVelocity: return ("VEL", "GATE")
+        case .noteOctave: return ("OCT", line.useRiffResolved ? "SHIFT" : "NOTE")
+        }
+    }
+    /// Per-(tab,axis) drag sensitivity — points of finger travel per ONE WHOLE UNIT of that field's own
+    /// natural step (ferry §2.4) — shared by the single-finger locked-axis commit (`travel / ppu`
+    /// against a captured baseline, see `commitAxis`) AND the 2-finger ALL-LANES path (the bridge itself
+    /// quantizes continuous travel into discrete Int ticks at this same rate — a deliberate
+    /// unification: the ferry never addresses 2-finger sensitivity, and two different sensitivities for
+    /// the same field depending on finger count would have been a stranger inconsistency than sharing one).
+    private func pointsPerUnit(_ t: EuclideousGestureTab) -> (x: CGFloat, y: CGFloat) {
+        switch t {
+        case .tiltHits: return (1, 12)        // TILT 1pt/1% · HITS 12pt/step
+        case .offsetCount: return (12, 12)    // OFFSET 12pt/step · STEPS 12pt/step
+        case .gateVelocity: return (2, 1.5)   // GATE 2pt/1% · VEL 1.5pt/unit
+        case .noteOctave: return (12, 12)     // SHIFT/NOTE 12pt/step · OCT 12pt/step
+        }
+    }
+
+    // MARK: - The 5 pictures (ferry §5) — bespoke live Canvas visualizations, one per pad (NOTE/OCT has
+    // two: riff-on shows the RIFF picture, riff-off shows its own single-column OCT picture).
+
+    @ViewBuilder private func euclideousPadPicture(_ line: EuclidLine, _ t: EuclideousGestureTab, accent: Color) -> some View {
+        switch t {
+        case .tiltHits: euclideousRhythmPicture(line, accent: accent)
+        case .offsetCount: euclideousLengthPicture(line, accent: accent)
+        case .gateVelocity: euclideousNoteGatePicture(line, accent: accent)
+        case .noteOctave:
+            if line.useRiffResolved { euclideousRiffPicture(line, accent: accent) }
+            else { euclideousNoteOctPicture(line, accent: accent) }
+        }
+    }
+    /// RHYTHM: a row of hit/rest cells reflecting the lane's ACTUAL pattern — reuses the exact same pure
+    /// functions, in the same order, `Router.runEuclidLine` itself calls (`euclidPatternInto` then
+    /// `euclidTiltPattern`), so this can never silently disagree with what's struck. No direction
+    /// handling, matching `EuclidCometBar`'s own established precedent (direction only affects the
+    /// animated comet's sweep, never the static pattern's own screen layout).
+    private func euclideousRhythmPicture(_ line: EuclidLine, accent: Color) -> some View {
+        let n = max(2, min(16, line.steps))
+        let k = max(0, min(n, line.pulses))
+        var buf = [Bool](repeating: false, count: n)
+        euclidPatternInto(&buf, pulses: k, steps: n, rotation: line.rotate)
+        if line.tiltResolved != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: line.tiltResolved) }
+        return Canvas { ctx, size in
+            let gap: CGFloat = 1.5
+            let cellW = max(1, (size.width - gap * CGFloat(n - 1)) / CGFloat(n))
+            for i in 0..<n {
+                let rect = CGRect(x: CGFloat(i) * (cellW + gap), y: 0, width: cellW, height: size.height)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(buf[i] ? accent : Color(white: 0.22)))
+            }
+        }
+    }
+    /// LENGTH: `steps` dots arranged clockwise around a circle (12 o'clock = step 0), the dot at the
+    /// wrapped OFFSET index enlarged + lane-coloured — the SAME wrap `euclideousPadValues`'s own OFFSET
+    /// readout uses, so the picture and the value line can never disagree about which dot is current.
+    private func euclideousLengthPicture(_ line: EuclidLine, accent: Color) -> some View {
+        let n = max(2, min(16, line.steps))
+        let r = ((line.rotate % n) + n) % n
+        return Canvas { ctx, size in
+            let cx = size.width / 2, cy = size.height / 2
+            let radius = min(size.width, size.height) / 2 - 3
+            for i in 0..<n {
+                let angle = -Double.pi / 2 + 2 * .pi * Double(i) / Double(n)
+                let x = cx + CGFloat(cos(angle)) * radius
+                let y = cy + CGFloat(sin(angle)) * radius
+                let on = i == r
+                let dotR: CGFloat = on ? 3.5 : (i == 0 ? 2.2 : 1.6)
+                let color: Color = on ? accent : (i == 0 ? Color(white: 0.66) : Color(white: 0.3))
+                ctx.fill(Path(ellipseIn: CGRect(x: x - dotR, y: y - dotR, width: dotR * 2, height: dotR * 2)), with: .color(color))
+            }
+        }
+    }
+    /// NOTE/GATE: a dashed max-extent box with a lane-colour rect sized by GATE (width) × VEL (height) —
+    /// the two things this pad actually controls, shown as one simple bar.
+    private func euclideousNoteGatePicture(_ line: EuclidLine, accent: Color) -> some View {
+        let gateFrac = max(0.05, min(1, line.gateResolved))
+        let velFrac = Double(line.velocityAbsoluteResolved) / 127.0
+        return Canvas { ctx, size in
+            ctx.stroke(Path(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1), cornerRadius: 2),
+                       with: .color(Color(white: 0.4)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            let w = size.width * CGFloat(gateFrac)
+            let h = size.height * CGFloat(velFrac)
+            ctx.fill(Path(roundedRect: CGRect(x: 0, y: size.height - h, width: w, height: h), cornerRadius: 1.5), with: .color(accent))
+        }
+    }
+    /// RIFF: an 8×7 SHIFT(columns)/OCT(rows, +3 at top...-3 at bottom) grid, the cell at (wrapped SHIFT,
+    /// current OCT) lane-coloured.
+    private func euclideousRiffPicture(_ line: EuclidLine, accent: Color) -> some View {
+        let n = max(1, riff.stepsResolved)
+        let shiftCols = min(8, n)
+        let shift = ((line.riffRotateResolved % n) + n) % n
+        let oct = line.riffOctaveResolved
+        return Canvas { ctx, size in
+            let gap: CGFloat = 1
+            let cellW = max(1, (size.width - gap * CGFloat(shiftCols - 1)) / CGFloat(shiftCols))
+            let cellH = max(1, (size.height - gap * 6) / 7)
+            for row in 0..<7 {
+                let rowOct = 3 - row   // row 0 = +3 at the top
+                for col in 0..<shiftCols {
+                    let isCurrent = col == (shift % shiftCols) && rowOct == oct
+                    let rect = CGRect(x: CGFloat(col) * (cellW + gap), y: CGFloat(row) * (cellH + gap), width: cellW, height: cellH)
+                    let color: Color = isCurrent ? accent : (rowOct == 0 ? Color(white: 0.26) : Color(white: 0.18))
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
+                }
+            }
+        }
+    }
+    /// NOTE/OCT (riff off): a single OCT column, the SAME 7-row geometry the RIFF picture's own rows
+    /// use, current OCT marked lane-coloured.
+    private func euclideousNoteOctPicture(_ line: EuclidLine, accent: Color) -> some View {
+        let oct = line.octaveResolved
+        return Canvas { ctx, size in
+            let gap: CGFloat = 1
+            let cellH = max(1, (size.height - gap * 6) / 7)
+            for row in 0..<7 {
+                let rowOct = 3 - row
+                let rect = CGRect(x: 0, y: CGFloat(row) * (cellH + gap), width: size.width, height: cellH)
+                let color: Color = rowOct == oct ? accent : (rowOct == 0 ? Color(white: 0.26) : Color(white: 0.18))
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
+            }
+        }
+    }
+
+    // MARK: - Single-finger commit + double-tap reset + 2-finger ALL-LANES (ferry §2)
+
+    /// Captures BOTH axes' reference value the moment a touch lands (axis lock isn't decided until 8pt
+    /// of movement, so both candidates must be ready before then) — a nudge from wherever the value
+    /// currently is, not a fresh-each-touch absolute set. TILT is the one exception (computed from raw
+    /// travel alone in `commitAxis`) — its own X baseline here is never read.
+    private func padBaseline(_ line: EuclidLine, _ t: EuclideousGestureTab) -> (x: Double, y: Double) {
+        switch t {
+        case .tiltHits: return (0, Double(line.pulses))
+        case .offsetCount:
+            let n = max(2, min(16, line.steps))
+            return (Double(((line.rotate % n) + n) % n), Double(line.steps))
+        case .gateVelocity: return (line.gateResolved * 100, Double(line.velocityAbsoluteResolved))
+        case .noteOctave:
+            if line.useRiffResolved {
+                let n = max(1, riff.stepsResolved)
+                return (Double(((line.riffRotateResolved % n) + n) % n), Double(line.riffOctaveResolved))
+            }
+            let idx = euclideousNoteSelCycle.firstIndex(of: line.noteSelResolved) ?? 0
+            return (Double(idx), Double(line.octaveResolved))
+        }
+    }
+    /// Commits ONE locked axis's value from (baseline captured at touch-down, cumulative travel since —
+    /// RAW for TILT, rebased-to-0-at-lock for every other field, see `EuclideousXYPad`'s own doc comment
+    /// for why the two differ). Replaces the OLD delta-accumulation `applyX`/`applyY` for the single-
+    /// finger path entirely — the 2-finger ALL-LANES path gets its own, separate delta model below
+    /// (`applyAllDelta`), since a continuous accumulation and a baseline+travel commit are genuinely
+    /// different shapes, not two readings of the same formula.
+    private func commitAxis(_ line: inout EuclidLine, _ t: EuclideousGestureTab, axis: EuclideousXYAxis, baseline: Double, travel: CGFloat) {
+        switch (t, axis) {
+        case (.tiltHits, .x):
+            // TILT — a center DETENT: the first 8pt of travel from touch-down (either direction) holds
+            // at 0% — this 8pt IS the axis-lock dead zone itself (fed RAW, not rebased), so the two
+            // combine into exactly one threshold rather than stacking into two.
+            let signed = Double(travel)
+            let adjusted = signed >= 0 ? max(0, signed - 8) : min(0, signed + 8)
+            line.tilt = max(-1, min(1, adjusted / 100))
+        case (.tiltHits, .y):
+            let steps = max(2, min(16, line.steps))
+            line.pulses = max(0, min(steps, Int(baseline) + Int((travel / 12).rounded())))
+        case (.offsetCount, .x):
+            // OFFSET — a flat 12pt/step (ferry §2.4, abandoning the comet bar's own adaptive box-pitch
+            // sensitivity for this one control) · SIGN preserved from the established 2026-10-03 fix:
+            // dragging right DECREASES rotate, matching the comet bar's own on-screen box movement.
+            let n = max(2, min(16, line.steps))
+            let v = Int(baseline) - Int((travel / 12).rounded())
+            line.rotate = ((v % n) + n) % n
+        case (.offsetCount, .y):
+            let v = max(2, min(16, Int(baseline) + Int((travel / 12).rounded())))
+            line.steps = v
+            if line.pulses > v { line.pulses = v }
+        case (.gateVelocity, .x):
+            let pct = baseline + Double(travel) / 2
+            line.gate = max(0.05, min(1, pct / 100))
+        case (.gateVelocity, .y):
+            line.velocityAbsolute = max(1, min(127, Int(baseline) + Int((travel / 1.5).rounded())))
+        case (.noteOctave, .x):
+            if line.useRiffResolved {
+                let n = max(1, riff.stepsResolved)
+                let v = Int(baseline) + Int((travel / 12).rounded())
+                line.riffRotate = ((v % n) + n) % n
+            } else {
+                let list = euclideousNoteSelCycle
+                let idx = max(0, min(list.count - 1, Int(baseline) + Int((travel / 12).rounded())))
+                line.noteSel = list[idx]
+            }
+        case (.noteOctave, .y):
+            let v = max(-3, min(3, Int(baseline) + Int((travel / 12).rounded())))
+            if line.useRiffResolved { line.riffOctave = v } else { line.octave = v }
+        }
+    }
+    /// Double-tap reset targets (ferry §2.7) — never HITS/STEPS/NOTE choice.
+    private func doubleTapReset(_ line: inout EuclidLine, _ t: EuclideousGestureTab) {
+        switch t {
+        case .tiltHits: line.tilt = 0
+        case .offsetCount: line.rotate = 0
+        case .gateVelocity: line.velocityAbsolute = 100; line.gate = 0.9
+        case .noteOctave:
+            if line.useRiffResolved { line.riffOctave = 0; line.riffRotate = 0 } else { line.octave = 0 }
+        }
+    }
+    /// The 2-finger ALL-LANES path's own mutation — a plain delta accumulation (unlike the single-finger
+    /// path's baseline+travel commit above), since this gesture has no dead zone/axis-lock to rebase
+    /// against. Mirrors the OLD applyX/applyY exactly in SHAPE (continuous, unconditional, every lane at
+    /// once) — only the per-(tab,axis) sensitivity/range rules were unified onto the redesigned single-
+    /// finger path's own (see `pointsPerUnit`'s own doc comment for why).
+    private func applyAllDelta(_ line: inout EuclidLine, _ t: EuclideousGestureTab, axis: EuclideousXYAxis, _ d: Int) {
+        switch (t, axis) {
+        case (.tiltHits, .x): line.tilt = max(-1, min(1, line.tiltResolved + Double(d) / 100))
+        case (.tiltHits, .y):
+            let steps = max(2, min(16, line.steps))
+            line.pulses = max(0, min(steps, line.pulses + d))
+        case (.offsetCount, .x):
+            let n = max(2, min(16, line.steps))
+            line.rotate = ((line.rotate - d) % n + n) % n
+        case (.offsetCount, .y):
+            let v = max(2, min(16, line.steps + d)); line.steps = v; if line.pulses > v { line.pulses = v }
+        case (.gateVelocity, .x): line.gate = max(0.05, min(1, line.gateResolved + Double(d) / 100))
+        case (.gateVelocity, .y): line.velocityAbsolute = max(1, min(127, line.velocityAbsoluteResolved + d))
+        case (.noteOctave, .x):
+            if line.useRiffResolved {
+                let n = max(1, riff.stepsResolved)
+                line.riffRotate = ((line.riffRotateResolved + d) % n + n) % n
+            } else {
+                let list = euclideousNoteSelCycle
+                let idx = max(0, min(list.count - 1, (list.firstIndex(of: line.noteSelResolved) ?? 0) + d))
+                line.noteSel = list[idx]
+            }
+        case (.noteOctave, .y):
+            let v = max(-3, min(3, (line.useRiffResolved ? line.riffOctaveResolved : line.octaveResolved) + d))
+            if line.useRiffResolved { line.riffOctave = v } else { line.octave = v }
+        }
+    }
+    private func euclideousApplyAllDelta(_ t: EuclideousGestureTab, axis: EuclideousXYAxis, _ d: Int) {
+        onEdit { lines in for i in lines.indices { applyAllDelta(&lines[i], t, axis: axis, d) } }
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
@@ -1097,129 +1572,6 @@ struct EuclideousPage: View {
             .foregroundColor(.white.opacity(0.3)).lineLimit(1).minimumScaleFactor(0.6)
             .frame(maxWidth: .infinity).frame(height: rowH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-    }
-
-    // MARK: - Pure per-lane X/Y mutation (the 4 gesture pads)
-
-    /// Pure per-line mutation, shared by the single-lane and all-lanes paths below (Paul 2026-10-08 reshuffle):
-    /// TILT/HITS → Δtilt; OFFS/CNT → Δrotate (unchanged from the old HITS/OFFS pad's own X mapping); GATE/VEL
-    /// → Δgate (SWAPPED onto X — was the Y-axis of the old VEL/GATE pad); NOTE/OCTAVE → step the note-select
-    /// cycle (unchanged).
-    private func applyX(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
-        switch tab {
-        case .tiltHits: line.tilt = max(-1, min(1, line.tiltResolved + Double(d) * 0.08))
-        case .offsetCount: line.rotate = ((line.rotate - d) % 16 + 16) % 16
-        case .gateVelocity: line.gate = max(0.05, min(1, line.gateResolved + Double(d) * 0.09))
-        case .noteOctave:
-            if line.useRiffResolved { line.riffRotate = line.riffRotateResolved + d }
-            else { line.noteSel = euclideousStepNoteSel(line.noteSelResolved, by: d) }
-        }
-    }
-    /// Pure per-line mutation — TILT/HITS → Δhits (unchanged from the old HITS/OFFS pad's own Y mapping);
-    /// OFFS/CNT → Δsteps (NEW — mirrors the comet bar's own pinch-to-resize clamp exactly: pulling steps below
-    /// the current hit count pulls hits down with it); GATE/VEL → Δvelocity (SWAPPED onto Y); NOTE/OCTAVE →
-    /// Δoctave (unchanged).
-    private func applyY(_ line: inout EuclidLine, _ tab: EuclideousGestureTab, _ d: Int) {
-        switch tab {
-        case .tiltHits: let v = max(1, min(max(2, line.steps), line.pulses + d)); line.pulses = min(v, line.steps)
-        case .offsetCount: let v = max(2, min(16, line.steps + d)); line.steps = v; if line.pulses > v { line.pulses = v }
-        case .gateVelocity: line.velocity = max(0, min(2, line.velocityResolved + Double(d) * 0.15))
-        case .noteOctave:
-            if line.useRiffResolved { line.riffOctave = max(-3, min(3, line.riffOctaveResolved + d)) }
-            else { line.octave = max(-3, min(3, line.octaveResolved + d)) }
-        }
-    }
-    private func euclideousApplyX(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) { edit(idx) { applyX(&$0, tab, d) } }
-    private func euclideousApplyY(_ idx: Int, _ tab: EuclideousGestureTab, _ d: Int) { edit(idx) { applyY(&$0, tab, d) } }
-    private func euclideousApplyAllX(_ tab: EuclideousGestureTab, _ d: Int) { onEdit { lines in for i in lines.indices { applyX(&lines[i], tab, d) } } }
-    private func euclideousApplyAllY(_ tab: EuclideousGestureTab, _ d: Int) { onEdit { lines in for i in lines.indices { applyY(&lines[i], tab, d) } } }
-
-    // THE RESHUFFLED PADS' OWN FORMATTERS (Paul 2026-10-08) — mirror `euclidLaneDragHUDInfo`'s own (label,
-    // primary, secondary, point) shape exactly, same as the VEL/GATE and NOTE/OCT formatters below. Reused for
-    // both the pads' permanent face display (`euclideousPadInfo`) and the transient drag HUD (`onDragState`).
-    private func euclideousTiltHitsHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
-        let pct = Int((line.tiltResolved * 100).rounded())
-        // SINGULAR (ferry §4.3): "1 HIT", not "1 HITS." Subtitle drops the "TILT" word (ferry §4 type-scale
-        // budget — worst case "16 HITS" value / "-100%" subtitle both fit the fixed sizes; by elimination a
-        // bare signed percentage on THIS pad can only be tilt, since the value already names hits).
-        let hitWord = line.pulses == 1 ? "HIT" : "HITS"
-        return EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
-                                  primary: "\(line.pulses) \(hitWord)", secondary: "\(pct >= 0 ? "+" : "")\(pct)%", point: point)
-    }
-    private func euclideousOffsetCountHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
-        // WRAPPED TO THE STEP COUNT (ferry §4.2): "lane 1 shows OFFS +14 with 8 steps; it should read +6."
-        // The STORED `rotate` can legitimately exceed `steps` — its own clamp (`applyX`'s `.offsetCount`
-        // case) wraps mod 16 unconditionally, independent of the line's current step count, and the real
-        // pattern engine (`euclidPatternInto`) already wraps correctly by the true step count at read time —
-        // so this was a DISPLAY-only bug, fixed here by wrapping the shown value to the line's own `steps`,
-        // not by changing how `rotate` is stored/clamped. Value compacted "STEPS"→"STP" (ferry §4 budget);
-        // subtitle drops the "OFFS" word for the same by-elimination reason as TILT/HITS above.
-        let n = max(2, min(16, line.steps))
-        let r = ((line.rotate % n) + n) % n
-        return EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
-                                  primary: "\(line.steps) STP", secondary: "+\(r)", point: point)
-    }
-    // THE OTHER TWO HUD FORMATTERS (Paul 2026-10-06: "we need different overlays for velocity, gate, etc.") —
-    // Euclideous-only (the BUILD-page editor has no VEL/GATE or NOTE/OCT tab to show one for), mirroring
-    // `euclidLaneDragHUDInfo`'s own (label, primary, secondary, point) shape exactly. Reused as-is (2026-10-07)
-    // for the pads' own permanent face display, not just the transient HUD — see `euclideousPadInfo` above.
-    //
-    // REBUILT (Paul 2026-10-09, ferry §1/§7: "Lane 1 shows velocity 200. MIDI velocity is 1-127... if a value
-    // above 127 is a scaling percentage, label it as a percentage"): `velocityResolved` is a 0...2 SCALE
-    // MULTIPLIER on the struck note's own inherited velocity (see `runEuclidLine`'s `velScale: velocity`),
-    // NOT a MIDI velocity value — displaying `Int(velocityResolved*100)` with no unit read as an invalid raw
-    // MIDI velocity (up to 200, past the real 1-127 ceiling). Now explicitly labelled a percentage ("200%"),
-  // matching the ferry's own suggested fix, and split one-number-per-row (value=velocity%, the Y-axis
-    // parameter per `applyY`'s `.gateVelocity` case; subtitle=gate%, the X-axis parameter) — consistent with
-    // the OTHER 3 pads' own Y=value/X=subtitle convention, which this one pad didn't follow before (it showed
-    // both numbers combined in one line). Each is a bare "{n}%" (ferry §4 budget: "200%" is 4 characters,
-    // comfortably under the fixed value size's own ceiling) — no name prefix, since the heading "GATE/VEL"
-    // itself (gate named first, matching the X-first dictation convention every other pad's heading uses)
-    // plus the value/subtitle POSITIONS already identify which number is which, the same elimination logic
-    // the other 3 pads already rely on.
-    private func euclideousVelGateHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
-        let velPct = Int((line.velocityResolved * 100).rounded())
-        let gatePct = Int((line.gateResolved * 100).rounded())
-        return EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
-                                  primary: "\(velPct)%", secondary: "\(gatePct)%", point: point)
-    }
-    private func euclideousNoteOctHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
-        let label = allRows ? "ALL LANES" : "LANE \(idx + 1)"
-        if line.useRiffResolved {
-            // Riff mode keeps its own pre-existing value=X(shift)/subtitle=Y(octave) mapping — the one pad
-            // whose two sub-modes (riff/non-riff) share this shape, left as-is (not relitigated by this
-            // ferry); only the STRINGS are compacted to fit the fixed type scale (ferry §4).
-            //
-            // WRAPPED TO THE RIFF'S OWN STEP COUNT (Paul 2026-10-09, drag-HUD legibility review — the exact
-            // ferry §4.2 fix already applied to OFFSET/COUNT's own rotate above, missed here): `riffRotate`
-            // carries NO stored clamp at all — `applyX`'s riff branch (`line.riffRotate = riffRotateResolved
-            // + d`) just accumulates forever, unlike `riffOctave`'s own -3...3 clamp two lines below. The
-            // ENGINE already wraps it correctly at read time (`riffRotateStep`'s own double-mod against the
-            // riff's real step count), so the SOUND was never wrong — only the DISPLAY, which showed the raw,
-            // unbounded stored value as-is. That's not just confusing (a lane dragged a few laps past zero on
-            // an 8-step riff showed "19" instead of "3," the step actually in effect) — left unfixed, it's a
-            // genuine risk to this pad's own fixed-size type scale: `padValueSize` carries NO
-            // `.minimumScaleFactor` by design (ferry §4), sized around a 7-character ceiling ("16 HITS"); an
-            // unwrapped value could eventually grow past that many digits and silently overflow the pad face,
-            // with no shrink-to-fit safety net to catch it. Wrapping to `riff.stepsResolved` (≤32) caps the
-            // displayed value at 2 digits, well inside the budget, same as every other pad's own value.
-            let n = riff.stepsResolved
-            let rot = ((line.riffRotateResolved % n) + n) % n
-            let oct = line.riffOctaveResolved
-            return EuclidDragHUDInfo(label: label, primary: "\(rot)", secondary: "OCT \(oct > 0 ? "+" : "")\(oct)", point: point)
-        }
-        let oct = line.octaveResolved
-        // RAW NOTE-SELECT LABELS ABBREVIATED (ferry §4 budget): "RANDOM"(6)/"CYCLE"(5) were the longest value
-        // strings on this page — shortened to fit the fixed value size alongside every other pad's own
-        // 7-character ceiling ("16 HITS"), matching the compact-form spirit the ferry's own examples use.
-        let selLabel: String
-        switch line.noteSelResolved {
-        case .random: selLabel = "RND"
-        case .cycle: selLabel = "CYC"
-        default: selLabel = line.noteSelResolved.rawValue
-        }
-        return EuclidDragHUDInfo(label: label, primary: selLabel,
-                                  secondary: "OCT \(oct > 0 ? "+" : "")\(oct)", point: point)
     }
 
     // MARK: - The I/O tab (Paul 2026-10-08): per-lane MIDI IN | KEY | CHORDS + the lane's own OUT toggles
