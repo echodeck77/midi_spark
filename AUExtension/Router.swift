@@ -3902,7 +3902,24 @@ final class Router {
                         laneSrcCount[i] = 0
                     case .midi:
                         if hasLaneChanMasks {
-                            fillLaneSrcFromPool(pool, lane: i, chanMask: i < p.laneSrcChanMasks.count ? p.laneSrcChanMasks[i] : 0)
+                            // LITERALLY LIVE (Paul 2026-10-09: "MIDI IN... playing even when it doesn't have MIDI
+                            // being plumbed in"): `pool` here is `emitGeneratorRow`'s own SHADOWED local
+                            // (`effectivePool(for: cell, live: livePool)`, set at this function's top) — it reads
+                            // Euclideous's cell's hardcoded receiver 4 THROUGH the generic self-arm/latch
+                            // substitution every regular grid cell gets: if receiver 4 happens to be configured
+                            // as a SCALE/CHORD/PIANO door (any self-arming mode), `effectivePool` silently swaps
+                            // in `latchedPools[3]` — content the door GENERATES, with zero relationship to any
+                            // actually-incoming MIDI message — because that substitution is keyed on the CELL's
+                            // resolved receiver only, with no awareness that THIS particular read is one of three
+                            // explicit, mutually-exclusive choices (MIDI IN vs KEY vs CHORDS) where "MIDI IN"
+                            // specifically promises live input and nothing else. Reading `livePool` (this
+                            // function's own un-substituted parameter, still in scope under its original name)
+                            // instead of `pool` makes MIDI IN mean exactly that — genuinely incoming MIDI on
+                            // receiver 4's own channel filter, never a self-armed or latched substitute — for
+                            // every other `.euclid` cell in the grid (where effectivePool's substitution is the
+                            // correct, desired behaviour), this call is unreached entirely (gated by
+                            // `isEuclideousRow` above), so nothing there changes.
+                            fillLaneSrcFromPool(livePool, lane: i, chanMask: i < p.laneSrcChanMasks.count ? p.laneSrcChanMasks[i] : 0)
                         } else {
                             laneUsesLegacyPool[i] = true
                         }

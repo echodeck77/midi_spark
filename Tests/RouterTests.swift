@@ -5468,6 +5468,37 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(notes.contains(102), "lane 1's riff must resolve rank 2 against ITS OWN MIDI pool (a single note at 90, FOLD-wraps one octave up to 102) — not lane 0's chord pool")
         XCTAssertFalse(notes.contains(52), "lane 1 must NOT sound lane 0's chord-pool rank 2 (52) — proves the riff genuinely stopped following lane 0/'lane 1', the exact bug ferry §2.4 fixed")
     }
+    // MIDI IN MUST BE LITERALLY LIVE (Paul 2026-10-09: "it's playing even when it doesn't have MIDI being
+    // plumbed in"). Traced to `emitGeneratorRow`'s own `pool` local, shadowed at the function's top by
+    // `effectivePool(for: cell, live: livePool)` — the GENERIC per-cell self-arm/latch substitution every
+    // regular grid cell correctly gets. Euclideous's per-lane MIDI fill was reading THIS shadowed `pool`
+    // instead of the function's own un-substituted `livePool` parameter — so when the cell's hardcoded
+    // receiver 4 happens to be configured as a self-arming door (SCALE/CHORD/PIANO), `effectivePool` silently
+    // swapped in the door's own GENERATED content, with zero relationship to any actually-incoming MIDI
+    // message. A receiver 4 configured as a CHORD door (which self-arms UNCONDITIONALLY, per
+    // `computeEffectiveLatchMask`) with a genuinely EMPTY live pool must be silent through MIDI IN — not
+    // sounding the door's own generated chord — while a real live note on the same receiver must still sound,
+    // proving this isn't "MIDI IN never works," just "MIDI IN no longer reads a self-armed substitute."
+    func testEuclideousMidiInReadsOnlyGenuinelyLiveNotesNotASelfArmedDoor() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .midi)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
+                                  s.cells[0][Snap.euclideousRow] = cell
+                                  return s }()])
+        var chordDoor = Receiver(name: "4"); chordDoor.doorMode = .chord   // self-arms unconditionally, generates its own progression
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), chordDoor]
+        // GENUINELY EMPTY — nothing played at all, the literal "no MIDI plumbed in" case.
+        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(from: st), NotePool(), beats: 1, into: e1, forceColumn: 0)
+        assertNothingLeftSounding(e1)
+        XCTAssertTrue(e1.ons.filter { $0.cable == 1 }.isEmpty, "MIDI IN must stay silent with nothing actually played, even though receiver 4 is a self-arming CHORD door that would otherwise generate its own notes")
+        // A REAL live note on the same receiver must still sound — proving this isn't "MIDI IN never works."
+        let pool2 = NotePool(); pool2.noteOn(67, velocity: 100, channel: 0)
+        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool2, beats: 1, into: e2, forceColumn: 0)
+        assertNothingLeftSounding(e2)
+        XCTAssertTrue(e2.ons.filter { $0.cable == 1 }.contains { Int($0.note) == 67 }, "a genuinely live note on receiver 4 must still sound through MIDI IN")
+    }
     // TILT (Paul 2026-10-08): proves the field threads all the way through SnapshotBuilder→Router — Derivations-
     // Tests already proves the pure `euclidTiltPattern` function's own directionality in isolation; this
     // confirms EuclidLine.tilt actually reaches it. A dense K=4/N=16 pattern's average onset SAMPLE time over
