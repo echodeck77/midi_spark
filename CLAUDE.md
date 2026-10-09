@@ -196,6 +196,100 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — MIDI IN played without any live MIDI plumbed in, root-caused and fixed (2026-10-09, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1242 green incl. +1, iOS builds clean). Paul: "What's
+  going on with midi in? It's playing even when it doesn't have MIDI being plumbed in." Traced, not guessed:
+  `Router.emitGeneratorRow`'s own parameter is named `livePool` but its FIRST LINE immediately shadows it —
+  `let pool = effectivePool(for: cell, live: livePool)`, the GENERIC per-cell self-arm/latch substitution every
+  OTHER cell in the grid relies on (a receiver currently latched, or a self-arming CHORD door, silently swaps in
+  a synthesized pool instead of the genuinely live one). Euclideous's own per-lane MIDI-mode pool fill (`case
+  .midi:` inside the per-lane dispatch loop) was reading that SAME shadowed `pool` — so a lane set to MIDI IN,
+  pointed at a receiver door that happened to be a self-arming CHORD door elsewhere in the document, played that
+  door's generated chord content even with ZERO real MIDI ever plumbed into it, because `pool` silently wasn't
+  "live" at all despite the parameter's own name one line up. **FIX:** that one call site now reads `livePool`
+  (the function's true, un-shadowed parameter) instead of `pool` — `fillLaneSrcFromPool(livePool, lane: i,
+  chanMask: ...)`. Scoped to exactly this one line; every other `.euclid` cell in the grid (the regular BUILD-
+  page processor) never reaches this branch at all (`isEuclideousRow`-gated) and is untouched. +1 RouterTest
+  (`testEuclideousMidiInReadsOnlyGenuinelyLiveNotesNotASelfArmedDoor`) proving both directions: a self-armed
+  CHORD door + a genuinely empty live pool ⇒ silence; the same door + a real live note ⇒ that note sounds.**
+- **▶ EUCLIDEOUS — the WHOLE PAGE LAYOUT rebuilt on one spacing/type SYSTEM, not patched view-by-view
+  (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1242 green (no test-target reach —
+  pure UI), iOS builds clean, zero warnings in the touched file). A second ferry arrived naming specific,
+  concrete overflow/clipping symptoms still present after the PRIOR round's fixes (header overflow fixed too
+  narrowly — only the scroll-escape-hatch half, not the actual content budget; landscape riff still ~40% not
+  the intended ~36%; three different left/right edges across header/lanes/riff; inconsistent per-pad auto-
+  shrunk type sizes, e.g. "7 HITS" rendering larger than "91% · 200"; lane 1 showing a raw "200" velocity
+  reading, which exceeds MIDI's real 1–127 ceiling) — and an explicit instruction: **"don't patch individual
+  views... rebuild the layout on the system below."** Built exactly that: ONE spacing scale (`sp4`/`sp8`/
+  `sp16` — no other gap value permitted anywhere on the page) and ONE type scale (`padHeadingSize`/
+  `padValueSize`/`padSubtitleSize` — three fixed sizes, used identically in every pad/lane/orientation, with
+  **zero** `.minimumScaleFactor` on any of them), both declared once at struct scope and referenced
+  everywhere else rather than re-guessed per view. **ONE CONTAINER:** every top-level element (header, lane
+  grid, riff panel) now derives its left/right edges from the SAME `containerW = size.width − sp16×2`,
+  computed once per layout function — the "three different widths" complaint was literally three separate,
+  independently-guessed width calculations; now there's exactly one. **NO SCROLLING** anywhere on the page
+  (removes the ScrollView-as-overflow-safety-net the previous round's header fix leaned on) — meaning every
+  size claim below has to be genuinely true at the assumed narrowest width, not merely degrade toward it.
+  **HEADER REBUILT AS TWO GENUINELY DIFFERENT FIXED LAYOUTS**, not one row that scales down: portrait splits
+  across 2 rows (row 1: title·RESET·MAIN OUT A-D·ON·close; row 2: KEY −/chip/+·CHORDS, per the ferry's own
+  literal row assignment) since one row's worth of content doesn't fit a narrow portrait container even at
+  small fixed sizes; landscape keeps one row (a landscape container is assumed much wider). **A GENUINE
+  OVERFLOW RISK CAUGHT BY MY OWN NUMERIC RE-VERIFICATION BEFORE SHIPPING, not reported back a third time:**
+  hand-computing portrait row 1's real content width (title + RESET chip + 4× fixed-36pt MAIN OUT circles +
+  ON chip + close, using a monospaced font's ~0.6×point-size advance-width estimate) came to ~407pt at the
+  sizes first written — comfortably fits a 768pt-wide landscape-class panel, but overflows well before a
+  genuinely narrow 375pt-wide "windowed" portrait panel, i.e. the EXACT "ON cut off, close missing" failure
+  this very ferry opened with. Fixed before shipping, not after another report: dropped the "MAIN OUT" text
+  caption from the header group (the 4 circles already self-label A/B/C/D, so the caption was informative,
+  not load-bearing), trimmed the title 12→10pt, and trimmed the RESET/ON chips' padding sp8→sp4 — re-verified
+  numerically to ~342pt, fitting down to ~375pt wide with a real (if thin) margin, with the row's existing
+  light `.minimumScaleFactor` (0.8–0.85, text only — never the protected MAIN OUT circles) as the remaining
+  safety net below that, which this environment cannot verify against real device widths. **PORTRAIT LANE
+  CARDS GIVEN A REAL FUNCTIONAL MINIMUM, RIFF FLEXES BELOW ITS OWN TARGET TO PROTECT IT:** a second self-
+  caught issue, found the same way — hoisted the lane card's own fixed-height rows (comet bar 56pt + tab row
+  30pt + 2-line tab content 76pt + the card's own sp8×2 padding + sp4×3 inter-row gaps) to shared struct-level
+  constants (`cometRowH`/`tabRowH`/`contentLineH`/`tabContentH`/`laneCardFixedOverhead`/`laneCardMinHeight`,
+  ≈226pt total with a 36pt gesture-pad floor) so `portraitLayout` can read the SAME numbers `laneCard` itself
+  draws from, rather than guessing a second time — the RATCHET/DEST class of bug this file's own history keeps
+  flagging. A fixed 30pt-tall riff-row target, stacked beneath a 2-row header and 2 stacked lane cards, left
+  too little height for the cards to reach even that functional minimum on a sufficiently short "windowed"
+  screen (verified numerically: below ~950pt total height). Fixed by making riff's own row height FLEX DOWN
+  below its 30pt target — computed as `min(riffRowHeight, height-that-would-leave-both-lane-rows-at-their-
+  minimum)` — only when the two genuinely conflict; at any more generous height riff keeps its full 30pt
+  target untouched. Verified across 4 sizes by direct arithmetic: a tight 500×700 "windowed" case gives lane
+  cards their exact 226pt floor while riff compresses to a thin-but-present ~3.8pt row (no clipping, no
+  overflow — the literal "fit always wins over protected/target sizing" principle an earlier ferry already
+  established, now applied symmetrically in the other direction); 768×1024 and up give riff its full 30pt
+  target with lane cards well above their floor. **LANDSCAPE RIFF WIDTH FIXED TO A DIRECT PERCENTAGE, not
+  "whatever's left":** the prior round's "leftover after the lane grid's own natural size" approach is exactly
+  the bug class that produced the reported ~40%-not-36% drift — on a height-bound panel the lane grid never
+  actually claims its full width share, so there was nothing left to reclaim for riff. Now `riffW = containerW
+  × 0.36` directly, independent of however the lane grid actually renders; lane cards size from
+  `min(widthShare, heightShare)` so they stay square without affecting riff's own independently-set width.
+  **EVERY ROW INSIDE A LANE CARD NOW SPANS ONE SHARED INNER WIDTH** (`innerWidth = width − sp8×2`, computed
+  once per card and referenced by the gesture-pad row, the DIRECTION/HIT-MISS-RATE rows, and the I/O/RIFF/MASK
+  tab content alike) — the direct fix for "MASK row lane 2 vs PATTERN row lane 4 sit at different insets": one
+  width, one source. **TYPE SCALE applied to all 4 gesture pads** with compact string redesigns replacing the
+  old auto-shrunk verbose forms (per-pad worst-case strings re-derived to fit the narrowest supported pad at
+  the fixed sizes: "16 STP"/"+N" for OFFSET/COUNT, "K/N"/"±R%" for TILT/HITS, "NN%"/"NN%" for GATE/VELOCITY,
+  a 3-letter mode code/"OCT ±N" for NOTE/OCT) — no pad anywhere on the page carries `.minimumScaleFactor`.
+  **VELOCITY DISPLAY FIXED:** `EuclidLine.velocityResolved` is a 0...2 SCALE MULTIPLIER on a struck note's
+  *inherited* velocity (confirmed via `runEuclidLine`'s own `velScale:` usage), not a raw MIDI velocity value
+  — the old face showed a bare `Int(velocityResolved*100)` with no unit, so a lane scaled above 1.0 displayed
+  as an invalid-looking "200." Now explicitly suffixed `"\(pct)%"`, honestly labelling it as the percentage
+  scale it actually is rather than clamping it to a misleading fake 1-127 reading. **A LEFTOVER SPACING-SCALE
+  VIOLATION CAUGHT ON FINAL SELF-REVIEW, before commit:** 3 of the lane card's own tab-content VStacks
+  (I/O·PATTERN·MASK) still used a literal `spacing: 2` from before this rebuild, in direct violation of the
+  ferry's own "ONLY 4/8/16pt allowed" rule and silently inconsistent with `tabContentH`'s own budget formula
+  (which assumes `sp4`) — fixed to `sp4` on all three before shipping, not left as a 2pt discrepancy nobody
+  would have reported. **DEVICE-OWED, named explicitly because this environment cannot produce the screenshots
+  the ferry itself asked for:** every numeric claim above (the 375pt header floor, the 950pt portrait-height
+  flex threshold, the ~36% landscape riff width, the type-scale sizes) is hand-derived arithmetic using a
+  documented, unverified monospaced-font advance-width estimate, not a measurement against real on-device text
+  metrics or AUM's actual enforced window-size range — confirm at AUM's real windowed and full-screen sizes in
+  both orientations per the ferry's own §8 checklist; the position dots above the riff columns and the riff
+  matrix itself are structurally unchanged from the previous round (re-confirmed correct by reading, not
+  reason to suspect a regression) but remain unverified against live play.**
 - **▶ EUCLIDEOUS FERRY — a self-audit against the live code found + fixed TWO real gaps the first pass missed
   (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`, direct follow-up to the entry below; iOS
   builds clean, no macOS-test-reachable code touched so the existing 1241 green stands). Paul asked whether
