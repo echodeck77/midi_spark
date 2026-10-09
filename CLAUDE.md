@@ -196,6 +196,42 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS FERRY — a self-audit against the live code found + fixed TWO real gaps the first pass missed
+  (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`, direct follow-up to the entry below; iOS
+  builds clean, no macOS-test-reachable code touched so the existing 1241 green stands). Paul asked whether
+  every ferry requirement had actually been met — re-verified each item against the current file rather than
+  re-stating the prior summary, and found two genuine misses, both confirmed with arithmetic/a real build
+  before and after, not just re-asserted. **(1) The HEADER ROW (ON/close, explicitly named in §1.1's bug
+  report) was never actually touched by the first pass** — `headerScale`'s old hard `0.62` floor remained
+  untouched; since MAIN OUT's 4 circles never shrink (by design) and several header labels use `.fixedSize()`
+  (also refusing to compress), a narrow panel's minimum header content could still exceed the available
+  width at ANY scale, pushing ON/close off-screen exactly as reported — the fix I'd shipped only addressed
+  the lane-grid/riff-grid floors, not this row. Lowering `headerScale`'s floor further wouldn't have helped
+  (every text element already has its own tighter inner `max(X, Y*scale)` minimum that binds first) — wrapped
+  `header(_:)` in a horizontal `ScrollView`, which GUARANTEES containment regardless of how the width
+  estimate plays out on a real device, rather than relying on an estimate being accurate. **(2) Landscape's
+  riff column computed its width from "whatever's left after the lane grid's own ACTUAL size," not a true
+  cap** — verified numerically (a throwaway Python model of both formulas) across several plausible panel
+  sizes before touching anything: on a panel where the lane grid was WIDTH-bound (e.g. a full-size 1194×834
+  iPad), the fix already shipped showed real improvement (452.8pt→396pt); but on a HEIGHT-bound panel (e.g a
+  900×500 windowed one — exactly one of the two sizes Paul names for verification), the "leftover" formula
+  gave riff the exact same width as before, EVEN WORSE than the originally-reported ~40% (measured 50%),
+  because a height-bound lane grid never uses its full width allotment, so there's nothing to "win back" for
+  riff in that case — the §2.2 fix was silently non-functional on an entire class of realistic panel shapes.
+  Fixed by capping riff's width at its own narrow target UNCONDITIONALLY (`min(riffTargetW, leftover)`, not
+  `leftover` alone) — re-verified the SAME four panel sizes numerically after the fix: riff is now strictly
+  smaller or equal in every case, including the previously-broken 900×500 one (436pt→273pt). Portrait's own
+  equivalent formula was ALREADY correctly capped this way (`min(riffTargetH, riffAvailH)`) — only landscape
+  had the asymmetric bug. **A genuine compile error caught by a real build, not assumed fixed:** the header
+  fix's first draft added a `let rowH = ...` statement before the `ScrollView` expression, breaking Swift's
+  single-expression implicit-return (the exact lesson this file's own EUCLID history already recorded once
+  before, now repeated) — the iOS build failed outright until an explicit `return` was added; re-verified
+  green before committing. **Lesson, named plainly:** the first pass's own self-review concluded "all 20
+  items done" without re-opening the files to check — this round only found the gaps by actually re-reading
+  the current code and, for the two riff-width items, running the real numbers through both the old and new
+  formulas rather than trusting the structural reasoning alone. **DEVICE-OWED, unchanged from the entry
+  below:** no screenshots possible in this environment — this audit closes code-level gaps, it doesn't
+  replace an on-device look.**
 - **▶ EUCLIDEOUS — a 20-item ratified FERRY list: fit/overflow, lane-card empty bands, riff genuinely
   per-lane, label/readout fixes, new-instance defaults (2026-10-09, on `fix/euclid-no-scroll-direction-order-
   2x2-grid`; macOS 1241 green (net −2: 2 tests deleted as fully redundant with a rewrite), iOS builds clean).
