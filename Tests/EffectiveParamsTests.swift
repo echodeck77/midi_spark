@@ -193,34 +193,25 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertFalse(back.euclideousEnabledResolved)
         XCTAssertEqual(back.euclideousReceiverResolved, 0)
         XCTAssertEqual(back.euclideousLinesResolved.count, 4, "always pads to exactly 4, mirroring euclidLinesForEditing()")
-        // UNLIKE euclidLinesForEditing() (whose pad rows ARE silent by design), Euclideous pads with the struct's
-        // own plain default (pulses:1/steps:8 — "a fresh lane defaults to 1 of 8") so all 4 lanes are independently
-        // audible from a never-touched session (Paul 2026-10-06: a pulses:0 pad made every lane permanently mute).
-        XCTAssertTrue(back.euclideousLinesResolved.allSatisfy { $0.pulses == 1 && $0.steps == 8 }, "an untouched page's 4 lines default to 1-of-8, not silence")
+        // UNLIKE euclidLinesForEditing() (whose pad rows ARE silent by design), Euclideous pads with a PER-
+        // INDEX default (Paul 2026-10-09, ferry §5): lane 1 (index 0) opens audible — 1 of 8, the struct's own
+        // plain default; lanes 2-4 open DELIBERATELY SILENT — 0 of 8, until raised — a genuine behaviour
+        // reversal of the earlier "every lane identical, floored to >=1" design (2026-10-06, fixing a since-
+        // resolved "no sound at all" bug) now that 0 hits is an intentional starting point for lanes 2-4, not
+        // leftover corruption to repair.
+        let lines = back.euclideousLinesResolved
+        XCTAssertEqual(lines[0].pulses, 1, "lane 1 opens audible, 1 of 8")
+        XCTAssertTrue(lines[1...3].allSatisfy { $0.pulses == 0 }, "lanes 2-4 open deliberately silent (0 hits) until raised")
+        XCTAssertTrue(lines.allSatisfy { $0.steps == 8 }, "every lane defaults to 8 steps")
     }
     func testEuclideousLinesResolvedPadsAndTruncates() {
         var d = doc()
         d.euclideousLines = [EuclidLine(pulses: 4, steps: 8)]   // only 1 of 4 authored
         XCTAssertEqual(d.euclideousLinesResolved.count, 4)
         XCTAssertEqual(d.euclideousLinesResolved[0].pulses, 4)
-        XCTAssertEqual(d.euclideousLinesResolved[1].pulses, 1, "a padded-in lane is the struct's own non-silent default (1 of 8), not mute")
+        XCTAssertEqual(d.euclideousLinesResolved[1].pulses, 0, "a padded-in lane 2-4 defaults to 0 hits (deliberately silent until raised — ferry §5.4), not lane 1's own 1-of-8 default")
         d.euclideousLines = Array(repeating: EuclidLine(pulses: 2, steps: 8), count: 6)   // over-long
         XCTAssertEqual(d.euclideousLinesResolved.count, 4)
-    }
-    // THE ACTUAL REGRESSION (Paul 2026-10-06, a SECOND "I still don't hear it playing" after the padding fix
-    // above): a session that touched Euclideous even ONCE during the brief window the pulses:0 bug was live
-    // got the bad value PERSISTED as real, non-nil data (any edit — even an unrelated one, like an emitter
-    // toggle — writes the WHOLE 4-line array wholesale) — which the padding fallback never runs for, since
-    // `euclideousLines` is no longer nil/short once that's happened. This is the exact shape: all 4 lines
-    // EXPLICITLY present, all at the old buggy pulses:0.
-    func testEuclideousLinesResolvedRepairsAnAlreadyStuckZeroPulsesDocument() {
-        var d = doc()
-        d.euclideousLines = Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)
-        XCTAssertTrue(d.euclideousLinesResolved.allSatisfy { $0.pulses >= 1 }, "every line must resolve audible, even one already stuck at pulses:0 in the persisted document")
-        var d2 = doc()   // a MIX — one legitimately 0, three fine — the floor must apply per-line, not skip the array once any line is OK
-        d2.euclideousLines = [EuclidLine(pulses: 0, steps: 8), EuclidLine(pulses: 3, steps: 8), EuclidLine(pulses: 0, steps: 16), EuclidLine(pulses: 5, steps: 8)]
-        let r = d2.euclideousLinesResolved
-        XCTAssertEqual(r.map(\.pulses), [1, 3, 1, 5])
     }
 
     // RIFF ADVANCE (Paul 2026-10-06): the page's ONE shared riff pattern — same additive-Optional CR-8 contract,

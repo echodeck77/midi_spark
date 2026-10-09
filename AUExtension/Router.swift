@@ -618,10 +618,14 @@ final class Router {
     // cell's own resolved receiver fields — those belong to the lanes' source). Mirrors `fillSrcFromPool`
     // exactly, just keyed by a raw chanMask instead of a SnapCell. `chanMask == 0` (KEY mode, or no doc
     // receivers) naturally yields `c == 0` — an honest empty pool, no separate guard needed.
-    // RIFF'S OWN POOL (Paul 2026-10-07/08): still a dedicated buffer — filled, per render, by COPYING lane
-    // 0's ("lane 1"'s) own already-resolved pool, whatever source that lane is on (see the riff-fill block in
-    // `case .euclid:`) — not by its own independent chanMask-based fill anymore (that mechanism, and
-    // `riffSrcChanMask`, were removed once CHORDS mode stopped being a live-pool read at all).
+    // RIFF'S OWN POOL (Paul 2026-10-09, ferry §2.4 — supersedes the 2026-10-07/08 "follows lane 1" design):
+    // the actual AUDIO resolution of a useRiff-on lane no longer reads this buffer at all — each lane now
+    // resolves the shared riff SHAPE against its OWN per-lane pool directly (`laneNotes(lineIndex)`/
+    // `laneCount(lineIndex)`, the SAME per-lane buffer its own MIDI IN/KEY/CHORDS I/O-tab choice already
+    // fills — see the `if useRiff {` block in `case .euclid:`). This buffer is now DISPLAY-ONLY — still
+    // filled, per render, by copying lane 0's own resolved pool (see the riff-fill block below), purely to
+    // feed `euclideousRiffLiveNotes` (a kept-but-currently-unrendered "show the resolved note" readout) —
+    // nothing in the audible path depends on it being lane 0's view specifically anymore.
     private var riffSrcNoteBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     private var riffSrcNoteCount = 0
     // PER-LANE I/O (Paul 2026-10-08): each Euclideous lane independently resolves MIDI IN / KEY / CHORDS — this
@@ -4091,14 +4095,15 @@ final class Router {
                             // CONTENT (steps/ranks) is shared; each lane walks it its own way.
                             let rp = p.euclideousRiff
                             let riffN = rp.stepsResolved
-                            // EUCLIDEOUS PAGE REWORK (2026-10-07, updated 2026-10-08 — CHORDS button): the riff
-                            // reads its OWN pool (`riffSrcNoteBuf`/`riffSrcNoteCount`, filled once per cell
-                            // above the per-line loop by COPYING lane 0's/"lane 1"'s own resolved pool —
-                            // `laneNotes(0)`/`laneCount(0)`, whatever source (MIDI/KEY/CHORDS) that lane is on)
-                            // — NOT the lanes' own `srcNotes`/`srcCount` here, nor THIS line's own sourceMode:
-                            // a useRiff-on line's I/O tab selection is genuinely inert while useRiff is on, by
-                            // design (flagged plainly in that tab's own UI — see `ioSourceRow`'s doc comment).
-                            guard riffSrcNoteCount > 0 else { return }
+                            // PER-LANE SOURCE (Paul 2026-10-09, ferry §2.4 — supersedes "follows lane 1"):
+                            // each lane resolves the shared riff SHAPE against ITS OWN per-lane pool
+                            // (`laneNotes(lineIndex)`/`laneCount(lineIndex)` — the exact same per-lane buffer
+                            // that lane's own MIDI IN/KEY/CHORDS I/O-tab choice already fills, "whatever
+                            // source THIS lane is on," not lane 0's) — so two lanes walking the identical
+                            // riff shape with different inputs now genuinely play different notes.
+                            let thisLaneCount = laneCount(lineIndex)
+                            guard thisLaneCount > 0 else { return }
+                            let notes = laneNotes(lineIndex)
                             let seed = UInt64(bitPattern: Int64(riffDirSeed))
                             // RESET SPAN (Paul 2026-10-08): the span-re-anchored window start THIS hit falls
                             // in — NaN when reset-span is off (spanBeats <= 0), matching euclideousRiffDrunkStep's
@@ -4115,9 +4120,9 @@ final class Router {
                             // an honest inherited velocity, not a guessed flat value. Not provably the exact FOLD
                             // index for a rank that wraps the pool more than once (flagged in the plan; a listen
                             // once built is the real check, not re-deriving FOLD's own index formula up front).
-                            guard rank >= 1, let note = riffResolve(rank: rank, oct: riffOctave, n: riffSrcNoteCount, wrap: .fold, asc: { riffSrcNoteBuf[$0].note }) else { return }
-                            let velIdx = ((rank - 1) % riffSrcNoteCount + riffSrcNoteCount) % riffSrcNoteCount
-                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: 0, explicitNote: note, explicitVel: riffSrcNoteBuf[velIdx].vel, busOverride: busOverride)
+                            guard rank >= 1, let note = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
+                            let velIdx = ((rank - 1) % thisLaneCount + thisLaneCount) % thisLaneCount
+                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: 0, explicitNote: note, explicitVel: notes[velIdx].vel, busOverride: busOverride)
                             return
                         }
                         // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
@@ -4236,18 +4241,21 @@ final class Router {
             // line" count) is each line's OWN tick-dedup slot, so a lane keeps the SAME slot across windows
             // where a sibling lane happens to be silent — using `.enumerated()`'s offset directly, not a
             // separately-tracked "active line count", is what makes that stable.
-            // EUCLIDEOUS PAGE REWORK (2026-10-07/08): the riff's own pool is SEPARATE from the lanes' pool
-            // ONLY on Euclideous's own reserved row — filled ONCE per cell, before the per-line loop, mirroring
-            // `fillSrcFromPool`'s own "once per cell, not per line" shape. Riff now FOLLOWS LANE 1's (array
-            // index 0's) own resolved pool directly — `laneNotes(0)`/`laneCount(0)` already correctly reflect
-            // whichever of MIDI/KEY/CHORDS lane 0 is on (including the legacy-OMNI-fallback case), so copying
-            // from them is both simpler and provably in sync with "what lane 1 itself would read" — no second,
-            // independently-drifting resolution. `useRiff`/`euclideousRiff` are plain fields on the SHARED
+            // EUCLIDEOUS PAGE REWORK (2026-10-07/08, DISPLAY-ONLY role since 2026-10-09 ferry §2.4): this
+            // fill still copies lane 0's own resolved pool into `riffSrcNoteBuf`/`riffSrcNoteCount`, but
+            // nothing in the AUDIBLE path reads it anymore — the `if useRiff {` resolution (above, in the
+            // per-line loop) now reads EACH lane's own per-lane buffer directly (`laneNotes(lineIndex)`/
+            // `laneCount(lineIndex)`), so two lanes with different I/O-tab sources genuinely hear different
+            // notes off the same shared riff shape. This buffer's only remaining consumer is
+            // `euclideousRiffLiveNotes` below (a kept-but-currently-unrendered "show the resolved note"
+            // readout) — left reading lane 0 specifically since nothing displays it and a single sample
+            // point is as good as any for now. `useRiff`/`euclideousRiff` are plain fields on the SHARED
             // EuclidLine/MachineParams — row-agnostic in the model and in SnapshotBuilder's resolve — so a
             // `.euclid` cell anywhere else in the grid (every pre-existing `useRiff` RouterTest places its cell
             // at row 0, not Snap.euclideousRow) must keep reading the SAME pool the lanes themselves use,
             // exactly as before this split — the `else` branch's plain copy of srcNoteBuf/srcNoteCount is
-            // unchanged.
+            // unchanged, and `laneNotes`/`laneCount` already resolve to that same shared pool for any
+            // non-Euclideous row regardless of lineIndex (see their own definitions above).
             if r == Snap.euclideousRow {
                 let notes = laneNotes(0)
                 riffSrcNoteCount = min(riffSrcNoteBuf.count, laneCount(0))

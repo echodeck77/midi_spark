@@ -112,7 +112,7 @@ struct EuclidLaneBox: View {
                 // — NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch (for the
                 // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
                 EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
-                               rate: rate, spanN: spanN, tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64),
+                               rate: rate, spanN: spanN, tilt: line.tiltResolved, tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64),
                                onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                                onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
                     .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
@@ -149,6 +149,15 @@ struct EuclidCometBar: View {
     let dir: EuclidDir
     let rate: ArpRate
     let spanN: Int
+    // TILT (Paul 2026-10-09, ferry §3.4): "lane 2 shows TILT −32% but its hits look evenly spaced — check
+    // that tilt is applied to the pattern and the step bar shows the result." It wasn't: Router.swift's real
+    // emission DOES apply `euclidTiltPattern` to its own pattern buffer (added when TILT shipped), but this
+    // bar's own Canvas drawing built its buffer from `euclidPatternInto` alone and never called the tilt warp
+    // — so the step bar always showed the UN-tilted shape regardless of the control's actual value, even
+    // though the audio was correct. Defaults to 0 (an exact no-op per `euclidTiltPattern`'s own design) so
+    // every OTHER caller of this shared component (the regular BUILD-page EUCLID editor, which has no TILT
+    // control) is byte-identical.
+    var tilt: Double = 0
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -192,6 +201,7 @@ struct EuclidCometBar: View {
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
                 _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
+                if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }   // ferry §3.4 — match the real engine's own emission exactly
                 let w = size.width, midY = size.height / 2
                 let insetL: CGFloat = 6, insetR: CGFloat = 6
                 let usable = max(1, w - insetL - insetR)

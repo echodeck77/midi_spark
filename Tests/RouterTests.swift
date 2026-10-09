@@ -5437,27 +5437,36 @@ final class RouterTests: XCTestCase {
     // processor type needs SOME input); CHORDS breaks that assumption, so the guard now also opens whenever
     // Euclideous has an active chords-mode lane (see its own fix comment in Router.swift). Without that fix
     // this test's own `emitGeneratorRow` is never even called — caught by this test going red, not by review.
-    func testEuclideousRiffPoolIsGovernedByLane1EvenWhenADifferentLaneConsumesIt() {
+    // RIFF POOL IS PER-LANE (Paul 2026-10-09, ferry §2.4 — supersedes the 2026-10-07/08 "follows lane 1"
+    // design entirely, previously locked in by this same test's own former name/assertions): each lane now
+    // resolves the shared riff SHAPE against ITS OWN chosen pool — MIDI/KEY/CHORDS on that lane's own I/O tab
+    // — not lane 0's/"lane 1's." Lane 0 (CHORDS) and lane 1 (its own live MIDI note) both read the SAME
+    // shared riff shape (rank 2) but land on genuinely DIFFERENT notes, proving independence, not a shared
+    // pool. Also supersedes the narrower `testEuclideousUseRiffIgnoresItsOwnLaneSourceModeEntirely` (which
+    // asserted the OLD mechanism by name) — fully redundant with this positive rewrite, not kept alongside it.
+    func testEuclideousRiffPoolIsGovernedByEachLanesOwnSourceNotLane1s() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [2])
         c.paramsA.euclidLines = [
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),   // lane 0 ("lane 1"): CHORDS — governs the riff pool too
-            EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .key),       // lane 1: useRiff; its OWN sourceMode (KEY) must be ignored for riff purposes
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),   // lane 0: CHORDS (triad [48,52,55])
+            EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .midi),     // lane 1: useRiff + its OWN MIDI pool
         ]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
                                   var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
-        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
         st.euclideousKeyRoot = 0; st.euclideousKeyType = .major
         st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [0]; m.chordsSteps = 1; return m }()   // C major tonic triad, ascending [48, 52, 55]
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), NotePool(), beats: 1, into: e, forceColumn: 0)
+        let pool = NotePool()
+        pool.noteOn(90, velocity: 100, channel: 1)   // wired to receiver[3]/channel 2 — lane 1's OWN MIDI source
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
         XCTAssertTrue(notes.contains(48), "lane 0's own plain .low pick must read Euclideous's own chord generator")
-        XCTAssertTrue(notes.contains(52), "the riff (consumed by lane 1, whose OWN sourceMode is KEY) must ALSO read the chord generator via lane 1's choice — rank 2 of the triad, not lane 0's own picked note")
-        XCTAssertFalse(notes.contains(55), "the chord's third note was never selected by anything, so it must not sound")
+        XCTAssertTrue(notes.contains(102), "lane 1's riff must resolve rank 2 against ITS OWN MIDI pool (a single note at 90, FOLD-wraps one octave up to 102) — not lane 0's chord pool")
+        XCTAssertFalse(notes.contains(52), "lane 1 must NOT sound lane 0's chord-pool rank 2 (52) — proves the riff genuinely stopped following lane 0/'lane 1', the exact bug ferry §2.4 fixed")
     }
     // TILT (Paul 2026-10-08): proves the field threads all the way through SnapshotBuilder→Router — Derivations-
     // Tests already proves the pure `euclidTiltPattern` function's own directionality in isolation; this
@@ -5476,36 +5485,6 @@ final class RouterTests: XCTestCase {
         let neg = avgOnsetSample(-1), zero = avgOnsetSample(0), pos = avgOnsetSample(1)
         XCTAssertLessThan(neg, zero, "negative tilt must pull the average onset EARLIER")
         XCTAssertGreaterThan(pos, zero, "positive tilt must pull the average onset LATER")
-    }
-    // RIFF OVERRIDE (Paul 2026-10-09, investigating "I choose MIDI IN and it plays something else — a chord
-    // grid maybe?"): confirms the mechanism directly, locking it in as verified/intentional rather than an
-    // accidental bug — once useRiff is on for a lane, that lane's OWN sourceMode has ZERO effect; its pitch
-    // comes entirely from the shared riff pool, which itself follows LANE 1's source. The fix for the actual
-    // report was making this visible in the UI (ioSourceRow's own banner when useRiff is on), not a behavior
-    // change — this test is the regression guard for the underlying mechanism staying exactly this way.
-    func testEuclideousUseRiffIgnoresItsOwnLaneSourceModeEntirely() {
-        var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [2])
-        c.paramsA.euclidLines = [
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),   // lane 0 ("lane 1"): CHORDS — governs the riff pool
-            EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .midi),     // lane 1: useRiff + MIDI — its own MIDI pick must be ignored entirely
-        ]
-        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                              scenes: [{ var s = SceneState.empty()
-                                  var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
-                                  s.cells[0][Snap.euclideousRow] = cell
-                                  return s }()])
-        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
-        st.euclideousKeyRoot = 0; st.euclideousKeyType = .major
-        st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [0]; m.chordsSteps = 1; return m }()   // C major tonic triad, ascending [48, 52, 55]
-        let pool = NotePool()
-        pool.noteOn(90, velocity: 100, channel: 1)   // wire ch 1 → receiver[3] (ch 2) — lane 1's OWN MIDI source; must NOT sound
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
-        assertNothingLeftSounding(e)
-        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        XCTAssertTrue(notes.contains(48), "lane 0's own CHORDS pick must sound")
-        XCTAssertTrue(notes.contains(52), "lane 1's riff must read lane 0's chord pool at rank 2, not lane 1's own source")
-        XCTAssertFalse(notes.contains(90), "lane 1's OWN sourceMode (MIDI) must be completely ignored while useRiff is on for it")
     }
     // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES the old global `euclideousRiffSourceMidi` switch this test
     // used to set — riff's source now follows LANE 1's (array index 0's) own `sourceMode` directly. Rewritten,

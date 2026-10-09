@@ -88,9 +88,10 @@ struct EuclideousPage: View {
     // PER-LANE I/O (Paul 2026-10-08): the old GLOBAL riffSourceMidi/lanesSourceMidi switches + their setters
     // are REMOVED from this view entirely — each lane now owns its own MIDI IN/KEY/CHORDS choice directly on
     // EuclidLine (sourceMode), edited via the SAME generic `onEdit` every other per-lane field already uses
-    // (see `ioSourceRow`) — no separate onSet* closure needed for this feature at all. The riff's own pool
-    // now follows LANE 1's choice entirely in the ENGINE (SnapshotBuilder) — this view has no control for it
-    // and no visibility into it either; see `riffGridView`'s own header note.
+    // (see `ioSourceRow`) — no separate onSet* closure needed for this feature at all. The riff's own shared
+    // PATTERN (steps/ranks) still has no page-level control of its own, but each lane's resolution of it now
+    // reads that SAME lane's own I/O choice (Paul 2026-10-09, ferry §2.4 — supersedes an earlier "follows
+    // lane 1" design entirely); see `riffGridView`'s own header note.
     let mainOutMask: UInt8
     // CHORDS BUTTON (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a chord
     // grid with rate control... base this on the existing chord grid used on the chord door." Stored/edited
@@ -145,35 +146,34 @@ struct EuclideousPage: View {
     ]
     private let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-    // RESPONSIVE FLOORS (Paul 2026-10-08, ferry §3): "do not shrink the riff grid cells or the XY pads below
-    // comfortable touch size, and do not make lane OUT or MAIN OUT any smaller than they are now." These are
-    // the hard floors every size computation below clamps against — spacing and text shrink FIRST (see
-    // `headerScale`/the lane-card internals, which already use small fixed fonts with `minimumScaleFactor`),
-    // never these. `minPadSize` is the HIG touch-target minimum (44pt); `minLaneSize` falls out of it since
-    // each lane's own 4 XY pads (Paul 2026-10-08: TILT/HITS·OFFS/CNT·GATE/VEL·NOTE/OCT, widened from 3 — see
-    // `EuclideousGestureTab`) are literally `size/4` wide — a lane can't usefully shrink past 4×44 without its
-    // own pads going sub-floor. A real, disclosed consequence of the 4th pad: lanes now need more width than
-    // before to hold the same per-pad touch-target floor (4×44=176 vs the old 3×44=132). `minRiffCell` is a
-    // smaller, still-comfortable floor for the riff matrix's own toggle cells (a denser 8×8 grid of simple
-    // on/off toggles, not a drag surface).
+    // RESPONSIVE SIZING (Paul 2026-10-09, ferry §1.1 — supersedes the 2026-10-08 "protected floor" rule
+    // wherever the two conflict): "nothing may extend past the plugin view in either orientation" now wins
+    // over the earlier touch-size floors. Every size below is a TARGET the layout functions use to decide how
+    // much space to RESERVE for a section when there's room — never a forced minimum that lets the rendered
+    // content exceed the box it's actually been given. `minPadSize` is the HIG touch-target AIM for a gesture
+    // pad (no longer force-applied inside `laneCard` — see its own §1.3 rewrite); `riffCellTarget` is the
+    // ferry's own "~30pt tall" riff-cell aim, used only to decide how much height/width `portraitLayout`/
+    // `landscapeLayout` try to reserve for the riff panel, never as a floor inside `riffGridView` itself
+    // (which always renders to fit exactly whatever box it's handed, smaller if the screen demands it).
+    // `laneOutSize`/`mainOutSize` are UNCHANGED, still genuinely protected (ferry §3, 2026-10-08) — nothing in
+    // this pass touches either.
     private let minPadSize: CGFloat = 44
-    private var minLaneSize: CGFloat { minPadSize * 4 }
-    private let minRiffCell: CGFloat = 24
+    private let riffCellTarget: CGFloat = 30
     private let laneOutSize: CGFloat = 30    // PROTECTED — never smaller than this (ferry §3)
     private let mainOutSize: CGFloat = 36    // PROTECTED — never smaller than this (ferry §3)
     private let outerPad: CGFloat = 16
     private let gap: CGFloat = 12
 
-    // RIFF GRID GEOMETRY — shared constants (Paul 2026-10-08, ferry §3 fix): computed ONCE here and read by
-    // BOTH the layout functions (which reserve space for the grid) and `riffGridView` itself (which actually
-    // draws it) — the exact "two places independently deriving the same quantity" bug class this codebase's
-    // own history repeatedly flags (RATCHET PATTERN/DEST). `riffChromeH` is the grid's own header row (the
-    // SOURCE switch, 28pt button + 4pt padding = 32pt, the tallest element in that row) + the 10pt dot row +
-    // the panel's own `VStack(spacing: 6)` × 2 gaps between its 3 children (12pt) = 54pt total, before any
-    // matrix cell is drawn.
+    // RIFF GRID GEOMETRY — shared constants (Paul 2026-10-08, ferry §3 fix; tightened 2026-10-09, ferry §2.1):
+    // computed ONCE here and read by BOTH the layout functions (which reserve space for the grid) and
+    // `riffGridView` itself (which actually draws it) — the exact "two places independently deriving the same
+    // quantity" bug class this codebase's own history repeatedly flags (RATCHET PATTERN/DEST). `riffChromeH`
+    // is the grid's own header text row (~18pt, no SOURCE-switch button anymore — removed with the per-lane
+    // I/O rework, the old 54pt estimate predates that) + the 12pt dot row + the panel's own
+    // `VStack(spacing: 4)` × 2 gaps between its 3 children (8pt) = 38pt total, before any matrix cell is drawn.
     private let riffCellGap: CGFloat = 3
-    private let riffChromeH: CGFloat = 54
-    private let riffPanelPad: CGFloat = 20   // the panel's own .padding(10), top+bottom or left+right
+    private let riffChromeH: CGFloat = 38
+    private let riffPanelPad: CGFloat = 12   // the panel's own .padding(6), top+bottom or left+right (tightened from .padding(10)/20 — ferry §2.1)
 
     /// Edits ONE line by index — the shared mutation path every per-lane control below goes through.
     private func edit(_ idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) {
@@ -245,48 +245,51 @@ struct EuclideousPage: View {
 
     // MARK: - Orientation-specific layouts (Paul 2026-10-08, ferry §3)
 
-    /// PORTRAIT: header, then the 2×2 lane grid, then the riff grid below — full width throughout. The lane
-    /// grid's own height budget RESERVES real room for the riff grid beneath it (computed from the riff's own
-    /// protected floor, not a vague guess) so the two can never compete for the same space.
+    /// PORTRAIT: header, then the 2×2 lane grid, then the riff grid below — full width throughout. The riff
+    /// panel gets a FIXED, DELIBERATELY SMALL height target (ferry §2.1 — "~30pt" cells, not "whatever's left
+    /// after the lanes," the old shape); any space the lanes don't need goes back to the riff panel, but the
+    /// lanes are never forced BIGGER than what the screen actually allows (ferry §1.1 — fit always wins over
+    /// the old touch-size floors wherever the two would conflict).
     private func portraitLayout(_ size: CGSize) -> some View {
         let hScale = headerScale(size.width)
         let headerH = headerHeight(hScale)
-        // The riff grid's OWN minimum real estate: its header+dot rows + 8 rows at the floor cell height + 7
-        // inter-row gaps + the panel's own padding — built from the SAME shared constants `riffGridView`
-        // itself uses, so this reservation can never silently drift out of sync with what the grid draws.
-        let riffMinH = riffChromeH + minRiffCell * 8 + riffCellGap * 7 + riffPanelPad
+        let riffTargetH = riffChromeH + riffCellTarget * 8 + riffCellGap * 7 + riffPanelPad
         let vGaps: CGFloat = gap * 2   // between header/lanes/riff and the bottom padding
-        let laneAvailH = size.height - headerH - riffMinH - vGaps
         let laneAvailW = size.width - outerPad * 2
-        let laneSize = max(minLaneSize, min((laneAvailW - gap) / 2, (laneAvailH - gap) / 2))
-        let riffAvailH = size.height - headerH - (laneSize * 2 + gap) - vGaps
-        return VStack(spacing: gap) {
+        let laneAvailH = max(1, size.height - headerH - riffTargetH - vGaps)
+        let laneSize = max(1, min((laneAvailW - gap) / 2, (laneAvailH - gap) / 2))
+        let riffAvailH = max(1, size.height - headerH - (laneSize * 2 + gap) - vGaps)
+        return VStack(alignment: .leading, spacing: gap) {
             header(hScale).padding(.horizontal, outerPad).padding(.top, outerPad)
-            laneGridView(laneSize).padding(.horizontal, outerPad)
-            riffGridView(maxWidth: laneAvailW, maxHeight: max(riffMinH, riffAvailH))
+            // SHARED MARGINS (ferry §1.2): `.leading` on this VStack AND an explicit full-width leading frame
+            // on the lane grid keep every section's LEFT edge at the same `outerPad`, even when the lane
+            // grid's own content (laneSize×2+gap) comes out narrower than the full available width — the old
+            // default-centre VStack alignment shifted a narrower lane grid right, producing a bigger left
+            // margin than the header/riff rows beside it.
+            laneGridView(laneSize).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, outerPad)
+            riffGridView(maxWidth: laneAvailW, maxHeight: min(riffTargetH, riffAvailH))
                 .padding(.horizontal, outerPad).padding(.bottom, outerPad)
-                .frame(maxHeight: .infinity)
         }
     }
 
     /// LANDSCAPE: header across the full width, then the lane grid (left) and the riff grid (right) SIDE BY
-    /// SIDE, both filling the height below the header. The lane grid is sized from the available height
-    /// FIRST (landscape is typically height-constrained, not width-constrained) and capped at 60% of the
-    /// total width so the riff grid always keeps a meaningful share regardless of how tall the panel is.
+    /// SIDE, both filling the height below the header. The riff column now gets a FIXED, narrow width target
+    /// (ferry §2.2 — was capped at 60% width for the LANE grid, i.e. riff got ~40%; the riff column is now
+    /// sized from the same small ~30pt-cell aim portrait uses, with the lane grid claiming everything else).
     private func landscapeLayout(_ size: CGSize) -> some View {
         let hScale = headerScale(size.width)
         let headerH = headerHeight(hScale)
-        let belowH = size.height - headerH - gap - outerPad
+        let belowH = max(1, size.height - headerH - gap - outerPad)
         let totalContentW = size.width - outerPad * 2
-        let laneSize = max(minLaneSize, min((belowH - gap) / 2, (totalContentW * 0.6 - gap) / 2))
-        let laneGridW = laneSize * 2 + gap
-        let riffW = max(minRiffCell * 8 + riffCellGap * 7, totalContentW - laneGridW - gap)
-        return VStack(spacing: gap) {
+        let riffTargetW = riffPanelPad + riffCellTarget * 8 + riffCellGap * 7
+        let laneGridTargetW = max(1, totalContentW - riffTargetW - gap)
+        let laneSize = max(1, min((belowH - gap) / 2, (laneGridTargetW - gap) / 2))
+        let riffW = max(1, totalContentW - (laneSize * 2 + gap) - gap)
+        return VStack(alignment: .leading, spacing: gap) {
             header(hScale).padding(.horizontal, outerPad).padding(.top, outerPad)
             HStack(alignment: .top, spacing: gap) {
                 laneGridView(laneSize)
                 riffGridView(maxWidth: riffW, maxHeight: belowH)
-                    .frame(maxHeight: .infinity)
             }
             .padding(.horizontal, outerPad).padding(.bottom, outerPad)
         }
@@ -557,8 +560,8 @@ struct EuclideousPage: View {
     // box the orientation-specific layout above hands it, never assumed)
 
     /// A single, explicit square size in — both layouts above compute `size` from their own real available
-    /// space (width AND height, whichever binds first) and floor it at `minLaneSize`, so this function never
-    /// needs its own notion of "the page" at all.
+    /// space (width AND height, whichever binds first — ferry §1.1: never forced bigger than what fits), so
+    /// this function never needs its own notion of "the page" at all.
     private func laneGridView(_ size: CGFloat) -> some View {
         VStack(spacing: gap) {
             HStack(spacing: gap) { laneCard(0, size: size); laneCard(1, size: size) }
@@ -571,65 +574,95 @@ struct EuclideousPage: View {
         let accent = laneAccents[idx % laneAccents.count]
         let tab = idx < laneTab.count ? laneTab[idx] : .pattern
         // SQUARE (Paul 2026-10-07, §2.8: "lane boxes are square, using the space reclaimed from the riff") —
-        // `size` is the ONE dimension driving both width and height; the comet row, pads row, tab row and
-        // 2-line tab content all now live inside this FIXED budget — `.clipped()` below is a safety net if a
-        // very narrow screen can't fit every fixed row, not an expected steady-state.
+        // `size` is the ONE dimension driving both width and height.
         let cometRowH: CGFloat = 56
-        let padSize = max(minPadSize, size / 3)   // DIRECTION/HIT-MISS-RATE stay 3 columns, unchanged — 1/3 the card's own width, floored (ferry §3)
-        // GESTURE PADS (Paul 2026-10-08): widened 3→4 (TILT/HITS·OFFS/CNT·GATE/VEL·NOTE/OCT) — this row now
-        // gets its OWN size, `size/4` rather than reusing `padSize`'s 3-column width. DISCLOSED CONSEQUENCE:
-        // the gesture-pad row no longer lines up column-for-column with the PATTERN tab's 3-column DIRECTION/
+        let padSize = size / 3    // DIRECTION/HIT-MISS-RATE stay 3 columns, unchanged — 1/3 the card's own width (ferry §1.1: fits, never floored)
+        // GESTURE PADS (Paul 2026-10-08): 4 columns (TILT/HITS·OFFS/CNT·GATE/VEL·NOTE/OCT) — this row's own
+        // WIDTH per pad, `size/4`, rather than reusing `padSize`'s 3-column width. DISCLOSED CONSEQUENCE:
+        // the gesture-pad row doesn't line up column-for-column with the PATTERN tab's 3-column DIRECTION/
         // HIT-MISS-RATE rows beneath it (a cosmetic side effect of adding a 4th pad where nothing else widened
         // to match) — not asked to change, left alone.
-        let gesturePadSize = max(minPadSize, size / 4)
+        let gesturePadW = size / 4
         let tabRowH: CGFloat = 30
-        // 36, not 30: `maskCometRow`'s own play button/step badge insist on a 36pt minimum (a touch-target
-        // floor, not an arbitrary number) regardless of what's budgeted here — at 30 that made the MASK tab's
-        // content render 6pt taller than PATTERN/RIFF's own budgeted rows, shifting the card's layout by a
-        // few points on every tab switch. Raising the shared floor to 36 (rather than shrinking MASK's touch
-        // targets down to 30) keeps all three tabs' content height IDENTICAL.
+        // Every tab (I/O·PATTERN·RIFF·MASK) renders exactly 2 content rows at this height — confirmed by
+        // reading each: `ioSourceRow`+`laneOutRow`, `directionRow`+`hitMissRateRow`, `riffDirGrid`'s 2 groups
+        // of 4, `maskCometRow`+`maskStubRow` (`maskCometRow`'s own 36pt-floored play button/badge is WHY this
+        // is 36, not 30 — matching it keeps all 4 tabs' content height identical, no per-tab layout jump).
         let contentLineH: CGFloat = 36
+        // +2: each tab's own content is `VStack(spacing: 2)` wrapping its 2 rows (confirmed by reading all
+        // four — `.io`/`.pattern`/`.mask`'s own literal `VStack(spacing: 2)`, `riffDirGrid`'s identical inner
+        // VStack) — the real rendered height is `36+2+36`, not a bare `36*2`; omitting this 2pt undercounted
+        // `gestureRowH` below by the same amount, very slightly overflowing the card's own fixed frame.
+        let tabContentH: CGFloat = contentLineH * 2 + 2
+        // NO EMPTY BANDS (Paul 2026-10-09, ferry §1.3): the gesture-pad row used to sit in a `.frame(maxHeight:
+        // .infinity)` slot and render at a FIXED square size (`size/4`), CENTRED within whatever slack the
+        // VStack gave it — leaving two equal gaps (above and below the pads) whenever the card was taller than
+        // the fixed rows' own combined height. Fixed by computing the row's HEIGHT explicitly as "exactly
+        // what's left" (below) and having the pads stretch to fill it — genuinely taller, not padded.
+        let outerVPad: CGFloat = 16      // .padding(8), top+bottom
+        let rowGaps: CGFloat = 6 * 3     // VStack(spacing: 6) between the 4 children = 3 gaps
+        let gestureRowH = max(1, size - cometRowH - tabRowH - tabContentH - outerVPad - rowGaps)
         let steps = max(2, min(16, line.steps))
         let rotateStepPt = euclidBoxGeometry(n: steps, usableWidth: max(1, (size - 64) - 12)).pitch
         VStack(alignment: .leading, spacing: 6) {
             EuclidLaneBox(idx: idx, line: line, width: size, height: cometRowH, accent: accent,
-                          selected: selectedLane == idx, touched: allRowsTouched || singleTouchedLanes.contains(idx),
+                          // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
+                          // border/fill around just this row (the step-bar area) — always `false` now; the
+                          // selection indicator moved to a single outline around the ENTIRE card below.
+                          selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
                           clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
-                          onRotateDelta: { _ in }, onHitsDelta: { _ in },      // NEUTERED — the 3 square pads below own this now
+                          onRotateDelta: { _ in }, onHitsDelta: { _ in },      // NEUTERED — the 4 square pads below own this now
                           onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
                           onAllRotateDelta: { _ in }, onAllHitsDelta: { _ in },   // NEUTERED, same reason
                           onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          stepCountBadge: AnyView(stepCountBadge(steps)))
-            gesturePadRow(idx, line, accent, cellSize: gesturePadSize, rotateStepPt: rotateStepPt)
-                .frame(maxHeight: .infinity)
+                          stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0)))
+            gesturePadRow(idx, line, accent, cellSize: gesturePadW, rowHeight: gestureRowH, rotateStepPt: rotateStepPt)
             laneTabRow(idx, line, accent, rowH: tabRowH)
             tabContent(idx, line, tab, accent, cellSize: padSize, rowH: contentLineH, fullWidth: size)
         }
         .padding(8)
         .frame(width: size, height: size)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))
+        // WHOLE-CARD SELECTION OUTLINE (ferry §1.4): replaces the narrower step-bar-only outline above.
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selectedLane == idx ? accent.opacity(0.85) : Color.clear, lineWidth: 2))
         .clipped()
     }
 
-    /// PASSIVE STEP-COUNT NUMERAL (Paul 2026-10-07, §3: "step count shown as a number") — rendered beside
-    /// the comet bar via `EuclidLaneBox`'s new optional `stepCountBadge` slot (nil everywhere else, so the
-    /// regular BUILD-page EUCLID editor is unaffected).
-    private func stepCountBadge(_ n: Int) -> some View {
-        Text("\(n)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-            .frame(width: 36, height: 44)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+    /// PASSIVE STEP-COUNT NUMERAL (Paul 2026-10-07, §3: "step count shown as a number") + an ALWAYS-VISIBLE
+    /// OUTPUT INDICATOR (Paul 2026-10-09, ferry §3.1: "the OUT row only appears on the I/O tab... add a small
+    /// always-visible output indicator... showing which outputs the lane is routed to, or NO OUTPUT when
+    /// none"). Both share `EuclidLaneBox`'s one optional `stepCountBadge` slot (nil everywhere else, so the
+    /// regular BUILD-page EUCLID editor is unaffected) — stacked rather than adding a second slot, since the
+    /// comet row has no more spare width to give a wholly separate widget.
+    private func stepCountBadge(_ n: Int, mask: UInt8) -> some View {
+        VStack(spacing: 1) {
+            Text("\(n)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            Text(mask == 0 ? "NO OUT" : (0..<4).compactMap { (mask >> UInt8($0)) & 1 != 0 ? ["A", "B", "C", "D"][$0] : nil }.joined())
+                .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(mask == 0 ? Color(red: 1, green: 0.71, blue: 0.33) : .white.opacity(0.55))
+                .lineLimit(1).minimumScaleFactor(0.5)
+        }
+        .frame(width: 36, height: 44)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
     }
 
-    // MARK: - The 3 gesture pads (Paul 2026-10-06, faces now show their value permanently — 2026-10-07 §3)
+    // MARK: - The 4 gesture pads (Paul 2026-10-06, faces now show their value permanently — 2026-10-07 §3)
 
-    /// The 3 gesture PADS (HITS/OFFS · VEL/GATE · NOTE/OCT) — square, 1/3 the lane's own width each (floored
-    /// at `minPadSize`). Each is its OWN independent 1-/2-finger drag surface (via a dedicated
-    /// `EuclidGesturePad` instance per button) wired directly to that button's own X/Y mapping. PINCH
-    /// (`onStepsDelta`) is a no-op here — that gesture stays on the comet bar itself.
-    private func gesturePadRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rotateStepPt: CGFloat) -> some View {
-        HStack(spacing: 0) {
+    /// The 4 gesture PADS (TILT/HITS · OFFS/CNT · GATE/VEL · NOTE/OCT) — `cellSize` wide, `rowHeight` tall
+    /// (ferry §1.3: no longer forced square — stretches to fill whatever height `laneCard` computes is
+    /// actually left over, instead of centering a fixed square within it and leaving empty bands above/
+    /// below). Each is its OWN independent 1-/2-finger drag surface (via a dedicated `EuclidGesturePad`
+    /// instance per button) wired directly to that button's own X/Y mapping. PINCH (`onStepsDelta`) is a
+    /// no-op here — that gesture stays on the comet bar itself.
+    private func gesturePadRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowHeight: CGFloat, rotateStepPt: CGFloat) -> some View {
+        // LARGER TYPE IN THE FREED SPACE (Paul 2026-10-09, ferry §4.4): "pad text is very small in landscape
+        // (especially RIFF SHIFT/OCT) — use the extra pad height from §1.3 for larger type." Scales the pad's
+        // own 3 text lines with however tall the row actually renders — `minimumScaleFactor` below still
+        // protects the WIDTH axis regardless of how big the requested size gets, so this can't overflow.
+        let fontScale = max(1, min(1.9, rowHeight / 70))
+        return HStack(spacing: 0) {
             ForEach(EuclideousGestureTab.allCases, id: \.rawValue) { t in
                 let touched = touchedPad[idx] == t.rawValue
                 // RIFF ADVANCE (Paul 2026-10-06): once a lane's useRiff is on, this ONE pad's label/tint
@@ -641,16 +674,16 @@ struct EuclideousPage: View {
                     RoundedRectangle(cornerRadius: 6).fill(touched ? accent.opacity(0.4) : (isRiffPad ? accent.opacity(0.22) : Color.white.opacity(0.06)))
                     VStack(spacing: 2) {
                         Text(isRiffPad ? "RIFF SHIFT/OCT" : t.label)
-                            .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                            .font(.system(size: 9 * fontScale, weight: .heavy, design: .monospaced))
                             .foregroundColor(touched ? .black.opacity(0.75) : .white.opacity(0.5))
                             .lineLimit(1).minimumScaleFactor(0.5)
                         Text(info.primary)
-                            .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                            .font(.system(size: 13 * fontScale, weight: .heavy, design: .monospaced))
                             .foregroundColor(touched ? .black : .white.opacity(0.92))
                             .lineLimit(1).minimumScaleFactor(0.5)
                         if !info.secondary.isEmpty {
                             Text(info.secondary)
-                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                .font(.system(size: 9 * fontScale, weight: .semibold, design: .monospaced))
                                 .foregroundColor(touched ? .black.opacity(0.7) : .white.opacity(0.55))
                                 .lineLimit(1).minimumScaleFactor(0.5)
                         }
@@ -658,7 +691,7 @@ struct EuclideousPage: View {
                     .multilineTextAlignment(.center)
                     .padding(4)
                 }
-                .frame(width: cellSize, height: cellSize)
+                .frame(width: cellSize, height: rowHeight)
                 .contentShape(Rectangle())
                 .overlay(
                     EuclidGesturePad(
@@ -707,18 +740,21 @@ struct EuclideousPage: View {
         HStack(spacing: 4) {
             ForEach(EuclideousLaneTab.allCases, id: \.rawValue) { t in
                 let sel = (idx < laneTab.count ? laneTab[idx] : .pattern) == t
-                // DOT (Paul 2026-10-07, §3): RIFF/MASK carry a small dot, lane-coloured when the feature is
-                // on for the lane — PATTERN never shows one (it's always "on"). MASK's "on" reads as "this
-                // lane has a mask configured at all" (line.mask != nil), the literal translation of the
-                // ratified mockup's own `!!d.mask` check — there's no further "effect enabled" concept yet
-                // since the mask's effect itself is deferred (§4.1). I/O (Paul 2026-10-08) never shows one
-                // either — a lane always has SOME source, there's no "on/off" state to flag.
+                // DOT (Paul 2026-10-07, §3; narrowed 2026-10-09, ferry §3.2): ONLY RIFF/MASK carry a dot,
+                // lane-coloured when the feature is on for the lane — they're the two tabs that genuinely
+                // SWITCH ON AND OFF. PATTERN never shows one (it's always "on"). I/O never shows one either —
+                // a lane always has SOME source selected, there's no on/off state to flag (the dot that used
+                // to render here was always unlit — a hollow dot with nothing to say — removed entirely,
+                // not just left dim). MASK's "on" reads as "this lane has a mask configured at all"
+                // (line.mask != nil), the literal translation of the ratified mockup's own `!!d.mask` check —
+                // there's no further "effect enabled" concept yet since the mask's effect itself is deferred
+                // (§4.1).
                 let dotOn: Bool = t == .riff ? line.useRiffResolved : (t == .mask ? (line.mask != nil) : false)
                 HStack(spacing: 5) {
                     Text(t.label).font(.system(size: 11, weight: .heavy, design: .monospaced))
                         .foregroundColor(sel ? .white.opacity(0.95) : .white.opacity(0.45))
                         .lineLimit(1).minimumScaleFactor(0.6)
-                    if t != .pattern {
+                    if t == .riff || t == .mask {
                         Circle().fill(dotOn ? accent : Color.clear)
                             .overlay(Circle().stroke(dotOn ? accent : Color.white.opacity(0.35), lineWidth: 1))
                             .frame(width: 7, height: 7)
@@ -773,42 +809,59 @@ struct EuclideousPage: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    /// HIT | MISS | RATE. HIT/MISS is a symmetric 2-way selector (see `missSelected`'s own doc comment) —
+    /// HIT | MISS, separated from RATE (Paul 2026-10-09, ferry §3.3: "FOLLOW sits in the same strip as HIT/
+    /// MISS with no label, so it reads as a third option of that choice — give it its RATE label back and
+    /// separate it visibly"). HIT/MISS is a symmetric 2-way selector (see `missSelected`'s own doc comment) —
     /// tapping the NON-selected side performs the actual invert (`euclideousInvertLine`) and flips which one
-    /// shows "selected"; tapping the already-selected side is a no-op. RATE opens the pop-up (`ratePopupLane`);
-    /// the button shows FOLLOW (Paul 2026-10-07, §3 — was "—") when the line's rate is genuinely unset (nil
-    /// ⇒ inherit the machine-wide rate) rather than silently defaulting the display to 1/16.
+    /// shows "selected"; tapping the already-selected side is a no-op. RATE now sits in its OWN small group
+    /// (a visible 4pt gap + its own rounded background, not sharing HIT/MISS's clip shape) with a genuine
+    /// "RATE" caption above the value — opens the pop-up (`ratePopupLane`) on tap; the value shows FOLLOW
+    /// (Paul 2026-10-07, §3 — was "—") when the line's rate is genuinely unset (nil ⇒ inherit the machine-wide
+    /// rate) rather than silently defaulting the display to 1/16.
     private func hitMissRateRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowH: CGFloat) -> some View {
         let missOn = idx < missSelected.count && missSelected[idx]
+        let gapW: CGFloat = 4
+        // The HIT+MISS pair's own width shrinks by exactly `gapW` (split between the two) so the row's TOTAL
+        // width stays `cellSize*3` — matching `directionRow` directly above it — rather than the visible
+        // separator gap silently pushing the row a few points wider than the card's own budget.
+        let hitMissW = max(1, (cellSize * 2 - gapW) / 2)
         func sideButton(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
                 .foregroundColor(.white.opacity(selected ? 0.95 : 0.5))
-                .frame(width: cellSize, height: rowH)
+                .frame(width: hitMissW, height: rowH)
                 .background(Color.white.opacity(0.06))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? accent.opacity(0.85) : Color.clear, lineWidth: 1.5))
                 .contentShape(Rectangle())
                 .onTapGesture(perform: action)
         }
-        return HStack(spacing: 0) {
-            sideButton("HIT", selected: !missOn) {
-                guard missOn else { return }   // already selected — a no-op, not a second invert
-                edit(idx) { $0 = euclideousInvertLine($0) }
-                if idx < missSelected.count { missSelected[idx] = false }
+        return HStack(spacing: gapW) {
+            HStack(spacing: 0) {
+                sideButton("HIT", selected: !missOn) {
+                    guard missOn else { return }   // already selected — a no-op, not a second invert
+                    edit(idx) { $0 = euclideousInvertLine($0) }
+                    if idx < missSelected.count { missSelected[idx] = false }
+                }
+                sideButton("MISS", selected: missOn) {
+                    guard !missOn else { return }
+                    edit(idx) { $0 = euclideousInvertLine($0) }
+                    if idx < missSelected.count { missSelected[idx] = true }
+                }
             }
-            sideButton("MISS", selected: missOn) {
-                guard !missOn else { return }
-                edit(idx) { $0 = euclideousInvertLine($0) }
-                if idx < missSelected.count { missSelected[idx] = true }
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(spacing: 1) {
+                Text("RATE").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                Text(line.rate == nil ? "FOLLOW" : line.rate!.rawValue)
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.6)
             }
-            Text(line.rate == nil ? "FOLLOW" : line.rate!.rawValue)
-                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.6)
-                .frame(width: cellSize, height: rowH)
-                .background(Color.white.opacity(0.06))
-                .contentShape(Rectangle())
-                .onTapGesture { ratePopupLane = idx }
+            .frame(width: cellSize, height: rowH)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+            .contentShape(Rectangle())
+            .onTapGesture { ratePopupLane = idx }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        // NO outer clip shape here (ferry §3.3): HIT/MISS already clip to their own shared pill above; RATE
+        // draws its own independent rounded background — a single clip spanning the whole row (the old shape)
+        // would visually re-merge the two groups the 4pt gap is meant to separate.
     }
 
     /// RIFF tab (Paul 2026-10-07, §3): OFF + all 6 `RiffDir` cases over TWO lines, 4 columns — short labels
@@ -948,13 +1001,22 @@ struct EuclideousPage: View {
     // both the pads' permanent face display (`euclideousPadInfo`) and the transient drag HUD (`onDragState`).
     private func euclideousTiltHitsHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
         let pct = Int((line.tiltResolved * 100).rounded())
+        // SINGULAR (Paul 2026-10-09, ferry §4.3): "1 HIT", not "1 HITS."
+        let hitWord = line.pulses == 1 ? "HIT" : "HITS"
         return EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
-                                  primary: "\(line.pulses) HITS", secondary: "TILT \(pct >= 0 ? "+" : "")\(pct)%", point: point)
+                                  primary: "\(line.pulses) \(hitWord)", secondary: "TILT \(pct >= 0 ? "+" : "")\(pct)%", point: point)
     }
     private func euclideousOffsetCountHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
-        let r = line.rotate
+        // WRAPPED TO THE STEP COUNT (Paul 2026-10-09, ferry §4.2): "lane 1 shows OFFS +14 with 8 steps; it
+        // should read +6." The STORED `rotate` can legitimately exceed `steps` — its own clamp
+        // (`applyX`'s `.offsetCount` case) wraps mod 16 unconditionally, independent of the line's current
+        // step count, and the real pattern engine (`euclidPatternInto`) already wraps correctly by the true
+        // step count at read time — so this was a DISPLAY-only bug, fixed here by wrapping the shown value to
+        // the line's own `steps`, not by changing how `rotate` is stored/clamped.
+        let n = max(2, min(16, line.steps))
+        let r = ((line.rotate % n) + n) % n
         return EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
-                                  primary: "\(line.steps) STEPS", secondary: "OFFS \(r >= 0 ? "+" : "")\(r)", point: point)
+                                  primary: "\(line.steps) STEPS", secondary: "OFFS +\(r)", point: point)
     }
     // THE OTHER TWO HUD FORMATTERS (Paul 2026-10-06: "we need different overlays for velocity, gate, etc.") —
     // Euclideous-only (the BUILD-page editor has no VEL/GATE or NOTE/OCT tab to show one for), mirroring
@@ -962,10 +1024,15 @@ struct EuclideousPage: View {
     // for the pads' own permanent face display, not just the transient HUD — see `euclideousPadInfo` above.
     // UNCHANGED despite the GATE/VEL axis swap (Paul 2026-10-08) — it already shows both resolved values
     // regardless of which one is driven by which axis, so there's nothing for the swap to invalidate here.
+    // ORDER FIXED (Paul 2026-10-09, ferry §4.1): the pad's own heading reads "GATE/VEL" (X=gate, Y=velocity,
+    // per Paul's own dictation order when this pad's axes were last set) — but this formatter showed velocity
+    // FIRST in both the value string and the subtitle, disagreeing with the heading. Swapped so GATE leads
+    // throughout (heading, values, subtitle) — each number keeps its own prior formatting (gate still carries
+    // the "%", velocity still doesn't), only their ORDER changed.
     private func euclideousVelGateHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
         EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
-                           primary: "\(Int((line.velocityResolved * 100).rounded())) · \(Int((line.gateResolved * 100).rounded()))%",
-                           secondary: "VEL · GATE", point: point)
+                           primary: "\(Int((line.gateResolved * 100).rounded()))% · \(Int((line.velocityResolved * 100).rounded()))",
+                           secondary: "GATE · VEL", point: point)
     }
     private func euclideousNoteOctHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
         let label = allRows ? "ALL LANES" : "LANE \(idx + 1)"
@@ -985,39 +1052,29 @@ struct EuclideousPage: View {
     /// own on-page chord generator (the CHORDS button beside KEY in the header), resolved entirely in the
     /// engine. Same 3-equal-width-button visual language as `directionRow`.
     ///
-    /// RIFF OVERRIDE (Paul 2026-10-09, found investigating "I choose MIDI IN and it plays something else — a
-    /// chord grid maybe?"): once this lane's own `useRiff` is on (set from the RIFF tab, a DIFFERENT tab —
-    /// tapping any direction there turns it on; OFF turns it back off), the lane reads the SHARED riff
-    /// pattern EXCLUSIVELY (Router.swift's `runEuclidLine`, the `if useRiff {...}` branch) — and that shared
-    /// pattern's own pool follows LANE 1's source choice, not THIS lane's. So whatever is picked here has NO
-    /// audible effect at all while RIFF is on for this lane — if lane 1 happens to be on CHORDS, every
-    /// useRiff-on lane plays the chord progression regardless of its own I/O tab setting, which is almost
-    /// certainly what was being heard. The buttons below still WRITE `sourceMode` while inert (so it's ready
-    /// the instant RIFF is turned off) — replaced with a plain banner instead of silently leaving a
-    /// no-visible-effect control, the same principle the MASK tab's own stub already follows.
-    @ViewBuilder private func ioSourceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        if line.useRiffResolved {
-            Text("RIFF IS ON — SOURCE FOLLOWS LANE 1 (SEE RIFF TAB)")
-                .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.5)).lineLimit(1).minimumScaleFactor(0.5)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity).frame(height: rowH)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-        } else {
-            HStack(spacing: 0) {
-                ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
-                    let on = line.sourceModeResolved == src
-                    let label = src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS")
-                    Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.5)
-                        .frame(maxWidth: .infinity).frame(height: rowH)
-                        .background(on ? accent.opacity(0.55) : Color.white.opacity(0.06))
-                        .contentShape(Rectangle())
-                        .onTapGesture { edit(idx) { $0.sourceMode = src } }
-                }
+    /// ALWAYS LIVE, INCLUDING WHILE RIFF IS ON (Paul 2026-10-09, ferry §2.4): a 2026-10-09 investigation
+    /// ("I choose MIDI IN and it plays something else — a chord grid maybe?") found that turning a lane's
+    /// RIFF on made ITS OWN choice here completely inert — the shared riff pattern used to read lane 1's pool
+    /// exclusively, regardless of which lane was walking it (fixed that day with a banner explaining the
+    /// override, since removed). Paul's follow-up ferry ruling reversed the OTHER side of that: the riff pool
+    /// itself is no longer lane-1-exclusive — each lane now resolves the shared riff SHAPE against ITS OWN
+    /// pool (Router.swift's `runEuclidLine`, the `if useRiff {...}` branch now reads `laneNotes(lineIndex)`/
+    /// `laneCount(lineIndex)` directly) — so these 3 buttons are genuinely live again regardless of RIFF
+    /// state, and the banner that briefly replaced them is gone.
+    private func ioSourceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
+                let on = line.sourceModeResolved == src
+                let label = src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS")
+                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity).frame(height: rowH)
+                    .background(on ? accent.opacity(0.55) : Color.white.opacity(0.06))
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit(idx) { $0.sourceMode = src } }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - OUT row (Paul 2026-10-07, §2.8/§3: smaller toggles, NO OUTPUT, dashed/hollow main-held chips)
@@ -1104,27 +1161,31 @@ struct EuclideousPage: View {
     /// already selected for that step clears it to a rest (0) — the exact toggle `rr[col] = (rr[col] == rank ?
     /// 0 : rank)` the original popup used. Cells are a NEUTRAL colour (ferry §1 — not a lane colour, since the
     /// pattern is shared by every lane that has riff on, not owned by any one of them). Per-lane position dots
-  /// sit above the columns, unchanged. NO rank/note-name readout anywhere (ferry §2 — the 2026-10-08 "show
-    /// both the rank and the resolved note" addition is fully reversed, not relocated). Sized from an explicit
-    /// `(maxWidth, maxHeight)` box the caller computes (portrait: full width, below the lanes; landscape: the
-    /// right column, full height) — cell dimensions are independently floored at `minRiffCell` and the grid's
-    /// own frame is exactly `8×cell + 7×gap` in each axis, which may exceed the handed box at the floor rather
-    /// than silently shrinking past comfortable touch size (ferry §3).
+    /// sit above the columns, unchanged (ferry §2.3 — the drawing code here never went anywhere; if they still
+    /// don't show on device the next thing to check is the live `riffPositions` poll chain, not this view).
+    /// NO rank/note-name readout anywhere (ferry §2 — the 2026-10-08 "show both the rank and the resolved
+    /// note" addition is fully reversed, not relocated). Sized from an explicit `(maxWidth, maxHeight)` box
+    /// the caller computes (portrait: full width, below the lanes; landscape: the right column, full height).
+    /// NEVER forces cell size up past what the given box allows (ferry §1.1 — this is the actual fix for "the
+    /// riff grid's 8th column is clipped": the old `max(minRiffCell, ...)` floor could demand MORE than the
+    /// box, overflowing past it; now the grid always renders to fit exactly, smaller if the screen demands —
+    /// `portraitLayout`/`landscapeLayout` are what decide how generous that box is, per ferry §2.1/§2.2).
     private func riffGridView(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
         let n = 8
         let resolved = riff.ranksResolved
         let ranks = (0..<n).map { $0 < resolved.count ? resolved[$0] : 0 }
         let cellGap = riffCellGap
-        let cellW = max(minRiffCell, (maxWidth - riffPanelPad - cellGap * CGFloat(n - 1)) / CGFloat(n))
-        let cellH = max(minRiffCell, (maxHeight - riffChromeH - riffPanelPad - cellGap * 7) / 8)
-        return VStack(alignment: .leading, spacing: 6) {
+        let dotRowH: CGFloat = 12
+        let cellW = max(1, (maxWidth - riffPanelPad - cellGap * CGFloat(n - 1)) / CGFloat(n))
+        let cellH = max(1, (maxHeight - riffChromeH - riffPanelPad - cellGap * 7) / 8)
+        return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 Text("RIFF").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                // PER-LANE I/O (Paul 2026-10-08): the riff's own "SOURCE KEY|MIDI" switch is REMOVED — its pool
-                // now FOLLOWS LANE 1's own I/O choice entirely in the engine (SnapshotBuilder), per Paul's
-                // ruling. No control, no indicator here beyond this note — a deliberate consequence named
-                // plainly, not hidden: changing lane 1's source silently changes what the riff sounds like too.
-                Text("8 STEPS · SHARED BY EVERY LANE WITH RIFF ON · FOLLOWS LANE 1'S SOURCE")
+                // PER-LANE SOURCE (Paul 2026-10-09, ferry §2.4): the riff's own "SOURCE KEY|MIDI" switch stays
+                // removed — but unlike the earlier "follows lane 1" design, each lane now resolves this SHARED
+                // shape against ITS OWN I/O-tab choice (Router.swift's `laneNotes(lineIndex)`), not lane 1's —
+                // two lanes walking the same shape with different inputs genuinely play different notes.
+                Text("8 STEPS · SHARED SHAPE, EACH LANE PLAYS ITS OWN SOURCE")
                     .font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                     .lineLimit(1).minimumScaleFactor(0.6)
                 Spacer(minLength: 8)
@@ -1134,11 +1195,11 @@ struct EuclideousPage: View {
                     ZStack {
                         ForEach(0..<4, id: \.self) { i in
                             if i < lines.count, lines[i].useRiffResolved, i < riffPositions.count, riffPositions[i] == col {
-                                Circle().fill(laneAccents[i % laneAccents.count]).frame(width: 6, height: 6)
+                                Circle().fill(laneAccents[i % laneAccents.count]).frame(width: 7, height: 7)
                             }
                         }
                     }
-                    .frame(width: cellW, height: 10)
+                    .frame(width: cellW, height: dotRowH)
                 }
             }
             VStack(spacing: cellGap) {
@@ -1162,7 +1223,7 @@ struct EuclideousPage: View {
                 }
             }
         }
-        .padding(10)
+        .padding(6)   // matches riffPanelPad (12 = 6+6, ferry §2.1 — tightened from .padding(10))
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
     }
 
