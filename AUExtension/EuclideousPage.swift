@@ -273,9 +273,8 @@ struct EuclideousPage: View {
     }
 
     /// LANDSCAPE: header across the full width, then the lane grid (left) and the riff grid (right) SIDE BY
-    /// SIDE, both filling the height below the header. The riff column now gets a FIXED, narrow width target
-    /// (ferry §2.2 — was capped at 60% width for the LANE grid, i.e. riff got ~40%; the riff column is now
-    /// sized from the same small ~30pt-cell aim portrait uses, with the lane grid claiming everything else).
+    /// SIDE, both filling the height below the header. The riff column gets a FIXED, narrow width TARGET
+    /// (ferry §2.2 — was capped at 60% width for the LANE grid, i.e. riff got ~40%).
     private func landscapeLayout(_ size: CGSize) -> some View {
         let hScale = headerScale(size.width)
         let headerH = headerHeight(hScale)
@@ -284,13 +283,22 @@ struct EuclideousPage: View {
         let riffTargetW = riffPanelPad + riffCellTarget * 8 + riffCellGap * 7
         let laneGridTargetW = max(1, totalContentW - riffTargetW - gap)
         let laneSize = max(1, min((belowH - gap) / 2, (laneGridTargetW - gap) / 2))
-        let riffW = max(1, totalContentW - (laneSize * 2 + gap) - gap)
+        // RIFF'S WIDTH IS CAPPED AT ITS TARGET, NOT "WHATEVER'S LEFT" (ferry §2.2, corrected 2026-10-09 — a
+        // real gap in the first pass, confirmed numerically before fixing: giving riff the leftover after the
+        // lane grid's own ACTUAL size left it exactly as wide as before — even WORSE than the reported ~40%
+        // in one measured case — whenever the lane grid was HEIGHT-bound, which is common on a short/windowed
+        // landscape panel, since a height-bound lane grid never uses its full width allotment and there was
+        // nothing to "win back" for riff in that case). Capping at the target directly makes the narrowing
+        // unconditional; any width the lane grid doesn't need becomes blank TRAILING space (the `.leading`
+        // frame below), never routed back to riff.
+        let riffW = min(riffTargetW, max(1, totalContentW - (laneSize * 2 + gap) - gap))
         return VStack(alignment: .leading, spacing: gap) {
             header(hScale).padding(.horizontal, outerPad).padding(.top, outerPad)
             HStack(alignment: .top, spacing: gap) {
                 laneGridView(laneSize)
                 riffGridView(maxWidth: riffW, maxHeight: belowH)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, outerPad).padding(.bottom, outerPad)
         }
     }
@@ -322,7 +330,23 @@ struct EuclideousPage: View {
         return rowH + outerPad /* top padding only; bottom comes from the gap to the next section */
     }
 
-    private func header(_ scale: CGFloat) -> some View { headerRow1(scale) }
+    private func header(_ scale: CGFloat) -> some View {
+        let rowH: CGFloat = max(28, 36 * scale)
+        // SAFETY NET (ferry §1.1, corrected 2026-10-09 — this row was never actually touched by the first
+        // pass of this fix, confirmed by re-auditing against the literal ferry text): MAIN OUT's 4 circles
+        // never shrink regardless of `scale` (ferry §3's own protected floor), and several labels in this row
+        // (RESET/KEY/MAIN OUT) use `.fixedSize()`, which also refuses to compress below their own minimum —
+        // so on a genuinely narrow panel the row's minimum content can still exceed the available width even
+        // at `headerScale`'s lowest value, pushing ON/close off-screen — exactly what "the ON and close
+        // buttons are off-screen" describes. Lowering `headerScale`'s own floor wouldn't fix this (every text
+        // element already has its OWN inner `max(X, Y*scale)` minimum, which binds well before the outer
+        // floor would matter) — a horizontal ScrollView is what actually GUARANTEES "nothing may extend past
+        // the plugin view" regardless of how the width estimate plays out on a real device: every control
+        // stays reachable via a scroll instead of running off-screen. The explicit height matches
+        // `headerHeight`'s own `rowH` term exactly so the two can't silently drift apart.
+        return ScrollView(.horizontal, showsIndicators: false) { headerRow1(scale) }
+            .frame(height: rowH)
+    }
 
     private func headerRow1(_ scale: CGFloat) -> some View {
         HStack(spacing: max(3, 8 * scale)) {
