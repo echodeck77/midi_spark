@@ -196,6 +196,116 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a 20-item ratified FERRY list: fit/overflow, lane-card empty bands, riff genuinely
+  per-lane, label/readout fixes, new-instance defaults (2026-10-09, on `fix/euclid-no-scroll-direction-order-
+  2x2-grid`; macOS 1241 green (net −2: 2 tests deleted as fully redundant with a rewrite), iOS builds clean).
+  A FERRY message relayed directly in chat (not via `_dear_claude_code/`), structured as "Paul's rulings —
+  build these; anything not mentioned stays as built." **§1 FIT, THE ROOT CAUSE:** portrait was overflowing
+  (ON/close buttons off-screen, right-hand lane cards cut off, the riff grid's 8th column clipped) because
+  the page's own size floors (`minLaneSize`/`minPadSize`/`minRiffCell`) were enforced via `max(floor, ...)` —
+  FORCING content bigger than the actual available space whenever the real screen (plausibly a narrow AUM
+  windowed panel) couldn't afford the old touch-size targets, with nothing clipping the overflow before it
+  reached the screen edge. Demoted every floor from a forced minimum to a reservation TARGET the layout
+  functions use to decide how generous to be WHEN THERE'S ROOM — `portraitLayout`/`landscapeLayout` now
+  compute `laneSize`/`riffGridView`'s box with only a tiny `max(1, ...)` sanity clamp, and `riffGridView`
+  itself never forces cell size up past whatever box it's handed, so the grid always renders to fit exactly,
+  smaller if the screen genuinely demands it. **§1.2 SHARED MARGINS:** portrait's outer VStack was
+  default-center-aligned, so the lane grid — narrower than the full width whenever HEIGHT (not width) was its
+  binding constraint — got centered, producing a bigger left margin than the header/riff rows beside it;
+  fixed with `.leading` alignment + an explicit full-width leading frame on the lane-grid call site. **§1.3
+  THE TWO EMPTY BANDS, root-caused by reading not guessing:** the gesture-pad row sat inside a `.frame
+  (maxHeight: .infinity)` slot but rendered its OWN content at a FIXED square size (`size/4`), CENTERED
+  within whatever slack the VStack handed it — on any card taller than the other fixed rows combined, that
+  slack split into two equal empty bands, above and below the pads. Fixed by computing the row's HEIGHT
+  explicitly as "exactly what's left" (`size − cometRowH − tabRowH − tabContentH − padding − gaps`, THE
+  SAME arithmetic every row already uses, not a new concept) and having the pads STRETCH to fill it — taller,
+  not padded; `gesturePadRow` gained an explicit `rowHeight` param, replacing the old fixed-square `cellSize`
+  for height specifically. **A real off-by-2 self-caught while deriving that arithmetic:** each tab's own
+  content is `VStack(spacing: 2)` wrapping 2 rows (confirmed across all 4 tabs: `.io`/`.pattern`/`.mask`'s own
+  literal `VStack(spacing: 2)`, `riffDirGrid`'s identical inner one) — the real height is `36+2+36=74`, not a
+  bare `36×2=72`; the 2pt undercounted arithmetic would have very slightly overflowed the card's own fixed
+  frame on every tab, caught and fixed before shipping. **§1.4:** the selected-lane outline moved from
+  `EuclidLaneBox`'s own step-bar-only border/fill (now passed `selected: false` unconditionally — the shared
+  component itself is untouched, so the regular BUILD-page EUCLID editor's own selection look is unaffected)
+  to a single `.overlay(RoundedRectangle...stroke(...))` around the whole card. **§2 RIFF PANEL:** tightened
+  chrome — `riffChromeH` 54→38 (the old estimate assumed a "SOURCE switch" button that was removed with the
+  per-lane I/O rework and never updated), `riffPanelPad` 20→12 (`.padding(10)`→`.padding(6)`) — plus a new
+  `riffCellTarget=30` RESERVATION target (not a forced floor) replacing "whatever's left after the lanes,"
+  so any space the lanes don't need goes back to a still-small riff panel rather than riff growing to fill
+  arbitrary leftover space. Landscape's riff column narrowed from an implicit ~40% (`totalContentW × 0.6` was
+  the LANE grid's own cap, leaving riff the remainder) to an explicit, much narrower fixed-width target
+  (`riffPanelPad + riffCellTarget×8 + riffCellGap×7 ≈ 273pt`, vs. ~400pt on a typical 1000pt-wide panel under
+  the old 40% share) — lanes claim everything else. **§2.3 position dots:** the drawing code was ALREADY
+  present and correct (confirmed by reading, not assumed) — bumped the dot 6→7pt and its row 10→12pt for
+  slightly better visibility, and flagged honestly in the reply that if they're STILL invisible on device,
+  the likely culprit is the live `riffPositions` poll chain (Kernel→AU→VC), not this rendering code, which
+  this fix didn't touch. **§2.4 THE REAL ENGINE CHANGE — riff genuinely per-lane, not "follows lane 1":**
+  Router.swift's `if useRiff {` branch (inside `runEuclidLine`) used to read a single shared buffer
+  (`riffSrcNoteBuf`/`riffSrcNoteCount`) filled ONCE per cell by copying lane 0's own resolved pool — meaning
+  EVERY riff-enabled lane heard lane 0's pool regardless of its own I/O-tab choice (the exact mechanism the
+  PREVIOUS entry's banner was explaining, not fixing). Now reads `laneCount(lineIndex)`/`laneNotes
+  (lineIndex)` directly — each lane's own per-lane buffer, the SAME one its own MIDI IN/KEY/CHORDS selection
+  already fills — so two lanes walking the identical shared riff SHAPE with different inputs genuinely play
+  different notes. `laneCount`/`laneNotes` already resolved to the shared pool for any NON-Euclideous row
+  regardless of lineIndex, so this is byte-identical everywhere else in the grid — confirmed, not assumed,
+  before relying on it. The OLD shared-buffer fill is KEPT (unused by the audible path now) purely to feed
+  `euclideousRiffLiveNotes`, a kept-but-currently-unrendered readout — reading lane 0 specifically for that
+  one dead consumer is harmless. **A direct, immediate consequence: the PREVIOUS entry's banner is now
+  obsolete** — `ioSourceRow` reverted from "show a banner explaining the override" back to always showing the
+  live MIDI IN/KEY/CHORDS buttons, since a lane's own I/O choice now has real, direct effect even while that
+  lane's RIFF is on. **§3.1/3.2:** a new always-visible OUT summary (letters routed, or "NO OUT" in warning
+  orange) stacked into the EXISTING `stepCountBadge` slot beside the comet bar — no new slot needed, the
+  step-count numeral and the output summary just share one small badge now; the full OUT toggles stay on the
+  I/O tab. The I/O tab's own dot (always unlit — a hollow dot with nothing to say, since a lane always has
+  SOME source) is removed entirely; only RIFF/MASK (the two tabs that genuinely switch on/off) keep one.
+  **§3.3:** RATE moved out of the shared HIT/MISS clip into its own small group — a 4pt gap (carved OUT of
+  the HIT/MISS pair's own width, not added on top, so the row's total width still matches `directionRow`
+  above it) + a genuine "RATE" caption above the value, instead of reading as an unlabelled third option of
+  that choice. **§3.4 TILT, root-caused precisely:** the real engine (Router.swift) already applies
+  `euclidTiltPattern` to its emission buffer, but `EuclidCometBar`'s own Canvas drawing (the step-bar/comet
+  visualization) built its pattern from `euclidPatternInto` ALONE and never called the tilt warp — so the
+  visual always showed the un-tilted shape regardless of the control's actual value, even though the AUDIO
+  was already correct. `EuclidCometBar` gained an optional `tilt: Double = 0` (default 0 is an exact no-op
+  per the warp's own design, so the regular BUILD-page EUCLID editor — no TILT control — is byte-identical);
+  `EuclidLaneBox`'s one call site now passes `line.tiltResolved`. **§4 LABELS:** GATE now leads VEL
+  throughout (heading "GATE/VEL," the pad-face value, AND the subtitle — they disagreed before, vel-first in
+  the value/subtitle despite gate-first in the heading); OFFS wraps to the lane's own step count in the
+  DISPLAY only (`((rotate % n)+n)%n`) — the STORED `rotate` can legitimately exceed `steps` (its own clamp
+  wraps mod 16 unconditionally, independent of the current step count) but the real pattern engine already
+  wraps correctly by the true step count at read time, so this was confirmed to be a display-only bug, not an
+  audio one, and fixed without touching storage/clamp logic; singular "1 HIT" via a simple pluralization
+  check; pad text now scales with the row's own actual rendered height (`fontScale = rowHeight/70`, clamped
+  1...1.9) — most visible in landscape, where §1.3's fix frees the most extra room. **§5 DEFAULTS, a real
+  behaviour reversal:** `PluginState.euclideousLinesResolved` used to pad EVERY missing/short lane with the
+  IDENTICAL default (1 hit of 8) and additionally FLOOR every resolved line's pulses to ≥1 unconditionally —
+  that floor existed ONLY to repair a since-fixed 2026-10-06 bug (a brief window where 0 hits meant "stuck,
+  not deliberate"). Paul's new ruling makes 0 hits a genuinely intentional per-lane default for lanes 2-4, so
+  the blanket floor is REMOVED entirely (the only known risk — an ancient saved doc from that 3-day historical
+  bug window — is moot; Paul is the sole user) and replaced with `euclideousDefaultLine(_ i:)`, a per-INDEX
+  default: lane 1 (index 0) = 1 hit of 8 (unchanged); lanes 2-4 = 0 hits of 8 (new, deliberately silent until
+  raised); every lane also now defaults `emitterMask = 0b0001` (output A) and `useRiff = true` (riff on,
+  direction FWD via `riffDir`'s own existing nil-default). The GESTURE-level floor (`applyY`'s own `max(1,
+  ...)` clamp on the TILT/HITS pad) still prevents a lane being pinched back down to 0 once raised — 0 is
+  reachable only as this starting point, matching the ORIGINAL floor's own "never reachable through the
+  gesture" half of its reasoning, now serving the opposite intent. **TESTS, 5 pre-existing ones broke on the
+  first run (expected, not a regression) because they encoded exactly the two behaviours this ferry
+  deliberately reverses** — 3 in `EffectiveParamsTests.swift` rewritten to the new per-index defaults (one,
+  `testEuclideousLinesResolvedRepairsAnAlreadyStuckZeroPulsesDocument`, deleted outright — its entire premise,
+  "repair a document stuck at pulses:0," no longer exists as a distinguishable concept from "lanes 2-4
+  intentionally at 0"); 2 in `RouterTests.swift` (both from THIS SESSION's own earlier work, asserting the
+  old "follows lane 1" design by name) collapsed into ONE rewritten positive test,
+  `testEuclideousRiffPoolIsGovernedByEachLanesOwnSourceNotLane1s` — lane 0 on CHORDS and lane 1 on its own
+  live MIDI note (90) both walk the SAME riff shape (rank 2) but land on genuinely different notes (48 vs.
+  102, FOLD-wrapped one octave up), with an explicit `XCTAssertFalse(notes.contains(52))` guarding against
+  regressing back to "lane 1 wrongly sounds lane 0's chord pool." Full suite re-run green at 1241 (1243−2) incl.
+  this rewrite; iOS re-verified after one further production-code edit (the tabContentH off-by-2 fix) landed
+  after the first successful iOS build. **DEVICE-OWED, the whole ferry — no screenshots could be produced for
+  the requested acknowledgment (no device/simulator visual access exists in this environment):** the entire
+  layout at AUM's actual windowed/full-screen sizes in both orientations (the core thing this ferry was about
+  and the one thing genuinely unverifiable off-device); the position dots' real visibility (code confirmed
+  correct, but see §2.3 above); the lane card's real pad size/text size/touch feel now that the old touch-
+  target floors are reservation targets rather than guarantees; confirm RIFF-enabled lanes now audibly differ
+  by their own I/O choice, not lane 1's.**
 - **▶ EUCLIDEOUS — a banner replaces the I/O tab's MIDI IN/KEY/CHORDS buttons whenever RIFF has overridden
   them (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1243 green incl. +1, iOS builds
   clean). Paul: "Something is up with the midi in settings. When I choose midi in it plays something else - a
