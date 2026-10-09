@@ -4091,11 +4091,13 @@ final class Router {
                             // CONTENT (steps/ranks) is shared; each lane walks it its own way.
                             let rp = p.euclideousRiff
                             let riffN = rp.stepsResolved
-                            // EUCLIDEOUS PAGE REWORK (2026-10-07): the riff reads its OWN pool now
-                            // (`riffSrcNoteBuf`/`riffSrcNoteCount`, filled once per cell above the per-line
-                            // loop from `p.riffSrcChanMask`) — NOT the lanes' own `srcNotes`/`srcCount`,
-                            // which is a genuinely different, independently-sourced pool since the riff and
-                            // lanes can each be set to a different receiver/KEY|MIDI switch.
+                            // EUCLIDEOUS PAGE REWORK (2026-10-07, updated 2026-10-08 — CHORDS button): the riff
+                            // reads its OWN pool (`riffSrcNoteBuf`/`riffSrcNoteCount`, filled once per cell
+                            // above the per-line loop by COPYING lane 0's/"lane 1"'s own resolved pool —
+                            // `laneNotes(0)`/`laneCount(0)`, whatever source (MIDI/KEY/CHORDS) that lane is on)
+                            // — NOT the lanes' own `srcNotes`/`srcCount` here, nor THIS line's own sourceMode:
+                            // a useRiff-on line's I/O tab selection is genuinely inert while useRiff is on, by
+                            // design (flagged plainly in that tab's own UI — see `ioSourceRow`'s doc comment).
                             guard riffSrcNoteCount > 0 else { return }
                             let seed = UInt64(bitPattern: Int64(riffDirSeed))
                             // RESET SPAN (Paul 2026-10-08): the span-re-anchored window start THIS hit falls

@@ -981,24 +981,43 @@ struct EuclideousPage: View {
     // MARK: - The I/O tab (Paul 2026-10-08): per-lane MIDI IN | KEY | CHORDS + the lane's own OUT toggles
 
     /// MIDI IN | KEY | CHORDS (Paul 2026-10-08) — replaces the old page-level GLOBAL "LANES KEY|MIDI" switch:
-    /// each lane now picks its own source independently (`EuclidLine.sourceMode`). CHORDS reads whichever
-    /// receiver (if any) is configured as a CHORD door — resolved entirely in the engine (SnapshotBuilder);
-    /// this control has no idea which receiver that is, and there's deliberately no picker for it (no
-    /// receiver-picking UI returns to this page). Same 3-equal-width-button visual language as `directionRow`.
-    private func ioSourceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
-                let on = line.sourceModeResolved == src
-                let label = src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS")
-                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.5)
-                    .frame(maxWidth: .infinity).frame(height: rowH)
-                    .background(on ? accent.opacity(0.55) : Color.white.opacity(0.06))
-                    .contentShape(Rectangle())
-                    .onTapGesture { edit(idx) { $0.sourceMode = src } }
+    /// each lane now picks its own source independently (`EuclidLine.sourceMode`). CHORDS reads Euclideous's
+    /// own on-page chord generator (the CHORDS button beside KEY in the header), resolved entirely in the
+    /// engine. Same 3-equal-width-button visual language as `directionRow`.
+    ///
+    /// RIFF OVERRIDE (Paul 2026-10-09, found investigating "I choose MIDI IN and it plays something else — a
+    /// chord grid maybe?"): once this lane's own `useRiff` is on (set from the RIFF tab, a DIFFERENT tab —
+    /// tapping any direction there turns it on; OFF turns it back off), the lane reads the SHARED riff
+    /// pattern EXCLUSIVELY (Router.swift's `runEuclidLine`, the `if useRiff {...}` branch) — and that shared
+    /// pattern's own pool follows LANE 1's source choice, not THIS lane's. So whatever is picked here has NO
+    /// audible effect at all while RIFF is on for this lane — if lane 1 happens to be on CHORDS, every
+    /// useRiff-on lane plays the chord progression regardless of its own I/O tab setting, which is almost
+    /// certainly what was being heard. The buttons below still WRITE `sourceMode` while inert (so it's ready
+    /// the instant RIFF is turned off) — replaced with a plain banner instead of silently leaving a
+    /// no-visible-effect control, the same principle the MASK tab's own stub already follows.
+    @ViewBuilder private func ioSourceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
+        if line.useRiffResolved {
+            Text("RIFF IS ON — SOURCE FOLLOWS LANE 1 (SEE RIFF TAB)")
+                .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(0.5)).lineLimit(1).minimumScaleFactor(0.5)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity).frame(height: rowH)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+        } else {
+            HStack(spacing: 0) {
+                ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
+                    let on = line.sourceModeResolved == src
+                    let label = src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS")
+                    Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.5)
+                        .frame(maxWidth: .infinity).frame(height: rowH)
+                        .background(on ? accent.opacity(0.55) : Color.white.opacity(0.06))
+                        .contentShape(Rectangle())
+                        .onTapGesture { edit(idx) { $0.sourceMode = src } }
+                }
             }
+            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - OUT row (Paul 2026-10-07, §2.8/§3: smaller toggles, NO OUTPUT, dashed/hollow main-held chips)
