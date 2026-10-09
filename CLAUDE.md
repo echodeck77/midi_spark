@@ -196,6 +196,51 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a drag-HUD legibility review found + fixed one genuine display bug (unbounded riff SHIFT),
+  plus two small defensive hardenings (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS
+  builds clean, zero warnings; no macOS test-target reach — UI-only, same as every prior change to this file).
+  Paul asked for a review of the drag-HUD overlay's legibility/correctness "in all cases." Checked all 8
+  gesture-pad axis mappings (4 pads × X/Y) for whether each one's STORED value is actually bounded, since an
+  unbounded value is exactly the kind of thing that can silently break this page's own "no `.minimumScaleFactor`,
+  everything must fit the fixed type scale" rule (ferry §4) — 7 of 8 clamp at write time; **`riffRotate`
+  (the riff-mode NOTE/OCT pad's X-axis, "SHIFT") does not** — `applyX`'s riff branch (`line.riffRotate =
+  riffRotateResolved + d`) just accumulates forever, unlike `riffOctave`'s own -3...3 clamp two lines below.
+  The ENGINE already wraps it correctly at read time (`riffRotateStep`'s own double-mod against the riff's real
+  step count) — the SOUND was never wrong — but both the transient drag HUD and the pad's own permanent face
+  (which share this exact formatter) showed the raw, unbounded stored value as-is: a lane dragged a few laps
+  past zero on an 8-step riff displayed something like "19" instead of "3," the step actually in effect. Left
+  unfixed, this is more than a cosmetic mismatch — the pad's fixed-size type scale was deliberately sized
+  around a 7-character ceiling with NO shrink-to-fit safety net (ferry §4's own explicit rule), so an
+  unwrapped value could eventually grow past that many digits and silently overflow the pad face for real.
+  **FIX:** `euclideousNoteOctHUDInfo`'s riff branch now wraps the displayed value to `riff.stepsResolved`
+  (double-mod, same idiom `euclideousOffsetCountHUDInfo` already uses for the regular OFFSET/COUNT pad's own
+  rotate — this was literally that SAME ferry §4.2 fix, just missed on this one sibling pad), capping it to at
+  most 2 digits. **TWO SMALL DEFENSIVE HARDENINGS found in the same pass, neither an active bug today but both
+  cheap and directly in scope of "review all cases":** the HUD card's `secondary` Text was the one Text in the
+  card without `.lineLimit(1)` (every current string is short enough that nothing actually wraps, confirmed by
+  checking the worst case across all 4 pads — max 6 characters, "OCT -3" — but added anyway to match `primary`'s
+  own defensive treatment, in case a label ever lengthens later); the HUD's top-edge clamp (`max(40, ...)`) was
+  a bare guessed number rather than derived from the card's own height — hand-estimated the card's real height
+  (3 stacked lines + padding, ~95pt by this file's own established ~1.2×-point-size line-height convention) and
+  raised the floor to 50, comfortably covering the ~47pt half-height estimate so the card's top edge can no
+  longer render a few points past the container's own top when a touch lands very near the top of the page.
+  **EVERYTHING ELSE CHECKED AND FOUND CORRECT, not assumed:** every pad's worst-case string width against both
+  the transient HUD's roomy 230pt card and the pad's own much narrower permanent face (re-verified the 7/9/8
+  character-ceiling arithmetic from the original type-scale build still holds for all 4 pads post-fix); the
+  `allRows`/"ALL LANES" vs "LANE N" label threading (uniform across all 4 formatters, no bug); the HUD's
+  horizontal clamp (degenerates to a single fixed x-position only below ~246pt container width — below this
+  file's own documented 375pt minimum-supported-width floor, so not a practical concern at any size this page
+  is built to support); velocity/gate's own display (`"\(n)%"`, already fixed in the prior MIDI-IN/KEY session —
+  re-confirmed still correct, not re-broken by this pass). **ONE OBSERVATION FLAGGED, not changed (a judgment
+  call, not a provable defect):** during a 2-finger "ALL LANES" drag, the HUD shows the TOUCHED lane's own
+  resulting value under the "ALL LANES" label — if the 4 lines started at different values, this could read as
+  "every lane is now at this exact number" when the real effect is "every lane moved by the same delta, each
+  independently clamped" (the established, deliberate design for that gesture). Left as-is since changing what
+  the label means is a design question, not a bug fix — named here in case it's worth revisiting.
+  **DEVICE-OWED:** the fixed riff-SHIFT value reading correctly against a real drag past zero on an 8-step
+  riff; the HUD card's position/legibility at the new 50pt top floor; confirm nothing else about the card's
+  appearance changed in a way that reads as a regression (both hardenings are additive, no existing behaviour
+  removed).**
 - **▶ EUCLIDEOUS — MIDI IN made genuinely receiver-independent (OMNI), KEY mode finally wired to a real scale
   pool (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1242 green incl. 3 rewritten, iOS
   builds clean). Paul, after the entry below shipped: "The midi in is still shit. Chords work. Key does

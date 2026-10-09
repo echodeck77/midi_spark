@@ -218,7 +218,15 @@ struct EuclideousPage: View {
                     let rawX = info.point.x - origin.x
                     let halfW = hudW / 2 + 8
                     let x = min(max(rawX, halfW), max(halfW, geo.size.width - halfW))
-                    let y = max(40, info.point.y - origin.y - 130)
+                    // TOP-EDGE FLOOR sized to the card's own HALF-HEIGHT, not an arbitrary smaller number
+                    // (found during a legibility review, 2026-10-09): `euclideousDragHUD`'s own content —
+                    // 3 stacked lines (10/22/12pt, ~5pt gaps) + 16pt vertical padding each side — comes to
+                    // roughly 95pt tall by the same line-height estimate this file uses elsewhere (~1.2×
+                    // point size), so half of that is ~47-48pt. The previous floor of 40 left a few points
+                    // of the card's own top edge able to render past y=0 when a touch lands very near the
+                    // top of the page — harmless (nothing SwiftUI-clips it, and nothing sits behind it up
+                    // there), but not a real guarantee either. 50 covers the estimate with margin.
+                    let y = max(50, info.point.y - origin.y - 130)
                     euclideousDragHUD(info).frame(width: hudW).position(x: x, y: y).allowsHitTesting(false).zIndex(2)
                 }
                 // THE RATE POP-UP (Paul 2026-10-06) — a scrim + centred card, the standard "tap outside to
@@ -1148,7 +1156,23 @@ struct EuclideousPage: View {
             // Riff mode keeps its own pre-existing value=X(shift)/subtitle=Y(octave) mapping — the one pad
             // whose two sub-modes (riff/non-riff) share this shape, left as-is (not relitigated by this
             // ferry); only the STRINGS are compacted to fit the fixed type scale (ferry §4).
-            let rot = line.riffRotateResolved, oct = line.riffOctaveResolved
+            //
+            // WRAPPED TO THE RIFF'S OWN STEP COUNT (Paul 2026-10-09, drag-HUD legibility review — the exact
+            // ferry §4.2 fix already applied to OFFSET/COUNT's own rotate above, missed here): `riffRotate`
+            // carries NO stored clamp at all — `applyX`'s riff branch (`line.riffRotate = riffRotateResolved
+            // + d`) just accumulates forever, unlike `riffOctave`'s own -3...3 clamp two lines below. The
+            // ENGINE already wraps it correctly at read time (`riffRotateStep`'s own double-mod against the
+            // riff's real step count), so the SOUND was never wrong — only the DISPLAY, which showed the raw,
+            // unbounded stored value as-is. That's not just confusing (a lane dragged a few laps past zero on
+            // an 8-step riff showed "19" instead of "3," the step actually in effect) — left unfixed, it's a
+            // genuine risk to this pad's own fixed-size type scale: `padValueSize` carries NO
+            // `.minimumScaleFactor` by design (ferry §4), sized around a 7-character ceiling ("16 HITS"); an
+            // unwrapped value could eventually grow past that many digits and silently overflow the pad face,
+            // with no shrink-to-fit safety net to catch it. Wrapping to `riff.stepsResolved` (≤32) caps the
+            // displayed value at 2 digits, well inside the budget, same as every other pad's own value.
+            let n = riff.stepsResolved
+            let rot = ((line.riffRotateResolved % n) + n) % n
+            let oct = line.riffOctaveResolved
             return EuclidDragHUDInfo(label: label, primary: "\(rot)", secondary: "OCT \(oct > 0 ? "+" : "")\(oct)", point: point)
         }
         let oct = line.octaveResolved
@@ -1361,7 +1385,7 @@ struct EuclideousPage: View {
                 .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.6)
             Text(info.secondary)
                 .font(.system(size: 12, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(.white.opacity(0.6)).lineLimit(1)   // matches `primary`'s own treatment above
         }
         .padding(.horizontal, 22).padding(.vertical, 16)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.92)))
