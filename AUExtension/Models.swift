@@ -246,6 +246,39 @@ struct EuclidLine: Codable, Equatable {
     // nil ⇒ 0 = no bias, byte-identical to before this field existed.
     var tilt: Double? = nil
     var tiltResolved: Double { max(-1, min(1, tilt ?? 0)) }
+    // RIFF FREE/LOCK, INVERT, ON REST (Paul 2026-10-09 ferry, "three new per-lane riff options") — all three
+    // ONLY ever read while `useRiffResolved` is true; otherwise inert, same as riffRotate/riffDir/etc. above.
+    //
+    // NAMED `riffLock`/`riffInvert`/`riffOnRest` (the `riff` prefix matching riffRotate/riffOctave/riffDir's
+    // own convention) — deliberately NOT reusing the existing `invert` field above: that one is a RETIRED,
+    // decode-only leftover from the 2026-10-02 HITS/REST removal, a completely different concept (it used to
+    // flip which of a pattern's OWN hits/rests struck, nothing to do with riff rank mirroring) — reusing its
+    // name here would silently resurrect a dead field's old semantics for anyone who'd ever set it on an old
+    // doc. A genuinely new name avoids that collision entirely.
+    //
+    // LOCK (nil ⇒ false = FREE, today's continuous-drift behaviour): every time this lane's OWN Euclid K/N
+    // pattern completes a lap (returns to its own starting step), the riff position re-anchors to its start
+    // instead of continuing to advance — see Router.swift's `runEuclidLine` for the mechanism (reusing
+    // `hitsUpTo`, already "position within the CURRENT lap" by construction, in place of the full continuous
+    // `ord`; needs no new state for 5 of 6 directions — only DRUNK, a genuine random walk, needs an explicit
+    // hard-reset, mirroring the existing reset-span hard-reset `euclideousRiffDrunkStep` already does).
+    var riffLock: Bool? = nil
+    var riffLockResolved: Bool { riffLock ?? false }
+    // INVERT (nil ⇒ false = off): mirrors a resolved riff rank r to (9 − r) for THIS lane only — 1↔8, 2↔7,
+    // 3↔6, 4↔5 — applied BEFORE the rank is resolved against the lane's own source (MIDI/KEY/CHORDS), so it
+    // works identically regardless of source; a REST (rank 0) is unaffected either way ("rests stay rests").
+    // The shared riff grid itself is never redrawn inverted — this is a per-lane READ transform only.
+    var riffInvert: Bool? = nil
+    var riffInvertResolved: Bool { riffInvert ?? false }
+    // ON REST (nil ⇒ .skip, today's behaviour): what this lane does when one of its hits lands on a riff
+    // REST. SKIP = silent (unchanged). FILL = strike this lane's own NOTE/OCT pick as if riff were off — see
+    // Router.swift's own note on the §6 OPEN QUESTION this answers ("use the last-set NOTE choice for now").
+    // TIE = no new strike; the PRECEDING real (or FILL) note's own gate is extended, via forward lookahead at
+    // the moment IT struck, to cover this rest too — mirrors the regular chain RIFF processor's own TIE
+    // mechanism (`emitRiffRow`'s `tieRun` loop) exactly, just walking HITS instead of fixed-rate ticks, since
+    // Euclideous's riff only advances on a hit of this lane's own pattern.
+    var riffOnRest: EuclidRiffOnRest? = nil
+    var riffOnRestResolved: EuclidRiffOnRest { riffOnRest ?? .skip }
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -316,8 +349,14 @@ extension EuclidLine {
         mask = try c.decodeIfPresent(EuclidLineMask.self, forKey: .mask)
         sourceMode = try c.decodeIfPresent(EuclideousLaneSource.self, forKey: .sourceMode)
         tilt = try c.decodeIfPresent(Double.self, forKey: .tilt)
+        riffLock = try c.decodeIfPresent(Bool.self, forKey: .riffLock)
+        riffInvert = try c.decodeIfPresent(Bool.self, forKey: .riffInvert)
+        riffOnRest = try c.decodeIfPresent(EuclidRiffOnRest.self, forKey: .riffOnRest)
     }
 }
+// RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
+// persists by value, matching every other riff-adjacent enum's own convention (RiffDir, EuclidNoteSel, …).
+enum EuclidRiffOnRest: String, Codable, CaseIterable { case skip = "SKIP", fill = "FILL", tie = "TIE" }
 // EUCLID MASK, PER LANE (Paul/design-channel 2026-10-07, ratified): a small, nested, effect-less step
 // pattern — see `EuclidLine.mask`'s own doc comment for the full rationale. Brand new, so a synthesized
 // Decodable would be safe, but given its OWN custom init anyway (matching `Chop`'s precedent exactly)

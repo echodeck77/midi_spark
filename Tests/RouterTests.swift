@@ -5751,6 +5751,154 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertFalse(e.ons.filter { $0.cable == 1 }.isEmpty, "an untouched lane must still sound via MIDI — the retired global switch must not silence it anymore")
     }
+    // RIFF FREE/LOCK/INVERT/ON REST (Paul 2026-10-09 ferry, "three new per-lane riff options"). The RIFF
+    // mechanism itself (useRiff/riffDir/now riffLock/riffInvert/riffOnRest) is row-agnostic in the model —
+    // only Euclideous's own page sets these fields in practice, but the engine honours them on ANY `.euclid`
+    // cell with useRiff on, so these tests use plain row 0 (not Snap.euclideousRow) with a shared chord pool,
+    // the same simpler convention `testEuclidLineUseRiffReplacesNoteSelectWithSharedRiffPattern` above
+    // already uses for this exact reason.
+    //
+    // FREE vs LOCK: K=3/N=5 (cycleLen=5 ticks, 3 hits/cycle) deliberately does NOT divide the riff's own
+    // 8-step length, so FREE's continuously-advancing ordinal visits a genuinely DIFFERENT 3 ranks on cycle 2
+    // (hits 3,4,5) than cycle 1 (hits 0,1,2) — if LOCK did nothing, this test couldn't tell the two modes
+    // apart, the same "pick a non-dividing length" lesson the reset-span tests above already learned the
+    // hard way.
+    func testEuclideousRiffLockReplaysTheSameSequenceEveryCycleFreeDoesNot() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func ranksStruck(lock: Bool, beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])   // identity: riff step i ↔ rank i+1 ↔ pool[i]
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8, useRiff: true, riffLock: lock)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        }
+        let lockedCycle1 = ranksStruck(lock: true, beats: 2.4)    // one full K=3 cycle (2.5 beats at r1_8), just under
+        let lockedTwoCycles = ranksStruck(lock: true, beats: 4.9) // two full cycles, just under the 3rd's own boundary
+        let freeCycle1 = ranksStruck(lock: false, beats: 2.4)
+        let freeTwoCycles = ranksStruck(lock: false, beats: 4.9)
+        XCTAssertEqual(lockedCycle1.count, 3, "one Euclid cycle (K=3) must strike exactly 3 hits")
+        XCTAssertEqual(Array(lockedTwoCycles.suffix(3)), lockedCycle1, "LOCK: cycle 2's riff-rank sequence must exactly replay cycle 1's")
+        XCTAssertNotEqual(Array(freeTwoCycles.suffix(freeCycle1.count)), freeCycle1, "FREE: the riff keeps advancing across the cycle boundary — cycle 2 must NOT replay cycle 1")
+    }
+    // LOCK + RANDOM: the SAME seed hashed from the SAME local-ord (0,1,2 every cycle, under LOCK) must
+    // reproduce the identical "random" pick every cycle — falls out for free from feeding `riffStepAt` the
+    // re-anchored ordinal, no special-casing needed (confirmed here, not just reasoned).
+    func testEuclideousRiffLockReseedsRandomIdenticallyEveryCycle() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func ranksStruck(beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8, useRiff: true, riffDir: .random, riffDirSeed: 7, riffLock: true)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        }
+        let cycle1 = ranksStruck(beats: 2.4)
+        let twoCycles = ranksStruck(beats: 4.9)
+        XCTAssertEqual(cycle1.count, 3)
+        XCTAssertEqual(Array(twoCycles.suffix(3)), cycle1, "LOCK+RANDOM: the same seed hashed from local-ord 0,1,2 every cycle must reproduce the identical pick sequence")
+    }
+    // LOCK + DRUNK: mirrors testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary's exact proof-by-
+    // determinism technique, swapping the reset-SPAN boundary for LOCK's own cycle boundary — a walk that's
+    // genuinely hard-reset every cycle must replay bar 1's exact sequence in bar 2; a continuing walk would
+    // almost certainly diverge.
+    func testEuclideousRiffLockHardResetsDrunksWalkEveryCycle() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func ranksStruck(beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8, useRiff: true, riffDir: .drunk, riffDirSeed: 42, riffLock: true)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        }
+        let cycle1 = ranksStruck(beats: 2.4)
+        let twoCycles = ranksStruck(beats: 4.9)
+        XCTAssertEqual(cycle1.count, 3)
+        XCTAssertEqual(Array(twoCycles.suffix(3)), cycle1, "LOCK+DRUNK: a hard reset every cycle must make the walk replay the identical sequence")
+    }
+    // INVERT: rank r plays as rank (9−r); a rest (rank 0) stays a rest regardless. K=N=3 (dense — every
+    // Euclid step is a hit) against a 3-step riff [1, 0, 8] (lowest · rest · highest) isolates the mirror
+    // cleanly: uninverted strikes pool[0] then pool[7] (the middle rest silent); inverted strikes pool[7]
+    // then pool[0] — the exact temporal swap INVERT's own mirror formula predicts, with the rest staying
+    // silent in BOTH runs (proving the mirror doesn't also turn rests into notes).
+    func testEuclideousRiffInvertMirrorsRankRestsStayRests() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func notesStruck(invert: Bool) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 0, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: true, riffInvert: invert)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            // K=N=3 at r1_8 (0.5 beats/tick) = a 1.5-beat cycle — a 0.1-beat margin under that boundary (the
+            // first draft's beats:1.4) was NOT enough to keep the next cycle's own hit 0 from leaking into the
+            // capture window (caught empirically, not assumed: the first run showed a stray extra "60" at the
+            // END of the sequence — exactly where a leaked-in repeat of hit 0 would land, not a rest wrongly
+            // firing, which would land in the MIDDLE). 0.4 beats of margin here instead.
+            let e = RecordingEmitter(); run(b, chord(pool), beats: 1.1, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        }
+        let plain = notesStruck(invert: false)
+        let inverted = notesStruck(invert: true)
+        XCTAssertEqual(Array(plain.prefix(2)), [60, 72], "uninverted: rank 1 then rank 8, the middle rest silent")
+        XCTAssertEqual(Array(inverted.prefix(2)), [72, 60], "INVERTED: rank 1→8 and rank 8→1, exactly swapping which note comes first")
+    }
+    // ON REST = FILL: a hit landing on a riff rest strikes this lane's OWN note-select pick instead of
+    // staying silent — "as if riff were off." A 1-step, permanently-resting riff (steps:1, ranks:[0]) means
+    // EVERY hit lands on a rest, isolating FILL's effect cleanly: every one of K=2 hits must strike the
+    // SAME note (.high's own pick against the 3-note pool), not vary or go silent.
+    func testEuclideousRiffOnRestFillPlaysTheLanesOwnNoteSelectPick() {
+        let pool: [UInt8] = [60, 64, 67]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 2, steps: 2, noteSel: .high, rate: .r1_8, useRiff: true, riffOnRest: .fill)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        // K=N=2 at r1_8 = a 1.0-beat cycle — checked only the first 2 onsets (not the whole capture), the
+        // same leaked-next-cycle lesson as the INVERT test above: every hit here resolves to the SAME note
+        // (.high is constant), so a 3rd onset leaking in wouldn't even be visible as a wrong VALUE, only as
+        // an extra COUNT — prefix-checking sidesteps that ambiguity entirely rather than fighting the exact
+        // beat budget needed to rule it out.
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 0.7, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let notes = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        XCTAssertEqual(Array(notes.prefix(2)), [67, 67], "ON REST = FILL must strike the lane's own noteSel (.high → 67) on every rest-landing hit, not stay silent")
+    }
+    // ON REST = TIE: no new strike on the rest itself, but the PRECEDING real note's own gate extends to
+    // cover it — proven by comparing the FIRST note's note-OFF sample against the identical pattern run under
+    // SKIP: both modes must agree on WHICH notes strike (the rest contributes nothing new either way — the
+    // only way to tell them apart is the extended GATE, not the note count), but TIE's note-off must land
+    // strictly later. K=N=3 (dense) against riff [1, 0, 2] (rank1 · rest(the TIE target) · rank2) isolates
+    // exactly one tie-extension with a real, different note on either side.
+    func testEuclideousRiffOnRestTieExtendsThePrecedingNotesGateNoNewStrike() {
+        let pool: [UInt8] = [60, 62, 64]
+        func onsAndFirstOff(onRest: EuclidRiffOnRest) -> (notes: [Int], firstOff: Int64?) {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 0, 2])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: true, riffOnRest: onRest)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            // K=N=3 at r1_8 = a 1.5-beat cycle — 0.4 beats of margin under that boundary (see the INVERT
+            // test's own note above on why 0.1 wasn't enough). Also a genuine off-by-one caught empirically,
+            // not assumed: rank 2 resolves to pool[2-1]=pool[1]=62, NOT the 3rd pool entry (64) — fixed below
+            // rather than reached for a different rank, since the exact pool index doesn't matter to what's
+            // being proven here, only that hit 0 and hit 2 land on two genuinely DIFFERENT, identifiable notes.
+            let e = RecordingEmitter(); run(b, chord(pool), beats: 1.1, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            let ons = e.ons.filter { $0.cable == 1 }
+            let firstNote = ons.first?.note
+            let firstOff = e.offs.filter { $0.cable == 1 && $0.note == firstNote }.map { $0.sample }.min()
+            return (ons.map { Int($0.note) }, firstOff)
+        }
+        let tie = onsAndFirstOff(onRest: .tie)
+        let skip = onsAndFirstOff(onRest: .skip)
+        XCTAssertEqual(tie.notes, [60, 62], "the rest must still produce no new strike of its own under TIE")
+        XCTAssertEqual(skip.notes, [60, 62], "...and SKIP must agree on which notes strike — the two differ only in gate length, not note count")
+        guard let tieOff = tie.firstOff, let skipOff = skip.firstOff else { return XCTFail("both runs must produce a matching note-off for the first note") }
+        XCTAssertGreaterThan(tieOff, skipOff, "TIE must extend the first note's own gate to cover the rest that follows it — its note-off must land strictly later than SKIP's")
+    }
     // NOTE: a second, simpler single-line test of this exact claim (testEuclideousRiffPoolFollowsLane1sOwn-
     // SourceChoice) used to live here, built around the retired doorMode:.chord mechanism — removed outright
     // (not rewritten) once CHORDS gained its own on-page generator, since testEuclideousRiffPoolIsGoverned-

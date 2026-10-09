@@ -196,6 +196,76 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — three new per-lane RIFF options: FREE/LOCK, INVERT, ON REST (SKIP/FILL/TIE) (2026-10-09, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1248 green incl. +6, iOS builds clean, zero new
+  warnings). A ratified ferry ("Paul's rulings. Build these."), the biggest single-ferry engine addition to
+  Euclideous's riff mechanism since it shipped — planned and built as one pass (model → engine → tests → UI),
+  not patched incrementally. **FREE / LOCK (default FREE):** LOCK re-anchors a lane's riff position to its
+  start at the FIRST hit of every lap of THAT LANE's own K/N Euclid pattern — "the same notes fall on the same
+  beats every cycle." The mechanism is almost entirely FREE, architecturally: `hitsUpTo` (already computed for
+  the existing stateless `ord`) is, by construction, "position within the CURRENT lap" — the scan is always
+  `0...raw` and `raw` is always `< cycleLen` — so substituting `hitsUpTo − 1` for the full continuous `ord`
+  wherever the riff step is looked up IS the whole mechanism for FWD/REV/PEND/PING, with zero new state. RAND
+  gets "reseed every restart" for free too (the same seed hashed from local-ord 0 every cycle always lands the
+  same pick). Only DRUNK — a genuine random walk, whose position depends on its own history — needs an actual
+  nudge: `euclideousRiffDrunkStep` gained a `cycleReset` parameter, firing exactly on `hitsUpTo == 1`, hard-
+  resetting the walk the SAME way the existing reset-span boundary already does. Reset-span and LOCK compose
+  (two independent re-anchor mechanisms, not one replacing the other) — unchanged, verified by reading, not
+  re-tested in combination this round. **INVERT (default off):** mirrors a resolved rank `r` to `(9 − r)` —
+  1↔8, 2↔7, 3↔6, 4↔5 — applied BEFORE the rank resolves against the lane's own source, so it's source-
+  agnostic; a rest (rank 0) is unaffected either way. The shared riff grid itself is never redrawn inverted —
+  a per-lane READ transform only. **ON REST (default SKIP):** what a lane does when one of its Euclid hits
+  lands on a riff rest. SKIP = unchanged (silent). FILL = strikes this lane's OWN NOTE/OCT pick (`noteSel`/
+  `octave`, the function's own un-riff-overridden parameters — already frozen at whatever was last set, per
+  §6's own description of the situation) as if riff were off — answering the ferry's own OPEN QUESTION with
+  its specified fallback ("use the last-set NOTE choice for now," not invented). TIE — the genuinely novel
+  piece — produces no new strike on the rest; the PRECEDING real (or FILL) hit's own gate is extended, via a
+  bounded FORWARD LOOKAHEAD at the moment it struck, to cover the rest. Modelled directly on the regular chain
+  RIFF processor's own established `tieRun` mechanism (`emitRiffRow`), just walking HITS instead of fixed-
+  rate ticks (Euclideous's riff only advances on a hit of the lane's own pattern, so hits land at irregular
+  beat spacing — the extension is measured as real pattern-step distance to the hit that finally breaks the
+  chain, not a fixed per-step duration). A LOCK cycle boundary is an unconditional hard stop for the chain,
+  for EVERY direction, not just DRUNK — reasoned through, not asked (the ferry's own §6 only raised a LOCK-
+  cycle question for PING specifically): LOCK's whole promise is "the same notes every cycle," and letting a
+  tie bleed across that boundary would make the first hit of SOME cycles silently inherit a held note instead
+  of genuinely landing on its own reproducible strike, breaking that promise for whichever cycles happened to
+  end on a tied rest. Bounded/allocation-free (at most the riff's own step count in consecutive hits, at most
+  4 full pattern laps scanned looking for them). "If no note from this lane is sounding, behave as SKIP" (the
+  spec's own stated fallback) needed NO separate tracking at all — a rest-with-TIE is ALWAYS a no-op at its
+  own position regardless of whether anything preceded it, exactly mirroring how the regular chain RIFF's own
+  TIE steps already behave (including their very first one). **MODEL:** 3 new `EuclidLine` fields —
+  `riffLock`/`riffInvert`/`riffOnRest` (+ a new `EuclidRiffOnRest` enum) — deliberately NOT reusing the
+  existing (retired, decode-only) `invert` field from the 2026-10-02 HITS/REST removal, a completely
+  unrelated concept; threaded through all 4 required touch points (struct/decoder/resolved-accessor/
+  SnapshotBuilder's fresh-literal rebuild — the standing hazard this file's own history keeps flagging).
+  **UI:** the RIFF tab's old 7-button OFF+6-direction 2-row grid is fully replaced, not extended alongside —
+  Line 1 is OFF · a direction CHIP (opens a new popup picker, same scrim+card shape as the existing RATE
+  popup, showing the current choice) · a FREE/LOCK toggle; Line 2 is an INVERT toggle · an ON REST chip
+  (tap cycles SKIP→FILL→TIE). Same spacing (sp4 gaps) and type size (10pt, matching directionRow/
+  hitMissRateRow/ioSourceRow's own row-button convention) as the rest of the page. **TESTS (+6, all new):**
+  FREE vs LOCK (a deliberately non-dividing K=3/riff-length=8 combination proves LOCK replays cycle 1's exact
+  rank sequence in cycle 2 while FREE's keeps advancing and must NOT replay it — the same "pick a non-
+  dividing length" lesson the pre-existing reset-span tests already learned the hard way); LOCK+RANDOM
+  reseeds identically; LOCK+DRUNK hard-resets identically (mirrors the existing reset-span DRUNK test's own
+  proof-by-determinism technique exactly); INVERT mirrors the rank with rests staying rests; FILL plays the
+  lane's own pick on every rest; TIE extends the preceding note's own gate (proven by comparing note-OFF
+  sample times against an identical SKIP run, not just note count, since TIE and SKIP agree on which notes
+  strike — only the gate length differs). **TWO REAL TEST-DESIGN BUGS CAUGHT BY THE FIRST RUN, not shipped
+  wrong:** 3 of the 6 new tests initially failed, all from the SAME root cause bucket, not the engine logic
+  (confirmed — the 3 LOCK tests, the hardest and most novel part, passed on the first try). (1) A genuine
+  off-by-one in my own test data: riff rank 2 resolves to `pool[2−1]=pool[1]`, not the 3rd pool entry — an
+  assumption-not-verified bug in the TIE test's own setup, not in `riffResolve` itself. (2) Beat budgets too
+  close to their own cycle boundaries (0.1 beats of margin against a 1.0–1.5 beat cycle) let the NEXT cycle's
+  own first hit leak into the capture window — diagnosed from the failure's own shape (the stray extra note
+  appeared at the END of the sequence, not the MIDDLE, ruling out "the rest wrongly fired" and confirming "a
+  real, valid repeat from cycle 2 arrived early") before touching anything. Fixed with wider margins (0.4
+  beats) plus prefix-based assertions as a second line of defence, more robust to exactly this class of
+  off-by-a-little timing variance than exact whole-array equality. **DEVICE-OWED, the whole feature — no
+  screenshots possible in this environment:** LOCK/INVERT/ON REST's audible feel across all 6 riff
+  directions; the new direction-picker popup's legibility/tap targets at real lane width; confirm reset-span
+  and LOCK audibly compose correctly together (reasoned through, not device- or test-verified in
+  combination); confirm a chained TIE run (3+ consecutive rest hits) sounds like one sustained note, not a
+  series of clicks.**
 - **▶ EUCLIDEOUS — a drag-HUD legibility review found + fixed one genuine display bug (unbounded riff SHIFT),
   plus two small defensive hardenings (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS
   builds clean, zero warnings; no macOS test-target reach — UI-only, same as every prior change to this file).

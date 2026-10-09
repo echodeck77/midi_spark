@@ -139,6 +139,9 @@ struct EuclideousPage: View {
     @State private var resetSpanPopupOpen = false
     @State private var keyPopupOpen = false
     @State private var chordsPopupOpen = false
+    // RIFF DIRECTION POPUP (Paul 2026-10-09 ferry): the RIFF tab's direction chip opens a picker, mirroring
+    // ratePopupLane's own "which lane's popup is open, nil = none" shape exactly.
+    @State private var riffDirPopupLane: Int? = nil
 
     private let laneAccents: [Color] = [
         Color(red: 0.95, green: 0.35, blue: 0.35), Color(red: 0.35, green: 0.75, blue: 0.95),
@@ -237,6 +240,13 @@ struct EuclideousPage: View {
                         .zIndex(3)
                     ratePopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
+                // RIFF DIRECTION POPUP (Paul 2026-10-09 ferry) — same scrim+card shape as the RATE popup above.
+                if let lane = riffDirPopupLane {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { riffDirPopupLane = nil }
+                        .zIndex(3)
+                    riffDirPopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                }
                 // RESET SPAN + KEY POPUPS (Paul 2026-10-07) — the SAME scrim+card shape, reused rather than
                 // reinvented, for the two new global pickers.
                 if resetSpanPopupOpen {
@@ -289,7 +299,8 @@ struct EuclideousPage: View {
     private let contentLineH: CGFloat = 36
     /// A tab's 2-row content is `36 + sp4 + 36` (each tab's own inner VStack uses `spacing: sp4` between its
     /// 2 rows, confirmed by reading all four: `ioSourceRow`+`laneOutRow`, `directionRow`+`hitMissRateRow`,
-    /// `riffDirGrid`'s 2 groups of 4, `maskCometRow`+`maskStubRow`) — not a bare `36×2`.
+    /// `riffDirGrid`'s own 2 rows (OFF/direction-chip/FREE-LOCK, then INVERT/ON-REST — ferry 2026-10-09),
+    /// `maskCometRow`+`maskStubRow`) — not a bare `36×2`.
     private var tabContentH: CGFloat { contentLineH * 2 + sp4 }
     /// Every FIXED-height row in a lane card, summed — comet row + tab row + tab content + the card's own sp8
     /// padding (top+bottom) + the sp4 gaps between the VStack's 4 children. This is "how tall a card needs to
@@ -969,39 +980,89 @@ struct EuclideousPage: View {
         }
     }
 
-    /// RIFF tab (Paul 2026-10-07, §3): OFF + all 6 `RiffDir` cases over TWO lines, 4 columns — short labels
-    /// (PEND/PING/RAND) scoped to THIS local lookup only, never touching the shared `RiffDir.displayLabel`
-    /// enum (that enum also serves the unrelated, regular chainable RIFF processor elsewhere in the app).
+    /// RIFF tab (Paul 2026-10-09 ferry, "three new per-lane riff options" — SUPERSEDES the 2026-10-07 7-button
+    /// OFF+6-direction grid above entirely, not alongside it). Line 1: OFF · a direction CHIP (opens
+    /// `riffDirPopupCard`, shows the current choice) · a FREE/LOCK toggle. Line 2: an INVERT toggle · an ON
+    /// REST chip (tap cycles SKIP→FILL→TIE). Same spacing/type rules as the rest of the page (sp4 gaps, the
+    /// shared 10pt row-button text size directionRow/hitMissRateRow/ioSourceRow already use — not a new size),
+    /// and the SAME equal-flex-width per-button convention those rows already establish.
     private func riffDirGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        let options: [RiffDir?] = [nil] + RiffDir.allCases   // nil = OFF; 7 total
-        func shortLabel(_ d: RiffDir) -> String {
-            switch d {
-            case .forward: return "FWD"; case .reverse: return "REV"; case .pendulum: return "PEND"
-            case .pingpong: return "PING"; case .random: return "RAND"; case .drunk: return "DRUNK"
+        VStack(spacing: sp4) {
+            HStack(spacing: sp4) {
+                riffTabButton("OFF", on: !line.useRiffResolved, accent: accent, rowH: rowH) {
+                    edit(idx) { $0.useRiff = false }
+                }
+                riffTabButton(riffDirShortLabel(line.riffDirResolved), on: line.useRiffResolved, accent: accent, rowH: rowH) {
+                    riffDirPopupLane = idx
+                }
+                riffTabButton(line.riffLockResolved ? "LOCK" : "FREE", on: line.riffLockResolved, accent: accent, rowH: rowH) {
+                    edit(idx) { $0.riffLock = !($0.riffLockResolved) }
+                }
+            }
+            HStack(spacing: sp4) {
+                riffTabButton("INVERT", on: line.riffInvertResolved, accent: accent, rowH: rowH) {
+                    edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
+                }
+                riffTabButton("REST:\(line.riffOnRestResolved.rawValue)", on: line.riffOnRestResolved != .skip, accent: accent, rowH: rowH) {
+                    edit(idx) { $0.riffOnRest = euclideousNextOnRest($0.riffOnRestResolved) }
+                }
             }
         }
-        let rows = stride(from: 0, to: options.count, by: 4).map { Array(options[$0..<min($0 + 4, options.count)]) }
-        return VStack(spacing: sp4) {
-            ForEach(rows.indices, id: \.self) { r in
-                HStack(spacing: sp4) {
-                    ForEach(rows[r].indices, id: \.self) { c in
-                        let opt = rows[r][c]
-                        let isOff = opt == nil
-                        let on = isOff ? !line.useRiffResolved : (line.useRiffResolved && line.riffDirResolved == opt)
-                        Text(isOff ? "OFF" : shortLabel(opt!))
-                            .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                            .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.8)
-                            .frame(maxWidth: .infinity).frame(height: rowH)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.7) : Color.white.opacity(0.06)))
+    }
+    /// Shared button face for the RIFF tab's own 5 controls — one visual language (filled when "on," the
+    /// lane's own accent colour), matching the equal-flex-width convention directionRow/hitMissRateRow/
+    /// ioSourceRow already use elsewhere on this page.
+    private func riffTabButton(_ label: String, on: Bool, accent: Color, rowH: CGFloat, action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity).frame(height: rowH)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.7) : Color.white.opacity(0.06)))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+    }
+    /// Short direction labels (PEND/PING/RAND) — scoped to THIS page only, never touching the shared
+    /// `RiffDir.displayLabel` enum (that enum also serves the unrelated, regular chainable RIFF processor
+    /// elsewhere in the app). Shared by the tab's own direction chip and the popup picker below.
+    private func riffDirShortLabel(_ d: RiffDir) -> String {
+        switch d {
+        case .forward: return "FWD"; case .reverse: return "REV"; case .pendulum: return "PEND"
+        case .pingpong: return "PING"; case .random: return "RAND"; case .drunk: return "DRUNK"
+        }
+    }
+    /// ON REST's tap-to-cycle order (Paul 2026-10-09 ferry §4: "tap cycles SKIP → FILL → TIE").
+    private func euclideousNextOnRest(_ r: EuclidRiffOnRest) -> EuclidRiffOnRest {
+        switch r { case .skip: return .fill; case .fill: return .tie; case .tie: return .skip }
+    }
+    /// The RIFF direction picker (Paul 2026-10-09 ferry §4) — same scrim+centred-card shape as `ratePopupCard`
+    /// above, a 2-column grid of the 6 `RiffDir` cases. Selecting one both sets the direction AND turns this
+    /// lane's riff ON (there's no separate "ON" control once OFF moved to its own button on line 1 — picking
+    /// a direction is how a lane re-engages riff, mirroring the OLD unified 7-button grid's own tap behaviour
+    /// for its 6 direction buttons).
+    private func riffDirPopupCard(_ idx: Int) -> some View {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let accent = laneAccents[idx % laneAccents.count]
+        let pairs = stride(from: 0, to: RiffDir.allCases.count, by: 2).map { Array(RiffDir.allCases[$0..<min($0 + 2, RiffDir.allCases.count)]) }
+        return VStack(spacing: 10) {
+            Text("LANE \(idx + 1) RIFF DIRECTION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            ForEach(pairs.indices, id: \.self) { g in
+                HStack(spacing: 6) {
+                    ForEach(pairs[g], id: \.self) { d in
+                        let on = line.useRiffResolved && line.riffDirResolved == d
+                        Text(riffDirShortLabel(d)).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                            .foregroundColor(on ? .black : .white.opacity(0.8))
+                            .frame(maxWidth: .infinity).frame(height: 36)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.08)))
                             .contentShape(Rectangle())
-                            .onTapGesture { edit(idx) { if isOff { $0.useRiff = false } else { $0.useRiff = true; $0.riffDir = opt } } }
-                    }
-                    if rows[r].count < 4 {
-                        ForEach(0..<(4 - rows[r].count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity).frame(height: rowH) }
+                            .onTapGesture { edit(idx) { $0.useRiff = true; $0.riffDir = d }; riffDirPopupLane = nil }
                     }
                 }
             }
         }
+        .padding(16)
+        .frame(width: 240)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
     // MARK: - Per-lane EUCLID MASK (Paul 2026-10-07, §2.7 — pattern/transport only, effect deferred §4.1)

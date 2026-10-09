@@ -4051,7 +4051,8 @@ final class Router {
             func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, rate: Double, busOverride: UInt8?,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
                                 useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0,
-                                riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0) {
+                                riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0,
+                                riffLock: Bool = false, riffInvert: Bool = false, riffOnRest: EuclidRiffOnRest = .skip) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -4149,24 +4150,130 @@ final class Router {
                             guard thisLaneCount > 0 else { return }
                             let notes = laneNotes(lineIndex)
                             let seed = UInt64(bitPattern: Int64(riffDirSeed))
-                            // RESET SPAN (Paul 2026-10-08): the span-re-anchored window start THIS hit falls
-                            // in — NaN when reset-span is off (spanBeats <= 0), matching euclideousRiffDrunkStep's
-                            // own "don't track this" sentinel.
+                            let ranks = rp.ranks ?? []   // SnapshotBuilder always resolves this to a full, padded array (main thread) before Router ever sees it — `?? []` is a type-safety unwrap here, not a real fallback allocation
+
+                            // FREE / LOCK (Paul 2026-10-09 ferry, "three new per-lane riff options"): LOCK
+                            // re-anchors the riff's own position to its start at the FIRST hit of every lap of
+                            // THIS LANE's own Euclid pattern. `hitsUpTo` (computed just above, for `ord`
+                            // itself) is ALREADY "how many hits from position 0 up to this one, scanned fresh
+                            // within ONE lap's pattern" by construction (the scan is always `0...raw`, and
+                            // `raw` is always < cycleLen) — so `hitsUpTo - 1` IS exactly "position within the
+                            // CURRENT lap," genuinely stateless, needing no new bookkeeping for 5 of 6
+                            // directions. Substituting it for the full continuous `ord` is the WHOLE mechanism
+                            // for FWD/REV/PEND/PING — RAND gets "reseed every restart" for free too, since
+                            // `riffStepAt(.random, raw: 0, seed:)` with the SAME seed always hashes to the same
+                            // step. Only DRUNK needs an explicit nudge (a walk's position depends on its own
+                            // history, not just "what time is it") — `euclideousRiffDrunkStep`'s new
+                            // `cycleReset` flag, fired exactly on `hitsUpTo == 1`, hard-resets it, the SAME
+                            // "fresh start" treatment the existing reset-span boundary already gets.
+                            let locked = riffLock
+                            let riffOrd = locked ? Int64(hitsUpTo - 1) : ord
+                            // RESET SPAN (Paul 2026-10-08): "the global reset span still applies on top of
+                            // both modes" — unchanged, still independently re-anchors via spanStart below;
+                            // LOCK and reset-span are two separate re-anchor mechanisms layered together, not
+                            // one replacing the other (LOCK acts on the HIT-ordinal fed to the riff lookup;
+                            // reset-span already acts further upstream, on the Euclid pattern's own phase).
                             let spanStart = spanBeats > 0 ? columnStart(mTickBeat, spanBeats) : Double.nan
                             let stepIdx = riffDir == .drunk
-                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: ord, steps: riffN, bias: riffDirBias, seed: seed, spanStart: spanStart)
-                                : riffStepAt(riffDir, raw: Int(ord), steps: riffN, seed: seed)
+                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: riffOrd, steps: riffN, bias: riffDirBias, seed: seed, spanStart: spanStart, cycleReset: locked && hitsUpTo == 1)
+                                : riffStepAt(riffDir, raw: Int(riffOrd), steps: riffN, seed: seed)
                             let rotIdx = riffRotateStep(stepIdx, by: riffRotate, steps: riffN)
-                            let ranks = rp.ranks ?? []   // SnapshotBuilder always resolves this to a full, padded array (main thread) before Router ever sees it — `?? []` is a type-safety unwrap here, not a real fallback allocation
-                            let rank = rotIdx < ranks.count ? ranks[rotIdx] : 0
                             euclideousRiffStep[lineIndex] = rotIdx   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern
+
+                            // INVERT (Paul 2026-10-09 ferry): mirrors the rank BEFORE it's resolved against
+                            // this lane's own source — "rank r plays as rank (9-r)... rests stay rests" — so
+                            // it works identically regardless of source (MIDI/KEY/CHORDS all just feed
+                            // `thisLaneCount`/`notes` the same way either side of this transform). OCT
+                            // (`riffOctave`) is applied AFTER, inside `riffResolve`'s own `oct:` param below —
+                            // already the natural ordering; invert never touches it.
+                            let rawRank = rotIdx < ranks.count ? ranks[rotIdx] : 0
+                            let rank = (riffInvert && rawRank >= 1) ? (9 - rawRank) : rawRank
+
+                            // TIE LOOKAHEAD (Paul 2026-10-09 ferry, ON REST = TIE): mirrors the regular chain
+                            // RIFF processor's own `tieRun` loop (`emitRiffRow`) exactly in spirit, walking
+                            // HITS instead of fixed-rate ticks, since Euclideous's riff only advances on a hit
+                            // of THIS lane's own pattern — hits land at irregular beat spacing (a genuine K/N
+                            // Euclidean rhythm), so the extension is measured in real pattern-step distance to
+                            // the hit that finally breaks the chain, not a fixed per-step duration.
+                            //
+                            // A LOCK cycle boundary is ALWAYS a hard stop for the chain, for every direction —
+                            // not just DRUNK, and not merely because DRUNK's own peek can't safely simulate
+                            // across a reset. LOCK's whole promise is "the same notes fall on the same beats
+                            // every cycle" — letting a tie bleed across that boundary would make the FIRST hit
+                            // of SOME cycles silently inherit a held note instead of genuinely landing on its
+                            // own reproducible strike, breaking that promise for whichever cycles happened to
+                            // end on a tied rest. Reasoned through, not asked (ferry §6 only raised a LOCK-
+                            // cycle question for PING specifically) — stopping at the boundary is the one
+                            // reading consistent with LOCK's own stated guarantee, for every direction alike.
+                            //
+                            // Bounded, allocation-free: at most `riffN` consecutive hits folded in, and at
+                            // most 4 full laps of pattern-steps scanned looking for them (a sparse K=1 pattern
+                            // can space hits far apart in step terms) — a safety cap, not expected to bind in
+                            // practice.
+                            func riffTieExtensionBeats(startStepIdx: Int, startOrd: Int64) -> Double {
+                                guard riffOnRest == .tie else { return 0 }
+                                var hitsAhead = 0
+                                var lastConsumedT = localT
+                                var t = localT
+                                var stepsScanned = 0
+                                let stepScanCap = cycleLen * 4
+                                while hitsAhead < riffN && stepsScanned < stepScanCap {
+                                    t += 1; stepsScanned += 1
+                                    let fRaw = Int(((t % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
+                                    guard isHitAt(fRaw) else { continue }
+                                    var fHitsUpTo = 0; for s in 0...fRaw where isHitAt(s) { fHitsUpTo += 1 }
+                                    if locked && fHitsUpTo == 1 { break }   // a locked lane's own cycle restart always breaks the chain
+                                    hitsAhead += 1
+                                    let fCy = (t - Int64(fRaw)) / Int64(cycleLen)
+                                    let fOrd = locked ? Int64(fHitsUpTo - 1) : (fCy * effHits + Int64(fHitsUpTo - 1))
+                                    let fStepIdx = riffDir == .drunk
+                                        ? riffDrunkPeek(fromPos: startStepIdx, tick: startOrd, aheadBy: hitsAhead, steps: riffN, bias: riffDirBias, seed: seed)
+                                        : riffStepAt(riffDir, raw: Int(fOrd), steps: riffN, seed: seed)
+                                    let fRotIdx = riffRotateStep(fStepIdx, by: riffRotate, steps: riffN)
+                                    let fRank = fRotIdx < ranks.count ? ranks[fRotIdx] : 0
+                                    guard fRank < 1 else { break }   // a real note breaks the chain
+                                    lastConsumedT = t
+                                }
+                                return Double(lastConsumedT - localT) * sub
+                            }
+
+                            // ON REST (Paul 2026-10-09 ferry): a rank of 0 is a rest, in both the shared
+                            // pattern's own terms and (per the spec) after inversion. SKIP = today's
+                            // behaviour, unchanged. FILL = strike this lane's own NOTE/OCT pick as if riff
+                            // were off — §6 OPEN, answered per the ferry's own instruction ("use the last-set
+                            // NOTE choice for now"): `noteSel`/`octave` are this function's own un-riff-
+                            // overridden parameters, already holding whatever was last set (frozen, not
+                            // editable, while the pad shows RIFF SHIFT/OCT instead — exactly the ferry's own
+                            // description of the situation). TIE = no strike here; the PRECEDING real/FILL
+                            // hit's own lookahead above already extended ITS gate to cover this step, if one
+                            // exists — if this is genuinely the first hit ever (nothing preceding), that's
+                            // indistinguishable from SKIP, which is exactly the spec's own stated fallback
+                            // ("if no note from this lane is sounding, behave as SKIP") — achieved for free,
+                            // no separate "is a note sounding" tracking needed, mirroring how the regular
+                            // chain RIFF processor's own TIE steps already work (a tie step is ALWAYS a no-op
+                            // at its own position, including the very first one).
+                            if rank < 1 {
+                                switch riffOnRest {
+                                case .skip, .tie: return
+                                case .fill:
+                                    let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord, count: thisLaneCount)
+                                    let gb = min(sub * gate, S * 0.95) + riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
+                                    if let range = pickRange {
+                                        for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: gb, onlyIndex: idx, octave: octave, busOverride: busOverride, srcOverride: notes) }
+                                    } else {
+                                        strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: gb, onlyIndex: pickIndex, octave: octave, busOverride: busOverride, srcOverride: notes)
+                                    }
+                                    return
+                                }
+                            }
                             // VELOCITY: read from the SAME pool index FOLD resolves the note from where possible —
                             // an honest inherited velocity, not a guessed flat value. Not provably the exact FOLD
                             // index for a rank that wraps the pool more than once (flagged in the plan; a listen
                             // once built is the real check, not re-deriving FOLD's own index formula up front).
-                            guard rank >= 1, let note = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
+                            guard let note = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
                             let velIdx = ((rank - 1) % thisLaneCount + thisLaneCount) % thisLaneCount
-                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: min(sub * gate, S * 0.95), octave: 0, explicitNote: note, explicitVel: notes[velIdx].vel, busOverride: busOverride)
+                            let gb = min(sub * gate, S * 0.95) + riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
+                            strikeChord(tau: mTickBeat, velScale: velocity, gateBeats: gb, octave: 0, explicitNote: note, explicitVel: notes[velIdx].vel, busOverride: busOverride)
                             return
                         }
                         // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
@@ -4322,7 +4429,8 @@ final class Router {
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
                               useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved,
                               riffDir: L.riffDirResolved, riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved,
-                              tilt: L.tiltResolved)
+                              tilt: L.tiltResolved,
+                              riffLock: L.riffLockResolved, riffInvert: L.riffInvertResolved, riffOnRest: L.riffOnRestResolved)
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
@@ -5573,11 +5681,22 @@ final class Router {
     /// position depends on its own history, not just "what time is it now"), so this is the one direction that
     /// needs an explicit nudge: when `spanStart` changes from what was last observed, hard-reset the walk to 0,
     /// the exact same "fresh start" treatment the very-first-hit-ever case below already gives it.
-    private func euclideousRiffDrunkStep(lane: Int, ord: Int64, steps: Int, bias: Double, seed: UInt64, spanStart: Double) -> Int {
+    private func euclideousRiffDrunkStep(lane: Int, ord: Int64, steps: Int, bias: Double, seed: UInt64, spanStart: Double, cycleReset: Bool = false) -> Int {
         guard lane >= 0, lane < euclideousRiffDrunkPos.count else { return 0 }
         if previewMode { return euclideousRiffDrunkPos[lane] < 0 ? 0 : min(steps - 1, euclideousRiffDrunkPos[lane]) }
         if euclideousRiffDrunkPos[lane] < 0 {
             euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord; euclideousRiffLastSpanStart[lane] = spanStart
+            return 0
+        }
+        // LOCK (Paul 2026-10-09 ferry): the SAME "fresh start" hard-reset the span-boundary branch below
+        // already performs, just triggered by a DIFFERENT boundary — this lane's own Euclid pattern
+        // completing a lap, signalled by the caller passing `cycleReset: true` on exactly the first hit of
+        // each new lap (`hitsUpTo == 1`, already known to the caller — this function has no concept of
+        // "hits" or "laps" itself, so it can't detect this boundary on its own). Checked BEFORE the span
+        // check below so LOCK still resets even when reset-span is off (spanStart stays NaN, never equal to
+        // anything, so that branch alone would never fire for a LOCK-only lane).
+        if cycleReset {
+            euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord
             return 0
         }
         if !spanStart.isNaN, spanStart != euclideousRiffLastSpanStart[lane] {
