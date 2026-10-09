@@ -196,6 +196,33 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a banner replaces the I/O tab's MIDI IN/KEY/CHORDS buttons whenever RIFF has overridden
+  them (2026-10-09, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1243 green incl. +1, iOS builds
+  clean). Paul: "Something is up with the midi in settings. When I choose midi in it plays something else - a
+  chord grid maybe? I choose key and nothing plays. Please review this." Investigated both reports. **MIDI IN
+  "plays a chord grid" — a real, traceable interaction, not a bug in the engine:** the pre-existing `useRiff`
+  mechanism (built well before this session's CHORDS work) makes a lane's RIFF tab, when its own direction is
+  set to anything but OFF, COMPLETELY REPLACE that lane's `noteSel`/octave — `runEuclidLine`'s `if useRiff {`
+  branch never even looks at the lane's own `sourceMode`. This was already true and already documented as
+  deliberate ("replaces NOTE/OCT entirely") — but this SAME session's earlier CHORDS turn changed what the
+  riff pool itself contains: it now copies `laneNotes(0)`/`laneCount(0)` (lane 1's own resolved pool, whatever
+  source lane 1 happens to be on), so if lane 1 is on CHORDS, EVERY riff-enabled lane audibly plays the chord
+  progression regardless of its own I/O tab's MIDI IN/KEY/CHORDS selection. The I/O tab gave no on-page
+  indication this was happening — a lane's own buttons looked live and selectable while being entirely
+  inert. **KEY "plays nothing" is separate, pre-existing, and correct per spec** — confirmed via
+  `Router.swift`'s `.key` branch and this file's own §4.4 note ("KEY-mode pool mapping stays unresolved") —
+  not a regression, not touched this round. **FIX, UI-clarity only, no behaviour change:** `ioSourceRow`
+  (EuclideousPage.swift) is now `@ViewBuilder` and branches on `line.useRiffResolved` — when true, it shows a
+  plain banner ("RIFF IS ON — SOURCE FOLLOWS LANE 1 (SEE RIFF TAB)") instead of the three now-inert MIDI IN/
+  KEY/CHORDS buttons, so a lane's I/O tab can no longer look actionable while doing nothing; when false, the
+  three buttons render exactly as before. Also fixed a stale Router.swift comment inside the `if useRiff {`
+  branch left over from the riffSrcChanMask→`laneNotes(0)` refactor (described the deleted mechanism, not the
+  current one) and added `testEuclideousUseRiffIgnoresItsOwnLaneSourceModeEntirely` (a riff-enabled lane with
+  its own `sourceMode` explicitly set to MIDI still plays lane-0's CHORDS-sourced pitches, proving the
+  override is real and total, not a display quirk) as a permanent regression guard for the exact interaction
+  that prompted the report. **DEVICE-OWED:** the banner's legibility/wording at real lane width; confirm it
+  reads as an explanation rather than an error; confirm toggling a lane's RIFF direction to OFF and back
+  correctly swaps the banner and the three buttons live.**
 - **▶ EUCLIDEOUS — the 3 gesture pads become 4: TILT/HITS · OFFS/CNT · GATE/VEL · NOTE/OCT, and a new TILT
   parameter biases a lane's own Euclidean hit distribution left/right (2026-10-09, on `fix/euclid-no-scroll-
   direction-order-2x2-grid`; macOS 1242 green incl. +5, iOS builds clean, no new warnings). Paul: "I'm
