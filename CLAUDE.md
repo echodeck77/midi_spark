@@ -196,6 +196,50 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS XY PADS — a critical self-audit against the LITERAL ferry text found + fixed 8 real
+  mismatches (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`, `599ea4b`; iOS builds clean,
+  zero new warnings; direct follow-up to the entry below). Paul asked me to compare the shipped build
+  against the actual ferry wording, not my own earlier summary of it — the first pass had been built from a
+  compacted/summarized recollection of the ferry (context had been compacted mid-session), not the literal
+  text, and re-reading the real thing line by line surfaced genuine bugs, not just polish. **FIXED:** (1)
+  SHIFT's wrap was `riff.stepsResolved` (defaults to 16 on an untouched riff) — the ferry's own §2.5/§5.4 say
+  a LITERAL 8, every time; new `shiftSteps = 8` constant used everywhere SHIFT reads/writes/draws (only
+  diverges from the old behaviour on a never-touched riff, since the riff grid's own UI always writes
+  `steps: 8` on first edit). (2) TILT/OCT's zero case was showing "+0%"/"+0" — the ferry's own literal
+  examples ("TILT 0", "OCT 0") show a BARE zero with no sign and, for TILT, no "%" either; nonzero values use
+  a true minus sign (−, U+2212), not the ASCII hyphen Swift's string interpolation produces natively — new
+  `euclideousSigned(_:)` helper. (3) OFFSET was missing its ferry-mandated unconditional "+" ("OFFSET +5",
+  always, even at +0 — it never goes negative, so this isn't a sign, just the field's own display
+  convention). (4) NOTE choice had an invented "NOTE " prefix the ferry never asks for — §4's own literal
+  example is the bare name alone ("ALL"), and §5.5 confirms "shows as text only." (5) The edge-label glyphs
+  were ◀/▶ (triangles) instead of the ferry's own ←/→ (arrows). (6) The LEFT edge label was built as a
+  separate, unrotated "▲" glyph beside a rotated name — WRONG on two counts: the ferry's own construction
+  method is literally "'HITS →' rotated so the arrow points up" (one string, arrow TRAILING the name,
+  rotated as a single unit), and my separate "▲" glyph ALSO got caught by the same `-90°` rotation applied
+  to its sibling, which left it pointing LEFT, not up. Fixed to a single `Text("\(name) →")` rotated as one
+  block — simpler than what shipped, and correct. (7) All 5 Canvas pictures were using rough `Color(white:
+  N)` approximations instead of the ferry's own exact hex values (#3A3E47/#AAB0BA/#353943/#2A2D34) — fixed
+  to `Color(hex:)` throughout. (8) The value bubble's position only flipped above/below a fixed small margin
+  check — it never clamped HORIZONTALLY against the page edges at all, so a pad near the left/right edge
+  could push a wide bubble string ("OFFSET +15") partway off-screen, violating the ferry's own "it must stay
+  inside the page." New `euclideousBubblePosition` clamps both axes against the real page bounds, mirroring
+  the existing `dragHUDInfo` HUD's own clamp idiom. **ONE REMAINING JUDGMENT CALL, flagged not silently
+  resolved:** TILT's own centre-detent text literally states TWO different thresholds — "within ±3% of 0 it
+  rests at exactly 0" AND "leaving 0 needs 8pt of movement" — which, under §2.4's own stated 1pt=1% ratio,
+  are mathematically two DIFFERENT numbers (8pt ≡ 8%, not 3%), so they cannot both be the same single
+  threshold. Re-derived as one coherent two-part detent rather than picking one number and discarding the
+  other: the first 8pt of travel produces no change at all (satisfying "leaving needs 8pt"), and the value
+  then picks up from 3% — not 0% — the instant the gate releases, so 1%/2%/3% readings are never reachable
+  as a nonzero value at all (satisfying "rests within ±3%" as a genuine floor, not just an approximation).
+  This is a reasoned reconciliation, not a confirmed reading of author intent — flagged explicitly for Paul
+  to correct if the actual mockup shows something else. **ALSO FLAGGED, not changed:** whether the 2pt touch
+  border should illuminate on bare touch-down (what's shipped, both passes) or only once the finger has
+  actually broken the 8pt dead zone — §2.1 ("touching down changes no VALUES") and §2.8's heading ("while
+  DRAGGING") don't definitively settle this either way; left as touch-on-contact, the more common immediate-
+  feedback convention. **STILL fully DEVICE-OWED, unchanged from the entry below** — none of these 8 fixes
+  could be verified visually in this environment either; Paul's own §6 explicitly asks for on-device
+  screenshots and confirmation that axis lock/the TILT detent/double-tap were each tested on device, which
+  this environment cannot produce or perform — named here plainly rather than implied otherwise.**
 - **▶ EUCLIDEOUS — the 4 gesture pads REBUILT: dead-zone/axis-lock dragging, absolute VELOCITY, a live
   Canvas "picture" per pad, double-tap reset (2026-10-09/10, on `fix/euclid-no-scroll-direction-order-2x2-
   grid`; macOS 1251 green incl. +4 new/2 rewritten, iOS builds clean). A fully-ratified ferry ("Paul's
