@@ -4149,7 +4149,8 @@ final class Router {
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
                                 useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0,
                                 riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0,
-                                riffLock: Bool = false, riffInvert: Bool = false, riffOnRest: EuclidRiffOnRest = .skip) {
+                                riffLock: Bool = false, riffInvert: Bool = false, riffOnRest: EuclidRiffOnRest = .skip,
+                                riffStride: Int = 1, riffLength: Int = 8, riffAdvanceStep: Bool = false, melodyTranspose: Int = 0) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
                 euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
@@ -4274,7 +4275,11 @@ final class Router {
                             // THIS line (the fn params above), not the shared `p.euclideousRiff` — only the pattern
                             // CONTENT (steps/ranks) is shared; each lane walks it its own way.
                             let rp = p.euclideousRiff
-                            let riffN = rp.stepsResolved
+                            // LENGTH (Paul 2026-10-10 ferry §3.2) now governs every direction's own modulus
+                            // (`riffLength` below) — the shared pattern's own full step count is no longer
+                            // read directly here; `ranks.count` alone (just below) already guards a
+                            // `playedStep` that exceeds it, falling back to rest, the same safe degradation
+                            // this file already relied on before LENGTH existed.
                             // PER-LANE SOURCE (Paul 2026-10-09, ferry §2.4 — supersedes "follows lane 1"):
                             // each lane resolves the shared riff SHAPE against ITS OWN per-lane pool
                             // (`laneNotes(lineIndex)`/`laneCount(lineIndex)` — the exact same per-lane buffer
@@ -4302,27 +4307,61 @@ final class Router {
                             // `cycleReset` flag, fired exactly on `hitsUpTo == 1`, hard-resets it, the SAME
                             // "fresh start" treatment the existing reset-span boundary already gets.
                             let locked = riffLock
-                            let riffOrd = locked ? Int64(hitsUpTo - 1) : ord
+                            // ADVANCE (Paul 2026-10-10 ferry §3.5): HIT keeps today's hit-ordinal (`ord`/
+                            // `hitsUpTo`); STEP advances on EVERY tick of this lane's own pattern, hit or
+                            // miss — `localT` (the true monotonic per-tick count, already computed above)
+                            // and `raw` (its lap-local form) are exactly the counters this needs, zero new
+                            // state required. Both still only ever get EVALUATED at an actual hit (nothing
+                            // strikes on a miss unless the separate MISS-side settings fire) — STEP changes
+                            // WHICH ordinal value is fed in, not WHEN the walk position gets computed.
+                            let advOrd: Int64 = riffAdvanceStep
+                                ? (locked ? Int64(raw) : localT)
+                                : (locked ? Int64(hitsUpTo - 1) : ord)
                             // RESET SPAN (Paul 2026-10-08): "the global reset span still applies on top of
                             // both modes" — unchanged, still independently re-anchors via spanStart below;
                             // LOCK and reset-span are two separate re-anchor mechanisms layered together, not
-                            // one replacing the other (LOCK acts on the HIT-ordinal fed to the riff lookup;
+                            // one replacing the other (LOCK acts on the ordinal fed to the riff lookup;
                             // reset-span already acts further upstream, on the Euclid pattern's own phase).
                             let spanStart = spanBeats > 0 ? columnStart(mTickBeat, spanBeats) : Double.nan
-                            let stepIdx = riffDir == .drunk
-                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: riffOrd, steps: riffN, bias: riffDirBias, seed: seed, spanStart: spanStart, cycleReset: locked && hitsUpTo == 1)
-                                : riffStepAt(riffDir, raw: Int(riffOrd), steps: riffN, seed: seed)
-                            let rotIdx = riffRotateStep(stepIdx, by: riffRotate, steps: riffN)
-                            euclideousRiffStep[lineIndex] = rotIdx   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern
+                            // STRIDE (§3.4): multiplies the ordinal fed into `riffStepAt` — FWD/REV/
+                            // PENDULUM/PINGPONG all generalize this way (hand-verified against Paul's own
+                            // worked example: stride 3 / length 5 → (ord*3) mod 5 for ord=0..4 gives
+                            // 0,3,1,4,2 → 1-indexed 1,4,2,5,3, exactly matching §3.4's literal sequence).
+                            // DRUNK ignores stride entirely (§3.4) — a random walk has no "stride," always
+                            // ±1, so it's never multiplied into DRUNK's own ordinal below.
+                            // LENGTH (§3.2): every direction's own modulus is now `riffLength`, not the
+                            // shared riff pattern's full step count — the lane walks only steps 1...LENGTH
+                            // of the shared pattern, wrapping/reflecting within that window alone.
+                            let walkPos = riffDir == .drunk
+                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: advOrd, steps: riffLength, bias: riffDirBias, seed: seed, spanStart: spanStart,
+                                                          cycleReset: locked && (riffAdvanceStep ? raw == 0 : hitsUpTo == 1))
+                                : riffStepAt(riffDir, raw: Int(advOrd) * riffStride, steps: riffLength, seed: seed)
+                            // SHIFT (§3.3, literal): "the played step = (walk position + SHIFT), wrapped
+                            // within LENGTH" — `riffRotateStep` itself is UNCHANGED, just given `riffLength`
+                            // instead of the old `riffN` modulus. LOCK's own "first played step is the SHIFT
+                            // step" (§3.3) follows for free for FWD/PENDULUM/PINGPONG, which all naturally
+                            // evaluate to walkPos=0 at advOrd=0 — REVERSE's own formula naturally starts at
+                            // `riffLength-1` instead (flagged in the ferry plan as a narrow, deliberate,
+                            // unforced edge case — this is a direct, unmodified reuse of the existing
+                            // `riffStepAt` formula, not a new direction-dependent override).
+                            let playedStep = riffRotateStep(walkPos, by: riffRotate, steps: riffLength)
+                            euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern
 
                             // INVERT (Paul 2026-10-09 ferry): mirrors the rank BEFORE it's resolved against
                             // this lane's own source — "rank r plays as rank (9-r)... rests stay rests" — so
                             // it works identically regardless of source (MIDI/KEY/CHORDS all just feed
-                            // `thisLaneCount`/`notes` the same way either side of this transform). OCT
-                            // (`riffOctave`) is applied AFTER, inside `riffResolve`'s own `oct:` param below —
-                            // already the natural ordering; invert never touches it.
-                            let rawRank = rotIdx < ranks.count ? ranks[rotIdx] : 0
-                            let rank = (riffInvert && rawRank >= 1) ? (9 - rawRank) : rawRank
+                            // `thisLaneCount`/`notes` the same way either side of this transform).
+                            let rawRank = playedStep < ranks.count ? ranks[playedStep] : 0
+                            let invRank = (riffInvert && rawRank >= 1) ? (9 - rawRank) : rawRank
+                            // TRANSPOSE (§3.1/§3.7, Paul 2026-10-10 ferry): a rank-space shift applied AFTER
+                            // INVERT, BEFORE resolving against the lane's source — a rest (rank<1) is left
+                            // untouched, matching INVERT's own "rests stay rests." Out-of-pool wrap rides
+                            // the SAME `riffResolve(wrap: .fold)` call below for free, not a separate rule —
+                            // exactly §3.7's own "using the engine's existing rank-to-note wrap rule." OCT
+                            // (`riffOctave`) is applied AFTER THAT, inside `riffResolve`'s own `oct:` param —
+                            // already the natural ordering, matching §3.1's literal "...resolve against
+                            // SOURCE → OCT."
+                            let rank = invRank >= 1 ? invRank + melodyTranspose : invRank
 
                             // TIE LOOKAHEAD (Paul 2026-10-09 ferry, ON REST = TIE): mirrors the regular chain
                             // RIFF processor's own `tieRun` loop (`emitRiffRow`) exactly in spirit, walking
@@ -4352,19 +4391,41 @@ final class Router {
                                 var t = localT
                                 var stepsScanned = 0
                                 let stepScanCap = cycleLen * 4
-                                while hitsAhead < riffN && stepsScanned < stepScanCap {
+                                // LENGTH (§3.2): scanning `riffLength` future hits (not the shared pattern's
+                                // own, possibly larger, `riffN`) is sufficient — the lane's own walk only
+                                // ever cycles through `riffLength` distinct positions, so this many hits
+                                // already covers at least one full lap of its own reachable rank sequence.
+                                while hitsAhead < riffLength && stepsScanned < stepScanCap {
                                     t += 1; stepsScanned += 1
                                     let fRaw = Int(((t % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
                                     guard isHitAt(fRaw) else { continue }
                                     var fHitsUpTo = 0; for s in 0...fRaw where isHitAt(s) { fHitsUpTo += 1 }
-                                    if locked && fHitsUpTo == 1 { break }   // a locked lane's own cycle restart always breaks the chain
+                                    // ADVANCE (§3.5): the LOCK cycle-reset test mirrors the live walk's own
+                                    // `cycleReset` condition exactly (raw==0 for STEP, hitsUpTo==1 for HIT) —
+                                    // both are only ever evaluated at a genuine hit (same as the live path,
+                                    // which only ever calls the walk functions when a hit actually occurs),
+                                    // so this stays self-consistent with how LOCK actually resets live.
+                                    if locked && (riffAdvanceStep ? fRaw == 0 : fHitsUpTo == 1) { break }   // a locked lane's own cycle restart always breaks the chain
                                     hitsAhead += 1
                                     let fCy = (t - Int64(fRaw)) / Int64(cycleLen)
-                                    let fOrd = locked ? Int64(fHitsUpTo - 1) : (fCy * effHits + Int64(fHitsUpTo - 1))
+                                    // ADVANCE: STEP's lookahead ordinal is step-based (fRaw/t), matching the
+                                    // live path's own `advOrd` formula exactly — must stay in lockstep, or
+                                    // TIE would silently disagree with what the live walk actually does
+                                    // under ADVANCE=STEP (the exact RATCHET/DEST class of bug this codebase's
+                                    // history warns against).
+                                    let fOrd: Int64 = riffAdvanceStep
+                                        ? (locked ? Int64(fRaw) : t)
+                                        : (locked ? Int64(fHitsUpTo - 1) : (fCy * effHits + Int64(fHitsUpTo - 1)))
+                                    // STRIDE/LENGTH mirror the live walk's own formula exactly. DRUNK's peek
+                                    // counts ELAPSED TICKS (t - localT) as its `aheadBy` under ADVANCE=STEP
+                                    // (the walk advances once per TICK, not once per hit found) vs `hitsAhead`
+                                    // under ADVANCE=HIT (the walk advances once per hit, matching the live
+                                    // path's own `ord` semantics) — DRUNK never multiplies by riffStride
+                                    // either way (§3.4, DRUNK ignores stride).
                                     let fStepIdx = riffDir == .drunk
-                                        ? riffDrunkPeek(fromPos: startStepIdx, tick: startOrd, aheadBy: hitsAhead, steps: riffN, bias: riffDirBias, seed: seed)
-                                        : riffStepAt(riffDir, raw: Int(fOrd), steps: riffN, seed: seed)
-                                    let fRotIdx = riffRotateStep(fStepIdx, by: riffRotate, steps: riffN)
+                                        ? riffDrunkPeek(fromPos: startStepIdx, tick: startOrd, aheadBy: riffAdvanceStep ? Int(t - localT) : hitsAhead, steps: riffLength, bias: riffDirBias, seed: seed)
+                                        : riffStepAt(riffDir, raw: Int(fOrd) * riffStride, steps: riffLength, seed: seed)
+                                    let fRotIdx = riffRotateStep(fStepIdx, by: riffRotate, steps: riffLength)
                                     let fRank = fRotIdx < ranks.count ? ranks[fRotIdx] : 0
                                     guard fRank < 1 else { break }   // a real note breaks the chain
                                     lastConsumedT = t
@@ -4410,12 +4471,20 @@ final class Router {
                                     return
                                 case .fill:
                                     let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord, count: thisLaneCount)
-                                    let tieExt = riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
+                                    let tieExt = riffTieExtensionBeats(startStepIdx: walkPos, startOrd: advOrd)
                                     let gb = min(sub * gate, S * 0.95) + tieExt
                                     let fillVel = UInt8(velocityAbsolute)
                                     let fillIdx = resolvedPickIndices(pickIndex, pickRange, count: notes.count)
+                                    // TRANSPOSE (Paul 2026-10-10 ferry §3.7) applies here too — FILL strikes
+                                    // "this lane's own NOTE/OCT pick as if riff were off," and PLACEMENT's
+                                    // TRANSPOSE is mode-independent — via the SAME `riffResolve(wrap: .fold)`
+                                    // lookup the real-rank branch below already uses, so an out-of-pool
+                                    // transpose wraps identically either way; `octave: 0` to strikeChord since
+                                    // the octave shift is already folded into the resolved note, matching that
+                                    // branch's own established precedent exactly.
                                     for idx in fillIdx where idx >= 0 && idx < notes.count {
-                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: octave, explicitNote: notes[idx].note, explicitVel: fillVel, busOverride: busOverride)
+                                        guard let fillNote = riffResolve(rank: idx + 1 + melodyTranspose, oct: octave, n: notes.count, wrap: .fold, asc: { notes[$0].note }) else { continue }
+                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: fillNote, explicitVel: fillVel, busOverride: busOverride)
                                     }
                                     // NOTE VIEW (ferry §4.5): "ON REST = FILL: show the filled note as a
                                     // normal hit" — kind 0, same as any other hit, from the SAME indices the
@@ -4429,7 +4498,8 @@ final class Router {
                                     if nvSent {
                                         var fillNC = 0
                                         for idx in fillIdx where idx >= 0 && idx < notes.count && fillNC < Router.noteViewMaxNotes {
-                                            if let p = finalPitch(Int(notes[idx].note), oct: octave) { nvScratch[fillNC] = p; fillNC += 1 }
+                                            guard let fillNote = riffResolve(rank: idx + 1 + melodyTranspose, oct: octave, n: notes.count, wrap: .fold, asc: { notes[$0].note }) else { continue }
+                                            if let p = finalPitch(fillNote, oct: 0) { nvScratch[fillNC] = p; fillNC += 1 }
                                         }
                                         if fillNC > 0 {
                                             let (onset, duration) = nvTiming(gb)
@@ -4443,7 +4513,7 @@ final class Router {
                             // is no longer read at all — VELOCITY is a genuine override now, same as every other
                             // strike this lane makes (see EuclidLine.velocityAbsolute's own doc comment).
                             guard let note = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
-                            let tieExt = riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
+                            let tieExt = riffTieExtensionBeats(startStepIdx: walkPos, startOrd: advOrd)
                             let gb = min(sub * gate, S * 0.95) + tieExt
                             strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: note, explicitVel: UInt8(velocityAbsolute), busOverride: busOverride)
                             // NOTE VIEW: `riffOctave` is already folded into `note` by `riffResolve` itself
@@ -4528,15 +4598,21 @@ final class Router {
                         let hitVel = UInt8(velocityAbsolute)
                         let hitGate = min(sub * gate, S * 0.95)
                         let hitIdx = resolvedPickIndices(pickIndex, pickRange, count: hitNotes.count)
+                        // TRANSPOSE (Paul 2026-10-10 ferry §3.1/§3.7): applies in NOTE mode too, not just
+                        // RIFF — a rank-space shift via the SAME `riffResolve(wrap: .fold)` lookup the riff
+                        // path uses, so an out-of-pool transpose wraps identically either way; `octave: 0`
+                        // to strikeChord since the octave shift is already folded into the resolved note.
                         for idx in hitIdx where idx >= 0 && idx < hitNotes.count {
-                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: octave, explicitNote: hitNotes[idx].note, explicitVel: hitVel, busOverride: busOverride)
+                            guard let hitNote = riffResolve(rank: idx + 1 + melodyTranspose, oct: octave, n: hitNotes.count, wrap: .fold, asc: { hitNotes[$0].note }) else { continue }
+                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: 0, explicitNote: hitNote, explicitVel: hitVel, busOverride: busOverride)
                         }
                         // NOTE VIEW: read-only mirror of the strike loop above, same resolved indices,
                         // written straight into `nvScratch` (no intermediate `.compactMap` array — §5.1).
                         if nvSent {
                             var hitNC = 0
                             for idx in hitIdx where idx >= 0 && idx < hitNotes.count && hitNC < Router.noteViewMaxNotes {
-                                if let p = finalPitch(Int(hitNotes[idx].note), oct: octave) { nvScratch[hitNC] = p; hitNC += 1 }
+                                guard let hitNote = riffResolve(rank: idx + 1 + melodyTranspose, oct: octave, n: hitNotes.count, wrap: .fold, asc: { hitNotes[$0].note }) else { continue }
+                                if let p = finalPitch(hitNote, oct: 0) { nvScratch[hitNC] = p; hitNC += 1 }
                             }
                             if hitNC > 0 {
                                 let (onset, duration) = nvTiming(hitGate)
@@ -4647,7 +4723,9 @@ final class Router {
                               useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved,
                               riffDir: L.riffDirResolved, riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved,
                               tilt: L.tiltResolved,
-                              riffLock: L.riffLockResolved, riffInvert: L.riffInvertResolved, riffOnRest: L.riffOnRestResolved)
+                              riffLock: L.riffLockResolved, riffInvert: L.riffInvertResolved, riffOnRest: L.riffOnRestResolved,
+                              riffStride: L.riffStrideResolved, riffLength: L.riffLengthResolved, riffAdvanceStep: L.riffAdvanceStepResolved,
+                              melodyTranspose: L.melodyTransposeResolved)
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
@@ -5923,6 +6001,15 @@ final class Router {
         }
         if ord != euclideousRiffDrunkLastOrd[lane] {
             euclideousRiffDrunkLastOrd[lane] = ord
+            // LENGTH (Paul 2026-10-10 ferry §3.8): "if LENGTH is reduced below the lane's current
+            // position, wrap the position into the new window on the next advance." A normal advance
+            // self-corrects for free (the bounce-reflection formula below already clamps every result
+            // into 0...steps-1) — but if `steps` (LENGTH) just SHRANK since the last advance, the
+            // STORED position itself could already sit outside the new range, which the reflection
+            // formula below isn't designed to recover from cleanly (it expects a small overshoot near
+            // the boundary, not an arbitrarily-out-of-range starting point). Normalizing here, BEFORE
+            // computing the next delta, is a one-time no-op whenever nothing has shrunk.
+            if euclideousRiffDrunkPos[lane] >= steps { euclideousRiffDrunkPos[lane] %= steps }
             var np = euclideousRiffDrunkPos[lane] + riffDrunkDelta(tick: ord, bias: bias, seed: seed)
             if np < 0 { np = -np }
             if np > steps - 1 { np = 2 * (steps - 1) - np }

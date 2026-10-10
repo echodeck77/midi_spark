@@ -253,7 +253,12 @@ struct EuclidLine: Codable, Equatable {
     // this). CHORDS is resolved entirely in SnapshotBuilder (it needs doc.receivers, which this struct has no
     // access to) — this field only names the CHOICE, not which receiver answers it.
     var sourceMode: EuclideousLaneSource? = nil
-    var sourceModeResolved: EuclideousLaneSource { sourceMode ?? .midi }
+    // MELODY POP-UP (Paul 2026-10-10 ferry, §2.2): "the default SOURCE for a new instance is KEY" —
+    // flips the 2026-10-08 MIDI default. Safe to change at this shared level (unlike noteSel's own
+    // fallback below): `sourceMode` is read only by Euclideous's own per-lane I/O machinery, never by
+    // the regular/non-Euclideous EUCLID processor, so there's no other consumer this could silently
+    // affect. A fresh Euclideous lane now opens reading its own KEY (page-level KEY+SCALE), not MIDI IN.
+    var sourceModeResolved: EuclideousLaneSource { sourceMode ?? .key }
     // TILT (Paul 2026-10-08): bias this lane's own K-of-N hit distribution toward the start (negative) or end
     // (positive) of its N-step cycle — see `euclidTiltPattern`'s own doc comment for the exact mechanism.
     // nil ⇒ 0 = no bias, byte-identical to before this field existed.
@@ -292,6 +297,35 @@ struct EuclidLine: Codable, Equatable {
     // Euclideous's riff only advances on a hit of this lane's own pattern.
     var riffOnRest: EuclidRiffOnRest? = nil
     var riffOnRestResolved: EuclidRiffOnRest { riffOnRest ?? .skip }
+    // MELODY POP-UP (Paul 2026-10-10 ferry) — four new per-lane riff-walk controls, all read only
+    // while `useRiffResolved` is true (except melodyTranspose, which also applies in NOTE mode —
+    // see Router.swift's plain-hit path). STRIDE/LENGTH/ADVANCE share the `riff` prefix convention
+    // (riffRotate/riffOctave/riffDir/riffLock/riffInvert/riffOnRest above); TRANSPOSE is named
+    // `melody`, not `riff`, for two reasons: it applies in both RIFF and NOTE mode, and a bare
+    // `transpose` would collide with the existing closed-over, semitone-space `transpose` variable
+    // already used throughout Router.swift's `runEuclidLine`/`finalPitch` — a different, pre-existing,
+    // machine-wide concept; this one is rank-space and per-lane.
+    //
+    // STRIDE (nil ⇒ 1, §2 default): the walk moves ±STRIDE positions per advance instead of ±1 — FWD/
+    // REV/PENDULUM/PINGPONG all generalize by scaling the ordinal fed into `riffStepAt` (§3.4); DRUNK
+    // ignores it (always ±1, a genuine random walk has no "stride" concept).
+    var riffStride: Int? = nil
+    var riffStrideResolved: Int { max(1, min(7, riffStride ?? 1)) }
+    // LENGTH (nil ⇒ 8, §2 default): the lane walks only riff steps 1...LENGTH — every direction's own
+    // modulus becomes LENGTH instead of the shared riff pattern's full step count (§3.2).
+    var riffLength: Int? = nil
+    var riffLengthResolved: Int { max(1, min(8, riffLength ?? 8)) }
+    // ADVANCE (nil ⇒ false = HIT, §2 default): HIT = today's behaviour, the walk advances once per
+    // hit of this lane's own Euclid pattern. STEP = the walk advances on EVERY step (hit or miss) —
+    // notes still only sound on hits (§3.5); ON REST still only fires when a hit lands on a rest.
+    var riffAdvanceStep: Bool? = nil
+    var riffAdvanceStepResolved: Bool { riffAdvanceStep ?? false }
+    // TRANSPOSE (nil ⇒ 0, §2 default): a RANK-space shift (scale steps in KEY, chord/pool positions in
+    // MIDI IN and CHORDS), applied AFTER INVERT and BEFORE resolving against the lane's source (§3.1,
+    // §3.7) — wraps octave-up/down via the same `riffResolve(wrap: .fold)` every rank lookup already
+    // uses, so an out-of-pool transpose is never a special case.
+    var melodyTranspose: Int? = nil
+    var melodyTransposeResolved: Int { max(-7, min(7, melodyTranspose ?? 0)) }
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -365,6 +399,10 @@ extension EuclidLine {
         riffLock = try c.decodeIfPresent(Bool.self, forKey: .riffLock)
         riffInvert = try c.decodeIfPresent(Bool.self, forKey: .riffInvert)
         riffOnRest = try c.decodeIfPresent(EuclidRiffOnRest.self, forKey: .riffOnRest)
+        riffStride = try c.decodeIfPresent(Int.self, forKey: .riffStride)
+        riffLength = try c.decodeIfPresent(Int.self, forKey: .riffLength)
+        riffAdvanceStep = try c.decodeIfPresent(Bool.self, forKey: .riffAdvanceStep)
+        melodyTranspose = try c.decodeIfPresent(Int.self, forKey: .melodyTranspose)
     }
 }
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
@@ -1928,7 +1966,14 @@ struct PluginState: Codable, Equatable {
     /// only as this starting point, exactly as the earlier design already intended for the "never reachable
     /// through the gesture" half of its own reasoning.
     private static func euclideousDefaultLine(_ i: Int) -> EuclidLine {
-        var x = EuclidLine(noteSel: .all)
+        // MELODY POP-UP (Paul 2026-10-10 ferry, §2): NOTE's own default is LOWEST, not ALL — found on
+        // a self-re-audit of this plan, not assumed: this function, not EuclidLine's own shared
+        // noteSelResolved fallback, is where Euclideous's fresh-lane defaults actually live (confirmed
+        // by reading it directly), so this is the correctly-scoped place to fix it — changing the
+        // shared fallback instead would also silently re-default every ordinary, non-Euclideous EUCLID
+        // cell in the grid. MODE's own default (RIFF) needs no change — `x.useRiff = true` below
+        // already satisfies it.
+        var x = EuclidLine(noteSel: .low)
         x.pulses = i == 0 ? 1 : 0   // lane 1 = 1 hit; lanes 2-4 = 0 hits (ferry §5.3/§5.4)
         x.steps = 8                 // every lane = 8 steps (ferry §5.3/§5.4)
         x.emitterMask = 0b0001      // every lane outputs to A (ferry §5.1)

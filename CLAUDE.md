@@ -196,6 +196,102 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS MELODY POP-UP — a per-lane settings pop-up (SOURCE·MODE·NOTE·WALK·PLACEMENT) + four
+  genuinely new engine controls (STRIDE·LENGTH·ADVANCE·TRANSPOSE), SHIPPED (2026-10-10, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1280 green incl. +12, iOS builds clean, 0 errors,
+  0 new warnings). Planned first (3 parallel Explore agents, then a self-re-audit against the literal
+  ferry text before implementing — found 6 real corrections before writing any code; see the plan file,
+  `~/.claude/plans/woolly-crafting-music.md`). §6 of the ferry (ripping the I/O/RIFF tabs and 4th pad off
+  the lane card) was explicitly deferred as unconfirmed — **superseded same day by a follow-up ferry**
+  (queued for its own plan, see pending-tasks). **MODEL:** 4 new `EuclidLine` fields, all additive-
+  Optional, threaded through the standard 4 touch points (struct/decoder/resolved-accessor/
+  SnapshotBuilder's fresh-literal rebuild): `riffStride` (1…7, default 1), `riffLength` (1…8, default 8 —
+  every riff direction's own modulus is now this, not the shared pattern's full step count), `riffAdvanceStep`
+  (HIT/STEP, default HIT), `melodyTranspose` (−7…+7, default 0 — a RANK-space shift, named `melody` not
+  `riff` since it applies in both RIFF and NOTE mode, and deliberately not bare `transpose` to avoid
+  colliding with the existing closed-over semitone-space `transpose` variable `runEuclidLine`/`finalPitch`
+  already use). Two default-value changes, each verified to be scoped correctly: `sourceModeResolved`'s
+  nil-fallback flips `.midi`→`.key` (ferry §2.2 — safe at this shared level since `sourceMode` is read only
+  by Euclideous's own code in practice); `euclideousDefaultLine(_:)` (the actual Euclideous-specific
+  fresh-lane constructor — NOT `EuclidLine`'s own bare default, which would have wrongly re-defaulted every
+  ordinary non-Euclideous EUCLID cell too) changes its NOTE default from `.all` to `.low` — MODE's own
+  default (RIFF) needed no change at all, since `euclideousDefaultLine` already set `useRiff = true`.
+  **ENGINE (Router.swift, `runEuclidLine`'s `if useRiff {}` block, rewritten):** the walk/shift/rank
+  pipeline now threads LENGTH as every direction's modulus (replacing the shared pattern's own `riffN`),
+  STRIDE as an ordinal multiplier into `riffStepAt` (hand-verified against Paul's own worked example —
+  stride 3/length 5 visits ranks 1,4,2,5,3, exactly matching §3.4's literal sequence), ADVANCE as a choice
+  between the existing hit-ordinal (`ord`/`hitsUpTo`) and the already-existing step-ordinal (`localT`/`raw`
+  — zero new counters needed), and TRANSPOSE as a post-INVERT rank shift feeding the SAME `riffResolve
+  (wrap: .fold)` call every rank lookup already uses, so an out-of-pool transpose wraps for free via the
+  exact rule §3.7 asks for ("the engine's existing rank-to-note wrap rule"). TRANSPOSE also threads into the
+  NOTE-mode (non-riff) plain-hit path and the ON-REST=FILL path, both rewritten from direct pool-array-
+  indexing to the same `riffResolve`-based lookup, since PLACEMENT's TRANSPOSE is mode-independent. `riffTie
+  ExtensionBeats` (the TIE lookahead) got the identical ADVANCE/STRIDE/LENGTH generalization applied to its
+  own forward scan — flagged in planning as the riskiest single piece, since a lookahead drifting out of
+  lockstep with the live walk is exactly the RATCHET/DEST class of bug this codebase's history warns
+  against. `euclideousRiffDrunkStep` gained a one-line normalize (§3.8: "if LENGTH is reduced... wrap the
+  position into the new window on the next advance") — only DRUNK has real accumulated state that could
+  reference a position outside a newly-shrunk LENGTH; FWD/REV/PEND/PING self-correct for free since their
+  walk position is always freshly recomputed with no persisted state. **TWO NAMED JUDGMENT CALLS, not
+  silently resolved either way:** LOCK's "first played step is the SHIFT step" (§3.3) holds automatically
+  for FWD/PENDULUM/PINGPONG (all naturally land on position 0 at ord=0) but REVERSE's own formula naturally
+  starts at `length-1` instead — implemented as a direct, unmodified reuse of the existing `riffStepAt`
+  formula rather than inventing a new direction-dependent override, locked in with an explicit regression
+  test documenting REV's own anchor rather than silently picking one reading; and SHIFT is hidden entirely
+  in NOTE mode (ratified via AskUserQuestion) since its own range depends on LENGTH, a WALK-only concept,
+  while TRANSPOSE applies in both modes. **UI (EuclideousPage.swift):** the NOTE VIEW strip label
+  (`noteViewLabelRow`) is now tappable via a 30pt invisible overlay (`.overlay(alignment: .top)` on the
+  strip's outer VStack — doesn't consume layout height, so the track keeps its full budget) opening a new
+  per-lane pop-up (`melodyPopupCard`) — **anchored to the tapped strip with a small pointer, NOT the
+  centered scrim+card every other popup on this page uses** (ferry §1.2, a popover not a modal — caught on
+  the self-re-audit by realizing the right precedent was the XY-pad's own floating drag-value-bubble
+  mechanism, `EuclideousPadFramePreferenceKey`/`euclideousBubblePosition`, not the 5 centered popups; a new
+  sibling `EuclideousStripFramePreferenceKey` publishes each strip's own frame the same way). The pop-up's
+  own height budget is computed from the REAL available space in whichever direction it grows (above the
+  strip, or below if there's more room there), never a flat guess, so §1.5 ("must never be clipped by the
+  page") holds by construction. Dismissal uses a fully invisible (`Color.clear`, non-dimming) full-screen
+  tap-catcher rather than the usual `Color.black.opacity(0.55)` scrim — a reasoned, disclosed choice
+  matching "anchored... with a pointer" popover language, not a literal instruction. Colours follow §4.6
+  literally (selected = LANE-20 fill + 1pt LANE-100 border + white text; unselected = the ferry's own exact
+  `#2A2D34` + grey text) even though this diverges slightly from the lane card's own pre-existing
+  `Color.white.opacity(0.06)` unselected fill elsewhere on this page — this section explicitly cites "the
+  colour-hierarchy ferry" as its authority. **A SCOPE GAP FOUND ON RE-CHECK, bigger than first assumed:**
+  the existing 4th gesture pad's SHIFT wrap (`shiftSteps`, a hardcoded literal 8) turned out to have 7 real
+  use sites, not the 1 originally found — including the 2-finger ALL-LANES commit, missed entirely in the
+  first pass. Fixed 5 of them (value display, baseline capture, both single/2-finger commit sites, the NOTE
+  VIEW label's own SHIFT readout) to read `riffLengthResolved` instead, so the old pad and the new pop-up's
+  SHIFT stepper can't silently disagree the moment LENGTH ≠ 8 — deliberately left the picture's own fixed
+  8-slot visual layout unfixed (a disclosed cosmetic-only mismatch; redesigning it belongs to the now-
+  superseding lane-card ferry, not a numeric-correctness fix). **RANDOM REMOVED (§2.1)** from both offered
+  lists (`euclideousNoteSelCycle` in Derivations.swift; `RiffDir.allCases` at `riffDirPopupCard`'s call
+  site) — the case and its decode/resolve path stay untouched, matching the established `euclidNoteSelShown`
+  precedent. **TEST FALLOUT, traced not guessed — 9 pre-existing tests broke on the first full run, all from
+  the SAME two root causes, not 9 separate bugs:** (1) the `sourceMode` default flip broke every pre-existing
+  test that built an `EuclidLine` without explicitly setting `sourceMode`, since they implicitly relied on
+  the old MIDI default to read their `chord([...])`-fed test pools — fixed by adding `sourceMode: .midi`
+  explicitly to 7 tests whose actual intent was unrelated to source-mode defaults, and rewriting the 2 tests
+  genuinely ABOUT the default (one in RouterTests asserting "lane 0 nil⇒MIDI," one in SnapshotBuilderTests
+  asserting the same) to the new KEY default instead. (2) LENGTH's own default (8) doesn't match a shared
+  riff pattern shorter than 8 steps, so 2 more pre-existing tests (a TIE test with a 1-step pattern, a REV-
+  direction test with a 4-step pattern) started reading positions beyond `ranks.count` as unintended virtual
+  rests — fixed by pinning `riffLength` explicitly to each test's own real pattern length, restoring their
+  original pre-LENGTH intent rather than changing the engine logic (which is behaving exactly as the ferry's
+  own §3.2 asks). **TESTS:** +12 across RouterTests (the literal STRIDE worked example; LOCK+FWD restarts at
+  SHIFT + the LOCK+REV edge case locked in as documented behaviour; ADVANCE=STEP tracks elapsed steps not
+  hits; TRANSPOSE shifts the resolved rank in both RIFF and NOTE mode; DRUNK survives a LENGTH shrink
+  mid-session on the same Router instance, preserving its accumulated walk position across the change) +
+  EffectiveParamsTests (decode-tolerance/round-trip/clamp for the 4 new fields; the SOURCE default flip) +
+  SnapshotBuilderTests (the fresh-literal regression guard for the 4 new fields) + DerivationsTests (RANDOM
+  genuinely gone from the NOTE cycle). **DEVICE-OWED, named up front:** the pop-up's layout in portrait/
+  landscape (RIFF mode, NOTE mode, a case forcing the scroll); the anchored-popover mechanism itself — the
+  single newest, least-precedented piece of UI in this ferry — does the pointer land against the tapped
+  strip, does the above/below flip trigger sensibly for lane 1 vs lane 4, does the non-dimming tap-catcher
+  read as intentional; the 30pt tap zone catching a tap near the track without the track/note-box ever
+  responding to one; STRIDE/LENGTH/ADVANCE/TRANSPOSE's audible feel, especially TIE+STRIDE+LENGTH+
+  ADVANCE=STEP together; the LOCK+REVERSE reading matching what was actually intended; a fresh instance
+  genuinely opening on SOURCE=KEY and NOTE=LOWEST now; the two SHIFT-editing surfaces agreeing once
+  LENGTH≠8; the old pad's picture still drawing a fixed 8-slot visual for LENGTH<8 reading as acceptable,
+  not broken.**
 - **▶ EUCLIDEOUS NOTE VIEW — a second self-audit against the literal ferry text found + fixed 6 real
   issues, one a genuine architecture-invariant violation (2026-10-10, on `fix/euclid-no-scroll-direction-
   order-2x2-grid`; macOS 1269 green incl. +1, iOS builds clean, 0 errors, 0 new warnings; direct follow-up

@@ -5403,9 +5403,13 @@ final class RouterTests: XCTestCase {
     func testEuclidLinesEachHaveIndependentRiffDirectionIntoTheSharedPattern() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 2, 3, 4])
+        // sourceMode: .midi explicit on both — the melody pop-up ferry (2026-10-10 §2.2) flipped the
+        // nil-default to KEY. riffLength: 4 explicit too, matching the shared pattern's own real step
+        // count (4) — LENGTH otherwise defaults to 8, and REV's own natural anchor (length-1=7) would
+        // land outside `ranks.count`(4), reading as a rest instead of this test's expected rank 4.
         c.paramsA.euclidLines = [
-            EuclidLine(pulses: 1, steps: 1, useRiff: true, riffDir: .forward),
-            EuclidLine(pulses: 1, steps: 1, useRiff: true, riffDir: .reverse),
+            EuclidLine(pulses: 1, steps: 1, useRiff: true, riffDir: .forward, sourceMode: .midi, riffLength: 4),
+            EuclidLine(pulses: 1, steps: 1, useRiff: true, riffDir: .reverse, sourceMode: .midi, riffLength: 4),
         ]
         let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, receivers: [Receiver(name: "1")]) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
@@ -5514,7 +5518,8 @@ final class RouterTests: XCTestCase {
     func testEuclideousNoteViewPlainHitPostsFinalTransposedOctaveShiftedPitch() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.transpose = 2
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 1)]
+        // sourceMode: .midi explicit — see the ferry-default-flip note above (testEuclideousNoteViewFillUsesTheLanesPlainOctaveNotRiffOctave).
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 1, sourceMode: .midi)]
         let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
@@ -5530,8 +5535,11 @@ final class RouterTests: XCTestCase {
     func testEuclideousNoteViewFillUsesTheLanesPlainOctaveNotRiffOctave() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])   // always a rest
+        // sourceMode: .midi explicit — the melody pop-up ferry (2026-10-10 §2.2) flipped the nil-default
+        // to KEY; this test is about octave handling, not source mode, so pin MIDI to keep reading the
+        // held chord directly, unaffected by the default change.
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 2,
-                                             useRiff: true, riffOctave: -1, riffOnRest: .fill)]
+                                             useRiff: true, riffOctave: -1, sourceMode: .midi, riffOnRest: .fill)]
         let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
@@ -5546,7 +5554,8 @@ final class RouterTests: XCTestCase {
     func testEuclideousNoteViewRiffRealRankFoldsRiffOctaveOnceNotTwice() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1 (a real note)
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffOctave: 1)]
+        // sourceMode: .midi explicit — see the ferry-default-flip note above.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffOctave: 1, sourceMode: .midi)]
         let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
@@ -5599,7 +5608,13 @@ final class RouterTests: XCTestCase {
         // not applied unconditionally to every riff-sourced hit.
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1, never a rest to tie through
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffOnRest: .tie)]
+        // sourceMode: .midi explicit — see the ferry-default-flip note above. riffLength: 1 explicit too —
+        // the melody pop-up ferry's LENGTH defaults to 8, decoupled from the shared pattern's own real
+        // step count (1 here); left at the default, positions 1-7 would read as virtual rests beyond
+        // `ranks.count`, producing an unintended TIE chain this test's own "no rest ever follows this
+        // pattern" premise doesn't anticipate. Pinning LENGTH to the pattern's real size restores the
+        // original, pre-LENGTH intent.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .midi, riffOnRest: .tie, riffLength: 1)]
         let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
@@ -5819,7 +5834,8 @@ final class RouterTests: XCTestCase {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         func cyclePicksStruck(resetSpanBars: Int, beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, noteSel: .cycle, rate: .r1_8)]
+            // sourceMode: .midi explicit — the melody pop-up ferry (2026-10-10 §2.2) flipped the nil-default to KEY.
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, noteSel: .cycle, rate: .r1_8, sourceMode: .midi)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
                                       s.stepRate = .r1_8
@@ -5855,7 +5871,8 @@ final class RouterTests: XCTestCase {
         func ranksStruck(beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])   // identity: riff step i ↔ rank i+1 ↔ pool[i]
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, riffDir: .drunk, riffDirSeed: 42, riffDirBias: 0)]
+            // sourceMode: .midi explicit — the melody pop-up ferry (2026-10-10 §2.2) flipped the nil-default to KEY.
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, riffDir: .drunk, riffDirSeed: 42, riffDirBias: 0, sourceMode: .midi)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
                                       s.stepRate = .r1_8
@@ -5900,7 +5917,10 @@ final class RouterTests: XCTestCase {
     func testEuclideousLanesEachResolveTheirOwnIndependentSourceMode() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low),                       // lane 0: nil ⇒ MIDI, OMNI — unchanged default
+            // lane 0: explicit MIDI — the melody pop-up ferry (2026-10-10 §2.2) flipped the nil-default
+            // from MIDI to KEY, so a bare, unset line no longer means MIDI here; set explicitly to keep
+            // this test's own 3-way-independence intent (one lane per source mode) unchanged.
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .midi),
             EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),  // lane 1: CHORDS
             EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key),     // lane 2: KEY — now sounds the scale's own root
         ]
@@ -5917,7 +5937,7 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        XCTAssertTrue(notes.contains(60), "lane 0 (default/MIDI) must hear genuinely live input — OMNI, not tied to any one receiver")
+        XCTAssertTrue(notes.contains(60), "lane 0 (explicit MIDI) must hear genuinely live input — OMNI, not tied to any one receiver")
         XCTAssertTrue(notes.contains(55), "lane 1 (CHORDS) must read Euclideous's own on-page chord generator — the C-major V triad's lowest note")
         XCTAssertTrue(notes.contains(48), "lane 2 (KEY) must now sound the page's own scale — C3, the root of the default C-major pool")
         XCTAssertEqual(notes.count, 3, "all three lanes contribute a genuinely distinct note — no silent lane, no accidental overlap")
@@ -6010,6 +6030,136 @@ final class RouterTests: XCTestCase {
         let twoCycles = ranksStruck(beats: 4.9)
         XCTAssertEqual(cycle1.count, 3)
         XCTAssertEqual(Array(twoCycles.suffix(3)), cycle1, "LOCK+DRUNK: a hard reset every cycle must make the walk replay the identical sequence")
+    }
+    // STRIDE (melody pop-up ferry 2026-10-10 §3.4): "Stride 3 on length 5 visits 1, 4, 2, 5, 3" — the
+    // ferry's own literal worked example. Dense K=N=5 (every tick a hit) isolates 5 consecutive
+    // ordinals cleanly; identity ranks [1..8] let the struck POOL INDEX double as the RIFF RANK directly.
+    func testEuclideousRiffStrideVisitsTheFerrysLiteralWorkedExample() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 5, rate: .r1_8, useRiff: true, riffStride: 3, riffLength: 5)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 2.4, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ranksStruck = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        XCTAssertEqual(Array(ranksStruck.prefix(5)), [1, 4, 2, 5, 3], "§3.4's own literal example: stride 3 on length 5 must visit ranks 1,4,2,5,3 in order")
+    }
+    // LOCK restarts the walk so the first played step IS the shift step (§3.3), verified for FWD — every
+    // one of the ferry's own worked examples is implicitly FWD. Dense K=N=4 at r1_8 (2-beat cycle) with
+    // SHIFT=2, LOCK on: FWD's own walkPos=0 at the start of every lap, so the first hit of EVERY lap must
+    // read the identical rank.
+    func testEuclideousRiffLockFwdRestartsAtTheShiftStep() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func ranksOf(beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, rate: .r1_8, useRiff: true, riffRotate: 2, riffLock: true)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        }
+        let lap1 = ranksOf(beats: 1.9)       // K=N=4 at r1_8 → a 2-beat cycle; just under one lap
+        let twoLaps = ranksOf(beats: 3.9)
+        XCTAssertEqual(lap1.first, 3, "FWD's own walkPos=0 at the start of a lap, +SHIFT 2 → riff step 2 (0-indexed) → rank 3")
+        XCTAssertEqual(twoLaps.count, 8, "two full 4-hit laps")
+        XCTAssertEqual(Array(twoLaps.suffix(4)).first, lap1.first, "LOCK: the second lap's first played step must equal the first lap's — both land on the shift step")
+    }
+    // A narrow, flagged edge case (plan §Corrections item 5): REVERSE's own formula naturally starts at
+    // (length-1), not 0, at ord=0 — so under LOCK, REV's "first played step" is its own natural anchor
+    // PLUS shift, not a forced 0+shift. Locked in as documented, deliberate behaviour (a direct, unmodified
+    // reuse of the existing riffStepAt formula), not a silent gap — redirectable later if this isn't what
+    // was actually intended.
+    func testEuclideousRiffLockReverseRestartsAtItsOwnNaturalAnchorPlusShift() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        // LENGTH 5, SHIFT 1: REV's walkPos at ord=0 is (length-1)=4; played step = (4+1) mod 5 = 0 → rank 1.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, rate: .r1_8, useRiff: true, riffRotate: 1, riffDir: .reverse, riffLock: true, riffLength: 5)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 1.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ranks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        XCTAssertEqual(ranks.first, 1, "REV's own anchor (length-1=4) + shift(1) mod length(5) = 0 → rank 1, not a forced 0+shift")
+    }
+    // ADVANCE=STEP (§3.5): the walk advances on EVERY step (hit or miss), not just hits. A sparse K=2/N=8
+    // Euclidean pattern spaces its 2 hits far apart (never adjacent, by construction) — HIT mode's 2nd hit
+    // reads walkPos=1 (its own 2nd ADVANCE); STEP mode's 2nd hit reads the raw elapsed-step count instead,
+    // landing on a different rank whenever at least one miss elapsed between the two hits (true for ANY
+    // non-adjacent pair, so this doesn't depend on knowing the pattern's exact hit positions).
+    func testEuclideousRiffAdvanceStepTracksElapsedStepsNotHits() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func secondHitRank(advanceStep: Bool) -> Int? {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 2, steps: 8, rate: .r1_16, useRiff: true, riffAdvanceStep: advanceStep)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord(pool), beats: 2.2, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            let ranks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+            return ranks.count >= 2 ? ranks[1] : nil
+        }
+        let hitRank = secondHitRank(advanceStep: false)
+        let stepRank = secondHitRank(advanceStep: true)
+        XCTAssertNotNil(hitRank); XCTAssertNotNil(stepRank)
+        XCTAssertNotEqual(hitRank, stepRank, "ADVANCE=STEP must read a different walk position than ADVANCE=HIT once a miss has elapsed between hits")
+    }
+    // TRANSPOSE (§3.1/§3.7): a rank-space shift applied after INVERT, wrapping via the SAME riffResolve
+    // rule as any out-of-pool rank — verified in BOTH modes, since PLACEMENT applies it regardless of MODE.
+    func testEuclideousMelodyTransposeShiftsTheResolvedRankInBothModes() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        // RIFF mode: rank 1 (the lowest), transpose +2 → rank 3 → pool[2] = 64.
+        var cRiff = Machine(machineID: "gold", type: .euclid)
+        cRiff.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        cRiff.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, melodyTranspose: 2)]
+        let bRiff = box(machines: machineIDs.map { $0 == "gold" ? cRiff : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let eRiff = RecordingEmitter(); run(bRiff, chord(pool), beats: 1, into: eRiff, forceColumn: 0)
+        assertNothingLeftSounding(eRiff)
+        XCTAssertEqual(eRiff.ons.filter { $0.cable == 1 }.first.map { Int($0.note) }, 64, "RIFF mode: rank 1 + transpose 2 → rank 3 → pool[2]")
+        // NOTE mode: LOWEST (rank 1), transpose +2 → rank 3 → pool[2] = 64. No useRiff here — defaults off.
+        var cNote = Machine(machineID: "gold", type: .euclid)
+        cNote.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, melodyTranspose: 2)]
+        let bNote = box(machines: machineIDs.map { $0 == "gold" ? cNote : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let eNote = RecordingEmitter(); run(bNote, chord(pool), beats: 1, into: eNote, forceColumn: 0)
+        assertNothingLeftSounding(eNote)
+        XCTAssertEqual(eNote.ons.filter { $0.cable == 1 }.first.map { Int($0.note) }, 64, "NOTE mode: LOWEST (rank 1) + transpose 2 → rank 3 → pool[2]")
+    }
+    // §3.8: "if LENGTH is reduced below the lane's current position, wrap the position into the new
+    // window on the next advance." FWD/REV/PEND/PING self-correct for free (no persisted state) — only
+    // DRUNK's accumulated position can reference a spot outside a newly-shrunk LENGTH. Drives the walk for
+    // a while at LENGTH=8 (plenty of room to wander near the top of that range), then rebuilds the SAME
+    // router with LENGTH=3 and keeps advancing — the fix under test is that this can never crash, and
+    // every note struck AFTER the shrink must come from the new, smaller window.
+    func testEuclideousRiffDrunkSurvivesALengthShrinkMidSession() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 5, rate: .r1_16, useRiff: true, riffDir: .drunk, riffDirSeed: 11, riffDirBias: 1, riffLength: 8)]
+        let box1 = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        let router = runKeepingRouter(box1, chord(pool), beats: 4.0, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
+        // Shrink LENGTH to 3 on the SAME router instance — preserves the DRUNK walk's own accumulated
+        // position across the change, the exact scenario the fix addresses.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 5, rate: .r1_16, useRiff: true, riffDir: .drunk, riffDirSeed: 11, riffDirBias: 1, riffLength: 3)]
+        let box2 = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        var diag = KernelDiag()
+        var beat = 4.0, ts = 4.0 / tempo * 60.0 * sr
+        for _ in 0..<40 {
+            router.process(box: box2, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: box2, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo,
+                       sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        let notesAfterShrink = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }.suffix(10)
+        XCTAssertFalse(notesAfterShrink.isEmpty, "the lane must keep striking after the shrink, not go silent")
+        for n in notesAfterShrink {
+            XCTAssertTrue([60, 62, 64].contains(n), "after LENGTH shrinks to 3, every struck note must come from the first 3 ranks (60,62,64) — got \(n)")
+        }
     }
     // INVERT: rank r plays as rank (9−r); a rest (rank 0) stays a rest regardless. K=N=3 (dense — every
     // Euclid step is a hit) against a 3-step riff [1, 0, 8] (lowest · rest · highest) isolates the mirror

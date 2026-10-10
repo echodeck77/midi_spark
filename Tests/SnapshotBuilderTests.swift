@@ -688,6 +688,26 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(masked.euclidLines[0].emitterMask, 0x0F, "only the low 4 bits (A-D) are meaningful")
     }
 
+    // MELODY POP-UP (Paul 2026-10-10 ferry): riffStride/riffLength/riffAdvanceStep/melodyTranspose must
+    // ALSO survive the fresh-literal reconstruction — the exact regression class this file keeps
+    // guarding for, now exercised for the newest 4 fields.
+    func testEuclidLineMelodyPopupFieldsSurviveSnapshotBuild() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, riffStride: 5, riffLength: 6, riffAdvanceStep: true, melodyTranspose: -4)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(a.euclidLines[0].riffStrideResolved, 5, "per-line STRIDE must survive the resolve, not silently reset")
+        XCTAssertEqual(a.euclidLines[0].riffLengthResolved, 6, "per-line LENGTH must survive the resolve")
+        XCTAssertTrue(a.euclidLines[0].riffAdvanceStepResolved, "per-line ADVANCE must survive the resolve")
+        XCTAssertEqual(a.euclidLines[0].melodyTransposeResolved, -4, "per-line TRANSPOSE must survive the resolve")
+        // clamping survives the resolve too (mirrors the emitterMask/riffOctave precedent just above)
+        let clamped = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, riffStride: 99, riffLength: 99, melodyTranspose: 99)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(clamped.euclidLines[0].riffStrideResolved, 7)
+        XCTAssertEqual(clamped.euclidLines[0].riffLengthResolved, 8)
+        XCTAssertEqual(clamped.euclidLines[0].melodyTransposeResolved, 7)
+    }
+
     // XY PAD REDESIGN (Paul 2026-10-09): velocityAbsolute threads through the SAME fresh-literal
     // reconstruction as every other EuclidLine field above — the exact regression class this file keeps
     // guarding for. A NEW field (not a repurposed `velocity`) specifically so an old doc's saved
@@ -760,14 +780,14 @@ final class SnapshotBuilderTests: XCTestCase {
             $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, sourceMode: .chords)]
         }) { _ in }.machines[0].a
         XCTAssertEqual(a.euclidLines[0].sourceMode, .chords, "sourceMode must survive the resolve, not silently reset")
-        // an untouched line defaults to nil ⇒ MIDI (byte-identical to every existing doc — the old global
-        // switch's default was also MIDI, and the old switch never had a way to express a per-lane KEY choice
-        // anyway, so nil⇒MIDI is the only migration-safe default)
+        // an untouched line defaults to nil ⇒ KEY (melody pop-up ferry, Paul 2026-10-10 §2.2: "the default
+        // SOURCE for a new instance is KEY") — reverses the original 2026-10-08 MIDI default; an EXPLICIT
+        // sourceMode (above) is of course unaffected either way.
         let untouched = box(machines(customizing: 0) {
             $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
         }) { _ in }.machines[0].a
         XCTAssertNil(untouched.euclidLines[0].sourceMode, "a line that never touched I/O must resolve with sourceMode nil")
-        XCTAssertEqual(untouched.euclidLines[0].sourceModeResolved, .midi, "and resolve to MIDI, the safe default")
+        XCTAssertEqual(untouched.euclidLines[0].sourceModeResolved, .key, "and resolve to KEY, per the melody pop-up ferry's own §2.2")
     }
 
     // EUCLIDEOUS PAGE REWORK: the new GLOBAL main-out mask, mirroring emitterMask's own "only 4 bits meaningful" guard.

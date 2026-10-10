@@ -2411,7 +2411,12 @@ func euclideousInvertLine(_ line: EuclidLine) -> EuclidLine {
 /// matches (Router.swift's `predType` check); Euclideous's cell has exactly one processor slot by construction,
 /// so `predType` is permanently nil there — if the cycle ever landed on either, that lane would silently go
 /// silent with no on-screen explanation (caught during planning, not discovered as a device bug).
-let euclideousNoteSelCycle: [EuclidNoteSel] = [.all, .n1, .n2, .n3, .n4, .n5, .n6, .n7, .n8, .low, .high, .bottom2, .top2, .cycle, .random]
+// RANDOM REMOVED (Paul 2026-10-10 melody pop-up ferry §2.1) — the case itself and its decode/resolve
+// path stay untouched (an old doc with `.random` saved still plays correctly, per the established
+// `euclidNoteSelShown` precedent, GridUI.swift); only the offered cycle shrinks. Every consumer
+// (`euclideousStepNoteSel` below, the 4th pad's commit sites and the new melody pop-up alike)
+// dereferences this ONE array, so removing it here is the complete fix.
+let euclideousNoteSelCycle: [EuclidNoteSel] = [.all, .n1, .n2, .n3, .n4, .n5, .n6, .n7, .n8, .low, .high, .bottom2, .top2, .cycle]
 
 /// Steps an `EuclidNoteSel` by `delta` positions through `euclideousNoteSelCycle`, wrapping.
 func euclideousStepNoteSel(_ cur: EuclidNoteSel, by delta: Int) -> EuclidNoteSel {

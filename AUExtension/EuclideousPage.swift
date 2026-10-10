@@ -74,6 +74,17 @@ struct EuclideousPadFramePreferenceKey: PreferenceKey {
     }
 }
 
+/// A direct sibling of `EuclideousPadFramePreferenceKey` above, for the melody pop-up (Paul 2026-10-10
+/// ferry §1.2: "anchored to the strip with a small pointer") — the SAME need, a popover that must stay
+/// anchored to the control that opened it rather than floating at a fixed page position, just keyed by
+/// plain lane index (0...3) since there's only one strip per lane, not a (lane, tab) pair.
+struct EuclideousStripFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 /// The two un-abbreviated value strings a pad shows (ferry §3/§4: "2 centered text lines for Y/X
 /// values"... "explicit, non-abbreviated value-format strings") — Y above X, matching every pad's own
 /// Y-axis-first dictation order. Reused for both the pad's own permanent face and the floating bubble
@@ -265,6 +276,13 @@ struct EuclideousPage: View {
     // learn its OWN frame) — read by the new floating value bubble to anchor itself just above/below
     // whichever pad is currently being dragged, keyed "idx-tabRawValue".
     @State private var padFrames: [String: CGRect] = [:]
+    // MELODY POP-UP (Paul 2026-10-10 ferry): which lane's pop-up is open (nil = none — the `Int?`
+    // precedent already established by `ratePopupLane`/`riffDirPopupLane`), and each strip's own
+    // on-screen frame (published via `EuclideousStripFramePreferenceKey`, the direct sibling of
+    // `padFrames` above), so the pop-up can anchor itself to the tapped strip rather than floating at a
+    // fixed page position.
+    @State private var melodyPopupLane: Int? = nil
+    @State private var melodyStripFrames: [Int: CGRect] = [:]
     // HIT|MISS SELECTOR (Paul 2026-10-06): "I want the outline of the hit button to look selected and the
     // misses to appear like hits do now" — a symmetric 2-way toggle (not the old single "INV" pill): exactly
     // one of HIT/MISS is "selected" (an outline, matching EuclidLaneBox's own `selected` convention) at a
@@ -393,6 +411,31 @@ struct EuclideousPage: View {
                         .zIndex(3)
                     riffDirPopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
+                // THE MELODY POP-UP (Paul 2026-10-10 ferry §1.2/§1.3) — anchored to the tapped strip with a
+                // pointer, NOT the centered scrim+card every popup above uses. Dismissal still needs a
+                // full-screen tap-catcher, but it's `Color.clear` (no darkening) — a modal-style dim
+                // doesn't fit "anchored... with a pointer" popover language, and nothing else floating on
+                // this page (the XY-pad drag bubble) dims the background either; a reasoned, disclosed
+                // choice, not a literal instruction.
+                if let lane = melodyPopupLane {
+                    Color.clear.contentShape(Rectangle()).ignoresSafeArea()
+                        .onTapGesture { melodyPopupLane = nil }
+                        .zIndex(3)
+                    if let frame = melodyStripFrames[lane] {
+                        let anchor = euclideousMelodyAnchor(frame, in: geo.size)
+                        // `.position()` centers a view — but the card's own near edge (bottom, if it grew
+                        // above; top, if below) must touch the strip, and its natural height isn't known
+                        // ahead of render. Fixing the OUTER frame's height to the full `availableH` budget
+                        // (alignment pinning the actual, possibly-shorter card content to that same near
+                        // edge) makes the CENTER-based math solvable: center = near-edge ∓ availableH/2.
+                        melodyPopupCard(lane, availableHeight: anchor.availableH, grewAbove: anchor.grewAbove)
+                            .frame(height: anchor.availableH, alignment: anchor.grewAbove ? .bottom : .top)
+                            .position(x: anchor.centerX, y: anchor.grewAbove
+                                      ? frame.minY - 12 - anchor.availableH / 2
+                                      : frame.maxY + 12 + anchor.availableH / 2)
+                            .zIndex(4)
+                    }
+                }
                 // RESET SPAN + KEY POPUPS (Paul 2026-10-07) — the SAME scrim+card shape, reused rather than
                 // reinvented, for the two new global pickers.
                 if resetSpanPopupOpen {
@@ -438,6 +481,7 @@ struct EuclideousPage: View {
             }
             .coordinateSpace(name: "euclideousXY")
             .onPreferenceChange(EuclideousPadFramePreferenceKey.self) { padFrames = $0 }
+            .onPreferenceChange(EuclideousStripFramePreferenceKey.self) { melodyStripFrames = $0 }
         }
     }
     /// Every (lane, locked-axis) pair currently mid-drag, past the dead zone — drives the bubble above.
@@ -1178,8 +1222,11 @@ struct EuclideousPage: View {
             return EuclideousPadValues(yText: "VEL \(line.velocityAbsoluteResolved)", xText: "GATE \(gatePct)%")
         case .noteOctave:
             if line.useRiffResolved {
-                // SHIFT (ferry §4, literal): "SHIFT 4" — never signed, wraps mod the literal 8 above.
-                let shift = ((line.riffRotateResolved % shiftSteps) + shiftSteps) % shiftSteps
+                // SHIFT (melody pop-up ferry 2026-10-10 §2/§3.3): wraps within LENGTH now, not the old
+                // literal 8 — this pad and the new pop-up's own SHIFT stepper must agree on the same
+                // domain, or the two controls could disagree the moment LENGTH ≠ 8.
+                let n = line.riffLengthResolved
+                let shift = ((line.riffRotateResolved % n) + n) % n
                 let oct = line.riffOctaveResolved
                 return EuclideousPadValues(yText: "OCT \(euclideousSigned(oct))", xText: "SHIFT \(shift)")
             }
@@ -1294,10 +1341,15 @@ struct EuclideousPage: View {
     /// range) along the left — they meet at, but don't overlap, the bottom-left corner. Slots are at
     /// least 6pt with 2pt gaps. The current shift slot and the current octave slot are each filled
     /// LANE-100 independently (this is two 1-D strips, not one 2-D cell — there's no single "(shift,oct)"
-    /// cell to light the way the old grid had); other slots are #3A3E47. `shiftSteps` (literal 8, not
-    /// `riff.stepsResolved`) matches the same correction `euclideousPadValues`/`commitAxis` already apply.
+    /// cell to light the way the old grid had); other slots are #3A3E47. The HIGHLIGHTED slot now wraps
+    /// at LENGTH (melody pop-up ferry 2026-10-10), matching `euclideousPadValues`/`commitAxis` — but the
+    /// STRIP ITSELF still always draws the fixed `shiftSteps`(8) slots below (deliberately NOT resized
+    /// to LENGTH this round — redesigning the visual to a true LENGTH-sized strip is a decision that
+    /// belongs to the deferred §6 lane-card redesign, not a numeric-correctness fix; a LENGTH<8 lane's
+    /// highlighted slot is still accurate, it just never reaches the slots past LENGTH on an 8-wide strip).
     private func euclideousRiffPicture(_ line: EuclidLine, accent: Color) -> some View {
-        let shift = ((line.riffRotateResolved % shiftSteps) + shiftSteps) % shiftSteps
+        let riffLen = line.riffLengthResolved
+        let shift = ((line.riffRotateResolved % riffLen) + riffLen) % riffLen
         let oct = line.riffOctaveResolved
         let octRows = 7
         return Canvas { ctx, size in
@@ -1353,7 +1405,8 @@ struct EuclideousPage: View {
         case .gateVelocity: return (line.gateResolved * 100, Double(line.velocityAbsoluteResolved))
         case .noteOctave:
             if line.useRiffResolved {
-                let n = shiftSteps
+                // SHIFT wraps within LENGTH now, not the old literal 8 (melody pop-up ferry 2026-10-10).
+                let n = line.riffLengthResolved
                 return (Double(((line.riffRotateResolved % n) + n) % n), Double(line.riffOctaveResolved))
             }
             let idx = euclideousNoteSelCycle.firstIndex(of: line.noteSelResolved) ?? 0
@@ -1413,7 +1466,7 @@ struct EuclideousPage: View {
             line.velocityAbsolute = max(1, min(127, Int(baseline) + Int((travel / 1.5).rounded())))
         case (.noteOctave, .x):
             if line.useRiffResolved {
-                let n = shiftSteps   // literal 8 (ferry §2.5/§5.4), not riff.stepsResolved
+                let n = line.riffLengthResolved   // wraps within LENGTH now, not the old literal 8 (melody pop-up ferry 2026-10-10)
                 let v = Int(baseline) + Int((travel / 12).rounded())
                 line.riffRotate = ((v % n) + n) % n
             } else {
@@ -1458,7 +1511,7 @@ struct EuclideousPage: View {
         case (.gateVelocity, .y): line.velocityAbsolute = max(1, min(127, line.velocityAbsoluteResolved + d))
         case (.noteOctave, .x):
             if line.useRiffResolved {
-                let n = shiftSteps   // literal 8 (ferry §2.5/§5.4), not riff.stepsResolved
+                let n = line.riffLengthResolved   // wraps within LENGTH now, not the old literal 8 (melody pop-up ferry 2026-10-10) — this is the 2-finger ALL-LANES commit, missed in the first pass since it's a separate call site from the single-finger one above
                 line.riffRotate = ((line.riffRotateResolved + d) % n + n) % n
             } else {
                 let list = euclideousNoteSelCycle
@@ -1673,7 +1726,13 @@ struct EuclideousPage: View {
     private func riffDirPopupCard(_ idx: Int) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let accent = laneAccents[idx % laneAccents.count]
-        let pairs = stride(from: 0, to: RiffDir.allCases.count, by: 2).map { Array(RiffDir.allCases[$0..<min($0 + 2, RiffDir.allCases.count)]) }
+        // RANDOM REMOVED (Paul 2026-10-10 melody pop-up ferry §2.1) — the case and its decode/resolve
+        // path stay untouched (an old doc with `.random` saved still plays correctly); only this
+        // offered list shrinks. GridUI.swift's own regular-RIFF-processor DIRECTION field is a
+        // separate, untouched feature (this page's own `riffDirShortLabel` doc comment already notes
+        // it's scoped to Euclideous only).
+        let dirs = RiffDir.allCases.filter { $0 != .random }
+        let pairs = stride(from: 0, to: dirs.count, by: 2).map { Array(dirs[$0..<min($0 + 2, dirs.count)]) }
         return VStack(spacing: 10) {
             Text("LANE \(idx + 1) RIFF DIRECTION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
             ForEach(pairs.indices, id: \.self) { g in
@@ -1694,6 +1753,234 @@ struct EuclideousPage: View {
         .frame(width: 240)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
+
+    // MARK: - THE MELODY POP-UP (Paul 2026-10-10 ferry) — anchored to the tapped NOTE VIEW strip with a
+    // small pointer (§1.2), NOT the centered scrim+card every other popup above uses — a popover, not a
+    // modal. Positioned from the strip's own measured frame (`melodyStripFrames`, published via
+    // `EuclideousStripFramePreferenceKey`), the same shape as the XY-pad drag bubble's own
+    // `EuclideousPadFramePreferenceKey`/`euclideousBubblePosition` mechanism, generalized here to also
+    // decide which DIRECTION it grows (there's real content to fit, unlike the small transient bubble)
+    // and to size its own scroll area from the REAL available space in that direction — never a flat
+    // guess — so §1.5 ("must never be clipped by the page") holds by construction, not by hope.
+    /// Decides whether the pop-up grows above or below the strip (whichever has more room), the real
+    /// available height in that direction, and a page-clamped horizontal center — mirrors
+    /// `euclideousBubblePosition`'s own clamp idiom, generalized for a much bigger, scrollable card.
+    private func euclideousMelodyAnchor(_ frame: CGRect, in pageSize: CGSize) -> (grewAbove: Bool, availableH: CGFloat, centerX: CGFloat) {
+        let margin: CGFloat = 12
+        let pageInset: CGFloat = 8
+        let spaceAbove = frame.minY - pageInset - margin
+        let spaceBelow = pageSize.height - frame.maxY - pageInset - margin
+        let grewAbove = spaceAbove >= spaceBelow
+        let availableH = max(160, grewAbove ? spaceAbove : spaceBelow)
+        let cardHalfW: CGFloat = 200   // half of the 400pt card width (§4.1)
+        let centerX = min(max(frame.midX, cardHalfW + 16), max(cardHalfW + 16, pageSize.width - cardHalfW - 16))
+        return (grewAbove, availableH, centerX)
+    }
+    /// A small triangular pointer (§1.2, "a small pointer") — the first on this page; no existing shape
+    /// to copy wholesale, modeled conceptually on a standard callout/popover notch.
+    private func melodyPointer(pointingDown: Bool) -> some View {
+        Path { p in
+            if pointingDown {
+                p.move(to: CGPoint(x: 0, y: 0)); p.addLine(to: CGPoint(x: 16, y: 0)); p.addLine(to: CGPoint(x: 8, y: 8))
+            } else {
+                p.move(to: CGPoint(x: 0, y: 8)); p.addLine(to: CGPoint(x: 16, y: 8)); p.addLine(to: CGPoint(x: 8, y: 0))
+            }
+            p.closeSubpath()
+        }
+        .fill(Color(red: 0.1, green: 0.11, blue: 0.13))
+        .frame(width: 16, height: 8)
+    }
+    /// §4.1/§4.2 colour hierarchy, followed literally even though it diverges slightly from this page's
+    /// own pre-existing `Color.white.opacity(0.06)` unselected-button fill elsewhere (`directionRow`/
+    /// `ioSourceRow`) — this section explicitly cites "the colour-hierarchy ferry" as its authority, so
+    /// its own exact hex is used as given: selected = LANE-20 fill + 1pt LANE-100 border + white text;
+    /// unselected = literal #2A2D34 fill + grey text. 40pt tall (§4.4).
+    private func melodyButton(_ label: String, on: Bool, accent: Color, action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .white : Color.white.opacity(0.55))
+            .lineLimit(1)   // §4.6: nothing under 10pt — truncate, never shrink (no .minimumScaleFactor call at all, SwiftUI's own default already never scales below 1.0)
+            .frame(maxWidth: .infinity).frame(height: 40)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+    }
+    /// §4.4: `[−] value [+]`, 36pt −/+ buttons. No existing generic stepper on this page (confirmed by
+    /// direct search) — `headerKeyGroup`'s hand-assembled two-single-glyph-buttons shape is the only
+    /// precedent to crib from, properly parameterized here instead of re-hand-assembled per call site.
+    private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, onChange: @escaping (Int) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            HStack(spacing: sp4) {
+                Text("−").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
+                    .frame(width: 36, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { onChange(max(range.lowerBound, value - 1)) }
+                Text(unit != nil ? "\(euclideousSigned(value)) \(unit!)" : "\(value)")
+                    .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white).lineLimit(1)
+                    .frame(minWidth: 44)
+                Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
+                    .frame(width: 36, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { onChange(min(range.upperBound, value + 1)) }
+            }
+        }
+    }
+    private func melodySectionTitle(_ s: String) -> some View {
+        Text(s).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+    }
+    /// §2.2's own exact note names — "LOWEST, ALL" repeated twice in the ferry's own worked examples,
+    /// matching the already-established `.low`→"LOWEST" precedent (NOTE VIEW's own label, this same
+    /// file) — not a blanket rename, just the names the ferry literally gives for each case.
+    private func melodyNoteSelLabel(_ s: EuclidNoteSel) -> String {
+        switch s {
+        case .low: return "LOWEST"; case .high: return "HIGHEST"
+        case .bottom2: return "BOTTOM TWO"; case .top2: return "TOP TWO"
+        case .n1: return "1"; case .n2: return "2"; case .n3: return "3"; case .n4: return "4"
+        case .n5: return "5"; case .n6: return "6"; case .n7: return "7"; case .n8: return "8"
+        default: return s.rawValue   // ALL, CYCLE
+        }
+    }
+    private func melodySourceSection(_ idx: Int, line: EuclidLine, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: sp4) {
+            melodySectionTitle("SOURCE")
+            HStack(spacing: sp4) {
+                ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
+                    melodyButton(src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS"), on: line.sourceModeResolved == src, accent: accent) {
+                        edit(idx) { $0.sourceMode = src }
+                    }
+                }
+            }
+        }
+    }
+    private func melodyModeSection(_ idx: Int, line: EuclidLine, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: sp4) {
+            melodySectionTitle("MODE")
+            HStack(spacing: sp4) {
+                melodyButton("RIFF", on: line.useRiffResolved, accent: accent) { edit(idx) { $0.useRiff = true } }
+                melodyButton("NOTE", on: !line.useRiffResolved, accent: accent) { edit(idx) { $0.useRiff = false } }
+            }
+        }
+    }
+    /// §4.3: "the NOTE choices as segmented buttons, wrapping onto further rows as needed" — chunked 4
+    /// per row from the SAME RANDOM-free `euclideousNoteSelCycle` the old 4th pad's drag-cycle also
+    /// reads, so the two can never offer a different set.
+    private func melodyNoteSection(_ idx: Int, line: EuclidLine, accent: Color) -> some View {
+        let items = euclideousNoteSelCycle
+        let rows = stride(from: 0, to: items.count, by: 4).map { Array(items[$0..<min($0 + 4, items.count)]) }
+        return VStack(alignment: .leading, spacing: sp4) {
+            melodySectionTitle("NOTE")
+            ForEach(rows.indices, id: \.self) { r in
+                HStack(spacing: sp4) {
+                    ForEach(rows[r], id: \.self) { sel in
+                        melodyButton(melodyNoteSelLabel(sel), on: line.noteSelResolved == sel, accent: accent) {
+                            edit(idx) { $0.noteSel = sel }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /// §4.3's 4 WALK rows exactly: DIRECTION (5, RANDOM dropped per §2.1) · FREE/LOCK+INVERT+HIT/STEP ·
+    /// ON REST, labelled · STRIDE+LENGTH steppers, labelled.
+    private func melodyWalkSection(_ idx: Int, line: EuclidLine, accent: Color) -> some View {
+        let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong, .drunk]
+        return VStack(alignment: .leading, spacing: sp4) {
+            melodySectionTitle("WALK")
+            HStack(spacing: sp4) {
+                ForEach(dirs, id: \.self) { d in
+                    melodyButton(riffDirShortLabel(d), on: line.riffDirResolved == d, accent: accent) { edit(idx) { $0.riffDir = d } }
+                }
+            }
+            HStack(spacing: sp4) {
+                melodyButton(line.riffLockResolved ? "LOCK" : "FREE", on: line.riffLockResolved, accent: accent) {
+                    edit(idx) { $0.riffLock = !($0.riffLockResolved) }
+                }
+                melodyButton("INVERT", on: line.riffInvertResolved, accent: accent) {
+                    edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
+                }
+                melodyButton(line.riffAdvanceStepResolved ? "STEP" : "HIT", on: line.riffAdvanceStepResolved, accent: accent) {
+                    edit(idx) { $0.riffAdvanceStep = !($0.riffAdvanceStepResolved) }
+                }
+            }
+            HStack(spacing: sp4) {
+                Text("ON REST").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
+                    melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent) { edit(idx) { $0.riffOnRest = r } }
+                }
+            }
+            HStack(spacing: sp16) {
+                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7) { v in edit(idx) { $0.riffStride = v } }
+                melodyStepper("LENGTH", value: line.riffLengthResolved, range: 1...8) { v in edit(idx) { $0.riffLength = v } }
+            }
+        }
+    }
+    /// §4.3's final row: SHIFT (RIFF-only, hidden in NOTE mode per the ratified reading — its own range
+    /// depends on LENGTH, a WALK-only concept) + TRANSPOSE (both modes) + OCT (both modes), one row.
+    private func melodyPlacementSection(_ idx: Int, line: EuclidLine, accent: Color) -> some View {
+        let transposeUnit = line.sourceModeResolved == .key ? "st" : "pos"   // §4.5
+        return VStack(alignment: .leading, spacing: sp4) {
+            melodySectionTitle("PLACEMENT")
+            HStack(spacing: sp16) {
+                if line.useRiffResolved {
+                    let n = line.riffLengthResolved
+                    let shift = ((line.riffRotateResolved % n) + n) % n
+                    melodyStepper("SHIFT", value: shift, range: 0...(n - 1)) { v in edit(idx) { $0.riffRotate = v } }
+                }
+                melodyStepper("TRANSPOSE", value: line.melodyTransposeResolved, range: -7...7, unit: transposeUnit) { v in
+                    edit(idx) { $0.melodyTranspose = v }
+                }
+                melodyStepper("OCT", value: line.useRiffResolved ? line.riffOctaveResolved : line.octaveResolved, range: -3...3) { v in
+                    edit(idx) { l in if l.useRiffResolved { l.riffOctave = v } else { l.octave = v } }
+                }
+            }
+        }
+    }
+    /// §4.2: lane-colour dot + "LANE n · MELODY" + ✕ — combines three previously-separate precedents
+    /// (the dot from `noteViewLabelRow`, the "LANE n ..." title phrasing from `ratePopupCard`/
+    /// `riffDirPopupCard`, the ✕ from `chordsPopupCard`); no single existing popup header has all three.
+    private func melodyPopupCard(_ idx: Int, availableHeight: CGFloat, grewAbove: Bool) -> some View {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let accent = laneAccents[idx % laneAccents.count]
+        let cardWidth: CGFloat = 400
+        let headerH: CGFloat = 28
+        let pointerH: CGFloat = 8
+        // §1.5: the ScrollView's own height budget comes from the REAL space available in whichever
+        // direction the card grew (`availableHeight`, from `euclideousMelodyAnchor`), minus the header/
+        // pointer/padding this same card adds around it — never a flat, unverified guess.
+        let scrollMaxH = max(100, availableHeight - headerH - pointerH - sp16 * 2 - sp16)
+        let header = HStack(spacing: sp8) {
+            Circle().fill(lane100(accent)).frame(width: 8, height: 8)
+            Text("LANE \(idx + 1) · MELODY").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+            Spacer()
+            Image(systemName: "xmark").font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.5))
+                .contentShape(Rectangle()).onTapGesture { melodyPopupLane = nil }
+        }
+        .frame(height: headerH)
+        let body = ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: sp16) {
+                melodySourceSection(idx, line: line, accent: accent)
+                melodyModeSection(idx, line: line, accent: accent)
+                if line.useRiffResolved { melodyWalkSection(idx, line: line, accent: accent) }
+                else { melodyNoteSection(idx, line: line, accent: accent) }
+                melodyPlacementSection(idx, line: line, accent: accent)
+            }
+        }
+        .frame(maxHeight: scrollMaxH)
+        let card = VStack(alignment: .leading, spacing: sp16) { header; body }
+            .padding(sp16)
+            .frame(width: cardWidth)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        return VStack(spacing: 0) {
+            if !grewAbove { melodyPointer(pointingDown: false) }
+            card
+            if grewAbove { melodyPointer(pointingDown: true) }
+        }
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
@@ -1989,15 +2276,37 @@ struct EuclideousPage: View {
             noteViewTrackRow(idx, line, accent: accent, width: width, height: bodyH, cyc: cyc, windowBeats: windowBeats)
         }
         .frame(width: width, height: height, alignment: .leading)
+        // STRIP FRAME PUBLISHING (melody pop-up ferry §1.2, "anchored to the strip") — the direct sibling
+        // of the XY pad's own frame-publishing background (`EuclideousPadFramePreferenceKey`), same
+        // coordinate space, so the pop-up can anchor itself here.
+        .background(
+            GeometryReader { g in
+                Color.clear.preference(key: EuclideousStripFramePreferenceKey.self,
+                                        value: [idx: g.frame(in: .named("euclideousXY"))])
+            }
+        )
+        .overlay(alignment: .top) {
+            // THE TAP TARGET (§1.1, literal): "a 30pt-tall touch area, extending invisibly into the top
+            // of the track." An `.overlay` never feeds back into its host's own layout size, so this
+            // doesn't steal any height from the track below — it just paints/hit-tests an invisible 30pt
+            // zone OVER the label (14pt) plus the track's own top 16pt. Scoped to exactly 30pt so "taps
+            // on the track and note box must never open it" holds by construction: nothing below this
+            // overlay's own bounds is affected.
+            Rectangle().fill(Color.clear).frame(width: width, height: 30)
+                .contentShape(Rectangle())
+                .onTapGesture { melodyPopupLane = idx }
+        }
     }
 
-    // MARK: - The strip label (NOTE VIEW strip labels ferry, Paul 2026-10-10): display-only, 14pt, never
-    // tappable, updates automatically since it's a pure read of `line`'s own already-live fields every
-    // redraw — no new state, no new poll.
+    // MARK: - The strip label (NOTE VIEW strip labels ferry, Paul 2026-10-10): display-only, 14pt,
+    // updates automatically since it's a pure read of `line`'s own already-live fields every redraw — no
+    // new state, no new poll. TAPPABLE as of the melody pop-up ferry (§1.1) — the actual tap handling
+    // lives on `noteViewStrip`'s own 30pt overlay above, not here, so this row no longer declares
+    // `.allowsHitTesting(false)` (that would otherwise read as contradicting "the label is tappable" to
+    // a future reader, even though the overlay sitting above it in z-order would already intercept the
+    // touch either way).
 
-    /// §1.3/§1.4, literal: a 6pt LANE-100 dot, then the joined text at 10pt `#AAB0BA`. `.allowsHitTesting
-    /// (false)` (§3.3) makes this genuinely unable to intercept a touch, not just "happens to have no
-    /// gesture attached."
+    /// §1.3/§1.4 (strip labels ferry), literal: a 6pt LANE-100 dot, then the joined text at 10pt `#AAB0BA`.
     private func noteViewLabelRow(_ line: EuclidLine, accent: Color, width: CGFloat) -> some View {
         let dotAndGap: CGFloat = 6 + 4
         let textW = max(1, width - dotAndGap)
@@ -2008,7 +2317,6 @@ struct EuclideousPage: View {
                 .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
         }
         .frame(width: width, height: 14, alignment: .leading)
-        .allowsHitTesting(false)
     }
     /// The ordered content items (ferry 2 §2, literal order) — always Source + Mode, then only the
     /// non-default modifiers that apply, in the stated order.
@@ -2026,7 +2334,9 @@ struct EuclideousPage: View {
             items.append(line.noteSelResolved == .low ? "LOWEST" : line.noteSelResolved.rawValue)
         }
         if line.useRiffResolved {
-            let shift = ((line.riffRotateResolved % shiftSteps) + shiftSteps) % shiftSteps
+            // SHIFT wraps within LENGTH now, not the old literal 8 (melody pop-up ferry 2026-10-10).
+            let n = line.riffLengthResolved
+            let shift = ((line.riffRotateResolved % n) + n) % n
             if shift != 0 { items.append("SHIFT \(shift)") }
         }
         let oct = line.useRiffResolved ? line.riffOctaveResolved : line.octaveResolved
@@ -2035,7 +2345,18 @@ struct EuclideousPage: View {
             if line.riffLockResolved { items.append("LOCK") }
             if line.riffInvertResolved { items.append("INV") }   // riffInvert — NOT the separate HIT/MISS swap toggle
             if line.riffOnRestResolved != .skip { items.append(line.riffOnRestResolved == .fill ? "REST FILL" : "REST TIE") }
+            // STRIDE/LENGTH (melody pop-up ferry 2026-10-10 §5), after the existing riff items — WALK-
+            // section, RIFF-mode-only fields per §2's own table.
+            if line.riffStrideResolved != 1 { items.append("STRIDE \(line.riffStrideResolved)") }
+            if line.riffLengthResolved != 8 { items.append("LEN \(line.riffLengthResolved)") }
         }
+        // TRANSPOSE (§5) applies in both modes — PLACEMENT isn't WALK-only, matching the pop-up's own
+        // layout. §5's own literal order is STRIDE·LEN·TRANS·ADV STEP, so TRANS lands here, between the
+        // two RIFF-only groups above and below, even though it isn't itself RIFF-gated.
+        if line.melodyTransposeResolved != 0 { items.append("TRANS \(euclideousSigned(line.melodyTransposeResolved))") }
+        // ADVANCE (§5, last in the ferry's own order) has no engine effect at all outside RIFF mode —
+        // gated here too, not shown as a dangling, inert setting in NOTE mode.
+        if line.useRiffResolved && line.riffAdvanceStepResolved { items.append("ADV STEP") }
         return items
     }
     /// §3.2, literal: "never truncate in the middle of a word or show an ellipsis. If the line doesn't fit,

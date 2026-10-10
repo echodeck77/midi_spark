@@ -5,6 +5,26 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS MELODY POP-UP — SHIPPED (2026-10-10; LANDED on `fix/euclid-no-scroll-direction-order-2x2-grid`,
+macOS 1280 green incl. +12, iOS builds clean) — see CLAUDE.md's status log for the full writeup.
+- [ ] DEVICE: the pop-up's layout in portrait/landscape (RIFF mode, NOTE mode, a case forcing the scroll).
+- [ ] DEVICE: the anchored-popover mechanism — pointer lands against the tapped strip; above/below flip for
+      lane 1 vs lane 4; the non-dimming tap-catcher reads as intentional.
+- [ ] DEVICE: the 30pt tap zone catches a tap near the track without the track/note-box ever responding to one.
+- [ ] DEVICE/EAR: STRIDE/LENGTH/ADVANCE/TRANSPOSE's feel, especially TIE+STRIDE+LENGTH+ADVANCE=STEP together;
+      the LOCK+REVERSE starting-position reading (flagged as a judgment call, not confirmed intent).
+- [ ] DEVICE: a fresh instance opens on SOURCE=KEY and NOTE=LOWEST now; the old 4th-pad SHIFT control and the
+      new pop-up's own SHIFT stepper agree once LENGTH≠8.
+- **NEXT: a follow-up ferry (relayed 2026-10-10, mid-build) explicitly SUPERSEDES §6** (the deferred lane-card
+  cleanup) — "rhythm cards cleared of melody; MISS becomes an invert." Two real pieces: (1) strip the 4th pad
+  and the RIFF/I-O-source controls off the lane card entirely (tab row becomes I/O·PATTERN·MASK; the 3
+  remaining pads share the freed width), now that the melody pop-up is the sole home for those settings; (2)
+  a genuine engine change — HIT/MISS becomes a single per-lane invert of the pattern (MISS = play the
+  non-hit steps, silent on hits; one voice, not two) — removing the separate miss-side note/octave/velocity/
+  gate settings entirely, with ADVANCE=HIT/riff-walk/mask/VEL-GATE all redefined to track whichever steps
+  actually sound post-invert. To be planned (not yet started) once this entry's own device-eye pass is
+  underway or complete.
+
 ## ★ PASSGATE — REMOVED ENTIRELY (2026-09-28; LANDED on `refactor/remove-passgate`, `2839240`, macOS 1142 green, iOS
 builds). The processor + its engine plumbing are gone; `ProcessorType.empty` is now purely the internal empty-chain-
 slot sentinel (never user-addable). Factory scenes renumbered 10-16→9-15 (scene 9 cut, not replaced). Full story in

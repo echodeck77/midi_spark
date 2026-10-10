@@ -696,7 +696,11 @@ enum SnapshotBuilder {
                                                                       riffDirBias: $0.riffDirBias.map { clamp($0, -1, 1) },
                                                                       mask: $0.mask, sourceMode: $0.sourceMode,
                                                                       tilt: $0.tilt.map { clamp($0, -1, 1) },
-                                                                      riffLock: $0.riffLock, riffInvert: $0.riffInvert, riffOnRest: $0.riffOnRest) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by)
+                                                                      riffLock: $0.riffLock, riffInvert: $0.riffInvert, riffOnRest: $0.riffOnRest,
+                                                                      riffStride: $0.riffStride.map { clamp($0, 1, 7) },
+                                                                      riffLength: $0.riffLength.map { clamp($0, 1, 8) },
+                                                                      riffAdvanceStep: $0.riffAdvanceStep,
+                                                                      melodyTranspose: $0.melodyTranspose.map { clamp($0, -7, 7) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by)
         out.euclideousRiff = { let r = p.euclideousRiff ?? EuclideousRiff(); var rr = r
             rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved
             return rr }()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved/clamped once here

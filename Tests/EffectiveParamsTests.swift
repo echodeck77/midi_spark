@@ -184,6 +184,48 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(back.riffDirBiasResolved, 0.5)
     }
 
+    // MELODY POP-UP (Paul 2026-10-10 ferry): riffStride/riffLength/riffAdvanceStep/melodyTranspose are the
+    // newest four EuclidLine fields — same CR-8 contract as every field above, a doc saved before they
+    // existed must still decode without throwing.
+    func testEuclidLineDecodesWithoutMelodyPopupKeys() throws {
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
+        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertEqual(line.riffStrideResolved, 1, "nil ⇒ 1, byte-identical for every existing doc")
+        XCTAssertEqual(line.riffLengthResolved, 8, "nil ⇒ 8")
+        XCTAssertFalse(line.riffAdvanceStepResolved, "nil ⇒ HIT")
+        XCTAssertEqual(line.melodyTransposeResolved, 0)
+    }
+    func testEuclidLineMelodyPopupFieldsRoundTripThroughCodable() throws {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.riffStride = 4
+        line.riffLength = 5
+        line.riffAdvanceStep = true
+        line.melodyTranspose = -3
+        let data = try JSONEncoder().encode(line)
+        let back = try JSONDecoder().decode(EuclidLine.self, from: data)
+        XCTAssertEqual(back.riffStrideResolved, 4)
+        XCTAssertEqual(back.riffLengthResolved, 5)
+        XCTAssertTrue(back.riffAdvanceStepResolved)
+        XCTAssertEqual(back.melodyTransposeResolved, -3)
+    }
+    func testEuclidLineMelodyPopupFieldsClampToTheirRanges() {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.riffStride = 99; XCTAssertEqual(line.riffStrideResolved, 7, "clamps to 1...7")
+        line.riffStride = -5; XCTAssertEqual(line.riffStrideResolved, 1)
+        line.riffLength = 99; XCTAssertEqual(line.riffLengthResolved, 8, "clamps to 1...8")
+        line.riffLength = -5; XCTAssertEqual(line.riffLengthResolved, 1)
+        line.melodyTranspose = 99; XCTAssertEqual(line.melodyTransposeResolved, 7, "clamps to -7...7")
+        line.melodyTranspose = -99; XCTAssertEqual(line.melodyTransposeResolved, -7)
+    }
+    // SOURCE DEFAULT FLIP (Paul 2026-10-10 ferry §2.2): "the default SOURCE for a new instance is KEY" —
+    // reverses the 2026-10-08 MIDI default (CLAUDE.md's own history records that original choice as
+    // deliberate, to avoid silencing an already-shipped feature at the time — this flip is a fresh,
+    // explicit instruction, not an accidental reversion of it).
+    func testEuclidLineSourceModeDefaultsToKey() {
+        let fresh = EuclidLine(pulses: 3, steps: 8)
+        XCTAssertEqual(fresh.sourceModeResolved, .key, "nil ⇒ KEY, per the melody pop-up ferry's own §2.2")
+    }
+
     // EUCLIDEOUS: PluginState's own persisted config — a doc saved before this feature existed must decode with
     // the page simply absent/disabled, never throw (the same CR-8 contract every other PluginState field follows).
     func testEuclideousFieldsDecodeAbsentAndResolveToDisabled() throws {
@@ -203,6 +245,12 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(lines[0].pulses, 1, "lane 1 opens audible, 1 of 8")
         XCTAssertTrue(lines[1...3].allSatisfy { $0.pulses == 0 }, "lanes 2-4 open deliberately silent (0 hits) until raised")
         XCTAssertTrue(lines.allSatisfy { $0.steps == 8 }, "every lane defaults to 8 steps")
+        // MELODY POP-UP (Paul 2026-10-10 ferry §2): NOTE defaults to LOWEST, MODE defaults to RIFF — found
+        // on a plan self-re-audit that `euclideousDefaultLine`, not EuclidLine's own shared accessor
+        // fallback, is where these fresh-lane defaults actually live; this is the correctly-scoped place
+        // to lock them in (MODE was ALREADY correct before this ferry — this also guards it stays that way).
+        XCTAssertTrue(lines.allSatisfy { $0.noteSelResolved == .low }, "every fresh lane defaults NOTE to LOWEST")
+        XCTAssertTrue(lines.allSatisfy { $0.useRiffResolved }, "every fresh lane defaults MODE to RIFF")
     }
     func testEuclideousLinesResolvedPadsAndTruncates() {
         var d = doc()

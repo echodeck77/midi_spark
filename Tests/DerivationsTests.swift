@@ -593,6 +593,10 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousStepNoteSel(.all, by: -1), euclideousNoteSelCycle.last)
         XCTAssertFalse(euclideousNoteSelCycle.contains(.riff), ".riff must never appear in the cycle — Euclideous's cell has no preceding slot, so it would silently go silent")
         XCTAssertFalse(euclideousNoteSelCycle.contains(.arp), "same for .arp")
+        // MELODY POP-UP (Paul 2026-10-10 ferry §2.1): "remove RANDOM from the NOTE choices... everywhere
+        // it still appears" — the case itself stays decode-safe (an old doc with .random saved still
+        // resolves and plays correctly), only the offered list shrinks.
+        XCTAssertFalse(euclideousNoteSelCycle.contains(.random), "RANDOM must no longer be offered in the NOTE cycle")
     }
     // COMET SWEEP DIRECTION (Paul 2026-10-02: "reverses direction when reverse is chosen... goes back and forth
     // on pingpong") — euclidCometRaw/euclidCometPos drive the GridUI comet bar's own visual motion.
