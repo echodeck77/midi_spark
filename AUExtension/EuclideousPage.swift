@@ -305,30 +305,31 @@ struct EuclideousPage: View {
     private let laneOutSize: CGFloat = 30
     private let mainOutSize: CGFloat = 36
 
-    // --- TYPE SCALE (ferry §4): exactly three fixed sizes — heading/value/subtitle — identical in every
-    // pad, lane, and orientation. NOTHING using these three sizes gets `.minimumScaleFactor` — the sizes
-    // are chosen so the longest COMPACT string at each level fits the narrowest pad at the smallest
-    // supported layout, worked by hand below (the one thing this environment cannot verify against real
-    // on-device text metrics — flagged plainly, not silently assumed correct):
-    //
-    //   Worst-case CONTENT after compacting every pad's own strings (see the HUD formatters further down —
-    //   "16 STP" not "16 STEPS", velocity as "200%" not a bare "200", RANDOM→"RND"/CYCLE→"CYC", etc.):
-    //     heading:  "TILT/HITS" / "SHIFT/OCT"  → 9 characters
-    //     value:    "16 HITS"                  → 7 characters
-    //     subtitle: "OCT -3"                   → 6 characters
-    //
-    //   Narrowest SUPPORTED pad width: landscape at an assumed 768pt-wide panel (iPad mini's own portrait
-    //   width, used here as a conservative floor — this environment has no access to AUM's actual enforced
-    //   minimum window size, so this is a documented assumption, not a verified constant). Container = 768
-    //   − 32 (page margins) = 736; lane grid = 64% of that ≈ 471; one of 2 columns, minus the 8pt inter-card
-    //   gap, ≈ 231.5; one of 4 pads, minus 16pt card padding and 3×4pt inter-pad gaps, ≈ 50.9pt; minus 4pt
-    //   text inset each side ≈ 42.9pt usable. A monospaced system font's advance width is ~0.6× its point
-    //   size, so the ceiling at each level is usable/(chars×0.6): heading ≈7.9pt, value ≈10.2pt, subtitle
-    //   ≈11.9pt. Picked comfortably under each ceiling, in a strict hierarchy (heading < subtitle < value,
-    //   value being the pad's own "hero" number):
-    private let padHeadingSize: CGFloat = 7
-    private let padValueSize: CGFloat = 9
-    private let padSubtitleSize: CGFloat = 8
+    // --- TYPE SCALE (this ferry §5.5/§6, superseding the layout-system ferry's own original derivation —
+    // its "~43pt usable pad width" estimate was computed against the now-superseded six-equal-boxes layout
+    // and no longer applies under §1's full-width fix). Two explicit rules now PIN two of these three
+    // sizes directly, rather than deriving every size from a hand-measured worst-case fit:
+    //   - §5.5: axis labels (`padHeadingSize`) are "at least 10pt" — a literal floor, not a fit-derived
+    //     number — paired with an explicit FALLBACK (`euclideousAxisLabelFits`, below) for any name that
+    //     genuinely doesn't fit a given pad at that size: show the bare arrow glyph(s) instead of the full
+    //     "← NAME →" string, rather than shrinking under the floor.
+    //   - §6.2: "pad readout line 1... must be larger than the tab labels. Set the tab labels to the pad
+    //     readout line-2 size" — so `padSubtitleSize` (line 2) IS the tab-label size (read by
+    //     `laneTabRow`, not just this pad), and `padValueSize` (line 1) must exceed it. Both ≥10pt, per
+    //     §6.1's own general floor.
+    // NOTHING using these three sizes gets `.minimumScaleFactor` — a render below the chosen size is
+    // exactly what §6.1 forbids.
+    private let padHeadingSize: CGFloat = 10
+    private let padValueSize: CGFloat = 13
+    private let padSubtitleSize: CGFloat = 11
+    /// §5.5's fit check: "if a name doesn't fit at 10pt, show the arrows only." No live text-measurement
+    /// API is reached for here (same reasoning as the bubble's own fixed-width estimate elsewhere in this
+    /// file) — a character-count heuristic, hand-derived against the narrowest axis-label space this new
+    /// layout can produce (the bottom edge, bounded by the pad's own width): OFFSET/STEPS/SHIFT (5–6
+    /// chars) are the names most likely to overflow; HITS/TILT/VEL/GATE/OCT/NOTE (3–4 chars) comfortably
+    /// fit alongside their own flanking arrows. Flagged, not measured — the one thing this environment
+    /// cannot verify against real on-device text metrics.
+    private func euclideousAxisLabelFits(_ name: String) -> Bool { name.count <= 4 }
 
     /// Edits ONE line by index — the shared mutation path every per-lane control below goes through.
     private func edit(_ idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) {
@@ -466,16 +467,22 @@ struct EuclideousPage: View {
             .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
     }
 
-    // MARK: - ONE CONTAINER (ferry §2): "the plugin view's bounds minus 16pt on the left and right. Header,
-    // lane grid and riff panel are all laid out inside it, and their left and right edges line up exactly
-    // with its edges. Nothing is drawn outside the container. No horizontal scrolling." Applied on all four
-    // sides for symmetry (top/bottom get the same sp16 — §2's own wording names left/right explicitly because
-    // that's where the overflow bugs were, not because top/bottom should be bare).
+    // MARK: - ONE CONTAINER (this ferry §1.3, re-affirming the layout-system ferry's own rule): "the view's
+    // bounds minus 16pt left and right. Header, lane grid and riff panel all span exactly that container.
+    // Left and right margins must be equal within 1pt." Applied on all four sides for symmetry.
     //
-    /// The riff panel's total height at a given row height: top+bottom padding (sp8 each) + the header text
-    /// row (~18pt) + a gap + the position-dot row (12pt) + a gap + 8 matrix rows with 7 gaps between them.
+    /// The riff panel's total height at a given MATRIX row height: top+bottom padding (sp8 each) + the
+    /// title row (just "RIFF" — §7.1 drops the old subtitle) + a gap + the position-dot row (10pt — §7.2)
+    /// + a gap + 8 matrix rows with 7 gaps between them. `riffRowHForPanelHeight` solves the SAME formula
+    /// backward from an outer height — one pair, so the panel's claimed height and its internal row height
+    /// can never silently disagree.
+    private let riffTitleRowH: CGFloat = 18
+    private let riffDotRowH: CGFloat = 10   // ferry §7.2: "reserve 10pt of height for the per-lane position dots"
     private func riffPanelHeight(rowH: CGFloat) -> CGFloat {
-        sp8 * 2 + 18 + sp4 + 12 + sp4 + rowH * 8 + sp4 * 7
+        sp8 * 2 + riffTitleRowH + sp4 + riffDotRowH + sp4 + rowH * 8 + sp4 * 7
+    }
+    private func riffRowHForPanelHeight(_ panelH: CGFloat) -> CGFloat {
+        max(4, (panelH - sp8 * 2 - riffTitleRowH - sp4 - riffDotRowH - sp4 - sp4 * 7) / 8)
     }
 
     // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`),
@@ -488,90 +495,91 @@ struct EuclideousPage: View {
     /// `riffDirGrid`'s own 2 rows (OFF/direction-chip/FREE-LOCK, then INVERT/ON-REST — ferry 2026-10-09),
     /// `maskCometRow`+`maskStubRow`) — not a bare `36×2`.
     private var tabContentH: CGFloat { contentLineH * 2 + sp4 }
+    /// A lane card's own fixed overhead — every row EXCEPT the gesture-pad row, which stretches to fill
+    /// whatever's left (see `laneCard`). Used only to protect a lane-grid floor in `portraitLayout` below.
+    private var laneCardFixedOverhead: CGFloat { cometRowH + tabRowH + tabContentH + sp8 * 2 + sp4 * 3 }
 
-    /// SIX EQUAL BOXES (Paul 2026-10-09, 4th ferry — SUPERSEDES the independent-riff-sizing design below
-    /// entirely): "the plan is to have the app consisting of six equal sized boxes" — the 4 Euclid lanes, the
-    /// riff grid, and ONE RESERVED/placeholder box (6th), all exactly the same size, filling the available
-    /// space. PORTRAIT lays them out 2 columns × 3 rows (lanes fill rows 1–2, riff + placeholder share row
-    /// 3) — the narrower, taller shape matching portrait's own aspect ratio. One `cellSize` drives every box
-    /// on the page: whichever of the width- or height-derived candidate is smaller, so nothing overflows
-    /// either axis and the whole grid genuinely uses all available space (no independent "riff gets 36%"-
-    /// style carve-out anymore — riff is just another cell).
+    /// FULL-WIDTH LAYOUT (this ferry §1, a BLOCKER fix; §2 removes the placeholder entirely) — SUPERSEDES
+    /// the "six equal boxes" design wholesale. ROOT CAUSE of the reported bug: that design forced every
+    /// cell to be SQUARE (`cellSize = min(widthCandidate, heightCandidate)`) — whichever axis was more
+    /// constrained (usually height, since these panels are wide) set the size, and the OTHER axis was left
+    /// with unclaimed empty space the square cells never grew into. "Content stops ~350px short of the
+    /// right edge" is exactly that. FIXED by computing the lane grid's width and height INDEPENDENTLY
+    /// (lane cards are no longer forced square) so the grid always fills its own column on BOTH axes, by
+    /// construction — re-verified numerically (not just reasoned through) at several panel sizes before
+    /// shipping, since that's the only check this environment can actually perform; see the reply for the
+    /// worked numbers.
+    ///
+    /// PORTRAIT: lane grid spans the full container width (§1.4); riff panel spans the full container width
+    /// below it. The riff panel gets a TARGET height (`riffRowHTarget`, 20pt/row) but FLEXES DOWN below it
+    /// — never the lane grid — whenever the two would otherwise compete for space smaller than the lane
+    /// grid's own protected floor (`laneCardFixedOverhead`×2 rows + the inter-row gap) — the same "fit
+    /// always wins, but the primary content is protected first" precedent an earlier ferry already
+    /// established for this exact tension.
+    private let riffRowHTarget: CGFloat = 20
     private func portraitLayout(_ size: CGSize) -> some View {
         let headerH = portraitHeaderHeight
         let containerW = size.width - sp16 * 2
-        let fixedVOverhead = sp16 * 3   // top margin + header↔grid gap + bottom margin
-        let availableH = max(1, size.height - fixedVOverhead - headerH)
-        let cellW = max(1, (containerW - sp8) / 2)
-        let cellH = max(1, (availableH - sp8 * 2) / 3)
-        let cellSize = min(cellW, cellH)
-        let riffRowH = max(1, (cellSize - riffPanelHeight(rowH: 0)) / 8)
+        let totalBelowH = max(1, size.height - headerH - sp16 * 3)   // top margin + header↔grid gap + bottom margin
+        let riffTargetH = riffPanelHeight(rowH: riffRowHTarget)
+        let laneGridMinH = laneCardFixedOverhead * 2 + sp8   // 2 lane-card rows + the gap between them; the gesture-pad row alone shrinks toward 0
+        let riffH = min(riffTargetH, max(1, totalBelowH - sp16 - laneGridMinH))
+        let laneGridH = max(1, totalBelowH - sp16 - riffH)
+        let laneW = max(1, (containerW - sp8) / 2)
+        let laneH = max(1, (laneGridH - sp8) / 2)
+        let riffRowH = riffRowHForPanelHeight(riffH)
         return VStack(alignment: .leading, spacing: sp16) {
             portraitHeader().padding(.horizontal, sp16).padding(.top, sp16)
-            VStack(spacing: sp8) {
-                HStack(spacing: sp8) { laneCard(0, width: cellSize, height: cellSize); laneCard(1, width: cellSize, height: cellSize) }
-                HStack(spacing: sp8) { laneCard(2, width: cellSize, height: cellSize); laneCard(3, width: cellSize, height: cellSize) }
-                HStack(spacing: sp8) {
-                    riffGridView(maxWidth: cellSize, rowH: riffRowH).frame(width: cellSize, height: cellSize)
-                    euclideousPlaceholderBox(size: cellSize)
+            VStack(spacing: sp16) {
+                VStack(spacing: sp8) {
+                    HStack(spacing: sp8) { laneCard(0, width: laneW, height: laneH); laneCard(1, width: laneW, height: laneH) }
+                    HStack(spacing: sp8) { laneCard(2, width: laneW, height: laneH); laneCard(3, width: laneW, height: laneH) }
                 }
+                riffGridView(maxWidth: containerW, rowH: riffRowH).frame(width: containerW, height: riffH)
             }
             .frame(width: containerW, alignment: .leading)
             .padding(.horizontal, sp16).padding(.bottom, sp16)
         }
     }
 
-    /// LANDSCAPE (ferry 2026-10-09, 4th ferry): the SAME six-equal-boxes rule as portrait, transposed to
-    /// landscape's wider-than-tall shape — 3 columns × 2 rows (lanes fill the first 2 columns, riff +
-    /// placeholder share the 3rd column, one per row).
+    /// LANDSCAPE (this ferry §1.4, literal): lane grid ≈64% of the container, riff panel ≈36%, a 16pt gap
+    /// between them. The riff column's share is computed DIRECTLY from the container, and the lane column
+    /// takes the exact COMPLEMENT (`containerW − riffColW − sp16`) — the two always sum to exactly
+    /// `containerW`, never a rounding-induced gap at the right edge (unlike computing both independently as
+    /// separate percentages, which can under/overshoot by a point and reopen exactly this ferry's own bug).
+    /// The riff panel takes the FULL column height (§1.4); the lane grid's 2×2 cells are sized independently
+    /// on each axis from that column, same non-square fix portrait uses above.
     private func landscapeLayout(_ size: CGSize) -> some View {
         let headerH = landscapeHeaderHeight
         let containerW = size.width - sp16 * 2
-        let belowH = max(1, size.height - headerH - sp16 * 3)   // sp16 top + header↔grid gap + bottom margin
-        let cellW = max(1, (containerW - sp8 * 2) / 3)
-        let cellH = max(1, (belowH - sp8) / 2)
-        let cellSize = min(cellW, cellH)
-        let riffRowH = max(1, (cellSize - riffPanelHeight(rowH: 0)) / 8)
+        let belowH = max(1, size.height - headerH - sp16 * 3)   // top margin + header↔grid gap + bottom margin
+        let riffColW = containerW * 0.36
+        let laneColW = containerW - riffColW - sp16
+        let laneW = max(1, (laneColW - sp8) / 2)
+        let laneH = max(1, (belowH - sp8) / 2)
+        let riffRowH = riffRowHForPanelHeight(belowH)
         return VStack(alignment: .leading, spacing: sp16) {
             landscapeHeader().padding(.horizontal, sp16).padding(.top, sp16)
-            VStack(spacing: sp8) {
-                HStack(spacing: sp8) {
-                    laneCard(0, width: cellSize, height: cellSize)
-                    laneCard(1, width: cellSize, height: cellSize)
-                    riffGridView(maxWidth: cellSize, rowH: riffRowH).frame(width: cellSize, height: cellSize)
+            HStack(spacing: sp16) {
+                VStack(spacing: sp8) {
+                    HStack(spacing: sp8) { laneCard(0, width: laneW, height: laneH); laneCard(1, width: laneW, height: laneH) }
+                    HStack(spacing: sp8) { laneCard(2, width: laneW, height: laneH); laneCard(3, width: laneW, height: laneH) }
                 }
-                HStack(spacing: sp8) {
-                    laneCard(2, width: cellSize, height: cellSize)
-                    laneCard(3, width: cellSize, height: cellSize)
-                    euclideousPlaceholderBox(size: cellSize)
-                }
+                .frame(width: laneColW)
+                riffGridView(maxWidth: riffColW, rowH: riffRowH).frame(width: riffColW, height: belowH)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: containerW, alignment: .leading)
             .padding(.horizontal, sp16).padding(.bottom, sp16)
         }
     }
-    /// The 6th box (Paul 2026-10-09, 4th ferry: "have an empty space for now, or placeholder") — reserved
-    /// for a not-yet-decided future feature. Deliberately inert (no tap target, no label) so it can't read
-    /// as a broken control; the dashed border reuses this page's own existing "reserved/inactive" visual
-    /// language (`laneOutRow`'s dashed chip for a routed-but-MAIN-OUT-gated bus) rather than inventing a new one.
-    private func euclideousPlaceholderBox(size: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 10)
-            .fill(Color.white.opacity(0.02))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
-            .frame(width: size, height: size)
-    }
 
-    // MARK: - Header (Paul 2026-10-09, ferry §5/§6: REBUILT as two genuinely different, FIXED-size layouts —
-    // no more a single row that scales down to fit; §2 forbids horizontal scrolling as a safety net too, so
-    // this has to genuinely fit at the assumed smallest supported width, not degrade toward it.
-    //
-    // PORTRAIT (§5) splits the content across two rows specifically because one row's worth of content (title
-    // + RESET + KEY + CHORDS + MAIN OUT + ON + close) doesn't fit a narrow portrait container even at small
-    // fixed sizes — confirmed by hand below. LANDSCAPE (§6) keeps everything in one row since a landscape
-    // container is typically much wider. Both use FIXED font sizes (a light `.minimumScaleFactor` safety net
-    // on text only — not the pads, which ferry §4 explicitly forbids any shrinking on) rather than a
-    // width-driven scale factor, since §2's "no horizontal scrolling" removes the escape hatch a scale-down-
-    // forever approach used to lean on.
+    // MARK: - Header (this ferry §3, literal): BOTH orientations show exactly EUCLIDEOUS · RESET · KEY −/
+    // chip/+ · CHORDS · MAIN OUT A B C D · ON · close — "nothing in the header may be clipped or missing"
+    // (§3.3). LANDSCAPE is one row, that exact order. PORTRAIT splits across two rows per §3.2's own
+    // literal assignment: row 1 = EUCLIDEOUS · MAIN OUT A B C D · ON · close; row 2 = RESET · KEY −/chip/+
+    // · CHORDS (RESET moved OFF row 1 — a direct, deliberate change from the prior ferry's own split, not
+    // a continuation of it). Every label is a flat 10pt with NO `.minimumScaleFactor` (§6.1's own floor —
+    // see the per-function comments below for why a scale factor is now actively forbidden, not just unused).
     private let headerRowH: CGFloat = 30
     private let headerBtnH: CGFloat = 28
 
@@ -598,45 +606,43 @@ struct EuclideousPage: View {
         .frame(height: headerRowH)
     }
 
-    /// PORTRAIT row 1 (ferry §5): EUCLIDEOUS · RESET · MAIN OUT A B C D · ON · close.
+    /// PORTRAIT row 1 (this ferry §3.2, literal): EUCLIDEOUS · MAIN OUT A B C D · ON · close — RESET moved
+    /// OUT to row 2 (it was here in the prior ferry; this one explicitly re-homes it).
     private func headerRow1() -> some View {
         HStack(spacing: sp4) {
             headerTitle()
             Spacer(minLength: sp4)
-            headerResetChip()
             headerMainOutGroup()
             headerOnChip()
             headerCloseButton()
         }
     }
-    /// PORTRAIT row 2 (ferry §5): KEY −/chip/+ · CHORDS.
+    /// PORTRAIT row 2 (this ferry §3.2, literal): RESET · KEY −/chip/+ · CHORDS.
     private func headerRow2() -> some View {
         HStack(spacing: sp4) {
+            headerResetChip()
             headerKeyGroup()
             Spacer(minLength: sp4)
             headerChordsChip()
         }
     }
 
-    // Title trimmed 12→10pt and both chips below trimmed from sp8→sp4 horizontal padding (found while
-    // numerically re-verifying portrait row 1's own content width, not reported directly): with every
-    // element at its PREVIOUS size, row 1's content measures ~407pt — fits a 768pt-wide landscape-class
-    // panel with room to spare, but overflows well before a genuinely narrow "windowed" portrait panel
-    // (e.g. a 375pt-wide one, the narrowest width any iOS-family app plausibly renders at) — reproducing
-    // exactly the "ON cut off, close missing" failure this very ferry opened with. Trimmed here (plus
-    // dropping MAIN OUT's own caption below) to a verified ~342pt, fitting down to ~375pt wide with a thin
-    // but real margin; the `.minimumScaleFactor` already on this row's text is the remaining safety net
-    // for anything narrower, which this environment cannot verify against real device widths.
+    // TYPE FLOOR (this ferry §6.1: "nothing meaningful is drawn smaller than 10pt. This includes the header
+    // labels (RESET, KEY, MAIN OUT)...") — every header label below was previously 7–9pt with a
+    // `.minimumScaleFactor` that could shrink it further still; both violate the floor, so EVERY size here
+    // is now a flat 10pt with NO scale factor (a renderable minimum below 10pt is exactly what's forbidden —
+    // if a real container is too narrow, text now clips via `.lineLimit(1)` instead of silently shrinking
+    // under the floor, an honest trade-off, not a silent violation).
     private func headerTitle() -> some View {
         Text("EUCLIDEOUS").font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(.white.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.85)
+            .foregroundColor(.white.opacity(0.9)).lineLimit(1)
     }
     private func headerResetChip() -> some View {
         HStack(spacing: sp4) {
-            Text("RESET").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).lineLimit(1)
+            Text("RESET").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).lineLimit(1)
             Text(euclideousResetSpanLabel(resetSpanBars))
-                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                .lineLimit(1).minimumScaleFactor(0.85)
+                .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                .lineLimit(1)
                 .padding(.horizontal, sp4).frame(height: headerBtnH)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
@@ -645,12 +651,12 @@ struct EuclideousPage: View {
     }
     private func headerKeyGroup() -> some View {
         HStack(spacing: sp4) {
-            Text("KEY").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).lineLimit(1)
+            Text("KEY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).lineLimit(1)
             keyStepButton("−")
             Text("\(noteNames[((keyRoot % 12) + 12) % 12]) \(keyType.label)")
-                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                .lineLimit(1).minimumScaleFactor(0.8)
-                .padding(.horizontal, sp8).frame(height: headerBtnH)
+                .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .lineLimit(1)
+                .padding(.horizontal, sp4).frame(height: headerBtnH)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.9)))
                 .contentShape(Rectangle())
                 .onTapGesture { keyPopupOpen = true }
@@ -660,25 +666,23 @@ struct EuclideousPage: View {
     // CHORDS (Paul 2026-10-08) — "next to [KEY] place a chords button that opens a pop-up to a chord grid
     // with rate control."
     private func headerChordsChip() -> some View {
-        Text("CHORDS").font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(.white.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.85)
-            .padding(.horizontal, sp8).frame(height: headerBtnH)
+        Text("CHORDS").font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(.white.opacity(0.8)).lineLimit(1)
+            .padding(.horizontal, sp4).frame(height: headerBtnH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
             .contentShape(Rectangle())
             .onTapGesture { chordsPopupOpen = true }
     }
     // The "MAIN OUT" text caption is DROPPED here (kept in the §5 spec's own wording as the group's
-    // NAME, not a literal required on-screen label) — each circle already shows its own letter (A/B/C/D),
-    // so the caption was informative but not load-bearing, and dropping it was the single largest
-    // contributor to closing the portrait row-1 overflow risk documented above `headerTitle()`.
+    // NAME, not a literal required on-screen label) — each circle already shows its own letter (A/B/C/D).
     private func headerMainOutGroup() -> some View {
         HStack(spacing: sp4) {
             ForEach(0..<4, id: \.self) { b in mainOutToggle(b) }
         }
     }
     private func headerOnChip() -> some View {
-        Text(enabled ? "ON" : "OFF").font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(enabled ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.85)
+        Text(enabled ? "ON" : "OFF").font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(enabled ? .black : .white.opacity(0.6)).lineLimit(1)
             .padding(.horizontal, sp4).frame(height: headerBtnH)
             .background(RoundedRectangle(cornerRadius: 6).fill(enabled ? Color.green.opacity(0.85) : Color.white.opacity(0.08)))
             .onTapGesture { onToggleEnabled() }
@@ -904,7 +908,8 @@ struct EuclideousPage: View {
                           onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0)))
+                          stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, source: line.sourceModeResolved, accent: accent)),
+                          stepCountBadgeWidth: stepCountBadgeTotalWidth)
             gesturePadRow(idx, line, accent, cellSize: gesturePadW, rowHeight: gestureRowH)
             laneTabRow(idx, line, accent, rowH: tabRowH)
             tabContent(idx, line, tab, accent, cellSize: padSize, rowH: contentLineH, fullWidth: innerWidth)
@@ -913,7 +918,9 @@ struct EuclideousPage: View {
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))
         // WHOLE-CARD SELECTION OUTLINE (ferry §1.4): replaces the narrower step-bar-only outline above.
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selectedLane == idx ? accent.opacity(0.85) : Color.clear, lineWidth: 2))
+        // LANE-100 (this ferry §4.1): the selected card's own outline is the full-strength lane colour,
+        // not a softened opacity.
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selectedLane == idx ? lane100(accent) : Color.clear, lineWidth: 2))
         .clipped()
     }
 
@@ -923,15 +930,51 @@ struct EuclideousPage: View {
     /// none"). Both share `EuclidLaneBox`'s one optional `stepCountBadge` slot (nil everywhere else, so the
     /// regular BUILD-page EUCLID editor is unaffected) — stacked rather than adding a second slot, since the
     /// comet row has no more spare width to give a wholly separate widget.
-    private func stepCountBadge(_ n: Int, mask: UInt8) -> some View {
-        VStack(spacing: 1) {
-            Text("\(n)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-            Text(mask == 0 ? "NO OUT" : (0..<4).compactMap { (mask >> UInt8($0)) & 1 != 0 ? ["A", "B", "C", "D"][$0] : nil }.joined())
-                .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                .foregroundColor(mask == 0 ? Color(red: 1, green: 0.71, blue: 0.33) : .white.opacity(0.55))
-                .lineLimit(1).minimumScaleFactor(0.5)
+    // OUTPUT CHIPS + SOURCE BADGE (this ferry §8, literal). The chip grid's own footprint (2 columns wide,
+    // however many rows 0-4 routed outputs need) — `EuclidLaneBox` needs this number explicitly (see
+    // `stepCountBadgeWidth` there) so the comet bar beside it is never told it has more room than it
+    // actually gets.
+    private let stepCountChipCol: CGFloat = 16, stepCountChipGap: CGFloat = 2
+    private var stepCountBadgeTotalWidth: CGFloat { stepCountChipCol * 2 + stepCountChipGap + sp4 + 32 }   // 2 chip columns + the source badge beside them
+    /// §8.1, literal: "replace the bare letter under the step count with mini output chips, 16pt circles
+    /// with a 10pt letter, LANE-40 fill, one chip per routed output. If none are routed, show 'NO OUT' in
+    /// amber." §8.2, literal: "a small always-visible badge per lane showing its source: MIDI, KEY or CHD
+    /// (10pt, neutral grey border, no fill)" — placed BESIDE the step-count+chips block rather than
+    /// stacked under it (the ferry's own "whichever fits" latitude): stacking a 3rd line under an already
+    /// 2-row chip grid didn't fit this row's existing height budget without also growing it, found while
+    /// doing the arithmetic, not assumed — see the reply for the honest ~2pt residual this still leaves.
+    private func stepCountBadge(_ n: Int, mask: UInt8, source: EuclideousLaneSource, accent: Color) -> some View {
+        let routed = (0..<4).filter { (mask >> UInt8($0)) & 1 != 0 }
+        let rows = stride(from: 0, to: routed.count, by: 2).map { Array(routed[$0..<min($0 + 2, routed.count)]) }
+        return HStack(spacing: sp4) {
+            VStack(spacing: 1) {
+                Text("\(n)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                if mask == 0 {
+                    Text("NO OUT").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xFFB454)).lineLimit(1)
+                } else {
+                    VStack(spacing: 1) {
+                        ForEach(rows.indices, id: \.self) { r in
+                            HStack(spacing: stepCountChipGap) {
+                                ForEach(rows[r], id: \.self) { b in
+                                    Text(["A", "B", "C", "D"][b]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                        .foregroundColor(.white)
+                                        .frame(width: stepCountChipCol, height: stepCountChipCol)
+                                        .background(Circle().fill(lane40(accent)))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Text(source == .midi ? "MIDI" : (source == .key ? "KEY" : "CHD"))
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(0.6)).lineLimit(1)
+                .padding(.horizontal, 3).padding(.vertical, 2)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.3), lineWidth: 1))
         }
-        .frame(width: 36, height: 44)
+        .padding(.horizontal, sp4)
+        .frame(width: stepCountBadgeTotalWidth, height: 44)
         .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
     }
 
@@ -940,6 +983,22 @@ struct EuclideousPage: View {
     // floating value bubble replacing the old shared page-level HUD, double-tap-to-reset.)
 
     private let padAxisLabelColor = Color(hex: 0x8A909A)
+
+    // MARK: - COLOUR HIERARCHY (this ferry §4): "lane colour is currently used at full strength in about
+    // seven places per card, so nothing stands out." Three strengths of each lane's own accent, used
+    // consistently instead of ad-hoc opacity values guessed per call site:
+    //   LANE-100 — the full colour: lit hit cells in the shared comet bar (untouched, a pre-existing
+    //     component), the selected lane's card outline, the RIFF/MASK tab on-dots, and the 1pt borders
+    //     LANE-20 fills in §4.2 get.
+    //   LANE-40  — the lane colour at 40% (§4.4's riff-pad tint was stronger than this; §5.2's rhythm
+    //     picture hit cells use this tier).
+    //   LANE-20  — the lane colour at 20% (§4.2's "selected choice" fills; §5.1/§5.3's picture fills).
+    // Plain `.opacity()` is the correct, idiomatic way to render "at N% over the card background" in
+    // SwiftUI — every one of these call sites already draws directly over that background, so the
+    // composited result reads exactly as a blend with it, matching every other tint already in this file.
+    private func lane100(_ c: Color) -> Color { c }
+    private func lane40(_ c: Color) -> Color { c.opacity(0.4) }
+    private func lane20(_ c: Color) -> Color { c.opacity(0.2) }
 
     /// The 4 gesture PADS (RHYTHM · LENGTH · NOTE/GATE · RIFF, by their own axis pairing — labels now
     /// live on the pad's edges, not a heading) — `cellSize` wide, `rowHeight` tall, `sp4` gaps between
@@ -958,7 +1017,9 @@ struct EuclideousPage: View {
                 let names = euclideousAxisNames(line, t)
                 let ppu = pointsPerUnit(t)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(isRiffPad ? accent.opacity(0.22) : Color(hex: 0x22252C))
+                    // LANE-20 (this ferry §4.4): "the riff pad's background tint becomes LANE-20, not the
+                    // current stronger tint" (was 0.22).
+                    RoundedRectangle(cornerRadius: 6).fill(isRiffPad ? lane20(accent) : Color(hex: 0x22252C))
                     VStack(spacing: sp4) {
                         VStack(spacing: 1) {
                             Text(values.yText)
@@ -973,26 +1034,33 @@ struct EuclideousPage: View {
                     }
                     .padding(.top, sp4).padding(.bottom, 9).padding(.horizontal, 9)
                 }
-                // BOTTOM EDGE (ferry §3.4, literal): "← TILT →" — plain arrow glyphs (U+2190/U+2192), not
-                // the triangle/play-button glyphs ◀/▶ an earlier pass used.
+                // BOTTOM EDGE (ferry §3.4/§5.5, literal): "← TILT →" at ≥10pt — plain arrow glyphs
+                // (U+2190/U+2192). If the name doesn't fit at 10pt (§5.5), fall back to "◀ ▶" alone (the
+                // readout at the top already names the value, per the ferry's own justification).
                 .overlay(alignment: .bottom) {
-                    Text("← \(names.x) →")
+                    Text(euclideousAxisLabelFits(names.x) ? "← \(names.x) →" : "◀ ▶")
                         .font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
                         .foregroundColor(padAxisLabelColor).lineLimit(1)
                         .padding(.bottom, 1)
                 }
-                // LEFT EDGE (ferry §3.5, literal): "HITS →" — ONE string, the arrow trailing the name —
-                // rotated as a single unit so the arrow (originally pointing right/east) ends up pointing
-                // up/north once rotated; NOT a separately-placed, unrotated arrow glyph beside a rotated
-                // name (an earlier pass did that, which also left the arrow pointing the wrong way after
-                // its own independent rotation).
+                // LEFT EDGE (ferry §3.5/§5.5, literal): "HITS →" — ONE string, the arrow trailing the
+                // name — rotated as a single unit so the arrow (originally pointing right/east) ends up
+                // pointing up/north once rotated. If the name doesn't fit at 10pt (§5.5), fall back to a
+                // bare "▲" — already pointing up in its own resting orientation, so it needs no rotation.
                 .overlay(alignment: .leading) {
-                    Text("\(names.y) →")
-                        .font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
-                        .foregroundColor(padAxisLabelColor).lineLimit(1).fixedSize()
-                        .rotationEffect(.degrees(-90))
-                        .frame(width: 10)
-                        .padding(.leading, 1)
+                    Group {
+                        if euclideousAxisLabelFits(names.y) {
+                            Text("\(names.y) →")
+                                .font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
+                                .lineLimit(1).fixedSize()
+                                .rotationEffect(.degrees(-90))
+                        } else {
+                            Text("▲").font(.system(size: padHeadingSize, weight: .heavy))
+                        }
+                    }
+                    .foregroundColor(padAxisLabelColor)
+                    .frame(width: 10)
+                    .padding(.leading, 1)
                 }
                 // THE 2pt TOUCH BORDER (ferry §3) — the new, single "I'm being dragged" cue; the old
                 // whole-pad accent-fill-while-touched treatment is gone, since it would otherwise fight
@@ -1125,11 +1193,13 @@ struct EuclideousPage: View {
             else { euclideousNoteOctPicture(line, accent: accent) }
         }
     }
-    /// RHYTHM: a row of hit/rest cells reflecting the lane's ACTUAL pattern — reuses the exact same pure
-    /// functions, in the same order, `Router.runEuclidLine` itself calls (`euclidPatternInto` then
-    /// `euclidTiltPattern`), so this can never silently disagree with what's struck. No direction
-    /// handling, matching `EuclidCometBar`'s own established precedent (direction only affects the
-    /// animated comet's sweep, never the static pattern's own screen layout).
+    /// RHYTHM (this ferry §5.2, literal — replaces the old tall-vertical-bars layout): a single
+    /// HORIZONTAL row of STEPS cells, vertically CENTRED, at ~30% of the picture's own height — still
+    /// reusing the exact same pure functions, in the same order, `Router.runEuclidLine` itself calls
+    /// (`euclidPatternInto` then `euclidTiltPattern`), so the picture can never silently disagree with
+    /// what's struck, and the tilt-driven bunching of hits stays visible along the row regardless of its
+    /// new shorter height. Hit cells LANE-40 (was LANE-100); rest cells unchanged (#3A3E47). No direction
+    /// handling, matching `EuclidCometBar`'s own established precedent.
     private func euclideousRhythmPicture(_ line: EuclidLine, accent: Color) -> some View {
         let n = max(2, min(16, line.steps))
         let k = max(0, min(n, line.pulses))
@@ -1137,36 +1207,42 @@ struct EuclideousPage: View {
         euclidPatternInto(&buf, pulses: k, steps: n, rotation: line.rotate)
         if line.tiltResolved != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: line.tiltResolved) }
         return Canvas { ctx, size in
-            let gap: CGFloat = 1.5
+            let gap: CGFloat = 1   // ferry §5.2: "with a 1pt minimum gap"
+            let rowH = size.height * 0.3
+            let y = (size.height - rowH) / 2   // vertically centred
             let cellW = max(1, (size.width - gap * CGFloat(n - 1)) / CGFloat(n))
             for i in 0..<n {
-                let rect = CGRect(x: CGFloat(i) * (cellW + gap), y: 0, width: cellW, height: size.height)
-                ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(buf[i] ? accent : Color(hex: 0x3A3E47)))
+                let rect = CGRect(x: CGFloat(i) * (cellW + gap), y: y, width: cellW, height: rowH)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(buf[i] ? lane40(accent) : Color(hex: 0x3A3E47)))
             }
         }
     }
-    /// LENGTH: `steps` dots arranged clockwise around a circle (12 o'clock = step 0), the dot at the
-    /// wrapped OFFSET index enlarged + lane-coloured — the SAME wrap `euclideousPadValues`'s own OFFSET
-    /// readout uses, so the picture and the value line can never disagree about which dot is current.
+    /// LENGTH (this ferry §5.3, literal — "raise the contrast of the ring"): `steps` dots arranged
+    /// clockwise around a circle (12 o'clock = step 0). Ordinary dots 4pt/#6A707A; step 1 (index 0) ALSO
+    /// 4pt, just a lighter #C8CDD5 (same size as every other ordinary dot now — only the colour marks it,
+    /// not a larger radius); the OFFSET step is 8pt/LANE-100 — the SAME wrap `euclideousPadValues`'s own
+    /// OFFSET readout uses, so the picture and the value line can never disagree about which dot is
+    /// current. Ring radius: 40% of the picture's smaller dimension, centred.
     private func euclideousLengthPicture(_ line: EuclidLine, accent: Color) -> some View {
         let n = max(2, min(16, line.steps))
         let r = ((line.rotate % n) + n) % n
         return Canvas { ctx, size in
             let cx = size.width / 2, cy = size.height / 2
-            let radius = min(size.width, size.height) / 2 - 3
+            let radius = min(size.width, size.height) * 0.4
             for i in 0..<n {
                 let angle = -Double.pi / 2 + 2 * .pi * Double(i) / Double(n)
                 let x = cx + CGFloat(cos(angle)) * radius
                 let y = cy + CGFloat(sin(angle)) * radius
                 let on = i == r
-                let dotR: CGFloat = on ? 3.5 : (i == 0 ? 2.2 : 1.6)
-                let color: Color = on ? accent : (i == 0 ? Color(hex: 0xAAB0BA) : Color(hex: 0x3A3E47))
+                let dotR: CGFloat = on ? 4 : 2   // 8pt / 4pt DIAMETERS, per the ferry's own literal numbers
+                let color: Color = on ? lane100(accent) : (i == 0 ? Color(hex: 0xC8CDD5) : Color(hex: 0x6A707A))
                 ctx.fill(Path(ellipseIn: CGRect(x: x - dotR, y: y - dotR, width: dotR * 2, height: dotR * 2)), with: .color(color))
             }
         }
     }
-    /// NOTE/GATE: a dashed max-extent box with a lane-colour rect sized by GATE (width) × VEL (height) —
-    /// the two things this pad actually controls, shown as one simple bar.
+    /// NOTE/GATE (this ferry §5.1, literal): a dashed #3A3E47 max-extent box (unchanged) containing a
+    /// 1.5pt LANE-100 OUTLINE rectangle with a LANE-20 fill — replaces the old solid lane-colour block.
+    /// Same geometry: width = GATE%, height = VEL/127, anchored bottom-left.
     private func euclideousNoteGatePicture(_ line: EuclidLine, accent: Color) -> some View {
         let gateFrac = max(0.05, min(1, line.gateResolved))
         let velFrac = Double(line.velocityAbsoluteResolved) / 127.0
@@ -1175,43 +1251,56 @@ struct EuclideousPage: View {
                        with: .color(Color(hex: 0x3A3E47)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             let w = size.width * CGFloat(gateFrac)
             let h = size.height * CGFloat(velFrac)
-            ctx.fill(Path(roundedRect: CGRect(x: 0, y: size.height - h, width: w, height: h), cornerRadius: 1.5), with: .color(accent))
+            let barRect = CGRect(x: 0, y: size.height - h, width: w, height: h)
+            ctx.fill(Path(roundedRect: barRect, cornerRadius: 1.5), with: .color(lane20(accent)))
+            ctx.stroke(Path(roundedRect: barRect.insetBy(dx: 0.75, dy: 0.75), cornerRadius: 1.5), with: .color(lane100(accent)), lineWidth: 1.5)
         }
     }
-    /// RIFF (ferry §5.4, literal): a grid of exactly 8 columns (SHIFT 0–7 — `shiftSteps`, not
-    /// `riff.stepsResolved`, matching the same literal-8 correction `euclideousPadValues`/`commitAxis`
-    /// already apply) × 7 rows (OCT, +3 at top...−3 at bottom), the cell at (wrapped SHIFT, current OCT)
-    /// lane-coloured.
+    /// RIFF (this ferry §5.4, literal — replaces the fine 8×7 grid entirely with TWO separate strips, no
+    /// grid lines): a row of 8 SHIFT slots along the bottom, a column of OCT slots (the existing -3...+3
+    /// range) along the left — they meet at, but don't overlap, the bottom-left corner. Slots are at
+    /// least 6pt with 2pt gaps. The current shift slot and the current octave slot are each filled
+    /// LANE-100 independently (this is two 1-D strips, not one 2-D cell — there's no single "(shift,oct)"
+    /// cell to light the way the old grid had); other slots are #3A3E47. `shiftSteps` (literal 8, not
+    /// `riff.stepsResolved`) matches the same correction `euclideousPadValues`/`commitAxis` already apply.
     private func euclideousRiffPicture(_ line: EuclidLine, accent: Color) -> some View {
         let shift = ((line.riffRotateResolved % shiftSteps) + shiftSteps) % shiftSteps
         let oct = line.riffOctaveResolved
+        let octRows = 7
         return Canvas { ctx, size in
-            let gap: CGFloat = 1
-            let cellW = max(1, (size.width - gap * CGFloat(shiftSteps - 1)) / CGFloat(shiftSteps))
-            let cellH = max(1, (size.height - gap * 6) / 7)
-            for row in 0..<7 {
-                let rowOct = 3 - row   // row 0 = +3 at the top
-                for col in 0..<shiftSteps {
-                    let isCurrent = col == shift && rowOct == oct
-                    let rect = CGRect(x: CGFloat(col) * (cellW + gap), y: CGFloat(row) * (cellH + gap), width: cellW, height: cellH)
-                    let color: Color = isCurrent ? accent : (rowOct == 0 ? Color(hex: 0x353943) : Color(hex: 0x2A2D34))
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
-                }
+            let gap: CGFloat = 2
+            let thickness = max(6, min(size.width, size.height) * 0.18)   // the strips' own perpendicular thickness
+            // LEFT strip: OCT column, full picture height.
+            let octSlotH = max(6, (size.height - gap * CGFloat(octRows - 1)) / CGFloat(octRows))
+            for row in 0..<octRows {
+                let rowOct = 3 - row
+                let rect = CGRect(x: 0, y: CGFloat(row) * (octSlotH + gap), width: thickness, height: octSlotH)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(rowOct == oct ? lane100(accent) : Color(hex: 0x3A3E47)))
+            }
+            // BOTTOM strip: SHIFT row, starting past the OCT column so the two strips never overlap.
+            let shiftOriginX = thickness + gap
+            let shiftAvailW = max(1, size.width - shiftOriginX)
+            let shiftSlotW = max(6, (shiftAvailW - gap * CGFloat(shiftSteps - 1)) / CGFloat(shiftSteps))
+            for col in 0..<shiftSteps {
+                let rect = CGRect(x: shiftOriginX + CGFloat(col) * (shiftSlotW + gap), y: size.height - thickness, width: shiftSlotW, height: thickness)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(col == shift ? lane100(accent) : Color(hex: 0x3A3E47)))
             }
         }
     }
-    /// NOTE/OCT (riff off): a single OCT column, the SAME 7-row geometry the RIFF picture's own rows
-    /// use, current OCT marked lane-coloured.
+    /// NOTE/OCT (riff off) (this ferry §5.5, literal: "same rows as 5.4"): the SAME discrete-slot OCT
+    /// column style 5.4's own left strip uses (6pt+ slots, 2pt gaps, LANE-100/#3A3E47) — spans the full
+    /// picture width since there's no SHIFT strip to share it with here. The NOTE choice itself has no
+    /// picture — it's text only, line 2 of the readout (§5.5's own words).
     private func euclideousNoteOctPicture(_ line: EuclidLine, accent: Color) -> some View {
         let oct = line.octaveResolved
+        let octRows = 7
         return Canvas { ctx, size in
-            let gap: CGFloat = 1
-            let cellH = max(1, (size.height - gap * 6) / 7)
-            for row in 0..<7 {
+            let gap: CGFloat = 2
+            let slotH = max(6, (size.height - gap * CGFloat(octRows - 1)) / CGFloat(octRows))
+            for row in 0..<octRows {
                 let rowOct = 3 - row
-                let rect = CGRect(x: 0, y: CGFloat(row) * (cellH + gap), width: size.width, height: cellH)
-                let color: Color = rowOct == oct ? accent : (rowOct == 0 ? Color(hex: 0x353943) : Color(hex: 0x2A2D34))
-                ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
+                let rect = CGRect(x: 0, y: CGFloat(row) * (slotH + gap), width: size.width, height: slotH)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(rowOct == oct ? lane100(accent) : Color(hex: 0x3A3E47)))
             }
         }
     }
@@ -1355,18 +1444,23 @@ struct EuclideousPage: View {
                 // there's no further "effect enabled" concept yet since the mask's effect itself is deferred
                 // (§4.1).
                 let dotOn: Bool = t == .riff ? line.useRiffResolved : (t == .mask ? (line.mask != nil) : false)
+                // VIEWS (this ferry §4.3, "the tab row" named explicitly): white text with a 2pt LANE-100
+                // underline for the active one, grey text (no fill/outline) when inactive. Label size is
+                // §6.2's own literal rule: "set the tab labels to the pad readout line-2 size" —
+                // `padSubtitleSize`, not an independently-chosen number, so the two can never drift apart.
                 HStack(spacing: 5) {
-                    Text(t.label).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundColor(sel ? .white.opacity(0.95) : .white.opacity(0.45))
-                        .lineLimit(1).minimumScaleFactor(0.6)
+                    Text(t.label).font(.system(size: padSubtitleSize, weight: .heavy, design: .monospaced))
+                        .foregroundColor(sel ? .white : .white.opacity(0.45))
+                        .lineLimit(1)
                     if t == .riff || t == .mask {
-                        Circle().fill(dotOn ? accent : Color.clear)
-                            .overlay(Circle().stroke(dotOn ? accent : Color.white.opacity(0.35), lineWidth: 1))
+                        // LANE-100 (this ferry §4.1: "the RIFF/MASK on-dots").
+                        Circle().fill(dotOn ? lane100(accent) : Color.clear)
+                            .overlay(Circle().stroke(dotOn ? lane100(accent) : Color.white.opacity(0.35), lineWidth: 1))
                             .frame(width: 7, height: 7)
                     }
                 }
                 .frame(maxWidth: .infinity).frame(height: rowH)
-                .overlay(Rectangle().fill(sel ? accent : Color.white.opacity(0.12)).frame(height: 3), alignment: .bottom)
+                .overlay(Rectangle().fill(sel ? lane100(accent) : Color.clear).frame(height: 2), alignment: .bottom)
                 .contentShape(Rectangle())
                 .onTapGesture { if idx < laneTab.count { laneTab[idx] = t } }
             }
@@ -1398,15 +1492,18 @@ struct EuclideousPage: View {
     /// The 3 DIRECTION buttons — short (not square), same 3 column widths as the gesture pads directly
     /// above, so the two rows line up. Left-to-right: BACKWARDS · PING-PONG · FORWARDS, glyphs "<" / "><" /
     /// ">" (the SAME convention the regular BUILD-page EUCLID editor's own DIRECTION control already uses).
+    /// SELECTED CHOICE (this ferry §4.2, "pattern direction" named explicitly): LANE-20 fill, 1pt LANE-100
+    /// border, white text — not the old solid-ish fill + black text.
     private func directionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowH: CGFloat) -> some View {
         let order: [(EuclidDir, String)] = [(.bkw, "<"), (.pingpong, "><"), (.fwd, ">")]
         return HStack(spacing: sp4) {
             ForEach(order, id: \.0) { dir, glyph in
                 let on = line.directionResolved == dir
                 Text(glyph).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : .white.opacity(0.6))
+                    .foregroundColor(on ? .white : .white.opacity(0.6))
                     .frame(width: cellSize, height: rowH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.55) : Color.white.opacity(0.06)))
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.direction = dir } }
             }
@@ -1428,12 +1525,15 @@ struct EuclideousPage: View {
         // to every segmented-button row on the page) — HIT/MISS/RATE each get the SAME `cellSize` directionRow
         // above uses (already sized for 3 columns + 2 sp4 gaps across the card's own inner width), with sp4
         // between all three, not just between the pair and RATE.
+        // VIEWS, NOT SELECTED CHOICES (this ferry §4.3, "the tab row, HIT/MISS" named explicitly): white
+        // text with a 2pt LANE-100 underline for the active one, grey text when inactive — no fill, no
+        // outline. Replaces the old outline-based "selected" look.
         func sideButton(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(selected ? 0.95 : 0.5))
+                .foregroundColor(selected ? .white : .white.opacity(0.5))
                 .frame(width: cellSize, height: rowH)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? accent.opacity(0.85) : Color.clear, lineWidth: 1.5))
+                .overlay(Rectangle().fill(selected ? lane100(accent) : Color.clear).frame(height: 2), alignment: .bottom)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: action)
         }
@@ -1449,10 +1549,10 @@ struct EuclideousPage: View {
                 if idx < missSelected.count { missSelected[idx] = true }
             }
             VStack(spacing: 1) {
-                Text("RATE").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                Text("RATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                 Text(line.rate == nil ? "FOLLOW" : line.rate!.rawValue)
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.8)
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.7)).lineLimit(1)
             }
             .frame(width: cellSize, height: rowH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
@@ -1493,11 +1593,16 @@ struct EuclideousPage: View {
     /// Shared button face for the RIFF tab's own 5 controls — one visual language (filled when "on," the
     /// lane's own accent colour), matching the equal-flex-width convention directionRow/hitMissRateRow/
     /// ioSourceRow already use elsewhere on this page.
+    /// SELECTED CHOICE (this ferry §4.2, "riff walk" named explicitly — applied to all 5 of this row's
+    /// own buttons uniformly, since OFF/FREE-LOCK/INVERT/ON-REST are the same kind of selection control):
+    /// LANE-20 fill, 1pt LANE-100 border, white text — not the old stronger fill + black text. No
+    /// `.minimumScaleFactor` (§6.1's 10pt floor forbids shrinking below the base size).
     private func riffTabButton(_ label: String, on: Bool, accent: Color, rowH: CGFloat, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(on ? .white : .white.opacity(0.6)).lineLimit(1)
             .frame(maxWidth: .infinity).frame(height: rowH)
-            .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.7) : Color.white.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture(perform: action)
     }
@@ -1602,8 +1707,8 @@ struct EuclideousPage: View {
     /// dead-looking-but-tappable control, and not silently omitted.
     private func maskStubRow(_ rowH: CGFloat) -> some View {
         Text("EFFECT — NOT YET AVAILABLE")
-            .font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(.white.opacity(0.3)).lineLimit(1).minimumScaleFactor(0.6)
+            .font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(.white.opacity(0.3)).lineLimit(1)
             .frame(maxWidth: .infinity).frame(height: rowH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
@@ -1624,15 +1729,18 @@ struct EuclideousPage: View {
     /// pool (Router.swift's `runEuclidLine`, the `if useRiff {...}` branch now reads `laneNotes(lineIndex)`/
     /// `laneCount(lineIndex)` directly) — so these 3 buttons are genuinely live again regardless of RIFF
     /// state, and the banner that briefly replaced them is gone.
+    /// SELECTED CHOICE (this ferry §4.2, "source choice" named explicitly): LANE-20 fill, 1pt LANE-100
+    /// border, white text. No `.minimumScaleFactor` (§6.1's 10pt floor).
     private func ioSourceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         HStack(spacing: sp4) {
             ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
                 let on = line.sourceModeResolved == src
                 let label = src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS")
                 Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : .white.opacity(0.6)).lineLimit(1).minimumScaleFactor(0.8)
+                    .foregroundColor(on ? .white : .white.opacity(0.6)).lineLimit(1)
                     .frame(maxWidth: .infinity).frame(height: rowH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.55) : Color.white.opacity(0.06)))
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.sourceMode = src } }
             }
@@ -1647,10 +1755,15 @@ struct EuclideousPage: View {
     /// MOVED (Paul 2026-10-08) into the lane's own new I/O tab, row 2 — no longer always-visible below every
     /// tab; switching to PATTERN/RIFF/MASK hides it, by design ("a new tab for input/output... the four
     /// emitter toggles on the second row").
+    /// SELECTED CHOICE (this ferry §4.2, "active OUT toggles" named explicitly): a FULLY-active bus
+    /// (routed AND the MAIN OUT master is on) gets LANE-20 fill + 1pt LANE-100 border + white text — not
+    /// the old solid fill + black text. The DASHED/hollow "routed but MAIN-gated" state is a genuinely
+    /// THIRD, separate condition §4.2 doesn't name — left as-is. No `.minimumScaleFactor` (§6.1's floor);
+    /// the "OUT"/"NO OUTPUT" captions, previously 9pt, are bumped to the same 10pt floor.
     @ViewBuilder private func laneOutRow(_ idx: Int, _ line: EuclidLine, accent: Color) -> some View {
         let mask = line.emitterMask ?? 0
         HStack(spacing: sp4) {
-            Text("OUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            Text("OUT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             ForEach(0..<4, id: \.self) { b in
                 let routed = (mask >> UInt8(b)) & 1 != 0
                 let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
@@ -1659,14 +1772,14 @@ struct EuclideousPage: View {
                 // "no output at all" is handled separately below via the trailing NO OUTPUT label.
                 ZStack {
                     if routed && mainOn {
-                        Circle().fill(accent)
+                        Circle().fill(lane20(accent)).overlay(Circle().stroke(lane100(accent), lineWidth: 1))
                     } else if routed {
                         Circle().fill(Color.clear).overlay(Circle().stroke(accent, style: StrokeStyle(lineWidth: 2, dash: [3, 2])))
                     } else {
                         Circle().fill(Color.white.opacity(0.08))
                     }
                     Text(["A", "B", "C", "D"][b]).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(routed && mainOn ? .black : (routed ? accent : .white.opacity(0.5)))
+                        .foregroundColor(routed && mainOn ? .white : (routed ? accent : .white.opacity(0.5)))
                 }
                 .frame(width: laneOutSize, height: laneOutSize)
                 .contentShape(Circle())
@@ -1674,8 +1787,8 @@ struct EuclideousPage: View {
             }
             Spacer(minLength: 4)
             if mask == 0 {
-                Text("NO OUTPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(red: 1, green: 0.71, blue: 0.33))
-                    .lineLimit(1).minimumScaleFactor(0.6)
+                Text("NO OUTPUT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(red: 1, green: 0.71, blue: 0.33))
+                    .lineLimit(1)
             }
         }
     }
@@ -1724,49 +1837,39 @@ struct EuclideousPage: View {
     /// 0 : rank)` the original popup used. Cells are a NEUTRAL colour (ferry §1 — not a lane colour, since the
     /// pattern is shared by every lane that has riff on, not owned by any one of them).
     ///
-    /// SIZED FROM THE CALLER'S OWN `maxWidth`/`rowH` DIRECTLY — since the 2026-10-09 "six equal boxes" rebuild,
-    /// BOTH orientations pass the same `cellSize` for `maxWidth` and a `rowH` solved to make the panel's total
-    /// height exactly `cellSize` too (`riffPanelHeight`'s own inverse) — the riff grid is just another box in
-    /// the shared grid now, not an independently-proportioned panel with its own width/height rule.
+    /// SIZED FROM THE CALLER'S OWN `maxWidth`/`rowH` (this ferry §1.4 — landscape passes the 36%-of-container
+    /// riff column's own width + a row height solved to fill the full column height; portrait passes the full
+    /// container width + a row height solved from the panel's own, possibly-flexed, target height — see
+    /// `portraitLayout`/`landscapeLayout`/`riffRowHForPanelHeight`).
     ///
-    /// Per-lane position dots sit above the columns (ferry §2.3, carried over twice now as "still missing" —
-    /// the drawing code itself is unchanged and, read in isolation, looks correct: it reads `riffPositions[i]`
-    /// (Router→Kernel→AU→VC, polled on the fast ~30fps timer) against this column index for every useRiff-on
-    /// lane. Bumped once more for visibility (8pt dot, small lane-coloured background track) in case the
-    /// previous round's dots were simply too subtle to notice rather than genuinely absent — but this is
-    /// honestly still unverified without a device, and if they're STILL invisible after this, the live
-    /// `riffPositions` data itself (not this drawing code, read three times now) is the next thing to trace,
-    /// ideally with an on-device or simulator capture this environment cannot produce.
+    /// Per-lane position dots sit above the columns (ferry §2.3 originally, re-specified by this ferry's own
+    /// §7.2 as a DOTS-ONLY row with no background cell drawn — see the row itself, below) — reads
+    /// `riffPositions[i]` (Router→Kernel→AU→VC, polled on the fast ~30fps timer) against this column index for
+    /// every useRiff-on lane. Still unverified on-device whether the dots are actually visible in practice.
     private func riffGridView(maxWidth: CGFloat, rowH: CGFloat) -> some View {
         let n = 8
         let resolved = riff.ranksResolved
         let ranks = (0..<n).map { $0 < resolved.count ? resolved[$0] : 0 }
         let cellW = max(1, (maxWidth - sp8 * 2 - sp4 * CGFloat(n - 1)) / CGFloat(n))
         let cellH = max(1, rowH)
-        let dotRowH: CGFloat = 12
         return VStack(alignment: .leading, spacing: sp4) {
-            HStack(spacing: sp8) {
-                Text("RIFF").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                // PER-LANE SOURCE (ferry §2.4): the riff's own "SOURCE KEY|MIDI" switch stays removed — each
-                // lane resolves this SHARED shape against ITS OWN I/O-tab choice (Router.swift's
-                // `laneNotes(lineIndex)`), not lane 1's — two lanes walking the same shape with different
-                // inputs genuinely play different notes.
-                Text("8 STEPS · SHARED SHAPE, EACH LANE PLAYS ITS OWN SOURCE")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Spacer(minLength: sp8)
-            }
+            // TITLE ONLY (this ferry §7.1, literal): "remove the subtitle... the title is just 'RIFF'."
+            Text("RIFF").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            // POSITION DOTS ONLY (this ferry §7.2, literal): "the thin row of half-height cells above the
+            // grid looks like a rendering fault. Do not draw cells there." The old per-column background
+            // rect (`Color.white.opacity(0.04)`, drawn for EVERY column whether or not a dot sits on it)
+            // was exactly that fault — removed entirely; this row now draws NOTHING but the dots
+            // themselves, in the reserved `riffDotRowH` (10pt) height.
             HStack(spacing: sp4) {
                 ForEach(0..<n, id: \.self) { col in
                     ZStack {
-                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.04))
                         ForEach(0..<4, id: \.self) { i in
                             if i < lines.count, lines[i].useRiffResolved, i < riffPositions.count, riffPositions[i] == col {
                                 Circle().fill(laneAccents[i % laneAccents.count]).frame(width: 8, height: 8)
                             }
                         }
                     }
-                    .frame(width: cellW, height: dotRowH)
+                    .frame(width: cellW, height: riffDotRowH)
                 }
             }
             VStack(spacing: sp4) {

@@ -91,6 +91,16 @@ struct EuclidLaneBox: View {
     // comet bar, permanently) — an optional trailing sibling in the SAME play+comet HStack, same additive-
     // nil-default shape as `trailingContent` above. nil (every existing BUILD-page call site) ⇒ byte-identical.
     var stepCountBadge: AnyView? = nil
+    // ITS REAL WIDTH (Euclideous "output chips + source badge" ferry, 2026-10-10) — a bug found while widening
+    // this badge for that ferry: the comet bar's own `width:` below was computed as a hardcoded `width − 64`
+    // (padding + play button + ONE inter-item gap), which never actually accounted for the badge's own width
+    // or the SECOND gap between the comet bar and the badge — so the comet bar's internal Canvas has always
+    // been told it has MORE width than the HStack genuinely gives it whenever a non-nil badge is present,
+    // risking the Canvas drawing its rightmost boxes past where the badge actually starts. Default 0 (every
+    // existing caller, including Euclideous's own OLD 36pt-wide badge before this fix) is still an
+    // approximation for any caller that doesn't pass the real figure, but at least no longer silently wrong
+    // for the one caller that now does.
+    var stepCountBadgeWidth: CGFloat = 0
 
     var body: some View {
         let on = line.enabledResolved
@@ -108,11 +118,15 @@ struct EuclidLaneBox: View {
                     .contentShape(Rectangle())
                     .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
                 // WIDTH (Paul 2026-10-06): the comet bar's own real rendered width, derived exactly from this
-                // box's layout (6pt padding ×2 + the 44pt play button + 8pt HStack spacing = 64pt not its own)
-                // — NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch (for the
+                // box's layout (6pt padding ×2 + the 44pt play button + 8pt HStack spacing = 64pt, PLUS — if a
+                // badge is present — its own width and the SECOND inter-item gap before it, fixed 2026-10-10:
+                // the original formula silently omitted both whenever `stepCountBadge` was non-nil, so the
+                // comet bar's own Canvas was told it had more width than the HStack actually gave it) — NOT
+                // measured via GeometryReader — so `EuclidCometBar` can compute its box pitch (for the
                 // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
+                let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (8 + stepCountBadgeWidth)
                 EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
-                               rate: rate, spanN: spanN, tilt: line.tiltResolved, tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64),
+                               rate: rate, spanN: spanN, tilt: line.tiltResolved, tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64 - badgeReserve),
                                onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                                onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
                     .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized

@@ -196,6 +196,105 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a BLOCKER full-width layout fix + hierarchy/picture/type/indicator rework across the
+  whole page (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, zero new
+  warnings; no macOS test-target reach — pure UI, re-confirmed by a full suite run alongside this entry). A
+  10-section ferry, §1 marked as a blocker to fix+verify before the rest. **§1/§2 — THE BLOCKER, ROOT-
+  CAUSED:** landscape content stopped ~350px short of the right edge (44px left margin vs. a huge right
+  gap); portrait's header ran off the edge (D cut, ON/close/CHORDS missing). Traced to the prior "six equal
+  boxes" layout's own `cellSize = min(widthCandidate, heightCandidate)` rule — forcing every lane/riff box
+  SQUARE — whichever axis was more constrained (almost always height, since these panels are wide) set the
+  size, and the OTHER axis was left with unclaimed space the square cells never grew into. Fixed by
+  SUPERSEDING six-equal-boxes entirely: lane-grid cells are no longer forced square (width and height
+  computed independently so the grid always fills its column on both axes, by construction); LANDSCAPE
+  splits into lane-grid (≈64% of the container) + riff panel (≈36%, full column height), the riff share
+  computed directly from the container and the lane share as its exact complement so the two can never
+  leave a rounding gap at the right edge; PORTRAIT stacks lane-grid (full width) above riff panel (full
+  width), riff given a 20pt/row TARGET height that FLEXES DOWN below it only when the lane grid would
+  otherwise be squeezed below its own protected floor. The dashed 6th-box PLACEHOLDER is deleted outright,
+  nothing replacing it — lanes+riff simply reclaim the space. **RE-VERIFIED NUMERICALLY by hand at several
+  panel sizes (no screenshot capability in this environment, so this is the actual substitute check, not a
+  decoration):** at 1194×834 landscape, lane column 727.68pt + 16pt gap + riff column 418.32pt sums to
+  EXACTLY the 1162pt container, zero residual gap, confirmed at a small 900×500 landscape size too (both
+  axes always fully consumed, by construction, not by luck). **§3 — HEADER:** both orientations now show
+  the identical 7 controls (EUCLIDEOUS · RESET · KEY · CHORDS · MAIN OUT ABCD · ON · close); portrait's own
+  2-row split was RE-ASSIGNED, not just de-clipped — row 1 drops RESET (now EUCLIDEOUS · MAIN OUT · ON ·
+  close only), row 2 gains it (RESET · KEY · CHORDS) — a deliberate, literal re-homing the ferry specifies,
+  not a continuation of the prior split. **A GENUINE RESIDUAL RISK FOUND WHILE HAND-VERIFYING, not hidden:**
+  landscape keeps all 7 controls on ONE row with no scroll/shrink fallback (§6.1 forbids shrinking below
+  10pt) — worked the content width by hand at the new 10pt-everywhere sizes: ≈579pt of content, meaning the
+  header only fits cleanly down to roughly ~611pt of real panel width. Below that in landscape, something
+  WILL clip — there is no mechanism left to prevent it once scrolling and shrinking are both off the table,
+  named explicitly rather than silently risked. **§4 — COLOUR HIERARCHY, LANE-100/40/20:** three opacity
+  tiers on the lane's own accent (100%/40%/20%, implemented as plain `.opacity()` — composites correctly
+  against whatever's actually behind each call site, matching this file's own established tinting idiom)
+  replace the prior ad-hoc full-strength fills Paul flagged ("used at full strength in about seven places
+  per card, so nothing stands out"): the selected lane's card outline and the RIFF/MASK tab dots are now
+  literal LANE-100 (was a softened opacity); DIRECTION/RIFF-walk/I-O-source-choice/active-OUT-toggle
+  buttons all move from a solid-ish fill + black text to LANE-20 fill + 1pt LANE-100 border + white text;
+  the PATTERN/RIFF/MASK/I-O tab row and the HIT|MISS selector drop their old outline-based "selected" look
+  entirely for a 2pt LANE-100 underline + white/grey text (no fill, no outline) — the exact "replaces the
+  current mix of filled and outlined styles" the ferry calls for; the RIFF pad's own background tint drops
+  from 0.22 to a literal LANE-20 (0.2). **§5 — ALL 5 PAD PICTURES REWORKED:** Rhythm's tall full-height
+  bars become a single horizontal row at ~30% of the picture's height, vertically centred, hit cells now
+  LANE-40 (was LANE-100) — still built from the exact same `euclidPatternInto`/`euclidTiltPattern` pair
+  `Router.runEuclidLine` itself calls, so the tilt-driven bunching stays provably accurate at the new
+  shorter height. Length's ring dots gain real contrast (ordinary/step-1 both 4pt now — same SIZE, only
+  colour differs — #6A707A vs the lighter #C8CDD5; the OFFSET dot alone doubles to 8pt/LANE-100; ring
+  radius fixed at 40% of the picture's smaller dimension, centred — was an ad-hoc `/2 − 3`). Note/Gate's
+  solid lane-colour block becomes a 1.5pt LANE-100 outline with a LANE-20 fill, same GATE×VEL geometry.
+  Riff's fine 8×7 GRID is replaced ENTIRELY by two independent 1-D strips (an 8-slot SHIFT row along the
+  bottom, a 7-slot OCT column along the left, meeting at but never overlapping the corner, no grid lines,
+  ≥6pt slots with 2pt gaps) — a structurally different visualization, not a recolour of the old one; the
+  riff-off Note/Oct picture gets the same discrete-slot OCT-column treatment (was a set of full-width
+  filled bars). All 5 keep the literal-8 SHIFT-wrap fix from the entry below. **§6 — TYPE FLOOR:** every
+  header label, pad axis label, and the new output indicator is now a flat 10pt with NO
+  `.minimumScaleFactor` anywhere in that set — a renderable size below 10pt is exactly what's forbidden, so
+  truncation (not shrinking) is now the honest fallback where content doesn't fit. The pad type scale
+  itself was re-derived for §6.2's own explicit hierarchy rule ("set the tab labels to the pad readout
+  line-2 size," line 1 must exceed it): `padHeadingSize` 7→10 (also now the literal §5.5 axis-label floor),
+  `padSubtitleSize` 8→11 (now ALSO the lane-tab-row's own label size, read directly from the same constant
+  so the two can never drift apart), `padValueSize` 9→13. **A NEW FALLBACK MECHANISM, not previously
+  needed:** §5.5 — "if a name doesn't fit at 10pt, show the arrows only" — axis names ≤4 characters
+  (HITS/TILT/VEL/GATE/OCT/NOTE) render in full ("← TILT →" / a rotated "HITS →"); longer names (OFFSET/
+  STEPS/SHIFT) fall back to bare "◀ ▶" (bottom) or a plain static "▲" (left — already pointing up at rest,
+  so unlike the full form it needs no rotation at all). A hand-derived character-count heuristic, not a
+  live text-measurement API — flagged, not verified against real glyph metrics. **§7 — RIFF PANEL:** the
+  subtitle line ("8 STEPS · SHARED SHAPE...") is gone outright, title is bare "RIFF"; the thin per-column
+  background rect above the matrix — confirmed to be exactly the "looks like a rendering fault" Paul
+  named, since it drew a faint filled cell for EVERY column whether or not a position dot sat on it — is
+  removed entirely; that row now draws ONLY the dots themselves, in a reserved 10pt height
+  (`riffDotRowH`), shared by the same `riffPanelHeight`/`riffRowHForPanelHeight` formula pair the new §1
+  layout math uses, so the panel's claimed height and its own internal row height can never silently
+  disagree. **§8 — NEW LANE-CARD INDICATORS, AND A REAL PRE-EXISTING BUG FOUND WHILE BUILDING THEM:** the
+  bare-letter output list under the step count becomes mini output chips (16pt LANE-40 circles, 10pt
+  letter, one per routed output; "NO OUT" in amber `#FFB454` when none are) stacked in a 2-column wrap
+  under the step count; a new always-visible source badge (MIDI/KEY/CHD, 10pt, neutral grey border, no
+  fill) sits beside that block rather than under it — stacking all three (step count + 2-row chip grid +
+  badge) doesn't fit the existing 44pt row height by hand-measurement, so the badge moved sideways instead,
+  per the ferry's own explicit "whichever fits" latitude; a small, disclosed ~2pt height overflow risk
+  remains (silently absorbed by the card's own `.clipped()`, not catastrophic, but real). **WHILE WIDENING
+  THIS BADGE, found that `EuclidLaneBox`'s shared comet-bar width formula (`width − 64`, EuclidLaneUI.swift)
+  had NEVER accounted for the badge's own width or the second inter-item gap before it, for ANY caller —
+  meaning the comet bar's internal Canvas has always been told it has more width than the HStack actually
+  gives it whenever a badge is present, a PRE-EXISTING bug this ferry's own widening would have made
+  materially worse. Fixed properly: a new `stepCountBadgeWidth` parameter (default 0, every other caller
+  byte-identical) lets the comet bar's width calculation account for the real badge footprint. **§9 —
+  DEFAULTS RE-CHECKED, CONFIRMED CORRECT IN CODE:** traced `PluginState.euclideousDefaultLine`/
+  `euclideousLinesResolved` end-to-end — lane 1 (index 0) resolves to 1 hit of 8 steps, lanes 2-4 to 0 hits
+  of 8, exactly the ruled default, with no code path found that would produce "lane 1 shows 0 hits" for a
+  genuinely fresh, never-saved document. Flagged back rather than guessed at: the most likely explanation
+  for Paul's own report is a PRE-EXISTING saved session carrying an already-persisted `pulses: 0` for lane
+  1 from before this default existed — the resolver correctly leaves a fully-populated stored array alone
+  (stored values always win over the default, by design), so an old document wouldn't self-heal even though
+  a brand-new one resolves correctly. **DEVICE-OWED, named plainly because §10 explicitly asked for 4
+  screenshots and on-device confirmation this environment cannot produce or perform:** every single claim
+  above about actual visual appearance — the two numerically-verified layout cases are the ONE thing in this
+  entry backed by more than reasoning; the landscape header's ~611pt real-world clipping threshold; the
+  picture redesigns' real legibility at final pad size; the type-floor fallback's actual trigger points: for
+  example, does "OFFSET" really fail to fit at 10pt in a real pad, or was ≤4 characters too conservative a
+  cutoff; the output-chip/source-badge combination's real height fit (the ~2pt overflow above); whether
+  lane 1's reported 0-hits was indeed a stale saved document, not a code path this review missed.**
 - **▶ EUCLIDEOUS XY PADS — a critical self-audit against the LITERAL ferry text found + fixed 8 real
   mismatches (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`, `599ea4b`; iOS builds clean,
   zero new warnings; direct follow-up to the entry below). Paul asked me to compare the shipped build
