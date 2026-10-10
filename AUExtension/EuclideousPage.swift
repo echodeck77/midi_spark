@@ -2018,11 +2018,12 @@ struct EuclideousPage: View {
         if line.useRiffResolved {
             items.append("RIFF " + riffDirShortLabel(line.riffDirResolved))
         } else {
-            // §2.2, literal: "the lane's NOTE choice name (e.g. LOWEST, ALL)" — CONFIRMED by reading
-            // `EuclidNoteSel` directly: the real stored/raw value is "LOW", not the ferry's own
-            // descriptive "LOWEST" — using the actual existing value, per §2's own "only settings that
-            // already exist" framing (the ferry's wording reads as a gloss, not a literal string to add).
-            items.append(line.noteSelResolved.rawValue)
+            // §2.2, literal: "the lane's NOTE choice name (e.g. LOWEST, ALL)". The ferry's own worked
+            // examples repeat "LOWEST" (not the raw "LOW") twice, consistently — strong enough to read
+            // as the intended DISPLAY text for this one case, not just a loose gloss (ALL's own example
+            // matches its raw value exactly, so this isn't a blanket rename — just LOW, which reads
+            // abruptly short as a standalone label where HIGH/ALL/etc. already read as complete words).
+            items.append(line.noteSelResolved == .low ? "LOWEST" : line.noteSelResolved.rawValue)
         }
         if line.useRiffResolved {
             let shift = ((line.riffRotateResolved % shiftSteps) + shiftSteps) % shiftSteps
@@ -2092,9 +2093,19 @@ struct EuclideousPage: View {
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             Canvas { ctx, size in
                 guard running, windowBeats > 0 else { return }
+                // RE-CHECKED, a real bug fixed on this pass: `euclideousNoteViewMarkX` makes any tick with
+                // `age = tickBeat - nowBeat` in `0...windowBeats` visible — meaning FUTURE ticks up to a
+                // full `windowBeats` ahead must be scanned, not just one. The original loop's upper bound
+                // was a bare `latestTick + 1` (one tick ahead, a leftover from an earlier, wrong mental
+                // model that only "the next tick" needed drawing) while its LOWER bound wastefully scanned
+                // `lookback` ticks that can never satisfy `age >= 0` in the first place (tick `latestTick`
+                // itself already has `age <= 0` by construction — anything earlier is strictly more
+                // negative). Fixed: scan forward from `latestTick` through the full lookahead the window
+                // actually promises, nothing behind it (the position function's own guard discards anything
+                // that doesn't belong, so a little slack here costs nothing).
                 let latestTick = Int((liveBeat / sub).rounded(.down))
-                let lookback = Int((windowBeats / sub).rounded(.up)) + 1
-                for t in (latestTick - lookback)...(latestTick + 1) {
+                let aheadTicks = Int((windowBeats / sub).rounded(.up)) + 1
+                for t in latestTick...(latestTick + aheadTicks) {
                     let tickBeat = Double(t) * sub
                     guard let x = euclideousNoteViewMarkX(tickBeat: tickBeat, nowBeat: liveBeat, windowBeats: windowBeats, trackW: size.width) else { continue }
                     let isHit = euclideousNoteViewIsHit(buf: buf, tickBeat: tickBeat, sub: sub, spanBeats: spanBeats, dir: dir)
@@ -2130,11 +2141,26 @@ struct EuclideousPage: View {
         let lastEvent = idx < noteViewLastEvent.count ? noteViewLastEvent[idx] : nil
         let restFlash = idx < noteViewRestFlash.count ? noteViewRestFlash[idx] : nil
         let flatKey = euclideousKeyIsFlat(keyRoot)
-        return TimelineView(.animation(paused: !clock.playing)) { tl in
+        // RE-CHECKED, a real gap closed on this pass: this used to pause only on the GLOBAL transport
+        // (`!clock.playing`) — but §2.6 says "a stopped LANE... its note box keeps its last state," and a
+        // single lane can be individually disabled (PLAY/STOP) while the transport keeps running elsewhere.
+        // Without this, a just-disabled lane's box kept animating its OWN already-in-flight fade (driven by
+        // `liveBeat`, which keeps advancing with the still-running transport) even though no new engine
+        // events could possibly arrive for it — a box that's supposed to be frozen kept visibly changing.
+        return TimelineView(.animation(paused: !(clock.playing && line.enabledResolved))) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             noteViewNoteBoxContent(liveBeat: liveBeat, lastEvent: lastEvent, restFlash: restFlash, accent: accent, flatKey: flatKey)
                 .frame(width: width, height: height)
         }
+    }
+    /// §4.4/§4.5 brightness: kind 0/1 fade continuously over the gate (1.0→0.4); kind 3 (a tied hit) is a
+    /// step — full brightness throughout the whole extended span, settling only once it genuinely ends —
+    /// per §4.5's own distinct wording. A plain function, not inlined into the `@ViewBuilder` body above,
+    /// since an `if/else` assigning to a scalar `let` fails Swift's result-builder transform there.
+    private func noteViewBrightness(kind: UInt8, onsetBeat: Double, durationBeat: Double, liveBeat: Double) -> Double {
+        if kind == 3 { return liveBeat < onsetBeat + durationBeat ? 1.0 : 0.4 }
+        let t = durationBeat > 0 ? max(0, min(1, (liveBeat - onsetBeat) / durationBeat)) : 1
+        return 1.0 - 0.6 * t
     }
     @ViewBuilder private func noteViewNoteBoxContent(liveBeat: Double, lastEvent: Router.EuclideousNoteViewEventSnapshot?, restFlash: Router.EuclideousNoteViewEventSnapshot?, accent: Color, flatKey: Bool) -> some View {
         // §4.5, SKIP: "show a grey '—' for one step's duration, then return to the previous note at 40%" —
@@ -2146,14 +2172,28 @@ struct EuclideousPage: View {
                 .foregroundColor(Color(hex: 0x8A909A))
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
         } else if let ev = lastEvent {
-            // §4.4, literal: full brightness at onset, linear fade to 40% over the note's OWN gate length,
-            // held at 40% thereafter (never below it) — "so the lane's last note is always readable."
-            let t = ev.durationBeat > 0 ? max(0, min(1, (liveBeat - ev.onsetBeat) / ev.durationBeat)) : 1
-            let brightness = 1.0 - 0.6 * t
+            // RE-CHECKED: §4.4's general rule ("fades linearly... over the note's gate length") is for a
+            // plain hit/miss (kind 0/1) — but §4.5's TIE case is worded distinctly ("keep showing the held
+            // note at FULL brightness, fading FROM THE END of the extended note"), not "use 4.4's formula
+            // with a longer input." Read literally: a tied note stays fully lit for its WHOLE held span
+            // (it's still genuinely sounding) and only settles to the 40% floor once that span is actually
+            // over — a step, not a second gradual ramp (the ferry names no separate post-release fade
+          // duration, and §4.4's own closing line — "stays at 40% until the next note" — already describes
+            // that floor as a plain settled state, not something reached via its own fade). `kind == 3`
+            // (Router.swift, a tied hit) is the one case this applies to; kind 0/1 keep the continuous ramp.
+            // (An `if/else` STATEMENT assigning to this `let` directly, written inline here, fails to
+            // compile inside a `@ViewBuilder` body — Swift's result-builder transform tries to treat the
+            // `if` as View-producing control flow, not a plain scalar computation; moved to a bare
+            // (non-@ViewBuilder) function so ordinary imperative code works as expected.)
+            let brightness = noteViewBrightness(kind: ev.kind, onsetBeat: ev.onsetBeat, durationBeat: ev.durationBeat, liveBeat: liveBeat)
             let names = noteViewStackedNames(ev.notes, flatKey: flatKey)
+            // §4.2, literal: "white, bold, VALUE TYPE SIZE" — this was wrongly drawn at `padHeadingSize`
+            // (10pt, this page's AXIS-LABEL size) instead of `padValueSize` (13pt, the page's own established
+            // "value type size" from the layout-system ferry) — a real mismatch against an explicit
+            // instruction, not a judgment call, caught only by re-reading the ferry's literal words again.
             let stack = VStack(spacing: 1) {
                 ForEach(names.indices, id: \.self) { i in
-                    Text(names[i]).font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced)).lineLimit(1)
+                    Text(names[i]).font(.system(size: padValueSize, weight: .heavy, design: .monospaced)).lineLimit(1)
                 }
             }
             if ev.kind == 1 {

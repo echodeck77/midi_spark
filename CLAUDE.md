@@ -196,6 +196,107 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS NOTE VIEW — a second self-audit against the literal ferry text found + fixed 6 real
+  issues, one a genuine architecture-invariant violation (2026-10-10, on `fix/euclid-no-scroll-direction-
+  order-2x2-grid`; macOS 1269 green incl. +1, iOS builds clean, 0 errors, 0 new warnings; direct follow-up
+  to the NOTE VIEW entry immediately below). Paul asked to check the shipped NOTE VIEW code against the
+  ferry text again — the second such re-check this session, after the layout-ferry audit a few entries
+  down found 3 real bugs the first "all done" pass had missed. Re-read every clause of both ferries against
+  the ACTUAL current code (not memory of what was built), and found six more. **(1) THE SERIOUS ONE — a
+  real correctness bug in the mark-drawing loop, `noteViewTrack` (EuclideousPage.swift):** the Canvas's
+  tick-enumeration range was `(latestTick - lookback)...(latestTick + 1)` — but `latestTick` (the most
+  recently passed tick) already has age ≤ 0 by construction (it's at or past the playhead), so EVERY tick
+  in that backward-looking `lookback` span is also already past the playhead and can never be a genuinely
+  upcoming, approaching mark; the `+1` forward bound covered only ONE tick of future lookahead, when the
+  WHOLE visible window (up to 2 bars' worth of ticks, per §2.3) needed to be scanned. The practical result:
+  the track showed almost no approaching marks sliding in from the left — directly contradicting §2.1/§2.2's
+  core claim ("marks travel left to right and reach the playhead at the exact moment their step plays").
+  Fixed to `latestTick...(latestTick + aheadTicks)`, where `aheadTicks` is the SAME `windowBeats÷sub+1`
+  quantity the old code had already computed (just pointed the wrong direction) — a one-line fix once
+  root-caused, but a real, audible-gap bug the original "all done" pass missed. **(2) §2.6's per-lane
+  freeze gap, `noteViewNoteBox`:** "a stopped lane: no marks on its track; its note box keeps its last
+  state" — but the note box's own `TimelineView` only paused on the GLOBAL transport (`!clock.playing`),
+  not on the LANE's own PLAY/STOP (`line.enabledResolved`) — so individually stopping one lane while the
+  transport kept running elsewhere left that lane's box still animating its own already-in-flight fade
+  (driven by the still-advancing `liveBeat`), instead of freezing as §2.6 requires. Fixed:
+  `paused: !(clock.playing && line.enabledResolved)`. **(3) §4.2's literal "VALUE TYPE SIZE":** hit/miss
+  note names were drawn at `padHeadingSize` (10pt, this page's own AXIS-LABEL size) instead of
+  `padValueSize` (13pt, the page's own established "value type size" from the layout-system ferry) — a
+  plain mismatch against an explicit instruction, not a judgment call, caught only by re-reading the
+  ferry's exact words a second time rather than re-trusting the first pass's own summary of what it built.
+  **(4) §4.5's TIE wording, read more carefully — A JUDGMENT CALL, flagged not silently resolved:** §4.4's
+  general rule is a continuous linear fade (1.0→0.4 over the gate length); §4.5's TIE case is worded
+  distinctly ("keep showing the held note at full brightness, fading FROM THE END of the extended note") —
+  not "feed a longer duration into §4.4's same formula." Read literally, a tied note stays FULLY LIT for
+  its whole held/extended span (it's still genuinely sounding) and only settles to the 40% floor once that
+  span is actually over — a step function, not a second gradual ramp (nothing in the ferry names a separate
+  post-release fade duration for this case, and §4.4's own closing line — "stays at 40% until the next
+  note" — already describes that floor as a plain settled state, not something reached via its own fade).
+  Implemented via a new `kind == 3` ("tied hit") event value (Router.swift, computed at the two push sites
+  that can produce a tie-extended gate — the ON-REST=FILL branch and the riff real-rank branch — via a
+  newly-named `tieExt = riffTieExtensionBeats(...)`, `kind: tieExt > 0 ? 3 : 0`), read by a new
+  `noteViewBrightness(kind:onsetBeat:durationBeat:liveBeat:)` that branches on it; visually, kind 3 still
+  renders with the SAME hit-style LANE-20 fill/white-bold-text §4.2 describes (it falls into the same
+  `else` branch as kind 0 in the box's style switch, which only special-cases kind 1/miss-playing) — only
+  its BRIGHTNESS timeline differs. Locked in with a rewritten `testEuclideousNoteViewOnRestTiePostsNo
+  SecondEventTheOriginalHitCoversIt` (now also asserts `kind == 3`) + a new
+  `testEuclideousNoteViewPlainHitWithNoTieIsNotMarkedAsTied` (a riff pattern with no following rest stays
+  kind 0). **FLAGGED EXPLICITLY, genuinely ambiguous, not a confident reading:** this is the one place in
+  this pass where the ferry's own two sections don't cleanly reconcile at face value — worth Paul's
+  correction if the real intent was simpler (e.g., literally just a longer §4.4-style ramp). **(5) §2.2's
+  own repeated worked example, ferry 2 — ALSO a judgment call, reversed from the first pass's own
+  reasoning:** the lane's NOTE choice name for `.low` was shown as the raw stored value "LOW" (the first
+  pass's own reasoning: "use the actual existing value, per §2's own 'only settings that already exist'
+  framing") — but re-reading the ferry's OWN two worked examples again (§2.2's "e.g. LOWEST, ALL" AND the
+  closing example list's "CHD · LOWEST · OCT −1") shows "LOWEST" written BOTH times, consistently, never
+  "LOW" — while the OTHER named example, ALL, matches its raw stored value exactly. That's a real signal:
+  one case diverges from its raw value, repeatedly and consistently, while the other doesn't — read as the
+  ferry specifically wanting a friendlier display name for this one short, abrupt-reading value (not a
+  blanket rename of every `EuclidNoteSel` case). Fixed: `.low` displays as "LOWEST"; every other case still
+  shows its raw value. **(6) THE STRUCTURAL ONE — a genuine architecture-invariant violation, §5.1's own
+  literal, unconditional words: "nothing in this view may block or allocate on the audio thread."** All 5
+  of the original `pushNoteViewEvent` call sites built an intermediate `[UInt8]` array before calling it —
+  either a `.compactMap` result (3 sites) or a literal (`[p]`, `[]`) — and a non-empty Swift array literal
+  or `.compactMap` result is a genuine heap allocation, even for one element, directly on the render
+  thread (`runEuclidLine`, called from `Router.process()`). This is CLAUDE.md's own architecture invariant
+  3 ("No allocation... on the render path. Fixed-size storage only") — violated by this session's own new
+  code, not inherited from anything pre-existing. Fixed with a new `nvScratch` — a single preallocated,
+  reused `[UInt8]` buffer (Router instance field, fixed size 8) — every call site now writes its (≤8) note
+  list into DIRECTLY, by index, with a plain `for`/`if let` loop, no array construction; `pushNoteViewEvent`
+  itself changed from `notes: [UInt8]` to `noteCount: Int`, reading the already-filled `nvScratch` instead
+  of a passed array. The MISS branch needed one more step: it had ALSO been calling the pre-existing
+  `resolvedPickIndices` helper (itself allocating a `[Int]`) PURELY for this telemetry mirror — the real
+  strike loop a few lines above never uses it for MISS, iterating `pickRange`/`pickIndex` directly — so the
+  NOTE VIEW mirror was fixed to do the same (a small local non-escaping `addMiss(_:)` function mirroring
+  the exact range/single-index/both-nil-means-ALL shape the strike loop already uses), dropping the
+  allocating helper call entirely rather than just moving where its result gets consumed. The one PRE-
+  EXISTING allocation this pass did NOT touch: `resolvedPickIndices` is also called by the FILL branch's
+  OWN real strike loop (from the 2026-10-09 ABSOLUTE VELOCITY ferry, before NOTE VIEW existed) — left
+  alone, since removing it there would mean rewriting a working, tested, unrelated strike path as a side
+  effect of a telemetry audit, not actually in scope here. **A compile error caught by the real iOS build,
+  not by inspection — the exact "if/else assigning to a scalar `let` fails inside a `@ViewBuilder` body"
+  pitfall this codebase's own history has hit before:** the kind-3 brightness fix's first draft wrote the
+  `if ev.kind == 3 {...} else {...}` directly inline inside `noteViewNoteBoxContent` (a `@ViewBuilder`
+  function) — Swift's result-builder transform tried to treat the `if` as View-producing control flow,
+  producing `()` for a branch that only ever assigns a `Double`, and the build failed outright (`type '()'
+  cannot conform to 'View'`). Fixed by extracting the whole computation into `noteViewBrightness(...)`, an
+  ordinary (non-`@ViewBuilder`) function — a single `let brightness = noteViewBrightness(...)` call is a
+  completely unproblematic statement inside a builder body, the same shape every other `let` already used
+  there. **PROCESS NOTE, confirmed a THIRD time this session:** the background iOS build task reported
+  "failed, exit code 1" — the actual log showed `** BUILD SUCCEEDED **` with 0 errors — traced to this
+  verification script's own trailing `grep -c "error:"` legitimately exiting 1 when it found zero matches,
+  exactly the same false-failure class already logged twice earlier this session; caught by reading the
+  real log text, not trusting the notification, same as both times before. Also re-confirmed via direct
+  reading, no further changes needed: §3's exact mark-drawing constants (8pt hit circle + 16pt tail, 4pt
+  #3A3E47 miss-silent dot, 8pt/1.5pt miss-playing ring) were already correct; §4.6's stacked-name ordering
+  (lowest at the bottom, top-2+"+n" beyond 3) was already correct; §6's out-of-scope list (no gestures, no
+  mask marks, no EDIT/PLAY toggle) was fully respected — grepped for any gesture recognizer anywhere in the
+  NOTE VIEW code and found none; §0.1's placement supersession (NOTE VIEW replacing, not coexisting with,
+  the old dashed placeholder) was correctly done, with no leftover placeholder call site. **DEVICE-OWED,
+  entirely unchanged from the entry below — this pass is a pure code-level re-audit, not a substitute for
+  either ferry's own explicit device-verification ask:** every item that entry already names, PLUS the new
+  judgment calls above (#4's TIE brightness reading, #5's LOWEST display choice) specifically worth Paul's
+  on-device correction if either reads differently than intended once actually seen/heard.**
 - **▶ EUCLIDEOUS NOTE VIEW, phase 1 + strip labels — a new per-lane rhythm timeline + note box, SHIPPED
   (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1268 green incl. 17 new, iOS builds
   clean, zero new warnings). Two ferries built together, since the second (strip labels) changes the

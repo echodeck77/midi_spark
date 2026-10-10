@@ -5587,6 +5587,27 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(laneEvents.count, 1, "TIE must not post a second event for the rest step — only the original triggering hit, with its own gate already extended to cover it")
         guard let ev = laneEvents.first else { return }
         XCTAssertGreaterThan(ev.durationBeat, 0.5, "the tied hit's duration must cover its own gate PLUS the extra tick the rest step consumed (sub=0.5 beats at r1_8) — an un-tied hit's gate alone (~0.45 beats at the default 90% gate) would not clear this bar")
+        // RE-CHECKED against the ferry's own literal §4.5 wording ("full brightness... fading FROM THE END
+        // of the extended note" — genuinely different from §4.4's plain continuous fade): a tied hit posts
+        // kind 3, not kind 0, so the UI can hold it at full brightness for its whole span instead of fading
+        // it the moment it strikes.
+        XCTAssertEqual(ev.kind, 3, "a hit that ties through a following rest must post as kind 3 (tied hit), not a plain kind-0 hit — the note box's brightness rule for the two is genuinely different per §4.5")
+    }
+    func testEuclideousNoteViewPlainHitWithNoTieIsNotMarkedAsTied() {
+        // A direct contrast to the test above: the SAME riff real-rank path, but with no following rest to
+        // tie through, must post the ordinary kind 0 — confirms kind 3 is specific to an ACTUAL extension,
+        // not applied unconditionally to every riff-sourced hit.
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1, never a rest to tie through
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffOnRest: .tie)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        guard let ev = router.drainEuclideousNoteViewEvents()[0].first else { return XCTFail("should have posted a hit") }
+        XCTAssertEqual(ev.kind, 0, "no rest ever follows this pattern, so riffTieExtensionBeats is always 0 — this must stay an ordinary kind-0 hit")
     }
     func testEuclideousNoteViewMissSilentPostsNothing() {
         var c = Machine(machineID: "gold", type: .euclid)

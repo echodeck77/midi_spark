@@ -376,7 +376,12 @@ final class Router {
     // whole OUTCOME, not one note — a chord/ALL pick strikes several notes in a single decision, stored
     // together so the UI's note box treats them as ONE update (ferry §4.6), not N separate ones.
     // kind: 0 = hit (a real note/chord struck) · 1 = miss-playing (the MISS side struck) · 2 = rest-flash
-    // (riff ON-REST=SKIP's momentary "—", ferry §4.5). Fixed-size, preallocated, zero allocation during
+    // (riff ON-REST=SKIP's momentary "—", ferry §4.5) · 3 = tied hit (a real/FILL hit whose own gate was
+    // extended by `riffTieExtensionBeats` to cover a following rest, ferry §4.5's TIE case — a DISTINCT
+    // kind from a plain hit, not just a longer `durationBeat`, because the ferry describes genuinely
+    // different UI behaviour for it: full brightness for the WHOLE held/extended span, settling only once
+    // it's truly over — see `noteViewNoteBoxContent`'s own handling of this kind). Fixed-size, preallocated,
+    // zero allocation during
     // `process()` — the only allocation this feature ever does is inside `drainEuclideousNoteViewEvents`
     // (below), building fresh small arrays on the calling (main) thread, exactly like `drainFocusNotes`/
     // `drainCellNotes` already do.
@@ -389,22 +394,30 @@ final class Router {
     private var nvNotes        = [UInt8](repeating: 0, count: 4 * Router.noteViewRing * Router.noteViewMaxNotes)
     private var nvHead = [Int](repeating: 0, count: 4)
     private var nvNew  = [Int](repeating: 0, count: 4)
+    // §5.1, literal: "nothing in this view may block or allocate on the audio thread." A caller-built
+    // `[UInt8]` (an array literal, or a `.compactMap` result) is itself a render-thread heap allocation,
+    // even for one element — found + fixed on a self-re-audit: the ORIGINAL 5 call sites each built one
+    // of these before calling this function. `nvScratch` is the fix — ONE preallocated, reused buffer
+    // every call site writes its (small, ≤8) note list into IN PLACE before calling this function with
+    // just a count; nothing here or at any call site constructs a new array.
+    private var nvScratch = [UInt8](repeating: 0, count: Router.noteViewMaxNotes)
     /// Records ONE step's outcome for `lane` (0...3) — called from inside `runEuclidLine` at its 3 real
-    /// decision points (hit, miss-playing, rest-flash). `notes` are the FINAL, already-transposed/octave-
-    /// shifted, 0...127-clamped MIDI values this tick is actually striking (ferry §5.3: "must match what
-    /// is actually sent") — computed by the CALLER via the same arithmetic `strikeChord`'s own `strikeOne`
-    /// uses, not re-derived here, so this can never silently disagree with the real emission. Capped at
-    /// `noteViewMaxNotes` (ample for any realistic chord); `noteCount` records the TRUE total even past
-    /// that cap, so the UI's "+n" readout (ferry §4.6) stays honest in that edge case too. Write-side
+    /// decision points (hit, miss-playing, rest-flash). Reads `noteCount` entries from `nvScratch`
+    /// (written by the caller just before this call) — the FINAL, already-transposed/octave-shifted,
+    /// 0...127-clamped MIDI values this tick is actually striking (ferry §5.3: "must match what is
+    /// actually sent") — computed by the CALLER via the same arithmetic `strikeChord`'s own `strikeOne`
+    /// uses, not re-derived here, so this can never silently disagree with the real emission. `noteCount`
+    /// is pre-capped at `noteViewMaxNotes` by every caller (ample for any realistic chord). Write-side
     /// `nvNew` is capped at the ring size (never over-counted), matching `focusNoteNew`'s own idiom
     /// exactly — the ring naturally keeps-newest/drops-oldest with no extra branching needed.
-    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, notes: [UInt8]) {
+    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, noteCount: Int) {
         guard lane >= 0, lane < 4 else { return }
         let slot = lane * Router.noteViewRing + nvHead[lane]
         nvOnsetBeat[slot] = onsetBeat; nvDurationBeat[slot] = durationBeat; nvKind[slot] = kind
-        nvNoteCount[slot] = UInt8(min(255, notes.count))
+        let nc = max(0, min(Router.noteViewMaxNotes, noteCount))
+        nvNoteCount[slot] = UInt8(nc)
         let nbase = slot * Router.noteViewMaxNotes
-        for i in 0..<Router.noteViewMaxNotes { nvNotes[nbase + i] = i < notes.count ? notes[i] : 0 }
+        for i in 0..<Router.noteViewMaxNotes { nvNotes[nbase + i] = i < nc ? nvScratch[i] : 0 }
         nvHead[lane] = (nvHead[lane] + 1) % Router.noteViewRing
         if nvNew[lane] < Router.noteViewRing { nvNew[lane] &+= 1 }
     }
@@ -4385,7 +4398,7 @@ final class Router {
                                     // a rest flash, since §5.3 scopes this to what's actually sent.
                                     if nvSent {
                                         let (onset, duration) = nvTiming(sub)
-                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, notes: [])
+                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, noteCount: 0)
                                     }
                                     return
                                 case .tie:
@@ -4397,7 +4410,8 @@ final class Router {
                                     return
                                 case .fill:
                                     let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord, count: thisLaneCount)
-                                    let gb = min(sub * gate, S * 0.95) + riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
+                                    let tieExt = riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
+                                    let gb = min(sub * gate, S * 0.95) + tieExt
                                     let fillVel = UInt8(velocityAbsolute)
                                     let fillIdx = resolvedPickIndices(pickIndex, pickRange, count: notes.count)
                                     for idx in fillIdx where idx >= 0 && idx < notes.count {
@@ -4405,14 +4419,22 @@ final class Router {
                                     }
                                     // NOTE VIEW (ferry §4.5): "ON REST = FILL: show the filled note as a
                                     // normal hit" — kind 0, same as any other hit, from the SAME indices the
-                                    // strike loop above just used (read-only, the strike itself is untouched).
-                                    let fillStruck = fillIdx.compactMap { idx -> UInt8? in
-                                        guard idx >= 0, idx < notes.count else { return nil }
-                                        return finalPitch(Int(notes[idx].note), oct: octave)
-                                    }
-                                    if nvSent, !fillStruck.isEmpty {
-                                        let (onset, duration) = nvTiming(gb)
-                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, notes: fillStruck)
+                                    // strike loop above just used (read-only, the strike itself is untouched) —
+                                    // UNLESS this FILL itself went on to tie through a further rest (`tieExt >
+                                    // 0`), in which case it gets kind 3 (tied hit) for the SAME reason the real-
+                                    // rank branch below does: §4.5's TIE wording ("full brightness... fading
+                                    // from the END of the extended note") describes behaviour genuinely
+                                    // different from the general §4.4 continuous-fade rule, not just "a longer
+                                    // input to the same formula."
+                                    if nvSent {
+                                        var fillNC = 0
+                                        for idx in fillIdx where idx >= 0 && idx < notes.count && fillNC < Router.noteViewMaxNotes {
+                                            if let p = finalPitch(Int(notes[idx].note), oct: octave) { nvScratch[fillNC] = p; fillNC += 1 }
+                                        }
+                                        if fillNC > 0 {
+                                            let (onset, duration) = nvTiming(gb)
+                                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieExt > 0 ? 3 : 0, noteCount: fillNC)
+                                        }
                                     }
                                     return
                                 }
@@ -4421,14 +4443,19 @@ final class Router {
                             // is no longer read at all — VELOCITY is a genuine override now, same as every other
                             // strike this lane makes (see EuclidLine.velocityAbsolute's own doc comment).
                             guard let note = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
-                            let gb = min(sub * gate, S * 0.95) + riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
+                            let tieExt = riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
+                            let gb = min(sub * gate, S * 0.95) + tieExt
                             strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: note, explicitVel: UInt8(velocityAbsolute), busOverride: busOverride)
                             // NOTE VIEW: `riffOctave` is already folded into `note` by `riffResolve` itself
                             // (its own `+ 12*oct`), which is why `octave: 0` is passed to strikeChord above —
                             // so the display pitch only adds `transpose`, never re-applying riffOctave.
+                            // kind 3 (tied hit) when this strike itself ties through a FOLLOWING rest
+                            // (`tieExt > 0`) — see the §4.5 comment on the FILL branch above for why this
+                            // needs its own kind, not just a longer `durationBeat` fed into kind 0's formula.
                             if nvSent, let p = finalPitch(Int(note), oct: 0) {
+                                nvScratch[0] = p
                                 let (onset, duration) = nvTiming(gb)
-                                pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, notes: [p])
+                                pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieExt > 0 ? 3 : 0, noteCount: 1)
                             }
                             return
                         }
@@ -4504,14 +4531,17 @@ final class Router {
                         for idx in hitIdx where idx >= 0 && idx < hitNotes.count {
                             strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: octave, explicitNote: hitNotes[idx].note, explicitVel: hitVel, busOverride: busOverride)
                         }
-                        // NOTE VIEW: read-only mirror of the strike loop above, same resolved indices.
-                        let hitStruck = hitIdx.compactMap { idx -> UInt8? in
-                            guard idx >= 0, idx < hitNotes.count else { return nil }
-                            return finalPitch(Int(hitNotes[idx].note), oct: octave)
-                        }
-                        if nvSent, !hitStruck.isEmpty {
-                            let (onset, duration) = nvTiming(hitGate)
-                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, notes: hitStruck)
+                        // NOTE VIEW: read-only mirror of the strike loop above, same resolved indices,
+                        // written straight into `nvScratch` (no intermediate `.compactMap` array — §5.1).
+                        if nvSent {
+                            var hitNC = 0
+                            for idx in hitIdx where idx >= 0 && idx < hitNotes.count && hitNC < Router.noteViewMaxNotes {
+                                if let p = finalPitch(Int(hitNotes[idx].note), oct: octave) { nvScratch[hitNC] = p; hitNC += 1 }
+                            }
+                            if hitNC > 0 {
+                                let (onset, duration) = nvTiming(hitGate)
+                                pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: hitNC)
+                            }
                         }
                     } else if let missSel = missNoteSel {
                         // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — a REST step can now ALSO strike,
@@ -4537,18 +4567,25 @@ final class Router {
                         } else {
                             strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: missGateReal, onlyIndex: pickIndex, octave: missOctave, busOverride: busOverride, srcOverride: laneNotes(lineIndex))
                         }
-                        // NOTE VIEW (ferry §4.3, "miss-playing"): `resolvedPickIndices` normalizes all 3 pick
-                        // shapes (a single index / a range / both-nil-meaning-ALL) into the same concrete
-                        // index list `strikeChord`'s own nil-handling strikes internally — read-only, the
-                        // strike calls above are untouched.
-                        let missNotesPool = laneNotes(lineIndex)
-                        let missStruck = resolvedPickIndices(pickIndex, pickRange, count: missNotesPool.count).compactMap { idx -> UInt8? in
-                            guard idx >= 0, idx < missNotesPool.count else { return nil }
-                            return finalPitch(Int(missNotesPool[idx].note), oct: missOctave)
-                        }
-                        if nvSent, !missStruck.isEmpty {
-                            let (onset, duration) = nvTiming(missGateReal)
-                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 1, notes: missStruck)
+                        // NOTE VIEW (ferry §4.3, "miss-playing"): mirrors the SAME 3 pick shapes the real
+                        // strike calls above resolve (a single index / a range / both-nil-meaning-ALL),
+                        // writing straight into `nvScratch` — no `resolvedPickIndices([Int])` detour and
+                        // no `.compactMap` (§5.1: neither call site above this needs to allocate either,
+                        // so this read-only mirror shouldn't be the one place that does).
+                        if nvSent {
+                            let missNotesPool = laneNotes(lineIndex)
+                            var missNC = 0
+                            func addMiss(_ idx: Int) {
+                                guard idx >= 0, idx < missNotesPool.count, missNC < Router.noteViewMaxNotes else { return }
+                                if let p = finalPitch(Int(missNotesPool[idx].note), oct: missOctave) { nvScratch[missNC] = p; missNC += 1 }
+                            }
+                            if let range = pickRange { for idx in range.lo...range.hi { addMiss(idx) } }
+                            else if let idx = pickIndex { addMiss(idx) }
+                            else { for idx in 0..<missNotesPool.count { addMiss(idx) } }
+                            if missNC > 0 {
+                                let (onset, duration) = nvTiming(missGateReal)
+                                pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 1, noteCount: missNC)
+                            }
                         }
                     }
                 }
