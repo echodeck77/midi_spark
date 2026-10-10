@@ -368,6 +368,46 @@ final class Router {
     // Unified UI-poll surface: EVERY direction (not just DRUNK) writes its resolved step index here, so the poll
     // layer only ever reads one simple array regardless of which direction a lane is using.
     private var euclideousRiffStep = [Int](repeating: -1, count: 4)
+    // NOTE VIEW (Paul 2026-10-10 ferry): a per-lane EVENT QUEUE — "the audio thread posts note and step
+    // events... through a lock-free queue; the UI reads them." Mirrors `focusNotePitch`/`focusNoteHead`/
+    // `focusNoteNew`'s exact ring-buffer shape (below, this file), just 4-wide (one ring PER LANE) instead
+    // of one ring for a single focus cell — all 4 Euclideous lanes share ONE engine row (`Snap.
+    // euclideousRow`), so no existing per-row/per-cell feed can tell them apart. One EVENT is one step's
+    // whole OUTCOME, not one note — a chord/ALL pick strikes several notes in a single decision, stored
+    // together so the UI's note box treats them as ONE update (ferry §4.6), not N separate ones.
+    // kind: 0 = hit (a real note/chord struck) · 1 = miss-playing (the MISS side struck) · 2 = rest-flash
+    // (riff ON-REST=SKIP's momentary "—", ferry §4.5). Fixed-size, preallocated, zero allocation during
+    // `process()` — the only allocation this feature ever does is inside `drainEuclideousNoteViewEvents`
+    // (below), building fresh small arrays on the calling (main) thread, exactly like `drainFocusNotes`/
+    // `drainCellNotes` already do.
+    private static let noteViewRing = 8
+    private static let noteViewMaxNotes = 8
+    private var nvOnsetBeat    = [Double](repeating: 0, count: 4 * Router.noteViewRing)
+    private var nvDurationBeat = [Double](repeating: 0, count: 4 * Router.noteViewRing)
+    private var nvKind         = [UInt8](repeating: 0, count: 4 * Router.noteViewRing)
+    private var nvNoteCount    = [UInt8](repeating: 0, count: 4 * Router.noteViewRing)
+    private var nvNotes        = [UInt8](repeating: 0, count: 4 * Router.noteViewRing * Router.noteViewMaxNotes)
+    private var nvHead = [Int](repeating: 0, count: 4)
+    private var nvNew  = [Int](repeating: 0, count: 4)
+    /// Records ONE step's outcome for `lane` (0...3) — called from inside `runEuclidLine` at its 3 real
+    /// decision points (hit, miss-playing, rest-flash). `notes` are the FINAL, already-transposed/octave-
+    /// shifted, 0...127-clamped MIDI values this tick is actually striking (ferry §5.3: "must match what
+    /// is actually sent") — computed by the CALLER via the same arithmetic `strikeChord`'s own `strikeOne`
+    /// uses, not re-derived here, so this can never silently disagree with the real emission. Capped at
+    /// `noteViewMaxNotes` (ample for any realistic chord); `noteCount` records the TRUE total even past
+    /// that cap, so the UI's "+n" readout (ferry §4.6) stays honest in that edge case too. Write-side
+    /// `nvNew` is capped at the ring size (never over-counted), matching `focusNoteNew`'s own idiom
+    /// exactly — the ring naturally keeps-newest/drops-oldest with no extra branching needed.
+    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, notes: [UInt8]) {
+        guard lane >= 0, lane < 4 else { return }
+        let slot = lane * Router.noteViewRing + nvHead[lane]
+        nvOnsetBeat[slot] = onsetBeat; nvDurationBeat[slot] = durationBeat; nvKind[slot] = kind
+        nvNoteCount[slot] = UInt8(min(255, notes.count))
+        let nbase = slot * Router.noteViewMaxNotes
+        for i in 0..<Router.noteViewMaxNotes { nvNotes[nbase + i] = i < notes.count ? notes[i] : 0 }
+        nvHead[lane] = (nvHead[lane] + 1) % Router.noteViewRing
+        if nvNew[lane] < Router.noteViewRing { nvNew[lane] &+= 1 }
+    }
     // EUCLID BEACON READINESS (Paul 2026-10-05, closing the beacon's own disclosed gap — "doesn't walk RIFF/ARP's
     // own resolved note... reads the door's raw held notes, not the fully-resolved upstream-chain pool"). Bit
     // (lineIndex*2 + (isMiss?1:0)) is set when that line's resolved noteSel/missNoteSel currently has a genuine
@@ -1245,6 +1285,37 @@ final class Router {
     /// off). Plain array read, same shape as `riffDrunkPosAt` above — unlike that one, this reports ALL 6
     /// directions through one surface (`euclideousRiffStep` is written on every useRiff hit, not just DRUNK).
     func euclideousRiffPositions() -> [Int] { euclideousRiffStep }
+
+    /// NOTE VIEW drain (Paul 2026-10-10 ferry): read-and-clear, FRESH per-lane arrays (never share the
+    /// render-written buffers with the poll — same COW/refcount-race avoidance every `drain*` in this
+    /// file already follows), oldest→newest, mirroring `drainFocusNotes` exactly. 4 inner arrays (one
+    /// per lane), each 0...`noteViewRing` events deep depending on how many that lane posted since the
+    /// last drain.
+    struct EuclideousNoteViewEventSnapshot: Equatable {
+        let onsetBeat: Double
+        let durationBeat: Double
+        let kind: UInt8
+        let notes: [UInt8]
+    }
+    func drainEuclideousNoteViewEvents() -> [[EuclideousNoteViewEventSnapshot]] {
+        var out: [[EuclideousNoteViewEventSnapshot]] = []
+        out.reserveCapacity(4)
+        for lane in 0..<4 {
+            let n = min(Router.noteViewRing, max(0, nvNew[lane])); nvNew[lane] = 0
+            var events: [EuclideousNoteViewEventSnapshot] = []
+            events.reserveCapacity(n)
+            for k in 0..<n {
+                let idx = ((nvHead[lane] - n + k) % Router.noteViewRing + Router.noteViewRing) % Router.noteViewRing
+                let slot = lane * Router.noteViewRing + idx
+                let nbase = slot * Router.noteViewMaxNotes
+                let cnt = Int(nvNoteCount[slot])
+                let notes = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvNotes[nbase + $0] }
+                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes))
+            }
+            out.append(events)
+        }
+        return out
+    }
 
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
     /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source machine) set.
@@ -2732,6 +2803,7 @@ final class Router {
             for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
             for i in riffDrunkPos.indices { riffDrunkPos[i] = -1; riffDrunkPrevPos[i] = -1; riffDrunkLastTick[i] = .min }   // RIFF DRUNK: a fresh play restarts the walk (Paul 2026-09-28)
             for i in euclideousRiffDrunkPos.indices { euclideousRiffDrunkPos[i] = -1; euclideousRiffDrunkLastOrd[i] = .min; euclideousRiffStep[i] = -1; euclideousRiffLastSpanStart[i] = .nan }   // EUCLIDEOUS RIFF: a fresh play restarts every lane's walk/cursor (Paul 2026-10-06) + re-arms span-reset detection (2026-10-08)
+            for i in 0..<4 { nvHead[i] = 0; nvNew[i] = 0 }   // NOTE VIEW: a fresh play/stop clears any stale queued events, not just future ones (Paul 2026-10-10)
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
@@ -4116,6 +4188,44 @@ final class Router {
                     let ri = euclidReadIndex(raw, n: n, dir: dir)
                     let isHit = euclidBuf[ri]
                     let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle within the span (localT = cy·cycleLen + raw) — shared by both the HIT and MISS ordinals below
+                    // NOTE VIEW (Paul 2026-10-10 ferry) — two small helpers shared by all 4 push sites below.
+                    // `finalPitch` replicates (not reuses — `strikeChord`'s `strikeOne` is a widely-shared
+                    // closure, not Euclideous-specific, so threading a side-channel through it would be the
+                    // wrong place for this) the exact `rawNote + transpose + 12*octave` arithmetic + the
+                    // 0...127 guard `strikeOne` applies — so a note that would be silently DROPPED there is
+                    // never pushed for display either (§5.3: "must match what is actually sent"). `nvTiming`
+                    // converts a tick's MUSICAL beat + a real-beat-domain gate length into the REAL onset the
+                    // UI's continuous `EuclidLiveClock`-style extrapolation runs on — via `realOf` on both the
+                    // onset AND the (onset+gate) endpoint separately, since swing warp is piecewise-linear,
+                    // not affine, across a swing-pair boundary (so the duration can't just be passed through
+                    // unconverted).
+                    func finalPitch(_ raw: Int, oct: Int) -> UInt8? {
+                        let v = raw + transpose + 12 * oct
+                        return (v >= 0 && v <= 127) ? UInt8(v) : nil
+                    }
+                    // `tbm` (the SAME formula `strikeChord` computes internally, Router.swift ~3896) is the
+                    // actually-resolved bus mask after MUTE MATRIX/DEST/CHOP/MAIN OUT — `strikeChord` still
+                    // runs `storeArtic` when this is 0, but SKIPS `emitArtic` entirely, i.e. nothing is
+                    // actually sent. Computed ONCE per tick (not per push site) and reused to gate every
+                    // push below — without this, a muted/un-routed lane would still show a note in the box
+                    // that was never really heard, a direct violation of §5.3. Safe to call a second time:
+                    // `strikeChord` already calls this identically once per note it strikes within the SAME
+                    // tick (same `m: mTickBeat`), so this isn't a new category of cost.
+                    //
+                    // `isEuclideousRow` (already in scope, computed once per cell above) is EQUALLY load-
+                    // bearing here, caught before any test was written, not after: `runEuclidLine` is the
+                    // SAME shared function every ordinary, non-Euclideous `.euclid` cell anywhere else in
+                    // the 8×8 grid calls too (confirmed — `p.euclidLines` is always populated, even for a
+                    // plain single-EUCLID cell, so `lineIndex` 0...3 is NOT unique to Euclideous's own 4
+                    // lanes). Without this guard, an ordinary EUCLID processor on any other row would also
+                    // write into this SAME 4-slot queue, corrupting Euclideous's own NOTE VIEW with
+                    // whichever unrelated cell happened to strike most recently.
+                    let nvSent = isEuclideousRow && chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask != 0
+                    func nvTiming(_ gateBeatsReal: Double) -> (onset: Double, duration: Double) {
+                        let onsetReal = realOf(mTickBeat, stepBeats: S, a: a)
+                        let offReal = realOf(mTickBeat + gateBeatsReal, stepBeats: S, a: a)
+                        return (onsetReal, offReal - onsetReal)
+                    }
                     if isHit {
                         // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively
                         // off with zero velocity") — confirmed by testing, not assumed: strikeChord's own
@@ -4266,13 +4376,43 @@ final class Router {
                             // at its own position, including the very first one).
                             if rank < 1 {
                                 switch riffOnRest {
-                                case .skip, .tie: return
+                                case .skip:
+                                    // NOTE VIEW (ferry §4.5): "show a grey '—' for one step's duration, then
+                                    // return to the previous note at 40%" — a rest-flash event, duration =
+                                    // ONE STEP (`sub`, this lane's own rate), not the full gate — nothing is
+                                    // actually struck here, so there's no gate length to borrow. Gated on
+                                    // `nvSent` too — a muted/un-routed lane shows nothing at all, not even
+                                    // a rest flash, since §5.3 scopes this to what's actually sent.
+                                    if nvSent {
+                                        let (onset, duration) = nvTiming(sub)
+                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, notes: [])
+                                    }
+                                    return
+                                case .tie:
+                                    // NOTE VIEW: deliberately NO push here — the PRECEDING real/FILL hit's own
+                                    // `riffTieExtensionBeats` lookahead already extended ITS queued event's
+                                    // `durationBeat` to cover this rest step, so the note box's fade already
+                                    // runs the full tied span for free. Posting a second event here would
+                                    // wrongly restart the fade partway through.
+                                    return
                                 case .fill:
                                     let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord, count: thisLaneCount)
                                     let gb = min(sub * gate, S * 0.95) + riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
                                     let fillVel = UInt8(velocityAbsolute)
-                                    for idx in resolvedPickIndices(pickIndex, pickRange, count: notes.count) where idx >= 0 && idx < notes.count {
+                                    let fillIdx = resolvedPickIndices(pickIndex, pickRange, count: notes.count)
+                                    for idx in fillIdx where idx >= 0 && idx < notes.count {
                                         strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: octave, explicitNote: notes[idx].note, explicitVel: fillVel, busOverride: busOverride)
+                                    }
+                                    // NOTE VIEW (ferry §4.5): "ON REST = FILL: show the filled note as a
+                                    // normal hit" — kind 0, same as any other hit, from the SAME indices the
+                                    // strike loop above just used (read-only, the strike itself is untouched).
+                                    let fillStruck = fillIdx.compactMap { idx -> UInt8? in
+                                        guard idx >= 0, idx < notes.count else { return nil }
+                                        return finalPitch(Int(notes[idx].note), oct: octave)
+                                    }
+                                    if nvSent, !fillStruck.isEmpty {
+                                        let (onset, duration) = nvTiming(gb)
+                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, notes: fillStruck)
                                     }
                                     return
                                 }
@@ -4283,6 +4423,13 @@ final class Router {
                             guard let note = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
                             let gb = min(sub * gate, S * 0.95) + riffTieExtensionBeats(startStepIdx: stepIdx, startOrd: riffOrd)
                             strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: note, explicitVel: UInt8(velocityAbsolute), busOverride: busOverride)
+                            // NOTE VIEW: `riffOctave` is already folded into `note` by `riffResolve` itself
+                            // (its own `+ 12*oct`), which is why `octave: 0` is passed to strikeChord above —
+                            // so the display pitch only adds `transpose`, never re-applying riffOctave.
+                            if nvSent, let p = finalPitch(Int(note), oct: 0) {
+                                let (onset, duration) = nvTiming(gb)
+                                pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, notes: [p])
+                            }
                             return
                         }
                         // SEQUENTIAL SOURCES (Paul 2026-10-02): .riff/.arp step through the immediately-preceding,
@@ -4353,8 +4500,18 @@ final class Router {
                         let hitNotes = laneNotes(lineIndex)
                         let hitVel = UInt8(velocityAbsolute)
                         let hitGate = min(sub * gate, S * 0.95)
-                        for idx in resolvedPickIndices(pickIndex, pickRange, count: hitNotes.count) where idx >= 0 && idx < hitNotes.count {
+                        let hitIdx = resolvedPickIndices(pickIndex, pickRange, count: hitNotes.count)
+                        for idx in hitIdx where idx >= 0 && idx < hitNotes.count {
                             strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: octave, explicitNote: hitNotes[idx].note, explicitVel: hitVel, busOverride: busOverride)
+                        }
+                        // NOTE VIEW: read-only mirror of the strike loop above, same resolved indices.
+                        let hitStruck = hitIdx.compactMap { idx -> UInt8? in
+                            guard idx >= 0, idx < hitNotes.count else { return nil }
+                            return finalPitch(Int(hitNotes[idx].note), oct: octave)
+                        }
+                        if nvSent, !hitStruck.isEmpty {
+                            let (onset, duration) = nvTiming(hitGate)
+                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, notes: hitStruck)
                         }
                     } else if let missSel = missNoteSel {
                         // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — a REST step can now ALSO strike,
@@ -4374,10 +4531,24 @@ final class Router {
                         var missesUpTo = 0; for s in 0...raw where !isHitAt(s) { missesUpTo += 1 }
                         let missOrd = cy * effMisses + Int64(missesUpTo - 1)
                         let (pickIndex, pickRange) = resolveEuclidPick(missSel, ord: missOrd, count: laneCount(lineIndex))
+                        let missGateReal = min(sub * missGate, S * 0.95)
                         if let range = pickRange {
-                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: idx, octave: missOctave, busOverride: busOverride, srcOverride: laneNotes(lineIndex)) }
+                            for idx in range.lo...range.hi { strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: missGateReal, onlyIndex: idx, octave: missOctave, busOverride: busOverride, srcOverride: laneNotes(lineIndex)) }
                         } else {
-                            strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: min(sub * missGate, S * 0.95), onlyIndex: pickIndex, octave: missOctave, busOverride: busOverride, srcOverride: laneNotes(lineIndex))
+                            strikeChord(tau: mTickBeat, velScale: missVelocity, gateBeats: missGateReal, onlyIndex: pickIndex, octave: missOctave, busOverride: busOverride, srcOverride: laneNotes(lineIndex))
+                        }
+                        // NOTE VIEW (ferry §4.3, "miss-playing"): `resolvedPickIndices` normalizes all 3 pick
+                        // shapes (a single index / a range / both-nil-meaning-ALL) into the same concrete
+                        // index list `strikeChord`'s own nil-handling strikes internally — read-only, the
+                        // strike calls above are untouched.
+                        let missNotesPool = laneNotes(lineIndex)
+                        let missStruck = resolvedPickIndices(pickIndex, pickRange, count: missNotesPool.count).compactMap { idx -> UInt8? in
+                            guard idx >= 0, idx < missNotesPool.count else { return nil }
+                            return finalPitch(Int(missNotesPool[idx].note), oct: missOctave)
+                        }
+                        if nvSent, !missStruck.isEmpty {
+                            let (onset, duration) = nvTiming(missGateReal)
+                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 1, notes: missStruck)
                         }
                     }
                 }

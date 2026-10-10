@@ -215,6 +215,14 @@ struct DiagView: View {
     // RIFF PANEL — RESOLVED NOTES (Paul 2026-10-08): the ascending notes currently feeding the riff's own
     // pool — live, responsive (same fast poll as euclideousRiffPositions above), NOT persisted config.
     @State var euclideousRiffLivePool: [UInt8] = []
+    // NOTE VIEW (Paul 2026-10-10 ferry): per-lane RECONCILED state, built from draining the new fast-poll
+    // event queue (see the `showEuclideous` block below) — `euclideousNVLastEvent` is each lane's latest
+    // HIT/MISS-PLAYING outcome (kind 0/1), `euclideousNVRestFlash` is its latest riff-ON-REST=SKIP flash
+    // (kind 2), kept SEPARATELY so a flash ending doesn't clobber what the note box reverts to (ferry §4.5:
+    // "...then returns to the previous note at 40%"). Live/responsive, NOT persisted config — same class
+    // as euclideousRiffPositions/LivePool above.
+    @State var euclideousNVLastEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
+    @State var euclideousNVRestFlash: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
     // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config — same
     // persisted/live-mirror treatment as the fields above (loaded in refreshFromDocument, written back via
     // au?.editDocument on every edit, resynced on the slow timer). Defaults here are the SAME defaults their
@@ -932,6 +940,7 @@ struct DiagView: View {
                     EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled,
                                    lineReady: euclideousLineReady,
                                    riff: euclideousRiff, riffPositions: euclideousRiffPositions, riffLivePool: euclideousRiffLivePool,
+                                   noteViewLastEvent: euclideousNVLastEvent, noteViewRestFlash: euclideousNVRestFlash,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
                                    // PER-LANE I/O (Paul 2026-10-08): riffSourceMidi/lanesSourceMidi no longer passed —
                                    // each lane now owns its own source directly on EuclidLine (sourceMode), edited via
@@ -1070,6 +1079,24 @@ struct DiagView: View {
                 if rp != euclideousRiffPositions { euclideousRiffPositions = rp }
                 let rlp = au.pollEuclideousRiffLivePool()
                 if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
+                // NOTE VIEW (Paul 2026-10-10 ferry): drain the new per-lane event queue and fold it into the
+                // two reconciled "what's current" slots — a HIT/MISS-PLAYING event (kind 0/1) replaces
+                // `euclideousNVLastEvent[lane]`, a rest-flash (kind 2) replaces `euclideousNVRestFlash[lane]`
+                // INDEPENDENTLY, so a flash ending can't clobber the note the box should revert to. Events
+                // are walked oldest→newest (the drain's own order) so if a burst delivers more than one for
+                // the same lane in one poll tick, only the genuinely latest survives — no fade/freeze math
+                // happens here, that's a pure function of (stored event, live beat) evaluated at draw time.
+                let nvEvents = au.pollEuclideousNoteViewEvents()
+                if nvEvents.count == 4 {
+                    var newLast = euclideousNVLastEvent, newFlash = euclideousNVRestFlash, changed = false
+                    for lane in 0..<4 {
+                        for ev in nvEvents[lane] {
+                            if ev.kind == 2 { newFlash[lane] = ev } else { newLast[lane] = ev }
+                            changed = true
+                        }
+                    }
+                    if changed { euclideousNVLastEvent = newLast; euclideousNVRestFlash = newFlash }
+                }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the
             // OUT piano above, same reason (a poll-driven held-note feed is visibly laggy at 4Hz). Deliberately does

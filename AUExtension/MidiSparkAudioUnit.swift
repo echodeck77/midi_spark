@@ -533,6 +533,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// processor editor happens to be open at the same time. Its cell always sits at column 0 of its own
     /// reserved row, so the cell index IS the row index (col 0 × Snap.rows contributes nothing).
     func pollEuclideousLineReady() -> UInt8 { kernel.euclidLineReadyAt(Snap.euclideousRow) }
+    /// NOTE VIEW (Paul 2026-10-10 ferry): each lane's queued hit/miss/rest-flash events since the last poll —
+    /// same fast ~30fps cadence as the riff positions/beacon above (a per-tick feed, not config). A true
+    /// drain (read-and-clear): each call only ever returns events posted SINCE the previous call.
+    func pollEuclideousNoteViewEvents() -> [[Router.EuclideousNoteViewEventSnapshot]] { kernel.euclideousNoteViewEvents() }
     func uiClaimLeak() -> [Int] { document.claimLeakResolved }
     func setClaim(_ bus: Int) {
         guard (0..<4).contains(bus) else { return }

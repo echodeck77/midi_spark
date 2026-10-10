@@ -85,11 +85,15 @@ final class RouterTests: XCTestCase {
     private func arpMachines() -> [Machine] { machineIDs.map { Machine(machineID: $0, type: .arp) } }
 
     /// Like `run()`, but hands back the `Router` instance instead of discarding it — for tests that need to
-    /// poll a UI-facing readout (e.g. `euclidLineReadyAt`) after rendering, not just inspect the emitted wire
-    /// stream. Deliberately skips `run()`'s trailing release/stop-edge calls: those exist to prove no stuck
-    /// notes at teardown, irrelevant here and an unnecessary extra edge to reason about for a readout that
-    /// doesn't depend on transport play/stop state at all (Paul 2026-10-05, EUCLID beacon readiness).
+    /// poll a UI-facing readout (e.g. `euclidLineReadyAt`, NOTE VIEW's own `drainEuclideousNoteViewEvents`)
+    /// after rendering, not just inspect the emitted wire stream. Deliberately skips `run()`'s trailing
+    /// release/stop-edge calls: those exist to prove no stuck notes at teardown, irrelevant here and an
+    /// unnecessary extra edge to reason about for a readout that doesn't depend on transport play/stop state
+    /// at all (Paul 2026-10-05, EUCLID beacon readiness). `forceColumn` (Paul 2026-10-10, NOTE VIEW tests)
+    /// mirrors `run()`'s own identical parameter — PLAY: THIS CELL, bypassing the column-lap gate so a bare
+    /// test cell keeps ticking as real time advances past its own grid column's natural real-time span.
     private func runKeepingRouter(_ box: SnapshotBox, _ pool: NotePool, beats: Double, into emitter: RecordingEmitter,
+                                   forceColumn: Int = -1,
                                    tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) -> Router {
         let router = Router()
         var diag = KernelDiag()
@@ -97,7 +101,7 @@ final class RouterTests: XCTestCase {
         var beat = 0.0, ts = 0.0
         while beat < beats {
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
-                           sampleRate: sr, timestampSample: ts, frameCount: frames,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: forceColumn,
                            out: emitter, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
@@ -5502,6 +5506,168 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e2)
         XCTAssertTrue(e2.ons.filter { $0.cable == 1 }.contains { Int($0.note) == 67 }, "a genuinely live note on receiver 4 must still sound through MIDI IN")
     }
+
+    // MARK: - NOTE VIEW (Paul 2026-10-10 ferry, "note view, phase 1") — the new per-lane event queue
+    // `Router.drainEuclideousNoteViewEvents()` posts. All 10 tests here use `runKeepingRouter` (not `run`)
+    // specifically to poll the drained queue afterward, same precedent as the EUCLID beacon's own tests.
+
+    func testEuclideousNoteViewPlainHitPostsFinalTransposedOctaveShiftedPitch() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.transpose = 2
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 1)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let events = router.drainEuclideousNoteViewEvents()
+        XCTAssertEqual(events.count, 4, "always 4 lanes, regardless of how many actually posted")
+        guard let ev = events[0].first else { return XCTFail("lane 0 should have posted a hit event") }
+        XCTAssertEqual(ev.kind, 0)
+        XCTAssertEqual(ev.notes, [UInt8(74)], "60 (held) + transpose(2) + 12×octave(1) = 74 — the EXACT pitch strikeOne's own n = rawNote+transpose+12*octave sends, per §5.3")
+    }
+    func testEuclideousNoteViewFillUsesTheLanesPlainOctaveNotRiffOctave() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])   // always a rest
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 2,
+                                             useRiff: true, riffOctave: -1, riffOnRest: .fill)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let events = router.drainEuclideousNoteViewEvents()
+        guard let ev = events[0].first else { return XCTFail("FILL should post a normal hit event (§4.5)") }
+        XCTAssertEqual(ev.kind, 0, "FILL shows as a normal hit, not a rest-flash")
+        XCTAssertEqual(ev.notes, [UInt8(84)], "60 + 12×octave(2) = 84 — FILL uses the line's own plain octave; if riffOctave(-1) were wrongly used instead this would be 48")
+    }
+    func testEuclideousNoteViewRiffRealRankFoldsRiffOctaveOnceNotTwice() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1 (a real note)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffOctave: 1)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let events = router.drainEuclideousNoteViewEvents()
+        guard let ev = events[0].first else { return XCTFail("riff rank 1 should post a hit event") }
+        XCTAssertEqual(ev.notes, [UInt8(72)], "riffResolve already folds +12×riffOctave(1) into the resolved note (60→72) BEFORE strikeChord's own octave:0 — must not be re-applied a second time (which would read 84)")
+    }
+    func testEuclideousNoteViewOnRestSkipPostsARestFlashAndNothingElse() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 0])   // step 0 real, step 1 a rest
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 2, steps: 2, rate: .r1_8, useRiff: true, riffOnRest: .skip)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        // 0.6 beats, not 1.0: at sub=0.5 the pattern's own 2-tick cycle would repeat exactly AT beat 1.0 —
+        // a real window-boundary ambiguity this file's own standing lesson warns about (see
+        // testEuclidDownbeatFiresOnAnUnalignedColumnBoundary). 0.6 safely covers ticks 0/0.5 only.
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 0.6, into: e, forceColumn: 0)
+        let kinds = router.drainEuclideousNoteViewEvents()[0].map { $0.kind }
+        XCTAssertEqual(kinds, [0, 2], "step 0 a real hit (kind 0), step 1 a rest-flash (kind 2) — SKIP never posts a second hit")
+    }
+    func testEuclideousNoteViewOnRestTiePostsNoSecondEventTheOriginalHitCoversIt() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 0])   // step 0 real, step 1 a rest (tied through)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 2, steps: 2, rate: .r1_8, useRiff: true, riffOnRest: .tie)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 0.6, into: e, forceColumn: 0)   // see the SKIP test above for why not 1.0
+        let laneEvents = router.drainEuclideousNoteViewEvents()[0]
+        XCTAssertEqual(laneEvents.count, 1, "TIE must not post a second event for the rest step — only the original triggering hit, with its own gate already extended to cover it")
+        guard let ev = laneEvents.first else { return }
+        XCTAssertGreaterThan(ev.durationBeat, 0.5, "the tied hit's duration must cover its own gate PLUS the extra tick the rest step consumed (sub=0.5 beats at r1_8) — an un-tied hit's gate alone (~0.45 beats at the default 90% gate) would not clear this bar")
+    }
+    func testEuclideousNoteViewMissSilentPostsNothing() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        // missNoteSel left nil (the feature's own off switch) — a 1-of-2 pattern guarantees a real miss tick.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 2, noteSel: .low, rate: .r1_8)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let kinds = router.drainEuclideousNoteViewEvents()[0].map { $0.kind }
+        XCTAssertFalse(kinds.contains(1), "an unconfigured MISS side must never post a miss-playing event")
+    }
+    func testEuclideousNoteViewMissPlayingPostsAMissEvent() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 2, noteSel: .low, missNoteSel: .low, rate: .r1_8)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let kinds = router.drainEuclideousNoteViewEvents()[0].map { $0.kind }
+        XCTAssertTrue(kinds.contains(1), "a configured MISS side must post a miss-playing event on its own rest tick")
+    }
+    func testEuclideousNoteViewRingKeepsNewestDropsOldestUnderABurst() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        // pulses:2/steps:2 (dense, every tick a hit), NOT pulses:1/steps:1 — `runEuclidLine` clamps N to a
+        // minimum of 2 (`max(2, min(16, nIn))`), so steps:1 silently becomes a 1-of-2 pattern (half the
+        // ticks miss) — caught by this test itself under-counting (7, not 12+) on the first run, not by
+        // inspection.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 2, steps: 2, noteSel: .low, rate: .r1_4)]   // every tick a hit, 1 beat apart
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        // 12.5 beats ≈ 12 ticks (beats 0...11) without ever draining in between — comfortably past the 8-slot ring.
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 12.5, into: e, forceColumn: 0)
+        let laneEvents = router.drainEuclideousNoteViewEvents()[0]
+        XCTAssertEqual(laneEvents.count, 8, "the ring is fixed-capacity 8 — a 12-event burst must not grow it")
+        let onsets = laneEvents.map { $0.onsetBeat }
+        XCTAssertEqual(onsets, onsets.sorted(), "surviving events stay oldest→newest")
+        XCTAssertGreaterThan(onsets.first ?? 0, 2, "the oldest SURVIVING event must be well past tick 0 — the ring dropped the earliest ticks, not the latest")
+    }
+    func testEuclideousNoteViewNeverFiresForANonEuclideousRowCell() {
+        // The SAME shared `runEuclidLine` also drives every ordinary EUCLID processor anywhere else in the
+        // grid (confirmed by reading — `p.euclidLines` is populated even for a plain single-EUCLID cell).
+        // A cell at ROW 0 (not Snap.euclideousRow) must NEVER write into this queue — otherwise an unrelated
+        // EUCLID processor elsewhere in the user's grid would corrupt Euclideous's own NOTE VIEW display.
+        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 1; c.paramsA.euclidSteps = 1; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(b, chord([60]), beats: 1, into: e, forceColumn: 0)
+        XCTAssertGreaterThan(e.ons.count, 0, "sanity check — this cell really is striking notes on the wire")
+        let events = router.drainEuclideousNoteViewEvents()
+        XCTAssertTrue(events.allSatisfy { $0.isEmpty }, "a row-0 EUCLID cell must never post to the NOTE VIEW queue, which is reserved for Snap.euclideousRow")
+    }
+    func testEuclideousNoteViewRespectsMainOutGating() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low)]
+        // MAIN OUT is set directly on the machine's OWN params (`MachineParams.mainOutMask`), not
+        // `PluginState.euclideousMainOutMask` — traced, not guessed, after this test first failed its own
+        // sanity check (the wire wasn't actually silenced): `PluginState.euclideousMainOutMask` is only the
+        // PERSISTED copy; the real render path reads `SnapParams.mainOutMask`, which `SnapshotBuilder.swift`
+        // resolves from the per-cell `MachineParams.mainOutMask` — and THAT is populated, for a real session,
+        // by `BuildPage.swift`'s own live `@State` mirror during scene composition, a path this test (going
+        // straight PluginState → SnapshotBuilder.build) never runs. Setting it directly on `c.paramsA` is
+        // the correct way to reach `SnapParams.mainOutMask` without that UI-layer hop.
+        c.paramsA.mainOutMask = 0
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        XCTAssertTrue(e.ons.isEmpty, "sanity check — MAIN OUT 0 really does silence the wire")
+        XCTAssertTrue(router.drainEuclideousNoteViewEvents()[0].isEmpty, "the note box must never show a note that MAIN OUT gating actually suppressed (§5.3)")
+    }
+
     // TILT (Paul 2026-10-08): proves the field threads all the way through SnapshotBuilder→Router — Derivations-
     // Tests already proves the pure `euclidTiltPattern` function's own directionality in isolation; this
     // confirms EuclidLine.tilt actually reaches it. A dense K=4/N=16 pattern's average onset SAMPLE time over

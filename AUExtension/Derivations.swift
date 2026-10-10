@@ -2425,6 +2425,95 @@ func euclideousStepNoteSel(_ cur: EuclidNoteSel, by delta: Int) -> EuclidNoteSel
 // control and want a pop-up"; EuclideousPage's own ratePopupCard lets the user pick a rate directly instead
 // of cycling through all 18 one tap at a time (and never offering a way back to nil/"inherit the machine rate").
 
+// ── NOTE VIEW (Paul 2026-10-10 ferry, "note view, phase 1") — pure note-naming + rhythm-window projection ──────────
+
+/// §4.7, literal: "use the convention the rest of the app already uses. If none exists, MIDI 60 = C3, sharps by
+/// default, flats when the current KEY is a flat key." CHECKED FIRST, not assumed: this codebase already has TWO
+/// disagreeing note-name functions — `midiNoteName` (0-based octave, MIDI 60 = "C5") and `RackMatrix.noteName`
+/// (standard C-1 convention, MIDI 60 = "C4") — and NEITHER matches the ferry's own literal example (`octave =
+/// n/12 - 2`), and neither has any flat-vs-sharp logic at all. A third, NOTE-VIEW-only convention, exactly per
+/// the ferry's own anticipated fallback — not a reuse, because there was nothing correct to reuse.
+let euclideousNoteNamesSharp = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+let euclideousNoteNamesFlat  = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
+/// A standard circle-of-fifths sharp/flat bias, keyed on the KEY'S ROOT pitch class alone — a reasoned, not
+/// measured, simplification (real music theory sometimes spells a mode's accidentals differently depending on
+/// more than just the root), flagged as such rather than presented as definitive. F/Bb/Eb/Ab/Db read flat;
+/// everything else reads sharp, including F#/Gb's own genuine enharmonic ambiguity (defaulted to sharp — F#,
+/// not Gb — as the more common convention when the choice is otherwise arbitrary).
+func euclideousKeyIsFlat(_ rootPitchClass: Int) -> Bool {
+    [5, 10, 3, 8, 1].contains(((rootPitchClass % 12) + 12) % 12)
+}
+/// MIDI 60 → "C3" (the ferry's own literal anchor), sharps or flats per `flatKey`.
+func euclideousNoteViewName(_ n: UInt8, flatKey: Bool) -> String {
+    let pc = Int(n) % 12
+    let octave = Int(n) / 12 - 2
+    let name = flatKey ? euclideousNoteNamesFlat[pc] : euclideousNoteNamesSharp[pc]
+    return "\(name)\(octave)"
+}
+
+/// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
+/// without a live `EuclideousPage` render. Deliberately mirrors the REAL render path's own hit-test exactly
+/// (`euclidPatternInto`+`euclidTiltPattern`+`euclidReadIndex`, the SAME pair/order `Router.runEuclidLine`
+/// itself calls) plus the REAL span-reset formula (Router.swift's own `euclideousResetSpanBars > 0 ? ... : 0`
+/// — NOT `EuclidLaneUI`'s own `EuclidCometBar` call sites, which hardcode `spanN: 0` and so do NOT reflect
+/// Euclideous's page-level reset-span override at all) — so a projected mark can never silently disagree with
+/// what the engine would actually decide for that tick. Only the RHYTHM (hit-vs-miss) is projectable this way;
+/// §4's own ruling ("the pitch is decided only when the step plays") is exactly why PITCH is never computed
+/// here — only the real render path, via the NOTE VIEW event queue (Router.swift), ever resolves one.
+
+/// Builds a lane's pattern buffer ONCE — callers build this once per lane per animation frame (it doesn't
+/// change tick-to-tick, only when the lane's own settings are edited), then reuse it for every tick query.
+func euclideousNoteViewPattern(pulses: Int, steps: Int, rotate: Int, tilt: Double) -> [Bool] {
+    let n = max(2, min(16, steps))
+    let k = max(0, min(n, pulses))
+    var buf = [Bool](repeating: false, count: n)
+    euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
+    if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }
+    return buf
+}
+/// Euclideous's own global reset-span override (§2.2 history) — `resetSpanBars > 0` re-anchors every `cyc`
+/// beats; 0 = free-run. `cyc` is the session's own "one bar" beat length (already computed throughout
+/// Router.swift/this page for every other span calculation).
+func euclideousNoteViewSpanBeats(resetSpanBars: Int, cyc: Double) -> Double {
+    resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0
+}
+/// Is the tick at absolute beat `tickBeat` a hit, under the exact same span-re-anchor + direction-read rules
+/// `Router.runEuclidLine` applies to every real tick? `buf` is this lane's own pattern (the function above).
+func euclideousNoteViewIsHit(buf: [Bool], tickBeat: Double, sub: Double, spanBeats: Double, dir: EuclidDir) -> Bool {
+    guard !buf.isEmpty, sub > 0 else { return false }
+    let n = buf.count
+    let cycleLen = euclidCycleLen(dir, n: n)
+    let phaseBeat = spanBeats > 0 ? (tickBeat - columnStart(tickBeat, spanBeats)) : tickBeat
+    let localT = Int64((phaseBeat / sub).rounded(.down))
+    let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
+    return buf[euclidReadIndex(raw, n: n, dir: dir)]
+}
+/// §2.1/§3.3: a mark's on-screen X, 0 (just entered, far left) ... `trackW` (the playhead, right edge),
+/// moving continuously as `nowBeat` advances — `nil` once it's outside the visible window entirely (either
+/// hasn't entered yet, or — per §3.3, "remove each mark once it has passed the playhead" — has already played).
+/// `age` is beats-until-this-tick-plays (positive = still approaching, 0 = playing exactly now, negative =
+/// already played) — the mark's position is `trackW` scaled by how much of the window `age` has consumed.
+func euclideousNoteViewMarkX(tickBeat: Double, nowBeat: Double, windowBeats: Double, trackW: CGFloat) -> CGFloat? {
+    guard windowBeats > 0 else { return nil }
+    let age = tickBeat - nowBeat
+    guard age >= 0, age <= windowBeats else { return nil }
+    return trackW * CGFloat(1 - age / windowBeats)
+}
+/// §2.3, literal: "2 bars... if the fastest playing lane's steps would be less than 6pt apart, reduce the
+/// window to 1 bar, then ½ bar." Picks the LARGEST of {2, 1, 0.5} bars that still clears the 6pt/step floor,
+/// falling back to 0.5 (the stated floor — no further reduction below it) if even that doesn't clear it.
+/// `fastestSub` is the smallest `rate.beats` among the lanes actually being shown (callers exclude disabled
+/// lanes first, per §2.6 — a stopped lane draws no marks, so its own rate shouldn't drive the shared window).
+func euclideousNoteViewWindowBars(fastestSub: Double, cyc: Double, trackW: CGFloat) -> Double {
+    for bars in [2.0, 1.0, 0.5] {
+        let windowBeats = bars * cyc
+        guard windowBeats > 0 else { continue }
+        let pxPerStep = trackW * CGFloat(fastestSub / windowBeats)
+        if pxPerStep >= 6 || bars == 0.5 { return bars }
+    }
+    return 0.5
+}
+
 // ── ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26) ──────────────────────────────────────────────────
 // Pure per-step helpers over a Bjorklund K-of-N mask (SAME formula as euclidPatternInto). No allocation — safe in the
 // render hot loop. `step` is the global arp-tick index. K == N ⇒ every step a hit (mask OFF) → callers short-circuit.

@@ -196,6 +196,73 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS NOTE VIEW, phase 1 + strip labels — a new per-lane rhythm timeline + note box, SHIPPED
+  (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1268 green incl. 17 new, iOS builds
+  clean, zero new warnings). Two ferries built together, since the second (strip labels) changes the
+  first's own per-strip height budget. Planned first (3 parallel Explore agents + my own direct source
+  verification of the riskiest pieces — one agent ran for hours after I'd already covered its scope another
+  way and should have been stopped much sooner; killed once noticed, see the reply for the honest account).
+  **PLACEMENT:** NOTE VIEW takes the space the previous layout ferry's placeholder-removal vacated — the
+  single riff panel (which had grown to fill that whole row/column) now SPLITS 50/50 with a new NOTE VIEW
+  panel, portrait (side by side, below the lane grid) and landscape (stacked, in the right column) alike.
+  **JUDGMENT CALL, flagged:** neither ferry specifies the riff/NOTE-VIEW split fraction — 50/50 chosen as a
+  neutral default, not derived; riff's own cells get visibly smaller as a direct, necessary consequence.
+  **ENGINE — a new per-lane event queue (Router.swift):** a lock-free-shaped ring buffer (4 lanes × 8 slots,
+  preallocated, zero render-thread allocation — mirrors the existing `focusNotePitch`/`Head`/`New` ring
+  exactly), posting ONE event per step OUTCOME (hit / miss-playing / riff-ON-REST=SKIP's rest-flash) at the
+  3 real decision points inside `runEuclidLine`, each carrying the FINAL already-transposed/octave-shifted/
+  127-clamped MIDI note(s) — replicating (not reusing — `strikeChord`'s own `strikeOne` is a widely-shared
+  closure) its exact `rawNote + transpose + 12×octave` arithmetic, so the note box can never show a pitch
+  that wasn't genuinely struck. TIE posts NOTHING at the rest step — the ORIGINAL triggering hit's own gate
+  was already extended by the existing `riffTieExtensionBeats` lookahead, so its already-queued event's
+  duration already covers the full tied span for free. **TWO REAL BUGS CAUGHT BEFORE SHIPPING, by tracing
+  the actual `strikeChord`/`chopMask` code, not assumed:** (1) `runEuclidLine` is the SAME shared function
+  every ordinary, non-Euclideous `.euclid` cell anywhere else in the 8×8 grid also calls (`p.euclidLines` is
+  populated even for a plain single-EUCLID cell) — without an explicit `isEuclideousRow` guard, an unrelated
+  EUCLID processor on any other row would have written into this SAME 4-slot queue, corrupting Euclideous's
+  own NOTE VIEW with whichever cell struck most recently; now gated, with a regression test locking it in.
+  (2) `strikeChord` still runs `storeArtic` when the resolved bus mask (`chopMask(...) & p.mainOutMask`) is
+  0, but skips the actual emission — a muted/un-routed lane would have shown a note in the box that was
+  never really sent, a direct §5.3 violation; now gated on the identical mask check, computed once per tick.
+  **RHYTHM is 100% pure/pre-computable (no engine telemetry needed at all):** a step's hit/miss status
+  depends only on currently-set parameters (rate/steps/pulses/rotate/tilt/direction + the REAL reset-span
+  formula, `Router.swift`'s own, not the comet bar's `spanN:0` shortcut) — new standalone functions in
+  Derivations.swift (`euclideousNoteViewPattern`/`IsHit`/`MarkX`/`WindowBars`) mirror
+  `euclidPatternInto`+`euclidTiltPattern`+`euclidReadIndex` exactly, so a projected mark can never disagree
+  with what the engine actually decides. Only PITCH is architecturally unknowable ahead of time (DRUNK, TIE,
+  anything pool-dependent) — exactly why the engine-side queue exists at all. **UI (EuclideousPage.swift):**
+  4 strips, each a 14pt label row (ferry 2: source · mode+direction/note-choice · SHIFT/OCT/LOCK/INV/REST
+  when non-default, truncating to whole dropped items + "+n", never mid-word/ellipsis, `.allowsHitTesting
+  (false)`) + a track (one `TimelineView` per strip — a disclosed simplification of "one shared per panel,"
+  behaviourally equivalent since all 4 read the same clock anchor — with NO `minimumInterval` cap, a
+  deliberate departure from the comet bar's existing 1/30 elsewhere on this page, since §5.2 explicitly asks
+  for display-refresh-rate rendering) + a fixed 2pt playhead at the track's trailing edge + a 56pt note box
+  (brightness fades 100%→40% linearly over the note's real gate length, held at 40%, a rest-flash shows a
+  grey "—" for one step then reverts, up to 3 stacked names lowest-at-bottom or top-2+"+n" beyond that).
+  **NOTE NAMING — a confirmed, real gap, not a reuse:** this codebase already has two disagreeing note-name
+  functions (`midiNoteName` 0-based/C5, `RackMatrix.noteName` standard/C4) and neither matches the ferry's
+  own literal "MIDI 60 = C3" anchor nor has any flat-spelling logic — built a third, NOTE-VIEW-only
+  `euclideousNoteViewName` + a standard circle-of-fifths flat/sharp table keyed on the page's own KEY root
+  (F/Bb/Eb/Ab/Db flat, F#/Gb defaulting sharp as the arbitrary tie-break). **TESTS:** +10 RouterTests
+  (final-pitch correctness across all 3 outcome kinds; FILL uses the plain octave not riffOctave; riff
+  real-rank doesn't double-apply riffOctave; SKIP posts a rest-flash and nothing else; TIE posts NO second
+  event, with the original's duration verified longer than an untied gate; MISS silent/playing; the ring's
+  keep-newest-drop-oldest behaviour under a 12-event burst; the row-scoping and MAIN-OUT-gating regression
+  guards for the two bugs above) + 7 DerivationsTests (the C3 anchor, flat-vs-sharp spelling, the pattern/
+  span/window pure math). **TWO TEST-CONSTRUCTION BUGS caught by the suite itself, not shipped wrong:** a
+  first draft's MAIN-OUT test set `PluginState.euclideousMainOutMask` (the persisted copy) and asserted
+  silence — failed, traced to `BuildPage.swift` being the real (UI-layer) place that mirrors it into
+  `MachineParams.mainOutMask`, a hop this SnapshotBuilder-direct test never runs; fixed by setting
+  `MachineParams.mainOutMask` directly. A first draft's ring-overflow test used `steps:1`, not realizing
+  `runEuclidLine` clamps N to a minimum of 2 — silently became a 1-of-2 pattern (half the assumed hit rate),
+  caught by the test under-counting (7, not 12+) on its own first run. **DEVICE-OWED, named plainly because
+  both ferries explicitly ask for screenshots and a 120 BPM recording this environment cannot produce or
+  perform:** the 50/50 split's real proportions; whether the uncapped `TimelineView` refresh reads as
+  meaningfully smoother than 1/30 or is wasted; the 2→1→½-bar window-density switch triggering sensibly; the
+  single most important claim in the whole ferry — marks genuinely landing on the playhead in sync with what
+  plays, for a 1/16 lane, a MISS-playing lane, and a DRUNK lane specifically, exactly as ferry 1 §7 asks;
+  the note box's fade/hold/rest-flash legibility at 56pt; the strip label's "+n" truncation actually
+  triggering readably at real width; the flat-key spelling table's correctness for every key Paul uses.**
 - **▶ EUCLIDEOUS LAYOUT FERRY — a self-audit against the literal ferry text found + fixed 3 real bugs
   (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, zero new warnings; no
   macOS test-target reach, same as the entry this directly follows up on). Paul asked me to re-read the

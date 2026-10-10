@@ -1697,6 +1697,62 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(midiNoteName(127), "G10")
     }
 
+    // MARK: - NOTE VIEW (Paul 2026-10-10 ferry) — euclideousNoteViewName, the window/mark pure math
+
+    /// §4.7, literal: "MIDI 60 = C3" — a THIRD octave convention, deliberately disagreeing with both
+    /// `midiNoteName` (0-based, C5) and `RackMatrix.noteName` (standard, C4) above/elsewhere — confirmed
+    /// correct against the ferry's own anchor, not re-derived from either existing function.
+    func testEuclideousNoteViewNameAnchorsMidi60AtC3() {
+        XCTAssertEqual(euclideousNoteViewName(60, flatKey: false), "C3")
+        XCTAssertEqual(euclideousNoteViewName(0, flatKey: false), "C-2")
+        XCTAssertEqual(euclideousNoteViewName(127, flatKey: false), "G8")
+    }
+    func testEuclideousNoteViewNameSpellsFlatsOnlyWhenAsked() {
+        XCTAssertEqual(euclideousNoteViewName(63, flatKey: false), "D#3")
+        XCTAssertEqual(euclideousNoteViewName(63, flatKey: true), "Eb3")
+        XCTAssertEqual(euclideousNoteViewName(61, flatKey: true), "Db3", "a flat key still spells the natural white keys the same way")
+    }
+    func testEuclideousKeyIsFlatMatchesTheStandardCircleOfFifthsRoots() {
+        for root in [5, 10, 3, 8, 1] { XCTAssertTrue(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional flat-key root") }
+        for root in [0, 7, 2, 9, 4, 11, 6] { XCTAssertFalse(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional sharp-key root (6/F#-Gb defaults sharp)") }
+        XCTAssertEqual(euclideousKeyIsFlat(-7), euclideousKeyIsFlat(5), "negative roots wrap the same as any other pitch-class math in this codebase")
+    }
+
+    /// §2, the rhythm-only tick/window projection — mirrors `Router.runEuclidLine`'s own hit-test exactly
+    /// (same pure functions, same order) so a projected mark can never silently disagree with what the
+    /// engine would actually strike for that tick.
+    func testEuclideousNoteViewPatternMatchesTheRealEngineHitTest() {
+        let buf = euclideousNoteViewPattern(pulses: 3, steps: 8, rotate: 0, tilt: 0)
+        var expected = [Bool](repeating: false, count: 8)
+        euclidPatternInto(&expected, pulses: 3, steps: 8, rotation: 0)
+        XCTAssertEqual(buf, expected)
+    }
+    func testEuclideousNoteViewIsHitWrapsAndReAnchorsOnSpanBoundaries() {
+        let buf = euclideousNoteViewPattern(pulses: 1, steps: 4, rotate: 0, tilt: 0)   // a hit on step 0 only
+        // FREE (spanBeats 0): hits recur every 4 beats at sub=1 forever.
+        XCTAssertTrue(euclideousNoteViewIsHit(buf: buf, tickBeat: 0, sub: 1, spanBeats: 0, dir: .fwd))
+        XCTAssertFalse(euclideousNoteViewIsHit(buf: buf, tickBeat: 1, sub: 1, spanBeats: 0, dir: .fwd))
+        XCTAssertTrue(euclideousNoteViewIsHit(buf: buf, tickBeat: 8, sub: 1, spanBeats: 0, dir: .fwd))
+        // A 2-beat SPAN re-anchors the pattern's own step-0 every 2 beats — tick beat 2 (a span boundary)
+        // must ALSO read as a hit, even though it's "step 2" under the free-run reading above.
+        XCTAssertTrue(euclideousNoteViewIsHit(buf: buf, tickBeat: 2, sub: 1, spanBeats: 2, dir: .fwd), "a span re-anchor must make beat 2 (the span's own step 0) a hit again")
+    }
+    func testEuclideousNoteViewMarkXReachesThePlayheadExactlyAtAgeZeroAndIsRemovedPastIt() {
+        let trackW: CGFloat = 100
+        XCTAssertEqual(euclideousNoteViewMarkX(tickBeat: 4, nowBeat: 4, windowBeats: 4, trackW: trackW), trackW, "age 0 (playing exactly now) must land AT the playhead, the track's trailing edge")
+        XCTAssertEqual(euclideousNoteViewMarkX(tickBeat: 8, nowBeat: 4, windowBeats: 4, trackW: trackW), 0, "age == windowBeats (just entered) must land at the far left edge")
+        XCTAssertNil(euclideousNoteViewMarkX(tickBeat: 3, nowBeat: 4, windowBeats: 4, trackW: trackW), "§3.3: a mark that has already passed the playhead (age < 0) must be removed, not drawn past the edge")
+        XCTAssertNil(euclideousNoteViewMarkX(tickBeat: 20, nowBeat: 4, windowBeats: 4, trackW: trackW), "a tick far beyond the look-ahead window isn't visible yet either")
+    }
+    func testEuclideousNoteViewWindowBarsShrinksOnlyWhenStepsWouldCrowd() {
+        // A slow lane (sub=1 beat) at a generously wide track never needs to shrink below the full 2 bars.
+        XCTAssertEqual(euclideousNoteViewWindowBars(fastestSub: 1, cyc: 4, trackW: 400), 2.0)
+        // A very fast lane (sub well under a beat) on a narrow track must shrink — first to 1 bar, then ½.
+        let narrow = euclideousNoteViewWindowBars(fastestSub: 0.03125, cyc: 4, trackW: 60)
+        XCTAssertLessThan(narrow, 2.0, "a fast-enough lane on a narrow track must shrink the window below the 2-bar default")
+        XCTAssertTrue([1.0, 0.5].contains(narrow), "only 1 or ½ bar are legal reduced values — never anything in between")
+    }
+
     // MARK: - chopSlice — wrap + guards (§cell-edit F)
 
     /// The onset→slice map divides a column into 8; it wraps NEGATIVE beats (a lay-back onset) into the prior
