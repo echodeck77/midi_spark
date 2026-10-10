@@ -196,6 +196,72 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS LAYOUT FERRY — a self-audit against the literal ferry text found + fixed 3 real bugs
+  (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, zero new warnings; no
+  macOS test-target reach, same as the entry this directly follows up on). Paul asked me to re-read the
+  full ferry text and check my own work against it critically, the same audit discipline the immediately-
+  prior XY-pad-redesign round already used once this session — re-read every section against the ACTUAL
+  current code (not my own summary of it) and traced several pieces of SwiftUI layout arithmetic by hand
+  rather than re-asserting the previous reply's claims. Most of the prior round held up under this second
+  pass (§1-§7's core mechanics were confirmed correct by re-derivation, not just re-stated) — but three
+  genuine, independent bugs surfaced, all fixed. **(1) §8's badge width undercounted its own padding:**
+  `stepCountBadgeTotalWidth` summed the inner HStack's content (chip columns + the source badge) but never
+  added back the `.padding(.horizontal, sp4)` wrapped around that HStack before the `.frame(width:)` enforces
+  it — an 8pt shortfall between what the frame allows and what the content actually needs, which would have
+  squeezed "NO OUT" or "MIDI" under real layout pressure rather than rendering them in full (a live violation
+  of "nothing is clipped," not just a style nit). Fixed by adding `sp4 × 2` to the formula — since this same
+  property also feeds `EuclidLaneBox`'s `stepCountBadgeWidth` (the comet-bar width fix from the prior round),
+  the correction propagates to both consumers for free, by construction, not as two separate edits. **Also
+  corrected a stale claim in the same comment:** the prior round's own "~2pt residual height-overflow risk"
+  was an unchecked hedge — re-deriving the actual numbers this pass (`EuclidLaneBox`'s comet row offers
+  exactly `cometRowH(56) − 12 = 44`pt, and the badge's own `.frame(height: 44)` matches it exactly) shows
+  there is no overflow at all; the comment now says so, rather than carrying forward an unverified caveat.
+  **(2) §9's actual likely root cause, found by tracing the gesture code, not re-asserting the document-
+  default code:** the previous round confirmed `euclideousDefaultLine`/`euclideousLinesResolved` correctly
+  default lane 1 to 1-of-8 for a genuinely untouched document — true, and still true — but this time also
+  traced the NEW XY-pad gesture's own HITS floor (`commitAxis`'s and `applyAllDelta`'s `(.tiltHits, .y)`
+  cases) and found both clamped with `max(0, …)`, letting a drag pull ANY lane's hit count down to 0 — in
+  direct contradiction of a standing, explicitly Paul-ratified rule from an earlier ferry (documented in
+  Models.swift's own comment on `euclideousDefaultLine`): "0 is reachable only as [lanes 2-4's] starting
+  point... never reachable through the gesture." That floor was silently dropped when the XY-pad redesign's
+  own planning notes wrote the HITS range as "0...steps" without re-deriving it against the existing rule —
+  a real regression from THIS session's own earlier work, not a pre-existing issue. This is a materially
+  better explanation for "lane 1 shows 0 hits in a fresh instance" than the previous reply's "probably a
+  stale saved document" guess: a TRULY fresh, never-touched instance can't show this (the default code is
+  confirmed correct), but a stray drag while first trying the brand-new pads — easy to do by accident — could
+  zero lane 1 out and then persist, reading as "0 hits" on the next launch. Fixed by restoring `max(1, …)` in
+  both call sites, matching the pre-existing, ratified design. **(3) §6.1, one stray `.minimumScaleFactor
+  (0.6)`** survived in the CHORDS pop-up's own RATE row (10pt base ⇒ a theoretical 6pt floor, breaching the
+  page's own "nothing meaningful under 10pt" rule) — never actually triggers in practice (every `StepRate`
+  label fits its 34pt box at 10pt without shrinking, the longest being "1/2." at 4 characters), but removed
+  anyway since leaving a scale factor that COULD breach the floor, even one that currently never does,
+  doesn't match the letter of a rule this ferry states as absolute. **ALSO RE-VERIFIED, not assumed, and
+  found correct, no change:** the exact SwiftUI width-propagation chain that makes the header and the lane-
+  grid/riff-panel content share identical 16pt margins in both orientations (traced how an unconstrained
+  header gets proposed the same width as the sibling content block below it, rather than just trusting the
+  arithmetic looked right); the landscape 64%/36% split's zero-residual-gap property; all 5 picture functions
+  against their literal geometry/colour specs; the colour-hierarchy call sites for all 4 named "selected
+  choice" categories (pattern direction, riff walk, source choice, active OUT toggles) plus the two "view"
+  rows (lane tab strip, HIT/MISS); the §7 riff-panel subtitle removal and dot-only position row. **ONE
+  DELIBERATE NON-CHANGE, flagged not silently assumed:** §4.1 names "lit hit cells in the step bar" as one of
+  only four sanctioned LANE-100 uses — the shared `EuclidLaneBox` comet bar (a pre-existing component, also
+  used by the regular BUILD-page EUCLID editor) actually draws hit cells with a top-lit GRADIENT (roughly
+  0.55-1.0 opacity, by design, for a "glassy" look, from an earlier unrelated ferry), not a flat 100%-opacity
+  fill — read §4.1's wording as blessing the step bar's EXISTING full-strength treatment as one of the
+  carve-outs from the new 3-tier system (distinguishing it from the OTHER, now-demoted full-strength usages),
+  not as a literal instruction to flatten its gradient — consistent with the ferry's own "anything not
+  mentioned stays as built" framing and this file's "share the formula, don't touch a shared component for
+  an unrelated page's own ferry" convention. **RE-VERIFIED LANDSCAPE HEADER CLIPPING THRESHOLD, recomputed
+  precisely against the actual current header code (not reused from the prior round's now-superseded
+  header):** hand-summed all 8 header elements + 7 inter-item gaps + the 32pt of page margins ≈ 618pt
+  minimum landscape panel width before something in the single required row clips — a real, unavoidable
+  tension between §3.2's "one row" and §3.3's "nothing clipped" for any landscape panel narrower than that,
+  given the content §3.1 mandates at a 10pt floor with no shrink permitted. Not resolved unilaterally in
+  either direction (wrapping to 2 rows would violate the literal "one row"; shrinking below 10pt would
+  violate §6.1) — flagged plainly, as before, rather than guessed away. **DEVICE-OWED, unchanged in kind from
+  the prior round — nothing here could be screenshot-verified in this environment:** every fix above is
+  argued from the SwiftUI layout model and hand-arithmetic, not from a rendered frame; the ~618pt threshold
+  specifically needs a real AUM landscape panel width to confirm it's actually reachable in practice.**
 - **▶ EUCLIDEOUS — a BLOCKER full-width layout fix + hierarchy/picture/type/indicator rework across the
   whole page (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, zero new
   warnings; no macOS test-target reach — pure UI, re-confirmed by a full suite run alongside this entry). A

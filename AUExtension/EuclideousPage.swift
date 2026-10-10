@@ -821,8 +821,13 @@ struct EuclideousPage: View {
                     HStack(spacing: 2) {
                         ForEach(StepRate.allCases, id: \.self) { r in
                             let on = chords.chordsRateResolved == r
+                            // §6.1's 10pt floor (this re-check pass): dropped the `.minimumScaleFactor(0.6)`
+                            // that used to sit here — it never actually triggered (StepRate's longest raw
+                            // value, "1/2.", is 4 chars, well under this 34pt box at 10pt) but COULD have
+                            // rendered as small as 6pt if it ever had, a live violation of the floor rather
+                            // than a safe no-op; removing it costs nothing since it was never load-bearing.
                             Text(r.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                                .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.6)
+                                .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1)
                                 .frame(width: 34, height: 24)
                                 .background(RoundedRectangle(cornerRadius: 5).fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
                                 .contentShape(Rectangle())
@@ -935,14 +940,22 @@ struct EuclideousPage: View {
     // `stepCountBadgeWidth` there) so the comet bar beside it is never told it has more room than it
     // actually gets.
     private let stepCountChipCol: CGFloat = 16, stepCountChipGap: CGFloat = 2
-    private var stepCountBadgeTotalWidth: CGFloat { stepCountChipCol * 2 + stepCountChipGap + sp4 + 32 }   // 2 chip columns + the source badge beside them
+    // 2 chip columns + the gap between them + the sp4 gap before the source badge + the source badge's own
+    // ~30pt footprint ("MIDI" is the widest of the 3 labels) + the OUTER `.padding(.horizontal, sp4)` below
+    // (×2 for both sides) — RE-CHECKED against the ferry's own text and found UNDERCOUNTED the first time:
+    // the padding wasn't in this sum at all, so the enforced frame was ~8pt narrower than the content it
+    // was told to hold, which would have squeezed "NO OUT"/"MIDI" rather than rendering them in full.
+    private var stepCountBadgeTotalWidth: CGFloat { stepCountChipCol * 2 + stepCountChipGap + sp4 + 32 + sp4 * 2 }
     /// §8.1, literal: "replace the bare letter under the step count with mini output chips, 16pt circles
     /// with a 10pt letter, LANE-40 fill, one chip per routed output. If none are routed, show 'NO OUT' in
     /// amber." §8.2, literal: "a small always-visible badge per lane showing its source: MIDI, KEY or CHD
     /// (10pt, neutral grey border, no fill)" — placed BESIDE the step-count+chips block rather than
     /// stacked under it (the ferry's own "whichever fits" latitude): stacking a 3rd line under an already
-    /// 2-row chip grid didn't fit this row's existing height budget without also growing it, found while
-    /// doing the arithmetic, not assumed — see the reply for the honest ~2pt residual this still leaves.
+    /// 2-row chip grid didn't fit this row's existing height budget without also growing it.
+    /// RE-VERIFIED, not just reasoned, on this pass: the badge's own `.frame(height: 44)` below is an EXACT
+    /// match for the row's real available content height (`EuclidLaneBox`'s comet row: `height - 12 =
+    /// 56 - 12 = 44`), so the "~2pt residual overflow" this comment once flagged does not actually occur —
+    /// that earlier caveat was an unchecked guess, corrected here once the real arithmetic was worked through.
     private func stepCountBadge(_ n: Int, mask: UInt8, source: EuclideousLaneSource, accent: Color) -> some View {
         let routed = (0..<4).filter { (mask >> UInt8($0)) & 1 != 0 }
         let rows = stride(from: 0, to: routed.count, by: 2).map { Array(routed[$0..<min($0 + 2, routed.count)]) }
@@ -1349,8 +1362,19 @@ struct EuclideousPage: View {
             let pct: Double = a <= 8 ? 0 : (3 + (a - 8))
             line.tilt = max(-1, min(1, (travel < 0 ? -pct : pct) / 100))
         case (.tiltHits, .y):
+            // FLOOR AT 1, NOT 0 (found on this re-check pass, likely THE actual cause of ferry §9.1's
+            // "lane 1 shows 0 hits" report): an earlier, explicitly Paul-ratified ferry established that
+            // 0 hits must be reachable ONLY as lanes 2-4's own document default (`euclideousDefaultLine`,
+            // Models.swift) — "never reachable through the gesture" — specifically so the HITS pad can't
+            // silently zero out a lane a user is actively dragging. The XY-pad-redesign ferry's own
+            // planning table (this session, before this one) wrote this clamp as `0...steps` without
+            // re-deriving it against that established rule, so it shipped able to drag ANY lane, including
+            // lane 1, down to 0 — exactly reproducible by a stray drag while first trying the new pads,
+            // then persisting on save and reading as "a fresh instance shows 0 hits" on next launch (a
+            // genuinely fresh, never-touched instance can't show this — `euclideousDefaultLine` always
+            // opens lane 1 at 1 — so this is the far more likely explanation than a stale document).
             let steps = max(2, min(16, line.steps))
-            line.pulses = max(0, min(steps, Int(baseline) + Int((travel / 12).rounded())))
+            line.pulses = max(1, min(steps, Int(baseline) + Int((travel / 12).rounded())))
         case (.offsetCount, .x):
             // OFFSET — a flat 12pt/step (ferry §2.4, abandoning the comet bar's own adaptive box-pitch
             // sensitivity for this one control) · SIGN preserved from the established 2026-10-03 fix:
@@ -1401,8 +1425,10 @@ struct EuclideousPage: View {
         switch (t, axis) {
         case (.tiltHits, .x): line.tilt = max(-1, min(1, line.tiltResolved + Double(d) / 100))
         case (.tiltHits, .y):
+            // Same floor-at-1 fix as `commitAxis`'s own HITS case above, applied to the 2-finger ALL-LANES
+            // path too — both were found reachable down to 0 on this re-check pass.
             let steps = max(2, min(16, line.steps))
-            line.pulses = max(0, min(steps, line.pulses + d))
+            line.pulses = max(1, min(steps, line.pulses + d))
         case (.offsetCount, .x):
             let n = max(2, min(16, line.steps))
             line.rotate = ((line.rotate - d) % n + n) % n
