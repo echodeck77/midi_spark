@@ -421,8 +421,9 @@ struct EuclideousPage: View {
                     let text = b.axis == .x ? values.xText : values.yText
                     let accent = laneAccents[b.idx % laneAccents.count]
                     if let frame = padFrames["\(b.idx)-\(b.tab.rawValue)"] {
+                        let pos = euclideousBubblePosition(frame, in: geo.size)
                         euclideousXYBubble(text, accent: accent)
-                            .position(x: frame.midX, y: euclideousBubbleY(frame, pageHeight: geo.size.height))
+                            .position(pos)
                             .allowsHitTesting(false)
                             .zIndex(5)
                     }
@@ -440,14 +441,20 @@ struct EuclideousPage: View {
             return (idx, tab, axis)
         }
     }
-    /// Flips below the pad when there isn't room above (ferry §3: "flips below when there's no room above").
-    /// `pageHeight` isn't actually needed for the ABOVE case (a pad is never so close to the bottom that
-    /// placing the bubble above it runs out of room there) — kept as an explicit parameter anyway, matching
-    /// the "clamped inside the page" requirement, so a future vertical-clamp refinement has it in scope.
-    private func euclideousBubbleY(_ frame: CGRect, pageHeight: CGFloat) -> CGFloat {
+    /// Positions the bubble above the pad's own frame, flipping below only when there's no room above
+    /// (ferry §2.8: "If there is no room above, show it below. It must stay inside the page.") — BOTH
+    /// axes are clamped to the real page bounds, not just the vertical flip: a pad near the left/right
+    /// edge could otherwise push a wider bubble string partway off-screen. `bubbleHalfW` is a fixed,
+    /// generous estimate (no convenient live-text-measurement API here) covering the longest realistic
+    /// bubble string (e.g. "OFFSET +15"), the same fixed-width-estimate idiom this page's existing
+    /// `dragHUDInfo` HUD already uses for the same reason.
+    private func euclideousBubblePosition(_ frame: CGRect, in pageSize: CGSize) -> CGPoint {
+        let bubbleHalfW: CGFloat = 55
         let margin: CGFloat = 20
-        let above = frame.minY - margin
-        return above >= margin ? above : frame.maxY + margin
+        let aboveY = frame.minY - margin
+        let y = aboveY >= margin ? aboveY : min(frame.maxY + margin, pageSize.height - margin)
+        let x = min(max(frame.midX, bubbleHalfW), max(bubbleHalfW, pageSize.width - bubbleHalfW))
+        return CGPoint(x: x, y: y)
     }
     private func euclideousXYBubble(_ text: String, accent: Color) -> some View {
         Text(text)
@@ -966,24 +973,26 @@ struct EuclideousPage: View {
                     }
                     .padding(.top, sp4).padding(.bottom, 9).padding(.horizontal, 9)
                 }
+                // BOTTOM EDGE (ferry §3.4, literal): "← TILT →" — plain arrow glyphs (U+2190/U+2192), not
+                // the triangle/play-button glyphs ◀/▶ an earlier pass used.
                 .overlay(alignment: .bottom) {
-                    HStack(spacing: 2) {
-                        Text("◀").font(.system(size: padHeadingSize, weight: .heavy))
-                        Text(names.x).font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
-                        Text("▶").font(.system(size: padHeadingSize, weight: .heavy))
-                    }
-                    .foregroundColor(padAxisLabelColor).lineLimit(1)
-                    .padding(.bottom, 1)
+                    Text("← \(names.x) →")
+                        .font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
+                        .foregroundColor(padAxisLabelColor).lineLimit(1)
+                        .padding(.bottom, 1)
                 }
+                // LEFT EDGE (ferry §3.5, literal): "HITS →" — ONE string, the arrow trailing the name —
+                // rotated as a single unit so the arrow (originally pointing right/east) ends up pointing
+                // up/north once rotated; NOT a separately-placed, unrotated arrow glyph beside a rotated
+                // name (an earlier pass did that, which also left the arrow pointing the wrong way after
+                // its own independent rotation).
                 .overlay(alignment: .leading) {
-                    HStack(spacing: 2) {
-                        Text("▲").font(.system(size: padHeadingSize, weight: .heavy))
-                        Text(names.y).font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
-                    }
-                    .foregroundColor(padAxisLabelColor).lineLimit(1).fixedSize()
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 10)
-                    .padding(.leading, 1)
+                    Text("\(names.y) →")
+                        .font(.system(size: padHeadingSize, weight: .heavy, design: .monospaced))
+                        .foregroundColor(padAxisLabelColor).lineLimit(1).fixedSize()
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 10)
+                        .padding(.leading, 1)
                 }
                 // THE 2pt TOUCH BORDER (ferry §3) — the new, single "I'm being dragged" cue; the old
                 // whole-pad accent-fill-while-touched treatment is gone, since it would otherwise fight
@@ -1033,31 +1042,50 @@ struct EuclideousPage: View {
         }
     }
 
+    // SHIFT's wrap is a LITERAL 8 (ferry §2.5 "SHIFT wraps within 0–7" / §5.4 "a grid with 8 columns") —
+    // NOT `riff.stepsResolved` (which an untouched, never-edited riff pattern defaults to 16). In
+    // practice the riff grid's own UI (`riffGridView`) hardcodes 8 columns and writes `steps: 8` on every
+    // edit, so this is byte-identical to `riff.stepsResolved` for any session that has ever touched the
+    // riff grid — this constant only matters, and only differs, for an untouched-default document.
+    private let shiftSteps = 8
+    /// Signed value text matching the ferry's own literal examples exactly: "+2" / "−1" (a true minus
+    /// sign, U+2212, not the ASCII hyphen Swift's own string interpolation of a negative Int produces) /
+    /// a bare "0" with NO sign at all. Used by TILT and OCT — the two fields whose §4 examples show a
+    /// sign-free zero ("TILT 0", "OCT 0") alongside signed nonzero values.
+    private func euclideousSigned(_ n: Int) -> String { n > 0 ? "+\(n)" : (n < 0 ? "−\(-n)" : "0") }
     /// The two un-abbreviated value strings a pad shows (ferry §4) — Y above X, reused by both the
     /// permanent face (above) and the floating drag bubble (the body's own `activeXYBubbles`), so the
     /// two can never disagree about what a value currently reads.
     private func euclideousPadValues(_ line: EuclidLine, _ t: EuclideousGestureTab) -> EuclideousPadValues {
         switch t {
         case .tiltHits:
+            // TILT (ferry §4, literal): "TILT +20%", "TILT −30%", "TILT 0" — zero carries NEITHER a sign
+            // NOR a "%" at all; only a nonzero value gets both.
             let pct = Int((line.tiltResolved * 100).rounded())
             let hitWord = line.pulses == 1 ? "HIT" : "HITS"
-            return EuclideousPadValues(yText: "\(line.pulses) \(hitWord)", xText: "TILT \(pct >= 0 ? "+" : "")\(pct)%")
+            let tiltText = pct == 0 ? "TILT 0" : "TILT \(euclideousSigned(pct))%"
+            return EuclideousPadValues(yText: "\(line.pulses) \(hitWord)", xText: tiltText)
         case .offsetCount:
+            // OFFSET (ferry §4, literal): "OFFSET +5" — ALWAYS carries a "+", even at 0 ("OFFSET +0");
+            // it can never go negative (a wrapped 0...STEPS-1 value), so this isn't a sign, just the
+            // field's own fixed display convention.
             let n = max(2, min(16, line.steps))
             let r = ((line.rotate % n) + n) % n
-            return EuclideousPadValues(yText: "\(line.steps) STEPS", xText: "OFFSET \(r)")
+            return EuclideousPadValues(yText: "\(line.steps) STEPS", xText: "OFFSET +\(r)")
         case .gateVelocity:
             let gatePct = Int((line.gateResolved * 100).rounded())
             return EuclideousPadValues(yText: "VEL \(line.velocityAbsoluteResolved)", xText: "GATE \(gatePct)%")
         case .noteOctave:
             if line.useRiffResolved {
-                let n = max(1, riff.stepsResolved)
-                let shift = ((line.riffRotateResolved % n) + n) % n
+                // SHIFT (ferry §4, literal): "SHIFT 4" — never signed, wraps mod the literal 8 above.
+                let shift = ((line.riffRotateResolved % shiftSteps) + shiftSteps) % shiftSteps
                 let oct = line.riffOctaveResolved
-                return EuclideousPadValues(yText: "OCT \(oct >= 0 ? "+" : "")\(oct)", xText: "SHIFT \(shift)")
+                return EuclideousPadValues(yText: "OCT \(euclideousSigned(oct))", xText: "SHIFT \(shift)")
             }
+            // NOTE choice (ferry §4, literal): "its existing name, e.g. 'ALL'" — the BARE name, no "NOTE"
+            // prefix (the edge label already names the axis; §5.5 calls this "text only").
             let oct = line.octaveResolved
-            return EuclideousPadValues(yText: "OCT \(oct >= 0 ? "+" : "")\(oct)", xText: "NOTE \(line.noteSelResolved.rawValue)")
+            return EuclideousPadValues(yText: "OCT \(euclideousSigned(oct))", xText: line.noteSelResolved.rawValue)
         }
     }
     /// The edge-label axis names (ferry §3) — short, un-abbreviated field names, Y then X.
@@ -1113,7 +1141,7 @@ struct EuclideousPage: View {
             let cellW = max(1, (size.width - gap * CGFloat(n - 1)) / CGFloat(n))
             for i in 0..<n {
                 let rect = CGRect(x: CGFloat(i) * (cellW + gap), y: 0, width: cellW, height: size.height)
-                ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(buf[i] ? accent : Color(white: 0.22)))
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(buf[i] ? accent : Color(hex: 0x3A3E47)))
             }
         }
     }
@@ -1132,7 +1160,7 @@ struct EuclideousPage: View {
                 let y = cy + CGFloat(sin(angle)) * radius
                 let on = i == r
                 let dotR: CGFloat = on ? 3.5 : (i == 0 ? 2.2 : 1.6)
-                let color: Color = on ? accent : (i == 0 ? Color(white: 0.66) : Color(white: 0.3))
+                let color: Color = on ? accent : (i == 0 ? Color(hex: 0xAAB0BA) : Color(hex: 0x3A3E47))
                 ctx.fill(Path(ellipseIn: CGRect(x: x - dotR, y: y - dotR, width: dotR * 2, height: dotR * 2)), with: .color(color))
             }
         }
@@ -1144,29 +1172,29 @@ struct EuclideousPage: View {
         let velFrac = Double(line.velocityAbsoluteResolved) / 127.0
         return Canvas { ctx, size in
             ctx.stroke(Path(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1), cornerRadius: 2),
-                       with: .color(Color(white: 0.4)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                       with: .color(Color(hex: 0x3A3E47)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             let w = size.width * CGFloat(gateFrac)
             let h = size.height * CGFloat(velFrac)
             ctx.fill(Path(roundedRect: CGRect(x: 0, y: size.height - h, width: w, height: h), cornerRadius: 1.5), with: .color(accent))
         }
     }
-    /// RIFF: an 8×7 SHIFT(columns)/OCT(rows, +3 at top...-3 at bottom) grid, the cell at (wrapped SHIFT,
-    /// current OCT) lane-coloured.
+    /// RIFF (ferry §5.4, literal): a grid of exactly 8 columns (SHIFT 0–7 — `shiftSteps`, not
+    /// `riff.stepsResolved`, matching the same literal-8 correction `euclideousPadValues`/`commitAxis`
+    /// already apply) × 7 rows (OCT, +3 at top...−3 at bottom), the cell at (wrapped SHIFT, current OCT)
+    /// lane-coloured.
     private func euclideousRiffPicture(_ line: EuclidLine, accent: Color) -> some View {
-        let n = max(1, riff.stepsResolved)
-        let shiftCols = min(8, n)
-        let shift = ((line.riffRotateResolved % n) + n) % n
+        let shift = ((line.riffRotateResolved % shiftSteps) + shiftSteps) % shiftSteps
         let oct = line.riffOctaveResolved
         return Canvas { ctx, size in
             let gap: CGFloat = 1
-            let cellW = max(1, (size.width - gap * CGFloat(shiftCols - 1)) / CGFloat(shiftCols))
+            let cellW = max(1, (size.width - gap * CGFloat(shiftSteps - 1)) / CGFloat(shiftSteps))
             let cellH = max(1, (size.height - gap * 6) / 7)
             for row in 0..<7 {
                 let rowOct = 3 - row   // row 0 = +3 at the top
-                for col in 0..<shiftCols {
-                    let isCurrent = col == (shift % shiftCols) && rowOct == oct
+                for col in 0..<shiftSteps {
+                    let isCurrent = col == shift && rowOct == oct
                     let rect = CGRect(x: CGFloat(col) * (cellW + gap), y: CGFloat(row) * (cellH + gap), width: cellW, height: cellH)
-                    let color: Color = isCurrent ? accent : (rowOct == 0 ? Color(white: 0.26) : Color(white: 0.18))
+                    let color: Color = isCurrent ? accent : (rowOct == 0 ? Color(hex: 0x353943) : Color(hex: 0x2A2D34))
                     ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
                 }
             }
@@ -1182,7 +1210,7 @@ struct EuclideousPage: View {
             for row in 0..<7 {
                 let rowOct = 3 - row
                 let rect = CGRect(x: 0, y: CGFloat(row) * (cellH + gap), width: size.width, height: cellH)
-                let color: Color = rowOct == oct ? accent : (rowOct == 0 ? Color(white: 0.26) : Color(white: 0.18))
+                let color: Color = rowOct == oct ? accent : (rowOct == 0 ? Color(hex: 0x353943) : Color(hex: 0x2A2D34))
                 ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
             }
         }
@@ -1203,7 +1231,7 @@ struct EuclideousPage: View {
         case .gateVelocity: return (line.gateResolved * 100, Double(line.velocityAbsoluteResolved))
         case .noteOctave:
             if line.useRiffResolved {
-                let n = max(1, riff.stepsResolved)
+                let n = shiftSteps
                 return (Double(((line.riffRotateResolved % n) + n) % n), Double(line.riffOctaveResolved))
             }
             let idx = euclideousNoteSelCycle.firstIndex(of: line.noteSelResolved) ?? 0
@@ -1219,12 +1247,18 @@ struct EuclideousPage: View {
     private func commitAxis(_ line: inout EuclidLine, _ t: EuclideousGestureTab, axis: EuclideousXYAxis, baseline: Double, travel: CGFloat) {
         switch (t, axis) {
         case (.tiltHits, .x):
-            // TILT — a center DETENT: the first 8pt of travel from touch-down (either direction) holds
-            // at 0% — this 8pt IS the axis-lock dead zone itself (fed RAW, not rebased), so the two
-            // combine into exactly one threshold rather than stacking into two.
-            let signed = Double(travel)
-            let adjusted = signed >= 0 ? max(0, signed - 8) : min(0, signed + 8)
-            line.tilt = max(-1, min(1, adjusted / 100))
+            // TILT — a center DETENT (ferry §2.6, literal): "within ±3% of 0 it rests at exactly 0, and
+            // leaving 0 needs 8pt of movement." Under §2.4's own 1pt=1% ratio these are two genuinely
+            // DIFFERENT numbers, not one threshold restated — read as a real two-part detent: the first
+            // 8pt of travel (fed RAW, not rebased — this IS the axis-lock dead zone itself, so the two
+            // combine into one 8pt threshold, not a doubled one) produces no change at all, and the
+            // output then picks up from 3% (not 0%) the instant the gate releases — so 0%/1%/2%/3% are
+              // the ONLY readings while resting (exactly matching "rests at 0... within ±3%" — nothing
+            // reachable in between ever shows as a nonzero 1/2/3%), and the value is continuous from 3%
+            // outward once past the gate, with no further discontinuity.
+            let a = abs(Double(travel))
+            let pct: Double = a <= 8 ? 0 : (3 + (a - 8))
+            line.tilt = max(-1, min(1, (travel < 0 ? -pct : pct) / 100))
         case (.tiltHits, .y):
             let steps = max(2, min(16, line.steps))
             line.pulses = max(0, min(steps, Int(baseline) + Int((travel / 12).rounded())))
@@ -1246,7 +1280,7 @@ struct EuclideousPage: View {
             line.velocityAbsolute = max(1, min(127, Int(baseline) + Int((travel / 1.5).rounded())))
         case (.noteOctave, .x):
             if line.useRiffResolved {
-                let n = max(1, riff.stepsResolved)
+                let n = shiftSteps   // literal 8 (ferry §2.5/§5.4), not riff.stepsResolved
                 let v = Int(baseline) + Int((travel / 12).rounded())
                 line.riffRotate = ((v % n) + n) % n
             } else {
@@ -1289,7 +1323,7 @@ struct EuclideousPage: View {
         case (.gateVelocity, .y): line.velocityAbsolute = max(1, min(127, line.velocityAbsoluteResolved + d))
         case (.noteOctave, .x):
             if line.useRiffResolved {
-                let n = max(1, riff.stepsResolved)
+                let n = shiftSteps   // literal 8 (ferry §2.5/§5.4), not riff.stepsResolved
                 line.riffRotate = ((line.riffRotateResolved + d) % n + n) % n
             } else {
                 let list = euclideousNoteSelCycle
