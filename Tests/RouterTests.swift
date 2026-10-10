@@ -5637,7 +5637,16 @@ final class RouterTests: XCTestCase {
         let kinds = router.drainEuclideousNoteViewEvents()[0].map { $0.kind }
         XCTAssertFalse(kinds.contains(1), "an unconfigured MISS side must never post a miss-playing event")
     }
-    func testEuclideousNoteViewMissPlayingPostsAMissEvent() {
+    // REWRITTEN (Paul 2026-10-10, "rhythm cards cleared of melody" ferry): this test used to assert the OLD
+    // dual-voice behaviour — a configured `missNoteSel` posting its own kind-1 NOTE VIEW event on Euclideous's
+    // row. That's now retired for Euclideous specifically: `missNoteSel` stays live on the shared model (the
+    // regular, non-Euclideous BUILD-page EUCLID editor's own feature) but Router.swift's `!isEuclideousRow`
+    // guard makes it unconditionally inert on Euclideous's own row, satisfying ferry §2.4's "ignore the old
+    // miss-side settings" for an old doc that happens to carry one. Flipped to the opposite, now-correct
+    // assertion — a stale `missNoteSel` on Euclideous's row must NEVER post kind 1 (or anything at all, since
+    // this line's own `pulses:1/steps:2` already strikes one real hit and the kind-1 event was the only other
+    // thing this configuration could ever produce).
+    func testEuclideousNoteViewStaleMissNoteSelNeverPostsAMissEvent() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 2, noteSel: .low, missNoteSel: .low, rate: .r1_8)]
         let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
@@ -5647,7 +5656,7 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let kinds = router.drainEuclideousNoteViewEvents()[0].map { $0.kind }
-        XCTAssertTrue(kinds.contains(1), "a configured MISS side must post a miss-playing event on its own rest tick")
+        XCTAssertFalse(kinds.contains(1), "a stale missNoteSel on Euclideous's own row must never post a miss-playing event — the !isEuclideousRow guard makes it inert")
     }
     func testEuclideousNoteViewRingKeepsNewestDropsOldestUnderABurst() {
         var c = Machine(machineID: "gold", type: .euclid)
@@ -6238,6 +6247,83 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(skip.notes, [60, 62], "...and SKIP must agree on which notes strike — the two differ only in gate length, not note count")
         guard let tieOff = tie.firstOff, let skipOff = skip.firstOff else { return XCTFail("both runs must produce a matching note-off for the first note") }
         XCTAssertGreaterThan(tieOff, skipOff, "TIE must extend the first note's own gate to cover the rest that follows it — its note-off must land strictly later than SKIP's")
+    }
+    // ── MISS = PATTERN INVERT (Paul 2026-10-10, "rhythm cards cleared of melody" ferry) ────────────────────
+    // `patternMiss` is a brand-new field, additive alongside (not a replacement for) `missNoteSel`/etc. —
+    // those stay live for the regular, non-Euclideous BUILD-page EUCLID editor's own dual-voice feature
+    // (GridUI.swift); `patternMiss` is the ONLY thing Euclideous's own lane cards write going forward.
+    // Ferry's own literal example: 3 hits of 8 in MISS plays the other 5 steps.
+    // noteSel: .low (one note struck per hit, matching the sibling tests' own convention) — a bare EuclidLine
+    // defaults noteSel to .all, which strikes the WHOLE 3-note pool per hit; caught empirically, not assumed,
+    // when a first draft without it returned 12/15 (4 hits × 3 notes) instead of 3/5. beats:3.9 (not 4.1) stays
+    // strictly inside the one 4-beat cycle (N=8 @ r1_8=0.5) — 4.1 was just far enough past the boundary to also
+    // capture cycle 2's own first hit (a real step, not a bug, but not what "one cycle" was meant to isolate).
+    func testEuclideousPatternMiss3Of8PlaysTheOtherFiveSteps() {
+        let pool: [UInt8] = [60, 64, 67]
+        func onsetCount(patternMiss: Bool) -> Int {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, noteSel: .low, patternMiss: patternMiss, rate: .r1_8)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord(pool), beats: 3.9, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertEqual(onsetCount(patternMiss: false), 3, "sanity: HIT mode strikes the 3 authored hits")
+        XCTAssertEqual(onsetCount(patternMiss: true), 5, "MISS mode strikes the complementary 5 steps (8-3)")
+    }
+    // §2.2: "0 hits in MISS mode plays every step." Also the regression guard for a REAL engine bug this
+    // ferry's own review caught: the per-lane loop's `pulses > 0` guard discarded a 0-pulse line BEFORE
+    // `patternMiss` ever got a chance to invert it (a 0-pulse slot was, until this fix, always treated as a
+    // permanently-unused fixed row — correct everywhere except under this exact feature). Fixed by widening
+    // the guard to `pulses > 0 || patternMissResolved`.
+    func testEuclideousPatternMissZeroHitsPlaysEveryStep() {
+        let pool: [UInt8] = [60, 64, 67]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 0, steps: 8, noteSel: .low, patternMiss: true, rate: .r1_8)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 3.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 8, "0 hits inverted = every one of the 8 steps sounds")
+    }
+    // §2.2: "8 hits of 8 in MISS mode is silent."
+    func testEuclideousPatternMissEightOfEightIsSilent() {
+        let pool: [UInt8] = [60, 64, 67]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, patternMiss: true, rate: .r1_8)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 4.1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "a fully-dense pattern inverted strikes nothing")
+    }
+    // §2.3: "the riff walk (ADVANCE: HIT) advances once per sounding step." A sparse 2-of-8 pattern inverted
+    // sounds on 6 steps — if the walk correctly reads the INVERTED buffer's notion of "hit" (the single
+    // `euclidBuf` toggle this feature relies on), it advances by exactly 1 per sounding step, striking 6
+    // DISTINCT, STRICTLY ASCENDING ranks in order (1..6) from a literal ascending riff pattern. If it instead
+    // still advanced only on the original 2 raw Euclid hits (the bug this test guards against), only 2 of
+    // the 6 struck notes would show genuinely new ranks — the rest would repeat stale ones.
+    func testEuclideousPatternMissRiffAdvancesOncePerSoundingStep() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 2, steps: 8, patternMiss: true, rate: .r1_8, useRiff: true)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 4.1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ranks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        XCTAssertEqual(ranks, [1, 2, 3, 4, 5, 6], "6 sounding steps must advance the walk by exactly 1 each, striking 6 strictly-ascending ranks")
+    }
+    // §2.4: "when loading an older saved state that had the miss side playing, load it as HIT, ignore the
+    // old miss-side settings, and keep everything else." A doc decoded with the OLD dual-voice keys set and
+    // NO `patternMiss` key at all must decode cleanly (the shared fields are never deleted, only ignored for
+    // Euclideous's own row — see Router.swift's `!isEuclideousRow` guard) and resolve to HIT.
+    func testEuclideousOlderDocWithMissSideConfiguredLoadsAsHit() {
+        var line = EuclidLine(target: 0, pulses: 3, steps: 8, noteSel: .low)
+        line.missNoteSel = .high; line.missVelocity = 1.0; line.missGate = 0.8; line.missOctave = 1
+        let data = try! JSONEncoder().encode(line)
+        let decoded = try! JSONDecoder().decode(EuclidLine.self, from: data)
+        XCTAssertFalse(decoded.patternMissResolved, "an old doc with the miss side configured must resolve to HIT, never MISS")
+        XCTAssertEqual(decoded.noteSelResolved, .low, "everything else survives untouched")
+        XCTAssertEqual(decoded.missNoteSel, .high, "the old miss-side settings are NOT deleted from the model (still live for the regular, non-Euclideous processor) — just inert for Euclideous's own row")
     }
     // NOTE: a second, simpler single-line test of this exact claim (testEuclideousRiffPoolFollowsLane1sOwn-
     // SourceChoice) used to live here, built around the retired doorMode:.chord mechanism — removed outright

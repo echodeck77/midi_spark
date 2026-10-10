@@ -196,6 +196,105 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "rhythm cards cleared of melody; MISS becomes an invert," the §6 follow-up to the melody
+  pop-up ferry, SHIPPED (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1283 green incl.
+  +9/-3, iOS builds clean, 0 new warnings). Two parts: strip the lane card of controls now duplicated by the
+  melody pop-up, and replace HIT/MISS's old dual-voice mechanism with a single-voice pattern invert.
+  **REMOVALS (§1):** the 4th gesture pad (SHIFT/OCT or NOTE/OCT) — `gesturePadRow` now iterates a literal
+  `[.tiltHits, .offsetCount, .gateVelocity]` instead of `EuclideousGestureTab.allCases`, width `/3` not `/4`;
+  the enum keeps its 4th case and the 8 switches keyed off it keep their now-unreachable `.noteOctave` arms as
+  harmless dead code (minimal-diff, matching this page's own established RANDOM-removal precedent). The RIFF
+  tab, entirely — `EuclideousLaneTab` shrunk from 4 cases to 3 (`io/pattern/mask`); `riffDirGrid`/
+  `riffTabButton`/`euclideousNextOnRest`/`riffDirPopupCard`/the `@State riffDirPopupLane` deleted outright,
+  confirmed via grep to have no remaining callers once `tabContent`'s `.riff` dispatch was removed (direction
+  selection already lives inline in the melody pop-up's own WALK section, built the same day). `riffDirShortLabel`
+  (PEND/PING/RAND) kept — still used by the pop-up and `noteViewLabelItems`. The I/O tab's MIDI IN/KEY/CHORDS
+  selector (`ioSourceRow`, confirmed orphaned, deleted) — `laneOutRow` (the OUT toggles) is the tab's sole
+  remaining content, per §1.5's explicit "keep... exactly as they are." The per-lane source badge inside
+  `stepCountBadge` — removed along with its `source:` parameter and the width formula's badge allowance, since
+  NOTE VIEW's own label already leads with the source (confirmed: `noteViewLabelItems`'s first appended item is
+  always MIDI/KEY/CHD). **MISS = INVERT (§2):** `EuclidLine.patternMiss: Bool?` is a brand-new, ADDITIVE field —
+  **a genuine architectural correction found mid-build, not a literal follow of §2.4's own "remove from the
+  engine" wording:** `missNoteSel`/`missGate`/`missOctave`/`missVelocity` turned out to be SHARED with the
+  regular, non-Euclideous BUILD-page EUCLID editor's own, unrelated dual-voice feature (GridUI.swift's
+  `euclidHitMissBox`, shipped 2026-10-02) — deleting them as the ferry's literal words ask would have silently
+  broken that unrelated feature for every other EUCLID cell in the grid. Resolved by keeping all 4 shared fields
+  fully alive in the model AND the engine, and instead making them UNCONDITIONALLY INERT for Euclideous's own
+  row specifically: the old `else if let missSel = missNoteSel {...}` branch in `runEuclidLine` gained a
+  `!isEuclideousRow` guard (the SAME `isEuclideousRow` flag the per-lane source-pool/NOTE-VIEW gating already
+  uses, captured by closure from the enclosing scope — no new parameter needed) — so a stale `missNoteSel` on an
+  old Euclideous doc can never fire there again, satisfying §2.4's real intent ("ignore the old miss-side
+  settings... keep everything else") without touching the regular processor's own live feature at all. The
+  mechanism itself (§2.2/§2.3) is genuinely simple once this was sorted: `runEuclidLine` inverts `euclidBuf` ONCE,
+  in place, immediately after HITS/TILT/ROTATE have built it and strictly before `cycleHits`/`isHitAt` are ever
+  read — every downstream hit-counting consumer (`cycleHits`/`effHits`/`hitsUpTo`/`ord`, the riff walk's own
+  ADVANCE=HIT ordinal, the TIE lookahead inside `riffTieExtensionBeats`) automatically treats the inverted,
+  now-sounding steps as "hits," with zero further code needed anywhere else in the function — confirmed by
+  reading, not assumed: every one of those consumers is built from `euclidBuf` via one shared `isHitAt` helper,
+  nothing else. LOCK's own pattern-cycle length (`euclidCycleLen`, a function of `n`/`dir` alone) is untouched by
+  inverting the buffer's contents, matching §2.3's own "unchanged" claim exactly. VEL/GATE apply to sounding
+  steps for free, since they're already computed inside the same `if isHit {...}` branch. §2.3's third claim —
+  "the mask advances on sounding steps" — needs no engine change today: confirmed by grep that the per-lane
+  EUCLID MASK (`line.mask`, distinct from the unrelated standalone `ProcessorType.euclidMask` chain processor) is
+  read nowhere in the emission path, a pre-existing "EFFECT — NOT YET AVAILABLE" stub — a forward-looking
+  statement about a control that doesn't yet do anything, not a gap to close here. Deleted
+  `euclideousInvertLine`/`euclideousEnsureMissDefaults` (Derivations.swift) outright — the old swap-the-two-sides
+  mechanism these implemented is fully superseded, confirmed dead once `hitMissRateRow`'s buttons were rewritten
+  to read/write `patternMiss` directly. **UI:** `hitMissRateRow` restyled from the old view/underline convention
+  to the "selected choice" style (LANE-20 fill, 1pt LANE-100 border, white text) `directionRow` already
+  established, per §2.5 literally; the ephemeral `missSelected: [Bool]` @State array (which only ever existed
+  because the old swap mechanism had no real persisted value to represent as "selected") deleted, now reading
+  `line.patternMissResolved` directly. **STEP BAR/PICTURE (§3):** `EuclidCometBar` gained a new, independently-
+  defaulted `missStyle: Bool = false` param (mirroring the established `tilt: Double = 0` precedent exactly — the
+  regular BUILD-page EUCLID editor and the MASK-tab's own comet bar, neither of which pass it, are byte-
+  identical) — when set, the box loop's own `hit` test inverts (`missStyle ? !rawHit : rawHit`), so the EXISTING
+  rich hit treatment (gradient/glow/burst) applies to the newly-sounding cells for free, and the rest branch
+  gains a new sub-case for the OLD, now-silent hits: a 1.5pt `tint`-coloured outline with no fill, exactly §3.2's
+  literal spec. `euclideousRhythmPicture` got the identical buffer-invert + stroke-only treatment for its own
+  (much smaller) cells, per §3.3 "follows the same rule" — including matching the step bar's literal 1.5pt line
+  width exactly, not a scaled-down approximation (caught on this entry's own post-build review, see below).
+  **NOTE VIEW (§4):** `let missPlaying = line.missNoteSel != nil` and `noteViewDrawMark`'s hollow-ring branch
+  deleted — provably unreachable now, not just unused: `nvSent` (NOTE VIEW's own push gate) requires
+  `isEuclideousRow`, while the one remaining push site for `kind: 1` (the restored, shared miss-branch) requires
+  `!isEuclideousRow` — the two conditions can never both hold, so `kind == 1` can never actually reach NOTE VIEW
+  for a Euclideous lane, confirmed by tracing the exact guard interaction rather than assumed. The note box's own
+  `ev.kind == 1` outline-style branch removed for the same reason; every note now renders in the one remaining
+  (normal, LANE-20-fill) style unconditionally. `euclideousNoteViewPattern` (Derivations.swift, the NOTE VIEW's
+  own PURE mirror of the engine's rhythm — it independently re-derives "is this step a hit" from the same
+  `euclidPatternInto`+`euclidTiltPattern` pair so a projected mark can never disagree with the real emission)
+  gained the identical `patternMiss` invert, confirmed necessary and added — without it, NOTE VIEW's comets/dots
+  would have kept showing the PRE-invert pattern while the engine actually struck the POST-invert one.
+  **A SELF-RUN REVIEW CAUGHT TWO FURTHER REAL ISSUES BEFORE THIS WAS CALLED DONE, per Paul's own "review these
+  changes against the original request" ask — not found by the first implementation pass:** (1) **a genuine
+  engine bug, not a test artefact:** the per-lane loop's long-standing `where L.pulses > 0 && L.enabledResolved`
+  guard treats a 0-pulse line as a permanently unused fixed slot and skips it ENTIRELY — before `runEuclidLine`,
+  and therefore the new `patternMiss` invert, ever gets a chance to run. This directly contradicted the ferry's
+  own literal, load-bearing example ("0 hits in MISS mode plays every step") — a 0-pulse MISS-engaged line was
+  silently discarded rather than inverted to full density. Fixed by widening the guard to `(L.pulses > 0 ||
+  L.patternMissResolved) && L.enabledResolved` — provably byte-identical for every pre-existing caller, since
+  `patternMissResolved` defaults false for any line that's never touched the brand-new field (which, before this
+  session, was every line in existence). (2) the rhythm picture's outline used `lineWidth: 1`, not the step bar's
+  literal 1.5pt — an unflagged inconsistency against §3.3's own "follows the SAME rule," fixed to match exactly.
+  **TWO OF THE FIRST DRAFT'S OWN NEW TESTS FAILED ON THE FIRST RUN, traced not re-guessed (the project's own
+  standing rule):** a bare `EuclidLine` with no explicit `noteSel` defaults to `.all`, striking the WHOLE pool
+  per hit, not one note — the first draft's 3/8-plays-5 test got 12/15 instead of 3/5 (4 hits × 3 pool notes, the
+  4th hit being a genuine extra onset from the very start of the next 4-beat cycle landing just inside a too-
+  generous `beats: 4.1` window) — fixed by setting `noteSel: .low` (matching the sibling tests' own convention)
+  and tightening the window to `beats: 3.9`, safely inside one cycle with margin. **TESTS (+9/-3, net to 1283):**
+  3 of the OLD `euclideousInvertLine`-only tests deleted outright (nothing left to test once that mechanism is
+  gone); 1 pre-existing test (`testEuclideousNoteViewMissPlayingPostsAMissEvent`) rewritten to the new, opposite,
+  now-correct claim — a stale `missNoteSel` on Euclideous's own row must NEVER post a miss-playing event, the
+  direct regression guard for the `!isEuclideousRow` fix; +6 new (3/8→5 steps; 0-hits→every step, the direct
+  regression guard for the engine bug above; 8-of-8→silent; the riff walk genuinely advances once per sounding
+  step under MISS, proven by a strictly-ascending 6-rank sequence from a sparse 2-of-8 pattern; an old doc with
+  the miss side configured decodes cleanly and resolves to HIT while the shared fields themselves survive
+  untouched; a SnapshotBuilder fresh-literal regression guard for `patternMiss`). **DEVICE-OWED, named plainly
+  because this environment cannot produce screenshots:** one lane in HIT and MISS mode side by side, confirming
+  the step bar's outlined-silent/filled-sounding split and NOTE VIEW's inverted comets read correctly with no
+  hollow rings or outline-style boxes anywhere; the slimmed 3-pad, 3-tab (I/O·PATTERN·MASK) card in portrait and
+  landscape, confirming the 3 remaining pads visibly widen to fill the space the 4th vacated with no dangling
+  layout gap where the source selector/badge used to sit; the restyled HIT/MISS control reading as a persistent
+  setting rather than the old underline view-style.**
 - **▶ EUCLIDEOUS MELODY POP-UP — a per-lane settings pop-up (SOURCE·MODE·NOTE·WALK·PLACEMENT) + four
   genuinely new engine controls (STRIDE·LENGTH·ADVANCE·TRANSPOSE), SHIPPED (2026-10-10, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1280 green incl. +12, iOS builds clean, 0 errors,

@@ -200,9 +200,12 @@ struct EuclideousXYPad: UIViewRepresentable {
 /// toggles (moved here from their old always-visible placement below every tab, see `laneCard`). This enum's
 /// `laneTab` state is purely ephemeral (never persisted), so reordering its raw values here has no migration
 /// concern — a fresh page open still starts every lane on PATTERN (unchanged default), I/O just sits first.
+// RIFF TAB RETIRED (Paul 2026-10-10 ferry §1.2) — its own direction/FREE-LOCK/INVERT/ON-REST controls moved
+// to the melody pop-up's WALK section. `laneTab` is purely ephemeral (never persisted, never defaults to a
+// removed case — confirmed by its own declaration), so there's no "stuck on a now-gone tab" migration needed.
 enum EuclideousLaneTab: Int, CaseIterable {
-    case io = 0, pattern = 1, riff = 2, mask = 3
-    var label: String { switch self { case .io: "I/O"; case .pattern: "PATTERN"; case .riff: "RIFF"; case .mask: "MASK" } }
+    case io = 0, pattern = 1, mask = 2
+    var label: String { switch self { case .io: "I/O"; case .pattern: "PATTERN"; case .mask: "MASK" } }
 }
 
 struct EuclideousPage: View {
@@ -277,34 +280,27 @@ struct EuclideousPage: View {
     // whichever pad is currently being dragged, keyed "idx-tabRawValue".
     @State private var padFrames: [String: CGRect] = [:]
     // MELODY POP-UP (Paul 2026-10-10 ferry): which lane's pop-up is open (nil = none — the `Int?`
-    // precedent already established by `ratePopupLane`/`riffDirPopupLane`), and each strip's own
+    // precedent already established by `ratePopupLane`), and each strip's own
     // on-screen frame (published via `EuclideousStripFramePreferenceKey`, the direct sibling of
     // `padFrames` above), so the pop-up can anchor itself to the tapped strip rather than floating at a
     // fixed page position.
     @State private var melodyPopupLane: Int? = nil
     @State private var melodyStripFrames: [Int: CGRect] = [:]
-    // HIT|MISS SELECTOR (Paul 2026-10-06): "I want the outline of the hit button to look selected and the
-    // misses to appear like hits do now" — a symmetric 2-way toggle (not the old single "INV" pill): exactly
-    // one of HIT/MISS is "selected" (an outline, matching EuclidLaneBox's own `selected` convention) at a
-    // time. There's no persisted "which side is primary" flag on EuclidLine itself — `euclideousInvertLine`
-    // performs a destructive field SWAP, not a flag flip, so the swapped state alone can't say which side was
-    // "originally" hit vs miss. Purely local/ephemeral, starting at HIT selected (not inverted) for all 4
-    // lanes — tapping the NON-selected side triggers the actual invert and flips which one shows selected.
-    @State private var missSelected: [Bool] = [false, false, false, false]
+    // HIT|MISS is now the persisted `EuclidLine.patternMiss` field itself (Paul 2026-10-10 ferry) — no local
+    // @State needed; `hitMissRateRow` reads/writes it directly via `edit(idx)`.
     // RATE POPUP (Paul 2026-10-06): "I hate the current [tap-to-cycle] control and want a pop-up" — replaces
     // cycling through all 18 ArpRate cases one tap at a time (and never offering a way back to nil/"inherit
     // the machine rate") with a single list the user picks from directly. nil = no popup open.
     @State private var ratePopupLane: Int? = nil
-    // PER-LANE TABS (Paul 2026-10-07): which of PATTERN/RIFF/MASK each lane currently shows — purely local/
-    // ephemeral, same convention as missSelected/touchedPad above (not persisted; a fresh page open always
-    // starts every lane on PATTERN).
+    // PER-LANE TABS: which of I/O/PATTERN/MASK each lane currently shows (RIFF retired 2026-10-10, folded into
+    // the melody pop-up) — purely local/ephemeral, same convention as touchedPad above (not persisted; a fresh
+    // page open always starts every lane on PATTERN).
     @State private var laneTab: [EuclideousLaneTab] = [.pattern, .pattern, .pattern, .pattern]
     @State private var resetSpanPopupOpen = false
     @State private var keyPopupOpen = false
     @State private var chordsPopupOpen = false
-    // RIFF DIRECTION POPUP (Paul 2026-10-09 ferry): the RIFF tab's direction chip opens a picker, mirroring
-    // ratePopupLane's own "which lane's popup is open, nil = none" shape exactly.
-    @State private var riffDirPopupLane: Int? = nil
+    // riffDirPopupLane RETIRED 2026-10-10 alongside the RIFF tab — direction selection lives inline in the
+    // melody pop-up's WALK section now, no separate nested popup needed.
 
     private let laneAccents: [Color] = [
         Color(red: 0.95, green: 0.35, blue: 0.35), Color(red: 0.35, green: 0.75, blue: 0.95),
@@ -404,13 +400,8 @@ struct EuclideousPage: View {
                         .zIndex(3)
                     ratePopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
-                // RIFF DIRECTION POPUP (Paul 2026-10-09 ferry) — same scrim+card shape as the RATE popup above.
-                if let lane = riffDirPopupLane {
-                    Color.black.opacity(0.55).ignoresSafeArea()
-                        .onTapGesture { riffDirPopupLane = nil }
-                        .zIndex(3)
-                    riffDirPopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
-                }
+                // RIFF DIRECTION POPUP RETIRED (ferry 2026-10-10 §1.2) — direction selection now lives inline
+                // in the melody pop-up's own WALK section below; `riffDirGrid`/`riffDirPopupCard` are deleted.
                 // THE MELODY POP-UP (Paul 2026-10-10 ferry §1.2/§1.3) — anchored to the tapped strip with a
                 // pointer, NOT the centered scrim+card every popup above uses. Dismissal still needs a
                 // full-screen tap-catcher, but it's `Color.clear` (no darkening) — a modal-style dim
@@ -955,8 +946,9 @@ struct EuclideousPage: View {
         // width, never the raw card `width`.
         let innerWidth = max(1, width - sp8 * 2)
         let padSize = max(1, (innerWidth - sp4 * 2) / 3)   // DIRECTION/HIT-MISS-RATE: 3 equal columns, sp4 gaps
-        // GESTURE PADS (ferry §3: "the four pads in a lane are equal width, with 4pt gaps between them").
-        let gesturePadW = max(1, (innerWidth - sp4 * 3) / 4)
+        // GESTURE PADS — down to 3 (ferry 2026-10-10 §1.1: SHIFT/OCT dropped, now in the melody pop-up). The
+        // 3 survivors share the freed width equally, same formula as padSize above.
+        let gesturePadW = max(1, (innerWidth - sp4 * 2) / 3)
         // NO EMPTY BANDS (ferry §1.3): the gesture-pad row's HEIGHT is computed explicitly as "exactly what's
         // left" after every other fixed-height row + the card's own sp8 padding (top+bottom) + the sp4 gaps
         // between this VStack's 4 children — the pads STRETCH to fill it, never centred-with-slack.
@@ -977,7 +969,7 @@ struct EuclideousPage: View {
                           onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, source: line.sourceModeResolved, accent: accent)),
+                          stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
                           stepCountBadgeWidth: stepCountBadgeTotalWidth)
             gesturePadRow(idx, line, accent, cellSize: gesturePadW, rowHeight: gestureRowH)
             laneTabRow(idx, line, accent, rowH: tabRowH)
@@ -1005,50 +997,34 @@ struct EuclideousPage: View {
     // actually gets.
     private let stepCountChipCol: CGFloat = 16, stepCountChipGap: CGFloat = 2
     // 2 chip columns + the gap between them + the sp4 gap before the source badge + the source badge's own
-    // ~30pt footprint ("MIDI" is the widest of the 3 labels) + the OUTER `.padding(.horizontal, sp4)` below
-    // (×2 for both sides) — RE-CHECKED against the ferry's own text and found UNDERCOUNTED the first time:
-    // the padding wasn't in this sum at all, so the enforced frame was ~8pt narrower than the content it
-    // was told to hold, which would have squeezed "NO OUT"/"MIDI" rather than rendering them in full.
-    private var stepCountBadgeTotalWidth: CGFloat { stepCountChipCol * 2 + stepCountChipGap + sp4 + 32 + sp4 * 2 }
+    // The per-lane source badge ("MIDI"/"KEY"/"CHD") RETIRED 2026-10-10 (ferry §1.4) — NOTE VIEW's own label
+    // already shows the source, so this is now just the step-count + output-chip block on its own.
+    private var stepCountBadgeTotalWidth: CGFloat { stepCountChipCol * 2 + stepCountChipGap + sp4 * 2 }
     /// §8.1, literal: "replace the bare letter under the step count with mini output chips, 16pt circles
     /// with a 10pt letter, LANE-40 fill, one chip per routed output. If none are routed, show 'NO OUT' in
-    /// amber." §8.2, literal: "a small always-visible badge per lane showing its source: MIDI, KEY or CHD
-    /// (10pt, neutral grey border, no fill)" — placed BESIDE the step-count+chips block rather than
-    /// stacked under it (the ferry's own "whichever fits" latitude): stacking a 3rd line under an already
-    /// 2-row chip grid didn't fit this row's existing height budget without also growing it.
-    /// RE-VERIFIED, not just reasoned, on this pass: the badge's own `.frame(height: 44)` below is an EXACT
-    /// match for the row's real available content height (`EuclidLaneBox`'s comet row: `height - 12 =
-    /// 56 - 12 = 44`), so the "~2pt residual overflow" this comment once flagged does not actually occur —
-    /// that earlier caveat was an unchecked guess, corrected here once the real arithmetic was worked through.
-    private func stepCountBadge(_ n: Int, mask: UInt8, source: EuclideousLaneSource, accent: Color) -> some View {
+    /// amber."
+    private func stepCountBadge(_ n: Int, mask: UInt8, accent: Color) -> some View {
         let routed = (0..<4).filter { (mask >> UInt8($0)) & 1 != 0 }
         let rows = stride(from: 0, to: routed.count, by: 2).map { Array(routed[$0..<min($0 + 2, routed.count)]) }
-        return HStack(spacing: sp4) {
-            VStack(spacing: 1) {
-                Text("\(n)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                if mask == 0 {
-                    Text("NO OUT").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(Color(hex: 0xFFB454)).lineLimit(1)
-                } else {
-                    VStack(spacing: 1) {
-                        ForEach(rows.indices, id: \.self) { r in
-                            HStack(spacing: stepCountChipGap) {
-                                ForEach(rows[r], id: \.self) { b in
-                                    Text(["A", "B", "C", "D"][b]).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                                        .foregroundColor(.white)
-                                        .frame(width: stepCountChipCol, height: stepCountChipCol)
-                                        .background(Circle().fill(lane40(accent)))
-                                }
+        return VStack(spacing: 1) {
+            Text("\(n)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            if mask == 0 {
+                Text("NO OUT").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xFFB454)).lineLimit(1)
+            } else {
+                VStack(spacing: 1) {
+                    ForEach(rows.indices, id: \.self) { r in
+                        HStack(spacing: stepCountChipGap) {
+                            ForEach(rows[r], id: \.self) { b in
+                                Text(["A", "B", "C", "D"][b]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                    .foregroundColor(.white)
+                                    .frame(width: stepCountChipCol, height: stepCountChipCol)
+                                    .background(Circle().fill(lane40(accent)))
                             }
                         }
                     }
                 }
             }
-            Text(source == .midi ? "MIDI" : (source == .key ? "KEY" : "CHD"))
-                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.6)).lineLimit(1)
-                .padding(.horizontal, 3).padding(.vertical, 2)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.3), lineWidth: 1))
         }
         .padding(.horizontal, sp4)
         .frame(width: stepCountBadgeTotalWidth, height: 44)
@@ -1082,8 +1058,14 @@ struct EuclideousPage: View {
     /// them (unchanged). Each is its own independent `EuclideousXYPad` drag surface; PINCH stays on the
     /// comet bar, untouched by this redesign.
     private func gesturePadRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowHeight: CGFloat) -> some View {
+        // DOWN TO 3 PADS (ferry 2026-10-10 §1.1): the 4th pad (SHIFT/OCT with riff on, NOTE/OCT with riff
+        // off) moved to the melody pop-up entirely. Iterating a literal subset instead of `.allCases` is a
+        // deliberate minimal-diff choice — the enum keeps its `.noteOctave` case and the 8 switches keyed off
+        // it (`euclideousPadValues`/`euclideousAxisNames`/`pointsPerUnit`/`euclideousPadPicture`/`padBaseline`/
+        // `commitAxis`/`doubleTapReset`/`applyAllDelta`) keep their now-unreachable `.noteOctave` arms as
+        // harmless dead code, rather than forcing an edit to all 8 for this one real call site that matters.
         HStack(spacing: sp4) {
-            ForEach(EuclideousGestureTab.allCases, id: \.rawValue) { t in
+            ForEach([EuclideousGestureTab.tiltHits, .offsetCount, .gateVelocity], id: \.rawValue) { t in
                 let touched = touchedPad[idx] == t.rawValue
                 // RIFF ADVANCE (Paul 2026-10-06): once a lane's useRiff is on, this pad's tint + picture +
                 // axis labels switch from NOTE/OCT to SHIFT/OCT — unchanged by this redesign, just now
@@ -1286,6 +1268,10 @@ struct EuclideousPage: View {
         var buf = [Bool](repeating: false, count: n)
         euclidPatternInto(&buf, pulses: k, steps: n, rotation: line.rotate)
         if line.tiltResolved != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: line.tiltResolved) }
+        // MISS STYLE (ferry §3.3, "the rhythm pad's picture follows the same rule"): the SAME single-point
+        // invert the step bar and the engine both apply, so this picture can never disagree with either.
+        let missStyle = line.patternMissResolved
+        if missStyle { for i in 0..<n { buf[i].toggle() } }
         return Canvas { ctx, size in
             let gap: CGFloat = 1   // ferry §5.2: "with a 1pt minimum gap"
             let rowH = size.height * 0.3
@@ -1293,7 +1279,17 @@ struct EuclideousPage: View {
             let cellW = max(1, (size.width - gap * CGFloat(n - 1)) / CGFloat(n))
             for i in 0..<n {
                 let rect = CGRect(x: CGFloat(i) * (cellW + gap), y: y, width: cellW, height: rowH)
-                ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(buf[i] ? lane40(accent) : Color(hex: 0x3A3E47)))
+                let box = Path(roundedRect: rect, cornerRadius: 1)
+                if buf[i] {
+                    ctx.fill(box, with: .color(lane40(accent)))
+                } else if missStyle {
+                    // the ORIGINAL (now-silent) Euclid hit — outline only, no fill. §3.3: "the rhythm pad's
+                    // picture follows the SAME rule" as §3.2's step bar — 1.5pt literally, not a scaled-down
+                    // approximation (caught on review: a first draft used 1pt here, an unflagged inconsistency).
+                    ctx.stroke(box, with: .color(lane100(accent)), lineWidth: 1.5)
+                } else {
+                    ctx.fill(box, with: .color(Color(hex: 0x3A3E47)))
+                }
             }
         }
     }
@@ -1533,16 +1529,10 @@ struct EuclideousPage: View {
         HStack(spacing: 4) {
             ForEach(EuclideousLaneTab.allCases, id: \.rawValue) { t in
                 let sel = (idx < laneTab.count ? laneTab[idx] : .pattern) == t
-                // DOT (Paul 2026-10-07, §3; narrowed 2026-10-09, ferry §3.2): ONLY RIFF/MASK carry a dot,
-                // lane-coloured when the feature is on for the lane — they're the two tabs that genuinely
-                // SWITCH ON AND OFF. PATTERN never shows one (it's always "on"). I/O never shows one either —
-                // a lane always has SOME source selected, there's no on/off state to flag (the dot that used
-                // to render here was always unlit — a hollow dot with nothing to say — removed entirely,
-                // not just left dim). MASK's "on" reads as "this lane has a mask configured at all"
-                // (line.mask != nil), the literal translation of the ratified mockup's own `!!d.mask` check —
-                // there's no further "effect enabled" concept yet since the mask's effect itself is deferred
-                // (§4.1).
-                let dotOn: Bool = t == .riff ? line.useRiffResolved : (t == .mask ? (line.mask != nil) : false)
+                // DOT: ONLY MASK carries a dot now (RIFF's own dot retired 2026-10-10 along with its tab) —
+                // lane-coloured when "this lane has a mask configured at all" (line.mask != nil). PATTERN
+                // never shows one (always "on"); I/O never does either (a lane always has some source).
+                let dotOn: Bool = t == .mask && line.mask != nil
                 // VIEWS (this ferry §4.3, "the tab row" named explicitly): white text with a 2pt LANE-100
                 // underline for the active one, grey text (no fill/outline) when inactive. Label size is
                 // §6.2's own literal rule: "set the tab labels to the pad readout line-2 size" —
@@ -1551,8 +1541,8 @@ struct EuclideousPage: View {
                     Text(t.label).font(.system(size: padSubtitleSize, weight: .heavy, design: .monospaced))
                         .foregroundColor(sel ? .white : .white.opacity(0.45))
                         .lineLimit(1)
-                    if t == .riff || t == .mask {
-                        // LANE-100 (this ferry §4.1: "the RIFF/MASK on-dots").
+                    if t == .mask {
+                        // LANE-100 (this ferry §4.1: "the RIFF/MASK on-dots" — RIFF's own dot retired).
                         Circle().fill(dotOn ? lane100(accent) : Color.clear)
                             .overlay(Circle().stroke(dotOn ? lane100(accent) : Color.white.opacity(0.35), lineWidth: 1))
                             .frame(width: 7, height: 7)
@@ -1569,17 +1559,14 @@ struct EuclideousPage: View {
     @ViewBuilder private func tabContent(_ idx: Int, _ line: EuclidLine, _ tab: EuclideousLaneTab, _ accent: Color, cellSize: CGFloat, rowH: CGFloat, fullWidth: CGFloat) -> some View {
         switch tab {
         case .io:
-            VStack(spacing: sp4) {
-                ioSourceRow(idx, line, accent, rowH: rowH)
-                laneOutRow(idx, line, accent: accent).frame(height: rowH)
-            }
+            // SOURCE SELECTOR REMOVED (ferry 2026-10-10 §1.3/§1.5) — now lives in the melody pop-up's own
+            // SOURCE row; this tab's sole remaining job is the OUT toggles, kept exactly as they are.
+            laneOutRow(idx, line, accent: accent).frame(height: rowH)
         case .pattern:
             VStack(spacing: sp4) {
                 directionRow(idx, line, accent, cellSize: cellSize, rowH: rowH)
                 hitMissRateRow(idx, line, accent, cellSize: cellSize, rowH: rowH)
             }
-        case .riff:
-            riffDirGrid(idx, line, accent, rowH: rowH)
         case .mask:
             VStack(spacing: sp4) {
                 maskCometRow(idx, line, accent, width: fullWidth, height: rowH)
@@ -1609,44 +1596,31 @@ struct EuclideousPage: View {
         }
     }
 
-    /// HIT | MISS, separated from RATE (Paul 2026-10-09, ferry §3.3: "FOLLOW sits in the same strip as HIT/
-    /// MISS with no label, so it reads as a third option of that choice — give it its RATE label back and
-    /// separate it visibly"). HIT/MISS is a symmetric 2-way selector (see `missSelected`'s own doc comment) —
-    /// tapping the NON-selected side performs the actual invert (`euclideousInvertLine`) and flips which one
-    /// shows "selected"; tapping the already-selected side is a no-op. RATE now sits in its OWN small group
-    /// (a visible 4pt gap + its own rounded background, not sharing HIT/MISS's clip shape) with a genuine
-    /// "RATE" caption above the value — opens the pop-up (`ratePopupLane`) on tap; the value shows FOLLOW
-    /// (Paul 2026-10-07, §3 — was "—") when the line's rate is genuinely unset (nil ⇒ inherit the machine-wide
-    /// rate) rather than silently defaulting the display to 1/16.
+    /// HIT | MISS, separated from RATE. REBUILT (Paul 2026-10-10 ferry §2.5/§2.1): MISS is no longer a second
+    /// voice to swap into — it's a genuine persisted per-lane setting (`patternMiss`) that inverts which steps
+    /// of the pattern sound. Styled as a "selected choice" now (LANE-20 fill, 1pt LANE-100 border, white text
+    /// for the active side), matching `directionRow`'s own convention above it — SUPERSEDES the 2026-10-09
+    /// view/underline styling, which existed only because the old swap mechanism had no real value of its own
+    /// to represent as "selected." RATE is unchanged: its own small group, opens the pop-up on tap, shows
+    /// FOLLOW when the line's rate is genuinely unset.
     private func hitMissRateRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowH: CGFloat) -> some View {
-        let missOn = idx < missSelected.count && missSelected[idx]
+        let missOn = line.patternMissResolved
         // THREE EQUAL SEGMENTS (ferry §3: "the four pads... equal width, with 4pt gaps" extended consistently
         // to every segmented-button row on the page) — HIT/MISS/RATE each get the SAME `cellSize` directionRow
         // above uses (already sized for 3 columns + 2 sp4 gaps across the card's own inner width), with sp4
         // between all three, not just between the pair and RATE.
-        // VIEWS, NOT SELECTED CHOICES (this ferry §4.3, "the tab row, HIT/MISS" named explicitly): white
-        // text with a 2pt LANE-100 underline for the active one, grey text when inactive — no fill, no
-        // outline. Replaces the old outline-based "selected" look.
         func sideButton(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(selected ? .white : .white.opacity(0.5))
+                .foregroundColor(selected ? .white : .white.opacity(0.6))
                 .frame(width: cellSize, height: rowH)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-                .overlay(Rectangle().fill(selected ? lane100(accent) : Color.clear).frame(height: 2), alignment: .bottom)
+                .background(RoundedRectangle(cornerRadius: 6).fill(selected ? lane20(accent) : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? lane100(accent) : Color.clear, lineWidth: 1))
                 .contentShape(Rectangle())
                 .onTapGesture(perform: action)
         }
         return HStack(spacing: sp4) {
-            sideButton("HIT", selected: !missOn) {
-                guard missOn else { return }   // already selected — a no-op, not a second invert
-                edit(idx) { $0 = euclideousInvertLine($0) }
-                if idx < missSelected.count { missSelected[idx] = false }
-            }
-            sideButton("MISS", selected: missOn) {
-                guard !missOn else { return }
-                edit(idx) { $0 = euclideousInvertLine($0) }
-                if idx < missSelected.count { missSelected[idx] = true }
-            }
+            sideButton("HIT", selected: !missOn) { edit(idx) { $0.patternMiss = false } }
+            sideButton("MISS", selected: missOn) { edit(idx) { $0.patternMiss = true } }
             VStack(spacing: 1) {
                 Text("RATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                 Text(line.rate == nil ? "FOLLOW" : line.rate!.rawValue)
@@ -1660,100 +1634,19 @@ struct EuclideousPage: View {
         }
     }
 
-    /// RIFF tab (Paul 2026-10-09 ferry, "three new per-lane riff options" — SUPERSEDES the 2026-10-07 7-button
-    /// OFF+6-direction grid above entirely, not alongside it). Line 1: OFF · a direction CHIP (opens
-    /// `riffDirPopupCard`, shows the current choice) · a FREE/LOCK toggle. Line 2: an INVERT toggle · an ON
-    /// REST chip (tap cycles SKIP→FILL→TIE). Same spacing/type rules as the rest of the page (sp4 gaps, the
-    /// shared 10pt row-button text size directionRow/hitMissRateRow/ioSourceRow already use — not a new size),
-    /// and the SAME equal-flex-width per-button convention those rows already establish.
-    private func riffDirGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        VStack(spacing: sp4) {
-            HStack(spacing: sp4) {
-                riffTabButton("OFF", on: !line.useRiffResolved, accent: accent, rowH: rowH) {
-                    edit(idx) { $0.useRiff = false }
-                }
-                riffTabButton(riffDirShortLabel(line.riffDirResolved), on: line.useRiffResolved, accent: accent, rowH: rowH) {
-                    riffDirPopupLane = idx
-                }
-                riffTabButton(line.riffLockResolved ? "LOCK" : "FREE", on: line.riffLockResolved, accent: accent, rowH: rowH) {
-                    edit(idx) { $0.riffLock = !($0.riffLockResolved) }
-                }
-            }
-            HStack(spacing: sp4) {
-                riffTabButton("INVERT", on: line.riffInvertResolved, accent: accent, rowH: rowH) {
-                    edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
-                }
-                riffTabButton("REST:\(line.riffOnRestResolved.rawValue)", on: line.riffOnRestResolved != .skip, accent: accent, rowH: rowH) {
-                    edit(idx) { $0.riffOnRest = euclideousNextOnRest($0.riffOnRestResolved) }
-                }
-            }
-        }
-    }
-    /// Shared button face for the RIFF tab's own 5 controls — one visual language (filled when "on," the
-    /// lane's own accent colour), matching the equal-flex-width convention directionRow/hitMissRateRow/
-    /// ioSourceRow already use elsewhere on this page.
-    /// SELECTED CHOICE (this ferry §4.2, "riff walk" named explicitly — applied to all 5 of this row's
-    /// own buttons uniformly, since OFF/FREE-LOCK/INVERT/ON-REST are the same kind of selection control):
-    /// LANE-20 fill, 1pt LANE-100 border, white text — not the old stronger fill + black text. No
-    /// `.minimumScaleFactor` (§6.1's 10pt floor forbids shrinking below the base size).
-    private func riffTabButton(_ label: String, on: Bool, accent: Color, rowH: CGFloat, action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .white : .white.opacity(0.6)).lineLimit(1)
-            .frame(maxWidth: .infinity).frame(height: rowH)
-            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: action)
-    }
+    // RIFF TAB RETIRED (ferry 2026-10-10 §1.2) — `riffDirGrid`/`riffTabButton`/`euclideousNextOnRest`/
+    // `riffDirPopupCard` deleted entire; confirmed by grep to have no remaining callers once `tabContent`'s
+    // `.riff` case was removed. Direction/FREE-LOCK/INVERT/ON-REST selection now lives inline in the melody
+    // pop-up's own WALK section below. `riffDirShortLabel` (PEND/PING/RAND short labels) is KEPT — still used
+    // by the melody pop-up's DIRECTION row and by `noteViewLabelItems`'s own RIFF summary item.
     /// Short direction labels (PEND/PING/RAND) — scoped to THIS page only, never touching the shared
     /// `RiffDir.displayLabel` enum (that enum also serves the unrelated, regular chainable RIFF processor
-    /// elsewhere in the app). Shared by the tab's own direction chip and the popup picker below.
+    /// elsewhere in the app).
     private func riffDirShortLabel(_ d: RiffDir) -> String {
         switch d {
         case .forward: return "FWD"; case .reverse: return "REV"; case .pendulum: return "PEND"
         case .pingpong: return "PING"; case .random: return "RAND"; case .drunk: return "DRUNK"
         }
-    }
-    /// ON REST's tap-to-cycle order (Paul 2026-10-09 ferry §4: "tap cycles SKIP → FILL → TIE").
-    private func euclideousNextOnRest(_ r: EuclidRiffOnRest) -> EuclidRiffOnRest {
-        switch r { case .skip: return .fill; case .fill: return .tie; case .tie: return .skip }
-    }
-    /// The RIFF direction picker (Paul 2026-10-09 ferry §4) — same scrim+centred-card shape as `ratePopupCard`
-    /// above, a 2-column grid of the 6 `RiffDir` cases. Selecting one both sets the direction AND turns this
-    /// lane's riff ON (there's no separate "ON" control once OFF moved to its own button on line 1 — picking
-    /// a direction is how a lane re-engages riff, mirroring the OLD unified 7-button grid's own tap behaviour
-    /// for its 6 direction buttons).
-    private func riffDirPopupCard(_ idx: Int) -> some View {
-        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
-        let accent = laneAccents[idx % laneAccents.count]
-        // RANDOM REMOVED (Paul 2026-10-10 melody pop-up ferry §2.1) — the case and its decode/resolve
-        // path stay untouched (an old doc with `.random` saved still plays correctly); only this
-        // offered list shrinks. GridUI.swift's own regular-RIFF-processor DIRECTION field is a
-        // separate, untouched feature (this page's own `riffDirShortLabel` doc comment already notes
-        // it's scoped to Euclideous only).
-        let dirs = RiffDir.allCases.filter { $0 != .random }
-        let pairs = stride(from: 0, to: dirs.count, by: 2).map { Array(dirs[$0..<min($0 + 2, dirs.count)]) }
-        return VStack(spacing: 10) {
-            Text("LANE \(idx + 1) RIFF DIRECTION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-            ForEach(pairs.indices, id: \.self) { g in
-                HStack(spacing: 6) {
-                    ForEach(pairs[g], id: \.self) { d in
-                        let on = line.useRiffResolved && line.riffDirResolved == d
-                        Text(riffDirShortLabel(d)).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                            .foregroundColor(on ? .black : .white.opacity(0.8))
-                            .frame(maxWidth: .infinity).frame(height: 36)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.08)))
-                            .contentShape(Rectangle())
-                            .onTapGesture { edit(idx) { $0.useRiff = true; $0.riffDir = d }; riffDirPopupLane = nil }
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .frame(width: 240)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
     // MARK: - THE MELODY POP-UP (Paul 2026-10-10 ferry) — anchored to the tapped NOTE VIEW strip with a
@@ -2048,37 +1941,8 @@ struct EuclideousPage: View {
 
     // MARK: - The I/O tab (Paul 2026-10-08): per-lane MIDI IN | KEY | CHORDS + the lane's own OUT toggles
 
-    /// MIDI IN | KEY | CHORDS (Paul 2026-10-08) — replaces the old page-level GLOBAL "LANES KEY|MIDI" switch:
-    /// each lane now picks its own source independently (`EuclidLine.sourceMode`). CHORDS reads Euclideous's
-    /// own on-page chord generator (the CHORDS button beside KEY in the header), resolved entirely in the
-    /// engine. Same 3-equal-width-button visual language as `directionRow`.
-    ///
-    /// ALWAYS LIVE, INCLUDING WHILE RIFF IS ON (Paul 2026-10-09, ferry §2.4): a 2026-10-09 investigation
-    /// ("I choose MIDI IN and it plays something else — a chord grid maybe?") found that turning a lane's
-    /// RIFF on made ITS OWN choice here completely inert — the shared riff pattern used to read lane 1's pool
-    /// exclusively, regardless of which lane was walking it (fixed that day with a banner explaining the
-    /// override, since removed). Paul's follow-up ferry ruling reversed the OTHER side of that: the riff pool
-    /// itself is no longer lane-1-exclusive — each lane now resolves the shared riff SHAPE against ITS OWN
-    /// pool (Router.swift's `runEuclidLine`, the `if useRiff {...}` branch now reads `laneNotes(lineIndex)`/
-    /// `laneCount(lineIndex)` directly) — so these 3 buttons are genuinely live again regardless of RIFF
-    /// state, and the banner that briefly replaced them is gone.
-    /// SELECTED CHOICE (this ferry §4.2, "source choice" named explicitly): LANE-20 fill, 1pt LANE-100
-    /// border, white text. No `.minimumScaleFactor` (§6.1's 10pt floor).
-    private func ioSourceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        HStack(spacing: sp4) {
-            ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
-                let on = line.sourceModeResolved == src
-                let label = src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS")
-                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .white : .white.opacity(0.6)).lineLimit(1)
-                    .frame(maxWidth: .infinity).frame(height: rowH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color.white.opacity(0.06)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                    .contentShape(Rectangle())
-                    .onTapGesture { edit(idx) { $0.sourceMode = src } }
-            }
-        }
-    }
+    // ioSourceRow RETIRED (ferry 2026-10-10 §1.3) — the MIDI IN/KEY/CHORDS selector now lives in the melody
+    // pop-up's own SOURCE row; the I/O tab's sole remaining content is `laneOutRow` below (§1.5: unchanged).
 
     // MARK: - OUT row (Paul 2026-10-07, §2.8/§3: smaller toggles, NO OUTPUT, dashed/hollow main-held chips)
 
@@ -2406,10 +2270,9 @@ struct EuclideousPage: View {
     private func noteViewTrack(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double) -> some View {
         let running = clock.playing && line.enabledResolved   // §2.6: a stopped lane draws no marks
         let sub = max(0.03125, line.rate?.beats ?? ArpRate.r1_16.beats)
-        let buf = euclideousNoteViewPattern(pulses: line.pulses, steps: line.steps, rotate: line.rotate, tilt: line.tiltResolved)
+        let buf = euclideousNoteViewPattern(pulses: line.pulses, steps: line.steps, rotate: line.rotate, tilt: line.tiltResolved, patternMiss: line.patternMissResolved)
         let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
         let dir = line.directionResolved
-        let missPlaying = line.missNoteSel != nil
         return TimelineView(.animation(paused: !clock.playing)) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             Canvas { ctx, size in
@@ -2430,7 +2293,7 @@ struct EuclideousPage: View {
                     let tickBeat = Double(t) * sub
                     guard let x = euclideousNoteViewMarkX(tickBeat: tickBeat, nowBeat: liveBeat, windowBeats: windowBeats, trackW: size.width) else { continue }
                     let isHit = euclideousNoteViewIsHit(buf: buf, tickBeat: tickBeat, sub: sub, spanBeats: spanBeats, dir: dir)
-                    noteViewDrawMark(&ctx, x: x, midY: size.height / 2, isHit: isHit, missPlaying: missPlaying, accent: accent)
+                    noteViewDrawMark(&ctx, x: x, midY: size.height / 2, isHit: isHit, accent: accent)
                 }
                 // PLAYHEAD (§1.2): fixed 2pt white-60% line at the track's trailing edge — drawn every
                 // frame regardless of `running`, so a stopped lane's track still shows where marks WOULD
@@ -2442,15 +2305,15 @@ struct EuclideousPage: View {
     }
     /// §3, literal mark styles. The hit's own 16pt tail fades LEFT (behind the direction of travel, since
     /// marks move left→right toward the playhead on the right).
-    private func noteViewDrawMark(_ ctx: inout GraphicsContext, x: CGFloat, midY: CGFloat, isHit: Bool, missPlaying: Bool, accent: Color) {
+    private func noteViewDrawMark(_ ctx: inout GraphicsContext, x: CGFloat, midY: CGFloat, isHit: Bool, accent: Color) {
         if isHit {
             var tail = Path(); tail.move(to: CGPoint(x: x, y: midY)); tail.addLine(to: CGPoint(x: x - 16, y: midY))
             ctx.stroke(tail, with: .linearGradient(Gradient(colors: [lane100(accent).opacity(0.6), lane100(accent).opacity(0)]),
                                                     startPoint: CGPoint(x: x, y: midY), endPoint: CGPoint(x: x - 16, y: midY)), lineWidth: 2)
             ctx.fill(Path(ellipseIn: CGRect(x: x - 4, y: midY - 4, width: 8, height: 8)), with: .color(lane100(accent)))
-        } else if missPlaying {
-            ctx.stroke(Path(ellipseIn: CGRect(x: x - 4, y: midY - 4, width: 8, height: 8)), with: .color(lane100(accent)), lineWidth: 1.5)
         } else {
+            // the hollow-ring "miss-playing" mark RETIRED 2026-10-10 (ferry §4.2) — there's only ever one
+            // voice per lane now, so a silent step is always this plain dim dot, never a second mark style.
             ctx.fill(Path(ellipseIn: CGRect(x: x - 2, y: midY - 2, width: 4, height: 4)), with: .color(Color(hex: 0x3A3E47)))
         }
     }
@@ -2517,15 +2380,12 @@ struct EuclideousPage: View {
                     Text(names[i]).font(.system(size: padValueSize, weight: .heavy, design: .monospaced)).lineLimit(1)
                 }
             }
-            if ev.kind == 1 {
-                // §4.3, MISS-PLAYING: "no fill, a 1.5pt LANE-100 border, the note name in LANE-100."
-                stack.foregroundColor(lane100(accent)).opacity(brightness)
-                    .background(RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), lineWidth: 1.5).opacity(brightness))
-            } else {
-                // §4.2, HIT: "white, bold... on a LANE-20 fill."
-                stack.foregroundColor(.white).opacity(brightness)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(lane20(accent)).opacity(brightness))
-            }
+            // MISS-PLAYING's own outline style RETIRED 2026-10-10 (ferry §4.2: "every note shows in the normal
+            // note-box style") — `kind == 1` is no longer pushed by anything (its one push site, the old
+            // dual-voice miss branch, is gone from Router.swift), so this is now the only style.
+            // §4.2, literal: "white, bold... on a LANE-20 fill."
+            stack.foregroundColor(.white).opacity(brightness)
+                .background(RoundedRectangle(cornerRadius: 6).fill(lane20(accent)).opacity(brightness))
         } else {
             RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04))
         }

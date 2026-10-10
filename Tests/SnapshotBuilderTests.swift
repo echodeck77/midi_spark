@@ -707,6 +707,20 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(clamped.euclidLines[0].riffLengthResolved, 8)
         XCTAssertEqual(clamped.euclidLines[0].melodyTransposeResolved, 7)
     }
+    // RHYTHM CARDS / MISS-AS-INVERT (Paul 2026-10-10 ferry): `patternMiss` must ALSO survive the fresh-
+    // literal reconstruction — the same standing regression class, now exercised for this field. The 4
+    // shared `missNoteSel`/etc. fields (untouched by this ferry, still serving the regular, non-Euclideous
+    // BUILD-page EUCLID editor) survive alongside it, unaffected.
+    func testEuclidLinePatternMissSurvivesSnapshotBuild() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, patternMiss: true)]
+        }) { _ in }.machines[0].a
+        XCTAssertTrue(a.euclidLines[0].patternMissResolved, "patternMiss must survive the resolve, not silently reset")
+        let untouched = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8)]
+        }) { _ in }.machines[0].a
+        XCTAssertFalse(untouched.euclidLines[0].patternMissResolved, "nil defaults to HIT, not MISS")
+    }
 
     // XY PAD REDESIGN (Paul 2026-10-09): velocityAbsolute threads through the SAME fresh-literal
     // reconstruction as every other EuclidLine field above — the exact regression class this file keeps

@@ -206,10 +206,27 @@ struct EuclidLine: Codable, Equatable {
     // side's own now-unsalted `ord`. RIFF/ARP are NOT offered for miss (the UI never shows those two chips there)
     // — a stored `.riff`/`.arp` miss pick (hand-edited doc, or a future UI bug) is guarded in Router.swift to
     // emit nothing, not silently fall through to ALL.
+    // STILL LIVE (Paul 2026-10-10): this is the regular, non-Euclideous BUILD-page EUCLID editor's OWN dual-
+    // voice feature (GridUI.swift's `euclidHitMissBox`) — UNTOUCHED by the 2026-10-10 Euclideous-only "MISS
+    // becomes an invert" ferry, which added a completely separate, new `patternMiss` field below for
+    // Euclideous's own lane cards instead of repurposing this shared one (which would have silently changed
+    // the regular processor's long-standing feature too, never asked for).
     var missNoteSel: EuclidNoteSel? = nil   // MISS note select — nil ⇒ feature OFF, no second strike on a rest
     var missGate: Double? = nil        // MISS gate length. nil ⇒ 0.9 (same default as hit's own gate)
     var missOctave: Int? = nil         // MISS octave shift. nil ⇒ 0
     var missVelocity: Double? = nil    // MISS velocity multiplier. nil ⇒ 1.0
+    // EUCLIDEOUS MISS = PATTERN INVERT (Paul 2026-10-10, "rhythm cards cleared of melody" ferry) — additive,
+    // alongside the shared `missNoteSel` quad above, not a replacement for it. Euclideous's own lane cards
+    // exclusively use THIS field now (their UI no longer writes `missNoteSel` at all); `patternMiss` flips
+    // which steps of the lane's own Euclid pattern sound: false/nil (HIT, default) plays the hits as built by
+    // HITS/TILT/ROTATE; true (MISS) inverts that pattern — the lane plays every step that is NOT a hit and is
+    // silent on the hits. Applied once, directly to `euclidBuf`, immediately after HITS/TILT/ROTATE have built
+    // it and before anything downstream (cycleHits/hitsUpTo/ord/the riff walk/the TIE lookahead) reads it — so
+    // every one of those consumers automatically treats the inverted steps as "hits," with no separate MISS
+    // code path needed for this mechanism. Resolving `patternMiss` true makes the OLD `missNoteSel` branch a
+    // no-op for that tick regardless of whatever it holds (a genuinely Euclideous-only line never sets
+    // `missNoteSel` in the first place, so this is academic in practice, not a real interaction to reason about).
+    var patternMiss: Bool? = nil
     // PER-LINE RATE (Paul 2026-10-05, EUCLIDEOUS): nil ⇒ inherit the machine-wide `euclidRate`/`euclidRateBeats`
     // (byte-identical for every existing doc, incl. the BUILD-page EUCLID processor, which has no UI for this and
     // will never set it). Lets each of Euclideous's 4 lanes run its own tempo-relative rate.
@@ -333,6 +350,7 @@ struct EuclidLine: Codable, Equatable {
     var missGateResolved: Double { missGate ?? 0.9 }
     var missOctaveResolved: Int { missOctave ?? 0 }
     var missVelocityResolved: Double { max(0, min(2, missVelocity ?? 1.0)) }
+    var patternMissResolved: Bool { patternMiss ?? false }
     var useRiffResolved: Bool { useRiff ?? false }
     var riffRotateResolved: Int { riffRotate ?? 0 }
     var riffOctaveResolved: Int { max(-3, min(3, riffOctave ?? 0)) }
@@ -385,6 +403,7 @@ extension EuclidLine {
         missGate = try c.decodeIfPresent(Double.self, forKey: .missGate)
         missOctave = try c.decodeIfPresent(Int.self, forKey: .missOctave)
         missVelocity = try c.decodeIfPresent(Double.self, forKey: .missVelocity)
+        patternMiss = try c.decodeIfPresent(Bool.self, forKey: .patternMiss)
         rate = try c.decodeIfPresent(ArpRate.self, forKey: .rate)
         emitterMask = try c.decodeIfPresent(UInt8.self, forKey: .emitterMask)
         useRiff = try c.decodeIfPresent(Bool.self, forKey: .useRiff)

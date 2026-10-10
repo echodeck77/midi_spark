@@ -375,7 +375,11 @@ final class Router {
     // euclideousRow`), so no existing per-row/per-cell feed can tell them apart. One EVENT is one step's
     // whole OUTCOME, not one note — a chord/ALL pick strikes several notes in a single decision, stored
     // together so the UI's note box treats them as ONE update (ferry §4.6), not N separate ones.
-    // kind: 0 = hit (a real note/chord struck) · 1 = miss-playing (the MISS side struck) · 2 = rest-flash
+    // kind: 0 = hit (a real note/chord struck) · 1 = miss-playing — DEAD since the 2026-10-10 ferry: `nvSent`
+    // requires `isEuclideousRow`, and the one remaining push site for kind 1 (the `missNoteSel` branch) is now
+    // gated `!isEuclideousRow` — the two can never both hold, so this kind can never actually reach NOTE VIEW
+    // (confirmed, not assumed — the kept-but-unreachable case lives purely for `pushNoteViewEvent`'s own type
+    // to stay stable; EuclideousPage.swift's note-box drawing no longer has a style for it) · 2 = rest-flash
     // (riff ON-REST=SKIP's momentary "—", ferry §4.5) · 3 = tied hit (a real/FILL hit whose own gate was
     // extended by `riffTieExtensionBeats` to cover a following rest, ferry §4.5's TIE case — a DISTINCT
     // kind from a plain hit, not just a longer `durationBeat`, because the ferry describes genuinely
@@ -4147,6 +4151,7 @@ final class Router {
             }
             func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, velocityAbsolute: Int, rate: Double, busOverride: UInt8?,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
+                                patternMiss: Bool = false,
                                 useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0,
                                 riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0,
                                 riffLock: Bool = false, riffInvert: Bool = false, riffOnRest: EuclidRiffOnRest = .skip,
@@ -4158,6 +4163,15 @@ final class Router {
                 // `euclidBuf` (the hit/rest test, the CYCLE/RANDOM ordinal walk, MISS's complement) picks up the
                 // tilted shape for free, with zero other changes needed anywhere in this function.
                 if tilt != 0 { euclidTiltPattern(&euclidBuf, pulses: k, steps: n, tilt: tilt) }
+                // MISS = PATTERN INVERT (Paul 2026-10-10 ferry §2.2: "after HITS, TILT and OFFSET have produced
+                // the pattern") — SUPERSEDES the old dual-voice hit/miss split entire. Flipping `euclidBuf` here,
+                // once, before `cycleHits`/`isHitAt` below are ever read, makes every downstream hit-counting
+                // consumer in this function — cycleHits/effHits/hitsUpTo/ord/the riff walk/the TIE lookahead —
+                // automatically treat the inverted (now-sounding) steps as "hits," with no separate MISS branch
+                // needed anywhere else. `euclidCycleLen` (LOCK's own pattern-cycle length) is a function of `n`/
+                // `dir` alone, untouched by inverting the buffer's contents, matching ferry §2.3's "LOCK's
+                // 'pattern cycle' is unchanged."
+                if patternMiss { for i in 0..<n { euclidBuf[i].toggle() } }
                 // RATE×ladder (Paul 2026-08-27): GRID = the fixed step grain (density lives here + K/N); SPAN re-syncs the
                 // pattern every N columns (FREE = 0 = free-run). Rate and loop decoupled — an odd N against an aligning
                 // span drifts then snaps back. (Was the WIDTH model `sub = spanWidth/n`, where SPAN just scaled the speed.)
@@ -4619,16 +4633,24 @@ final class Router {
                                 pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: hitNC)
                             }
                         }
-                    } else if let missSel = missNoteSel {
-                        // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — a REST step can now ALSO strike,
-                        // with its own independent note-select/velocity/gate/octave. `missNoteSel == nil` is the
-                        // whole feature's on/off switch (nil ⇒ today's silent-rest behaviour, byte-identical for
-                        // every doc that's never touched this) — there's no separate enable flag. No DIE salt on
-                        // either side anymore (DIE was removed entire the same day — "drop it, please"). RIFF/ARP
-                        // are NOT offered on the miss side (the UI never shows those two chips there); guarded
-                        // explicitly so a stray `.riff`/`.arp` miss pick (a hand-edited doc, or a future UI slip)
-                        // stays silent rather than falling through to `resolveEuclidPick`'s `default: (nil, nil)`,
-                        // which reads as ALL (strike everything) — an honest no-op, not an accidental loud one.
+                    } else if !isEuclideousRow, let missSel = missNoteSel {
+                        // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — STILL LIVE for the regular,
+                        // non-Euclideous BUILD-page EUCLID processor's own dual-voice feature (GridUI.swift's
+                        // `euclidHitMissBox`). The `!isEuclideousRow` guard (Paul 2026-10-10 ferry §2.4: "load
+                        // it as HIT, ignore the old miss-side settings") is the explicit fix for a real
+                        // conflict found during implementation: `missNoteSel`/`missGate`/`missOctave`/
+                        // `missVelocity` are SHARED fields the ferry's own "remove from the engine" wording
+                        // can't actually mean literally, since the regular processor still needs them — so
+                        // instead, Euclideous's own row is unconditionally excluded from this branch,
+                        // regardless of whatever stale `missNoteSel` an old Euclideous doc might still carry.
+                        // `missNoteSel == nil` is the whole feature's on/off switch (nil ⇒ today's silent-rest
+                        // behaviour, byte-identical for every doc that's never touched this) — there's no
+                        // separate enable flag. No DIE salt on either side anymore (DIE was removed entire the
+                        // same day — "drop it, please"). RIFF/ARP are NOT offered on the miss side (the UI never
+                        // shows those two chips there); guarded explicitly so a stray `.riff`/`.arp` miss pick
+                        // (a hand-edited doc, or a future UI slip) stays silent rather than falling through to
+                        // `resolveEuclidPick`'s `default: (nil, nil)`, which reads as ALL (strike everything) —
+                        // an honest no-op, not an accidental loud one.
                         guard missSel != .riff && missSel != .arp else { return }
                         // VELOCITY 0 = EFFECTIVELY OFF — same guard as the HIT side above, same reasoning (a
                         // MISS line scaled to 0 should be silent, not audible at clampVel's 1...127 floor).
@@ -4666,7 +4688,12 @@ final class Router {
                     }
                 }
             }
-            // A pulses<=0 row is an UNUSED fixed slot — skipped entirely, not run-and-silenced. `iterateTicks`
+            // A pulses<=0 row is an UNUSED fixed slot — skipped entirely, not run-and-silenced — UNLESS
+            // `patternMiss` is engaged (Paul 2026-10-10 ferry §2.2's own literal example: "0 hits in MISS
+            // mode plays every step"). Without this exception a 0-pulse line is discarded here BEFORE
+            // `runEuclidLine` ever gets a chance to invert it, silently contradicting that exact example — a
+            // real bug caught by this ferry's own test, not assumed safe just because the guard predates it.
+            // `iterateTicks`
             // used to dedup via a scalar `lastTick[row]` SHARED across every line on this row (safe for one real
             // line; a known timing-smear limitation for 2+ real lines sharing a row across a window boundary —
             // FIXED 2026-10-05, `iterateTicks` now dedups per (row, lineIndex), one scalar per line). Before that
@@ -4711,7 +4738,7 @@ final class Router {
                 riffSrcNoteCount = srcNoteCount
                 for i in 0..<srcNoteCount { riffSrcNoteBuf[i] = srcNoteBuf[i] }
             }
-            for (lineIndex, L) in p.euclidLines.enumerated() where L.pulses > 0 && L.enabledResolved {
+            for (lineIndex, L) in p.euclidLines.enumerated() where (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved {
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
                 // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the
                 // cell's own bm, via strikeChord's busOverride).
@@ -4720,6 +4747,7 @@ final class Router {
                               velocityAbsolute: L.velocityAbsoluteResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
+                              patternMiss: L.patternMissResolved,
                               useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved,
                               riffDir: L.riffDirResolved, riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved,
                               tilt: L.tiltResolved,

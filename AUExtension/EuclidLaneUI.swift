@@ -126,7 +126,7 @@ struct EuclidLaneBox: View {
                 // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
                 let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (8 + stepCountBadgeWidth)
                 EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
-                               rate: rate, spanN: spanN, tilt: line.tiltResolved, tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64 - badgeReserve),
+                               rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved, tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64 - badgeReserve),
                                onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                                onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
                     .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
@@ -172,6 +172,13 @@ struct EuclidCometBar: View {
     // every OTHER caller of this shared component (the regular BUILD-page EUCLID editor, which has no TILT
     // control) is byte-identical.
     var tilt: Double = 0
+    // MISS STYLE (Paul 2026-10-10, "rhythm cards cleared of melody" ferry §3.2) — mirrors the `tilt` precedent
+    // exactly: an independently-defaulted param so every OTHER caller of this shared component (the regular
+    // BUILD-page EUCLID editor, Euclideous's own MASK-tab comet bar) is byte-identical. When true, the box this
+    // loop treats as "hit" is the INVERTED pattern (the now-sounding steps, drawn with the existing rich hit
+    // treatment unchanged) and the REST branch below draws the OLD, now-silent Euclid hits as a lane-coloured
+    // outline instead of today's flat dim fill.
+    var missStyle: Bool = false
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -235,7 +242,11 @@ struct EuclidCometBar: View {
                 // directly; only the comet's own motion (via `cometRaw`/`cometPos`, already direction-aware)
                 // varies by DIRECTION.
                 for i in 0..<n {
-                    let hit = invert ? !buf[i] : buf[i]
+                    let rawHit = invert ? !buf[i] : buf[i]
+                    // MISS STYLE (ferry §3.2): draw as if "hit" means "sounding" — the inverted steps get the
+                    // existing rich hit treatment below unchanged; the raw Euclid hits (now silent) fall to the
+                    // rest branch, which draws them outlined instead of dim when `missStyle` is set.
+                    let hit = missStyle ? !rawHit : rawHit
                     let rect = boxRect(i)
                     let box = Path(roundedRect: rect, cornerRadius: corner)
                     if hit {
@@ -293,6 +304,11 @@ struct EuclidCometBar: View {
                             ctx.fill(box, with: .color(tint.opacity(0.55)))
                             ctx.stroke(box, with: .color(.white.opacity(0.2)), lineWidth: 1)
                         }
+                    } else if missStyle {
+                        // MISS STYLE (ferry §3.2): this box is one of the ORIGINAL Euclid hits, now silent — a
+                        // 1.5pt lane-coloured outline with NO fill at all, so the original pattern stays legible
+                        // as outlines while the filled (sounding) cells above show what actually plays.
+                        ctx.stroke(box, with: .color(tint), lineWidth: 1.5)
                     } else {
                         // REST: every box's RECT is mathematically fixed per step index regardless of hit/rest, so
                         // the grid itself never relocates — only which boxes are lit does. A plainly visible

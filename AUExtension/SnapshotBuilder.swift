@@ -688,6 +688,7 @@ enum SnapshotBuilder {
                                                                       missGate: $0.missGate.map { clamp($0, 0.05, 1.0) },
                                                                       missOctave: $0.missOctave.map { clamp($0, -3, 3) },
                                                                       missVelocity: $0.missVelocity.map { clamp($0, 0, 2) },
+                                                                      patternMiss: $0.patternMiss,
                                                                       rate: $0.rate,
                                                                       emitterMask: $0.emitterMask.map { $0 & 0x0F },
                                                                       useRiff: $0.useRiff, riffRotate: $0.riffRotate,

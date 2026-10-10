@@ -15,15 +15,31 @@ macOS 1280 green incl. +12, iOS builds clean) — see CLAUDE.md's status log for
       the LOCK+REVERSE starting-position reading (flagged as a judgment call, not confirmed intent).
 - [ ] DEVICE: a fresh instance opens on SOURCE=KEY and NOTE=LOWEST now; the old 4th-pad SHIFT control and the
       new pop-up's own SHIFT stepper agree once LENGTH≠8.
-- **NEXT: a follow-up ferry (relayed 2026-10-10, mid-build) explicitly SUPERSEDES §6** (the deferred lane-card
-  cleanup) — "rhythm cards cleared of melody; MISS becomes an invert." Two real pieces: (1) strip the 4th pad
-  and the RIFF/I-O-source controls off the lane card entirely (tab row becomes I/O·PATTERN·MASK; the 3
-  remaining pads share the freed width), now that the melody pop-up is the sole home for those settings; (2)
-  a genuine engine change — HIT/MISS becomes a single per-lane invert of the pattern (MISS = play the
-  non-hit steps, silent on hits; one voice, not two) — removing the separate miss-side note/octave/velocity/
-  gate settings entirely, with ADVANCE=HIT/riff-walk/mask/VEL-GATE all redefined to track whichever steps
-  actually sound post-invert. To be planned (not yet started) once this entry's own device-eye pass is
-  underway or complete.
+## ★ EUCLIDEOUS — "rhythm cards cleared of melody; MISS becomes an invert" — SHIPPED (2026-10-10; LANDED on
+`fix/euclid-no-scroll-direction-order-2x2-grid`, macOS 1283 green incl. +9/-3, iOS builds clean) — the §6
+follow-up to the melody pop-up ferry above. Full story, incl. the `!isEuclideousRow`-guard correction (the
+shared `missNoteSel`/etc. fields could NOT literally be deleted from the engine — they still serve the
+regular, non-Euclideous BUILD-page EUCLID editor's own dual-voice feature) and the post-build self-review
+that caught a real engine bug (a 0-pulse line was skipped entirely before `patternMiss` could invert it, 
+contradicting the ferry's own "0 hits in MISS plays every step" example), in CLAUDE.md's status log.
+- [ ] DEVICE: one lane in HIT and MISS mode side by side — the step bar's outlined-silent/filled-sounding
+      split and NOTE VIEW's inverted comets, no hollow rings or outline-style boxes anywhere.
+- [ ] DEVICE: the slimmed 3-pad, 3-tab (I/O·PATTERN·MASK) card in portrait and landscape — the 3 remaining
+      pads visibly widen to fill the space the 4th vacated, no dangling gap where the source badge/selector sat.
+- [ ] DEVICE: the restyled HIT/MISS control reads as a persistent setting (LANE-20/LANE-100-border), not the
+      old underline view-style.
+
+## ★ EUCLIDEOUS — "Euclid mask, modes and settings" — PLANNING (2026-10-10, relayed same session as the MISS
+ferry above). Replaces the MASK tab's "EFFECT — NOT YET AVAILABLE" stub with a real per-lane mask stage: a
+Euclidean HITS/STEPS/ROTATE pattern (own PLAY/STOP) ticking once per SOUNDING step of the lane (post-invert),
+each masked step rolling a seeded CHANCE before applying one of 11 modes (MUTE/PAUSE/RATCHET/REPEAT/CHORD/
+OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — walk-changing modes like FLIP explicitly out of scope). Real new engine
+surface: a seeded-reproducible-from-reset RNG, two stateful running offsets (CLIMB transpose, SWELL velocity)
+with WRAP/BOUNCE range behaviour, and a note-ownership/ref-count rule so overlapping CHORD/RATCHET notes on
+one output never cut each other off prematurely (build it if it doesn't already exist). New UI: a 2-line MASK
+tab (step bar + STEPS, then MODE chip + up to 2 parameter chips + CHANCE, drag-to-change/tap-to-cycle/double-
+tap-reset). Paul's own specified build order: (1) shared settings/CHANCE/MUTE/PAUSE, (2) RATCHET/CHORD/OCT/
+ACCENT/CLIMB, (3) MIRROR/REPEAT/LEAP/SWELL — reporting after each group. Not yet started — plan in progress.
 
 ## ★ PASSGATE — REMOVED ENTIRELY (2026-09-28; LANDED on `refactor/remove-passgate`, `2839240`, macOS 1142 green, iOS
 builds). The processor + its engine plumbing are gone; `ProcessorType.empty` is now purely the internal empty-chain-
