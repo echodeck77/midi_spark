@@ -268,6 +268,12 @@ struct EuclideousPage: View {
                                      // were only reachable by leaving this page; opens the SAME browser overlay
                                      // the main header already uses, which the VC renders as a sibling z-above
                                      // this one, so it's reachable without ever closing Euclideous.
+    // UNDO/REDO (usability ferry §7.1): disabled (40% opacity) when there's nothing to undo/redo — driven by
+    // the VC's own EuclideousUndoSnapshot stack (AudioUnitViewController.swift), not persisted here.
+    let canUndo: Bool
+    let canRedo: Bool
+    let onUndo: () -> Void
+    let onRedo: () -> Void
     let onClose: () -> Void
 
     @State private var selectedLane = 0
@@ -384,6 +390,18 @@ struct EuclideousPage: View {
     /// additive-Optional nested-struct precedent in this codebase, e.g. `Cell.chop`).
     private func editMask(_ idx: Int, _ mutate: @escaping (inout EuclidLineMask) -> Void) {
         edit(idx) { line in var m = line.mask ?? EuclidLineMask(); mutate(&m); line.mask = m }
+    }
+    /// §6: resets exactly the melody pop-up's own fields (SOURCE·MODE·NOTE·WALK·PLACEMENT) to their
+    /// documented defaults — nil, matching every field's own `Resolved` fallback. Deliberately leaves HITS/
+    /// STEPS/GATE/VELOCITY/DIRECTION/GAPS/mask/rate untouched — those live on the gesture pads and tabs, not
+    /// in this pop-up, and "that lane's MELODY settings" reads as scoped to what the pop-up itself edits.
+    private func resetMelody(_ idx: Int) {
+        edit(idx) {
+            $0.sourceMode = nil; $0.useRiff = nil; $0.noteSel = nil
+            $0.riffDir = nil; $0.riffLock = nil; $0.riffInvert = nil; $0.riffAdvanceStep = nil; $0.riffOnRest = nil
+            $0.riffStride = nil; $0.riffLength = nil; $0.riffRotate = nil
+            $0.melodyTranspose = nil; $0.riffOctave = nil; $0.octave = nil
+        }
     }
 
     var body: some View {
@@ -689,6 +707,7 @@ struct EuclideousPage: View {
     private func landscapeHeader() -> some View {
         HStack(spacing: sp4) {
             headerTitle()
+            headerUndoRedoGroup()
             Spacer(minLength: sp4)
             headerResetChip()
             headerKeyGroup()
@@ -706,6 +725,7 @@ struct EuclideousPage: View {
     private func headerRow1() -> some View {
         HStack(spacing: sp4) {
             headerTitle()
+            headerUndoRedoGroup()
             Spacer(minLength: sp4)
             headerMainOutGroup()
             headerOnChip()
@@ -732,6 +752,20 @@ struct EuclideousPage: View {
     private func headerTitle() -> some View {
         Text("EUCLIDEOUS").font(.system(size: 10, weight: .heavy, design: .monospaced))
             .foregroundColor(.white.opacity(0.9)).lineLimit(1)
+    }
+    /// §7.1, literal: "↶ and ↷ buttons... after the title in landscape and in row 1 in portrait; disabled
+    /// (40% opacity) when there is nothing to undo or redo."
+    private func headerUndoRedoGroup() -> some View {
+        HStack(spacing: sp4) {
+            Image(systemName: "arrow.uturn.backward").font(.system(size: 13, weight: .bold))
+                .foregroundColor(.white.opacity(canUndo ? 0.7 : 0.4))
+                .contentShape(Rectangle())
+                .onTapGesture { if canUndo { onUndo() } }
+            Image(systemName: "arrow.uturn.forward").font(.system(size: 13, weight: .bold))
+                .foregroundColor(.white.opacity(canRedo ? 0.7 : 0.4))
+                .contentShape(Rectangle())
+                .onTapGesture { if canRedo { onRedo() } }
+        }
     }
     private func headerResetChip() -> some View {
         HStack(spacing: sp4) {
@@ -1765,14 +1799,26 @@ struct EuclideousPage: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: action)
         }
+        // §4.2, literal: "replace FOLLOW with the actual rate in use... add a small AUTO tag beneath it in
+        // grey" — when `line.rate` is unset the lane follows the instrument's own step rate; the nearest
+        // `ArpRate` to `clock.stepBeats` is the honest "actual rate" to show (the ladder has a case for
+        // every musically-standard subdivision, so "nearest" only ever differs from "exact" for a step rate
+        // that isn't one of these — a disclosed approximation, not a measured one).
+        let autoRate = ArpRate.allCases.min(by: { abs($0.beats - clock.stepBeats) < abs($1.beats - clock.stepBeats) })?.rawValue ?? "1/16"
         return HStack(spacing: sp4) {
             sideButton("HIT", selected: !missOn) { edit(idx) { $0.patternMiss = false } }
-            sideButton("MISS", selected: missOn) { edit(idx) { $0.patternMiss = true } }
+            // §4.1, literal: "rename MISS to GAPS everywhere it is shown... do not use INVERT, which already
+            // names the riff setting." Display-only — the persisted field stays `patternMiss` (unchanged, to
+            // avoid a decode break); only this label text changed.
+            sideButton("GAPS", selected: missOn) { edit(idx) { $0.patternMiss = true } }
             VStack(spacing: 1) {
                 Text("RATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                Text(line.rate == nil ? "FOLLOW" : line.rate!.rawValue)
+                Text(line.rate?.rawValue ?? autoRate)
                     .font(.system(size: 10, weight: .heavy, design: .monospaced))
                     .foregroundColor(.white.opacity(0.7)).lineLimit(1)
+                if line.rate == nil {
+                    Text("AUTO").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                }
             }
             .frame(width: cellSize, height: rowH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
@@ -2008,6 +2054,17 @@ struct EuclideousPage: View {
                 if line.useRiffResolved { melodyWalkSection(idx, line: line, accent: accent) }
                 else { melodyNoteSection(idx, line: line, accent: accent) }
                 melodyPlacementSection(idx, line: line, accent: accent)
+                // RESET MELODY (usability ferry §6, literal: "at the bottom of the melody pop-up... a text
+                // button that returns that lane's melody settings to their defaults. It is undoable (§7)" —
+                // undoable for free, since `resetMelody` routes through the same `edit(idx:)` → `onEdit`
+                // funnel every other lane edit on this page already does, which records onto
+                // `euclideousUndo` before applying.
+                Text("RESET MELODY").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.6))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, sp4)
+                    .contentShape(Rectangle())
+                    .onTapGesture { resetMelody(idx) }
             }
         }
         .frame(maxHeight: scrollMaxH)
@@ -2445,8 +2502,10 @@ struct EuclideousPage: View {
         let cellW = max(1, (maxWidth - sp8 * 2 - sp4 * CGFloat(n - 1)) / CGFloat(n))
         let cellH = max(1, rowH)
         return VStack(alignment: .leading, spacing: sp4) {
-            // TITLE ONLY (this ferry §7.1, literal): "remove the subtitle... the title is just 'RIFF'."
-            Text("RIFF").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            // TITLE (usability ferry §4.3, literal: "RIFF · SHARED" — supersedes the prior ferry's bare
+            // "RIFF," which itself had superseded an even earlier subtitle; the pattern being SHARED across
+            // every riff-on lane is exactly the thing worth naming here).
+            Text("RIFF · SHARED").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
             // POSITION DOTS ONLY (this ferry §7.2, literal): "the thin row of half-height cells above the
             // grid looks like a rendering fault. Do not draw cells there." The old per-column background
             // rect (`Color.white.opacity(0.04)`, drawn for EVERY column whether or not a dot sits on it)
@@ -2482,24 +2541,41 @@ struct EuclideousPage: View {
             // convention `EuclidCometBar` already uses elsewhere on this page; nothing about the wipe
             // sweep needs full display-refresh-rate precision the way NOTE VIEW's own ferry explicitly
             // demanded for ITS tracks.
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
-                VStack(spacing: sp4) {
-                    ForEach((1...8).reversed(), id: \.self) { rank in
-                        HStack(spacing: sp4) {
-                            ForEach(0..<n, id: \.self) { col in
-                                let on = col < ranks.count && ranks[col] == rank
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
-                                    .frame(width: cellW, height: cellH)
-                                    .overlay(riffCellWipeOverlay(col: col, rank: rank, cellW: cellW, cellH: cellH, now: tl.date))
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        onEditRiff { r in
-                                            var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
-                                            if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
-                                            r.ranks = rr; r.steps = n
+            // HIGH/LOW EDGE LABELS (usability ferry §4.4, literal: "use space outside the cells; do not
+            // shrink the cells below the existing minimum") — a narrow 18pt gutter to the LEFT of the
+            // matrix, genuinely EXTRA width rather than carved out of `cellW`'s own derivation (which stays
+            // untouched, computed from `maxWidth` exactly as before). Rank 8 (HIGH) draws first/top, rank 1
+            // (LOW) draws last/bottom — matching the `(1...8).reversed()` row order directly below, so the
+            // two labels can never land beside the wrong rank. FLAGGED: this makes the matrix's real
+            // rendered width `maxWidth + 18`, not `maxWidth` — unverified from here whether the panel this
+            // sits inside (`riffGridView`'s own caller, the landscape/portrait layout) has that much real
+            // slack; worth a direct look on device.
+            HStack(spacing: sp4) {
+                VStack {
+                    Text("HIGH").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    Spacer()
+                    Text("LOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                }
+                .frame(width: 18, height: cellH * 8 + sp4 * 7)
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+                    VStack(spacing: sp4) {
+                        ForEach((1...8).reversed(), id: \.self) { rank in
+                            HStack(spacing: sp4) {
+                                ForEach(0..<n, id: \.self) { col in
+                                    let on = col < ranks.count && ranks[col] == rank
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
+                                        .frame(width: cellW, height: cellH)
+                                        .overlay(riffCellWipeOverlay(col: col, rank: rank, cellW: cellW, cellH: cellH, now: tl.date))
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            onEditRiff { r in
+                                                var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
+                                                if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
+                                                r.ranks = rr; r.steps = n
+                                            }
                                         }
-                                    }
+                                }
                             }
                         }
                     }
@@ -2884,7 +2960,15 @@ struct EuclideousPage: View {
         let lastEvent = idx < noteViewLastEvent.count ? noteViewLastEvent[idx] : nil
         let restFlash = idx < noteViewRestFlash.count ? noteViewRestFlash[idx] : nil
         let flatKey = euclideousKeyIsFlat(keyRoot)
-        return noteViewNoteBoxContent(liveBeat: liveBeat, lastEvent: lastEvent, restFlash: restFlash, accent: accent, flatKey: flatKey)
+        // EXPLAIN SILENCE (usability ferry §2) — evaluated only while the TRANSPORT is actually running
+        // ("a lane that's playing but cannot produce a note"); a fully stopped transport leaves NOTE VIEW
+        // exactly as it already was (frozen on whatever it last showed), nothing new to explain.
+        let silenceReason = clock.playing
+            ? euclideousSilenceReason(line: line, mainOutMask: mainOutMask,
+                                       riffAllRest: riff.ranksResolved.allSatisfy { $0 == 0 },
+                                       midiHeldCount: riffLivePool.count)
+            : nil
+        return noteViewNoteBoxContent(liveBeat: liveBeat, lastEvent: lastEvent, restFlash: restFlash, accent: accent, flatKey: flatKey, silenceReason: silenceReason)
             .frame(width: width, height: height)
     }
     /// §4.4/§4.5 brightness: kind 0/1 fade continuously over the gate (1.0→0.4); kind 3 (a tied hit) is a
@@ -2896,7 +2980,7 @@ struct EuclideousPage: View {
         let t = durationBeat > 0 ? max(0, min(1, (liveBeat - onsetBeat) / durationBeat)) : 1
         return 1.0 - 0.6 * t
     }
-    @ViewBuilder private func noteViewNoteBoxContent(liveBeat: Double, lastEvent: Router.EuclideousNoteViewEventSnapshot?, restFlash: Router.EuclideousNoteViewEventSnapshot?, accent: Color, flatKey: Bool) -> some View {
+    @ViewBuilder private func noteViewNoteBoxContent(liveBeat: Double, lastEvent: Router.EuclideousNoteViewEventSnapshot?, restFlash: Router.EuclideousNoteViewEventSnapshot?, accent: Color, flatKey: Bool, silenceReason: String? = nil) -> some View {
         // THE BOX ITSELF IS CONSTANT (UI polish ferry §3.1, literal: "every lane shows its note box AT ALL
         // TIMES: ... #22252C background, 8pt corner radius... an empty box when the lane hasn't played
         // yet") — a single base layer, drawn identically regardless of state. ROOT CAUSE of "lanes 1–3 show
@@ -2908,12 +2992,22 @@ struct EuclideousPage: View {
         // now the only thing that varies; the container never does.
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C))
+            // EXPLAIN SILENCE (usability ferry §2, literal): "shows the reason... in place of a note name" —
+            // checked FIRST, fully replacing whatever restFlash/lastEvent would otherwise show. Safe to check
+            // unconditionally ahead of them: a lane in one of these 7 states can't be genuinely sounding, so
+            // the engine wouldn't be posting a real restFlash/lastEvent for it to begin with — the two are
+            // mutually exclusive in practice, not just by this ordering.
+            if let reason = silenceReason {
+                Text(reason).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xAAB0BA)).multilineTextAlignment(.center).lineLimit(2)
+                    .padding(.horizontal, 2)
+            }
             // §4.5, SKIP: "show a grey '—' for one step's duration, then return to the previous note at
             // 40%" — the flash is checked first and, while active, fully REPLACES whatever the note box
             // would otherwise show; once it ends, falls straight through to `lastEvent`'s own (already-
             // 40%, since real time has passed) state below, with no special-case code needed for the
             // "return to" part.
-            if let rf = restFlash, liveBeat >= rf.onsetBeat, liveBeat < rf.onsetBeat + rf.durationBeat {
+            else if let rf = restFlash, liveBeat >= rf.onsetBeat, liveBeat < rf.onsetBeat + rf.durationBeat {
                 Text("—").font(.system(size: padValueSize, weight: .heavy, design: .monospaced))
                     .foregroundColor(Color(hex: 0x8A909A))
             } else if let ev = lastEvent {

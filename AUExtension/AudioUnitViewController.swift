@@ -207,6 +207,53 @@ struct DiagView: View {
     @State var showEuclideous = false
     @State var euclideousLines: [EuclidLine] = Array(repeating: EuclidLine(noteSel: .all), count: 4)   // pulses:1/steps:8 (the struct's own "fresh lane" default) — NOT silent; overwritten by refreshFromDocument() the instant the real doc loads
     @State var euclideousEnabled = false
+    // EUCLIDEOUS UNDO/REDO (usability ferry §7, 2026-10-11): a SEPARATE stack from the AU's own whole-document
+    // `undoStack` (MidiSparkAudioUnit.swift) — reusing that one would also undo Euclideous's play/stop and MAIN
+    // OUT changes, since every `editDocument` call (including onToggleEnabled/onSetMainOutMask above) already
+    // records onto it by default, directly contradicting §7.3 ("play/stop, main outputs... not undoable"). Plain
+    // in-memory `@State`, so it's cleared on every fresh instance for free (§7.4) — nothing persists it. `cap`
+    // defaults to 50 (`UndoStack`'s own default), matching §7.4's "at least 50 steps" exactly.
+    @State var euclideousUndo = UndoStack<EuclideousUndoSnapshot>()
+    func euclideousSnapshot() -> EuclideousUndoSnapshot {
+        EuclideousUndoSnapshot(lines: euclideousLines, riff: euclideousRiff, resetSpanBars: euclideousResetSpanBars,
+                                keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords)
+    }
+    /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
+    /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
+    /// onSetKeyRoot/onSetKeyType, + loadFactoryPreset/loadPreset below) calls this first.
+    func euclideousRecordUndo(coalesceKey: String?) {
+        euclideousUndo.record(euclideousSnapshot(), coalesceKey: coalesceKey)
+    }
+    /// Apply a restored snapshot. §7.3 ("play/stop... not undoable") is enforced HERE, not at record time —
+    /// every per-lane PLAY/STOP and per-mask PLAY/STOP flows through the SAME generic `onEdit` funnel as every
+    /// other (undoable) lane setting, so recording can't distinguish them; restoring can, by re-merging the
+    /// CURRENT live values for exactly those two sub-fields back over whatever the snapshot itself carries.
+    func euclideousApply(_ s: EuclideousUndoSnapshot) {
+        var lines = s.lines
+        for i in lines.indices where i < euclideousLines.count {
+            lines[i].enabled = euclideousLines[i].enabled
+            if var m = lines[i].mask { m.enabled = euclideousLines[i].mask?.enabled ?? m.enabled; lines[i].mask = m }
+        }
+        euclideousLines = lines
+        euclideousRiff = s.riff
+        euclideousResetSpanBars = s.resetSpanBars
+        euclideousKeyRoot = s.keyRoot
+        euclideousKeyType = s.keyType
+        euclideousChords = s.chords
+        au?.editDocument {
+            $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
+            $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType; $0.euclideousChords = s.chords
+        }
+        buildPublishScene()
+    }
+    func euclideousUndoAction() {
+        guard let prev = euclideousUndo.undo(current: euclideousSnapshot()) else { return }
+        euclideousApply(prev)
+    }
+    func euclideousRedoAction() {
+        guard let next = euclideousUndo.redo(current: euclideousSnapshot()) else { return }
+        euclideousApply(next)
+    }
     // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): `euclideousReceiver`/`onSetReceiver`/the old IN A/B/C/D
     // selector UI are REMOVED (§2.5 — MIDI mode now reads receivers 1 and 4 behind the scenes). The
     // underlying `PluginState.euclideousReceiver`/`Resolved` model field and `uiEuclideousReceiver()` AU
@@ -971,6 +1018,7 @@ struct DiagView: View {
                                    mainOutMask: euclideousMainOutMask,
                                    chords: euclideousChords,
                                    onEditChords: { mutate in
+                                       euclideousRecordUndo(coalesceKey: "euclideousChords")
                                        var c = euclideousChords
                                        mutate(&c)
                                        euclideousChords = c
@@ -979,6 +1027,7 @@ struct DiagView: View {
                                    },
                                    clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying),
                                    onEdit: { mutate in
+                                       euclideousRecordUndo(coalesceKey: "euclideous")
                                        var lines = euclideousLines
                                        mutate(&lines)
                                        euclideousLines = lines
@@ -986,6 +1035,7 @@ struct DiagView: View {
                                        buildPublishScene()
                                    },
                                    onEditRiff: { mutate in
+                                       euclideousRecordUndo(coalesceKey: "euclideousRiff")
                                        var riff = euclideousRiff
                                        mutate(&riff)
                                        euclideousRiff = riff
@@ -993,31 +1043,41 @@ struct DiagView: View {
                                        buildPublishScene()
                                    },
                                    onToggleEnabled: {
+                                       // §7.3 ("play/stop... not undoable"): the WHOLE-INSTRUMENT on/off chip —
+                                       // deliberately NOT recorded onto euclideousUndo, same reasoning as the
+                                       // per-lane/per-mask PLAY/STOP toggles (see EuclideousUndoSnapshot's own
+                                       // header comment).
                                        euclideousEnabled.toggle()
                                        au?.editDocument { $0.euclideousEnabled = euclideousEnabled }
                                        buildPublishScene()
                                    },
                                    onSetResetSpanBars: { v in
+                                       euclideousRecordUndo(coalesceKey: nil)
                                        euclideousResetSpanBars = v
                                        au?.editDocument { $0.euclideousResetSpanBars = v }
                                        buildPublishScene()
                                    },
                                    onSetKeyRoot: { v in
+                                       euclideousRecordUndo(coalesceKey: nil)
                                        euclideousKeyRoot = v
                                        au?.editDocument { $0.euclideousKeyRoot = v }
                                        buildPublishScene()
                                    },
                                    onSetKeyType: { v in
+                                       euclideousRecordUndo(coalesceKey: nil)
                                        euclideousKeyType = v
                                        au?.editDocument { $0.euclideousKeyType = v }
                                        buildPublishScene()
                                    },
                                    onSetMainOutMask: { v in
+                                       // §7.3 ("main outputs... not undoable") — not recorded, deliberately.
                                        euclideousMainOutMask = v
                                        au?.editDocument { $0.euclideousMainOutMask = v }
                                        buildPublishScene()
                                    },
                                    onOpenPresets: openPresets,
+                                   canUndo: euclideousUndo.canUndo, canRedo: euclideousUndo.canRedo,
+                                   onUndo: euclideousUndoAction, onRedo: euclideousRedoAction,
                                    onClose: { showEuclideous = false })
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
@@ -1643,6 +1703,7 @@ struct DiagView: View {
         currentPreset = au?.uiCurrentPreset() ?? ""
     }
     func loadPreset(_ name: String) {
+        euclideousRecordUndo(coalesceKey: nil)   // usability ferry §7.2: "loading a preset" is undoable
         au?.loadPreset(named: name)
         refreshFromDocument()
         receivers = au?.uiReceivers() ?? receivers
@@ -1650,6 +1711,7 @@ struct DiagView: View {
         showPresets = false
     }
     func loadFactoryPreset(_ name: String) {        // §3 read-only DEFAULT / curriculum
+        euclideousRecordUndo(coalesceKey: nil)   // usability ferry §7.2: "loading a preset" is undoable
         au?.loadFactoryPreset(named: name)
         refreshFromDocument()
         receivers = au?.uiReceivers() ?? receivers

@@ -2812,6 +2812,25 @@ struct StampConfig: Equatable {
     }
 }
 
+/// EUCLIDEOUS UNDO (usability ferry §7, 2026-10-11): the bundle of fields §7.2 lists as undoable — riff grid
+/// edits, any lane setting (card/pads/tabs/mask/melody pop-up), RESET MELODY, and a preset load. Deliberately
+/// EXCLUDES `mainOutMask` (§7.3: "main outputs" is explicitly NOT undoable) and the page's own master ON/OFF
+/// (not a field here at all — `enabled`/`EuclideousPage.enabled` stays outside this snapshot). `lines` is
+/// captured whole (simplest to construct/compare) even though it also carries each line's own PLAY/STOP
+/// (`enabled`) and its mask's own play/stop (`mask?.enabled`) — both of which §7.3 ALSO excludes
+/// ("play/stop... not undoable"). Rather than strip those two sub-fields out of every snapshot (fragile to
+/// keep in sync as EuclidLine grows), the RESTORE step (AudioUnitViewController's `euclideousApply`) re-merges
+/// the CURRENT live play/stop state back in after applying a snapshot — so recording is simple/uniform while
+/// restoring is what actually enforces the exclusion.
+struct EuclideousUndoSnapshot: Equatable {
+    var lines: [EuclidLine]
+    var riff: EuclideousRiff
+    var resetSpanBars: Int
+    var keyRoot: Int
+    var keyType: ScaleType
+    var chords: MachineParams
+}
+
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack
 
 /// A bounded past/future stack of document VALUES for undo/redo (delta §5). `record` is called BEFORE a

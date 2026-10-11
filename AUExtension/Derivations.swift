@@ -2456,6 +2456,27 @@ func euclideousNoteViewName(_ n: UInt8, flatKey: Bool) -> String {
     return "\(name)\(octave)"
 }
 
+/// EXPLAIN SILENCE (usability ferry §2, literal priority order): the first applicable reason a lane that's
+/// nominally "playing" can't actually produce a note right now, or nil when it genuinely can (nothing to
+/// explain — the note box falls through to its normal content). HIT-vs-GAPS (0 HITS / NO GAPS) is checked
+/// regardless of riff mode, since riff still rides on the SAME underlying K/N pattern to decide WHEN to
+/// advance — a 0-hit or fully-packed-under-GAPS pattern produces no trigger ticks for a riff walk either,
+/// not just for a plain strike. EMPTY RIFF is the one check that's riff-specific on top of that.
+func euclideousSilenceReason(line: EuclidLine, mainOutMask: UInt8, riffAllRest: Bool, midiHeldCount: Int) -> String? {
+    guard line.enabledResolved else { return "STOPPED" }
+    let emitterMask = line.emitterMask ?? 0
+    guard emitterMask != 0 else { return "NO OUTPUT" }
+    guard (emitterMask & mainOutMask) != 0 else { return "MAIN OUT OFF" }
+    if line.patternMissResolved {
+        if line.pulses >= line.steps { return "NO GAPS" }
+    } else {
+        if line.pulses <= 0 { return "0 HITS" }
+    }
+    if line.sourceModeResolved == .midi && midiHeldCount <= 0 { return "NO NOTES HELD" }
+    if line.useRiffResolved && riffAllRest { return "EMPTY RIFF" }
+    return nil
+}
+
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
 /// without a live `EuclideousPage` render. Deliberately mirrors the REAL render path's own hit-test exactly
 /// (`euclidPatternInto`+`euclidTiltPattern`+`euclidReadIndex`, the SAME pair/order `Router.runEuclidLine`

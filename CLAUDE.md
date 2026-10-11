@@ -196,6 +196,78 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — usability ferry §§2/4/6/7 SHIPPED (EXPLAIN SILENCE · clearer labels · RESET MELODY ·
+  UNDO/REDO); §3/§5/§8.2 queued (2026-10-11, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS
+  builds clean, no macOS test-target reach — GridUI/EuclideousPage-only, as every prior change to this page).
+  Paul: "please go ahead" — continuing the usability ferry past §1/§2's earlier gate, the literal ferry text
+  recovered from this session's own raw transcript (compacted out of context, read back from the `.jsonl`
+  rather than rebuilt from a lossy task-list summary — the summary's one-line task descriptions were accurate
+  as FAR as they went, but the real ferry carries exact field names, priority order, and worked examples a
+  one-liner can't). **§2 EXPLAIN SILENCE:** new pure `euclideousSilenceReason(line:mainOutMask:riffAllRest:
+  midiHeldCount:)` (Derivations.swift) — the ferry's own 7-reason priority order exactly (STOPPED → NO OUTPUT
+  → MAIN OUT OFF → 0 HITS/NO GAPS → NO NOTES HELD → EMPTY RIFF), checked only while `clock.playing` ("a lane
+  that's playing but cannot produce a note" — a stopped TRANSPORT leaves NOTE VIEW exactly as it already was,
+  nothing to explain). HIT-vs-GAPS density is checked regardless of riff mode (reasoned through, not assumed):
+  riff still rides the SAME underlying K/N pattern to decide WHEN to advance, so a 0-hit or fully-packed-under-
+  GAPS line produces no trigger ticks for a riff walk either, not just for a plain strike — EMPTY RIFF is the
+  one check genuinely specific to riff mode on top of that. Wired into `noteViewNoteBox`/`NoteBoxContent` as
+  the FIRST thing checked, fully replacing restFlash/lastEvent when present (safe unconditionally — a lane in
+  one of these 7 states can't be genuinely sounding, so the engine wouldn't be posting a real event for it to
+  begin with; the two are mutually exclusive in practice, not just by draw order). **§4 CLEARER LABELS (display
+  only, confirmed no behaviour change):** MISS→GAPS in the HIT/MISS/RATE row's own button label (the persisted
+  field stays `patternMiss` — unchanged, to avoid a decode break; only the shown text moved); RATE now shows
+  the actual rate in use — a nil rate resolves to the nearest `ArpRate` to `clock.stepBeats` (the instrument's
+  own step rate) instead of the word "FOLLOW," with a small grey "AUTO" tag beneath it when genuinely
+  following (fits comfortably in the row's existing 36pt height, hand-verified against the 3 stacked 10/10/8pt
+  lines); riff panel title → "RIFF · SHARED" (supersedes the prior ferry's bare "RIFF"); the riff rank matrix
+  gained 10pt grey HIGH/LOW edge labels on its left, matching the existing `(1...8).reversed()` row order
+  exactly (rank 8/HIGH draws first-top, rank 1/LOW last-bottom) — added as a genuinely EXTRA 18pt gutter, NOT
+  carved out of `cellW`'s own derivation (ferry's own "do not shrink the cells" honoured literally), which
+  means the matrix's real rendered width is now `maxWidth + 18`, not `maxWidth` — **flagged, not silently
+  assumed fine:** unverified from here whether the panel this sits inside actually has that much real slack.
+  **§6 RESET MELODY:** a text button at the bottom of the melody pop-up, scoped to exactly the pop-up's own
+  fields (SOURCE·MODE·NOTE·WALK·PLACEMENT: sourceMode/useRiff/noteSel/riffDir/riffLock/riffInvert/
+  riffAdvanceStep/riffOnRest/riffStride/riffLength/riffRotate/melodyTranspose/riffOctave/octave, each set nil
+  → its own documented default) — deliberately leaves HITS/STEPS/GATE/VELOCITY/DIRECTION/GAPS/mask/rate
+  untouched, since those live on the gesture pads/tabs, not in this pop-up; "that lane's melody settings" read
+  as scoped to what the pop-up itself edits. Undoable for free (§7, below) since it routes through the SAME
+  `edit(idx:)`→`onEdit` funnel every other lane edit already does. **§7 UNDO/REDO, the big one:** reused the
+  EXISTING `UndoStack<T: Equatable>` (Models.swift) — a bounded, Foundation-only, ALREADY-TESTED generic
+  stack (6 passing `UndoStackTests`) built for BUILD's own undo — rather than inventing a second mechanism.
+  Deliberately a SEPARATE `UndoStack<EuclideousUndoSnapshot>` instance, NOT a reuse of the AU's own existing
+  whole-document `UndoStack<PluginState>`: that one already records on EVERY `editDocument` call by default,
+  including Euclideous's own play/stop and MAIN OUT toggles, which would directly contradict §7.3's explicit
+  "play/stop, main outputs... not undoable" the moment it was reused. New `EuclideousUndoSnapshot` (Models.
+  swift) bundles exactly what §7.2 lists as undoable — `lines`/`riff`/`resetSpanBars`/`keyRoot`/`keyType`/
+  `chords` — deliberately EXCLUDING `mainOutMask` (§7.3) entirely from the type. **THE PLAY/STOP EXCLUSION
+  NEEDED A REAL DESIGN DECISION, not just an exclusion list:** both the per-lane PLAY/STOP button and the
+  per-mask PLAY/STOP button flow through the SAME generic `edit`/`editMask`→`onEdit` funnel as every OTHER
+  (undoable) lane setting — confirmed by reading, not assumed — so recording can't tell them apart from a
+  genuinely undoable edit at the point of capture. Resolved by enforcing the exclusion at RESTORE time
+  instead: `euclideousApply` (AudioUnitViewController.swift) re-merges the CURRENT live `enabled` (both the
+  line's own and its mask's own) back over whatever a restored snapshot carries for those two fields, after
+  applying everything else from the snapshot — so toggling play/stop still pushes a harmless, content-free
+  step onto the stack, but undoing/redoing past it is a visible no-op for play/stop specifically, which reads
+  as "not undoable" in effect even though recording itself couldn't distinguish it. Recording happens at the
+  START of `onEdit`/`onEditRiff`/`onEditChords` (coalesceKey-matched to the SAME keys `editDocument` already
+  uses, so a drag gesture coalesces into one undo step exactly as it already coalesces into one document
+  edit — §7.2's "a whole drag gesture counts as one undo step," free by construction) and
+  `onSetResetSpanBars`/`onSetKeyRoot`/`onSetKeyType` (discrete taps, no coalesce key) and
+  `loadFactoryPreset`/`loadPreset` (§7.2: "loading a preset" — recorded before the AU-side document replace,
+  so Euclideous's own ↶ correctly reverts just its own fields even though the rest of a loaded document, if
+  any, stays on the new preset's values — low-risk in practice since all 20 shipped presets build from an
+  otherwise-empty `makeInit()`). `onToggleEnabled`/`onSetMainOutMask` deliberately record NOTHING at all
+  (§7.3). Header gained ↶/↷ (`arrow.uturn.backward`/`.forward`, 40%-opacity when disabled per §7.1's own
+  literal spec), placed right after the title in both landscape and portrait row 1, exactly as specified.
+  §7.4's "keep at least 50 steps, clear on instance load" is satisfied by construction — `UndoStack`'s own
+  default `cap` is already 50, and the whole stack is a plain in-memory `@State` with no persistence, so it's
+  genuinely empty on every fresh instance with zero extra code. **DEVICE-OWED:** the EXPLAIN SILENCE text at
+  real note-box size (10pt, up to 2 lines — "MAIN OUT OFF" is the longest reason, worth checking it doesn't
+  clip); RATE's new 3-line layout; the riff matrix's new +18pt width actually fitting its panel in both
+  orientations (the one real, disclosed risk in this batch); RESET MELODY's tap target/placement at the
+  bottom of the pop-up; the ↶/↷ buttons' legibility/placement next to the title; a full undo/redo pass across
+  a riff edit, a pad drag, a preset load, and RESET MELODY, confirming play/stop and MAIN OUT genuinely don't
+  move when undoing past them.**
 - **▶ EUCLIDEOUS — a PRESETS button on the page itself + a second NOTE VIEW DSP consolidation (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean, no macOS test-target reach for
   either change — both are GridUI/EuclideousPage-only). Paul: "add a preset button on the euclidius page, then
