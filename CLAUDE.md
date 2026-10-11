@@ -196,6 +196,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the RATE popup declutters dotted/triplet behind a disclosure (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean, no macOS test-target reach).
+  Paul asked whether dotted/triplet rates are worth keeping on the pattern section at all; the answer (given
+  back, not assumed): yes, worth keeping — the real value isn't a single pattern's own feel (a Euclidean K/N
+  distribution doesn't care about note duration), it's genuine POLYRHYTHM between lanes (a 1/8T lane against
+  a straight 1/8 lane is a real 3:2 cross-rhythm, the dotted direction gives the inverse) — exactly what a
+  multi-lane interlocking instrument like this one is built around (the KOTEKAN/FIVE AGAINST EIGHT presets
+  lean on precisely this). The actual complaint was the PICKER — all 18 `ArpRate` cases shown at once. Paul:
+  "yes please, do it" (declutter the picker, keep the capability). **FIX:** `ratePopupCard` now shows only
+  the 6 straight rates (group 0 of `ArpRate.allCases`' own declared 6-straight/6-dotted/6-triplet order) by
+  default, with a "DOTTED / TRIPLET ▾" disclosure row revealing the other two groups on tap. A new session-
+  scoped `rateShowAdvanced` `@State` (not per-lane, not persisted) — revealing it once for ANY lane keeps it
+  open for the rest of the session rather than re-collapsing on every reopen, the lower-friction choice.
+  **ONE CORRECTNESS DETAIL, reasoned through before shipping, not left as a gap:** if a lane's CURRENT rate
+  is already dotted/triplet, the popup auto-expands regardless of the toggle's own state
+  (`currentIsAdvanced`, checked against group 0's membership) — otherwise reopening the popup on a lane
+  already set to, say, 1/8T would show straights only, with no visible indication of what's actually
+  selected and no way to tell the selection "disappeared" rather than changed. No model/engine change — pure
+  UI, `ArpRate`'s own 18 cases and their persistence are completely untouched. **DEVICE-OWED:** the
+  disclosure's legibility/tap target, and confirm the auto-expand-when-already-advanced case actually reads
+  clearly rather than looking like the toggle silently flipped itself.**
 - **▶ EUCLIDEOUS — usability ferry §§3/5/8.2 SHIPPED, the ferry now fully built (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; macOS 1309 green incl. 1 test fixed for the new
   default, iOS builds clean). Direct continuation of the §2/4/6/7 batch just above. **§5 CONNECT EACH LANE'S

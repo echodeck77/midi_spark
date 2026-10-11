@@ -366,6 +366,10 @@ struct EuclideousPage: View {
     // cycling through all 18 ArpRate cases one tap at a time (and never offering a way back to nil/"inherit
     // the machine rate") with a single list the user picks from directly. nil = no popup open.
     @State private var ratePopupLane: Int? = nil
+    // RATE POPUP DECLUTTER (Paul 2026-10-11): dotted/triplet rates stay collapsed behind a "DOTTED/TRIPLET"
+    // disclosure until tapped open — a session-scoped @State (not per-lane, not persisted) so revealing it
+    // once for any lane keeps it open for the rest of the session rather than re-collapsing every reopen.
+    @State private var rateShowAdvanced = false
     // PER-LANE TABS: which of I/O/PATTERN/MASK each lane currently shows (RIFF retired 2026-10-10, folded into
     // the melody pop-up) — purely local/ephemeral, same convention as touchedPad above (not persisted; a fresh
     // page open always starts every lane on PATTERN).
@@ -2572,9 +2576,21 @@ struct EuclideousPage: View {
 
     // MARK: - The RATE pop-up (Paul 2026-10-06, unchanged — spec §4.8: "not discussed")
 
+    /// `ArpRate.allCases`' own declared order is 6 straight · 6 dotted · 6 triplet (CLAUDE.md invariant: never
+    /// reordered, rate persists by rawValue) — group 0 is the straights, groups 1-2 are dotted/triplet.
+    private var rateGroups: [[ArpRate]] {
+        stride(from: 0, to: ArpRate.allCases.count, by: 6).map { Array(ArpRate.allCases[$0..<min($0 + 6, ArpRate.allCases.count)]) }
+    }
     private func ratePopupCard(_ idx: Int) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
-        let groups = stride(from: 0, to: ArpRate.allCases.count, by: 6).map { Array(ArpRate.allCases[$0..<min($0 + 6, ArpRate.allCases.count)]) }
+        let groups = rateGroups
+        // DECLUTTER (Paul 2026-10-11, "is there much point in triplet and dotted tempos... yes, do it" —
+        // the value is real (polyrhythm between lanes), the complaint was the picker showing all 18 at once.
+        // Straights (group 0) always show; dotted/triplet stay collapsed behind a toggle UNLESS the lane's
+        // own current rate is already one of them, so a dotted/triplet selection in progress is never
+        // silently hidden the moment you reopen this popup.
+        let currentIsAdvanced = line.rate != nil && !groups[0].contains(line.rate!)
+        let showAdvanced = rateShowAdvanced || currentIsAdvanced
         return VStack(spacing: 10) {
             Text("LANE \(idx + 1) RATE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
             Text("— (MACHINE RATE)")
@@ -2584,18 +2600,37 @@ struct EuclideousPage: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(line.rate == nil ? laneAccents[idx % laneAccents.count] : Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
                 .onTapGesture { edit(idx) { $0.rate = nil }; ratePopupLane = nil }
-            ForEach(groups.indices, id: \.self) { g in
-                HStack(spacing: 4) {
-                    ForEach(groups[g], id: \.self) { r in
-                        let on = line.rate == r
-                        Text(r.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                            .foregroundColor(on ? .black : .white.opacity(0.75))
-                            .frame(maxWidth: .infinity).frame(height: 28)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? laneAccents[idx % laneAccents.count] : Color.white.opacity(0.08)))
-                            .contentShape(Rectangle())
-                            .onTapGesture { edit(idx) { $0.rate = r }; ratePopupLane = nil }
+            HStack(spacing: 4) {
+                ForEach(groups[0], id: \.self) { r in
+                    let on = line.rate == r
+                    Text(r.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : .white.opacity(0.75))
+                        .frame(maxWidth: .infinity).frame(height: 28)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(on ? laneAccents[idx % laneAccents.count] : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle())
+                        .onTapGesture { edit(idx) { $0.rate = r }; ratePopupLane = nil }
+                }
+            }
+            if showAdvanced {
+                ForEach(groups[1...].indices, id: \.self) { g in
+                    HStack(spacing: 4) {
+                        ForEach(groups[g], id: \.self) { r in
+                            let on = line.rate == r
+                            Text(r.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                                .foregroundColor(on ? .black : .white.opacity(0.75))
+                                .frame(maxWidth: .infinity).frame(height: 28)
+                                .background(RoundedRectangle(cornerRadius: 5).fill(on ? laneAccents[idx % laneAccents.count] : Color.white.opacity(0.08)))
+                                .contentShape(Rectangle())
+                                .onTapGesture { edit(idx) { $0.rate = r }; ratePopupLane = nil }
+                        }
                     }
                 }
+            } else {
+                Text("DOTTED / TRIPLET ▾").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.4))
+                    .frame(maxWidth: .infinity).frame(height: 22)
+                    .contentShape(Rectangle())
+                    .onTapGesture { rateShowAdvanced = true }
             }
         }
         .padding(16)
