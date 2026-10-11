@@ -743,7 +743,10 @@ struct EuclideousPage: View {
             // (§5: "the header countdown still shows") — no `reduceMotion` gate here, deliberately.
             if resetSpanBars > 0 {
                 let cyc = clock.stepBeats * Double(max(1, clock.cols))
-                TimelineView(.animation(paused: !clock.playing)) { tl in
+                // CAPPED (usability ferry §1.2 DSP fix): a whole-bar countdown changes at most once every
+                // few seconds — full display-refresh-rate scheduling here was pure waste. 4Hz is already
+                // far faster than this text could ever visibly need to update.
+                TimelineView(.animation(minimumInterval: 0.25, paused: !clock.playing)) { tl in
                     let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
                     let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
                     let bars = euclideousResetBarsRemaining(liveBeat: liveBeat, spanBeats: spanBeats, cyc: cyc, resetSpanBars: resetSpanBars)
@@ -992,7 +995,11 @@ struct EuclideousPage: View {
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
         let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
         let show = spanBeats > 0 && !reduceMotion
-        return TimelineView(.animation(paused: !clock.playing || !show)) { tl in
+        // CAPPED (usability ferry §1.2 DSP fix, "card fills" named explicitly): a fill creeping across a
+        // whole 1–16 BAR span has no perceptible need for display-refresh-rate precision — 1/10s is
+        // already smoother than the eye can tell apart for motion this slow, at a fraction of the cost,
+        // × 4 lane cards.
+        return TimelineView(.animation(minimumInterval: 1.0 / 10.0, paused: !clock.playing || !show)) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             let progress = show ? euclideousResetProgress(liveBeat: liveBeat, spanBeats: spanBeats) : 0
             // §1 table: lane 0 L→R, lane 1 R→L, lane 2 T→B, lane 3 B→T — the fill grows from this
@@ -1177,7 +1184,13 @@ struct EuclideousPage: View {
                         euclideousPadPicture(line, t, accent: accent)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .padding(.top, sp4).padding(.bottom, 9).padding(.horizontal, 9)
+                    // HORIZONTAL PADDING TRIMMED 9→4 (usability ferry §1.1: "complete the portrait fit...
+                    // nothing else accepted until both orientations pass" — re-opens the previous ferry's
+                    // own disclosed, left-untouched "VEL 9…" pad-value truncation). This reclaims 10pt of
+                    // text width on every pad (not just VEL/GATE's worst case), the one lever available
+                    // that doesn't touch the ratified `padValueSize`/`padSubtitleSize` type-scale hierarchy
+                    // from an earlier ferry.
+                    .padding(.top, sp4).padding(.bottom, 9).padding(.horizontal, 4)
                 }
                 // BOTTOM EDGE (ferry §3.4/§5.5, literal): "← TILT →" at ≥10pt — plain arrow glyphs
                 // (U+2190/U+2192). If the name doesn't fit at 10pt (§5.5), fall back to "◀ ▶" alone (the
@@ -2443,23 +2456,36 @@ struct EuclideousPage: View {
                     .frame(width: cellW, height: riffDotRowH)
                 }
             }
-            VStack(spacing: sp4) {
-                ForEach((1...8).reversed(), id: \.self) { rank in
-                    HStack(spacing: sp4) {
-                        ForEach(0..<n, id: \.self) { col in
-                            let on = col < ranks.count && ranks[col] == rank
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
-                                .frame(width: cellW, height: cellH)
-                                .overlay(riffCellWipeOverlay(col: col, rank: rank, cellW: cellW, cellH: cellH))
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    onEditRiff { r in
-                                        var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
-                                        if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
-                                        r.ranks = rr; r.steps = n
+            // ONE SHARED TIMELINE FOR THE WHOLE MATRIX (usability ferry §1.2 DSP fix) — was 64 independent
+            // `TimelineView`s, one per cell (8 columns × 8 ranks), each running its own animation scheduler
+            // uncapped. Confirmed by counting, not profiled on a real device (no device access): this is
+            // the single largest render-cost item added this session, and almost certainly the dominant
+            // cause of the reported DSP spike (SwiftUI's per-TimelineView scheduling/Combine overhead, not
+            // the trivial per-cell drawing work itself, is what scales badly at 64×). A single outer
+            // `TimelineView` computes `now` ONCE per tick; every cell reads that same value instead of
+            // driving its own clock. Capped at `minimumInterval: 1/30` (was fully uncapped) — the SAME
+            // convention `EuclidCometBar` already uses elsewhere on this page; nothing about the wipe
+            // sweep needs full display-refresh-rate precision the way NOTE VIEW's own ferry explicitly
+            // demanded for ITS tracks.
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+                VStack(spacing: sp4) {
+                    ForEach((1...8).reversed(), id: \.self) { rank in
+                        HStack(spacing: sp4) {
+                            ForEach(0..<n, id: \.self) { col in
+                                let on = col < ranks.count && ranks[col] == rank
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
+                                    .frame(width: cellW, height: cellH)
+                                    .overlay(riffCellWipeOverlay(col: col, rank: rank, cellW: cellW, cellH: cellH, now: tl.date))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        onEditRiff { r in
+                                            var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
+                                            if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
+                                            r.ranks = rr; r.steps = n
+                                        }
                                     }
-                                }
+                            }
                         }
                     }
                 }
@@ -2471,17 +2497,15 @@ struct EuclideousPage: View {
 
     /// RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards" §2) — per-cell
     /// overlay checking all 4 lanes' `wipeEvents` for a match at `(col, rank)` and drawing each matching
-    /// lane's own sweep independently (§2.4: stacked, not specially composited). A NEW `TimelineView` — the
-    /// riff grid has none of its own (confirmed by direct research; `riffPositions`' dots are driven by a
-    /// plain 30fps `@State` poll, not a TimelineView).
+    /// lane's own sweep independently (§2.4: stacked, not specially composited). CONSOLIDATED 2026-10-11
+    /// (DSP fix, see `riffGridView`'s own comment) — `now` is now passed in from ONE shared TimelineView at
+    /// the matrix level, not an independent one per cell.
     @ViewBuilder
-    private func riffCellWipeOverlay(col: Int, rank: Int, cellW: CGFloat, cellH: CGFloat) -> some View {
-        TimelineView(.animation(paused: !clock.playing)) { tl in
-            ZStack {
-                ForEach(0..<4, id: \.self) { i in
-                    if i < wipeEvents.count, let ev = wipeEvents[i], ev.column == Int8(col), ev.rank == Int8(rank) {
-                        riffCellWipeLane(i, ev, now: tl.date, cellW: cellW, cellH: cellH)
-                    }
+    private func riffCellWipeOverlay(col: Int, rank: Int, cellW: CGFloat, cellH: CGFloat, now: Date) -> some View {
+        ZStack {
+            ForEach(0..<4, id: \.self) { i in
+                if i < wipeEvents.count, let ev = wipeEvents[i], ev.column == Int8(col), ev.rank == Int8(rank) {
+                    riffCellWipeLane(i, ev, now: now, cellW: cellW, cellH: cellH)
                 }
             }
         }
@@ -2731,17 +2755,19 @@ struct EuclideousPage: View {
     /// The continuously-moving rhythm track (ferry 1 §2/§3) — one `TimelineView` per strip (a disclosed,
     /// behaviourally-equivalent simplification of "one shared TimelineView per panel": all 4 read the SAME
     /// `clock` anchor/tempo, so they tick in lockstep off the same display-link schedule regardless of
-    /// whether they share one `TimelineView` instance or each own one). `.animation()` with NO
-    /// `minimumInterval` override (§5.2: "render at the display refresh rate") — a deliberate departure
-    /// from `EuclidCometBar`'s own 1/30 cap elsewhere on this page, since this is a new, explicit
-    /// instruction, not an inherited convention.
+    /// whether they share one `TimelineView` instance or each own one). CAPPED AT 1/60 (usability ferry
+    /// §1.2 DSP fix, "NOTE VIEW" named explicitly) — SUPERSEDES the earlier ferry's own "render at the
+    /// display refresh rate" instruction (no cap at all), now that a newer, more urgent priority (the
+    /// reported DSP spike) explicitly calls this view out by name. 1/60 is still imperceptibly different
+    /// from a mark landing "exactly on the beat" to any human eye (a ProMotion display's own 120Hz is pure
+    /// headroom no one can see used), while roughly halving this view's worst-case per-frame cost.
     private func noteViewTrack(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double) -> some View {
         let running = clock.playing && line.enabledResolved   // §2.6: a stopped lane draws no marks
         let sub = max(0.03125, line.rate?.beats ?? ArpRate.r1_16.beats)
         let buf = euclideousNoteViewPattern(pulses: line.pulses, steps: line.steps, rotate: line.rotate, tilt: line.tiltResolved, patternMiss: line.patternMissResolved)
         let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
         let dir = line.directionResolved
-        return TimelineView(.animation(paused: !clock.playing)) { tl in
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !clock.playing)) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             Canvas { ctx, size in
                 guard windowBeats > 0 else { return }
@@ -2826,7 +2852,9 @@ struct EuclideousPage: View {
         // Without this, a just-disabled lane's box kept animating its OWN already-in-flight fade (driven by
         // `liveBeat`, which keeps advancing with the still-running transport) even though no new engine
         // events could possibly arrive for it — a box that's supposed to be frozen kept visibly changing.
-        return TimelineView(.animation(paused: !(clock.playing && line.enabledResolved))) { tl in
+        // CAPPED AT 1/60 (usability ferry §1.2 DSP fix, "NOTE VIEW" named explicitly) — a brightness fade
+        // has no need for faster-than-eye-can-see precision.
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !(clock.playing && line.enabledResolved))) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             noteViewNoteBoxContent(liveBeat: liveBeat, lastEvent: lastEvent, restFlash: restFlash, accent: accent, flatKey: flatKey)
                 .frame(width: width, height: height)
