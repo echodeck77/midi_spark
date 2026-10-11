@@ -8,8 +8,31 @@ import AudioToolbox
 import AVFoundation
 import CoreAudioKit
 
+// THREAD-SAFE PARAMETER VALUE CACHE (Paul 2026-10-11 — fixing a confirmed SIGKILL crash; see the .ips report:
+// the main thread was blocked inside `AUParameter.setValue` (`syncParameterTreeToDocument`, itself called
+// synchronously from a preset-load tap — `loadFactoryPreset` → `applyFactoryDocument`) at the EXACT same
+// moment a background `AUParameterTree.valueAccessQueue` thread was blocked inside this unit's OWN
+// `implementorValueProvider`, waiting via `DispatchQueue.main.sync` for that same main thread to answer a
+// host `getParameter` XPC call. AudioToolboxCore apparently serializes AUParameter get/set traffic through
+// one internal mechanism, so a main-thread SET and an off-main GET can deadlock each other — main waits on
+// AudioToolbox's queue, AudioToolbox's queue (or the thread holding it) waits on main. Neither can proceed;
+// FrontBoard's 10-second scene-create watchdog then SIGKILLs the whole extension. This is exactly why
+// factory/user presets looked like they "didn't load" — the crash discards the in-flight document replace
+// before anything is visible, and the host silently relaunches the extension fresh afterward.
+// FIX: `implementorValueProvider` now NEVER blocks waiting on main — it reads this small lock-protected cache
+// instead. Every main-thread writer of a parameter-tree value (the host-automation observer AND
+// `syncParameterTreeToDocument`, the only two places a tracked value can change) keeps it current, so an
+// off-main read is never more than one main-thread write behind, with zero cross-thread blocking either way.
+private final class ParamValueCache {
+    private let lock = NSLock()
+    private var values: [AUParameterAddress: AUValue] = [:]
+    func set(_ address: AUParameterAddress, _ value: AUValue) { lock.lock(); values[address] = value; lock.unlock() }
+    func get(_ address: AUParameterAddress) -> AUValue { lock.lock(); defer { lock.unlock() }; return values[address] ?? 0 }
+}
+
 public class MidiSparkAudioUnit: AUAudioUnit {
 
+    private let paramCache = ParamValueCache()
     private let kernel = Kernel()
     private var _inputBusses: AUAudioUnitBusArray!
     private var _outputBusses: AUAudioUnitBusArray!
@@ -948,28 +971,23 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return AUParameterTree.createTree(withChildren: params)
     }
 
-    // THREAD SAFETY (Paul 2026-10-05): `implementorValueObserver`/`Provider` are AUParameterTree callbacks — Apple
-    // documents these as callable from ANY thread, including a realtime one, for host automation. The architecture's
-    // own invariant #1 (document mutation is MAIN-THREAD-ONLY, enforced elsewhere via `dispatchPrecondition` — see
-    // `loadTestSession`/`setActiveScene`) was being silently violated here: the old code mutated `self.document`
-    // (and read it back in the provider) DIRECTLY, synchronously, on whatever thread the host happened to call from
-    // — a genuine data race against the main thread's own concurrent document edits (UI-driven), previously marked
-    // "TODO(spec §7): For the scaffold, write into the document directly" and never revisited. Fixed by marshaling
-    // both sides onto the main thread: the observer hops via `.async` (fire-and-forget, matching scheduleRebuild's
-    // own pattern) when called off-main, or runs inline when already on it (the common case — most hosts drive
-    // these from their own main/UI thread; a stray realtime automation touch now queues instead of racing). The
-    // provider needs a VALUE back immediately, so it uses `.sync` — but ONLY when NOT already on main, since
-    // `DispatchQueue.main.sync` from the main thread itself is an instant deadlock.
+    // THREAD SAFETY (Paul 2026-10-05, REVISED 2026-10-11 — see `ParamValueCache`'s own header comment above for
+    // the confirmed deadlock this revision fixes): `implementorValueObserver`/`Provider` are AUParameterTree
+    // callbacks — Apple documents these as callable from ANY thread, including a realtime one, for host
+    // automation. Architecture invariant #1 (document mutation is MAIN-THREAD-ONLY) still holds: the observer
+    // still marshals its `document` write onto main exactly as before (hops via `.async` when off-main, runs
+    // inline when already on it). The PROVIDER no longer touches `document` or the main thread AT ALL — it
+    // reads `paramCache` directly, which is safe from any thread and can never block, eliminating the deadlock
+    // the old `DispatchQueue.main.sync` fallback was exposed to.
     private func wireParameterTree() {
         _parameterTree.implementorValueObserver = { [weak self] param, value in
             guard let self else { return }
+            self.paramCache.set(param.address, value)   // update the cache first, from whatever thread the host called on — cheap, lock-protected, no document touch
             if Thread.isMainThread { self.applyParamValue(param, value) }
             else { DispatchQueue.main.async { self.applyParamValue(param, value) } }
         }
         _parameterTree.implementorValueProvider = { [weak self] param in
-            guard let self else { return 0 }
-            if Thread.isMainThread { return self.currentParamValue(param) }
-            return DispatchQueue.main.sync { self.currentParamValue(param) }
+            self?.paramCache.get(param.address) ?? 0
         }
     }
     private func applyParamValue(_ param: AUParameter, _ value: AUValue) {
@@ -992,20 +1010,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         default: break
         }
     }
-    private func currentParamValue(_ param: AUParameter) -> AUValue {
-        dispatchPrecondition(condition: .onQueue(.main))
-        switch param.address {
-        case ParamAddress.stepRate:
-            return AUValue(StepRate.allCases.firstIndex(of: document.activeSceneState.stepRate) ?? 2)
-        case ParamAddress.swing: return AUValue(document.activeSceneState.swing)
-        case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
-            let idx = Int(a - 100); return idx < document.machines.count ? AUValue(document.machines[idx].transpose) : 0
-        case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
-            return AUValue(document.macrosResolved[Int(a - 400)].value)
-        default: return 0
-        }
-    }
-
     // MARK: - Test-session loading (docs/test-procedures.md; step 3 has no grid UI)
 
     /// DESTRUCTIVE by design: replaces the whole document, discarding whatever was loaded.
@@ -1214,17 +1218,19 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     /// Push document values out to the AUParameterTree so host-visible state matches reality.
     private func syncParameterTreeToDocument() {
+        func push(_ address: AUParameterAddress, _ value: AUValue) {
+            paramCache.set(address, value)   // keep the off-main-safe read cache current alongside the real push — see ParamValueCache's own header comment
+            _parameterTree.parameter(withAddress: address)?.value = value
+        }
         let scene = document.activeSceneState
-        _parameterTree.parameter(withAddress: ParamAddress.stepRate)?.value =
-            AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2)
-        _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(scene.swing)
+        push(ParamAddress.stepRate, AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2))
+        push(ParamAddress.swing, AUValue(scene.swing))
         for i in machineIDs.indices where i < document.machines.count {   // CR-13b: a decoded doc may carry <16 machines
-            _parameterTree.parameter(withAddress: ParamAddress.transpose(i))?.value =
-                AUValue(document.machines[i].transpose)
+            push(ParamAddress.transpose(i), AUValue(document.machines[i].transpose))
         }
         let macros = document.macrosResolved
         for i in 0..<ParamAddress.macroSliderCount {
-            _parameterTree.parameter(withAddress: ParamAddress.macro(i))?.value = AUValue(macros[i].value)
+            push(ParamAddress.macro(i), AUValue(macros[i].value))
         }
     }
 

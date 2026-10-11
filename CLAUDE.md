@@ -196,6 +196,71 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ AU PARAMETER DEADLOCK — a confirmed SIGKILL crash on preset load, fixed (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean, no macOS test-target reach — the
+  AU layer isn't unit-tested, DEVICE-owed to confirm the crash is actually gone). Paul, after reporting the new
+  presets "don't load": attached a real `.ips` crash report from the device. Read it directly rather than
+  continuing to guess at the propagation question — it showed something far more serious than a resync gap.
+  **ROOT CAUSE, read off the crash's own two thread stacks, not inferred:** the MAIN thread was inside
+  `-[AUParameter setValue:…]` (`syncParameterTreeToDocument`, called synchronously from `applyFactoryDocument`
+  → `loadFactoryPreset` → `DiagView.loadFactoryPreset(_:)` → the PresetBrowser tap handler) — AudioToolboxCore's
+  own `setValue` internally does a `dispatch_sync` to serialize against concurrent parameter access. AT THE
+  SAME MOMENT, a background thread named `AUParameterTree.valueAccessQueue` was running the HOST's (AUM's) own
+  XPC `getParameter` call, which reached this unit's `implementorValueProvider` closure — and that closure's
+  OWN code (shipped 2026-10-05, "THREAD SAFETY" entry below) did `DispatchQueue.main.sync { … }` to read
+  `document` safely, since invariant 1 requires document reads/writes to stay main-thread-only. Two threads,
+  each waiting on the other, neither able to proceed — FrontBoard's own 10-second "scene-create" watchdog then
+  SIGKILLs the whole extension (`"exhausted real (wall clock) time allowance of 10.00 seconds"`). This
+  perfectly explains the reported symptom: the crash discards the in-flight document replace before anything
+  becomes visible, and the host silently relaunches the extension fresh afterward — from Paul's seat, "I pick
+  a preset, open Euclideous, it's still the old default," because NOTHING ever actually finished applying.
+  **CONFIRMED PRE-EXISTING, not introduced by this session's preset work:** `syncParameterTreeToDocument`/
+  `applyFactoryDocument`/`implementorValueProvider` are all 2026-09/10 code, untouched by the Euclideous-
+  presets commit — the new presets didn't cause this, they just finally landed the specific timing (a
+  preset-load tap, synchronously pushing ~19 parameter values in a tight loop, happening to overlap a host
+  poll) that had been a LATENT risk in every prior preset/test-session/fullState load since the thread-safety
+  fix shipped. **FIX — eliminate the blocking side, not just reduce its odds:** a new `ParamValueCache` (a
+  plain `NSLock`-protected `[AUParameterAddress: AUValue]`) — `implementorValueProvider` now ONLY ever reads
+  this cache (`self?.paramCache.get(param.address) ?? 0`), never touches `document`, never touches
+  `DispatchQueue.main.sync`, so it can no longer block on anything, from any thread, ever. The two places a
+  tracked value actually changes keep the cache current: `implementorValueObserver` (host automation) writes
+  it immediately, from whatever thread the host calls on, before dispatching the real `document` mutation to
+  main as before; `syncParameterTreeToDocument` (every preset/test-session/fullState load) writes it alongside
+  each `.value =` push via a small local `push(address:value:)` helper, so the cache and the pushed value can
+  never drift apart. The now-fully-superseded `currentParamValue(_:)` (the function the old blocking provider
+  called) is deleted outright — confirmed zero remaining callers before removing, not left as dead code.
+  **WHY THIS IS SUFFICIENT, reasoned through rather than assumed:** the pathological 10-second stall needed
+  BOTH sides blocking — the host-side `getParameter` call occupying `AUParameterTree.valueAccessQueue` AND our
+  own provider refusing to let that occupancy end until main responded. With the provider now returning
+  instantly (a plain lock, no thread hop), that queue's work item completes in microseconds regardless of which
+  thread initiated the surrounding call, so the main thread's own `setValue` dispatch_sync — which was never
+  the blocking half, only ever a normal, bounded wait AudioToolboxCore already handles safely in production —
+  has nothing left to wait on for more than a moment. The other 4 pre-existing direct `.value =` writes
+  elsewhere in this file (CC-rail/transpose/stepRate/swing setters) needed no equivalent change: they were
+  never the thread doing the indefinite wait, only ordinary writers, and removing the ONE thing that could hold
+  the shared queue open indefinitely removes their risk too. **DEVICE-OWED, stated plainly:** this has zero
+  macOS test-target reach (AudioToolbox-importing code, by this project's own standing architecture) — the only
+  verification possible from here is the iOS build staying green, which it does; the actual proof is Paul
+  loading a preset on the real device without the extension dying, which only a device can confirm.**
+- **▶ STARTUP — a fresh plugin instance now opens straight into EUCLIDEOUS, not 8x8 State (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean). Paul: "I want the app to open to
+  euclidius and not load in anything from 8x8 state. I just want euclidius please." The existing
+  `launchIntoEuclideous` mechanism (2026-10-08) already supported this as an OPT-IN cog toggle, defaulted OFF
+  — but its startup READ (`DiagView.init`, since a struct init runs before any `@AppStorage`-wrapped property
+  exists to read from) called `UserDefaults.standard.bool(forKey:)` DIRECTLY, which returns `false` for a key
+  that was never written, REGARDLESS of whatever Swift-level default the `@AppStorage` property elsewhere
+  declares — so simply flipping that property's own declared default would NOT have changed anything for an
+  install that had never explicitly touched the cog toggle (the common case). **FIX:** the init now reads
+  `UserDefaults.standard.object(forKey:) as? Bool` — `nil` (never touched) now falls back to `true`
+  (Euclideous), and only an EXPLICIT `false` (the user deliberately flipped the toggle back to WORKBENCH) opts
+  back out; the `@AppStorage` property's own declared default flipped to `true` too, so the cog page's own
+  toggle display stays consistent with this for an untouched install. The toggle itself is UNTOUCHED — still
+  there, still reversible, just defaulting the other way now. **"NOT LOAD IN ANYTHING FROM 8X8 STATE":** every
+  one of the 20 new Euclideous presets already builds from `PluginState.makeInit()` (a genuinely empty, silent
+  8×8 grid — zero cells, no machines in use), so this was already true for the PRESET content; this fix
+  covers the other half — the view itself never shows the workbench, since Euclideous renders as a full-screen
+  overlay from the very first frame. DEVICE-OWED: confirm a fresh instance (new Xcode install) actually opens
+  straight into Euclideous now.**
 - **▶ FACTORY PRESETS — the whole-plugin list replaced with 20 new EUCLIDEOUS presets (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; macOS 1309 green (unaffected — a pure preset-data
   swap, no new testable logic), iOS builds clean). Paul asked for "20 musically interesting presets without

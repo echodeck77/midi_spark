@@ -169,14 +169,21 @@ struct PartRowRollNote: Equatable {
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
 
-    // STARTUP VIEW (Paul 2026-10-08): seed showEuclideous's initial value from the persisted cog preference —
-    // read directly off UserDefaults.standard (the same store @AppStorage uses with no explicit `store:`, so
-    // this agrees with the launchIntoEuclideous toggle on the cog page) since a struct init runs before any
-    // @AppStorage-wrapped property on this view exists to read from. Every other @State property keeps its own
-    // declared default — a custom init only needs to touch the ones it actually overrides.
+    // STARTUP VIEW (Paul 2026-10-08, DEFAULT FLIPPED 2026-10-11: "I just want euclidius please, and not load
+    // in anything from 8x8 state" — a fresh instance now opens straight into Euclideous unless the user has
+    // EXPLICITLY flipped the cog's STARTS ON toggle back to WORKBENCH). Read directly off UserDefaults.standard
+    // (the same store @AppStorage uses with no explicit `store:`, so this agrees with the launchIntoEuclideous
+    // toggle on the cog page) since a struct init runs before any @AppStorage-wrapped property on this view
+    // exists to read from. `object(forKey:)` (not `bool(forKey:)`) distinguishes "never touched" from "touched
+    // and set to WORKBENCH" — `bool(forKey:)` can't make that distinction, it returns false for either, which
+    // is exactly why the OLD code here (reading `.bool(forKey:)` directly, defaulting to false/WORKBENCH for an
+    // untouched key) never actually opened into Euclideous for a user who'd never visited the cog page at all.
+    // Every other @State property keeps its own declared default — a custom init only needs to touch the ones
+    // it actually overrides.
     init(au: MidiSparkAudioUnit?) {
         self.au = au
-        _showEuclideous = State(initialValue: UserDefaults.standard.bool(forKey: "midispark.launchIntoEuclideous"))
+        let explicit = UserDefaults.standard.object(forKey: "midispark.launchIntoEuclideous") as? Bool
+        _showEuclideous = State(initialValue: explicit ?? true)
     }
     @State var d = KernelDiag()      // polled for the grid's effColumn / playing
     @State var lastStuckPanics: UInt64 = 0   // a8 STUCK-NOTE: last-seen heal count — the poll logs a heal ONCE (off the render thread) when this rises
@@ -471,7 +478,7 @@ struct DiagView: View {
     // init (below) to seed showEuclideous's STARTING value once per fresh plugin instance — a live toggle here
     // only changes what the NEXT instance opens into, matching "load as", not an instant in-session switch (the
     // existing header icon + showEuclideous already provide that).
-    @AppStorage("midispark.launchIntoEuclideous") var launchIntoEuclideous = false
+    @AppStorage("midispark.launchIntoEuclideous") var launchIntoEuclideous = true   // DEFAULT FLIPPED 2026-10-11 — see DiagView.init's own comment
     // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — a parallel NEW-interface shell behind a preview toggle
     // (old BUILD stays the default + fully working). Off ⇒ the current BUILD page; on ⇒ the room shell (roomsPage).
     @State var roomsRoom: Room = .select       // which room is in view in the new shell (one grid at a time)
