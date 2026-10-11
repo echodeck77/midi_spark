@@ -196,6 +196,36 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — usability ferry §1 (the blocker), SHIPPED; §§2–8 queued, awaiting device confirmation
+  first per the ferry's own gate (2026-10-11, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`,
+  `e892779`; macOS 1309 unaffected, iOS builds clean). A 9-section ferry ("Paul's rulings. Build in the
+  priority order below... nothing else in this ferry is accepted until both orientations pass"). §1.2, the
+  real find: AUM reported DSP at MAX in portrait, 64% landscape. ROOT CAUSE, found by counting instances —
+  not profiled on a real device, no device access from this environment — the riff-cell-wipe feature
+  (shipped earlier this same session) gave EVERY ONE of the 64 riff-grid cells (8 cols × 8 ranks) its OWN
+  independent, FULLY UNCAPPED `TimelineView` — 64 separate animation schedulers re-evaluating on every
+  display refresh, when at any moment only a handful of cells typically have anything to draw. This exact
+  bug class is already on record in this codebase (`BuildPage.swift`'s own comment: "a per-cell
+  TimelineView... spawned 8–16 always-on 30fps loops and stuttered the playhead") and EVERY OTHER
+  `TimelineView` in the whole app already carries an explicit `minimumInterval` — this was the one outlier,
+  strong corroborating evidence the diagnosis is right even without a device trace. **FIX:** consolidated
+  the 64 wipe `TimelineView`s into ONE shared timeline at the matrix level (`now` computed once, passed
+  down to each cell), capped at 1/30s (matching `EuclidCometBar`'s own established convention elsewhere on
+  this page). Also capped every OTHER TimelineView this ferry names explicitly ("NOTE VIEW, wipes, card
+  fills"): `noteViewTrack`/`noteViewNoteBox` to 1/60 (supersedes an EARLIER ferry's own "render at display
+  refresh rate" instruction — a deliberate, disclosed override, since THIS ferry's own DSP priority now
+  calls these out by name), `laneCardProgressFill` to 1/10 (a multi-bar fill needs nothing faster),
+  the header's "IN n" countdown to 1/4 (a whole-bar counter). **§1.1 portrait fit:** trimmed the gesture
+  pad's own horizontal padding 9→4pt, reclaiming 10pt of text width on every pad — the one lever available
+  to help the PREVIOUS ferry's own disclosed-but-left-unfixed "VEL 9…" pad-value truncation, without
+  touching the ratified `padValueSize`/`padSubtitleSize` type-scale hierarchy from an even earlier ferry.
+  **DEVICE-OWED, stated plainly because this is the one thing this environment genuinely cannot do:** the
+  ferry asks for an actual DSP percentage before/after, which needs a real host (AUM) on a real device — the
+  fix is argued from counting `TimelineView` instances and matching this codebase's own pre-existing,
+  universal convention, not measured. **PACING, a deliberate choice, not a stall:** stopped here and checked
+  in with Paul before building §§2–8 (which include two genuinely new subsystems — a full undo/redo stack
+  and AU factory presets — substantial, costly-to-build work), since the ferry's OWN text treats §1 passing
+  as a hard gate on everything else, and only Paul's real device can confirm whether it actually has.**
 - **▶ EUCLID TILT — redesigned as a linear blend, decoupled from OFFSET (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`, `272c8d8`; macOS 1309 green incl. +4, iOS builds
   clean). Paul: "something more intuitive for the tilt control, because the offset makes it look quite
