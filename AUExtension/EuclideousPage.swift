@@ -196,16 +196,18 @@ struct EuclideousXYPad: UIViewRepresentable {
 
 /// PER-LANE TABS (Paul 2026-10-07): PATTERN/RIFF/MASK, switching independently per lane — replaces
 /// the old always-visible stacked DIRECTION/HIT-MISS-RATE/RIFF-direction rows with one tabbed slot.
-/// I/O (Paul 2026-10-08) joins as the FIRST tab — per-lane MIDI IN/KEY/CHORDS source + the lane's own OUT
-/// toggles (moved here from their old always-visible placement below every tab, see `laneCard`). This enum's
-/// `laneTab` state is purely ephemeral (never persisted), so reordering its raw values here has no migration
-/// concern — a fresh page open still starts every lane on PATTERN (unchanged default), I/O just sits first.
+/// This enum's `laneTab` state is purely ephemeral (never persisted), so reordering/removing its raw
+/// values here has no migration concern — a fresh page open still starts every lane on PATTERN.
 // RIFF TAB RETIRED (Paul 2026-10-10 ferry §1.2) — its own direction/FREE-LOCK/INVERT/ON-REST controls moved
 // to the melody pop-up's WALK section. `laneTab` is purely ephemeral (never persisted, never defaults to a
 // removed case — confirmed by its own declaration), so there's no "stuck on a now-gone tab" migration needed.
+// I/O TAB RETIRED (Paul 2026-10-11: "I want the io tab removed and for the output to be set in the
+// pattern tab on the bottom right") — its sole remaining content (the per-lane OUT toggles, `laneOutRow`;
+// the MIDI IN/KEY/CHORDS source selector had already moved to the melody pop-up on 2026-10-10) now shares
+// the PATTERN tab's own bottom row with DIRECTION — see `directionAndOutRow`.
 enum EuclideousLaneTab: Int, CaseIterable {
-    case io = 0, pattern = 1, mask = 2
-    var label: String { switch self { case .io: "I/O"; case .pattern: "PATTERN"; case .mask: "MASK" } }
+    case pattern = 0, mask = 1
+    var label: String { switch self { case .pattern: "PATTERN"; case .mask: "MASK" } }
 }
 
 struct EuclideousPage: View {
@@ -1629,14 +1631,13 @@ struct EuclideousPage: View {
 
     @ViewBuilder private func tabContent(_ idx: Int, _ line: EuclidLine, _ tab: EuclideousLaneTab, _ accent: Color, cellSize: CGFloat, rowH: CGFloat, fullWidth: CGFloat) -> some View {
         switch tab {
-        case .io:
-            // SOURCE SELECTOR REMOVED (ferry 2026-10-10 §1.3/§1.5) — now lives in the melody pop-up's own
-            // SOURCE row; this tab's sole remaining job is the OUT toggles, kept exactly as they are.
-            laneOutRow(idx, line, accent: accent).frame(height: rowH)
         case .pattern:
+            // I/O TAB RETIRED (Paul 2026-10-11): HIT/MISS/RATE moves to the TOP row; DIRECTION now shares
+            // the BOTTOM row with OUTPUT (the old I/O tab's sole remaining content) — DIRECTION narrowed
+            // + left-aligned, OUTPUT right-aligned, so this row literally reads "output, bottom right."
             VStack(spacing: sp4) {
-                directionRow(idx, line, accent, cellSize: cellSize, rowH: rowH)
                 hitMissRateRow(idx, line, accent, cellSize: cellSize, rowH: rowH)
+                directionAndOutRow(idx, line, accent, rowH: rowH, fullWidth: fullWidth)
             }
         case .mask:
             VStack(spacing: sp4) {
@@ -1646,11 +1647,13 @@ struct EuclideousPage: View {
         }
     }
 
-    /// The 3 DIRECTION buttons — short (not square), same 3 column widths as the gesture pads directly
-    /// above, so the two rows line up. Left-to-right: BACKWARDS · PING-PONG · FORWARDS, glyphs "<" / "><" /
-    /// ">" (the SAME convention the regular BUILD-page EUCLID editor's own DIRECTION control already uses).
-    /// SELECTED CHOICE (this ferry §4.2, "pattern direction" named explicitly): LANE-20 fill, 1pt LANE-100
-    /// border, white text — not the old solid-ish fill + black text.
+    /// The 3 DIRECTION buttons. NARROWED (Paul 2026-10-11, "reclaim space by making the direction buttons
+    /// much narrower" — so OUTPUT has room to share this row; no longer the full-width 3-equal-column
+    /// layout matching the gesture pads above, see `directionAndOutRow`'s own `narrowCellSize`). Left-to-
+    /// right: BACKWARDS · PING-PONG · FORWARDS, glyphs "<" / "><" / ">" (the SAME convention the regular
+    /// BUILD-page EUCLID editor's own DIRECTION control already uses). SELECTED CHOICE (this ferry §4.2,
+    /// "pattern direction" named explicitly): LANE-20 fill, 1pt LANE-100 border, white text — not the old
+    /// solid-ish fill + black text.
     private func directionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowH: CGFloat) -> some View {
         let order: [(EuclidDir, String)] = [(.bkw, "<"), (.pingpong, "><"), (.fwd, ">")]
         return HStack(spacing: sp4) {
@@ -1665,6 +1668,23 @@ struct EuclideousPage: View {
                     .onTapGesture { edit(idx) { $0.direction = dir } }
             }
         }
+    }
+
+    /// DIRECTION + OUTPUT, sharing the PATTERN tab's own BOTTOM row (Paul 2026-10-11: "I want the io tab
+    /// removed and for the output to be set in the pattern tab on the bottom right. Reclaim space by
+    /// making the direction buttons much narrower"). `laneOutRow` (the per-lane emitter toggles — the
+    /// retired I/O tab's sole remaining content) moves here, right-aligned via the trailing `Spacer`;
+    /// DIRECTION shrinks to `narrowCellSize` (a small fixed width, NOT the shared `cellSize` the gesture
+    /// pads/HIT-MISS-RATE row above still use) so narrowing it is literally what frees the row's own width
+    /// for OUTPUT, not a cosmetic change made on a different row than the one being reclaimed from.
+    private func directionAndOutRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat, fullWidth: CGFloat) -> some View {
+        let narrowCellSize: CGFloat = 26
+        return HStack(spacing: sp4) {
+            directionRow(idx, line, accent, cellSize: narrowCellSize, rowH: rowH)
+            Spacer(minLength: sp4)
+            laneOutRow(idx, line, accent: accent, compact: true)
+        }
+        .frame(width: fullWidth, height: rowH)
     }
 
     /// HIT | MISS, separated from RATE. REBUILT (Paul 2026-10-10 ferry §2.5/§2.1): MISS is no longer a second
@@ -2209,16 +2229,22 @@ struct EuclideousPage: View {
     /// (ferry §3: "do not make lane OUT... any smaller than they are now") regardless of any outer scale.
     /// MOVED (Paul 2026-10-08) into the lane's own new I/O tab, row 2 — no longer always-visible below every
     /// tab; switching to PATTERN/RIFF/MASK hides it, by design ("a new tab for input/output... the four
-    /// emitter toggles on the second row").
+    /// emitter toggles on the second row"). MOVED AGAIN (Paul 2026-10-11, I/O tab retired) — now shares the
+    /// PATTERN tab's own bottom row with DIRECTION, via `compact: true` (see `directionAndOutRow`): drops
+    /// the "OUT" caption, which read as redundant once the row's own position makes the control self-
+    /// evident, and the room it costs is exactly the room DIRECTION's own narrowing was meant to free. The
+    /// circles/"NO OUTPUT" warning are otherwise byte-identical either way.
     /// SELECTED CHOICE (this ferry §4.2, "active OUT toggles" named explicitly): a FULLY-active bus
     /// (routed AND the MAIN OUT master is on) gets LANE-20 fill + 1pt LANE-100 border + white text — not
     /// the old solid fill + black text. The DASHED/hollow "routed but MAIN-gated" state is a genuinely
     /// THIRD, separate condition §4.2 doesn't name — left as-is. No `.minimumScaleFactor` (§6.1's floor);
     /// the "OUT"/"NO OUTPUT" captions, previously 9pt, are bumped to the same 10pt floor.
-    @ViewBuilder private func laneOutRow(_ idx: Int, _ line: EuclidLine, accent: Color) -> some View {
+    @ViewBuilder private func laneOutRow(_ idx: Int, _ line: EuclidLine, accent: Color, compact: Bool = false) -> some View {
         let mask = line.emitterMask ?? 0
         HStack(spacing: sp4) {
-            Text("OUT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            if !compact {
+                Text("OUT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            }
             ForEach(0..<4, id: \.self) { b in
                 let routed = (mask >> UInt8(b)) & 1 != 0
                 let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
