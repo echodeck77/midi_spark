@@ -196,6 +196,42 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID TILT — redesigned as a linear blend, decoupled from OFFSET (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`, `272c8d8`; macOS 1309 green incl. +4, iOS builds
+  clean). Paul: "something more intuitive for the tilt control, because the offset makes it look quite
+  indecipherable or unpredictable... a horizontal slider could place emphasis or density early, middle or
+  late." **ROOT CAUSE, confirmed by reading before touching anything:** the K-of-N pattern was built WITH
+  rotation already baked in (`euclidPatternInto(..., rotation: rotate)`), and only THEN did TILT warp it —
+  so TILT's "early" always meant "near raw step 0," not "near wherever the pattern actually starts playing."
+  Dragging OFFSET silently redefined what TILT's own bias was relative to, which is exactly why the
+  combination read as unpredictable — the two controls were operating in different reference frames.
+  **FIX, two independent parts, both requested together:** (1) TILT now runs BEFORE rotation —
+  `euclidPatternInto` is called with `rotation: 0`, `euclidTiltPattern` biases the UNROTATED shape, then a
+  new `euclidRotateBuffer` cyclically shifts the already-tilted result, using the EXACT same read-index
+  convention `euclidPatternInto`'s own rotation parameter already applied internally (a pure reordering, not
+  a behaviour change to rotation itself — confirmed via a new regression test that build-unrotated-then-
+  rotate is byte-identical to build-with-rotation across 5 K/N/rotation combinations). TILT now always means
+  "bias toward the start/middle/end of THIS pattern"; OFFSET just slides the already-shaped result around
+  the column. Applied identically at all THREE call sites that combine the two (Router.swift's real engine,
+  `euclideousRhythmPicture`'s own picture, `EuclidCometBar`'s shared Canvas drawing — the regular, non-
+  Euclideous BUILD-page EUCLID editor's own comet bar uses the same shared component, so it inherits the fix
+  too), so none of them can silently disagree with what's actually struck. (2) The warp itself is now a
+  straight LINEAR interpolation between "evenly spread" (tilt=0) and "fully packed at one end" (tilt=±1),
+  replacing the old power-curve (`rank^gamma`) — the power curve was perceptually nonlinear (most of its
+  visible movement bunched into a narrow band of the control's travel); the linear blend tracks the slider's
+  physical position 1:1, so halfway across the control lands every hit exactly halfway between even and
+  fully-packed. **CAUGHT BEFORE SHIPPING, a genuine render-thread allocation, not a style nit:** a first
+  draft of `euclidRotateBuffer` built an `Array(buf[0..<n])` snapshot before reassigning — a real heap
+  allocation, since this function is called from `runEuclidLine`, Router.swift's own render path, directly
+  violating this project's own standing invariant 3 ("no allocation... on the render path"). Rewritten as
+  the classic three-reversal in-place rotation via `Array.swapAt` — zero allocation, confirmed by
+  construction (only scalar swaps, no new storage). **TESTS (+4, all hand-derived THEN verified against the
+  real run, not asserted blind):** tilt=±1 reaches the fully-packed ends exactly; tilt=0.5 on a K=3/N=10
+  pattern lands each hit exactly where the formula itself predicts (4, 6, 9) — a value that would NOT match
+  the old power curve, making this the discriminating test for the redesign; `euclidRotateBuffer` reproduces
+  `euclidPatternInto`'s own rotation exactly across 5 K/N/rotation combinations; rotation=0 is a byte-
+  identical no-op. **DEVICE-OWED:** the actual FEEL of the new linear blend and its decoupling from OFFSET
+  on a real lane — this environment can verify the math precisely but not how it plays or sounds.**
 - **▶ EUCLIDEOUS — mask position made genuinely hit-driven (was self-clocked) + a "UI polish, no behaviour
   change" ferry, both SHIPPED (2026-10-11, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`,
   `9992788`; macOS 1305 green, iOS builds clean). **MASK POSITION BUGFIX**, investigated on request ("Euclid
