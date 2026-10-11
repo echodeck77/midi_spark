@@ -196,6 +196,68 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ FACTORY PRESETS — the whole-plugin list replaced with 20 new EUCLIDEOUS presets (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; macOS 1309 green (unaffected — a pure preset-data
+  swap, no new testable logic), iOS builds clean). Paul asked for "20 musically interesting presets without
+  using mask" (the usability ferry's own §8, picked up ahead of §§2–7 while device confirmation of the §1 DSP
+  fix was still pending), then "Create these. Remove any existing presets." **SCOPE, CONFIRMED NOT GUESSED —
+  this was a genuinely destructive, hard-to-reverse call, so it went through AskUserQuestion rather than being
+  assumed:** "existing presets" turned out to mean something much bigger than Euclideous. Investigating before
+  touching anything found `MidiSparkAudioUnit.factoryPresetBuilders` is a PRE-EXISTING, WHOLE-DOCUMENT-LEVEL
+  mechanism (`INIT`/`ARC`/`THE LADDER`/`TIDE`/`FORGE`/`CHIME`/`SPARK`/`DELAYS` + all 16 `SceneFactory` curriculum
+  scenes) — entirely unrelated to Euclideous, each one a `() -> PluginState` replacing the ENTIRE 8×8 session,
+  not a page-scoped setting. Euclideous itself had NO preset mechanism of its own (§8 hadn't been built yet) —
+  so there was nothing Euclideous-scoped to remove. Asked Paul directly which list he meant, with both options'
+  real consequences spelled out plainly (one preserves the existing factory/curriculum library untouched, the
+  other deletes it entirely); he confirmed the latter. **BUILT, per that confirmation:** a new
+  `AUExtension/EuclideousPresets.swift` — 20 named `() -> PluginState` builders (`EuclideousPresets.all`), each
+  starting from `PluginState.makeInit()` (empty 8×8 grid, silent) with ONLY Euclideous's own page-level fields
+  configured (`euclideousEnabled`/`Lines`/`Riff`/`KeyRoot`/`KeyType`) — no `EuclidLineMask` field is touched
+  anywhere in the file, per Paul's explicit "without using mask." Six shared RIFF rank-shapes (ARCH/ZIGZAG/RUN/
+  SPARSE/CALL/DESCEND, extending the existing R1/R2 naming convention) back several of the 20: STRIDE WALK
+  (two riff lanes walk one pattern at different STRIDE/LENGTH windows — the literal STRIDE worked example) ·
+  MIRROR WALK (a riffInvert'd lane against its own un-inverted twin, over ZIGZAG) · PENDULUM / PING-PONG LEAD
+  (RiffDir.pendulum vs the genuinely different .pingpong — each endpoint sounds twice, not once) · DRUNKEN WALK
+  / RANDOM GARDEN (a neutral-bias random walk; three independently-seeded RANDOM lanes over the same material)
+  · OCTAVE COLUMN (4 lanes, one ARCH pattern, stacked a 4th octave apart in lockstep) · KOTEKAN (the classic
+  Balinese interlocking figure — two same-density Euclid lanes one ROTATE step apart, hits never coinciding) ·
+  FIVE AGAINST EIGHT (a genuine polymeter — 5-step and 8-step lanes at the same rate) · MIRRORED PITCH / FIFTH
+  ABOVE (riffInvert contrast; melodyTranspose +4 as a scale-degree "fifth" over an identical lockstep lane) ·
+  HELD BREATH (sparse hits, GATE near its ceiling, long sustain with real silence between) · STUTTER FILL
+  (riffAdvanceStep=true — the walk advances every grid STEP, not just on a hit, so a rest doesn't pause it) ·
+  CALL AND HOLD / LONG TAIL (the CALL alternating-rest shape answered by a riffOnRest=.tie lane; a dense pattern
+  where almost every rest extends the preceding note instead of re-articulating) · GAPPED GROOVE (patternMiss
+  inverts a dense lane onto its own original 2 rests — GAPS, not MASK) · EARLY BLOOM (TILT=-1 bunches hits early
+  in the cycle, silent back half) · SCALE WALK (page-level KEY=D DORIAN, lanes CYCLE the scale directly, no
+  riff) · ARPEGGIO LADDER (the RUN shape walked by two lanes an octave + 2-step ROTATE apart — a rising ladder)
+  · BACKWARDS GLANCE (riffDir=.reverse over DESCEND, paired with a plain Euclid lane whose own PATTERN direction
+  is BKW — two independent senses of "backward" layered together). **THE SWAP:**
+  `factoryPresetBuilders = EuclideousPresets.all` — one line, replacing the old 8-literal-plus-SceneFactory
+  array entirely. `PluginState.makeInit()`, `defaultArc()`, `makeLadder*()`, `makeDelays()`, and
+  `SceneFactory.swift` are NOT deleted — `makeInit()` is still the real fresh-instance default at AU
+  instantiation (confirmed via a direct call-site check, not assumed), and `defaultArc`/`makeLadder*`/
+  `SceneFactory` are still exercised directly by `MigrationTests`/`SceneFactoryTests` — only their ENTRY in the
+  factory-preset MENU is gone. **A REAL BREAKAGE CAUGHT BEFORE SHIPPING, not left for a device report:**
+  `AudioUnitViewController.swift`'s DEBUG-only dev-reload helper (`reloadFresh()`, wired to a
+  `.midiSparkReloadUI` notification) called `audioUnit?.loadFactoryPreset(named: "INIT")` — a NAME LOOKUP into
+  the very array just emptied of that name, which would have silently no-op'd (`applyFactoryDocument`'s own
+  `guard let fp = ... else { return }`) rather than crashing, the worst kind of break to leave undetected. Fixed
+  with a new `MidiSparkAudioUnit.resetToFreshInit()` — the exact same flush/replace/clear-pending-build/resync
+  sequence `applyFactoryDocument` already runs, just handed `PluginState.makeInit()` directly instead of a name
+  lookup that no longer resolves. **ALSO FOUND, NOT TOUCHED, flagged plainly rather than silently decided
+  either way:** `ArrangementBar.swift`'s own 16-chip "scene strip" (`sceneChipRow`, toggled by the cog's SCENES
+  switch) is a genuinely SEPARATE mechanism — it pages through ONE document's own internal `PluginState.scenes`
+  array, nothing to do with the AU host preset list — confirmed by reading, not assumed, since `Docs/factory-
+  scenes.md`'s own wording ("they replace the test-session buttons in the strip") could easily be misread as
+  the same thing. `Docs/factory-scenes.md` is now describing content that is UNREACHABLE from the live plugin
+  (the 16 curriculum scenes had no OTHER way in besides the now-removed `factoryPresetBuilders` entry, confirmed
+  by grep — zero other references to `SceneFactory.` outside `MidiSparkAudioUnit.swift`) — left as-is, not
+  retroactively edited or marked historical, since that's a separate documentation decision from this one and
+  Paul's confirmation was specifically about the live preset menu, not about rewriting that doc. **DEVICE-OWED:**
+  every one of the 20 presets' actual sound on a real lane (all were reasoned from the engine's own documented
+  field semantics, none ear-tuned); confirm the AU host's preset picker now shows exactly these 20 names, in
+  this order, with none of the old INIT/ARC/LADDER/SceneFactory entries lingering in a cached host preset list;
+  confirm the DEBUG dev-reload shortcut still resets cleanly (can't be exercised from this environment at all).**
 - **▶ EUCLIDEOUS — usability ferry §1 (the blocker), SHIPPED; §§2–8 queued, awaiting device confirmation
   first per the ferry's own gate (2026-10-11, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`,
   `e892779`; macOS 1309 unaffected, iOS builds clean). A 9-section ferry ("Paul's rulings. Build in the

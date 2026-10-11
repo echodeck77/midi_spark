@@ -46,7 +46,7 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
     #if DEBUG
     // Reset the document to the fresh INIT, then rebuild the SwiftUI tree from scratch (new DiagView ⇒ all @State fresh).
     @objc private func reloadFresh() {
-        audioUnit?.loadFactoryPreset(named: "INIT")     // flush voices · replace doc with INIT · clear pending BUILD · resync tree
+        audioUnit?.resetToFreshInit()     // flush voices · replace doc with a fresh makeInit() · clear pending BUILD · resync tree
         for child in children {                          // tear down the existing hosting controller
             child.willMove(toParent: nil)
             child.view.removeFromSuperview()

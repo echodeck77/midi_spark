@@ -1073,13 +1073,12 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiCurrentPreset() -> String { currentPresetName }
     func listPresets() -> [String] { PresetStore.list() }
 
-    // §3 FACTORY presets (READ-ONLY): DEFAULT (the 3-scene arc) + THE CURRICULUM (SceneFactory's teaching scenes).
+    // §3 FACTORY presets (READ-ONLY): the 20 EUCLIDEOUS presets (Paul 2026-10-11 — see EuclideousPresets.swift's
+    // own header comment). SUPERSEDES the prior DEFAULT/curriculum list (INIT/ARC/THE LADDER/TIDE/FORGE/CHIME/
+    // SPARK/DELAYS + SceneFactory's 16 scenes) entirely, per Paul's explicit "remove any existing presets" —
+    // confirmed via AskUserQuestion as the whole-plugin factory list, not just a Euclideous-scoped addition.
     // Code-defined builders, not files — so no save/overwrite/delete. Numbered non-negative for the host API.
-    static let factoryPresetBuilders: [(name: String, make: () -> PluginState)] =
-        [("INIT", PluginState.makeInit), ("ARC", PluginState.defaultArc),
-         ("THE LADDER", PluginState.makeLadder), ("TIDE", PluginState.makeLadderTide),
-         ("FORGE", PluginState.makeLadderForge), ("CHIME", PluginState.makeLadderChime),
-         ("SPARK", PluginState.makeLadderSpark), ("DELAYS", PluginState.makeDelays)] + SceneFactory.scenes.map { s in (s.name, s.make) }
+    static let factoryPresetBuilders: [(name: String, make: () -> PluginState)] = EuclideousPresets.all
     func factoryPresetNames() -> [String] { Self.factoryPresetBuilders.map { $0.name } }
     /// Apply a factory preset's document — one undoable step + voice flush (from a builder, not a file). No KVO.
     private func applyFactoryDocument(named name: String) {
@@ -1090,6 +1089,19 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         currentPresetName = name
         seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree (else host automation snaps a fresh note back to the OLD morph/transpose/macros)
+    }
+    /// DEBUG-ONLY dev-reload helper (AudioUnitViewController's `reloadFresh`): reset straight to a fresh
+    /// `makeInit()` document. NOT a named factory preset lookup — "INIT" is gone from `factoryPresetBuilders`
+    /// since the 2026-10-11 Euclideous-presets swap, but `makeInit()` itself is still the real fresh-instance
+    /// default (MidiSparkAudioUnit's own `init`) and stays valid to reset to directly.
+    func resetToFreshInit() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        kernel.flushVoices()
+        editDocument { $0 = PluginState.makeInit() }
+        clearPendingBuild()
+        currentPresetName = ""
+        seedLatchArm()
+        suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()
     }
     /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
     func loadFactoryPreset(named name: String) {
