@@ -196,6 +196,32 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS NOTE VIEW — direction flipped to right-to-left, note box moved to the left (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`, `4002c2e`; macOS 1305 green incl. 1 updated, iOS
+  builds clean). Paul asked why the comets ended up left-to-right/note-on-the-right when his ORIGINAL
+  instruction to the design-partner Claude (not Claude Code) was right-to-left/note-on-the-left. Traced
+  rather than guessed: the written engineering spec Claude Code actually received already said "marks
+  travel left to right... reach the playhead" as a literal, cited requirement (a 2026-10-10 self-audit
+  session even fixed a BUG specifically to satisfy that exact claim) — so the build was faithful to the
+  spec it got; the flip most likely happened earlier, when Paul's instruction was translated into that
+  written ferry. The raw original message isn't recoverable (the `_dear_claude_code/` inbox deletes a
+  ferry file on consumption, per this project's own standing workflow). Paul's own reasoning for the
+  correction, verbatim: "right-to-left is what you expect on any piano roll... it also makes the note
+  being played more visible as it's not tucked offscreen." **FIX, three coordinated changes (all in
+  `noteViewTrackRow`/`noteViewTrack`/`noteViewDrawMark`, EuclideousPage.swift, + the shared pure
+  `euclideousNoteViewMarkX`, Derivations.swift):** the note box now leads on the LEFT (was trailing on
+  the right), the track fills the remaining width on the right; `euclideousNoteViewMarkX`'s mapping
+  reversed (age==windowBeats/just-entered now lands at the track's RIGHT edge, age==0/playing-now at the
+  LEFT edge — the playhead moved from the track's right edge to its left, directly beside the note box);
+  the hit mark's own 16pt fading tail now trails RIGHTWARD (behind the new right-to-left direction of
+  travel, was leftward). The underlying PREVIEW mechanic itself (confirmed separately, unaffected by this
+  fix) is untouched — `euclideousNoteViewMarkX`'s own `age >= 0` guard still drops a tick the instant it's
+  played, so only upcoming, not-yet-struck notes are ever drawn, never a trailing history. **TESTS:** the
+  one existing `euclideousNoteViewMarkX` DerivationsTest rewritten to the flipped expected values (age 0 ⇒
+  x=0/left, age==windowBeats ⇒ x=trackW/right) — no new tests needed, the guarded age-window behaviour
+  itself didn't change, only which edge each extreme maps to. **DEVICE-OWED (pure UI, unverifiable off-
+  device):** confirm the flipped layout reads cleanly — the note box now sitting left of its own strip's
+  track, the playhead/tail direction feeling like a piano roll rather than backwards.**
 - **▶ EUCLIDEOUS — "Euclid mask, modes and settings" ferry + "riff-cell wipes, reset progress on lane
   cards" ferry, both SHIPPED (2026-10-11, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`,
   `0a0fe6e`; macOS 1305 green incl. +7, iOS builds clean). Picked up from an interrupted prior session —
