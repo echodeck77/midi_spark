@@ -1709,9 +1709,11 @@ final class DerivationsTests: XCTestCase {
         XCTAssertTrue(euclideousNoteViewIsHit(buf: buf, tickBeat: 2, sub: 1, spanBeats: 2, dir: .fwd), "a span re-anchor must make beat 2 (the span's own step 0) a hit again")
     }
     func testEuclideousNoteViewMarkXReachesThePlayheadExactlyAtAgeZeroAndIsRemovedPastIt() {
+        // Flipped 2026-10-11 (Paul: "right-to-left is what you expect on any piano roll") — the playhead
+        // is now the LEFT edge (x=0), entry is the RIGHT edge (x=trackW).
         let trackW: CGFloat = 100
-        XCTAssertEqual(euclideousNoteViewMarkX(tickBeat: 4, nowBeat: 4, windowBeats: 4, trackW: trackW), trackW, "age 0 (playing exactly now) must land AT the playhead, the track's trailing edge")
-        XCTAssertEqual(euclideousNoteViewMarkX(tickBeat: 8, nowBeat: 4, windowBeats: 4, trackW: trackW), 0, "age == windowBeats (just entered) must land at the far left edge")
+        XCTAssertEqual(euclideousNoteViewMarkX(tickBeat: 4, nowBeat: 4, windowBeats: 4, trackW: trackW), 0, "age 0 (playing exactly now) must land AT the playhead, the track's LEFT edge")
+        XCTAssertEqual(euclideousNoteViewMarkX(tickBeat: 8, nowBeat: 4, windowBeats: 4, trackW: trackW), trackW, "age == windowBeats (just entered) must land at the far RIGHT edge")
         XCTAssertNil(euclideousNoteViewMarkX(tickBeat: 3, nowBeat: 4, windowBeats: 4, trackW: trackW), "§3.3: a mark that has already passed the playhead (age < 0) must be removed, not drawn past the edge")
         XCTAssertNil(euclideousNoteViewMarkX(tickBeat: 20, nowBeat: 4, windowBeats: 4, trackW: trackW), "a tick far beyond the look-ahead window isn't visible yet either")
     }

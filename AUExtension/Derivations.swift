@@ -2472,16 +2472,19 @@ func euclideousNoteViewIsHit(buf: [Bool], tickBeat: Double, sub: Double, spanBea
     let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
     return buf[euclidReadIndex(raw, n: n, dir: dir)]
 }
-/// §2.1/§3.3: a mark's on-screen X, 0 (just entered, far left) ... `trackW` (the playhead, right edge),
-/// moving continuously as `nowBeat` advances — `nil` once it's outside the visible window entirely (either
-/// hasn't entered yet, or — per §3.3, "remove each mark once it has passed the playhead" — has already played).
-/// `age` is beats-until-this-tick-plays (positive = still approaching, 0 = playing exactly now, negative =
-/// already played) — the mark's position is `trackW` scaled by how much of the window `age` has consumed.
+/// §2.1/§3.3 (Paul 2026-10-11: flipped to match a piano roll's own reading direction, the note more
+/// visible for sitting against the strip's own note box instead of tucked off the far edge): a mark's
+/// on-screen X, `trackW` (just entered, far right) ... 0 (the playhead, LEFT edge), moving continuously
+/// as `nowBeat` advances — `nil` once it's outside the visible window entirely (either hasn't entered
+/// yet, or — per §3.3, "remove each mark once it has passed the playhead" — has already played). `age`
+/// is beats-until-this-tick-plays (positive = still approaching, 0 = playing exactly now, negative =
+/// already played) — the mark's position is `trackW` scaled by how much of the window `age` still has
+/// left to consume (age==windowBeats ⇒ trackW/far right; age==0 ⇒ 0/the playhead on the left).
 func euclideousNoteViewMarkX(tickBeat: Double, nowBeat: Double, windowBeats: Double, trackW: CGFloat) -> CGFloat? {
     guard windowBeats > 0 else { return nil }
     let age = tickBeat - nowBeat
     guard age >= 0, age <= windowBeats else { return nil }
-    return trackW * CGFloat(1 - age / windowBeats)
+    return trackW * CGFloat(age / windowBeats)
 }
 /// §2.3, literal: "2 bars... if the fastest playing lane's steps would be less than 6pt apart, reduce the
 /// window to 1 bar, then ½ bar." Picks the LARGEST of {2, 1, 0.5} bars that still clears the 6pt/step floor,

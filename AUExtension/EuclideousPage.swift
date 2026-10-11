@@ -2579,14 +2579,18 @@ struct EuclideousPage: View {
 
     // MARK: - The track + playhead + note box (ferry 1 §1.2/§2/§3/§4)
 
+    // FLIPPED (Paul 2026-10-11): "right-to-left is what you expect on any piano roll... it also makes the
+    // note being played more visible as it's not tucked offscreen." The note box now leads on the LEFT,
+    // immediately beside the playhead; the track fills the REMAINING width on the right, where upcoming
+    // marks enter and travel leftward toward it.
     private func noteViewTrackRow(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double) -> some View {
         let noteBoxW: CGFloat = 56
         let gap: CGFloat = 8
         let trackW = max(1, width - noteBoxW - gap)
         return HStack(spacing: 0) {
-            noteViewTrack(idx, line, accent: accent, width: trackW, height: height, cyc: cyc, windowBeats: windowBeats)
-            Color.clear.frame(width: gap)
             noteViewNoteBox(idx, line, accent: accent, width: noteBoxW, height: height)
+            Color.clear.frame(width: gap)
+            noteViewTrack(idx, line, accent: accent, width: trackW, height: height, cyc: cyc, windowBeats: windowBeats)
         }
         .frame(width: width, height: height)
     }
@@ -2626,21 +2630,23 @@ struct EuclideousPage: View {
                     let isHit = euclideousNoteViewIsHit(buf: buf, tickBeat: tickBeat, sub: sub, spanBeats: spanBeats, dir: dir)
                     noteViewDrawMark(&ctx, x: x, midY: size.height / 2, isHit: isHit, accent: accent)
                 }
-                // PLAYHEAD (§1.2): fixed 2pt white-60% line at the track's trailing edge — drawn every
-                // frame regardless of `running`, so a stopped lane's track still shows where marks WOULD
-                // land, just with none currently approaching it.
-                ctx.fill(Path(CGRect(x: size.width - 2, y: 0, width: 2, height: size.height)), with: .color(Color.white.opacity(0.6)))
+                // PLAYHEAD (§1.2, flipped 2026-10-11): fixed 2pt white-60% line at the track's trailing
+                // edge — now the LEFT edge (right beside the note box) — drawn every frame regardless of
+                // `running`, so a stopped lane's track still shows where marks WOULD land, just with none
+                // currently approaching it.
+                ctx.fill(Path(CGRect(x: 0, y: 0, width: 2, height: size.height)), with: .color(Color.white.opacity(0.6)))
             }
         }
         .frame(width: width, height: height)
     }
-    /// §3, literal mark styles. The hit's own 16pt tail fades LEFT (behind the direction of travel, since
-    /// marks move left→right toward the playhead on the right).
+    /// §3, literal mark styles. The hit's own 16pt tail fades RIGHT (behind the direction of travel, since
+    /// marks move right→left toward the playhead on the left — flipped 2026-10-11, Paul: "right-to-left is
+    /// what you expect on any piano roll").
     private func noteViewDrawMark(_ ctx: inout GraphicsContext, x: CGFloat, midY: CGFloat, isHit: Bool, accent: Color) {
         if isHit {
-            var tail = Path(); tail.move(to: CGPoint(x: x, y: midY)); tail.addLine(to: CGPoint(x: x - 16, y: midY))
+            var tail = Path(); tail.move(to: CGPoint(x: x, y: midY)); tail.addLine(to: CGPoint(x: x + 16, y: midY))
             ctx.stroke(tail, with: .linearGradient(Gradient(colors: [lane100(accent).opacity(0.6), lane100(accent).opacity(0)]),
-                                                    startPoint: CGPoint(x: x, y: midY), endPoint: CGPoint(x: x - 16, y: midY)), lineWidth: 2)
+                                                    startPoint: CGPoint(x: x, y: midY), endPoint: CGPoint(x: x + 16, y: midY)), lineWidth: 2)
             ctx.fill(Path(ellipseIn: CGRect(x: x - 4, y: midY - 4, width: 8, height: 8)), with: .color(lane100(accent)))
         } else {
             // the hollow-ring "miss-playing" mark RETIRED 2026-10-10 (ferry §4.2) — there's only ever one
