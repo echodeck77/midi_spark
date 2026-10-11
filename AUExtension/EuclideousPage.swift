@@ -1343,17 +1343,19 @@ struct EuclideousPage: View {
     }
     /// RHYTHM (this ferry §5.2, literal — replaces the old tall-vertical-bars layout): a single
     /// HORIZONTAL row of STEPS cells, vertically CENTRED, at ~30% of the picture's own height — still
-    /// reusing the exact same pure functions, in the same order, `Router.runEuclidLine` itself calls
-    /// (`euclidPatternInto` then `euclidTiltPattern`), so the picture can never silently disagree with
-    /// what's struck, and the tilt-driven bunching of hits stays visible along the row regardless of its
-    /// new shorter height. Hit cells LANE-40 (was LANE-100); rest cells unchanged (#3A3E47). No direction
-    /// handling, matching `EuclidCometBar`'s own established precedent.
+    /// reusing the exact same pure functions, in the same ORDER, `Router.runEuclidLine` itself calls
+    /// (`euclidPatternInto` UNROTATED, then `euclidTiltPattern`, then `euclidRotateBuffer` — reordered
+    /// 2026-10-11 alongside the engine, see `euclidTiltPattern`'s own doc comment for why), so the picture
+    /// can never silently disagree with what's struck, and the tilt-driven bunching of hits stays visible
+    /// along the row regardless of its new shorter height. Hit cells LANE-40 (was LANE-100); rest cells
+    /// unchanged (#3A3E47). No direction handling, matching `EuclidCometBar`'s own established precedent.
     private func euclideousRhythmPicture(_ line: EuclidLine, accent: Color) -> some View {
         let n = max(2, min(16, line.steps))
         let k = max(0, min(n, line.pulses))
         var buf = [Bool](repeating: false, count: n)
-        euclidPatternInto(&buf, pulses: k, steps: n, rotation: line.rotate)
+        euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
         if line.tiltResolved != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: line.tiltResolved) }
+        euclidRotateBuffer(&buf, steps: n, rotation: line.rotate)
         // MISS STYLE (ferry §3.3, "the rhythm pad's picture follows the same rule"): the SAME single-point
         // invert the step bar and the engine both apply, so this picture can never disagree with either.
         let missStyle = line.patternMissResolved

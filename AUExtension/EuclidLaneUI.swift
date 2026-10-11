@@ -221,8 +221,13 @@ struct EuclidCometBar: View {
             let nD = Double(n)
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
-                _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
-                if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }   // ferry §3.4 — match the real engine's own emission exactly
+                // REORDERED 2026-10-11 alongside the real engine (see `euclidTiltPattern`'s own doc
+                // comment): tilt now runs on the UNROTATED pattern, rotation applied to the already-tilted
+                // result — ferry §3.4's own "match the real engine's own emission exactly" still holds,
+                // just against the engine's new (decoupled) order instead of the old one.
+                _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
+                if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }
+                euclidRotateBuffer(&buf, steps: n, rotation: rotate)
                 let w = size.width, midY = size.height / 2
                 let insetL: CGFloat = 6, insetR: CGFloat = 6
                 let usable = max(1, w - insetL - insetR)

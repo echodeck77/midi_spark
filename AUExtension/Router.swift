@@ -4220,11 +4220,17 @@ final class Router {
                                 mask: EuclidLineMask = EuclidLineMask()) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
-                euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: rotate)
-                // TILT (Paul 2026-10-08): a single insertion point, AFTER rotation — every downstream read of
-                // `euclidBuf` (the hit/rest test, the CYCLE/RANDOM ordinal walk, MISS's complement) picks up the
-                // tilted shape for free, with zero other changes needed anywhere in this function.
+                // TILT BEFORE ROTATION (Paul 2026-10-11: "the offset makes tilt look indecipherable...
+                // maybe this could adjust to offset" — see `euclidTiltPattern`'s own doc comment for the
+                // full reasoning). Build the pattern unrotated, bias it early/middle/late while its own
+                // step 0 still means "the start of this pattern," THEN rotate the already-tilted result —
+                // so OFFSET slides the shape around the column without silently redefining what TILT's
+                // bias was relative to. Every downstream read of `euclidBuf` (the hit/rest test, the
+                // CYCLE/RANDOM ordinal walk, MISS's complement) still just picks up the final shape, zero
+                // other changes needed anywhere in this function.
+                euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: 0)
                 if tilt != 0 { euclidTiltPattern(&euclidBuf, pulses: k, steps: n, tilt: tilt) }
+                euclidRotateBuffer(&euclidBuf, steps: n, rotation: rotate)
                 // MISS = PATTERN INVERT (Paul 2026-10-10 ferry §2.2: "after HITS, TILT and OFFSET have produced
                 // the pattern") — SUPERSEDES the old dual-voice hit/miss split entire. Flipping `euclidBuf` here,
                 // once, before `cycleHits`/`isHitAt` below are ever read, makes every downstream hit-counting

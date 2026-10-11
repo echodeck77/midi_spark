@@ -2303,31 +2303,51 @@ func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
     let n = euclidPatternInto(&buf, pulses: pulses, steps: steps, rotation: rotation)
     return Array(buf[0..<n])
 }
-/// TILT (Paul 2026-10-08): "a TILT control to bias the distribution of hits to the left or right" — reshapes
-/// an ALREADY-BUILT K-of-N pattern (post-rotation; call this after `euclidPatternInto`) so the K hits cluster
-/// toward the START (negative tilt) or END (positive tilt) of the N-step cycle, without changing K or N.
-/// Deterministic, not random (this engine's own standing invariant: derived, never accumulated — a pattern
-/// must replay identically every time, so a probabilistic reshuffle would be wrong here even though "bias a
-/// distribution" might otherwise suggest one). Mechanism: take the K existing hits in ascending step order,
-/// normalise each one's RANK among the K hits to 0...1, warp that rank through a power curve (`t^gamma` —
-/// gamma<1 pulls ranks toward 1/late, gamma>1 pulls them toward 0/early), then re-place each hit at
-/// `round(warpedRank × (N−1))`. `tilt=0` ⇒ `gamma=1` ⇒ the identity warp ⇒ an EXACT no-op, byte-identical to
-/// not calling this at all. A warped position that collides with an already-placed hit is nudged forward
-/// (wrapping) to the next free step — deterministic and stable, never drops or duplicates a hit. K≤1 or N≤1
-/// has nothing to tilt (a single hit has no "distribution" to bias) and is left untouched. Pure/testable.
+/// TILT (Paul 2026-10-08, REDESIGNED 2026-10-11): "a TILT control to bias the distribution of hits to the
+/// left or right" — reshapes an already-built K-of-N pattern so the K hits cluster toward the START
+/// (negative tilt), MIDDLE (tilt=0, today's even spread), or END (positive tilt) of the N-step cycle,
+/// without changing K or N. Deterministic, not random (this engine's own standing invariant: derived,
+/// never accumulated).
+///
+/// LINEAR BLEND, not a power curve (Paul: "indecipherable or unpredictable... I like the idea that a
+/// slider could place emphasis or density early, middle or late" — a power curve (`rank^gamma`) is
+/// perceptually NONLINEAR: most of its visible movement bunches in a narrow band of the control's travel,
+/// so other parts feel like they do nothing). Each hit's position is now a straight interpolation between
+/// its EVEN-SPREAD position (today's tilt=0 placement) and a fully-packed-at-one-end position, scaled
+/// linearly by `|tilt|` — tilt=0.5 lands each hit exactly HALFWAY between even and fully-packed, matching
+/// a physical slider's own position 1:1. `tilt=±1` reaches the fully-packed end EXACTLY (all K hits
+/// crammed into the first/last K steps, in their original relative order).
+///
+/// CALL BEFORE ROTATION, not after (the OTHER half of the same fix — Paul: "the offset makes it look
+/// indecipherable... maybe this could adjust to offset"). This function no longer has any opinion on
+/// rotation; every caller now applies it to the UNROTATED pattern (`euclidPatternInto(..., rotation: 0)`)
+/// and rotates the TILTED result afterward via `euclidRotateBuffer`, below. This decouples TILT's own
+/// "early/middle/late" meaning from wherever OFFSET currently points — previously, biasing toward "early"
+/// meant "near raw step 0," which OFFSET would then silently redefine by shifting what raw step 0 even
+/// corresponds to in real time; now TILT always means "bias toward the start/middle/end of THIS pattern,"
+/// and OFFSET just slides the already-shaped result around the column, so the two compose instead of
+/// fighting.
+///
+/// A target position that collides with an already-placed hit (a rounding artifact — the underlying
+/// un-rounded positions are provably strictly increasing in hit order for any blend, so a collision can
+/// only ever happen between immediate neighbours) is nudged forward (wrapping) to the next free step —
+/// deterministic and stable, never drops or duplicates a hit. K≤1 or N≤1 has nothing to tilt (a single hit
+/// has no "distribution" to bias) and is left untouched. Pure/testable.
 func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double) {
     guard tilt != 0, k > 1, n > 1 else { return }
     var hits: [Int] = []
     for i in 0..<n where i < buf.count && buf[i] { hits.append(i) }
     guard hits.count == k else { return }   // a mismatched/empty buf (caller error) — leave untouched rather than guess
-    let clampedTilt = max(-1, min(1, tilt))
-    let gamma = pow(2.0, -2.0 * clampedTilt)   // tilt=-1 ⇒ gamma=4 (compress early) · tilt=+1 ⇒ gamma=0.25 (compress late)
+    let t = max(-1, min(1, tilt))
     var used = Set<Int>()
     var placed: [Int] = []
     for i in 0..<hits.count {
-        let rank = Double(i) / Double(k - 1)          // 0...1 ascending rank among the K hits
-        let warped = pow(rank, gamma)
-        var pos = Int((warped * Double(n - 1)).rounded())
+        let evenPos = Double(i) / Double(k - 1) * Double(n - 1)   // today's tilt=0 placement
+        // Blend toward whichever end `t`'s sign points at — the OTHER end never enters the computation,
+        // so a pattern can never accidentally lean the wrong way from a sign error.
+        let packedPos = t < 0 ? Double(i) : Double(n - k + i)     // fully early (i) or fully late (n−k+i)
+        let target = evenPos + abs(t) * (packedPos - evenPos)
+        var pos = Int(target.rounded())
         pos = max(0, min(n - 1, pos))
         while used.contains(pos) { pos = (pos + 1) % n }   // deterministic collision nudge — bounded: ≤ n iterations total across all k placements
         used.insert(pos)
@@ -2335,6 +2355,28 @@ func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: D
     }
     for i in 0..<n where i < buf.count { buf[i] = false }
     for p in placed where p < buf.count { buf[p] = true }
+}
+/// Cyclically shifts an already-built pattern buffer by `rotation` steps — the EXACT same read-index
+/// convention `euclidPatternInto`'s own `rotation` parameter already applies internally
+/// (`buf[i] = rawPattern[(i+rot) % n]`), just as a separate, later step so `euclidTiltPattern` (above) can
+/// run on the UNROTATED pattern first. A plain cyclic shift; carries no opinion about hits/tilt/anything
+/// else. Tolerates `buf.count > n` (only indices `0..<n` are read/written), matching `euclidPatternInto`'s
+/// own convention. ZERO ALLOCATION (invariant 3 — this is called from `runEuclidLine`, on the render
+/// path): the classic three-reversal in-place rotation (reverse `[0,r)`, reverse `[r,n)`, reverse the
+/// whole thing) via `Array.swapAt`, not a copy-and-reindex — a first draft of this function built a
+/// `Array(buf[0..<n])` snapshot before reassigning, a genuine render-thread heap allocation, caught before
+/// it shipped.
+func euclidRotateBuffer(_ buf: inout [Bool], steps n: Int, rotation rot: Int) {
+    guard n > 1, buf.count >= n else { return }
+    let r = ((rot % n) + n) % n
+    guard r != 0 else { return }
+    func reverse(_ lo: Int, _ hi: Int) {
+        var l = lo, h = hi - 1
+        while l < h { buf.swapAt(l, h); l += 1; h -= 1 }
+    }
+    reverse(0, r)
+    reverse(r, n)
+    reverse(0, n)
 }
 /// DIRECTION (Paul 2026-09-29, extended 2026-10-01 to 3-way FWD/BKW/PING-PONG) — maps a position already reduced
 /// mod `euclidCycleLen(dir, n:)` to the buffer index to read. FWD reads the already-rotated buffer in order; BKW

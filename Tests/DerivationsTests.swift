@@ -510,6 +510,51 @@ final class DerivationsTests: XCTestCase {
         euclidTiltPattern(&buf, pulses: 1, steps: 8, tilt: 1)
         XCTAssertEqual(buf, before, "a single hit has nothing to bias — tilt must be a no-op")
     }
+    // LINEAR BLEND (Paul 2026-10-11, redesign — "indecipherable or unpredictable... I like the idea of a
+    // slider that places density early, middle or late"): replaces the old power-curve (`rank^gamma`) warp,
+    // which was perceptually nonlinear (most of its visible movement bunched in a narrow band of the
+    // control's travel). The new mechanism must be a TRUE straight-line interpolation between "evenly
+    // spread" (tilt=0) and "fully packed at one end" (tilt=±1) — distinguishing it from the old curve,
+    // which would NOT land on these exact values.
+    func testEuclidTiltPatternReachesExactlyFullyPackedAtTheExtremes() {
+        let k = 4, n = 16
+        var early = euclidPattern(pulses: k, steps: n); euclidTiltPattern(&early, pulses: k, steps: n, tilt: -1)
+        XCTAssertEqual(early, (0..<n).map { $0 < k }, "tilt=-1 must cram all K hits into the FIRST K steps, exactly")
+        var late = euclidPattern(pulses: k, steps: n); euclidTiltPattern(&late, pulses: k, steps: n, tilt: 1)
+        XCTAssertEqual(late, (0..<n).map { $0 >= n - k }, "tilt=+1 must cram all K hits into the LAST K steps, exactly")
+    }
+    func testEuclidTiltPatternAtHalfTiltLandsExactlyHalfwayBetweenEvenAndPacked() {
+        // K=3/N=10, tilt=0.5, worked by hand from the formula itself (evenPos + |t|×(packedLate−evenPos)),
+        // not from the OLD power-curve (which would NOT produce these values — the discriminating point of
+        // this test): hit0 evenPos=0, packedLate=10−3+0=7 → 0+0.5×7=3.5→4. hit1 evenPos=1/2×9=4.5,
+        // packedLate=8 → 4.5+0.5×3.5=6.25→6. hit2 evenPos=9, packedLate=9 (coincide at the last hit for
+        // this K/N) → 9. No collisions (4,6,9 are distinct), so no nudging enters the picture either.
+        let k = 3, n = 10
+        var buf = euclidPattern(pulses: k, steps: n)
+        euclidTiltPattern(&buf, pulses: k, steps: n, tilt: 0.5)
+        let positions = buf.enumerated().filter { $0.element }.map { $0.offset }
+        XCTAssertEqual(positions, [4, 6, 9], "tilt=0.5 must land each hit exactly halfway between its even-spread and fully-packed-late position — the defining property of a LINEAR blend")
+    }
+    // ROTATION DECOUPLING (Paul 2026-10-11: "the offset makes tilt look indecipherable... maybe this could
+    // adjust to offset") — `euclidRotateBuffer` must reproduce `euclidPatternInto`'s OWN internal rotation
+    // exactly, so building unrotated-then-rotating is byte-identical to the old single-call convention
+    // whenever TILT isn't in play (the untilted case must be a true no-op change).
+    func testEuclidRotateBufferMatchesEuclidPatternIntosOwnRotationExactly() {
+        for (k, n, rot) in [(3, 8, 1), (3, 8, 5), (5, 16, 7), (2, 8, 0), (4, 12, 11)] {
+            let direct = euclidPattern(pulses: k, steps: n, rotation: rot)
+            var viaRotate = euclidPattern(pulses: k, steps: n, rotation: 0)
+            euclidRotateBuffer(&viaRotate, steps: n, rotation: rot)
+            XCTAssertEqual(viaRotate, direct, "K=\(k) N=\(n) rot=\(rot): build-unrotated-then-rotate must exactly match build-with-rotation")
+        }
+    }
+    func testEuclidRotateBufferPreservesCountAndIsANoOpAtZero() {
+        var buf = euclidPattern(pulses: 3, steps: 8)
+        let before = buf
+        euclidRotateBuffer(&buf, steps: 8, rotation: 0)
+        XCTAssertEqual(buf, before, "rotation=0 must be a byte-identical no-op")
+        euclidRotateBuffer(&buf, steps: 8, rotation: 3)
+        XCTAssertEqual(buf.filter { $0 }.count, 3, "rotation must never drop or duplicate a hit")
+    }
     // DIRECTION (2026-09-29): euclidReadIndex flips the READ into the already-rotated buffer, not a second
     // rotation. Rotate-then-reverse and reverse-then-rotate are NOT the same pattern in general (they differ by a
     // shift of 2×rotate mod n) — this worked example pins the composition order actually shipped, so a future
