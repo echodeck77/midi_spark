@@ -196,6 +196,37 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the 3 gesture pads move INTO the PATTERN tab, freeing real height for MASK (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean, no macOS test-target reach).
+  Paul: "Below the lane itself, the rest of the box will be within the pattern/mask tabs. The xy controls
+  will be on pattern, leaving a lot of space for Euclid mask." A real layout restructuring, not just a move:
+  the 3 gesture pads (TILT/HITS·OFFSET/COUNT·GATE/VELOCITY) used to be their OWN always-visible row, sitting
+  ABOVE the PATTERN/MASK tab strip regardless of which tab was selected — so MASK's own content had to
+  squeeze into the exact same small fixed budget PATTERN's two rows used, with the pads taking a big, fixed
+  bite out of the card REGARDLESS of which tab you were even looking at. Now the card is 3 top-level rows
+  (comet · tab strip · tab content) instead of 4; the pads live INSIDE `tabContent`'s `.pattern` case
+  specifically, so they only render while PATTERN is selected, and the WHOLE freed row's height folds into
+  one shared `contentAreaH` budget that each tab spends for itself. PATTERN keeps its 2 fixed rows (HIT/
+  GAPS/RATE, DIRECTION+OUTPUT) at their existing size and stretches the pads into whatever's left —
+  functionally the pads' own old "shrinks toward 0 first" floor-protection, just relocated, not rebuilt.
+  MASK has no equivalent fixed-vs-stretchy split of its own (`maskLine2` is its one fixed row) — its
+  step-bar (`maskCometRow`/`maskStepBar`) now grows to fill everything PATTERN's pads would otherwise have
+  sat above, which is the literal "a lot of space for Euclid mask" this move was FOR. **A FOLLOW-ON FIX
+  FOUND WHILE WIRING THIS, not a separate ask:** `maskStepBar`'s own Canvas had a HARDCODED `boxH = min(30,
+  size.height − 6)` — so even with a much taller container handed to it, the actual step boxes would have
+  stayed capped at 30pt, just floating in extra blank space above/below rather than genuinely using the
+  freed room. Raised the cap to 60 — a disclosed judgment call on the new ceiling's exact number, not
+  something reasoned to a precise value, but the literal fix for "the freed space doesn't actually make the
+  mask step-bar bigger." **ARITHMETIC CHECKED BEFORE SHIPPING, not assumed:** `laneCardFixedOverhead` (the
+  constant `portraitLayout` uses to protect a lane-grid height floor) is unaffected in VALUE — moving one
+  row from "4 top-level children, 3 gaps" to "3 top-level children + an extra internal gap inside tab
+  content, 2+2 gaps" is a wash (both arrangements sum to the same 4 total sp4 gaps), hand-verified by
+  recomputing both the old and new structure's floor total (190pt either way) rather than trusting that it
+  "should" come out the same. **DEVICE-OWED:** the pads' PATTERN-only visibility actually reading as
+  intentional (not "where did my controls go" on first switching to MASK); MASK's step-bar at its real,
+  now-much-taller size — is 60pt actually a good ceiling, or should it go further/less; confirm nothing
+  clips at the smallest realistic card size now that the pads' own floor-protection math was relocated
+  rather than rebuilt from scratch.**
 - **▶ EUCLIDEOUS — the RATE popup declutters dotted/triplet behind a disclosure (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean, no macOS test-target reach).
   Paul asked whether dotted/triplet rates are worth keeping on the pattern section at all; the answer (given

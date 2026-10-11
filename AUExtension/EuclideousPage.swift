@@ -638,14 +638,20 @@ struct EuclideousPage: View {
     private let cometRowH: CGFloat = 56
     private let tabRowH: CGFloat = 30
     private let contentLineH: CGFloat = 36
-    /// A tab's 2-row content is `36 + sp4 + 36` (each tab's own inner VStack uses `spacing: sp4` between its
-    /// 2 rows, confirmed by reading all four: `ioSourceRow`+`laneOutRow`, `directionRow`+`hitMissRateRow`,
-    /// `riffDirGrid`'s own 2 rows (OFF/direction-chip/FREE-LOCK, then INVERT/ON-REST — ferry 2026-10-09),
-    /// `maskCometRow`+`maskStubRow`) — not a bare `36×2`.
-    private var tabContentH: CGFloat { contentLineH * 2 + sp4 }
-    /// A lane card's own fixed overhead — every row EXCEPT the gesture-pad row, which stretches to fill
-    /// whatever's left (see `laneCard`). Used only to protect a lane-grid floor in `portraitLayout` below.
-    private var laneCardFixedOverhead: CGFloat { cometRowH + tabRowH + tabContentH + sp8 * 2 + sp4 * 3 }
+    /// LAYOUT MOVE (Paul 2026-10-11: "the xy controls will be on pattern, leaving a lot of space for Euclid
+    /// mask") — the 3 gesture pads moved from their own always-visible top-level row into the PATTERN tab's
+    /// own content (see `tabContent`'s `.pattern` case) — so the card is now 3 top-level rows (comet · tab
+    /// strip · tab content), not 4, and the pads only render while PATTERN is the selected tab. `tabContentH`
+    /// (below) is the FLOOR of that content area — both fixed rows (36pt each) PLUS the extra internal gap
+    /// the now-3-child tab-content VStack adds (2 gaps of sp4, not 1) — this is the exact amount `laneCard`'s
+    /// own `contentAreaH` can shrink to before the gesture pads hit zero height, mirroring the gesture row's
+    /// old "shrinks toward 0" floor exactly, just relocated. `MASK`'s own content (`maskCometRow`+`maskLine2`)
+    /// shares this SAME `contentAreaH` budget and grows `maskCometRow` into whatever space PATTERN's pads
+    /// aren't claiming (there is no competing "gesture row" on the MASK side to protect a floor for).
+    private var tabContentH: CGFloat { contentLineH * 2 + sp4 * 2 }
+    /// A lane card's own fixed overhead — every row EXCEPT the part of tab content the gesture pads (PATTERN)
+    /// / the step-bar (MASK) stretch to fill. Used only to protect a lane-grid floor in `portraitLayout` below.
+    private var laneCardFixedOverhead: CGFloat { cometRowH + tabRowH + tabContentH + sp8 * 2 + sp4 * 2 }
 
     /// FULL-WIDTH LAYOUT (this ferry §1, a BLOCKER fix; §2 removes the placeholder entirely) — SUPERSEDES
     /// the "six equal boxes" design wholesale. ROOT CAUSE of the reported bug: that design forced every
@@ -1144,16 +1150,15 @@ struct EuclideousPage: View {
         // are inset, compare MASK in lane 2 with PATTERN in lane 4": every row below is built from THIS one
         // width, never the raw card `width`.
         let innerWidth = max(1, width - sp8 * 2)
-        let padSize = max(1, (innerWidth - sp4 * 2) / 3)   // DIRECTION/HIT-MISS-RATE: 3 equal columns, sp4 gaps
-        // GESTURE PADS — down to 3 (ferry 2026-10-10 §1.1: SHIFT/OCT dropped, now in the melody pop-up). The
-        // 3 survivors share the freed width equally, same formula as padSize above.
-        let gesturePadW = max(1, (innerWidth - sp4 * 2) / 3)
-        // NO EMPTY BANDS (ferry §1.3): the gesture-pad row's HEIGHT is computed explicitly as "exactly what's
-        // left" after every other fixed-height row + the card's own sp8 padding (top+bottom) + the sp4 gaps
-        // between this VStack's 4 children — the pads STRETCH to fill it, never centred-with-slack.
+        let padSize = max(1, (innerWidth - sp4 * 2) / 3)   // DIRECTION/HIT-MISS-RATE/gesture pads: 3 equal columns, sp4 gaps
+        // NO EMPTY BANDS (ferry §1.3, still honoured after the pads' 2026-10-11 move into PATTERN's own tab
+        // content): `contentAreaH` is computed explicitly as "exactly what's left" after the comet row + tab
+        // strip + the card's own sp8 padding (top+bottom) + the NOW-2 sp4 gaps between this VStack's 3
+        // children (was 3 gaps across 4 children) — `tabContent` itself decides how much of this its own
+        // stretchy element (the pads on PATTERN, the step-bar on MASK) gets, never centred-with-slack.
         let outerVPad: CGFloat = sp8 * 2
-        let rowGaps: CGFloat = sp4 * 3     // VStack(spacing: sp4) between the 4 children = 3 gaps
-        let gestureRowH = max(1, height - cometRowH - tabRowH - tabContentH - outerVPad - rowGaps)
+        let rowGaps: CGFloat = sp4 * 2     // VStack(spacing: sp4) between the 3 children = 2 gaps
+        let contentAreaH = max(1, height - cometRowH - tabRowH - outerVPad - rowGaps)
         let steps = max(2, min(16, line.steps))
         ZStack {
             // RESET PROGRESS FILL (ferry "riff-cell wipes, reset progress on lane cards" §3) — the
@@ -1174,9 +1179,8 @@ struct EuclideousPage: View {
                               onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
                               stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
                               stepCountBadgeWidth: stepCountBadgeTotalWidth)
-                gesturePadRow(idx, line, accent, cellSize: gesturePadW, rowHeight: gestureRowH)
                 laneTabRow(idx, line, accent, rowH: tabRowH)
-                tabContent(idx, line, tab, accent, cellSize: padSize, rowH: contentLineH, fullWidth: innerWidth)
+                tabContent(idx, line, tab, accent, cellSize: padSize, contentAreaH: contentAreaH, fullWidth: innerWidth)
             }
             .padding(sp8)
         }
@@ -1804,20 +1808,32 @@ struct EuclideousPage: View {
         }
     }
 
-    @ViewBuilder private func tabContent(_ idx: Int, _ line: EuclidLine, _ tab: EuclideousLaneTab, _ accent: Color, cellSize: CGFloat, rowH: CGFloat, fullWidth: CGFloat) -> some View {
+    /// LAYOUT MOVE (Paul 2026-10-11, literal: "below the lane itself, the rest of the box will be within
+    /// the pattern/mask tabs. The xy controls will be on pattern, leaving a lot of space for Euclid mask") —
+    /// `contentAreaH` (not a flat per-row `rowH` anymore) is the WHOLE space this tab's content has to work
+    /// with; each tab decides for itself how to spend it. PATTERN gives its 2 fixed rows (HIT/GAPS/RATE,
+    /// DIRECTION+OUTPUT) their existing `contentLineH` each and stretches the 3 gesture pads into whatever's
+    /// left — the pads' own former always-visible row, now living here instead, so they only show while
+    /// PATTERN is selected. MASK has no equivalent fixed-vs-stretchy split today (`maskLine2` is its one
+    /// fixed row), so its step-bar (`maskCometRow`) simply grows to fill everything PATTERN's pads would
+    /// have otherwise sat above — the literal "a lot of space for Euclid mask" this move is FOR.
+    @ViewBuilder private func tabContent(_ idx: Int, _ line: EuclidLine, _ tab: EuclideousLaneTab, _ accent: Color, cellSize: CGFloat, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         switch tab {
         case .pattern:
             // I/O TAB RETIRED (Paul 2026-10-11): HIT/MISS/RATE moves to the TOP row; DIRECTION now shares
             // the BOTTOM row with OUTPUT (the old I/O tab's sole remaining content) — DIRECTION narrowed
             // + left-aligned, OUTPUT right-aligned, so this row literally reads "output, bottom right."
+            let gestureH = max(1, contentAreaH - contentLineH * 2 - sp4 * 2)
             VStack(spacing: sp4) {
-                hitMissRateRow(idx, line, accent, cellSize: cellSize, rowH: rowH)
-                directionAndOutRow(idx, line, accent, rowH: rowH, fullWidth: fullWidth)
+                gesturePadRow(idx, line, accent, cellSize: cellSize, rowHeight: gestureH)
+                hitMissRateRow(idx, line, accent, cellSize: cellSize, rowH: contentLineH)
+                directionAndOutRow(idx, line, accent, rowH: contentLineH, fullWidth: fullWidth)
             }
         case .mask:
+            let maskCometH = max(1, contentAreaH - contentLineH - sp4)
             VStack(spacing: sp4) {
-                maskCometRow(idx, line, accent, width: fullWidth, height: rowH)
-                maskLine2(idx, line, accent, rowH: rowH, width: fullWidth)
+                maskCometRow(idx, line, accent, width: fullWidth, height: maskCometH)
+                maskLine2(idx, line, accent, rowH: contentLineH, width: fullWidth)
             }
         }
     }
@@ -2255,7 +2271,11 @@ struct EuclideousPage: View {
                 let midY = size.height / 2
                 let usableW = max(1, size.width - insetL - insetR)
                 let (boxW, gap, _) = euclidBoxGeometry(n: n, usableWidth: usableW)
-                let boxH = min(30, size.height - 6)
+                // RAISED 30→60 (Paul 2026-10-11, the PATTERN/MASK layout move — this bar now has real
+                // extra height to use, where it used to sit capped inside a flat 36pt row regardless; a
+                // judgment call on the new ceiling itself, not device-verified against how it actually
+                // looks at the new, much taller container height.
+                let boxH = min(60, size.height - 6)
                 let corner = min(5, boxW / 2.2)
                 for i in 0..<n {
                     let rect = CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
