@@ -196,6 +196,47 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a PRESETS button on the page itself + a second NOTE VIEW DSP consolidation (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean, no macOS test-target reach for
+  either change — both are GridUI/EuclideousPage-only). Paul: "add a preset button on the euclidius page, then
+  review if there's a way we can keep the cpu down." **PRESET BUTTON:** presets were only reachable from the
+  main workbench header — moot now that the app opens straight into Euclideous (the entry above) and never
+  shows that header by default. New `EuclideousPage.onOpenPresets: () -> Void`, wired at the construction site
+  to the EXISTING `openPresets()` (`AudioUnitViewController.swift`, the same function the main header's own
+  button already calls) — no new preset-loading machinery, just a second door to the one that exists. Rendered
+  as a small icon-only button (`folder.fill`, matching the main workbench's own preset-button glyph, at the
+  close button's own plain-glyph footprint rather than a labelled chip — this header has no spare width to
+  give, per every prior ferry's own fit fights) in BOTH header layouts, right before the close button. Opening
+  it shows the SAME `PresetBrowser` overlay the VC already renders as a sibling z-ABOVE Euclideous in the outer
+  ZStack — so it layers correctly without any new overlay plumbing. Picking a preset calls `loadFactoryPreset`
+  → `refreshFromDocument()`, which already refreshes EVERY Euclideous-relevant `@State` mirror synchronously
+  (confirmed by reading — `euclideousLines`/`Enabled`/`Riff`/`ResetSpanBars`/`KeyRoot`/`KeyType`/`MainOutMask`/
+  `Chords`, not just lines/enabled) and leaves `showEuclideous` untouched, so picking a preset from inside
+  Euclideous shows its content immediately, without leaving the page. **CPU REVIEW, one real finding fixed:**
+  re-audited every `TimelineView` this page owns. `riffGridView`'s shared-timeline fix (this session's earlier
+  §1.2 DSP entry) still holds. The 4 XY-pad "pictures" (TILT/HITS·OFFSET/COUNT·GATE/VEL·NOTE/OCT) have no
+  `TimelineView` at all — purely static Canvas draws, redrawn only on an actual gesture-driven state change;
+  nothing to fix there. **FOUND THE SAME ANTI-PATTERN SURVIVED in NOTE VIEW, missed by the earlier DSP pass**:
+  each of the 4 lane strips independently owned TWO 60fps `TimelineView`s (`noteViewTrack` + `noteViewNoteBox`)
+  — 8 separate SwiftUI animation schedulers ticking concurrently whenever the transport plays. `noteViewTrack`'s
+  4 instances were even gated IDENTICALLY (`paused: !clock.playing`, no per-lane term at all, confirmed by
+  reading — pure redundancy, zero behavioural difference between 1 and 4). Consolidated: `noteViewPanel` now
+  owns ONE shared `TimelineView` (1/60, `paused: !clock.playing`), computing `liveBeat` once and threading it
+  down through `noteViewStrip`→`noteViewTrackRow`→both `noteViewTrack` and `noteViewNoteBox` as a plain
+  parameter — collapsing 8 schedulers into 1. **A GENUINE JUDGMENT CALL, checked not assumed, flagged plainly:**
+  `noteViewNoteBox`'s own pause WAS per-lane (`!(clock.playing && line.enabledResolved)`, built specifically to
+  freeze a disabled lane's box per §2.6 — a real, previously-reported bug, not incidental). Dropping it needed
+  reasoning through, not just copying the track's fix blind: `lastEvent`/`restFlash` (the box's only real
+  inputs besides the live beat) are themselves already frozen-by-construction the instant a lane stops striking
+  — the engine simply never pushes a new one — so the ONLY residual effect of sharing the tick is letting an
+  ALREADY-in-flight brightness fade finish settling to its 40% floor instead of freezing mid-fade, a difference
+  bounded by one GATE length (a small fraction of one step — sub-beat, imperceptible in practice). Hoisted
+  anyway, on that reasoning, but named here explicitly as a judgment call rather than a silently-assumed-safe
+  change — worth a direct look if a disabled lane's note box ever reads as "still visibly changing" on device.
+  **DEVICE-OWED:** the preset button's reachability/tap target in both orientations; confirm picking a preset
+  from inside Euclideous actually shows the new content without a stutter; whether the NOTE VIEW consolidation
+  is perceptible at all on a real device's CPU meter, and whether the disabled-lane note-box judgment call
+  above needs correcting.**
 - **▶ AU PARAMETER DEADLOCK — a confirmed SIGKILL crash on preset load, fixed (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean, no macOS test-target reach — the
   AU layer isn't unit-tested, DEVICE-owed to confirm the crash is actually gone). Paul, after reporting the new

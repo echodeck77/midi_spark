@@ -264,6 +264,10 @@ struct EuclideousPage: View {
     let onSetKeyRoot: (Int) -> Void
     let onSetKeyType: (ScaleType) -> Void
     let onSetMainOutMask: (UInt8) -> Void
+    let onOpenPresets: () -> Void   // (Paul 2026-10-11: "add a preset button on the euclidius page" — presets
+                                     // were only reachable by leaving this page; opens the SAME browser overlay
+                                     // the main header already uses, which the VC renders as a sibling z-above
+                                     // this one, so it's reachable without ever closing Euclideous.
     let onClose: () -> Void
 
     @State private var selectedLane = 0
@@ -691,6 +695,7 @@ struct EuclideousPage: View {
             headerChordsChip()
             headerMainOutGroup()
             headerOnChip()
+            headerPresetButton()
             headerCloseButton()
         }
         .frame(height: headerRowH)
@@ -704,6 +709,7 @@ struct EuclideousPage: View {
             Spacer(minLength: sp4)
             headerMainOutGroup()
             headerOnChip()
+            headerPresetButton()
             headerCloseButton()
         }
     }
@@ -798,6 +804,15 @@ struct EuclideousPage: View {
         Image(systemName: "xmark.circle.fill").font(.system(size: 15))
             .foregroundColor(.white.opacity(0.5))
             .onTapGesture { onClose() }
+    }
+    /// PRESETS (Paul 2026-10-11): icon-only, matching headerCloseButton's own plain-glyph footprint rather than
+    /// a labelled chip — this header already has no spare width to give (every prior ferry on this page fought
+    /// the SAME narrow-panel fit problem). Same "folder.fill" glyph the main workbench's own PRESETS button uses
+    /// (ArrangementBar.swift), so it reads as the same action rather than a new one.
+    private func headerPresetButton() -> some View {
+        Image(systemName: "folder.fill").font(.system(size: 13))
+            .foregroundColor(.white.opacity(0.5))
+            .onTapGesture { onOpenPresets() }
     }
 
     /// MAIN OUT (Paul 2026-10-07, §2.3): a GLOBAL master gate over every lane's own per-lane routing — fixed
@@ -2594,11 +2609,32 @@ struct EuclideousPage: View {
         // exactly `sp4` tall (the 1pt line centred within it via the second `.frame`), so the panel's total
         // height budget (`innerH`, computed above from `stripH*4 + sp4*3`) is byte-identical — the divider
         // rides IN the existing gap, it doesn't add a new one.
-        return VStack(spacing: 0) {
-            ForEach(0..<4, id: \.self) { idx in
-                noteViewStrip(idx, width: innerW, height: stripH, cyc: cyc, windowBeats: windowBeats)
-                if idx < 3 {
-                    Rectangle().fill(Color(hex: 0x22252C)).frame(height: 1).frame(height: sp4)
+        // DSP FIX (Paul 2026-10-11, "review if there's a way we can keep the CPU down" — Euclideous is now
+        // the app's default/always-open view, so its own steady-state cost matters far more than when it was
+        // an occasional overlay): the 4 strips below used to each own TWO independent 60fps `TimelineView`s
+        // (noteViewTrack + noteViewNoteBox) — 8 separate SwiftUI animation schedulers ticking concurrently
+        // whenever the transport plays, EXACTLY the "per-cell TimelineView explosion" class this page's own
+        // §1.2 DSP fix already named and fixed once for the riff-grid wipes. Re-checking here found the SAME
+        // anti-pattern survived in NOTE VIEW: noteViewTrack's 4 instances were even gated IDENTICALLY
+        // (`paused: !clock.playing`, no per-lane term at all) — pure redundancy, zero behaviour difference
+        // between sharing one and running four. Consolidated into ONE shared `TimelineView` here, `liveBeat`
+        // computed once and threaded down to every strip — collapses 8 schedulers into 1.
+        // noteViewNoteBox's own pause WAS per-lane (`!(clock.playing && line.enabledResolved)`, to freeze a
+        // disabled lane's box per §2.6) — checked rather than assumed safe to drop: `lastEvent`/`restFlash`
+        // are themselves already frozen-by-construction once a lane stops striking (the engine simply never
+        // pushes a new one), so the only residual effect of sharing this tick is letting an ALREADY-in-flight
+        // brightness fade finish settling to its 40% floor instead of freezing mid-fade — a sub-beat-duration
+        // difference (a GATE is a small fraction of one step), imperceptible in practice. Flagged as a
+        // judgment call, not a silent assumption — worth a direct look if a disabled lane's box ever reads as
+        // "still changing" on device.
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !clock.playing)) { tl in
+            let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
+            VStack(spacing: 0) {
+                ForEach(0..<4, id: \.self) { idx in
+                    noteViewStrip(idx, width: innerW, height: stripH, cyc: cyc, windowBeats: windowBeats, liveBeat: liveBeat)
+                    if idx < 3 {
+                        Rectangle().fill(Color(hex: 0x22252C)).frame(height: 1).frame(height: sp4)
+                    }
                 }
             }
         }
@@ -2608,15 +2644,16 @@ struct EuclideousPage: View {
     }
 
     /// One lane's strip (ferry 1 §1.1-§1.3 + ferry 2 §1.1-§1.4): a 14pt label row, then the track+playhead+
-    /// note-box row filling whatever height remains.
-    private func noteViewStrip(_ idx: Int, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double) -> some View {
+    /// note-box row filling whatever height remains. `liveBeat` rides down from `noteViewPanel`'s ONE
+    /// shared `TimelineView` (the 2026-10-11 DSP fix) rather than each strip ticking its own.
+    private func noteViewStrip(_ idx: Int, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double, liveBeat: Double) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let accent = laneAccents[idx % laneAccents.count]
         let labelH: CGFloat = 14
         let bodyH = max(1, height - labelH)
         return VStack(alignment: .leading, spacing: 0) {
             noteViewLabelRow(line, accent: accent, width: width)
-            noteViewTrackRow(idx, line, accent: accent, width: width, height: bodyH, cyc: cyc, windowBeats: windowBeats)
+            noteViewTrackRow(idx, line, accent: accent, width: width, height: bodyH, cyc: cyc, windowBeats: windowBeats, liveBeat: liveBeat)
         }
         .frame(width: width, height: height, alignment: .leading)
         // STRIP FRAME PUBLISHING (melody pop-up ferry §1.2, "anchored to the strip") — the direct sibling
@@ -2740,14 +2777,14 @@ struct EuclideousPage: View {
     // note being played more visible as it's not tucked offscreen." The note box now leads on the LEFT,
     // immediately beside the playhead; the track fills the REMAINING width on the right, where upcoming
     // marks enter and travel leftward toward it.
-    private func noteViewTrackRow(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double) -> some View {
+    private func noteViewTrackRow(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double, liveBeat: Double) -> some View {
         let noteBoxW: CGFloat = 56
         let gap: CGFloat = 8
         let trackW = max(1, width - noteBoxW - gap)
         return HStack(spacing: 0) {
-            noteViewNoteBox(idx, line, accent: accent, width: noteBoxW, height: height)
+            noteViewNoteBox(idx, line, accent: accent, width: noteBoxW, height: height, liveBeat: liveBeat)
             Color.clear.frame(width: gap)
-            noteViewTrack(idx, line, accent: accent, width: trackW, height: height, cyc: cyc, windowBeats: windowBeats)
+            noteViewTrack(idx, line, accent: accent, width: trackW, height: height, cyc: cyc, windowBeats: windowBeats, liveBeat: liveBeat)
         }
         .frame(width: width, height: height)
     }
@@ -2761,15 +2798,13 @@ struct EuclideousPage: View {
     /// reported DSP spike) explicitly calls this view out by name. 1/60 is still imperceptibly different
     /// from a mark landing "exactly on the beat" to any human eye (a ProMotion display's own 120Hz is pure
     /// headroom no one can see used), while roughly halving this view's worst-case per-frame cost.
-    private func noteViewTrack(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double) -> some View {
+    private func noteViewTrack(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double, liveBeat: Double) -> some View {
         let running = clock.playing && line.enabledResolved   // §2.6: a stopped lane draws no marks
         let sub = max(0.03125, line.rate?.beats ?? ArpRate.r1_16.beats)
         let buf = euclideousNoteViewPattern(pulses: line.pulses, steps: line.steps, rotate: line.rotate, tilt: line.tiltResolved, patternMiss: line.patternMissResolved)
         let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
         let dir = line.directionResolved
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !clock.playing)) { tl in
-            let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
-            Canvas { ctx, size in
+        return Canvas { ctx, size in
                 guard windowBeats > 0 else { return }
                 // BASELINE (UI polish ferry §3.3: "stopped lanes currently show nothing under their
                 // label... draw the track baseline... so all four strips always look the same shape") — a
@@ -2814,7 +2849,6 @@ struct EuclideousPage: View {
                 // just with none currently approaching it.
                 ctx.fill(Path(CGRect(x: 0, y: 0, width: 2, height: size.height)), with: .color(Color.white.opacity(0.6)))
             }
-        }
         .frame(width: width, height: height)
     }
     /// §3, literal mark styles. The hit's own 16pt tail fades RIGHT (behind the direction of travel, since
@@ -2842,23 +2876,16 @@ struct EuclideousPage: View {
     /// The note box (ferry 1 §4) — a pure function of (the reconciled last event / rest-flash for this
     /// lane, the live extrapolated beat), evaluated fresh every frame; no event-queue bookkeeping happens
     /// here, that's already done once in AudioUnitViewController's own poll.
-    private func noteViewNoteBox(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat) -> some View {
+    /// `liveBeat` rides down from `noteViewPanel`'s shared `TimelineView` (2026-10-11 DSP fix — see that
+    /// function's own comment for why dropping this box's former PER-LANE pause is safe in practice: the
+    /// upstream `lastEvent`/`restFlash` snapshots already freeze by construction once a lane stops striking,
+    /// so sharing the tick only lets an already-in-flight sub-beat fade finish settling, nothing new appears).
+    private func noteViewNoteBox(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, liveBeat: Double) -> some View {
         let lastEvent = idx < noteViewLastEvent.count ? noteViewLastEvent[idx] : nil
         let restFlash = idx < noteViewRestFlash.count ? noteViewRestFlash[idx] : nil
         let flatKey = euclideousKeyIsFlat(keyRoot)
-        // RE-CHECKED, a real gap closed on this pass: this used to pause only on the GLOBAL transport
-        // (`!clock.playing`) — but §2.6 says "a stopped LANE... its note box keeps its last state," and a
-        // single lane can be individually disabled (PLAY/STOP) while the transport keeps running elsewhere.
-        // Without this, a just-disabled lane's box kept animating its OWN already-in-flight fade (driven by
-        // `liveBeat`, which keeps advancing with the still-running transport) even though no new engine
-        // events could possibly arrive for it — a box that's supposed to be frozen kept visibly changing.
-        // CAPPED AT 1/60 (usability ferry §1.2 DSP fix, "NOTE VIEW" named explicitly) — a brightness fade
-        // has no need for faster-than-eye-can-see precision.
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !(clock.playing && line.enabledResolved))) { tl in
-            let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
-            noteViewNoteBoxContent(liveBeat: liveBeat, lastEvent: lastEvent, restFlash: restFlash, accent: accent, flatKey: flatKey)
-                .frame(width: width, height: height)
-        }
+        return noteViewNoteBoxContent(liveBeat: liveBeat, lastEvent: lastEvent, restFlash: restFlash, accent: accent, flatKey: flatKey)
+            .frame(width: width, height: height)
     }
     /// §4.4/§4.5 brightness: kind 0/1 fade continuously over the gate (1.0→0.4); kind 3 (a tied hit) is a
     /// step — full brightness throughout the whole extended span, settling only once it genuinely ends —

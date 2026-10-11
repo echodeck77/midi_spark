@@ -1017,6 +1017,7 @@ struct DiagView: View {
                                        au?.editDocument { $0.euclideousMainOutMask = v }
                                        buildPublishScene()
                                    },
+                                   onOpenPresets: openPresets,
                                    onClose: { showEuclideous = false })
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
