@@ -196,6 +196,29 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the I/O tab retired; OUTPUT moves into PATTERN, bottom right (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`, `a16984a`; macOS 1305 unaffected, iOS builds
+  clean; UI-only). Paul: "I want the io tab removed and for the output to be set in the pattern tab on the
+  bottom right. Reclaim space by making the direction buttons much narrower." The I/O tab's content had
+  already shrunk to just `laneOutRow` (the per-lane OUT toggles) once the melody pop-up absorbed MIDI IN/
+  KEY/CHORDS on 2026-10-10 — nothing else was lost by retiring it. **`EuclideousLaneTab` drops `.io`**,
+  down to PATTERN/MASK (purely ephemeral state, no migration concern — `laneTabRow` iterates `allCases`
+  generically, so the tab strip shrinks to 2 for free). **PATTERN's two rows swap order and merge:**
+  HIT/MISS/RATE moves to the TOP row (unchanged otherwise); DIRECTION now shares the BOTTOM row with
+  OUTPUT via a new `directionAndOutRow` — read literally, narrowing DIRECTION is the MECHANISM that frees
+  that row's own width for OUTPUT, not a cosmetic change made on a different row than the one being
+  reclaimed from, so the two had to end up on the SAME row for the instruction to cohere at all; "bottom
+  right" follows directly once DIRECTION+OUTPUT's shared row is the tab's own bottom one. DIRECTION shrinks
+  from the old full-width 3-equal-column treatment (shared with the gesture pads above, `cellSize`) to a
+  small fixed 26pt-per-button width (`narrowCellSize`, local to the new row only — the gesture pads and
+  HIT/MISS/RATE keep their original width, untouched), left-aligned; OUTPUT (`laneOutRow`) sits right-
+  aligned via a `Spacer`. `laneOutRow` gained a `compact: Bool` flag (its only remaining call site) that
+  drops the now-redundant "OUT" caption — the circles and the "NO OUTPUT" warning are otherwise byte-
+  identical either way. **DEVICE-OWED:** the narrowed direction buttons' touch target at real lane width,
+  and whether the 4 OUT circles (+ the "NO OUTPUT" warning, on a muted lane) comfortably fit the space
+  freed on the narrowest supported card — the arithmetic wasn't hand-verified against a known lane-card
+  width the way several earlier EUCLIDEOUS layout ferries were, since no such figure was in hand this
+  pass; flagged as a real, not just ritual, risk on a tight card.**
 - **▶ EUCLIDEOUS NOTE VIEW — direction flipped to right-to-left, note box moved to the left (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`, `4002c2e`; macOS 1305 green incl. 1 updated, iOS
   builds clean). Paul asked why the comets ended up left-to-right/note-on-the-right when his ORIGINAL
