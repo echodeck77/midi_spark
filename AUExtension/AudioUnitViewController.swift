@@ -212,6 +212,12 @@ struct DiagView: View {
     // is a live, responsive PER-LANE INDICATOR (not persisted config), polled on the fast meterTimer beside euclideousLineReady.
     @State var euclideousRiff: EuclideousRiff = EuclideousRiff()
     @State var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
+    // EUCLID MASK — LIVE POSITION (Paul 2026-10-11 bugfix: "Euclid mask was moving at the main rate, and
+    // not progressing on hits from Euclid lane"). Same class as euclideousRiffPositions above — a live,
+    // responsive PER-LANE INDICATOR (not persisted config), polled on the fast meterTimer. The mask's
+    // position only ever changes on a genuine sounding hit of the lane, never on wall-clock time, so this
+    // is the thing `maskCometRow`'s own step highlight needs to read instead of self-clocking.
+    @State var euclideousMaskPositions: [Int] = [-1, -1, -1, -1]
     // RIFF PANEL — RESOLVED NOTES (Paul 2026-10-08): the ascending notes currently feeding the riff's own
     // pool — live, responsive (same fast poll as euclideousRiffPositions above), NOT persisted config.
     @State var euclideousRiffLivePool: [UInt8] = []
@@ -945,7 +951,7 @@ struct DiagView: View {
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
                     EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled,
                                    lineReady: euclideousLineReady,
-                                   riff: euclideousRiff, riffPositions: euclideousRiffPositions, riffLivePool: euclideousRiffLivePool,
+                                   riff: euclideousRiff, riffPositions: euclideousRiffPositions, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                    noteViewLastEvent: euclideousNVLastEvent, noteViewRestFlash: euclideousNVRestFlash,
                                    wipeEvents: euclideousWipeEvent,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
@@ -1084,6 +1090,8 @@ struct DiagView: View {
                 if er != euclideousLineReady { euclideousLineReady = er }
                 let rp = au.pollEuclideousRiffPositions()
                 if rp != euclideousRiffPositions { euclideousRiffPositions = rp }
+                let mp = au.pollEuclideousMaskPositions()
+                if mp != euclideousMaskPositions { euclideousMaskPositions = mp }
                 let rlp = au.pollEuclideousRiffLivePool()
                 if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
                 // NOTE VIEW (Paul 2026-10-10 ferry): drain the new per-lane event queue and fold it into the

@@ -380,6 +380,21 @@ final class Router {
     private var euclideousLastSoundedNote = [Int8](repeating: -1, count: 4)
     private var euclideousLastSoundedVel = [UInt8](repeating: 0, count: 4)
     private var euclideousMaskRepeatRemaining = [Int](repeating: 0, count: 4)
+    // UI-POLLABLE MASK POSITION (Paul 2026-10-11 bug report: "Euclid mask was moving at the main rate, and
+    // not progressing on hits from Euclid lane as I'd expect"). ROOT CAUSE, confirmed by reading — the
+    // AUDIO/engine side was always correct: `euclideousMaskOrd` above only ever advances inside `if isHit`
+    // (Router.swift's `runEuclidLine`), so the mask genuinely engages only on real sounding hits of the
+    // lane's own Euclid pattern, never on raw sub-beat ticks. The bug is purely VISUAL — `maskCometRow`
+    // (EuclideousPage.swift) drew the mask's step-bar with the SHARED, SELF-CLOCKED `EuclidCometBar` at a
+    // hardcoded `rate: .r1_16` against the page's own live clock, exactly like an ordinary, continuously-
+    // sweeping Euclid pattern — a position with NO relationship at all to `euclideousMaskOrd`'s real,
+    // hit-driven advance. The EXACT "RATCHET PATTERN/DEST" class of bug this codebase's own history
+    // repeatedly names: the lit cell and what's actually heard disagreeing because the UI reads an
+    // unrelated clock instead of the engine's real state. FIX: mirror `euclideousRiffStep`'s own precedent
+    // exactly — a plain UI-pollable array, written once per genuine lane hit (never time-driven), -1 when
+    // the mask has never advanced (mirrors the riff cursor's own sentinel).
+    private var euclideousMaskStep = [Int](repeating: -1, count: 4)
+    func euclideousMaskPositions() -> [Int] { euclideousMaskStep }
     // LIVE RIFF POOL DISPLAY (Paul 2026-10-08): a stable, UI-pollable snapshot of the ascending notes
     // currently feeding the riff's own pool — mirrors the `cellSoundingNotes`/`riffDrunkPos` precedent
     // exactly (render-thread writes a plain array, a `pollXXX`-style accessor reads it from the UI timer, no
@@ -2864,6 +2879,7 @@ final class Router {
                 euclideousMaskOrd[i] = 0; euclideousMaskOctUp[i] = true
                 euclideousMaskClimbOffset[i] = 0; euclideousMaskSwellOffset[i] = 0
                 euclideousLastSoundedNote[i] = -1; euclideousLastSoundedVel[i] = 0; euclideousMaskRepeatRemaining[i] = 0
+                euclideousMaskStep[i] = -1   // the UI-pollable position resets alongside the ordinal it mirrors
             }
             for i in 0..<4 { nvHead[i] = 0; nvNew[i] = 0 }   // NOTE VIEW: a fresh play/stop clears any stale queued events, not just future ones (Paul 2026-10-10)
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
@@ -4360,6 +4376,12 @@ final class Router {
                             euclidPatternInto(&maskBuf, pulses: maskK, steps: maskN, rotation: mm.rotate ?? 0)
                             let maskOrdNow = euclideousMaskOrd[lineIndex]
                             let maskPos = Int((maskOrdNow - 1) % Int64(maskN))
+                            // UI-POLLABLE POSITION (see the array's own doc comment above): updates on
+                            // EVERY sounding hit the mask evaluates, whether or not that particular step
+                            // turns out engaged by the mask's own K/N pattern — "progressing on hits from
+                            // the Euclid lane" is the hit itself, not just the subset the mask happens to
+                            // mask.
+                            euclideousMaskStep[lineIndex] = maskPos
                             if maskPos >= 0 && maskBuf[maskPos] {
                                 // CHANCE (§2.3, Seed Law): seeded purely on the mask's own ordinal — the SAME
                                 // "derived from a stateless count, reseeds for free the instant the count resets"

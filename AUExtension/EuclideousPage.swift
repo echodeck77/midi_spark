@@ -219,6 +219,11 @@ struct EuclideousPage: View {
     // lane" into one shared pattern, not a single shared cursor.
     let riff: EuclideousRiff
     let riffPositions: [Int]
+    // EUCLID MASK — LIVE POSITION (Paul 2026-10-11 bugfix): each lane's own mask position, hit-driven
+    // exactly like `riffPositions` above — NOT a self-clock. See `maskCometRow`'s own doc comment for the
+    // bug this replaced (the mask's step-bar used to sweep at a hardcoded rate against the page clock,
+    // completely unrelated to when the lane actually sounded a hit).
+    let maskPositions: [Int]
     // RIFF PANEL — LIVE NOTES (Paul 2026-10-08): kept as a page property (the engine/poll plumbing stays — it's
     // genuinely useful state), but NO LONGER DISPLAYED (ferry ruling 2: "remove the note labels... do not move
     // them anywhere else"). Retained here rather than torn out end-to-end so a future ask to show it again
@@ -359,11 +364,12 @@ struct EuclideousPage: View {
     /// §5.5's fit check: "if a name doesn't fit at 10pt, show the arrows only." No live text-measurement
     /// API is reached for here (same reasoning as the bubble's own fixed-width estimate elsewhere in this
     /// file) — a character-count heuristic, hand-derived against the narrowest axis-label space this new
-    /// layout can produce (the bottom edge, bounded by the pad's own width): OFFSET/STEPS/SHIFT (5–6
-    /// chars) are the names most likely to overflow; HITS/TILT/VEL/GATE/OCT/NOTE (3–4 chars) comfortably
-    /// fit alongside their own flanking arrows. Flagged, not measured — the one thing this environment
-    /// cannot verify against real on-device text metrics.
-    private func euclideousAxisLabelFits(_ name: String) -> Bool { name.count <= 4 }
+    /// layout can produce (the bottom edge, bounded by the pad's own width). RAISED 4→6 (UI polish ferry
+    /// §2.2): Paul's own direct, device-verified ruling — "Names fit at 10pt in both orientations, so show
+    /// 'STEPS →'... and '← OFFSET →'" — supersedes the earlier, disclosed-as-unverified 4-char guess that
+    /// had put OFFSET/STEPS/SHIFT (5–6 chars) on arrows-only; HITS/TILT/VEL/GATE/OCT/NOTE (3–4 chars) were
+    /// always comfortably inside either threshold, so this widening changes nothing for them.
+    private func euclideousAxisLabelFits(_ name: String) -> Bool { name.count <= 6 }
 
     /// Edits ONE line by index — the shared mutation path every per-lane control below goes through.
     private func edit(_ idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) {
@@ -595,7 +601,15 @@ struct EuclideousPage: View {
         let halfW = max(1, (containerW - sp16) / 2)   // riff | NOTE VIEW, 50/50 (judgment call, see above)
         let riffRowH = riffRowHForPanelHeight(sharedRowH)
         return VStack(alignment: .leading, spacing: sp16) {
-            portraitHeader().padding(.horizontal, sp16).padding(.top, sp16)
+            // CONTAINER RULE (this ferry §1.3): "every element is laid out within the view bounds minus
+            // 16pt left and right... recalculated on every size change" — the header was the ONE element on
+            // this page with no explicit width ceiling (every other row below already had `.frame(width:
+            // containerW)`), so its own content (title+MAIN OUT+ON+close on row 1) could render wider than
+            // the real screen with nothing to clip or compress it — the confirmed root cause of "D cut off,
+            // ON/close missing." Same frame-then-pad order as the content VStack below, so both compute the
+            // identical left/right margin from the SAME `containerW`.
+            portraitHeader().frame(width: containerW, alignment: .leading)
+                .padding(.horizontal, sp16).padding(.top, sp16)
             VStack(spacing: sp16) {
                 VStack(spacing: sp8) {
                     HStack(spacing: sp8) { laneCard(0, width: laneW, height: laneH); laneCard(1, width: laneW, height: laneH) }
@@ -1391,15 +1405,27 @@ struct EuclideousPage: View {
     /// NOTE/GATE (this ferry §5.1, literal): a dashed #3A3E47 max-extent box (unchanged) containing a
     /// 1.5pt LANE-100 OUTLINE rectangle with a LANE-20 fill — replaces the old solid lane-colour block.
     /// Same geometry: width = GATE%, height = VEL/127, anchored bottom-left.
+    ///
+    /// BOTTOM MARGIN (UI polish ferry §2.1: "the gate rectangle overlaps the '← GATE →' label... the
+    /// dashed box must end above the X-axis label with at least 4pt clear") — ROOT CAUSE, confirmed by
+    /// reading: the dashed box and the rect inside it both used the Canvas's own full `size`, un-inset,
+    /// while the axis-label overlay draws at the PAD's own bottom edge, independent of the picture's
+    /// layout — so a tall VEL (the rect's own height) could reach all the way to the picture's bottom,
+    /// which sits close enough to the pad's true bottom edge for the two to visually collide. FIX: both
+    /// the dashed box and the rect now draw within a height reduced by `bottomMargin` (6pt — comfortably
+    /// over the ferry's own 4pt floor), anchored at the TOP of that reduced area, never touching the real
+    /// bottom edge at all.
     private func euclideousNoteGatePicture(_ line: EuclidLine, accent: Color) -> some View {
         let gateFrac = max(0.05, min(1, line.gateResolved))
         let velFrac = Double(line.velocityAbsoluteResolved) / 127.0
+        let bottomMargin: CGFloat = 6
         return Canvas { ctx, size in
-            ctx.stroke(Path(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1), cornerRadius: 2),
+            let drawH = max(1, size.height - bottomMargin)
+            ctx.stroke(Path(roundedRect: CGRect(x: 0, y: 0, width: size.width, height: drawH).insetBy(dx: 1, dy: 1), cornerRadius: 2),
                        with: .color(Color(hex: 0x3A3E47)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             let w = size.width * CGFloat(gateFrac)
-            let h = size.height * CGFloat(velFrac)
-            let barRect = CGRect(x: 0, y: size.height - h, width: w, height: h)
+            let h = drawH * CGFloat(velFrac)
+            let barRect = CGRect(x: 0, y: drawH - h, width: w, height: h)
             ctx.fill(Path(roundedRect: barRect, cornerRadius: 1.5), with: .color(lane20(accent)))
             ctx.stroke(Path(roundedRect: barRect.insetBy(dx: 0.75, dy: 0.75), cornerRadius: 1.5), with: .color(lane100(accent)), lineWidth: 1.5)
         }
@@ -1968,16 +1994,83 @@ struct EuclideousPage: View {
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
-    // MARK: - Per-lane EUCLID MASK (Paul 2026-10-07, §2.7 — pattern/transport only, effect deferred §4.1)
+    // MARK: - Per-lane EUCLID MASK (Paul 2026-10-07, §2.7 — pattern/transport; real effect added 2026-10-10
+    // "modes and settings" ferry; step-bar fixed 2026-10-11, see `maskStepBar`'s own doc comment)
 
-    /// A SECOND, independent `EuclidCometBar` + play/stop pair, driven by the lane's own `mask` field — NOT
-    /// `EuclidLaneBox` (that component's `selected`/`onSelect`/`trailingContent` machinery has no meaning
-    /// for a mask), but the SAME shared `EuclidCometBar`/`EuclidGesturePad` the lane's own box uses, per the
-    /// spec's own wording ("the same lane control — step box / comet bar, play button and count control").
-    /// Rotation is a drag directly on this grid (`onRotateDelta`) — no separate rotate control, per §2.7.
-    /// Fed the page's shared `clock` and a nominal `.r1_16`/`spanN: 0` purely for the cosmetic comet-sweep —
-    /// the mask has no engine consumer yet (it isn't read anywhere in Router.swift), so this is decoration,
-    /// not a live transport.
+    /// The mask's own step-bar. REPLACES the shared, SELF-CLOCKED `EuclidCometBar` (Paul 2026-10-11 bug
+    /// report: "Euclid mask was moving at the main rate, and not progressing on hits from Euclid lane as
+    /// I'd expect"). ROOT CAUSE, confirmed by reading Router.swift, not guessed: the AUDIO side was always
+    /// correct — `euclideousMaskOrd` only ever advances inside `runEuclidLine`'s `if isHit {}`, so the mask
+    /// genuinely engages only on real sounding hits of the lane's own Euclid pattern. The bug was purely
+    /// visual: this row fed `EuclidCometBar` a hardcoded `rate: .r1_16` against the page's shared `clock` —
+    /// the SAME self-clocked sweep a plain, continuously-ticking Euclid lane uses, with zero relationship
+    /// to the mask's real, hit-driven position. The exact "RATCHET PATTERN/DEST" class of bug this
+    /// codebase's own history repeatedly names (the lit cell and what's actually heard disagreeing because
+    /// the UI reads an unrelated clock instead of the engine's real state).
+    ///
+    /// FIX: draw the mask's own K/N pattern as a plain STATIC box row (no comet, no `TimelineView`) and
+    /// highlight whichever box `maskPositions[idx]` (Router→Kernel→AU→VC, polled — never extrapolated,
+    /// mirroring `riffPositions`' own precedent exactly) says is current. No animation between polls is
+    /// deliberate, not a shortfall: the mask's position is a discrete jump once per real lane hit, not a
+    /// continuous function of wall-clock time, so animating a sweep between two polled values would
+    /// fabricate motion the engine never produces — the identical reasoning this codebase already applies
+    /// to RIFF's own DRUNK indicator ("there's nothing smoother to extrapolate").
+    ///
+    /// Reuses `EuclidGesturePad` DIRECTLY (already a shared, non-private component — the per-button gesture
+    /// pads elsewhere on this page construct it the same way) for the identical 1-/2-finger drag + pinch
+    /// interaction `EuclidCometBar` itself used internally, so dragging/pinching this bar to edit HITS/
+    /// ROTATE/STEPS is completely unchanged — only the DRAWING underneath it is new.
+    private func maskStepBar(_ idx: Int, _ m: EuclidLineMask, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
+        let n = max(2, min(16, m.stepsResolved))
+        let k = max(0, min(n, m.pulsesResolved))
+        let rotate = m.rotate ?? 0
+        let pos = idx < maskPositions.count ? maskPositions[idx] : -1
+        let insetL: CGFloat = 6, insetR: CGFloat = 6
+        // SENSITIVITY, matching `EuclidCometBar`'s own convention exactly (Router.swift's box geometry, not
+        // the gesture pad's SEPARATE 14pt visual padding below — that padding only shrinks the pad's own
+        // touch area, it was never part of the box-pitch calculation EuclidCometBar itself uses either).
+        let rotateStepPt = euclidBoxGeometry(n: n, usableWidth: max(1, width - insetL - insetR)).pitch
+        return ZStack {
+            Canvas { ctx, size in
+                var buf = [Bool](repeating: false, count: n)
+                euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
+                let midY = size.height / 2
+                let usableW = max(1, size.width - insetL - insetR)
+                let (boxW, gap, _) = euclidBoxGeometry(n: n, usableWidth: usableW)
+                let boxH = min(30, size.height - 6)
+                let corner = min(5, boxW / 2.2)
+                for i in 0..<n {
+                    let rect = CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
+                    let box = Path(roundedRect: rect, cornerRadius: corner)
+                    let current = i == pos
+                    if buf[i] {
+                        ctx.fill(box, with: .color(accent.opacity(current ? 0.95 : 0.55)))
+                        ctx.stroke(box, with: .color(.white.opacity(current ? 0.6 : 0.2)), lineWidth: current ? 1.5 : 1)
+                    } else {
+                        ctx.fill(box, with: .color(.white.opacity(0.09)))
+                        ctx.stroke(box, with: .color(current ? accent : .white.opacity(0.16)), lineWidth: current ? 1.5 : 1)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            EuclidGesturePad(onRotateDelta: { d in euclideousApplyMaskX(idx, d) },
+                             onHitsDelta: { d in euclideousApplyMaskY(idx, d) },
+                             onStepsDelta: { d in editMask(idx) { let v = max(2, min(16, $0.stepsResolved + d)); $0.steps = v; if $0.pulsesResolved > v { $0.pulses = v } } },
+                             onAllRotateDelta: { d in euclideousApplyAllMaskX(d) },
+                             onAllHitsDelta: { d in euclideousApplyAllMaskY(d) },
+                             onDragState: { point, allRows in
+                                 guard let point else { dragHUDInfo = nil; return }
+                                 dragHUDInfo = EuclidDragHUDInfo(label: allRows ? "ALL MASKS" : "LANE \(idx + 1) MASK",
+                                                                  primary: "\(k) OF \(n)", secondary: "ROTATE \(rotate)", point: point)
+                             },
+                             rotateStepPt: rotateStepPt)
+                .padding(.horizontal, 14)
+        }
+        .frame(width: width, height: height)
+    }
+
+    /// The play/stop + step-bar + count row, driven by the lane's own `mask` field — NOT `EuclidLaneBox`
+    /// (that component's `selected`/`onSelect`/`trailingContent` machinery has no meaning for a mask).
     private func maskCometRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
         let m = line.maskResolved
         let steps = m.stepsResolved
@@ -1989,21 +2082,9 @@ struct EuclideousPage: View {
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
                 .onTapGesture { editMask(idx) { $0.enabled = !$0.enabledResolved } }
-            EuclidCometBar(pulses: m.pulsesResolved, steps: steps, rotate: m.rotate ?? 0, invert: false, dir: .fwd,
-                           rate: .r1_16, spanN: 0, tint: accent, lanePlaying: m.enabledResolved, clock: clock,
-                           // 36(play)+36(step count)+2×sp4(the HStack's own gaps either side of this view)
-                           width: max(1, width - 36 - 36 - sp4 * 2),
-                           onRotateDelta: { d in euclideousApplyMaskX(idx, d) },
-                           onHitsDelta: { d in euclideousApplyMaskY(idx, d) },
-                           onStepsDelta: { d in editMask(idx) { let v = max(2, min(16, $0.stepsResolved + d)); $0.steps = v; if $0.pulsesResolved > v { $0.pulses = v } } },
-                           onAllRotateDelta: { d in euclideousApplyAllMaskX(d) },
-                           onAllHitsDelta: { d in euclideousApplyAllMaskY(d) },
-                           onDragState: { point, allRows in
-                               guard let point else { dragHUDInfo = nil; return }
-                               dragHUDInfo = EuclidDragHUDInfo(label: allRows ? "ALL MASKS" : "LANE \(idx + 1) MASK",
-                                                                primary: "\(m.pulsesResolved) OF \(steps)", secondary: "ROTATE \(m.rotate ?? 0)", point: point)
-                           })
-                .frame(height: max(36, height))
+            maskStepBar(idx, m, accent,
+                        // 36(play)+36(step count)+2×sp4(the HStack's own gaps either side of this view)
+                        width: max(1, width - 36 - 36 - sp4 * 2), height: max(36, height))
             Text("\(steps)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
                 .frame(width: 36, height: max(36, height))
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
@@ -2343,11 +2424,18 @@ struct EuclideousPage: View {
             // themselves, in the reserved `riffDotRowH` (10pt) height.
             HStack(spacing: sp4) {
                 ForEach(0..<n, id: \.self) { col in
-                    ZStack {
-                        ForEach(0..<4, id: \.self) { i in
-                            if i < lines.count, lines[i].useRiffResolved, i < riffPositions.count, riffPositions[i] == col {
-                                Circle().fill(laneAccents[i % laneAccents.count]).frame(width: 8, height: 8)
-                            }
+                    // SIDE-BY-SIDE, NOT STACKED (UI polish ferry §4.1: "only one dot shows... although
+                    // lane 1 is also playing on the riff... when lanes share a step, place their dots
+                    // side by side (4pt apart) so all of them are visible"). ROOT CAUSE, confirmed by
+                    // reading: every matching lane's dot was drawn in a plain `ZStack`, all centred at the
+                    // SAME point — when 2+ lanes shared a column, only the LAST one drawn (the highest
+                    // lane index) was visible at all, the rest fully hidden underneath it. Fixed by
+                    // collecting every currently-matching lane first, then laying them out in a real
+                    // `HStack`, centred as a GROUP within the cell.
+                    let activeLanes = (0..<4).filter { i in i < lines.count && lines[i].useRiffResolved && i < riffPositions.count && riffPositions[i] == col }
+                    HStack(spacing: 4) {
+                        ForEach(activeLanes, id: \.self) { i in
+                            Circle().fill(lane100(laneAccents[i % laneAccents.count])).frame(width: 8, height: 8)
                         }
                     }
                     .frame(width: cellW, height: riffDotRowH)
@@ -2475,9 +2563,17 @@ struct EuclideousPage: View {
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
         let fastestSub = lines.filter { $0.enabledResolved }.map { $0.rate?.beats ?? ArpRate.r1_16.beats }.min() ?? ArpRate.r1_16.beats
         let windowBeats = euclideousNoteViewWindowBars(fastestSub: max(0.03125, fastestSub), cyc: cyc, trackW: innerW - 56 - sp8) * cyc
-        return VStack(spacing: sp4) {
+        // DIVIDERS (UI polish ferry §3.6: "a subtle 1pt #22252C divider between strips") — `spacing: 0`
+        // + an explicit divider slot replaces the old bare `spacing: sp4` gap; each divider slot is still
+        // exactly `sp4` tall (the 1pt line centred within it via the second `.frame`), so the panel's total
+        // height budget (`innerH`, computed above from `stripH*4 + sp4*3`) is byte-identical — the divider
+        // rides IN the existing gap, it doesn't add a new one.
+        return VStack(spacing: 0) {
             ForEach(0..<4, id: \.self) { idx in
                 noteViewStrip(idx, width: innerW, height: stripH, cyc: cyc, windowBeats: windowBeats)
+                if idx < 3 {
+                    Rectangle().fill(Color(hex: 0x22252C)).frame(height: 1).frame(height: sp4)
+                }
             }
         }
         .padding(sp8)
@@ -2587,9 +2683,18 @@ struct EuclideousPage: View {
     /// item list first, then drops one item from the end at a time (re-joining with "+n" once anything is
     /// dropped) until the estimate fits — read literally, not reserving Source/Mode as a protected floor
     /// beyond the natural consequence of them being FIRST in the list (so they're the last to ever be cut).
+    ///
+    /// SAFETY MARGIN (this ferry §1.2/§3.5: "the NOTE VIEW label runs off the edge"/"text currently runs to
+    /// or past the right edge" despite this exact drop-items mechanism already existing) — a ×1.15 fudge on
+    /// the hand-estimated width, not a change to the dropping algorithm itself: this function's own
+    /// disclosed limitation ("no live text-measurement API") means the 0.6×-per-character estimate is a
+    /// GUESS, and an UNDER-estimate is exactly what would let a string the algorithm judges "fits" actually
+    /// overflow on the real device — the one-sided failure mode this bug report is consistent with. Erring
+    /// conservative (dropping one MORE item than strictly necessary in the rare case the estimate undershot)
+    /// is the safe direction; erring generous is the one that reproduces this exact complaint.
     private func noteViewLabelText(_ line: EuclidLine, maxWidth: CGFloat) -> String {
         let items = noteViewLabelItems(line)
-        let charWidth: CGFloat = 10 * 0.6
+        let charWidth: CGFloat = 10 * 0.6 * 1.15
         func estimate(_ s: String) -> CGFloat { CGFloat(s.count) * charWidth }
         func joined(_ n: Int) -> String {
             let shown = items.prefix(n).joined(separator: " · ")
@@ -2637,10 +2742,16 @@ struct EuclideousPage: View {
         return TimelineView(.animation(paused: !clock.playing)) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             Canvas { ctx, size in
-                guard running, windowBeats > 0 else { return }
-                // RE-CHECKED, a real bug fixed on this pass: `euclideousNoteViewMarkX` makes any tick with
-                // `age = tickBeat - nowBeat` in `0...windowBeats` visible — meaning FUTURE ticks up to a
-                // full `windowBeats` ahead must be scanned, not just one. The original loop's upper bound
+                guard windowBeats > 0 else { return }
+                // BASELINE (UI polish ferry §3.3: "stopped lanes currently show nothing under their
+                // label... draw the track baseline... so all four strips always look the same shape") — a
+                // constant 1pt #2A2D34 line, drawn UNCONDITIONALLY (running or stopped), so every strip
+                // keeps an identical base shape regardless of each individual lane's own play state; marks
+                // (below) layer on top of it only while actually running.
+                ctx.fill(Path(CGRect(x: 0, y: size.height / 2 - 0.5, width: size.width, height: 1)), with: .color(Color(hex: 0x2A2D34)))
+                // RE-CHECKED, a real bug fixed on an earlier pass: `euclideousNoteViewMarkX` makes any tick
+                // with `age = tickBeat - nowBeat` in `0...windowBeats` visible — meaning FUTURE ticks up to
+                // a full `windowBeats` ahead must be scanned, not just one. The original loop's upper bound
                 // was a bare `latestTick + 1` (one tick ahead, a leftover from an earlier, wrong mental
                 // model that only "the next tick" needed drawing) while its LOWER bound wastefully scanned
                 // `lookback` ticks that can never satisfy `age >= 0` in the first place (tick `latestTick`
@@ -2648,18 +2759,31 @@ struct EuclideousPage: View {
                 // negative). Fixed: scan forward from `latestTick` through the full lookahead the window
                 // actually promises, nothing behind it (the position function's own guard discards anything
                 // that doesn't belong, so a little slack here costs nothing).
-                let latestTick = Int((liveBeat / sub).rounded(.down))
-                let aheadTicks = Int((windowBeats / sub).rounded(.up)) + 1
-                for t in latestTick...(latestTick + aheadTicks) {
-                    let tickBeat = Double(t) * sub
-                    guard let x = euclideousNoteViewMarkX(tickBeat: tickBeat, nowBeat: liveBeat, windowBeats: windowBeats, trackW: size.width) else { continue }
-                    let isHit = euclideousNoteViewIsHit(buf: buf, tickBeat: tickBeat, sub: sub, spanBeats: spanBeats, dir: dir)
-                    noteViewDrawMark(&ctx, x: x, midY: size.height / 2, isHit: isHit, accent: accent)
+                if running {
+                    let latestTick = Int((liveBeat / sub).rounded(.down))
+                    let aheadTicks = Int((windowBeats / sub).rounded(.up)) + 1
+                    for t in latestTick...(latestTick + aheadTicks) {
+                        let tickBeat = Double(t) * sub
+                        guard let x = euclideousNoteViewMarkX(tickBeat: tickBeat, nowBeat: liveBeat, windowBeats: windowBeats, trackW: size.width) else { continue }
+                        let isHit = euclideousNoteViewIsHit(buf: buf, tickBeat: tickBeat, sub: sub, spanBeats: spanBeats, dir: dir)
+                        // FADE-IN AT THE ENTRY EDGE (UI polish ferry §3.4: "marks entering... are cut off
+                        // hard (half-marks look like a 'D'). Fade marks in over the first 12pt of the track
+                        // instead of clipping them.") The ferry's own wording names the LEFT edge, but
+                        // describes the PRE-FLIP layout (marks used to enter left, travel right) — this
+                        // session's own direction flip (Paul 2026-10-11, "right-to-left is what you expect
+                        // on any piano roll") moved the entry edge to the RIGHT (`x` near `size.width`); the
+                        // fade is applied at whichever edge marks actually enter from NOW, matching the
+                        // ferry's INTENT (soften the entry, wherever it is) rather than its now-stale literal
+                        // side. `distFromEntry` is simply how far `x` sits from the track's own entry edge.
+                        let distFromEntry = size.width - x
+                        let fadeIn = distFromEntry < 12 ? max(0, distFromEntry / 12) : 1
+                        noteViewDrawMark(&ctx, x: x, midY: size.height / 2, isHit: isHit, accent: accent, opacity: fadeIn)
+                    }
                 }
-                // PLAYHEAD (§1.2, flipped 2026-10-11): fixed 2pt white-60% line at the track's trailing
-                // edge — now the LEFT edge (right beside the note box) — drawn every frame regardless of
-                // `running`, so a stopped lane's track still shows where marks WOULD land, just with none
-                // currently approaching it.
+                // PLAYHEAD (§1.2, flipped 2026-10-11; §3.3 unconditional): fixed 2pt white-60% line at the
+                // track's trailing edge — the LEFT edge (right beside the note box) — drawn every frame
+                // regardless of `running`, so a stopped lane's track still shows where marks WOULD land,
+                // just with none currently approaching it.
                 ctx.fill(Path(CGRect(x: 0, y: 0, width: 2, height: size.height)), with: .color(Color.white.opacity(0.6)))
             }
         }
@@ -2667,17 +2791,23 @@ struct EuclideousPage: View {
     }
     /// §3, literal mark styles. The hit's own 16pt tail fades RIGHT (behind the direction of travel, since
     /// marks move right→left toward the playhead on the left — flipped 2026-10-11, Paul: "right-to-left is
-    /// what you expect on any piano roll").
-    private func noteViewDrawMark(_ ctx: inout GraphicsContext, x: CGFloat, midY: CGFloat, isHit: Bool, accent: Color) {
-        if isHit {
-            var tail = Path(); tail.move(to: CGPoint(x: x, y: midY)); tail.addLine(to: CGPoint(x: x + 16, y: midY))
-            ctx.stroke(tail, with: .linearGradient(Gradient(colors: [lane100(accent).opacity(0.6), lane100(accent).opacity(0)]),
-                                                    startPoint: CGPoint(x: x, y: midY), endPoint: CGPoint(x: x + 16, y: midY)), lineWidth: 2)
-            ctx.fill(Path(ellipseIn: CGRect(x: x - 4, y: midY - 4, width: 8, height: 8)), with: .color(lane100(accent)))
-        } else {
-            // the hollow-ring "miss-playing" mark RETIRED 2026-10-10 (ferry §4.2) — there's only ever one
-            // voice per lane now, so a silent step is always this plain dim dot, never a second mark style.
-            ctx.fill(Path(ellipseIn: CGRect(x: x - 2, y: midY - 2, width: 4, height: 4)), with: .color(Color(hex: 0x3A3E47)))
+    /// what you expect on any piano roll"). `opacity` (UI polish ferry §3.4) fades a mark in over its first
+    /// 12pt from the track's entry edge, applied as a layer-wide multiplier so it scales the WHOLE mark
+    /// (tail gradient + head/dot alike) uniformly rather than needing a second opacity baked into each draw.
+    private func noteViewDrawMark(_ ctx: inout GraphicsContext, x: CGFloat, midY: CGFloat, isHit: Bool, accent: Color, opacity: CGFloat = 1) {
+        ctx.drawLayer { layer in
+            layer.opacity = opacity
+            if isHit {
+                var tail = Path(); tail.move(to: CGPoint(x: x, y: midY)); tail.addLine(to: CGPoint(x: x + 16, y: midY))
+                layer.stroke(tail, with: .linearGradient(Gradient(colors: [lane100(accent).opacity(0.6), lane100(accent).opacity(0)]),
+                                                          startPoint: CGPoint(x: x, y: midY), endPoint: CGPoint(x: x + 16, y: midY)), lineWidth: 2)
+                layer.fill(Path(ellipseIn: CGRect(x: x - 4, y: midY - 4, width: 8, height: 8)), with: .color(lane100(accent)))
+            } else {
+                // the hollow-ring "miss-playing" mark RETIRED 2026-10-10 (ferry §4.2) — there's only ever
+                // one voice per lane now, so a silent step is always this plain dim dot, never a second
+                // mark style.
+                layer.fill(Path(ellipseIn: CGRect(x: x - 2, y: midY - 2, width: 4, height: 4)), with: .color(Color(hex: 0x3A3E47)))
+            }
         }
     }
 
@@ -2710,48 +2840,60 @@ struct EuclideousPage: View {
         return 1.0 - 0.6 * t
     }
     @ViewBuilder private func noteViewNoteBoxContent(liveBeat: Double, lastEvent: Router.EuclideousNoteViewEventSnapshot?, restFlash: Router.EuclideousNoteViewEventSnapshot?, accent: Color, flatKey: Bool) -> some View {
-        // §4.5, SKIP: "show a grey '—' for one step's duration, then return to the previous note at 40%" —
-        // the flash is checked first and, while active, fully REPLACES whatever the note box would
-        // otherwise show; once it ends, falls straight through to `lastEvent`'s own (already-40%, since
-        // real time has passed) state below, with no special-case code needed for the "return to" part.
-        if let rf = restFlash, liveBeat >= rf.onsetBeat, liveBeat < rf.onsetBeat + rf.durationBeat {
-            Text("—").font(.system(size: padValueSize, weight: .heavy, design: .monospaced))
-                .foregroundColor(Color(hex: 0x8A909A))
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-        } else if let ev = lastEvent {
-            // RE-CHECKED: §4.4's general rule ("fades linearly... over the note's gate length") is for a
-            // plain hit/miss (kind 0/1) — but §4.5's TIE case is worded distinctly ("keep showing the held
-            // note at FULL brightness, fading FROM THE END of the extended note"), not "use 4.4's formula
-            // with a longer input." Read literally: a tied note stays fully lit for its WHOLE held span
-            // (it's still genuinely sounding) and only settles to the 40% floor once that span is actually
-            // over — a step, not a second gradual ramp (the ferry names no separate post-release fade
-          // duration, and §4.4's own closing line — "stays at 40% until the next note" — already describes
-            // that floor as a plain settled state, not something reached via its own fade). `kind == 3`
-            // (Router.swift, a tied hit) is the one case this applies to; kind 0/1 keep the continuous ramp.
-            // (An `if/else` STATEMENT assigning to this `let` directly, written inline here, fails to
-            // compile inside a `@ViewBuilder` body — Swift's result-builder transform tries to treat the
-            // `if` as View-producing control flow, not a plain scalar computation; moved to a bare
-            // (non-@ViewBuilder) function so ordinary imperative code works as expected.)
-            let brightness = noteViewBrightness(kind: ev.kind, onsetBeat: ev.onsetBeat, durationBeat: ev.durationBeat, liveBeat: liveBeat)
-            let names = noteViewStackedNames(ev.notes, flatKey: flatKey)
-            // §4.2, literal: "white, bold, VALUE TYPE SIZE" — this was wrongly drawn at `padHeadingSize`
-            // (10pt, this page's AXIS-LABEL size) instead of `padValueSize` (13pt, the page's own established
-            // "value type size" from the layout-system ferry) — a real mismatch against an explicit
-            // instruction, not a judgment call, caught only by re-reading the ferry's literal words again.
-            let stack = VStack(spacing: 1) {
-                ForEach(names.indices, id: \.self) { i in
-                    Text(names[i]).font(.system(size: padValueSize, weight: .heavy, design: .monospaced)).lineLimit(1)
+        // THE BOX ITSELF IS CONSTANT (UI polish ferry §3.1, literal: "every lane shows its note box AT ALL
+        // TIMES: ... #22252C background, 8pt corner radius... an empty box when the lane hasn't played
+        // yet") — a single base layer, drawn identically regardless of state. ROOT CAUSE of "lanes 1–3 show
+        // floating text with no box, lane 4 shows an empty box": the three states below used to each draw
+        // their OWN differently-styled background (6pt radius, and either 4%/6% white or a `lane20(accent)`
+        // fill further multiplied by `brightness`, as low as ~0.4 × 0.2 ≈ 8% opacity) — subtle enough to
+        // read as "no box, just floating text" against the page's own dark ground, and inconsistent between
+        // states besides. Superseded by this ferry's own explicit, constant spec — CONTENT (the text) is
+        // now the only thing that varies; the container never does.
+        ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C))
+            // §4.5, SKIP: "show a grey '—' for one step's duration, then return to the previous note at
+            // 40%" — the flash is checked first and, while active, fully REPLACES whatever the note box
+            // would otherwise show; once it ends, falls straight through to `lastEvent`'s own (already-
+            // 40%, since real time has passed) state below, with no special-case code needed for the
+            // "return to" part.
+            if let rf = restFlash, liveBeat >= rf.onsetBeat, liveBeat < rf.onsetBeat + rf.durationBeat {
+                Text("—").font(.system(size: padValueSize, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0x8A909A))
+            } else if let ev = lastEvent {
+                // RE-CHECKED: §4.4's general rule ("fades linearly... over the note's gate length") is for
+                // a plain hit/miss (kind 0/1) — but §4.5's TIE case is worded distinctly ("keep showing the
+                // held note at FULL brightness, fading FROM THE END of the extended note"), not "use 4.4's
+                // formula with a longer input." Read literally: a tied note stays fully lit for its WHOLE
+                // held span (it's still genuinely sounding) and only settles to the 40% floor once that
+                // span is actually over — a step, not a second gradual ramp (the ferry names no separate
+                // post-release fade duration, and §4.4's own closing line — "stays at 40% until the next
+                // note" — already describes that floor as a plain settled state, not something reached via
+                // its own fade). `kind == 3` (Router.swift, a tied hit) is the one case this applies to;
+                // kind 0/1 keep the continuous ramp. (An `if/else` STATEMENT assigning to this `let`
+                // directly, written inline here, fails to compile inside a `@ViewBuilder` body — Swift's
+                // result-builder transform tries to treat the `if` as View-producing control flow, not a
+                // plain scalar computation; moved to a bare (non-@ViewBuilder) function so ordinary
+                // imperative code works as expected.)
+                let brightness = noteViewBrightness(kind: ev.kind, onsetBeat: ev.onsetBeat, durationBeat: ev.durationBeat, liveBeat: liveBeat)
+                let names = noteViewStackedNames(ev.notes, flatKey: flatKey)
+                // §4.2, literal: "white, bold, VALUE TYPE SIZE" — this was wrongly drawn at `padHeadingSize`
+                // (10pt, this page's AXIS-LABEL size) instead of `padValueSize` (13pt, the page's own
+                // established "value type size" from the layout-system ferry) — a real mismatch against an
+                // explicit instruction, not a judgment call, caught only by re-reading the ferry's literal
+                // words again.
+                VStack(spacing: 1) {
+                    ForEach(names.indices, id: \.self) { i in
+                        Text(names[i]).font(.system(size: padValueSize, weight: .heavy, design: .monospaced)).lineLimit(1)
+                    }
                 }
+                // MISS-PLAYING's own outline style RETIRED 2026-10-10 (ferry §4.2: "every note shows in the
+                // normal note-box style") — `kind == 1` is no longer pushed by anything (its one push site,
+                // the old dual-voice miss branch, is gone from Router.swift), so this is now the only style.
+                .foregroundColor(.white).opacity(brightness)
             }
-            // MISS-PLAYING's own outline style RETIRED 2026-10-10 (ferry §4.2: "every note shows in the normal
-            // note-box style") — `kind == 1` is no longer pushed by anything (its one push site, the old
-            // dual-voice miss branch, is gone from Router.swift), so this is now the only style.
-            // §4.2, literal: "white, bold... on a LANE-20 fill."
-            stack.foregroundColor(.white).opacity(brightness)
-                .background(RoundedRectangle(cornerRadius: 6).fill(lane20(accent)).opacity(brightness))
-        } else {
-            RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04))
+            // else: nothing — the constant #22252C box above, with no content, IS "an empty box."
         }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
     /// §4.6, literal: up to 3 names stacked lowest-at-bottom; beyond 3, the top two plus "+n". Returned
     /// TOP-TO-BOTTOM (index 0 renders first/topmost in the plain VStack above) — highest pitch first, so

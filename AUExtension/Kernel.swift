@@ -471,6 +471,7 @@ final class Kernel {
     func riffDrunkPosAt(_ cellIndex: Int) -> Int { router.riffDrunkPosAt(cellIndex) }   // RIFF's DRUNK sweep, polled (Paul 2026-09-28)
     func euclidLineReadyAt(_ cellIndex: Int) -> UInt8 { router.euclidLineReadyAt(cellIndex) }   // EUCLID beacon readiness bits, polled (Paul 2026-10-05)
     func euclideousRiffPositions() -> [Int] { router.euclideousRiffPositions() }   // each of Euclideous's 4 lanes' own riff-advance step, polled (Paul 2026-10-06)
+    func euclideousMaskPositions() -> [Int] { router.euclideousMaskPositions() }   // each lane's own mask position, polled — hit-driven, not a self-clock (Paul 2026-10-11 bugfix)
     func euclideousRiffLivePool() -> [UInt8] { router.euclideousRiffLivePool() }   // the ascending notes currently feeding the riff's own pool, polled (Paul 2026-10-08)
     func euclideousNoteViewEvents() -> [[Router.EuclideousNoteViewEventSnapshot]] { router.drainEuclideousNoteViewEvents() }   // NOTE VIEW's per-lane event queue, drained (Paul 2026-10-10)
 
