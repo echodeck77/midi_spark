@@ -196,6 +196,69 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "Euclid mask, modes and settings" ferry + "riff-cell wipes, reset progress on lane
+  cards" ferry, both SHIPPED (2026-10-11, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`,
+  `0a0fe6e`; macOS 1305 green incl. +7, iOS builds clean). Picked up from an interrupted prior session —
+  the mask-modes ferry was found fully built and tested (carried forward as-is, verified green before
+  touching anything further); the wipes/reset-progress ferry had its data plumbing done but no drawing
+  code at all, finished this session per its own plan (`~/.claude/plans/woolly-crafting-music.md`).
+  **EUCLID MASK, MODES AND SETTINGS (carried forward, not built this session):** `EuclidLineMask` grows
+  from a bare K/N/rotate stub (shared settings only, zero audible effect) into a real 11-mode effect
+  engine — `chance` (0...1, a per-mask-tick probabilistic trigger, seeded on the mask's own ordinal so a
+  reset reproduces identically) gates one of MUTE·PAUSE·RATCHET·REPEAT·CHORD·OCT·MIRROR·LEAP·CLIMB·
+  ACCENT·SWELL, grouped Thinning/Thickening/Pitch/Dynamics in a new `maskModePopupCard`. PAUSE pre-empts
+  the whole per-tick decision (the walk doesn't advance); MUTE/RATCHET both return early (RATCHET pushing
+  its own per-repeat NOTE VIEW events); REPEAT caches the last sounded note/velocity and holds for N−1
+  further ticks via a NEW accumulated `euclideousMaskRepeatRemaining` (the DRUNK/DEAL-class exception,
+  checked at the very top of the per-tick closure — "holding the riff walk" reads as holding the WHOLE
+  decision, not just the cursor); MIRROR/LEAP/CLIMB act on `rank` before `riffResolve`; OCT/ACCENT/SWELL/
+  CHORD act on the already-resolved note/velocity. HITS floors at 0 (not 1 — a fresh/empty mask is a
+  genuinely meaningful "masks nothing" state, unlike the main lane's own HITS); the mask's own default
+  flipped from "starts audible" to "starts STOPPED," now that it has a real effect a never-touched lane
+  must not silently acquire. The MASK tab's old "EFFECT — NOT YET AVAILABLE" stub is replaced by a MODE
+  chip + up to 2 per-mode parameter chips (vertical-drag-to-change, double-tap resets to the mode's own
+  default) + CHANCE. **RIFF-CELL WIPES + RESET PROGRESS (finished this session):** `EuclideousNoteView-
+  EventSnapshot` gained `column`/`rank` (Int8, −1 = not wipe-eligible), populated at exactly the real-
+  rank strike site (the post-INVERT/MIRROR/LEAP, pre-TRANSPOSE/OCT rank — a value computed purely for
+  which shared-grid cell to highlight, deliberately independent of the actually-sounding, possibly-
+  transposed pitch) and RATCHET's own early-return block (one wipe per masked step, attached to the
+  first repeat only). Every excluded case — riff rests (SKIP/TIE both return before this point), FILL
+  (a different code path, posts kind-0 but never column/rank), MUTE/PAUSE (post nothing at all), REPEAT's
+  hold continuation (its own earlier, separate push with no column/rank args) — satisfies "produces no
+  wipe" by construction, no exclusion logic needed; CHORD's extra notes ride the SAME push as the primary
+  (one shared event), so they never get their OWN wipe either, by the same construction. **UI, built this
+  session, net new (`riffGridView`/`laneCard`/`headerResetChip`, EuclideousPage.swift):** each matching
+  riff-grid cell gets a 2pt `lane100` sweep line + trailing `lane20` tint behind it, phase 1 beat-driven
+  (`t = elapsed/durationBeat`, direction per lane — 0 L→R·1 R→L·2 T→B·3 B→T), phase 2 a 150ms wall-clock
+  fade past the note's own end (two genuinely different time bases, computed as such — the sweep in
+  musical terms, the fade in physical ones); multiple lanes on one cell each draw independently at 70%
+  opacity, no special compositing. Each lane card gained a slow `lane100.opacity(0.07)` fill
+  (`laneCardProgressFill`) growing from that lane's own §1-table starting edge toward the opposite one as
+  the current RESET SPAN window elapses, hidden entirely when RESET SPAN is OFF. The header's RESET chip
+  gained an "IN n" countdown (`Color(hex:0xAAB0BA)`, 10pt), counting down `n...1` and snapping back to `n`
+  across the boundary; UNAFFECTED by Reduce Motion (named explicitly in the ferry). **REDUCE MOTION, the
+  FIRST use anywhere in this codebase** (`@Environment(\.accessibilityReduceMotion)`, grepped zero prior
+  precedent before adding it): the wipe collapses to a single 150ms flash of `lane20(accent)` with no
+  directional sweep; the lane-card fill is hidden entirely; the header countdown is explicitly unaffected.
+  **TWO NEW PURE FUNCTIONS** (`euclideousResetProgress`/`euclideousResetBarsRemaining`, Derivations.swift)
+  share Router's own `columnStart` formula — the exact same expression `spanStart` (DRUNK's hard-reset
+  trigger) already computes — so neither the fill nor the countdown can ever visually disagree with when
+  the engine actually resets. **A COMPILE ERROR caught by the real build, not inspection:** Swift requires
+  labelled arguments in `EuclidLine`'s declaration order — two new tests passed `sourceMode:` before
+  `mask:` (the reverse of the struct's own field order) and failed to compile; fixed by reordering the
+  call sites, not by touching the struct. **TESTS (+7):** 4 DerivationsTests (progress sweeps 0→1 within
+  a window and wraps at the boundary, inert when SPAN is off; bars-remaining counts down and snaps back,
+  inert/division-guarded when off) + 3 RouterTests (a real riff strike posts its true column/rank; FILL
+  posts column=-1 while MUTE/PAUSE post no event at all; REPEAT's own masked TRIGGER still posts a valid
+  column/rank — the riff position actually read, not the substituted cached pitch — while its HOLD
+  CONTINUATION, one tick later, posts neither). **DEVICE-OWED, the whole UI half (this environment cannot
+  produce a screenshot or run a live session):** the wipe's sweep direction/speed per lane against real
+  playback; overlapping-lane 70% stacking actually reading as distinguishable; the lane-card fill's edge/
+  growth direction matching each lane's own intended orientation; the header countdown's legibility beside
+  the existing RESET value pill; both Reduce Motion collapse points (the flash, the hidden fill) actually
+  triggering when the setting is on; confirm the carried-forward mask-modes UI (built in the interrupted
+  session, re-verified green here but not re-reviewed line-by-line against the ferry text a second time)
+  still reads/behaves as its own commit intended.**
 - **▶ EUCLIDEOUS — "rhythm cards cleared of melody; MISS becomes an invert," the §6 follow-up to the melody
   pop-up ferry, SHIPPED (2026-10-10, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1283 green incl.
   +9/-3, iOS builds clean, 0 new warnings). Two parts: strip the lane card of controls now duplicated by the
