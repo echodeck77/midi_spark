@@ -196,6 +196,71 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — usability ferry §§3/5/8.2 SHIPPED, the ferry now fully built (2026-10-11, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; macOS 1309 green incl. 1 test fixed for the new
+  default, iOS builds clean). Direct continuation of the §2/4/6/7 batch just above. **§5 CONNECT EACH LANE'S
+  PARTS (literal):** the NOTE VIEW strip gains a 1pt LANE-100 outline when its lane is selected (reads the
+  SAME `selectedLane` the card outline already drives, so the two can never disagree); the riff dot grows
+  50% (8pt→12pt) for the selected lane. Tapping a strip's track area now ALSO selects that lane — the
+  strip's base content gained its own full-bounds tap target; the EXISTING 30pt label-opening overlay
+  (unchanged) sits ON TOP of it in z-order, so a tap landing in that top 30pt zone still opens the melody
+  pop-up exactly as before (SwiftUI's own view-hierarchy hit-testing resolves this correctly, no new
+  disambiguation code needed), while anything below it now falls through to the new selection tap.
+  **§8.2 A NEW MUSICAL DEFAULT, literal:** `euclideousDefaultLine` rewritten — lane 1: riff FWD, 3/8, rate
+  1/8; lane 2: riff FWD, 5/16, rate 1/16, OCT +1; lanes 3-4: 0 hits; every lane source KEY, output A.
+  SUPERSEDES the prior ferry's "lane 1 = 1 of 8, lanes 2-4 = 0 hits" default entirely. The shared riff
+  pattern's own default also changed, from a plain ascending-mod-8 cycle to the ferry's named R1 shape
+  (`1 2 3 5 4 3 2 1`) — `EuclideousRiff.ranksResolved`'s fallback, the one and only place that mattered
+  (confirmed nothing else reads this struct). **CAUGHT BY THE TEST SUITE, not inspection — twice over:** two
+  pre-existing `EffectiveParamsTests` asserted the OLD per-index defaults by exact value; the first
+  (`testEuclideousFieldsDecodeAbsentAndResolveToDisabled`) was caught and rewritten while building this
+  change, but a SECOND (`testEuclideousLinesResolvedPadsAndTruncates`, checking a PADDED-IN lane 2's pulses
+  == 0 under the old "every non-authored lane is silent" assumption) was missed on the first sweep and only
+  surfaced when the full suite actually ran — fixed to assert the new per-index default (5, not 0) once the
+  real failure made the gap impossible to miss. Standing lesson, named plainly: grepping for a field name
+  across the test files is necessary but not sufficient — the two tests used nearly-identical wording and one
+  was still missed by eye; the full suite run is what actually closes this out, not the grep. **§3 MAKE
+  TAPPABLE THINGS LOOK TAPPABLE, built with two deliberate, disclosed scope exclusions:** §3.1 — the NOTE
+  VIEW summary label gained a trailing "›" chevron (after the "+n" if present, since it's already the
+  string's own tail) and a pressed state (`#22252C` background while touched) — the existing 30pt tap zone's
+  `.onTapGesture` became `.onLongPressGesture(minimumDuration: 0, pressing:perform:)`, which fires `perform`
+  on release exactly like a plain tap always did while ALSO exposing the touch-down/up signal `.onTapGesture`
+  alone never gave access to. §3.2 — faint animated ↕/↔ arrows pulse in each pad's picture area until the
+  user's first genuine drag, then hide for good (a new `@AppStorage("midispark.euclideousPadHintSeen")`, the
+  same device-wide-preference class as `launchIntoEuclideous`) — hooked into the EXISTING `onAxisDrag`
+  callback's own `axis != nil` branch (the real "a drag has locked onto an axis" moment, not mere touch-down),
+  so no new gesture recognizer was added; the hint itself is a plain `.allowsHitTesting(false)` overlay
+  animated via ordinary SwiftUI `.repeatForever` (Core Animation-backed, deliberately NOT a `TimelineView` —
+  this session's own CPU pass exists specifically because of `TimelineView` proliferation, and a gentle pulse
+  has no need for frame-accurate ticking). §3.3 — a new reusable `EuclideousHelpBubble` modifier
+  (`.euclideousHelp(_:)`): attached ALONGSIDE a control's existing `.onTapGesture` (never replacing it),
+  relying on SwiftUI's native tap/long-press gesture exclusivity (the same mechanism UIKit's own recognizers
+  use) so a quick tap fires the control's real action completely unaffected, while a genuine 0.5s+ hold
+  shows the bubble AND the sibling tap never fires for that same touch — "must never also change the
+  control's value" holds by construction, not by a hand-rolled timing check. Wired onto ~26 controls across
+  the melody pop-up (SOURCE×3, MODE×2, WALK×5, LOCK, INVERT, STEP/HIT, ON REST×3, STRIDE, LENGTH, SHIFT,
+  TRANSPOSE, OCT, RESET MELODY), the HIT/GAPS/RATE row, the header RESET chip, and ↶/↷ — comfortably past
+  §9's own "confirm long-press help on at least 10 controls" bar, using the ferry's own LITERAL text for
+  every one of its 8 named examples that was actually reachable (LOCK/REST TIE/STRIDE/GAPS/RESET — 5 of 8).
+  **DELIBERATELY EXCLUDED, flagged plainly rather than silently dropped — the other 3 named examples (TILT/
+  OFFSET, CHANCE):** the 4 XY pads (TILT/HITS/OFFSET/STEPS/GATE/VELOCITY) have their ENTIRE touch surface
+  owned by the UIKit `EuclideousXYPad` bridge (applied last via `.overlay`, sitting on top of everything
+  else in the cell including any SwiftUI gesture I could attach beneath it — confirmed by reading the
+  modifier order, not assumed), so a long-press gesture layered underneath would almost certainly never
+  receive a touch at all; the mask's own drag-to-adjust parameter chips (CHANCE included, `MaskDragChip`) use
+  a real SwiftUI `DragGesture` of their own, and composing a THIRD gesture (drag + double-tap + long-press)
+  on one view without a device to verify the result risked breaking a working interaction for a polish
+  feature. Both are REAL, considered scope reductions, not oversights — worth a device-side second look if
+  Paul specifically wants pad/mask-chip help text, since the axis-label text already permanently shown on
+  each pad ("← TILT →" etc.) is the only substitute currently in place for those two. **§9 (the device
+  checklist) is NOT something to build** — it's Paul's own verification list; nothing here attempts it.
+  **DEVICE-OWED, the whole batch:** §5's outline/dot-size/track-tap-to-select all need a real finger; §8.2's
+  new default actually sounding like the described shape; §3.1's chevron/pressed-state legibility; §3.2's
+  arrow hint actually appearing on a truly fresh install and disappearing for good after one real drag;
+  §3.3's help bubbles — THE one piece most likely to behave differently on device than reasoned here, since
+  SwiftUI gesture-exclusivity claims are exactly the class of thing that sometimes surprises in practice
+  (confirm a quick tap on every one of the ~26 wired controls still fires its normal action, and that a
+  genuine 0.5s hold shows the bubble without ALSO firing it).**
 - **▶ EUCLIDEOUS — usability ferry §§2/4/6/7 SHIPPED (EXPLAIN SILENCE · clearer labels · RESET MELODY ·
   UNDO/REDO); §3/§5/§8.2 queued (2026-10-11, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS
   builds clean, no macOS test-target reach — GridUI/EuclideousPage-only, as every prior change to this page).

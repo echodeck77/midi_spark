@@ -85,6 +85,51 @@ struct EuclideousStripFramePreferenceKey: PreferenceKey {
     }
 }
 
+/// LONG-PRESS HELP (usability ferry §3.3, literal): "long-pressing any control for 0.5s shows a small
+/// bubble above it with a one-line plain-English explanation; it disappears on release... must never also
+/// change the control's value." Attached ALONGSIDE a control's own `.onTapGesture`, never replacing it —
+/// SwiftUI's own gesture-recognizer exclusivity (the same mechanism UIKit's tap/long-press recognizers use
+/// underneath) ensures only one of the two ever actually fires for a given touch: a quick release satisfies
+/// the sibling `TapGesture` before this one's 0.5s threshold is reached, so the long-press's `perform` never
+/// runs and the control's own tap action fires completely unaffected; a genuine 0.5s+ hold satisfies THIS
+/// gesture first, which cancels the competing tap recognizer for that touch — the control's value never
+/// changes on a long-press, by construction, not by a hand-rolled timing check. SCOPED DELIBERATELY: only
+/// ever applied to a plain `.onTapGesture`-only control. The 4 XY pads (TILT/HITS/OFFSET/STEPS/GATE/VELOCITY)
+/// and the mask's own drag-to-adjust parameter chips (CHANCE included) are NOT covered — both already own a
+/// full-surface UIKit (`EuclideousXYPad`) or SwiftUI `DragGesture` of their own, and layering a THIRD,
+/// competing gesture on top of either without a device to verify the result risked breaking a working drag/
+/// pinch/double-tap interaction for a polish feature — flagged as a real, deliberate scope reduction, not an
+/// oversight (two of the ferry's own 8 named examples, TILT/OFFSET and CHANCE, fall in this excluded set).
+struct EuclideousHelpBubble: ViewModifier {
+    let text: String
+    @State private var showing = false
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if showing {
+                    Text(text)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white).lineLimit(1).fixedSize()
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.18), lineWidth: 1))
+                        .offset(y: -28)
+                        .transition(.opacity)
+                        .zIndex(1000)
+                        .allowsHitTesting(false)
+                }
+            }
+            .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 30,
+                                 pressing: { down in if !down { showing = false } },
+                                 perform: { showing = true })
+    }
+}
+extension View {
+    /// Attach AFTER the control's own `.onTapGesture` (order doesn't affect gesture exclusivity, but keeps
+    /// the call sites reading tap-then-help, matching the order the two actually resolve in).
+    func euclideousHelp(_ text: String) -> some View { modifier(EuclideousHelpBubble(text: text)) }
+}
+
 /// The two un-abbreviated value strings a pad shows (ferry §3/§4: "2 centered text lines for Y/X
 /// values"... "explicit, non-abbreviated value-format strings") — Y above X, matching every pad's own
 /// Y-axis-first dictation order. Reused for both the pad's own permanent face and the floating bubble
@@ -277,6 +322,15 @@ struct EuclideousPage: View {
     let onClose: () -> Void
 
     @State private var selectedLane = 0
+    // §3.1's own pressed-state tracking for the NOTE VIEW summary label (per-lane, purely local/ephemeral —
+    // matches `selectedLane`/`singleTouchedLanes`'s own established "local @State, never persisted" class).
+    @State private var labelPressed: [Bool] = [false, false, false, false]
+    // §3.2 FIRST-RUN PAD HINT: "hide them for good after the first drag (remember this per install)" — the
+    // SAME persistence class as `launchIntoEuclideous` (AudioUnitViewController.swift) — a device-wide
+    // display preference, not document state, so it's declared with its own @AppStorage here rather than
+    // threaded in as a page param (nothing else on this page needs to read or set it).
+    @AppStorage("midispark.euclideousPadHintSeen") private var padHintSeen = false
+    @State private var padHintPulse = false
     @State private var singleTouchedLanes: Set<Int> = []
     @State private var allRowsTouched = false
     @State private var dragHUDInfo: EuclidDragHUDInfo? = nil
@@ -761,10 +815,12 @@ struct EuclideousPage: View {
                 .foregroundColor(.white.opacity(canUndo ? 0.7 : 0.4))
                 .contentShape(Rectangle())
                 .onTapGesture { if canUndo { onUndo() } }
+                .euclideousHelp("Undo the last change")
             Image(systemName: "arrow.uturn.forward").font(.system(size: 13, weight: .bold))
                 .foregroundColor(.white.opacity(canRedo ? 0.7 : 0.4))
                 .contentShape(Rectangle())
                 .onTapGesture { if canRedo { onRedo() } }
+                .euclideousHelp("Redo the last undone change")
         }
     }
     private func headerResetChip() -> some View {
@@ -777,6 +833,8 @@ struct EuclideousPage: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
                 .onTapGesture { resetSpanPopupOpen = true }
+                // §3.3's own literal example: "RESET: Bring every lane back to the start every N bars."
+                .euclideousHelp("Bring every lane back to the start every N bars")
             // RESET COUNTDOWN (ferry "riff-cell wipes, reset progress on lane cards" §4) — "IN n", counting
             // down to the next reset; hidden (§4.2) when RESET SPAN is OFF (the chip's own "OFF" value text
             // above already reads as inert with nothing else needed beside it). UNAFFECTED by Reduce Motion
@@ -1199,6 +1257,22 @@ struct EuclideousPage: View {
     /// live on the pad's edges, not a heading) — `cellSize` wide, `rowHeight` tall, `sp4` gaps between
     /// them (unchanged). Each is its own independent `EuclideousXYPad` drag surface; PINCH stays on the
     /// comet bar, untouched by this redesign.
+    /// §3.2, literal: "faint animated arrows (↕ and ↔)... looping gently." A plain `.repeatForever`
+    /// SwiftUI animation (Core Animation-backed), deliberately NOT a `TimelineView` — this session's own
+    /// earlier CPU pass exists specifically because of per-view `TimelineView` proliferation, and a gentle
+    /// opacity pulse has no need for that mechanism's frame-accurate ticking. Non-interactive
+    /// (`allowsHitTesting(false)`) so it can never intercept the pad's own drag/pinch/double-tap gestures.
+    private func padHintOverlay() -> some View {
+        HStack(spacing: 8) {
+            Text("↔").font(.system(size: 16, weight: .bold))
+            Text("↕").font(.system(size: 16, weight: .bold))
+        }
+        .foregroundColor(.white.opacity(padHintPulse ? 0.32 : 0.1))
+        .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { padHintPulse = true }
+        }
+    }
     private func gesturePadRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cellSize: CGFloat, rowHeight: CGFloat) -> some View {
         // DOWN TO 3 PADS (ferry 2026-10-10 §1.1): the 4th pad (SHIFT/OCT with riff on, NOTE/OCT with riff
         // off) moved to the melody pop-up entirely. Iterating a literal subset instead of `.allCases` is a
@@ -1230,8 +1304,11 @@ struct EuclideousPage: View {
                                 .font(.system(size: padSubtitleSize, weight: .semibold, design: .monospaced))
                                 .foregroundColor(.white.opacity(0.6)).lineLimit(1)
                         }
-                        euclideousPadPicture(line, t, accent: accent)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        ZStack {
+                            euclideousPadPicture(line, t, accent: accent)
+                            if !padHintSeen { padHintOverlay() }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     // HORIZONTAL PADDING TRIMMED 9→4 (usability ferry §1.1: "complete the portrait fit...
                     // nothing else accepted until both orientations pass" — re-opens the previous ferry's
@@ -1288,6 +1365,10 @@ struct EuclideousPage: View {
                         xPointsPerUnit: ppu.x, yPointsPerUnit: ppu.y,
                         onAxisDrag: { axis, raw, sinceLock in
                             guard let axis else { xyLockedAxis[idx] = nil; return }
+                            // §3.2, literal: "hide them for good after the first drag" — `axis` only goes
+                            // non-nil once a touch has cleared the pad's own dead zone and genuinely locked
+                            // onto an axis, the real "a drag is underway" moment (not merely touch-down).
+                            if !padHintSeen { padHintSeen = true }
                             xyLockedAxis[idx] = axis
                             let base = xyBaseline[idx] ?? padBaseline(line, t)
                             // TILT's X axis wants the RAW travel (its own detent formula IS the dead
@@ -1790,7 +1871,7 @@ struct EuclideousPage: View {
         // to every segmented-button row on the page) — HIT/MISS/RATE each get the SAME `cellSize` directionRow
         // above uses (already sized for 3 columns + 2 sp4 gaps across the card's own inner width), with sp4
         // between all three, not just between the pair and RATE.
-        func sideButton(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        @ViewBuilder func sideButton(_ label: String, selected: Bool, help: String, action: @escaping () -> Void) -> some View {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
                 .foregroundColor(selected ? .white : .white.opacity(0.6))
                 .frame(width: cellSize, height: rowH)
@@ -1798,6 +1879,7 @@ struct EuclideousPage: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? lane100(accent) : Color.clear, lineWidth: 1))
                 .contentShape(Rectangle())
                 .onTapGesture(perform: action)
+                .euclideousHelp(help)
         }
         // §4.2, literal: "replace FOLLOW with the actual rate in use... add a small AUTO tag beneath it in
         // grey" — when `line.rate` is unset the lane follows the instrument's own step rate; the nearest
@@ -1806,11 +1888,12 @@ struct EuclideousPage: View {
         // that isn't one of these — a disclosed approximation, not a measured one).
         let autoRate = ArpRate.allCases.min(by: { abs($0.beats - clock.stepBeats) < abs($1.beats - clock.stepBeats) })?.rawValue ?? "1/16"
         return HStack(spacing: sp4) {
-            sideButton("HIT", selected: !missOn) { edit(idx) { $0.patternMiss = false } }
+            sideButton("HIT", selected: !missOn, help: "Play on the pattern's own hits") { edit(idx) { $0.patternMiss = false } }
             // §4.1, literal: "rename MISS to GAPS everywhere it is shown... do not use INVERT, which already
             // names the riff setting." Display-only — the persisted field stays `patternMiss` (unchanged, to
-            // avoid a decode break); only this label text changed.
-            sideButton("GAPS", selected: missOn) { edit(idx) { $0.patternMiss = true } }
+            // avoid a decode break); only this label text changed. Help text per §3.3's own literal example:
+            // "GAPS: Play on the empty steps instead of the hits."
+            sideButton("GAPS", selected: missOn, help: "Play on the empty steps instead of the hits") { edit(idx) { $0.patternMiss = true } }
             VStack(spacing: 1) {
                 Text("RATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                 Text(line.rate?.rawValue ?? autoRate)
@@ -1824,6 +1907,7 @@ struct EuclideousPage: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
             .contentShape(Rectangle())
             .onTapGesture { ratePopupLane = idx }
+            .euclideousHelp("How fast this lane's pattern steps")
         }
     }
 
@@ -1839,6 +1923,25 @@ struct EuclideousPage: View {
         switch d {
         case .forward: return "FWD"; case .reverse: return "REV"; case .pendulum: return "PEND"
         case .pingpong: return "PING"; case .random: return "RAND"; case .drunk: return "DRUNK"
+        }
+    }
+    /// §3.3's own help-text style (plain English, no jargon, under 60 characters) applied to each WALK
+    /// direction — completes "Walk the riff <phrase>."
+    private func riffDirHelpPhrase(_ d: RiffDir) -> String {
+        switch d {
+        case .forward: return "forward each time"
+        case .reverse: return "backward each time"
+        case .pendulum: return "forward, then back, each end once"
+        case .pingpong: return "forward, then back, each end twice"
+        case .random: return "to a random step each time"
+        case .drunk: return "one step at a time, randomly"
+        }
+    }
+    private func riffOnRestHelpPhrase(_ r: EuclidRiffOnRest) -> String {
+        switch r {
+        case .skip: return "On a riff rest, play nothing"
+        case .fill: return "On a riff rest, play this lane's own note"
+        case .tie: return "On a riff rest, hold the previous note"   // §3.3's own literal REST TIE example
         }
     }
 
@@ -1883,8 +1986,8 @@ struct EuclideousPage: View {
     /// `ioSourceRow`) — this section explicitly cites "the colour-hierarchy ferry" as its authority, so
     /// its own exact hex is used as given: selected = LANE-20 fill + 1pt LANE-100 border + white text;
     /// unselected = literal #2A2D34 fill + grey text. 40pt tall (§4.4).
-    private func melodyButton(_ label: String, on: Bool, accent: Color, action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+    @ViewBuilder private func melodyButton(_ label: String, on: Bool, accent: Color, help: String? = nil, action: @escaping () -> Void) -> some View {
+        let base = Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .white : Color.white.opacity(0.55))
             .lineLimit(1)   // §4.6: nothing under 10pt — truncate, never shrink (no .minimumScaleFactor call at all, SwiftUI's own default already never scales below 1.0)
             .frame(maxWidth: .infinity).frame(height: 40)
@@ -1892,12 +1995,13 @@ struct EuclideousPage: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture(perform: action)
+        if let help { base.euclideousHelp(help) } else { base }
     }
     /// §4.4: `[−] value [+]`, 36pt −/+ buttons. No existing generic stepper on this page (confirmed by
     /// direct search) — `headerKeyGroup`'s hand-assembled two-single-glyph-buttons shape is the only
     /// precedent to crib from, properly parameterized here instead of re-hand-assembled per call site.
-    private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, onChange: @escaping (Int) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    @ViewBuilder private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, help: String? = nil, onChange: @escaping (Int) -> Void) -> some View {
+        let base = VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
             HStack(spacing: sp4) {
                 Text("−").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
@@ -1914,6 +2018,14 @@ struct EuclideousPage: View {
                     .contentShape(Rectangle())
                     .onTapGesture { onChange(min(range.upperBound, value + 1)) }
             }
+        }
+        if let help { base.euclideousHelp(help) } else { base }
+    }
+    private func sourceModeHelpPhrase(_ s: EuclideousLaneSource) -> String {
+        switch s {
+        case .midi: return "Play whatever notes are held live"
+        case .key: return "Play notes from the page's own key"
+        case .chords: return "Play notes from the chord sequencer"
         }
     }
     private func melodySectionTitle(_ s: String) -> some View {
@@ -1936,7 +2048,8 @@ struct EuclideousPage: View {
             melodySectionTitle("SOURCE")
             HStack(spacing: sp4) {
                 ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
-                    melodyButton(src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS"), on: line.sourceModeResolved == src, accent: accent) {
+                    melodyButton(src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS"), on: line.sourceModeResolved == src, accent: accent,
+                                 help: sourceModeHelpPhrase(src)) {
                         edit(idx) { $0.sourceMode = src }
                     }
                 }
@@ -1947,8 +2060,8 @@ struct EuclideousPage: View {
         VStack(alignment: .leading, spacing: sp4) {
             melodySectionTitle("MODE")
             HStack(spacing: sp4) {
-                melodyButton("RIFF", on: line.useRiffResolved, accent: accent) { edit(idx) { $0.useRiff = true } }
-                melodyButton("NOTE", on: !line.useRiffResolved, accent: accent) { edit(idx) { $0.useRiff = false } }
+                melodyButton("RIFF", on: line.useRiffResolved, accent: accent, help: "Walk a shared pattern of notes") { edit(idx) { $0.useRiff = true } }
+                melodyButton("NOTE", on: !line.useRiffResolved, accent: accent, help: "Play one fixed note choice") { edit(idx) { $0.useRiff = false } }
             }
         }
     }
@@ -1979,29 +2092,39 @@ struct EuclideousPage: View {
             melodySectionTitle("WALK")
             HStack(spacing: sp4) {
                 ForEach(dirs, id: \.self) { d in
-                    melodyButton(riffDirShortLabel(d), on: line.riffDirResolved == d, accent: accent) { edit(idx) { $0.riffDir = d } }
+                    melodyButton(riffDirShortLabel(d), on: line.riffDirResolved == d, accent: accent,
+                                 help: "Walk the riff \(riffDirHelpPhrase(d))") { edit(idx) { $0.riffDir = d } }
                 }
             }
             HStack(spacing: sp4) {
-                melodyButton(line.riffLockResolved ? "LOCK" : "FREE", on: line.riffLockResolved, accent: accent) {
+                // §3.3's own literal example: "LOCK: Restart the riff each time the pattern loops."
+                melodyButton(line.riffLockResolved ? "LOCK" : "FREE", on: line.riffLockResolved, accent: accent,
+                             help: "Restart the riff each time the pattern loops") {
                     edit(idx) { $0.riffLock = !($0.riffLockResolved) }
                 }
-                melodyButton("INVERT", on: line.riffInvertResolved, accent: accent) {
+                melodyButton("INVERT", on: line.riffInvertResolved, accent: accent,
+                             help: "Flip the riff upside down in pitch") {
                     edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
                 }
-                melodyButton(line.riffAdvanceStepResolved ? "STEP" : "HIT", on: line.riffAdvanceStepResolved, accent: accent) {
+                melodyButton(line.riffAdvanceStepResolved ? "STEP" : "HIT", on: line.riffAdvanceStepResolved, accent: accent,
+                             help: "Move the riff on every step, not just hits") {
                     edit(idx) { $0.riffAdvanceStep = !($0.riffAdvanceStepResolved) }
                 }
             }
             HStack(spacing: sp4) {
                 Text("ON REST").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
                 ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
-                    melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent) { edit(idx) { $0.riffOnRest = r } }
+                    // §3.3's own literal example: "REST TIE: On a riff rest, hold the previous note."
+                    melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent,
+                                 help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
                 }
             }
             HStack(spacing: sp16) {
-                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7) { v in edit(idx) { $0.riffStride = v } }
-                melodyStepper("LENGTH", value: line.riffLengthResolved, range: 1...8) { v in edit(idx) { $0.riffLength = v } }
+                // §3.3's own literal example: "STRIDE: How many riff steps to move per note."
+                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7,
+                               help: "How many riff steps to move per note") { v in edit(idx) { $0.riffStride = v } }
+                melodyStepper("LENGTH", value: line.riffLengthResolved, range: 1...8,
+                               help: "How many steps the riff walk loops over") { v in edit(idx) { $0.riffLength = v } }
             }
         }
     }
@@ -2015,12 +2138,15 @@ struct EuclideousPage: View {
                 if line.useRiffResolved {
                     let n = line.riffLengthResolved
                     let shift = ((line.riffRotateResolved % n) + n) % n
-                    melodyStepper("SHIFT", value: shift, range: 0...(n - 1)) { v in edit(idx) { $0.riffRotate = v } }
+                    melodyStepper("SHIFT", value: shift, range: 0...(n - 1),
+                                   help: "Start the riff walk further along the pattern") { v in edit(idx) { $0.riffRotate = v } }
                 }
-                melodyStepper("TRANSPOSE", value: line.melodyTransposeResolved, range: -7...7, unit: transposeUnit) { v in
+                melodyStepper("TRANSPOSE", value: line.melodyTransposeResolved, range: -7...7, unit: transposeUnit,
+                               help: "Shift every note up or down the scale") { v in
                     edit(idx) { $0.melodyTranspose = v }
                 }
-                melodyStepper("OCT", value: line.useRiffResolved ? line.riffOctaveResolved : line.octaveResolved, range: -3...3) { v in
+                melodyStepper("OCT", value: line.useRiffResolved ? line.riffOctaveResolved : line.octaveResolved, range: -3...3,
+                               help: "Shift every note up or down by octaves") { v in
                     edit(idx) { l in if l.useRiffResolved { l.riffOctave = v } else { l.octave = v } }
                 }
             }
@@ -2065,6 +2191,7 @@ struct EuclideousPage: View {
                     .padding(.top, sp4)
                     .contentShape(Rectangle())
                     .onTapGesture { resetMelody(idx) }
+                    .euclideousHelp("Reset this lane's melody settings to default")
             }
         }
         .frame(maxHeight: scrollMaxH)
@@ -2209,6 +2336,7 @@ struct EuclideousPage: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture { maskModePopupLane = idx }
+            .euclideousHelp("How the mask changes this lane's hits")
             maskParamSlot1(idx, m, accent, rowH: rowH, width: slotW)
             maskParamSlot2(idx, m, accent, rowH: rowH, width: slotW)
             maskNumericChip(label: "CHANCE", value: "\(Int((m.chanceResolved * 100).rounded()))%", width: slotW, height: rowH,
@@ -2524,7 +2652,9 @@ struct EuclideousPage: View {
                     let activeLanes = (0..<4).filter { i in i < lines.count && lines[i].useRiffResolved && i < riffPositions.count && riffPositions[i] == col }
                     HStack(spacing: 4) {
                         ForEach(activeLanes, id: \.self) { i in
-                            Circle().fill(lane100(laneAccents[i % laneAccents.count])).frame(width: 8, height: 8)
+                            // §5, literal: "its riff dot: drawn 50% larger" when the lane is selected.
+                            let dotSize: CGFloat = selectedLane == i ? 12 : 8
+                            Circle().fill(lane100(laneAccents[i % laneAccents.count])).frame(width: dotSize, height: dotSize)
                         }
                     }
                     .frame(width: cellW, height: riffDotRowH)
@@ -2728,10 +2858,21 @@ struct EuclideousPage: View {
         let labelH: CGFloat = 14
         let bodyH = max(1, height - labelH)
         return VStack(alignment: .leading, spacing: 0) {
-            noteViewLabelRow(line, accent: accent, width: width)
+            noteViewLabelRow(idx, line, accent: accent, width: width)
             noteViewTrackRow(idx, line, accent: accent, width: width, height: bodyH, cyc: cyc, windowBeats: windowBeats, liveBeat: liveBeat)
         }
         .frame(width: width, height: height, alignment: .leading)
+        // CONNECT EACH LANE'S PARTS (usability ferry §5, literal): "its NOTE VIEW strip: a 1pt LANE-100
+        // outline" when the lane is selected — the same `selectedLane` state the card outline already
+        // reads (`laneCard`'s own `.overlay(...stroke(selectedLane == idx ? lane100...))`), so the two can
+        // never disagree about which lane is highlighted.
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(selectedLane == idx ? lane100(accent) : Color.clear, lineWidth: 1))
+        // §5, literal: "tapping a NOTE VIEW strip's track area also selects that lane" — the BASE content's
+        // own tap target, covering the strip's full bounds; the 30pt pop-up-opening overlay below is drawn
+        // (and hit-tests) ON TOP of it, so a tap landing inside that 30pt zone is caught there first (opens
+        // the pop-up, per "the label still opens the pop-up") while anything below it falls through to here.
+        .contentShape(Rectangle())
+        .onTapGesture { selectedLane = idx }
         // STRIP FRAME PUBLISHING (melody pop-up ferry §1.2, "anchored to the strip") — the direct sibling
         // of the XY pad's own frame-publishing background (`EuclideousPadFramePreferenceKey`), same
         // coordinate space, so the pop-up can anchor itself here.
@@ -2748,9 +2889,14 @@ struct EuclideousPage: View {
             // zone OVER the label (14pt) plus the track's own top 16pt. Scoped to exactly 30pt so "taps
             // on the track and note box must never open it" holds by construction: nothing below this
             // overlay's own bounds is affected.
+            // §3.1's pressed-state: `minimumDuration: 0` fires `perform` immediately on release (functionally
+            // a plain tap, byte-identical timing to the old `.onTapGesture`), while `pressing:` gives the
+            // touch-down/touch-up signal `.onTapGesture` alone never exposed.
             Rectangle().fill(Color.clear).frame(width: width, height: 30)
                 .contentShape(Rectangle())
-                .onTapGesture { melodyPopupLane = idx }
+                .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity,
+                                     pressing: { down in if idx < labelPressed.count { labelPressed[idx] = down } },
+                                     perform: { melodyPopupLane = idx })
         }
     }
 
@@ -2763,16 +2909,25 @@ struct EuclideousPage: View {
     // touch either way).
 
     /// §1.3/§1.4 (strip labels ferry), literal: a 6pt LANE-100 dot, then the joined text at 10pt `#AAB0BA`.
-    private func noteViewLabelRow(_ line: EuclidLine, accent: Color, width: CGFloat) -> some View {
+    private func noteViewLabelRow(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat) -> some View {
+        // §3.1, literal: a "›" chevron at the right end (after "+n" if present — already the string's own
+        // tail, so appending here always lands after it) + a pressed state (background lightens to
+        // #22252C while touched). The chevron/dot-and-gap width is reserved OUTSIDE the text's own budget
+        // so `noteViewLabelText`'s own fit/truncation math (textW) never has to account for it.
+        let chevronW: CGFloat = 10
         let dotAndGap: CGFloat = 6 + 4
-        let textW = max(1, width - dotAndGap)
+        let textW = max(1, width - dotAndGap - chevronW)
+        let pressed = idx < labelPressed.count && labelPressed[idx]
         return HStack(spacing: 4) {
             Circle().fill(lane100(accent)).frame(width: 6, height: 6)
             Text(noteViewLabelText(line, maxWidth: textW))
                 .font(.system(size: 10, weight: .heavy, design: .monospaced))
                 .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+            Text("›").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(Color(hex: 0xAAB0BA).opacity(0.6))
         }
         .frame(width: width, height: 14, alignment: .leading)
+        .background(pressed ? Color(hex: 0x22252C) : Color.clear)
     }
     /// The ordered content items (ferry 2 §2, literal order) — always Source + Mode, then only the
     /// non-default modifiers that apply, in the stated order.

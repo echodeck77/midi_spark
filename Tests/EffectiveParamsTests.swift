@@ -235,29 +235,32 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertFalse(back.euclideousEnabledResolved)
         XCTAssertEqual(back.euclideousReceiverResolved, 0)
         XCTAssertEqual(back.euclideousLinesResolved.count, 4, "always pads to exactly 4, mirroring euclidLinesForEditing()")
-        // UNLIKE euclidLinesForEditing() (whose pad rows ARE silent by design), Euclideous pads with a PER-
-        // INDEX default (Paul 2026-10-09, ferry §5): lane 1 (index 0) opens audible — 1 of 8, the struct's own
-        // plain default; lanes 2-4 open DELIBERATELY SILENT — 0 of 8, until raised — a genuine behaviour
-        // reversal of the earlier "every lane identical, floored to >=1" design (2026-10-06, fixing a since-
-        // resolved "no sound at all" bug) now that 0 hits is an intentional starting point for lanes 2-4, not
-        // leftover corruption to repair.
+        // PER-INDEX DEFAULT, REVISED (usability ferry §8.2, 2026-10-11, literal): "riff R1; lane 1: riff
+        // FWD, 3/8, rate 1/8; lane 2: riff FWD, 5/16, rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A,
+        // source KEY." SUPERSEDES the prior ferry's own "lane 1 = 1 of 8, lanes 2-4 = 0 hits" default
+        // entirely (that older default is now itself historical — see the 2026-10-09 entry this comment
+        // used to cite).
         let lines = back.euclideousLinesResolved
-        XCTAssertEqual(lines[0].pulses, 1, "lane 1 opens audible, 1 of 8")
-        XCTAssertTrue(lines[1...3].allSatisfy { $0.pulses == 0 }, "lanes 2-4 open deliberately silent (0 hits) until raised")
-        XCTAssertTrue(lines.allSatisfy { $0.steps == 8 }, "every lane defaults to 8 steps")
+        XCTAssertEqual(lines[0].pulses, 3); XCTAssertEqual(lines[0].steps, 8); XCTAssertEqual(lines[0].rate, .r1_8)
+        XCTAssertEqual(lines[1].pulses, 5); XCTAssertEqual(lines[1].steps, 16); XCTAssertEqual(lines[1].rate, .r1_16)
+        XCTAssertEqual(lines[1].riffOctaveResolved, 1)
+        XCTAssertTrue(lines[2...3].allSatisfy { $0.pulses == 0 }, "lanes 3-4 open deliberately silent (0 hits)")
+        XCTAssertTrue(lines.allSatisfy { $0.emitterMask == 0b0001 }, "every lane defaults to output A")
+        XCTAssertTrue(lines.allSatisfy { $0.sourceModeResolved == .key }, "every lane defaults to source KEY")
         // MELODY POP-UP (Paul 2026-10-10 ferry §2): NOTE defaults to LOWEST, MODE defaults to RIFF — found
         // on a plan self-re-audit that `euclideousDefaultLine`, not EuclidLine's own shared accessor
         // fallback, is where these fresh-lane defaults actually live; this is the correctly-scoped place
         // to lock them in (MODE was ALREADY correct before this ferry — this also guards it stays that way).
         XCTAssertTrue(lines.allSatisfy { $0.noteSelResolved == .low }, "every fresh lane defaults NOTE to LOWEST")
         XCTAssertTrue(lines.allSatisfy { $0.useRiffResolved }, "every fresh lane defaults MODE to RIFF")
+        XCTAssertTrue(lines.allSatisfy { $0.riffDirResolved == .forward }, "every fresh lane's riff walk defaults FWD")
     }
     func testEuclideousLinesResolvedPadsAndTruncates() {
         var d = doc()
         d.euclideousLines = [EuclidLine(pulses: 4, steps: 8)]   // only 1 of 4 authored
         XCTAssertEqual(d.euclideousLinesResolved.count, 4)
         XCTAssertEqual(d.euclideousLinesResolved[0].pulses, 4)
-        XCTAssertEqual(d.euclideousLinesResolved[1].pulses, 0, "a padded-in lane 2-4 defaults to 0 hits (deliberately silent until raised — ferry §5.4), not lane 1's own 1-of-8 default")
+        XCTAssertEqual(d.euclideousLinesResolved[1].pulses, 5, "a padded-in lane 2 takes ITS OWN per-index default (usability ferry §8.2: 5/16), not lane 1's own authored value or a blanket silent fallback")
         d.euclideousLines = Array(repeating: EuclidLine(pulses: 2, steps: 8), count: 6)   // over-long
         XCTAssertEqual(d.euclideousLinesResolved.count, 4)
     }

@@ -540,12 +540,15 @@ struct EuclideousRiff: Codable, Equatable {
     var ranks: [Int]? = nil              // MONO per-step: 0 = rest, 1...8 = pool rank. nil ⇒ an ascending default figure
     /// 1...32, defensive against a hand-edited or future out-of-range doc.
     var stepsResolved: Int { max(1, min(32, steps)) }
-    /// Padded/truncated to `stepsResolved` length; an unset/short doc gets a simple ascending 1...8 cycling figure
-    /// (never silence by default — matches EuclidLine's own "a fresh lane defaults to something audible" convention).
+    /// Padded/truncated to `stepsResolved` length; an unset/short doc gets the ferry's own named R1 shape,
+    /// cycled (usability ferry §8.2, 2026-10-11: "riff R1" — R1 = `1 2 3 5 4 3 2 1` — SUPERSEDES the earlier
+    /// plain-ascending-mod-8 default; never silence by default either way, matching EuclidLine's own "a
+    /// fresh lane defaults to something audible" convention).
+    private static let r1Shape = [1, 2, 3, 5, 4, 3, 2, 1]
     var ranksResolved: [Int] {
         let n = stepsResolved
-        var r = ranks ?? (0..<n).map { ($0 % 8) + 1 }
-        if r.count < n { r += (r.count..<n).map { ($0 % 8) + 1 } }
+        var r = ranks ?? (0..<n).map { Self.r1Shape[$0 % Self.r1Shape.count] }
+        if r.count < n { r += (r.count..<n).map { Self.r1Shape[$0 % Self.r1Shape.count] } }
         if r.count > n { r = Array(r.prefix(n)) }
         return r
     }
@@ -2063,18 +2066,23 @@ struct PluginState: Codable, Equatable {
     /// only as this starting point, exactly as the earlier design already intended for the "never reachable
     /// through the gesture" half of its own reasoning.
     private static func euclideousDefaultLine(_ i: Int) -> EuclidLine {
-        // MELODY POP-UP (Paul 2026-10-10 ferry, §2): NOTE's own default is LOWEST, not ALL — found on
-        // a self-re-audit of this plan, not assumed: this function, not EuclidLine's own shared
-        // noteSelResolved fallback, is where Euclideous's fresh-lane defaults actually live (confirmed
-        // by reading it directly), so this is the correctly-scoped place to fix it — changing the
-        // shared fallback instead would also silently re-default every ordinary, non-Euclideous EUCLID
-        // cell in the grid. MODE's own default (RIFF) needs no change — `x.useRiff = true` below
-        // already satisfies it.
+        // NEW DEFAULT STATE (usability ferry §8.2, 2026-10-11, literal): "riff R1 [see EuclideousRiff.
+        // ranksResolved's own default above]; lane 1: riff FWD, 3/8, rate 1/8; lane 2: riff FWD, 5/16,
+        // rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A, source KEY." SUPERSEDES the prior ferry's
+        // own "lane 1 = 1 of 8, lanes 2-4 = 0 hits" default entirely — a fresh/never-touched Euclideous
+        // instance now opens on this musical shape instead.
         var x = EuclidLine(noteSel: .low)
-        x.pulses = i == 0 ? 1 : 0   // lane 1 = 1 hit; lanes 2-4 = 0 hits (ferry §5.3/§5.4)
-        x.steps = 8                 // every lane = 8 steps (ferry §5.3/§5.4)
-        x.emitterMask = 0b0001      // every lane outputs to A (ferry §5.1)
-        x.useRiff = true            // every lane's riff on, direction FWD via riffDir's own nil-default (ferry §5.2)
+        x.emitterMask = 0b0001        // every lane outputs to A
+        x.sourceMode = .key           // "source KEY" — set explicitly rather than relying on the shared
+                                       // nil->.key fallback, so this default reads correctly even if that
+                                       // fallback is ever revised for an unrelated reason.
+        x.useRiff = true
+        x.riffDir = .forward
+        switch i {
+        case 0: x.pulses = 3; x.steps = 8; x.rate = .r1_8
+        case 1: x.pulses = 5; x.steps = 16; x.rate = .r1_16; x.riffOctave = 1
+        default: x.pulses = 0; x.steps = 8   // lanes 3-4
+        }
         return x
     }
     var euclideousLinesResolved: [EuclidLine] {
