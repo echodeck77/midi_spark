@@ -196,6 +196,72 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — mask position made genuinely hit-driven (was self-clocked) + a "UI polish, no behaviour
+  change" ferry, both SHIPPED (2026-10-11, on `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`,
+  `9992788`; macOS 1305 green, iOS builds clean). **MASK POSITION BUGFIX**, investigated on request ("Euclid
+  mask was moving at the main rate, and not progressing on hits from Euclid lane as I'd expect"). Traced
+  rather than guessed: the AUDIO side was always correct — `euclideousMaskOrd` only ever advances inside
+  `runEuclidLine`'s `if isHit {}`, so the mask genuinely engages only on real sounding hits of the lane's own
+  Euclid pattern, confirmed by direct reading before touching anything. The bug was purely VISUAL —
+  `maskCometRow` drew the mask's step-bar with the shared, SELF-CLOCKED `EuclidCometBar` at a hardcoded
+  `rate: .r1_16` against the page's own clock, with zero relationship to the mask's real position — the
+  EXACT "RATCHET PATTERN/DEST" class of bug this codebase's own history repeatedly names (the lit cell and
+  what's actually heard disagreeing because the UI reads an unrelated clock). **FIX:** a new genuinely
+  UI-pollable `Router.euclideousMaskStep`/`euclideousMaskPositions()`, mirroring `euclideousRiffStep`'s own
+  established precedent exactly (written once per real lane hit, reset on the same transport-edge block,
+  forwarded through Kernel/MidiSparkAudioUnit/AudioUnitViewController's existing fast ~30fps poll). The old
+  `EuclidCometBar` call in `maskCometRow` is replaced by a new `maskStepBar` — a STATIC K/N box row (no
+  `TimelineView`, no comet) highlighting whichever step the polled position says is current. Deliberately NO
+  animation between polls: the mask's position is a discrete jump once per lane hit, not a continuous
+  function of wall-clock time, so animating a sweep between two polled values would fabricate motion the
+  engine never produces (the same reasoning this codebase already applies to RIFF's own DRUNK indicator).
+  Reuses `EuclidGesturePad` directly (already a shared, non-private component) for identical drag/pinch
+  editing — only the drawing underneath changed.
+  **UI POLISH FERRY (Paul's own rulings, "visual and layout fixes only... anything not mentioned stays as
+  built"):** §1 blocker — the portrait header had NO width ceiling at all (`portraitHeader()` was the one
+  row on the page missing the `.frame(width: containerW)` every other row already had), so its own content
+  could render wider than the real screen with nothing to clip or compress it — the confirmed root cause of
+  "D cut off, ON/close missing"; fixed to match the content area's own established frame-then-pad pattern.
+  §2.2 — STEPS/OFFSET's axis-label fit threshold (`euclideousAxisLabelFits`) was a disclosed, unverified
+  4-character guess; raised to 6 per Paul's own device-verified ruling ("names fit at 10pt in both
+  orientations"). §2.1 — the GATE/VEL pad's dashed box + its rect now draw within a 6pt bottom margin so
+  neither ever reaches the axis-label area below (confirmed root cause: both used the Canvas's full,
+  un-inset `size`, while the axis label floats as an independent overlay at the pad's own true bottom edge).
+  §3.1 — the NOTE VIEW note box had THREE inconsistently-styled backgrounds (4%/6% white, or a lane-tinted
+  fill further multiplied by brightness down to ~8% opacity) at 6pt radius — subtle enough to read as "no
+  box, just floating text," exactly the reported symptom; now ONE constant `#22252C`/8pt-radius container at
+  ALL times, with only the text content varying by state. §3.3 — a real, confirmed bug: the playhead/
+  baseline draw was gated behind `guard running`, directly contradicting its own comment ("drawn every frame
+  regardless of running") — a stopped lane drew nothing at all; fixed, plus added the ferry's own constant
+  1pt `#2A2D34` baseline so all 4 strips always show the same shape. §3.4 — marks now fade in over their
+  first 12pt from the track's entry edge instead of clipping hard (the ferry's own wording named the "left"
+  edge, describing the PRE-flip layout from immediately before this ferry arrived — applied at the actual,
+  current entry edge, which this session's own earlier direction-flip moved to the right). §3.5 — the
+  drop-items-and-"+n" summary-label algorithm (10pt/`#AAB0BA`/lane dot) already existed from an earlier
+  ferry, contradicting this ferry's "currently larger white bold" description — likely a stale observation;
+  left the STYLE alone but added a ×1.15 safety margin to its hand-estimated character width (no live
+  text-measurement API exists), since an UNDERestimate is exactly the one-sided failure mode that would let
+  a string the algorithm judges "fits" actually run past the edge. §3.6 — added a 1pt `#22252C` divider
+  between strips, riding inside the existing 4pt gap (same total panel height). §4.1 — a REAL, confirmed bug
+  in the RIFF panel: multiple lanes sharing one step were all drawn in a plain `ZStack`, centred at the
+  identical point — only the LAST one drawn (highest lane index) was ever visible, the rest fully hidden
+  underneath it, exactly matching "only one dot shows (lane 3)... although lane 1 is also playing"; fixed by
+  collecting every matching lane first and laying them out side by side in a real `HStack`, 4pt apart. §4.2
+  and §5 required no change — the dot row's 10pt is already reserved unconditionally in both orientations
+  (confirmed by reading `riffPanelHeight`'s shared formula), and §5's own "I/O tab" item is MOOT — that tab
+  was already retired earlier this same session (OUTPUT now lives in PATTERN's own bottom row), and neither
+  PATTERN nor MASK's current tab content has an analogous "content row above an empty band" problem.
+  **DEVICE-OWED, named plainly because this environment cannot produce the screenshots §6 itself asks
+  for:** every claim above about actual on-screen appearance at AUM's real windowed/full-screen sizes in
+  both orientations — the header's real fit margin at the narrowest real panel, the note box's visibility
+  against the dark ground, the fade-in's feel, the riff dots' real spacing when 3+ lanes genuinely share a
+  step (hand-arithmetic suggests 4 simultaneous dots could still slightly exceed a narrow riff cell — an
+  edge case beyond the ferry's own 2-lane example, disclosed not silently absorbed); and — flagged
+  explicitly as NOT addressed — the pad VALUE text truncation ("VEL 9…") itself, a genuinely different bug
+  class from the header's missing-constraint issue (content vs. available space, not a missing width
+  ceiling), left untouched since fixing it would mean revising the `padValueSize`/pad-padding constants an
+  EARLIER, separately-ratified ferry fixed in place, which this ferry's own stated scope never asked to
+  reopen.**
 - **▶ EUCLIDEOUS — the I/O tab retired; OUTPUT moves into PATTERN, bottom right (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`, `a16984a`; macOS 1305 unaffected, iOS builds
   clean; UI-only). Paul: "I want the io tab removed and for the output to be set in the pattern tab on the
