@@ -223,6 +223,12 @@ struct DiagView: View {
     // as euclideousRiffPositions/LivePool above.
     @State var euclideousNVLastEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
     @State var euclideousNVRestFlash: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
+    // RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards") — a THIRD
+    // independent reconciled slot per lane, alongside the two above: each lane's latest wipe-ELIGIBLE
+    // event (column/rank >= 0), kept separately so it can't be clobbered by an ordinary hit/rest-flash
+    // event that isn't itself wipe-eligible (e.g. a FILL/CHORD-extra-note push, which always carries
+    // column/rank == -1 and must never overwrite a genuinely still-sweeping wipe).
+    @State var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
     // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config — same
     // persisted/live-mirror treatment as the fields above (loaded in refreshFromDocument, written back via
     // au?.editDocument on every edit, resynced on the slow timer). Defaults here are the SAME defaults their
@@ -941,6 +947,7 @@ struct DiagView: View {
                                    lineReady: euclideousLineReady,
                                    riff: euclideousRiff, riffPositions: euclideousRiffPositions, riffLivePool: euclideousRiffLivePool,
                                    noteViewLastEvent: euclideousNVLastEvent, noteViewRestFlash: euclideousNVRestFlash,
+                                   wipeEvents: euclideousWipeEvent,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
                                    // PER-LANE I/O (Paul 2026-10-08): riffSourceMidi/lanesSourceMidi no longer passed —
                                    // each lane now owns its own source directly on EuclidLine (sourceMode), edited via
@@ -1088,14 +1095,19 @@ struct DiagView: View {
                 // happens here, that's a pure function of (stored event, live beat) evaluated at draw time.
                 let nvEvents = au.pollEuclideousNoteViewEvents()
                 if nvEvents.count == 4 {
-                    var newLast = euclideousNVLastEvent, newFlash = euclideousNVRestFlash, changed = false
+                    var newLast = euclideousNVLastEvent, newFlash = euclideousNVRestFlash, newWipe = euclideousWipeEvent, changed = false
                     for lane in 0..<4 {
                         for ev in nvEvents[lane] {
                             if ev.kind == 2 { newFlash[lane] = ev } else { newLast[lane] = ev }
+                            // RIFF-CELL WIPES: a THIRD, independent reconciled slot (see its own @State
+                            // doc comment above) — only a genuinely wipe-eligible event (column >= 0)
+                            // ever overwrites it, so an ordinary FILL/CHORD-extra push (column == -1)
+                            // can't clobber a wipe still mid-sweep.
+                            if ev.column >= 0 { newWipe[lane] = ev }
                             changed = true
                         }
                     }
-                    if changed { euclideousNVLastEvent = newLast; euclideousNVRestFlash = newFlash }
+                    if changed { euclideousNVLastEvent = newLast; euclideousNVRestFlash = newFlash; euclideousWipeEvent = newWipe }
                 }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the

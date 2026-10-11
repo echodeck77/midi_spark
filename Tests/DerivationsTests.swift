@@ -2853,4 +2853,32 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(velLaneStep(lane: lane, pass: [], steps: 4, col: 3), 90, "empty pass = no passthrough")
         XCTAssertNil(velLaneStep(lane: lane, pass: pass, steps: 0, col: 0), "zero steps = nil")
     }
+    // RIFF-CELL WIPES / RESET PROGRESS (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane
+    // cards") — the two pure helpers behind the lane-card fill + header countdown. Built on the SAME
+    // `columnStart` Router.swift itself uses to find the real reset boundary, so these can never visually
+    // disagree with when the engine actually resets.
+    func testEuclideousResetProgressSweepsZeroToOneWithinAWindow() {
+        let spanBeats = 8.0
+        XCTAssertEqual(euclideousResetProgress(liveBeat: 16.0, spanBeats: spanBeats), 0, accuracy: 1e-9, "0 right at a window start")
+        XCTAssertEqual(euclideousResetProgress(liveBeat: 20.0, spanBeats: spanBeats), 0.5, accuracy: 1e-9, "~0.5 at the midpoint")
+        XCTAssertEqual(euclideousResetProgress(liveBeat: 23.99, spanBeats: spanBeats), 23.99 / 8.0 - 2, accuracy: 1e-6, "approaching 1 just before the boundary")
+        XCTAssertEqual(euclideousResetProgress(liveBeat: 24.0, spanBeats: spanBeats), 0, accuracy: 1e-9, "wraps back to ~0 just past the boundary, not past 1")
+    }
+    func testEuclideousResetProgressIsInertWhenSpanIsOff() {
+        XCTAssertEqual(euclideousResetProgress(liveBeat: 100, spanBeats: 0), 0, "RESET SPAN off ⇒ 0, the caller's own job to hide the fill entirely")
+    }
+    func testEuclideousResetBarsRemainingCountsDownAndSnapsBack() {
+        let cyc = 4.0   // one bar, 4 beats
+        let spanBeats = 16.0   // 4-bar window
+        XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 0, spanBeats: spanBeats, cyc: cyc, resetSpanBars: 4), 4, "reads the full count right at a window start")
+        XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 4, spanBeats: spanBeats, cyc: cyc, resetSpanBars: 4), 3)
+        XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 8, spanBeats: spanBeats, cyc: cyc, resetSpanBars: 4), 2)
+        XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 12, spanBeats: spanBeats, cyc: cyc, resetSpanBars: 4), 1)
+        XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 15.9, spanBeats: spanBeats, cyc: cyc, resetSpanBars: 4), 1, "never reads 0, even a hair before the boundary")
+        XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 16, spanBeats: spanBeats, cyc: cyc, resetSpanBars: 4), 4, "snaps back to the full count across the boundary")
+    }
+    func testEuclideousResetBarsRemainingIsInertWhenOff() {
+        XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 10, spanBeats: 0, cyc: 4, resetSpanBars: 0), 0)
+        XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 10, spanBeats: 16, cyc: 0, resetSpanBars: 4), 0, "a zero bar length guards against division by zero")
+    }
 }

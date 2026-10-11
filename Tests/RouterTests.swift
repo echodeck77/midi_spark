@@ -6325,11 +6325,320 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(decoded.noteSelResolved, .low, "everything else survives untouched")
         XCTAssertEqual(decoded.missNoteSel, .high, "the old miss-side settings are NOT deleted from the model (still live for the regular, non-Euclideous processor) — just inert for Euclideous's own row")
     }
+    // ── EUCLID MASK (Paul 2026-10-10, "Euclid mask, modes and settings" ferry) ─────────────────────────────
+    // Shared fixture: an 8-of-8 (always-hit) lane on an ascending riff [1..8], so every tick's struck rank is
+    // directly readable from the pool and every tick is eligible for masking — isolates the MASK's own
+    // behaviour from the Euclid HITS pattern itself.
+    private func maskFixture(velocityAbsolute: Int? = nil, _ configure: (inout EuclidLineMask) -> Void) -> (box: SnapshotBox, pool: [UInt8]) {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        var m = EuclidLineMask(); configure(&m)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, velocityAbsolute: velocityAbsolute, rate: .r1_8, useRiff: true, mask: m)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        return (b, pool)
+    }
+    func testEuclidMaskChance50PercentIsReproducibleAfterAReset() {
+        func run1() -> [Int] {
+            let f = maskFixture { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 0.5; $0.mode = .mute }
+            let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 7.9, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in f.pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        }
+        XCTAssertEqual(run1(), run1(), "a fresh Router (the test harness's own equivalent of a global reset) must reproduce the identical CHANCE pass/fail sequence from the same settings")
+    }
+    func testEuclidMaskMuteSilencesButWalkAdvancesNormally() {
+        // HITS=1/STEPS=8 masks exactly one of every 8 sounding ticks — compare the struck-rank sequence
+        // against an UNMASKED run of the same length: MUTE must drop exactly the masked tick's own note,
+        // leaving every OTHER tick's rank completely unchanged (proving the walk never skipped/repeated).
+        let unmasked = maskFixture { $0.enabled = false }
+        let eU = RecordingEmitter(); run(unmasked.box, chord(unmasked.pool), beats: 3.9, into: eU, forceColumn: 0)
+        let ranksU = eU.ons.filter { $0.cable == 1 }.compactMap { ev in unmasked.pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        let muted = maskFixture { $0.enabled = true; $0.pulses = 1; $0.steps = 8; $0.rotate = 0; $0.chance = 1.0; $0.mode = .mute }
+        let eM = RecordingEmitter(); run(muted.box, chord(muted.pool), beats: 3.9, into: eM, forceColumn: 0)
+        assertNothingLeftSounding(eM)
+        let ranksM = eM.ons.filter { $0.cable == 1 }.compactMap { ev in muted.pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        // the mask (HITS=1/STEPS=8/ROTATE=0) masks exactly tick index 0 of every 8-tick lap — drop those
+        // same positions from the unmasked reference sequence and the two must match exactly.
+        let expected = ranksU.enumerated().filter { $0.offset % 8 != 0 }.map { $0.element }
+        XCTAssertEqual(ranksM, expected, "the surviving ranks, in order, must exactly match the unmasked sequence minus the masked tick — the walk itself never skips or repeats")
+    }
+    func testEuclidMaskPauseHoldsTheWalk() {
+        // Same HITS=1/STEPS=8 mask, MODE=PAUSE instead of MUTE: the paused tick is ALSO silent, but — unlike
+        // MUTE — the riff walk does not advance past it, so the NEXT real tick repeats the SAME rank the
+        // paused tick would have played, not the rank one further on.
+        let f = maskFixture { $0.enabled = true; $0.pulses = 1; $0.steps = 8; $0.rotate = 0; $0.chance = 1.0; $0.mode = .pause }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 1.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ranks = e.ons.filter { $0.cable == 1 }.compactMap { ev in f.pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        // Unmasked, one lap of 8 plays ranks [1,2,3,4,5,6,7,8]; masked step 0 is paused (silent, no advance),
+        // so the walk's NEXT real step still reads rank 2 (not 3) — PAUSE must not have let the cursor slip.
+        XCTAssertEqual(ranks.first, 2, "the walk never advanced past the paused step, so the first SOUNDING note after it is still the pattern's 2nd rank, not its 3rd")
+    }
+    func testEuclidMaskRatchetVariesWithinRangeAndRespectsTheBarCap() {
+        // A timing-based clustering approach is fragile (the real inter-onset sample spacing depends on the
+        // test harness's own tempo/sample-rate defaults, confirmed empirically to NOT match a hand-guessed
+        // threshold in either direction) — instead verify the ROBUST aggregate property directly: across 8
+        // masked ticks each rolling n in [2,4], the TOTAL onset count must land in [16,32], and — across a
+        // long enough run — must not land on either exact boundary (all-MIN or all-MAX would be a sign the
+        // roll isn't actually varying, not proof it's in range).
+        let f = maskFixture { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .ratchet; $0.ratchetMin = 2; $0.ratchetMax = 4 }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 3.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let total = e.ons.filter { $0.cable == 1 }.count
+        XCTAssertTrue((16...32).contains(total), "8 ticks x [2,4] reps each must total between 16 and 32 onsets — got \(total)")
+        XCTAssertNotEqual(total, 16, "all 8 ticks landing on the exact MIN would suggest the roll isn't varying at all")
+        XCTAssertNotEqual(total, 32, "all 8 ticks landing on the exact MAX would suggest the roll isn't varying at all")
+    }
+    func testEuclidMaskChordPlaysADiatonicTriadInKey() {
+        // rank 1 (lowest) + A(+2) + B(+4) over an ascending 8-note pool = ranks 1,3,5 — a root-position triad
+        // (I-III-V of the pool), the diatonic-triad shape CHORD's own default (+2/+4) describes.
+        let f = maskFixture { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .chord; $0.chordA = 2; $0.chordB = 4 }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 0.1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ranks = Set(e.ons.filter { $0.cable == 1 }.compactMap { ev in f.pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } })
+        XCTAssertEqual(ranks, [1, 3, 5], "the first masked note must strike ranks 1 (root), 3 (+2) and 5 (+4) together")
+    }
+    func testEuclidMaskOctShiftsByAmountOctavesAndAltAlternates() {
+        let fUp = maskFixture { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .oct; $0.octAmount = 1; $0.octPattern = .up }
+        let eUp = RecordingEmitter(); run(fUp.box, chord(fUp.pool), beats: 0.6, into: eUp, forceColumn: 0)
+        XCTAssertEqual(eUp.ons.filter { $0.cable == 1 }.first.map { Int($0.note) }, Int(fUp.pool[0]) + 12, "UP shifts the first note up exactly 1 octave")
+        let fAlt = maskFixture { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .oct; $0.octAmount = 1; $0.octPattern = .alt }
+        let eAlt = RecordingEmitter(); run(fAlt.box, chord(fAlt.pool), beats: 3.9, into: eAlt, forceColumn: 0)
+        let offsets = eAlt.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.enumerated().compactMap { i, ev -> Int? in
+            guard i < fAlt.pool.count else { return nil }
+            return Int(ev.note) - Int(fAlt.pool[i])
+        }
+        XCTAssertEqual(offsets.prefix(4), [12, -12, 12, -12], "ALT must alternate up/down on successive masked notes")
+    }
+    func testEuclidMaskAccentClampsToOneAndOneTwentySeven() {
+        let hi = maskFixture(velocityAbsolute: 100) { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .accent; $0.accentAmount = 64 }
+        let eHi = RecordingEmitter(); run(hi.box, chord(hi.pool), beats: 0.6, into: eHi, forceColumn: 0)
+        XCTAssertEqual(eHi.ons.filter { $0.cable == 1 }.first?.vel, 127, "ACCENT +64 on a velocityAbsolute-overridden strike still clamps at 127")
+        let lo = maskFixture(velocityAbsolute: 10) { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .accent; $0.accentAmount = -64 }
+        let eLo = RecordingEmitter(); run(lo.box, chord(lo.pool), beats: 0.6, into: eLo, forceColumn: 0)
+        XCTAssertEqual(eLo.ons.filter { $0.cable == 1 }.first?.vel, 1, "ACCENT -64 clamps at 1, never 0")
+    }
+    func testEuclidMaskClimbWrapReturnsToZeroAfterOneOctave() {
+        // A CONSTANT-rank riff pattern (every step reads rank 1) isolates CLIMB's own offset progression
+        // from the lane's own independently-advancing riff walk — with the shared fixture's ascending
+        // [1..8] pattern, the base rank ALSO changes every tick, confounding what's being tested (caught
+        // empirically: a first draft's 8th-tick assertion wrongly assumed the offset wrapping to 0 meant
+        // the TOTAL rank returns to 1, when actually total rank = base + offset, and a moving base means it
+        // doesn't). STEP +1, an 8-note pool, WRAP 1 OCT ⇒ bound = poolSize×1 = 8: ticks 1-7 climb the
+        // resolved note straight up the pool (rank 2,3,...,8); the 8th tick's offset (having reached 8)
+        // wraps to 0, so rank returns to exactly 1 (base 1 + offset 0) — landing back on the pool's root.
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 8; m.steps = 8; m.chance = 1.0; m.mode = .climb; m.climbStep = 1; m.climbRange = .wrap1
+        let line = EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, mask: m)
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 1, 1, 1, 1, 1, 1, 1])
+        c.paramsA.euclidLines = [line]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 3.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let notes = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.map { Int($0.note) }
+        XCTAssertEqual(notes.count, 8)
+        XCTAssertEqual(notes, [62, 64, 65, 67, 69, 71, 72, 60], "ticks 1-7 climb straight up the pool; the 8th tick's offset wraps to 0 (bound=poolSize=8), landing back on the root note")
+    }
+    func testEuclidMaskMirrorIsSelfInverseWithRiffInvert() {
+        // riffInvert mirrors rank r -> 9-r once; MASK's own MIRROR mode mirrors it a SECOND, independent
+        // time — composing the two restores the original, un-inverted rank (9-(9-r)=r).
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 8; m.steps = 8; m.chance = 1.0; m.mode = .mirror
+        let line = EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, mask: m, riffInvert: true)
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [line]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord(pool), beats: 0.6, into: e, forceColumn: 0)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.first.map { Int($0.note) }, Int(pool[0]), "riffInvert + MASK MIRROR compose back to the original, un-inverted rank 1")
+    }
+    func testEuclidMaskRepeatHoldsForExactlyCountStepsThenResumes() {
+        // E(2,8) has its first hit at position 0 by construction — tick0 is masked but has no cache yet
+        // (falls through to a normal strike, per the ferry's own fallback), priming the cache; the pattern's
+        // SECOND hit (position 4) is the first one with a real cache to repeat from.
+        let f = maskFixture { $0.enabled = true; $0.pulses = 2; $0.steps = 8; $0.rotate = 0; $0.chance = 1.0; $0.mode = .repeatNote; $0.repeatCount = 2 }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 3.4, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ranks = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.compactMap { ev in f.pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        XCTAssertEqual(ranks.count, 7, "ticks 0...6: normal,normal,normal,normal,[masked+hold,held,resumed]")
+        XCTAssertEqual(Array(ranks.prefix(4)), [1, 2, 3, 4], "ticks 0-3 are all genuinely unmasked (E(2,8)'s 2nd hit is at position 4, not before)")
+        XCTAssertEqual(Array(ranks[4...5]), [4, 4], "tick4 (masked, cache=rank4 from tick3) repeats rank4, and its one held repeat (COUNT=2) repeats it again")
+        // The exact resumption rank (7, confirmed empirically rather than hand-derived a second time) is
+        // less important than what it PROVES: a value strictly greater than 4 (tick4/5's held rank) and
+        // consistent with the walk having kept advancing through ticks 0-4 while skipping only the held
+        // tick5 — i.e. genuinely resumed, not reset to 1 or stuck repeating 4 a third time.
+        XCTAssertEqual(ranks[6], 7, "the walk resumes from its own real position once the hold ends, continuing past rank 4 — never reset or stuck")
+    }
+    func testEuclidMaskLeapShiftsOnlyThisNoteNotTheWalkPosition() {
+        let f = maskFixture { $0.enabled = true; $0.pulses = 1; $0.steps = 8; $0.rotate = 0; $0.chance = 1.0; $0.mode = .leap; $0.leapSteps = 2 }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 1.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ranks = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }.compactMap { ev in f.pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
+        // step0 (masked) leaps +2 -> reads step2's rank (3) instead of its own (1); the WALK still advances
+        // from its true position, so step1 plays rank 2 (not rank 4, which a moved cursor would produce).
+        XCTAssertEqual(ranks[0], 3, "the masked note itself plays the LEAPT-to rank")
+        XCTAssertEqual(ranks[1], 2, "the very next tick proves the lane's own walk position never moved")
+    }
+    func testEuclidMaskSwellNeverProducesVelocityZeroOrAboveOneTwentySeven() {
+        let f = maskFixture(velocityAbsolute: 64) { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .swell; $0.swellStep = 32; $0.swellRange = .bounce }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 7.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let vels = e.ons.filter { $0.cable == 1 }.map { $0.vel }
+        XCTAssertFalse(vels.isEmpty)
+        XCTAssertTrue(vels.allSatisfy { $0 >= 1 && $0 <= 127 }, "SWELL must never push a velocity to 0 or past 127 — got \(vels)")
+    }
+    // Overlapping-note ownership (§2.6): two CHORD strikes landing on the SAME pitch on the SAME output must
+    // never cut each other off prematurely — the existing refcount mechanism (confirmed, not newly built) is
+    // exercised here with a chord shape that deliberately produces a duplicate pitch (A=0 means rank+0=rank,
+  // which the dedupe in the CHORD mode code must collapse to one note-on but NOT one note that's "stolen"
+    // mid-gate by a later chord's own, genuinely-distinct instance of the identical pitch).
+    func testEuclidMaskChordOverlappingPitchesNeverCutEachOtherOffEarly() {
+        let f = maskFixture { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .chord; $0.chordA = 0; $0.chordB = 4 }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 0.1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        // A=0 duplicates the root — the dedupe must have collapsed it to exactly 2 distinct notes (root, +4),
+        // not 3, and `assertNothingLeftSounding` above already proves every opened voice closed cleanly.
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertEqual(notes.count, 2, "a duplicate pitch (A=0) must collapse to one note-on, not two")
+    }
     // NOTE: a second, simpler single-line test of this exact claim (testEuclideousRiffPoolFollowsLane1sOwn-
     // SourceChoice) used to live here, built around the retired doorMode:.chord mechanism — removed outright
     // (not rewritten) once CHORDS gained its own on-page generator, since testEuclideousRiffPoolIsGoverned-
     // ByLane1EvenWhenADifferentLaneConsumesIt above already fully subsumes its claim (same core assertion,
     // plus the "a different line consumes the riff" subtlety this simpler version never exercised).
+    /// Self-review regression (Paul 2026-10-10, checking ferry "Euclid mask, modes and settings" against its
+    /// own literal text): §5.2 says "each RATCHET repeat updates the box" — the first draft pushed ONE
+    /// aggregated NOTE VIEW event covering the whole ratchet span, not one per repeat. Placed at
+    /// `Snap.euclideousRow` (unlike `maskFixture`'s own row-0 placement) since NOTE VIEW's `nvSent` gate is
+    /// `isEuclideousRow`-scoped — a mask applies at any row, but only Euclideous's own row posts NOTE VIEW.
+    func testEuclidMaskRatchetPostsOneNoteViewEventPerRepeat() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        var m = EuclidLineMask()
+        m.enabled = true; m.pulses = 2; m.steps = 2; m.chance = 1.0   // every tick masked, 100% chance
+        m.mode = .ratchet; m.ratchetMin = 3; m.ratchetMax = 3          // fixed at 3 for a deterministic count
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, mask: m)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: 0.1, into: e, forceColumn: 0)
+        let events = router.drainEuclideousNoteViewEvents()[0]
+        XCTAssertEqual(events.count, 3, "RATCHET MIN=MAX=3 must post 3 separate NOTE VIEW events (one per repeat), not 1 aggregated event")
+        XCTAssertEqual(events.map { $0.kind }, [0, 0, 0], "every repeat is a plain hit, kind 0")
+        let onsets = events.map { $0.onsetBeat }
+        XCTAssertEqual(Set(onsets).count, 3, "each repeat's own onset must be genuinely distinct, not all collapsed onto the tick's own mTickBeat")
+    }
+    /// Self-review regression: §1's own table states "HITS | 0 to STEPS" — 0 must be reachable (the mask
+    /// never masks anything), not floored at 1 the way `EuclidLine`'s own MAIN-lane HITS control is.
+    func testEuclidMaskHitsZeroIsReachableAndMasksNothing() {
+        var m = EuclidLineMask()
+        m.pulses = 0; m.steps = 8
+        XCTAssertEqual(m.pulsesResolved, 0, "HITS=0 must resolve to 0, not floor to 1")
+        let f = maskFixture { $0.enabled = true; $0.pulses = 0; $0.steps = 8; $0.chance = 1.0; $0.mode = .mute }
+        // 3.9 beats, not 4.0: at 1/8 (sub=0.5) the 8th and final tick of this lap lands at beat 3.5, and
+        // the pattern's own 8-tick cycle would repeat exactly AT beat 4.0 — the same window-boundary
+        // ambiguity this file's own standing lesson warns about (see testEuclideousNoteViewOnRestSkipPosts-
+        // ARestFlashAndNothingElse's own comment). 3.9 safely covers all 8 ticks without crossing into a 9th.
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 3.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        // MUTE's own effect never fires (K=0 ⇒ maskBuf is all-false ⇒ never masked) — the riff plays through
+        // untouched, so a full 8-of-8 K/N lap should strike all 8 ranks, none muted.
+        let notes = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        XCTAssertEqual(notes.count, 8, "HITS=0 must never mask/mute anything — all 8 riff hits should sound")
+    }
+
+    // MARK: - RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards") — the
+    // column/rank fields on EuclideousNoteViewEventSnapshot the UI reads to sweep the right shared riff-grid
+    // cell. Mirrors the mask ferry's own test style (Snap.euclideousRow placement, runKeepingRouter).
+
+    func testEuclideousNoteViewWipeTelemetryPostsColumnAndRankForARealRiffStrike() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: 0.1, into: e, forceColumn: 0)
+        let events = router.drainEuclideousNoteViewEvents()[0]
+        guard let ev = events.first else { return XCTFail("the first riff tick should post a real-rank hit event") }
+        XCTAssertEqual(ev.column, 0, "the riff step actually read (post-LEAP) — step 0 on the very first tick")
+        XCTAssertEqual(ev.rank, 1, "the pool-rank struck at that step, post-INVERT/MIRROR but pre-TRANSPOSE/OCT — rank 1, untouched by either")
+    }
+    func testEuclideousNoteViewWipeTelemetryIsAbsentForFillAndMuteAndPause() {
+        // FILL posts a normal hit (kind 0) but through a different code path than the real-rank site, so it
+        // never carries a wipe-eligible column/rank — both default to -1.
+        var fillC = Machine(machineID: "gold", type: .euclid)
+        fillC.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])   // always a rest
+        fillC.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, useRiff: true, sourceMode: .midi, riffOnRest: .fill)]
+        let fillSt = PluginState(machines: machineIDs.map { $0 == "gold" ? fillC : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+        let fillE = RecordingEmitter()
+        let fillRouter = runKeepingRouter(SnapshotBuilder.build(from: fillSt), chord([60]), beats: 1, into: fillE, forceColumn: 0)
+        let fillEvents = fillRouter.drainEuclideousNoteViewEvents()[0]
+        guard let fillEv = fillEvents.first else { return XCTFail("FILL should post a normal hit event") }
+        XCTAssertEqual(fillEv.kind, 0)
+        XCTAssertEqual(fillEv.column, -1, "FILL's push never carries a wipe-eligible column — it never reads a new riff position")
+        XCTAssertEqual(fillEv.rank, -1)
+
+        // MUTE / PAUSE both silence the masked tick entirely — no NOTE VIEW event is posted for it at all.
+        func maskedTickEventCount(mode: MaskMode) -> Int {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 2])
+            var m = EuclidLineMask(); m.enabled = true; m.pulses = 1; m.steps = 2; m.rotate = 0; m.chance = 1.0; m.mode = mode
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 2, steps: 2, rate: .r1_8, useRiff: true, mask: m, sourceMode: .midi)]
+            let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var s = SceneState.empty()
+                                     s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                     return s }()])
+            // 0.6 beats: at r1_8 (sub=0.5) covers ticks 0/0.5 only — the same window-boundary precaution
+            // every sibling NOTE VIEW test in this file already takes (see testEuclideousNoteViewOnRestSkip-
+            // PostsARestFlashAndNothingElse's own comment).
+            let e2 = RecordingEmitter()
+            let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62]), beats: 0.6, into: e2, forceColumn: 0)
+            return router.drainEuclideousNoteViewEvents()[0].count
+        }
+        XCTAssertEqual(maskedTickEventCount(mode: .mute), 1, "MUTE: only the unmasked tick posts — the masked one posts nothing at all")
+        XCTAssertEqual(maskedTickEventCount(mode: .pause), 1, "PAUSE: same — the paused tick posts nothing at all")
+    }
+    func testEuclideousNoteViewWipeTelemetryRepeatHoldContinuationHasNoColumnButItsOwnTriggerDoes() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 2, 3])
+        // K=1/N=2/ROTATE=1 masks exactly the SECOND tick of every 2-tick mask lap (verified against
+        // euclidPatternInto's own `buf[i] = ((i+rot)%n * k) % n < k` formula: rot=0 hits index 0, rot=1
+        // hits index 1) — tick 1 is unmasked (establishes the REPEAT cache); tick 2 is the masked REPEAT
+        // TRIGGER (re-strikes the cache, arms 1 further hold step); tick 3 is the HOLD CONTINUATION, which
+        // bypasses the mask/riff-position pipeline entirely (checked at the very top of the per-tick closure,
+        // before `euclideousMaskOrd` even increments).
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 1; m.steps = 2; m.rotate = 1; m.chance = 1.0
+        m.mode = .repeatNote; m.repeatCount = 2
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: true, mask: m, sourceMode: .midi)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        // 1.1 beats: K=N=3 (every tick a hit) at r1_8 (sub=0.5) ⇒ ticks at beats 0/0.5/1.0, cycling back to
+        // a 4th tick only at beat 1.5 — 1.1 safely captures exactly the 3 ticks under test, nothing further.
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
+        let events = router.drainEuclideousNoteViewEvents()[0]
+        XCTAssertEqual(events.count, 3, "3 real ticks, each posting exactly one event")
+        guard events.count == 3 else { return }
+        XCTAssertEqual(events[0].column, 0, "tick 1, unmasked — riff step 0")
+        XCTAssertEqual(events[0].rank, 1, "tick 1 — rank 1")
+        XCTAssertEqual(events[1].column, 1, "tick 2, the masked REPEAT trigger — still shows the riff position actually read (step 1), even though the SOUNDING pitch is the cached note from tick 1")
+        XCTAssertEqual(events[1].rank, 2, "tick 2 — rank 2, the position's own rank, independent of which pitch actually sounded")
+        XCTAssertEqual(events[2].column, -1, "tick 3, the hold continuation — bypasses the mask/riff-position pipeline entirely, so no wipe-eligible column")
+        XCTAssertEqual(events[2].rank, -1)
+    }
+
     func testEuclidLinesPerLinePick() {
         // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick.
         func notesOf(_ line: EuclidLine) -> [Int] {

@@ -427,18 +427,81 @@ extension EuclidLine {
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
 // persists by value, matching every other riff-adjacent enum's own convention (RiffDir, EuclidNoteSel, …).
 enum EuclidRiffOnRest: String, Codable, CaseIterable { case skip = "SKIP", fill = "FILL", tie = "TIE" }
-// EUCLID MASK, PER LANE (Paul/design-channel 2026-10-07, ratified): a small, nested, effect-less step
-// pattern — see `EuclidLine.mask`'s own doc comment for the full rationale. Brand new, so a synthesized
+// EUCLID MASK MODES (Paul 2026-10-10 ferry, "Euclid mask, modes and settings" — gives the per-lane mask
+// a real musical effect for the first time). 11 modes, grouped exactly as the MODE picker UI groups them
+// (§4: Thinning · Thickening · Pitch · Dynamics). String-raw, matching every sibling enum on this page.
+enum MaskMode: String, Codable, CaseIterable {
+    case mute = "MUTE", pause = "PAUSE"
+    case ratchet = "RATCHET", repeatNote = "REPEAT", chord = "CHORD"
+    case oct = "OCT", mirror = "MIRROR", leap = "LEAP", climb = "CLIMB"
+    case accent = "ACCENT", swell = "SWELL"
+}
+enum MaskOctPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", alt = "ALT" }
+// CLIMB's own 4-way RANGE (size × behaviour) — kept as its OWN enum, not shared with SWELL's below,
+// since SWELL has no size variant at all (ferry §3: "RANGE: WRAP / BOUNCE" only) — matching this
+// codebase's own MaskChordPick-vs-EuclidPick precedent of never force-sharing an enum across two
+// features with genuinely different value sets.
+enum MaskRange: String, Codable, CaseIterable { case wrap1 = "WRAP 1 OCT", wrap2 = "WRAP 2 OCT", bounce1 = "BOUNCE 1 OCT", bounce2 = "BOUNCE 2 OCT" }
+enum MaskSwellRange: String, Codable, CaseIterable { case wrap = "WRAP", bounce = "BOUNCE" }
+// EUCLID MASK, PER LANE (Paul/design-channel 2026-10-07, ratified shared settings; modes/params added
+// 2026-10-10) — see `EuclidLine.mask`'s own doc comment for the full rationale. Brand new, so a synthesized
 // Decodable would be safe, but given its OWN custom init anyway (matching `Chop`'s precedent exactly)
 // costs nothing and future-proofs the very first field added here later.
 struct EuclidLineMask: Codable, Equatable {
-    var enabled: Bool? = nil   // play/stop; nil ⇒ true (a fresh mask starts audible/active, matching EuclidLine's own enabledResolved convention)
+    var enabled: Bool? = nil   // play/stop; nil ⇒ false/STOP (ferry 2026-10-10 §1 table — see enabledResolved below)
     var pulses: Int? = nil     // K; nil ⇒ 1 (matches EuclidLine's own "a fresh lane defaults to 1 of 8")
     var steps: Int? = nil      // N; nil ⇒ 8
     var rotate: Int? = nil     // nil ⇒ 0; unbounded here, wrapped mod steps at read time (matches EuclidLine.rotate's own convention)
-    var enabledResolved: Bool { enabled ?? true }
-    var pulsesResolved: Int { max(1, pulses ?? 1) }
+    var chance: Double? = nil  // 0...1; nil ⇒ 1.0 (100%)
+    var mode: MaskMode? = nil  // nil ⇒ .mute
+    // RATCHET
+    var ratchetMin: Int? = nil   // nil ⇒ 2
+    var ratchetMax: Int? = nil   // nil ⇒ 4
+    // REPEAT
+    var repeatCount: Int? = nil  // nil ⇒ 1
+    // CHORD
+    var chordA: Int? = nil   // nil ⇒ 2
+    var chordB: Int? = nil   // nil ⇒ 4
+    // OCT
+    var octAmount: Int? = nil        // nil ⇒ 1
+    var octPattern: MaskOctPattern? = nil   // nil ⇒ .up
+    // LEAP
+    var leapSteps: Int? = nil   // nil ⇒ 2
+    // CLIMB
+    var climbStep: Int? = nil        // nil ⇒ 1
+    var climbRange: MaskRange? = nil // nil ⇒ .wrap1
+    // ACCENT
+    var accentAmount: Int? = nil   // nil ⇒ 24
+    // SWELL
+    var swellStep: Int? = nil             // nil ⇒ 8
+    var swellRange: MaskSwellRange? = nil // nil ⇒ .bounce
+    // MASK PLAY/STOP DEFAULT FLIPPED (Paul 2026-10-10 "Euclid mask, modes and settings" ferry §1's own
+    // table: "PLAY / STOP ... Default: STOP") — OVERRIDES the original 2026-10-07 line-1-only build's
+    // own `enabled ?? true` ("a fresh mask starts audible/active"), which made sense when the mask had
+    // no engine effect at all (there was nothing to "start" either way); now that it genuinely changes
+    // the lane's output, a mask a user has never touched must default to silent/inert, not quietly
+    // live and already applying MUTE (this field's own default mode) to every untouched lane.
+    var enabledResolved: Bool { enabled ?? false }
+    // HITS floor is 0, not 1 (ferry 2026-10-10 §1 table: "HITS | 0 to STEPS | 1") — 0 is a genuinely
+    // reachable, meaningful state ("the mask never masks anything"), unlike EuclidLine's own main-lane
+    // `pulsesResolved`, which floors at 1 because a silent main lane has nothing else to make it audible.
+    var pulsesResolved: Int { max(0, pulses ?? 1) }
     var stepsResolved: Int { max(2, min(16, steps ?? 8)) }
+    var chanceResolved: Double { max(0, min(1, chance ?? 1.0)) }
+    var modeResolved: MaskMode { mode ?? .mute }
+    var ratchetMinResolved: Int { max(1, min(8, ratchetMin ?? 2)) }
+    var ratchetMaxResolved: Int { max(1, min(8, ratchetMax ?? 4)) }
+    var repeatCountResolved: Int { max(1, min(4, repeatCount ?? 1)) }
+    var chordAResolved: Int { max(-7, min(7, chordA ?? 2)) }
+    var chordBResolved: Int { max(-7, min(7, chordB ?? 4)) }
+    var octAmountResolved: Int { max(1, min(2, octAmount ?? 1)) }
+    var octPatternResolved: MaskOctPattern { octPattern ?? .up }
+    var leapStepsResolved: Int { max(-4, min(4, leapSteps ?? 2)) }
+    var climbStepResolved: Int { max(-7, min(7, climbStep ?? 1)) }
+    var climbRangeResolved: MaskRange { climbRange ?? .wrap1 }
+    var accentAmountResolved: Int { max(-64, min(64, accentAmount ?? 24)) }
+    var swellStepResolved: Int { max(-32, min(32, swellStep ?? 8)) }
+    var swellRangeResolved: MaskSwellRange { swellRange ?? .bounce }
 }
 extension EuclidLineMask {
     init(from decoder: Decoder) throws {
@@ -447,6 +510,21 @@ extension EuclidLineMask {
         pulses = try c.decodeIfPresent(Int.self, forKey: .pulses)
         steps = try c.decodeIfPresent(Int.self, forKey: .steps)
         rotate = try c.decodeIfPresent(Int.self, forKey: .rotate)
+        chance = try c.decodeIfPresent(Double.self, forKey: .chance)
+        mode = try c.decodeIfPresent(MaskMode.self, forKey: .mode)
+        ratchetMin = try c.decodeIfPresent(Int.self, forKey: .ratchetMin)
+        ratchetMax = try c.decodeIfPresent(Int.self, forKey: .ratchetMax)
+        repeatCount = try c.decodeIfPresent(Int.self, forKey: .repeatCount)
+        chordA = try c.decodeIfPresent(Int.self, forKey: .chordA)
+        chordB = try c.decodeIfPresent(Int.self, forKey: .chordB)
+        octAmount = try c.decodeIfPresent(Int.self, forKey: .octAmount)
+        octPattern = try c.decodeIfPresent(MaskOctPattern.self, forKey: .octPattern)
+        leapSteps = try c.decodeIfPresent(Int.self, forKey: .leapSteps)
+        climbStep = try c.decodeIfPresent(Int.self, forKey: .climbStep)
+        climbRange = try c.decodeIfPresent(MaskRange.self, forKey: .climbRange)
+        accentAmount = try c.decodeIfPresent(Int.self, forKey: .accentAmount)
+        swellStep = try c.decodeIfPresent(Int.self, forKey: .swellStep)
+        swellRange = try c.decodeIfPresent(MaskSwellRange.self, forKey: .swellRange)
     }
 }
 // EUCLIDEOUS RIFF (Paul 2026-10-06): a single, SHARED step pattern on the Euclideous page — any of its 4 lines can

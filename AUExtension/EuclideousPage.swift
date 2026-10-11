@@ -228,6 +228,9 @@ struct EuclideousPage: View {
     // of (one of these, the live extrapolated beat) evaluated fresh every frame.
     let noteViewLastEvent: [Router.EuclideousNoteViewEventSnapshot?]
     let noteViewRestFlash: [Router.EuclideousNoteViewEventSnapshot?]
+    // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0),
+    // reconciled independently from the two above (AudioUnitViewController's own @State doc comment).
+    let wipeEvents: [Router.EuclideousNoteViewEventSnapshot?]
     // PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config (§2.2-§2.4).
     let resetSpanBars: Int
     let keyRoot: Int
@@ -301,6 +304,15 @@ struct EuclideousPage: View {
     @State private var chordsPopupOpen = false
     // riffDirPopupLane RETIRED 2026-10-10 alongside the RIFF tab — direction selection lives inline in the
     // melody pop-up's WALK section now, no separate nested popup needed.
+    // MASK MODE POPUP (Paul 2026-10-10, "Euclid mask, modes and settings" ferry §4): "tapping opens a picker
+    // of the 11 modes, grouped" — same scrim+centred-card shape as `ratePopupCard`. nil = no popup open.
+    @State private var maskModePopupLane: Int? = nil
+    // RIFF-CELL WIPES / RESET PROGRESS (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane
+    // cards" §5) — the first use of Reduce Motion anywhere in this codebase (grepped, zero prior
+    // precedent). When on: the riff-cell wipe collapses to a single 150ms flash (no directional sweep, no
+    // two-phase split); the lane-card progress FILL is hidden entirely (the fill's own TimelineView simply
+    // never draws it); the header "IN n" countdown is UNAFFECTED — §5 explicitly says it "still shows."
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let laneAccents: [Color] = [
         Color(red: 0.95, green: 0.35, blue: 0.35), Color(red: 0.35, green: 0.75, blue: 0.95),
@@ -399,6 +411,13 @@ struct EuclideousPage: View {
                         .onTapGesture { ratePopupLane = nil }
                         .zIndex(3)
                     ratePopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                }
+                // MASK MODE POP-UP (Paul 2026-10-10 ferry §4) — same scrim+centred-card shape as RATE's own.
+                if let lane = maskModePopupLane {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { maskModePopupLane = nil }
+                        .zIndex(3)
+                    maskModePopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
                 // RIFF DIRECTION POPUP RETIRED (ferry 2026-10-10 §1.2) — direction selection now lives inline
                 // in the melody pop-up's own WALK section below; `riffDirGrid`/`riffDirPopupCard` are deleted.
@@ -702,6 +721,20 @@ struct EuclideousPage: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
                 .onTapGesture { resetSpanPopupOpen = true }
+            // RESET COUNTDOWN (ferry "riff-cell wipes, reset progress on lane cards" §4) — "IN n", counting
+            // down to the next reset; hidden (§4.2) when RESET SPAN is OFF (the chip's own "OFF" value text
+            // above already reads as inert with nothing else needed beside it). UNAFFECTED by Reduce Motion
+            // (§5: "the header countdown still shows") — no `reduceMotion` gate here, deliberately.
+            if resetSpanBars > 0 {
+                let cyc = clock.stepBeats * Double(max(1, clock.cols))
+                TimelineView(.animation(paused: !clock.playing)) { tl in
+                    let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
+                    let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
+                    let bars = euclideousResetBarsRemaining(liveBeat: liveBeat, spanBeats: spanBeats, cyc: cyc, resetSpanBars: resetSpanBars)
+                    Text("IN \(bars)").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                }
+            }
         }
     }
     private func headerKeyGroup() -> some View {
@@ -934,6 +967,38 @@ struct EuclideousPage: View {
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
+    /// LANE-CARD RESET PROGRESS (ferry "riff-cell wipes, reset progress on lane cards" §3) — a slow
+    /// band filling from this lane's own §1-table starting edge toward the opposite one as the current
+    /// RESET SPAN window elapses, so a glance at the card shows how close the next reset is. Hidden
+    /// entirely (§3.3) when RESET SPAN is OFF, and under Reduce Motion (§5) — the `TimelineView` simply
+    /// never draws the fill rect in either case.
+    private func laneCardProgressFill(_ idx: Int, accent: Color, width: CGFloat, height: CGFloat) -> some View {
+        let cyc = clock.stepBeats * Double(max(1, clock.cols))
+        let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
+        let show = spanBeats > 0 && !reduceMotion
+        return TimelineView(.animation(paused: !clock.playing || !show)) { tl in
+            let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
+            let progress = show ? euclideousResetProgress(liveBeat: liveBeat, spanBeats: spanBeats) : 0
+            // §1 table: lane 0 L→R, lane 1 R→L, lane 2 T→B, lane 3 B→T — the fill grows from this
+            // lane's own starting edge toward the opposite one.
+            let (align, fillW, fillH): (Alignment, CGFloat, CGFloat) = {
+                switch idx {
+                case 0: return (.leading, width * CGFloat(progress), height)
+                case 1: return (.trailing, width * CGFloat(progress), height)
+                case 2: return (.top, width, height * CGFloat(progress))
+                default: return (.bottom, width, height * CGFloat(progress))
+                }
+            }()
+            ZStack(alignment: align) {
+                if show {
+                    Rectangle().fill(lane100(accent).opacity(0.07)).frame(width: fillW, height: fillH)
+                }
+            }
+            .frame(width: width, height: height)
+        }
+        .allowsHitTesting(false)
+    }
+
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
@@ -956,26 +1021,31 @@ struct EuclideousPage: View {
         let rowGaps: CGFloat = sp4 * 3     // VStack(spacing: sp4) between the 4 children = 3 gaps
         let gestureRowH = max(1, height - cometRowH - tabRowH - tabContentH - outerVPad - rowGaps)
         let steps = max(2, min(16, line.steps))
-        VStack(alignment: .leading, spacing: sp4) {
-            EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
-                          // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
-                          // border/fill around just this row (the step-bar area) — always `false` now; the
-                          // selection indicator moved to a single outline around the ENTIRE card below.
-                          selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
-                          clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
-                          onRotateDelta: { _ in }, onHitsDelta: { _ in },      // NEUTERED — the 4 square pads below own this now
-                          onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
-                          onAllRotateDelta: { _ in }, onAllHitsDelta: { _ in },   // NEUTERED, same reason
-                          onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
-                          onSelect: { selectedLane = idx },
-                          onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
-                          stepCountBadgeWidth: stepCountBadgeTotalWidth)
-            gesturePadRow(idx, line, accent, cellSize: gesturePadW, rowHeight: gestureRowH)
-            laneTabRow(idx, line, accent, rowH: tabRowH)
-            tabContent(idx, line, tab, accent, cellSize: padSize, rowH: contentLineH, fullWidth: innerWidth)
+        ZStack {
+            // RESET PROGRESS FILL (ferry "riff-cell wipes, reset progress on lane cards" §3) — the
+            // bottommost layer, sitting behind the card's own real content.
+            laneCardProgressFill(idx, accent: accent, width: width, height: height)
+            VStack(alignment: .leading, spacing: sp4) {
+                EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
+                              // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
+                              // border/fill around just this row (the step-bar area) — always `false` now; the
+                              // selection indicator moved to a single outline around the ENTIRE card below.
+                              selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
+                              clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
+                              onRotateDelta: { _ in }, onHitsDelta: { _ in },      // NEUTERED — the 4 square pads below own this now
+                              onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
+                              onAllRotateDelta: { _ in }, onAllHitsDelta: { _ in },   // NEUTERED, same reason
+                              onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
+                              onSelect: { selectedLane = idx },
+                              onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
+                              stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
+                              stepCountBadgeWidth: stepCountBadgeTotalWidth)
+                gesturePadRow(idx, line, accent, cellSize: gesturePadW, rowHeight: gestureRowH)
+                laneTabRow(idx, line, accent, rowH: tabRowH)
+                tabContent(idx, line, tab, accent, cellSize: padSize, rowH: contentLineH, fullWidth: innerWidth)
+            }
+            .padding(sp8)
         }
-        .padding(sp8)
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))
         // WHOLE-CARD SELECTION OUTLINE (ferry §1.4): replaces the narrower step-bar-only outline above.
@@ -1530,9 +1600,10 @@ struct EuclideousPage: View {
             ForEach(EuclideousLaneTab.allCases, id: \.rawValue) { t in
                 let sel = (idx < laneTab.count ? laneTab[idx] : .pattern) == t
                 // DOT: ONLY MASK carries a dot now (RIFF's own dot retired 2026-10-10 along with its tab) —
-                // lane-coloured when "this lane has a mask configured at all" (line.mask != nil). PATTERN
-                // never shows one (always "on"); I/O never does either (a lane always has some source).
-                let dotOn: Bool = t == .mask && line.mask != nil
+                // filled (lane-coloured) while the mask is PLAYING, hollow while STOPPED (ferry 2026-10-10
+                // "Euclid mask, modes and settings" §5.1 — supersedes the old "configured at all" reading).
+                // PATTERN never shows one (always "on"); I/O never does either (a lane always has some source).
+                let dotOn: Bool = t == .mask && line.maskResolved.enabledResolved
                 // VIEWS (this ferry §4.3, "the tab row" named explicitly): white text with a 2pt LANE-100
                 // underline for the active one, grey text (no fill/outline) when inactive. Label size is
                 // §6.2's own literal rule: "set the tab labels to the pad readout line-2 size" —
@@ -1570,7 +1641,7 @@ struct EuclideousPage: View {
         case .mask:
             VStack(spacing: sp4) {
                 maskCometRow(idx, line, accent, width: fullWidth, height: rowH)
-                maskStubRow(rowH)
+                maskLine2(idx, line, accent, rowH: rowH, width: fullWidth)
             }
         }
     }
@@ -1921,22 +1992,209 @@ struct EuclideousPage: View {
     }
 
     private func applyMaskRotate(_ m: inout EuclidLineMask, _ d: Int) { let steps = m.stepsResolved; m.rotate = (((m.rotate ?? 0) - d) % steps + steps) % steps }
-    private func applyMaskHits(_ m: inout EuclidLineMask, _ d: Int) { m.pulses = max(1, min(m.stepsResolved, m.pulsesResolved + d)) }
+    // HITS floor is 0, not 1 (ferry 2026-10-10 §1 table: "HITS | 0 to STEPS") — matches
+    // `EuclidLineMask.pulsesResolved`'s own floor; this is the gesture-side mirror of that same clamp.
+    private func applyMaskHits(_ m: inout EuclidLineMask, _ d: Int) { m.pulses = max(0, min(m.stepsResolved, m.pulsesResolved + d)) }
     private func euclideousApplyMaskX(_ idx: Int, _ d: Int) { editMask(idx) { applyMaskRotate(&$0, d) } }
     private func euclideousApplyMaskY(_ idx: Int, _ d: Int) { editMask(idx) { applyMaskHits(&$0, d) } }
     private func euclideousApplyAllMaskX(_ d: Int) { onEdit { lines in for i in lines.indices { var m = lines[i].mask ?? EuclidLineMask(); applyMaskRotate(&m, d); lines[i].mask = m } } }
     private func euclideousApplyAllMaskY(_ d: Int) { onEdit { lines in for i in lines.indices { var m = lines[i].mask ?? EuclidLineMask(); applyMaskHits(&m, d); lines[i].mask = m } } }
 
-    /// MASK line 2 — the effect picker / amount / hit-count the ratified mockup drew is explicitly DEFERRED
-    /// (spec §4.1: "Build the MASK tab's line 1... and leave line 2 as a marked stub. The mask must not
-    /// change the lane's output until its effects are ruled.") A plain, visibly inert placeholder — not a
-    /// dead-looking-but-tappable control, and not silently omitted.
-    private func maskStubRow(_ rowH: CGFloat) -> some View {
-        Text("EFFECT — NOT YET AVAILABLE")
-            .font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(.white.opacity(0.3)).lineLimit(1)
-            .frame(maxWidth: .infinity).frame(height: rowH)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    /// MASK line 2 (Paul 2026-10-10, "Euclid mask, modes and settings" ferry §4) — REPLACES the deferred
+    /// "EFFECT — NOT YET AVAILABLE" stub now that the mask has a real engine effect. MODE chip · up to 2
+    /// parameter chips (empty slots stay genuinely empty, per §4's own "do not stretch the others") · CHANCE.
+    /// SIMPLIFICATION, disclosed: parameter chips use a native SwiftUI `DragGesture` (vertical-only, so no
+    /// axis-lock disambiguation is needed the way the two-axis `EuclideousXYPad` UIKit bridge requires) rather
+    /// than that heavier bridge — functionally equivalent (relative vertical drag, 12pt/step for integers,
+    /// 2pt/1% for CHANCE, double-tap resets to default) but a lighter-weight implementation for this ferry.
+    private func maskLine2(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat, width: CGFloat) -> some View {
+        let m = line.maskResolved
+        let slotW = max(1, (width - sp4 * 3) / 4)   // MODE + up to 2 params + CHANCE, 4 equal columns
+        return HStack(spacing: sp4) {
+            // MODE chip — tap opens the 11-mode picker, grouped.
+            VStack(spacing: 1) {
+                Text("MODE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                Text(m.modeResolved.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white).lineLimit(1)
+            }
+            .frame(width: slotW, height: rowH)
+            .background(RoundedRectangle(cornerRadius: 6).fill(lane20(accent)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { maskModePopupLane = idx }
+            maskParamSlot1(idx, m, accent, rowH: rowH, width: slotW)
+            maskParamSlot2(idx, m, accent, rowH: rowH, width: slotW)
+            maskNumericChip(label: "CHANCE", value: "\(Int((m.chanceResolved * 100).rounded()))%", width: slotW, height: rowH,
+                             ptPerStep: 2, onDrag: { d in editMask(idx) { $0.chance = max(0, min(1, m.chanceResolved + Double(d) / 100)) } },
+                             onDoubleTap: { editMask(idx) { $0.chance = 1.0 } })
+        }
+        .frame(height: rowH)
+    }
+    /// The first parameter slot for the lane's current mode — 0, 1 or 2 slots per mode (§3's own table);
+    /// an unused slot renders as a genuinely empty, fixed-width space, never stretched.
+    @ViewBuilder private func maskParamSlot1(_ idx: Int, _ m: EuclidLineMask, _ accent: Color, rowH: CGFloat, width: CGFloat) -> some View {
+        switch m.modeResolved {
+        case .ratchet:
+            maskNumericChip(label: "MIN", value: "\(m.ratchetMinResolved)", width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.ratchetMin = max(1, min(8, m.ratchetMinResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.ratchetMin = 2 } })
+        case .repeatNote:
+            maskNumericChip(label: "COUNT", value: "\(m.repeatCountResolved)", width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.repeatCount = max(1, min(4, m.repeatCountResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.repeatCount = 1 } })
+        case .chord:
+            maskNumericChip(label: "INTERVAL A", value: euclideousSigned(m.chordAResolved), width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.chordA = max(-7, min(7, m.chordAResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.chordA = 2 } })
+        case .oct:
+            maskNumericChip(label: "AMOUNT", value: "\(m.octAmountResolved)", width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.octAmount = max(1, min(2, m.octAmountResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.octAmount = 1 } })
+        case .leap:
+            maskNumericChip(label: "STEPS", value: euclideousSigned(m.leapStepsResolved), width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.leapSteps = max(-4, min(4, m.leapStepsResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.leapSteps = 2 } })
+        case .climb:
+            maskNumericChip(label: "STEP", value: euclideousSigned(m.climbStepResolved), width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.climbStep = max(-7, min(7, m.climbStepResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.climbStep = 1 } })
+        case .accent:
+            maskNumericChip(label: "AMOUNT", value: euclideousSigned(m.accentAmountResolved), width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.accentAmount = max(-64, min(64, m.accentAmountResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.accentAmount = 24 } })
+        case .swell:
+            maskNumericChip(label: "STEP", value: euclideousSigned(m.swellStepResolved), width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.swellStep = max(-32, min(32, m.swellStepResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.swellStep = 8 } })
+        case .mute, .pause, .mirror:
+            Color.clear.frame(width: width, height: rowH)
+        }
+    }
+    /// The second parameter slot — only RATCHET/CHORD/OCT/CLIMB/SWELL have one; every other mode's slot
+    /// stays empty.
+    @ViewBuilder private func maskParamSlot2(_ idx: Int, _ m: EuclidLineMask, _ accent: Color, rowH: CGFloat, width: CGFloat) -> some View {
+        switch m.modeResolved {
+        case .ratchet:
+            maskNumericChip(label: "MAX", value: "\(m.ratchetMaxResolved)", width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.ratchetMax = max(1, min(8, m.ratchetMaxResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.ratchetMax = 4 } })
+        case .chord:
+            maskNumericChip(label: "INTERVAL B", value: euclideousSigned(m.chordBResolved), width: width, height: rowH,
+                             onDrag: { d in editMask(idx) { $0.chordB = max(-7, min(7, m.chordBResolved + d)) } },
+                             onDoubleTap: { editMask(idx) { $0.chordB = 4 } })
+        case .oct:
+            maskEnumChip(label: "PATTERN", value: m.octPatternResolved.rawValue, width: width, height: rowH,
+                         onTap: { editMask(idx) { $0.octPattern = euclideousNextMaskOctPattern(m.octPatternResolved) } },
+                         onDoubleTap: { editMask(idx) { $0.octPattern = .up } })
+        case .climb:
+            maskEnumChip(label: "RANGE", value: m.climbRangeResolved.rawValue, width: width, height: rowH,
+                         onTap: { editMask(idx) { $0.climbRange = euclideousNextMaskRange(m.climbRangeResolved) } },
+                         onDoubleTap: { editMask(idx) { $0.climbRange = .wrap1 } })
+        case .swell:
+            maskEnumChip(label: "RANGE", value: m.swellRangeResolved.rawValue, width: width, height: rowH,
+                         onTap: { editMask(idx) { $0.swellRange = euclideousNextMaskSwellRange(m.swellRangeResolved) } },
+                         onDoubleTap: { editMask(idx) { $0.swellRange = .bounce } })
+        case .mute, .pause, .mirror, .repeatNote, .leap, .accent:
+            Color.clear.frame(width: width, height: rowH)
+        }
+    }
+    /// A labelled, vertical-drag-to-change numeric chip — 12pt/step by default (§4's own literal "relative
+    /// drag, 12pt per step for whole numbers"), overridable (CHANCE's own 2pt/1%). Dragging UP increases the
+    /// value (screen-y is inverted relative to "up"), matching every other drag control's convention on this
+    /// page. Double-tap resets to the mode's own stated default. Thin wrapper over `MaskDragChip`, which
+    /// needs to be a real `View` struct (not a free function) so it can hold its own per-gesture `@State` —
+    /// `DragGesture.onChanged` reports CUMULATIVE translation since the drag began, not a per-tick delta, so
+    /// the chip must remember how many steps it has already applied THIS drag and report only the increment.
+    private func maskNumericChip(label: String, value: String, width: CGFloat, height: CGFloat, ptPerStep: CGFloat = 12, onDrag: @escaping (Int) -> Void, onDoubleTap: @escaping () -> Void) -> some View {
+        MaskDragChip(label: label, value: value, width: width, height: height, ptPerStep: ptPerStep, onDrag: onDrag, onDoubleTap: onDoubleTap)
+    }
+    /// A labelled, tap-to-cycle enum chip (PATTERN/RANGE) — the compact `euclideousNextOnRest`-style shape,
+    /// used here (rather than a segmented row) specifically because this line has no room for 3-4 extra
+    /// buttons per parameter the way the melody pop-up's own WALK section does.
+    private func maskEnumChip(label: String, value: String, width: CGFloat, height: CGFloat, onTap: @escaping () -> Void, onDoubleTap: @escaping () -> Void) -> some View {
+        VStack(spacing: 1) {
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).lineLimit(1)
+            Text(value).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85)).lineLimit(1)
+        }
+        .frame(width: width, height: height)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: onDoubleTap)
+        .onTapGesture(perform: onTap)
+    }
+    /// The real backing view for `maskNumericChip` — a dedicated struct so the drag gesture can hold its own
+    /// `@State lastSteps`, tracking how many whole steps this ONE in-flight drag has already applied. Without
+    /// this, `onChanged`'s cumulative translation would re-report the full step count on every tick and the
+    /// value would run away (e.g. a drag sitting past the 2nd step boundary would re-apply +2 dozens of times
+    /// a second, not once) — `lastSteps` makes each call report only the NEW increment since last reported,
+    /// then resets to 0 at `.onEnded` so the next drag starts counting from zero again.
+    private struct MaskDragChip: View {
+        let label: String
+        let value: String
+        let width: CGFloat
+        let height: CGFloat
+        let ptPerStep: CGFloat
+        let onDrag: (Int) -> Void
+        let onDoubleTap: () -> Void
+        @State private var lastSteps: Int = 0
+        var body: some View {
+            VStack(spacing: 1) {
+                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).lineLimit(1)
+                Text(value).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85)).lineLimit(1)
+            }
+            .frame(width: width, height: height)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { g in
+                        let steps = Int((-g.translation.height / ptPerStep).rounded())
+                        let delta = steps - lastSteps
+                        if delta != 0 { lastSteps = steps; onDrag(delta) }
+                    }
+                    .onEnded { _ in lastSteps = 0 }
+            )
+            .onTapGesture(count: 2, perform: onDoubleTap)
+        }
+    }
+    private func euclideousNextMaskOctPattern(_ p: MaskOctPattern) -> MaskOctPattern { switch p { case .up: return .down; case .down: return .alt; case .alt: return .up } }
+    private func euclideousNextMaskRange(_ r: MaskRange) -> MaskRange { switch r { case .wrap1: return .wrap2; case .wrap2: return .bounce1; case .bounce1: return .bounce2; case .bounce2: return .wrap1 } }
+    private func euclideousNextMaskSwellRange(_ r: MaskSwellRange) -> MaskSwellRange { r == .wrap ? .bounce : .wrap }
+    /// The MODE picker (§4: "a picker of the 11 modes, grouped: Thinning... Thickening... Pitch... Dynamics").
+    /// Same scrim+centred-card shape as `ratePopupCard` above.
+    private func maskModePopupCard(_ idx: Int) -> some View {
+        let accent = laneAccents[idx % laneAccents.count]
+        let groups: [(String, [MaskMode])] = [
+            ("THINNING", [.mute, .pause]),
+            ("THICKENING", [.ratchet, .repeatNote, .chord]),
+            ("PITCH", [.oct, .mirror, .leap, .climb]),
+            ("DYNAMICS", [.accent, .swell]),
+        ]
+        let current = idx < lines.count ? lines[idx].maskResolved.modeResolved : .mute
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("LANE \(idx + 1) MASK MODE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            ForEach(groups, id: \.0) { title, modes in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    HStack(spacing: 4) {
+                        ForEach(modes, id: \.self) { mo in
+                            let on = current == mo
+                            Text(mo.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                                .foregroundColor(on ? .white : .white.opacity(0.6)).lineLimit(1)
+                                .frame(maxWidth: .infinity).frame(height: 32)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color.white.opacity(0.08)))
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                                .contentShape(Rectangle())
+                                .onTapGesture { editMask(idx) { $0.mode = mo }; maskModePopupLane = nil }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
     // MARK: - The I/O tab (Paul 2026-10-08): per-lane MIDI IN | KEY | CHORDS + the lane's own OUT toggles
@@ -2077,6 +2335,7 @@ struct EuclideousPage: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
                                 .frame(width: cellW, height: cellH)
+                                .overlay(riffCellWipeOverlay(col: col, rank: rank, cellW: cellW, cellH: cellH))
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     onEditRiff { r in
@@ -2092,6 +2351,78 @@ struct EuclideousPage: View {
         }
         .padding(sp8)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+    }
+
+    /// RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards" §2) — per-cell
+    /// overlay checking all 4 lanes' `wipeEvents` for a match at `(col, rank)` and drawing each matching
+    /// lane's own sweep independently (§2.4: stacked, not specially composited). A NEW `TimelineView` — the
+    /// riff grid has none of its own (confirmed by direct research; `riffPositions`' dots are driven by a
+    /// plain 30fps `@State` poll, not a TimelineView).
+    @ViewBuilder
+    private func riffCellWipeOverlay(col: Int, rank: Int, cellW: CGFloat, cellH: CGFloat) -> some View {
+        TimelineView(.animation(paused: !clock.playing)) { tl in
+            ZStack {
+                ForEach(0..<4, id: \.self) { i in
+                    if i < wipeEvents.count, let ev = wipeEvents[i], ev.column == Int8(col), ev.rank == Int8(rank) {
+                        riffCellWipeLane(i, ev, now: tl.date, cellW: cellW, cellH: cellH)
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)   // decoration only — must never steal the cell's own tap-to-edit gesture
+    }
+    /// One lane's own sweep inside a matching cell. §2.4: drawn at 70% opacity so overlapping lanes on the
+    /// same cell stay visually distinguishable (plain stacking, no special compositing). Reduce Motion
+    /// (§5) collapses this to a single 150ms wall-clock flash with no directional sweep.
+    private func riffCellWipeLane(_ i: Int, _ ev: Router.EuclideousNoteViewEventSnapshot, now: Date, cellW: CGFloat, cellH: CGFloat) -> some View {
+        let accent = laneAccents[i % laneAccents.count]
+        // Beat↔real conversion, the SAME anchor/tempo pair every TimelineView on this page already uses
+        // (`clock.anchor`/`clock.anchorAt`/`clock.tempo`), just run in the direction this ferry needs: a
+        // STORED beat → the real Date it corresponds to, the inverse of `noteViewTrack`'s own `liveBeat`.
+        func realDate(forBeat beat: Double) -> Date {
+            clock.anchorAt.addingTimeInterval((beat - clock.anchor) * 60.0 / clock.tempo)
+        }
+        if reduceMotion {
+            let onsetReal = realDate(forBeat: ev.onsetBeat)
+            let elapsed = now.timeIntervalSince(onsetReal)
+            let flashOpacity = (elapsed >= 0 && elapsed <= 0.15) ? (1 - elapsed / 0.15) : 0
+            return AnyView(
+                Rectangle().fill(lane20(accent)).frame(width: cellW, height: cellH)
+                    .opacity(flashOpacity)
+            )
+        }
+        let onsetReal = realDate(forBeat: ev.onsetBeat)
+        let sweepEndReal = realDate(forBeat: ev.onsetBeat + ev.durationBeat)
+        let t: Double = {
+            guard ev.durationBeat > 0 else { return 1 }
+            return max(0, min(1, now.timeIntervalSince(onsetReal) / sweepEndReal.timeIntervalSince(onsetReal)))
+        }()
+        // PHASE 2 (wall-clock fade, 150ms, once the sweep has finished its own beat-driven traversal) —
+        // §2.3: the sweep itself is specified in musical terms (the note's own gate), the fade in an
+        // explicit wall-clock constant — genuinely different units, computed as such.
+        let fadeElapsed = now.timeIntervalSince(sweepEndReal)
+        let fadeOpacity = fadeElapsed <= 0 ? 1.0 : max(0, 1 - fadeElapsed / 0.15)
+        guard fadeOpacity > 0 else { return AnyView(EmptyView()) }
+        let lineThickness: CGFloat = 2
+        let g = CGFloat(t)
+        // §1 table: lane 0 L→R, lane 1 R→L, lane 2 T→B, lane 3 B→T.
+        let (tintW, tintH, tintAlign, lineRect): (CGFloat, CGFloat, Alignment, CGRect) = {
+            switch i {
+            case 0: return (cellW * g, cellH, .leading, CGRect(x: max(0, cellW * g - lineThickness), y: 0, width: lineThickness, height: cellH))
+            case 1: return (cellW * g, cellH, .trailing, CGRect(x: min(cellW - lineThickness, cellW * (1 - g)), y: 0, width: lineThickness, height: cellH))
+            case 2: return (cellW, cellH * g, .top, CGRect(x: 0, y: max(0, cellH * g - lineThickness), width: cellW, height: lineThickness))
+            default: return (cellW, cellH * g, .bottom, CGRect(x: 0, y: min(cellH - lineThickness, cellH * (1 - g)), width: cellW, height: lineThickness))
+            }
+        }()
+        return AnyView(
+            ZStack(alignment: tintAlign) {
+                Rectangle().fill(lane20(accent)).frame(width: tintW, height: tintH)
+                Rectangle().fill(lane100(accent)).frame(width: lineRect.width, height: lineRect.height)
+                    .position(x: lineRect.midX, y: lineRect.midY)
+            }
+            .frame(width: cellW, height: cellH)
+            .opacity(0.7 * fadeOpacity)
+        )
     }
 
     // MARK: - NOTE VIEW, phase 1 (Paul 2026-10-10 ferry — working name, final name to come): four lane strips,

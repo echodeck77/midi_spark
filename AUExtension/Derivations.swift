@@ -2444,6 +2444,23 @@ func euclideousNoteViewPattern(pulses: Int, steps: Int, rotate: Int, tilt: Doubl
 func euclideousNoteViewSpanBeats(resetSpanBars: Int, cyc: Double) -> Double {
     resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0
 }
+/// Reset-progress fraction (ferry "riff-cell wipes, reset progress on lane cards" §3.2) — 0 just after a
+/// reset, approaching 1 just before the next. Built on the SAME `columnStart` Router.swift itself uses to
+/// find the real reset boundary (`spanStart`, the DRUNK hard-reset trigger) — by construction, this can
+/// never visually disagree with when the engine actually resets. `spanBeats <= 0` (RESET SPAN off) ⇒ 0,
+/// the caller's own job to additionally hide the fill entirely in that case (§3.3).
+func euclideousResetProgress(liveBeat: Double, spanBeats: Double) -> Double {
+    guard spanBeats > 0 else { return 0 }
+    return max(0, min(1, (liveBeat - columnStart(liveBeat, spanBeats)) / spanBeats))
+}
+/// Whole bars remaining until the next reset (ferry §4.1: "IN n... counting down 8, 7, ... 1 for an
+/// 8-bar span"), clamped to `1...resetSpanBars` so it reads `resetSpanBars` at the instant a window
+/// starts and never displays 0. `cyc` is one bar in beats (the same quantity `spanBeats` was built from).
+func euclideousResetBarsRemaining(liveBeat: Double, spanBeats: Double, cyc: Double, resetSpanBars: Int) -> Int {
+    guard spanBeats > 0, cyc > 0 else { return 0 }
+    let elapsed = liveBeat - columnStart(liveBeat, spanBeats)
+    return max(1, min(resetSpanBars, Int(((spanBeats - elapsed) / cyc).rounded(.up))))
+}
 /// Is the tick at absolute beat `tickBeat` a hit, under the exact same span-re-anchor + direction-read rules
 /// `Router.runEuclidLine` applies to every real tick? `buf` is this lane's own pattern (the function above).
 func euclideousNoteViewIsHit(buf: [Bool], tickBeat: Double, sub: Double, spanBeats: Double, dir: EuclidDir) -> Bool {
