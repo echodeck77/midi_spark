@@ -196,6 +196,37 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the six sliders REARRANGED: 3 vertical on the left, 3 horizontal on the right (2026-10-12,
+  on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS test-target reach — pure UI,
+  `EuclideousPage.swift` only). Direct same-day follow-up to the six-sliders entry below. Paul: "change this to
+  3 vertical on the left (count, hits, velocity) and 3 horizontal on the right (offset, tilt and gate)." LEFT =
+  STEPS("COUNT")/HITS/VELOCITY, unchanged vertical tracks, side by side spanning the row's full height. RIGHT =
+  OFFSET/TILT/GATE, now HORIZONTAL tracks, stacked top-to-bottom spanning the row's full width in that column.
+  The two columns split the available width 50/50 with a plain `sp4` gap (no divider line — nothing in this ask
+  named one, unlike the separately-ratified `patternControlBlock` below this row, which does). **ENGINEERING:**
+  `EuclideousVSlider` renamed `EuclideousSlider`, gained a `horizontal: Bool` — the fill/tick/edge-line Canvas
+  drawing was generalized around a shared `travelPos`/`bar`/`edgeLine` trio (the "travel axis" is x when
+  horizontal, y when vertical; a UNIPOLAR fill always "grows from the start toward the value," a BIPOLAR one
+  (TILT) "grows from the centre toward the value either direction" — both expressed once, not duplicated per
+  orientation) and the touch mapping reads `g.location.x` or `.y` depending on orientation through the same
+  `frac(atTravel:)`. The Derivations.swift pure functions (`euclideousSliderRange`/`Frac`/`ValueAt`/
+  `TiltDetentFrac`/`TickFracs`/`Commit`/`Revert`/`DoubleTapDefault`/`ValueText`) needed NO changes at all — they
+  only ever reason about a field's value as a 0...1 fraction, never about which screen axis that fraction
+  happens to be drawn along, so the whole six-sliders ferry's engine-side work carries over untouched. **TWO
+  SMALL, DISCLOSED JUDGMENT CALLS, since the rearrangement ask didn't specify either:** the EDITED chip's hit
+  area (for a disabled, hand-edited-pattern TILT, now horizontal) covers the TRAILING (right) half instead of
+  the old top half — read as the natural rotation of "the positive-value end," since the track's own positive
+  direction now runs left→right instead of bottom→top; the long-press help bubble's width is now a flat 180pt
+  instead of `width × 1.8` (which would have ballooned badly for a wide horizontal slider) — a fixed size reads
+  fine for both orientations since the help text itself is always short (<60 characters). The 4pt "did the
+  finger actually move" check for long-press-cancel/double-tap detection was ALSO generalized while this code
+  was open: it now measures true 2D distance (`hypot(dx,dy)`) via a stored `CGPoint` instead of the old Y-only
+  check — a minor, incidental correctness fix (the original vertical-only version could never have noticed pure
+  sideways wandering), not something this rearrangement strictly required, done because it fell out naturally
+  once the gesture code had to read both axes anyway. **DEVICE-OWED:** the 50/50 split's proportions in the hand
+  (3 narrow vertical tracks on the left vs. 3 short horizontal ones on the right may read very differently in
+  size/legibility); the horizontal OFFSET/TILT/GATE drag feel now that left/right replaces up/down; the EDITED
+  chip's new right-half tap zone on a hand-edited pattern's TILT.**
 - **▶ EUCLIDEOUS — the PATTERN tab's RATE/DIRECTION/INV/OUTPUT row rebuilt to a ratified 84pt two-line layout
   (2026-10-12, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1329 green incl. +20, iOS builds clean).
   A fully-specified, ratified ferry, built directly: RATE becomes a 3×2 division grid (1/1·1/2·1/4 / 1/8·1/16·

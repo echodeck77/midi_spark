@@ -44,10 +44,11 @@ import UIKit
 // The 4 two-axis gesture pads (EuclideousGestureTab/EuclideousXYAxis/EuclideousXYPad/
 // EuclideousPadFramePreferenceKey/EuclideousPadValues et al.) that used to live here — HITS/OFFSET
 // sharing one pad, OFFSET/STEPS another, GATE/VELOCITY a third, plus NOTE/OCT or SHIFT/OCT — were
-// REMOVED WHOLESALE 2026-10-12 (usability ferry), replaced by six independent single-axis vertical
-// sliders (`EuclideousSliderField`/`EuclideousVSlider`, defined further below, right beside
-// `EuclideousPage.sliderRow` which lays them out). The ferry's own Engineering section asked for this
-// literally: "delete the XY pad view code and its gesture recognisers. Leave no dead code paths."
+// REMOVED WHOLESALE 2026-10-12 (usability ferry), replaced by six independent single-axis sliders
+// (`EuclideousSliderField`/`EuclideousSlider`, defined further below, right beside
+// `EuclideousPage.sliderRow` which lays them out — 3 vertical on the left, 3 horizontal on the right,
+// per the same-day rearrangement). The ferry's own Engineering section asked for this literally: "delete
+// the XY pad view code and its gesture recognisers. Leave no dead code paths."
 
 /// For the melody pop-up (Paul 2026-10-10
 /// ferry §1.2: "anchored to the strip with a small pointer") — the SAME need, a popover that must stay
@@ -105,15 +106,23 @@ extension View {
     func euclideousHelp(_ text: String) -> some View { modifier(EuclideousHelpBubble(text: text)) }
 }
 
-/// ONE of the SIX vertical sliders (usability ferry, 2026-10-12) — HITS · STEPS · OFFSET · TILT · GATE ·
-/// VELOCITY (`EuclideousSliderField`, Derivations.swift) — replacing `EuclidGesturePad`'s own
-/// `EuclideousXYPad` bridge entirely (3 two-axis pads, one per pair: HITS/TILT, OFFSET/STEPS, GATE/
-/// VELOCITY). Absolute touch-down-sets-value, single-axis, independently owned per slider: a plain
-/// SwiftUI `DragGesture` is scoped to the ONE view it's attached to, so there's no shared axis-lock/
-/// dead-zone bridge left to build at all — a sideways drift from one slider onto a neighbour can never
-/// hand the touch over, since SwiftUI's gesture recognition commits to the view it began on for the
-/// whole gesture's lifetime (ferry Touch behaviour §1: "a touch belongs to the slider it started on
-/// until it lifts... never passes to a neighbouring slider").
+/// ONE of the SIX sliders (usability ferry, 2026-10-12, REARRANGED 2026-10-12 follow-up — Paul: "3
+/// vertical on the left (count, hits, velocity) and 3 horizontal on the right (offset, tilt and gate)")
+/// — HITS · STEPS · OFFSET · TILT · GATE · VELOCITY (`EuclideousSliderField`, Derivations.swift),
+/// replacing `EuclidGesturePad`'s own `EuclideousXYPad` bridge entirely. Absolute touch-down-sets-value,
+/// single-axis, independently owned per slider: a plain SwiftUI `DragGesture` is scoped to the ONE view
+/// it's attached to, so there's no shared axis-lock/dead-zone bridge left to build at all — a sideways
+/// drift from one slider onto a neighbour can never hand the touch over, since SwiftUI's gesture
+/// recognition commits to the view it began on for the whole gesture's lifetime (ferry Touch behaviour
+/// §1: "a touch belongs to the slider it started on until it lifts... never passes to a neighbouring
+/// slider").
+///
+/// ORIENTATION (`horizontal`): STEPS/HITS/VELOCITY stay the original vertical track (fill rises from the
+/// bottom, drag reads Y); OFFSET/TILT/GATE are now horizontal (fill grows from the left, drag reads X) —
+/// same pure range/frac/commit/revert/default logic either way (Derivations.swift is orientation-
+/// agnostic by construction, since it only ever reasons about a 0...1 fraction), only the GEOMETRY
+/// (which axis is "travel," which is "cross") and the touch-point axis read differ, all handled by
+/// `travelPos`/`crossPos`/`frac(at:)` below rather than duplicating the view twice.
 ///
 /// `onCommit` mirrors `EuclideousPage.edit(idx:_:)`'s own shape exactly — a MUTATION closure handed
 /// upward, not a precomputed line value handed back — deliberately, not incidentally: `line` below is a
@@ -136,12 +145,13 @@ extension View {
 /// no dead code paths," not to port one of its mechanisms onto a structurally different widget. Read as
 /// a deliberate scope cut: multi-lane editing is still reachable by repeating the same drag on each lane
 /// in turn, just no longer in one combined gesture.
-struct EuclideousVSlider: View {
+struct EuclideousSlider: View {
     let field: EuclideousSliderField
     let line: EuclidLine
     let accent: Color
     let width: CGFloat
     let height: CGFloat
+    let horizontal: Bool
     let onCommit: (@escaping (inout EuclidLine) -> Void) -> Void
     let onDoubleTap: () -> Void
     let onRevertToEuclid: () -> Void
@@ -151,55 +161,74 @@ struct EuclideousVSlider: View {
     @State private var lastCommitted: Double? = nil
     @State private var helpActive = false
     @State private var helpWorkItem: DispatchWorkItem? = nil
-    @State private var startLocationY: CGFloat? = nil
+    @State private var startLocation: CGPoint? = nil
     @State private var lastShortTapAt: Date? = nil
 
     private let inset: CGFloat = 6
 
-    /// `y` in this slider's own local coordinate space → 0 (bottom/min) ... 1 (top/max), clamped against
-    /// the 6pt insets at each end (ferry Touch behaviour §2: "a touch inside the insets clamps to the
-    /// end value").
-    private func frac(atY y: CGFloat) -> Double {
-        let travel = max(1, height - inset * 2)
-        let clampedY = max(inset, min(height - inset, y))
-        return Double(1 - (clampedY - inset) / travel)
+    /// The coordinate along the TRAVEL axis (x if horizontal, y if vertical) a given fraction maps to,
+    /// within a track of the given travel-axis length — shared by the Canvas drawing and the touch
+    /// mapping below, so the drawn fill/ticks and the gesture can never disagree about where a value
+    /// sits (ferry Touch behaviour §2: "a touch inside the insets clamps to the end value").
+    private func travelPos(_ frac: Double, length: CGFloat) -> CGFloat {
+        let travel = max(1, length - inset * 2)
+        let f = CGFloat(max(0, min(1, frac)))
+        return horizontal ? inset + f * travel : inset + (1 - f) * travel
+    }
+    /// The inverse of `travelPos` — a raw touch coordinate along the travel axis → 0 (min) ... 1 (max).
+    private func frac(atTravel p: CGFloat, length: CGFloat) -> Double {
+        let travel = max(1, length - inset * 2)
+        let clamped = max(inset, min(length - inset, p))
+        return horizontal ? Double((clamped - inset) / travel) : Double(1 - (clamped - inset) / travel)
     }
 
     /// TILT disabled on a hand-edited pattern (ferry, literal): "EDITED pattern: TILT is disabled."
     private var edited: Bool { field == .tilt && line.customHits != nil }
 
     var body: some View {
-        let curFrac = CGFloat(euclideousSliderFrac(field, line))
+        let curFrac = euclideousSliderFrac(field, line)
         ZStack {
             Canvas { ctx, size in
                 ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6), with: .color(Color(hex: 0x22252C)))
-                let travel = max(1, size.height - inset * 2)
-                func yFor(_ f: Double) -> CGFloat { inset + (1 - CGFloat(max(0, min(1, f)))) * travel }
+                let len = horizontal ? size.width : size.height
+                func pos(_ f: Double) -> CGFloat { travelPos(f, length: len) }
+                /// A rect spanning the FULL cross-axis, from one travel-axis coordinate to another —
+                /// `a`/`b` in travel-axis order (either may be the lesser), so callers never need to
+                /// know which end is "start."
+                func bar(_ a: CGFloat, _ b: CGFloat) -> CGRect {
+                    let lo = min(a, b), hi = max(a, b)
+                    return horizontal ? CGRect(x: lo, y: 0, width: hi - lo, height: size.height)
+                                      : CGRect(x: 0, y: lo, width: size.width, height: hi - lo)
+                }
+                /// A thin 2pt edge/centre LINE across the cross-axis, centred at one travel-axis coordinate.
+                func edgeLine(_ p: CGFloat) -> CGRect { bar(p - 1, p + 1) }
                 if !edited {
-                    // TICKS (ferry, literal): "1pt high, 5pt long, at the left edge of the track" — HITS/OFFSET only.
+                    // TICKS (ferry, literal): "1pt high, 5pt long, at the left edge of the track" — HITS/
+                    // OFFSET only. Rotated for a horizontal track: 1pt wide, 5pt long, at the BOTTOM edge.
                     for tf in euclideousSliderTickFracs(field, line) {
-                        let ty = yFor(tf)
-                        ctx.fill(Path(CGRect(x: 0, y: ty - 0.5, width: 5, height: 1)), with: .color(Color(hex: 0x4A4E57)))
+                        let tp = pos(tf)
+                        let tick: CGRect = horizontal ? CGRect(x: tp - 0.5, y: size.height - 5, width: 1, height: 5)
+                                                       : CGRect(x: 0, y: tp - 0.5, width: 5, height: 1)
+                        ctx.fill(Path(tick), with: .color(Color(hex: 0x4A4E57)))
                     }
                 }
                 if edited {
                     // DISABLED (ferry, literal): "no fill, a grey centre edge."
-                    let cy = size.height / 2
-                    ctx.fill(Path(CGRect(x: 0, y: cy - 1, width: size.width, height: 2)), with: .color(.white.opacity(0.25)))
+                    ctx.fill(Path(edgeLine(len / 2)), with: .color(.white.opacity(0.25)))
                 } else if field == .tilt {
-                    // BIPOLAR (ferry, literal): "the fill runs from the centre line to the value, up for
-                    // positive, down for negative. A centre tick is always visible."
-                    let cy = size.height / 2
-                    let vy = yFor(Double(curFrac))
-                    let top = min(cy, vy), fillH = abs(cy - vy)
-                    ctx.fill(Path(CGRect(x: 0, y: top, width: size.width, height: fillH)), with: .color(accent.opacity(0.2)))
-                    ctx.fill(Path(CGRect(x: 0, y: cy - 1, width: size.width, height: 2)), with: .color(accent))
-                    ctx.fill(Path(CGRect(x: 0, y: vy - 1, width: size.width, height: 2)), with: .color(accent))
+                    // BIPOLAR (ferry, literal): "the fill runs from the centre line to the value" — up
+                    // for positive / down for negative when vertical, left/right when horizontal.
+                    // "A centre tick is always visible."
+                    let center = len / 2, value = pos(curFrac)
+                    ctx.fill(Path(bar(center, value)), with: .color(accent.opacity(0.2)))
+                    ctx.fill(Path(edgeLine(center)), with: .color(accent))
+                    ctx.fill(Path(edgeLine(value)), with: .color(accent))
                 } else {
-                    // UNIPOLAR (ferry, literal): "rises from the bottom of the track to the value."
-                    let vy = yFor(Double(curFrac))
-                    ctx.fill(Path(CGRect(x: 0, y: vy, width: size.width, height: size.height - vy)), with: .color(accent.opacity(0.2)))
-                    ctx.fill(Path(CGRect(x: 0, y: vy - 1, width: size.width, height: 2)), with: .color(accent))
+                    // UNIPOLAR (ferry, literal): "rises from the bottom of the track to the value" —
+                    // grows from the LEFT when horizontal.
+                    let value = pos(curFrac)
+                    ctx.fill(Path(bar(horizontal ? 0 : len, value)), with: .color(accent.opacity(0.2)))
+                    ctx.fill(Path(edgeLine(value)), with: .color(accent))
                 }
             }
             VStack(spacing: 2) {
@@ -227,7 +256,7 @@ struct EuclideousVSlider: View {
                     .foregroundColor(.white).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 6).padding(.vertical, 5)
-                    .frame(width: width * 1.8)
+                    .frame(width: 180)   // fixed, not width-derived — a wide horizontal slider would otherwise balloon the bubble
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.18), lineWidth: 1))
                     .offset(y: -height / 2 - 30)
@@ -246,14 +275,16 @@ struct EuclideousVSlider: View {
                     if snapshot == nil {
                         snapshot = line
                         lastCommitted = euclideousSliderRange(field, line).value
-                        startLocationY = g.location.y
+                        startLocation = g.location
                         touching = true
                         scheduleHelpCheck()
                     }
-                    let moved = abs(g.location.y - (startLocationY ?? g.location.y))
+                    let start = startLocation ?? g.location
+                    let moved = hypot(g.location.x - start.x, g.location.y - start.y)
                     if moved > 4 { cancelHelpCheck() }
                     guard !helpActive else { return }
-                    var f = frac(atY: g.location.y)
+                    let len = horizontal ? width : height
+                    var f = frac(atTravel: horizontal ? g.location.x : g.location.y, length: len)
                     if field == .tilt { f = euclideousTiltDetentFrac(f) }
                     let v = euclideousSliderValueAt(field, line, frac: f)
                     // "NO CHANGE, NO COMMIT" (ferry Touch behaviour §6) — a touch landing on (or staying
@@ -265,11 +296,12 @@ struct EuclideousVSlider: View {
                 }
                 .onEnded { g in
                     guard !edited else { return }
-                    let totalMoved = abs(g.location.y - (startLocationY ?? g.location.y))
+                    let start = startLocation ?? g.location
+                    let totalMoved = hypot(g.location.x - start.x, g.location.y - start.y)
                     let wasShortTap = totalMoved <= 4 && !helpActive
                     touching = false
                     cancelHelpCheck()
-                    snapshot = nil; lastCommitted = nil; startLocationY = nil; helpActive = false
+                    snapshot = nil; lastCommitted = nil; startLocation = nil; helpActive = false
                     if wasShortTap {
                         if let last = lastShortTapAt, Date().timeIntervalSince(last) <= 0.35 {
                             // DOUBLE-TAP (ferry §9): applied LAST, after whatever each individual tap's own
@@ -287,10 +319,12 @@ struct EuclideousVSlider: View {
                     }
                 }
         )
-        .overlay(alignment: .top) {
+        .overlay(alignment: horizontal ? .trailing : .top) {
             if edited {
-                // THE EDITED CHIP'S hit area (ferry, literal): "covers the top half of the slider."
-                Color.clear.frame(width: width, height: height / 2)
+                // THE EDITED CHIP'S hit area (ferry, literal): "covers the top half of the slider" —
+                // the TRAILING half (right) when horizontal, the natural rotation of "top" (the positive-
+                // value end) for a track whose positive direction now runs left→right instead of bottom→top.
+                Color.clear.frame(width: horizontal ? width / 2 : width, height: horizontal ? height : height / 2)
                     .contentShape(Rectangle())
                     .onTapGesture { onRevertToEuclid() }
             }
@@ -1265,30 +1299,54 @@ struct EuclideousPage: View {
     /// a bare "0" with NO sign at all. Used by TILT and OCT — the two fields whose §4 examples show a
     /// sign-free zero ("TILT 0", "OCT 0") alongside signed nonzero values.
     private func euclideousSigned(_ n: Int) -> String { n > 0 ? "+\(n)" : (n < 0 ? "−\(-n)" : "0") }
-    // MARK: - The six vertical sliders (usability ferry, 2026-10-12) — HITS · STEPS · OFFSET · TILT ·
-    // GATE · VELOCITY, replacing the "5 pictures"/pad-value/commit/double-tap/2-finger machinery that
-    // used to live here entirely (`euclideousPadValues`/`euclideousAxisNames`/`pointsPerUnit`/
-    // `euclideousPadPicture` + its 5 picture functions/`padBaseline`/`commitAxis`/`doubleTapReset`/
-    // `applyAllDelta`/`euclideousApplyAllDelta`). The pure per-field logic (range/fraction/value-at-
-    // touch/commit/revert/double-tap-default/the value-text formatter) now lives in Derivations.swift,
-    // reachable by the macOS unit-test target; only the layout (this function) and the slider's own
-    // gesture-bearing View (`EuclideousVSlider`, declared earlier in this file) stay here.
+    // MARK: - The six sliders (usability ferry, 2026-10-12, REARRANGED same day — Paul: "3 vertical on
+    // the left (count, hits, velocity) and 3 horizontal on the right (offset, tilt and gate)") — HITS ·
+    // STEPS · OFFSET · TILT · GATE · VELOCITY, replacing the "5 pictures"/pad-value/commit/double-tap/
+    // 2-finger machinery that used to live here entirely (`euclideousPadValues`/`euclideousAxisNames`/
+    // `pointsPerUnit`/`euclideousPadPicture` + its 5 picture functions/`padBaseline`/`commitAxis`/
+    // `doubleTapReset`/`applyAllDelta`/`euclideousApplyAllDelta`). The pure per-field logic (range/
+    // fraction/value-at-touch/commit/revert/double-tap-default/the value-text formatter) lives in
+    // Derivations.swift, reachable by the macOS unit-test target, and is fully orientation-agnostic —
+    // only the layout (this function) and the slider's own gesture-bearing View (`EuclideousSlider`,
+    // declared earlier in this file) needed to change for the rearrangement.
 
-    /// SIX INDEPENDENT VERTICAL SLIDERS — equal width, `sp4` gaps, spanning the lane's own full inner
-    /// width (`fullWidth`) — the old pads shared a narrower, 3-column `cellSize`; six independent
-    /// single-value tracks have no reason to inherit that older width budget.
+    /// LEFT: STEPS("COUNT")/HITS/VELOCITY stacked side by side, each a VERTICAL slider spanning the full
+    /// row height. RIGHT: OFFSET/TILT/GATE stacked top to bottom, each a HORIZONTAL slider spanning the
+    /// full right column's width. The two columns split the row's width in half with an `sp4` gap between
+    /// them — no divider line here (unlike `patternControlBlock`'s own ratified 8pt/1pt-divider seam
+    /// below this row, which came from a DIFFERENT, separately-ratified spec); nothing in this ask named
+    /// one, so a plain gap was the simpler, unassuming choice.
     private func sliderRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, rowHeight: CGFloat) -> some View {
-        let n = EuclideousSliderField.allCases.count
-        let w = max(1, (fullWidth - sp4 * CGFloat(n - 1)) / CGFloat(n))
-        return HStack(spacing: sp4) {
-            ForEach(EuclideousSliderField.allCases, id: \.rawValue) { field in
-                EuclideousVSlider(
-                    field: field, line: line, accent: accent, width: w, height: rowHeight,
-                    onCommit: { mutate in edit(idx, mutate) },
-                    onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
-                    onRevertToEuclid: { edit(idx) { $0.customHits = nil } })
-            }
+        let leftFields: [EuclideousSliderField] = [.steps, .hits, .velocity]
+        let rightFields: [EuclideousSliderField] = [.offset, .tilt, .gate]
+        let leftW = max(1, (fullWidth - sp4) / 2)
+        let rightW = max(1, fullWidth - sp4 - leftW)
+        let vSliderW = max(1, (leftW - sp4 * CGFloat(leftFields.count - 1)) / CGFloat(leftFields.count))
+        let hSliderH = max(1, (rowHeight - sp4 * CGFloat(rightFields.count - 1)) / CGFloat(rightFields.count))
+
+        func slider(_ field: EuclideousSliderField, width: CGFloat, height: CGFloat, horizontal: Bool) -> some View {
+            EuclideousSlider(
+                field: field, line: line, accent: accent, width: width, height: height, horizontal: horizontal,
+                onCommit: { mutate in edit(idx, mutate) },
+                onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
+                onRevertToEuclid: { edit(idx) { $0.customHits = nil } })
         }
+
+        return HStack(spacing: sp4) {
+            HStack(spacing: sp4) {
+                ForEach(leftFields, id: \.rawValue) { field in
+                    slider(field, width: vSliderW, height: rowHeight, horizontal: false)
+                }
+            }
+            .frame(width: leftW, height: rowHeight)
+            VStack(spacing: sp4) {
+                ForEach(rightFields, id: \.rawValue) { field in
+                    slider(field, width: rightW, height: hSliderH, horizontal: true)
+                }
+            }
+            .frame(width: rightW, height: rowHeight)
+        }
+        .frame(width: fullWidth, height: rowHeight)
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
