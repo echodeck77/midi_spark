@@ -216,7 +216,8 @@ struct DiagView: View {
     @State var euclideousUndo = UndoStack<EuclideousUndoSnapshot>()
     func euclideousSnapshot() -> EuclideousUndoSnapshot {
         EuclideousUndoSnapshot(lines: euclideousLines, riff: euclideousRiff, resetSpanBars: euclideousResetSpanBars,
-                                keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords)
+                                keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords,
+                                noteSource: euclideousNoteSource)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -240,9 +241,11 @@ struct DiagView: View {
         euclideousKeyRoot = s.keyRoot
         euclideousKeyType = s.keyType
         euclideousChords = s.chords
+        euclideousNoteSource = s.noteSource
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
             $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType; $0.euclideousChords = s.chords
+            $0.euclideousNoteSource = s.noteSource
         }
         buildPublishScene()
     }
@@ -302,6 +305,11 @@ struct DiagView: View {
     @State var euclideousResetSpanBars: Int = 0                 // 0 = OFF
     @State var euclideousKeyRoot: Int = 0
     @State var euclideousKeyType: ScaleType = .naturalMinor
+    // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — SUPERSEDES the per-lane
+    // sourceMode; `euclideousRiffSourceMidi`/`LanesSourceMidi` below (already-retired GLOBAL switches from
+    // BEFORE the per-lane redesign) stay in place, unreachable from any live UI — decode-safety only, same
+    // treatment every other retired-but-not-deleted field on this page already gets.
+    @State var euclideousNoteSource: EuclideousLaneSource = .key
     @State var euclideousRiffSourceMidi: Bool = true            // MIDI is the default (preserves pre-rework behaviour)
     @State var euclideousLanesSourceMidi: Bool = true
     @State var euclideousMainOutMask: UInt8 = 0b1111            // all 4 buses open by default
@@ -778,6 +786,7 @@ struct DiagView: View {
         euclideousResetSpanBars = au.uiEuclideousResetSpanBars()
         euclideousKeyRoot = au.uiEuclideousKeyRoot()
         euclideousKeyType = au.uiEuclideousKeyType()
+        euclideousNoteSource = au.uiEuclideousNoteSource()
         euclideousRiffSourceMidi = au.uiEuclideousRiffSourceMidi()
         euclideousLanesSourceMidi = au.uiEuclideousLanesSourceMidi()
         euclideousMainOutMask = au.uiEuclideousMainOutMask()
@@ -1014,6 +1023,13 @@ struct DiagView: View {
                                    noteViewLastEvent: euclideousNVLastEvent, noteViewRestFlash: euclideousNVRestFlash,
                                    wipeEvents: euclideousWipeEvent,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
+                                   noteSource: euclideousNoteSource,
+                                   onSetNoteSource: { v in
+                                       euclideousRecordUndo(coalesceKey: nil)
+                                       euclideousNoteSource = v
+                                       au?.editDocument { $0.euclideousNoteSource = v }
+                                       buildPublishScene()
+                                   },
                                    // PER-LANE I/O (Paul 2026-10-08): riffSourceMidi/lanesSourceMidi no longer passed —
                                    // each lane now owns its own source directly on EuclidLine (sourceMode), edited via
                                    // the existing generic onEdit below; euclideousRiffSourceMidi/euclideousLanesSourceMidi
@@ -1272,6 +1288,7 @@ struct DiagView: View {
             let elsm = au.uiEuclideousLanesSourceMidi(); if elsm != euclideousLanesSourceMidi { euclideousLanesSourceMidi = elsm; euclideousResynced = true }
             let emom = au.uiEuclideousMainOutMask(); if emom != euclideousMainOutMask { euclideousMainOutMask = emom; euclideousResynced = true }
             let echd = au.uiEuclideousChords(); if echd != euclideousChords { euclideousChords = echd; euclideousResynced = true }
+            let ens = au.uiEuclideousNoteSource(); if ens != euclideousNoteSource { euclideousNoteSource = ens; euclideousResynced = true }
             if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)

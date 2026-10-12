@@ -815,21 +815,23 @@ final class Router {
     private var riffSrcNoteBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     private var riffSrcNoteCount = 0
     // PER-LANE I/O (Paul 2026-10-08): each Euclideous lane independently resolves MIDI IN / KEY / CHORDS — this
-    // fills ONE lane's buffer from the LIVE pool by an explicit chanMask (mirrors the old `fillRiffSrcFromPool`
-    // exactly, just one buffer PER LANE (0...3) instead of one shared buffer) — used for MIDI-mode lanes only;
-    // CHORDS-mode lanes are filled directly from `chordSeqNotes` instead (see `case .euclid:`'s own per-lane
-    // fill loop). Only ever consulted for Euclideous's own reserved row (`laneCount`/`laneNotes` gate this) —
-    // every other `.euclid` cell in the grid keeps reading the single shared `srcNoteBuf`/`srcNoteCount`
-    // exactly as before this feature, untouched.
-    private var laneSrcBuf = [[(note: Int, vel: UInt8)]](repeating: [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128), count: 4)
-    private var laneSrcCount = [Int](repeating: 0, count: 4)
-    private func fillLaneSrcFromPool(_ pool: NotePool, lane: Int, chanMask: UInt16) {
-        laneSrcCount[lane] = 0
+    // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — SUPERSEDES the old per-lane
+    // (0...3) buffers entirely: every lane now reads the SAME pool, built once per cell-render from the
+    // page's single resolved source (MIDI IN / CHORD / KEY), not 4 independently-sourced ones. Fills the
+    // buffer from the LIVE pool by an explicit chanMask — mirrors the old `fillRiffSrcFromPool`/the retired
+    // per-lane `fillLaneSrcFromPool` exactly, just one shared buffer instead of 4. Only ever consulted for
+    // Euclideous's own reserved row (`laneCount`/`laneNotes` gate this) — every other `.euclid` cell in the
+    // grid keeps reading the single shared `srcNoteBuf`/`srcNoteCount` exactly as before this feature.
+    private var globalSrcBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
+    private var globalSrcCount = 0
+    private func fillGlobalSrcFromPool(_ pool: NotePool, chanMask: UInt16) {
+        globalSrcCount = 0
         let c = pool.srcCount(chanMask: chanMask, cableMask: 0b1111)
-        for k in 0..<c where laneSrcCount[lane] < laneSrcBuf[lane].count {
+        for k in 0..<c where globalSrcCount < globalSrcBuf.count {
             let n = pool.srcAscending(k, chanMask: chanMask, cableMask: 0b1111)
-            laneSrcBuf[lane][laneSrcCount[lane]] = (Int(n), pool.velocity(n)); laneSrcCount[lane] += 1
+            globalSrcBuf[globalSrcCount] = (Int(n), pool.velocity(n)); globalSrcCount += 1
         }
+        globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }   // ferry rule: "sort low to high" — MIDI's held-note order isn't guaranteed ascending
     }
     // TICK DEDUP, keyed per (row, slot) not just per row (Paul 2026-10-05, fixing the timing smear investigated
     // and left open on 2026-10-03: "`lastTick[row]` is a SINGLE scalar SHARED across every line on this row —
@@ -4120,91 +4122,58 @@ final class Router {
             // (they differ by a shift of 2×rotate mod n), so this is a deliberate, tested composition order, not
             // an arbitrary one (see `testEuclidReverseFlipsReadIndexNotRebuiltBuffer`).
             let srcCount = srcNotes.count
-            // PER-LANE I/O (Paul 2026-10-08, the new I/O tab + CHORDS button): fill each lane's own pool BEFORE
-            // the readiness check below (which also needs the per-lane count now) — Euclideous's own reserved
-            // row only. Every other `.euclid` cell anywhere else in the grid keeps reading the single shared
-            // `srcNotes`/`srcCount` this file always has, via `laneCount`/`laneNotes`'s own fallback branch —
-            // byte-identical to before this feature, since `isEuclideousRow` is false there. Three sources,
-            // mode-dispatched per lane: MIDI reads the live pool by chanMask (`fillLaneSrcFromPool`, unchanged
-            // mechanism); CHORDS reads Euclideous's own on-page chord generator (`chordSeqNotes`, the SAME pure
-            // function the regular CHORDS processor and the chord door both already share — resolved ONCE per
-            // cell-render here, not per-tick, matching every other pool-fill's own "stable across the column"
-            // convention); KEY stays silent (§4.4 unresolved). `laneUsesLegacyPool[i]` is set ONLY for a
-            // MIDI-mode lane when `doc.receivers` was nil/empty at build time (SnapshotBuilder's guard skips
-            // resolving `laneSrcChanMasks` entirely then) — a pre-existing "no receivers configured at all"
-            // legacy shape the cell's own OMNI fallback (`sc.inputChanMask = 0xFFFF`) already handles via the
-            // shared `srcNotes`/`srcCount`; without this, an empty `laneSrcChanMasks` would silently read as
-            // "every MIDI lane's chanMask is 0" (silent) instead of falling back to that legacy OMNI pool —
-            // caught by 2 existing reset-span RouterTests regressing (neither sets `st.receivers` at all), not
-            // by inspection. CHORDS/KEY lanes never fall back — they have no "legacy" shape to honour.
+            // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — SUPERSEDES the per-lane
+            // (0...3) sourceMode dispatch entirely: ALL 4 lanes now read ONE shared pool, built once per
+            // cell-render from `p.euclideousNoteSourceResolved` (MIDI IN / CHORD / KEY) — Euclideous's own
+            // reserved row only; every other `.euclid` cell in the grid keeps reading the single shared
+            // `srcNotes`/`srcCount` this file always has, via `laneCount`/`laneNotes`'s own fallback branch,
+            // byte-identical to before this feature (`isEuclideousRow` is false there). `globalSrcUsesLegacy`
+            // mirrors the OLD per-lane fallback's own reasoning (a pre-existing "no receivers configured at
+            // all" doc shape) — `globalSrcChanMaskSet` (SnapshotBuilder.swift) is unconditionally true for a
+            // Euclideous row, so this flag never actually fires today; kept as a defensive fallback matching
+            // the field's own `Bool` default (false), not a live concern.
             let isEuclideousRow = r == Snap.euclideousRow
-            let hasLaneChanMasks = !p.laneSrcChanMasks.isEmpty
-            var laneUsesLegacyPool = [Bool](repeating: false, count: 4)
+            var globalSrcUsesLegacy = false
             if isEuclideousRow {
-                let chordNotes = chordSeqNotes(beat: mWinStart, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
-                // KEY MODE (Paul 2026-10-09, 2nd report: "key does nothing" — a real, previously-disclosed gap,
-                // not a regression: §4.4 of the original page-rework spec explicitly left "how KEY-mode notes
-                // map to a pool" unresolved, and it was never picked up after. Built now, directly from the
-                // SAME page-level KEY picker CHORDS already reads (`euclideousChordKeyRoot`/`KeyTones` — shared
-                // fields, see Snapshot.swift's own doc comment on them) — a lane set to KEY plays the notes of
-                // that scale directly, independent of any live or generated pool, the simplest reading of "play
-                // in this key" for a mode with no external source at all. Mirrors `scaleNotes`'s own exact
-                // formula (Derivations.swift — "every note of `type` rooted at `root`, realized ascending across
-                // `octaves` octaves from `baseOct`") rather than calling it directly, since SnapParams only
-                // carries the already-resolved INTERVAL array (`euclideousChordKeyTones`), not the `ScaleType`
-                // enum `scaleNotes` itself takes. baseOct 3 / octaves 2 matches `ScalePool`'s own standing
-                // default (home octave 3, a 2-octave span) — the established convention for "a scale as a pool"
-                // everywhere else in this codebase, not a new number invented for this one case.
-                var keyScaleNotes: [Int] = []
-                do {
+                switch p.euclideousNoteSourceResolved {
+                case .chords:
+                    let chordNotes = chordSeqNotes(beat: mWinStart, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+                    globalSrcCount = min(globalSrcBuf.count, chordNotes.count)
+                    for k in 0..<globalSrcCount { globalSrcBuf[k] = (chordNotes[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
+                    globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }
+                case .key:
+                    // KEY (Paul 2026-10-09 originally, re-scoped 2026-10-12): the key's own scale tones in ONE
+                    // base octave — the generic "extend by octaves to 8" rule (the new ferry's own pool-and-
+                    // ranks §2) now does what a hardcoded 2-octave raw read used to do, so pre-baking a second
+                    // octave here would double-extend. Mirrors `scaleNotes`'s own formula (root+interval,
+                    // realized from baseOct 3 = MIDI 48/C3 — the established "a scale as a pool" convention
+                    // elsewhere in this codebase), just ONE octave's worth now, not two.
                     let root = ((p.euclideousChordKeyRoot % 12) + 12) % 12
                     let base = 3 * 12 + 12   // baseOct 3 → MIDI 48 (C3), the C-1 convention `scaleNotes` itself uses
-                    for o in 0..<2 {
-                        for iv in p.euclideousChordKeyTones {
-                            let n = base + root + o * 12 + iv
-                            if n >= 0 && n <= 127 { keyScaleNotes.append(n) }
-                        }
+                    var keyNotes: [Int] = []
+                    for iv in p.euclideousChordKeyTones {
+                        let n = base + root + iv
+                        if n >= 0 && n <= 127 { keyNotes.append(n) }
                     }
-                }
-                for i in 0..<4 {
-                    let srcMode = i < p.euclidLines.count ? p.euclidLines[i].sourceModeResolved : .midi
-                    switch srcMode {
-                    case .chords:
-                        laneSrcCount[i] = min(laneSrcBuf[i].count, chordNotes.count)
-                        for k in 0..<laneSrcCount[i] { laneSrcBuf[i][k] = (chordNotes[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
-                    case .key:
-                        laneSrcCount[i] = min(laneSrcBuf[i].count, keyScaleNotes.count)
-                        for k in 0..<laneSrcCount[i] { laneSrcBuf[i][k] = (keyScaleNotes[k], 100) }   // same "no live velocity to inherit" default as CHORDS above
-                    case .midi:
-                        if hasLaneChanMasks {
-                            // LITERALLY LIVE, OMNI (Paul 2026-10-09, two rounds): `pool` here is
-                            // `emitGeneratorRow`'s own SHADOWED local (`effectivePool(for: cell, live: livePool)`,
-                            // set at this function's top) — it applies the generic self-arm/latch substitution
-                            // every regular grid cell gets, with no awareness that THIS read is one of three
-                            // explicit, mutually-exclusive choices (MIDI IN vs KEY vs CHORDS) where "MIDI IN"
-                            // specifically promises live input and nothing else — a self-arming door on whichever
-                            // receiver this cell nominally resolves to would silently leak its generated content
-                            // through here (round 1's bug: "plays something even with nothing plumbed in").
-                            // Reading `livePool` (this function's own un-substituted parameter, still in scope)
-                            // instead of `pool` fixes that leak — but `laneSrcChanMasks` ALSO used to key this
-                            // read to one specific hardcoded receiver's channel mask (round 2's bug: "midi in
-                            // does nothing" — an unverified guess at which receiver index, see
-                            // SnapshotBuilder.swift's own note on this, that never matched whatever receiver
-                            // Paul actually plugs a controller into). `laneSrcChanMasks[i]` is now always 0xFFFF
-                            // for a MIDI-mode lane (SnapshotBuilder.swift), so this reads EVERY live note on
-                            // EVERY channel — genuinely "any live input, no receiver dependency at all." For
-                            // every other `.euclid` cell in the grid (where effectivePool's substitution is the
-                            // correct, desired behaviour), this call is unreached entirely (gated by
-                            // `isEuclideousRow` above), so nothing there changes.
-                            fillLaneSrcFromPool(livePool, lane: i, chanMask: i < p.laneSrcChanMasks.count ? p.laneSrcChanMasks[i] : 0)
-                        } else {
-                            laneUsesLegacyPool[i] = true
-                        }
+                    globalSrcCount = min(globalSrcBuf.count, keyNotes.count)
+                    for k in 0..<globalSrcCount { globalSrcBuf[k] = (keyNotes[k], 100) }
+                    globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }
+                case .midi:
+                    if p.globalSrcChanMaskSet {
+                        // LITERALLY LIVE, OMNI (Paul 2026-10-09, two rounds, now page-level not per-lane):
+                        // `pool` here is `emitGeneratorRow`'s own SHADOWED local (`effectivePool(for:live:)`) —
+                        // reading `livePool` (this function's own un-substituted parameter) instead avoids a
+                        // self-arming door's generated content leaking through; `globalSrcChanMask` is always
+                        // 0xFFFF when the global source is MIDI (SnapshotBuilder.swift) — "any live input, no
+                        // receiver dependency at all."
+                        fillGlobalSrcFromPool(livePool, chanMask: p.globalSrcChanMask)
+                    } else {
+                        globalSrcUsesLegacy = true
                     }
                 }
             }
-            func laneCount(_ li: Int) -> Int { (isEuclideousRow && !laneUsesLegacyPool[li]) ? laneSrcCount[li] : srcCount }
-            func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && !laneUsesLegacyPool[li]) ? laneSrcBuf[li][0..<laneSrcCount[li]] : srcNotes }
+            func laneCount(_ li: Int) -> Int { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcCount : srcCount }
+            func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcBuf[0..<globalSrcCount] : srcNotes }
             // SEQUENTIAL SOURCES (Paul 2026-10-02): when the slot immediately before this EUCLID (chainDriver, the
             // index of EUCLID's own slot since emitGeneratorRow only dispatches here for the chain's driver) is
             // exactly RIFF or ARP, and NOT bypassed, a line set to the matching noteSel steps through that
@@ -5100,27 +5069,16 @@ final class Router {
             // line" count) is each line's OWN tick-dedup slot, so a lane keeps the SAME slot across windows
             // where a sibling lane happens to be silent — using `.enumerated()`'s offset directly, not a
             // separately-tracked "active line count", is what makes that stable.
-            // EUCLIDEOUS PAGE REWORK (2026-10-07/08, DISPLAY-ONLY role since 2026-10-09 ferry §2.4): this
-            // fill still copies lane 0's own resolved pool into `riffSrcNoteBuf`/`riffSrcNoteCount`, but
-            // nothing in the AUDIBLE path reads it anymore — the `if useRiff {` resolution (above, in the
-            // per-line loop) now reads EACH lane's own per-lane buffer directly (`laneNotes(lineIndex)`/
-            // `laneCount(lineIndex)`), so two lanes with different I/O-tab sources genuinely hear different
-            // notes off the same shared riff shape. This buffer's only remaining consumer is
-            // `euclideousRiffLiveNotes` below (a kept-but-currently-unrendered "show the resolved note"
-            // readout) — left reading lane 0 specifically since nothing displays it and a single sample
-            // point is as good as any for now. `useRiff`/`euclideousRiff` are plain fields on the SHARED
-            // EuclidLine/MachineParams — row-agnostic in the model and in SnapshotBuilder's resolve — so a
-            // `.euclid` cell anywhere else in the grid (every pre-existing `useRiff` RouterTest places its cell
-            // at row 0, not Snap.euclideousRow) must keep reading the SAME pool the lanes themselves use,
-            // exactly as before this split — the `else` branch's plain copy of srcNoteBuf/srcNoteCount is
-            // unchanged, and `laneNotes`/`laneCount` already resolve to that same shared pool for any
-            // non-Euclideous row regardless of lineIndex (see their own definitions above).
+            // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — `laneNotes(0)`/
+            // `laneCount(0)` now resolve to the ONE shared global pool regardless of the `0` argument
+            // (every lane reads the same buffer post-restructure, so this is no longer "lane 0's own pool
+            // as a representative sample" — it's definitionally the SAME pool every lane's own walk uses).
+            // `euclideousRiffLiveNotes`/`euclideousRiffLivePool()` — the riff panel's existing "show the
+            // resolved note" readout — is exactly the new label column's own data source too, unchanged.
             if r == Snap.euclideousRow {
                 let notes = laneNotes(0)
                 riffSrcNoteCount = min(riffSrcNoteBuf.count, laneCount(0))
                 for (i, sn) in notes.enumerated() where i < riffSrcNoteCount { riffSrcNoteBuf[i] = sn }
-                // LIVE RIFF POOL DISPLAY (Paul 2026-10-08): a dedicated snapshot for the riff panel's own
-                // "show the resolved note, not just the rank" ask — see euclideousRiffLivePool()'s own doc.
                 euclideousRiffLiveCount = min(euclideousRiffLiveNotes.count, riffSrcNoteCount)
                 for i in 0..<euclideousRiffLiveCount { euclideousRiffLiveNotes[i] = UInt8(max(0, min(127, riffSrcNoteBuf[i].note))) }
             } else {

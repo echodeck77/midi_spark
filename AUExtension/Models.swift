@@ -2136,6 +2136,24 @@ struct PluginState: Codable, Equatable {
     var euclideousKeyRootResolved: Int { ((euclideousKeyRoot ?? 0) % 12 + 12) % 12 }
     var euclideousKeyType: ScaleType? = nil
     var euclideousKeyTypeResolved: ScaleType { euclideousKeyType ?? .naturalMinor }
+    // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — SUPERSEDES the per-lane
+    // `EuclidLine.sourceMode` (now decode-only, kept only as this migration's own source of old data; the
+    // render path never reads it again). MIGRATION: an old doc carries 4 independent per-lane values —
+    // "take lane 1's... if the lanes disagree, still take lane 1 and log a warning" (the ferry's own literal
+    // rule). `euclideousLinesResolved`/`sourceModeResolved` already give every lane a concrete value (nil ⇒
+    // `.key`), so "4 per-lane values" always exist to compare, even for a document with no real per-lane
+    // data at all — in which case all 4 trivially agree (`.key`) and no warning fires. No structured
+    // warning-log mechanism exists anywhere in this codebase (checked before inventing one) — `FileHandle.
+    // standardError` matches this project's own ad-hoc RTCDEBUG-trace convention for this class of output.
+    var euclideousNoteSource: EuclideousLaneSource? = nil
+    var euclideousNoteSourceResolved: EuclideousLaneSource {
+        if let s = euclideousNoteSource { return s }
+        let legacy = euclideousLinesResolved.map { $0.sourceModeResolved }
+        if Set(legacy).count > 1 {
+            FileHandle.standardError.write("MidiSpark: Euclideous lanes disagree on legacy per-lane source (\(legacy)) — migrating to lane 1's (\(legacy[0]))\n".data(using: .utf8) ?? Data())
+        }
+        return legacy[0]
+    }
     // EUCLIDEOUS CHORDS (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a
     // chord grid with rate control... base this on the existing chord grid used on the chord door." Stored
     // as a plain MachineParams — the EXACT same storage shape the chord door's own `Receiver.chordSeqs:
@@ -2858,6 +2876,10 @@ struct EuclideousUndoSnapshot: Equatable {
     var keyRoot: Int
     var keyType: ScaleType
     var chords: MachineParams
+    // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — undoable like every other
+    // page-level setting here (play/stop and MAIN OUT are the only two explicit exceptions, enforced at
+    // restore time, not at this snapshot's own shape).
+    var noteSource: EuclideousLaneSource
 }
 
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack

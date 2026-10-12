@@ -173,11 +173,15 @@ struct SnapParams {
     // EUCLIDEOUS PAGE REWORK (2026-10-07): mainOutMask gates every chain's emission uniformly (default
     // all-open, byte-identical for every non-Euclideous processor).
     var mainOutMask: UInt8 = 0b1111
-    // PER-LANE I/O (Paul 2026-10-08, the new I/O tab): each of Euclideous's 4 lanes' own resolved channel mask
-    // for MIDI-mode lanes (0 for KEY/CHORDS, which read elsewhere — see the per-lane fill in Router.swift's
-    // `.euclid` case) — empty for every non-Euclideous `.euclid` cell. Router.swift falls back to the shared
-    // srcNotes/srcCount whenever this is empty or short, or the cell isn't Euclideous's own row.
-    var laneSrcChanMasks: [UInt16] = []
+    // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — SUPERSEDES the old per-lane
+    // (Paul 2026-10-08) `laneSrcChanMasks: [UInt16]` entirely: one resolved channel mask for the WHOLE page
+    // when the global source is MIDI (0xFFFF default — "any live input"; irrelevant for KEY/CHORDS, which
+    // read elsewhere — see Router.swift's `.euclid` case). `globalSrcChanMaskSet` mirrors the old array's
+    // own empty-vs-populated distinction (Router.swift's legacy-pool fallback check) — false for every
+    // non-Euclideous `.euclid` cell.
+    var globalSrcChanMask: UInt16 = 0xFFFF
+    var globalSrcChanMaskSet: Bool = false
+    var euclideousNoteSourceResolved: EuclideousLaneSource = .key
     // EUCLIDEOUS CHORDS (Paul 2026-10-08): the page's own self-contained chord progression reuses the SHARED
     // chords* fields directly (chordsMode/chordsDegrees/chordsSteps/chordsRateBeats/chordsRotate/chordsVoicing/
     // chordsSpread, already present on SnapParams for the regular CHORDS processor) rather than a parallel

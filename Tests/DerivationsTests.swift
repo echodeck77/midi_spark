@@ -1890,6 +1890,32 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(offStates[3], .hit(riffStep: nil))
         XCTAssertEqual(offStates[1], .miss)
     }
+    // ── ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second ferry same day) ──────────────────────────────
+    /// All 3 of the ferry's own literal worked examples, hand-verified.
+    func testEuclideousGlobalPoolExtendedMatchesAllThreeWorkedExamples() {
+        // C natural minor: C D Eb F G Ab Bb -> + the root one octave up.
+        let key = [0, 2, 3, 5, 7, 8, 10]
+        XCTAssertEqual(euclideousGlobalPoolExtended(sortedRaw: key), [0, 2, 3, 5, 7, 8, 10, 12])
+        // C Eb G triad: 3+3 = 6, +2 more from a third octave (drops the would-be 9th, G+24).
+        let triad = [0, 3, 7]
+        XCTAssertEqual(euclideousGlobalPoolExtended(sortedRaw: triad), [0, 3, 7, 12, 15, 19, 24, 27])
+        // One held note: eight octaves of itself.
+        XCTAssertEqual(euclideousGlobalPoolExtended(sortedRaw: [60]), [60, 72, 84, 96, 108, 120, 132, 144])
+        // Empty pool (MIDI IN, nothing held): stays empty, not padded with garbage.
+        XCTAssertEqual(euclideousGlobalPoolExtended(sortedRaw: []), [])
+        // A raw pool already >= 8: no further extension, just the first 8.
+        let full = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        XCTAssertEqual(euclideousGlobalPoolExtended(sortedRaw: full), [0, 1, 2, 3, 4, 5, 6, 7])
+    }
+    /// TRANSPOSE's own case: a rank beyond 8 must continue the SAME octave-extension pattern, not clamp —
+    /// `riffResolve`'s existing `.fold` wrap already does this against the RAW (un-padded) sorted pool, so
+    /// rank 9 (one past the natural end of a 7-note key) must land exactly one octave above rank 2 (0-based
+    /// index 1, since 9-1=8, 8%7=1, 8/7=1 lap).
+    func testRiffResolveContinuesTheOctaveExtensionBeyondRank8ForTranspose() {
+        let key = [0, 2, 3, 5, 7, 8, 10]   // 7 notes
+        let rank9 = riffResolve(rank: 9, oct: 0, n: key.count, wrap: .fold, asc: { key[$0] })
+        XCTAssertEqual(rank9, key[1] + 12, "rank 9 = index 1 (9-1=8, 8%7=1) one octave up (8/7=1 lap)")
+    }
     func testEuclideousNoteViewMarkXReachesThePlayheadExactlyAtAgeZeroAndIsRemovedPastIt() {
         // Flipped 2026-10-11 (Paul: "right-to-left is what you expect on any piano roll") — the playhead
         // is now the LEFT edge (x=0), entry is the RIGHT edge (x=trackW).

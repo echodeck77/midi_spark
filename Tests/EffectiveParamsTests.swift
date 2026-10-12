@@ -265,6 +265,41 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(d.euclideousLinesResolved.count, 4)
     }
 
+    // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, 2nd same-day ferry) — `euclideousNoteSourceResolved`'s
+    // migration from the 4 now-decode-only per-lane values. "Take lane 1's... if the lanes disagree, still
+    // take lane 1" (the ferry's own literal rule), implemented as "lane 1" = index 0 of
+    // `euclideousLinesResolved`, which already pads/defaults every lane to a concrete value — so "4
+    // per-lane values" always exist to compare, even for a document with no real per-lane data at all.
+    func testEuclideousNoteSourceResolvedMigratesFromLegacyPerLaneValues() {
+        // (1) No explicit new field, no legacy per-lane data at all: every lane resolves to its own
+        // fresh-lane default (.key, per the melody pop-up ferry) — all 4 agree, so the migration is a
+        // trivial, warning-free `.key`.
+        let untouched = doc()
+        XCTAssertEqual(untouched.euclideousNoteSourceResolved, .key, "no legacy data at all ⇒ the shared fresh-lane default, KEY")
+
+        // (2) Legacy per-lane data present, all 4 agreeing: migrates to that shared value cleanly.
+        var uniform = doc()
+        uniform.euclideousLines = Array(repeating: EuclidLine(sourceMode: .midi), count: 4)
+        XCTAssertEqual(uniform.euclideousNoteSourceResolved, .midi, "4 agreeing legacy lanes migrate to their shared value")
+
+        // (3) Legacy per-lane data DISAGREEING: still takes lane 1's (index 0's) value, per the ferry's own
+        // literal rule — not an average, not the majority, not any other lane's.
+        var disagreeing = doc()
+        disagreeing.euclideousLines = [
+            EuclidLine(sourceMode: .chords),
+            EuclidLine(sourceMode: .midi),
+            EuclidLine(sourceMode: .key),
+            EuclidLine(sourceMode: .midi),
+        ]
+        XCTAssertEqual(disagreeing.euclideousNoteSourceResolved, .chords, "disagreeing lanes must still take lane 1's value, not the majority (MIDI) or any other lane's")
+
+        // (4) The explicit new field, once set, always wins over whatever the legacy lanes carry — even
+        // when they'd migrate to something else entirely.
+        var explicit = disagreeing
+        explicit.euclideousNoteSource = .key
+        XCTAssertEqual(explicit.euclideousNoteSourceResolved, .key, "an explicit euclideousNoteSource must win outright, ignoring the legacy per-lane data entirely")
+    }
+
     // RIFF ADVANCE (Paul 2026-10-06): the page's ONE shared riff pattern — same additive-Optional CR-8 contract,
     // a doc saved before this feature existed decodes to the struct's own plain defaults, never throws.
     func testEuclideousRiffResolvedDefaultsAbsent() throws {

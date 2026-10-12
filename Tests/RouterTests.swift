@@ -5433,34 +5433,22 @@ final class RouterTests: XCTestCase {
     // a FIXED separate receiver (index 0, "receiver 1"), independent of any lane. It now instead FOLLOWS
     // LANE 1's (array index 0's) own sourceMode, whatever that happens to be — so riff and "the lanes pool"
     // CAN still diverge, just not for the old fixed reason. Rewritten (not deleted) to prove the still-true
-    // part of the original claim under the new mechanism, PLUS the one subtlety the old test couldn't
-    // exercise: a DIFFERENT line (lane 1, array index 1) can be the one consuming useRiff, and its OWN
-    // sourceMode (here deliberately set to KEY, which would silence it if it mattered) is irrelevant — only
-    // lane 0's choice ever governs the riff's shared pool.
-    // SUPERSEDES an earlier version of this test that read a `doorMode: .chord` receiver for CHORDS — that
-    // mechanism was itself superseded the same day once Euclideous grew its own on-page chord generator
-    // ("a chords button... base this on the existing chord grid"). Rank 2 (not 1) is deliberately picked for
-    // the riff so it resolves to a DIFFERENT note than lane 0's own plain `.low` pick (48 vs 52) — proving the
-    // riff reads lane 0's FULL chord pool independently, not merely echoing whatever lane 0 itself struck.
-    // ALSO the regression guard for a real gap this test caught (not inspection): this scene has a genuinely
-    // EMPTY live pool and no latch anywhere — `Router.process()`'s own top-level "nothing held/latched ⇒
-    // nothing can play, skip everything" guard predates CHORDS and was always safe before it (every other
-    // processor type needs SOME input); CHORDS breaks that assumption, so the guard now also opens whenever
-    // Euclideous has an active chords-mode lane (see its own fix comment in Router.swift). Without that fix
-    // this test's own `emitGeneratorRow` is never even called — caught by this test going red, not by review.
-    // RIFF POOL IS PER-LANE (Paul 2026-10-09, ferry §2.4 — supersedes the 2026-10-07/08 "follows lane 1"
-    // design entirely, previously locked in by this same test's own former name/assertions): each lane now
-    // resolves the shared riff SHAPE against ITS OWN chosen pool — MIDI/KEY/CHORDS on that lane's own I/O tab
-    // — not lane 0's/"lane 1's." Lane 0 (CHORDS) and lane 1 (its own live MIDI note) both read the SAME
-    // shared riff shape (rank 2) but land on genuinely DIFFERENT notes, proving independence, not a shared
-    // pool. Also supersedes the narrower `testEuclideousUseRiffIgnoresItsOwnLaneSourceModeEntirely` (which
-    // asserted the OLD mechanism by name) — fully redundant with this positive rewrite, not kept alongside it.
-    func testEuclideousRiffPoolIsGovernedByEachLanesOwnSourceNotLane1s() {
+    // ONE GLOBAL SOURCE (Paul 2026-10-12, 2nd same-day ferry) — SUPERSEDES the per-lane independence this
+    // test used to assert by name ("governed by EACH lane's own source, not lane 1's"). The per-lane
+    // `EuclidLine.sourceMode` is now decode-only; a single page-level `PluginState.euclideousNoteSource`
+    // feeds EVERY lane — plain-pick and riff-fed alike — from the identical pool. Rewritten to prove exactly
+    // that, in two parts: (1) every lane reads the ONE global pool regardless of its own STALE per-lane
+    // field (lane 0 still carries `.chords`, lane 1 still carries `.midi`, from before the migration — both
+    // values are now inert and must have zero effect); (2) flipping the one global knob moves EVERY lane's
+    // output together, proving it's genuinely shared state, not an accidental coincidence of lane 0 and
+    // lane 1 happening to agree. Rank 2 is kept (not 1) so a one-note MIDI pool's FOLD-wrap (90→102) and a
+    // 3-note CHORDS pool's direct rank-2 lookup (52) land on two different, easily distinguished values.
+    func testEuclideousAllLanesShareOneGlobalSourceIgnoringAnyStalePerLaneValue() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [2])
         c.paramsA.euclidLines = [
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),   // lane 0: CHORDS (triad [48,52,55])
-            EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .midi),     // lane 1: useRiff + its OWN MIDI pool
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),   // stale — now inert
+            EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .midi),     // stale — now inert
         ]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
@@ -5471,13 +5459,26 @@ final class RouterTests: XCTestCase {
         st.euclideousKeyRoot = 0; st.euclideousKeyType = .major
         st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [0]; m.chordsSteps = 1; return m }()   // C major tonic triad, ascending [48, 52, 55]
         let pool = NotePool()
-        pool.noteOn(90, velocity: 100, channel: 1)   // wired to receiver[3]/channel 2 — lane 1's OWN MIDI source
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
-        assertNothingLeftSounding(e)
-        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        XCTAssertTrue(notes.contains(48), "lane 0's own plain .low pick must read Euclideous's own chord generator")
-        XCTAssertTrue(notes.contains(102), "lane 1's riff must resolve rank 2 against ITS OWN MIDI pool (a single note at 90, FOLD-wraps one octave up to 102) — not lane 0's chord pool")
-        XCTAssertFalse(notes.contains(52), "lane 1 must NOT sound lane 0's chord-pool rank 2 (52) — proves the riff genuinely stopped following lane 0/'lane 1', the exact bug ferry §2.4 fixed")
+        pool.noteOn(90, velocity: 100, channel: 1)
+
+        // (1) Global source = MIDI — both lanes must read the ONE live note, ignoring their own stale fields.
+        var stMidi = st; stMidi.euclideousNoteSource = .midi
+        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(from: stMidi), pool, beats: 1, into: e1, forceColumn: 0)
+        assertNothingLeftSounding(e1)
+        let notesMidi = Set(e1.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notesMidi.contains(90), "lane 0's .low pick must read the global MIDI pool directly, despite its own stale sourceMode: .chords")
+        XCTAssertTrue(notesMidi.contains(102), "the riff lane must FOLD-wrap rank 2 against the SAME one-note MIDI pool (90→102), not a separate 'its own' pool")
+        XCTAssertFalse(notesMidi.contains(48) || notesMidi.contains(52), "neither lane may read the stale CHORDS pool once the global source is MIDI")
+
+        // (2) Flip the ONE knob to CHORDS — both lanes must move together, proving one shared source, not
+        // two lanes that merely happened to agree in part (1).
+        var stChords = st; stChords.euclideousNoteSource = .chords
+        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(from: stChords), pool, beats: 1, into: e2, forceColumn: 0)
+        assertNothingLeftSounding(e2)
+        let notesChords = Set(e2.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notesChords.contains(48), "lane 0's .low pick must now read the chord generator's lowest note")
+        XCTAssertTrue(notesChords.contains(52), "the riff lane's rank 2 must now resolve directly against the 3-note chord pool (52), not FOLD-wrap a 1-note MIDI pool (102)")
+        XCTAssertFalse(notesChords.contains(90) || notesChords.contains(102), "neither lane may still read the live MIDI note once the global source is CHORDS")
     }
     // MIDI IN MUST BE LITERALLY LIVE (Paul 2026-10-09: "it's playing even when it doesn't have MIDI being
     // plumbed in"). Traced to `emitGeneratorRow`'s own `pool` local, shadowed at the function's top by
@@ -5498,6 +5499,11 @@ final class RouterTests: XCTestCase {
                                   var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 3
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
+        // ONE GLOBAL SOURCE (2026-10-12, 2nd same-day ferry) — the per-lane `sourceMode:` above is now
+        // decode-only; the real knob is this page-level field, which these low-level Router tests (built
+        // directly against a Machine/PluginState, bypassing BuildPage's own `euclideousLines` composition)
+        // must set explicitly to exercise MIDI mode.
+        st.euclideousNoteSource = .midi
         var chordDoor = Receiver(name: "4"); chordDoor.doorMode = .chord   // self-arms unconditionally, generates its own progression
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), chordDoor]
         // GENUINELY EMPTY — nothing played at all, the literal "no MIDI plumbed in" case.
@@ -5520,10 +5526,11 @@ final class RouterTests: XCTestCase {
         c.transpose = 2
         // sourceMode: .midi explicit — see the ferry-default-flip note above (testEuclideousNoteViewFillUsesTheLanesPlainOctaveNotRiffOctave).
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 1, sourceMode: .midi)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
+        st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
         let e = RecordingEmitter()
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()
@@ -5540,10 +5547,11 @@ final class RouterTests: XCTestCase {
         // held chord directly, unaffected by the default change.
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 2,
                                              useRiff: true, riffOctave: -1, sourceMode: .midi, riffOnRest: .fill)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
+        st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
         let e = RecordingEmitter()
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()
@@ -5556,10 +5564,11 @@ final class RouterTests: XCTestCase {
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1 (a real note)
         // sourceMode: .midi explicit — see the ferry-default-flip note above.
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, riffOctave: 1, sourceMode: .midi)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
+        st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
         let e = RecordingEmitter()
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()
@@ -5850,6 +5859,7 @@ final class RouterTests: XCTestCase {
                                       s.stepRate = .r1_8
                                       s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                       return s }()])
+            st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
             st.euclideousResetSpanBars = resetSpanBars
             let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
@@ -5892,6 +5902,7 @@ final class RouterTests: XCTestCase {
             // produces (receivers are always created as a fixed set of 4), not the old single-entry array
             // this line used when riff was still hardcoded to a fixed receiver INDEX 0 directly.
             st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+            st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
             st.euclideousResetSpanBars = 1
             let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
@@ -5904,34 +5915,19 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Array(twoBars.prefix(8)), bar1, "bar 1 of the 2-bar run must match the standalone 1-bar run exactly (same seed, same starting state)")
         XCTAssertEqual(Array(twoBars.suffix(8)), bar1, "bar 2 must ALSO replay bar 1's exact rank sequence — proving the span boundary hard-reset DRUNK's walk back to its starting state, not merely let it continue wandering")
     }
-    // PER-LANE I/O (Paul 2026-10-08, the new I/O tab + CHORDS button): each lane now independently resolves
-    // MIDI IN / KEY / CHORDS via EuclidLine.sourceMode — supersedes the old page-level GLOBAL "LANES KEY|MIDI"
-    // switch. CHORDS now reads Euclideous's own on-page chord generator (SUPERSEDES an EARLIER version of this
-    // test that read a `doorMode: .chord` receiver — that mechanism was itself superseded the same day once
-    // "a chords button... base this on the existing chord grid" shipped) — `chordSeqNotes` against a known
-    // degree/key resolves to an exact, hand-verified note (see `diatonicChord`'s own formula: tone(k) =
-    // rootNote + scaleTones[k%n] + 12×⌊k/n⌋; degree 4 (the V) in C major, rootNote 48 ⇒ tone(4)=55/tone(6)=59/
-    // tone(8)=62, `.low` picks the lowest, 55).
-    //
-    // REWRITTEN AGAIN (Paul 2026-10-09, 2nd report — "key does nothing"/"midi in does nothing"): two real fixes
-    // landed the same day. (1) MIDI is no longer keyed to one hardcoded receiver index (an unverified guess from
-    // planning that never matched Paul's actual setup) — it's genuinely OMNI now (SnapshotBuilder.swift), so
-    // lane 0's assertion below is unchanged in OUTCOME (note 60 still sounds) but the comment explaining WHY is
-    // corrected. (2) KEY mode now generates a real pool from the page's own KEY picker (Router.swift's `.key`
-    // branch) instead of staying silent — CHORDS' own degree was moved from 0 (the tonic, I) to 4 (the V) so
-    // its lowest note (55) is DISTINCT from KEY's own lowest note (the scale's root, 48) — degree 0's tonic
-    // triad would otherwise always coincide with KEY's root by construction (both anchor at the same "root
-    // pitch class, base octave" convention), making the two lanes' contributions indistinguishable in a note-
-    // set assertion.
-    func testEuclideousLanesEachResolveTheirOwnIndependentSourceMode() {
+    // ONE GLOBAL SOURCE (Paul 2026-10-12, 2nd same-day ferry) — SUPERSEDES the per-lane independence this
+    // test used to assert by name. The 3 lanes below each still carry a DIFFERENT, now-stale `sourceMode`
+    // (left in place deliberately — if a future regression ever resurrected per-lane reads, these different
+    // stale values would immediately produce 3 distinct notes again, exactly the failure this test guards
+    // against). Under the new model all 3 must resolve to the SAME note, since exactly one page-level knob
+    // (`PluginState.euclideousNoteSource`) governs every lane — proven twice, once per global value, so the
+    // result can't be a coincidence of whichever value a stale per-lane field happened to carry.
+    func testEuclideousLanesAllShareTheOneGlobalSourceDespiteDifferingStalePerLaneValues() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [
-            // lane 0: explicit MIDI — the melody pop-up ferry (2026-10-10 §2.2) flipped the nil-default
-            // from MIDI to KEY, so a bare, unset line no longer means MIDI here; set explicitly to keep
-            // this test's own 3-way-independence intent (one lane per source mode) unchanged.
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .midi),
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),  // lane 1: CHORDS
-            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key),     // lane 2: KEY — now sounds the scale's own root
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .midi),    // stale — now inert
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .chords),  // stale — now inert
+            EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key),     // stale — now inert
         ]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
@@ -5940,16 +5936,25 @@ final class RouterTests: XCTestCase {
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
         st.euclideousKeyRoot = 0; st.euclideousKeyType = .major   // C major
-        st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [4]; m.chordsSteps = 1; return m }()   // a 1-step V progression
+        st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [4]; m.chordsSteps = 1; return m }()   // a 1-step V progression: [55,59,62]
         let pool = NotePool()
-        pool.noteOn(60, velocity: 100, channel: 1)   // wire ch 1 — OMNI MIDI mode hears it regardless of receiver config
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
-        assertNothingLeftSounding(e)
-        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
-        XCTAssertTrue(notes.contains(60), "lane 0 (explicit MIDI) must hear genuinely live input — OMNI, not tied to any one receiver")
-        XCTAssertTrue(notes.contains(55), "lane 1 (CHORDS) must read Euclideous's own on-page chord generator — the C-major V triad's lowest note")
-        XCTAssertTrue(notes.contains(48), "lane 2 (KEY) must now sound the page's own scale — C3, the root of the default C-major pool")
-        XCTAssertEqual(notes.count, 3, "all three lanes contribute a genuinely distinct note — no silent lane, no accidental overlap")
+        pool.noteOn(60, velocity: 100, channel: 1)
+
+        // Global = KEY: all 3 lanes, regardless of their own stale field, must sound the SAME note — the
+        // scale's own root (48) — and nothing else.
+        var stKey = st; stKey.euclideousNoteSource = .key
+        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(from: stKey), pool, beats: 1, into: e1, forceColumn: 0)
+        assertNothingLeftSounding(e1)
+        let notesKey = Set(e1.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertEqual(notesKey, [48], "with the global source set to KEY, all 3 lanes must sound the identical scale-root note, not 3 different per-lane notes")
+
+        // Global = CHORDS: all 3 lanes must move TOGETHER to the chord generator's lowest note (55) — proving
+        // the shared value, not a fixed coincidence of the KEY case above.
+        var stChords = st; stChords.euclideousNoteSource = .chords
+        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(from: stChords), pool, beats: 1, into: e2, forceColumn: 0)
+        assertNothingLeftSounding(e2)
+        let notesChords = Set(e2.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertEqual(notesChords, [55], "with the global source set to CHORDS, all 3 lanes must sound the identical chord-pool note, not their own stale per-lane value")
     }
     // The RETIRED global `euclideousLanesSourceMidi` switch must no longer have ANY effect — only each lane's
     // own `sourceMode` governs its source now. A real regression risk on upgrade if this weren't true: an old
@@ -5965,10 +5970,14 @@ final class RouterTests: XCTestCase {
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         st.euclideousLanesSourceMidi = false   // the OLD global switch, set to its "KEY" value — must now have NO effect
+        // ONE GLOBAL SOURCE (2026-10-12) pinned to MIDI explicitly — without this the test would pass
+        // vacuously (KEY mode is never silent either, since the default scale always has real notes), without
+        // actually proving the specific live note below is what's heard.
+        st.euclideousNoteSource = .midi
         let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
-        XCTAssertFalse(e.ons.filter { $0.cable == 1 }.isEmpty, "an untouched lane must still sound via MIDI — the retired global switch must not silence it anymore")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.contains { Int($0.note) == 60 }, "an untouched lane must still sound the genuine live note via MIDI — the retired global switch must not silence/replace it anymore")
     }
     // RIFF FREE/LOCK/INVERT/ON REST (Paul 2026-10-09 ferry, "three new per-lane riff options"). The RIFF
     // mechanism itself (useRiff/riffDir/now riffLock/riffInvert/riffOnRest) is row-agnostic in the model —

@@ -196,6 +196,107 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — ONE GLOBAL RIFF/NOTE SOURCE replaces the per-lane SOURCE parameter entirely (2026-10-12, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1347 green incl. 5 new/8 fixed, iOS builds clean). A
+  second large, fully-specified ferry the same day as the riff-grid-markers one above, arriving mid-turn while
+  that one's own test run was still going — planned directly (its own plan file,
+  `~/.claude/plans/euclideous-global-riff-source.md`) rather than re-entering plan mode, since the shape was
+  already clear from the ferry's own literal rules. Retires `EuclidLine.sourceMode` (MIDI IN/CHORD/KEY,
+  independently chosen per lane since 2026-10-08) in favour of ONE page-level `PluginState.euclideousNoteSource`
+  — every lane now reads from the identical pool. **POOL + RANKS (ferry §2):** a new `euclideousGlobalPoolExtended`
+  (Derivations.swift) takes the source's raw notes, sorted ascending, and extends them by whole octaves until
+  there are exactly 8 — "a 7-note key becomes C D E♭ F G A♭ B♭ C," "a triad becomes C E♭ G C E♭ G C E♭," "one
+  held note becomes eight octaves of itself" — all three worked examples hand-verified against the function
+  directly. The ENGINE side needed no new resolution formula at all: `riffResolve`'s pre-existing `.fold` wrap
+  mode (`asc(over) + 12*laps` for any rank beyond the pool's own size) already IS "no wrap, no clamp, continue
+  the octave extension" — confirmed by reading, not assumed, and locked in with a new regression test
+  (`testRiffResolveContinuesTheOctaveExtensionBeyondRank8ForTranspose`) proving TRANSPOSE applied in pool units
+  before the rank lookup reads correctly past rank 8 via this same mechanism, exactly as the ferry's own
+  "resolution order unchanged" rule requires. **ONE GLOBAL RENDER-THREAD POOL (Router.swift, the real
+  engineering):** the old per-lane `laneSrcBuf[4]`/`laneSrcCount[4]`/`fillLaneSrcFromPool(lane:chanMask:)`
+  collapse into ONE `globalSrcBuf[128]`/`globalSrcCount`/`fillGlobalSrcFromPool(chanMask:)` (which also sorts
+  ascending, since the ferry's pool is always ascending-then-extended) — the per-lane dispatch switch becomes
+  one `switch p.euclideousNoteSourceResolved { .chords / .key / .midi }` block, built once per cell-render
+  instead of four times. KEY's own raw read NARROWED from 2 octaves to 1 — a genuine correctness fix, not a
+  cosmetic trim: since the new generic "extend to 8" step now does exactly what the old hardcoded 2-octave read
+  used to do by hand, keeping both would have double-extended every KEY-mode pool. `laneCount(_:)`/`laneNotes(_:)`
+  keep their now-vestigial lane-index parameter (every caller still passes one) but both now return the ONE
+  global buffer regardless of which index is asked for — meaning `euclideousRiffLiveNotes`/`euclideousRiffLivePool()`
+  (the pre-existing poll that already read `laneNotes(0)`) needed ZERO new plumbing to become the data source
+  for the new UI label column too; confirmed by tracing, not assumed, before relying on it. **MIGRATION (Models.
+  swift, Paul's own literal rule — "take lane 1's... if the lanes disagree, still take lane 1 and log a
+  warning"):** `PluginState.euclideousNoteSourceResolved` — nil ⇒ compare all 4 lanes' legacy, now decode-only
+  `sourceModeResolved` values; if they disagree, write a warning (`FileHandle.standardError`, this project's own
+  ad-hoc RTCDEBUG-trace convention — no structured warning-log mechanism exists anywhere in this codebase,
+  checked before inventing one) and return lane 1's value regardless. **UI (EuclideousPage.swift):** the riff
+  grid's own layout (ferry §1) gains a 30pt right-aligned note-name LABEL COLUMN on the left (one per rank row,
+  flats by default for MIDI IN/CHORD, key-driven sharp/flat for KEY, "–" in a dim grey when the pool is empty)
+  and 3 vertical 22×62pt SOURCE TABS on the right (MIDI IN/CHORD/KEY, rotated text, a +6pt-right/top/bottom-only
+  hit-area expansion built from an oversized offset `Color.clear` rect under `.allowsHitTesting(false)` visible
+  content — NOT `.offset`+`.size()` on a `Shape`, which isn't real API; caught and corrected before it ever
+  reached a build). Tapping the already-selected MIDI IN/CHORD tab does nothing; tapping the already-selected
+  KEY tab opens the key picker as a popover ANCHORED to the tab (a new `EuclideousRiffTabFramePreferenceKey`,
+  the same frame-capture idiom the melody pop-up's own anchored strip already established) instead of the old
+  header KEY chip, which is removed entirely — "only its entry point moves" (confirmed by reading
+  `SnapshotBuilder.swift` that the popup's underlying `euclideousKeyRoot`/`Type` fields are completely
+  unchanged; only where the picker is triggered from moved). The old per-lane melody pop-up SOURCE row, the
+  per-lane source text in each NOTE VIEW strip's summary label, and the riff header's SOURCE segment are all
+  removed; the I/O tab was already retired to just PATTERN/MASK earlier the same day, so there was nothing left
+  in it to report on — confirmed by reading `EuclideousLaneTab`, not assumed. **LIVE STATES (ferry §1):** a
+  MIDI-empty state (source=MIDI, nothing held) suppresses every riff-grid marker (`suppressMarkers`, threaded
+  into `riffGridCell`) and shows "HOLD NOTES TO PLAY" in the riff header instead — and the per-lane note box's
+  own "NO NOTES HELD" explanation is REMOVED entirely from `euclideousSilenceReason` (was checking the now-
+  meaningless per-lane `sourceModeResolved` anyway, which defaults to KEY post-migration, so it would almost
+  never have fired correctly even left in place) — "stop explaining this one," since the new page-level banner
+  already covers it and four repeats of the identical message would be noise, not information. **THE TEST
+  FALLOUT, traced not guessed:** the real background suite run came back with 12 raw failures (8 unique tests,
+  some reporting 2-3 assertion failures each) — ALL traced to one root cause, confirmed by reading
+  `SnapshotBuilder.swift`'s own resolve line before touching a single test: `PluginState.euclideousLinesResolved`
+  (the page-level mirror `euclideousNoteSourceResolved`'s migration reads) is a COMPLETELY SEPARATE array from
+  `MachineParams.euclidLines` (what `c.paramsA.euclidLines = [...]` actually sets, and what SnapshotBuilder's
+  REAL resolve — `p.euclidLinesForEditing()` — actually reads at render time). In PRODUCTION the two ARE kept in
+  sync (`BuildPage.swift`'s own publish path composes a fresh `MachineParams` FROM the live page-level
+  `euclideousLines` every publish) — but every one of these low-level RouterTests bypasses that composition
+  layer entirely, by this project's own long-established testing convention, setting `c.paramsA.euclidLines`
+  directly. So any test that set a per-lane `sourceMode:` and expected it to still have SOME effect was silently
+  reading the UNRELATED page-level default stub instead (`euclideousDefaultLine`'s own hardcoded `.key`) — 6
+  tests needed a simple `st.euclideousNoteSource = .midi` added to exercise the now-real knob directly
+  (`testEuclideousMidiInReadsOnlyGenuinelyLiveNotesNotASelfArmedDoor`, the 3 NOTE VIEW octave/transpose tests,
+  the 2 RESET SPAN tests); 2 had their entire PREMISE retired by the ferry (per-lane independence no longer
+  exists) and were rewritten, not patched — `testEuclideousRiffPoolIsGovernedByEachLanesOwnSourceNotLane1s` →
+  `testEuclideousAllLanesShareOneGlobalSourceIgnoringAnyStalePerLaneValue` and
+  `testEuclideousLanesEachResolveTheirOwnIndependentSourceMode` →
+  `testEuclideousLanesAllShareTheOneGlobalSourceDespiteDifferingStalePerLaneValues`, both now proving the
+  OPPOSITE claim twice over (once per global value, so the result can't be a coincidence of whichever stale
+  per-lane value happened to be set) while DELIBERATELY leaving the lanes' own stale, disagreeing `sourceMode:`
+  values in place in the test setup — a real regression (per-lane reads silently coming back) would make these
+  fail again immediately. **A THIRD, SELF-CAUGHT false-positive, not surfaced by the suite at all:**
+  `testEuclideousRetiredGlobalLanesSwitchNoLongerAffectsAnyLane` was PASSING, but for the wrong reason — it
+  only asserted "something sounds," and KEY mode (the silent migration fallback it was accidentally exercising)
+  is never silent either, so the test would have passed even if MIDI mode were completely broken; tightened to
+  assert the actual live note (60) by pitch, after pinning the global source explicitly, so it tests what its
+  name claims again. **TESTS (+5 new, net):** a dedicated `testEuclideousNoteSourceResolvedMigratesFromLegacyPerLaneValues`
+  (EffectiveParamsTests.swift) locking in all 4 migration cases directly against `PluginState` — no legacy data
+  at all ⇒ KEY; 4 agreeing legacy lanes ⇒ that value; disagreeing lanes ⇒ lane 1's, not the majority; an
+  explicit new field always wins outright over whatever the legacy lanes carry. **CELL-SIZE FLOOR, PER THE
+  FERRY'S OWN "STOP AND REPORT" RULE — REPORTED, NOT SILENTLY FIXED:** rule 6 asked to shrink the riff cells to
+  fit the new 60pt side overhead (30pt labels + 2×4pt gaps + 22pt tabs — Paul's own estimate was "about 66pt,"
+  close enough to confirm this matches his mental model) while keeping them square, and to stop and report if
+  the result drops below 24pt on the smallest supported iPad. Computed by hand against the real formula, not
+  guessed: at this codebase's own documented 375pt-wide "windowed" PORTRAIT floor (already the established
+  minimum elsewhere in this file's own history), the riff grid shares its row 50/50 with NOTE VIEW (an EARLIER,
+  separate ferry's own judgment call) — `halfW` works out to 163.5pt, leaving only 103.5pt for the grid once the
+  new 60pt side panel is subtracted, and 8 cells at that width computes to **≈7.4pt — more than 3× under the
+  24pt floor**, not a marginal miss. LANDSCAPE fares much better at this codebase's own other established
+  reference width (900pt, "a small 900×500 landscape size"): riffColW's existing 36% share gives the grid
+  ≈26.1pt cells — just clears the floor, by a thin ~2pt margin. Per the ferry's own explicit instruction, this
+  is flagged back rather than resolved unilaterally — fixing it would mean reworking the PORTRAIT riff/NOTE VIEW
+  split (an earlier ferry's own judgment call, not this one's to silently override) or the side-panel's own
+  width, either a real design decision, not a code tweak. **DEVICE-OWED:** the portrait cell-size finding above,
+  which needs Paul's own call on how to resolve it; the label column's note names at real size/legibility; the
+  source tabs' rotated-text readability and the KEY tab's anchored popover positioning in both orientations; the
+  MIDI-empty "HOLD NOTES TO PLAY" state actually reading as intentional rather than broken; confirm an old saved
+  session with disagreeing per-lane sources now plays identically to before, using lane 1's value.**
 - **▶ EUCLIDEOUS — riff-grid POSITION MARKERS + per-lane FOOTER STRIPS, a shared PREDICTION engine (2026-10-12,
   on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1343 green incl. 14 new, iOS builds clean). A large,
   fully-specified ferry (Part 1: riff-grid markers · Part 2: lane footers · Prediction · Accessibility ·

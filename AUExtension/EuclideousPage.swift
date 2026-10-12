@@ -60,6 +60,15 @@ struct EuclideousStripFramePreferenceKey: PreferenceKey {
         value.merge(nextValue()) { _, new in new }
     }
 }
+/// The KEY tab's own on-screen frame (Paul 2026-10-12, second same-day ferry) — lets the key picker
+/// anchor itself near the tab that opened it, same "a view learns its own frame" need the melody pop-up's
+/// own `EuclideousStripFramePreferenceKey` above already solves, just a single rect, not a dictionary.
+struct EuclideousRiffTabFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        if let v = nextValue() { value = v }
+    }
+}
 
 /// LONG-PRESS HELP (usability ferry §3.3, literal): "long-pressing any control for 0.5s shows a small
 /// bubble above it with a one-line plain-English explanation; it disappears on release... must never also
@@ -409,13 +418,12 @@ struct EuclideousPage: View {
     let resetSpanBars: Int
     let keyRoot: Int
     let keyType: ScaleType
-    // PER-LANE I/O (Paul 2026-10-08): the old GLOBAL riffSourceMidi/lanesSourceMidi switches + their setters
-    // are REMOVED from this view entirely — each lane now owns its own MIDI IN/KEY/CHORDS choice directly on
-    // EuclidLine (sourceMode), edited via the SAME generic `onEdit` every other per-lane field already uses
-    // (see `ioSourceRow`) — no separate onSet* closure needed for this feature at all. The riff's own shared
-    // PATTERN (steps/ranks) still has no page-level control of its own, but each lane's resolution of it now
-    // reads that SAME lane's own I/O choice (Paul 2026-10-09, ferry §2.4 — supersedes an earlier "follows
-    // lane 1" design entirely); see `riffGridView`'s own header note.
+    // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — SUPERSEDES the per-lane
+    // sourceMode entirely (the 2026-10-08 comment this replaces described per-lane I/O as the live model;
+    // it no longer is). One page-level choice, same live-mirror/onSet convention as resetSpanBars/keyRoot
+    // above.
+    let noteSource: EuclideousLaneSource
+    let onSetNoteSource: (EuclideousLaneSource) -> Void
     let mainOutMask: UInt8
     // CHORDS BUTTON (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a chord
     // grid with rate control... base this on the existing chord grid used on the chord door." Stored/edited
@@ -471,6 +479,11 @@ struct EuclideousPage: View {
     @State private var laneTab: [EuclideousLaneTab] = [.pattern, .pattern, .pattern, .pattern]
     @State private var resetSpanPopupOpen = false
     @State private var keyPopupOpen = false
+    // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry): the KEY tab's own captured
+    // on-screen frame (via EuclideousRiffTabFramePreferenceKey above), letting the picker open as a
+    // popover anchored near the tab instead of centre-screen — nil until the tab has rendered at least
+    // once, in which case the popup falls back to centre (handled at the render site).
+    @State private var riffKeyTabFrame: CGRect? = nil
     @State private var chordsPopupOpen = false
     // riffDirPopupLane RETIRED 2026-10-10 alongside the RIFF tab — direction selection lives inline in the
     // melody pop-up's WALK section now, no separate nested popup needed.
@@ -625,10 +638,18 @@ struct EuclideousPage: View {
                     resetSpanPopupCard.position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
                 if keyPopupOpen {
-                    Color.black.opacity(0.55).ignoresSafeArea()
-                        .onTapGesture { keyPopupOpen = false }
+                    // ANCHORED POPOVER (Paul 2026-10-12, second same-day ferry): "a popover anchored to the
+                    // tab... dismiss by tapping outside" — a non-dimming full-screen tap-catcher (the SAME
+                    // "anchored, not a modal" pattern the melody pop-up already established on this page),
+                    // positioned beside the captured KEY tab frame; falls back to centre-screen if the tab
+                    // hasn't published a frame yet (shouldn't happen in practice once the page has rendered
+                    // once, but a defensive default costs nothing).
+                    Color.clear.contentShape(Rectangle()).onTapGesture { keyPopupOpen = false }
+                        .frame(width: geo.size.width, height: geo.size.height)
                         .zIndex(3)
-                    keyPopupCard.position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                    let anchorX = riffKeyTabFrame.map { max(170, $0.minX - 10) } ?? geo.size.width / 2
+                    let anchorY = riffKeyTabFrame.map { $0.midY } ?? geo.size.height / 2
+                    keyPopupCard.position(x: min(anchorX, geo.size.width - 170), y: min(max(140, anchorY), geo.size.height - 140)).zIndex(4)
                 }
                 // THE CHORDS POP-UP (Paul 2026-10-08) — same scrim+card shape as RESET SPAN/KEY above, but
                 // sized from the real available space (like `buildReceiverChordPopup`'s own `min(620, size.width
@@ -645,6 +666,7 @@ struct EuclideousPage: View {
             }
             .coordinateSpace(name: "euclideousXY")
             .onPreferenceChange(EuclideousStripFramePreferenceKey.self) { melodyStripFrames = $0 }
+            .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
         }
         .onChange(of: riffPositions) { _ in updateRiffMarkers() }
         .onAppear { updateRiffMarkers() }
@@ -905,7 +927,6 @@ struct EuclideousPage: View {
             headerUndoRedoGroup()
             Spacer(minLength: sp4)
             headerResetChip()
-            headerKeyGroup()
             headerChordsChip()
             headerMainOutGroup()
             headerOnChip()
@@ -932,7 +953,6 @@ struct EuclideousPage: View {
     private func headerRow2() -> some View {
         HStack(spacing: sp4) {
             headerResetChip()
-            headerKeyGroup()
             Spacer(minLength: sp4)
             headerChordsChip()
         }
@@ -995,20 +1015,10 @@ struct EuclideousPage: View {
             }
         }
     }
-    private func headerKeyGroup() -> some View {
-        HStack(spacing: sp4) {
-            Text("KEY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).lineLimit(1)
-            keyStepButton("−")
-            Text("\(noteNames[((keyRoot % 12) + 12) % 12]) \(keyType.label)")
-                .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                .lineLimit(1)
-                .padding(.horizontal, sp4).frame(height: headerBtnH)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.9)))
-                .contentShape(Rectangle())
-                .onTapGesture { keyPopupOpen = true }
-            keyStepButton("+")
-        }
-    }
+    // headerKeyGroup REMOVED (Paul 2026-10-12, second same-day ferry): "only its entry point moves" — the
+    // key picker (`keyPopupCard`, content unchanged) now opens exclusively from the new KEY tab beside the
+    // riff grid (`riffSourceTabs`); the old header chip (incl. its +/− quick-step buttons, which have no
+    // described replacement — a disclosed interpretation, not literal text) is gone.
     // CHORDS (Paul 2026-10-08) — "next to [KEY] place a chords button that opens a pop-up to a chord grid
     // with rate control."
     private func headerChordsChip() -> some View {
@@ -1084,14 +1094,6 @@ struct EuclideousPage: View {
     }
 
     // MARK: - KEY (Paul 2026-10-08, moved into header row 1 above)
-
-    private func keyStepButton(_ label: String) -> some View {
-        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
-            .frame(width: headerBtnH, height: headerBtnH)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
-            .contentShape(Rectangle())
-            .onTapGesture { label == "−" ? onSetKeyRoot(((keyRoot - 1) % 12 + 12) % 12) : onSetKeyRoot((keyRoot + 1) % 12) }
-    }
 
     /// KEY mode's exact root/scale options and whether it should reuse the SCALE-door/FOUNT machinery are
     /// explicitly OPEN (spec §4.3) — this reuses the existing, already-canonical `ScaleType` (13 cases) as
@@ -1865,13 +1867,6 @@ struct EuclideousPage: View {
         }
         if let help { base.euclideousHelp(help) } else { base }
     }
-    private func sourceModeHelpPhrase(_ s: EuclideousLaneSource) -> String {
-        switch s {
-        case .midi: return "Play whatever notes are held live"
-        case .key: return "Play notes from the page's own key"
-        case .chords: return "Play notes from the chord sequencer"
-        }
-    }
     private func melodySectionTitle(_ s: String) -> some View {
         Text(s).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
     }
@@ -1887,19 +1882,9 @@ struct EuclideousPage: View {
         default: return s.rawValue   // ALL, CYCLE
         }
     }
-    private func melodySourceSection(_ idx: Int, line: EuclidLine, accent: Color) -> some View {
-        VStack(alignment: .leading, spacing: sp4) {
-            melodySectionTitle("SOURCE")
-            HStack(spacing: sp4) {
-                ForEach([EuclideousLaneSource.midi, .key, .chords], id: \.self) { src in
-                    melodyButton(src == .midi ? "MIDI IN" : (src == .key ? "KEY" : "CHORDS"), on: line.sourceModeResolved == src, accent: accent,
-                                 help: sourceModeHelpPhrase(src)) {
-                        edit(idx) { $0.sourceMode = src }
-                    }
-                }
-            }
-        }
-    }
+    // melodySourceSection REMOVED (Paul 2026-10-12, second same-day ferry): per-lane source is gone — the
+    // whole page now shares ONE global MIDI IN/CHORD/KEY choice, set via the new tabs beside the riff grid
+    // (`riffSourceTabs`), not per-lane here.
     private func melodyModeSection(_ idx: Int, line: EuclidLine, accent: Color) -> some View {
         VStack(alignment: .leading, spacing: sp4) {
             melodySectionTitle("MODE")
@@ -2019,7 +2004,6 @@ struct EuclideousPage: View {
         .frame(height: headerH)
         let body = ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: sp16) {
-                melodySourceSection(idx, line: line, accent: accent)
                 melodyModeSection(idx, line: line, accent: accent)
                 if line.useRiffResolved { melodyWalkSection(idx, line: line, accent: accent) }
                 else { melodyNoteSection(idx, line: line, accent: accent) }
@@ -2395,74 +2379,138 @@ struct EuclideousPage: View {
     /// §7.2 as a DOTS-ONLY row with no background cell drawn — see the row itself, below) — reads
     /// `riffPositions[i]` (Router→Kernel→AU→VC, polled on the fast ~30fps timer) against this column index for
     /// every useRiff-on lane. Still unverified on-device whether the dots are actually visible in practice.
+    // ONE GLOBAL RIFF/NOTE SOURCE ferry (Paul 2026-10-12, second same-day ferry) — "Riff block layout"
+    // rules 1-7: a 30pt note-name label column (REPLACES the old 18pt generic HIGH/LOW gutter entirely —
+    // that gutter's own doc comment had already flagged its width as un-subtracted "genuinely extra" slack
+    // of uncertain real-device margin; this ferry resolves that ambiguity explicitly, rule 6: "shrink the
+    // riff cells to fit, keeping them square"), the grid, and 3 vertical source tabs. `sideOverhead` (30pt
+    // label + 6pt gap + 6pt gap + 22pt tabs = 64pt) is SUBTRACTED from `maxWidth` before dividing by 8
+    // columns, so the matrix's real rendered width can never exceed its stated budget the way the old
+    // gutter's did.
+    private let riffLabelColW: CGFloat = 30
+    private let riffTabW: CGFloat = 22, riffTabH: CGFloat = 62
     private func riffGridView(maxWidth: CGFloat, rowH: CGFloat) -> some View {
         let n = 8
         let resolved = riff.ranksResolved
         let ranks = (0..<n).map { $0 < resolved.count ? resolved[$0] : 0 }
-        let cellW = max(1, (maxWidth - sp8 * 2 - sp4 * CGFloat(n - 1)) / CGFloat(n))
-        let cellH = max(1, rowH)
+        let sideOverhead = riffLabelColW + sp4 + sp4 + riffTabW
+        let gridW = max(1, maxWidth - sideOverhead)
+        let cellW = max(1, (gridW - sp8 * 2 - sp4 * CGFloat(n - 1)) / CGFloat(n))
+        // RULE 6, LITERAL: "keeping them square" — the cell is the smaller of its width-derived and
+        // height-derived candidate, matching this page's own established "fit always wins over a target"
+        // convention elsewhere (the lane grid/riff-panel split uses the identical idea).
+        let cellH = min(max(1, rowH), cellW)
+        let source = noteSource
+        let pool = riffLivePool
+        // LIVE STATE (rule, "Live states" §1): MIDI IN with nothing held — no arrows anywhere on the grid.
+        // `riffGridCell` already draws nothing for a lane with no `riffMarker`/dot cell match, and an empty
+        // pool means NO rank can resolve a note at all, so this falls out of the existing per-cell logic
+        // without a special case — confirmed by reading, not assumed, since `riffMarker` is only ever set
+        // from a genuine NOTE VIEW event or a non-rest grid read, neither of which a silent lane produces.
+        let midiEmpty = source == .midi && pool.isEmpty
         return VStack(alignment: .leading, spacing: sp4) {
-            // TITLE (usability ferry §4.3, literal: "RIFF · SHARED" — supersedes the prior ferry's bare
-            // "RIFF," which itself had superseded an even earlier subtitle; the pattern being SHARED across
-            // every riff-on lane is exactly the thing worth naming here).
             Text("RIFF · SHARED").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-            // COLUMN NUMBERS (Paul 2026-10-12 ferry, Part 1 rule 8): "number the riff columns 1-8 above the
-            // grid, 10pt, #8a909a" — SUPERSEDES the previous ferry's own per-lane position-dot row entirely
-            // (rule 9: "this replaces the earlier rule that the riff must not show the playing note. The
-            // marker is the lane's position. Draw nothing else" — the old dot row was itself a coarser,
-            // column-only position indicator, now fully subsumed by the in-cell markers below, which show
-            // BOTH column and row). Reuses the SAME `riffDotRowH` height budget the old row occupied.
+            if midiEmpty {
+                Text("HOLD NOTES TO PLAY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
+            }
+            // COLUMN NUMBERS (Part 1 rule 8, kept from the markers ferry): "number the riff columns 1-8
+            // above the grid, 10pt, #8a909a" — now offset by the label column's own width + gap so the
+            // numbers still land directly over the grid, not the label column.
             HStack(spacing: sp4) {
+                Color.clear.frame(width: riffLabelColW)
                 ForEach(0..<n, id: \.self) { col in
                     Text("\(col + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced))
                         .foregroundColor(Color(hex: 0x8A909A))
                         .frame(width: cellW, height: riffDotRowH)
                 }
             }
-            // ONE SHARED TIMELINE FOR THE WHOLE MATRIX (usability ferry §1.2 DSP fix) — was 64 independent
-            // `TimelineView`s, one per cell (8 columns × 8 ranks), each running its own animation scheduler
-            // uncapped. Confirmed by counting, not profiled on a real device (no device access): this is
-            // the single largest render-cost item added this session, and almost certainly the dominant
-            // cause of the reported DSP spike (SwiftUI's per-TimelineView scheduling/Combine overhead, not
-            // the trivial per-cell drawing work itself, is what scales badly at 64×). A single outer
-            // `TimelineView` computes `now` ONCE per tick; every cell reads that same value instead of
-            // driving its own clock. Capped at `minimumInterval: 1/30` (was fully uncapped) — the SAME
-            // convention `EuclidCometBar` already uses elsewhere on this page; nothing about the wipe
-            // sweep needs full display-refresh-rate precision the way NOTE VIEW's own ferry explicitly
-            // demanded for ITS tracks.
-            // HIGH/LOW EDGE LABELS (usability ferry §4.4, literal: "use space outside the cells; do not
-            // shrink the cells below the existing minimum") — a narrow 18pt gutter to the LEFT of the
-            // matrix, genuinely EXTRA width rather than carved out of `cellW`'s own derivation (which stays
-            // untouched, computed from `maxWidth` exactly as before). Rank 8 (HIGH) draws first/top, rank 1
-            // (LOW) draws last/bottom — matching the `(1...8).reversed()` row order directly below, so the
-            // two labels can never land beside the wrong rank. FLAGGED: this makes the matrix's real
-            // rendered width `maxWidth + 18`, not `maxWidth` — unverified from here whether the panel this
-            // sits inside (`riffGridView`'s own caller, the landscape/portrait layout) has that much real
-            // slack; worth a direct look on device.
             HStack(spacing: sp4) {
-                VStack {
-                    Text("HIGH").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    Spacer()
-                    Text("LOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                }
-                .frame(width: 18, height: cellH * 8 + sp4 * 7)
-                // PLAYHEAD-STYLE SWEEP REMOVED (Paul 2026-10-12: "remove the play head style sweeps from the
-                // grid") — the per-cell wipe overlay this grid used to draw on every matching strike is gone.
-                // `wipeEvents` now genuinely feeds the NEW per-lane position markers below (the FILL-on-rest
-                // row lookup, `updateRiffMarkers()`) rather than sitting unused.
+                riffNoteLabelColumn(pool: pool, source: source, cellH: cellH)
                 VStack(spacing: sp4) {
                     ForEach((1...8).reversed(), id: \.self) { rank in
                         HStack(spacing: sp4) {
                             ForEach(0..<n, id: \.self) { col in
-                                riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n)
+                                riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, suppressMarkers: midiEmpty)
                             }
                         }
                     }
                 }
+                riffSourceTabs(cellH: cellH)
             }
         }
         .padding(sp8)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+    }
+    /// Rule 2, literal: one label per rank row, right-aligned, 11pt bold `#dfe3ea`, rank 8 at top (matching
+    /// the grid's own `(1...8).reversed()` order so a label never lands beside the wrong rank). An empty
+    /// pool (MIDI IN, nothing held) shows "–" in `#4A4E57` on every row (Live states §1) instead of a note
+    /// name. "For MIDI IN and CHORD, spell flats by default" (rule 2) — only KEY keeps the existing
+    /// root-driven sharp/flat choice (`euclideousKeyIsFlat`).
+    private func riffNoteLabelColumn(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat) -> some View {
+        let flatKey = source == .key ? euclideousKeyIsFlat(keyRoot) : true
+        return VStack(spacing: sp4) {
+            ForEach((1...8).reversed(), id: \.self) { rank in
+                let label: String = (rank >= 1 && rank <= pool.count) ? euclideousNoteViewName(pool[rank - 1], flatKey: flatKey) : "–"
+                Text(label).font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(rank <= pool.count ? Color(hex: 0xDFE3EA) : Color(hex: 0x4A4E57))
+                    .frame(width: riffLabelColW, height: cellH, alignment: .trailing)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(rank <= pool.count ? "Rank \(rank), \(euclideousAccessibleNoteName(pool[rank - 1], flatKey: flatKey))" : "Rank \(rank), no note")
+            }
+        }
+        .frame(width: riffLabelColW)
+    }
+    /// Rule 3, literal: 3 vertical tabs (22×62pt, 5pt radius, 3pt gaps), vertical text top-to-bottom MIDI
+    /// IN/CHORD/KEY, 10pt bold, 1pt letter-spacing. Selected/unselected hexes per rule. Hit area padding
+    /// (rule: "+6pt right/top/bottom, never left") via a wider `contentShape` offset to the right rather
+    /// than a wider visible frame, so the 22pt VISUAL width is unaffected.
+    private func riffSourceTabs(cellH: CGFloat) -> some View {
+        let current = noteSource
+        return VStack(spacing: 3) {
+            ForEach([EuclideousLaneSource.midi, .chords, .key], id: \.self) { src in
+                let selected = current == src
+                let label = src == .midi ? "MIDI IN" : (src == .chords ? "CHORD" : "KEY")
+                let a11y = src == .midi ? "Source, MIDI in" : (src == .chords ? "Source, chord" : "Source, key, double-tap to choose key")
+                ZStack {
+                    // Hit area: +6pt right/top/bottom, never left — an oversized, offset CLEAR rect under
+                    // the visible tab carries the real tap target; the outer `.frame` below (applied to the
+                    // whole ZStack) keeps this tab's LAYOUT size exactly riffTabW×riffTabH, so the 3pt
+                    // inter-tab gaps stay exact — only hit-testing grows, nothing visual shifts.
+                    Color.clear
+                        .frame(width: riffTabW + 6, height: riffTabH + 12)
+                        .offset(x: 3, y: 0)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if src == .key, selected {
+                                keyPopupOpen = true
+                            } else if !selected {
+                                onSetNoteSource(src)
+                            }
+                            // already-selected MIDI IN/CHORD: literally nothing, per the ferry's own rule.
+                        }
+                    Text(label)
+                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .kerning(1)
+                        .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+                        .fixedSize()
+                        .rotationEffect(.degrees(90))
+                        .frame(width: riffTabW, height: riffTabH)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+                        .allowsHitTesting(false)
+                }
+                .frame(width: riffTabW, height: riffTabH)
+                .background(
+                    GeometryReader { g in
+                        Color.clear.preference(key: EuclideousRiffTabFramePreferenceKey.self,
+                                                 value: src == .key ? g.frame(in: .named("euclideousXY")) : nil)
+                    }
+                )
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(a11y)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .frame(width: riffTabW, height: cellH * 8 + sp4 * 7)
     }
 
     /// One riff-grid matrix cell (Paul 2026-10-12 ferry, Part 1 rules 5/6) — an "occupant" is either a
@@ -2470,15 +2518,20 @@ struct EuclideousPage: View {
     /// here (a dot); both collected in LANE ORDER (rule 6) and banded top-to-bottom within the cell. A
     /// FILL-on-rest marker (rule 7) draws a DASHED outline instead of the normal solid rank-fill; everything
     /// else is the pre-existing plain on/off fill, unchanged.
-    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int) -> some View {
+    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, suppressMarkers: Bool = false) -> some View {
         struct Occupant { let lane: Int; let isArrow: Bool; let onRest: Bool }
         var occupants: [Occupant] = []
-        for i in 0..<min(4, lines.count) {
-            if let m = riffMarker[i], m.col == col, m.row == rank {
-                let onRest = col < ranks.count && ranks[col] == 0
-                occupants.append(Occupant(lane: i, isArrow: true, onRest: onRest))
-            } else if let d = riffOffDotCell(lines[i]), d.col == col, d.row == rank {
-                occupants.append(Occupant(lane: i, isArrow: false, onRest: false))
+        // LIVE STATE (ferry "Live states" §1, literal): MIDI IN with nothing held draws NO arrows anywhere
+        // on the grid — `suppressMarkers` is the one explicit override (`riffMarker` can briefly still hold
+        // a STALE position from before the pool went empty, since nothing clears it on its own).
+        if !suppressMarkers {
+            for i in 0..<min(4, lines.count) {
+                if let m = riffMarker[i], m.col == col, m.row == rank {
+                    let onRest = col < ranks.count && ranks[col] == 0
+                    occupants.append(Occupant(lane: i, isArrow: true, onRest: onRest))
+                } else if let d = riffOffDotCell(lines[i]), d.col == col, d.row == rank {
+                    occupants.append(Occupant(lane: i, isArrow: false, onRest: false))
+                }
             }
         }
         let on = col < ranks.count && ranks[col] == rank
@@ -2717,8 +2770,10 @@ struct EuclideousPage: View {
     /// The ordered content items (ferry 2 §2, literal order) — always Source + Mode, then only the
     /// non-default modifiers that apply, in the stated order.
     private func noteViewLabelItems(_ line: EuclidLine) -> [String] {
+        // SOURCE REMOVED FROM THIS LABEL (Paul 2026-10-12, second same-day ferry): the source is now ONE
+        // global choice for the whole page (the new riff-block tabs), not a per-lane fact worth repeating
+        // on every one of the 4 strips.
         var items: [String] = []
-        items.append(line.sourceModeResolved == .midi ? "MIDI" : (line.sourceModeResolved == .key ? "KEY" : "CHD"))
         if line.useRiffResolved {
             items.append("RIFF " + riffDirShortLabel(line.riffDirResolved))
         } else {
@@ -2905,8 +2960,7 @@ struct EuclideousPage: View {
         // exactly as it already was (frozen on whatever it last showed), nothing new to explain.
         let silenceReason = clock.playing
             ? euclideousSilenceReason(line: line, mainOutMask: mainOutMask,
-                                       riffAllRest: riff.ranksResolved.allSatisfy { $0 == 0 },
-                                       midiHeldCount: riffLivePool.count)
+                                       riffAllRest: riff.ranksResolved.allSatisfy { $0 == 0 })
             : nil
         return noteViewNoteBoxContent(liveBeat: liveBeat, lastEvent: lastEvent, restFlash: restFlash, accent: accent, flatKey: flatKey, silenceReason: silenceReason)
             .frame(width: width, height: height)

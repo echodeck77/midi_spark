@@ -2761,6 +2761,20 @@ func euclideousNoteViewName(_ n: UInt8, flatKey: Bool) -> String {
     let name = flatKey ? euclideousNoteNamesFlat[pc] : euclideousNoteNamesSharp[pc]
     return "\(name)\(octave)"
 }
+/// VoiceOver spelling (Paul 2026-10-12 ferry, "one global riff/note source" accessibility rule: "each is
+/// 'Rank 3, E flat 3'") — the SAME pitch-class/octave math as `euclideousNoteViewName`, with "flat"/"sharp"
+/// spelled out as words instead of the ♭/♯ glyphs VoiceOver would otherwise read awkwardly or silently drop.
+func euclideousAccessibleNoteName(_ n: UInt8, flatKey: Bool) -> String {
+    let pc = Int(n) % 12
+    let octave = Int(n) / 12 - 2
+    // Mirrors euclideousNoteNamesFlat/Sharp's own letter choice exactly per pitch class (a flat and a sharp
+    // spelling of the SAME pitch class can be different LETTERS, e.g. pc=1 is "D flat" or "C sharp" — not
+    // derivable from one shared letter table).
+    let raw = flatKey ? euclideousNoteNamesFlat[pc] : euclideousNoteNamesSharp[pc]
+    let letter = String(raw.first!)
+    let suffix = raw.count > 1 ? (flatKey ? " flat" : " sharp") : ""
+    return "\(letter)\(suffix) \(octave)"
+}
 
 /// EXPLAIN SILENCE (usability ferry §2, literal priority order): the first applicable reason a lane that's
 /// nominally "playing" can't actually produce a note right now, or nil when it genuinely can (nothing to
@@ -2768,7 +2782,16 @@ func euclideousNoteViewName(_ n: UInt8, flatKey: Bool) -> String {
 /// regardless of riff mode, since riff still rides on the SAME underlying K/N pattern to decide WHEN to
 /// advance — a 0-hit or fully-packed-under-GAPS pattern produces no trigger ticks for a riff walk either,
 /// not just for a plain strike. EMPTY RIFF is the one check that's riff-specific on top of that.
-func euclideousSilenceReason(line: EuclidLine, mainOutMask: UInt8, riffAllRest: Bool, midiHeldCount: Int) -> String? {
+///
+/// "NO NOTES HELD" is GONE (one global riff/note source ferry, 2026-10-12, "Live states" rule — "per-lane
+/// note boxes keep their existing silent-state messages for every other cause but stop explaining this
+/// one"): the per-lane box used to check the line's OWN (now decode-only) `sourceModeResolved`, which is
+/// doubly wrong post-migration — every untouched line defaults to `.key`, not `.midi`, so this check would
+/// almost never fire correctly even if kept; and the cause it used to explain is now explained ONCE, at the
+/// page level, by the riff grid's own "HOLD NOTES TO PLAY" banner (`riffGridView`'s `midiEmpty` branch) — a
+/// per-lane repeat of the identical message would be noise, not information, now that it's a single global
+/// condition rather than 4 independent per-lane ones.
+func euclideousSilenceReason(line: EuclidLine, mainOutMask: UInt8, riffAllRest: Bool) -> String? {
     guard line.enabledResolved else { return "STOPPED" }
     let emitterMask = line.emitterMask ?? 0
     guard emitterMask != 0 else { return "NO OUTPUT" }
@@ -2778,7 +2801,6 @@ func euclideousSilenceReason(line: EuclidLine, mainOutMask: UInt8, riffAllRest: 
     } else {
         if line.pulses <= 0 { return "0 HITS" }
     }
-    if line.sourceModeResolved == .midi && midiHeldCount <= 0 { return "NO NOTES HELD" }
     if line.useRiffResolved && riffAllRest { return "EMPTY RIFF" }
     return nil
 }
@@ -2928,6 +2950,28 @@ func euclideousFooterStates(hitSteps: [Int], lapSteps: Int, prediction: [Int]?, 
         out[step] = isRest ? .hitOnRest(riffStep: riffStep) : .hit(riffStep: riffStep)
     }
     return out
+}
+
+// MARK: - ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second ferry same day) — replaces the per-lane
+// `sourceMode` with a single page-level source feeding every lane alike. `riffResolve(wrap: .fold)`
+// (above) already does "ascending pool, extend by octaves for any rank beyond n" lazily, per-rank — this
+// function materializes exactly the first 8 entries of that SAME extension for the new UI label column
+// (which needs 8 concrete rows to draw, not an on-demand formula); rank-9-and-beyond resolution (TRANSPOSE)
+// still goes straight through `riffResolve` against the RAW sorted pool, never this padded view.
+
+/// Hand-verified against all 3 of the ferry's own worked examples: a 7-note key ([0,2,3,5,7,8,10] for C
+/// natural minor, say) → the 7 + the root one octave up (8th entry); a 3-note chord → 3+3+2 (drops only
+/// the would-be 9th); one note → that note repeated 8 octaves. `sortedRaw` must already be sorted
+/// ascending (callers always sort before calling, so this stays a pure reshape, not a second sort).
+func euclideousGlobalPoolExtended(sortedRaw: [Int]) -> [Int] {
+    guard !sortedRaw.isEmpty else { return [] }
+    var pool = sortedRaw
+    var lap = 1
+    while pool.count < 8 {
+        pool.append(contentsOf: sortedRaw.map { $0 + 12 * lap })
+        lap += 1
+    }
+    return Array(pool.prefix(8))
 }
 
 /// Euclideous's own global reset-span override (§2.2 history) — `resetSpanBars > 0` re-anchors every `cyc`

@@ -135,7 +135,9 @@ enum SnapshotBuilder {
                 // (Router.swift's `.key` branch, fixed the same day this comment was written — see its own
                 // note there for why it was previously silent).
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
-                    sc.procs[0].laneSrcChanMasks = sc.procs[0].euclidLines.map { $0.sourceModeResolved == .midi ? 0xFFFF : 0 }
+                    sc.procs[0].euclideousNoteSourceResolved = doc.euclideousNoteSourceResolved
+                    sc.procs[0].globalSrcChanMask = doc.euclideousNoteSourceResolved == .midi ? 0xFFFF : 0
+                    sc.procs[0].globalSrcChanMaskSet = true
                 }
                 // RESET SPAN (Paul 2026-10-08, §2.2): a SEPARATE, independent guard from the block above — this
                 // has nothing to do with receivers, so it must not be skipped just because none are configured.
