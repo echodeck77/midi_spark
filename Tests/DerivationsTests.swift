@@ -2928,4 +2928,146 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 10, spanBeats: 0, cyc: 4, resetSpanBars: 0), 0)
         XCTAssertEqual(euclideousResetBarsRemaining(liveBeat: 10, spanBeats: 16, cyc: 0, resetSpanBars: 4), 0, "a zero bar length guards against division by zero")
     }
+
+    // ── SIX VERTICAL SLIDERS (usability ferry, 2026-10-12) — pure range/mapping/commit/revert/default
+    // logic behind `EuclideousVSlider`, EuclideousPage.swift. ──────────────────────────────────────────
+    func testEuclideousSliderRangeReadsEachFieldsCurrentValueAndBounds() {
+        var l = EuclidLine(pulses: 3, noteSel: .all)
+        l.steps = 8; l.rotate = 2; l.tilt = 0.4; l.gate = 0.6; l.velocityAbsolute = 90
+        var r = euclideousSliderRange(.hits, l)
+        XCTAssertEqual(r.value, 3); XCTAssertEqual(r.lo, 0); XCTAssertEqual(r.hi, 8, "HITS is 0...STEPS")
+        r = euclideousSliderRange(.steps, l)
+        XCTAssertEqual(r.value, 8); XCTAssertEqual(r.lo, 2); XCTAssertEqual(r.hi, 16)
+        r = euclideousSliderRange(.offset, l)
+        XCTAssertEqual(r.value, 2); XCTAssertEqual(r.hi, 7, "OFFSET is 0...STEPS-1")
+        XCTAssertEqual(euclideousSliderRange(.tilt, l).value, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(euclideousSliderRange(.gate, l).value, 0.6, accuracy: 1e-9)
+        XCTAssertEqual(euclideousSliderRange(.velocity, l).value, 90)
+    }
+    func testEuclideousSliderFracMatchesRangePosition() {
+        var l = EuclidLine(pulses: 4, noteSel: .all); l.steps = 8
+        XCTAssertEqual(euclideousSliderFrac(.hits, l), 0.5, accuracy: 1e-9, "4 of 0...8 is exactly halfway")
+    }
+    func testEuclideousSliderValueAtBandsWholeNumberFields() {
+        var l = EuclidLine(pulses: 0, noteSel: .all); l.steps = 8
+        XCTAssertEqual(euclideousSliderValueAt(.hits, l, frac: 0), 0, "touch at the very bottom gives the minimum")
+        XCTAssertEqual(euclideousSliderValueAt(.hits, l, frac: 1), 8, "touch at the very top gives the maximum")
+        XCTAssertEqual(euclideousSliderValueAt(.hits, l, frac: 0.99), 8, "still the top band just short of 1.0")
+    }
+    func testEuclideousSliderValueAtIsContinuousForGateAndVelocity() {
+        let l = EuclidLine(pulses: 1, noteSel: .all)
+        XCTAssertEqual(euclideousSliderValueAt(.gate, l, frac: 0.5), 0.05 + 0.5 * (1 - 0.05), accuracy: 1e-9)
+        XCTAssertEqual(euclideousSliderValueAt(.velocity, l, frac: 0), 1)
+        XCTAssertEqual(euclideousSliderValueAt(.velocity, l, frac: 1), 127)
+    }
+    func testEuclideousTiltDetentFracSnapsNearCentreOnly() {
+        XCTAssertEqual(euclideousTiltDetentFrac(0.5), 0.5)
+        XCTAssertEqual(euclideousTiltDetentFrac(0.54), 0.5, "within ±6%")
+        XCTAssertEqual(euclideousTiltDetentFrac(0.46), 0.5, "within ±6%, below centre too")
+        XCTAssertEqual(euclideousTiltDetentFrac(0.57), 0.57, accuracy: 1e-9, "past the 6% band, passes through unchanged")
+    }
+    func testEuclideousSliderTickFracsOnlyHitsAndOffset() {
+        var l = EuclidLine(pulses: 2, noteSel: .all); l.steps = 4
+        XCTAssertEqual(euclideousSliderTickFracs(.hits, l).count, 5, "0...4 inclusive = 5 possible values")
+        XCTAssertEqual(euclideousSliderTickFracs(.offset, l).count, 4, "0...3 inclusive = 4 possible values")
+        XCTAssertTrue(euclideousSliderTickFracs(.steps, l).isEmpty)
+        XCTAssertTrue(euclideousSliderTickFracs(.tilt, l).isEmpty)
+        XCTAssertTrue(euclideousSliderTickFracs(.gate, l).isEmpty)
+        XCTAssertTrue(euclideousSliderTickFracs(.velocity, l).isEmpty)
+    }
+    func testEuclideousSliderCommitHitsRebuildsAnEditedPatternFromTheFrozenSnapshot() {
+        let snap = EuclidLine(pulses: 1, steps: 8, noteSel: .all, customHits: [true, false, false, false, false, false, false, false])
+        var line = snap
+        euclideousSliderCommit(.hits, &line, snapshot: snap, newValue: 2)
+        XCTAssertEqual(line.customHits ?? [], [true, false, false, false, true, false, false, false], "adds into the widest gap, opposite the one existing hit")
+        // Drag back down to the ORIGINAL count — rebuilt from the SAME frozen snapshot, not the intermediate line.
+        euclideousSliderCommit(.hits, &line, snapshot: snap, newValue: 1)
+        XCTAssertEqual(line.customHits, snap.customHits, "dragging back to the starting count restores the pattern exactly")
+    }
+    func testEuclideousSliderCommitHitsOnAPurePatternJustSetsPulses() {
+        var line = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
+        euclideousSliderCommit(.hits, &line, snapshot: line, newValue: 5)
+        XCTAssertEqual(line.pulses, 5)
+        XCTAssertNil(line.customHits, "no hand-edited pattern ⇒ stays pure Euclid, only pulses changes")
+    }
+    func testEuclideousSliderCommitStepsRevertsAnEditedPatternOnlyWhenItActuallyChanges() {
+        let edited = EuclidLine(pulses: 2, steps: 4, noteSel: .all, customHits: [true, false, true, false])
+        var line = edited
+        euclideousSliderCommit(.steps, &line, snapshot: edited, newValue: 4)
+        XCTAssertEqual(line.customHits, edited.customHits, "landing on the SAME steps value is a no-op — the edit survives")
+        euclideousSliderCommit(.steps, &line, snapshot: edited, newValue: 8)
+        XCTAssertNil(line.customHits, "a genuine STEPS change reverts the hand edit to pure Euclid")
+        XCTAssertEqual(line.steps, 8)
+    }
+    func testEuclideousSliderCommitOffsetGateVelocity() {
+        var line = EuclidLine(pulses: 1, steps: 8, noteSel: .all)
+        euclideousSliderCommit(.offset, &line, snapshot: line, newValue: 11)
+        XCTAssertEqual(line.rotate, 3, "wraps mod steps (11 mod 8 = 3)")
+        euclideousSliderCommit(.gate, &line, snapshot: line, newValue: 0.5)
+        XCTAssertEqual(line.gate, 0.5)
+        euclideousSliderCommit(.velocity, &line, snapshot: line, newValue: 200)
+        XCTAssertEqual(line.velocityAbsolute, 127, "clamps to the MIDI ceiling")
+    }
+    func testEuclideousSliderCommitTiltIsANoOpOnAnEditedPattern() {
+        let edited = EuclidLine(pulses: 1, steps: 2, noteSel: .all, tilt: 0, customHits: [true, false])
+        var line = edited
+        euclideousSliderCommit(.tilt, &line, snapshot: edited, newValue: 0.8)
+        XCTAssertEqual(line.tilt, 0, "defensive guard — the UI never drags a disabled TILT, but the commit itself must still refuse")
+    }
+    func testEuclideousSliderRevertRestoresOnlyTheOwnedField() {
+        let before = EuclidLine(pulses: 2, steps: 8, rotate: 1, noteSel: .all)
+        var line = before
+        line.rotate = 5
+        euclideousSliderRevert(.offset, &line, snapshot: before)
+        XCTAssertEqual(line.rotate, 1)
+    }
+    func testEuclideousSliderDoubleTapDefaults() {
+        var line = EuclidLine(pulses: 3, steps: 8, rotate: 4, noteSel: .all, gate: 0.3, velocityAbsolute: 40, tilt: 0.5)
+        euclideousSliderDoubleTapDefault(.hits, &line); XCTAssertEqual(line.pulses, 3, "HITS has no double-tap default, matching the old pad's own behaviour")
+        euclideousSliderDoubleTapDefault(.steps, &line); XCTAssertEqual(line.steps, 8, "STEPS likewise has none")
+        euclideousSliderDoubleTapDefault(.offset, &line); XCTAssertEqual(line.rotate, 0)
+        euclideousSliderDoubleTapDefault(.tilt, &line); XCTAssertEqual(line.tilt, 0)
+        euclideousSliderDoubleTapDefault(.gate, &line); XCTAssertEqual(line.gate, 0.9)
+        euclideousSliderDoubleTapDefault(.velocity, &line); XCTAssertEqual(line.velocityAbsolute, 100)
+    }
+    func testEuclideousSliderValueTextFormatting() {
+        var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all, tilt: 0)
+        XCTAssertEqual(euclideousSliderValueText(.tilt, l), "0", "zero carries no sign")
+        l.tilt = 0.2
+        XCTAssertEqual(euclideousSliderValueText(.tilt, l), "+20%")
+        l.tilt = -0.3
+        XCTAssertEqual(euclideousSliderValueText(.tilt, l), "−30%", "a true minus sign, not an ASCII hyphen")
+    }
+    func testEuclideousSliderAccessibilityStepIsPercentForGateAndTiltOnly() {
+        XCTAssertEqual(euclideousSliderAccessibilityStep(.gate), 0.01)
+        XCTAssertEqual(euclideousSliderAccessibilityStep(.tilt), 0.01)
+        XCTAssertEqual(euclideousSliderAccessibilityStep(.hits), 1)
+        XCTAssertEqual(euclideousSliderAccessibilityStep(.velocity), 1)
+    }
+    func testEuclidWidestGapCenterEdgeCases() {
+        XCTAssertNil(euclidWidestGapCenter([true, true, true]), "fully packed — nothing to add to")
+        XCTAssertEqual(euclidWidestGapCenter([false, false, false, false]), 0, "all-rest starts the very first hit at 0")
+    }
+    func testEuclidMostCrowdedHitEdgeCases() {
+        XCTAssertNil(euclidMostCrowdedHit([false, false, false]), "no hits to remove")
+        XCTAssertEqual(euclidMostCrowdedHit([false, false, true, false]), 2, "a lone hit is trivially the one removed")
+    }
+
+    // ── RATE = DIVISION × FEEL (ratified PATTERN-tab-layout ferry, 2026-10-12) ─────────────────────────
+    func testEuclideousRateDivisionFeelDecomposesEveryArpRateExactly() {
+        XCTAssertEqual(euclideousRateDivisionFeel(.r1_1).division, 0); XCTAssertEqual(euclideousRateDivisionFeel(.r1_1).feel, 0)
+        XCTAssertEqual(euclideousRateDivisionFeel(.r1_32).division, 5); XCTAssertEqual(euclideousRateDivisionFeel(.r1_32).feel, 0)
+        XCTAssertEqual(euclideousRateDivisionFeel(.r1_4d).division, 2); XCTAssertEqual(euclideousRateDivisionFeel(.r1_4d).feel, 1)
+        XCTAssertEqual(euclideousRateDivisionFeel(.r1_8t).division, 3); XCTAssertEqual(euclideousRateDivisionFeel(.r1_8t).feel, 2)
+    }
+    func testEuclideousRateFromDivisionFeelRoundTripsEveryCombination() {
+        for rate in ArpRate.allCases {
+            let (d, f) = euclideousRateDivisionFeel(rate)
+            XCTAssertEqual(euclideousRateFromDivisionFeel(division: d, feel: f), rate)
+        }
+    }
+    func testEuclideousRateFromDivisionFeelClampsOutOfRangeInputs() {
+        XCTAssertEqual(euclideousRateFromDivisionFeel(division: -1, feel: 0), .r1_1)
+        XCTAssertEqual(euclideousRateFromDivisionFeel(division: 99, feel: 99), .r1_32t)
+    }
 }

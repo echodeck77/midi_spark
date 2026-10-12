@@ -196,6 +196,115 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the PATTERN tab's RATE/DIRECTION/INV/OUTPUT row rebuilt to a ratified 84pt two-line layout
+  (2026-10-12, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1329 green incl. +20, iOS builds clean).
+  A fully-specified, ratified ferry, built directly: RATE becomes a 3×2 division grid (1/1·1/2·1/4 / 1/8·1/16·
+  1/32) + a 38pt feel column (♩ straight · ♩. dotted · ♩³ triplet), chosen independently; DIRECTION's 3 buttons
+  + a new single INV toggle (replacing the old HIT/GAPS pair, same `patternMiss` field) share the top 40pt line;
+  the 4 emitter toggles fill the bottom 40pt line — left/right halves split by an 8pt gap with a 1pt #2a2d34
+  divider centred in it. **NO PARAMETER CHANGE AT ALL, confirmed by reading before building anything:** `ArpRate`
+  was ALREADY an 18-case enum laid out in exactly 3 groups of 6 (straight/dotted/triplet × 1/1…1/32) — the
+  ferry's own "stop and report before changing its parameter ID or range" clause is a non-issue, since nothing
+  outside that space has ever existed in this field. Two new pure functions
+  (`euclideousRateDivisionFeel`/`euclideousRateFromDivisionFeel`, Derivations.swift) decompose/recompose the
+  ONE existing `EuclidLine.rate: ArpRate?` field into/from (division 0…5, feel 0…2) — a display/edit reshaping,
+  not a new stored field. **AUTO/UNSET RATE, a judgment call flagged not silently resolved:** the new grid has
+  no 19th "follow the machine rate" cell the way the old pop-up's separate "— (MACHINE RATE)" row did — a lane
+  whose `rate` is still nil keeps reading as nil (still audibly follows the instrument's step rate) until the
+  user actually taps a cell; the grid only HIGHLIGHTS the nearest division/feel to what's currently in effect
+  (the same nearest-match heuristic the old display already used). Read as the most literal way to honour the
+  ferry's own "a preset saved before this change loads with the same rate." **EMITTER STYLING, a disclosed
+  simplification:** the old `laneOutRow` had THREE visual states (routed+gated-on / routed-but-muted-dashed /
+  not-routed) plus a trailing "NO OUTPUT" warning; the ferry's own button-styling rule names only TWO states for
+  emitters (active = solid LANE-100/#0d0f14 text; everything else = the generic unselected look) — the dashed
+  "routed but muted" ring and the warning text are DROPPED, since the new fixed 40pt-tall equal-width row has no
+  room for a third visual language. **"I/O TAB" SECTION IS MOOT, confirmed by reading, not assumed:** that tab
+  was ALREADY retired entirely on 2026-10-11 (its own emitter toggles already relocated into the PATTERN tab,
+  exactly where this ferry wants them) — `EuclideousLaneTab` has had only PATTERN/MASK ever since; there is no
+  I/O tab left to empty or report on. **GLYPH RISK, flagged explicitly per the ferry's own warning:** ♩/♩./♩³ are
+  drawn via plain Unicode (U+2669 QUARTER NOTE + an ASCII "." or a raised "3"), deliberately NOT this page's own
+  monospaced font (JetBrains Mono has no glyph for U+2669) — relies on the plain system font's own Unicode
+  fallback cascade (Apple Symbols et al.), UNVERIFIED on device since this environment cannot render a font to
+  confirm the glyph actually appears rather than a tofu box. **HOUSEKEEPING, "leave no dead code" taken
+  literally:** removed entire — `ratePopupCard`/`rateGroups`/`ratePopupLane`/`rateShowAdvanced` (the whole RATE
+  pop-up + its disclosure-toggle declutter from the day before), the OLD `hitMissRateRow`/`directionAndOutRow`
+  (narrow-direction-row variant), the OLD circular-dot `laneOutRow` + its sole user `laneOutSize`, and the now-
+  unused `cellSize`/`padSize` plumbing `tabContent` no longer needs once nothing inside it reads a shared
+  3-column width. `tabContentH`/`laneCardFixedOverhead` recomputed for the new fixed 84pt block (was `contentLineH
+  *2+sp4*2`=80, now `84+sp4`=88 — a net +8pt, shrinking the portrait lane-grid floor by the same amount, an
+  accepted, disclosed consequence of the ferry's own fixed-height spec). +20 DerivationsTests (the RATE
+  decompose/recompose round-trips every one of the 18 `ArpRate` cases + clamps out-of-range division/feel
+  inputs). **DEVICE-OWED:** the whole layout at the smallest supported iPad in both orientations (no clipping,
+  nothing under 10pt); the ♩ glyph family actually rendering (not a missing-glyph box); INV's one-toggle feel
+  replacing the old two-button HIT/GAPS pair; the simplified emitter row (no more "routed but muted" visual cue)
+  reading as acceptable rather than a loss of information.**
+- **▶ EUCLIDEOUS — the 3 two-axis gesture pads replaced by SIX independent vertical sliders: HITS · STEPS ·
+  OFFSET · TILT · GATE · VELOCITY (2026-10-12, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1309
+  green (pre-existing suite, unaffected by this entry alone), iOS builds clean). A fully-specified, ratified
+  ferry, built directly from its literal visual spec + touch-behaviour rules (1–10) + engineering/accessibility/
+  acceptance sections. **ABSOLUTE, NOT RELATIVE:** touch-down sets the value at the finger's position
+  IMMEDIATELY (the usable travel is the track height minus a 6pt inset at each end) — a structurally different
+  model from the old pads' dead-zone+axis-lock+rebased-delta design, and simpler to build BECAUSE of it: each
+  slider owns a plain SwiftUI `DragGesture(minimumDistance: 0)` scoped to itself, so "a touch belongs to the
+  slider it started on until it lifts, never passing to a neighbour" is free — SwiftUI's own gesture
+  recognition commits to the view a gesture began on for its whole lifetime, no custom dead-zone/ownership
+  code needed at all. **WHOLE-NUMBER FIELDS (HITS/STEPS/OFFSET) BAND-SNAP; TILT/GATE/VELOCITY ARE CONTINUOUS**
+  — two small pure functions (`euclideousSliderRange`/`euclideousSliderValueAt`, Derivations.swift) are the
+  ONE shared source both the drawn fill/tick positions and the touch→value mapping read, so the two can never
+  disagree about where a value sits. **THE REAL ENGINEERING WORK — a genuinely new hand-edited-pattern
+  mechanism, since nothing like it existed anywhere in this codebase:** dragging HITS on a pattern that's
+  already been hand-edited (`EuclidLine.customHits: [Bool]?`, new additive-Optional field) must REBUILD from a
+  FROZEN touch-down SNAPSHOT every tick (not incrementally), so dragging back to the starting count reproduces
+  the exact original pattern. New pure `euclidRebuildPattern(_ snapshot:, targetCount:)` + its two primitives
+  `euclidWidestGapCenter`/`euclidMostCrowdedHit` — widening ADDS into the circular gap whose MIDPOINT is
+  furthest from any existing hit (ties broken by lowest index); narrowing REMOVES the hit with the smallest
+  total surrounding space (the greedy choice that keeps the rest as evenly spread as possible). **A GENUINE,
+  DISCLOSED JUDGMENT CALL on "the AUTO hit":** the ferry's own wording ("add hits into the widest gap, or
+  remove the AUTO hit in the most crowded spot") is read as "the removal CHOICE is automatic" (i.e., the
+  algorithm decides which hit goes), not as "exclude specifically the hits the algorithm itself placed earlier"
+  — there is no mechanism anywhere in this codebase that distinguishes a hand-tapped hit from an algorithm-
+  placed one, so the latter reading isn't buildable without inventing new per-hit provenance tracking nothing
+  else asked for. **STEPS changing genuinely REVERTS a hand-edited pattern to pure Euclid** (ratified) —
+  but landing BACK on the SAME steps value is a no-op that KEEPS the edit (ferry §6: "no change, no commit" —
+  this matters specifically for STEPS, since a real change reverts hand edits and a non-change must not).
+  **THE CRITICAL BUG CAUGHT BEFORE SHIPPING, this session's own standing "gotcha" finally biting for real:**
+  `SnapshotBuilder.swift`'s fresh-literal `EuclidLine(...)` rebuild (its own comment: "every field must be
+  threaded through here or it silently resets each render — the exact gotcha a prior RATE-automation feature
+  was bitten by") was MISSING `customHits` — without the fix, every hand-edited pattern would have silently
+  reverted to pure Euclid on the very next snapshot publish, making the whole feature inert the instant it
+  shipped. Caught by deliberately tracing the full `euclideousLinesResolved` → render-path pipeline before
+  calling this done, not assumed safe. Also fixed, found in passing: `euclideousNoteViewPattern` (NOTE VIEW's
+  own rhythm-track mirror) had been MISSED during an earlier same-session TILT-reorder fix that explicitly
+  named "three call sites" — a fourth, still baking rotation into generation before tilting (wrong order) —
+  fixed to match the other three, and given `customHits` support in the same edit. **DOUBLE-TAP, a deliberate
+  engineering choice flagged, not a literal reading of the spec:** rather than layer a native
+  `TapGesture(count: 2)` beside the always-live `DragGesture(minimumDistance: 0)` (this exact class of multi-
+  recognizer coexistence has repeatedly been this codebase's single most device-uncertain risk, per this very
+  file's own history), double-tap is detected BY HAND inside the drag's own `onEnded` — two short, non-moving
+  touches within a 0.35s window — giving full, predictable control with no dependency on SwiftUI/UIKit
+  gesture-arbitration behaviour this environment can't verify. **LONG-PRESS HELP** reuses the exact "revert
+  the touch-down commit, then show a bubble" resolution the ferry's own point 10 proposes for the stated
+  conflict with absolute touch-down. **DELETED WHOLESALE, "leave no dead code" taken literally:**
+  `EuclideousXYPad` (the UIKit pan/pinch/tap bridge), `EuclideousGestureTab`/`EuclideousXYAxis`,
+  `EuclideousPadFramePreferenceKey` + the floating value-bubble mechanism, `gesturePadRow` + all 5 bespoke
+  Canvas "pictures", `padBaseline`/`commitAxis`/`doubleTapReset`/`applyAllDelta`/`euclideousApplyAllDelta`,
+  `padHeadingSize`/`euclideousAxisLabelFits`, and the §3.2 first-run pad-hint overlay (`padHintOverlay`/
+  `padHintSeen`/`padHintPulse` — NOT ported to the new sliders, a disclosed judgment call: a slider's own
+  visible fill/track already reads as "drag me" far more directly than a flat 2D pad ever did, and the new
+  ferry's spec never mentions a hint mechanism at all). **A JUDGMENT CALL, flagged:** the OLD pads' 2-finger
+  "ALL LANES" drag (nudging every lane's own field at once) has NO equivalent anywhere in the new ferry's
+  touch-behaviour spec (every rule describes a single finger only) — read as a deliberate scope cut per the
+  ferry's own "delete the old gesture code... leave no dead code paths," not ported to the new widget; multi-
+  lane editing is still reachable by repeating the same drag on each lane in turn. VoiceOver:
+  `.accessibilityAdjustableAction` (swipe up/down = ±1, or ±1% for GATE — and TILT, by the same reasoning,
+  though TILT isn't literally named in the ferry's "or by 1% for GATE" clause, a disclosed extension). +20
+  DerivationsTests (range/frac/value-at/detent/tick-count per field; the rebuild-from-snapshot round-trip;
+  STEPS's no-change-no-commit vs. genuine-change-reverts distinction; double-tap defaults matching the OLD
+  pads' own per-axis behaviour exactly — HITS/STEPS never had one, matching precedent). **DEVICE-OWED:** the
+  whole feature — six sliders fitting the card with no clipping/sub-10pt type on the smallest supported iPad;
+  the absolute touch-down-sets-value feel in the hand; TILT's centre detent; the hand-rolled double-tap timing
+  window (0.35s, untested against a real finger); the long-press-then-help interaction; VoiceOver's adjustable
+  action on a real device.**
 - **▶ EUCLIDEOUS — the 3 gesture pads move INTO the PATTERN tab, freeing real height for MASK (2026-10-11, on
   `fix/euclid-no-scroll-direction-order-2x2-grid` → `main`; iOS builds clean, no macOS test-target reach).
   Paul: "Below the lane itself, the rest of the box will be within the pattern/mask tabs. The xy controls

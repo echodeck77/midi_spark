@@ -2333,6 +2333,82 @@ func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
 /// only ever happen between immediate neighbours) is nudged forward (wrapping) to the next free step —
 /// deterministic and stable, never drops or duplicates a hit. K≤1 or N≤1 has nothing to tilt (a single hit
 /// has no "distribution" to bias) and is left untouched. Pure/testable.
+// HAND-EDITED PATTERN REBUILD (6-sliders ferry, Paul 2026-10-12, §7, literal): "Snapshot the pattern at
+// touch-down. For each new target count, rebuild from that snapshot: add hits into the widest gap, or
+// remove the auto hit in the most crowded spot. Hand-placed hits are kept. Rebuilding from the snapshot
+// means dragging back to the starting count restores the pattern exactly."
+//
+// A PURE function of (snapshot, targetCount) — not incremental from whatever the live pattern happens to
+// be right now. Calling this fresh, every drag tick, against the SAME touch-down snapshot is what makes
+// "drag back to the start, get the start back" hold TRIVIALLY (targetCount == the snapshot's own count is
+// checked first and returns the snapshot verbatim, byte-for-byte) rather than needing separate undo
+// bookkeeping. Treats the pattern as CIRCULAR for both gap-finding and crowding — a Euclidean rhythm has
+// no edge, wrapping is its natural topology (matches every other read of this buffer in the engine).
+//
+// JUDGMENT CALL, flagged plainly: "the AUTO hit" (as distinct from a hand-placed one) is read here as
+// describing the REMOVAL as automatic/algorithmic, not as marking specific snapshot positions ineligible —
+// there is no OTHER mechanism anywhere in this codebase for hand-placing one individual hit (no direct
+// tap-to-toggle step editor exists), so every hit already in the snapshot is necessarily "auto" in that
+// sense, and all are equally eligible for removal here. If a genuine hand-tap editor is ever built
+// alongside this, the removal rule may need to change to actually protect those positions.
+func euclidRebuildPattern(_ snapshot: [Bool], targetCount: Int) -> [Bool] {
+    let n = snapshot.count
+    guard n > 0 else { return snapshot }
+    let target = max(0, min(n, targetCount))
+    let currentCount = snapshot.filter { $0 }.count
+    if target == currentCount { return snapshot }
+    var buf = snapshot
+    if target > currentCount {
+        for _ in 0..<(target - currentCount) {
+            guard let i = euclidWidestGapCenter(buf) else { break }
+            buf[i] = true
+        }
+    } else {
+        for _ in 0..<(currentCount - target) {
+            guard let i = euclidMostCrowdedHit(buf) else { break }
+            buf[i] = false
+        }
+    }
+    return buf
+}
+/// The rest position nearest the MIDDLE of the longest circular run of consecutive rests — ties broken by
+/// the earliest (lowest-index) widest gap found walking from the first hit. An all-rest buffer has no
+/// "gap between hits" yet (nothing to bisect) — starts at step 0 by convention. Pure.
+func euclidWidestGapCenter(_ buf: [Bool]) -> Int? {
+    let n = buf.count
+    guard n > 0, buf.contains(false) else { return nil }   // nothing to add to, or already full
+    guard let start = buf.firstIndex(of: true) else { return 0 }   // all-rest: start the very first hit at 0
+    var bestLen = -1, bestGapStart = -1
+    var i = start
+    repeat {
+        var runLen = 0
+        var j = (i + 1) % n
+        while !buf[j] { runLen += 1; j = (j + 1) % n; if j == i { break } }
+        if runLen > bestLen { bestLen = runLen; bestGapStart = (i + 1) % n }
+        i = j
+    } while i != start
+    guard bestGapStart >= 0, bestLen > 0 else { return nil }   // every step already a hit
+    return (bestGapStart + bestLen / 2) % n
+}
+/// The hit with the SMALLEST total surrounding space (the sum of its two circular neighbour-gaps) —
+/// removing it merges those two gaps into the smallest possible single gap, the greedy choice that keeps
+/// the remaining pattern as evenly spread as possible. Ties broken by the lowest index. Pure.
+func euclidMostCrowdedHit(_ buf: [Bool]) -> Int? {
+    let n = buf.count
+    let hits = (0..<n).filter { buf[$0] }
+    guard !hits.isEmpty else { return nil }
+    if hits.count == 1 { return hits[0] }
+    func gapTo(_ from: Int, _ to: Int) -> Int { ((to - from) % n + n) % n }
+    var best = hits[0], bestSpace = Int.max
+    for (k, h) in hits.enumerated() {
+        let prev = hits[(k - 1 + hits.count) % hits.count]
+        let next = hits[(k + 1) % hits.count]
+        let space = gapTo(prev, h) + gapTo(h, next)
+        if space < bestSpace { bestSpace = space; best = h }
+    }
+    return best
+}
+
 func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double) {
     guard tilt != 0, k > 1, n > 1 else { return }
     var hits: [Int] = []
@@ -2429,6 +2505,236 @@ func euclideousStepNoteSel(_ cur: EuclidNoteSel, by delta: Int) -> EuclidNoteSel
 // euclideousNextRate (a plain tap-to-advance 18-case cycle) REMOVED 2026-10-06 — Paul: "I hate the current
 // control and want a pop-up"; EuclideousPage's own ratePopupCard lets the user pick a rate directly instead
 // of cycling through all 18 one tap at a time (and never offering a way back to nil/"inherit the machine rate").
+// ratePopupCard ITSELF then REMOVED 2026-10-12 (ratified PATTERN-tab-layout ferry) — RATE is now a division×
+// feel grid living directly in the tab, no pop-up needed; see the two functions immediately below.
+
+/// RATE = division × feel (ratified PATTERN-tab-layout ferry, 2026-10-12). `ArpRate` is ALREADY an 18-case
+/// enum laid out in exactly 3 groups of 6 — straight, dotted (×1.5), triplet (×2/3), each 1/1…1/32
+/// (CLAUDE.md invariant: `allCases` order never changes, rate persists by raw string) — so decomposing/
+/// recomposing a division (0...5, matching 1/1…1/32) and a feel (0=straight·1=dotted·2=triplet) needs NO
+/// new stored field at all; this is a pure display/edit reshaping of the ONE field that already exists
+/// (`EuclidLine.rate: ArpRate?`). Confirms the ferry's own "stop and report before changing its parameter
+/// ID or range" clause is a non-issue: nothing outside 1/1–1/32 straight/dotted/triplet has ever existed
+/// in this enum, so there is no out-of-range value to migrate.
+func euclideousRateDivisionFeel(_ rate: ArpRate) -> (division: Int, feel: Int) {
+    let all = ArpRate.allCases
+    let i = all.firstIndex(of: rate) ?? 0
+    return (i % 6, i / 6)
+}
+func euclideousRateFromDivisionFeel(division: Int, feel: Int) -> ArpRate {
+    let d = max(0, min(5, division)), f = max(0, min(2, feel))
+    return ArpRate.allCases[f * 6 + d]
+}
+
+// ── SIX VERTICAL SLIDERS (usability ferry, 2026-10-12) — replaces the 3 two-axis gesture pads entirely
+// (HITS/TILT shared one pad, OFFSET/STEPS shared another, GATE/VELOCITY the third; now six independent
+// single-axis tracks: HITS · STEPS · OFFSET · TILT · GATE · VELOCITY). Pure logic lives here, not
+// EuclideousPage.swift, for the usual reason — Foundation-only, so it reaches the macOS unit-test target.
+
+/// One of the six independent slider fields, left-to-right as specified.
+enum EuclideousSliderField: Int, CaseIterable {
+    case hits = 0, steps = 1, offset = 2, tilt = 3, gate = 4, velocity = 5
+    var name: String {
+        switch self {
+        case .hits: return "HITS"; case .steps: return "STEPS"; case .offset: return "OFFSET"
+        case .tilt: return "TILT"; case .gate: return "GATE"; case .velocity: return "VEL"
+        }
+    }
+    /// Long-press help text (ferry §3.3: "<60 chars").
+    var help: String {
+        switch self {
+        case .hits: return "How many of the steps actually strike"
+        case .steps: return "How many steps the pattern has"
+        case .offset: return "Rotates the pattern around its steps"
+        case .tilt: return "Bunches hits toward the start or end"
+        case .gate: return "How long each note holds its step"
+        case .velocity: return "How hard every hit strikes"
+        }
+    }
+    /// HITS/STEPS/OFFSET snap to one of a fixed count of whole values (band-snapped, ferry Touch
+    /// behaviour §3); TILT/GATE/VELOCITY are continuous across their range, rounded only for storage/
+    /// display (§5).
+    var isWhole: Bool { self == .hits || self == .steps || self == .offset }
+}
+
+/// The field's current value (in its own natural units — NOT normalized) and its current valid range,
+/// read straight off the line. Pure — the ONE source both the drawn fill/tick positions and the
+/// touch→value mapping read, so the two can never disagree about where a value currently sits.
+func euclideousSliderRange(_ field: EuclideousSliderField, _ line: EuclidLine) -> (value: Double, lo: Double, hi: Double) {
+    switch field {
+    case .hits:
+        let steps = max(2, min(16, line.steps))
+        return (Double(line.pulses), 0, Double(steps))             // 0...STEPS, per the ferry's own literal range
+    case .steps:
+        return (Double(line.steps), 2, 16)                          // unchanged from the old pad's own min/max
+    case .offset:
+        let n = max(2, min(16, line.steps))
+        let r = ((line.rotate % n) + n) % n
+        return (Double(r), 0, Double(n - 1))                        // 0...STEPS-1
+    case .tilt:
+        return (line.tiltResolved, -1, 1)
+    case .gate:
+        return (line.gateResolved, 0.05, 1)
+    case .velocity:
+        return (Double(line.velocityAbsoluteResolved), 1, 127)
+    }
+}
+
+/// Where the CURRENT value sits along the track, 0 (bottom/min) ... 1 (top/max) — used both to draw the
+/// fill/edge-line and (inverted) as the basis for the "did touch-down land on the same value" dedup.
+func euclideousSliderFrac(_ field: EuclideousSliderField, _ line: EuclidLine) -> Double {
+    let r = euclideousSliderRange(field, line)
+    guard r.hi > r.lo else { return 0 }
+    return max(0, min(1, (r.value - r.lo) / (r.hi - r.lo)))
+}
+
+/// Maps a touch position (0 = bottom/min ... 1 = top/max, already clamped by the caller against the
+/// track's own 6pt insets) to the value that position commits — band-snapped for a whole-number field
+/// (ferry Touch behaviour §3: "split the travel into equal bands, one per value, snap to the band under
+/// the finger"), plain linear interpolation for a continuous one (§5). TILT's own centre detent (§4) is
+/// applied separately, by the caller, BEFORE this — it's a pre-step on the touch fraction, not a
+/// property of the generic mapping.
+func euclideousSliderValueAt(_ field: EuclideousSliderField, _ line: EuclidLine, frac: Double) -> Double {
+    let r = euclideousSliderRange(field, line)
+    let f = max(0, min(1, frac))
+    if field.isWhole {
+        let count = Int((r.hi - r.lo).rounded()) + 1
+        guard count > 1 else { return r.lo }
+        let band = min(count - 1, Int(f * Double(count)))
+        return r.lo + Double(band)
+    }
+    return r.lo + f * (r.hi - r.lo)
+}
+
+/// TILT's centre detent (ferry Touch behaviour §4, literal): "within ±6% of the travel around the
+/// centre, the value is exactly 0." `frac` is the raw 0...1 touch position (0.5 = dead-centre); returns
+/// the detented fraction, still 0...1, which the caller then feeds through the ordinary TILT range
+/// mapping (−1...1) via `euclideousSliderValueAt` as normal — a pure pre-step on the touch position, not
+/// a second, separate value formula.
+func euclideousTiltDetentFrac(_ frac: Double) -> Double {
+    abs(frac - 0.5) <= 0.06 ? 0.5 : frac
+}
+
+/// Tick-mark positions (0...1 each, matching `euclideousSliderFrac`'s own convention) — ONLY HITS and
+/// OFFSET carry ticks (ferry, literal: "one tick per possible count" / "one tick per step"); every other
+/// field has none.
+func euclideousSliderTickFracs(_ field: EuclideousSliderField, _ line: EuclidLine) -> [Double] {
+    switch field {
+    case .hits, .offset:
+        let r = euclideousSliderRange(field, line)
+        let count = Int((r.hi - r.lo).rounded()) + 1
+        guard count > 1 else { return [0] }
+        return (0..<count).map { Double($0) / Double(count - 1) }
+    default:
+        return []
+    }
+}
+
+/// Commits ONE slider's new value onto the line (ferry Engineering: "write values through the existing
+/// parameter path" — this is the pure "what should the write actually DO" half; the real `edit(idx){...}`
+/// call lives in EuclideousPage.swift). `snapshot` is the line as it stood at TOUCH-DOWN (ferry §7:
+/// HITS-on-an-edited-pattern rebuilds from that FROZEN snapshot every tick, not incrementally, so
+/// "dragging back to the start restores the pattern exactly" holds for free) — every other field ignores
+/// it and reads `line` live, since only HITS' rebuild needs the frozen starting shape.
+func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout EuclidLine, snapshot: EuclidLine, newValue: Double) {
+    switch field {
+    case .hits:
+        let steps = max(2, min(16, line.steps))
+        let target = max(0, min(steps, Int(newValue.rounded())))
+        if let snap = snapshot.customHitsResolved(steps) {
+            // EDITED PATTERN (ferry §7, literal): rebuild from the FROZEN touch-down snapshot, not the
+            // live (possibly already-rebuilt-this-drag) buffer — a pure function of (snapshot, target),
+            // so re-landing on the starting count reproduces the exact original pattern, not a drifted one.
+            line.customHits = euclidRebuildPattern(snap, targetCount: target)
+        }
+        line.pulses = target   // kept in sync regardless, so every OTHER reader of `pulses` needs no changes
+    case .steps:
+        let target = max(2, min(16, Int(newValue.rounded())))
+        if target != line.steps {
+            // STEPS genuinely CHANGING reverts an edited pattern to pure Euclid (ferry §8, ratified) — the
+            // caller only invokes this commit when the mapped value actually differs from the pre-touch
+            // one (rule 6, "no change, no commit"), so landing back on the SAME band never reaches here.
+            line.customHits = nil
+            line.steps = target
+            if line.pulses > target { line.pulses = target }
+        }
+    case .offset:
+        let n = max(2, min(16, line.steps))
+        let v = Int(newValue.rounded())
+        line.rotate = ((v % n) + n) % n
+    case .tilt:
+        guard line.customHits == nil else { return }   // disabled on an edited pattern — defensive; the UI never drags this
+        line.tilt = max(-1, min(1, newValue))
+    case .gate:
+        line.gate = max(0.05, min(1, newValue))
+    case .velocity:
+        line.velocityAbsolute = max(1, min(127, Int(newValue.rounded())))
+    }
+}
+
+/// Reverts the field(s) THIS slider owns back to their touch-down snapshot values (long-press help,
+/// ferry Touch behaviour §10: "restore the value from the touch-down snapshot, then show the help
+/// bubble") — undoes whatever `euclideousSliderCommit` already wrote at touch-down, before the bubble
+/// shows, so a long-press never leaves a stray accidental edit behind. Mutates only this slider's own
+/// field(s), not the whole line, so a second finger mid-gesture on a DIFFERENT slider of the same lane
+/// can't be clobbered by this one's revert.
+func euclideousSliderRevert(_ field: EuclideousSliderField, _ line: inout EuclidLine, snapshot: EuclidLine) {
+    switch field {
+    case .hits: line.pulses = snapshot.pulses; line.customHits = snapshot.customHits
+    case .steps: line.steps = snapshot.steps; line.customHits = snapshot.customHits
+    case .offset: line.rotate = snapshot.rotate
+    case .tilt: line.tilt = snapshot.tilt
+    case .gate: line.gate = snapshot.gate
+    case .velocity: line.velocityAbsolute = snapshot.velocityAbsolute
+    }
+}
+
+/// Double-tap reset (ferry §9: "same defaults as the pads had") — mirrors the OLD per-pad double-tap
+/// exactly: the old TILT/HITS pad only ever reset TILT (never HITS); the old OFFSET/STEPS pad only ever
+/// reset OFFSET/rotate (never STEPS) — so HITS and STEPS have NO double-tap action here either, by the
+/// same precedent, not an oversight.
+func euclideousSliderDoubleTapDefault(_ field: EuclideousSliderField, _ line: inout EuclidLine) {
+    switch field {
+    case .hits, .steps: break
+    case .offset: line.rotate = 0
+    case .tilt: line.tilt = 0
+    case .gate: line.gate = 0.9
+    case .velocity: line.velocityAbsolute = 100
+    }
+}
+
+/// VoiceOver adjustable-action step size (ferry Engineering, literal: "swipe up and down changes the
+/// value by 1, or by 1% for GATE") — TILT given the SAME 1% treatment as GATE: a flat "1" step would
+/// jump its entire −1...1 range in a single swipe, which can't be what "swipe changes the value" means
+/// for a field shaped like a percentage, unlike VELOCITY/HITS/STEPS/OFFSET's true integer units. Flagged
+/// as a judgment call, not a literal instruction — TILT isn't named in the ferry's own "or by 1% for
+/// GATE" clause.
+func euclideousSliderAccessibilityStep(_ field: EuclideousSliderField) -> Double {
+    switch field {
+    case .gate, .tilt: return 0.01
+    default: return 1
+    }
+}
+
+/// The slider's own compact value readout text — mirrors this page's existing display conventions (a
+/// true minus sign for negatives, a bare "0" with no sign) without depending on `euclideousSigned`
+/// (EuclideousPage.swift, `private`, unreachable from here) so this stays pure/testable.
+func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
+    switch field {
+    case .hits: return "\(line.pulses)"
+    case .steps: return "\(line.steps)"
+    case .offset:
+        let n = max(2, min(16, line.steps))
+        return "\(((line.rotate % n) + n) % n)"
+    case .tilt:
+        let pct = Int((line.tiltResolved * 100).rounded())
+        return pct == 0 ? "0" : (pct > 0 ? "+\(pct)%" : "−\(-pct)%")
+    case .gate:
+        return "\(Int((line.gateResolved * 100).rounded()))%"
+    case .velocity:
+        return "\(line.velocityAbsoluteResolved)"
+    }
+}
 
 // ── NOTE VIEW (Paul 2026-10-10 ferry, "note view, phase 1") — pure note-naming + rhythm-window projection ──────────
 
@@ -2489,12 +2795,28 @@ func euclideousSilenceReason(line: EuclidLine, mainOutMask: UInt8, riffAllRest: 
 
 /// Builds a lane's pattern buffer ONCE — callers build this once per lane per animation frame (it doesn't
 /// change tick-to-tick, only when the lane's own settings are edited), then reuse it for every tick query.
-func euclideousNoteViewPattern(pulses: Int, steps: Int, rotate: Int, tilt: Double, patternMiss: Bool = false) -> [Bool] {
+func euclideousNoteViewPattern(pulses: Int, steps: Int, rotate: Int, tilt: Double, patternMiss: Bool = false, customHits: [Bool]? = nil) -> [Bool] {
     let n = max(2, min(16, steps))
     let k = max(0, min(n, pulses))
     var buf = [Bool](repeating: false, count: n)
-    euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
-    if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }
+    // HAND-EDITED PATTERN (6-sliders ferry, Paul 2026-10-12): a non-nil `customHits` mirrors Router.swift's
+    // own `runEuclidLine` exactly — the explicit pattern replaces generation, TILT is never consulted.
+    if let custom = customHits, !custom.isEmpty {
+        for i in 0..<n { buf[i] = i < custom.count ? custom[i] : false }
+    } else {
+        // TILT BEFORE ROTATION — a real, pre-existing bug fixed here in passing, found while touching this
+        // function for the customHits change above: the 2026-10-11 TILT redesign (see `euclidTiltPattern`'s
+        // own doc comment) explicitly names "THREE call sites" it updated to build unrotated, tilt, THEN
+        // rotate (Router.swift's real engine, `euclideousRhythmPicture`, `EuclidCometBar`) — this function,
+        // NOTE VIEW's own pure mirror of the pattern, was missed. It still baked `rotation: rotate` directly
+        // into `euclidPatternInto` before tilting, which is NOT equivalent to tilt-then-rotate whenever
+        // tilt != 0 (that non-equivalence is the whole reason the redesign was needed) — meaning NOTE VIEW
+        // could show marks disagreeing with what the engine actually struck on any TILTed lane. Fixed to
+        // match the other three sites exactly: build unrotated, tilt, THEN rotate via `euclidRotateBuffer`.
+        euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
+        if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }
+        euclidRotateBuffer(&buf, steps: n, rotation: rotate)
+    }
     // MISS = PATTERN INVERT (ferry 2026-10-10 §4.1: "comets on the inverted steps") — the SAME single
     // inversion point `Router.runEuclidLine` applies, so this pure NOTE VIEW mirror can never disagree with
     // what actually sounds.

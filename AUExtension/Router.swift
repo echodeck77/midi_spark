@@ -4217,19 +4217,29 @@ final class Router {
                                 riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0,
                                 riffLock: Bool = false, riffInvert: Bool = false, riffOnRest: EuclidRiffOnRest = .skip,
                                 riffStride: Int = 1, riffLength: Int = 8, riffAdvanceStep: Bool = false, melodyTranspose: Int = 0,
-                                mask: EuclidLineMask = EuclidLineMask()) {
+                                mask: EuclidLineMask = EuclidLineMask(), customHits: [Bool]? = nil) {
                 let n = max(2, min(16, nIn))
                 let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
-                // TILT BEFORE ROTATION (Paul 2026-10-11: "the offset makes tilt look indecipherable...
-                // maybe this could adjust to offset" — see `euclidTiltPattern`'s own doc comment for the
-                // full reasoning). Build the pattern unrotated, bias it early/middle/late while its own
-                // step 0 still means "the start of this pattern," THEN rotate the already-tilted result —
-                // so OFFSET slides the shape around the column without silently redefining what TILT's
-                // bias was relative to. Every downstream read of `euclidBuf` (the hit/rest test, the
-                // CYCLE/RANDOM ordinal walk, MISS's complement) still just picks up the final shape, zero
-                // other changes needed anywhere in this function.
-                euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: 0)
-                if tilt != 0 { euclidTiltPattern(&euclidBuf, pulses: k, steps: n, tilt: tilt) }
+                // HAND-EDITED PATTERN (6-sliders ferry, Paul 2026-10-12): a non-nil `customHits` REPLACES
+                // pure generation entirely — it's the already-resolved hit pattern a HITS-slider rebuild
+                // produced (`euclidRebuildPattern`, Derivations.swift), so TILT has nothing left to bias
+                // (the UI disables it, and this is the engine-side half of that: tilt is simply never
+                // consulted once a custom pattern is in play). OFFSET (rotation) still applies — it's a
+                // position-shift on top of WHATEVER the base shape is, pure or edited, same as always.
+                if let custom = customHits, !custom.isEmpty {
+                    for i in 0..<n { euclidBuf[i] = i < custom.count ? custom[i] : false }
+                } else {
+                    // TILT BEFORE ROTATION (Paul 2026-10-11: "the offset makes tilt look indecipherable...
+                    // maybe this could adjust to offset" — see `euclidTiltPattern`'s own doc comment for the
+                    // full reasoning). Build the pattern unrotated, bias it early/middle/late while its own
+                    // step 0 still means "the start of this pattern," THEN rotate the already-tilted result —
+                    // so OFFSET slides the shape around the column without silently redefining what TILT's
+                    // bias was relative to. Every downstream read of `euclidBuf` (the hit/rest test, the
+                    // CYCLE/RANDOM ordinal walk, MISS's complement) still just picks up the final shape, zero
+                    // other changes needed anywhere in this function.
+                    euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: 0)
+                    if tilt != 0 { euclidTiltPattern(&euclidBuf, pulses: k, steps: n, tilt: tilt) }
+                }
                 euclidRotateBuffer(&euclidBuf, steps: n, rotation: rotate)
                 // MISS = PATTERN INVERT (Paul 2026-10-10 ferry §2.2: "after HITS, TILT and OFFSET have produced
                 // the pattern") — SUPERSEDES the old dual-voice hit/miss split entire. Flipping `euclidBuf` here,
@@ -5030,7 +5040,8 @@ final class Router {
                               tilt: L.tiltResolved,
                               riffLock: L.riffLockResolved, riffInvert: L.riffInvertResolved, riffOnRest: L.riffOnRestResolved,
                               riffStride: L.riffStrideResolved, riffLength: L.riffLengthResolved, riffAdvanceStep: L.riffAdvanceStepResolved,
-                              melodyTranspose: L.melodyTransposeResolved, mask: L.maskResolved)
+                              melodyTranspose: L.melodyTransposeResolved, mask: L.maskResolved,
+                              customHits: L.customHitsResolved(max(2, min(16, L.steps))))
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))

@@ -343,6 +343,26 @@ struct EuclidLine: Codable, Equatable {
     // uses, so an out-of-pool transpose is never a special case.
     var melodyTranspose: Int? = nil
     var melodyTransposeResolved: Int { max(-7, min(7, melodyTranspose ?? 0)) }
+    // HAND-EDITED PATTERN (Paul 2026-10-12, "6 sliders" ferry §7/§8/TILT): nil ⇒ PURE Euclid generation
+    // (euclidPatternInto + tilt, today's behaviour, byte-identical). Non-nil ⇒ an EXPLICIT per-step hit
+    // pattern (length == stepsResolved, padded/truncated below) that REPLACES euclidPatternInto+tilt
+    // entirely — written by the new HITS slider's widest-gap/most-crowded rebuild (Derivations.swift's
+    // `euclidRebuildPattern`) once a drag on an edited pattern needs to add/remove hits while keeping
+    // hand-placed ones. TILT is meaningless once this is set (it only biases FRESH generation) — the UI
+    // disables it and shows an "EDITED" chip; tapping that chip (or changing STEPS, §8) clears this back
+    // to nil, reverting to pure Euclid. `pulses` is kept in sync with this array's own true count on every
+    // write, so every OTHER existing reader of `pulses` (silence-check, badges, pictures, …) stays correct
+    // without needing to know this field exists at all — only the render path's own pattern-generation
+    // step needs to check it.
+    var customHits: [Bool]? = nil
+    /// Padded/truncated to `n` with trailing rests — defensive only; every real writer already sizes this
+    /// to the line's current `steps` before storing it.
+    func customHitsResolved(_ n: Int) -> [Bool]? {
+        guard let c = customHits else { return nil }
+        if c.count == n { return c }
+        if c.count > n { return Array(c.prefix(n)) }
+        return c + Array(repeating: false, count: n - c.count)
+    }
     var gateResolved: Double { gate ?? 0.9 }
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
@@ -422,6 +442,7 @@ extension EuclidLine {
         riffLength = try c.decodeIfPresent(Int.self, forKey: .riffLength)
         riffAdvanceStep = try c.decodeIfPresent(Bool.self, forKey: .riffAdvanceStep)
         melodyTranspose = try c.decodeIfPresent(Int.self, forKey: .melodyTranspose)
+        customHits = try c.decodeIfPresent([Bool].self, forKey: .customHits)
     }
 }
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
