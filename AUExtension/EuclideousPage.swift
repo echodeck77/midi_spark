@@ -2569,11 +2569,19 @@ struct EuclideousPage: View {
         }
     }
 
-    /// One riff-grid matrix cell (Paul 2026-10-12 ferry, Part 1 rules 5/6) — an "occupant" is either a
-    /// riff-on lane whose `riffMarker` sits here (an arrow) or a riff-off lane whose fixed-note dot sits
-    /// here (a dot); both collected in LANE ORDER (rule 6) and banded top-to-bottom within the cell. A
-    /// FILL-on-rest marker (rule 7) draws a DASHED outline instead of the normal solid rank-fill; everything
-    /// else is the pre-existing plain on/off fill, unchanged.
+    /// One riff-grid matrix cell — an "occupant" is either a riff-on lane whose `riffMarker` sits here (an
+    /// arrow) or a riff-off lane whose fixed-note dot sits here (a dot). REDESIGNED (Paul 2026-10-13: "the
+    /// arrows... have black background, please fix this. I'd like the arrow to fill the corner of the cell
+    /// that corresponds with the position of the Euclid lane controls") — SUPERSEDES the 2026-10-12 ferry's
+    /// own rules 5/6 entirely (whole-cell `#15171C` dark fill + horizontal lane-order banding). The "black
+    /// background" WAS that whole-cell fill, not anything the glyph itself drew — removed outright; a
+    /// marker-holding cell now keeps the SAME plain on/off fill every other cell has, unconditionally. Each
+    /// lane gets ONE FIXED CORNER, mirroring exactly where that lane's own card sits in the real 2×2 lane-
+    /// card grid (`portraitLayout`/`landscapeLayout`'s own literal `HStack{0,1}` top row / `HStack{2,3}`
+    /// bottom row) — lane 0 top-left, lane 1 top-right, lane 2 bottom-left, lane 3 bottom-right — so the
+    /// corner a marker lights up in always points at that lane's own control card. Since each lane owns a
+    /// DISTINCT corner, two lanes sharing one cell can never collide or need count-dependent sizing the way
+    /// banding did; glyph size is now a function of the quadrant's own (half-cell) size alone.
     private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, suppressMarkers: Bool = false) -> some View {
         struct Occupant { let lane: Int; let isArrow: Bool; let onRest: Bool }
         var occupants: [Occupant] = []
@@ -2591,31 +2599,32 @@ struct EuclideousPage: View {
             }
         }
         let on = col < ranks.count && ranks[col] == rank
+        // LANE → CORNER, matching the real lane-card grid exactly (see this function's own doc comment).
+        let corners: [Alignment] = [.topLeading, .topTrailing, .bottomLeading, .bottomTrailing]
+        let glyphSize = max(8, min(16, min(cellW, cellH) * 0.42))
         return ZStack {
             RoundedRectangle(cornerRadius: 3)
-                // rule 5: a cell holding a marker becomes #15171c inside; otherwise the existing plain on/off
-                // fill, unchanged.
-                .fill(occupants.isEmpty ? (on ? Color.white.opacity(0.85) : Color.white.opacity(0.08)) : Color(hex: 0x15171C))
-                // rule 5: "keeps its light selection border" — an ambient 1pt light border on every cell
-                // (ADDITIVE, not previously present), retained unchanged whether or not a marker occupies it.
+                .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
+                // rule 5: "keeps its light selection border" — an ambient 1pt light border on every cell,
+                // unconditionally (unaffected by this redesign).
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.12), lineWidth: 1))
-                // rule 7: FILL/TIE landing on a rest gets a dashed outline INSTEAD of the solid treatment above.
-                .overlay(occupants.contains(where: { $0.isArrow && $0.onRest })
-                         ? RoundedRectangle(cornerRadius: 3).stroke(Color(hex: 0x8A909A), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
-                         : nil)
-            if !occupants.isEmpty {
-                // rule 6: "split the cell into horizontal bands in lane order... one marker per band. One
-                // lane gets a 22pt arrow and four lanes get 12pt arrows." Linear interpolation between those
-                // two named endpoints for 2/3 occupants.
-                let glyphSize: CGFloat = occupants.count <= 1 ? 22 : 22 - (22 - 12) * CGFloat(occupants.count - 1) / 3
-                VStack(spacing: 0) {
-                    ForEach(occupants.indices, id: \.self) { k in
-                        let o = occupants[k]
-                        let accent = laneAccents[o.lane % laneAccents.count]
+            ForEach(occupants, id: \.lane) { o in
+                let accent = laneAccents[o.lane % laneAccents.count]
+                let corner = corners[o.lane % corners.count]
+                Group {
+                    if o.isArrow && o.onRest {
+                        // rule 7, now scoped to just this lane's own corner (not the whole cell, which no
+                        // longer has a single exclusive "occupied" state to dash) — a FILL/TIE landing on a
+                        // rest still reads as distinct from a normal real-rank hit.
                         riffMarkerGlyph(lane: o.lane, isArrow: o.isArrow, accent: accent, glyphSize: glyphSize)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(2)
+                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color(hex: 0x8A909A), style: StrokeStyle(lineWidth: 1, dash: [2, 1])))
+                    } else {
+                        riffMarkerGlyph(lane: o.lane, isArrow: o.isArrow, accent: accent, glyphSize: glyphSize)
                     }
                 }
+                .frame(width: max(1, cellW / 2), height: max(1, cellH / 2), alignment: corner)
+                .frame(width: cellW, height: cellH, alignment: corner)
             }
         }
         .frame(width: cellW, height: cellH)

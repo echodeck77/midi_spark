@@ -196,6 +196,34 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — riff-grid markers: the black cell background is GONE, each lane now gets its OWN FIXED
+  CORNER (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS
+  test-target reach — pure UI, `EuclideousPage.swift` only). Paul: "the arrows that appear on the cells have
+  black background. Please fix this. I'd like the arrow to fill the corner of the cell that corresponds with
+  the position of the Euclid lane controls." SUPERSEDES the 2026-10-12 markers ferry's own rules 5/6 entire
+  (whole-cell `#15171C` dark fill + horizontal lane-order banding), not a patch on top of them. **THE BLACK
+  BACKGROUND** was exactly that rule-5 fill — every cell holding ANY marker turned near-black regardless of
+  what was actually drawn on it; removed outright, a marker-holding cell now gets the SAME plain on/off fill
+  (white 0.85 selected-rank / white 0.08 unselected) as every other cell, unconditionally. **THE CORNER
+  MAPPING:** lane 0/1/2/3 now each own ONE FIXED corner — top-left/top-right/bottom-left/bottom-right —
+  mirroring EXACTLY where that lane's own card sits in the real 2×2 lane-card grid (`portraitLayout`'s/
+  `landscapeLayout`'s own literal `HStack{laneCard(0), laneCard(1)}` top row, `HStack{laneCard(2), laneCard
+  (3)}` bottom row, read directly from the layout code, not assumed) — so the corner a marker lights up in
+  always points at the lane-control card it belongs to, the same visual logic as the card's own position.
+  Since each lane owns a DISTINCT corner, two lanes can never collide inside one cell — the old count-
+  dependent glyph sizing (22pt for 1 occupant down to 12pt for 4, stacked in horizontal bands) is GONE
+  entirely; glyph size is now a flat function of the quadrant's own half-cell dimensions alone
+  (`max(8, min(16, min(cellW,cellH)*0.42))`), independent of how many OTHER lanes share the same cell.
+  Implemented via a `[Alignment]` lookup (`[.topLeading,.topTrailing,.bottomLeading,.bottomTrailing]`) and
+  the standard two-step SwiftUI "size to the quadrant, then align that quadrant within the full cell" idiom
+  (`.frame(width: cellW/2, height: cellH/2).frame(width: cellW, height: cellH, alignment: corner)`). The
+  rule-7 FILL/TIE-on-rest dashed treatment is RESCOPED from the whole cell to just that lane's own quadrant
+  (a whole-cell dash no longer makes sense once there's no single whole-cell "occupied" state — multiple
+  lanes can share a cell in different states at once). The ambient 1pt light cell border (rule 5's other
+  half) is untouched. **DEVICE-OWED:** confirm the corner-to-lane-card mapping actually reads intuitively in
+  the hand; the smaller (half-cell) quadrant glyph size, especially a stride-2/3 lane's multiple stacked
+  arrowheads inside that tighter space; confirm the black background is genuinely gone with no visual
+  regression on an otherwise-empty (no-marker) cell.**
 - **▶ EUCLIDEOUS — the lane footer cells were drifting from the step boxes above them; two real bugs found
   and fixed (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS
   test-target reach — pure UI, `EuclidLaneUI.swift`/`EuclideousPage.swift`). Paul, on-device, after the riff-
