@@ -196,6 +196,71 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the lane footer cells were drifting from the step boxes above them; two real bugs found
+  and fixed (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS
+  test-target reach — pure UI, `EuclidLaneUI.swift`/`EuclideousPage.swift`). Paul, on-device, after the riff-
+  grid draggability fix: "the cells aren't properly aligned the euclid lane... I'd prefer it if it used a
+  little space from the Euclid lane" — narrowed via AskUserQuestion to the previous day's footer ferry
+  specifically (the lane-footer cells vs. the comet bar's own step boxes directly above them), not the riff
+  grid. Two independent bugs, both found by re-deriving the geometry chain by hand rather than re-trusting
+  the prior session's own comments. **BUG 1 — HORIZONTAL DRIFT, the actual misalignment:**
+  `EuclidCometBar`'s own Canvas was NEVER explicitly constrained to the `width` parameter it receives —
+  nothing below its body applied `.frame(width: width)`, so its REAL rendered width (`size.width`, read
+  inside the Canvas closure, what its own step boxes are actually drawn against) was left to whatever
+  SwiftUI's enclosing HStack happened to allocate the lone flexible child, which isn't guaranteed to equal
+  the HAND-COMPUTED `width` parameter (`width − 64 − badgeReserve`) to the pixel — especially with
+  `stepCountBadge`'s own AnyView content sitting as a third HStack sibling. The comet bar's own drawing was
+  always internally self-consistent (everything inside it reads `size.width`), so it never looked broken on
+  its own — but `laneFooter` (EuclideousPage.swift) has no access to that real `size.width` at all; it
+  computes its OWN, entirely separate footer-cell x-positions purely from the `width` PARAMETER. Any drift
+  between the parameter and the real render was invisible to every static read and every test (this file has
+  no macOS test-target reach), only showing up as a genuine on-device seam. Fixed by adding `.frame(width:
+  width)` to `EuclidCometBar`'s own body — pins `size.width` and `width` to the IDENTICAL number by
+  construction, not by a formula that merely hopes to agree with whatever the HStack decides; confirmed the
+  arithmetic balances exactly once pinned (the HStack's own child-width sum now equals exactly what's
+  offered, with zero slack left for SwiftUI to distribute ambiguously). `EuclidCometBar` has exactly one call
+  site (`EuclidLaneBox`, confirmed by grep), so this fixes the SAME latent risk for every user of the shared
+  lane box, not just Euclideous's own footer. **BUG 2 — THE MISSING 2pt GAP, "a little space from the
+  lane":** the footer ferry's own literal spec ("a 14pt footer with a 2pt gap") was never actually rendered
+  as a gap — `EuclidLaneBox`'s outer VStack has a hard-coded `spacing: 0` (a deliberate, EARLIER, unrelated
+  rule from the now-retired gesture-tab-row feature: "directly under the boxes... with no gap or padding"),
+  and the footer ferry tried to fold its own "2pt" into the HEIGHT-BUDGET math alone (`trailingHeight:
+  footerRowH + sp4` = 14+4 = **18**, not the **16** its own neighbouring comment claimed) rather than adding
+  a real, rendered spacer — so the "2pt" existed only inside a formula nobody ever consumed as pixels, AND
+  the 18-vs-16 mismatch meant the step-cell row was ALSO silently 2pt shorter than the ferry's own "the cell
+  keeps its height" invariant promised. Fixed with a new `EuclidLaneBox.trailingGap: CGFloat = 0` (nil/0-
+  default, byte-identical for the gesture-tab-row precedent and any other caller) — a real `Color.clear`
+  spacer inserted between the comet row and `trailingContent` only when `trailingGap > 0`; Euclideous's own
+  call site now passes `trailingHeight: footerRowH + 2, trailingGap: 2` — a literal 2, not `sp4` — so the
+  comet bar's own height-invariant arithmetic (`56−12−0 == 72−12−16`) is now actually TRUE (reserve is 16,
+  not 18), and the 2pt renders as a genuine visible gap for the first time. **DEVICE-OWED:** confirm the
+  footer cells now visibly line up under their step boxes with no seam, and that the new 2pt gap reads as
+  "a little space" rather than either invisible or too wide.**
+- **▶ EUCLIDEOUS — the riff grid is now DRAGGABLE, not just tap-per-cell (2026-10-13, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS test-target reach — pure UI,
+  `EuclideousPage.swift` only). Paul: "make the grid draggable." Root cause of why it wasn't: every one of the
+  64 matrix cells owned its OWN `.onTapGesture` — fine for a single tap, structurally incapable of a drag
+  (a tap gesture doesn't track movement, so a finger sliding off the first cell it touched never reached its
+  neighbours). The EXACT bug class `sliderLane`'s own "drag to draw" lane already fixed once, named in that
+  function's own comment: "each bar owned its own gesture, so the first bar touched captured the whole drag and
+  the rest never responded." Fixed the same way: the per-cell gesture is GONE; ONE `DragGesture(minimumDistance:
+  0)` now sits on a `Color.clear` overlay sized to the matrix's exact pixel footprint (`cellW×8 + sp4×7` wide,
+  `cellH×8 + sp4×7` tall — the same height formula `riffSourceTabs` already uses for its own frame, confirmed
+  consistent rather than re-derived separately), hit-testing the finger's (x,y) into (col,rank) every
+  `.onChanged` tick (`col = x ÷ (cellW+sp4)`, `rank = 8 − (y ÷ (cellH+sp4))` — rank 8 is drawn first/top, per the
+  grid's own `(1...8).reversed()` row order). **TOGGLE ON TOUCH-DOWN, PAINT ON EVERY CELL AFTER THAT:** a new
+  `riffDragLastCell` (nil between gestures) marks whether a given cell is the FIRST one a touch has landed on
+  this gesture — if so, it reuses the ORIGINAL tap semantics exactly (set the rank, unless it's already that
+  rank, in which case clear it to rest, preserving the single-tap behaviour byte-for-byte) via a new shared
+  `riffSetRank(col:rank:n:toggle:)`; every DIFFERENT cell the finger crosses afterward in the SAME gesture is a
+  plain PAINT (always sets, never toggles) — so dragging a continuous shape across the 8 columns works the way
+  painting a melodic contour should, without the drag's own later columns accidentally re-clearing whatever the
+  gesture started on. Writes are deduplicated against `riffDragLastCell` (a stationary finger produces exactly
+  one write, not one per frame). **DEVICE-OWED:** the drag feel in the hand (is the (cellW+sp4)/(cellH+sp4)
+  period mapping precise enough at real grid size, especially near the gaps between cells); confirm a plain tap
+  still reads as a single, immediate toggle with no perceptible lag from being routed through the drag gesture
+  instead of a dedicated tap recognizer; confirm painting diagonally (both x and y changing in one stroke)
+  reads as intentional, not jumpy.**
 - **▶ EUCLIDEOUS — ONE GLOBAL RIFF/NOTE SOURCE replaces the per-lane SOURCE parameter entirely (2026-10-12, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1347 green incl. 5 new/8 fixed, iOS builds clean). A
   second large, fully-specified ferry the same day as the riff-grid-markers one above, arriving mid-turn while

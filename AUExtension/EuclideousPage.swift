@@ -498,6 +498,19 @@ struct EuclideousPage: View {
     // last" once the live state has already moved past that tick) — the one piece of this whole ferry that
     // genuinely needs retained, not derived, UI state.
     @State private var riffMarker: [(col: Int, row: Int)?] = [nil, nil, nil, nil]
+    // DRAGGABLE RIFF GRID (Paul 2026-10-13, "make the grid draggable"): the matrix used to own one
+    // `.onTapGesture` PER CELL — fine for a single tap, but a drag starting on one cell never reaches its
+    // neighbours (a tap gesture doesn't track movement at all), so painting a shape across several columns
+    // in one continuous stroke was impossible. Fixed the same way `sliderLane`'s own "drag to draw" lane
+    // already fixed the identical bug (its own comment: "each bar owned its own gesture, so the first bar
+    // touched captured the whole drag and the rest never responded") — ONE gesture over the WHOLE matrix,
+    // hit-tested from the finger's (x,y) every `.onChanged` tick. `riffDragLastCell` is this gesture's own
+    // "have I already written this exact cell" memory, nil between gestures: the FIRST cell a touch lands
+    // on reuses the pre-existing TOGGLE behaviour (tap the already-set rank → clears to rest, preserving
+    // every prior single-tap test/behaviour byte-for-byte); every DIFFERENT cell the finger crosses after
+    // that is a plain PAINT (always sets, never toggles) — the natural way to draw a melodic shape across
+    // the 8 columns without each new column accidentally re-clearing whatever the finger started on.
+    @State private var riffDragLastCell: (col: Int, row: Int)? = nil
     // RIFF-CELL WIPES / RESET PROGRESS (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane
     // cards" §5) — the first use of Reduce Motion anywhere in this codebase (grepped, zero prior
     // precedent). When on: the riff-cell wipe collapses to a single 150ms flash (no directional sweep, no
@@ -775,16 +788,20 @@ struct EuclideousPage: View {
     // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`),
     // read by `laneCard` itself for its internal row math. ---
     // LANE FOOTERS (Paul 2026-10-12 ferry, Part 2 rule 1): "under every step cell add a 14pt footer with a
-    // 2pt gap. The cell keeps its height." Grown by exactly `footerRowH + sp4` (16) from the prior 56 —
-    // reuses `EuclidLaneBox`'s existing `trailingContent`/`trailingHeight` extension point (built for
+    // 2pt gap. The cell keeps its height." Grown by exactly `footerRowH + 2` (16) from the prior 56 — reuses
+    // `EuclidLaneBox`'s existing `trailingContent`/`trailingHeight`/`trailingGap` extension point (built for
     // exactly this "an extra row drawn inside the box's own border, directly below the play+comet row"
     // purpose, previously unused at this call site), whose own `reserve` subtraction already makes the
     // comet-bar/step-cell row's rendered height invariant to this growth by construction: `max(20, height -
     // 12 - reserve)` evaluates to the SAME 44pt either way (56-12-0 == 72-12-16), so "the cell keeps its
-    // height" holds without a new conditional. Because `contentAreaH` (below, in `laneCard`) is itself
-    // `height - cometRowH - tabRowH - ...` — a pure subtraction — the PATTERN tab's own slider block shrinks
-    // by this SAME 16pt automatically; rule 2's "if it doesn't fit, take 16pt from the slider block" is the
-    // existing formula's unconditional consequence, not a fallback that needed separate implementing.
+    // height" holds without a new conditional. (FIXED 2026-10-13: the first cut passed `trailingHeight:
+    // footerRowH + sp4` = 18, not 16 — the comment above was always right, the CODE wasn't, and nothing in
+    // `EuclidLaneBox`'s own VStack ever rendered the "2pt" as an actual gap either, since its spacing is
+    // hard-coded 0 — see `trailingGap`'s own doc comment in EuclidLaneUI.swift.) Because `contentAreaH`
+    // (below, in `laneCard`) is itself `height - cometRowH - tabRowH - ...` — a pure subtraction — the
+    // PATTERN tab's own slider block shrinks by this SAME 16pt automatically; rule 2's "if it doesn't fit,
+    // take 16pt from the slider block" is the existing formula's unconditional consequence, not a fallback
+    // that needed separate implementing.
     private let footerRowH: CGFloat = 14
     private let cometRowH: CGFloat = 72
     private let tabRowH: CGFloat = 30
@@ -1382,11 +1399,18 @@ struct EuclideousPage: View {
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
                           // LANE FOOTERS (Paul 2026-10-12 ferry) — the ONLY caller of this previously-unused
-                          // extension point at Euclideous's own call site; `footerRowH + sp4` (16) is the
-                          // 14pt footer + its 2pt gap, matching `cometRowH`'s own growth exactly (see its
-                          // doc comment) so the comet bar's rendered size is unaffected by construction.
+                          // extension point at Euclideous's own call site. FIXED 2026-10-13 ("I'd prefer it
+                          // if it used a little space from the Euclid lane"): `trailingHeight` had been
+                          // `footerRowH + sp4` (14+4=18, NOT the 16 the comment above once claimed) with no
+                          // corresponding rendered gap at all (`EuclidLaneBox`'s own VStack spacing is 0) —
+                          // the "2pt" existed only inside a height-budget formula, invisible on screen, and
+                          // the 18-vs-16 mismatch meant the step-cell row was ALSO silently 2pt shorter than
+                          // intended. `trailingHeight` is now literally `footerRowH + 2` (a real, explicit
+                          // `trailingGap: 2`), matching `cometRowH`'s own growth exactly (56→72 = 16 =
+                          // 14+2) so the comet bar's rendered size is unaffected by construction, AND the
+                          // 2pt now actually renders as a gap between the step cells and the footer.
                           trailingContent: AnyView(laneFooter(idx, line, accent: accent, width: innerWidth)),
-                          trailingHeight: footerRowH + sp4,
+                          trailingHeight: footerRowH + 2, trailingGap: 2,
                           stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
                           stepCountBadgeWidth: stepCountBadgeTotalWidth)
             laneTabRow(idx, line, accent, rowH: tabRowH)
@@ -2426,14 +2450,33 @@ struct EuclideousPage: View {
             }
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(pool: pool, source: source, cellH: cellH)
-                VStack(spacing: sp4) {
-                    ForEach((1...8).reversed(), id: \.self) { rank in
-                        HStack(spacing: sp4) {
-                            ForEach(0..<n, id: \.self) { col in
-                                riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, suppressMarkers: midiEmpty)
+                // DRAGGABLE (see `riffDragLastCell`'s own doc comment above): the matrix VStack carries no
+                // gesture of its own anymore — a single clear overlay, sized to its EXACT pixel footprint,
+                // sits on top and owns the one gesture for the whole grid, matching `sliderLane`'s own
+                // established "one gesture over the whole lane" shape.
+                let gridW = cellW * CGFloat(n) + sp4 * CGFloat(max(0, n - 1))
+                let gridH = cellH * 8 + sp4 * 7
+                ZStack(alignment: .topLeading) {
+                    VStack(spacing: sp4) {
+                        ForEach((1...8).reversed(), id: \.self) { rank in
+                            HStack(spacing: sp4) {
+                                ForEach(0..<n, id: \.self) { col in
+                                    riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, suppressMarkers: midiEmpty)
+                                }
                             }
                         }
                     }
+                    Color.clear
+                        .frame(width: gridW, height: gridH)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+                            let col = max(0, min(n - 1, Int(g.location.x / max(1, cellW + sp4))))
+                            let rankRow = max(0, min(7, Int(g.location.y / max(1, cellH + sp4))))
+                            let rank = 8 - rankRow
+                            guard (col, rank) != (riffDragLastCell?.col ?? -1, riffDragLastCell?.row ?? -1) else { return }
+                            riffSetRank(col: col, rank: rank, n: n, toggle: riffDragLastCell == nil)
+                            riffDragLastCell = (col, rank)
+                        }.onEnded { _ in riffDragLastCell = nil })
                 }
                 riffSourceTabs(cellH: cellH)
             }
@@ -2513,6 +2556,19 @@ struct EuclideousPage: View {
         .frame(width: riffTabW, height: cellH * 8 + sp4 * 7)
     }
 
+    /// The one write path for the riff grid, shared by every cell the drag gesture crosses (see
+    /// `riffDragLastCell`'s doc comment). `toggle: true` (the first cell of a gesture) reproduces the
+    /// original tap behaviour exactly — set it, unless it's already this rank, in which case clear it to
+    /// rest; `toggle: false` (every later cell in the same drag) always sets, so painting across the grid
+    /// never accidentally clears a column it merely passes back over.
+    private func riffSetRank(col: Int, rank: Int, n: Int, toggle: Bool) {
+        onEditRiff { r in
+            var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
+            if col < rr.count { rr[col] = (toggle && rr[col] == rank) ? 0 : rank }
+            r.ranks = rr; r.steps = n
+        }
+    }
+
     /// One riff-grid matrix cell (Paul 2026-10-12 ferry, Part 1 rules 5/6) — an "occupant" is either a
     /// riff-on lane whose `riffMarker` sits here (an arrow) or a riff-off lane whose fixed-note dot sits
     /// here (a dot); both collected in LANE ORDER (rule 6) and banded top-to-bottom within the cell. A
@@ -2563,14 +2619,9 @@ struct EuclideousPage: View {
             }
         }
         .frame(width: cellW, height: cellH)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onEditRiff { r in
-                var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
-                if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
-                r.ranks = rr; r.steps = n
-            }
-        }
+        // The per-cell gesture is GONE — `riffGridView`'s own drag overlay now owns tap AND drag for the
+        // whole matrix at once (see `riffDragLastCell`'s doc comment), so a plain tap on a single cell and a
+        // continuous drag across several both land here, in `riffSetRank`.
         // ACCESSIBILITY (ferry's own literal text: "Step 3, E♭, lane 1 here, next up"). The note name
         // resolves `riffLivePool` (already a live page property — "the ascending notes currently feeding the
         // riff's own pool") at this cell's own rank, reusing `euclideousNoteViewName`/`euclideousKeyIsFlat`

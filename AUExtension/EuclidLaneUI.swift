@@ -87,6 +87,12 @@ struct EuclidLaneBox: View {
     // (not generic) so this struct's own type stays concrete/unchanged for its existing callers.
     var trailingContent: AnyView? = nil
     var trailingHeight: CGFloat = 0   // the exact height the caller's trailingContent needs — lets the comet row claim the rest, rather than guessing
+    // REAL, RENDERED GAP between the comet row and trailingContent (fixed 2026-10-13 — see `reserve`'s own
+    // doc comment above). nil-default callers never render a gap either way (no trailingContent to gap
+    // from); the gesture-tab-row precedent explicitly wants 0; a lane footer wants 2. `trailingHeight` must
+    // equal trailingContent's own height PLUS this gap, or the comet row's height budget drifts from what
+    // the VStack actually renders.
+    var trailingGap: CGFloat = 0
     // STEP-COUNT BADGE (EUCLIDEOUS PAGE REWORK, Paul 2026-10-07: "a step count shown as a number" beside the
     // comet bar, permanently) — an optional trailing sibling in the SAME play+comet HStack, same additive-
     // nil-default shape as `trailingContent` above. nil (every existing BUILD-page call site) ⇒ byte-identical.
@@ -106,7 +112,14 @@ struct EuclidLaneBox: View {
         let on = line.enabledResolved
         // NO GAP (Paul 2026-10-06): "the buttons that toggle x/y [to] be directly under the boxes on the lane
         // with no gap or padding" — the VStack spacing between the step-box row and trailingContent (the
-        // gesture-tab row) is 0; `reserve` drops its own +6 for that now-removed gap to match exactly.
+        // gesture-tab row, now retired) is 0; `reserve` drops its own +6 for that now-removed gap to match
+        // exactly. A LANE FOOTER (Paul 2026-10-12 ferry Part 2 rule 1, fixed 2026-10-13) is a DIFFERENT
+        // trailingContent consumer with its own explicit "14pt footer with a 2pt gap" spec — `trailingGap`
+        // (below) is a real, rendered spacer, not folded invisibly into `reserve`'s own height budget the
+        // way the first attempt at this tried (reserve used `footerRowH + sp4` = 18, not the 16 its own
+        // comment claimed, and nothing in the VStack ever consumed the difference as an actual gap — the
+        // "2pt" existed only in a formula, never on screen). `trailingGap` defaults 0 (byte-identical for
+        // the gesture-tab-row precedent and any other nil-trailingContent caller).
         let reserve: CGFloat = trailingContent == nil ? 0 : trailingHeight
         VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -135,7 +148,10 @@ struct EuclidLaneBox: View {
                     .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
                 if let stepCountBadge { stepCountBadge }
             }
-            if let trailingContent { trailingContent }
+            if let trailingContent {
+                if trailingGap > 0 { Color.clear.frame(height: trailingGap) }
+                trailingContent
+            }
         }
         .padding(6)
         .frame(width: width, height: height)   // EXPLICIT width/height — the stroke/background below can never bleed past it
@@ -396,6 +412,22 @@ struct EuclidCometBar: View {
                          rotateStepPt: rotateStepPt)
             .padding(.horizontal, 14)
         }
+        // PIN THE REAL RENDER WIDTH TO THE `width` PARAMETER (found 2026-10-13, chasing "the lane footer
+        // cells don't line up with the step boxes above them"): nothing below this struct's own body EVER
+        // constrained its width explicitly — the Canvas's `size.width` (what it actually draws boxes
+        // against) was left to whatever `EuclidLaneBox`'s surrounding HStack happened to allocate the lone
+        // flexible child, which SwiftUI doesn't guarantee matches the HAND-COMPUTED `width` parameter
+        // (`width − 64 − badgeReserve`) to the pixel — especially once `stepCountBadge`'s own AnyView
+        // content (an arbitrary view, not a bare fixed-width rect) sits as a third HStack sibling. The
+        // Canvas's own box math was always internally self-consistent (it reads `size.width` for
+        // everything), so this bar never looked broken on its own — but `laneFooter` (EuclideousPage.swift)
+        // computes its OWN, SEPARATE footer-cell positions purely from the `width` PARAMETER (it has no
+        // access to this Canvas's real `size.width`), so any drift between the two was invisible to every
+        // static read and every test, only showing up as a real, on-device seam between the footer and the
+        // step boxes it's meant to sit under. Forcing `.frame(width: width)` here makes `size.width` and
+        // `width` the SAME number by construction — not just by a formula that's supposed to agree with
+        // whatever the HStack decides.
+        .frame(width: width)
     }
 }
 
