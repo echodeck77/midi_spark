@@ -156,7 +156,6 @@ struct EuclideousSlider: View {
     let onDoubleTap: () -> Void
     let onRevertToEuclid: () -> Void
 
-    @State private var touching = false
     @State private var snapshot: EuclidLine? = nil
     @State private var lastCommitted: Double? = nil
     @State private var helpActive = false
@@ -264,9 +263,9 @@ struct EuclideousSlider: View {
             }
         }
         .frame(width: width, height: height)
-        // THE 2pt TOUCH BORDER (ferry, literal): "while touched: the slider gets a 2pt LANE-100 border.
-        // Remove it on lift."
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(touching ? accent : Color.clear, lineWidth: 2))
+        // THE 2pt TOUCH BORDER is REMOVED (Paul 2026-10-12: "when a slider is selected it has an outline
+        // appear. Please remove this behaviour") — was the ferry's own original "while touched: a 2pt
+        // LANE-100 border" spec; `touching` (the @State that drove it) is gone too, having no other use.
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
@@ -276,7 +275,6 @@ struct EuclideousSlider: View {
                         snapshot = line
                         lastCommitted = euclideousSliderRange(field, line).value
                         startLocation = g.location
-                        touching = true
                         scheduleHelpCheck()
                     }
                     let start = startLocation ?? g.location
@@ -299,7 +297,6 @@ struct EuclideousSlider: View {
                     let start = startLocation ?? g.location
                     let totalMoved = hypot(g.location.x - start.x, g.location.y - start.y)
                     let wasShortTap = totalMoved <= 4 && !helpActive
-                    touching = false
                     cancelHelpCheck()
                     snapshot = nil; lastCommitted = nil; startLocation = nil; helpActive = false
                     if wasShortTap {
@@ -1129,42 +1126,12 @@ struct EuclideousPage: View {
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
-    /// LANE-CARD RESET PROGRESS (ferry "riff-cell wipes, reset progress on lane cards" §3) — a slow
-    /// band filling from this lane's own §1-table starting edge toward the opposite one as the current
-    /// RESET SPAN window elapses, so a glance at the card shows how close the next reset is. Hidden
-    /// entirely (§3.3) when RESET SPAN is OFF, and under Reduce Motion (§5) — the `TimelineView` simply
-    /// never draws the fill rect in either case.
-    private func laneCardProgressFill(_ idx: Int, accent: Color, width: CGFloat, height: CGFloat) -> some View {
-        let cyc = clock.stepBeats * Double(max(1, clock.cols))
-        let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
-        let show = spanBeats > 0 && !reduceMotion
-        // CAPPED (usability ferry §1.2 DSP fix, "card fills" named explicitly): a fill creeping across a
-        // whole 1–16 BAR span has no perceptible need for display-refresh-rate precision — 1/10s is
-        // already smoother than the eye can tell apart for motion this slow, at a fraction of the cost,
-        // × 4 lane cards.
-        return TimelineView(.animation(minimumInterval: 1.0 / 10.0, paused: !clock.playing || !show)) { tl in
-            let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
-            let progress = show ? euclideousResetProgress(liveBeat: liveBeat, spanBeats: spanBeats) : 0
-            // §1 table: lane 0 L→R, lane 1 R→L, lane 2 T→B, lane 3 B→T — the fill grows from this
-            // lane's own starting edge toward the opposite one.
-            let (align, fillW, fillH): (Alignment, CGFloat, CGFloat) = {
-                switch idx {
-                case 0: return (.leading, width * CGFloat(progress), height)
-                case 1: return (.trailing, width * CGFloat(progress), height)
-                case 2: return (.top, width, height * CGFloat(progress))
-                default: return (.bottom, width, height * CGFloat(progress))
-                }
-            }()
-            ZStack(alignment: align) {
-                if show {
-                    Rectangle().fill(lane100(accent).opacity(0.07)).frame(width: fillW, height: fillH)
-                }
-            }
-            .frame(width: width, height: height)
-        }
-        .allowsHitTesting(false)
-    }
-
+    // LANE-CARD RESET-PROGRESS BACKGROUND FILL REMOVED (Paul 2026-10-12: "remove... the Euclid control
+    // background effect") — the slow per-lane band that used to creep across a card as the RESET SPAN
+    // window elapsed (`laneCardProgressFill`, + its own `TimelineView`) is gone entirely, ahead of the
+    // incoming lane-footer redesign. `euclideousResetProgress`/`euclideousNoteViewSpanBeats` (the pure
+    // Derivations functions it read) are untouched — they're still used elsewhere (the header's own
+    // "IN n" RESET countdown) — only this one background-fill consumer is removed.
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
@@ -1189,30 +1156,25 @@ struct EuclideousPage: View {
         let rowGaps: CGFloat = sp4 * 2     // VStack(spacing: sp4) between the 3 children = 2 gaps
         let contentAreaH = max(1, height - cometRowH - tabRowH - outerVPad - rowGaps)
         let steps = max(2, min(16, line.steps))
-        ZStack {
-            // RESET PROGRESS FILL (ferry "riff-cell wipes, reset progress on lane cards" §3) — the
-            // bottommost layer, sitting behind the card's own real content.
-            laneCardProgressFill(idx, accent: accent, width: width, height: height)
-            VStack(alignment: .leading, spacing: sp4) {
-                EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
-                              // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
-                              // border/fill around just this row (the step-bar area) — always `false` now; the
-                              // selection indicator moved to a single outline around the ENTIRE card below.
-                              selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
-                              clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
-                              onRotateDelta: { _ in }, onHitsDelta: { _ in },      // NEUTERED — the 4 square pads below own this now
-                              onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
-                              onAllRotateDelta: { _ in }, onAllHitsDelta: { _ in },   // NEUTERED, same reason
-                              onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
-                              onSelect: { selectedLane = idx },
-                              onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                              stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
-                              stepCountBadgeWidth: stepCountBadgeTotalWidth)
-                laneTabRow(idx, line, accent, rowH: tabRowH)
-                tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth)
-            }
-            .padding(sp8)
+        VStack(alignment: .leading, spacing: sp4) {
+            EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
+                          // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
+                          // border/fill around just this row (the step-bar area) — always `false` now; the
+                          // selection indicator moved to a single outline around the ENTIRE card below.
+                          selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
+                          clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
+                          onRotateDelta: { _ in }, onHitsDelta: { _ in },      // NEUTERED — the 4 square pads below own this now
+                          onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
+                          onAllRotateDelta: { _ in }, onAllHitsDelta: { _ in },   // NEUTERED, same reason
+                          onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
+                          onSelect: { selectedLane = idx },
+                          onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
+                          stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
+                          stepCountBadgeWidth: stepCountBadgeTotalWidth)
+            laneTabRow(idx, line, accent, rowH: tabRowH)
+            tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth)
         }
+        .padding(sp8)
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))
         // WHOLE-CARD SELECTION OUTLINE (ferry §1.4): replaces the narrower step-bar-only outline above.
@@ -2281,25 +2243,29 @@ struct EuclideousPage: View {
                     Text("LOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                 }
                 .frame(width: 18, height: cellH * 8 + sp4 * 7)
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
-                    VStack(spacing: sp4) {
-                        ForEach((1...8).reversed(), id: \.self) { rank in
-                            HStack(spacing: sp4) {
-                                ForEach(0..<n, id: \.self) { col in
-                                    let on = col < ranks.count && ranks[col] == rank
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
-                                        .frame(width: cellW, height: cellH)
-                                        .overlay(riffCellWipeOverlay(col: col, rank: rank, cellW: cellW, cellH: cellH, now: tl.date))
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            onEditRiff { r in
-                                                var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
-                                                if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
-                                                r.ranks = rr; r.steps = n
-                                            }
+                // PLAYHEAD-STYLE SWEEP REMOVED (Paul 2026-10-12: "remove the play head style sweeps from the
+                // grid"), ahead of the incoming per-lane position-marker redesign. The per-cell wipe overlay
+                // this grid used to draw on every matching strike — and the `TimelineView` that drove it —
+                // are both gone; the matrix is now a plain static VStack, redrawn only on a real tap-to-edit.
+                // `wipeEvents` (the stored property feeding the old overlay) is left in place, unused, for
+                // now — its underlying per-lane column/rank event snapshot is a plausible data source for
+                // the new marker system about to be planned; deleting it here would be premature, not tidy.
+                VStack(spacing: sp4) {
+                    ForEach((1...8).reversed(), id: \.self) { rank in
+                        HStack(spacing: sp4) {
+                            ForEach(0..<n, id: \.self) { col in
+                                let on = col < ranks.count && ranks[col] == rank
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
+                                    .frame(width: cellW, height: cellH)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        onEditRiff { r in
+                                            var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
+                                            if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
+                                            r.ranks = rr; r.steps = n
                                         }
-                                }
+                                    }
                             }
                         }
                     }
@@ -2308,76 +2274,6 @@ struct EuclideousPage: View {
         }
         .padding(sp8)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
-    }
-
-    /// RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards" §2) — per-cell
-    /// overlay checking all 4 lanes' `wipeEvents` for a match at `(col, rank)` and drawing each matching
-    /// lane's own sweep independently (§2.4: stacked, not specially composited). CONSOLIDATED 2026-10-11
-    /// (DSP fix, see `riffGridView`'s own comment) — `now` is now passed in from ONE shared TimelineView at
-    /// the matrix level, not an independent one per cell.
-    @ViewBuilder
-    private func riffCellWipeOverlay(col: Int, rank: Int, cellW: CGFloat, cellH: CGFloat, now: Date) -> some View {
-        ZStack {
-            ForEach(0..<4, id: \.self) { i in
-                if i < wipeEvents.count, let ev = wipeEvents[i], ev.column == Int8(col), ev.rank == Int8(rank) {
-                    riffCellWipeLane(i, ev, now: now, cellW: cellW, cellH: cellH)
-                }
-            }
-        }
-        .allowsHitTesting(false)   // decoration only — must never steal the cell's own tap-to-edit gesture
-    }
-    /// One lane's own sweep inside a matching cell. §2.4: drawn at 70% opacity so overlapping lanes on the
-    /// same cell stay visually distinguishable (plain stacking, no special compositing). Reduce Motion
-    /// (§5) collapses this to a single 150ms wall-clock flash with no directional sweep.
-    private func riffCellWipeLane(_ i: Int, _ ev: Router.EuclideousNoteViewEventSnapshot, now: Date, cellW: CGFloat, cellH: CGFloat) -> some View {
-        let accent = laneAccents[i % laneAccents.count]
-        // Beat↔real conversion, the SAME anchor/tempo pair every TimelineView on this page already uses
-        // (`clock.anchor`/`clock.anchorAt`/`clock.tempo`), just run in the direction this ferry needs: a
-        // STORED beat → the real Date it corresponds to, the inverse of `noteViewTrack`'s own `liveBeat`.
-        func realDate(forBeat beat: Double) -> Date {
-            clock.anchorAt.addingTimeInterval((beat - clock.anchor) * 60.0 / clock.tempo)
-        }
-        if reduceMotion {
-            let onsetReal = realDate(forBeat: ev.onsetBeat)
-            let elapsed = now.timeIntervalSince(onsetReal)
-            let flashOpacity = (elapsed >= 0 && elapsed <= 0.15) ? (1 - elapsed / 0.15) : 0
-            return AnyView(
-                Rectangle().fill(lane20(accent)).frame(width: cellW, height: cellH)
-                    .opacity(flashOpacity)
-            )
-        }
-        let onsetReal = realDate(forBeat: ev.onsetBeat)
-        let sweepEndReal = realDate(forBeat: ev.onsetBeat + ev.durationBeat)
-        let t: Double = {
-            guard ev.durationBeat > 0 else { return 1 }
-            return max(0, min(1, now.timeIntervalSince(onsetReal) / sweepEndReal.timeIntervalSince(onsetReal)))
-        }()
-        // PHASE 2 (wall-clock fade, 150ms, once the sweep has finished its own beat-driven traversal) —
-        // §2.3: the sweep itself is specified in musical terms (the note's own gate), the fade in an
-        // explicit wall-clock constant — genuinely different units, computed as such.
-        let fadeElapsed = now.timeIntervalSince(sweepEndReal)
-        let fadeOpacity = fadeElapsed <= 0 ? 1.0 : max(0, 1 - fadeElapsed / 0.15)
-        guard fadeOpacity > 0 else { return AnyView(EmptyView()) }
-        let lineThickness: CGFloat = 2
-        let g = CGFloat(t)
-        // §1 table: lane 0 L→R, lane 1 R→L, lane 2 T→B, lane 3 B→T.
-        let (tintW, tintH, tintAlign, lineRect): (CGFloat, CGFloat, Alignment, CGRect) = {
-            switch i {
-            case 0: return (cellW * g, cellH, .leading, CGRect(x: max(0, cellW * g - lineThickness), y: 0, width: lineThickness, height: cellH))
-            case 1: return (cellW * g, cellH, .trailing, CGRect(x: min(cellW - lineThickness, cellW * (1 - g)), y: 0, width: lineThickness, height: cellH))
-            case 2: return (cellW, cellH * g, .top, CGRect(x: 0, y: max(0, cellH * g - lineThickness), width: cellW, height: lineThickness))
-            default: return (cellW, cellH * g, .bottom, CGRect(x: 0, y: min(cellH - lineThickness, cellH * (1 - g)), width: cellW, height: lineThickness))
-            }
-        }()
-        return AnyView(
-            ZStack(alignment: tintAlign) {
-                Rectangle().fill(lane20(accent)).frame(width: tintW, height: tintH)
-                Rectangle().fill(lane100(accent)).frame(width: lineRect.width, height: lineRect.height)
-                    .position(x: lineRect.midX, y: lineRect.midY)
-            }
-            .frame(width: cellW, height: cellH)
-            .opacity(0.7 * fadeOpacity)
-        )
     }
 
     // MARK: - NOTE VIEW, phase 1 (Paul 2026-10-10 ferry — working name, final name to come): four lane strips,

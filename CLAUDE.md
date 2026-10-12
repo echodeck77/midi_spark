@@ -196,6 +196,72 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — the riff-grid playhead sweep + the lane-card background progress fill REMOVED (2026-10-12,
+  on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS test-target reach — pure UI,
+  `EuclideousPage.swift` only). Paul, ahead of planning the next ferry (riff-grid position markers + lane
+  footers, queued next): "remove the play head style sweeps from the grid and also the Euclid control
+  background effect." Two targets, both found by reading, not guessed. **THE GRID SWEEP:** `riffGridView`'s
+  per-cell `riffCellWipeOverlay`/`riffCellWipeLane` (the directional tint+line sweep that lit a matching cell
+  on every lane strike, consolidated into one shared `TimelineView` back on 2026-10-11) are deleted entire,
+  along with the `TimelineView` that drove them — the matrix is now a plain static `VStack`, redrawn only on
+  a real tap-to-edit. `wipeEvents` (the stored property that fed the overlay) is DELIBERATELY left in place,
+  unused, rather than torn out with its upstream plumbing — its per-lane column/rank event snapshot is a
+  plausible, maybe-load-bearing data source for the incoming marker system, and deleting it now would be
+  premature tidiness, not a correctness need. **THE BACKGROUND EFFECT:** `laneCardProgressFill` — the slow
+  `lane100.opacity(0.07)` band creeping across a lane card's own background as the RESET SPAN window elapsed,
+  "the bottommost layer, sitting behind the card's own real content" per its own doc comment — is deleted
+  along with the `ZStack`/`TimelineView` that hosted it; `laneCard` collapses back to a plain `VStack`.
+  `euclideousResetProgress`/`euclideousNoteViewSpanBeats` (the pure functions it read) are untouched — still
+  used by the header's own "IN n" RESET countdown, confirmed by grep before leaving them alone. UI-only, no
+  engine/model change, no test-target reach (GridUI/EuclideousPage, as always). **DEVICE-OWED:** confirm both
+  effects are genuinely gone with no dangling empty space, and that the RESET SPAN control itself still reads
+  clearly without its card-level visual cue (the header countdown is the only indicator left).**
+- **▶ EUCLIDEOUS — the six-slider control's "while touched" outline REMOVED (2026-10-12, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS test-target reach — pure UI,
+  `EuclideousPage.swift` only). Paul: "when a slider is selected it has an outline appear. Please remove this
+  behaviour." `EuclideousSlider`'s `@State private var touching` (set true in the drag gesture's `onChanged`,
+  false in `onEnded`) existed for exactly one purpose — driving a 2pt coloured `RoundedRectangle` stroke
+  overlay while a finger was down — confirmed via grep before removing, no other reader. Both the state
+  variable and the overlay are deleted outright, not just set to never-fire; the rest of the touch handling
+  (commit-on-drag, double-tap reset, the long-press help bubble, the EDITED-chip hit area) is untouched.**
+- **▶ EUCLID MASK — RATCHET (and every other mode) now applies in plain NOTE mode too, not just RIFF mode
+  (2026-10-12, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1331 green incl. 2 new, iOS builds
+  clean). Paul: "Ratchet doesn't work" — narrowed via two rounds of clarifying questions (not guessed) to
+  EUCLID MASK's own RATCHET mode specifically (not the separate main-grid RATCHET PATTERN processor), with
+  the mask's own PLAY/STOP toggle confirmed already ON — ruling out the simplest explanation before looking
+  at code. **ROOT CAUSE, found by reading `runEuclidLine` end-to-end, not guessed:** the mask-application
+  logic (the K/N gate test, the CHANCE roll, and the whole MUTE/PAUSE/RATCHET/REPEAT/CHORD/OCT/MIRROR/LEAP/
+  CLIMB/ACCENT/SWELL switch) lived ENTIRELY inside the function's `if useRiff {}` branch — the sibling plain
+  NOTE-mode strike branch (a lane with RIFF off, picking a note via NOTE SELECT) never referenced `mm`/
+  `maskedChancePassed` AT ALL, directly contradicting the mask's own standing design ("gates ANY driver," per
+  its original ferry). A lane with MASK=RATCHET engaged but RIFF off played every hit completely normally —
+  "plays but doesn't ratchet," exactly as reported. **CONFIRMED BY THE TEST SUITE'S OWN BLIND SPOT, not just
+  by reading:** every one of the ~11 pre-existing `EuclidLineMask` RouterTests hardcoded `useRiff: true` in
+  their shared `maskFixture` helper — the NOTE-mode path had zero coverage from day one, so this gap could
+  never have been caught by the existing suite. **FIX:** extracted the RIFF-mode strike's own mask-application
+  logic into two new shared, explicitly-parameterized private Router methods — `maskTransform(rank:note:vel:
+  lineIndex:mm:maskedChancePassed:resolveRank:)` (REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL, returning
+  the transformed note/velocity/extra-chord-notes/muted-flag) and `maskRatchetReps(lineIndex:mm:
+  maskedChancePassed:sub:cyc:)` (RATCHET's own repeat-count roll + legal-size clamp) — then called BOTH from
+  the (refactored, behaviour-preserving) RIFF branch AND the (newly fixed) plain NOTE-mode branch, so the two
+  code paths can no longer silently drift apart the way they already had. **A REASONED GENERALIZATION, not
+  specified by Paul but needed to make the fix coherent:** RIFF mode always resolves exactly one note per
+  hit, so one NOTE VIEW push per hit was always correct; NOTE mode's own `noteSel` can resolve MULTIPLE notes
+  per hit (e.g. an `.all` pick against a held chord) — preserved the pre-fix "one combined push for the whole
+  chord" behaviour for the ordinary unmasked/non-ratchet case, while a note RATCHET affects now gets its own
+  independent per-repeat pushes (RATCHET's roll is logically independent per resolved note in a multi-note
+  pick, not shared once across the whole chord the way it implicitly is in RIFF mode's single-note case).
+  **TESTS:** the shared `maskFixture` test helper gained a `useRiff: Bool = true` parameter (`false` also sets
+  `noteSel: .low` so NOTE mode strikes exactly one note per hit — an apples-to-apples mirror of the RIFF
+  fixture's own "one rank per hit" shape, not a messier multi-note aggregate); every existing mask test keeps
+  its original RIFF-mode coverage unchanged, +2 new (`testEuclidMaskRatchetVariesWithinRangeAndRespectsTheBar
+  CapInNoteModeToo`, `testEuclidMaskMuteSilencesInNoteModeToo`) mirroring two of the strongest existing RIFF
+  tests under `useRiff: false` — the direct regression guard for the exact gap that let this ship unnoticed.
+  **A real memberwise-init ordering slip caught by the compiler, not shipped wrong:** `EuclidLine`'s synthesized
+  init requires arguments in DECLARATION order — the fixture's first draft passed `velocityAbsolute` before
+  `noteSel`, the reverse of the struct's own field order; fixed by reordering the call, not the struct.
+  **DEVICE-OWED:** confirm a NOTE-mode lane with MASK=RATCHET (or any other mode) now audibly applies it,
+  matching whatever a RIFF-mode lane with the identical mask settings already sounded like.**
 - **▶ EUCLIDEOUS — the six sliders REARRANGED: 3 vertical on the left, 3 horizontal on the right (2026-10-12,
   on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS test-target reach — pure UI,
   `EuclideousPage.swift` only). Direct same-day follow-up to the six-sliders entry below. Paul: "change this to

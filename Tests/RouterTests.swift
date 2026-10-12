@@ -6329,12 +6329,18 @@ final class RouterTests: XCTestCase {
     // Shared fixture: an 8-of-8 (always-hit) lane on an ascending riff [1..8], so every tick's struck rank is
     // directly readable from the pool and every tick is eligible for masking — isolates the MASK's own
     // behaviour from the Euclid HITS pattern itself.
-    private func maskFixture(velocityAbsolute: Int? = nil, _ configure: (inout EuclidLineMask) -> Void) -> (box: SnapshotBox, pool: [UInt8]) {
+    private func maskFixture(velocityAbsolute: Int? = nil, useRiff: Bool = true, _ configure: (inout EuclidLineMask) -> Void) -> (box: SnapshotBox, pool: [UInt8]) {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
         var m = EuclidLineMask(); configure(&m)
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, velocityAbsolute: velocityAbsolute, rate: .r1_8, useRiff: true, mask: m)]
+        // NOTE MODE (useRiff: false): .low strikes exactly the ONE lowest held note per hit, the same
+        // "one note per hit" shape the RIFF fixture above gets for free from its rank-per-tick walk —
+        // keeps the NOTE-mode mask tests a clean apples-to-apples mirror of their RIFF-mode siblings
+        // (an `.all` pick would strike all 8 pool notes per hit, each independently masked/ratcheted —
+        // not wrong, just a messier aggregate to assert against).
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: useRiff ? nil : .low,
+                                             velocityAbsolute: velocityAbsolute, rate: .r1_8, useRiff: useRiff, mask: m)]
         let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         return (b, pool)
     }
@@ -6389,6 +6395,30 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue((16...32).contains(total), "8 ticks x [2,4] reps each must total between 16 and 32 onsets — got \(total)")
         XCTAssertNotEqual(total, 16, "all 8 ticks landing on the exact MIN would suggest the roll isn't varying at all")
         XCTAssertNotEqual(total, 32, "all 8 ticks landing on the exact MAX would suggest the roll isn't varying at all")
+    }
+    func testEuclidMaskRatchetVariesWithinRangeAndRespectsTheBarCapInNoteModeToo() {
+        // BUG FIX (2026-10-12, Paul: "ratchet doesn't work"): the mask previously had NO effect at all on
+        // a lane in plain NOTE mode (useRiff: false) — `maskFixture`'s own default (`useRiff: true`) is
+        // exactly how every pre-existing mask test above this one missed it; not one exercised NOTE mode.
+        // Same aggregate-property check as the RIFF-mode sibling test directly above, just on a NOTE-mode
+        // lane (`.low`, via `maskFixture`'s own `useRiff: false` branch — exactly one note per hit, same
+        // shape the RIFF fixture gets for free from its rank-per-tick walk).
+        let f = maskFixture(useRiff: false) { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .ratchet; $0.ratchetMin = 2; $0.ratchetMax = 4 }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 3.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let total = e.ons.filter { $0.cable == 1 }.count
+        XCTAssertTrue((16...32).contains(total), "8 ticks x [2,4] reps each must total between 16 and 32 onsets — got \(total)")
+        XCTAssertNotEqual(total, 16, "all 8 ticks landing on the exact MIN would suggest the roll isn't varying at all")
+        XCTAssertNotEqual(total, 32, "all 8 ticks landing on the exact MAX would suggest the roll isn't varying at all")
+    }
+    func testEuclidMaskMuteSilencesInNoteModeToo() {
+        // The cheapest possible additional confidence check for the same bug: a fully MUTE-masked NOTE-
+        // mode lane (HITS=STEPS=8, CHANCE=1 ⇒ every tick masked) must be completely silent — before the
+        // fix, NOTE mode never consulted the mask at all, so this would have played unaffected.
+        let f = maskFixture(useRiff: false) { $0.enabled = true; $0.pulses = 8; $0.steps = 8; $0.chance = 1.0; $0.mode = .mute }
+        let e = RecordingEmitter(); run(f.box, chord(f.pool), beats: 3.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "every tick is masked by MUTE, so a NOTE-mode lane must be completely silent")
     }
     func testEuclidMaskChordPlaysADiatonicTriadInKey() {
         // rank 1 (lowest) + A(+2) + B(+4) over an ascending 8-note pool = ranks 1,3,5 — a root-position triad

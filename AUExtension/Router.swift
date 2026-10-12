@@ -395,6 +395,83 @@ final class Router {
     // the mask has never advanced (mirrors the riff cursor's own sentinel).
     private var euclideousMaskStep = [Int](repeating: -1, count: 4)
     func euclideousMaskPositions() -> [Int] { euclideousMaskStep }
+
+    /// The EUCLID MASK's non-RATCHET per-note transforms (MUTE/OCT/ACCENT/SWELL/CHORD/REPEAT — MIRROR/
+    /// CLIMB are riff-RANK concepts, already applied upstream to `rank` before this is ever called) — a
+    /// pure extraction of the switch every masked strike runs, returning its result rather than mutating
+    /// captured locals + an early `return`, so the SAME logic serves both the riff real-rank path (one
+    /// call per hit) and plain NOTE mode (one call per resolved pool note).
+    ///
+    /// BUG FIX (2026-10-12, Paul: "ratchet doesn't work" — traced to a lane in plain NOTE mode, not
+    /// RIFF): this logic used to live ONLY inline inside `runEuclidLine`'s `if useRiff {}` branch, so a
+    /// lane's MASK — every mode, not just RATCHET — silently had NO EFFECT AT ALL on a lane in plain NOTE
+    /// mode, directly contradicting this file's own design comment a few lines above this one's old
+    /// location ("every other mode [besides MIRROR/LEAP/PAUSE]... applies in both modes alike"). The
+    /// mask's own SETUP (ordinal advance, K/N hit test, CHANCE roll) was always correctly shared/
+    /// unconditional; only the APPLICATION was riff-only. Confirmed by the existing test suite's own gap,
+    /// not just reading: every pre-existing `testEuclidMask*` fixture (`maskFixture`, Tests/RouterTests.
+    /// swift) hardcodes `useRiff: true` — not one test exercised the NOTE-mode path, which is exactly how
+    /// this went unnoticed since the mask-modes ferry shipped.
+    ///
+    /// `resolveRank` lets CHORD's own interval offsets resolve against whichever pool the caller is
+    /// actually reading (the riff-fed set, or NOTE mode's own `laneNotes`) — the one case that needs a
+    /// "rank" concept beyond the already-resolved `note`/`vel` this function otherwise just transforms.
+    private func maskTransform(rank: Int, note noteIn: Int, vel velIn: UInt8, lineIndex: Int, mm: EuclidLineMask,
+                               maskedChancePassed: Bool, resolveRank: (Int) -> Int?) -> (note: Int, vel: UInt8, extra: [Int], muted: Bool) {
+        guard maskedChancePassed else { return (noteIn, velIn, [], false) }
+        var note = noteIn, vel = velIn
+        var extraNotes: [Int] = []
+        switch mm.modeResolved {
+        case .mute:
+            return (note, vel, [], true)
+        case .oct:
+            let up = mm.octPatternResolved == .up || (mm.octPatternResolved == .alt && euclideousMaskOctUp[lineIndex])
+            if mm.octPatternResolved == .alt { euclideousMaskOctUp[lineIndex].toggle() }
+            let shifted = note + (up ? 12 : -12) * mm.octAmountResolved
+            if shifted >= 0 && shifted <= 127 { note = shifted }
+        case .accent:
+            vel = UInt8(max(1, min(127, Int(vel) + mm.accentAmountResolved)))
+        case .swell:
+            var off = euclideousMaskSwellOffset[lineIndex] + mm.swellStepResolved
+            let bound = 64
+            switch mm.swellRangeResolved {
+            case .wrap: if off >= bound || off <= -bound { off = 0 }
+            case .bounce:
+                if off < -bound { off = -bound - (off + bound) }
+                else if off > bound { off = bound - (off - bound) }
+            }
+            euclideousMaskSwellOffset[lineIndex] = off
+            vel = UInt8(max(1, min(127, Int(vel) + off)))
+        case .chord:
+            let a = resolveRank(rank + mm.chordAResolved)
+            let b = resolveRank(rank + mm.chordBResolved)
+            for extra in [a, b] where extra != nil && extra != note && !extraNotes.contains(extra!) { extraNotes.append(extra!) }
+        case .repeatNote:
+            let cached = euclideousLastSoundedNote[lineIndex]
+            if cached >= 0 {
+                note = Int(cached); vel = euclideousLastSoundedVel[lineIndex]
+                euclideousMaskRepeatRemaining[lineIndex] = mm.repeatCountResolved - 1
+            }
+        case .ratchet:
+            break   // handled separately by `maskRatchetReps` below, after the base note/vel are finalized
+        default: break
+        }
+        return (note, vel, extraNotes, false)
+    }
+    /// RATCHET's own repeat count, rolled from a SECOND seeded value (independent of the mask's CHANCE
+    /// roll), capped so no subdivision is shorter than 1/128 of a bar — nil when not ratcheting (mode
+    /// isn't RATCHET, or this hit's own CHANCE roll didn't pass). Shared by the riff and NOTE-mode
+    /// callers for the same reason `maskTransform` is — see its own doc comment.
+    private func maskRatchetReps(lineIndex: Int, mm: EuclidLineMask, maskedChancePassed: Bool, sub: Double, cyc: Double) -> Int? {
+        guard maskedChancePassed, mm.modeResolved == .ratchet else { return nil }
+        let lo = min(mm.ratchetMinResolved, mm.ratchetMaxResolved), hi = max(mm.ratchetMinResolved, mm.ratchetMaxResolved)
+        let span = hi - lo + 1
+        let roll2 = splitmix64Mix(UInt64(bitPattern: euclideousMaskOrd[lineIndex]) &+ UInt64(lineIndex) &* 0xBF58476D1CE4E5B9 &+ 0x2545F4914F6CDD1D)
+        var nRep = lo + Int(roll2 % UInt64(span))
+        let cap = max(1, Int(sub * 128.0 / max(0.0001, cyc)))
+        nRep = min(nRep, cap)
+        return nRep
+    }
     // LIVE RIFF POOL DISPLAY (Paul 2026-10-08): a stable, UI-pollable snapshot of the ascending notes
     // currently feeding the riff's own pool — mirrors the `cellSoundingNotes`/`riffDrunkPos` precedent
     // exactly (render-thread writes a plain array, a `pollXXX`-style accessor reads it from the UI timer, no
@@ -4705,69 +4782,26 @@ final class Router {
                             // ABSOLUTE VELOCITY (Paul 2026-10-09): the riff-sourced note's own inherited velocity
                             // is no longer read at all — VELOCITY is a genuine override now, same as every other
                             // strike this lane makes (see EuclidLine.velocityAbsolute's own doc comment).
-                            guard var note = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
+                            guard let note0 = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
                             let tieExt = riffTieExtensionBeats(startStepIdx: walkPos, startOrd: advOrd)
                             let gb = min(sub * gate, S * 0.95) + tieExt
-                            var vel = UInt8(velocityAbsolute)
-                            var extraNotes: [Int] = []
                             // EUCLID MASK — MUTE/RATCHET/CHORD/OCT/ACCENT/SWELL/REPEAT-trigger (Paul 2026-10-10
                             // ferry §3), applied to the already-fully-resolved primary note/velocity, mutually
                             // exclusive by construction (one MODE per lane). MIRROR/CLIMB already happened
                             // upstream (they adjust `rank` BEFORE `riffResolve`, not the resolved note) — only
-                            // the modes that need the FINAL pitch/velocity value live here.
-                            if maskedChancePassed {
-                                switch mm.modeResolved {
-                                case .mute:
-                                    return   // silent; the walk already advanced normally above
-                                case .oct:
-                                    let up = mm.octPatternResolved == .up || (mm.octPatternResolved == .alt && euclideousMaskOctUp[lineIndex])
-                                    if mm.octPatternResolved == .alt { euclideousMaskOctUp[lineIndex].toggle() }
-                                    let shifted = note + (up ? 12 : -12) * mm.octAmountResolved
-                                    if shifted >= 0 && shifted <= 127 { note = shifted }
-                                case .accent:
-                                    vel = UInt8(max(1, min(127, Int(vel) + mm.accentAmountResolved)))
-                                case .swell:
-                                    var off = euclideousMaskSwellOffset[lineIndex] + mm.swellStepResolved
-                                    let bound = 64
-                                    switch mm.swellRangeResolved {
-                                    case .wrap: if off >= bound || off <= -bound { off = 0 }
-                                    case .bounce:
-                                        if off < -bound { off = -bound - (off + bound) }
-                                        else if off > bound { off = bound - (off - bound) }
-                                    }
-                                    euclideousMaskSwellOffset[lineIndex] = off
-                                    vel = UInt8(max(1, min(127, Int(vel) + off)))
-                                case .chord:
-                                    let a = riffResolve(rank: rank + mm.chordAResolved, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note })
-                                    let b = riffResolve(rank: rank + mm.chordBResolved, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note })
-                                    for extra in [a, b] where extra != nil && extra != note && !extraNotes.contains(extra!) { extraNotes.append(extra!) }
-                                case .repeatNote:
-                                    // §3, REPEAT: "from THIS masked note, the lane plays its previous sounded
-                                    // note again for COUNT sounding steps" — this strike is replaced by a
-                                    // re-strike of the CACHED prior note (if one exists; an empty cache falls
-                                    // through to the normal strike below as the only sensible fallback), and
-                                    // the hold counter is armed for the remaining COUNT-1 steps.
-                                    let cached = euclideousLastSoundedNote[lineIndex]
-                                    if cached >= 0 {
-                                        note = Int(cached); vel = euclideousLastSoundedVel[lineIndex]
-                                        euclideousMaskRepeatRemaining[lineIndex] = mm.repeatCountResolved - 1
-                                    }
-                                case .ratchet:
-                                    break   // handled below, after the base note/vel are finalized
-                                default: break
-                                }
-                            }
+                            // the modes that need the FINAL pitch/velocity value need `maskTransform` below.
+                            // Shared with plain NOTE mode (`maskTransform`/`maskRatchetReps`'s own doc comments
+                            // explain why this is a shared function now, not inline here — 2026-10-12 bug fix).
+                            let resolveRank: (Int) -> Int? = { r in riffResolve(rank: r, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) }
+                            let xf = maskTransform(rank: rank, note: note0, vel: UInt8(velocityAbsolute), lineIndex: lineIndex,
+                                                   mm: mm, maskedChancePassed: maskedChancePassed, resolveRank: resolveRank)
+                            if xf.muted { return }   // silent; the walk already advanced normally above
+                            let note = xf.note, vel = xf.vel, extraNotes = xf.extra
+                            let wipeRank = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
+                            let wipeEligible = wipeRank >= 1 && wipeRank <= 8
                             // RATCHET (§3): n repeats evenly spaced across `sub` (this lane's own rate-beats-
-                            // per-step — splitting the STEP, not just this note's own possibly-shorter gate),
-                            // n rolled from a SECOND seeded value so it doesn't correlate with the CHANCE roll,
-                            // capped so no subdivision is shorter than 1/128 of a bar (`cyc`).
-                            if maskedChancePassed && mm.modeResolved == .ratchet {
-                                let lo = min(mm.ratchetMinResolved, mm.ratchetMaxResolved), hi = max(mm.ratchetMinResolved, mm.ratchetMaxResolved)
-                                let span = hi - lo + 1
-                                let roll2 = splitmix64Mix(UInt64(bitPattern: euclideousMaskOrd[lineIndex]) &+ UInt64(lineIndex) &* 0xBF58476D1CE4E5B9 &+ 0x2545F4914F6CDD1D)
-                                var nRep = lo + Int(roll2 % UInt64(span))
-                                let cap = max(1, Int(sub * 128.0 / max(0.0001, cyc)))
-                                nRep = min(nRep, cap)
+                            // per-step — splitting the STEP, not just this note's own possibly-shorter gate).
+                            if let nRep = maskRatchetReps(lineIndex: lineIndex, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
                                 let perGate = min((sub / Double(nRep)) * gate, (sub / Double(nRep)) * 0.95)
                                 // NOTE VIEW (§5.2: "each RATCHET repeat updates the box") — one push PER repeat,
                                 // each with its OWN real onset/duration (not `nvTiming`'s hardwired `mTickBeat`,
@@ -4782,8 +4816,6 @@ final class Router {
                                 // site's own "once per genuine riff read" convention), rather than a wholly
                                 // separate call: a brand-new push with noteCount:0 would overwrite the note
                                 // box's just-shown pitch with an empty event the instant it drained.
-                                let wipeRank = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
-                                let wipeEligible = wipeRank >= 1 && wipeRank <= 8
                                 for i in 0..<nRep {
                                     let rTau = mTickBeat + Double(i) * sub / Double(nRep)
                                     strikeChord(tau: rTau, velScale: 1.0, gateBeats: perGate, octave: 0, explicitNote: note, explicitVel: vel, busOverride: busOverride)
@@ -4822,8 +4854,6 @@ final class Router {
                                     // pipeline's own `rank`/`transposedRank` (untouched), purely to pick which
                                     // shared-grid cell to highlight; `leapStep` is already the post-LEAP column.
                                     // "If that rank is outside 1–8, don't wipe" — guarded below.
-                                    let wipeRank = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
-                                    let wipeEligible = wipeRank >= 1 && wipeRank <= 8
                                     pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: (extraNotes.isEmpty && tieExt > 0) ? 3 : 0, noteCount: nc,
                                                        column: wipeEligible ? Int8(leapStep) : -1, rank: wipeEligible ? Int8(wipeRank) : -1)
                                 }
@@ -4903,18 +4933,50 @@ final class Router {
                         // RIFF — a rank-space shift via the SAME `riffResolve(wrap: .fold)` lookup the riff
                         // path uses, so an out-of-pool transpose wraps identically either way; `octave: 0`
                         // to strikeChord since the octave shift is already folded into the resolved note.
+                        //
+                        // EUCLID MASK (BUG FIX 2026-10-12, Paul: "ratchet doesn't work" — see `maskTransform`'s
+                        // own doc comment): applies here now too, per resolved note, exactly as it already did
+                        // in RIFF mode — previously this whole NOTE-mode branch never consulted the mask at
+                        // all, so a lane's MASK (any mode) silently had zero effect unless that lane's SOURCE
+                        // was RIFF. `struckNotes` batches a NON-ratcheted hit's notes into ONE combined NOTE
+                        // VIEW push (matching the pre-fix behaviour for the common unmasked/multi-note case —
+                        // e.g. an ALL pick against a 3-note chord showing all 3 together); a note RATCHET
+                        // affects has genuinely diverged from its siblings (its own per-repeat timing), so it
+                        // gets its own independent pushes instead, mirroring the riff path's identical split.
+                        let resolveHitRank: (Int) -> Int? = { r in riffResolve(rank: r, oct: octave, n: hitNotes.count, wrap: .fold, asc: { hitNotes[$0].note }) }
+                        var struckNotes: [Int] = []
                         for idx in hitIdx where idx >= 0 && idx < hitNotes.count {
-                            guard let hitNote = riffResolve(rank: idx + 1 + melodyTranspose, oct: octave, n: hitNotes.count, wrap: .fold, asc: { hitNotes[$0].note }) else { continue }
-                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: 0, explicitNote: hitNote, explicitVel: hitVel, busOverride: busOverride)
-                        }
-                        // NOTE VIEW: read-only mirror of the strike loop above, same resolved indices,
-                        // written straight into `nvScratch` (no intermediate `.compactMap` array — §5.1).
-                        if nvSent {
-                            var hitNC = 0
-                            for idx in hitIdx where idx >= 0 && idx < hitNotes.count && hitNC < Router.noteViewMaxNotes {
-                                guard let hitNote = riffResolve(rank: idx + 1 + melodyTranspose, oct: octave, n: hitNotes.count, wrap: .fold, asc: { hitNotes[$0].note }) else { continue }
-                                if let p = finalPitch(hitNote, oct: 0) { nvScratch[hitNC] = p; hitNC += 1 }
+                            let rank = idx + 1 + melodyTranspose
+                            guard let hitNote0 = resolveHitRank(rank) else { continue }
+                            let xf = maskTransform(rank: rank, note: hitNote0, vel: hitVel, lineIndex: lineIndex,
+                                                   mm: mm, maskedChancePassed: maskedChancePassed, resolveRank: resolveHitRank)
+                            if xf.muted { continue }
+                            if let nRep = maskRatchetReps(lineIndex: lineIndex, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
+                                let perGate = min((sub / Double(nRep)) * gate, (sub / Double(nRep)) * 0.95)
+                                let p0 = finalPitch(xf.note, oct: 0)
+                                for i in 0..<nRep {
+                                    let rTau = mTickBeat + Double(i) * sub / Double(nRep)
+                                    strikeChord(tau: rTau, velScale: 1.0, gateBeats: perGate, octave: 0, explicitNote: xf.note, explicitVel: xf.vel, busOverride: busOverride)
+                                    if nvSent, let p = p0 {
+                                        nvScratch[0] = p
+                                        let onsetReal = realOf(rTau, stepBeats: S, a: a)
+                                        let offReal = realOf(rTau + perGate, stepBeats: S, a: a)
+                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onsetReal, durationBeat: offReal - onsetReal, kind: 0, noteCount: 1)
+                                    }
+                                }
+                                euclideousLastSoundedNote[lineIndex] = Int8(clamping: xf.note); euclideousLastSoundedVel[lineIndex] = xf.vel
+                                continue
                             }
+                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: 0, explicitNote: xf.note, explicitVel: xf.vel, busOverride: busOverride)
+                            for extra in xf.extra { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: 0, explicitNote: extra, explicitVel: xf.vel, busOverride: busOverride) }
+                            struckNotes.append(xf.note); struckNotes.append(contentsOf: xf.extra)
+                            euclideousLastSoundedNote[lineIndex] = Int8(clamping: xf.note); euclideousLastSoundedVel[lineIndex] = xf.vel
+                        }
+                        // NOTE VIEW: the combined push for every note this hit struck NORMALLY (not via a
+                        // per-repeat RATCHET push, already handled above, each with noteCount:1 of its own).
+                        if nvSent, !struckNotes.isEmpty {
+                            var hitNC = 0
+                            for n in struckNotes where hitNC < Router.noteViewMaxNotes { if let p = finalPitch(n, oct: 0) { nvScratch[hitNC] = p; hitNC += 1 } }
                             if hitNC > 0 {
                                 let (onset, duration) = nvTiming(hitGate)
                                 pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: hitNC)
