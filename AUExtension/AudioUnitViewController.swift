@@ -289,6 +289,11 @@ struct DiagView: View {
     // event that isn't itself wipe-eligible (e.g. a FILL/CHORD-extra-note push, which always carries
     // column/rank == -1 and must never overwrite a genuinely still-sweeping wipe).
     @State var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
+    // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): the live hit-ordinal + DRUNK walk state
+    // the main-thread cycle prediction needs as its own `startOrd`/`drunkLive` baseline — same live/
+    // responsive, NOT-persisted-config class as `euclideousRiffPositions` above, polled on the same fast
+    // meterTimer.
+    @State var euclideousRiffWalkState: [(ord: Int64, drunkPos: Int, drunkLastOrd: Int64)] = Array(repeating: (ord: 0, drunkPos: -1, drunkLastOrd: .min), count: 4)
     // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config — same
     // persisted/live-mirror treatment as the fields above (loaded in refreshFromDocument, written back via
     // au?.editDocument on every edit, resynced on the slow timer). Defaults here are the SAME defaults their
@@ -1005,7 +1010,7 @@ struct DiagView: View {
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
                     EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled,
                                    lineReady: euclideousLineReady,
-                                   riff: euclideousRiff, riffPositions: euclideousRiffPositions, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
+                                   riff: euclideousRiff, riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                    noteViewLastEvent: euclideousNVLastEvent, noteViewRestFlash: euclideousNVRestFlash,
                                    wipeEvents: euclideousWipeEvent,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
@@ -1158,6 +1163,8 @@ struct DiagView: View {
                 if er != euclideousLineReady { euclideousLineReady = er }
                 let rp = au.pollEuclideousRiffPositions()
                 if rp != euclideousRiffPositions { euclideousRiffPositions = rp }
+                let rws = au.pollEuclideousRiffWalkState()
+                if !rws.elementsEqual(euclideousRiffWalkState, by: { $0 == $1 }) { euclideousRiffWalkState = rws }
                 let mp = au.pollEuclideousMaskPositions()
                 if mp != euclideousMaskPositions { euclideousMaskPositions = mp }
                 let rlp = au.pollEuclideousRiffLivePool()

@@ -2815,14 +2815,121 @@ func euclideousNoteViewPattern(pulses: Int, steps: Int, rotate: Int, tilt: Doubl
         // match the other three sites exactly: build unrotated, tilt, THEN rotate via `euclidRotateBuffer`.
         euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
         if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }
-        euclidRotateBuffer(&buf, steps: n, rotation: rotate)
     }
+    // ROTATE APPLIES ON TOP OF customHits TOO (found 2026-10-12, while building the riff-grid-markers/
+    // footers ferry on top of this function): the real engine (Router.swift, `runEuclidLine`) calls
+    // `euclidRotateBuffer` UNCONDITIONALLY, AFTER the if/else — "OFFSET still applies — it's a position-
+    // shift on top of WHATEVER the base shape is, pure or edited, same as always" (its own comment). This
+    // function had rotation INSIDE the `else` branch only, so a hand-edited pattern with a non-zero ROTATE
+    // showed the UN-rotated hand-edited shape in NOTE VIEW — the exact RATCHET/DEST class of bug this
+    // codebase's history keeps finding, confirmed here before it could silently feed wrong riff-step
+    // numbers into the new footer strips. Moved out of the `else`, matching the engine exactly.
+    euclidRotateBuffer(&buf, steps: n, rotation: rotate)
     // MISS = PATTERN INVERT (ferry 2026-10-10 §4.1: "comets on the inverted steps") — the SAME single
     // inversion point `Router.runEuclidLine` applies, so this pure NOTE VIEW mirror can never disagree with
     // what actually sounds.
     if patternMiss { for i in 0..<n { buf[i].toggle() } }
     return buf
 }
+// MARK: - RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry) — a shared "which riff step will
+// this hit play" prediction, reused by the riff grid's own per-lane position marker AND the new per-lane
+// footer strips. Mask effects (MUTE/PAUSE/RATCHET/REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL) are
+// DELIBERATELY excluded (the ferry's own Prediction §3: "a footer shows what the lane itself will play") —
+// confirmed sound by tracing every mode in Router.swift's `maskTransform`/the riff block: PAUSE pre-empts
+// the whole riff advance before this prediction's own inputs would even apply; every other mode only
+// changes the resolved NOTE/VELOCITY after a step has already been read, never which riff step is read
+// (MIRROR/CLIMB change the resolved RANK post-lookup; LEAP substitutes a one-off read position for a single
+// note without touching the persisted walk cursor) — so none of them belong in a prediction of the lane's
+// OWN walk.
+
+/// One Euclid lap's hit positions, ascending step order — the ordinal walk this prediction needs is "which
+/// hit number is this" within one lap, so this just reads `euclideousNoteViewPattern`'s own hit/rest buffer
+/// (already the engine's exact pure mirror, patternMiss/customHits-aware) rather than re-deriving hit
+/// detection a second time.
+func euclideousLapHitSteps(pulses: Int, steps: Int, rotate: Int, tilt: Double, patternMiss: Bool, customHits: [Bool]?) -> [Int] {
+    let buf = euclideousNoteViewPattern(pulses: pulses, steps: steps, rotate: rotate, tilt: tilt, patternMiss: patternMiss, customHits: customHits)
+    var out: [Int] = []
+    for i in 0..<buf.count where buf[i] { out.append(i) }
+    return out
+}
+
+/// Derives `euclideousRiffCyclePrediction`'s own `startOrd`/`drunkLive` inputs from the LIVE poll (the
+/// ordinal the walk's most recent hit advanced on, + DRUNK's own live position/ordinal) — the UI only ever
+/// polls "where is the walk right now," never "where did the current lap begin," so this reconstructs the
+/// latter exactly rather than approximating it. Under LOCK the walk re-anchors every lap by construction
+/// (`runEuclidLine`'s own `cycleReset` — hard resets to ordinal/position 0 at the lap's first hit), so the
+/// baseline is always exactly 0 regardless of where the live poll happens to be. Under FREE, the walk is
+/// one continuous, never-resetting sequence — `liveOrd % effHits` (HIT mode) or finding which `hitSteps`
+/// entry `liveOrd % lapSteps` matches (STEP mode, since under that mode the ordinal literally IS the
+/// elapsed grid-step count) both recover exactly which hit-index-within-the-lap the most recent hit was,
+/// letting the lap's own first-hit ordinal be recovered by simple subtraction.
+func euclideousRiffLapBaseline(hitSteps: [Int], lapSteps: Int, locked: Bool, advanceStep: Bool,
+                                liveOrd: Int64, liveDrunkPos: Int, liveDrunkLastOrd: Int64)
+    -> (startOrd: Int64, drunkLive: (pos: Int, lastOrd: Int64), currentHitIndex: Int) {
+    guard !hitSteps.isEmpty, lapSteps > 0 else { return (0, (0, 0), 0) }
+    if locked { return (0, (0, 0), 0) }   // LOCK hard-resets ordinal AND (for DRUNK) position to 0 at every lap's first hit — the live hit is always index 0
+    let firstStep = hitSteps[0]
+    if advanceStep {
+        let curStepPos = Int(((liveOrd % Int64(lapSteps)) + Int64(lapSteps)) % Int64(lapSteps))
+        guard let k = hitSteps.firstIndex(of: curStepPos) else { return (liveOrd, (liveDrunkPos, liveDrunkLastOrd), 0) }
+        let lapStartOrd = liveOrd - Int64(hitSteps[k] - firstStep)
+        return (lapStartOrd, (liveDrunkPos, liveDrunkLastOrd), k)
+    } else {
+        let effHits = Int64(hitSteps.count)
+        let curIdx = Int(((liveOrd % effHits) + effHits) % effHits)
+        let lapStartOrd = liveOrd - Int64(curIdx)
+        return (lapStartOrd, (liveDrunkPos, liveDrunkLastOrd), curIdx)
+    }
+}
+
+/// The riff step (1-based, matching the grid's own displayed rank numbers) each of this lap's hits will
+/// play, in hit order — one entry per `hitSteps` entry. `startOrd` is the baseline ordinal for this lap's
+/// FIRST hit (0 under LOCK — the walk re-anchors every lap; the live running hit-count under FREE, so
+/// consecutive laps continue the same unbroken walk). `advanceStep` mirrors `runEuclidLine`'s own HIT-vs-
+/// STEP branch exactly: under STEP mode the ordinal advances by the real elapsed GRID-STEP count since the
+/// lap's first hit, not by 1 per hit. `drunkLive`, only consulted when `dir == .drunk`, is the REAL,
+/// currently-live walk position+ordinal polled from the engine (DRUNK has no periodic structure to predict
+/// in closed form — its "prediction" is a genuine forward replay via the existing non-mutating
+/// `riffDrunkPeek`, each call independent and exact: replaying a LARGER `aheadBy` from the same fixed base
+/// reproduces precisely what that many real sequential moves would have done, since `riffDrunkDelta` is
+/// itself a pure function of the tick number alone).
+func euclideousRiffCyclePrediction(hitSteps: [Int], advanceStep: Bool, dir: RiffDir, stride: Int, length: Int,
+                                    rotate: Int, seed: UInt64, bias: Double, startOrd: Int64,
+                                    drunkLive: (pos: Int, lastOrd: Int64)?) -> [Int] {
+    guard !hitSteps.isEmpty, length > 0 else { return [] }
+    let firstStep = hitSteps[0]
+    return hitSteps.enumerated().map { (hitIdx, step) in
+        let advOrd: Int64 = advanceStep ? startOrd + Int64(step - firstStep) : startOrd + Int64(hitIdx)
+        let walkPos: Int
+        if dir == .drunk {
+            guard let live = drunkLive else { return 0 }
+            let aheadBy = Int(advOrd - live.lastOrd)
+            walkPos = aheadBy > 0 ? riffDrunkPeek(fromPos: live.pos, tick: live.lastOrd, aheadBy: aheadBy, steps: length, bias: bias, seed: seed)
+                                   : live.pos
+        } else {
+            walkPos = riffStepAt(dir, raw: Int(advOrd) * stride, steps: length, seed: seed)
+        }
+        return riffRotateStep(walkPos, by: rotate, steps: length) + 1   // 1-based, matching the grid's own displayed rank numbers
+    }
+}
+
+/// Per-step footer state (ferry Part 2) — `prediction` is `euclideousRiffCyclePrediction`'s own output,
+/// `nil` when the lane has riff off entirely (rule 6: every hit gets a plain filled footer, no number).
+/// `riffRanksResolved` is the shared grid's own resolved rank array (0 = rest). A step not in `hitSteps` is
+/// always `.miss`, regardless of riff — INV/customHits are already baked into `hitSteps` by the caller
+/// (via `euclideousLapHitSteps`), so this function needs no separate awareness of either.
+enum EuclidFooterState: Equatable { case hit(riffStep: Int?), hitOnRest(riffStep: Int), miss }
+func euclideousFooterStates(hitSteps: [Int], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int]) -> [EuclidFooterState] {
+    var out = [EuclidFooterState](repeating: .miss, count: max(0, lapSteps))
+    for (i, step) in hitSteps.enumerated() where step >= 0 && step < out.count {
+        guard let prediction, i < prediction.count else { out[step] = .hit(riffStep: nil); continue }
+        let riffStep = prediction[i]
+        let isRest = riffStep >= 1 && riffStep <= riffRanksResolved.count && riffRanksResolved[riffStep - 1] == 0
+        out[step] = isRest ? .hitOnRest(riffStep: riffStep) : .hit(riffStep: riffStep)
+    }
+    return out
+}
+
 /// Euclideous's own global reset-span override (§2.2 history) — `resetSpanBars > 0` re-anchors every `cyc`
 /// beats; 0 = free-run. `cyc` is the session's own "one bar" beat length (already computed throughout
 /// Router.swift/this page for every other span calculation).

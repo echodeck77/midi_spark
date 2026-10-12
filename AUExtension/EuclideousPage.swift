@@ -382,6 +382,10 @@ struct EuclideousPage: View {
     // lane" into one shared pattern, not a single shared cursor.
     let riff: EuclideousRiff
     let riffPositions: [Int]
+    // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): each lane's live hit-ordinal + DRUNK walk
+    // state — the main-thread cycle prediction's own `startOrd`/`drunkLive` baseline, same live-poll class as
+    // `riffPositions` above.
+    let riffWalkState: [(ord: Int64, drunkPos: Int, drunkLastOrd: Int64)]
     // EUCLID MASK — LIVE POSITION (Paul 2026-10-11 bugfix): each lane's own mask position, hit-driven
     // exactly like `riffPositions` above — NOT a self-clock. See `maskCometRow`'s own doc comment for the
     // bug this replaced (the mask's step-bar used to sweep at a hardcoded rate against the page clock,
@@ -473,6 +477,14 @@ struct EuclideousPage: View {
     // MASK MODE POPUP (Paul 2026-10-10, "Euclid mask, modes and settings" ferry §4): "tapping opens a picker
     // of the 11 modes, grouped" — same scrim+centred-card shape as `ratePopupCard`. nil = no popup open.
     @State private var maskModePopupLane: Int? = nil
+    // RIFF GRID POSITION MARKERS (Paul 2026-10-12 ferry, Part 1) — each lane's own PERSISTENT marker
+    // (column, row), updated by `.onChange(of: riffPositions)` below, not recomputed fresh every render:
+    // rule 1's "stays until the lane's next hit moves it... does not flash and fade" means a TIE-on-rest
+    // tick (nothing struck, no fresh event) must leave the PREVIOUS marker exactly where it was, which a
+    // pure-function-of-current-state view could not express on its own (it has no memory of "where was it
+    // last" once the live state has already moved past that tick) — the one piece of this whole ferry that
+    // genuinely needs retained, not derived, UI state.
+    @State private var riffMarker: [(col: Int, row: Int)?] = [nil, nil, nil, nil]
     // RIFF-CELL WIPES / RESET PROGRESS (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane
     // cards" §5) — the first use of Reduce Motion anywhere in this codebase (grepped, zero prior
     // precedent). When on: the riff-cell wipe collapses to a single 150ms flash (no directional sweep, no
@@ -634,6 +646,90 @@ struct EuclideousPage: View {
             .coordinateSpace(name: "euclideousXY")
             .onPreferenceChange(EuclideousStripFramePreferenceKey.self) { melodyStripFrames = $0 }
         }
+        .onChange(of: riffPositions) { _ in updateRiffMarkers() }
+        .onAppear { updateRiffMarkers() }
+    }
+
+    /// The riff step this lane's walk will land on NEXT (1-based, same space as `riffMarker`'s own `row`) —
+    /// drives the marker's arrow direction. `nil` when there's nothing meaningful to compare against yet
+    /// (riff off, or fewer than 2 hits in the lap). Reuses the SAME `euclideousLapHitSteps`/
+    /// `euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction` pure functions `laneFooter` calls —
+    /// invoked again here rather than threaded across two independent view hierarchies, matching how
+    /// `euclideousNoteViewPattern` is already called from several independent UI sites in this file.
+    private func riffMarkerNextStep(_ idx: Int, _ line: EuclidLine) -> Int? {
+        guard line.useRiffResolved, idx < riffWalkState.count else { return nil }
+        let steps = max(2, min(16, line.steps))
+        let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
+                                              tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
+                                              customHits: line.customHitsResolved(steps))
+        guard hitSteps.count >= 2 else { return nil }
+        let ws = riffWalkState[idx]
+        let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
+        let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
+                                                   liveOrd: ws.ord, liveDrunkPos: ws.drunkPos, liveDrunkLastOrd: ws.drunkLastOrd)
+        let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.riffDirResolved,
+                                                         stride: line.riffStrideResolved, length: line.riffLengthResolved,
+                                                         rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
+                                                         bias: line.riffDirBiasResolved, startOrd: baseline.startOrd,
+                                                         drunkLive: line.riffDirResolved == .drunk ? baseline.drunkLive : nil)
+        guard !prediction.isEmpty else { return nil }
+        let current = prediction[baseline.currentHitIndex]
+        let nextIdx = (baseline.currentHitIndex + 1) % prediction.count
+        let next = prediction[nextIdx]
+        // PINGPONG's doubled-endpoint tick (Paul 2026-10-12 ferry, disclosed interpretation beyond his own
+        // text): two consecutive hits can land on the SAME riff step — a plain next-vs-current comparison
+        // reads as "no direction" right when it matters most (the marker is sitting exactly on an
+        // endpoint). Resolved by comparing against the PREVIOUS step instead, continuing whichever
+        // direction was already in motion for this one tick (the genuine reversal shows correctly on the
+        // FOLLOWING tick, once `current` itself has moved past the dwell).
+        if next == current, line.riffDirResolved == .pingpong {
+            let prevIdx = (baseline.currentHitIndex - 1 + prediction.count) % prediction.count
+            let previous = prediction[prevIdx]
+            if current > previous { return current + 1 }
+            if current < previous { return current - 1 }
+        }
+        return next
+    }
+
+    /// RIFF GRID POSITION MARKERS (Paul 2026-10-12 ferry, Part 1 rule 7) — updates `riffMarker[i]` on every
+    /// `riffPositions` poll tick. A non-rest column is read directly off the shared grid (no telemetry
+    /// needed — the rank IS the column's own resolved value); a rest column consults the SAME reconciled
+    /// `wipeEvents[i]` FILL-on-rest tells us about elsewhere on this page, and — matching rule 7's own
+    /// "with SKIP, the marker sits on the step actually played" read literally as "the step where sound was
+    /// actually produced," a disclosed refinement of Paul's own text, not implied by it — a TIE/SKIP rest
+    /// with no matching fresh event leaves the PREVIOUS marker untouched rather than jumping to a rest
+    /// column with no row to draw on.
+    /// Riff-OFF lanes get a DOT instead of an arrow, on the grid column whose resolved rank matches the
+    /// lane's own fixed note pick (rule 4) — scoped to the cases with a genuinely FIXED rank regardless of
+    /// live pool size (N1…N8, LOW ⇒ rank 1). HIGH/CYCLE/RANDOM/ALL/BOT2/TOP2 draw nothing — a disclosed
+    /// scope trim beyond the ferry's own "otherwise draw nothing" (ALL/BOT2/TOP2 only): HIGH's own rank
+    /// genuinely depends on the live pool's size, which nothing on this page currently polls, and CYCLE/
+    /// RANDOM's CURRENT pick has no live telemetry either — both are real, disclosed gaps, not oversights.
+    private func riffOffDotCell(_ line: EuclidLine) -> (col: Int, row: Int)? {
+        guard !line.useRiffResolved else { return nil }
+        // Reuses `EuclidNoteSel.specificRank` (Models.swift) directly rather than re-deriving the N1…N8
+        // mapping a second time — LOW is the one additional fixed-rank case that property doesn't cover
+        // (it's an aggregate by that enum's own doc comment, but unambiguously rank 1 regardless of pool size).
+        guard let rank = line.noteSelResolved.specificRank ?? (line.noteSelResolved == .low ? 1 : nil) else { return nil }
+        let resolved = riff.ranksResolved
+        guard let col = (0..<8).first(where: { $0 < resolved.count && resolved[$0] == rank }) else { return nil }
+        return (col, rank)
+    }
+
+    private func updateRiffMarkers() {
+        let resolved = riff.ranksResolved
+        for i in 0..<4 {
+            guard i < lines.count, lines[i].useRiffResolved else { riffMarker[i] = nil; continue }
+            guard i < riffPositions.count, riffPositions[i] >= 0, riffPositions[i] < 8 else { continue }
+            let col = riffPositions[i]
+            let rank = col < resolved.count ? resolved[col] : 0
+            if rank != 0 {
+                riffMarker[i] = (col, rank)
+            } else if i < wipeEvents.count, let ev = wipeEvents[i], ev.column == Int8(col), ev.rank >= 1 {
+                riffMarker[i] = (col, Int(ev.rank))
+            }
+            // else: a TIE/SKIP rest with nothing new sounding — leave riffMarker[i] exactly as it was.
+        }
     }
 
     // MARK: - ONE CONTAINER (this ferry §1.3, re-affirming the layout-system ferry's own rule): "the view's
@@ -656,7 +752,19 @@ struct EuclideousPage: View {
 
     // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`),
     // read by `laneCard` itself for its internal row math. ---
-    private let cometRowH: CGFloat = 56
+    // LANE FOOTERS (Paul 2026-10-12 ferry, Part 2 rule 1): "under every step cell add a 14pt footer with a
+    // 2pt gap. The cell keeps its height." Grown by exactly `footerRowH + sp4` (16) from the prior 56 —
+    // reuses `EuclidLaneBox`'s existing `trailingContent`/`trailingHeight` extension point (built for
+    // exactly this "an extra row drawn inside the box's own border, directly below the play+comet row"
+    // purpose, previously unused at this call site), whose own `reserve` subtraction already makes the
+    // comet-bar/step-cell row's rendered height invariant to this growth by construction: `max(20, height -
+    // 12 - reserve)` evaluates to the SAME 44pt either way (56-12-0 == 72-12-16), so "the cell keeps its
+    // height" holds without a new conditional. Because `contentAreaH` (below, in `laneCard`) is itself
+    // `height - cometRowH - tabRowH - ...` — a pure subtraction — the PATTERN tab's own slider block shrinks
+    // by this SAME 16pt automatically; rule 2's "if it doesn't fit, take 16pt from the slider block" is the
+    // existing formula's unconditional consequence, not a fallback that needed separate implementing.
+    private let footerRowH: CGFloat = 14
+    private let cometRowH: CGFloat = 72
     private let tabRowH: CGFloat = 30
     private let contentLineH: CGFloat = 36
     /// LAYOUT MOVE (Paul 2026-10-11: "the xy controls will be on pattern, leaving a lot of space for Euclid
@@ -1133,6 +1241,108 @@ struct EuclideousPage: View {
     // Derivations functions it read) are untouched — they're still used elsewhere (the header's own
     // "IN n" RESET countdown) — only this one background-fill consumer is removed.
 
+    /// LANE FOOTERS (Paul 2026-10-12 ferry, Part 2) — one cell per Euclid step, aligned EXACTLY under
+    /// `EuclidCometBar`'s own step boxes via the SAME `euclidBoxGeometry`/inset formula (rule: the two can
+    /// never silently disagree about where a step cell sits). Reads the shared
+    /// `euclideousLapHitSteps`/`euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction`/
+    /// `euclideousFooterStates` pure functions (Derivations.swift) fresh every time this view's body runs —
+    /// SwiftUI only re-evaluates it when one of `line`/`riff`/`riffWalkState` actually changes, which is
+    /// exactly "recompute... whenever settings... change" (Prediction rule 1) without a hand-rolled cache.
+    private func laneFooter(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat) -> some View {
+        let steps = max(2, min(16, line.steps))
+        let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
+                                              tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
+                                              customHits: line.customHitsResolved(steps))
+        var prediction: [Int]? = nil
+        if line.useRiffResolved {
+            let ws = idx < riffWalkState.count ? riffWalkState[idx] : (ord: Int64(0), drunkPos: -1, drunkLastOrd: Int64.min)
+            let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
+            let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
+                                                       liveOrd: ws.ord, liveDrunkPos: ws.drunkPos, liveDrunkLastOrd: ws.drunkLastOrd)
+            prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.riffDirResolved,
+                                                         stride: line.riffStrideResolved, length: line.riffLengthResolved,
+                                                         rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
+                                                         bias: line.riffDirBiasResolved, startOrd: baseline.startOrd,
+                                                         drunkLive: line.riffDirResolved == .drunk ? baseline.drunkLive : nil)
+        }
+        let states = euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: riff.ranksResolved)
+        // ALIGNMENT (rule 1: footers sit directly under each step cell) — `trailingContent` renders as a
+        // full-width sibling BELOW `EuclidLaneBox`'s own play+comet HStack, not inside it, so this Canvas's
+        // own x=0 is the padded content's left edge, NOT the comet bar's. Replicating EuclidLaneBox's exact
+        // internal offsets (44pt play button + 8pt HStack spacing + the comet bar's OWN 6pt insetL — this
+        // caller's `stepCountBadge` is always non-nil, so `badgeReserve` is always `8 + stepCountBadgeTotalWidth`)
+        // is what lets `euclidBoxGeometry`'s own box rects land in exactly the same screen positions
+        // `EuclidCometBar`'s Canvas already draws its own boxes at — one shared formula, not two independently
+        // guessed widths that could silently drift apart.
+        let badgeReserve: CGFloat = 8 + stepCountBadgeTotalWidth
+        let cometBarW = max(1, width - 64 - badgeReserve)
+        let boxOffsetFromLeft: CGFloat = 44 + 8 + 6   // play button + HStack spacing + EuclidCometBar's own insetL
+        let geo = euclidBoxGeometry(n: steps, usableWidth: max(1, cometBarW - 12))
+        // LEGIBILITY FLOOR (rule 9): "on step counts above 12 drop the number and keep only the fill, so
+        // nothing falls under 10pt" — the number itself stays 10pt always; above 12 steps there simply isn't
+        // room for it (the box width would force a smaller glyph), so it's omitted rather than shrunk.
+        let showNumber = steps <= 12
+        // SEAM WITH THE STEP CELL ABOVE (rule 1, literal): "the footer's bottom corners 5pt" — paired with
+        // `EuclidCometBar`'s own step box, whose BOTTOM corners now shrink to 2pt (see its own `hasFooter`
+        // doc comment) — the footer's TOP corners match that same 2pt so the seam reads as one continuous
+        // shape split in two, not two separately-bulging pieces stacked.
+        func footerPath(_ rect: CGRect) -> Path {
+            UnevenRoundedRectangle(topLeadingRadius: 2, bottomLeadingRadius: 5, bottomTrailingRadius: 5, topTrailingRadius: 2)
+                .path(in: rect)
+        }
+        return Canvas { ctx, size in
+            for i in 0..<steps {
+                let rect = CGRect(x: boxOffsetFromLeft + CGFloat(i) * geo.pitch, y: 0, width: geo.boxW, height: footerRowH)
+                let state = i < states.count ? states[i] : .miss
+                switch state {
+                case .miss:
+                    // rule 4 — plain, no fill, no border, no text (also covers rule 7's inverted former-hits
+                    // and non-hit steps alike, since both are simply `.miss` here).
+                    ctx.fill(footerPath(rect), with: .color(Color(hex: 0x22252C)))
+                case .hit(let riffStep):
+                    ctx.fill(footerPath(rect), with: .color(Color(hex: 0xDFE3EA)))
+                    if showNumber, let riffStep {
+                        let txt = Text("\(riffStep)").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
+                        ctx.draw(ctx.resolve(txt), at: CGPoint(x: rect.midX, y: rect.midY))
+                    }
+                case .hitOnRest(let riffStep):
+                    ctx.stroke(footerPath(rect), with: .color(Color(hex: 0x8A909A)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    if showNumber {
+                        let txt = Text("\(riffStep)").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
+                        ctx.draw(ctx.resolve(txt), at: CGPoint(x: rect.midX, y: rect.midY))
+                    }
+                }
+            }
+        }
+        .frame(width: width, height: footerRowH)
+        // ACCESSIBILITY (ferry's own literal text): a Canvas has no per-region accessibility of its own —
+        // overlaid with one invisible, individually-labelled element per step cell, at the SAME rects the
+        // Canvas just drew, so VoiceOver can swipe through them exactly as a user would scan the footer
+        // visually. Matches this file's own established convention elsewhere (`.accessibilityElement
+        // (children: .ignore)` + `.accessibilityLabel` on a plain tap target).
+        .overlay(
+            ZStack(alignment: .topLeading) {
+                ForEach(0..<steps, id: \.self) { i in
+                    let state = i < states.count ? states[i] : .miss
+                    let label: String = {
+                        switch state {
+                        case .miss: return "Miss"
+                        case .hitOnRest: return "Hit, lands on rest"
+                        case .hit(let riffStep):
+                            if let riffStep { return "Hit, plays riff step \(riffStep)" }
+                            return "Hit"
+                        }
+                    }()
+                    Color.clear
+                        .frame(width: geo.boxW, height: footerRowH)
+                        .offset(x: boxOffsetFromLeft + CGFloat(i) * geo.pitch, y: 0)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(label)
+                }
+            }
+        )
+    }
+
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
@@ -1169,6 +1379,12 @@ struct EuclideousPage: View {
                           onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
+                          // LANE FOOTERS (Paul 2026-10-12 ferry) — the ONLY caller of this previously-unused
+                          // extension point at Euclideous's own call site; `footerRowH + sp4` (16) is the
+                          // 14pt footer + its 2pt gap, matching `cometRowH`'s own growth exactly (see its
+                          // doc comment) so the comet bar's rendered size is unaffected by construction.
+                          trailingContent: AnyView(laneFooter(idx, line, accent: accent, width: innerWidth)),
+                          trailingHeight: footerRowH + sp4,
                           stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
                           stepCountBadgeWidth: stepCountBadgeTotalWidth)
             laneTabRow(idx, line, accent, rowH: tabRowH)
@@ -2190,30 +2406,17 @@ struct EuclideousPage: View {
             // "RIFF," which itself had superseded an even earlier subtitle; the pattern being SHARED across
             // every riff-on lane is exactly the thing worth naming here).
             Text("RIFF · SHARED").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-            // POSITION DOTS ONLY (this ferry §7.2, literal): "the thin row of half-height cells above the
-            // grid looks like a rendering fault. Do not draw cells there." The old per-column background
-            // rect (`Color.white.opacity(0.04)`, drawn for EVERY column whether or not a dot sits on it)
-            // was exactly that fault — removed entirely; this row now draws NOTHING but the dots
-            // themselves, in the reserved `riffDotRowH` (10pt) height.
+            // COLUMN NUMBERS (Paul 2026-10-12 ferry, Part 1 rule 8): "number the riff columns 1-8 above the
+            // grid, 10pt, #8a909a" — SUPERSEDES the previous ferry's own per-lane position-dot row entirely
+            // (rule 9: "this replaces the earlier rule that the riff must not show the playing note. The
+            // marker is the lane's position. Draw nothing else" — the old dot row was itself a coarser,
+            // column-only position indicator, now fully subsumed by the in-cell markers below, which show
+            // BOTH column and row). Reuses the SAME `riffDotRowH` height budget the old row occupied.
             HStack(spacing: sp4) {
                 ForEach(0..<n, id: \.self) { col in
-                    // SIDE-BY-SIDE, NOT STACKED (UI polish ferry §4.1: "only one dot shows... although
-                    // lane 1 is also playing on the riff... when lanes share a step, place their dots
-                    // side by side (4pt apart) so all of them are visible"). ROOT CAUSE, confirmed by
-                    // reading: every matching lane's dot was drawn in a plain `ZStack`, all centred at the
-                    // SAME point — when 2+ lanes shared a column, only the LAST one drawn (the highest
-                    // lane index) was visible at all, the rest fully hidden underneath it. Fixed by
-                    // collecting every currently-matching lane first, then laying them out in a real
-                    // `HStack`, centred as a GROUP within the cell.
-                    let activeLanes = (0..<4).filter { i in i < lines.count && lines[i].useRiffResolved && i < riffPositions.count && riffPositions[i] == col }
-                    HStack(spacing: 4) {
-                        ForEach(activeLanes, id: \.self) { i in
-                            // §5, literal: "its riff dot: drawn 50% larger" when the lane is selected.
-                            let dotSize: CGFloat = selectedLane == i ? 12 : 8
-                            Circle().fill(lane100(laneAccents[i % laneAccents.count])).frame(width: dotSize, height: dotSize)
-                        }
-                    }
-                    .frame(width: cellW, height: riffDotRowH)
+                    Text("\(col + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: 0x8A909A))
+                        .frame(width: cellW, height: riffDotRowH)
                 }
             }
             // ONE SHARED TIMELINE FOR THE WHOLE MATRIX (usability ferry §1.2 DSP fix) — was 64 independent
@@ -2244,28 +2447,14 @@ struct EuclideousPage: View {
                 }
                 .frame(width: 18, height: cellH * 8 + sp4 * 7)
                 // PLAYHEAD-STYLE SWEEP REMOVED (Paul 2026-10-12: "remove the play head style sweeps from the
-                // grid"), ahead of the incoming per-lane position-marker redesign. The per-cell wipe overlay
-                // this grid used to draw on every matching strike — and the `TimelineView` that drove it —
-                // are both gone; the matrix is now a plain static VStack, redrawn only on a real tap-to-edit.
-                // `wipeEvents` (the stored property feeding the old overlay) is left in place, unused, for
-                // now — its underlying per-lane column/rank event snapshot is a plausible data source for
-                // the new marker system about to be planned; deleting it here would be premature, not tidy.
+                // grid") — the per-cell wipe overlay this grid used to draw on every matching strike is gone.
+                // `wipeEvents` now genuinely feeds the NEW per-lane position markers below (the FILL-on-rest
+                // row lookup, `updateRiffMarkers()`) rather than sitting unused.
                 VStack(spacing: sp4) {
                     ForEach((1...8).reversed(), id: \.self) { rank in
                         HStack(spacing: sp4) {
                             ForEach(0..<n, id: \.self) { col in
-                                let on = col < ranks.count && ranks[col] == rank
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
-                                    .frame(width: cellW, height: cellH)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        onEditRiff { r in
-                                            var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
-                                            if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
-                                            r.ranks = rr; r.steps = n
-                                        }
-                                    }
+                                riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n)
                             }
                         }
                     }
@@ -2274,6 +2463,112 @@ struct EuclideousPage: View {
         }
         .padding(sp8)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+    }
+
+    /// One riff-grid matrix cell (Paul 2026-10-12 ferry, Part 1 rules 5/6) — an "occupant" is either a
+    /// riff-on lane whose `riffMarker` sits here (an arrow) or a riff-off lane whose fixed-note dot sits
+    /// here (a dot); both collected in LANE ORDER (rule 6) and banded top-to-bottom within the cell. A
+    /// FILL-on-rest marker (rule 7) draws a DASHED outline instead of the normal solid rank-fill; everything
+    /// else is the pre-existing plain on/off fill, unchanged.
+    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int) -> some View {
+        struct Occupant { let lane: Int; let isArrow: Bool; let onRest: Bool }
+        var occupants: [Occupant] = []
+        for i in 0..<min(4, lines.count) {
+            if let m = riffMarker[i], m.col == col, m.row == rank {
+                let onRest = col < ranks.count && ranks[col] == 0
+                occupants.append(Occupant(lane: i, isArrow: true, onRest: onRest))
+            } else if let d = riffOffDotCell(lines[i]), d.col == col, d.row == rank {
+                occupants.append(Occupant(lane: i, isArrow: false, onRest: false))
+            }
+        }
+        let on = col < ranks.count && ranks[col] == rank
+        return ZStack {
+            RoundedRectangle(cornerRadius: 3)
+                // rule 5: a cell holding a marker becomes #15171c inside; otherwise the existing plain on/off
+                // fill, unchanged.
+                .fill(occupants.isEmpty ? (on ? Color.white.opacity(0.85) : Color.white.opacity(0.08)) : Color(hex: 0x15171C))
+                // rule 5: "keeps its light selection border" — an ambient 1pt light border on every cell
+                // (ADDITIVE, not previously present), retained unchanged whether or not a marker occupies it.
+                .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                // rule 7: FILL/TIE landing on a rest gets a dashed outline INSTEAD of the solid treatment above.
+                .overlay(occupants.contains(where: { $0.isArrow && $0.onRest })
+                         ? RoundedRectangle(cornerRadius: 3).stroke(Color(hex: 0x8A909A), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                         : nil)
+            if !occupants.isEmpty {
+                // rule 6: "split the cell into horizontal bands in lane order... one marker per band. One
+                // lane gets a 22pt arrow and four lanes get 12pt arrows." Linear interpolation between those
+                // two named endpoints for 2/3 occupants.
+                let glyphSize: CGFloat = occupants.count <= 1 ? 22 : 22 - (22 - 12) * CGFloat(occupants.count - 1) / 3
+                VStack(spacing: 0) {
+                    ForEach(occupants.indices, id: \.self) { k in
+                        let o = occupants[k]
+                        let accent = laneAccents[o.lane % laneAccents.count]
+                        riffMarkerGlyph(lane: o.lane, isArrow: o.isArrow, accent: accent, glyphSize: glyphSize)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+        }
+        .frame(width: cellW, height: cellH)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onEditRiff { r in
+                var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
+                if col < rr.count { rr[col] = (rr[col] == rank ? 0 : rank) }
+                r.ranks = rr; r.steps = n
+            }
+        }
+        // ACCESSIBILITY (ferry's own literal text: "Step 3, E♭, lane 1 here, next up"). The note name
+        // resolves `riffLivePool` (already a live page property — "the ascending notes currently feeding the
+        // riff's own pool") at this cell's own rank, reusing `euclideousNoteViewName`/`euclideousKeyIsFlat`
+        // (Derivations.swift) exactly as this page's own NOTE VIEW panel already does elsewhere — omitted
+        // (falls back to the bare "Step N" form) only when the pool doesn't currently reach this rank.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(occupants.isEmpty ? "" : {
+            let flatKey = euclideousKeyIsFlat(keyRoot)
+            let noteName = (rank >= 1 && rank <= riffLivePool.count) ? euclideousNoteViewName(riffLivePool[rank - 1], flatKey: flatKey) : nil
+            let stepPart = noteName.map { "Step \(col + 1), \($0)" } ?? "Step \(col + 1)"
+            return occupants.map { o in
+                o.isArrow ? "\(stepPart), lane \(o.lane + 1) here, \(riffMarkerDirectionWord(o.lane, lines[o.lane]))"
+                          : "Lane \(o.lane + 1)'s fixed note here"
+            }.joined(separator: "; ")
+        }())
+    }
+    /// "next up" / "next down" for the accessibility label — a plain-English gloss of the SAME comparison
+    /// `riffMarkerGlyph` uses for its own arrow glyph, so the two can never disagree.
+    private func riffMarkerDirectionWord(_ lane: Int, _ line: EuclidLine) -> String {
+        // Both sides compared in the SAME space — 1-based COLUMN number (the walk moves through columns
+        // over time; `m.row` is the RANK at that column, a different axis entirely, not what "direction of
+        // the next move" means here).
+        guard let m = riffMarker[lane], let next = riffMarkerNextStep(lane, line) else { return "here" }
+        return next >= m.col + 1 ? "next up" : "next down"
+    }
+    /// One occupant's own glyph (rule 2/3): an arrow (riff-on) pointing toward its next move, with stride-
+    /// based extra arrowheads/a number; a plain dot (riff-off, rule 4).
+    private func riffMarkerGlyph(lane: Int, isArrow: Bool, accent: Color, glyphSize: CGFloat) -> some View {
+        Group {
+            if !isArrow {
+                Circle().fill(lane100(accent)).frame(width: min(10, glyphSize * 0.4), height: min(10, glyphSize * 0.4))
+            } else {
+                let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+                let m = lane < riffMarker.count ? riffMarker[lane] : nil
+                let next = riffMarkerNextStep(lane, line)
+                // Compared in COLUMN space (1-based), not rank — see `riffMarkerDirectionWord`'s own comment.
+                let pointsRight = (m != nil && next != nil) ? next! >= m!.col + 1 : true
+                let glyph = pointsRight ? "▶" : "◀"
+                let stride = line.riffStrideResolved
+                HStack(spacing: 1) {
+                    if stride <= 3 {
+                        ForEach(0..<max(1, stride), id: \.self) { _ in
+                            Text(glyph).font(.system(size: glyphSize, weight: .heavy)).foregroundColor(lane100(accent))
+                        }
+                    } else {
+                        Text(glyph).font(.system(size: glyphSize, weight: .heavy)).foregroundColor(lane100(accent))
+                        Text("\(stride)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(lane100(accent))
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - NOTE VIEW, phase 1 (Paul 2026-10-10 ferry — working name, final name to come): four lane strips,

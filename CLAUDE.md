@@ -196,6 +196,87 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — riff-grid POSITION MARKERS + per-lane FOOTER STRIPS, a shared PREDICTION engine (2026-10-12,
+  on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1343 green incl. 14 new, iOS builds clean). A large,
+  fully-specified ferry (Part 1: riff-grid markers · Part 2: lane footers · Prediction · Accessibility ·
+  Acceptance), planned via EnterPlanMode first (2 research forks covering the riff-walk engine/lane-card
+  geometry/mask semantics/accessibility conventions, since this is the biggest single ask this session and
+  touches the render engine's own riff-walk internals, not just UI). Supersedes the per-cell playhead wipe
+  sweep removed earlier the same day — this is what replaces it. **THE SHARED PREDICTION (Derivations.swift,
+  new, pure, main-thread-only):** `euclideousLapHitSteps` (wraps the existing `euclideousNoteViewPattern`,
+  returning one Euclid lap's hit positions in ascending order) → `euclideousRiffLapBaseline` (derives the
+  CURRENT lap's own first-hit ordinal + which hit-index-within-lap the live poll's ordinal corresponds to —
+  LOCK always resets to 0; FREE recovers it via `liveOrd % effHits` under HIT-advance mode or by matching
+  `liveOrd % lapSteps` against the known hit positions under STEP-advance mode, both exact, not approximated)
+  → `euclideousRiffCyclePrediction` (walks `riffStepAt`/`riffDrunkPeek` — THE SAME pure functions
+  `runEuclidLine` itself calls — to predict the riff step each of this lap's hits will play) →
+  `euclideousFooterStates` (turns the prediction into per-step HIT/HIT-ON-REST/MISS states). Mask effects
+  (MUTE/PAUSE/RATCHET/REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL) are DELIBERATELY excluded — confirmed
+  architecturally sound by tracing every mode in Router.swift, not just accepted on faith: PAUSE pre-empts the
+  whole riff advance before this prediction's own inputs would even apply; every other mode only changes the
+  resolved note/velocity AFTER a step is read, never which riff step is read. DRUNK has no periodic structure
+  to predict in closed form — it's a genuine forward replay via `riffDrunkPeek` from the engine's OWN live
+  walk state, polled via a new `Router.euclideousRiffWalkState()` (ord/drunkPos/drunkLastOrd per lane, mirroring
+  `euclideousRiffPositions()`'s existing 3-layer Router→Kernel→MidiSparkAudioUnit→AudioUnitViewController poll
+  chain exactly) — a NEW small per-lane Router state, `euclideousRiffLastOrd`, written at the same site
+  `euclideousRiffStep` already is. **PART 2 — LANE FOOTERS:** reuses `EuclidLaneBox`'s existing, previously-
+  UNUSED `trailingContent`/`trailingHeight` extension point at Euclideous's own call site — `cometRowH` grows
+  from 56→72 (exactly `footerRowH(14) + sp4(2)` = 16), and because the comet bar's own height is already
+  `max(20, height − 12 − reserve)`, the step-cell row's RENDERED size is unchanged by construction (56−12−0 ==
+  72−12−16 == 44) — "the cell keeps its height" holds without a new conditional, and the PATTERN tab's slider
+  block shrinks by the same 16pt automatically since `contentAreaH` is a pure subtraction — rule 2's "if it
+  doesn't fit, take 16pt from the slider block" is the existing formula's unconditional consequence, not a
+  fallback that needed separate implementing. New `EuclidLaneFooter`-equivalent (`laneFooter`, EuclideousPage.
+  swift) aligns its cells EXACTLY under `EuclidCometBar`'s own step boxes by replicating that component's
+  internal offset math (44pt play button + 8pt spacing + the bar's own 6pt inset) — one shared
+  `euclidBoxGeometry` formula, so the two can never silently drift apart. **PART 1 — RIFF-GRID MARKERS:** a
+  new per-lane `@State riffMarker: [(col,row)?]`, updated via `.onChange(of: riffPositions)` — the ONE piece
+  of this whole ferry that genuinely needs RETAINED, not derived, UI state (a TIE-on-rest tick, with nothing
+  newly sounding, must leave the marker exactly where it was — a pure function of current state alone can't
+  express "stay put," only accumulated state can). A non-rest landing reads its row directly off the shared
+  grid; a FILL-on-rest landing needed a genuinely NEW piece of engine telemetry — FILL's own
+  `pushNoteViewEvent` call (Router.swift) never carried column/rank before (confirmed the ONLY strike site
+  that didn't), so there was no way for the marker to know which row to draw a FILL-on-rest at; now computes
+  and passes its own first-struck-index as a 1-based rank, matching the real-rank branch's own existing
+  convention. The retired per-lane position-DOT row above the grid (an EARLIER ferry's own coarser, column-
+  only indicator) is replaced with plain column numbers 1-8 (rule 8) — now fully subsumed by the new in-cell
+  markers, which show both column AND row. Arrow direction compares the prediction's NEXT entry against the
+  CURRENT one (both in COLUMN space — caught and fixed a real bug before shipping: an early draft compared
+  the next predicted COLUMN against the marker's own RANK, two different axes entirely, which would have
+  shown nonsense directions); PINGPONG's doubled-endpoint tick (two consecutive hits can land on the identical
+  column) is resolved by comparing against the PREVIOUS step instead, continuing whichever direction was
+  already in motion for that one tick — a disclosed interpretation beyond Paul's own text. Riff-OFF lanes draw
+  a DOT on the grid column matching their fixed NOTE pick — scoped to N1…N8 and LOW only (a genuinely fixed
+  rank regardless of live pool size); HIGH/CYCLE/RANDOM/ALL/BOT2/TOP2 draw nothing, a disclosed scope trim
+  beyond the ferry's own "ALL/BOT2/TOP2 → nothing" (HIGH's own rank depends on the live pool's size, which
+  nothing on this page currently polls; CYCLE/RANDOM's CURRENT pick has no live telemetry either). **TWO BONUS
+  BUG FIXES, found while building on top of the existing pure mirror/shared component, not tangential:**
+  (1) `euclideousNoteViewPattern` applied ROTATE only inside its generated-pattern branch, never on top of a
+  hand-edited (`customHits`) pattern — the real engine (`runEuclidLine`) applies rotation UNCONDITIONALLY,
+  after the if/else, "a position-shift on top of whatever the base shape is, pure or edited" per its own
+  comment — a customHits+rotate lane showed the wrong (un-rotated) hit positions in NOTE VIEW and would have
+  fed wrong riff-step numbers into the new footers; fixed to match the engine exactly, +1 regression test.
+  (2) `EuclidCometBar` never had a `customHits` parameter at all — a hand-edited lane's own step-bar visually
+  showed the GENERATED pattern, not the actual edited one, directly contradicting the new footer drawn
+  immediately below it; added (nil-default, byte-identical for every other caller). **A THIRD, cosmetic
+  addition (Part 2 rule 1, literal):** `EuclidCometBar`'s own step-box corners now shrink to 2pt on the
+  BOTTOM only (via `UnevenRoundedRectangle`, gated on a new `hasFooter` flag — false everywhere except
+  Euclideous's own call site) matching the footer cell's own 5pt bottom/2pt top, "so the pair reads as one
+  piece." **TESTS (+14, all in Derivations/RouterTests):** the full worked example from the ferry's own
+  acceptance checklist ("3 hits from riff step 3 → footers read 3·4·5"); HIT-mode/STEP-mode ordinal advance;
+  PENDULUM reversing cleanly at the peak with no special-casing; DRUNK's prediction reproducing EXACTLY what a
+  hand-simulated real walk would do; the lap-baseline recovery for LOCK/FREE-HIT/FREE-STEP; footer state
+  hit/miss/rest/riff-off; the customHits+rotate regression; the new `euclideousRiffWalkState()` poll's ordinal
+  tracking + DRUNK-position cross-check against the existing `euclideousRiffPositions()`. **DEVICE-OWED, the
+  whole feature (no screenshots possible in this environment):** the marker's legibility/banding with 2+ lanes
+  sharing a cell; the arrow vs. dot rendering and the 2pt/5pt corner seam at real grid size; the footer
+  strip's 10pt/14pt text at real lane-card width, especially the `lapSteps > 12` no-number floor; VoiceOver
+  reading the new labels sensibly (the riff-cell label's note name resolves the existing live `riffLivePool` +
+  `euclideousNoteViewName`/`euclideousKeyIsFlat`, the SAME flat/sharp convention NOTE VIEW's own panel
+  already uses elsewhere on this page — falls back to a bare "Step N" when the live pool doesn't currently
+  reach that rank); confirming the 16pt slider-block shrink still leaves PATTERN's sliders usable in portrait
+  on the smallest supported iPad (reasoned via the existing subtraction chain, not measured against a real
+  device).**
 - **▶ EUCLIDEOUS — the riff-grid playhead sweep + the lane-card background progress fill REMOVED (2026-10-12,
   on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS test-target reach — pure UI,
   `EuclideousPage.swift` only). Paul, ahead of planning the next ferry (riff-grid position markers + lane

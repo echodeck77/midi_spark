@@ -548,6 +548,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// `pollEuclideousLineReady` below (not the slow ~4Hz config-resync timer) — this is a per-hit, responsive
     /// indicator, not config.
     func pollEuclideousRiffPositions() -> [Int] { kernel.euclideousRiffPositions() }
+    func pollEuclideousRiffWalkState() -> [(ord: Int64, drunkPos: Int, drunkLastOrd: Int64)] { kernel.euclideousRiffWalkState() }
     /// Each lane's own mask position — hit-driven (advances only on a real sounding hit of the lane's
     /// Euclid pattern), never a self-clocked sweep; same fast ~30fps cadence as the riff positions above
     /// (Paul 2026-10-11: "Euclid mask was moving at the main rate... not progressing on hits" — the fix).

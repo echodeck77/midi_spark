@@ -1743,6 +1743,20 @@ final class DerivationsTests: XCTestCase {
         euclidPatternInto(&expected, pulses: 3, steps: 8, rotation: 0)
         XCTAssertEqual(buf, expected)
     }
+    /// Found 2026-10-12 while building the riff-grid-markers/footers ferry on top of this function: ROTATE
+    /// must apply on top of a hand-edited (`customHits`) pattern too, matching Router.swift's own
+    /// `runEuclidLine` exactly ("OFFSET still applies — a position-shift on top of whatever the base shape
+    /// is, pure or edited"). Previously rotation only ran inside the generated-pattern branch.
+    func testEuclideousNoteViewPatternAppliesRotateOnTopOfCustomHitsToo() {
+        let custom = [true, false, false, false]
+        let unrotated = euclideousNoteViewPattern(pulses: 1, steps: 4, rotate: 0, tilt: 0, customHits: custom)
+        XCTAssertEqual(unrotated, [true, false, false, false])
+        let rotated = euclideousNoteViewPattern(pulses: 1, steps: 4, rotate: 1, tilt: 0, customHits: custom)
+        var base = [true, false, false, false]
+        euclidRotateBuffer(&base, steps: 4, rotation: 1)
+        XCTAssertEqual(rotated, base, "a hand-edited pattern must rotate exactly like a generated one")
+        XCTAssertNotEqual(rotated, unrotated, "rotation must actually move the hit, not be silently ignored for customHits")
+    }
     func testEuclideousNoteViewIsHitWrapsAndReAnchorsOnSpanBoundaries() {
         let buf = euclideousNoteViewPattern(pulses: 1, steps: 4, rotate: 0, tilt: 0)   // a hit on step 0 only
         // FREE (spanBeats 0): hits recur every 4 beats at sub=1 forever.
@@ -1752,6 +1766,129 @@ final class DerivationsTests: XCTestCase {
         // A 2-beat SPAN re-anchors the pattern's own step-0 every 2 beats — tick beat 2 (a span boundary)
         // must ALSO read as a hit, even though it's "step 2" under the free-run reading above.
         XCTAssertTrue(euclideousNoteViewIsHit(buf: buf, tickBeat: 2, sub: 1, spanBeats: 2, dir: .fwd), "a span re-anchor must make beat 2 (the span's own step 0) a hit again")
+    }
+    // ── RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry) ────────────────────────────────────────
+    func testEuclideousLapHitStepsMatchesThePatternsOwnHitPositions() {
+        let buf = euclideousNoteViewPattern(pulses: 3, steps: 8, rotate: 0, tilt: 0)
+        let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 0, tilt: 0, patternMiss: false, customHits: nil)
+        XCTAssertEqual(hits, (0..<8).filter { buf[$0] }, "must be exactly the ascending step indices the pure pattern mirror marks as hits")
+        XCTAssertEqual(hits.count, 3)
+    }
+    /// Paul's own literal acceptance example: "Lane 1 forward, 3 hits from riff step 3: footers read
+    /// 3 · 4 · 5." A 3-hit lap, FWD/stride 1/length 8, with `startOrd` chosen so the first hit lands on
+    /// (0-based) riff step 2 — i.e. the displayed "riff step 3."
+    func testEuclideousRiffCyclePredictionMatchesPaulsOwnWorkedExample() {
+        let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 0, tilt: 0, patternMiss: false, customHits: nil)
+        let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: false, dir: .forward, stride: 1,
+                                                        length: 8, rotate: 0, seed: 0, bias: 0, startOrd: 2, drunkLive: nil)
+        XCTAssertEqual(predicted, [3, 4, 5])
+    }
+    /// A one-step STRIDE/HIT-mode advance from a DIFFERENT starting ordinal lands somewhere else entirely —
+    /// guards against the worked example above being coincidentally right regardless of `startOrd`.
+    func testEuclideousRiffCyclePredictionAdvancesFromItsOwnStartOrd() {
+        let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 0, tilt: 0, patternMiss: false, customHits: nil)
+        let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: false, dir: .forward, stride: 1,
+                                                        length: 8, rotate: 0, seed: 0, bias: 0, startOrd: 0, drunkLive: nil)
+        XCTAssertEqual(predicted, [1, 2, 3])
+    }
+    /// ADVANCE = STEP: the ordinal climbs by the REAL elapsed grid-step count since the lap's first hit,
+    /// not by 1 per hit — a lap with hits at steps 0, 3, 5 (gaps of 3 and 2) must show the SAME gaps in the
+    /// predicted riff-step sequence, not a uniform +1 walk.
+    func testEuclideousRiffCyclePredictionStepModeAdvancesByRealElapsedSteps() {
+        let hits = [0, 3, 5]
+        let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: true, dir: .forward, stride: 1,
+                                                        length: 8, rotate: 0, seed: 0, bias: 0, startOrd: 0, drunkLive: nil)
+        XCTAssertEqual(predicted, [1, 4, 6], "gaps of 3 and 2 grid-steps must advance the riff walk by 3 and 2 steps, not 1 and 1")
+    }
+    /// PENDULUM at the top of its run reverses cleanly, the direct worked-example proof behind "a pendulum
+    /// lane at the end of its run already points back": length 4 ⇒ period 2*(4-1)=6, raw%6 sequence
+    /// 0,1,2,3,2,1,… — the ord landing on raw%6==3 (the peak, displayed rank 4) is IMMEDIATELY followed by
+    /// a strictly LOWER rank (raw%6==4 ⇒ value 2, rank 3), proving the next-vs-current comparison a marker's
+    /// arrow direction reads off this same array already encodes the turnaround with no special-casing.
+    func testEuclideousRiffCyclePredictionPendulumReversesAtThePeakWithNoSpecialCasing() {
+        let hits = [0, 1]   // two consecutive hits, ord 3 then 4 (raw%6 == 3 then 4)
+        let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: false, dir: .pendulum, stride: 1,
+                                                        length: 4, rotate: 0, seed: 0, bias: 0, startOrd: 3, drunkLive: nil)
+        XCTAssertEqual(predicted, [4, 3], "the peak (rank 4) must be immediately followed by a strictly lower rank — the reversal, read directly off the sequence")
+    }
+    /// DRUNK's prediction must reproduce EXACTLY what the real, stateful walk would do — simulated by hand
+    /// via the same `riffDrunkDelta`/reflect/clamp the real engine's own `euclideousRiffDrunkStep` applies
+    /// on every real advance, then compared against `riffDrunkPeek`-driven prediction for the same ordinals.
+    func testEuclideousRiffCyclePredictionDrunkReplaysExactlyWhatTheRealWalkWouldDo() {
+        let steps = 8, bias = 0.3, seed: UInt64 = 0x1234
+        var pos = 2   // the "live" walk's current position
+        let lastOrd: Int64 = 10
+        // Hand-replay the real walk forward 3 ticks (ord 11, 12, 13), mirroring Router.swift's own
+        // euclideousRiffDrunkStep main-advance branch exactly.
+        var expected: [Int] = []
+        for k in 1...3 {
+            var np = pos + riffDrunkDelta(tick: lastOrd + Int64(k), bias: bias, seed: seed)
+            if np < 0 { np = -np }
+            if np > steps - 1 { np = 2 * (steps - 1) - np }
+            pos = max(0, min(steps - 1, np))
+            expected.append(pos + 1)
+        }
+        let hits = [0, 1, 2]   // 3 consecutive hits, ord 11, 12, 13 under HIT mode from startOrd 11
+        let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: false, dir: .drunk, stride: 1,
+                                                        length: steps, rotate: 0, seed: seed, bias: bias, startOrd: 11,
+                                                        drunkLive: (pos: 2, lastOrd: lastOrd))
+        XCTAssertEqual(predicted, expected, "the prediction must reproduce the exact sequence the real walk would take, not an approximation")
+    }
+    func testEuclideousRiffLapBaselineLockAlwaysResetsRegardlessOfLiveState() {
+        let hits = [0, 3, 6]
+        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: true, advanceStep: false,
+                                            liveOrd: 47, liveDrunkPos: 5, liveDrunkLastOrd: 46)
+        XCTAssertEqual(b.startOrd, 0)
+        XCTAssertEqual(b.drunkLive.pos, 0)
+        XCTAssertEqual(b.drunkLive.lastOrd, 0)
+        XCTAssertEqual(b.currentHitIndex, 0, "LOCK: the live hit is always lap-relative index 0 — a fresh lap always starts there")
+    }
+    /// FREE + HIT mode: a live ordinal mid-lap (hit index 1 of 3) must recover the lap's OWN first-hit
+    /// ordinal by simple subtraction — verified by feeding the recovered `startOrd` straight back into
+    /// `euclideousRiffCyclePrediction` and confirming hit-index 1's own prediction matches what the live
+    /// ordinal would directly predict for ITSELF, proving the baseline is self-consistent.
+    func testEuclideousRiffLapBaselineFreeHitModeRecoversTheLapsFirstHitOrdinal() {
+        let hits = [0, 3, 6]   // effHits = 3
+        // live ordinal 7 ⇒ 7 % 3 == 1 ⇒ currently at hit-index 1 of the lap ⇒ lap started at ordinal 6
+        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: false, advanceStep: false,
+                                            liveOrd: 7, liveDrunkPos: -1, liveDrunkLastOrd: .min)
+        XCTAssertEqual(b.startOrd, 6)
+        XCTAssertEqual(b.currentHitIndex, 1)
+        let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: false, dir: .forward, stride: 1,
+                                                        length: 8, rotate: 0, seed: 0, bias: 0, startOrd: b.startOrd, drunkLive: nil)
+        // hit-index 1 (the live hit itself, ordinal 7) must read the SAME riff step a direct call with
+        // startOrd 7 would predict for hit-index 0 — the self-consistency check.
+        let direct = euclideousRiffCyclePrediction(hitSteps: [hits[1]], advanceStep: false, dir: .forward, stride: 1,
+                                                     length: 8, rotate: 0, seed: 0, bias: 0, startOrd: 7, drunkLive: nil)
+        XCTAssertEqual(predicted[1], direct[0])
+    }
+    /// FREE + STEP mode: the live ordinal (the elapsed GRID-STEP count at the most recent hit, not a hit
+    /// count) must recover the lap's first-hit ordinal by finding which hit the live step position matches.
+    func testEuclideousRiffLapBaselineFreeStepModeRecoversTheLapsFirstHitOrdinal() {
+        let hits = [0, 3, 6]
+        // Under STEP mode the live ordinal IS the elapsed grid-step count, read via `buf[localT % lapSteps]`
+        // — so a lap starting at ordinal 8 (self-consistent: 8 % 8 == hits[0] == 0) has its step-6 hit
+        // (hits[2]) occur at ordinal 8 + (6 - 0) = 14 (checked: 14 % 8 == 6, the step itself).
+        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: false, advanceStep: true,
+                                            liveOrd: 14, liveDrunkPos: -1, liveDrunkLastOrd: .min)
+        XCTAssertEqual(b.startOrd, 8)
+        XCTAssertEqual(b.currentHitIndex, 2, "the live hit landed on hits[2] (step 6) — array index 2")
+    }
+    func testEuclideousFooterStatesHitMissRestAndRiffOff() {
+        // 3 hits (steps 0, 3, 6 of an 8-step lap); predicted riff steps 3, 5(rest), 7 against a grid whose
+        // rank 5 is a rest (0).
+        let hits = [0, 3, 6]
+        let ranks = [1, 2, 3, 4, 0, 6, 7, 8]   // 0-based index 4 (displayed rank 5) is a rest
+        let states = euclideousFooterStates(hitSteps: hits, lapSteps: 8, prediction: [3, 5, 7], riffRanksResolved: ranks)
+        XCTAssertEqual(states[0], .hit(riffStep: 3))
+        XCTAssertEqual(states[1], .miss)
+        XCTAssertEqual(states[3], .hitOnRest(riffStep: 5))
+        XCTAssertEqual(states[6], .hit(riffStep: 7))
+        // Riff off (prediction nil): every hit is a plain, number-less hit; non-hits stay miss.
+        let offStates = euclideousFooterStates(hitSteps: hits, lapSteps: 8, prediction: nil, riffRanksResolved: ranks)
+        XCTAssertEqual(offStates[0], .hit(riffStep: nil))
+        XCTAssertEqual(offStates[3], .hit(riffStep: nil))
+        XCTAssertEqual(offStates[1], .miss)
     }
     func testEuclideousNoteViewMarkXReachesThePlayheadExactlyAtAgeZeroAndIsRemovedPastIt() {
         // Flipped 2026-10-11 (Paul: "right-to-left is what you expect on any piano roll") — the playhead

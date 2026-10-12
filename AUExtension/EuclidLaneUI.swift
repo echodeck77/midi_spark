@@ -126,7 +126,10 @@ struct EuclidLaneBox: View {
                 // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
                 let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (8 + stepCountBadgeWidth)
                 EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
-                               rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved, tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64 - badgeReserve),
+                               rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved,
+                               customHits: line.customHitsResolved(max(2, min(16, line.steps))),
+                               hasFooter: trailingContent != nil,
+                               tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64 - badgeReserve),
                                onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                                onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
                     .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
@@ -179,6 +182,17 @@ struct EuclidCometBar: View {
     // treatment unchanged) and the REST branch below draws the OLD, now-silent Euclid hits as a lane-coloured
     // outline instead of today's flat dim fill.
     var missStyle: Bool = false
+    // HAND-EDITED PATTERN (found 2026-10-12, building the riff-grid-markers/footers ferry on top of this
+    // component): this bar never had a `customHits` parameter at all — a lane with a hand-edited pattern
+    // (the six-sliders ferry, same day) still drew the GENERATED Euclid shape here, not the actual edited
+    // one, directly contradicting what the new per-lane footer strip (drawn immediately below this bar)
+    // now correctly shows. nil (every existing caller) ⇒ byte-identical generated-pattern behaviour.
+    var customHits: [Bool]? = nil
+    // SEAM WITH A LANE-FOOTER STRIP (Paul 2026-10-12 ferry, Part 2 rule 1) — true only when this bar's own
+    // caller is ALSO drawing a footer directly beneath it (Euclideous's own call site); every other caller
+    // (the regular BUILD-page EUCLID editor, Euclideous's own MASK-tab bar) defaults false ⇒ byte-identical
+    // uniform corner radius.
+    var hasFooter: Bool = false
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -221,12 +235,19 @@ struct EuclidCometBar: View {
             let nD = Double(n)
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
-                // REORDERED 2026-10-11 alongside the real engine (see `euclidTiltPattern`'s own doc
-                // comment): tilt now runs on the UNROTATED pattern, rotation applied to the already-tilted
-                // result — ferry §3.4's own "match the real engine's own emission exactly" still holds,
-                // just against the engine's new (decoupled) order instead of the old one.
-                _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
-                if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }
+                // HAND-EDITED PATTERN (found 2026-10-12) — mirrors Router.swift's own `runEuclidLine`
+                // exactly: a non-nil `customHits` replaces generation entirely (TILT never consulted);
+                // ROTATE still applies on top regardless, matching the engine's own unconditional call.
+                if let custom = customHits, !custom.isEmpty {
+                    for i in 0..<n { buf[i] = i < custom.count ? custom[i] : false }
+                } else {
+                    // REORDERED 2026-10-11 alongside the real engine (see `euclidTiltPattern`'s own doc
+                    // comment): tilt now runs on the UNROTATED pattern, rotation applied to the already-
+                    // tilted result — ferry §3.4's own "match the real engine's own emission exactly" still
+                    // holds, just against the engine's new (decoupled) order instead of the old one.
+                    _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
+                    if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }
+                }
                 euclidRotateBuffer(&buf, steps: n, rotation: rotate)
                 let w = size.width, midY = size.height / 2
                 let insetL: CGFloat = 6, insetR: CGFloat = 6
@@ -239,8 +260,21 @@ struct EuclidCometBar: View {
                 let (boxW, gap, _) = euclidBoxGeometry(n: n, usableWidth: usable)   // the SAME shared formula the outer rotate-drag sensitivity uses — can't drift apart
                 let boxH = min(30, size.height - 6)
                 let corner = min(5, boxW / 2.2)
+                // SEAM WITH THE LANE-FOOTER STRIP BELOW (Paul 2026-10-12 ferry, Part 2 rule 1): "the cell's
+                // bottom corners become 2pt radius and the footer's bottom corners 5pt, so the pair reads
+                // as one piece" — the TOP corners keep their existing radius; only the two corners touching
+                // the footer seam shrink, so the join reads as a single continuous shape split in two rather
+                // than two separately-bulging pieces stacked. `hasFooter` is true only for Euclideous's own
+                // call site (where `trailingContent` is non-nil) — every other caller (the regular BUILD-
+                // page EUCLID editor) is byte-identical, still a uniform corner radius.
+                let bottomCorner = hasFooter ? min(corner, 2) : corner
                 func boxRect(_ i: Int) -> CGRect {
                     CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
+                }
+                func boxPath(_ rect: CGRect) -> Path {
+                    UnevenRoundedRectangle(topLeadingRadius: corner, bottomLeadingRadius: bottomCorner,
+                                            bottomTrailingRadius: bottomCorner, topTrailingRadius: corner)
+                        .path(in: rect)
                 }
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at
                 // that screen position, full stop. The age/flare timing below is keyed on screen position `i`
@@ -253,7 +287,7 @@ struct EuclidCometBar: View {
                     // rest branch, which draws them outlined instead of dim when `missStyle` is set.
                     let hit = missStyle ? !rawHit : rawHit
                     let rect = boxRect(i)
-                    let box = Path(roundedRect: rect, cornerRadius: corner)
+                    let box = boxPath(rect)
                     if hit {
                         // STOPPED: `running` false (either the HOST transport, or THIS LANE's own PLAY/STOP) means
                         // the TimelineView above is PAUSED, so `phase` is frozen at whatever it was the instant

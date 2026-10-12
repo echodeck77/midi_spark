@@ -6600,9 +6600,10 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ev.column, 0, "the riff step actually read (post-LEAP) — step 0 on the very first tick")
         XCTAssertEqual(ev.rank, 1, "the pool-rank struck at that step, post-INVERT/MIRROR but pre-TRANSPOSE/OCT — rank 1, untouched by either")
     }
-    func testEuclideousNoteViewWipeTelemetryIsAbsentForFillAndMuteAndPause() {
-        // FILL posts a normal hit (kind 0) but through a different code path than the real-rank site, so it
-        // never carries a wipe-eligible column/rank — both default to -1.
+    func testEuclideousNoteViewWipeTelemetryIsAbsentForMuteAndPauseButPresentForFill() {
+        // FILL posts a normal hit (kind 0) and — since the 2026-10-12 riff-grid-markers ferry — DOES now
+        // carry a wipe/marker-eligible column/rank (the rest column it landed on + its own struck pool
+        // index, so the riff-grid marker has a row to draw a FILL-on-rest marker at).
         var fillC = Machine(machineID: "gold", type: .euclid)
         fillC.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])   // always a rest
         fillC.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, useRiff: true, sourceMode: .midi, riffOnRest: .fill)]
@@ -6615,8 +6616,8 @@ final class RouterTests: XCTestCase {
         let fillEvents = fillRouter.drainEuclideousNoteViewEvents()[0]
         guard let fillEv = fillEvents.first else { return XCTFail("FILL should post a normal hit event") }
         XCTAssertEqual(fillEv.kind, 0)
-        XCTAssertEqual(fillEv.column, -1, "FILL's push never carries a wipe-eligible column — it never reads a new riff position")
-        XCTAssertEqual(fillEv.rank, -1)
+        XCTAssertEqual(fillEv.column, 0, "the always-rest column (steps:1) the walk landed on")
+        XCTAssertEqual(fillEv.rank, 1, ".low against a 1-note pool struck pool index 0, 1-based rank 1")
 
         // MUTE / PAUSE both silence the masked tick entirely — no NOTE VIEW event is posted for it at all.
         func maskedTickEventCount(mode: MaskMode) -> Int {
@@ -6667,6 +6668,39 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(events[1].rank, 2, "tick 2 — rank 2, the position's own rank, independent of which pitch actually sounded")
         XCTAssertEqual(events[2].column, -1, "tick 3, the hold continuation — bypasses the mask/riff-position pipeline entirely, so no wipe-eligible column")
         XCTAssertEqual(events[2].rank, -1)
+    }
+
+    // ── RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry) — the new `euclideousRiffWalkState()`
+    // poll, the live ordinal baseline the main-thread prediction needs ────────────────────────────────────
+    func testEuclideousRiffWalkStateTracksTheLiveOrdinalAcrossSeveralHits() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: true, sourceMode: .midi)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        // K=N=3 at r1_8 (sub=0.5): ticks at beats 0/0.5/1.0, the 3rd hit landing exactly at the end of the
+        // first lap — 1.1 beats safely captures all 3 without a 4th tick leaking in (the same margin every
+        // sibling NOTE VIEW test in this file already uses).
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
+        XCTAssertEqual(router.euclideousRiffWalkState()[0].ord, 2, "the 3rd (last) hit's own ordinal — HIT mode, FREE (not locked), counts 0,1,2 across the 3 real ticks")
+    }
+    func testEuclideousRiffWalkStateDrunkPosMatchesTheLiveWalkPosition() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: true, riffDir: .drunk, sourceMode: .midi)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
+        // rotate: 0, so the persisted cursor (`riffPositions`) and the raw DRUNK position must agree exactly —
+        // the poll's own `drunkPos` is a direct, unmutated read of the SAME state the walk itself just left.
+        XCTAssertEqual(router.euclideousRiffWalkState()[0].drunkPos, router.euclideousRiffPositions()[0], "the polled DRUNK position must be the exact same value the walk's own persisted cursor reports")
+        XCTAssertEqual(router.euclideousRiffWalkState()[0].drunkLastOrd, router.euclideousRiffWalkState()[0].ord, "DRUNK's own lastOrd tracks the same ordinal the unified `ord` poll reports — one walk, read two ways")
     }
 
     func testEuclidLinesPerLinePick() {

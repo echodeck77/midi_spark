@@ -484,6 +484,13 @@ final class Router {
     // Unified UI-poll surface: EVERY direction (not just DRUNK) writes its resolved step index here, so the poll
     // layer only ever reads one simple array regardless of which direction a lane is using.
     private var euclideousRiffStep = [Int](repeating: -1, count: 4)
+    // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): the live hit-ordinal (`advOrd`) each
+    // lane's walk last advanced on — the main-thread prediction (`euclideousRiffCyclePrediction`,
+    // Derivations.swift) needs this as its own `startOrd` baseline (continuing an in-progress FREE walk
+    // rather than restarting from 0 every poll) and, for DRUNK specifically, as `riffDrunkPeek`'s own
+    // `tick` baseline alongside `euclideousRiffDrunkPos` below. Written at the SAME site `euclideousRiffStep`
+    // already is, reset alongside it on a fresh play.
+    private var euclideousRiffLastOrd = [Int64](repeating: 0, count: 4)
     // NOTE VIEW (Paul 2026-10-10 ferry): a per-lane EVENT QUEUE — "the audio thread posts note and step
     // events... through a lock-free queue; the UI reads them." Mirrors `focusNotePitch`/`focusNoteHead`/
     // `focusNoteNew`'s exact ring-buffer shape (below, this file), just 4-wide (one ring PER LANE) instead
@@ -1425,6 +1432,20 @@ final class Router {
     /// directions through one surface (`euclideousRiffStep` is written on every useRiff hit, not just DRUNK).
     func euclideousRiffPositions() -> [Int] { euclideousRiffStep }
 
+    /// UI-poll read (Paul 2026-10-12 ferry): each lane's live walk-advance state, for the main-thread
+    /// cycle prediction (`euclideousRiffCyclePrediction`, Derivations.swift) — `ord` is the ordinal this
+    /// lane's walk last advanced on (its own `startOrd` baseline for continuing an in-progress FREE walk);
+    /// `drunkPos`/`drunkLastOrd` are the REAL, currently-live DRUNK walk state (`riffDrunkPeek`'s own
+    /// `fromPos`/`tick`), read regardless of the lane's current direction — a caller only consults them
+    /// when that lane IS on DRUNK, same shape as `riffDrunkPosAt` above.
+    func euclideousRiffWalkState() -> [(ord: Int64, drunkPos: Int, drunkLastOrd: Int64)] {
+        (0..<4).map { i in
+            (ord: i < euclideousRiffLastOrd.count ? euclideousRiffLastOrd[i] : 0,
+             drunkPos: i < euclideousRiffDrunkPos.count ? euclideousRiffDrunkPos[i] : -1,
+             drunkLastOrd: i < euclideousRiffDrunkLastOrd.count ? euclideousRiffDrunkLastOrd[i] : .min)
+        }
+    }
+
     /// NOTE VIEW drain (Paul 2026-10-10 ferry): read-and-clear, FRESH per-lane arrays (never share the
     /// render-written buffers with the poll — same COW/refcount-race avoidance every `drain*` in this
     /// file already follows), oldest→newest, mirroring `drainFocusNotes` exactly. 4 inner arrays (one
@@ -1435,14 +1456,16 @@ final class Router {
         let durationBeat: Double
         let kind: UInt8
         let notes: [UInt8]
-        // WIPE TELEMETRY (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards") — -1 =
-        // not a wipe-eligible event (every pre-existing push site: FILL/MUTE/PAUSE/the REPEAT hold/
-        // CHORD's own extra notes all either return before reaching the one genuine real-rank strike site
-        // or are struck in a separate loop after it, so none of them ever set these). `column` is the
-        // riff STEP actually read (post-LEAP); `rank` is the pool-rank at that step AFTER INVERT and the
-        // EUCLID MASK's own MIRROR mode but BEFORE TRANSPOSE/OCT — a value computed purely for picking
-        // which shared-grid cell to highlight, deliberately independent of whatever the actually-struck
-        // audio pitch ends up being once TRANSPOSE/OCT are applied on top.
+        // WIPE/MARKER TELEMETRY (Paul 2026-10-10 "riff-cell wipes" ferry + the 2026-10-12 riff-grid-markers
+        // ferry) — -1 = not a wipe/marker-eligible event. SKIP (ON REST), MUTE, PAUSE, the REPEAT hold, and
+        // CHORD's own extra notes all either return before reaching a strike site that sets these or are
+        // struck in a separate loop after it, so none of them ever set these. The real-rank strike site and
+        // FILL (ON REST, since 2026-10-12 — needed so the riff-grid marker has a row to draw FILL-on-rest at)
+        // both DO set them. `column` is the riff STEP actually read (post-LEAP); `rank` is the pool-rank at
+        // that step AFTER INVERT and the EUCLID MASK's own MIRROR mode but BEFORE TRANSPOSE/OCT (the
+        // real-rank site) or FILL's own first struck pool index, 1-based + TRANSPOSE (the FILL site) — in
+        // both cases a value computed purely for picking which shared-grid cell/row to mark, deliberately
+        // independent of whatever the actually-struck audio pitch ends up being once OCT is applied on top.
         var column: Int8 = -1
         var rank: Int8 = -1
     }
@@ -2951,7 +2974,7 @@ final class Router {
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
             for i in riffDrunkPos.indices { riffDrunkPos[i] = -1; riffDrunkPrevPos[i] = -1; riffDrunkLastTick[i] = .min }   // RIFF DRUNK: a fresh play restarts the walk (Paul 2026-09-28)
-            for i in euclideousRiffDrunkPos.indices { euclideousRiffDrunkPos[i] = -1; euclideousRiffDrunkLastOrd[i] = .min; euclideousRiffStep[i] = -1; euclideousRiffLastSpanStart[i] = .nan }   // EUCLIDEOUS RIFF: a fresh play restarts every lane's walk/cursor (Paul 2026-10-06) + re-arms span-reset detection (2026-10-08)
+            for i in euclideousRiffDrunkPos.indices { euclideousRiffDrunkPos[i] = -1; euclideousRiffDrunkLastOrd[i] = .min; euclideousRiffStep[i] = -1; euclideousRiffLastSpanStart[i] = .nan; euclideousRiffLastOrd[i] = 0 }   // EUCLIDEOUS RIFF: a fresh play restarts every lane's walk/cursor (Paul 2026-10-06) + re-arms span-reset detection (2026-10-08) + the markers/footers ordinal poll (2026-10-12)
             for i in euclideousMaskOrd.indices {   // EUCLID MASK (Paul 2026-10-10): §2.5, "the global reset sets the mask to step 1, clears CLIMB/SWELL, and reseeds CHANCE" — step 1 = ordinal 0; CHANCE's seed is derived from this ordinal, so resetting it IS reseeding CHANCE, no separate mechanism needed.
                 euclideousMaskOrd[i] = 0; euclideousMaskOctUp[i] = true
                 euclideousMaskClimbOffset[i] = 0; euclideousMaskSwellOffset[i] = 0
@@ -4579,6 +4602,7 @@ final class Router {
                             // `riffStepAt` formula, not a new direction-dependent override).
                             let playedStep = riffRotateStep(walkPos, by: riffRotate, steps: riffLength)
                             euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern
+                            euclideousRiffLastOrd[lineIndex] = advOrd    // RIFF MARKERS/FOOTERS poll (2026-10-12): the ordinal this cursor just advanced on
 
                             // LEAP (EUCLID MASK, Paul 2026-10-10 ferry §3): "play the riff position STEPS
                             // ahead or behind (wrapping within LENGTH) for this note only. The lane's walk
@@ -4773,7 +4797,23 @@ final class Router {
                                         }
                                         if fillNC > 0 {
                                             let (onset, duration) = nvTiming(gb)
-                                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieExt > 0 ? 3 : 0, noteCount: fillNC)
+                                            // MARKER TELEMETRY (Paul 2026-10-12 ferry, Part 1 rule 7): the ONLY
+                                            // strike site that previously left column/rank at their -1 default —
+                                            // without this, the riff-grid marker has no way to know which row to
+                                            // draw a FILL-on-rest marker at. `column` is `leapStep` (the real rest
+                                            // column the walk landed on, matching the real-rank branch's own
+                                            // `leapStep` convention below — "mask effects are ignored by the
+                                            // prediction," so a LEAP mask active on the SAME lane at the SAME tick
+                                            // is a narrow, disclosed edge case where this column could read
+                                            // differently from `riffPositions()`'s own true cursor, not fixed here).
+                                            // `rank` is FILL's own first struck pool index, 1-based + TRANSPOSE —
+                                            // the same rank-space the riff grid's own 1...8 rows use; the FIRST
+                                            // struck index stands in for "the note actually sounding" on a
+                                            // multi-note FILL pick (ALL/BOT2/TOP2), a disclosed simplification.
+                                            let fillRank = (fillIdx.first.map { $0 + 1 + melodyTranspose }) ?? 0
+                                            let fillWipeEligible = fillRank >= 1 && fillRank <= 8
+                                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieExt > 0 ? 3 : 0, noteCount: fillNC,
+                                                               column: fillWipeEligible ? Int8(leapStep) : -1, rank: fillWipeEligible ? Int8(fillRank) : -1)
                                         }
                                     }
                                     return
