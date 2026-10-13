@@ -188,7 +188,7 @@ struct EuclideousSlider: View {
         let curFrac = euclideousSliderFrac(field, line)
         ZStack {
             Canvas { ctx, size in
-                ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6), with: .color(Color(hex: 0x22252C)))
+                ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 8), with: .color(Color(hex: 0x22252C)))
                 let len = horizontal ? size.width : size.height
                 func pos(_ f: Double) -> CGFloat { travelPos(f, length: len) }
                 /// A rect spanning the FULL cross-axis, from one travel-axis coordinate to another —
@@ -220,7 +220,11 @@ struct EuclideousSlider: View {
                     // "A centre tick is always visible."
                     let center = len / 2, value = pos(curFrac)
                     ctx.fill(Path(bar(center, value)), with: .color(accent.opacity(0.2)))
-                    ctx.fill(Path(edgeLine(center)), with: .color(accent))
+                    // Exact-dimensions ferry (2026-10-13): TILT's always-visible centre reference line
+                    // is now the same neutral grey as every other slider's static ticks (#3a3e47), not
+                    // the lane accent — distinguishing "where centre is" (static) from "where the value
+                    // sits" (the accent edgeLine(value) line right below, still live-coloured).
+                    ctx.fill(Path(edgeLine(center)), with: .color(Color(hex: 0x3A3E47)))
                     ctx.fill(Path(edgeLine(value)), with: .color(accent))
                 } else {
                     // UNIPOLAR (ferry, literal): "rises from the bottom of the track to the value" —
@@ -230,8 +234,10 @@ struct EuclideousSlider: View {
                     ctx.fill(Path(edgeLine(value)), with: .color(accent))
                 }
             }
-            VStack(spacing: 2) {
-                Spacer(minLength: 0)
+            VStack(spacing: 0) {
+                // Exact-dimensions ferry (2026-10-13): value text 14pt heavy TEXT, 6pt from the
+                // slider's top edge; label 10pt MUTED, 5pt from the bottom — no longer vertically
+                // centred as a pair, each pinned to its own edge via the Spacer between them.
                 if edited {
                     // THE EDITED CHIP (ferry, literal): "LANE-20 fill, LANE-100 border, 10pt... in the
                     // value position." Its own hit area is the overlay below, not this label.
@@ -240,16 +246,18 @@ struct EuclideousSlider: View {
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
+                        .padding(.top, 6)
                 } else {
                     Text(euclideousSliderValueText(field, line))
-                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.92)).lineLimit(1).minimumScaleFactor(0.7)
+                        .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                        .padding(.top, 6)
                 }
-                Text(field.name).font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.55)).lineLimit(1)
                 Spacer(minLength: 0)
+                Text(field.name).font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                    .padding(.bottom, 5)
             }
-            .padding(.vertical, 6)
             if helpActive {
                 Text(field.help).font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white).lineLimit(2).fixedSize(horizontal: false, vertical: true)
@@ -534,15 +542,14 @@ struct EuclideousPage: View {
     // equal-width buttons inside `patternControlBlock`'s fixed 40pt row, 2026-10-12.) ---
     private let mainOutSize: CGFloat = 36
 
-    // --- TYPE SCALE: `padValueSize`/`padSubtitleSize` are still the pad-readout/tab-label pair §6.2 pins
-    // together (`padSubtitleSize` is ALSO `laneTabRow`'s own label size, read from the same constant so
-    // the two can never drift apart) — kept. `padHeadingSize` (the old pad edge-axis-label size) and its
-    // own fit-check `euclideousAxisLabelFits` were BOTH retired 2026-10-12 alongside the pads themselves
-    // (usability ferry, six vertical sliders) — the sliders name their own field directly on their face
-    // (`EuclideousSliderField.name`, a plain always-full-length label; there's no edge-label fit problem
-    // left to solve, since nothing here measures against a pad's own width anymore).
+    // --- TYPE SCALE: `padValueSize` is still the NOTE VIEW pad-readout size. `padSubtitleSize` (the old
+    // shared pad-readout/tab-label pair) was retired 2026-10-13 — the 2026-10-13 "exact dimensions" ferry
+    // gives the tab row its own literal 11pt, no longer pinned to a shared constant (the two numbers just
+    // happen to still agree). `padHeadingSize` (the old pad edge-axis-label size) and its own fit-check
+    // `euclideousAxisLabelFits` were retired 2026-10-12 alongside the pads themselves (usability ferry, six
+    // vertical sliders) — the sliders name their own field directly on their face (`EuclideousSliderField.
+    // name`, a plain always-full-length label; there's no edge-label fit problem left to solve).
     private let padValueSize: CGFloat = 13
-    private let padSubtitleSize: CGFloat = 11
 
     /// Edits ONE line by index — the shared mutation path every per-lane control below goes through.
     private func edit(_ idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) {
@@ -735,32 +742,28 @@ struct EuclideousPage: View {
 
     // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`),
     // read by `laneCard` itself for its internal row math. ---
-    // FOOTER BAND HEIGHT (2026-10-13, "footers inside the step cells" ferry §1) — the SAME 14pt the old
-    // separate footer row used, now just the height of the band `EuclidCometBar` draws INSIDE each step
-    // cell's own 44pt-tall rect, not a second row below it. `cometRowH` REVERTS to its original pre-footer-
-    // ferry value (56, i.e. 44pt content + 6pt top/bottom padding) — "the step row goes back to 44pt tall";
-    // there is no longer any separate row to budget extra height for, so `laneCardFixedOverhead`'s own
-    // dependent arithmetic shrinks back by the same 16pt it grew by when the footer row was introduced.
+    // EXACT DIMENSIONS (2026-10-13, "lane card, exact dimensions" ferry — device-mocked, measured from the
+    // real mockup): the card frame is 346×306 at reference size; an outer 10pt inset (a 2pt border, visible
+    // only when selected, PLUS 8pt padding — modelled as one flat `cardInset` padding since a cosmetic
+    // overlay stroke doesn't itself consume layout space in SwiftUI, and toggling selection must never shift
+    // where the content sits) puts the content at 326×286. Three rows — step row (44) · tab row (28) · tab
+    // content (202) — separated by two 6pt gaps: 44+6+28+6+202 = 286, matching exactly.
+    private let cardInset: CGFloat = 10
+    private let cardRowGap: CGFloat = 6
     private let footerBandH: CGFloat = 14
-    private let cometRowH: CGFloat = 56
-    private let tabRowH: CGFloat = 30
+    private let cometRowH: CGFloat = 44
+    private let tabRowH: CGFloat = 28
     private let contentLineH: CGFloat = 36
-    /// LAYOUT MOVE (Paul 2026-10-11: "the xy controls will be on pattern, leaving a lot of space for Euclid
-    /// mask") — the 3 gesture pads moved from their own always-visible top-level row into the PATTERN tab's
-    /// own content (see `tabContent`'s `.rhythm` case) — so the card is now 3 top-level rows (comet · tab
-    /// strip · tab content), not 4, and the pads only render while PATTERN is the selected tab. `tabContentH`
-    /// (below) is the FLOOR of that content area — both fixed rows (36pt each) PLUS the extra internal gap
-    /// the now-3-child tab-content VStack adds (2 gaps of sp4, not 1) — this is the exact amount `laneCard`'s
-    /// own `contentAreaH` can shrink to before the gesture pads hit zero height, mirroring the gesture row's
-    /// old "shrinks toward 0" floor exactly, just relocated. `MASK`'s own content (`maskCometRow`+`maskLine2`)
-    /// shares this SAME `contentAreaH` budget and grows `maskCometRow` into whatever space PATTERN's pads
-    /// aren't claiming (there is no competing "gesture row" on the MASK side to protect a floor for).
-    // 84 (ratified PATTERN-tab-layout ferry §1: "the content is 84pt tall") + one sp4 gap to the slider
-    // row above it — was `contentLineH*2 + sp4*2` (80) for the OLD two separate 36pt rows; a net +8pt.
-    private var tabContentH: CGFloat { 84 + sp4 }
-    /// A lane card's own fixed overhead — every row EXCEPT the part of tab content the gesture pads (PATTERN)
-    /// / the step-bar (MASK) stretch to fill. Used only to protect a lane-grid floor in `portraitLayout` below.
-    private var laneCardFixedOverhead: CGFloat { cometRowH + tabRowH + tabContentH + sp8 * 2 + sp4 * 2 }
+    /// 202, the ferry's own literal "Tab content" height — this IS `tabContentH` now (not a floor the
+    /// gesture pads/step-bar stretch within, now that the RHYTHM tab's own content is itself a fully fixed-
+    /// height layout per the SAME ferry's RHYTHM table: 118 (sliders) + 4 + 80 (rate/direction/emitter
+    /// block) = 202, exactly matching — so nothing stretches to fill a budget anymore, every number is
+    /// literal).
+    private var tabContentH: CGFloat { 202 }
+    /// A lane card's own fixed overhead — every row except… nothing stretches anymore (ferry: "every card is
+    /// 306 tall... whatever tab is open and however many steps"), so this is now simply the card's own total
+    /// fixed height end to end. Used only to protect a lane-grid floor in `portraitLayout` below.
+    private var laneCardFixedOverhead: CGFloat { cometRowH + tabRowH + tabContentH + cardInset * 2 + cardRowGap * 2 }
 
     /// FULL-WIDTH LAYOUT (this ferry §1, a BLOCKER fix; §2 removes the placeholder entirely) — SUPERSEDES
     /// the "six equal boxes" design wholesale. ROOT CAUSE of the reported bug: that design forced every
@@ -1242,26 +1245,21 @@ struct EuclideousPage: View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
         let tab = idx < laneTab.count ? laneTab[idx] : .rhythm
-        // ONE INNER WIDTH FOR EVERY ROW (ferry §3: "every row inside a lane card spans the same inner width
-        // ... no row may run to the card edge, and none may be narrower than the others" — this is the direct
-        // fix for "the pads sit flush against the card edge" and "some rows run to the card edge and others
-        // are inset, compare MASK in lane 2 with PATTERN in lane 4": every row below is built from THIS one
-        // width, never the raw card `width`.
-        let innerWidth = max(1, width - sp8 * 2)
-        // `padSize` (a 3-equal-column width, for the old DIRECTION/HIT-MISS-RATE/gesture-pad rows) is
-        // GONE — every row inside `tabContent` now derives its own widths from `fullWidth`/`innerWidth`
-        // directly (the 6 sliders, `patternControlBlock`'s halves), so there's no shared 3-column unit
-        // left for anything to pass in.
-        // NO EMPTY BANDS (ferry §1.3, still honoured after the pads' 2026-10-11 move into PATTERN's own tab
-        // content): `contentAreaH` is computed explicitly as "exactly what's left" after the comet row + tab
-        // strip + the card's own sp8 padding (top+bottom) + the NOW-2 sp4 gaps between this VStack's 3
-        // children (was 3 gaps across 4 children) — `tabContent` itself decides how much of this its own
-        // stretchy element (the pads on PATTERN, the step-bar on MASK) gets, never centred-with-slack.
-        let outerVPad: CGFloat = sp8 * 2
-        let rowGaps: CGFloat = sp4 * 2     // VStack(spacing: sp4) between the 3 children = 2 gaps
+        // ONE INNER WIDTH FOR EVERY ROW — every row below is built from THIS one width, never the raw card
+        // `width` (W = 326 at the ferry's own reference 346pt card). "Wider cards: flexible items share the
+        // extra width" — `innerWidth` scales directly with `width`, so every formula below that derives from
+        // it already satisfies this. "Narrower cards: if W is under 326, stop and report" — flagged in the
+        // CLAUDE.md status entry for this ferry; nothing here can literally halt rendering, so a too-narrow
+        // card still lays out (by the same scaling formulas), just unverified below the reference size.
+        let innerWidth = max(1, width - cardInset * 2)
+        // THREE FIXED ROWS (ferry: step row 44 · tab row 28 · tab content 202, two 6pt gaps between them) —
+        // `contentAreaH` is no longer a "whatever's left" budget; it's the literal 202 whenever `height`
+        // matches the reference 306 exactly, and scales only if a caller ever hands this a different height.
+        let outerVPad: CGFloat = cardInset * 2
+        let rowGaps: CGFloat = cardRowGap * 2
         let contentAreaH = max(1, height - cometRowH - tabRowH - outerVPad - rowGaps)
         let steps = max(2, min(16, line.steps))
-        VStack(alignment: .leading, spacing: sp4) {
+        VStack(alignment: .leading, spacing: cardRowGap) {
             EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                           // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                           // border/fill around just this row (the step-bar area) — always `false` now; the
@@ -1279,8 +1277,11 @@ struct EuclideousPage: View {
                           // view — `EuclidCometBar` draws each step's own band directly inside that step's
                           // own cell rect now, so there's no separate row height/gap to budget here at all.
                           footerStates: laneFooterStates(idx, line),
-                          stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
-                          stepCountBadgeWidth: stepCountBadgeTotalWidth)
+                          stepCountBadge: AnyView(stepCountBadge(steps)),
+                          stepCountBadgeWidth: stepCountBadgeTotalWidth,
+                          // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
+                          // triangle play button, flat LANE-100/#2c2f36 cell colours, the hand-placed notch.
+                          compact: true)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -1294,62 +1295,27 @@ struct EuclideousPage: View {
             AnyView(laneTabRow(idx, line, accent, rowH: tabRowH))
             AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth))
         }
-        .padding(sp8)
+        .padding(cardInset)
         .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))
-        // WHOLE-CARD SELECTION OUTLINE (ferry §1.4): replaces the narrower step-bar-only outline above.
-        // LANE-100 (this ferry §4.1): the selected card's own outline is the full-strength lane colour,
-        // not a softened opacity.
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selectedLane == idx ? lane100(accent) : Color.clear, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
+        // WHOLE-CARD SELECTION OUTLINE: "2pt border: LANE-100 when the card is selected, transparent
+        // otherwise" (this ferry's own literal spec) — a plain overlay stroke, never consuming layout space,
+        // so toggling selection can't shift where the content sits (the `cardInset` padding above already
+        // accounts for this 2pt, per that ferry's own "8pt padding... 2pt border" framing).
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(selectedLane == idx ? lane100(accent) : Color.clear, lineWidth: 2))
         .clipped()
     }
 
-    /// PASSIVE STEP-COUNT NUMERAL (Paul 2026-10-07, §3: "step count shown as a number") + an ALWAYS-VISIBLE
-    /// OUTPUT INDICATOR (Paul 2026-10-09, ferry §3.1: "the OUT row only appears on the I/O tab... add a small
-    /// always-visible output indicator... showing which outputs the lane is routed to, or NO OUTPUT when
-    /// none"). Both share `EuclidLaneBox`'s one optional `stepCountBadge` slot (nil everywhere else, so the
-    /// regular BUILD-page EUCLID editor is unaffected) — stacked rather than adding a second slot, since the
-    /// comet row has no more spare width to give a wholly separate widget.
-    // OUTPUT CHIPS + SOURCE BADGE (this ferry §8, literal). The chip grid's own footprint (2 columns wide,
-    // however many rows 0-4 routed outputs need) — `EuclidLaneBox` needs this number explicitly (see
-    // `stepCountBadgeWidth` there) so the comet bar beside it is never told it has more room than it
-    // actually gets.
-    private let stepCountChipCol: CGFloat = 16, stepCountChipGap: CGFloat = 2
-    // THE COUNT BOX (2026-10-13 ferry §2, literal): "the count box (44×44) is fixed at the right" — a flat
-    // 44, matching the play button exactly, rather than a value derived from the chip grid's own content
-    // (32pt: 2×16pt chips + 1 gap) plus padding (was 42 before this ferry — close, but not the literal 44
-    // asked for). The chip grid's own content (34pt incl. its `.padding(.horizontal, sp4)`) sits comfortably
-    // inside 44 either way.
+    // THE COUNT BOX (2026-10-13 "lane card, exact dimensions" ferry, literal): "CHIP fill, 9pt radius,
+    // number 15pt heavy TEXT, centred." Simplified from the old output-chip/NO-OUT sub-display — that per-
+    // lane routing readout is now the RHYTHM tab's own dedicated Emitters row (A·B·C·D, part of this SAME
+    // ferry's own RHYTHM table), making the count box's old secondary content redundant; dropped here rather
+    // than kept alongside it. `accent`/`mask` params are gone — this box no longer needs either.
     private var stepCountBadgeTotalWidth: CGFloat { 44 }
-    /// §8.1, literal: "replace the bare letter under the step count with mini output chips, 16pt circles
-    /// with a 10pt letter, LANE-40 fill, one chip per routed output. If none are routed, show 'NO OUT' in
-    /// amber."
-    private func stepCountBadge(_ n: Int, mask: UInt8, accent: Color) -> some View {
-        let routed = (0..<4).filter { (mask >> UInt8($0)) & 1 != 0 }
-        let rows = stride(from: 0, to: routed.count, by: 2).map { Array(routed[$0..<min($0 + 2, routed.count)]) }
-        return VStack(spacing: 1) {
-            Text("\(n)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-            if mask == 0 {
-                Text("NO OUT").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Color(hex: 0xFFB454)).lineLimit(1)
-            } else {
-                VStack(spacing: 1) {
-                    ForEach(rows.indices, id: \.self) { r in
-                        HStack(spacing: stepCountChipGap) {
-                            ForEach(rows[r], id: \.self) { b in
-                                Text(["A", "B", "C", "D"][b]).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                                    .foregroundColor(.white)
-                                    .frame(width: stepCountChipCol, height: stepCountChipCol)
-                                    .background(Circle().fill(lane40(accent)))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, sp4)
-        .frame(width: stepCountBadgeTotalWidth, height: 44)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+    private func stepCountBadge(_ n: Int) -> some View {
+        Text("\(n)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
+            .frame(width: stepCountBadgeTotalWidth, height: 44)
+            .background(RoundedRectangle(cornerRadius: 9).fill(patternUnselectedFill))
     }
 
     // MARK: - COLOUR HIERARCHY (this ferry §4): "lane colour is currently used at full strength in about
@@ -1400,35 +1366,27 @@ struct EuclideousPage: View {
     /// them — no divider line here (unlike `patternControlBlock`'s own ratified 8pt/1pt-divider seam
     /// below this row, which came from a DIFFERENT, separately-ratified spec); nothing in this ask named
     /// one, so a plain gap was the simpler, unassuming choice.
+    // Exact-dimensions ferry (2026-10-13): six EQUAL vertical sliders, in the literal order
+    // HITS·TILT·STEPS·OFFSET·VEL·GATE, a single 4pt-gapped row (was 3 vertical + 3 horizontal split
+    // across two halves — that two-axis design is retired). Width divides the real available space
+    // equally (reduces to the reference table's 51pt at fullWidth=326, matching "wider cards: flexible
+    // items share the extra width" — the same equal-division-no-minimum rule the step cells use);
+    // height is the fixed 118pt the content-height budget below reserves for this row.
     private func sliderRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, rowHeight: CGFloat) -> some View {
-        let leftFields: [EuclideousSliderField] = [.steps, .hits, .velocity]
-        let rightFields: [EuclideousSliderField] = [.offset, .tilt, .gate]
-        let leftW = max(1, (fullWidth - sp4) / 2)
-        let rightW = max(1, fullWidth - sp4 - leftW)
-        let vSliderW = max(1, (leftW - sp4 * CGFloat(leftFields.count - 1)) / CGFloat(leftFields.count))
-        let hSliderH = max(1, (rowHeight - sp4 * CGFloat(rightFields.count - 1)) / CGFloat(rightFields.count))
+        let fields: [EuclideousSliderField] = [.hits, .tilt, .steps, .offset, .velocity, .gate]
+        let n = CGFloat(fields.count)
+        let sliderW = max(1, (fullWidth - sp4 * (n - 1)) / n)
 
-        func slider(_ field: EuclideousSliderField, width: CGFloat, height: CGFloat, horizontal: Bool) -> some View {
+        func slider(_ field: EuclideousSliderField) -> some View {
             EuclideousSlider(
-                field: field, line: line, accent: accent, width: width, height: height, horizontal: horizontal,
+                field: field, line: line, accent: accent, width: sliderW, height: rowHeight, horizontal: false,
                 onCommit: { mutate in edit(idx, mutate) },
                 onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
                 onRevertToEuclid: { edit(idx) { $0.customHits = nil } })
         }
 
         return HStack(spacing: sp4) {
-            HStack(spacing: sp4) {
-                ForEach(leftFields, id: \.rawValue) { field in
-                    slider(field, width: vSliderW, height: rowHeight, horizontal: false)
-                }
-            }
-            .frame(width: leftW, height: rowHeight)
-            VStack(spacing: sp4) {
-                ForEach(rightFields, id: \.rawValue) { field in
-                    slider(field, width: rightW, height: hSliderH, horizontal: true)
-                }
-            }
-            .frame(width: rightW, height: rowHeight)
+            ForEach(fields, id: \.rawValue) { field in slider(field) }
         }
         .frame(width: fullWidth, height: rowHeight)
     }
@@ -1444,13 +1402,14 @@ struct EuclideousPage: View {
                 // "Euclid mask, modes and settings" §5.1 — supersedes the old "configured at all" reading).
                 // PATTERN never shows one (always "on"); I/O never does either (a lane always has some source).
                 let dotOn: Bool = t == .mask && line.maskResolved.enabledResolved
-                // VIEWS (this ferry §4.3, "the tab row" named explicitly): white text with a 2pt LANE-100
-                // underline for the active one, grey text (no fill/outline) when inactive. Label size is
-                // §6.2's own literal rule: "set the tab labels to the pad readout line-2 size" —
-                // `padSubtitleSize`, not an independently-chosen number, so the two can never drift apart.
+                // VIEWS (2026-10-13 "lane card, exact dimensions" ferry, literal): "Labels are 11pt heavy
+                // with 1pt tracking, centred. The selected tab is TEXT, the others MUTED. A 2pt underline
+                // runs along each tab's bottom edge, the full width of the tab: LANE-100 for the selected
+                // tab, CHIP for the others." — a real change from before: EVERY tab now shows an underline
+                // (CHIP when unselected, not invisible), not just the active one.
                 HStack(spacing: 5) {
-                    Text(t.label).font(.system(size: padSubtitleSize, weight: .heavy, design: .monospaced))
-                        .foregroundColor(sel ? .white : .white.opacity(0.45))
+                    Text(t.label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
+                        .foregroundColor(sel ? patternSelectedText : patternUnselectedText)
                         .lineLimit(1)
                     if t == .mask {
                         // LANE-100 (this ferry §4.1: "the RIFF/MASK on-dots" — RIFF's own dot retired).
@@ -1459,8 +1418,8 @@ struct EuclideousPage: View {
                             .frame(width: 7, height: 7)
                     }
                 }
-                .frame(maxWidth: .infinity).frame(height: rowH)
-                .overlay(Rectangle().fill(sel ? lane100(accent) : Color.clear).frame(height: 2), alignment: .bottom)
+                .frame(maxWidth: .infinity, alignment: .center).frame(height: rowH)
+                .overlay(Rectangle().fill(sel ? lane100(accent) : patternUnselectedFill).frame(height: 2), alignment: .bottom)
                 .contentShape(Rectangle())
                 .onTapGesture { if idx < laneTab.count { laneTab[idx] = t } }
             }
@@ -1468,15 +1427,18 @@ struct EuclideousPage: View {
     }
 
     /// LAYOUT (PATTERN-tab-layout ferry, ratified 2026-10-12, literal §1: "the content is 84pt tall: two
-    /// lines of 40pt with a 4pt gap between them"): `contentAreaH` is the WHOLE space this tab's content
-    /// has to work with; PATTERN gives its one fixed 84pt block (`patternControlBlock` — RATE/DIRECTION/
+    /// lines of 38pt with a 4pt gap between them"): `contentAreaH` is the WHOLE space this tab's content
+    /// has to work with; PATTERN gives its one fixed 80pt block (`patternControlBlock` — RATE/DIRECTION/
     /// INV/emitters) and stretches the 6 sliders into whatever's left. MASK has no equivalent fixed-vs-
     /// stretchy split today (`maskLine2` is its one fixed row), so its step-bar (`maskCometRow`) simply
     /// grows to fill everything PATTERN's own fixed block would have otherwise sat above.
     @ViewBuilder private func tabContent(_ idx: Int, _ line: EuclidLine, _ tab: EuclideousLaneTab, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         switch tab {
         case .rhythm:
-            let patternBlockH: CGFloat = 84
+            // Exact-dimensions ferry (2026-10-13): the control block is 80pt (two 38pt rows + 4pt
+            // gap), not 84 — sliders now get the full 118pt the spec's own table gives them (at
+            // contentAreaH=202: 202−80−4=118, matching the table exactly).
+            let patternBlockH: CGFloat = 80
             let sliderH = max(1, contentAreaH - patternBlockH - sp4)
             VStack(spacing: sp4) {
                 sliderRow(idx, line, accent, fullWidth: fullWidth, rowHeight: sliderH)
@@ -1500,7 +1462,7 @@ struct EuclideousPage: View {
     /// #aab0ba text (ferry §6, applied uniformly across this whole block, not just here).
     private func directionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         let order: [(EuclidDir, String)] = [(.bkw, "<"), (.pingpong, "><"), (.fwd, ">")]
-        return HStack(spacing: sp4) {
+        return HStack(spacing: 3) {   // exact-dimensions ferry: 3 equal buttons, 3pt gaps (was sp4=4)
             ForEach(order, id: \.0) { dir, glyph in
                 let on = line.directionResolved == dir
                 Text(glyph).font(.system(size: 13, weight: .heavy, design: .monospaced))
@@ -1539,16 +1501,17 @@ struct EuclideousPage: View {
     /// the ferry's own button-styling rule names only two emitter states, and this fixed 40pt-tall row
     /// has no room left for a third visual language or trailing warning text the way the old, taller/
     /// wider `laneOutRow` (circular dots + an "OUT" caption + a warning label) did.
-    private func laneOutRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
+    private func laneOutRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         let mask = line.emitterMask ?? 0
         let names = ["A", "B", "C", "D"]
-        return HStack(spacing: sp4) {
+        return HStack(spacing: 3) {   // exact-dimensions ferry: 4 equal buttons, 3pt gaps (was sp4=4)
             ForEach(0..<4, id: \.self) { b in
                 let active = ((mask >> UInt8(b)) & 1 != 0) && ((mainOutMask >> UInt8(b)) & 1 != 0)
-                Text(names[b]).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                Text(names[b]).font(.system(size: 13, weight: .heavy, design: .monospaced))
                     .foregroundColor(active ? patternEmitterActiveText : patternUnselectedText)
-                    .frame(maxWidth: .infinity).frame(height: 40)
+                    .frame(maxWidth: .infinity).frame(height: rowH)
                     .background(RoundedRectangle(cornerRadius: 7).fill(active ? lane100(accent) : patternUnselectedFill))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(active ? lane100(accent) : Color.clear, lineWidth: 1))
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
                     .accessibilityLabel("Emitter \(names[b])")
@@ -1563,19 +1526,22 @@ struct EuclideousPage: View {
     /// Unicode fallback cascade (Apple Symbols et al. on iOS) covers the character. UNVERIFIED ON DEVICE —
     /// this environment cannot render a font to confirm the glyph actually appears rather than a tofu box.
     @ViewBuilder private func feelGlyph(_ feel: Int) -> some View {
+        // Exact-dimensions ferry (2026-10-13): "down from 17pt and 12pt in the earlier rate
+        // instructions, so it fits the 24.67pt height" — 15pt note glyph, 11pt mark.
         switch feel {
-        case 0: Text("♩").font(.system(size: 17))
-        case 1: HStack(spacing: 0) { Text("♩").font(.system(size: 17)); Text(".").font(.system(size: 17, weight: .bold)) }
+        case 0: Text("♩").font(.system(size: 15))
+        case 1: HStack(spacing: 0) { Text("♩").font(.system(size: 15)); Text(".").font(.system(size: 15, weight: .bold)) }
         default:
             HStack(alignment: .top, spacing: 0) {
-                Text("♩").font(.system(size: 17))
-                Text("3").font(.system(size: 12, weight: .bold)).baselineOffset(8)
+                Text("♩").font(.system(size: 15))
+                Text("3").font(.system(size: 11, weight: .bold)).baselineOffset(7)
             }
         }
     }
 
-    /// THE PATTERN CONTROL BLOCK (ratified PATTERN-tab-layout ferry, 2026-10-12) — a fixed 84pt-tall,
-    /// two-line layout: LEFT HALF = RATE (a 3×2 division grid + a 38pt feel column, both reading/writing
+    /// THE PATTERN CONTROL BLOCK (ratified PATTERN-tab-layout ferry, 2026-10-12; numbers corrected to
+    /// the 2026-10-13 exact-dimensions ferry) — a fixed 80pt-tall, two-line layout: LEFT HALF = RATE
+    /// (a 3×2 division grid + a 36pt feel column, both reading/writing
     /// the ONE existing `EuclidLine.rate: ArpRate?` field via `euclideousRateDivisionFeel`/
     /// `euclideousRateFromDivisionFeel`, Derivations.swift); RIGHT HALF top line = DIRECTION + INV,
     /// bottom line = the 4 emitter toggles. Replaces the old HIT/GAPS+RATE-popup row and the DIRECTION+
@@ -1594,14 +1560,18 @@ struct EuclideousPage: View {
     /// consistent with the ferry's own acceptance line "a preset saved before this change loads with the
     /// same rate" — an AUTO lane's stored nil survives untouched unless the user deliberately picks a cell.
     private func patternControlBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat) -> some View {
-        let rowH: CGFloat = 40, gap: CGFloat = 4, blockH = rowH * 2 + gap
-        let halfW = max(1, (fullWidth - 8) / 2)
-        let feelColW: CGFloat = 38
-        let gridGap: CGFloat = 3
+        // Exact-dimensions ferry (2026-10-13): rowH 40→38 (two 38pt rows + 4pt gap = 80pt block,
+        // matching the 118(sliders)+4(gap)+80(this block)=202 tab-content height exactly); halfW's
+        // divider footprint corrected from 8 (a bare 1pt rule + 3.5pt either side) to 17 (1pt rule +
+        // 8pt padding either side) — both halves land at the spec's own 154.5pt.
+        let rowH: CGFloat = 38, gap: CGFloat = 4, blockH = rowH * 2 + gap
+        let halfW = max(1, (fullWidth - 17) / 2)
+        let feelColW: CGFloat = 36
+        let gridGap: CGFloat = 3   // horizontal gap: across the 3 rate columns, and grid↔feel column
         let gridW = max(1, halfW - gridGap - feelColW)
         let cellW = max(1, (gridW - gridGap * 2) / 3)
-        let cellH = max(1, (blockH - gridGap) / 2)
-        let feelBtnH = max(1, (blockH - gridGap * 2) / 3)
+        let cellH = max(1, (blockH - gap) / 2)   // vertical gap between the grid's 2 rows is 4pt (`gap`), not gridGap(3)
+        let feelBtnH = max(1, (blockH - gridGap * 2) / 3)   // feel buttons stack 3pt apart (gridGap), not `gap`
 
         let autoRate = ArpRate.allCases.min(by: { abs($0.beats - clock.stepBeats) < abs($1.beats - clock.stepBeats) }) ?? .r1_16
         let resolved = line.rate ?? autoRate
@@ -1613,13 +1583,13 @@ struct EuclideousPage: View {
         }
 
         let rateHalf = HStack(spacing: gridGap) {
-            VStack(spacing: gridGap) {
+            VStack(spacing: gap) {   // 4pt between the 2 rate-grid rows (ferry rule 2), not the 3pt column gap
                 ForEach(0..<2, id: \.self) { row in
                     HStack(spacing: gridGap) {
                         ForEach(0..<3, id: \.self) { col in
                             let d = row * 3 + col
                             let on = d == curDiv
-                            Text(divisionLabels[d]).font(.system(size: 12, weight: .bold, design: .monospaced))
+                            Text(divisionLabels[d]).font(.system(size: 12, weight: .heavy, design: .monospaced))
                                 .foregroundColor(on ? patternSelectedText : patternUnselectedText)
                                 .frame(width: cellW, height: cellH)
                                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
@@ -1647,17 +1617,17 @@ struct EuclideousPage: View {
         .frame(width: halfW, height: blockH)
 
         let outHalf = VStack(spacing: gap) {
-            HStack(spacing: sp4) {
+            HStack(spacing: 3) {   // exact-dimensions ferry: 3pt between the direction group and INV
                 directionRow(idx, line, accent, rowH: rowH).frame(maxWidth: .infinity)
                 invButton(idx, line, accent, rowH: rowH)
             }
-            laneOutRow(idx, line, accent)
+            laneOutRow(idx, line, accent, rowH: rowH)
         }
         .frame(width: halfW, height: blockH)
 
         return HStack(spacing: 0) {
             rateHalf
-            Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 3.5)
+            Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
             outHalf
         }
         .frame(width: fullWidth, height: blockH)

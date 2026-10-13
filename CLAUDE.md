@@ -196,6 +196,57 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a second, PIXEL-EXACT dimensions ferry ("Claude Code: lane card, exact dimensions") built
+  on top of the same-day footer/step-row/MELODY rework below — measured-from-mockup x/y/w/h for the card
+  frame, the step row, the tab row, and a full RHYTHM-tab rebuild (2026-10-13, on `fix/euclid-no-scroll-
+  direction-order-2x2-grid`; iOS builds clean; macOS unaffected — pure UI, EuclidLaneUI.swift/
+  EuclideousPage.swift have no test-target reach). Every number in the ferry's own tables was HAND-VERIFIED
+  against its governing formula before any code was written (per the ferry's own "±0.5pt" accuracy bar) —
+  several of these derivations caught real inconsistencies between the ferry's literal numbers and the
+  codebase's existing constants, all resolved in favour of the ferry's own arithmetic: the card's total
+  padding is 10pt a side (not the previously-built 8pt — `44+6+28+6+202=286` only reconciles against the
+  given 326×286 content rect at 10pt); the RHYTHM control block's two halves split at `(fullWidth−17)/2`
+  (not `(fullWidth−8)/2` — the divider's real footprint is `8+1+8`, not a bare 8, confirmed by working
+  backward from the given divider/direction-row x-coordinates); the rate grid's own ROW gap (between its 2
+  stacked rows) is 4pt while its COLUMN gap (across the 3 divisions, and between the grid and the feel
+  column) stays 3pt — two DIFFERENT gaps sharing one block, previously collapsed into a single `gridGap`
+  constant, now split into `gridGap`(3, horizontal) and the block's own shared `gap`(4, vertical) reused for
+  this purpose; the feel column is a literal 36pt (not 38), its own 3 buttons stacking 3pt apart to land
+  `feelBtnH` at exactly the spec's 24.67pt. **CARD FRAME + STEP ROW (`EuclidLaneUI.swift`):** `compact`-mode
+  padding/row heights corrected to the new 10pt-inset arithmetic; `EuclidCometBar`'s `exactStyle` mode (added
+  by the immediately-preceding ferry, below) needed no further change — its cell/footer-band geometry already
+  matched this spec's own step-cell table exactly once hand-checked. **TAB ROW:** confirmed already correct
+  from the preceding ferry's own build (11pt heavy labels, 1pt tracking, TEXT/MUTED selected/unselected, a 2pt
+  underline on EVERY tab now — LANE-100 selected, CHIP unselected). **RHYTHM TAB, rebuilt:**
+  `sliderRow` — the old "3 vertical + 3 horizontal, two unequal halves" design is GONE, replaced by SIX EQUAL
+  VERTICAL sliders in the literal order HITS·TILT·STEPS·OFFSET·VEL·GATE, each `(fullWidth−5×4)/6` wide (reduces
+  to exactly 51pt at the reference 326pt width — the same "flexible items share the extra width, no minimum"
+  rule the step cells already use, not a hardcoded 51) × a fixed 118pt tall (118+4+80=202, the tab-content
+  height budget). `EuclideousSlider` itself (the shared single-slider view, used only by this tab since every
+  slider is now vertical) — track corner radius 6→8; TILT's always-visible centre reference line recoloured
+  from the lane accent to a neutral `#3a3e47` (a JUDGMENT CALL, flagged not silently resolved: the spec lists
+  this grey alongside the HITS/OFFSET tick colour as one of two STATIC reference marks, distinct from the
+  LIVE value-position line immediately below it, which stays accent-coloured — read as "the static anchor
+  changes colour, the live indicator doesn't," not a literal re-read of every tick); value text 10pt→14pt
+  heavy TEXT, now pinned 6pt from the slider's top edge (was vertically centred as a pair with the label);
+  label text 9pt semibold/white-55%→10pt/MUTED(#aab0ba), pinned 5pt from the bottom. `patternControlBlock` —
+  `rowH` 40→38, `blockH` 84→80 (both halves, and the tab-content budget math in `tabContent` that reserves
+  `contentAreaH − patternBlockH − sp4` for the sliders above it); `halfW`/divider-padding fixed per the
+  derivation above; rate-grid row gap split out from the column gap (4pt vs 3pt, see above); feel column
+  36pt; rate division labels `.bold`→`.heavy`; `directionRow`'s 3 buttons and the direction-group↔INV gap
+  both 4pt→3pt; `laneOutRow` gained a `rowH` param (was hardcoded 40, now 38) + its own internal gap 4pt→3pt
+  + its text 12pt→13pt + a (visually inert when active, since fill and stroke are then the same colour — but
+  literal-spec-compliant) stroke overlay matching the general selected/unselected button convention;
+  `feelGlyph`'s ♩ glyph 17pt→15pt and its dot/"3" mark 12pt→11pt, per the spec's own explicit "down from 17pt
+  and 12pt... so it fits the 24.67pt height" note. **FLAGGED MISMATCHES, named per CLAUDE.md's own standing
+  rule:** the TILT centre-line recolour above is a reasoned reading, not a literal transcription — worth a
+  second look if it reads wrong against the real mockup; the laneOutRow stroke-overlay addition is dead-on-
+  arrival styling (invisible when active, transparent when not) added purely for spec-literal completeness,
+  not because it changes anything visible; every other number in this entry was hand-verified against its own
+  governing formula and should reproduce the ferry's table exactly at the reference 326pt width — **DEVICE-
+  OWED, as always:** confirm the rebuilt RHYTHM tab actually reads as six equal, evenly-gapped vertical
+  sliders at real lane-card width, and that the rate-grid/feel-column/direction/emitter block's now-tighter
+  3pt gaps (down from a uniform 4pt) don't read as cramped in the hand.**
 - **▶ EUCLIDEOUS — footers moved INSIDE the step cells (no more separate row); the step row's play/count-box
   layout corrected; the MELODY tab rebuilt to a device-mocked dimensions spec (2026-10-13, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS unaffected — pure UI, EuclidLaneUI.

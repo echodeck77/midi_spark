@@ -25,6 +25,21 @@ struct EuclidLiveClock {
     var playing: Bool         // the HOST transport (a lane's OWN play/stop is a separate, caller-supplied flag)
 }
 
+/// The play-button triangle (2026-10-13 "lane card, exact dimensions" ferry, literal: "14 wide × 18 tall,
+/// sitting 4pt right of centre") — a plain custom `Shape` rather than an SF Symbol, since the ferry's own
+/// pixel dimensions don't correspond to any system glyph's natural metrics. Points left-to-right (the
+/// conventional play-triangle orientation).
+struct EuclidPlayTriangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
+
 /// ~18pt per step, vertical (hits) axis — a first-pass sensitivity (tunable): deliberately coarser than
 /// NumPair's own 14pt/step scrub, since this bar is small and a finger resting on it covers a fair chunk of
 /// it. The HORIZONTAL (rotate/offset) axis instead uses `euclidBoxGeometry`'s own pitch (below) — Paul
@@ -112,42 +127,46 @@ struct EuclidLaneBox: View {
     // approximation for any caller that doesn't pass the real figure, but at least no longer silently wrong
     // for the one caller that now does.
     var stepCountBadgeWidth: CGFloat = 0
+    // EXACT DIMENSIONS (2026-10-13, "lane card, exact dimensions" ferry) — Euclideous's own styling: zero
+    // self-padding (the card itself now supplies the inset), 6pt inter-item spacing (was 8), a CHIP-filled
+    // triangle play button (was an SF Symbol on a translucent fill), and no own background/border (the card
+    // draws both now — `selected` is always `false` at Euclideous's call site anyway). `false` (every other
+    // caller, incl. the regular BUILD-page EUCLID editor) ⇒ byte-identical to before this ferry.
+    var compact: Bool = false
 
     var body: some View {
         let on = line.enabledResolved
-        HStack(spacing: 8) {
-            Image(systemName: on ? "play.fill" : "stop.fill")
-                .font(.system(size: 15, weight: .black))
-                .foregroundColor(on ? accent : .white.opacity(0.4))
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
-                .contentShape(Rectangle())
-                .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
-            // WIDTH (Paul 2026-10-06): the comet bar's own real rendered width, derived exactly from this
-            // box's layout (6pt padding ×2 + the 44pt play button + 8pt HStack spacing = 64pt, PLUS — if a
-            // badge is present — its own width and the SECOND inter-item gap before it, fixed 2026-10-10:
-            // the original formula silently omitted both whenever `stepCountBadge` was non-nil, so the
-            // comet bar's own Canvas was told it had more width than the HStack actually gave it) — NOT
-            // measured via GeometryReader — so `EuclidCometBar` can compute its box pitch (for the
-            // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
-            let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (8 + stepCountBadgeWidth)
+        HStack(spacing: compact ? 6 : 8) {
+            playButton(on: on)
+            // WIDTH: the comet bar's own real rendered width, derived exactly from this box's layout —
+            // compact: 0pt self-padding + the 44pt play button + 6pt spacing = 50pt before the comet bar,
+            // PLUS — if a badge is present — its own width and the matching 6pt gap before it; non-compact
+            // (the regular BUILD-page editor, unchanged): 6pt padding ×2 + 44pt play + 8pt spacing = 64,
+            // badge gap 8pt. NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch
+            // (for the rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
+            let gap: CGFloat = compact ? 6 : 8
+            let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth)
+            let leadReserve: CGFloat = compact ? 50 : 64
             EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
                            rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved,
                            customHits: line.customHitsResolved(max(2, min(16, line.steps))),
-                           footerStates: footerStates,
-                           tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64 - badgeReserve),
+                           footerStates: footerStates, exactStyle: compact,
+                           tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
-                // THE STEP ROW IS 44pt TALL AGAIN (2026-10-13 ferry §1): `reserve` is gone — no trailing row
-                // left to budget height for. 12 = the 6pt top+bottom padding below; this is the ORIGINAL
-                // pre-footer-ferry derivation (56−12=44), not a new number.
-                .frame(height: max(20, height - 12))
+                // THE STEP ROW IS 44pt TALL (2026-10-13 ferry): compact has zero self-padding, so the comet
+                // bar gets the FULL `height` directly; non-compact keeps its original 6pt top+bottom padding
+                // derivation (56−12=44, unchanged for the regular BUILD-page editor).
+                .frame(height: compact ? max(20, height) : max(20, height - 12))
             if let stepCountBadge { stepCountBadge }
         }
-        .padding(6)
+        .padding(compact ? 0 : 6)
         .frame(width: width, height: height)   // EXPLICIT width/height — the stroke/background below can never bleed past it
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(selected ? 0.07 : 0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? accent.opacity(0.5) : Color.clear, lineWidth: 1.5))
+        // CARD DRAWS ITS OWN BACKGROUND/BORDER NOW (compact only) — `selected` is always `false` at
+        // Euclideous's call site, so suppressing this wash here changes nothing for that caller except
+        // removing a redundant, barely-visible 4% white tint; the regular BUILD-page editor is unaffected.
+        .background(compact ? AnyView(Color.clear) : AnyView(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(selected ? 0.07 : 0.04))))
+        .overlay(compact ? AnyView(EmptyView()) : AnyView(RoundedRectangle(cornerRadius: 7).stroke(selected ? accent.opacity(0.5) : Color.clear, lineWidth: 1.5)))
         // "IN USE" SCALE-UP: `.scaleEffect` is a pure RENDER transform — it never changes what SwiftUI's layout
         // system thinks this view's size is, so neighbours in a grid of lanes never shift; the grown box simply
         // draws slightly over its own margin. `.zIndex` keeps a touched lane drawing OVER its neighbours so the
@@ -157,6 +176,35 @@ struct EuclidLaneBox: View {
         .animation(.easeOut(duration: 0.12), value: touched)
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }   // a plain tap anywhere on the cell selects it
+    }
+
+    /// PLAY/STOP button (2026-10-13 ferry, compact only, literal): "CHIP fill, 9pt radius. The triangle is
+    /// LANE-100, 14 wide × 18 tall, sitting 4pt right of centre." The STOP/disabled glyph isn't specified by
+    /// the ferry (which only describes the play state) — a plain square is the conventional complement,
+    /// sized/offset the same way, dimmed to match the existing on/off colour convention; a disclosed judgment
+    /// call, not literal spec. Non-compact keeps the original SF-Symbol-on-translucent-fill button verbatim.
+    @ViewBuilder private func playButton(on: Bool) -> some View {
+        if compact {
+            ZStack {
+                if on {
+                    EuclidPlayTriangle().fill(accent).frame(width: 14, height: 18).offset(x: 4)
+                } else {
+                    Rectangle().fill(accent.opacity(0.4)).frame(width: 13, height: 13).offset(x: 4)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+            .contentShape(Rectangle())
+            .onTapGesture { onToggleEnabled() }
+        } else {
+            Image(systemName: on ? "play.fill" : "stop.fill")
+                .font(.system(size: 15, weight: .black))
+                .foregroundColor(on ? accent : .white.opacity(0.4))
+                .frame(width: 44, height: 44)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
+                .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
+        }
     }
 }
 
@@ -202,6 +250,13 @@ struct EuclidCometBar: View {
     // names step `i`'s own box, no re-indexing needed). nil (every other caller — the regular BUILD-page
     // EUCLID editor, Euclideous's own MASK-tab bar) ⇒ no band drawn, byte-identical.
     var footerStates: [EuclidFooterState]? = nil
+    // EXACT DIMENSIONS (2026-10-13 "lane card, exact dimensions" ferry) — Euclideous's own cell styling: zero
+    // side insets (the ferry's own cell-width table — 25.63/16.08/12.25 at 8/12/16 steps — only reconciles
+    // with `euclidBoxGeometry`'s formula when the FULL steps-area width is used, hand-verified), flat LANE-
+    // 100/`#2c2f36` resting hit/miss fills (replacing the previous 0.55-opacity tint / dim-fill-plus-border),
+    // and the hand-placed notch marker on a hand-edited pattern. `false` (every other caller — the regular
+    // BUILD-page EUCLID editor, Euclideous's own MASK-tab bar) ⇒ byte-identical to before this ferry.
+    var exactStyle: Bool = false
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -230,7 +285,7 @@ struct EuclidCometBar: View {
         // ROTATE-DRAG SENSITIVITY (Paul 2026-10-06): "the distance the finger moves should line up with the
         // number of spaces a hit moves" — one finger-pitch of travel = one step, matching what's actually on
         // screen for THIS lane's own step count, instead of a fixed point distance regardless of N/width.
-        let insetL: CGFloat = 6, insetR: CGFloat = 6
+        let insetL: CGFloat = exactStyle ? 0 : 6, insetR: CGFloat = exactStyle ? 0 : 6
         // SAME FORMULA the Canvas below independently recomputes from `size.width` (which `.frame(width:
         // width)` at the very end of this body pins to this SAME `width` — the two can't disagree) — reused
         // here, at body scope, only for the gesture's rotate-sensitivity and the footer-band accessibility
@@ -264,7 +319,7 @@ struct EuclidCometBar: View {
                 }
                 euclidRotateBuffer(&buf, steps: n, rotation: rotate)
                 let w = size.width, midY = size.height / 2
-                let insetL: CGFloat = 6, insetR: CGFloat = 6
+                let insetL: CGFloat = exactStyle ? 0 : 6, insetR: CGFloat = exactStyle ? 0 : 6
                 let usable = max(1, w - insetL - insetR)
                 func xFor(_ pos: Double) -> CGFloat { insetL + usable * CGFloat(pos / Double(n)) }   // the comet still rides this CONTINUOUS position — independent of the discrete boxes below
                 // STEP BOXES: N bounded, gap-separated rounded-rect slots read the step COUNT at a glance — the
@@ -352,6 +407,11 @@ struct EuclidCometBar: View {
                                 let ring = Path(roundedRect: rect.insetBy(dx: -grow, dy: -grow), cornerRadius: corner + grow * 0.4)
                                 ctx.stroke(ring, with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
                             }
+                        } else if exactStyle {
+                            // 2026-10-13 ferry, literal: "Hits are LANE-100" — the resting (stopped) hit cell,
+                            // flat and full-strength, no dimming/border (the running case above, with its own
+                            // gradient/burst/flash/shockwave, is untouched — nothing in this ferry addresses it).
+                            ctx.fill(box, with: .color(tint))
                         } else {
                             ctx.fill(box, with: .color(tint.opacity(0.55)))
                             ctx.stroke(box, with: .color(.white.opacity(0.2)), lineWidth: 1)
@@ -361,6 +421,9 @@ struct EuclidCometBar: View {
                         // 1.5pt lane-coloured outline with NO fill at all, so the original pattern stays legible
                         // as outlines while the filled (sounding) cells above show what actually plays.
                         ctx.stroke(box, with: .color(tint), lineWidth: 1.5)
+                    } else if exactStyle {
+                        // 2026-10-13 ferry, literal: "misses are #2c2f36" — a flat fill, no border.
+                        ctx.fill(box, with: .color(Color(hex: 0x2C2F36)))
                     } else {
                         // REST: every box's RECT is mathematically fixed per step index regardless of hit/rest, so
                         // the grid itself never relocates — only which boxes are lit does. A plainly visible
@@ -368,6 +431,15 @@ struct EuclidCometBar: View {
                         // fixed slot grid stays legible regardless of which subset is currently lit.
                         ctx.fill(box, with: .color(.white.opacity(0.09)))
                         ctx.stroke(box, with: .color(.white.opacity(0.16)), lineWidth: 1)
+                    }
+                    // HAND-PLACED NOTCH (2026-10-13 ferry, literal): "4×4, 1pt radius, white at 60% opacity, 3pt
+                    // in from the cell's top and right edges" — shown on every cell of a HAND-EDITED pattern
+                    // (`customHits != nil`), a disclosed reading: the ferry names the marker's own geometry
+                    // precisely but not which cells carry it; this is the direct visual counterpart to the
+                    // existing "EDITED" chip on the sliders below, now per-cell instead of per-control.
+                    if exactStyle, customHits != nil {
+                        let notch = CGRect(x: rect.maxX - 3 - 4, y: rect.minY + 3, width: 4, height: 4)
+                        ctx.fill(Path(roundedRect: notch, cornerRadius: 1), with: .color(.white.opacity(0.6)))
                     }
                     // FOOTER BAND (2026-10-13 ferry §1): a 14pt band across the bottom of THIS cell, clipped to
                     // the cell's own rounded shape (so only its bottom two corners read rounded — the top edge
