@@ -5579,8 +5579,9 @@ final class RouterTests: XCTestCase {
         // Acceptance 1: "Notes only: light C3 and G3 with the riff off. Every hit plays C3 and G3."
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, useRiff: false, litNotes: 0b0000_0011, riffOn: false, sourceMode: .midi)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
         let e = RecordingEmitter()
         run(SnapshotBuilder.build(from: st), chord([48, 55, 60]), beats: 2, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
@@ -5592,8 +5593,9 @@ final class RouterTests: XCTestCase {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1 → pool[0] → 48 (C3), coincides with the lit rank-1 button
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: false, litNotes: 0b0000_0011, riffOn: true, sourceMode: .midi)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
         let e = RecordingEmitter()
         run(SnapshotBuilder.build(from: st), chord([48, 55, 60]), beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
@@ -5610,8 +5612,11 @@ final class RouterTests: XCTestCase {
         // applies when NOTHING, including useRiff, has ever been touched (confirmed by reading `litMigrated`'s
         // own guard) — explicit fields are the honest way to request "nothing lit" from a touched line.
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, useRiff: false, litNotes: 0, riffOn: false, sourceMode: .midi)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi   // page-level field (harmless either way here — silence holds
+        // regardless of which pool is read — but set explicitly so this test doesn't silently rely on that
+        // coincidence, matching the fix applied to its sibling Acceptance tests above).
         let e = RecordingEmitter()
         run(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 2, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
@@ -5623,8 +5628,9 @@ final class RouterTests: XCTestCase {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
             c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, octave: octave, useRiff: false, litNotes: 0b0000_0010, riffOn: true, riffOctave: riffOctave, sourceMode: .midi)]
-            let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
             let e = RecordingEmitter()
             run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
@@ -5639,8 +5645,9 @@ final class RouterTests: XCTestCase {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
             c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: false, litNotes: 0b0000_0010, riffOn: true, sourceMode: .midi, melodyTranspose: transpose)]
-            let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
             let e = RecordingEmitter()
             run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
@@ -6826,8 +6833,12 @@ final class RouterTests: XCTestCase {
         // litNotes bit 2 (rank 3, pool[2]=64) is lit throughout — distinct from whichever riff rank is
         // sounding at each tick, so the merged set is always {riff pitch, 64}, never coinciding.
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: false, litNotes: 0b0000_0100, riffOn: true, mask: m, sourceMode: .midi)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi   // the per-line sourceMode above is decode-only — the REAL pool
+        // source is this page-level field (self-caught: without it, `euclideousNoteSourceResolved` falls
+        // back to `euclideousLinesResolved[0]` — a SEPARATE, page-level array this test never populates,
+        // defaulting to KEY mode and silently reading a C-natural-minor scale pool instead of the chord below).
         let e = RecordingEmitter()
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()[0]
