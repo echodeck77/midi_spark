@@ -196,6 +196,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — GATE label reads LEGATO at 100%; the 4 lane OUT toggles are round (2026-10-14, on `fix/
+  euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1402 green incl. +1 new). Two small
+  polish asks from the same device session as the GATE-floor fix above. **LABEL:** a new, purely display-
+  layer `euclideousSliderLabelText(field, line)` (Derivations.swift) returns "LEGATO" for GATE at exactly
+  100%, else `field.name` unchanged — a SECOND, now-VISIBLE legato cue distinct from the existing VoiceOver-
+  only one (`euclideousSliderAccessibilityValueText`, 2026-10-13 ferry — "the on-screen compact text stays
+  bare '100%'"). Scoped deliberately: the on-screen VALUE above the label is untouched (still a bare "100%"),
+  and the slider's own accessibility LABEL is deliberately left reading `field.name` too — flagged, not an
+  oversight: `euclideousSliderAccessibilityValueText` already announces legato via the spoken VALUE
+  ("100 percent, legato"), so also swapping the accessibility LABEL would read as "Legato, 100 percent,
+  legato" to VoiceOver, a redundant double-announcement this file's own slider doesn't need. **ROUND
+  TOGGLES:** `laneOutRow`'s 4 per-lane emitter buttons (A/B/C/D) were a `RoundedRectangle` stretched to fill
+  each quarter-width cell — Paul: "like the buttons on top of the page [the header's own `mainOutToggle`,
+  already a plain `Circle()`], strictly taking up no more space." Fixed by leaving the OUTER footprint
+  (`.frame(maxWidth: .infinity).frame(height: rowH)`, the tap target) completely untouched and only swapping
+  the DRAWN shape inside it — a `Circle()` sized to exactly `rowH × rowH` (never larger than the row's own
+  existing height), centred in the unchanged cell — mirroring `mainOutToggle`'s own fill/stroke convention
+  exactly rather than inventing a second circular-button style. +1 DerivationsTest (the label switches
+  exactly at 100%, never for any other field, the on-screen VALUE stays unaffected). **DEVICE-OWED:** the
+  "LEGATO" label's legibility at 10pt in the label's existing slot (it's 2 characters longer than "GATE" —
+  `lineLimit(1)` with no `.minimumScaleFactor`, per this page's own standing "truncate, never shrink" rule,
+  so confirm it doesn't clip); the 4 round toggles' touch-target feel now that the VISIBLE circle is smaller
+  than the cell it sits in (the tap area itself is unchanged, but the circle may look like it has more
+  surrounding deadspace than intended).**
 - **▶ EUCLIDEOUS GATE — the 5% floor lowered to 1% (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-
   grid`; iOS builds clean; macOS 1401 green). Paul, on-device, testing the just-shipped RIFF/NOTES split:
   "The gate doesn't seem to work on short values. Also, is 5% really a sensible minimum?" Investigated by

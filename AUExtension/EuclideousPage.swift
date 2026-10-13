@@ -254,7 +254,7 @@ struct EuclideousSlider: View {
                         .padding(.top, 6)
                 }
                 Spacer(minLength: 0)
-                Text(field.name).font(.system(size: 10, weight: .semibold, design: .monospaced))
+                Text(euclideousSliderLabelText(field, line)).font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
                     .padding(.bottom, 5)
             }
@@ -1585,11 +1585,18 @@ struct EuclideousPage: View {
         return HStack(spacing: 3) {   // exact-dimensions ferry: 4 equal buttons, 3pt gaps (was sp4=4)
             ForEach(0..<4, id: \.self) { b in
                 let active = ((mask >> UInt8(b)) & 1 != 0) && ((mainOutMask >> UInt8(b)) & 1 != 0)
+                // ROUND (Paul 2026-10-14: "like the buttons on top of the page, strictly no more space") —
+                // mirrors `mainOutToggle`'s own plain `Circle()` fill/stroke exactly; the OUTER footprint
+                // (`.frame(maxWidth: .infinity).frame(height: rowH)`, the tap target) is BYTE-IDENTICAL to
+                // before — only the drawn shape inside it shrinks from a cell-filling RoundedRectangle to a
+                // true circle sized to `rowH` (the row's own existing height, never larger), centred in the
+                // unchanged cell, so the row's total width/height can't grow.
                 Text(names[b]).font(.system(size: 13, weight: .heavy, design: .monospaced))
                     .foregroundColor(active ? patternEmitterActiveText : patternUnselectedText)
+                    .frame(width: rowH, height: rowH)
+                    .background(Circle().fill(active ? lane100(accent) : patternUnselectedFill))
+                    .overlay(Circle().stroke(active ? lane100(accent) : Color.clear, lineWidth: 1))
                     .frame(maxWidth: .infinity).frame(height: rowH)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(active ? lane100(accent) : patternUnselectedFill))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(active ? lane100(accent) : Color.clear, lineWidth: 1))
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
                     .accessibilityLabel("Emitter \(names[b])")

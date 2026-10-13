@@ -3356,6 +3356,20 @@ final class DerivationsTests: XCTestCase {
         l.tilt = -0.3
         XCTAssertEqual(euclideousSliderValueText(.tilt, l), "−30%", "a true minus sign, not an ASCII hyphen")
     }
+    // Paul, on-device (2026-10-14): "The label GATE should read as LEGATO when at 100%" — a second, VISIBLE
+    // legato cue beside the existing VoiceOver-only one; the on-screen VALUE stays a bare "100%" throughout.
+    func testEuclideousSliderLabelTextSwitchesToLegatoAtExactly100PercentForGateOnly() {
+        var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all, gate: 0.99)
+        XCTAssertEqual(euclideousSliderLabelText(.gate, l), "GATE", "below 100% stays the plain field name")
+        l.gate = 1.0
+        XCTAssertEqual(euclideousSliderLabelText(.gate, l), "LEGATO")
+        XCTAssertEqual(euclideousSliderValueText(.gate, l), "100%", "the on-screen VALUE is unaffected — still bare '100%', only the label swaps")
+        // scoped to GATE only — another field sitting at its own "100" doesn't borrow the legato label.
+        var vel = EuclidLine(pulses: 3, steps: 8, noteSel: .all, velocityAbsolute: 100)
+        XCTAssertEqual(euclideousSliderLabelText(.velocity, vel), "VEL")
+        vel.velocityAbsolute = 127
+        XCTAssertEqual(euclideousSliderLabelText(.velocity, vel), "VEL", "never LEGATO for any field but GATE")
+    }
     func testEuclideousSliderAccessibilityStepIsPercentForGateAndTiltOnly() {
         XCTAssertEqual(euclideousSliderAccessibilityStep(.gate), 0.01)
         XCTAssertEqual(euclideousSliderAccessibilityStep(.tilt), 0.01)

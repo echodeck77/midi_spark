@@ -2797,6 +2797,18 @@ func euclideousSliderAccessibilityValueText(_ field: EuclideousSliderField, _ li
     guard field == .gate, Int((line.gateResolved * 100).rounded()) >= 100 else { return base }
     return "\(base), legato"
 }
+/// Paul, on-device (2026-10-14): "The label GATE should read as LEGATO when at 100%" — a SECOND, now VISIBLE
+/// legato cue, distinct from the VoiceOver-only one above. Supersedes nothing — the VALUE text above the
+/// label stays a bare "100%" (still `euclideousSliderValueText`, untouched); only the LABEL beneath it
+/// (normally the field's bare `field.name`) swaps to "LEGATO" at the exact same 100% boundary. Scoped to the
+/// on-screen label only — the accessibility LABEL (`field.name` at the slider's own `.accessibilityLabel`
+/// call site) is deliberately left unchanged, since `euclideousSliderAccessibilityValueText` already
+/// announces legato via the spoken VALUE; changing both would read as "Legato, 100 percent, legato" to
+/// VoiceOver, a redundant double-announcement this file's own `EuclideousSlider` body doesn't need.
+func euclideousSliderLabelText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
+    guard field == .gate, Int((line.gateResolved * 100).rounded()) >= 100 else { return field.name }
+    return "LEGATO"
+}
 
 // ── NOTE VIEW (Paul 2026-10-10 ferry, "note view, phase 1") — pure note-naming + rhythm-window projection ──────────
 
