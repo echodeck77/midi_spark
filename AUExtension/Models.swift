@@ -153,6 +153,14 @@ enum KillStepMode: String, Codable, CaseIterable { case on = "ON", mute = "MUTE"
 /// UI returns to this page) — an unconfigured CHORDS lane is honestly silent, not a guessed fallback.
 enum EuclideousLaneSource: String, Codable, CaseIterable { case midi, key, chords }
 
+/// MELODY TAB (Paul 2026-10-13 ferry, "Behaviour" rule 1): "note and riff are mutually exclusive, and the
+/// selection IS the mode — there's no separate switch." Replaces reading `useRiff` directly as the mode flag
+/// going forward — a dedicated field reads unambiguously as "the mode is the selection" (tapping a note/TOP/
+/// TOP2 sets `.note`; tapping the RIFF strip or any riff control sets `.riff`), rather than a boolean whose
+/// name ("use riff") doesn't describe a two-way choice. nil migrates from the OLD `useRiff` field (byte-
+/// identical: `useRiff == true` ⇒ `.riff`, else `.note`) — see `EuclidLine.melodyModeResolved` below.
+enum EuclideousMelodyMode: String, Codable, CaseIterable { case note, riff }
+
 struct EuclidLine: Codable, Equatable {
     var target: Int = 0      // 0 = ALL (honours PICK) · 1–8 = strike that pool rank (silent if the chord lacks it)
     var pulses: Int = 1      // K hits (Paul 2026-10-02: a fresh lane defaults to 1 of 8)
@@ -245,6 +253,11 @@ struct EuclidLine: Codable, Equatable {
     // regular chainable BUILD-page EUCLID processor has no UI for these and will never set them; a hand-edited
     // doc that did would resolve against the page's default-empty EuclideousRiff (a silent rest, not a crash).
     var useRiff: Bool? = nil
+    // MELODY TAB (Paul 2026-10-13 ferry) — the mode selection itself, superseding `useRiff` as the thing
+    // actually read for "which mode is this lane in" (see `EuclideousMelodyMode`'s own doc comment and
+    // `melodyModeResolved` below). `useRiff` is kept, decode-only, purely as this migration's source of old
+    // data — never read directly for mode again.
+    var melodyMode: EuclideousMelodyMode? = nil
     var riffRotate: Int? = nil
     var riffOctave: Int? = nil
     // RIFF DIRECTION, PER-LANE (Paul 2026-10-07: "the back/forward, drunk controls should be per lane, not on
@@ -364,6 +377,12 @@ struct EuclidLine: Codable, Equatable {
         return c + Array(repeating: false, count: n - c.count)
     }
     var gateResolved: Double { gate ?? 0.9 }
+    // NOT narrowed to ±2 here (Paul 2026-10-13 ferry, "Engine" rule 4) — `EuclidLine` is SHARED with the
+    // regular, non-Euclideous BUILD-page EUCLID processor, whose own OCTAVE stepper reaches ±3 today
+    // (`GridUI.swift`, `numPair(..., -3...3, ...)`, confirmed by reading before touching this) — narrowing
+    // the SHARED accessor would have silently clipped that unrelated feature too. The ±2 range is applied
+    // ONLY where Euclideous reads/writes this field: `Router.swift`'s one `runEuclidLine` call site (gated
+    // `isEuclideousRow`) and the new MELODY tab's own OCT control (EuclideousPage.swift) — never here.
     var octaveResolved: Int { octave ?? 0 }
     var enabledResolved: Bool { enabled ?? true }
     var velocityResolved: Double { max(0, min(2, velocity ?? 1.0)) }
@@ -371,9 +390,16 @@ struct EuclidLine: Codable, Equatable {
     var missOctaveResolved: Int { missOctave ?? 0 }
     var missVelocityResolved: Double { max(0, min(2, missVelocity ?? 1.0)) }
     var patternMissResolved: Bool { patternMiss ?? false }
-    var useRiffResolved: Bool { useRiff ?? false }
+    // MELODY TAB (Paul 2026-10-13 ferry) — `melodyMode`, once set, is the sole source of truth; absent, it
+    // migrates from the legacy `useRiff` boolean (byte-identical: true ⇒ riff, false/nil ⇒ note).
+    var melodyModeResolved: EuclideousMelodyMode { melodyMode ?? (useRiff == true ? .riff : .note) }
+    // `useRiffResolved` is now DERIVED from the mode, not the other way round — every existing Router.swift/
+    // EuclidLaneUI.swift reader of `useRiffResolved` needs no change at all; only the WRITE side (the new
+    // MELODY tab's UI) writes `melodyMode` directly instead of `useRiff`.
+    var useRiffResolved: Bool { melodyModeResolved == .riff }
     var riffRotateResolved: Int { riffRotate ?? 0 }
-    var riffOctaveResolved: Int { max(-3, min(3, riffOctave ?? 0)) }
+    // OCT RANGE −2…+2 (ferry "Engine" rule 4 — was ±3).
+    var riffOctaveResolved: Int { max(-2, min(2, riffOctave ?? 0)) }
     var riffDirResolved: RiffDir { riffDir ?? .forward }
     var riffDirSeedResolved: Int { riffDirSeed ?? 0 }
     var riffDirBiasResolved: Double { max(-1, min(1, riffDirBias ?? 0)) }
@@ -427,6 +453,7 @@ extension EuclidLine {
         rate = try c.decodeIfPresent(ArpRate.self, forKey: .rate)
         emitterMask = try c.decodeIfPresent(UInt8.self, forKey: .emitterMask)
         useRiff = try c.decodeIfPresent(Bool.self, forKey: .useRiff)
+        melodyMode = try c.decodeIfPresent(EuclideousMelodyMode.self, forKey: .melodyMode)
         riffRotate = try c.decodeIfPresent(Int.self, forKey: .riffRotate)
         riffOctave = try c.decodeIfPresent(Int.self, forKey: .riffOctave)
         riffDir = try c.decodeIfPresent(RiffDir.self, forKey: .riffDir)

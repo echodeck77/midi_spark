@@ -196,6 +196,130 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — MELODY tab on the lane cards, the melody pop-up fully retired (2026-10-13, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1350 green incl. +11/-5, iOS builds clean). A
+  fully-specified, ratified ferry ("Claude Code: MELODY tab on the lane cards"), planned via EnterPlanMode
+  first (one stalled parallel research agent abandoned mid-run in favour of direct reading once its output
+  stopped changing across two full wait cycles — the needed facts were confirmed faster by hand). Paul's own
+  preamble named several points the mockup (never actually received — `_dear_claude_code/` held only
+  `.DS_Store`) didn't settle, each marked "(My interpretation.)": the melody pop-up retires entire; NUDGE is
+  SHIFT renamed; in NOTE mode the riff keeps walking silently so it returns in phase; a source with >8 notes
+  uses the lowest 8 (already true, unchanged). **TAB RENAME:** `EuclideousLaneTab` grows from `pattern/mask`
+  (2 cases) to `rhythm/melody/mask` (3) — RHYTHM is PATTERN's content unchanged, just renamed; every
+  `.pattern` reference across the file (the `@State` default array, 2 fallback reads, the switch case) moved
+  to `.rhythm` mechanically. **TWO REAL ENGINE BUGS FOUND BY TRACING, not assumed from the ferry's own
+  wording alone:** (1) NOTE mode's plain-pick branch was STILL adding `melodyTranspose` to the resolved rank
+  (`let rank = idx + 1 + melodyTranspose`) — a direct contradiction of Engine rule 1 ("TRANS... [is] ignored
+  in note mode"), a deliberate reversal of the 2026-10-10 ferry's own opposite ruling; fixed to `idx + 1`.
+  (2) the riff walk's own advance computation (`playedStep`/`advOrd`/`euclideousRiffStep[lineIndex]`) lived
+  ENTIRELY inside `if useRiff {}` — so a lane left in NOTE mode had its walk position FROZEN DEAD, not
+  "advancing silently," directly contradicting Behaviour rule 3. Fixed by hoisting the whole walk-advance
+  block to run unconditionally on every hit, split from the pool-dependent resolve-and-strike work (which
+  stays gated on the sibling `if useRiff {}`) — the ordinal never stops moving, so returning to RIFF mode
+  lands "in phase" by construction, not via a special resync. **A SELF-INFLICTED REGRESSION CAUGHT BY THE
+  TEST SUITE, not shipped, then a SECOND SELF-INFLICTED FIX NEEDED:** the first draft of the hoist gated the
+  WHOLE walk-advance computation behind `isEuclideousRow` (reasoning "only Euclideous has a riff walk to
+  advance") — this silently froze `playedStep` at 0 for every ONE of the ~15 pre-existing RouterTests that
+  build a riff-enabled `EuclidLine` at a PLAIN row (0, not `Snap.euclideousRow` — the generic `useRiff`
+  mechanism long predates Euclideous's own reserved row and is exercised by most of this file's own riff
+  tests at row 0), surfacing as 24 failures on the first full suite run. Root-caused by reading (not by
+  guessing a second fix blind) before correcting: the computation itself needs no row gate at all (it reads
+  only params + locals already in scope, for any row); only the TWO shared-array WRITES
+  (`euclideousRiffStep[lineIndex]`/`euclideousRiffLastOrd[lineIndex]`, the fixed 4-slot arrays dedicated to
+  Euclideous's own lanes) genuinely need the `isEuclideousRow` guard, to stop an unrelated grid cell's own
+  EUCLID line from overwriting them. Re-fixed by moving ONLY those two writes inside the gate, leaving the
+  computation itself unconditional — the 24 failures collapsed to 1 (a test asserting the OLD, now-deliberately-
+  reversed TRANSPOSE-in-both-modes behaviour) on the next run. **DRUNK REMOVED, Euclideous-scoped only** (ferry
+  "Remove": "The DRUNK option") — `euclideousRiffDrunkPos`/`LastOrd`/`LastSpanStart` (the 3 Euclideous-only
+  accumulated-state arrays) and the whole `euclideousRiffDrunkStep` function deleted entire;
+  `euclideousRiffWalkState()`'s return type simplified from a 3-field tuple (`ord`/`drunkPos`/`drunkLastOrd`)
+  to a plain `[Int64]` (just the ordinal — the only field any remaining direction needs), cascading through
+  Kernel/MidiSparkAudioUnit/AudioUnitViewController/EuclideousPage's own 2 consumers
+  (`riffMarkerNextStep`/`laneFooter`) and `Derivations.swift`'s `euclideousRiffLapBaseline`/
+  `euclideousRiffCyclePrediction` (both dropped their now-meaningless drunk-state parameters). The field
+  itself (`EuclidLine.riffDir`/`riffDirSeed`/`riffDirBias`, `RiffDir.drunk`) is KEPT, decode-only — an old doc
+  with `riffDir: .drunk` must still decode and sound something sensible (now the plain deterministic forward
+  position, since `riffStepAt`'s own exhaustive `.drunk` arm was always "never actually reached" by the OLD
+  caller and is now genuinely reachable by this one) rather than factory-reset or go silent. The UNRELATED
+  generic chain RIFF processor's own, separately-declared `riffDrunkPos`/`Prev`/`LastTick`/`Step`/`Peek` (its
+  own real random walk, keyed on `MachineParams.riffDir`/`riffDirSeed`) is completely untouched — confirmed by
+  grep before removing anything, only 3 `p.riffDir == .drunk` checks remain anywhere in the file, all inside
+  that unrelated function. **OCT RANGE −2…+2, EUCLIDEOUS-ONLY (Engine rule 4):** `riffOctaveResolved`'s own
+  model-layer clamp narrowed directly (confirmed safe — `riffOctave` is exclusive to Euclideous, zero
+  references from the regular BUILD-page EUCLID editor). NOTE mode's plain `octave` field could NOT be
+  clamped the same way — confirmed by reading `GridUI.swift`'s own `-3...3` OCTAVE stepper, which reads the
+  SAME shared `EuclidLine.octaveResolved` for the UNRELATED regular EUCLID processor — so the tighter range is
+  applied instead at the one `runEuclidLine` call site, gated on the pre-existing `isEuclideousRow` flag
+  (`let euclideousOct = isEuclideousRow ? max(-2, min(2, L.octaveResolved)) : L.octaveResolved`), leaving the
+  model-layer field itself at its original ±3 for everyone else. **TOP/TOP2, confirmed ZERO engine change
+  needed:** read `resolveEuclidPick`'s own `.high: (count-1, nil)`/`.top2: (max(0,count-2), count-1)` before
+  building the new OCT-row buttons — both already resolve correctly against the RAW (pre-octave-extension)
+  pool count, including a graceful single-note-pool degradation for TOP2, confirmed by a new dedicated test
+  rather than assumed. **NEW `euclideousRiffReachableRanks` (Derivations.swift)** — simulates the walk over a
+  generously-bounded ordinal range through the EXACT same walk→rotate→rank→INVERT→TRANSPOSE pipeline
+  `runEuclidLine` itself uses (confirmed by reading the real order first), so the new Notes-row riff marks can
+  never show a rank the engine wouldn't actually reach; the "real vs copy" split needed NO new plumbing at
+  all — `riffLivePool` (already threaded through the whole Router→Kernel→MidiSparkAudioUnit→
+  AudioUnitViewController→EuclideousPage poll chain for an earlier ferry) turned out to ALREADY be the RAW,
+  pre-extension pool (confirmed by reading the Router-side fill code, not assumed), so `min(riffLivePool.
+  count, 8)` is the real-note count directly, no new scalar to thread. **MODEL MIGRATION:** new
+  `EuclideousMelodyMode` enum (`.note`/`.riff`) + `EuclidLine.melodyMode: EuclideousMelodyMode?` — the new
+  single source of truth for a lane's mode (Behaviour rule 1: "the mode is the selection"); nil migrates from
+  the legacy `useRiff: Bool?` (nil/false⇒NOTE, true⇒RIFF); an explicit value always wins over a disagreeing
+  legacy one. `useRiffResolved` is now DERIVED from `melodyModeResolved` (`== .riff`) rather than being its
+  own independently-stored flag — every existing Router.swift/EuclidLaneUI.swift reader of `useRiffResolved`
+  needed zero changes. **UI, built fresh (no literal mockup pixel spec survived the earlier compaction, so
+  this is a reasoned-from-the-plan rendering, not a recovered literal one — flagged plainly below, not
+  silently passed off as pixel-exact):** Notes row (8 equal rank buttons, dimmer for octave-extended "copy"
+  ranks beyond the real pool count, bright-ringed for the current NOTE-mode pick incl. TOP/TOP2 resolved
+  live, faintly marked for every riff-reachable rank in RIFF mode) → Octave row (a −2…+2 segmented bar
+  writing `octave` in NOTE mode / `riffOctave` in RIFF mode — the OLD pop-up's own existing branch, just
+  relocated — plus TOP/TOP2 buttons that set the pick AND switch to NOTE mode in one tap) → Riff block (a
+  RIFF mode-switch strip + WALK row [4 directions, DRUNK dropped + FREE/LOCK] + MODES row [HIT/STEP +
+  SKIP/FILL/TIE + INVERT] + VALUES row [LEN/NUDGE/STRIDE/TRANS steppers] — every control in this block also
+  switches the lane to RIFF mode on tap, per Behaviour rule 1's "any control in the riff rows," and the whole
+  block dims to 42% (never disabled) in NOTE mode, per rule 4's "stay live"). The whole melody pop-up —
+  `melodyPopupCard`/`melodyModeSection`/`melodyWalkSection`/`melodyNoteSection`/`melodyPlacementSection`/
+  `melodyPopupLane`/`melodyStripFrames`/`EuclideousStripFramePreferenceKey`/`euclideousMelodyAnchor`/
+  `melodyPointer`, the 30pt long-press overlay's old `perform:`, and its frame-publishing background — is
+  deleted entire, not left dead; `melodyButton`/`melodyStepper`/`melodySectionTitle`/`melodyNoteSelLabel` are
+  KEPT and reused verbatim by the new tab content, since the visual language itself (not the pop-up shell)
+  is what's being carried forward. **RESET MELODY has no replacement slot anywhere in this ferry's own text
+  and is treated as retired along with the pop-up, not relocated** — a disclosed interpretation, not a silent
+  drop. The summary label above each NOTE VIEW strip now selects the lane AND switches it to the MELODY tab
+  (Behaviour rule 6), replacing its old "open the pop-up" action. **TESTS (+11/-5, net to macOS 1350):** the
+  NOTE-mode-ignores-TRANSPOSE fix (rewritten from the old "...InBothModes" test, which asserted the exact
+  opposite); the walk-advances-silently-in-note-mode fix is the direct beneficiary of the 24-test regression
+  catch above, not a separate new test; the OCT ±2 clamp (Euclideous row only, vs. an ordinary row's
+  untouched ±3 — a genuine ENGINE-level test, not just the model-layer one, since nothing else would have
+  caught a regression at the one gated call site); TOP/TOP2 resolution incl. the one-note-pool degradation;
+  the `melodyMode` migration (nil→derived from legacy `useRiff`, explicit value wins, decode-tolerant); 3
+  `euclideousRiffReachableRanks` tests (the Acceptance checklist's own literal worked example — ranks 1-5,
+  TRANS +2 → marks under ranks 3-7 — plus an all-rest-is-empty case and an INVERT-before-TRANSPOSE order
+  check). 3 DRUNK-dependent Euclideous RouterTests removed outright (their whole premise — a history-
+  dependent walk position needing a special span/LOCK-boundary nudge — no longer exists once DRUNK can't be
+  reached); 2 more REWRITTEN rather than deleted, since they still verify a real, undiminished property once
+  pointed at a reachable direction (a mid-session LENGTH shrink staying crash-free and window-bounded; a
+  retired-but-decoded DRUNK document still sounding sensibly, now a decode-safety guard rather than a walk-
+  behaviour one). **A SECOND, SMALLER TEST BUG SELF-CAUGHT the same way as the big one:** the new OCT-clamp
+  test's first draft read the chord `[60]` directly without setting `euclideousNoteSource = .midi` — on
+  Euclideous's own row the pool comes from `euclideousNoteSourceResolved`, whose nil default falls back to
+  the legacy per-lane source, itself defaulting to KEY, not MIDI (a completely unrelated, pre-existing
+  2026-10-12 feature) — so the test was silently reading a KEY-derived scale pool instead of the held chord;
+  fixed by setting the source explicitly, matching every other pre-existing Euclideous-row RouterTest's own
+  established convention. **FLAGGED MISMATCHES, named plainly per CLAUDE.md's own standing rule:** the
+  MELODY tab's exact colours/pixel sizes are NOT recovered from a literal mockup (none survived the earlier
+  context compaction, and the referenced inbox image was never actually reachable — `_dear_claude_code/`
+  held only `.DS_Store`) — every size/spacing/opacity value here is a reasoned judgment call built from this
+  page's own established visual language (`melodyButton`/`EuclideousSlider`'s conventions), not a pixel-exact
+  rendering of Paul's own spec; the plan's own "stop and report below a height/width floor" rule (rule 4) was
+  NOT wired as a runtime check — flagged here instead, the same pattern this page's own history already uses
+  for the riff-grid cell-size finding; the Notes-row real/copy styling, the riff-marks-on-buttons contour,
+  and the whole tab's legibility at real lane-card width are all genuinely DEVICE-OWED, unverifiable from
+  here. **DEVICE-OWED, the whole feature:** every item above plus confirming an old saved session with DRUNK
+  or a disagreeing legacy per-lane source still sounds sensibly after this migration, and that switching
+  between NOTE/RIFF mode via every one of the newly-wired tap targets feels immediate and correct in the
+  hand, not just in the engine's own test coverage.**
 - **▶ EUCLIDEOUS — riff-grid markers: the black cell background is GONE, each lane now gets its OWN FIXED
   CORNER (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean, no macOS
   test-target reach — pure UI, `EuclideousPage.swift` only). Paul: "the arrows that appear on the cells have

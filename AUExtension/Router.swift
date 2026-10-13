@@ -342,20 +342,12 @@ final class Router {
     private var riffDrunkLastTick = [Int64](repeating: .min, count: Snap.cells)  // last tick this cell's walk advanced on
     // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): each of Euclideous's 4 lines gets its OWN independent cursor into
     // the page's one shared riff pattern, advancing by exactly one step on that line's OWN hit (not on elapsed
-    // time) — "each hit will progress riff by 1 step." For 5 of 6 directions this needs ZERO new memory: the
-    // line's own hit-ordinal (`ord`, already computed stateless in `runEuclidLine`) drives `riffStepAt` directly.
-    // Only DRUNK is genuinely path-dependent (a random walk's position depends on its own history, not just "what
-    // time is it now") — same accepted-exception class as `riffDrunkPos` above (not replay-exact across a seek),
-    // just HIT-triggered (keyed on distinct `ord`) instead of tick-triggered, and sized 4 (one per Euclideous
-    // lane, not `Snap.cells`) since Euclideous is always exactly 4 lines at one fixed, reserved cell.
-    private var euclideousRiffDrunkPos = [Int](repeating: -1, count: 4)
-    private var euclideousRiffDrunkLastOrd = [Int64](repeating: .min, count: 4)
-    // RESET SPAN (Paul 2026-10-08): per-lane "last observed span-start beat" — lets DRUNK detect a span
-    // boundary crossing and hard-reset its walk to 0, the same "fresh start" treatment the very-first-hit
-    // case already gives it. NaN = "never observed" (also the sentinel for "span is off" at the call site —
-    // see euclideousRiffDrunkStep). Every OTHER riff direction resets for free via `ord` alone (no new state
-    // needed) since `ord` is already derived from the span-re-anchored local beat.
-    private var euclideousRiffLastSpanStart = [Double](repeating: .nan, count: 4)
+    // time) — "each hit will progress riff by 1 step." Every direction needs ZERO new memory: the line's own
+    // hit-ordinal (`ord`, already computed stateless in `runEuclidLine`) drives `riffStepAt` directly. DRUNK
+    // (and the accumulated per-lane state it alone needed — `euclideousRiffDrunkPos`/`LastOrd`/
+    // `LastSpanStart`) was REMOVED entire (Paul 2026-10-13 ferry, "Remove": "The DRUNK option") — scoped to
+    // Euclideous's own walk only; the UNRELATED generic chain RIFF processor keeps its own separate
+    // `riffDrunkPos`/`riffDrunkStep`/`riffDrunkPeek` above, fully untouched.
     // EUCLID MASK (Paul 2026-10-10 ferry, "Euclid mask, modes and settings") — the mask's own advancing
     // position is GENUINELY history-dependent, unlike the lane's own riff walk: §2.4's "STOP: the mask's
     // position holds where it is. PLAY continues from there" means the ordinal must count "sounding ticks
@@ -487,9 +479,9 @@ final class Router {
     // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): the live hit-ordinal (`advOrd`) each
     // lane's walk last advanced on — the main-thread prediction (`euclideousRiffCyclePrediction`,
     // Derivations.swift) needs this as its own `startOrd` baseline (continuing an in-progress FREE walk
-    // rather than restarting from 0 every poll) and, for DRUNK specifically, as `riffDrunkPeek`'s own
-    // `tick` baseline alongside `euclideousRiffDrunkPos` below. Written at the SAME site `euclideousRiffStep`
-    // already is, reset alongside it on a fresh play.
+    // rather than restarting from 0 every poll). Written at the SAME site `euclideousRiffStep` already is,
+    // reset alongside it on a fresh play — now UNCONDITIONALLY, in both note and riff mode (Paul 2026-10-13
+    // ferry, "Behaviour" rule 3: the walk keeps advancing silently in note mode).
     private var euclideousRiffLastOrd = [Int64](repeating: 0, count: 4)
     // NOTE VIEW (Paul 2026-10-10 ferry): a per-lane EVENT QUEUE — "the audio thread posts note and step
     // events... through a lock-free queue; the UI reads them." Mirrors `focusNotePitch`/`focusNoteHead`/
@@ -1434,18 +1426,13 @@ final class Router {
     /// directions through one surface (`euclideousRiffStep` is written on every useRiff hit, not just DRUNK).
     func euclideousRiffPositions() -> [Int] { euclideousRiffStep }
 
-    /// UI-poll read (Paul 2026-10-12 ferry): each lane's live walk-advance state, for the main-thread
-    /// cycle prediction (`euclideousRiffCyclePrediction`, Derivations.swift) — `ord` is the ordinal this
-    /// lane's walk last advanced on (its own `startOrd` baseline for continuing an in-progress FREE walk);
-    /// `drunkPos`/`drunkLastOrd` are the REAL, currently-live DRUNK walk state (`riffDrunkPeek`'s own
-    /// `fromPos`/`tick`), read regardless of the lane's current direction — a caller only consults them
-    /// when that lane IS on DRUNK, same shape as `riffDrunkPosAt` above.
-    func euclideousRiffWalkState() -> [(ord: Int64, drunkPos: Int, drunkLastOrd: Int64)] {
-        (0..<4).map { i in
-            (ord: i < euclideousRiffLastOrd.count ? euclideousRiffLastOrd[i] : 0,
-             drunkPos: i < euclideousRiffDrunkPos.count ? euclideousRiffDrunkPos[i] : -1,
-             drunkLastOrd: i < euclideousRiffDrunkLastOrd.count ? euclideousRiffDrunkLastOrd[i] : .min)
-        }
+    /// UI-poll read (Paul 2026-10-12 ferry): each lane's live walk-advance ordinal, for the main-thread
+    /// cycle prediction (`euclideousRiffCyclePrediction`, Derivations.swift) — the ordinal this lane's walk
+    /// last advanced on (its own `startOrd` baseline for continuing an in-progress FREE walk). Was a 3-field
+    /// tuple incl. `drunkPos`/`drunkLastOrd` (DRUNK's own live walk state) — simplified to just the ordinal
+    /// once DRUNK was removed from Euclideous's own walk (Paul 2026-10-13 ferry, "Remove").
+    func euclideousRiffWalkState() -> [Int64] {
+        (0..<4).map { i in i < euclideousRiffLastOrd.count ? euclideousRiffLastOrd[i] : 0 }
     }
 
     /// NOTE VIEW drain (Paul 2026-10-10 ferry): read-and-clear, FRESH per-lane arrays (never share the
@@ -2976,7 +2963,7 @@ final class Router {
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             for i in dealMoment.indices { dealMoment[i] = -1; dealNoteInMoment[i] = 0; dealLastOnset[i] = .min; dealGlobal[i] = 0 }   // DEAL: a fresh play restarts the deal (Paul 2026-09-16)
             for i in riffDrunkPos.indices { riffDrunkPos[i] = -1; riffDrunkPrevPos[i] = -1; riffDrunkLastTick[i] = .min }   // RIFF DRUNK: a fresh play restarts the walk (Paul 2026-09-28)
-            for i in euclideousRiffDrunkPos.indices { euclideousRiffDrunkPos[i] = -1; euclideousRiffDrunkLastOrd[i] = .min; euclideousRiffStep[i] = -1; euclideousRiffLastSpanStart[i] = .nan; euclideousRiffLastOrd[i] = 0 }   // EUCLIDEOUS RIFF: a fresh play restarts every lane's walk/cursor (Paul 2026-10-06) + re-arms span-reset detection (2026-10-08) + the markers/footers ordinal poll (2026-10-12)
+            for i in euclideousRiffStep.indices { euclideousRiffStep[i] = -1; euclideousRiffLastOrd[i] = 0 }   // EUCLIDEOUS RIFF: a fresh play restarts every lane's walk/cursor (Paul 2026-10-06) + the markers/footers ordinal poll (2026-10-12)
             for i in euclideousMaskOrd.indices {   // EUCLID MASK (Paul 2026-10-10): §2.5, "the global reset sets the mask to step 1, clears CLIMB/SWELL, and reseeds CHANCE" — step 1 = ordinal 0; CHANCE's seed is derived from this ordinal, so resetting it IS reseeding CHANCE, no separate mechanism needed.
                 euclideousMaskOrd[i] = 0; euclideousMaskOctUp[i] = true
                 euclideousMaskClimbOffset[i] = 0; euclideousMaskSwellOffset[i] = 0
@@ -4452,8 +4439,7 @@ final class Router {
                         if mm.enabledResolved {
                             // No separate dedup needed here: `iterateTicks` itself already dedups per
                             // (row, lineIndex) — this closure body runs at most once per real tick for this
-                            // lane, confirmed by the SAME guarantee `euclideousRiffDrunkLastOrd`'s own sibling
-                            // state relies on elsewhere in this function.
+                            // lane, the SAME guarantee the walk-advance state above relies on.
                             euclideousMaskOrd[lineIndex] += 1
                             let maskN = max(2, min(16, mm.stepsResolved))
                             let maskK = max(0, min(maskN, mm.pulsesResolved))
@@ -4482,29 +4468,112 @@ final class Router {
                         // including entering `if useRiff {}` at all, since that's where the walk cursor moves.
                         if maskedChancePassed && mm.modeResolved == .pause { return }
                         // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): "each hit will progress riff by 1 step" —
-                        // REPLACES noteSel/octave entirely when on (checked BEFORE the .riff/.arp sequential-source
-                        // branch just below, not layered after it, so this wins regardless of whatever noteSel
-                        // happens to be stored underneath — Paul's own ruling, not a guess). For 5 of 6 directions
-                        // this needs zero new memory: `ord` (just computed above) IS "which hit number is this,"
-                        // stateless — feeding it straight into `riffStepAt` gives "which step plays on this hit"
-                        // with no accumulated state at all. Only DRUNK is genuinely path-dependent (see
-                        // `euclideousRiffDrunkStep`'s own declaration for why). `riffRotate`/`riffOctave` are this
-                        // LANE's own independent offset into the one shared pattern (Paul: "independent cursor per
-                        // lane") — rotate matches `euclidPatternInto`'s own `(i + rot) % n` read-index convention
-                        // exactly (see `riffRotateStep`). OCTAVE REPLACES this line's own `octave` rather than
-                        // stacking with it (passed 0 below) — the gesture pad that used to drive `octave` now
-                        // drives `riffOctave` exclusively, so consulting the old frozen value too would silently
-                        // reintroduce an offset the user can no longer see or edit.
+                        // REPLACES noteSel/octave entirely when in RIFF mode (checked BEFORE the .riff/.arp
+                        // sequential-source branch further below, not layered after it, so this wins regardless
+                        // of whatever noteSel happens to be stored underneath — Paul's own ruling, not a guess).
+                        // For every remaining direction this needs zero new memory: `ord` (just computed above)
+                        // IS "which hit number is this," stateless — feeding it straight into `riffStepAt` gives
+                        // "which step plays on this hit" with no accumulated state at all. `riffRotate`/
+                        // `riffOctave` are this LANE's own independent offset into the one shared pattern (Paul:
+                        // "independent cursor per lane") — rotate matches `euclidPatternInto`'s own `(i + rot) %
+                        // n` read-index convention exactly (see `riffRotateStep`). OCTAVE REPLACES this line's
+                        // own `octave` rather than stacking with it (passed 0 below) — the gesture pad that used
+                        // to drive `octave` now drives `riffOctave` exclusively, so consulting the old frozen
+                        // value too would silently reintroduce an offset the user can no longer see or edit.
+                        //
+                        // WALK ADVANCE NOW RUNS UNCONDITIONALLY ON MODE (Paul 2026-10-13 ferry, "Behaviour" rule
+                        // 3: "in note mode, the riff walk keeps advancing silently, so it comes back in phase" —
+                        // the user's own disclosed interpretation). Previously this whole computation lived
+                        // INSIDE `if useRiff {}`, so switching a lane to NOTE mode froze its walk position dead
+                        // — found by tracing, not assumed, before restructuring. Hoisted ABOVE the `if useRiff`
+                        // fork because it needs NONE of the pool/rank machinery below (`thisLaneCount`/`notes`/
+                        // `ranks`) — only the direction/stride/length/rotate/lock/advance-step params and the
+                        // ord-family locals already computed above this point, all available regardless of
+                        // mode or row. COMPUTED FOR EVERY ROW, not just Euclideous's own — a real bug caught
+                        // and reverted: an earlier draft gated the WHOLE computation on `isEuclideousRow`
+                        // (reasoning "only Euclideous has a riff walk to advance"), which silently froze
+                        // `playedStep` at its harmless 0 default for every one of the many pre-existing
+                        // RouterTests that build a riff-enabled `EuclidLine` at a plain row (0, not
+                        // `Snap.euclideousRow`) — `isEuclideousRow` is specific to the ONE reserved row
+                        // Euclideous's own UI happens to render at, not to "is this a riff-mode EuclidLine,"
+                        // and the generic `[useRiff: true]` mechanism itself long predates Euclideous's own
+                        // page/row (used standalone, by any chain cell, anywhere). ONLY the two STATE-ARRAY
+                        // WRITES below are still gated — `euclideousRiffStep`/`euclideousRiffLastOrd` are fixed
+                        // 4-slot arrays dedicated to Euclideous's own 4 lanes specifically (its UI's own
+                        // markers/footers poll reads them by lineIndex 0...3), but `runEuclidLine` is called
+                        // for EVERY `.euclid` cell's lines, Euclideous or not — writing them unconditionally
+                        // would let an unrelated, non-Euclideous grid cell's own EUCLID line overwrite these
+                        // same 4 slots underneath Euclideous's real lanes. DRUNK is gone from this path
+                        // entirely (ferry "Remove": "The DRUNK option" — removed from Euclideous's own walk
+                        // only; the UNRELATED generic chain RIFF processor keeps its own separate DRUNK state/
+                        // control untouched, see `riffDrunkPos`/`riffDrunkStep` elsewhere in this file). A
+                        // non-Euclideous riff-enabled line still walks via DRUNK's removal too, since
+                        // `riffDir`/`riffDirSeed`/`riffDirBias` are per-`EuclidLine` fields, not gated by row
+                        // either — any PRE-EXISTING test/doc that set `riffDir: .drunk` on a plain-row line
+                        // now falls through `riffStepAt`'s own exhaustive switch to its `.drunk` arm, which
+                        // returns the plain forward position (documented there as "never actually reached" by
+                        // the ORIGINAL Euclideous-only caller — now genuinely reachable for a non-Euclideous
+                        // line, a disclosed consequence of DRUNK's removal being scoped to Euclideous's own
+                        // UI/engine path, not to the shared `RiffDir` enum's own exhaustiveness).
+                        //
+                        // FREE / LOCK (Paul 2026-10-09 ferry, "three new per-lane riff options"): LOCK
+                        // re-anchors the riff's own position to its start at the FIRST hit of every lap of
+                        // THIS LANE's own Euclid pattern. `hitsUpTo` (computed just above, for `ord`
+                        // itself) is ALREADY "how many hits from position 0 up to this one, scanned fresh
+                        // within ONE lap's pattern" by construction (the scan is always `0...raw`, and
+                        // `raw` is always < cycleLen) — so `hitsUpTo - 1` IS exactly "position within the
+                        // CURRENT lap," genuinely stateless, needing no new bookkeeping for any remaining
+                        // direction — this is the WHOLE mechanism for FWD/REV/PEND/PING.
+                        let locked = riffLock
+                        // ADVANCE (Paul 2026-10-10 ferry §3.5): HIT keeps today's hit-ordinal (`ord`/
+                        // `hitsUpTo`); STEP advances on EVERY tick of this lane's own pattern, hit or
+                        // miss — `localT` (the true monotonic per-tick count, already computed above)
+                        // and `raw` (its lap-local form) are exactly the counters this needs, zero new
+                        // state required. Both still only ever get EVALUATED at an actual hit (nothing
+                        // strikes on a miss unless the separate MISS-side settings fire) — STEP changes
+                        // WHICH ordinal value is fed in, not WHEN the walk position gets computed.
+                        let advOrd: Int64 = riffAdvanceStep
+                            ? (locked ? Int64(raw) : localT)
+                            : (locked ? Int64(hitsUpTo - 1) : ord)
+                        // RESET SPAN (Paul 2026-10-08): "the global reset span still applies on top of
+                        // both modes" — the Euclid PATTERN's own phase is still re-anchored upstream
+                        // (unchanged, computed earlier for `ord`/`hitsUpTo` themselves); the riff WALK's own
+                        // extra `spanStart` re-anchor was DRUNK-only (a random walk needed an explicit nudge
+                        // to hard-reset at a span boundary — every other direction already resets for free
+                        // via `ord` alone) and is removed along with DRUNK — nothing computes or reads a
+                        // separate `spanStart` in this function any more.
+                        // STRIDE (§3.4): multiplies the ordinal fed into `riffStepAt` — FWD/REV/
+                        // PENDULUM/PINGPONG all generalize this way (hand-verified against Paul's own
+                        // worked example: stride 3 / length 5 → (ord*3) mod 5 for ord=0..4 gives
+                        // 0,3,1,4,2 → 1-indexed 1,4,2,5,3, exactly matching §3.4's literal sequence).
+                        // LENGTH (§3.2): every direction's own modulus is now `riffLength`, not the
+                        // shared riff pattern's full step count — the lane walks only steps 1...LENGTH
+                        // of the shared pattern, wrapping/reflecting within that window alone. `seed`
+                        // still threads through for a legacy `.random` document (RANDOM was already
+                        // retired from this page's own UI before this ferry, per an earlier ruling — not
+                        // re-removed here, just never freshly reachable) so it keeps resolving exactly as
+                        // it always has rather than silently changing behaviour for an old saved lane.
+                        let seed = UInt64(bitPattern: Int64(riffDirSeed))
+                        let walkPos = riffStepAt(riffDir, raw: Int(advOrd) * riffStride, steps: riffLength, seed: seed)
+                        // SHIFT/NUDGE (§3.3, literal): "the played step = (walk position + NUDGE), wrapped
+                        // within LENGTH" — `riffRotateStep` itself is UNCHANGED, just given `riffLength`
+                        // instead of the old `riffN` modulus. LOCK's own "first played step is the NUDGE
+                        // step" (§3.3) follows for free for FWD/PENDULUM/PINGPONG, which all naturally
+                        // evaluate to walkPos=0 at advOrd=0 — REVERSE's own formula naturally starts at
+                        // `riffLength-1` instead (a narrow, deliberate, unforced edge case — this is a
+                        // direct, unmodified reuse of the existing `riffStepAt` formula, not a new
+                        // direction-dependent override).
+                        let playedStep = riffRotateStep(walkPos, by: riffRotate, steps: riffLength)
+                        if isEuclideousRow {
+                            euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern — now true in BOTH modes
+                            euclideousRiffLastOrd[lineIndex] = advOrd    // RIFF MARKERS/FOOTERS poll (2026-10-12): the ordinal this cursor just advanced on
+                        }
+
                         if useRiff {
                             // DIRECTION IS PER-LANE (Paul 2026-10-07): riffDir/riffDirSeed/riffDirBias now come from
                             // THIS line (the fn params above), not the shared `p.euclideousRiff` — only the pattern
                             // CONTENT (steps/ranks) is shared; each lane walks it its own way.
                             let rp = p.euclideousRiff
-                            // LENGTH (Paul 2026-10-10 ferry §3.2) now governs every direction's own modulus
-                            // (`riffLength` below) — the shared pattern's own full step count is no longer
-                            // read directly here; `ranks.count` alone (just below) already guards a
-                            // `playedStep` that exceeds it, falling back to rest, the same safe degradation
-                            // this file already relied on before LENGTH existed.
                             // PER-LANE SOURCE (Paul 2026-10-09, ferry §2.4 — supersedes "follows lane 1"):
                             // each lane resolves the shared riff SHAPE against ITS OWN per-lane pool
                             // (`laneNotes(lineIndex)`/`laneCount(lineIndex)` — the exact same per-lane buffer
@@ -4512,66 +4581,9 @@ final class Router {
                             // source THIS lane is on," not lane 0's) — so two lanes walking the identical
                             // riff shape with different inputs now genuinely play different notes.
                             let thisLaneCount = laneCount(lineIndex)
-                            guard thisLaneCount > 0 else { return }
+                            guard thisLaneCount > 0 else { return }   // the walk itself already advanced above regardless — only the STRIKE needs a non-empty pool
                             let notes = laneNotes(lineIndex)
-                            let seed = UInt64(bitPattern: Int64(riffDirSeed))
                             let ranks = rp.ranks ?? []   // SnapshotBuilder always resolves this to a full, padded array (main thread) before Router ever sees it — `?? []` is a type-safety unwrap here, not a real fallback allocation
-
-                            // FREE / LOCK (Paul 2026-10-09 ferry, "three new per-lane riff options"): LOCK
-                            // re-anchors the riff's own position to its start at the FIRST hit of every lap of
-                            // THIS LANE's own Euclid pattern. `hitsUpTo` (computed just above, for `ord`
-                            // itself) is ALREADY "how many hits from position 0 up to this one, scanned fresh
-                            // within ONE lap's pattern" by construction (the scan is always `0...raw`, and
-                            // `raw` is always < cycleLen) — so `hitsUpTo - 1` IS exactly "position within the
-                            // CURRENT lap," genuinely stateless, needing no new bookkeeping for 5 of 6
-                            // directions. Substituting it for the full continuous `ord` is the WHOLE mechanism
-                            // for FWD/REV/PEND/PING — RAND gets "reseed every restart" for free too, since
-                            // `riffStepAt(.random, raw: 0, seed:)` with the SAME seed always hashes to the same
-                            // step. Only DRUNK needs an explicit nudge (a walk's position depends on its own
-                            // history, not just "what time is it") — `euclideousRiffDrunkStep`'s new
-                            // `cycleReset` flag, fired exactly on `hitsUpTo == 1`, hard-resets it, the SAME
-                            // "fresh start" treatment the existing reset-span boundary already gets.
-                            let locked = riffLock
-                            // ADVANCE (Paul 2026-10-10 ferry §3.5): HIT keeps today's hit-ordinal (`ord`/
-                            // `hitsUpTo`); STEP advances on EVERY tick of this lane's own pattern, hit or
-                            // miss — `localT` (the true monotonic per-tick count, already computed above)
-                            // and `raw` (its lap-local form) are exactly the counters this needs, zero new
-                            // state required. Both still only ever get EVALUATED at an actual hit (nothing
-                            // strikes on a miss unless the separate MISS-side settings fire) — STEP changes
-                            // WHICH ordinal value is fed in, not WHEN the walk position gets computed.
-                            let advOrd: Int64 = riffAdvanceStep
-                                ? (locked ? Int64(raw) : localT)
-                                : (locked ? Int64(hitsUpTo - 1) : ord)
-                            // RESET SPAN (Paul 2026-10-08): "the global reset span still applies on top of
-                            // both modes" — unchanged, still independently re-anchors via spanStart below;
-                            // LOCK and reset-span are two separate re-anchor mechanisms layered together, not
-                            // one replacing the other (LOCK acts on the ordinal fed to the riff lookup;
-                            // reset-span already acts further upstream, on the Euclid pattern's own phase).
-                            let spanStart = spanBeats > 0 ? columnStart(mTickBeat, spanBeats) : Double.nan
-                            // STRIDE (§3.4): multiplies the ordinal fed into `riffStepAt` — FWD/REV/
-                            // PENDULUM/PINGPONG all generalize this way (hand-verified against Paul's own
-                            // worked example: stride 3 / length 5 → (ord*3) mod 5 for ord=0..4 gives
-                            // 0,3,1,4,2 → 1-indexed 1,4,2,5,3, exactly matching §3.4's literal sequence).
-                            // DRUNK ignores stride entirely (§3.4) — a random walk has no "stride," always
-                            // ±1, so it's never multiplied into DRUNK's own ordinal below.
-                            // LENGTH (§3.2): every direction's own modulus is now `riffLength`, not the
-                            // shared riff pattern's full step count — the lane walks only steps 1...LENGTH
-                            // of the shared pattern, wrapping/reflecting within that window alone.
-                            let walkPos = riffDir == .drunk
-                                ? euclideousRiffDrunkStep(lane: lineIndex, ord: advOrd, steps: riffLength, bias: riffDirBias, seed: seed, spanStart: spanStart,
-                                                          cycleReset: locked && (riffAdvanceStep ? raw == 0 : hitsUpTo == 1))
-                                : riffStepAt(riffDir, raw: Int(advOrd) * riffStride, steps: riffLength, seed: seed)
-                            // SHIFT (§3.3, literal): "the played step = (walk position + SHIFT), wrapped
-                            // within LENGTH" — `riffRotateStep` itself is UNCHANGED, just given `riffLength`
-                            // instead of the old `riffN` modulus. LOCK's own "first played step is the SHIFT
-                            // step" (§3.3) follows for free for FWD/PENDULUM/PINGPONG, which all naturally
-                            // evaluate to walkPos=0 at advOrd=0 — REVERSE's own formula naturally starts at
-                            // `riffLength-1` instead (flagged in the ferry plan as a narrow, deliberate,
-                            // unforced edge case — this is a direct, unmodified reuse of the existing
-                            // `riffStepAt` formula, not a new direction-dependent override).
-                            let playedStep = riffRotateStep(walkPos, by: riffRotate, steps: riffLength)
-                            euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern
-                            euclideousRiffLastOrd[lineIndex] = advOrd    // RIFF MARKERS/FOOTERS poll (2026-10-12): the ordinal this cursor just advanced on
 
                             // LEAP (EUCLID MASK, Paul 2026-10-10 ferry §3): "play the riff position STEPS
                             // ahead or behind (wrapping within LENGTH) for this note only. The lane's walk
@@ -4633,21 +4645,20 @@ final class Router {
                             // Euclidean rhythm), so the extension is measured in real pattern-step distance to
                             // the hit that finally breaks the chain, not a fixed per-step duration.
                             //
-                            // A LOCK cycle boundary is ALWAYS a hard stop for the chain, for every direction —
-                            // not just DRUNK, and not merely because DRUNK's own peek can't safely simulate
-                            // across a reset. LOCK's whole promise is "the same notes fall on the same beats
-                            // every cycle" — letting a tie bleed across that boundary would make the FIRST hit
-                            // of SOME cycles silently inherit a held note instead of genuinely landing on its
-                            // own reproducible strike, breaking that promise for whichever cycles happened to
-                            // end on a tied rest. Reasoned through, not asked (ferry §6 only raised a LOCK-
-                            // cycle question for PING specifically) — stopping at the boundary is the one
-                            // reading consistent with LOCK's own stated guarantee, for every direction alike.
+                            // A LOCK cycle boundary is ALWAYS a hard stop for the chain, for every direction.
+                            // LOCK's whole promise is "the same notes fall on the same beats every cycle" —
+                            // letting a tie bleed across that boundary would make the FIRST hit of SOME cycles
+                            // silently inherit a held note instead of genuinely landing on its own reproducible
+                            // strike, breaking that promise for whichever cycles happened to end on a tied
+                            // rest. Reasoned through, not asked (ferry §6 only raised a LOCK-cycle question for
+                            // PING specifically) — stopping at the boundary is the one reading consistent with
+                            // LOCK's own stated guarantee, for every direction alike.
                             //
                             // Bounded, allocation-free: at most `riffN` consecutive hits folded in, and at
                             // most 4 full laps of pattern-steps scanned looking for them (a sparse K=1 pattern
                             // can space hits far apart in step terms) — a safety cap, not expected to bind in
                             // practice.
-                            func riffTieExtensionBeats(startStepIdx: Int, startOrd: Int64) -> Double {
+                            func riffTieExtensionBeats() -> Double {
                                 guard riffOnRest == .tie else { return 0 }
                                 var hitsAhead = 0
                                 var lastConsumedT = localT
@@ -4679,15 +4690,8 @@ final class Router {
                                     let fOrd: Int64 = riffAdvanceStep
                                         ? (locked ? Int64(fRaw) : t)
                                         : (locked ? Int64(fHitsUpTo - 1) : (fCy * effHits + Int64(fHitsUpTo - 1)))
-                                    // STRIDE/LENGTH mirror the live walk's own formula exactly. DRUNK's peek
-                                    // counts ELAPSED TICKS (t - localT) as its `aheadBy` under ADVANCE=STEP
-                                    // (the walk advances once per TICK, not once per hit found) vs `hitsAhead`
-                                    // under ADVANCE=HIT (the walk advances once per hit, matching the live
-                                    // path's own `ord` semantics) — DRUNK never multiplies by riffStride
-                                    // either way (§3.4, DRUNK ignores stride).
-                                    let fStepIdx = riffDir == .drunk
-                                        ? riffDrunkPeek(fromPos: startStepIdx, tick: startOrd, aheadBy: riffAdvanceStep ? Int(t - localT) : hitsAhead, steps: riffLength, bias: riffDirBias, seed: seed)
-                                        : riffStepAt(riffDir, raw: Int(fOrd) * riffStride, steps: riffLength, seed: seed)
+                                    // STRIDE/LENGTH mirror the live walk's own formula exactly.
+                                    let fStepIdx = riffStepAt(riffDir, raw: Int(fOrd) * riffStride, steps: riffLength, seed: seed)
                                     let fRotIdx = riffRotateStep(fStepIdx, by: riffRotate, steps: riffLength)
                                     let fRank = fRotIdx < ranks.count ? ranks[fRotIdx] : 0
                                     guard fRank < 1 else { break }   // a real note breaks the chain
@@ -4734,7 +4738,7 @@ final class Router {
                                     return
                                 case .fill:
                                     let (pickIndex, pickRange) = resolveEuclidPick(noteSel, ord: ord, count: thisLaneCount)
-                                    let tieExt = riffTieExtensionBeats(startStepIdx: walkPos, startOrd: advOrd)
+                                    let tieExt = riffTieExtensionBeats()
                                     let gb = min(sub * gate, S * 0.95) + tieExt
                                     let fillVel = UInt8(velocityAbsolute)
                                     let fillIdx = resolvedPickIndices(pickIndex, pickRange, count: notes.count)
@@ -4792,7 +4796,7 @@ final class Router {
                             // is no longer read at all — VELOCITY is a genuine override now, same as every other
                             // strike this lane makes (see EuclidLine.velocityAbsolute's own doc comment).
                             guard let note0 = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
-                            let tieExt = riffTieExtensionBeats(startStepIdx: walkPos, startOrd: advOrd)
+                            let tieExt = riffTieExtensionBeats()
                             let gb = min(sub * gate, S * 0.95) + tieExt
                             // EUCLID MASK — MUTE/RATCHET/CHORD/OCT/ACCENT/SWELL/REPEAT-trigger (Paul 2026-10-10
                             // ferry §3), applied to the already-fully-resolved primary note/velocity, mutually
@@ -4938,10 +4942,14 @@ final class Router {
                         let hitVel = UInt8(velocityAbsolute)
                         let hitGate = min(sub * gate, S * 0.95)
                         let hitIdx = resolvedPickIndices(pickIndex, pickRange, count: hitNotes.count)
-                        // TRANSPOSE (Paul 2026-10-10 ferry §3.1/§3.7): applies in NOTE mode too, not just
-                        // RIFF — a rank-space shift via the SAME `riffResolve(wrap: .fold)` lookup the riff
-                        // path uses, so an out-of-pool transpose wraps identically either way; `octave: 0`
-                        // to strikeChord since the octave shift is already folded into the resolved note.
+                        // TRANSPOSE IGNORED IN NOTE MODE (Paul 2026-10-13 ferry, "Engine" rule 1: "Note mode
+                        // plays exactly what the button shows... TRANS, INV and the walk settings are ignored
+                        // in note mode") — SUPERSEDES the 2026-10-10 ferry's "applies in NOTE mode too" ruling,
+                        // a deliberate reversal, not an oversight: a genuine bug was found tracing this before
+                        // making the change (this branch WAS still adding `melodyTranspose` below, confirmed by
+                        // reading, not assumed) — a note button showing "N3" would have silently played a
+                        // transposed pitch if TRANSPOSE had ever been touched on a lane later switched to NOTE
+                        // mode, directly contradicting the new ferry's "the button shows exactly what plays."
                         //
                         // EUCLID MASK (BUG FIX 2026-10-12, Paul: "ratchet doesn't work" — see `maskTransform`'s
                         // own doc comment): applies here now too, per resolved note, exactly as it already did
@@ -4955,7 +4963,7 @@ final class Router {
                         let resolveHitRank: (Int) -> Int? = { r in riffResolve(rank: r, oct: octave, n: hitNotes.count, wrap: .fold, asc: { hitNotes[$0].note }) }
                         var struckNotes: [Int] = []
                         for idx in hitIdx where idx >= 0 && idx < hitNotes.count {
-                            let rank = idx + 1 + melodyTranspose
+                            let rank = idx + 1
                             guard let hitNote0 = resolveHitRank(rank) else { continue }
                             let xf = maskTransform(rank: rank, note: hitNote0, vel: hitVel, lineIndex: lineIndex,
                                                    mm: mm, maskedChancePassed: maskedChancePassed, resolveRank: resolveHitRank)
@@ -5089,8 +5097,14 @@ final class Router {
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
                 // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the
                 // cell's own bm, via strikeChord's busOverride).
+                // OCT RANGE −2…+2 FOR EUCLIDEOUS ONLY (Paul 2026-10-13 ferry, "Engine" rule 4): `L.octaveResolved`
+                // itself stays ±3 (shared with the regular, non-Euclideous BUILD-page EUCLID processor's own
+                // OCTAVE stepper — narrowing it there would silently clip an unrelated feature, confirmed by
+                // reading `GridUI.swift`'s `-3...3` control before deciding this) — the tighter range is applied
+                // right here instead, gated on the SAME `isEuclideousRow` this per-row loop already computed.
+                let euclideousOct = isEuclideousRow ? max(-2, min(2, L.octaveResolved)) : L.octaveResolved
                 runEuclidLine(lineIndex: lineIndex, pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
-                              noteSel: L.noteSelResolved, gate: L.gateResolved, octave: L.octaveResolved, velocity: L.velocityResolved,
+                              noteSel: L.noteSelResolved, gate: L.gateResolved, octave: euclideousOct, velocity: L.velocityResolved,
                               velocityAbsolute: L.velocityAbsoluteResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
@@ -6339,59 +6353,6 @@ final class Router {
             riffDrunkPos[ci] = max(0, min(steps - 1, np))
         }
         return riffDrunkPos[ci]
-    }
-    /// EUCLIDEOUS RIFF ADVANCE, the DRUNK case: the sibling of `riffDrunkStep` above, but HIT-triggered (keyed on
-    /// distinct `ord`, a lane's own stateless hit-ordinal) instead of TICK-triggered — "each hit will progress
-    /// riff by 1 step," not "each elapsed beat". Sized 4 (one per Euclideous lane), not `Snap.cells`, since
-    /// Euclideous is always exactly 4 lines at one fixed, reserved cell. Same `previewMode` guard as
-    /// `riffDrunkStep` — an audition pass must not perturb the real, persisted walk.
-    /// RESET SPAN (Paul 2026-10-08): `spanStart` is the span-re-anchored beat this hit's window starts at
-    /// (NaN when reset-span is OFF, the sentinel for "don't track this"). Every OTHER riff direction resets
-    /// for free when a span boundary passes, since `ord` is already derived from the span-re-anchored local
-    /// beat and naturally restarts low — DRUNK's walk POSITION doesn't follow from that alone (a random walk's
-    /// position depends on its own history, not just "what time is it now"), so this is the one direction that
-    /// needs an explicit nudge: when `spanStart` changes from what was last observed, hard-reset the walk to 0,
-    /// the exact same "fresh start" treatment the very-first-hit-ever case below already gives it.
-    private func euclideousRiffDrunkStep(lane: Int, ord: Int64, steps: Int, bias: Double, seed: UInt64, spanStart: Double, cycleReset: Bool = false) -> Int {
-        guard lane >= 0, lane < euclideousRiffDrunkPos.count else { return 0 }
-        if previewMode { return euclideousRiffDrunkPos[lane] < 0 ? 0 : min(steps - 1, euclideousRiffDrunkPos[lane]) }
-        if euclideousRiffDrunkPos[lane] < 0 {
-            euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord; euclideousRiffLastSpanStart[lane] = spanStart
-            return 0
-        }
-        // LOCK (Paul 2026-10-09 ferry): the SAME "fresh start" hard-reset the span-boundary branch below
-        // already performs, just triggered by a DIFFERENT boundary — this lane's own Euclid pattern
-        // completing a lap, signalled by the caller passing `cycleReset: true` on exactly the first hit of
-        // each new lap (`hitsUpTo == 1`, already known to the caller — this function has no concept of
-        // "hits" or "laps" itself, so it can't detect this boundary on its own). Checked BEFORE the span
-        // check below so LOCK still resets even when reset-span is off (spanStart stays NaN, never equal to
-        // anything, so that branch alone would never fire for a LOCK-only lane).
-        if cycleReset {
-            euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord
-            return 0
-        }
-        if !spanStart.isNaN, spanStart != euclideousRiffLastSpanStart[lane] {
-            euclideousRiffLastSpanStart[lane] = spanStart
-            euclideousRiffDrunkPos[lane] = 0; euclideousRiffDrunkLastOrd[lane] = ord
-            return 0
-        }
-        if ord != euclideousRiffDrunkLastOrd[lane] {
-            euclideousRiffDrunkLastOrd[lane] = ord
-            // LENGTH (Paul 2026-10-10 ferry §3.8): "if LENGTH is reduced below the lane's current
-            // position, wrap the position into the new window on the next advance." A normal advance
-            // self-corrects for free (the bounce-reflection formula below already clamps every result
-            // into 0...steps-1) — but if `steps` (LENGTH) just SHRANK since the last advance, the
-            // STORED position itself could already sit outside the new range, which the reflection
-            // formula below isn't designed to recover from cleanly (it expects a small overshoot near
-            // the boundary, not an arbitrarily-out-of-range starting point). Normalizing here, BEFORE
-            // computing the next delta, is a one-time no-op whenever nothing has shrunk.
-            if euclideousRiffDrunkPos[lane] >= steps { euclideousRiffDrunkPos[lane] %= steps }
-            var np = euclideousRiffDrunkPos[lane] + riffDrunkDelta(tick: ord, bias: bias, seed: seed)
-            if np < 0 { np = -np }
-            if np > steps - 1 { np = 2 * (steps - 1) - np }
-            euclideousRiffDrunkPos[lane] = max(0, min(steps - 1, np))
-        }
-        return euclideousRiffDrunkPos[lane]
     }
     private func emitRiffRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                              emits: Bool, box: SnapshotBox, pool: NotePool,

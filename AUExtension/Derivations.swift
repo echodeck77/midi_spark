@@ -2042,6 +2042,33 @@ func riffStepAt(_ dir: RiffDir, raw: Int, steps: Int, seed: UInt64) -> Int {
     }
 }
 
+/// MELODY TAB — RIFF MARKS ON THE NOTE BUTTONS (Paul 2026-10-13 ferry, Notes-row rule 6 + Riff-block item 1,
+/// "the mini contour follows live edits"): every rank (1...8) this lane's walk can EVER land on, across every
+/// direction/stride/rotate/length/INVERT/TRANSPOSE combination — so the Notes row can mark "the riff might
+/// strike this button" without predicting WHEN. Walks a generously-bounded ordinal range (large enough to
+/// guarantee full coverage for any LEN≤8/STRIDE≤7/direction combination — no need to derive an exact minimal
+/// period per direction, this is cheap and main-thread-only, never on the render path) through the EXACT same
+/// walk→rank pipeline `runEuclidLine` itself uses (`riffStepAt` → `riffRotateStep` → rank lookup → INVERT →
+/// TRANSPOSE, in that order — mirrors Router.swift's own sequence precisely, so a mark can never show a rank
+/// the engine wouldn't actually reach). DRUNK is not reachable here (removed from Euclideous's own WALK
+/// directions by this same ferry) — `riffStepAt`'s `.drunk` case is never passed `dir` by any caller of this
+/// function, so `seed` is always 0 and genuinely unused for every real direction.
+func euclideousRiffReachableRanks(dir: RiffDir, length: Int, stride: Int, rotate: Int, ranks: [Int], invert: Bool, transpose: Int) -> Set<Int> {
+    guard length > 0, !ranks.isEmpty else { return [] }
+    var out = Set<Int>()
+    for ord in 0..<(2 * 8 * 7) {
+        let walkPos = riffStepAt(dir, raw: ord * stride, steps: length, seed: 0)
+        let playedStep = riffRotateStep(walkPos, by: rotate, steps: length)
+        guard playedStep < ranks.count else { continue }
+        let rawRank = ranks[playedStep]
+        guard rawRank >= 1 else { continue }   // rest — never reaches a note button
+        let invRank = invert ? 9 - rawRank : rawRank
+        let transposedRank = invRank + transpose
+        if transposedRank >= 1 && transposedRank <= 8 { out.insert(transposedRank) }
+    }
+    return out
+}
+
 /// RIFF TIE LOOKAHEAD FIX, the DRUNK case: a NON-MUTATING simulation of the walk `aheadBy` ticks past `fromPos`
 /// (the already-resolved CURRENT position) — lets TIE ask "what does DRUNK actually play next" without touching
 /// the real persisted walk state (`riffDrunkPos`/`riffDrunkLastTick` in Router.swift). Exact, not approximate:
@@ -2886,21 +2913,21 @@ func euclideousLapHitSteps(pulses: Int, steps: Int, rotate: Int, tilt: Double, p
 /// elapsed grid-step count) both recover exactly which hit-index-within-the-lap the most recent hit was,
 /// letting the lap's own first-hit ordinal be recovered by simple subtraction.
 func euclideousRiffLapBaseline(hitSteps: [Int], lapSteps: Int, locked: Bool, advanceStep: Bool,
-                                liveOrd: Int64, liveDrunkPos: Int, liveDrunkLastOrd: Int64)
-    -> (startOrd: Int64, drunkLive: (pos: Int, lastOrd: Int64), currentHitIndex: Int) {
-    guard !hitSteps.isEmpty, lapSteps > 0 else { return (0, (0, 0), 0) }
-    if locked { return (0, (0, 0), 0) }   // LOCK hard-resets ordinal AND (for DRUNK) position to 0 at every lap's first hit — the live hit is always index 0
+                                liveOrd: Int64)
+    -> (startOrd: Int64, currentHitIndex: Int) {
+    guard !hitSteps.isEmpty, lapSteps > 0 else { return (0, 0) }
+    if locked { return (0, 0) }   // LOCK hard-resets the ordinal to 0 at every lap's first hit — the live hit is always index 0
     let firstStep = hitSteps[0]
     if advanceStep {
         let curStepPos = Int(((liveOrd % Int64(lapSteps)) + Int64(lapSteps)) % Int64(lapSteps))
-        guard let k = hitSteps.firstIndex(of: curStepPos) else { return (liveOrd, (liveDrunkPos, liveDrunkLastOrd), 0) }
+        guard let k = hitSteps.firstIndex(of: curStepPos) else { return (liveOrd, 0) }
         let lapStartOrd = liveOrd - Int64(hitSteps[k] - firstStep)
-        return (lapStartOrd, (liveDrunkPos, liveDrunkLastOrd), k)
+        return (lapStartOrd, k)
     } else {
         let effHits = Int64(hitSteps.count)
         let curIdx = Int(((liveOrd % effHits) + effHits) % effHits)
         let lapStartOrd = liveOrd - Int64(curIdx)
-        return (lapStartOrd, (liveDrunkPos, liveDrunkLastOrd), curIdx)
+        return (lapStartOrd, curIdx)
     }
 }
 
@@ -2909,28 +2936,16 @@ func euclideousRiffLapBaseline(hitSteps: [Int], lapSteps: Int, locked: Bool, adv
 /// FIRST hit (0 under LOCK — the walk re-anchors every lap; the live running hit-count under FREE, so
 /// consecutive laps continue the same unbroken walk). `advanceStep` mirrors `runEuclidLine`'s own HIT-vs-
 /// STEP branch exactly: under STEP mode the ordinal advances by the real elapsed GRID-STEP count since the
-/// lap's first hit, not by 1 per hit. `drunkLive`, only consulted when `dir == .drunk`, is the REAL,
-/// currently-live walk position+ordinal polled from the engine (DRUNK has no periodic structure to predict
-/// in closed form — its "prediction" is a genuine forward replay via the existing non-mutating
-/// `riffDrunkPeek`, each call independent and exact: replaying a LARGER `aheadBy` from the same fixed base
-/// reproduces precisely what that many real sequential moves would have done, since `riffDrunkDelta` is
-/// itself a pure function of the tick number alone).
+/// lap's first hit, not by 1 per hit. DRUNK is not one of Euclideous's own WALK directions (2026-10-12
+/// MELODY-tab ferry — removed; the generic chain RIFF processor keeps its own, unrelated DRUNK untouched),
+/// so every direction here is a pure function of the ordinal alone — no live-walk state to poll.
 func euclideousRiffCyclePrediction(hitSteps: [Int], advanceStep: Bool, dir: RiffDir, stride: Int, length: Int,
-                                    rotate: Int, seed: UInt64, bias: Double, startOrd: Int64,
-                                    drunkLive: (pos: Int, lastOrd: Int64)?) -> [Int] {
+                                    rotate: Int, seed: UInt64, startOrd: Int64) -> [Int] {
     guard !hitSteps.isEmpty, length > 0 else { return [] }
     let firstStep = hitSteps[0]
     return hitSteps.enumerated().map { (hitIdx, step) in
         let advOrd: Int64 = advanceStep ? startOrd + Int64(step - firstStep) : startOrd + Int64(hitIdx)
-        let walkPos: Int
-        if dir == .drunk {
-            guard let live = drunkLive else { return 0 }
-            let aheadBy = Int(advOrd - live.lastOrd)
-            walkPos = aheadBy > 0 ? riffDrunkPeek(fromPos: live.pos, tick: live.lastOrd, aheadBy: aheadBy, steps: length, bias: bias, seed: seed)
-                                   : live.pos
-        } else {
-            walkPos = riffStepAt(dir, raw: Int(advOrd) * stride, steps: length, seed: seed)
-        }
+        let walkPos = riffStepAt(dir, raw: Int(advOrd) * stride, steps: length, seed: seed)
         return riffRotateStep(walkPos, by: rotate, steps: length) + 1   // 1-based, matching the grid's own displayed rank numbers
     }
 }

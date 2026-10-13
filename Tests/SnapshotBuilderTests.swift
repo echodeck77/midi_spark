@@ -761,11 +761,12 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(a.euclidLines[0].riffDirResolved, .drunk)
         XCTAssertEqual(a.euclidLines[0].riffDirSeedResolved, 7)
         XCTAssertEqual(a.euclidLines[0].riffDirBiasResolved, 0.5)
-        // riffOctave/riffDirBias are clamped here too, mirroring octave's own -3...3 clamp a few lines above
+        // riffOctave/riffDirBias are clamped here too — riffOctave narrowed to -2...2 for Euclideous only
+        // (Paul 2026-10-13 ferry, "Engine" rule 4; the shared `octave` field a few lines above stays -3...3)
         let clamped = box(machines(customizing: 0) {
             $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, riffOctave: 9, riffDirBias: 5)]
         }) { _ in }.machines[0].a
-        XCTAssertEqual(clamped.euclidLines[0].riffOctaveResolved, 3)
+        XCTAssertEqual(clamped.euclidLines[0].riffOctaveResolved, 2)
         XCTAssertEqual(clamped.euclidLines[0].riffDirBiasResolved, 1)
     }
 

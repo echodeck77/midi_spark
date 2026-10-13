@@ -152,12 +152,41 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(back.riffRotateResolved, 5)
         XCTAssertEqual(back.riffOctaveResolved, -2)
     }
-    func testEuclidLineRiffOctaveClampsToPlusMinusThree() {
+    // OCT RANGE −2…+2 (Paul 2026-10-13 ferry, "Engine" rule 4) — narrowed from the original ±3, Euclideous-only
+    // (riffOctave is exclusive to Euclideous's own riff mechanism, confirmed by grep before narrowing — unlike
+    // the shared `octave` field, which stays ±3 since the regular, non-Euclideous BUILD-page EUCLID processor's
+    // own OCTAVE stepper reads it too).
+    func testEuclidLineRiffOctaveClampsToPlusMinusTwo() {
         var line = EuclidLine(pulses: 3, steps: 8)
         line.riffOctave = 9
-        XCTAssertEqual(line.riffOctaveResolved, 3)
+        XCTAssertEqual(line.riffOctaveResolved, 2)
         line.riffOctave = -9
-        XCTAssertEqual(line.riffOctaveResolved, -3)
+        XCTAssertEqual(line.riffOctaveResolved, -2)
+    }
+    // MELODY MODE MIGRATION (Paul 2026-10-13 ferry, "MELODY tab on the lane cards") — `melodyMode` is the
+    // new single source of truth for a lane's note/riff choice, migrating from the legacy `useRiff: Bool?`
+    // when absent: nil ⇒ derive from `useRiff` (nil/false ⇒ NOTE, true ⇒ RIFF); an explicit `melodyMode`
+    // always wins outright over whatever `useRiff` carries, even a disagreeing one.
+    func testEuclidLineMelodyModeMigratesFromLegacyUseRiff() {
+        XCTAssertEqual(EuclidLine(pulses: 3, steps: 8).melodyModeResolved, .note, "no legacy data at all ⇒ NOTE")
+        var fromFalse = EuclidLine(pulses: 3, steps: 8); fromFalse.useRiff = false
+        XCTAssertEqual(fromFalse.melodyModeResolved, .note)
+        var fromTrue = EuclidLine(pulses: 3, steps: 8); fromTrue.useRiff = true
+        XCTAssertEqual(fromTrue.melodyModeResolved, .riff, "legacy useRiff:true migrates to RIFF")
+        XCTAssertTrue(fromTrue.useRiffResolved, "useRiffResolved now DERIVES from melodyModeResolved, not the other way round")
+        var explicitWins = EuclidLine(pulses: 3, steps: 8); explicitWins.useRiff = true; explicitWins.melodyMode = .note
+        XCTAssertEqual(explicitWins.melodyModeResolved, .note, "an explicit melodyMode always wins over a disagreeing legacy useRiff")
+        XCTAssertFalse(explicitWins.useRiffResolved)
+    }
+    func testEuclidLineMelodyModeRoundTripsThroughCodableAndDecodesWithoutIt() throws {
+        var line = EuclidLine(pulses: 3, steps: 8); line.melodyMode = .riff
+        let data = try JSONEncoder().encode(line)
+        let back = try JSONDecoder().decode(EuclidLine.self, from: data)
+        XCTAssertEqual(back.melodyModeResolved, .riff)
+        // An old doc saved before this field existed must still decode without throwing (CR-8).
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"useRiff":true}"#.utf8)
+        let old = try JSONDecoder().decode(EuclidLine.self, from: json)
+        XCTAssertEqual(old.melodyModeResolved, .riff, "the legacy useRiff:true still migrates correctly with no melodyMode key present at all")
     }
     // RIFF DIRECTION, PER-LANE (Paul 2026-10-07): moved off the shared EuclideousRiff struct onto EuclidLine
     // itself — "the back/forward, drunk controls should be per lane, not on the riff control."

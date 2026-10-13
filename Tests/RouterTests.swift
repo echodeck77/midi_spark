@@ -5417,7 +5417,15 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(notes.contains(60), "lane 0 (FWD), ord=0 → riff step 0 → rank 1 → the lowest pool note")
         XCTAssertTrue(notes.contains(72), "lane 1 (REV), ord=0 → riff step 3 → rank 4 → the highest pool note — the SAME shared pattern read from a different direction, independently per lane")
     }
-    func testEuclidLineUseRiffDrunkWalksAndStaysInPool() {
+    // SUPERSEDES "...WalksAndStaysInPool" (Paul 2026-10-13 ferry, "Remove": "The DRUNK option") — DRUNK is
+    // no longer one of Euclideous's own reachable WALK directions, so it no longer wanders (it isn't a
+    // real random walk any more in this engine path — `riffStepAt`'s own exhaustive `.drunk` arm, kept
+    // only for Swift's switch exhaustiveness, resolves it to the plain forward position). This is now a
+    // DECODE-SAFETY guard, not a walk-behaviour one: an OLD saved doc that still carries `riffDir: .drunk`
+    // on a Euclideous lane must keep sounding sensibly (bounded to the held pool, not silent, not a crash)
+    // rather than factory-resetting or going dead — DRUNK is deliberately kept decode-only, never deleted
+    // from the model, for exactly this reason.
+    func testEuclidLineUseRiffDrunkIsNowRetiredButDecodesToASensibleForwardWalk() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true, riffDir: .drunk, riffDirBias: 0)]
@@ -5425,9 +5433,8 @@ final class RouterTests: XCTestCase {
         let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, receivers: [Receiver(name: "1")]) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord(pool), beats: 4, into: e); assertNothingLeftSounding(e)
         let notes = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
-        XCTAssertFalse(notes.isEmpty, "DRUNK must still produce real strikes, not silently do nothing")
-        XCTAssertTrue(notes.allSatisfy { pool.contains(UInt8($0)) }, "every DRUNK-resolved note must come from the held pool")
-        XCTAssertGreaterThan(Set(notes).count, 1, "a random walk over many hits must visit more than one position, not stay stuck at the start")
+        XCTAssertFalse(notes.isEmpty, "a retired-but-decoded DRUNK lane must still produce real strikes, not silently do nothing")
+        XCTAssertTrue(notes.allSatisfy { pool.contains(UInt8($0)) }, "every note must still come from the held pool")
     }
     // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES this test's original premise — the riff was once hardcoded to
     // a FIXED separate receiver (index 0, "receiver 1"), independent of any lane. It now instead FOLLOWS
@@ -5878,43 +5885,11 @@ final class RouterTests: XCTestCase {
         // not after: a first draft checked the prefix here and the assertion failed for the wrong reason.
         XCTAssertNotEqual(Array(free2Bar.suffix(free1Bar.count)), free1Bar, "FREE: `ord` keeps growing across the bar boundary — bar 2's CYCLE sequence must NOT replay bar 1's, since the two don't start from the same ordinal")
     }
-    // DRUNK hard-resets its WALK (not just its ordinal) at a span boundary — every OTHER riff direction already
-    // resets for free since `ord` is derived from the span-re-anchored beat, but a random walk's POSITION
-    // depends on its own history, so it needs an explicit nudge (see euclideousRiffDrunkStep's own doc).
-    // Proven by DETERMINISM: bar 2 of a 2-bar run (reset-span=1 engaged) must replay bar 1's EXACT rank
-    // sequence, since a genuine hard-reset makes bar 2 start from the identical state (position 0, ord 0) bar
-    // 1 itself started from — a continuing (non-reset) walk would have diverged, almost certainly landing on
-    // a different sequence the second time around.
-    func testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary() {
-        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
-        func ranksStruck(beats: Double) -> [Int] {
-            var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])   // identity: riff step i ↔ rank i+1 ↔ pool[i]
-            // sourceMode: .midi explicit — the melody pop-up ferry (2026-10-10 §2.2) flipped the nil-default to KEY.
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, riffDir: .drunk, riffDirSeed: 42, riffDirBias: 0, sourceMode: .midi)]
-            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                                  scenes: [{ var s = SceneState.empty()
-                                      s.stepRate = .r1_8
-                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                      return s }()])
-            // PER-LANE I/O (Paul 2026-10-08): riff now follows LANE 1's own sourceMode (nil ⇒ MIDI ⇒ receiver
-            // INDEX 3, "receiver 4") — a realistic 4-entry array, matching every real document the app ever
-            // produces (receivers are always created as a fixed set of 4), not the old single-entry array
-            // this line used when riff was still hardcoded to a fixed receiver INDEX 0 directly.
-            st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-            st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
-            st.euclideousResetSpanBars = 1
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }   // back out the rank from the struck note, preserving temporal order
-        }
-        let bar1 = ranksStruck(beats: 3.9)      // one full 8-step dense pass at 0.5 beats/step = exactly 1 bar (4 beats), just under to dodge the boundary edge
-        let twoBars = ranksStruck(beats: 7.9)   // two full bars
-        XCTAssertEqual(bar1.count, 8, "one dense 8-step pass must produce exactly 8 hits")
-        XCTAssertEqual(twoBars.count, 16, "two bars must produce exactly 16 hits")
-        XCTAssertEqual(Array(twoBars.prefix(8)), bar1, "bar 1 of the 2-bar run must match the standalone 1-bar run exactly (same seed, same starting state)")
-        XCTAssertEqual(Array(twoBars.suffix(8)), bar1, "bar 2 must ALSO replay bar 1's exact rank sequence — proving the span boundary hard-reset DRUNK's walk back to its starting state, not merely let it continue wandering")
-    }
+    // testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary REMOVED (Paul 2026-10-13 ferry, "Remove":
+    // "The DRUNK option") — DRUNK is no longer one of Euclideous's own WALK directions, so it no longer
+    // has a history-dependent position that could need a special span-boundary nudge; every remaining
+    // direction already resets for free via `ord` alone, per `testEuclideousResetSpanOneBarReAnchorsThe
+    // PatternEveryBar` above — this test's whole distinguishing premise is gone, not merely stale.
     // ONE GLOBAL SOURCE (Paul 2026-10-12, 2nd same-day ferry) — SUPERSEDES the per-lane independence this
     // test used to assert by name. The 3 lanes below each still carry a DIFFERENT, now-stale `sourceMode`
     // (left in place deliberately — if a future regression ever resurrected per-lane reads, these different
@@ -6029,26 +6004,10 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(cycle1.count, 3)
         XCTAssertEqual(Array(twoCycles.suffix(3)), cycle1, "LOCK+RANDOM: the same seed hashed from local-ord 0,1,2 every cycle must reproduce the identical pick sequence")
     }
-    // LOCK + DRUNK: mirrors testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary's exact proof-by-
-    // determinism technique, swapping the reset-SPAN boundary for LOCK's own cycle boundary — a walk that's
-    // genuinely hard-reset every cycle must replay bar 1's exact sequence in bar 2; a continuing walk would
-    // almost certainly diverge.
-    func testEuclideousRiffLockHardResetsDrunksWalkEveryCycle() {
-        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
-        func ranksStruck(beats: Double) -> [Int] {
-            var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8, useRiff: true, riffDir: .drunk, riffDirSeed: 42, riffLock: true)]
-            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord(pool), beats: beats, into: e, forceColumn: 0)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
-        }
-        let cycle1 = ranksStruck(beats: 2.4)
-        let twoCycles = ranksStruck(beats: 4.9)
-        XCTAssertEqual(cycle1.count, 3)
-        XCTAssertEqual(Array(twoCycles.suffix(3)), cycle1, "LOCK+DRUNK: a hard reset every cycle must make the walk replay the identical sequence")
-    }
+    // testEuclideousRiffLockHardResetsDrunksWalkEveryCycle REMOVED (Paul 2026-10-13 ferry, "Remove": "The
+    // DRUNK option") — DRUNK is no longer one of Euclideous's own WALK directions, so its LOCK-at-every-
+    // cycle behaviour is exactly the already-covered FORWARD case (`testEuclideousRiffLockReplaysTheSame
+    // SequenceEveryCycleFreeDoesNot` above), not a separately-needed proof.
     // STRIDE (melody pop-up ferry 2026-10-10 §3.4): "Stride 3 on length 5 visits 1, 4, 2, 5, 3" — the
     // ferry's own literal worked example. Dense K=N=5 (every tick a hit) isolates 5 consecutive
     // ordinals cleanly; identity ranks [1..8] let the struck POOL INDEX double as the RIFF RANK directly.
@@ -6125,7 +6084,13 @@ final class RouterTests: XCTestCase {
     }
     // TRANSPOSE (§3.1/§3.7): a rank-space shift applied after INVERT, wrapping via the SAME riffResolve
     // rule as any out-of-pool rank — verified in BOTH modes, since PLACEMENT applies it regardless of MODE.
-    func testEuclideousMelodyTransposeShiftsTheResolvedRankInBothModes() {
+    // SUPERSEDES the "...InBothModes" claim (Paul 2026-10-13 ferry, "MELODY tab on the lane cards",
+    // Engine rule 1: "Note mode plays exactly what the button shows... TRANS... [is] ignored in note
+    // mode") — a deliberate reversal, not an oversight: a genuine bug was found tracing this before making
+    // the change (NOTE mode's plain-pick branch was STILL adding `melodyTranspose`, confirmed by reading).
+    // RIFF mode is UNCHANGED (TRANSPOSE still applies there, per the same ferry's own Engine rule — only
+    // NOTE mode's behaviour reverses).
+    func testEuclideousMelodyTransposeAppliesInRiffModeOnlyNotNoteMode() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         // RIFF mode: rank 1 (the lowest), transpose +2 → rank 3 → pool[2] = 64.
         var cRiff = Machine(machineID: "gold", type: .euclid)
@@ -6135,33 +6100,77 @@ final class RouterTests: XCTestCase {
         let eRiff = RecordingEmitter(); run(bRiff, chord(pool), beats: 1, into: eRiff, forceColumn: 0)
         assertNothingLeftSounding(eRiff)
         XCTAssertEqual(eRiff.ons.filter { $0.cable == 1 }.first.map { Int($0.note) }, 64, "RIFF mode: rank 1 + transpose 2 → rank 3 → pool[2]")
-        // NOTE mode: LOWEST (rank 1), transpose +2 → rank 3 → pool[2] = 64. No useRiff here — defaults off.
+        // NOTE mode: LOWEST (rank 1), transpose +2 → TRANSPOSE is IGNORED — the button shows rank 1, the
+        // button plays rank 1 (pool[0] = 60), not pool[2]. No useRiff here — defaults off.
         var cNote = Machine(machineID: "gold", type: .euclid)
         cNote.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, melodyTranspose: 2)]
         let bNote = box(machines: machineIDs.map { $0 == "gold" ? cNote : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let eNote = RecordingEmitter(); run(bNote, chord(pool), beats: 1, into: eNote, forceColumn: 0)
         assertNothingLeftSounding(eNote)
-        XCTAssertEqual(eNote.ons.filter { $0.cable == 1 }.first.map { Int($0.note) }, 64, "NOTE mode: LOWEST (rank 1) + transpose 2 → rank 3 → pool[2]")
+        XCTAssertEqual(eNote.ons.filter { $0.cable == 1 }.first.map { Int($0.note) }, 60, "NOTE mode: TRANSPOSE must be ignored — LOWEST (rank 1) plays pool[0], not pool[2]")
+    }
+    // OCT RANGE −2…+2, EUCLIDEOUS-ONLY (Paul 2026-10-13 ferry, "Engine" rule 4) — a genuine ENGINE-level
+    // clamp, not the model layer's: `EuclidLine.octaveResolved` itself stays unclamped at ±3 (confirmed
+    // shared with the regular, non-Euclideous BUILD-page EUCLID processor's own OCTAVE stepper — narrowing
+    // it there would silently clip an unrelated feature). The tighter ±2 is applied ONLY at the one
+    // `runEuclidLine` call site, gated on `isEuclideousRow` — so the SAME octave:3 config must clamp on
+    // Euclideous's own reserved row but NOT on an ordinary row elsewhere in the grid.
+    func testEuclideousNoteModeOctaveClampsToPlusMinusTwoOnlyOnTheEuclideousRow() {
+        func firstNote(row: Int) -> Int? {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 3, sourceMode: .midi)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty(); s.cells[0][row] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            // ONE GLOBAL RIFF/NOTE SOURCE (2026-10-12): on Euclideous's own row, the pool comes from
+            // `euclideousNoteSourceResolved`, NOT directly from the held chord — its nil default falls
+            // back to the legacy per-lane `sourceModeResolved`, which itself defaults to KEY, not MIDI.
+            // Must be set explicitly here so the held chord ([60]) is actually what's read, matching every
+            // other Euclideous-row RouterTest's own established convention.
+            st.euclideousNoteSource = .midi
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }.first
+        }
+        XCTAssertEqual(firstNote(row: Snap.euclideousRow), 60 + 24, "on Euclideous's own row, octave clamps to +2 (24 semitones), not +3 (36)")
+        XCTAssertEqual(firstNote(row: 0), 60 + 36, "on an ORDINARY row, the shared octave field is untouched — still ±3, the regular EUCLID processor's own range")
+    }
+    // TOP/TOP2 (Paul 2026-10-13 ferry, Octave-row buttons) — `.high`/`.top2` already resolve correctly
+    // against the RAW, pre-extension pool count via `resolveEuclidPick` (confirmed by reading before
+    // relying on it for the new OCT-row UI, zero engine change needed), including the degenerate
+    // one-note-pool case TOP2 must still resolve to something sensible rather than crash/miss.
+    func testEuclideousTopAndTop2ResolveAgainstTheRawPoolCountIncludingOneNote() {
+        func notes(sel: EuclidNoteSel, pool: [UInt8]) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: sel)]
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord(pool), beats: 1, into: e, forceColumn: 0); assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        }
+        XCTAssertEqual(Set(notes(sel: .high, pool: [60, 64, 67, 72])), [72], "TOP: the single highest held note")
+        XCTAssertEqual(Set(notes(sel: .top2, pool: [60, 64, 67, 72])), [67, 72], "TOP2: the two highest held notes")
+        XCTAssertEqual(Set(notes(sel: .top2, pool: [60])), [60], "TOP2 against a single held note degrades to that one note, not a crash or a miss")
     }
     // §3.8: "if LENGTH is reduced below the lane's current position, wrap the position into the new
-    // window on the next advance." FWD/REV/PEND/PING self-correct for free (no persisted state) — only
-    // DRUNK's accumulated position can reference a spot outside a newly-shrunk LENGTH. Drives the walk for
-    // a while at LENGTH=8 (plenty of room to wander near the top of that range), then rebuilds the SAME
-    // router with LENGTH=3 and keeps advancing — the fix under test is that this can never crash, and
-    // every note struck AFTER the shrink must come from the new, smaller window.
-    func testEuclideousRiffDrunkSurvivesALengthShrinkMidSession() {
+    // window on the next advance." DRUNK was the one direction whose ACCUMULATED position could reference
+    // a spot outside a newly-shrunk LENGTH — removed from Euclideous's own WALK directions entirely (Paul
+    // 2026-10-13 ferry, "Remove"), so every remaining direction (FWD/REV/PEND/PING) now self-corrects for
+    // free (no persisted state at all) and this scenario can no longer produce anything BUT a within-
+    // window result — kept as a cheap regression guard that a mid-session LENGTH change never crashes and
+    // always confines its notes to the new, smaller window, using FORWARD directly rather than the now-
+    // retired `.drunk` (which would resolve through `riffStepAt`'s own exhaustive-but-unreachable `.drunk`
+    // arm to the identical plain forward position anyway).
+    func testEuclideousRiffLengthShrinkMidSessionConfinesNotesToTheNewWindow() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 5, rate: .r1_16, useRiff: true, riffDir: .drunk, riffDirSeed: 11, riffDirBias: 1, riffLength: 8)]
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 5, rate: .r1_16, useRiff: true, riffDir: .forward, riffLength: 8)]
         let box1 = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let windowBeats = Double(frames) * tempo / 60.0 / sr
         let router = runKeepingRouter(box1, chord(pool), beats: 4.0, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
-        // Shrink LENGTH to 3 on the SAME router instance — preserves the DRUNK walk's own accumulated
-        // position across the change, the exact scenario the fix addresses.
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 5, rate: .r1_16, useRiff: true, riffDir: .drunk, riffDirSeed: 11, riffDirBias: 1, riffLength: 3)]
+        // Shrink LENGTH to 3 on the SAME router instance mid-session.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 5, rate: .r1_16, useRiff: true, riffDir: .forward, riffLength: 3)]
         let box2 = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         var diag = KernelDiag()
         var beat = 4.0, ts = 4.0 / tempo * 60.0 * sr
@@ -6694,23 +6703,13 @@ final class RouterTests: XCTestCase {
         // first lap — 1.1 beats safely captures all 3 without a 4th tick leaking in (the same margin every
         // sibling NOTE VIEW test in this file already uses).
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
-        XCTAssertEqual(router.euclideousRiffWalkState()[0].ord, 2, "the 3rd (last) hit's own ordinal — HIT mode, FREE (not locked), counts 0,1,2 across the 3 real ticks")
+        XCTAssertEqual(router.euclideousRiffWalkState()[0], 2, "the 3rd (last) hit's own ordinal — HIT mode, FREE (not locked), counts 0,1,2 across the 3 real ticks")
     }
-    func testEuclideousRiffWalkStateDrunkPosMatchesTheLiveWalkPosition() {
-        var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: true, riffDir: .drunk, sourceMode: .midi)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                             scenes: [{ var s = SceneState.empty()
-                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                 return s }()])
-        let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
-        // rotate: 0, so the persisted cursor (`riffPositions`) and the raw DRUNK position must agree exactly —
-        // the poll's own `drunkPos` is a direct, unmutated read of the SAME state the walk itself just left.
-        XCTAssertEqual(router.euclideousRiffWalkState()[0].drunkPos, router.euclideousRiffPositions()[0], "the polled DRUNK position must be the exact same value the walk's own persisted cursor reports")
-        XCTAssertEqual(router.euclideousRiffWalkState()[0].drunkLastOrd, router.euclideousRiffWalkState()[0].ord, "DRUNK's own lastOrd tracks the same ordinal the unified `ord` poll reports — one walk, read two ways")
-    }
+    // testEuclideousRiffWalkStateDrunkPosMatchesTheLiveWalkPosition removed (2026-10-12 MELODY-tab ferry):
+    // DRUNK is no longer one of Euclideous's own WALK directions — euclideousRiffWalkState() dropped its
+    // drunkPos/drunkLastOrd fields entirely (now a plain [Int64] of ordinals), so this test's whole premise
+    // is gone. The generic chain RIFF processor's own, unrelated DRUNK mechanism is untouched and has its
+    // own separate test coverage elsewhere in this file.
 
     func testEuclidLinesPerLinePick() {
         // EUCLID LINES v1b (Paul 2026-08-26): each ALL-target line has its OWN pick.
