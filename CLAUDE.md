@@ -196,6 +196,34 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS GATE — the 5% floor lowered to 1% (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-
+  grid`; iOS builds clean; macOS 1401 green). Paul, on-device, testing the just-shipped RIFF/NOTES split:
+  "The gate doesn't seem to work on short values. Also, is 5% really a sensible minimum?" Investigated by
+  TRACING, not guessed — two rounds of clarifying questions first (ruling out the sparse-pattern "disclosed
+  long-hold" behaviour from the same-day GATE ferry, then pinning down the exact repro: rate 1/8, 5 hits of
+  16 steps). **ROOT CAUSE, confirmed by hand-deriving the real numbers, not assumed:** E(5,16)'s canonical
+  hit spacing (steps 0,4,7,10,13 — gaps of 3-4 steps) gives a ~750-1000ms real gap at rate 1/8/120bpm. GATE's
+  OWN 5% floor (`euclideousSliderRange`/`euclideousSliderCommit`, Derivations.swift — unrelated to the SEPARATE
+  engine-side absolute `minGateBeats5ms`=5ms floor, Router.swift, which never came into play here: 37.5-50ms
+  is nowhere near 5ms) was carried over UNCHANGED from the PRE-GATE-REDESIGN formula, where GATE scaled a
+  FIXED short per-tick rate and 5% of it was already tiny. The SAME-DAY "GATE follows the rhythm" ferry
+  changed GATE to scale the REAL gap to the next hit instead — a gap that grows as a pattern gets sparser —
+  so the OLD 5%-of-a-fixed-tick floor silently became "5% of however long the real gap happens to be,"
+  producing a non-trivial ~40-50ms "minimum" on anything short of a dense pattern, not the genuine staccato
+  blip the control implies. **FIX, surgical, the model/formula itself UNTOUCHED:** `euclideousSliderRange`'s
+  `.gate` case and `euclideousSliderCommit`'s `.gate` case both lowered their floor 0.05→0.01 (GATE's
+  reachable range is now 1%...100%, not 5%...100%) — the engine's own separate 5ms absolute floor is
+  UNCHANGED and still backstops a literally-near-zero note regardless of how low the slider goes; LEGATO-
+  at-100% (`isLegato = Int((gatePct*100).rounded()) >= 100`) is untouched, confirmed unaffected by reading
+  before touching anything. For Paul's own exact repro, 1% now computes to ~7.5-10ms — a genuine short blip,
+  comfortably differentiated from the 5ms engine floor rather than swallowed by it. +1 test updated
+  (`testEuclideousSliderValueAtIsContinuousForGateAndVelocity`, the literal frac-0.5 interpolation midpoint
+  recomputed against the new 0.01 floor) — confirmed via grep that every OTHER `0.05`-floor reference in the
+  test suite belongs to an UNRELATED "gate" (the generic macro/span-automation `AutoParamField.gate` shared
+  by non-Euclideous processors, and EUCLID MASK's own separate `maskChordGate` field) — neither touched, out
+  of scope. **DEVICE-OWED, as always:** confirm GATE's new 1% floor genuinely reads as a short blip (not
+  still "long") against Paul's own exact repro pattern, and that the rest of the dial's feel (the proportional
+  middle, legato at 100%) is unaffected by the narrower floor.**
 - **▶ EUCLIDEOUS — MELODY split into RIFF and NOTES tabs, each layer gets its own octave (2026-10-13, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1401 green incl. +13 new). A
   fully-ratified ferry (exact pixel coordinate tables for both tabs, exact colors/typography, engine rules,

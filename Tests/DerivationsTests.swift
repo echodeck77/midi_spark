@@ -3271,7 +3271,10 @@ final class DerivationsTests: XCTestCase {
     }
     func testEuclideousSliderValueAtIsContinuousForGateAndVelocity() {
         let l = EuclidLine(pulses: 1, noteSel: .all)
-        XCTAssertEqual(euclideousSliderValueAt(.gate, l, frac: 0.5), 0.05 + 0.5 * (1 - 0.05), accuracy: 1e-9)
+        // GATE's floor lowered 5%→1% (Paul, on-device: "quite a long gate at minimum, 5 of 16" — the old 5%
+        // floor was tiny only under the pre-redesign fixed-tick formula; proportional-to-the-real-gap, it's
+        // a non-trivial ~40-50ms on a sparse pattern).
+        XCTAssertEqual(euclideousSliderValueAt(.gate, l, frac: 0.5), 0.01 + 0.5 * (1 - 0.01), accuracy: 1e-9)
         XCTAssertEqual(euclideousSliderValueAt(.velocity, l, frac: 0), 1)
         XCTAssertEqual(euclideousSliderValueAt(.velocity, l, frac: 1), 127)
     }

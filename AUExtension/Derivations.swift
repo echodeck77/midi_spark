@@ -2620,7 +2620,14 @@ func euclideousSliderRange(_ field: EuclideousSliderField, _ line: EuclidLine) -
     case .tilt:
         return (line.tiltResolved, -1, 1)
     case .gate:
-        return (line.gateResolved, 0.05, 1)
+        // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry) changed what this floor actually protects: GATE is no
+        // longer a fraction of a fixed short tick (where 5% was already tiny) but a fraction of the REAL gap
+        // to the lane's own next hit — which can be seconds long on a sparse pattern (Paul, on-device: "5 of
+        // 16, rate 1/8" computes a ~750-1000ms gap, so even the old 5% floor produced a non-trivial ~40-50ms
+        // note, not a short blip). The OLD floor's own justification (avoid a near-zero-length note) no
+        // longer tracks the new formula's real behaviour — lowered to 1%, which the engine's own separate
+        // absolute `minGateBeats5ms` floor (Router.swift) still backstops regardless of how low this goes.
+        return (line.gateResolved, 0.01, 1)
     case .velocity:
         return (Double(line.velocityAbsoluteResolved), 1, 127)
     }
@@ -2712,7 +2719,7 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
         guard line.customHits == nil else { return }   // disabled on an edited pattern — defensive; the UI never drags this
         line.tilt = max(-1, min(1, newValue))
     case .gate:
-        line.gate = max(0.05, min(1, newValue))
+        line.gate = max(0.01, min(1, newValue))   // matches euclideousSliderRange's own lowered floor — see its comment
     case .velocity:
         line.velocityAbsolute = max(1, min(127, Int(newValue.rounded())))
     }
