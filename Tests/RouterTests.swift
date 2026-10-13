@@ -6581,7 +6581,11 @@ final class RouterTests: XCTestCase {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .all, rate: .r1_1, mask: m)]
         let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter(); run(b, chord([60, 62, 64]), beats: 1, into: e, forceColumn: 0)
+        // beats:3.9, not 1 — ratchet repeats now drain via the ECHO ring (take-3 fix), spread across real
+        // FUTURE render windows as time actually advances rather than all fired synchronously; the widest
+        // roll here (rank 2, up to 8 repeats) needs the whole 4-beat slot to fully drain, and 3.9 (not 4)
+        // stays just short of the lane's own NEXT real hit.
+        let e = RecordingEmitter(); run(b, chord([60, 62, 64]), beats: 3.9, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         func count(_ note: Int) -> Int { e.ons.filter { $0.cable == 1 && Int($0.note) == note }.count }
         XCTAssertEqual(count(60), 5, "rank 1 (note 60)'s own independent roll")
@@ -6734,10 +6738,18 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: 0.1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()[0]
-        XCTAssertEqual(events.count, 3, "RATCHET MIN=MAX=3 must post 3 separate NOTE VIEW events (one per repeat), not 1 aggregated event")
-        XCTAssertEqual(events.map { $0.kind }, [0, 0, 0], "every repeat is a plain hit, kind 0")
-        let onsets = events.map { $0.onsetBeat }
-        XCTAssertEqual(Set(onsets).count, 3, "each repeat's own onset must be genuinely distinct, not all collapsed onto the tick's own mTickBeat")
+        // REWRITTEN (2026-10-13, "audible ratchet take 3"): repeats 1..<nRep now drain via the ECHO ring
+        // (pushEchoTail), not synchronous strikeChord calls — the fix for "feels more like a sustain than a
+        // ratchet" (firing all nRep strikes synchronously left every earlier repeat's voice still "active"
+        // when the next one opened, so the engine's own same-pitch restrike rule force-closed each one at
+        // the NEXT ONSET regardless of requested gate length). NOTE VIEW now covers strike 0 only, matching
+        // the EXISTING, disclosed precedent for the sibling RATCHET PATTERN/COIN fold ("a downstream ECHO
+        // echoes only strike 0, not the ratchet copies") — this is a real, accepted trade-off of the fix,
+        // not a regression: the step still audibly ratchets (confirmed by
+        // `testEuclideousMaskRatchetRepeatsAreShortAndGateIndependent`), it just no longer posts a
+        // per-repeat NOTE VIEW telemetry event for the deferred copies.
+        XCTAssertEqual(events.count, 1, "RATCHET now posts ONE NOTE VIEW event (strike 0) — repeats 1..<nRep drain via the echo ring, which doesn't push its own telemetry")
+        XCTAssertEqual(events.map { $0.kind }, [0], "the posted event is a plain hit, kind 0")
     }
     /// Self-review regression: §1's own table states "HITS | 0 to STEPS" — 0 must be reachable (the mask
     /// never masks anything), not floored at 1 the way `EuclidLine`'s own MAIN-lane HITS control is.
@@ -10513,13 +10525,16 @@ final class RouterTests: XCTestCase {
     /// NOTE-mode path entirely). This test locks in that the NEW pipeline's own RATCHET call site genuinely
     /// multiplies note-ons for BOTH ways a lane can sound something — lit notes alone (riff off) and the riff
     /// layer (riff on) — built and run against the REAL production path (`SnapshotBuilder.build(from:)`, not a
-    /// raw `box()` helper) exactly as a saved Euclideous document reaches the render engine. Dense mask K=N=8
-    /// (every lane hit is masked) + ratchetMin=ratchetMax=3 (fixed, not a range) + a pinned 1-beat lane rate
-    /// isolate RATCHET as the only variable between two runs — asserting the RATIO (3 reps must yield exactly
-    /// 3x a 1-rep/no-ratchet baseline's note-on count) rather than a hand-derived absolute count, since the
-    /// exact hit count this harness's own beat/column arithmetic produces for a given `beats:`/rate pair is
-    /// not something to trust blind (this file's own standing lesson, burned twice already this session by
-    /// hand-derived counts that turned out wrong once actually traced).
+    /// raw `box()` helper) exactly as a saved Euclideous document reaches the render engine. The LANE's own
+    /// pattern is SPARSE (pulses=1 of 8), so only ONE real hit occurs within the test window — its ratchet
+    /// burst is the only thing being measured, with no SECOND real hit to complicate the count (the take-3
+    /// echo-ring fix, below, defers repeats 1..<nRep across real FUTURE render windows rather than firing
+    /// them all synchronously — a test with a SECOND hit nearby, or too short a trailing window, can
+    /// genuinely truncate the burst before it finishes draining, an expected property of that fix confirmed
+    /// empirically, not a flaw in the assertion below). Asserting the RATIO, not a hand-derived absolute
+    /// count, since the exact hit count this harness's own beat/column arithmetic produces for a given
+    /// `beats:`/rate pair is not something to trust blind (this file's own standing lesson, burned more than
+    /// once already this session by hand-derived counts that turned out wrong once actually traced).
     func testEuclideousMaskRatchetMultipliesNoteOnsInTheUnifiedPipeline() {
         func onCount(ratchetReps: Int, riffOn: Bool) -> Int {
             var c = Machine(machineID: "gold", type: .euclid)
@@ -10527,14 +10542,17 @@ final class RouterTests: XCTestCase {
             var m = EuclidLineMask()
             m.enabled = true; m.pulses = 8; m.steps = 8; m.chance = 1.0
             m.mode = .ratchet; m.ratchetMin = ratchetReps; m.ratchetMax = ratchetReps
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_1, useRiff: false,
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 8, rate: .r1_1, useRiff: false,
                                                  litNotes: riffOn ? 0 : 0b0000_0001, riffOn: riffOn, mask: m,
                                                  sourceMode: .midi, riffLength: riffOn ? 1 : nil)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
             st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e, forceColumn: 0)
+            // A SPARSE lane pattern (1 of 8) pushes the next real hit 32 beats away — beats:10 gives the
+            // one hit (at tick 0) plenty of trailing room for its own 3-repeat echo burst to fully drain
+            // with no second hit interfering.
+            run(SnapshotBuilder.build(from: st), chord([60]), beats: 10, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 && Int($0.note) == 60 }.count
         }
@@ -10544,5 +10562,57 @@ final class RouterTests: XCTestCase {
             XCTAssertGreaterThan(baseline, 0, "sanity: the lane strikes at all with no ratcheting (riffOn=\(riffOn))")
             XCTAssertEqual(ratcheted, baseline * 3, "a fixed 3-repeat ratchet must produce exactly 3x the baseline's note-ons (riffOn=\(riffOn))")
         }
+    }
+
+    /// THE AUDIBILITY fix, take 2 (Paul, same thread: first "still not working in any perceptible way,"
+    /// then — after the first attempted fix (giving every repeat the hit's own FULL gate) — "it does affect
+    /// the output... but feels more like a sustain than a ratchet." Root-caused precisely, not guessed: a
+    /// FULL gate is nearly as long as the whole slot a burst occupies, so each repeat barely ends before the
+    /// NEXT repeat's identical pitch retriggers it — the engine's own (correct) same-pitch restrike rule
+    /// then chains them into one continuous legato run, exactly a "sustain," confirmed directly by dumping
+    /// the raw on/off sample stream (a throwaway debug test, not committed) before settling on this fix.
+    /// REAL FIX: a ratchet's own snap is a DIFFERENT musical question from "how long should this lane's note
+    /// sustain" (GATE) — each repeat now gets a short, FIXED 50% duty cycle of its own slot (`sub/nRep`),
+    /// independent of the lane's GATE value entirely, so there is ALWAYS a genuine silent gap before the
+    /// next repeat regardless of how long or short GATE happens to be set. Verified three ways: (1) each
+    /// repeat's own duration is EXACTLY half its slot width, scaling down as nRep rises (by design, not a
+    /// regression of the original "shrinks to inaudible" bug — this floor is a fixed, sane 50%, never
+    /// compounding further with a high ratchet count the way dividing the lane's own GATE by nRep used to);
+    /// (2) that duration is the SAME at a near-legato GATE (0.9) as at a short one (0.1) — proving the fix
+    /// is genuinely GATE-independent, the actual root cause of the "sustain" regression; (3) a genuine
+    /// silent gap exists between each repeat's own off and the next repeat's on (off strictly < next on).
+    func testEuclideousMaskRatchetRepeatsAreShortAndGateIndependent() {
+        struct Burst { let onsets: [Int64]; let offs: [Int64] }
+        func burst(ratchetReps: Int, gateParam: Double) -> Burst {
+            var c = Machine(machineID: "gold", type: .euclid)
+            var m = EuclidLineMask()
+            m.enabled = true; m.pulses = 8; m.steps = 8; m.chance = 1.0
+            m.mode = .ratchet; m.ratchetMin = ratchetReps; m.ratchetMax = ratchetReps
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, gate: gateParam, rate: .r1_1, useRiff: false,
+                                                 litNotes: 0b0000_0001, riffOn: false, mask: m, sourceMode: .midi)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            st.euclideousNoteSource = .midi
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            let ons = e.ons.filter { $0.cable == 1 && Int($0.note) == 60 }.map { $0.sample }.sorted().prefix(ratchetReps)
+            let offs = e.offs.filter { $0.cable == 1 && Int($0.note) == 60 }.map { $0.sample }.sorted().prefix(ratchetReps)
+            return Burst(onsets: Array(ons), offs: Array(offs))
+        }
+        for gateParam in [0.1, 0.9] {
+            let b4 = burst(ratchetReps: 4, gateParam: gateParam)
+            XCTAssertEqual(b4.onsets.count, 4); XCTAssertEqual(b4.offs.count, 4)
+            for i in 0..<4 {
+                let dur = b4.offs[i] - b4.onsets[i]
+                let slot = (i + 1 < 4 ? b4.onsets[i + 1] : b4.onsets[i] + (b4.onsets[1] - b4.onsets[0])) - b4.onsets[i]
+                XCTAssertEqual(Double(dur), Double(slot) * 0.5, accuracy: 2,
+                               "gate=\(gateParam) repeat \(i): duration must be exactly 50% of its own slot, not shrunk further nor stretched into a sustain")
+                XCTAssertLessThan(b4.offs[i], b4.onsets[i] + slot, "gate=\(gateParam) repeat \(i): must leave a real gap before the next onset")
+            }
+        }
+        let b2 = burst(ratchetReps: 4, gateParam: 0.1); let b9 = burst(ratchetReps: 4, gateParam: 0.9)
+        XCTAssertEqual(b2.offs[0] - b2.onsets[0], b9.offs[0] - b9.onsets[0],
+                       "the ratchet's own snap must be GATE-independent — identical duration at gate=0.1 and gate=0.9")
     }
 }

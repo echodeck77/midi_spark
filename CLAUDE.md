@@ -196,6 +196,55 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID MASK RATCHET — the REAL bug, found and fixed in 3 takes (2026-10-13, on `fix/euclid-no-scroll-
+  direction-order-2x2-grid`; macOS 1372 green (net +7/-0 vs the prior entry's +1, after further rewrites);
+  iOS builds clean). Direct continuation of the entry below — Paul tested that "no bug found" conclusion
+  live and immediately falsified it twice over, which is exactly what cracked this open. **TAKE 1 (device
+  report): "it does affect the output in some way, but feels more like a sustain than a ratchet."** Traced
+  by dumping the raw on/off sample stream from a throwaway debug test (not guessed): giving every repeat the
+  hit's own FULL gate (the previous entry's fix) meant each repeat barely ended before the NEXT repeat's
+  identical pitch retriggered it — the engine's own, CORRECT same-pitch restrike rule (`openVoice`: "a strike
+  on an already-sounding (cable,ch,note) emits a clean note-OFF then note-ON at the same timestamp") then
+  chains them into one continuous legato run, exactly a sustain. **TAKE 2, also wrong, caught by my OWN test
+  before shipping:** tried a short, fixed 50% duty cycle per repeat instead (decoupling "how punchy is the
+  ratchet" from the lane's own GATE) — the duration-based regression test STILL failed, showing every
+  intermediate repeat at FULL SLOT WIDTH regardless of the much-shorter gate requested. Traced with a second
+  RTCDEBUG dump: firing all `nRep` `strikeChord` calls SYNCHRONOUSLY, in one sweep inside the same tick
+  closure, means every earlier repeat's voice is STILL marked active in `voices[]` when the next one opens —
+  no real render window ever advances in between these calls — so the restrike rule ALWAYS force-closes each
+  repeat exactly at the next onset, discarding whatever gate length was requested, for any repeat but the
+  true last one in the burst. This was never a gate-length question at all; take 1 and take 2 were both
+  tuning a knob the engine was silently ignoring. **TAKE 3, the real fix:** ported the EXACT mechanism the
+  sibling RATCHET PATTERN/COIN fold already uses for the identical reason (2026-09-06, "a per-tick fold
+  can't spread strikes across audio blocks... via the ECHO ring so they spread across render blocks") — all
+  3 RATCHET application call sites in `runEuclidLine` (Euclideous's own unified `isEuclideousRow` pipeline,
+  the legacy riff-mode fork, the legacy plain-NOTE-mode fork) now fire strike 0 immediately as before, then
+  register repeats `1..<nRep` as `pushEchoTail` entries instead of synchronous `strikeChord` calls — drained
+  one real window at a time as time genuinely advances, so each repeat's own voice gets a real chance to
+  close before the next opens; restrike no longer overrides anything. Kept take 2's own short, fixed 50%
+  duty-cycle-of-its-own-slot gate length (independent of the lane's GATE value) for every repeat including
+  echoes — a disclosed, deliberate departure from the sibling fold's own "keep the note's own full length"
+  rule, since an ARP driver's notes are typically already short/staccato by the instrument's own nature,
+  while EUCLID MASK's RATCHET applies to ANY lane regardless of its own GATE setting; confirmed against
+  Paul's own "sustain, not ratchet" report that decoupling the two is the character actually wanted, not a
+  guess. **A REAL, DISCLOSED TRADE-OFF:** the deferred echo repeats don't push their own NOTE VIEW telemetry
+  event (matching the EXISTING precedent for the sibling fold, "a downstream ECHO echoes only strike 0, not
+  the ratchet copies") — NOTE VIEW now shows one event (strike 0) per masked hit, not one per repeat; 1
+  pre-existing test (`testEuclidMaskRatchetPostsOneNoteViewEventPerRepeat`) asserted the OLD per-repeat
+  count and was rewritten to assert the new, correct count instead, not silently left broken. **A SECOND
+  CLASS OF TEST FALLOUT, traced not guessed:** 3 more pre-existing tests (incl. this session's own just-
+  added count/duration regression tests) broke because they assumed every ratchet repeat fires SYNCHRONOUSLY
+  within whatever short `beats:` window the test requested — no longer true now that repeats genuinely defer
+  across future render windows. Fixed by widening each test's own `beats:` window generously (and, for the
+  count-ratio test, switching the lane's own pattern to a SPARSE one so only a single real hit's burst is
+  being measured, with no second hit nearby to complicate the count) rather than changing what's being
+  asserted — this is an honest, expected property of the now-correct deferred mechanism, confirmed by the
+  SAME sibling fold's own documented "v1 limits" ("N−1 tails/arp-note can hit the ring/flood cap under
+  extreme settings — copies drop, no stuck notes"). **DEVICE-OWED, the actual point of all this:** confirm
+  RATCHET now audibly reads as a genuine multi-hit stutter — distinct, separated taps — not a blur, not a
+  sustain, across a real range of RATE/HITS/GATE settings; the 50% duty-cycle choice is a first-pass,
+  reasoned default, not device-tuned — may want a user-facing control eventually if 50% doesn't feel right
+  across the whole RATE range.**
 - **▶ EUCLID MASK RATCHET — investigated end-to-end, no bug found; closed a confirmed test-coverage gap
   instead (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 564 green incl. +1; iOS
   unaffected — test-only). Paul: "look into ratchet on Euclid mask. It is still not working in any

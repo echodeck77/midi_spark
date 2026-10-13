@@ -4874,19 +4874,56 @@ final class Router {
                             // note picks; calling it ONCE per hit here is what makes it shared, not a change
                             // to the function itself).
                             if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
-                                let perGate = min((sub / Double(nRep)) * gate, (sub / Double(nRep)) * 0.95)
-                                for i in 0..<nRep {
-                                    let rTau = mTickBeat + Double(i) * sub / Double(nRep)
-                                    for j in 0..<pitchCount { strikeChord(tau: rTau, velScale: 1.0, gateBeats: perGate, octave: 0, explicitNote: pitches[j], explicitVel: vel, busOverride: busOverride) }
-                                    if nvSent {
-                                        var nc = 0
-                                        for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nc += 1 } }
-                                        if nc > 0 {
-                                            let onsetReal = realOf(rTau, stepBeats: S, a: a)
-                                            let offReal = realOf(rTau + perGate, stepBeats: S, a: a)
-                                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onsetReal, durationBeat: offReal - onsetReal, kind: 0, noteCount: nc,
-                                                               column: (i == 0) ? wipeColumn : -1, rank: (i == 0) ? wipeRankOut : -1, hasRiffNote: hadRiffNote)
-                                        }
+                                // AUDIBLE RATCHET, take 3 — THE REAL ROOT CAUSE (2026-10-13, Paul: first
+                                // "still not working in any perceptible way," then, after take 2 (every
+                                // repeat given the hit's own FULL gate) — "it does affect the output... but
+                                // feels more like a sustain than a ratchet"). Root-caused by dumping the raw
+                                // on/off sample stream, not guessed a third time: firing all nRep
+                                // `strikeChord` calls SYNCHRONOUSLY, in one sweep, means every earlier
+                                // repeat's voice is STILL "active" in this SAME call when the next one
+                                // opens — no real render window ever advances in between — so the engine's
+                                // own (correct) same-pitch restrike rule ALWAYS force-closes each repeat
+                                // exactly at the NEXT ONSET, regardless of whatever `gateBeats` was
+                                // requested for it. Take 2's shorter gate was never actually consulted for
+                                // any but the true last repeat — this was never a gate-length question at
+                                // all. THE FIX: strike 0 fires immediately as before; repeats 1..<nRep are
+                                // registered as ECHO-RING TAILS (`pushEchoTail`) instead of synchronous
+                                // strikeChord calls — the SAME mechanism, for the SAME reason, the sibling
+                                // RATCHET PATTERN/COIN folds already use (2026-09-06: "a per-tick fold can't
+                                // spread strikes across audio blocks... via the ECHO ring so they spread
+                                // across render blocks"). Drained one real window at a time as time actually
+                                // advances, each repeat's own earlier voice gets a genuine chance to close
+                                // naturally before the next one opens — restrike no longer overrides it.
+                                // GATE LENGTH, a disclosed deviation from that precedent's own "keep the
+                                // note's own full length" rule: an ARP driver's notes are typically already
+                                // short/staccato by the instrument's own nature, so reusing the full length
+                                // there still leaves real gaps; EUCLID MASK's RATCHET applies to ANY lane
+                                // regardless of its own GATE setting, so a ratchet's own snap is treated as
+                                // a DIFFERENT musical question from "how long should this lane's note
+                                // sustain" — each repeat gets a short, fixed 50% duty cycle of its own slot,
+                                // independent of GATE, confirmed against the user's own "sustain, not
+                                // ratchet" report to be the character actually wanted.
+                                let repGate = (sub / Double(nRep)) * 0.5
+                                let repSpacing = sub / Double(nRep)
+                                let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
+                                for j in 0..<pitchCount {
+                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: pitches[j], explicitVel: vel, busOverride: busOverride)
+                                    if nRep > 1 {
+                                        pushEchoTail(onset: mTickBeat, note: UInt8(clamping: pitches[j]), vel: vel, busMask: repBusMask,
+                                                     timeBeats: repSpacing, repeats: nRep - 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
+                                                     gateBeats: repGate, cellIdx: currentCellIndex)
+                                    }
+                                }
+                                // NOTE VIEW covers strike 0 only — the deferred echo repeats don't push their
+                                // own events, matching the existing, disclosed precedent for the sibling fold
+                                // ("a downstream ECHO echoes only strike 0, not the ratchet copies").
+                                if nvSent {
+                                    var nc = 0
+                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nc += 1 } }
+                                    if nc > 0 {
+                                        let (onset, duration) = nvTiming(repGate)
+                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc,
+                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote)
                                     }
                                 }
                                 cacheWholeSet()
@@ -5149,32 +5186,36 @@ final class Router {
                             let wipeRank = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
                             let wipeEligible = wipeRank >= 1 && wipeRank <= 8
                             // RATCHET (§3): n repeats evenly spaced across `sub` (this lane's own rate-beats-
-                            // per-step — splitting the STEP, not just this note's own possibly-shorter gate).
+                            // per-step). AUDIBLE FIX, take 3 (2026-10-13, mirrors the Euclideous pipeline's
+                            // identical fix above — takes 1/2 both proved wrong by direct testing: firing all
+                            // nRep strikes SYNCHRONOUSLY left every earlier repeat's voice still "active" in
+                            // the SAME call when the next one opened, so the engine's own same-pitch restrike
+                            // rule force-closed each one at the NEXT ONSET regardless of whatever gate length
+                            // was requested — a gate-length tweak alone could never fix this). Strike 0 fires
+                            // immediately; repeats 1..<nRep are registered as ECHO-RING TAILS (`pushEchoTail`),
+                            // the SAME mechanism the sibling RATCHET PATTERN/COIN folds already use, so each
+                            // repeat's own voice gets a genuine chance to close naturally (drained one real
+                            // window at a time) before the next one opens. Each repeat's own length is a
+                            // short, fixed 50% duty cycle of its own slot, independent of the lane's GATE
+                            // value — a real silent gap regardless of how long/short GATE is set.
                             if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: rank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
-                                let perGate = min((sub / Double(nRep)) * gate, (sub / Double(nRep)) * 0.95)
-                                // NOTE VIEW (§5.2: "each RATCHET repeat updates the box") — one push PER repeat,
-                                // each with its OWN real onset/duration (not `nvTiming`'s hardwired `mTickBeat`,
-                                // which would collapse every repeat onto the same onset) — computed via `realOf`
-                                // directly, the same primitive `nvTiming` itself uses internally, just evaluated
-                                // at this repeat's own `rTau` instead of the tick's.
-                                let p0 = finalPitch(note, oct: 0)
-                                // WIPE TELEMETRY (ferry "riff-cell wipes" §2, point 2): RATCHET's own
-                                // early-return bypasses the real-rank site above entirely, so the wipe must be
-                                // pushed here instead — attached to the FIRST repeat's own push specifically
-                                // (one wipe per masked step, not one per sub-strike, matching the real-rank
-                                // site's own "once per genuine riff read" convention), rather than a wholly
-                                // separate call: a brand-new push with noteCount:0 would overwrite the note
-                                // box's just-shown pitch with an empty event the instant it drained.
-                                for i in 0..<nRep {
-                                    let rTau = mTickBeat + Double(i) * sub / Double(nRep)
-                                    strikeChord(tau: rTau, velScale: 1.0, gateBeats: perGate, octave: 0, explicitNote: note, explicitVel: vel, busOverride: busOverride)
-                                    if nvSent, let p = p0 {
-                                        nvScratch[0] = p
-                                        let onsetReal = realOf(rTau, stepBeats: S, a: a)
-                                        let offReal = realOf(rTau + perGate, stepBeats: S, a: a)
-                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onsetReal, durationBeat: offReal - onsetReal, kind: 0, noteCount: 1,
-                                                           column: (i == 0 && wipeEligible) ? Int8(leapStep) : -1, rank: (i == 0 && wipeEligible) ? Int8(wipeRank) : -1)
-                                    }
+                                let repGate = (sub / Double(nRep)) * 0.5
+                                let repSpacing = sub / Double(nRep)
+                                let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
+                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: note, explicitVel: vel, busOverride: busOverride)
+                                if nRep > 1 {
+                                    pushEchoTail(onset: mTickBeat, note: UInt8(clamping: note), vel: vel, busMask: repBusMask,
+                                                 timeBeats: repSpacing, repeats: nRep - 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
+                                                 gateBeats: repGate, cellIdx: currentCellIndex)
+                                }
+                                // NOTE VIEW covers strike 0 only — the deferred echo repeats don't push their
+                                // own events, matching the existing, disclosed precedent for the sibling fold
+                                // ("a downstream ECHO echoes only strike 0, not the ratchet copies").
+                                if nvSent, let p0 = finalPitch(note, oct: 0) {
+                                    nvScratch[0] = p0
+                                    let (onset, duration) = nvTiming(repGate)
+                                    pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: 1,
+                                                       column: wipeEligible ? Int8(leapStep) : -1, rank: wipeEligible ? Int8(wipeRank) : -1)
                                 }
                                 euclideousLastSoundedNote[lineIndex] = Int8(clamping: note); euclideousLastSoundedVel[lineIndex] = vel
                                 return
@@ -5311,18 +5352,28 @@ final class Router {
                             let xf = maskTransform(rank: rank, note: hitNote0, vel: hitVel, lineIndex: lineIndex,
                                                    mm: mm, maskedChancePassed: maskedChancePassed, resolveRank: resolveHitRank)
                             if xf.muted { continue }
+                            // AUDIBLE RATCHET FIX, take 3 (2026-10-13) — see the riff-mode site's own comment
+                            // above: strike 0 fires immediately; repeats 1..<nRep register as ECHO-RING
+                            // TAILS (not synchronous strikeChord calls, which left every earlier repeat's
+                            // voice "active" when the next one opened, so the engine's own same-pitch
+                            // restrike rule force-closed each one at the NEXT ONSET regardless of the
+                            // requested gate length — a gate-length tweak alone could never fix this). Each
+                            // repeat's own length is a short, fixed 50% duty cycle of its own slot,
+                            // independent of `hitGate` entirely.
                             if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: rank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
-                                let perGate = min((sub / Double(nRep)) * gate, (sub / Double(nRep)) * 0.95)
-                                let p0 = finalPitch(xf.note, oct: 0)
-                                for i in 0..<nRep {
-                                    let rTau = mTickBeat + Double(i) * sub / Double(nRep)
-                                    strikeChord(tau: rTau, velScale: 1.0, gateBeats: perGate, octave: 0, explicitNote: xf.note, explicitVel: xf.vel, busOverride: busOverride)
-                                    if nvSent, let p = p0 {
-                                        nvScratch[0] = p
-                                        let onsetReal = realOf(rTau, stepBeats: S, a: a)
-                                        let offReal = realOf(rTau + perGate, stepBeats: S, a: a)
-                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onsetReal, durationBeat: offReal - onsetReal, kind: 0, noteCount: 1)
-                                    }
+                                let repGate = (sub / Double(nRep)) * 0.5
+                                let repSpacing = sub / Double(nRep)
+                                let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
+                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: xf.note, explicitVel: xf.vel, busOverride: busOverride)
+                                if nRep > 1 {
+                                    pushEchoTail(onset: mTickBeat, note: UInt8(clamping: xf.note), vel: xf.vel, busMask: repBusMask,
+                                                 timeBeats: repSpacing, repeats: nRep - 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
+                                                 gateBeats: repGate, cellIdx: currentCellIndex)
+                                }
+                                if nvSent, let p0 = finalPitch(xf.note, oct: 0) {
+                                    nvScratch[0] = p0
+                                    let (onset, duration) = nvTiming(repGate)
+                                    pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: 1)
                                 }
                                 euclideousLastSoundedNote[lineIndex] = Int8(clamping: xf.note); euclideousLastSoundedVel[lineIndex] = xf.vel
                                 continue
