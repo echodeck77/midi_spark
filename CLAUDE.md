@@ -196,6 +196,96 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ ADVERSARIAL REVIEW + FIXES — 8 commits from the preceding 24h reviewed by parallel agents (7 forks +
+  1 fresh independent agent on this session's own MELODY-tab commit, deliberately NOT a fork, to avoid
+  inherited bias reviewing its own work), every finding re-verified by direct reading before acting
+  (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1354 green incl. +5, iOS builds
+  clean). 6 confirmed real bugs + 2 plausible risks found across `2935eff`/`48fb16a`/`e4e2041`/`3f92a95`/
+  `b87d46b`/`f2a9c4f`/`5ad8778`/`21a5091`; ALL 8 fixed in this pass, not just reported. **(1) CONFIRMED,
+  highest severity — a genuine render-thread allocation on every ordinary NOTE-mode hit** (`e4e2041`):
+  `var struckNotes: [Int] = []`, grown via `.append`, inside `runEuclidLine`'s NOTE-mode strike branch — a
+  direct invariant-3 violation on the common path, not an edge case. Fixed by writing directly into the
+  shared, preallocated `nvScratch` buffer as each note strikes (mirroring the EXACT idiom this same
+  function already used for RATCHET's own per-repeat push a few lines below), eliminating the array
+  entirely rather than special-casing around it. **(2) CONFIRMED — RATCHET's repeat count was shared, not
+  independent, across a multi-note pick** (`e4e2041`): `maskRatchetReps`'s seed (`roll2`) only varied by
+  hit-ordinal + lane, never by WHICH note within a pick (ALL/BOTTOM2/TOP2/a range) was being resolved —
+  contradicting that commit's own shipped claim of per-note independence. Fixed by folding `rank` into the
+  hash at both call sites (RIFF-mode's own single-note strike is unaffected in spirit — just reseeded with
+  one more fixed-per-hit term). Locked in with a DETERMINISTIC worked-example test (not a statistical
+  range check) — hand-derived via the real `splitmix64Mix` formula that ranks 1/2/3 of a 3-note ALL pick
+  must roll 5/7/4 repeats on the first hit; **self-caught a real test-construction bug before trusting it**
+  — the test's first draft used the default (fast) rate, which hit `maskRatchetReps`'s own PRE-EXISTING,
+  unrelated `cap` safety clamp (bounding repeats to what the column's real beat width can fit), collapsing
+  all three ranks' rolls down to the same floor value (2) before the per-rank variation ever got a chance
+  to show — caught via an RTCDEBUG trace of the actual seed/span/cap arithmetic, not assumed correct blind;
+  fixed by giving the test lane a generous `rate: .r1_1` so the cap can't interfere. **(3) CONFIRMED — the
+  riff marker/footer PREDICTION ignored the lane's own PATTERN direction entirely** (`3f92a95`), the
+  biggest fix in this pass: `euclideousLapHitSteps` always returned hit positions in ascending BUFFER-INDEX
+  order regardless of `EuclidDir` — correct only for FWD (where a real tick's buffer index IS its tick
+  number); for BACKWARDS the real engine (`euclidReadIndex`) reads the identical buffer back-to-front (the
+  hit at the HIGHEST buffer index sounds FIRST, not last), and PING-PONG's real cycle is `2n`, not `n`. So
+  for any RIFF-mode lane in BKW/PING-PONG pattern direction, the on-screen marker/footer showed the wrong
+  step/rank sequence while the actual audio (unaffected) played correctly — exactly the "lit cell disagrees
+  with what's heard" bug class this project's own history repeatedly names. **THE FIX, genuinely non-
+  trivial, touching 3 interdependent pure functions, not a one-line patch:** new `EuclidHitStep{tick,
+  bufIdx}` (Equatable + `ExpressibleByIntegerLiteral`, so every pre-existing FWD-only test literal like
+  `[0,3,6]` keeps compiling unchanged — `tick==bufIdx` for FWD by construction) replaces the bare `[Int]`
+  `euclideousLapHitSteps` used to return; `.bufIdx` is the screen-box position (boxes never reorder, only
+  the comet's motion does — the standing convention), `.tick` is the REAL direction-aware tick a hit
+  actually sounds at (`euclidReadIndex`'s own output space) — walking the real tick axis
+  (`0..<euclidCycleLen(dir,n)`) and converting each to a buffer index via `euclidReadIndex` is the EXACT
+  pair the real engine itself uses, so a hit can never be reported out of true chronological order.
+  Cascaded through `euclideousRiffLapBaseline` (STEP-mode's own "elapsed ticks since the lap's first hit"
+  now measured on `.tick`, not buffer-index difference — a SEPARATE bug for BKW the fix uncovered along the
+  way, since the pre-fix code never even called `euclidReadIndex` to convert a reduced live-ordinal into a
+  buffer index before comparing) and `euclideousRiffCyclePrediction` (same `.tick`-based elapsed-ticks
+  fix); `euclideousFooterStates` reads `.bufIdx` for the screen mapping, unchanged in spirit. PING-PONG's
+  doubled hits (once ascending, once descending) are UNAMBIGUOUS once matched by `.tick` rather than
+  `.bufIdx` — resolved a concern raised while designing the fix (two hits sharing a buffer index would be
+  ambiguous to match against) by realizing each occurrence has its own distinct tick, so there's nothing
+  to disambiguate. Both `EuclideousPage.swift` call sites now pass `dir: line.directionResolved`. +4 new
+  DerivationsTests (BKW's reverse temporal order + its real ticks, hand-verified against `euclidReadIndex`'s
+  own formula directly; PING-PONG's doubled ascending-then-descending sequence; a BKW-specific
+  self-consistency test for the STEP-mode baseline recovery, mirroring the existing FWD self-consistency
+  test's own technique). **(4) CONFIRMED — a riff note-name label showed "–" for a rank that will actually
+  sound** (`b87d46b`): `euclideousGlobalPoolExtended` was built specifically to feed the label column with
+  the correct octave-extended note for ranks beyond the raw held-note count, but had zero production call
+  sites — the real renderer just showed a plain dash past `pool.count`, actively misleading (the engine
+  will happily sound an octave-up copy there). Wired in; also added real-vs-copy dimming matching the
+  MELODY tab's own established convention for the same distinction. **(5) CONFIRMED, cosmetic/hygiene — a
+  stale ±3 `riffOctave` clamp left beside the new ±2 one** (`21a5091`, this session's own prior commit):
+  `SnapshotBuilder.swift`'s fresh-literal reconstruction still clamped to the OLD bound; harmless today
+  (the tighter `Models.swift`-level clamp always won downstream) but a trap for a future reader. Narrowed
+  to match. **(6) CONFIRMED, disclosed scope question, not silently resolved** (`21a5091`): a comment
+  falsely claimed `melodyNoteSelLabel`/`melodySectionTitle` were "reused... verbatim" by the new MELODY
+  tab — grep showed zero call sites. Comment fixed; separately surfaced that the old pop-up's full
+  ALL/LOW/BOTTOM2/CYCLE pick set (and their descriptive names) has NO reachable UI slot in the new tab at
+  all, a real scope narrowing versus the old pop-up — flagged for Paul's own call once the literal
+  MELODY-tab spec (promised, not yet received) confirms whether that's intentional; the two helpers are
+  left in place, unused, likely needed again if that spec restores them. **(7) PLAUSIBLE, now eliminated
+  structurally, not just patched around** (`2935eff`): `EuclidLine.customHitsResolved`'s padding/truncation
+  can allocate — dormant today (every live write path keeps lengths in sync) but a latent render-thread
+  hazard for a future migration path. Traced the ONE render-thread call site (`Router.swift`'s
+  `runEuclidLine`) and found its consumer ALREADY reads `custom[i]` with its own per-element bounds check
+  (pads a short array, truncates a long one via the loop bound, for free) — so the resolved/padded copy was
+  never actually needed there. Passing `L.customHits` raw removes the allocation possibility entirely, not
+  just leaves it unreachable. **(8) PLAUSIBLE, fixed with a provably-correct bound** (`5ad8778`): the riff-
+  grid corner marker's glyph-size floor (a flat 8pt) could exceed its own half-cell quadrant whenever
+  `min(cellW,cellH) < 16` — this project's own history already documents cells shrinking to ~7.4pt on a
+  real narrow portrait panel, so not theoretical. Rewritten so the floor is `min(4, halfCell)` instead of a
+  flat `4` or `8` — both arguments to the governing `max(...)` are individually ≤ `halfCell` by
+  construction, so their max is too, and the outer `min(16,...)` can only shrink further: the glyph can no
+  longer mathematically exceed its quadrant, proven by the formula's own shape, not by a guessed-smaller
+  floor that could still fail at an even tinier cell size. **PROCESS NOTE, named plainly:** chasing finding
+  (2)'s own test down to "why does every rank show the same nRep" is this session's own repeated lesson
+  applied again — traced with THREE successive RTCDEBUG prints (the seed/span computation, then the cap
+  clamp) rather than re-guessing the test's own parameters a second time blind; the actual fix was correct
+  on the first attempt, only the TEST exercising it needed correcting. **DEVICE-OWED:** none of this is new
+  UI — every fix lands inside the macOS test target or is covered by the existing iOS build; the direction-
+  aware prediction fix (3) is worth a real device check on a BKW/PING-PONG RIFF-mode lane specifically, the
+  one finding whose user-visible symptom (marker/footer disagreeing with audio) was never device-verified
+  either before or after this fix.**
 - **▶ EUCLIDEOUS — MELODY tab on the lane cards, the melody pop-up fully retired (2026-10-13, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1350 green incl. +11/-5, iOS builds clean). A
   fully-specified, ratified ferry ("Claude Code: MELODY tab on the lane cards"), planned via EnterPlanMode

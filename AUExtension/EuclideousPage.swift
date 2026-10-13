@@ -657,12 +657,12 @@ struct EuclideousPage: View {
         let steps = max(2, min(16, line.steps))
         let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                               tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
-                                              customHits: line.customHitsResolved(steps))
+                                              customHits: line.customHitsResolved(steps), dir: line.directionResolved)
         guard hitSteps.count >= 2 else { return nil }
         let ws = riffWalkState[idx]
         let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
         let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
-                                                   liveOrd: ws)
+                                                   liveOrd: ws, dir: line.directionResolved)
         let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.riffDirResolved,
                                                          stride: line.riffStrideResolved, length: line.riffLengthResolved,
                                                          rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
@@ -1231,13 +1231,13 @@ struct EuclideousPage: View {
         let steps = max(2, min(16, line.steps))
         let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                               tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
-                                              customHits: line.customHitsResolved(steps))
+                                              customHits: line.customHitsResolved(steps), dir: line.directionResolved)
         var prediction: [Int]? = nil
         if line.useRiffResolved {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
             let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
             let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
-                                                       liveOrd: ws)
+                                                       liveOrd: ws, dir: line.directionResolved)
             prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.riffDirResolved,
                                                          stride: line.riffStrideResolved, length: line.riffLengthResolved,
                                                          rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
@@ -1840,8 +1840,15 @@ struct EuclideousPage: View {
     // melodyModeSection/melodyNoteSection/melodyWalkSection/melodyPlacementSection/melodyPopupCard
     // REMOVED (Paul 2026-10-13 ferry, "MELODY tab on the lane cards") — superseded by the new
     // MELODY tab content below (`melodyNotesRow`/`melodyOctaveRow`/`melodyRiffBlock` and its own
-    // sub-rows), which reuses `melodyButton`/`melodyStepper`/`melodySectionTitle`/`melodyNoteSelLabel`
-    // above verbatim rather than re-deriving the same visual language a second time.
+    // sub-rows), which reuses `melodyButton`/`melodyStepper` above verbatim rather than re-deriving the
+    // same visual language a second time. CORRECTION (2026-10-13 adversarial review): `melodySectionTitle`/
+    // `melodyNoteSelLabel` are NOT actually reused below — that was a false claim left over from an
+    // earlier draft. The new Notes row shows bare rank numbers (N1...N8) plus TOP/TOP2 on the Octave row;
+    // the old pop-up's full ALL/LOW/BOTTOM2/CYCLE pick set (and their descriptive names) has no reachable
+    // UI slot in the new tab at all — a real scope narrowing versus the old pop-up, disclosed here rather
+    // than silently absorbed, and flagged for Paul's own call once the literal MELODY-tab spec (promised,
+    // not yet received) confirms whether that's intentional. `melodySectionTitle`/`melodyNoteSelLabel`
+    // are left in place, unused, rather than deleted — likely needed again if that spec restores them.
 
     // MARK: - MELODY TAB CONTENT (Paul 2026-10-13 ferry) — Notes row (8 equal buttons) · Octave row
     // (segmented −2…+2 + TOP/TOP2) · Riff block (mode strip + WALK/MODES/VALUES rows). Behaviour rule 1:
@@ -2447,14 +2454,25 @@ struct EuclideousPage: View {
     /// root-driven sharp/flat choice (`euclideousKeyIsFlat`).
     private func riffNoteLabelColumn(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat) -> some View {
         let flatKey = source == .key ? euclideousKeyIsFlat(keyRoot) : true
+        // DEAD-CODE FIX (2026-10-13 adversarial review): `euclideousGlobalPoolExtended` was built specifically
+        // to feed THIS label column with the correct octave-extended note for ranks beyond the raw held-note
+        // count, but was never actually wired in — every rank past `pool.count` showed a plain "–" even though
+        // the real strike path (`riffResolve(wrap: .fold)`) will happily sound an octave-up copy of the pool
+        // there. `extended` is empty exactly when `pool` is (nothing held, still shows "–"), else always 8
+        // entries. Real-vs-copy dimming mirrors the MELODY tab's own established convention for the same
+        // distinction.
+        let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
         return VStack(spacing: sp4) {
             ForEach((1...8).reversed(), id: \.self) { rank in
-                let label: String = (rank >= 1 && rank <= pool.count) ? euclideousNoteViewName(pool[rank - 1], flatKey: flatKey) : "–"
+                let hasNote = rank >= 1 && rank <= extended.count
+                let noteValue = hasNote ? UInt8(extended[rank - 1]) : 0
+                let isReal = rank <= pool.count
+                let label: String = hasNote ? euclideousNoteViewName(noteValue, flatKey: flatKey) : "–"
                 Text(label).font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(rank <= pool.count ? Color(hex: 0xDFE3EA) : Color(hex: 0x4A4E57))
+                    .foregroundColor(hasNote ? (isReal ? Color(hex: 0xDFE3EA) : Color(hex: 0xDFE3EA).opacity(0.55)) : Color(hex: 0x4A4E57))
                     .frame(width: riffLabelColW, height: cellH, alignment: .trailing)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(rank <= pool.count ? "Rank \(rank), \(euclideousAccessibleNoteName(pool[rank - 1], flatKey: flatKey))" : "Rank \(rank), no note")
+                    .accessibilityLabel(hasNote ? "Rank \(rank), \(euclideousAccessibleNoteName(noteValue, flatKey: flatKey))" : "Rank \(rank), no note")
             }
         }
         .frame(width: riffLabelColW)
@@ -2557,7 +2575,16 @@ struct EuclideousPage: View {
         let on = col < ranks.count && ranks[col] == rank
         // LANE → CORNER, matching the real lane-card grid exactly (see this function's own doc comment).
         let corners: [Alignment] = [.topLeading, .topTrailing, .bottomLeading, .bottomTrailing]
-        let glyphSize = max(8, min(16, min(cellW, cellH) * 0.42))
+        // OVERFLOW FIX (2026-10-13 adversarial review): the old flat `max(8, ...)` floor could exceed the
+        // glyph's own half-cell quadrant whenever `min(cellW,cellH) < 16` — this codebase's own history
+        // already documents cells shrinking to ~7.4pt on a real narrow portrait panel, so this wasn't
+        // theoretical. `halfCell` is the true available space (the quadrant's own smaller dimension); the
+        // floor is now `min(4, halfCell)` instead of a flat `8` — mathematically provably never exceeds
+        // `halfCell` (both arguments to the outer `max` are individually ≤ halfCell, so their max is too,
+        // and wrapping in `min(16, ...)` can only shrink further) — the glyph can no longer push past its
+        // own quadrant into the neighbouring one.
+        let halfCell = min(cellW, cellH) / 2
+        let glyphSize = min(16, max(halfCell * 0.84, min(4, halfCell)))
         return ZStack {
             RoundedRectangle(cornerRadius: 3)
                 .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))

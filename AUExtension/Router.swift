@@ -454,11 +454,19 @@ final class Router {
     /// roll), capped so no subdivision is shorter than 1/128 of a bar — nil when not ratcheting (mode
     /// isn't RATCHET, or this hit's own CHANCE roll didn't pass). Shared by the riff and NOTE-mode
     /// callers for the same reason `maskTransform` is — see its own doc comment.
-    private func maskRatchetReps(lineIndex: Int, mm: EuclidLineMask, maskedChancePassed: Bool, sub: Double, cyc: Double) -> Int? {
+    private func maskRatchetReps(lineIndex: Int, rank: Int, mm: EuclidLineMask, maskedChancePassed: Bool, sub: Double, cyc: Double) -> Int? {
         guard maskedChancePassed, mm.modeResolved == .ratchet else { return nil }
         let lo = min(mm.ratchetMinResolved, mm.ratchetMaxResolved), hi = max(mm.ratchetMinResolved, mm.ratchetMaxResolved)
         let span = hi - lo + 1
-        let roll2 = splitmix64Mix(UInt64(bitPattern: euclideousMaskOrd[lineIndex]) &+ UInt64(lineIndex) &* 0xBF58476D1CE4E5B9 &+ 0x2545F4914F6CDD1D)
+        // INDEPENDENT PER RESOLVED NOTE (fix, 2026-10-13 adversarial review): the seed used to be just the
+        // mask's own hit ordinal + lane — constant for every note resolved within ONE hit — so a multi-note
+        // NOTE-mode pick (ALL/BOTTOM2/TOP2/a range) silently gave every note in the chord the IDENTICAL
+        // repeat count, contradicting this feature's own shipped claim ("logically independent per resolved
+        // note in a multi-note pick, not shared once across the whole chord"). `rank` (this one note's own
+        // resolved pool rank, already in scope at both call sites) is folded into the hash so each note in
+        // a pick rolls independently; RIFF mode (always exactly one resolved note per hit) is unaffected in
+        // spirit — it's just reseeded with one more, fixed-per-hit term, not a behaviour change for it.
+        let roll2 = splitmix64Mix(UInt64(bitPattern: euclideousMaskOrd[lineIndex]) &+ UInt64(lineIndex) &* 0xBF58476D1CE4E5B9 &+ UInt64(rank) &* 0x9E3779B97F4A7C15 &+ 0x2545F4914F6CDD1D)
         var nRep = lo + Int(roll2 % UInt64(span))
         let cap = max(1, Int(sub * 128.0 / max(0.0001, cyc)))
         nRep = min(nRep, cap)
@@ -4814,7 +4822,7 @@ final class Router {
                             let wipeEligible = wipeRank >= 1 && wipeRank <= 8
                             // RATCHET (§3): n repeats evenly spaced across `sub` (this lane's own rate-beats-
                             // per-step — splitting the STEP, not just this note's own possibly-shorter gate).
-                            if let nRep = maskRatchetReps(lineIndex: lineIndex, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
+                            if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: rank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
                                 let perGate = min((sub / Double(nRep)) * gate, (sub / Double(nRep)) * 0.95)
                                 // NOTE VIEW (§5.2: "each RATCHET repeat updates the box") — one push PER repeat,
                                 // each with its OWN real onset/duration (not `nvTiming`'s hardwired `mTickBeat`,
@@ -4961,14 +4969,21 @@ final class Router {
                         // affects has genuinely diverged from its siblings (its own per-repeat timing), so it
                         // gets its own independent pushes instead, mirroring the riff path's identical split.
                         let resolveHitRank: (Int) -> Int? = { r in riffResolve(rank: r, oct: octave, n: hitNotes.count, wrap: .fold, asc: { hitNotes[$0].note }) }
-                        var struckNotes: [Int] = []
+                        // RENDER-THREAD ALLOCATION FIX (2026-10-13 adversarial review): this used to collect
+                        // into a dynamically-growing `var struckNotes: [Int] = []`, allocating heap storage on
+                        // the FIRST `.append` of every ordinary NOTE-mode hit — a direct violation of this
+                        // file's own invariant 3 ("no allocation on the render path, fixed-size storage only").
+                        // `hitNC` now writes DIRECTLY into the shared, preallocated `nvScratch` buffer as each
+                        // note strikes, mirroring the exact idiom this same function already uses a few lines
+                        // below for RATCHET's own per-repeat push and for the CHORD-effect `extraNotes` loop.
+                        var hitNC = 0
                         for idx in hitIdx where idx >= 0 && idx < hitNotes.count {
                             let rank = idx + 1
                             guard let hitNote0 = resolveHitRank(rank) else { continue }
                             let xf = maskTransform(rank: rank, note: hitNote0, vel: hitVel, lineIndex: lineIndex,
                                                    mm: mm, maskedChancePassed: maskedChancePassed, resolveRank: resolveHitRank)
                             if xf.muted { continue }
-                            if let nRep = maskRatchetReps(lineIndex: lineIndex, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
+                            if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: rank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
                                 let perGate = min((sub / Double(nRep)) * gate, (sub / Double(nRep)) * 0.95)
                                 let p0 = finalPitch(xf.note, oct: 0)
                                 for i in 0..<nRep {
@@ -4986,18 +5001,17 @@ final class Router {
                             }
                             strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: 0, explicitNote: xf.note, explicitVel: xf.vel, busOverride: busOverride)
                             for extra in xf.extra { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: hitGate, octave: 0, explicitNote: extra, explicitVel: xf.vel, busOverride: busOverride) }
-                            struckNotes.append(xf.note); struckNotes.append(contentsOf: xf.extra)
+                            if nvSent {
+                                if hitNC < Router.noteViewMaxNotes, let p = finalPitch(xf.note, oct: 0) { nvScratch[hitNC] = p; hitNC += 1 }
+                                for extra in xf.extra where hitNC < Router.noteViewMaxNotes { if let p = finalPitch(extra, oct: 0) { nvScratch[hitNC] = p; hitNC += 1 } }
+                            }
                             euclideousLastSoundedNote[lineIndex] = Int8(clamping: xf.note); euclideousLastSoundedVel[lineIndex] = xf.vel
                         }
                         // NOTE VIEW: the combined push for every note this hit struck NORMALLY (not via a
                         // per-repeat RATCHET push, already handled above, each with noteCount:1 of its own).
-                        if nvSent, !struckNotes.isEmpty {
-                            var hitNC = 0
-                            for n in struckNotes where hitNC < Router.noteViewMaxNotes { if let p = finalPitch(n, oct: 0) { nvScratch[hitNC] = p; hitNC += 1 } }
-                            if hitNC > 0 {
-                                let (onset, duration) = nvTiming(hitGate)
-                                pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: hitNC)
-                            }
+                        if nvSent, hitNC > 0 {
+                            let (onset, duration) = nvTiming(hitGate)
+                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: hitNC)
                         }
                     } else if !isEuclideousRow, let missSel = missNoteSel {
                         // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — STILL LIVE for the regular,
@@ -5115,7 +5129,18 @@ final class Router {
                               riffLock: L.riffLockResolved, riffInvert: L.riffInvertResolved, riffOnRest: L.riffOnRestResolved,
                               riffStride: L.riffStrideResolved, riffLength: L.riffLengthResolved, riffAdvanceStep: L.riffAdvanceStepResolved,
                               melodyTranspose: L.melodyTransposeResolved, mask: L.maskResolved,
-                              customHits: L.customHitsResolved(max(2, min(16, L.steps))))
+                              // RENDER-THREAD ALLOCATION FIX (2026-10-13 adversarial review): `customHitsResolved`
+                              // can allocate (padding/truncating to a target length) whenever the stored array's
+                              // own length disagrees with the target — a latent, currently-unreachable risk since
+                              // every live write path keeps the two in sync, but a real hazard for a future
+                              // migration/preset path that doesn't. The consumer (`runEuclidLine`'s own `if let
+                              // custom = customHits {...}` branch, just above) already reads `custom[i]` with its
+                              // own per-element bounds check (`i < custom.count ? custom[i] : false`, confirmed by
+                              // reading before relying on it) — it already pads a shorter array and truncates a
+                              // longer one for free, with no separate resized copy needed. Passing the RAW
+                              // `L.customHits` directly removes the allocation possibility structurally, not just
+                              // leaves it dormant.
+                              customHits: L.customHits)
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))

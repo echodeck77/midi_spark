@@ -6429,6 +6429,32 @@ final class RouterTests: XCTestCase {
         XCTAssertNotEqual(total, 16, "all 8 ticks landing on the exact MIN would suggest the roll isn't varying at all")
         XCTAssertNotEqual(total, 32, "all 8 ticks landing on the exact MAX would suggest the roll isn't varying at all")
     }
+    // RATCHET INDEPENDENCE FIX (2026-10-13 adversarial review): previously every note in a multi-note
+    // NOTE-mode pick got the IDENTICAL ratchet repeat count — the seed only ever varied by hit-ordinal and
+    // lane, never by WHICH note within the pick was being resolved — directly contradicting this feature's
+    // own shipped claim that each note's roll is independent. A deterministic, exact worked example (not a
+    // statistical/range check): hand-derived via the real `splitmix64Mix` seed formula for the very first
+    // hit (euclideousMaskOrd=1, lineIndex=0, span 2...8) that ranks 1/2/3 of a 3-note ALL pick must now roll
+    // 5/7/4 repeats respectively — three DIFFERENT counts, proving the roll genuinely varies per resolved
+    // note rather than being shared once across the whole chord. `rate: .r1_1` is deliberate, not
+    // cosmetic — traced via an RTCDEBUG print before trusting the hand-derived numbers: the default (fast)
+    // rate makes `maskRatchetReps`'s own pre-existing `cap` (a legitimate, unrelated safety clamp bounding
+    // repeats to what the column's real beat width can fit) collapse every rank's roll down to the SAME
+    // floor value before the per-rank variation this test exists to prove ever gets a chance to show —
+    // caught on the test's own first run (all three notes reported nRep=2), not assumed correct blind.
+    func testEuclidMaskRatchetRollsIndependentlyPerNoteInAMultiNotePick() {
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 1; m.steps = 1; m.chance = 1.0
+        m.mode = .ratchet; m.ratchetMin = 2; m.ratchetMax = 8
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .all, rate: .r1_1, mask: m)]
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, chord([60, 62, 64]), beats: 1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        func count(_ note: Int) -> Int { e.ons.filter { $0.cable == 1 && Int($0.note) == note }.count }
+        XCTAssertEqual(count(60), 5, "rank 1 (note 60)'s own independent roll")
+        XCTAssertEqual(count(62), 7, "rank 2 (note 62)'s own independent roll — different from rank 1's")
+        XCTAssertEqual(count(64), 4, "rank 3 (note 64)'s own independent roll — different again")
+    }
     func testEuclidMaskMuteSilencesInNoteModeToo() {
         // The cheapest possible additional confidence check for the same bug: a fully MUTE-masked NOTE-
         // mode lane (HITS=STEPS=8, CHANCE=1 ⇒ every tick masked) must be completely silent — before the

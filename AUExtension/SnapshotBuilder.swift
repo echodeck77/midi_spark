@@ -694,7 +694,7 @@ enum SnapshotBuilder {
                                                                       rate: $0.rate,
                                                                       emitterMask: $0.emitterMask.map { $0 & 0x0F },
                                                                       useRiff: $0.useRiff, riffRotate: $0.riffRotate,
-                                                                      riffOctave: $0.riffOctave.map { clamp($0, -3, 3) },
+                                                                      riffOctave: $0.riffOctave.map { clamp($0, -2, 2) },   // narrowed from the old -3...3 (2026-10-13 adversarial review): Models.swift's riffOctaveResolved already clamps -2...2 unconditionally (riffOctave is Euclideous-exclusive), so this fresh-literal's own bound must match it, not silently disagree
                                                                       riffDir: $0.riffDir, riffDirSeed: $0.riffDirSeed,
                                                                       riffDirBias: $0.riffDirBias.map { clamp($0, -1, 1) },
                                                                       mask: $0.mask, sourceMode: $0.sourceMode,

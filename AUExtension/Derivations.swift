@@ -2891,14 +2891,38 @@ func euclideousNoteViewPattern(pulses: Int, steps: Int, rotate: Int, tilt: Doubl
 // note without touching the persisted walk cursor) — so none of them belong in a prediction of the lane's
 // OWN walk.
 
-/// One Euclid lap's hit positions, ascending step order — the ordinal walk this prediction needs is "which
-/// hit number is this" within one lap, so this just reads `euclideousNoteViewPattern`'s own hit/rest buffer
-/// (already the engine's exact pure mirror, patternMiss/customHits-aware) rather than re-deriving hit
-/// detection a second time.
-func euclideousLapHitSteps(pulses: Int, steps: Int, rotate: Int, tilt: Double, patternMiss: Bool, customHits: [Bool]?) -> [Int] {
+/// One hit of a lap: `bufIdx` is its position in the pattern BUFFER (direction-independent — the screen's
+/// own step boxes are always drawn in buffer-index order, per this page's standing "boxes don't reorder,
+/// only the comet's motion does" convention), `tick` is the REAL, direction-aware tick at which it actually
+/// sounds within one cycle (`euclidReadIndex`'s own output space). For FWD the two coincide, which is why a
+/// bare `Int` literal still constructs a valid value — every pre-existing call site/test written before
+/// direction-awareness existed keeps compiling unchanged.
+struct EuclidHitStep: Equatable, ExpressibleByIntegerLiteral {
+    let tick: Int
+    let bufIdx: Int
+    init(tick: Int, bufIdx: Int) { self.tick = tick; self.bufIdx = bufIdx }
+    init(integerLiteral value: Int) { tick = value; bufIdx = value }
+}
+/// One Euclid lap's hits, in TRUE TEMPORAL order — the ordinal walk this prediction needs is "which hit
+/// number is this," in the order hits actually sound, not the order their buffer positions happen to be
+/// numbered. DIRECTION FIX (2026-10-13 adversarial review): this previously always walked the buffer in
+/// plain ascending index order regardless of `dir` — correct for FWD (where a real tick's buffer index IS
+/// its tick number), silently WRONG for BKW (whose real engine, `euclidReadIndex`, reads the SAME buffer
+/// back-to-front — the hit at the HIGHEST buffer index sounds FIRST, not last) and for PING-PONG (whose
+/// real cycle is `2n`, each hit sounding once ascending then once descending). Fixed by walking the REAL
+/// tick axis (`0..<euclidCycleLen(dir,n)`) and converting each tick to its buffer index via
+/// `euclidReadIndex` — the EXACT pair the real engine itself uses — so a hit can never be reported out of
+/// its true chronological order. `dir` defaults to `.fwd` so every pre-existing caller that never passed a
+/// direction keeps its old, correct-for-FWD behaviour byte-for-byte.
+func euclideousLapHitSteps(pulses: Int, steps: Int, rotate: Int, tilt: Double, patternMiss: Bool, customHits: [Bool]?, dir: EuclidDir = .fwd) -> [EuclidHitStep] {
     let buf = euclideousNoteViewPattern(pulses: pulses, steps: steps, rotate: rotate, tilt: tilt, patternMiss: patternMiss, customHits: customHits)
-    var out: [Int] = []
-    for i in 0..<buf.count where buf[i] { out.append(i) }
+    let n = buf.count
+    let cycleLen = euclidCycleLen(dir, n: n)
+    var out: [EuclidHitStep] = []
+    for raw in 0..<cycleLen {
+        let bufIdx = euclidReadIndex(raw, n: n, dir: dir)
+        if buf[bufIdx] { out.append(EuclidHitStep(tick: raw, bufIdx: bufIdx)) }
+    }
     return out
 }
 
@@ -2912,16 +2936,24 @@ func euclideousLapHitSteps(pulses: Int, steps: Int, rotate: Int, tilt: Double, p
 /// entry `liveOrd % lapSteps` matches (STEP mode, since under that mode the ordinal literally IS the
 /// elapsed grid-step count) both recover exactly which hit-index-within-the-lap the most recent hit was,
 /// letting the lap's own first-hit ordinal be recovered by simple subtraction.
-func euclideousRiffLapBaseline(hitSteps: [Int], lapSteps: Int, locked: Bool, advanceStep: Bool,
-                                liveOrd: Int64)
+func euclideousRiffLapBaseline(hitSteps: [EuclidHitStep], lapSteps: Int, locked: Bool, advanceStep: Bool,
+                                liveOrd: Int64, dir: EuclidDir = .fwd)
     -> (startOrd: Int64, currentHitIndex: Int) {
     guard !hitSteps.isEmpty, lapSteps > 0 else { return (0, 0) }
     if locked { return (0, 0) }   // LOCK hard-resets the ordinal to 0 at every lap's first hit — the live hit is always index 0
-    let firstStep = hitSteps[0]
+    let firstTick = hitSteps[0].tick
     if advanceStep {
-        let curStepPos = Int(((liveOrd % Int64(lapSteps)) + Int64(lapSteps)) % Int64(lapSteps))
-        guard let k = hitSteps.firstIndex(of: curStepPos) else { return (liveOrd, 0) }
-        let lapStartOrd = liveOrd - Int64(hitSteps[k] - firstStep)
+        // DIRECTION FIX (2026-10-13 adversarial review): previously reduced `liveOrd` mod the plain buffer
+        // length and compared the result directly against `hitSteps`' own BUFFER-INDEX values — correct
+        // only for FWD (where tick == bufIdx). Now reduces mod the REAL cycle length (`euclidCycleLen`,
+        // which is `2*lapSteps` for PING-PONG, not `lapSteps`) and matches against each hit's own `.tick` —
+        // the exact axis `euclidReadIndex` itself operates on, so this works unambiguously for every
+        // direction, including PING-PONG's doubled hits (each occurrence has its own distinct tick, so
+        // there's no ambiguity about which pass of the bounce "now" belongs to).
+        let cycleLen = euclidCycleLen(dir, n: lapSteps)
+        let curTick = Int(((liveOrd % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
+        guard let k = hitSteps.firstIndex(where: { $0.tick == curTick }) else { return (liveOrd, 0) }
+        let lapStartOrd = liveOrd - Int64(hitSteps[k].tick - firstTick)
         return (lapStartOrd, k)
     } else {
         let effHits = Int64(hitSteps.count)
@@ -2939,12 +2971,15 @@ func euclideousRiffLapBaseline(hitSteps: [Int], lapSteps: Int, locked: Bool, adv
 /// lap's first hit, not by 1 per hit. DRUNK is not one of Euclideous's own WALK directions (2026-10-12
 /// MELODY-tab ferry — removed; the generic chain RIFF processor keeps its own, unrelated DRUNK untouched),
 /// so every direction here is a pure function of the ordinal alone — no live-walk state to poll.
-func euclideousRiffCyclePrediction(hitSteps: [Int], advanceStep: Bool, dir: RiffDir, stride: Int, length: Int,
+func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool, dir: RiffDir, stride: Int, length: Int,
                                     rotate: Int, seed: UInt64, startOrd: Int64) -> [Int] {
     guard !hitSteps.isEmpty, length > 0 else { return [] }
-    let firstStep = hitSteps[0]
-    return hitSteps.enumerated().map { (hitIdx, step) in
-        let advOrd: Int64 = advanceStep ? startOrd + Int64(step - firstStep) : startOrd + Int64(hitIdx)
+    let firstTick = hitSteps[0].tick
+    return hitSteps.enumerated().map { (hitIdx, hs) in
+        // DIRECTION FIX (2026-10-13 adversarial review): STEP-advance's "elapsed real ticks since the lap's
+        // first hit" must be measured on the TICK axis (`.tick`), not the buffer-index axis — the two only
+        // coincide for FWD. See `EuclidHitStep`'s own doc comment.
+        let advOrd: Int64 = advanceStep ? startOrd + Int64(hs.tick - firstTick) : startOrd + Int64(hitIdx)
         let walkPos = riffStepAt(dir, raw: Int(advOrd) * stride, steps: length, seed: seed)
         return riffRotateStep(walkPos, by: rotate, steps: length) + 1   // 1-based, matching the grid's own displayed rank numbers
     }
@@ -2956,13 +2991,18 @@ func euclideousRiffCyclePrediction(hitSteps: [Int], advanceStep: Bool, dir: Riff
 /// always `.miss`, regardless of riff — INV/customHits are already baked into `hitSteps` by the caller
 /// (via `euclideousLapHitSteps`), so this function needs no separate awareness of either.
 enum EuclidFooterState: Equatable { case hit(riffStep: Int?), hitOnRest(riffStep: Int), miss }
-func euclideousFooterStates(hitSteps: [Int], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int]) -> [EuclidFooterState] {
+func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int]) -> [EuclidFooterState] {
     var out = [EuclidFooterState](repeating: .miss, count: max(0, lapSteps))
-    for (i, step) in hitSteps.enumerated() where step >= 0 && step < out.count {
-        guard let prediction, i < prediction.count else { out[step] = .hit(riffStep: nil); continue }
+    // `.bufIdx` is the screen-box position (the footer row sits directly under the step boxes, which never
+    // reorder); `i` (the enumerate index) still pairs correctly with `prediction`, since both this function
+    // and `euclideousRiffCyclePrediction` walk the SAME `hitSteps` array in the same order. For PING-PONG,
+    // one bufIdx can be written twice (once per leg of the bounce) — the later write wins, a minor disclosed
+    // nuance, not a crash or an out-of-bounds risk.
+    for (i, hs) in hitSteps.enumerated() where hs.bufIdx >= 0 && hs.bufIdx < out.count {
+        guard let prediction, i < prediction.count else { out[hs.bufIdx] = .hit(riffStep: nil); continue }
         let riffStep = prediction[i]
         let isRest = riffStep >= 1 && riffStep <= riffRanksResolved.count && riffRanksResolved[riffStep - 1] == 0
-        out[step] = isRest ? .hitOnRest(riffStep: riffStep) : .hit(riffStep: riffStep)
+        out[hs.bufIdx] = isRest ? .hitOnRest(riffStep: riffStep) : .hit(riffStep: riffStep)
     }
     return out
 }
