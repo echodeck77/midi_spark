@@ -660,13 +660,30 @@ struct EuclideousPage: View {
         .onAppear { updateRiffMarkers() }
     }
 
-    /// The riff step this lane's walk will land on NEXT (1-based, same space as `riffMarker`'s own `row`) —
-    /// drives the marker's arrow direction. `nil` when there's nothing meaningful to compare against yet
-    /// (riff off, or fewer than 2 hits in the lap). Reuses the SAME `euclideousLapHitSteps`/
-    /// `euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction` pure functions `laneFooterStates` calls —
-    /// invoked again here rather than threaded across two independent view hierarchies, matching how
-    /// `euclideousNoteViewPattern` is already called from several independent UI sites in this file.
-    private func riffMarkerNextStep(_ idx: Int, _ line: EuclidLine) -> Int? {
+    /// Whether this lane's walk is heading to a HIGHER or LOWER step next — drives the marker's arrow
+    /// direction (▶/"next up" for true, ◀/"next down" for false). `nil` when there's nothing meaningful to
+    /// compare against yet (riff off, fewer than 2 hits in the lap, or a degenerate 1-step walk). Reuses the
+    /// SAME `euclideousLapHitSteps`/`euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction` pure
+    /// functions `laneFooterStates` calls — invoked again here rather than threaded across two independent
+    /// view hierarchies, matching how `euclideousNoteViewPattern` is already called from several independent
+    /// UI sites in this file.
+    ///
+    /// BUGFIX (Paul 2026-10-14, "arrows point the wrong way even though all play directions are forward"):
+    /// SUPERSEDES the previous `riffMarkerNextStep(_:_:) -> Int?`, which returned the raw predicted step and
+    /// left callers to compare it against `riffMarker[lane].col + 1` as a plain linear `>=` — correct for
+    /// every step EXCEPT the one at each lap's wrap boundary. FWD's walk position counts 1…`length` then
+    /// wraps back to 1 (`riffStepAt(.forward, …) = raw mod steps`, confirmed by direct read) — a linear
+    /// comparison sees that wrap (`length → 1`) as a big DECREASE and points the arrow left, even though the
+    /// walk is still advancing forward, just cyclically. REVERSE has the mirror-image bug at its own wrap
+    /// (`1 → length` reads as a big increase, pointing right). Fixed by comparing the SHORTEST SIGNED
+    /// distance around the walk's own `length`-position cycle instead of a plain difference — a wrap is then
+    /// indistinguishable from any other single step in the same direction. (The earlier `riffMarkerDirectionWord`
+    /// comment claiming this comparison lived in "1-based COLUMN number" space was itself part of the
+    /// confusion — the live-polled `riffMarker[lane].col` and the independently-predicted `current`/`next`
+    /// below are the SAME walk-position axis in principle, but polled through two separate channels; computing
+    /// the direction entirely from one self-consistent source — this function's own `prediction` — removes
+    /// that cross-poll risk too, not just the wraparound bug.)
+    private func riffMarkerPointsRight(_ idx: Int, _ line: EuclidLine) -> Bool? {
         guard line.riffOnResolved, idx < riffWalkState.count else { return nil }
         let steps = max(2, min(16, line.steps))
         let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
@@ -677,11 +694,12 @@ struct EuclideousPage: View {
         let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
         let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
                                                    liveOrd: ws, dir: line.directionResolved)
+        let length = line.riffLengthResolved
         let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.euclideousRiffDirResolved,
-                                                         stride: line.riffStrideResolved, length: line.riffLengthResolved,
+                                                         stride: line.riffStrideResolved, length: length,
                                                          rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
                                                          startOrd: baseline.startOrd)
-        guard !prediction.isEmpty else { return nil }
+        guard !prediction.isEmpty, length > 1 else { return nil }
         let current = prediction[baseline.currentHitIndex]
         let nextIdx = (baseline.currentHitIndex + 1) % prediction.count
         let next = prediction[nextIdx]
@@ -690,14 +708,21 @@ struct EuclideousPage: View {
         // reads as "no direction" right when it matters most (the marker is sitting exactly on an
         // endpoint). Resolved by comparing against the PREVIOUS step instead, continuing whichever
         // direction was already in motion for this one tick (the genuine reversal shows correctly on the
-        // FOLLOWING tick, once `current` itself has moved past the dwell).
+        // FOLLOWING tick, once `current` itself has moved past the dwell). A lane that's dwelled on the
+        // SAME step for 3+ consecutive hits (current == previous too) has no real direction to continue —
+        // defaults to right, matching this function's own "nothing to compare" `nil` callers' own `?? true`.
         if next == current, line.riffDirResolved == .pingpong {
             let prevIdx = (baseline.currentHitIndex - 1 + prediction.count) % prediction.count
             let previous = prediction[prevIdx]
-            if current > previous { return current + 1 }
-            if current < previous { return current - 1 }
+            if current != previous { return current > previous }
+            return true
         }
-        return next
+        // CIRCULAR DIRECTION: the shortest signed distance from `current` to `next` around the walk's own
+        // `length`-position cycle — ties (exactly half the cycle away) round to "right" by construction
+        // (an inherently ambiguous case, not one the data can resolve either way).
+        var delta = (next - current) % length
+        if delta > length / 2 { delta -= length } else if delta < -(length / 2) { delta += length }
+        return delta >= 0
     }
 
     /// RIFF GRID POSITION MARKERS (Paul 2026-10-12 ferry, Part 1 rule 7) — updates `riffMarker[i]` on every
@@ -2902,11 +2927,8 @@ struct EuclideousPage: View {
     /// "next up" / "next down" for the accessibility label — a plain-English gloss of the SAME comparison
     /// `riffMarkerGlyph` uses for its own arrow glyph, so the two can never disagree.
     private func riffMarkerDirectionWord(_ lane: Int, _ line: EuclidLine) -> String {
-        // Both sides compared in the SAME space — 1-based COLUMN number (the walk moves through columns
-        // over time; `m.row` is the RANK at that column, a different axis entirely, not what "direction of
-        // the next move" means here).
-        guard let m = riffMarker[lane], let next = riffMarkerNextStep(lane, line) else { return "here" }
-        return next >= m.col + 1 ? "next up" : "next down"
+        guard riffMarker[lane] != nil, let pointsRight = riffMarkerPointsRight(lane, line) else { return "here" }
+        return pointsRight ? "next up" : "next down"
     }
     /// One occupant's own glyph (rule 2/3): an arrow (riff-on) pointing toward its next move, with stride-
     /// based extra arrowheads/a number; a plain dot (riff-off, rule 4).
@@ -2916,10 +2938,8 @@ struct EuclideousPage: View {
                 Circle().fill(lane100(accent)).frame(width: min(10, glyphSize * 0.4), height: min(10, glyphSize * 0.4))
             } else {
                 let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
-                let m = lane < riffMarker.count ? riffMarker[lane] : nil
-                let next = riffMarkerNextStep(lane, line)
-                // Compared in COLUMN space (1-based), not rank — see `riffMarkerDirectionWord`'s own comment.
-                let pointsRight = (m != nil && next != nil) ? next! >= m!.col + 1 : true
+                let hasMarker = lane < riffMarker.count && riffMarker[lane] != nil
+                let pointsRight = hasMarker ? (riffMarkerPointsRight(lane, line) ?? true) : true
                 let glyph = pointsRight ? "▶" : "◀"
                 let stride = line.riffStrideResolved
                 HStack(spacing: 1) {
