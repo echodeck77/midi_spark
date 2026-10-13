@@ -37,7 +37,13 @@ let euclidDragStepPt: CGFloat = 18
 /// callers, by construction can't drift apart (the RATCHET/DEST class of bug this codebase keeps guarding
 /// against — a widget and the thing it controls silently disagreeing about the same quantity).
 func euclidBoxGeometry(n: Int, usableWidth: CGFloat) -> (boxW: CGFloat, gap: CGFloat, pitch: CGFloat) {
-    let gap: CGFloat = n <= 8 ? 4 : (n <= 12 ? 3 : 2)
+    // GAP TIERS (2026-10-13, "footers inside the step cells" ferry §2, literal): "3pt gaps, or 2pt above
+    // 12 steps" — collapses the old 3-tier 4/3/2 ladder to 2. Shared with the regular BUILD-page EUCLID
+    // editor's own comet bar and Euclideous's own MASK-tab step bar (both read this same function) — a
+    // disclosed, harmless side effect: their own 2-8-step gap tightens 4pt→3pt, nothing else changes.
+    let gap: CGFloat = n <= 12 ? 3 : 2
+    // "No minimum cell width" (ferry §2) — the `max(3, ...)` floor below is crash/negative-width
+    // protection only, never a touch-target minimum; left as-is.
     let boxW = max(3, (usableWidth - gap * CGFloat(n - 1)) / CGFloat(n))
     return (boxW, gap, boxW + gap)
 }
@@ -80,19 +86,18 @@ struct EuclidLaneBox: View {
     let onDragState: (CGPoint?, Bool) -> Void
     let onSelect: () -> Void
     let onToggleEnabled: () -> Void
-    // TRAILING CONTENT (Paul 2026-10-06, EUCLIDEOUS): an optional extra row drawn INSIDE this box's own
-    // border/background, directly below the play+comet row — so a caller's own per-lane controls (e.g.
-    // Euclideous's gesture-tab selector) read as "part of the lane control", not a separate floating box
-    // underneath it. nil (every existing BUILD-page call site) ⇒ byte-identical to before. Type-erased
-    // (not generic) so this struct's own type stays concrete/unchanged for its existing callers.
-    var trailingContent: AnyView? = nil
-    var trailingHeight: CGFloat = 0   // the exact height the caller's trailingContent needs — lets the comet row claim the rest, rather than guessing
-    // REAL, RENDERED GAP between the comet row and trailingContent (fixed 2026-10-13 — see `reserve`'s own
-    // doc comment above). nil-default callers never render a gap either way (no trailingContent to gap
-    // from); the gesture-tab-row precedent explicitly wants 0; a lane footer wants 2. `trailingHeight` must
-    // equal trailingContent's own height PLUS this gap, or the comet row's height budget drifts from what
-    // the VStack actually renders.
-    var trailingGap: CGFloat = 0
+    // TRAILING CONTENT REMOVED (2026-10-13, "footers inside the step cells" ferry §1: "Remove the separate
+    // footer row and its gap. The step row goes back to 44pt tall.") — the one and only consumer of this
+    // extension point (Euclideous's own per-lane footer strip) now draws its bands INSIDE each step cell's
+    // own Canvas rect (see `footerStates` below) instead of as a separate trailing row; the gesture-tab-row
+    // precedent that originally justified this slot was already retired earlier. Confirmed zero other
+    // callers before removing (the regular BUILD-page EUCLID editor never passed `trailingContent`).
+    //
+    // FOOTER STATES (replaces `trailingContent` as the lane-footer's own extension point): per-step riff/
+    // pattern prediction, one entry per step, threaded straight through to `EuclidCometBar`'s own Canvas so
+    // the band can be drawn at the EXACT same rect the step box itself occupies — nil (every other caller,
+    // incl. the regular BUILD-page EUCLID editor) ⇒ byte-identical, no band drawn.
+    var footerStates: [EuclidFooterState]? = nil
     // STEP-COUNT BADGE (EUCLIDEOUS PAGE REWORK, Paul 2026-10-07: "a step count shown as a number" beside the
     // comet bar, permanently) — an optional trailing sibling in the SAME play+comet HStack, same additive-
     // nil-default shape as `trailingContent` above. nil (every existing BUILD-page call site) ⇒ byte-identical.
@@ -110,48 +115,34 @@ struct EuclidLaneBox: View {
 
     var body: some View {
         let on = line.enabledResolved
-        // NO GAP (Paul 2026-10-06): "the buttons that toggle x/y [to] be directly under the boxes on the lane
-        // with no gap or padding" — the VStack spacing between the step-box row and trailingContent (the
-        // gesture-tab row, now retired) is 0; `reserve` drops its own +6 for that now-removed gap to match
-        // exactly. A LANE FOOTER (Paul 2026-10-12 ferry Part 2 rule 1, fixed 2026-10-13) is a DIFFERENT
-        // trailingContent consumer with its own explicit "14pt footer with a 2pt gap" spec — `trailingGap`
-        // (below) is a real, rendered spacer, not folded invisibly into `reserve`'s own height budget the
-        // way the first attempt at this tried (reserve used `footerRowH + sp4` = 18, not the 16 its own
-        // comment claimed, and nothing in the VStack ever consumed the difference as an actual gap — the
-        // "2pt" existed only in a formula, never on screen). `trailingGap` defaults 0 (byte-identical for
-        // the gesture-tab-row precedent and any other nil-trailingContent caller).
-        let reserve: CGFloat = trailingContent == nil ? 0 : trailingHeight
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: on ? "play.fill" : "stop.fill")
-                    .font(.system(size: 15, weight: .black))
-                    .foregroundColor(on ? accent : .white.opacity(0.4))
-                    .frame(width: 44, height: 44)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
-                    .contentShape(Rectangle())
-                    .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
-                // WIDTH (Paul 2026-10-06): the comet bar's own real rendered width, derived exactly from this
-                // box's layout (6pt padding ×2 + the 44pt play button + 8pt HStack spacing = 64pt, PLUS — if a
-                // badge is present — its own width and the SECOND inter-item gap before it, fixed 2026-10-10:
-                // the original formula silently omitted both whenever `stepCountBadge` was non-nil, so the
-                // comet bar's own Canvas was told it had more width than the HStack actually gave it) — NOT
-                // measured via GeometryReader — so `EuclidCometBar` can compute its box pitch (for the
-                // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
-                let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (8 + stepCountBadgeWidth)
-                EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
-                               rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved,
-                               customHits: line.customHitsResolved(max(2, min(16, line.steps))),
-                               hasFooter: trailingContent != nil,
-                               tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64 - badgeReserve),
-                               onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
-                               onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
-                    .frame(height: max(20, height - 12 - reserve))   // 12 = the 6pt top+bottom padding below — matches the original 44=56-12 derivation, generalized
-                if let stepCountBadge { stepCountBadge }
-            }
-            if let trailingContent {
-                if trailingGap > 0 { Color.clear.frame(height: trailingGap) }
-                trailingContent
-            }
+        HStack(spacing: 8) {
+            Image(systemName: on ? "play.fill" : "stop.fill")
+                .font(.system(size: 15, weight: .black))
+                .foregroundColor(on ? accent : .white.opacity(0.4))
+                .frame(width: 44, height: 44)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
+                .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
+            // WIDTH (Paul 2026-10-06): the comet bar's own real rendered width, derived exactly from this
+            // box's layout (6pt padding ×2 + the 44pt play button + 8pt HStack spacing = 64pt, PLUS — if a
+            // badge is present — its own width and the SECOND inter-item gap before it, fixed 2026-10-10:
+            // the original formula silently omitted both whenever `stepCountBadge` was non-nil, so the
+            // comet bar's own Canvas was told it had more width than the HStack actually gave it) — NOT
+            // measured via GeometryReader — so `EuclidCometBar` can compute its box pitch (for the
+            // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
+            let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (8 + stepCountBadgeWidth)
+            EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
+                           rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved,
+                           customHits: line.customHitsResolved(max(2, min(16, line.steps))),
+                           footerStates: footerStates,
+                           tint: accent, lanePlaying: on, clock: clock, width: max(1, width - 64 - badgeReserve),
+                           onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
+                           onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
+                // THE STEP ROW IS 44pt TALL AGAIN (2026-10-13 ferry §1): `reserve` is gone — no trailing row
+                // left to budget height for. 12 = the 6pt top+bottom padding below; this is the ORIGINAL
+                // pre-footer-ferry derivation (56−12=44), not a new number.
+                .frame(height: max(20, height - 12))
+            if let stepCountBadge { stepCountBadge }
         }
         .padding(6)
         .frame(width: width, height: height)   // EXPLICIT width/height — the stroke/background below can never bleed past it
@@ -204,11 +195,13 @@ struct EuclidCometBar: View {
     // one, directly contradicting what the new per-lane footer strip (drawn immediately below this bar)
     // now correctly shows. nil (every existing caller) ⇒ byte-identical generated-pattern behaviour.
     var customHits: [Bool]? = nil
-    // SEAM WITH A LANE-FOOTER STRIP (Paul 2026-10-12 ferry, Part 2 rule 1) — true only when this bar's own
-    // caller is ALSO drawing a footer directly beneath it (Euclideous's own call site); every other caller
-    // (the regular BUILD-page EUCLID editor, Euclideous's own MASK-tab bar) defaults false ⇒ byte-identical
-    // uniform corner radius.
-    var hasFooter: Bool = false
+    // FOOTER BAND, DRAWN INSIDE EACH STEP CELL (2026-10-13 ferry, "footers inside the step cells" — supersedes
+    // the retired `hasFooter`/separate-trailing-row design entire): one `EuclidFooterState` per step, in the
+    // SAME screen-position order as the box loop below (`EuclidFooterState`'s own producer, `euclideousFooter-
+    // States`, is indexed by `bufIdx` — the screen-box position — by construction, so `footerStates[i]` always
+    // names step `i`'s own box, no re-indexing needed). nil (every other caller — the regular BUILD-page
+    // EUCLID editor, Euclideous's own MASK-tab bar) ⇒ no band drawn, byte-identical.
+    var footerStates: [EuclidFooterState]? = nil
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -238,7 +231,12 @@ struct EuclidCometBar: View {
         // number of spaces a hit moves" — one finger-pitch of travel = one step, matching what's actually on
         // screen for THIS lane's own step count, instead of a fixed point distance regardless of N/width.
         let insetL: CGFloat = 6, insetR: CGFloat = 6
-        let rotateStepPt = euclidBoxGeometry(n: n, usableWidth: max(1, width - insetL - insetR)).pitch
+        // SAME FORMULA the Canvas below independently recomputes from `size.width` (which `.frame(width:
+        // width)` at the very end of this body pins to this SAME `width` — the two can't disagree) — reused
+        // here, at body scope, only for the gesture's rotate-sensitivity and the footer-band accessibility
+        // overlay below, neither of which has access to the Canvas's own local `size`.
+        let boxGeo = euclidBoxGeometry(n: n, usableWidth: max(1, width - insetL - insetR))
+        let rotateStepPt = boxGeo.pitch
         ZStack {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running)) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
@@ -271,27 +269,26 @@ struct EuclidCometBar: View {
                 func xFor(_ pos: Double) -> CGFloat { insetL + usable * CGFloat(pos / Double(n)) }   // the comet still rides this CONTINUOUS position — independent of the discrete boxes below
                 // STEP BOXES: N bounded, gap-separated rounded-rect slots read the step COUNT at a glance — the
                 // boxes themselves ARE the grid, with or without anything lit. Gap narrows as N grows so a dense
-                // 16-step lane doesn't crush its boxes into nothing; corner radius is capped relative to box width
-                // for the same reason at the thin end.
+                // 16-step lane doesn't crush its boxes into nothing.
                 let (boxW, gap, _) = euclidBoxGeometry(n: n, usableWidth: usable)   // the SAME shared formula the outer rotate-drag sensitivity uses — can't drift apart
-                let boxH = min(30, size.height - 6)
-                let corner = min(5, boxW / 2.2)
-                // SEAM WITH THE LANE-FOOTER STRIP BELOW (Paul 2026-10-12 ferry, Part 2 rule 1): "the cell's
-                // bottom corners become 2pt radius and the footer's bottom corners 5pt, so the pair reads
-                // as one piece" — the TOP corners keep their existing radius; only the two corners touching
-                // the footer seam shrink, so the join reads as a single continuous shape split in two rather
-                // than two separately-bulging pieces stacked. `hasFooter` is true only for Euclideous's own
-                // call site (where `trailingContent` is non-nil) — every other caller (the regular BUILD-
-                // page EUCLID editor) is byte-identical, still a uniform corner radius.
-                let bottomCorner = hasFooter ? min(corner, 2) : corner
+                // "Each step cell is one 44pt-tall rounded rectangle (6pt radius), the same height as the play
+                // button and the count box" (2026-10-13 ferry §1, literal) — the cell now fills this bar's
+                // whole rendered height (was capped at 30pt with margin above/below) and the corner radius is
+                // a flat, un-tapered 6pt (was `min(5, boxW/2.2)`, which shrank at narrow widths). The OLD
+                // bottom-corner-only tapering (`hasFooter`) is gone entire — there's no separate footer row
+                // below to seam with anymore; the footer BAND (below) is drawn and clipped INSIDE this same
+                // cell shape instead.
+                let boxH = size.height
+                let corner: CGFloat = 6
                 func boxRect(_ i: Int) -> CGRect {
                     CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
                 }
                 func boxPath(_ rect: CGRect) -> Path {
-                    UnevenRoundedRectangle(topLeadingRadius: corner, bottomLeadingRadius: bottomCorner,
-                                            bottomTrailingRadius: bottomCorner, topTrailingRadius: corner)
-                        .path(in: rect)
+                    RoundedRectangle(cornerRadius: corner).path(in: rect)
                 }
+                // FOOTER BAND NUMBER FLOOR (ferry §1: "Above 12 steps, bands keep their colour but drop the
+                // number"), the SAME `n`-vs-12 threshold the old separate footer row used.
+                let showFooterNumber = n <= 12
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at
                 // that screen position, full stop. The age/flare timing below is keyed on screen position `i`
                 // directly; only the comet's own motion (via `cometRaw`/`cometPos`, already direction-aware)
@@ -372,6 +369,42 @@ struct EuclidCometBar: View {
                         ctx.fill(box, with: .color(.white.opacity(0.09)))
                         ctx.stroke(box, with: .color(.white.opacity(0.16)), lineWidth: 1)
                     }
+                    // FOOTER BAND (2026-10-13 ferry §1): a 14pt band across the bottom of THIS cell, clipped to
+                    // the cell's own rounded shape (so only its bottom two corners read rounded — the top edge
+                    // sits well inside the cell, away from the top corners, so it's naturally straight/dashed
+                    // with no clip interaction needed there). `.miss` draws nothing — covers BOTH a genuine
+                    // rhythm miss AND "riff off with nothing lit" (the states producer already collapses that
+                    // whole case to `.miss` for every step). Independent of `hit` above by design — reads
+                    // straight from the precomputed array, which can never disagree with the engine's own
+                    // prediction the way a locally re-derived condition could.
+                    if let footerStates, i < footerStates.count, footerStates[i] != .miss {
+                        let bandH: CGFloat = 14
+                        let band = CGRect(x: rect.minX, y: rect.maxY - bandH, width: rect.width, height: bandH)
+                        ctx.drawLayer { layer in
+                            layer.clip(to: box)
+                            switch footerStates[i] {
+                            case .hit(let riffStep):
+                                // riffStep == nil ⇒ "riff off, notes lit" (ferry §1, 3rd bullet) — same fill,
+                                // no number; riffStep != nil ⇒ "riff on, sounds" — fill + the riff-step number.
+                                layer.fill(Path(band), with: .color(Color(hex: 0xDFE3EA)))
+                                if showFooterNumber, let riffStep {
+                                    let txt = Text("\(riffStep)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
+                                    layer.draw(layer.resolve(txt), at: CGPoint(x: band.midX, y: band.midY))
+                                }
+                            case .hitOnRest(let riffStep):
+                                layer.fill(Path(band), with: .color(Color(hex: 0x15171C)))
+                                var topEdge = Path()
+                                topEdge.move(to: CGPoint(x: band.minX, y: band.minY))
+                                topEdge.addLine(to: CGPoint(x: band.maxX, y: band.minY))
+                                layer.stroke(topEdge, with: .color(Color(hex: 0x8A909A)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                                if showFooterNumber {
+                                    let txt = Text("\(riffStep)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
+                                    layer.draw(layer.resolve(txt), at: CGPoint(x: band.midX, y: band.midY))
+                                }
+                            case .miss: break   // unreachable (guarded above), kept for exhaustiveness
+                            }
+                        }
+                    }
                 }
                 // THE COMET — a soft blurred trail + a glowing head, riding OVER the box row. MOTION reverses for
                 // BKW and bounces for PING-PONG — `hx` tracks `cometPos`'s own direction-aware sweep; the TRAIL
@@ -411,6 +444,34 @@ struct EuclidCometBar: View {
                          onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState,
                          rotateStepPt: rotateStepPt)
             .padding(.horizontal, 14)
+        // FOOTER BAND ACCESSIBILITY (ferry's own literal text — carried over from the retired separate
+        // footer row's own overlay, same labels, same "one invisible per-step element" idiom): a Canvas has
+        // no per-region accessibility of its own, so VoiceOver gets one labelled, non-interactive element per
+        // step at the SAME x each box occupies — `boxGeo` is the identical formula the Canvas itself uses, so
+        // this can't drift from what's actually drawn.
+        if let footerStates {
+            ZStack(alignment: .topLeading) {
+                ForEach(0..<n, id: \.self) { i in
+                    let state = i < footerStates.count ? footerStates[i] : .miss
+                    let label: String = {
+                        switch state {
+                        case .miss: return "Miss"
+                        case .hitOnRest: return "Hit, lands on rest"
+                        case .hit(let riffStep):
+                            if let riffStep { return "Hit, plays riff step \(riffStep)" }
+                            return "Hit"
+                        }
+                    }()
+                    Color.clear
+                        .frame(width: boxGeo.boxW)   // two chained `.frame()` calls — this codebase's own
+                        .frame(maxHeight: .infinity)  // standard idiom; `width:`/`maxHeight:` can't mix in one call
+                        .offset(x: insetL + CGFloat(i) * boxGeo.pitch, y: 0)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(label)
+                }
+            }
+            .allowsHitTesting(false)
+        }
         }
         // PIN THE REAL RENDER WIDTH TO THE `width` PARAMETER (found 2026-10-13, chasing "the lane footer
         // cells don't line up with the step boxes above them"): nothing below this struct's own body EVER

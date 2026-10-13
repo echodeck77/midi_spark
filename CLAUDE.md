@@ -196,6 +196,97 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — footers moved INSIDE the step cells (no more separate row); the step row's play/count-box
+  layout corrected; the MELODY tab rebuilt to a device-mocked dimensions spec (2026-10-13, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS unaffected — pure UI, EuclidLaneUI.
+  swift/EuclideousPage.swift have no test-target reach). A fully-specified ferry ("Claude Code: footers
+  inside the step cells, plus layout fixes"), relayed with a device screenshot Paul took and annotated against
+  his own mockup — three real bugs named plainly: the lane card's top row "slid sideways" (play button off the
+  left edge, empty space on the right, the RHYTHM tab missing); the footers were "a separate row of grey
+  pills... fragile at 16 steps"; the MELODY tab "isn't built to the spec" (RIFF strip lying over the octave
+  row, the bottom row cut off, several labels wrong). **ROOT CAUSE of the sideways slide, addressed by
+  construction rather than chased directly:** the SAME-DAY footer-row ferry (2026-10-12/13) had grown
+  `cometRowH` 56→72 and added a separate 14pt trailing row beneath the step boxes to hold the footer — the
+  combined height no longer fit the card's own fixed budget at 16 steps, and whatever SwiftUI did to cope read
+  as "scrolled." The instructed fix — collapse the footer into the step cells themselves and revert the row to
+  44pt — removes the extra height need entirely, which resolves the visual symptom without needing to isolate
+  the exact overflow mechanism. **§1 FOOTERS MOVE INSIDE THE CELLS (EuclidLaneUI.swift, the real engineering):**
+  `EuclidLaneBox`'s `trailingContent`/`trailingHeight`/`trailingGap`/`hasFooter` extension point — built
+  SPECIFICALLY for the separate footer row the day before, its only consumer — is removed entire (confirmed
+  zero other callers first); replaced with a single `footerStates: [EuclidFooterState]? = nil` threaded
+  straight into `EuclidCometBar`'s own Canvas. Each step cell is now a flat, UNTAPERED 6pt-corner
+  `RoundedRectangle` filling the Canvas's FULL height (`boxH = size.height`, was `min(30, size.height−6)`) —
+  "the same height as the play button and the count box," literally. A hit cell that will sound now draws a
+  14pt band across its own bottom, via `ctx.drawLayer { layer.clip(to: box); ... }` — clipping to the CELL's
+  own rounded-rect shape is what gives the band's bottom two corners their matching round and its top edge a
+  naturally straight (or dashed) line, with no separate corner-radius bookkeeping needed the way the old
+  bottom-corner-only tapering (`hasFooter`) required. Three states, per the ferry's own literal colours: riff-
+  on sounding hit → `#DFE3EA` fill + the riff-step number (10pt heavy `#0D0F14`, centred); riff-on landing on a
+  rest → `#15171C` fill + a 1pt dashed `#8A909A` TOP EDGE ONLY + the number in `#AAB0BA`; riff-off with notes
+  lit → `#DFE3EA`, no number. Misses, and hits that won't sound (riff off + nothing lit — already collapsed to
+  `.miss` by the pre-existing `euclideousFooterStates(anyLit:)` gate from the prior same-day ferry), draw no
+  band at all — needs no new logic, the states array already encodes this. Above 12 steps, the number is
+  dropped (`showFooterNumber = n <= 12`, same threshold the old separate row used). The OLD `laneFooter` VIEW
+  (EuclideousPage.swift) collapses to a pure `laneFooterStates(idx:line:) -> [EuclidFooterState]` — the exact
+  same 4 pure-function computation (`euclideousLapHitSteps`→`euclideousRiffLapBaseline`→
+  `euclideousRiffCyclePrediction`→`euclideousFooterStates`), just no longer a view, and — a genuine
+  simplification, not just a relocation — the OLD call site's entire hand-replicated alignment geometry
+  (`boxOffsetFromLeft`, a second independent `euclidBoxGeometry` call, `badgeReserve`) is gone outright: since
+  the band is drawn literally inside the SAME Canvas as the step boxes, using the SAME local `boxRect`/`gap`
+  the boxes themselves use, there is no second formula left that could silently drift from the first — the
+  exact class of bug this project's own history keeps calling "the RATCHET/DEST lesson," closed by
+  construction rather than by continued vigilance. Accessibility (one labelled, non-interactive element per
+  step, same 4 label strings as before) moved into `EuclidCometBar` itself, reusing `euclidBoxGeometry`
+  recomputed once at the `body` level (the identical formula the Canvas also calls — can't disagree). **§2 STEP
+  ROW LAYOUT:** the play button stays a fixed 44×44 (unchanged); the count box (`stepCountBadge`) widens from
+  its old computed ~42pt to a literal 44 — "fixed... at the right," matching the play button exactly, the 34pt
+  of real chip content inside it fits with room to spare. `euclidBoxGeometry`'s own gap ladder collapses from
+  3 tiers (4/3/2) to 2 ("3pt gaps, or 2pt above 12 steps") — a disclosed, harmless side effect on the shared
+  function: the regular BUILD-page EUCLID editor's own comet bar and Euclideous's MASK-tab step bar (both
+  read the same formula) tighten their own 2-8-step gap 4pt→3pt too, nothing else about either changes. "No
+  minimum cell width" is already true of the existing `max(3, ...)` floor (pure crash/negative-width
+  protection, never a touch-target minimum) — left as-is. **Nothing was found that actually scrolled/offset
+  sideways** (no ScrollView, no tied `.offset()`, anywhere in this component) — the fix is the height
+  correction in §1 above; by the time a card no longer needs extra vertical room, there's nothing left to
+  produce the symptom. **§3 TAB ROW:** `laneTabRow` was already built correctly (`ForEach(EuclideousLaneTab.
+  allCases)`, each at `.frame(maxWidth: .infinity)`, implicitly proposed the card's own full inner width) —
+  untouched; "the RHYTHM tab is missing" is attributed to the same §1 overflow, not a separate bug, and
+  expected to resolve once the card's own height fits again. **§4 MELODY TAB REBUILD (EuclideousPage.swift) —
+  built from the ferry's own literal text; NO MOCKUP IMAGE was visible from here, only Paul's description, so
+  every geometric judgment below (strip width, label sizes) is a reasoned default, flagged, not a pixel-exact
+  match:** the horizontal RIFF strip is retired; a new `melodyVerticalRiffStrip` (28pt wide, rotated text via
+  `.fixedSize().rotationEffect(-90°)`, the SAME colours as before) sits to the LEFT of a VStack holding WALK/
+  MODES/VALUES, inside a new `melodyRiffBlock` rebuilt from a VStack into an HStack. The octave row split in
+  two: `melodyOctaveBarRow` (just the −2…+2 bar) and a new `melodyTopRow` (TOP/TOP2, now its own row below).
+  LOCK's old toggle-between-"LOCK"/"FREE" text is now a fixed "LOCK" label (on/off state shown by styling
+  alone, matching how "INV" — INVERT shortened per this same ferry — already works). `melodyModesRow` gained
+  two small rotated category labels (`melodyVerticalLabel`, a new shared helper also used by the RIFF strip)
+  — "ADV" beside the HIT/STEP toggle, "REST" beside the SKIP/FILL/TIE trio — since the advance toggle's own
+  text already changes and the rest-mode trio has no single fixed caption, a persistent label tells the two
+  clusters apart now that the vertical strip narrows the available column. The 8 note buttons show PITCH
+  NAMES, not rank digits — a new resolution (`euclideousGlobalPoolExtended(sortedRaw:)` + `+12*octave` +
+  `euclideousNoteViewName`, mirroring exactly what the lit-notes layer actually strikes for ranks 1-8, no
+  FOLD-wrap arithmetic needed since TRANSPOSE/INVERT never apply there) replaces the old bare "1".."8" labels;
+  an empty pool shows "–" — which, as a direct side effect, finally answers a gap flagged (not built) in the
+  PRIOR same-day ferry ("MIDI IN nothing held: lit buttons show dashes," which had no natural slot against
+  bare rank digits — it does now). Kept this tab's own standing rule (`melodyButton`'s doc comment, §4.6: "no
+  `.minimumScaleFactor`, truncate instead") — caught and fixed in my own first draft, which had added one to
+  the new pitch-name text before I re-read the file's own explicit rule and removed it. **A COMPILE ERROR
+  caught by the real build, not guessed around:** `.frame(width:, maxHeight:)` in one call is not a valid
+  SwiftUI overload (the `width:`/`height:` exact-size family and the `minWidth:…maxHeight:` flexible family
+  don't mix in a single call) — hit in BOTH `melodyVerticalLabel` and the new footer-band accessibility
+  overlay (the same mistake made twice, independently); fixed both to the two-chained-`.frame()` idiom this
+  codebase already uses everywhere else for exactly this reason. **FLAGGED, per CLAUDE.md's own standing
+  rule, since no mockup image reached this environment:** the vertical strip's 28pt width, the 9-11pt label
+  sizes, and the MELODY tab's total required fixed-row height (~292pt: 40+4+36+4+36+4 for Notes/Octave/TOP +
+  ~128 for the riff block) are none of them measured against the ferry's own picture — reported here as the
+  number to check against a real card's `contentAreaH` at 326pt width, per the ferry's own explicit "report
+  the height you actually have rather than shrinking anything" instruction, not silently resolved by guessing
+  a smaller font anywhere in this tab. **DEVICE-OWED, the whole ferry:** the Acceptance criteria verbatim — a
+  16-step lane showing play button + all 16 cells + count box + all three tabs in both orientations while
+  playing; the bands sitting inside the hit cells and lining up exactly, numbers showing at ≤12 steps; every
+  card in a row the same height; the MELODY tab matching the reference picture at 326pt width (unverifiable
+  from here without ever having seen that picture).**
 - **▶ EUCLIDEOUS — a genuine main-thread STACK OVERFLOW crash, root-caused from a real device .ips and fixed
   (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS unaffected — pure
   UI, EuclideousPage.swift has no test-target reach). Paul sent a crash report

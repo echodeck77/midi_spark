@@ -649,7 +649,7 @@ struct EuclideousPage: View {
     /// The riff step this lane's walk will land on NEXT (1-based, same space as `riffMarker`'s own `row`) —
     /// drives the marker's arrow direction. `nil` when there's nothing meaningful to compare against yet
     /// (riff off, or fewer than 2 hits in the lap). Reuses the SAME `euclideousLapHitSteps`/
-    /// `euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction` pure functions `laneFooter` calls —
+    /// `euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction` pure functions `laneFooterStates` calls —
     /// invoked again here rather than threaded across two independent view hierarchies, matching how
     /// `euclideousNoteViewPattern` is already called from several independent UI sites in this file.
     private func riffMarkerNextStep(_ idx: Int, _ line: EuclidLine) -> Int? {
@@ -735,23 +735,14 @@ struct EuclideousPage: View {
 
     // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`),
     // read by `laneCard` itself for its internal row math. ---
-    // LANE FOOTERS (Paul 2026-10-12 ferry, Part 2 rule 1): "under every step cell add a 14pt footer with a
-    // 2pt gap. The cell keeps its height." Grown by exactly `footerRowH + 2` (16) from the prior 56 — reuses
-    // `EuclidLaneBox`'s existing `trailingContent`/`trailingHeight`/`trailingGap` extension point (built for
-    // exactly this "an extra row drawn inside the box's own border, directly below the play+comet row"
-    // purpose, previously unused at this call site), whose own `reserve` subtraction already makes the
-    // comet-bar/step-cell row's rendered height invariant to this growth by construction: `max(20, height -
-    // 12 - reserve)` evaluates to the SAME 44pt either way (56-12-0 == 72-12-16), so "the cell keeps its
-    // height" holds without a new conditional. (FIXED 2026-10-13: the first cut passed `trailingHeight:
-    // footerRowH + sp4` = 18, not 16 — the comment above was always right, the CODE wasn't, and nothing in
-    // `EuclidLaneBox`'s own VStack ever rendered the "2pt" as an actual gap either, since its spacing is
-    // hard-coded 0 — see `trailingGap`'s own doc comment in EuclidLaneUI.swift.) Because `contentAreaH`
-    // (below, in `laneCard`) is itself `height - cometRowH - tabRowH - ...` — a pure subtraction — the
-    // PATTERN tab's own slider block shrinks by this SAME 16pt automatically; rule 2's "if it doesn't fit,
-    // take 16pt from the slider block" is the existing formula's unconditional consequence, not a fallback
-    // that needed separate implementing.
-    private let footerRowH: CGFloat = 14
-    private let cometRowH: CGFloat = 72
+    // FOOTER BAND HEIGHT (2026-10-13, "footers inside the step cells" ferry §1) — the SAME 14pt the old
+    // separate footer row used, now just the height of the band `EuclidCometBar` draws INSIDE each step
+    // cell's own 44pt-tall rect, not a second row below it. `cometRowH` REVERTS to its original pre-footer-
+    // ferry value (56, i.e. 44pt content + 6pt top/bottom padding) — "the step row goes back to 44pt tall";
+    // there is no longer any separate row to budget extra height for, so `laneCardFixedOverhead`'s own
+    // dependent arithmetic shrinks back by the same 16pt it grew by when the footer row was introduced.
+    private let footerBandH: CGFloat = 14
+    private let cometRowH: CGFloat = 56
     private let tabRowH: CGFloat = 30
     private let contentLineH: CGFloat = 36
     /// LAYOUT MOVE (Paul 2026-10-11: "the xy controls will be on pattern, leaving a lot of space for Euclid
@@ -1216,14 +1207,15 @@ struct EuclideousPage: View {
     // Derivations functions it read) are untouched — they're still used elsewhere (the header's own
     // "IN n" RESET countdown) — only this one background-fill consumer is removed.
 
-    /// LANE FOOTERS (Paul 2026-10-12 ferry, Part 2) — one cell per Euclid step, aligned EXACTLY under
-    /// `EuclidCometBar`'s own step boxes via the SAME `euclidBoxGeometry`/inset formula (rule: the two can
-    /// never silently disagree about where a step cell sits). Reads the shared
-    /// `euclideousLapHitSteps`/`euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction`/
+    /// LANE FOOTER STATES (2026-10-13, "footers inside the step cells" ferry — supersedes the separate
+    /// `laneFooter` ROW this replaces; now a PURE computation, not a view) — one state per Euclid step, fed
+    /// straight to `EuclidCometBar` so it can draw each step's own band INSIDE that step's own cell rect,
+    /// rather than a second row underneath that needed its own hand-replicated alignment geometry. Reads
+    /// the shared `euclideousLapHitSteps`/`euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction`/
     /// `euclideousFooterStates` pure functions (Derivations.swift) fresh every time this view's body runs —
     /// SwiftUI only re-evaluates it when one of `line`/`riff`/`riffWalkState` actually changes, which is
     /// exactly "recompute... whenever settings... change" (Prediction rule 1) without a hand-rolled cache.
-    private func laneFooter(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat) -> some View {
+    private func laneFooterStates(_ idx: Int, _ line: EuclidLine) -> [EuclidFooterState] {
         let steps = max(2, min(16, line.steps))
         let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                               tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
@@ -1239,90 +1231,11 @@ struct EuclideousPage: View {
                                                          rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
                                                          startOrd: baseline.startOrd)
         }
-        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-page §4: riff off
-        // + notes lit → grey footers, no number (still `.hit(riffStep: nil)`, drawn grey below); riff off +
-        // nothing lit → the miss footer everywhere, "because nothing will sound."
+        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13 ferry), Elsewhere-on-page §4: riff off + notes lit → a
+        // `.hit(riffStep: nil)` band (drawn grey, no number, by `EuclidCometBar` itself); riff off + nothing
+        // lit → `.miss` everywhere, "because nothing will sound."
         let anyLit = line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved
-        let states = euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: riff.ranksResolved, anyLit: anyLit)
-        // ALIGNMENT (rule 1: footers sit directly under each step cell) — `trailingContent` renders as a
-        // full-width sibling BELOW `EuclidLaneBox`'s own play+comet HStack, not inside it, so this Canvas's
-        // own x=0 is the padded content's left edge, NOT the comet bar's. Replicating EuclidLaneBox's exact
-        // internal offsets (44pt play button + 8pt HStack spacing + the comet bar's OWN 6pt insetL — this
-        // caller's `stepCountBadge` is always non-nil, so `badgeReserve` is always `8 + stepCountBadgeTotalWidth`)
-        // is what lets `euclidBoxGeometry`'s own box rects land in exactly the same screen positions
-        // `EuclidCometBar`'s Canvas already draws its own boxes at — one shared formula, not two independently
-        // guessed widths that could silently drift apart.
-        let badgeReserve: CGFloat = 8 + stepCountBadgeTotalWidth
-        let cometBarW = max(1, width - 64 - badgeReserve)
-        let boxOffsetFromLeft: CGFloat = 44 + 8 + 6   // play button + HStack spacing + EuclidCometBar's own insetL
-        let geo = euclidBoxGeometry(n: steps, usableWidth: max(1, cometBarW - 12))
-        // LEGIBILITY FLOOR (rule 9): "on step counts above 12 drop the number and keep only the fill, so
-        // nothing falls under 10pt" — the number itself stays 10pt always; above 12 steps there simply isn't
-        // room for it (the box width would force a smaller glyph), so it's omitted rather than shrunk.
-        let showNumber = steps <= 12
-        // SEAM WITH THE STEP CELL ABOVE (rule 1, literal): "the footer's bottom corners 5pt" — paired with
-        // `EuclidCometBar`'s own step box, whose BOTTOM corners now shrink to 2pt (see its own `hasFooter`
-        // doc comment) — the footer's TOP corners match that same 2pt so the seam reads as one continuous
-        // shape split in two, not two separately-bulging pieces stacked.
-        func footerPath(_ rect: CGRect) -> Path {
-            UnevenRoundedRectangle(topLeadingRadius: 2, bottomLeadingRadius: 5, bottomTrailingRadius: 5, topTrailingRadius: 2)
-                .path(in: rect)
-        }
-        return Canvas { ctx, size in
-            for i in 0..<steps {
-                let rect = CGRect(x: boxOffsetFromLeft + CGFloat(i) * geo.pitch, y: 0, width: geo.boxW, height: footerRowH)
-                let state = i < states.count ? states[i] : .miss
-                switch state {
-                case .miss:
-                    // rule 4 — plain, no fill, no border, no text (also covers rule 7's inverted former-hits
-                    // and non-hit steps alike, since both are simply `.miss` here).
-                    ctx.fill(footerPath(rect), with: .color(Color(hex: 0x22252C)))
-                case .hit(let riffStep):
-                    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): `riffStep == nil`
-                    // now means specifically "riff off, notes lit" (the only way `euclideousFooterStates`
-                    // still produces this case post-`anyLit`) — grey, no number, per §4's own literal rule.
-                    // `riffStep != nil` is unchanged (riff on, today's bright white + step number).
-                    ctx.fill(footerPath(rect), with: .color(riffStep == nil ? Color(hex: 0x5C626C) : Color(hex: 0xDFE3EA)))
-                    if showNumber, let riffStep {
-                        let txt = Text("\(riffStep)").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
-                        ctx.draw(ctx.resolve(txt), at: CGPoint(x: rect.midX, y: rect.midY))
-                    }
-                case .hitOnRest(let riffStep):
-                    ctx.stroke(footerPath(rect), with: .color(Color(hex: 0x8A909A)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
-                    if showNumber {
-                        let txt = Text("\(riffStep)").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
-                        ctx.draw(ctx.resolve(txt), at: CGPoint(x: rect.midX, y: rect.midY))
-                    }
-                }
-            }
-        }
-        .frame(width: width, height: footerRowH)
-        // ACCESSIBILITY (ferry's own literal text): a Canvas has no per-region accessibility of its own —
-        // overlaid with one invisible, individually-labelled element per step cell, at the SAME rects the
-        // Canvas just drew, so VoiceOver can swipe through them exactly as a user would scan the footer
-        // visually. Matches this file's own established convention elsewhere (`.accessibilityElement
-        // (children: .ignore)` + `.accessibilityLabel` on a plain tap target).
-        .overlay(
-            ZStack(alignment: .topLeading) {
-                ForEach(0..<steps, id: \.self) { i in
-                    let state = i < states.count ? states[i] : .miss
-                    let label: String = {
-                        switch state {
-                        case .miss: return "Miss"
-                        case .hitOnRest: return "Hit, lands on rest"
-                        case .hit(let riffStep):
-                            if let riffStep { return "Hit, plays riff step \(riffStep)" }
-                            return "Hit"
-                        }
-                    }()
-                    Color.clear
-                        .frame(width: geo.boxW, height: footerRowH)
-                        .offset(x: boxOffsetFromLeft + CGFloat(i) * geo.pitch, y: 0)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(label)
-                }
-            }
-        )
+        return euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: riff.ranksResolved, anyLit: anyLit)
     }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
@@ -1361,19 +1274,11 @@ struct EuclideousPage: View {
                           onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          // LANE FOOTERS (Paul 2026-10-12 ferry) — the ONLY caller of this previously-unused
-                          // extension point at Euclideous's own call site. FIXED 2026-10-13 ("I'd prefer it
-                          // if it used a little space from the Euclid lane"): `trailingHeight` had been
-                          // `footerRowH + sp4` (14+4=18, NOT the 16 the comment above once claimed) with no
-                          // corresponding rendered gap at all (`EuclidLaneBox`'s own VStack spacing is 0) —
-                          // the "2pt" existed only inside a height-budget formula, invisible on screen, and
-                          // the 18-vs-16 mismatch meant the step-cell row was ALSO silently 2pt shorter than
-                          // intended. `trailingHeight` is now literally `footerRowH + 2` (a real, explicit
-                          // `trailingGap: 2`), matching `cometRowH`'s own growth exactly (56→72 = 16 =
-                          // 14+2) so the comet bar's rendered size is unaffected by construction, AND the
-                          // 2pt now actually renders as a gap between the step cells and the footer.
-                          trailingContent: AnyView(laneFooter(idx, line, accent: accent, width: innerWidth)),
-                          trailingHeight: footerRowH + 2, trailingGap: 2,
+                          // LANE FOOTER BANDS (2026-10-13 ferry, "footers inside the step cells" — supersedes
+                          // the separate trailing row the comment here used to describe): a pure array, not a
+                          // view — `EuclidCometBar` draws each step's own band directly inside that step's
+                          // own cell rect now, so there's no separate row height/gap to budget here at all.
+                          footerStates: laneFooterStates(idx, line),
                           stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
                           stepCountBadgeWidth: stepCountBadgeTotalWidth)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
@@ -1384,8 +1289,8 @@ struct EuclideousPage: View {
             // combined view-tree type past what the Swift runtime can demangle without overflowing the main
             // thread's 1MB stack when AttributeGraph first resolves it. AnyView here breaks the type up into
             // independently-resolvable chunks — the SAME technique this function already uses for
-            // `trailingContent`/`stepCountBadge` below — rather than a logic change; nothing about what's
-            // drawn or how it behaves is different.
+            // `stepCountBadge` below (and, at the time, the now-retired `trailingContent` slot) — rather
+            // than a logic change; nothing about what's drawn or how it behaves is different.
             AnyView(laneTabRow(idx, line, accent, rowH: tabRowH))
             AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth))
         }
@@ -1410,10 +1315,12 @@ struct EuclideousPage: View {
     // `stepCountBadgeWidth` there) so the comet bar beside it is never told it has more room than it
     // actually gets.
     private let stepCountChipCol: CGFloat = 16, stepCountChipGap: CGFloat = 2
-    // 2 chip columns + the gap between them + the sp4 gap before the source badge + the source badge's own
-    // The per-lane source badge ("MIDI"/"KEY"/"CHD") RETIRED 2026-10-10 (ferry §1.4) — NOTE VIEW's own label
-    // already shows the source, so this is now just the step-count + output-chip block on its own.
-    private var stepCountBadgeTotalWidth: CGFloat { stepCountChipCol * 2 + stepCountChipGap + sp4 * 2 }
+    // THE COUNT BOX (2026-10-13 ferry §2, literal): "the count box (44×44) is fixed at the right" — a flat
+    // 44, matching the play button exactly, rather than a value derived from the chip grid's own content
+    // (32pt: 2×16pt chips + 1 gap) plus padding (was 42 before this ferry — close, but not the literal 44
+    // asked for). The chip grid's own content (34pt incl. its `.padding(.horizontal, sp4)`) sits comfortably
+    // inside 44 either way.
+    private var stepCountBadgeTotalWidth: CGFloat { 44 }
     /// §8.1, literal: "replace the bare letter under the step count with mini output chips, 16pt circles
     /// with a 10pt letter, LANE-40 fill, one chip per routed output. If none are routed, show 'NO OUT' in
     /// amber."
@@ -1895,8 +1802,23 @@ struct EuclideousPage: View {
         if top2Lit { s.insert(poolCount); s.insert(max(1, poolCount - 1)) }
         return s
     }
-    /// Notes row: 8 equal, INDEPENDENT toggle buttons, N1...N8 (shown as bare "1"..."8"). Lit: solid
-    /// LANE-100 fill, `#0D0F14` text (ferry §1). Unlit: the existing raised (real pool note)/recessed
+    /// A small ROTATED category label (2026-10-13 ferry §4: "the vertical ADV and REST labels") — a plain
+    /// SwiftUI rotate-then-constrain idiom (`.fixedSize()` so the un-rotated text lays out at its natural
+    /// width first, THEN the rotation is applied, THEN the outer frame clips to the narrow column it now
+    /// occupies) shared by the small in-row labels (ADV/REST) and the full-height RIFF strip below, so the
+    /// two can't drift onto two different vertical-text techniques.
+    private func melodyVerticalLabel(_ s: String, size: CGFloat = 9, color: Color = Color(hex: 0x8A909A), width: CGFloat = 12) -> some View {
+        Text(s).font(.system(size: size, weight: .heavy, design: .monospaced)).foregroundColor(color)
+            .fixedSize().rotationEffect(.degrees(-90)).frame(width: width).frame(maxHeight: .infinity)
+    }
+    /// Notes row: 8 equal, INDEPENDENT toggle buttons — PITCH NAMES, not rank numbers (2026-10-13 ferry §4:
+    /// "pitch names on the notes, not numbers"). Resolves the SAME octave-extended pool + OCT shift the lit-
+    /// notes layer actually strikes (`euclideousGlobalPoolExtended` + `+12*octave`, mirroring Router.swift's
+    /// own `riffResolve` against the plain pool for ranks 1-8 — TRANSPOSE/INVERT never apply there, so no
+    /// FOLD-wrap arithmetic is needed for a rank that's always ≤8) — a button can never show a name the
+    /// engine wouldn't actually sound. An empty pool shows "–" (also, as a side effect, finally answers the
+    /// first MELODY-tab ferry's own flagged gap: "MIDI IN nothing held: lit buttons show dashes"). Lit:
+    /// solid LANE-100 fill, `#0D0F14` text (ferry §1). Unlit: the existing raised (real pool note)/recessed
     /// (octave-extended copy) styles, unchanged. Riff-reach bars (§2, shown only while the riff is on) mark
     /// every rank the walk can actually reach (`euclideousRiffReachableRanks`, recomputed fresh on every
     /// relevant edit — no hand-rolled cache). The TOP/TOP2 ring (§3) overlays whichever button the live
@@ -1910,17 +1832,25 @@ struct EuclideousPage: View {
             dir: line.euclideousRiffDirResolved, length: line.riffLengthResolved, stride: line.riffStrideResolved,
             rotate: line.riffRotateResolved, ranks: riff.ranksResolved, invert: line.riffInvertResolved,
             transpose: line.melodyTransposeResolved) : []
+        let extendedPool = euclideousGlobalPoolExtended(sortedRaw: riffLivePool.map { Int($0) })
+        let flatKey = euclideousKeyIsFlat(keyRoot)
         return HStack(spacing: 2) {
             ForEach(1...8, id: \.self) { rank in
                 let isReal = rank <= max(1, poolCount)
                 let lit = (litMask & (1 << (rank - 1))) != 0
                 let ringed = highRanks.contains(rank)
                 let marked = reachable.contains(rank)
+                let pitchName: String = {
+                    guard rank <= extendedPool.count else { return "–" }
+                    let raw = extendedPool[rank - 1] + 12 * line.octaveResolved
+                    guard raw >= 0, raw <= 127 else { return "–" }
+                    return euclideousNoteViewName(UInt8(raw), flatKey: flatKey)
+                }()
                 ZStack(alignment: .bottom) {
-                    Text("\(rank)")
-                        .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                    Text(pitchName)
+                        .font(.system(size: 11, weight: .heavy, design: .monospaced))
                         .foregroundColor(lit ? Color(hex: 0x0D0F14) : (isReal ? .white.opacity(0.75) : .white.opacity(0.35)))
-                        .lineLimit(1)
+                        .lineLimit(1)   // §4.6's own standing rule for this tab: truncate, never shrink — no .minimumScaleFactor
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(RoundedRectangle(cornerRadius: 6).fill(lit ? lane100(accent) : Color(hex: 0x2A2D34)))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(ringed ? (lit ? Color(hex: 0x0D0F14) : lane100(accent)) : Color.clear, lineWidth: 2).padding(2))
@@ -1935,31 +1865,37 @@ struct EuclideousPage: View {
                 .contentShape(Rectangle())
                 .onTapGesture { edit(idx) { l in l.litNotes = l.litNotesResolved ^ (1 << (rank - 1)) } }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Note \(rank), \(lit ? "on" : "off")\(marked ? ", in riff" : "")")
+                .accessibilityLabel("Note \(rank), \(pitchName), \(lit ? "on" : "off")\(marked ? ", in riff" : "")")
             }
         }
         .frame(height: height)
     }
-    /// Octave row: ONE shared −2...+2 segmented bar (Acceptance §8: "OCT +1 raises both layers") writing
-    /// BOTH `octave` AND `riffOctave` together, so the two stay in lockstep from the first touch onward —
-    /// no mode branch. Display, before either field has ever been written together, reads whichever was
-    /// legacy-audible (`riffOnResolved ? riffOctaveResolved : octaveResolved`). TOP/TOP2 are now
-    /// INDEPENDENT toggles (`topLit`/`top2Lit`), never touching `riffOn`/`litNotes`.
-    private func melodyOctaveRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
+    /// Octave bar — ONE shared −2...+2 segmented bar (Acceptance §8: "OCT +1 raises both layers"), ON ITS
+    /// OWN ROW now (2026-10-13 ferry §4: "the octave bar with TOP 2 and TOP on their own row" — split out of
+    /// the combined row it used to share with TOP/TOP2). Writes BOTH `octave` AND `riffOctave` together, so
+    /// the two stay in lockstep from the first touch onward — no mode branch. Display, before either field
+    /// has ever been written together, reads whichever was legacy-audible (`riffOnResolved ?
+    /// riffOctaveResolved : octaveResolved`).
+    private func melodyOctaveBarRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let oct = line.riffOnResolved ? line.riffOctaveResolved : line.octaveResolved
-        return HStack(spacing: sp4) {
-            HStack(spacing: 2) {
-                ForEach(-2...2, id: \.self) { v in
-                    Text(euclideousSigned(v)).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundColor(oct == v ? .white : .white.opacity(0.5))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(oct == v ? lane20(accent) : Color(hex: 0x2A2D34)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(oct == v ? lane100(accent) : .clear, lineWidth: 1))
-                        .contentShape(Rectangle())
-                        .onTapGesture { edit(idx) { $0.octave = v; $0.riffOctave = v } }
-                }
+        return HStack(spacing: 2) {
+            ForEach(-2...2, id: \.self) { v in
+                Text(euclideousSigned(v)).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundColor(oct == v ? .white : .white.opacity(0.5))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(oct == v ? lane20(accent) : Color(hex: 0x2A2D34)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(oct == v ? lane100(accent) : .clear, lineWidth: 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit(idx) { $0.octave = v; $0.riffOctave = v } }
             }
+        }
+        .frame(height: height)
+    }
+    /// TOP/TOP2, now their OWN row beneath the octave bar (ferry §4) — INDEPENDENT toggles (`topLit`/
+    /// `top2Lit`), never touching `riffOn`/`litNotes`.
+    private func melodyTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
+        HStack(spacing: sp4) {
             melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest (or second-highest) note of the source on every hit, following chord changes.") {
                 edit(idx) { $0.topLit = !($0.topLitResolved) }
             }
@@ -1969,15 +1905,16 @@ struct EuclideousPage: View {
         }
         .frame(height: height)
     }
-    /// The RIFF strip (ferry §4) — a plain on/off toggle. Turning it on restores the remembered direction
-    /// (`riffDir`, untouched by this toggle). Colors per the ferry literally: on = LANE-100 fill, text+
-    /// contour `#0D0F14`; off = `#2A2D34` fill, text `#AAB0BA`, contour `#5C626C`.
-    private func melodyRiffStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
+    /// The RIFF strip, now VERTICAL (2026-10-13 ferry §4: "the vertical RIFF strip to the left of the three
+    /// riff rows") — a plain on/off toggle, spanning the FULL height of the WALK/MODES/VALUES block beside
+    /// it. Turning it on restores the remembered direction (`riffDir`, untouched by this toggle). Colors per
+    /// the ferry literally: on = LANE-100 fill, text+contour `#0D0F14`; off = `#2A2D34` fill, text `#AAB0BA`,
+    /// contour `#5C626C` — unchanged from the horizontal strip this replaces, only the orientation/position
+    /// moved.
+    private func melodyVerticalRiffStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let isRiff = line.riffOnResolved
-        return Text("RIFF")
-            .font(.system(size: 11, weight: .heavy, design: .monospaced))
-            .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
-            .frame(maxWidth: .infinity).frame(height: 24)
+        return melodyVerticalLabel("RIFF", size: 11, color: isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA), width: 28)
+            .frame(width: 28, height: height)
             .background(RoundedRectangle(cornerRadius: 6).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
             .contentShape(Rectangle())
@@ -1991,7 +1928,9 @@ struct EuclideousPage: View {
     /// while the riff is off, the remembered direction shows in the selected style, dimmed with its row."
     /// Uses `euclideousRiffDirResolved` (DRUNK/RANDOM→FWD) for the "which direction is lit" check — a
     /// legacy DRUNK/RANDOM doc shows FWD selected, per Presets rule 1. INV/LOCK/other riff controls (§6)
-    /// never turn the riff on or off (no `riffOn` write).
+    /// never turn the riff on or off (no `riffOn` write). LOCK, never FREE (2026-10-13 ferry §4: "LOCK, not
+    /// FREE" — a fixed label, same shortened-caption treatment as INV below; the field itself
+    /// (`riffLockResolved`) is unchanged, only the button no longer switches its own text between two words).
     private func melodyWalkRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
         let curDir = line.euclideousRiffDirResolved
@@ -2009,25 +1948,31 @@ struct EuclideousPage: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
             }
-            melodyButton(line.riffLockResolved ? "LOCK" : "FREE", on: line.riffLockResolved, accent: accent,
+            melodyButton("LOCK", on: line.riffLockResolved, accent: accent,
                          help: "Restart the riff each time the pattern loops") {
                 edit(idx) { $0.riffLock = !($0.riffLockResolved) }
             }
         }
     }
-    /// MODES row: ADVANCE (HIT/STEP) + ON REST (SKIP/FILL/TIE) + INVERT. Per ferry §6, none of these turn
+    /// MODES row: ADVANCE (HIT/STEP) + ON REST (SKIP/FILL/TIE) + INV. Per ferry §6, none of these turn
     /// the riff on or off — "change their setting live... so you can set the riff up before bringing it in."
+    /// Gained two small VERTICAL category labels (2026-10-13 ferry §4: "the vertical ADV and REST labels")
+    /// — the HIT/STEP toggle's own text already changes, and SKIP/FILL/TIE has no single fixed caption of
+    /// its own, so a persistent rotated "ADV"/"REST" tells the two clusters apart at a glance in the now-
+    /// narrower column the vertical RIFF strip leaves beside it. INVERT shortens to INV (ferry §4).
     private func melodyModesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         HStack(spacing: sp4) {
+            melodyVerticalLabel("ADV")
             melodyButton(line.riffAdvanceStepResolved ? "STEP" : "HIT", on: line.riffAdvanceStepResolved, accent: accent,
                          help: "Move the riff on every step, not just hits") {
                 edit(idx) { $0.riffAdvanceStep = !($0.riffAdvanceStepResolved) }
             }
+            melodyVerticalLabel("REST")
             ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
                 melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent,
                              help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
             }
-            melodyButton("INVERT", on: line.riffInvertResolved, accent: accent,
+            melodyButton("INV", on: line.riffInvertResolved, accent: accent,
                          help: "Flip the riff upside down in pitch") {
                 edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
             }
@@ -2053,13 +1998,15 @@ struct EuclideousPage: View {
             }
         }
     }
-    /// The riff block: strip (ALWAYS full opacity — ferry §3/§7's "the three riff rows," not the strip
-    /// itself) + WALK/MODES/VALUES (dim to 42% only while the riff is off — rule 7), all fully tappable
-    /// throughout regardless of dim state.
+    /// The riff block, restructured (2026-10-13 ferry §4): the vertical RIFF strip (ALWAYS full opacity —
+    /// ferry §3/§7's "the three riff rows," not the strip itself) now sits to the LEFT of the WALK/MODES/
+    /// VALUES column (dim to 42% only while the riff is off — rule 7), all fully tappable throughout
+    /// regardless of dim state. Was a VStack (strip on top, 3 rows below); now an HStack (strip beside
+    /// the 3 stacked rows).
     private func melodyRiffBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let isRiff = line.riffOnResolved
-        return VStack(spacing: sp4) {
-            melodyRiffStrip(idx, line, accent)
+        return HStack(spacing: sp4) {
+            melodyVerticalRiffStrip(idx, line, accent, height: height)
             VStack(spacing: sp4) {
                 melodyWalkRow(idx, line, accent)
                 melodyModesRow(idx, line, accent)
@@ -2069,17 +2016,25 @@ struct EuclideousPage: View {
         }
         .frame(height: height)
     }
-    /// The whole MELODY tab — Notes (40pt) · Octave (40pt) · Riff block (whatever's left). Rule 4's "stop
-    /// and report, don't shrink type" applied literally: below this floor (3 riff rows at a comfortable
-    /// ~34pt each + 2 gaps, or a card narrower than the Notes row can show 8 legible buttons in) nothing
-    /// here shrinks text to fit — it's flagged in the CLAUDE.md status entry for this ferry as device-owed,
-    /// not silently resolved by guessing a smaller font.
+    /// The whole MELODY tab — Notes (40pt) · Octave bar (36pt) · TOP/TOP2 (36pt) · Riff block (whatever's
+    /// left). Rule 4's "stop and report, don't shrink type" applied literally: fixed row heights throughout,
+    /// never compressed to force-fit `contentAreaH` — if the riff block's own 3 rows (WALK/MODES 40pt each +
+    /// VALUES' own natural ~40pt + 2 sp4 gaps ≈ 128pt content) exceed whatever height is actually left, the
+    /// excess clips (via `laneCard`'s own outer `.clipped()`) rather than shrinking any font, exactly this
+    /// function's own established precedent. Flagged, not silently resolved: this rebuild's REQUIRED fixed-
+    /// row total is 40+4+36+4+36+4 (Notes/Octave/TOP row + gaps) + ~128 (riff block) ≈ 292pt — unverified
+    /// against the real `contentAreaH` a 326pt-wide card actually has in the hand, since no device/screenshot
+    /// access exists from here; this is the number to check against, not a guess papered over with a smaller
+    /// font.
     private func melodyTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let rowH: CGFloat = 40
-        let riffH = max(1, contentAreaH - rowH - sp4 - rowH - sp4)
+        let octRowH: CGFloat = 36
+        let topRowH: CGFloat = 36
+        let riffH = max(1, contentAreaH - rowH - sp4 - octRowH - sp4 - topRowH - sp4)
         return VStack(spacing: sp4) {
             melodyNotesRow(idx, line, accent, height: rowH)
-            melodyOctaveRow(idx, line, accent, height: rowH)
+            melodyOctaveBarRow(idx, line, accent, height: octRowH)
+            melodyTopRow(idx, line, accent, height: topRowH)
             melodyRiffBlock(idx, line, accent, height: riffH)
         }
     }
