@@ -1724,9 +1724,20 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousNoteViewName(127, flatKey: false), "G8")
     }
     func testEuclideousNoteViewNameSpellsFlatsOnlyWhenAsked() {
-        XCTAssertEqual(euclideousNoteViewName(63, flatKey: false), "D#3")
-        XCTAssertEqual(euclideousNoteViewName(63, flatKey: true), "Eb3")
-        XCTAssertEqual(euclideousNoteViewName(61, flatKey: true), "Db3", "a flat key still spells the natural white keys the same way")
+        // 2026-10-13 ferry: always the Unicode glyphs, never ASCII "#"/"b".
+        XCTAssertEqual(euclideousNoteViewName(63, flatKey: false), "D\u{266F}3")
+        XCTAssertEqual(euclideousNoteViewName(63, flatKey: true), "E\u{266D}3")
+        XCTAssertEqual(euclideousNoteViewName(61, flatKey: true), "D\u{266D}3", "a flat key still spells the natural white keys the same way")
+    }
+    func testEuclideousSplitNoteOctaveSeparatesNameFromTrailingDigits() {
+        XCTAssertEqual(euclideousSplitNoteOctave("C3").note, "C")
+        XCTAssertEqual(euclideousSplitNoteOctave("C3").octave, "3")
+        XCTAssertEqual(euclideousSplitNoteOctave("D\u{266D}2").note, "D\u{266D}")
+        XCTAssertEqual(euclideousSplitNoteOctave("D\u{266D}2").octave, "2")
+        XCTAssertEqual(euclideousSplitNoteOctave("C-2").note, "C")
+        XCTAssertEqual(euclideousSplitNoteOctave("C-2").octave, "-2")
+        XCTAssertEqual(euclideousSplitNoteOctave("–").note, "–", "the empty-pool placeholder has no digit to split off")
+        XCTAssertEqual(euclideousSplitNoteOctave("–").octave, "")
     }
     func testEuclideousKeyIsFlatMatchesTheStandardCircleOfFifthsRoots() {
         for root in [5, 10, 3, 8, 1] { XCTAssertTrue(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional flat-key root") }

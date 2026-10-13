@@ -2771,8 +2771,10 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
 /// (standard C-1 convention, MIDI 60 = "C4") — and NEITHER matches the ferry's own literal example (`octave =
 /// n/12 - 2`), and neither has any flat-vs-sharp logic at all. A third, NOTE-VIEW-only convention, exactly per
 /// the ferry's own anticipated fallback — not a reuse, because there was nothing correct to reuse.
-let euclideousNoteNamesSharp = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-let euclideousNoteNamesFlat  = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
+// 2026-10-13 ferry: always the Unicode glyphs ♯ (U+266F) / ♭ (U+266D), never ASCII "#"/"b" — the
+// prior ASCII spelling was the root of the note-button-vs-riff-grid-label mismatch this ferry fixes.
+let euclideousNoteNamesSharp = ["C", "C\u{266F}", "D", "D\u{266F}", "E", "F", "F\u{266F}", "G", "G\u{266F}", "A", "A\u{266F}", "B"]
+let euclideousNoteNamesFlat  = ["C", "D\u{266D}", "D", "E\u{266D}", "E", "F", "G\u{266D}", "G", "A\u{266D}", "A", "B\u{266D}", "B"]
 /// A standard circle-of-fifths sharp/flat bias, keyed on the KEY'S ROOT pitch class alone — a reasoned, not
 /// measured, simplification (real music theory sometimes spells a mode's accidentals differently depending on
 /// more than just the root), flagged as such rather than presented as definitive. F/Bb/Eb/Ab/Db read flat;
@@ -2787,6 +2789,15 @@ func euclideousNoteViewName(_ n: UInt8, flatKey: Bool) -> String {
     let octave = Int(n) / 12 - 2
     let name = flatKey ? euclideousNoteNamesFlat[pc] : euclideousNoteNamesSharp[pc]
     return "\(name)\(octave)"
+}
+/// Splits a full note-view string ("D\u{266D}2", "C-2", or the empty-pool "–" placeholder) into its
+/// letter+accidental part and its trailing octave-digit part, so a caller can render the two at different
+/// sizes sharing a baseline (2026-10-13 ferry §6: "name 15pt heavy, octave number 10pt bold, sharing a
+/// baseline"). A string with no digit/minus (the "–" placeholder) returns the whole thing as the note part
+/// with an empty octave part.
+func euclideousSplitNoteOctave(_ s: String) -> (note: String, octave: String) {
+    guard let idx = s.firstIndex(where: { $0.isNumber || $0 == "-" }) else { return (s, "") }
+    return (String(s[s.startIndex..<idx]), String(s[idx...]))
 }
 /// VoiceOver spelling (Paul 2026-10-12 ferry, "one global riff/note source" accessibility rule: "each is
 /// 'Rank 3, E flat 3'") — the SAME pitch-class/octave math as `euclideousNoteViewName`, with "flat"/"sharp"

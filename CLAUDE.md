@@ -196,6 +196,105 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS MELODY TAB — fixed-frame rebuild: notes/octave-merge/riff-block, octave trough+pill, riff-row
+  reorder, chip steppers, flat-spelling+glyph unification (2026-10-13, on `fix/euclid-no-scroll-direction-
+  order-2x2-grid`; iOS builds clean; macOS 1373 green incl. +1 new/+2 rewritten — pure UI, EuclideousPage.swift/
+  EuclidLaneUI.swift have no test-target reach beyond the shared Derivations.swift note-naming helpers touched
+  here). A fully-specified, numbered ferry (6 items + an exact repro scenario) reporting the MELODY tab
+  overflowing its own space and a note-spelling/typography mismatch between the note buttons and the riff
+  grid's label column. **ROOT CAUSE OF THE OVERFLOW, confirmed by re-deriving the layout arithmetic, not
+  guessed:** `melodyTabContent` derived the riff block's height as "whatever's left" (`contentAreaH − notes
+  row − octave row − TOP row − 3 gaps` = 78pt at the reference 202pt content height) while
+  `melodyRiffBlock`'s own 3 inner rows (WALK/MODES/VALUES) had no height constraints of their own and
+  naturally wanted ~128pt — HStack's default center-alignment then overflowed that squeeze both upward (the
+  riff block, drawn AFTER the TOP row in z-order, painted over it where they overlapped) and downward
+  (clipped by `laneCard`'s own outer `.clipped()`) — matching all three symptoms in the ferry's own report
+  exactly (TOP/TOP2 looking like they'd "got a row of their own" was actually the PRE-EXISTING split from an
+  even earlier same-day pass, confirmed separately below). **FIX, per the ferry's own literal fixed-row table
+  (40 / 40 / 110, no longer derived from leftover space):** `melodyOctaveBarRow`+`melodyTopRow` MERGED into
+  one new `melodyOctaveTopRow` (40pt) — the octave bar gained a recessed trough (`#131519` fill, 1pt
+  `#262930` border), a vertical "OCT" label on its left (reusing the existing `melodyVerticalLabel` helper),
+  and the selected octave now renders as a solid LANE-100 pill (padded inset, not edge-to-edge, to read as a
+  genuine pill rather than a flush background) with INK (`#0D0F14`) digits at 17pt plus a soft shadow-glow —
+  a deliberately more prominent treatment than the generic outlined-option style every other chip on this
+  page uses, per the ferry's own explicit "that pill is what makes octave prominent" (a judgment call on the
+  EXACT inset/shadow radius, since no pixel table was given for this one control — flagged, not literal
+  spec). TOP/TOP2 moved to this same row's right end, unchanged toggles. `melodyRiffBlock` is now fixed at
+  EXACTLY 110pt (34pt-wide vertical RIFF strip, widened from 28, beside 3 explicitly-`.frame(height: 34)`-
+  constrained rows totalling 34×3+4×2=110) — no longer derived, so a narrower/shorter real card clips the
+  excess rather than silently squeezing content, matching this function's own established precedent.
+  **RIFF-ROW REORDER (the ferry's own literal table):** Row 1 (`melodyWalkRow`) is now FWD·REV·PEND·PING
+  (their own sp4-spaced inner HStack) + an outer 8pt gap (read as the ferry's own "a 4pt EXTRA gap" added to
+  the existing 4pt base) + INV·LOCK (their own inner HStack) — INV MOVED here from the modes row, where the
+  ferry reports "LOCK has taken INV's place." Row 2 (`melodyModesRow`) is now the vertical ADV label + TWO
+  distinct HIT/STEP buttons (replacing the prior single toggle-label button whose text switched between the
+  two words — a genuine behaviour change, read as the ferry's own literal "HIT · STEP" wording matching the
+  SAME always-both-visible radio convention SKIP/FILL/TIE already uses on this exact row, not a stylistic
+  choice) + an 8pt gap + the vertical REST label + SKIP·FILL·TIE — INV is gone from here entirely. Row 3
+  (`melodyValuesRow`) keeps its existing LEN·NUDGE·STRIDE·TRANS order, gap tightened from `sp16` to the
+  ferry's own literal 3pt. **STEPPER REBUILD (`melodyStepper`):** the old 3-separate-elements shape (`−`
+  box · value · `+` box, spread across the row — the direct cause of LEN/TRANS clipping at the card's
+  edges) is replaced with ONE 69.5×34 chip: ‹/› glyphs in 14pt end-zones (decorative), the stepper's name
+  (10pt) stacked above its value (13pt) in the centre sharing one `VStack`, with an `.overlay` of two
+  equal-width invisible tap zones spanning the chip's own LEFT HALF (decrement) and RIGHT HALF (increment) —
+  not just the narrow ‹/› zones, per the ferry's own explicit "tap the left half... the right half." Both
+  `melodyButton` (TOP/TOP2/direction/INV/LOCK/HIT/STEP/SKIP/FILL/TIE) and the stepper chip now honour the
+  page's own established §4.6 rule (`lineLimit(1)`, no `.minimumScaleFactor` anywhere) — a first draft of
+  both the stepper's value text and the note buttons' pitch-name text added a scale-factor safety net,
+  caught and removed on a second pass specifically to stay consistent with this page's own repeatedly-stated
+  house rule ("truncate, never shrink") rather than silently diverging from it. `melodyButton` gained an
+  optional `height: CGFloat = 40` param (default preserves every pre-existing call site; the 10 riff-row
+  button instances now pass `height: 34` to match their row's own fixed height). **NOTE SPELLING (§6), THE
+  REAL BUG FOUND BY COMPARING TWO EXISTING CODE PATHS, not guessed:** `riffNoteLabelColumn` (the riff grid's
+  own label column, built in an earlier ferry) already correctly read `source == .key ? euclideousKeyIsFlat
+  (keyRoot) : true` — flats by default for MIDI IN/CHORD, the document's own key-root sharp/flat choice only
+  for KEY — but `melodyNotesRow` (the note buttons) read `euclideousKeyIsFlat(keyRoot)` UNCONDITIONALLY,
+  ignoring the source entirely; this is the exact, sole cause of the reported sharp-vs-flat mismatch between
+  the two surfaces for identical pitches. Fixed by making `melodyNotesRow` compute `flatKey` the IDENTICAL
+  way the label column already does (`noteSource == .key ? euclideousKeyIsFlat(keyRoot) : true`), so the two
+  surfaces can no longer disagree by construction. **GLYPHS:** `euclideousNoteNamesSharp`/`Flat` (Derivations.
+  swift, the ONE shared table both surfaces' `euclideousNoteViewName` reads) rewritten from ASCII `#`/`b` to
+  the literal Unicode glyphs `\u{266F}` (♯) / `\u{266D}` (♭) — a single shared-table fix that applies to BOTH
+  surfaces at once, rather than patching each call site separately. **TYPOGRAPHY:** new
+  `euclideousSplitNoteOctave(_:)` (Derivations.swift) splits a full note-view string ("D♭2") into its
+  letter+accidental part and its trailing octave-digit part (handling a leading "-" for negative octaves,
+  and the empty-pool "–" placeholder falling through as the whole-string "note" part with an empty octave) —
+  used by `melodyNotesRow` to render the two parts as separate `Text`s (15pt heavy / 10pt bold) inside an
+  `HStack(alignment: .lastTextBaseline)`, sharing a true text baseline as the ferry asks. **SCOPED TO THE
+  NOTE BUTTONS ONLY, flagged as a judgment call:** the riff grid's own label column keeps its pre-existing
+  11pt-bold single-size convention (from an earlier, separately-ratified ferry) — the ferry's own bug list
+  only ever named the label column for the SPELLING/glyph mismatch, never for a same-size-type complaint, so
+  the 15/10 split was read as scoped to the one surface where that specific problem was actually reported;
+  worth a second look if the intent was actually both surfaces. **TASK #1, THE ~110pt HEADER SHIFT —
+  INVESTIGATED EXHAUSTIVELY, NO CODE DEFECT FOUND, flagged honestly rather than papered over:** re-derived
+  every formula in the chain from `body`'s `GeometryReader` down through `portraitLayout`/`landscapeLayout` →
+  `laneCard` → `EuclidLaneBox`/`laneTabRow`, against the ferry's own exact target numbers (play-button left
+  edge at local x=10, count-box right edge at local x=336, for the reference 346pt-wide card) — EVERY
+  constant (`cardInset=10`, `cardRowGap=6`, `cometRowH=44`, `tabRowH=28`, `sp4=4`/`sp8=8`/`sp16=16`,
+  `leadReserve=50`, `badgeReserve=50`) and every width/padding/frame modifier in the chain reproduces the
+  ferry's own numbers EXACTLY (play at x=10...54, comet bar at x=60...286, count box at x=292...336) — no
+  `.offset()`, no horizontal `ScrollView`, no alignment mismatch anywhere, ruling out BOTH of the ferry's own
+  named hypotheses directly. Grepped every call site of `laneCard(` (4, matching exactly the 2 portrait + 2
+  landscape I traced — no stale duplicate caller) and every `ScrollView`/`.offset(` in both EuclideousPage.
+  swift and EuclidLaneUI.swift (none applicable to this header). **Genuinely unresolved, named plainly rather
+  than silently dropped:** if this symptom persists on a build after this session's changes, it is NOT
+  explained by anything in this file's layout arithmetic as currently written — every formula was re-verified
+  byte-for-byte against the ferry's own target coordinates and found correct; a fresh device screenshot of
+  the POST-this-session build would be needed to chase it further, since static reading has been exhausted on
+  this one item specifically (every other item in the ferry was confirmed as a genuine, now-fixed code bug).
+  **TESTS:** 2 pre-existing DerivationsTests rewritten to the new Unicode-glyph spelling (`testEuclideousNote
+  ViewNameSpellsFlatsOnlyWhenAsked`, now asserting `D\u{266F}3`/`E\u{266D}3`/`D\u{266D}3` instead of the old
+  ASCII `D#3`/`Eb3`/`Db3`) + 1 new (`testEuclideousSplitNoteOctaveSeparatesNameFromTrailingDigits`, covering
+  the plain/flat-glyph/negative-octave/empty-placeholder cases). Full macOS suite re-confirmed green (1373,
+  +1 net) before committing. **DEVICE-OWED, the whole ferry:** the exact repro scenario given (MIDI IN
+  holding A♭1/B1/E♭2, a descending riff ranks 8→1 over steps 1-8, FWD, OCT 0, SKIP, a 16-step lane) against
+  the ferry's own target picture, within its own stated ±0.5pt tolerance — unverifiable from here with no
+  device/screenshot access; the octave pill's exact inset/glow readability at real card width; the merged
+  octave+TOP row's total content width (OCT label + 5-segment trough + TOP + TOP2, all in one 40pt-tall row)
+  not feeling cramped; the stepper chip's half-chip tap zones feeling natural rather than imprecise; the
+  HIT/STEP-as-two-buttons change (a judgment call, not explicitly confirmed) reading as intentional; and, as
+  flagged above, the task #1 header-shift claim specifically — if it's still wrong after this build, the next
+  useful step is a screenshot, not another round of code-reading.**
 - **▶ EUCLID MASK RATCHET — the REAL bug, found and fixed in 3 takes (2026-10-13, on `fix/euclid-no-scroll-
   direction-order-2x2-grid`; macOS 1372 green (net +7/-0 vs the prior entry's +1, after further rewrites);
   iOS builds clean). Direct continuation of the entry below — Paul tested that "no bug found" conclusion

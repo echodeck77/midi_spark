@@ -1678,39 +1678,45 @@ struct EuclideousPage: View {
     /// `ioSourceRow`) — this section explicitly cites "the colour-hierarchy ferry" as its authority, so
     /// its own exact hex is used as given: selected = LANE-20 fill + 1pt LANE-100 border + white text;
     /// unselected = literal #2A2D34 fill + grey text. 40pt tall (§4.4).
-    @ViewBuilder private func melodyButton(_ label: String, on: Bool, accent: Color, help: String? = nil, action: @escaping () -> Void) -> some View {
+    @ViewBuilder private func melodyButton(_ label: String, on: Bool, accent: Color, height: CGFloat = 40, help: String? = nil, action: @escaping () -> Void) -> some View {
         let base = Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .white : Color.white.opacity(0.55))
             .lineLimit(1)   // §4.6: nothing under 10pt — truncate, never shrink (no .minimumScaleFactor call at all, SwiftUI's own default already never scales below 1.0)
-            .frame(maxWidth: .infinity).frame(height: 40)
+            .frame(maxWidth: .infinity).frame(height: height)
             .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture(perform: action)
         if let help { base.euclideousHelp(help) } else { base }
     }
-    /// §4.4: `[−] value [+]`, 36pt −/+ buttons. No existing generic stepper on this page (confirmed by
-    /// direct search) — `headerKeyGroup`'s hand-assembled two-single-glyph-buttons shape is the only
-    /// precedent to crib from, properly parameterized here instead of re-hand-assembled per call site.
+    /// One 69.5×34 chip: ‹/› glyphs in 14pt end-zones (decorative), name(10pt) over value(13pt) centred.
+    /// Tapping the LEFT HALF of the whole chip decreases; the RIGHT HALF increases — not just the glyph zones.
     @ViewBuilder private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, help: String? = nil, onChange: @escaping (Int) -> Void) -> some View {
-        let base = VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            HStack(spacing: sp4) {
-                Text("−").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
-                    .frame(width: 36, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
-                    .contentShape(Rectangle())
-                    .onTapGesture { onChange(max(range.lowerBound, value - 1)) }
-                Text(unit != nil ? "\(euclideousSigned(value)) \(unit!)" : "\(value)")
-                    .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white).lineLimit(1)
-                    .frame(minWidth: 44)
-                Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
-                    .frame(width: 36, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
-                    .contentShape(Rectangle())
-                    .onTapGesture { onChange(min(range.upperBound, value + 1)) }
+        let w: CGFloat = 69.5, h: CGFloat = 34
+        let base = ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+            HStack(spacing: 0) {
+                Text("‹").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+                    .frame(width: 14, height: h)
+                VStack(spacing: 1) {
+                    Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                    Text(unit != nil ? "\(euclideousSigned(value)) \(unit!)" : "\(value)")
+                        .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white).lineLimit(1)   // §4.6: truncate, never shrink — no .minimumScaleFactor
+                }
+                .frame(maxWidth: .infinity)
+                Text("›").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+                    .frame(width: 14, height: h)
             }
         }
+        .frame(width: w, height: h)
+        .overlay(
+            HStack(spacing: 0) {
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { onChange(max(range.lowerBound, value - 1)) }
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { onChange(min(range.upperBound, value + 1)) }
+            }
+        )
         if let help { base.euclideousHelp(help) } else { base }
     }
     private func melodySectionTitle(_ s: String) -> some View {
@@ -1803,7 +1809,11 @@ struct EuclideousPage: View {
             rotate: line.riffRotateResolved, ranks: riff.ranksResolved, invert: line.riffInvertResolved,
             transpose: line.melodyTransposeResolved) : []
         let extendedPool = euclideousGlobalPoolExtended(sortedRaw: riffLivePool.map { Int($0) })
-        let flatKey = euclideousKeyIsFlat(keyRoot)
+        // §6: spell every pitch the same way as the riff grid's own label column — flats by default for
+        // MIDI IN/CHORD, the document's own key-root sharp/flat choice only for KEY (matches
+        // `riffNoteLabelColumn`'s identical `source == .key ? euclideousKeyIsFlat(keyRoot) : true` exactly;
+        // this row used to read the key-root choice unconditionally, the root of the sharp/flat mismatch).
+        let flatKey = noteSource == .key ? euclideousKeyIsFlat(keyRoot) : true
         return HStack(spacing: 2) {
             ForEach(1...8, id: \.self) { rank in
                 let isReal = rank <= max(1, poolCount)
@@ -1816,10 +1826,14 @@ struct EuclideousPage: View {
                     guard raw >= 0, raw <= 127 else { return "–" }
                     return euclideousNoteViewName(UInt8(raw), flatKey: flatKey)
                 }()
+                let split = euclideousSplitNoteOctave(pitchName)
+                let textColor = lit ? Color(hex: 0x0D0F14) : (isReal ? Color.white.opacity(0.75) : Color.white.opacity(0.35))
                 ZStack(alignment: .bottom) {
-                    Text(pitchName)
-                        .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundColor(lit ? Color(hex: 0x0D0F14) : (isReal ? .white.opacity(0.75) : .white.opacity(0.35)))
+                    HStack(alignment: .lastTextBaseline, spacing: 0) {
+                        Text(split.note).font(.system(size: 15, weight: .heavy, design: .monospaced))
+                        Text(split.octave).font(.system(size: 10, weight: .bold, design: .monospaced))
+                    }
+                        .foregroundColor(textColor)
                         .lineLimit(1)   // §4.6's own standing rule for this tab: truncate, never shrink — no .minimumScaleFactor
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(RoundedRectangle(cornerRadius: 6).fill(lit ? lane100(accent) : Color(hex: 0x2A2D34)))
@@ -1840,38 +1854,51 @@ struct EuclideousPage: View {
         }
         .frame(height: height)
     }
-    /// Octave bar — ONE shared −2...+2 segmented bar (Acceptance §8: "OCT +1 raises both layers"), ON ITS
-    /// OWN ROW now (2026-10-13 ferry §4: "the octave bar with TOP 2 and TOP on their own row" — split out of
-    /// the combined row it used to share with TOP/TOP2). Writes BOTH `octave` AND `riffOctave` together, so
-    /// the two stay in lockstep from the first touch onward — no mode branch. Display, before either field
-    /// has ever been written together, reads whichever was legacy-audible (`riffOnResolved ?
-    /// riffOctaveResolved : octaveResolved`).
-    private func melodyOctaveBarRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
+    /// Octave bar merged with TOP/TOP2 at its right end, ONE 40pt row (2026-10-13 ferry §2/§3 — supersedes the
+    /// prior split into two separate rows, which the ferry reports as overflowing the tab's fixed height). A
+    /// recessed trough (#131519 fill, 1pt #262930 border) holds the −2...+2 segments, with a vertical "OCT"
+    /// label to its left; the SELECTED octave renders as a solid LANE-100 pill with INK (dark) digits at 17pt
+    /// plus a soft glow — a deliberately different, more prominent treatment than the generic outlined-option
+    /// style every other chip on this page uses, per the ferry's own explicit "that pill is what makes octave
+    /// prominent." Writes BOTH `octave` AND `riffOctave` together (Acceptance §8: "OCT +1 raises both layers"),
+    /// so the two stay in lockstep from the first touch onward — no mode branch. TOP/TOP2 sit at the row's
+    /// right end as independent toggles (`topLit`/`top2Lit`), never touching `riffOn`/`litNotes`/octave.
+    private func melodyOctaveTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let oct = line.riffOnResolved ? line.riffOctaveResolved : line.octaveResolved
-        return HStack(spacing: 2) {
-            ForEach(-2...2, id: \.self) { v in
-                Text(euclideousSigned(v)).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .foregroundColor(oct == v ? .white : .white.opacity(0.5))
-                    .lineLimit(1)
+        return HStack(spacing: sp4) {
+            melodyVerticalLabel("OCT", size: 10, color: Color(hex: 0x8A909A), width: 14)
+            HStack(spacing: 2) {
+                ForEach(-2...2, id: \.self) { v in
+                    ZStack {
+                        if oct == v {
+                            RoundedRectangle(cornerRadius: 7).fill(lane100(accent))
+                                .shadow(color: lane100(accent).opacity(0.65), radius: 4)
+                                .padding(3)
+                        }
+                        Text(euclideousSigned(v))
+                            .font(.system(size: oct == v ? 17 : 12, weight: .heavy, design: .monospaced))
+                            .foregroundColor(oct == v ? Color(hex: 0x0D0F14) : Color.white.opacity(0.5))
+                            .lineLimit(1)
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(oct == v ? lane20(accent) : Color(hex: 0x2A2D34)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(oct == v ? lane100(accent) : .clear, lineWidth: 1))
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.octave = v; $0.riffOctave = v } }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Octave \(euclideousSigned(v)), \(oct == v ? "selected" : "not selected")")
+                }
             }
-        }
-        .frame(height: height)
-    }
-    /// TOP/TOP2, now their OWN row beneath the octave bar (ferry §4) — INDEPENDENT toggles (`topLit`/
-    /// `top2Lit`), never touching `riffOn`/`litNotes`.
-    private func melodyTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        HStack(spacing: sp4) {
-            melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest (or second-highest) note of the source on every hit, following chord changes.") {
+            .padding(4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x262930), lineWidth: 1))
+            melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest note of the source on every hit, following chord changes.") {
                 edit(idx) { $0.topLit = !($0.topLitResolved) }
             }
-            melodyButton("TOP2", on: line.top2LitResolved, accent: accent, help: "Play the highest (or second-highest) note of the source on every hit, following chord changes.") {
+            .frame(width: 44)
+            melodyButton("TOP2", on: line.top2LitResolved, accent: accent, help: "Play the second-highest note of the source on every hit, following chord changes.") {
                 edit(idx) { $0.top2Lit = !($0.top2LitResolved) }
             }
+            .frame(width: 52)
         }
         .frame(height: height)
     }
@@ -1883,8 +1910,8 @@ struct EuclideousPage: View {
     /// moved.
     private func melodyVerticalRiffStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let isRiff = line.riffOnResolved
-        return melodyVerticalLabel("RIFF", size: 11, color: isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA), width: 28)
-            .frame(width: 28, height: height)
+        return melodyVerticalLabel("RIFF", size: 11, color: isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA), width: 34)
+            .frame(width: 34, height: height)
             .background(RoundedRectangle(cornerRadius: 6).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
             .contentShape(Rectangle())
@@ -1893,67 +1920,83 @@ struct EuclideousPage: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Riff, \(isRiff ? "on" : "off")")
     }
-    /// WALK row (ferry §5, literal): "tapping an unlit direction turns the riff on with that direction;
-    /// tapping the lit direction while the riff is on turns the riff off and remembers the direction;
-    /// while the riff is off, the remembered direction shows in the selected style, dimmed with its row."
-    /// Uses `euclideousRiffDirResolved` (DRUNK/RANDOM→FWD) for the "which direction is lit" check — a
-    /// legacy DRUNK/RANDOM doc shows FWD selected, per Presets rule 1. INV/LOCK/other riff controls (§6)
-    /// never turn the riff on or off (no `riffOn` write). LOCK, never FREE (2026-10-13 ferry §4: "LOCK, not
-    /// FREE" — a fixed label, same shortened-caption treatment as INV below; the field itself
-    /// (`riffLockResolved`) is unchanged, only the button no longer switches its own text between two words).
+    /// WALK row (2026-10-13 ferry: "Row 1: FWD · REV · PEND · PING, a 4pt extra gap, then INV · LOCK" —
+    /// supersedes the prior layout, which had INV living in the modes row and nothing but LOCK at this row's
+    /// own end). "Tapping an unlit direction turns the riff on with that direction; tapping the lit direction
+    /// while the riff is on turns the riff off and remembers the direction; while the riff is off, the
+    /// remembered direction shows in the selected style, dimmed with its row." Uses `euclideousRiffDirResolved`
+    /// (DRUNK/RANDOM→FWD) for the "which direction is lit" check — a legacy DRUNK/RANDOM doc shows FWD
+    /// selected, per Presets rule 1. INV/LOCK/other riff controls (§6) never turn the riff on or off (no
+    /// `riffOn` write). The "4pt extra gap" reads as the seam between the 4-direction cluster and INV/LOCK
+    /// totalling 8pt (this row's own base 4pt inter-item gap, plus 4 more) — built as two inner HStacks
+    /// (each sp4-spaced internally) joined by an outer 8pt gap, so only that one seam widens.
     private func melodyWalkRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
         let curDir = line.euclideousRiffDirResolved
         let isRiff = line.riffOnResolved
-        return HStack(spacing: sp4) {
-            ForEach(dirs, id: \.self) { d in
-                let lit = curDir == d
-                melodyButton(riffDirShortLabel(d), on: lit, accent: accent,
-                             help: "How the riff walks. Tap the lit one to turn the riff off.") {
-                    edit(idx) { l in
-                        if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
-                        else { l.riffOn = true; l.riffDir = d }
+        return HStack(spacing: 8) {
+            HStack(spacing: sp4) {
+                ForEach(dirs, id: \.self) { d in
+                    let lit = curDir == d
+                    melodyButton(riffDirShortLabel(d), on: lit, accent: accent, height: 34,
+                                 help: "How the riff walks. Tap the lit one to turn the riff off.") {
+                        edit(idx) { l in
+                            if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
+                            else { l.riffOn = true; l.riffDir = d }
+                        }
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
                 }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
             }
-            melodyButton("LOCK", on: line.riffLockResolved, accent: accent,
-                         help: "Restart the riff each time the pattern loops") {
-                edit(idx) { $0.riffLock = !($0.riffLockResolved) }
+            HStack(spacing: sp4) {
+                melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 34,
+                             help: "Flip the riff upside down in pitch") {
+                    edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
+                }
+                melodyButton("LOCK", on: line.riffLockResolved, accent: accent, height: 34,
+                             help: "Restart the riff each time the pattern loops") {
+                    edit(idx) { $0.riffLock = !($0.riffLockResolved) }
+                }
             }
         }
     }
-    /// MODES row: ADVANCE (HIT/STEP) + ON REST (SKIP/FILL/TIE) + INV. Per ferry §6, none of these turn
-    /// the riff on or off — "change their setting live... so you can set the riff up before bringing it in."
-    /// Gained two small VERTICAL category labels (2026-10-13 ferry §4: "the vertical ADV and REST labels")
-    /// — the HIT/STEP toggle's own text already changes, and SKIP/FILL/TIE has no single fixed caption of
-    /// its own, so a persistent rotated "ADV"/"REST" tells the two clusters apart at a glance in the now-
-    /// narrower column the vertical RIFF strip leaves beside it. INVERT shortens to INV (ferry §4).
+    /// MODES row (2026-10-13 ferry: "Row 2: the vertical ADV label, HIT · STEP, an 8pt gap, the vertical
+    /// REST label, SKIP · FILL · TIE" — supersedes the prior single toggle-label HIT/STEP button with two
+    /// distinct, always-visible buttons, matching the same all-options-shown radio convention SKIP/FILL/TIE
+    /// already uses; INV has moved to the walk row, so it's gone from here entirely). Per ferry §6, none of
+    /// these turn the riff on or off — "change their setting live... so you can set the riff up before
+    /// bringing it in." The 8pt gap sits only at the HIT/STEP↔REST-label seam (two inner HStacks, sp4
+    /// internally, joined by an outer 8pt gap — the same technique the walk row's own extra gap uses).
     private func melodyModesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
-        HStack(spacing: sp4) {
-            melodyVerticalLabel("ADV")
-            melodyButton(line.riffAdvanceStepResolved ? "STEP" : "HIT", on: line.riffAdvanceStepResolved, accent: accent,
-                         help: "Move the riff on every step, not just hits") {
-                edit(idx) { $0.riffAdvanceStep = !($0.riffAdvanceStepResolved) }
+        HStack(spacing: 8) {
+            HStack(spacing: sp4) {
+                melodyVerticalLabel("ADV")
+                melodyButton("HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: 34,
+                             help: "Move the riff only on sounding hits") {
+                    edit(idx) { $0.riffAdvanceStep = false }
+                }
+                melodyButton("STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 34,
+                             help: "Move the riff on every step, not just hits") {
+                    edit(idx) { $0.riffAdvanceStep = true }
+                }
             }
-            melodyVerticalLabel("REST")
-            ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
-                melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent,
-                             help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
-            }
-            melodyButton("INV", on: line.riffInvertResolved, accent: accent,
-                         help: "Flip the riff upside down in pitch") {
-                edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
+            HStack(spacing: sp4) {
+                melodyVerticalLabel("REST")
+                ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
+                    melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent, height: 34,
+                                 help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
+                }
             }
         }
     }
-    /// VALUES row: LEN · NUDGE (the old SHIFT, relabelled per this ferry — same `riffRotate` field, same
-    /// 0...(LEN-1) range) · STRIDE · TRANS. Per ferry §6, none of these turn the riff on or off.
+    /// VALUES row: four 69.5×34 stepper chips, LEN · NUDGE (the old SHIFT, relabelled per an earlier ferry —
+    /// same `riffRotate` field, same 0...(LEN-1) range) · STRIDE · TRANS, 3pt gaps (2026-10-13 ferry §5).
+    /// Per ferry §6, none of these turn the riff on or off.
     private func melodyValuesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         let n = line.riffLengthResolved
         let nudge = ((line.riffRotateResolved % n) + n) % n
-        return HStack(spacing: sp16) {
+        return HStack(spacing: 3) {
             melodyStepper("LEN", value: n, range: 1...8, help: "How many steps the riff walk loops over") { v in
                 edit(idx) { $0.riffLength = v }
             }
@@ -1968,43 +2011,37 @@ struct EuclideousPage: View {
             }
         }
     }
-    /// The riff block, restructured (2026-10-13 ferry §4): the vertical RIFF strip (ALWAYS full opacity —
-    /// ferry §3/§7's "the three riff rows," not the strip itself) now sits to the LEFT of the WALK/MODES/
-    /// VALUES column (dim to 42% only while the riff is off — rule 7), all fully tappable throughout
-    /// regardless of dim state. Was a VStack (strip on top, 3 rows below); now an HStack (strip beside
-    /// the 3 stacked rows).
+    /// The riff block — the vertical RIFF strip (ALWAYS full opacity — ferry §7's "the three riff rows," not
+    /// the strip itself) sits to the LEFT of the WALK/MODES/VALUES column (dim to 42% only while the riff is
+    /// off), all fully tappable throughout regardless of dim state. Fixed at EXACTLY 110pt (2026-10-13 ferry
+    /// §2): three 34pt rows + 2×sp4(4) gaps = 102+8=110 — no longer "whatever's left," the direct fix for the
+    /// prior overflow (the 3 rows used to want ~128pt but were squeezed into a much smaller leftover height).
     private func melodyRiffBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let isRiff = line.riffOnResolved
         return HStack(spacing: sp4) {
             melodyVerticalRiffStrip(idx, line, accent, height: height)
             VStack(spacing: sp4) {
-                melodyWalkRow(idx, line, accent)
-                melodyModesRow(idx, line, accent)
-                melodyValuesRow(idx, line, accent)
+                melodyWalkRow(idx, line, accent).frame(height: 34)
+                melodyModesRow(idx, line, accent).frame(height: 34)
+                melodyValuesRow(idx, line, accent).frame(height: 34)
             }
             .opacity(isRiff ? 1.0 : 0.42)
         }
         .frame(height: height)
     }
-    /// The whole MELODY tab — Notes (40pt) · Octave bar (36pt) · TOP/TOP2 (36pt) · Riff block (whatever's
-    /// left). Rule 4's "stop and report, don't shrink type" applied literally: fixed row heights throughout,
-    /// never compressed to force-fit `contentAreaH` — if the riff block's own 3 rows (WALK/MODES 40pt each +
-    /// VALUES' own natural ~40pt + 2 sp4 gaps ≈ 128pt content) exceed whatever height is actually left, the
-    /// excess clips (via `laneCard`'s own outer `.clipped()`) rather than shrinking any font, exactly this
-    /// function's own established precedent. Flagged, not silently resolved: this rebuild's REQUIRED fixed-
-    /// row total is 40+4+36+4+36+4 (Notes/Octave/TOP row + gaps) + ~128 (riff block) ≈ 292pt — unverified
-    /// against the real `contentAreaH` a 326pt-wide card actually has in the hand, since no device/screenshot
-    /// access exists from here; this is the number to check against, not a guess papered over with a smaller
-    /// font.
+    /// The whole MELODY tab — Notes (40pt) · Octave+TOP/TOP2 merged row (40pt) · Riff block (110pt, FIXED,
+    /// not derived from leftover space — 2026-10-13 ferry §2). The tab's own content area is a fixed 326×202
+    /// box that clips (`laneCard`'s own outer `.clipped()`) — these three fixed heights total 40+4+40+4+110
+    /// =198, a few points under 202, by design: nothing here is compressed to force-fit `contentAreaH`, so if
+    /// a narrower/shorter real card ever offers less than 198, the excess clips rather than shrinking a font,
+    /// matching this function's own established precedent.
     private func melodyTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let rowH: CGFloat = 40
-        let octRowH: CGFloat = 36
-        let topRowH: CGFloat = 36
-        let riffH = max(1, contentAreaH - rowH - sp4 - octRowH - sp4 - topRowH - sp4)
+        let octTopRowH: CGFloat = 40
+        let riffH: CGFloat = 110
         return VStack(spacing: sp4) {
             melodyNotesRow(idx, line, accent, height: rowH)
-            melodyOctaveBarRow(idx, line, accent, height: octRowH)
-            melodyTopRow(idx, line, accent, height: topRowH)
+            melodyOctaveTopRow(idx, line, accent, height: octTopRowH)
             melodyRiffBlock(idx, line, accent, height: riffH)
         }
     }
