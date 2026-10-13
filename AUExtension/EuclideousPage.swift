@@ -685,6 +685,26 @@ struct EuclideousPage: View {
     /// that cross-poll risk too, not just the wraparound bug.)
     private func riffMarkerPointsRight(_ idx: Int, _ line: EuclidLine) -> Bool? {
         guard line.riffOnResolved, idx < riffWalkState.count else { return nil }
+        // FORWARD/REVERSE ARE UNCONDITIONAL (Paul 2026-10-14, "I'm also seeing the occasional arrow pointing
+        // in the wrong direction" — a REGRESSION this same fix's own circular-distance comparison introduced
+        // for STRIDE > half the walk's own LENGTH, found by tracing a concrete example, not guessed): FWD's
+        // underlying `advOrd` (hence `raw = advOrd * stride`) only ever INCREASES between hits — `riffStepAt`
+        // then folds that ever-increasing `raw` into `[0, length)` via a plain `mod`. For stride=1 the fold
+        // only ever advances by 1 at a time, so "the shortest circular path" and "the true direction" always
+        // agree — which is why the ORIGINAL bug (the wrap from `length` back to `1`) was fixable by taking
+        // the shorter path. But for a LARGER stride (reachable: stride clamps 1...7, length clamps 1...8,
+        // e.g. stride=5/length=8), a single hit can hop PAST the halfway point of the cycle even with NO
+        // wrap at all (worked example: current=1, next=6 — a genuine, non-wrapping +5 forward hop — the
+        // shortest circular path from 1 to 6 is -3, the WRONG way round, so the old comparison misread this
+        // as "backward"). FORWARD is PROVABLY always "right" and REVERSE always "left" regardless of stride
+        // or wrap, by construction — there is no comparison that can get this wrong, so none is attempted;
+        // the `prediction`-based circular comparison below is kept for PENDULUM/PINGPONG/RANDOM only, where
+        // the direction genuinely does alternate (or has none) and a real comparison is unavoidable.
+        switch line.euclideousRiffDirResolved {
+        case .forward: return true
+        case .reverse: return false
+        default: break
+        }
         let steps = max(2, min(16, line.steps))
         let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                               tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
