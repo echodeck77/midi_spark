@@ -144,6 +144,18 @@ enum SnapshotBuilder {
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
                     sc.procs[0].euclideousResetSpanBars = doc.euclideousResetSpanBarsResolved
                 }
+                // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Presets rule 1's own "any
+                // other value: 1 lit, and logged" — the ONE place this warning may actually fire: once per
+                // `build()`, main-thread-only (RENDER-THREAD SAFETY, per `EuclidLine.litMigrationNeedsWarning`'s
+                // own doc comment — that property is pure, no I/O; this is the one and only call site that
+                // turns a true result into the actual log line, mirroring the pre-existing `euclideousNote-
+                // SourceResolved` warning precedent a few lines above, which is likewise PluginState-level and
+                // main-thread-only, never embedded on the render path the way `EuclidLine` itself is).
+                if r == Snap.euclideousRow {
+                    for (i, L) in doc.euclideousLinesResolved.enumerated() where L.litMigrationNeedsWarning {
+                        FileHandle.standardError.write("MidiSpark: Euclideous lane \(i + 1) had an unexpected legacy noteSel — migrating to 1 lit\n".data(using: .utf8) ?? Data())
+                    }
+                }
                 // EUCLIDEOUS CHORDS (Paul 2026-10-08): resolve the page's own chord grid into the SHARED
                 // chords* fields (see Snapshot.swift's own doc comment on euclideousChordKeyRoot/KeyTones for
                 // why reusing them, not a parallel set, is the right call) — PATTERN mode only, unconditionally
@@ -693,7 +705,17 @@ enum SnapshotBuilder {
                                                                       patternMiss: $0.patternMiss,
                                                                       rate: $0.rate,
                                                                       emitterMask: $0.emitterMask.map { $0 & 0x0F },
-                                                                      useRiff: $0.useRiff, riffRotate: $0.riffRotate,
+                                                                      useRiff: $0.useRiff, melodyMode: $0.melodyMode,
+                                                                      litNotes: $0.litNotes, topLit: $0.topLit, top2Lit: $0.top2Lit, riffOn: $0.riffOn,
+                                                                      // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, 2nd same-day ferry) — `melodyMode`
+                                                                      // (the PRIOR same-day ferry's own mode field) was MISSING from this fresh
+                                                                      // literal entirely, confirmed by reading — a real, pre-existing gap (this
+                                                                      // reconstruction's own comment at the end of this call already names the
+                                                                      // exact gotcha class: "every field must be threaded through here or it
+                                                                      // silently resets each render"), closed here alongside adding the new
+                                                                      // fields themselves, so neither the just-shipped MELODY tab nor this one
+                                                                      // repeats it.
+                                                                      riffRotate: $0.riffRotate,
                                                                       riffOctave: $0.riffOctave.map { clamp($0, -2, 2) },   // narrowed from the old -3...3 (2026-10-13 adversarial review): Models.swift's riffOctaveResolved already clamps -2...2 unconditionally (riffOctave is Euclideous-exclusive), so this fresh-literal's own bound must match it, not silently disagree
                                                                       riffDir: $0.riffDir, riffDirSeed: $0.riffDirSeed,
                                                                       riffDirBias: $0.riffDirBias.map { clamp($0, -1, 1) },

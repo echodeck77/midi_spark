@@ -653,7 +653,7 @@ struct EuclideousPage: View {
     /// invoked again here rather than threaded across two independent view hierarchies, matching how
     /// `euclideousNoteViewPattern` is already called from several independent UI sites in this file.
     private func riffMarkerNextStep(_ idx: Int, _ line: EuclidLine) -> Int? {
-        guard line.useRiffResolved, idx < riffWalkState.count else { return nil }
+        guard line.riffOnResolved, idx < riffWalkState.count else { return nil }
         let steps = max(2, min(16, line.steps))
         let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                               tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
@@ -663,7 +663,7 @@ struct EuclideousPage: View {
         let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
         let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
                                                    liveOrd: ws, dir: line.directionResolved)
-        let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.riffDirResolved,
+        let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.euclideousRiffDirResolved,
                                                          stride: line.riffStrideResolved, length: line.riffLengthResolved,
                                                          rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
                                                          startOrd: baseline.startOrd)
@@ -694,27 +694,15 @@ struct EuclideousPage: View {
     /// actually produced," a disclosed refinement of Paul's own text, not implied by it — a TIE/SKIP rest
     /// with no matching fresh event leaves the PREVIOUS marker untouched rather than jumping to a rest
     /// column with no row to draw on.
-    /// Riff-OFF lanes get a DOT instead of an arrow, on the grid column whose resolved rank matches the
-    /// lane's own fixed note pick (rule 4) — scoped to the cases with a genuinely FIXED rank regardless of
-    /// live pool size (N1…N8, LOW ⇒ rank 1). HIGH/CYCLE/RANDOM/ALL/BOT2/TOP2 draw nothing — a disclosed
-    /// scope trim beyond the ferry's own "otherwise draw nothing" (ALL/BOT2/TOP2 only): HIGH's own rank
-    /// genuinely depends on the live pool's size, which nothing on this page currently polls, and CYCLE/
-    /// RANDOM's CURRENT pick has no live telemetry either — both are real, disclosed gaps, not oversights.
-    private func riffOffDotCell(_ line: EuclidLine) -> (col: Int, row: Int)? {
-        guard !line.useRiffResolved else { return nil }
-        // Reuses `EuclidNoteSel.specificRank` (Models.swift) directly rather than re-deriving the N1…N8
-        // mapping a second time — LOW is the one additional fixed-rank case that property doesn't cover
-        // (it's an aggregate by that enum's own doc comment, but unambiguously rank 1 regardless of pool size).
-        guard let rank = line.noteSelResolved.specificRank ?? (line.noteSelResolved == .low ? 1 : nil) else { return nil }
-        let resolved = riff.ranksResolved
-        guard let col = (0..<8).first(where: { $0 < resolved.count && resolved[$0] == rank }) else { return nil }
-        return (col, rank)
-    }
+    // riffOffDotCell REMOVED (Paul 2026-10-13, "lit notes plus the riff" ferry — "Riff grid markers: these
+    // show only the riff. A lane with the riff off draws no marker. This replaces the 'riff off: a dot'
+    // rule.") — the dot-for-riff-off mechanism above is gone entire, not merely disabled; its one call site
+    // in `riffGridCell` is removed too. A riff-off lane now contributes no occupant at all, by construction.
 
     private func updateRiffMarkers() {
         let resolved = riff.ranksResolved
         for i in 0..<4 {
-            guard i < lines.count, lines[i].useRiffResolved else { riffMarker[i] = nil; continue }
+            guard i < lines.count, lines[i].riffOnResolved else { riffMarker[i] = nil; continue }
             guard i < riffPositions.count, riffPositions[i] >= 0, riffPositions[i] < 8 else { continue }
             let col = riffPositions[i]
             let rank = col < resolved.count ? resolved[col] : 0
@@ -1233,17 +1221,21 @@ struct EuclideousPage: View {
                                               tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
                                               customHits: line.customHitsResolved(steps), dir: line.directionResolved)
         var prediction: [Int]? = nil
-        if line.useRiffResolved {
+        if line.riffOnResolved {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
             let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
             let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
                                                        liveOrd: ws, dir: line.directionResolved)
-            prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.riffDirResolved,
+            prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.euclideousRiffDirResolved,
                                                          stride: line.riffStrideResolved, length: line.riffLengthResolved,
                                                          rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
                                                          startOrd: baseline.startOrd)
         }
-        let states = euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: riff.ranksResolved)
+        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-page §4: riff off
+        // + notes lit → grey footers, no number (still `.hit(riffStep: nil)`, drawn grey below); riff off +
+        // nothing lit → the miss footer everywhere, "because nothing will sound."
+        let anyLit = line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved
+        let states = euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: riff.ranksResolved, anyLit: anyLit)
         // ALIGNMENT (rule 1: footers sit directly under each step cell) — `trailingContent` renders as a
         // full-width sibling BELOW `EuclidLaneBox`'s own play+comet HStack, not inside it, so this Canvas's
         // own x=0 is the padded content's left edge, NOT the comet bar's. Replicating EuclidLaneBox's exact
@@ -1278,7 +1270,11 @@ struct EuclideousPage: View {
                     // and non-hit steps alike, since both are simply `.miss` here).
                     ctx.fill(footerPath(rect), with: .color(Color(hex: 0x22252C)))
                 case .hit(let riffStep):
-                    ctx.fill(footerPath(rect), with: .color(Color(hex: 0xDFE3EA)))
+                    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): `riffStep == nil`
+                    // now means specifically "riff off, notes lit" (the only way `euclideousFooterStates`
+                    // still produces this case post-`anyLit`) — grey, no number, per §4's own literal rule.
+                    // `riffStep != nil` is unchanged (riff on, today's bright white + step number).
+                    ctx.fill(footerPath(rect), with: .color(riffStep == nil ? Color(hex: 0x5C626C) : Color(hex: 0xDFE3EA)))
                     if showNumber, let riffStep {
                         let txt = Text("\(riffStep)").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
                         ctx.draw(ctx.resolve(txt), at: CGPoint(x: rect.midX, y: rect.midY))
@@ -1850,63 +1846,89 @@ struct EuclideousPage: View {
     // not yet received) confirms whether that's intentional. `melodySectionTitle`/`melodyNoteSelLabel`
     // are left in place, unused, rather than deleted — likely needed again if that spec restores them.
 
-    // MARK: - MELODY TAB CONTENT (Paul 2026-10-13 ferry) — Notes row (8 equal buttons) · Octave row
-    // (segmented −2…+2 + TOP/TOP2) · Riff block (mode strip + WALK/MODES/VALUES rows). Behaviour rule 1:
-    // "the mode is the selection" — tapping a note button (or TOP/TOP2) puts the lane in NOTE mode;
-    // tapping the RIFF strip, or ANY control in the riff rows, puts it in RIFF mode. Both halves stay
-    // live/tappable regardless of which mode is current (the inactive half just dims, per rule 4) rather
-    // than disabling — so switching back and forth never loses a setting the other mode isn't using.
+    // MARK: - MELODY TAB CONTENT (Paul 2026-10-13, TWO ferries same day) — Notes row (8 equal buttons) ·
+    // Octave row (segmented −2…+2 + TOP/TOP2) · Riff block (strip + WALK/MODES/VALUES rows).
+    //
+    // SUPERSEDED BY THE SECOND, SAME-DAY "lit notes plus the riff" FERRY — the FIRST ferry's own
+    // "Behaviour rule 1: the mode is the selection" (one choice at a time, NOTE xor RIFF) is EXPLICITLY
+    // RETIRED: "lit notes" (any of the 8 rank buttons + TOP/TOP2) and "the riff" (on/off) are now two
+    // INDEPENDENT, ADDITIVE layers — both can sound on the same hit. Tapping a note/TOP/TOP2 button only
+    // ever toggles ITS OWN bit (`litNotes`/`topLit`/`top2Lit`); tapping the RIFF strip or a WALK direction
+    // button only ever toggles `riffOn`; every OTHER riff control (INV/LOCK/ADV/REST/LEN/NUDGE/STRIDE/
+    // TRANS) changes its own setting live and never touches `riffOn`. The riff rows (WALK/MODES/VALUES,
+    // NOT the strip itself, NOT the notes/octave rows) dim to 42% only while the riff is off — notes stay
+    // fully live/visible regardless (rule 7: "Lit notes never dim them").
     private static let rankNoteSel: [EuclidNoteSel] = [.n1, .n2, .n3, .n4, .n5, .n6, .n7, .n8]
-    /// The rank(s) TOP/TOP2 currently resolve to against the live pool, mirroring `resolveEuclidPick`'s
-    /// own `.high`/`.top2` formula exactly (Router.swift) so the OCT-row ring can never mark a button the
-    /// engine wouldn't actually strike. `poolCount` is already the RAW (pre-octave-extension) count — the
-    /// one `riffLivePool` already reports (Router.swift's own fill reads `laneNotes(0)` before extension).
-    private func euclideousHighPickRanks(_ sel: EuclidNoteSel, poolCount: Int) -> Set<Int> {
-        guard poolCount > 0 else { return [] }
-        switch sel {
-        case .high: return [poolCount]
-        case .top2: return poolCount >= 2 ? [poolCount - 1, poolCount] : [poolCount]
-        default: return []
-        }
+    /// LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry) — "This amends [the MELODY tab]
+    /// instructions... replaces: the one-choice-at-a-time behaviour (Behaviour 1–3)." The 8 rank buttons +
+    /// TOP/TOP2 are now INDEPENDENT toggles (`litNotes`/`topLit`/`top2Lit`), additive with the riff (also
+    /// now a plain on/off, `riffOn`) rather than a single mutually-exclusive pick — superseding every
+    /// `noteSel`/`melodyMode`-write below.
+    ///
+    /// The rank(s) TOP/TOP2 currently resolve to against the live pool, mirroring `riffResolve`'s own
+    /// highest/second-highest formula exactly (Router.swift's new lit-notes layer) so the ring below can
+    /// never mark a button the engine wouldn't actually strike. `poolCount` is already the RAW (pre-octave-
+    /// extension) count — the one `riffLivePool` already reports (Router.swift's own fill reads
+    /// `laneNotes(0)` before extension).
+    private func euclideousHighPickRanks(topLit: Bool, top2Lit: Bool, poolCount: Int) -> Set<Int> {
+        guard poolCount > 0, topLit || top2Lit else { return [] }
+        var s: Set<Int> = []
+        if topLit { s.insert(poolCount) }
+        if top2Lit { s.insert(poolCount); s.insert(max(1, poolCount - 1)) }
+        return s
     }
-    /// Notes row: 8 equal buttons, N1...N8 (shown as bare "1"..."8"). REAL (from the live pool, before
-    /// octave-extension padding) vs COPY (an octave-extended duplicate) read dimmer; the current NOTE-mode
-    /// pick (incl. TOP/TOP2, resolved live) rings bright; in RIFF mode, every rank the walk can actually
-    /// reach (`euclideousRiffReachableRanks`, recomputed fresh on every relevant edit — no hand-rolled
-    /// cache, matching this page's own standing "recompute on state change" convention) gets a faint mark.
+    /// Notes row: 8 equal, INDEPENDENT toggle buttons, N1...N8 (shown as bare "1"..."8"). Lit: solid
+    /// LANE-100 fill, `#0D0F14` text (ferry §1). Unlit: the existing raised (real pool note)/recessed
+    /// (octave-extended copy) styles, unchanged. Riff-reach bars (§2, shown only while the riff is on) mark
+    /// every rank the walk can actually reach (`euclideousRiffReachableRanks`, recomputed fresh on every
+    /// relevant edit — no hand-rolled cache). The TOP/TOP2 ring (§3) overlays whichever button the live
+    /// pick currently resolves to. Never dims (rule 7: "Lit notes never dim them").
     private func melodyNotesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let poolCount = min(riffLivePool.count, 8)
-        let isNote = line.melodyModeResolved == .note
-        let highRanks = isNote ? euclideousHighPickRanks(line.noteSelResolved, poolCount: poolCount) : []
-        let reachable: Set<Int> = isNote ? [] : euclideousRiffReachableRanks(
-            dir: line.riffDirResolved, length: line.riffLengthResolved, stride: line.riffStrideResolved,
+        let riffOn = line.riffOnResolved
+        let litMask = line.litNotesResolved
+        let highRanks = euclideousHighPickRanks(topLit: line.topLitResolved, top2Lit: line.top2LitResolved, poolCount: poolCount)
+        let reachable: Set<Int> = riffOn ? euclideousRiffReachableRanks(
+            dir: line.euclideousRiffDirResolved, length: line.riffLengthResolved, stride: line.riffStrideResolved,
             rotate: line.riffRotateResolved, ranks: riff.ranksResolved, invert: line.riffInvertResolved,
-            transpose: line.melodyTransposeResolved)
+            transpose: line.melodyTransposeResolved) : []
         return HStack(spacing: 2) {
             ForEach(1...8, id: \.self) { rank in
                 let isReal = rank <= max(1, poolCount)
-                let selected = isNote && (line.noteSelResolved == Self.rankNoteSel[rank - 1] || highRanks.contains(rank))
+                let lit = (litMask & (1 << (rank - 1))) != 0
+                let ringed = highRanks.contains(rank)
                 let marked = reachable.contains(rank)
-                Text("\(rank)")
-                    .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                    .foregroundColor(selected ? .white : (isReal ? .white.opacity(0.75) : .white.opacity(0.35)))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(selected ? lane20(accent) : Color(hex: 0x2A2D34)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? lane100(accent) : (marked ? lane100(accent).opacity(0.5) : Color.clear), lineWidth: 1))
-                    .contentShape(Rectangle())
-                    .onTapGesture { edit(idx) { $0.noteSel = Self.rankNoteSel[rank - 1]; $0.melodyMode = .note } }
+                ZStack(alignment: .bottom) {
+                    Text("\(rank)")
+                        .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                        .foregroundColor(lit ? Color(hex: 0x0D0F14) : (isReal ? .white.opacity(0.75) : .white.opacity(0.35)))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(lit ? lane100(accent) : Color(hex: 0x2A2D34)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(ringed ? (lit ? Color(hex: 0x0D0F14) : lane100(accent)) : Color.clear, lineWidth: 2).padding(2))
+                    // RIFF-REACH BAR (§2): "LANE-100 on unlit buttons, #0D0F14 on lit ones," shown only
+                    // while the riff is on. A judgment call on exact placement/thickness, flagged — the
+                    // promised follow-up visual spec may refine this; a thin bottom-edge bar is the
+                    // minimal reading of "a bar" distinct from the ring above.
+                    if marked {
+                        RoundedRectangle(cornerRadius: 1.5).fill(lit ? Color(hex: 0x0D0F14) : lane100(accent)).frame(height: 3).padding(.horizontal, 4).padding(.bottom, 3)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { edit(idx) { l in l.litNotes = l.litNotesResolved ^ (1 << (rank - 1)) } }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Note \(rank), \(lit ? "on" : "off")\(marked ? ", in riff" : "")")
             }
         }
         .frame(height: height)
-        .opacity(isNote ? 1.0 : 0.42)
     }
-    /// Octave row: a −2...+2 segmented bar (writes `octave` in NOTE mode, `riffOctave` in RIFF mode — the
-    /// exact branch the old pop-up's own `melodyPlacementSection` already used, just relocated) + TOP/TOP2,
-    /// which select the highest/two-highest held notes AND switch the lane to NOTE mode in one tap.
+    /// Octave row: ONE shared −2...+2 segmented bar (Acceptance §8: "OCT +1 raises both layers") writing
+    /// BOTH `octave` AND `riffOctave` together, so the two stay in lockstep from the first touch onward —
+    /// no mode branch. Display, before either field has ever been written together, reads whichever was
+    /// legacy-audible (`riffOnResolved ? riffOctaveResolved : octaveResolved`). TOP/TOP2 are now
+    /// INDEPENDENT toggles (`topLit`/`top2Lit`), never touching `riffOn`/`litNotes`.
     private func melodyOctaveRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        let isNote = line.melodyModeResolved == .note
-        let oct = isNote ? line.octaveResolved : line.riffOctaveResolved
+        let oct = line.riffOnResolved ? line.riffOctaveResolved : line.octaveResolved
         return HStack(spacing: sp4) {
             HStack(spacing: 2) {
                 ForEach(-2...2, id: \.self) { v in
@@ -1917,96 +1939,117 @@ struct EuclideousPage: View {
                         .background(RoundedRectangle(cornerRadius: 6).fill(oct == v ? lane20(accent) : Color(hex: 0x2A2D34)))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(oct == v ? lane100(accent) : .clear, lineWidth: 1))
                         .contentShape(Rectangle())
-                        .onTapGesture { edit(idx) { l in if l.melodyModeResolved == .note { l.octave = v } else { l.riffOctave = v } } }
+                        .onTapGesture { edit(idx) { $0.octave = v; $0.riffOctave = v } }
                 }
             }
-            melodyButton("TOP", on: isNote && line.noteSelResolved == .high, accent: accent, help: "Play the highest held note") {
-                edit(idx) { $0.noteSel = .high; $0.melodyMode = .note }
+            melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest (or second-highest) note of the source on every hit, following chord changes.") {
+                edit(idx) { $0.topLit = !($0.topLitResolved) }
             }
-            melodyButton("TOP2", on: isNote && line.noteSelResolved == .top2, accent: accent, help: "Play the two highest held notes") {
-                edit(idx) { $0.noteSel = .top2; $0.melodyMode = .note }
+            melodyButton("TOP2", on: line.top2LitResolved, accent: accent, help: "Play the highest (or second-highest) note of the source on every hit, following chord changes.") {
+                edit(idx) { $0.top2Lit = !($0.top2LitResolved) }
             }
         }
         .frame(height: height)
     }
-    /// The RIFF strip — tapping it (or any control in the WALK/MODES/VALUES rows below) puts the lane in
-    /// RIFF mode. Dims to 42% in NOTE mode (rule 4: "stay live," not disabled) but never blocks a tap.
+    /// The RIFF strip (ferry §4) — a plain on/off toggle. Turning it on restores the remembered direction
+    /// (`riffDir`, untouched by this toggle). Colors per the ferry literally: on = LANE-100 fill, text+
+    /// contour `#0D0F14`; off = `#2A2D34` fill, text `#AAB0BA`, contour `#5C626C`.
     private func melodyRiffStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
-        let isRiff = line.melodyModeResolved == .riff
+        let isRiff = line.riffOnResolved
         return Text("RIFF")
             .font(.system(size: 11, weight: .heavy, design: .monospaced))
-            .foregroundColor(isRiff ? .white : .white.opacity(0.55))
+            .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
             .frame(maxWidth: .infinity).frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 6).fill(isRiff ? lane20(accent) : Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isRiff ? lane100(accent) : .clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 6).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
             .contentShape(Rectangle())
-            .onTapGesture { edit(idx) { $0.melodyMode = .riff } }
-            .euclideousHelp("Walk a shared pattern of notes")
+            .onTapGesture { edit(idx) { $0.riffOn = !($0.riffOnResolved) } }
+            .euclideousHelp("Turn the riff on or off. Lit notes play along with it.")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Riff, \(isRiff ? "on" : "off")")
     }
-    /// WALK row: direction (DRUNK removed per this ferry's "Remove" section; RANDOM already excluded by an
-    /// earlier ferry) + FREE/LOCK.
+    /// WALK row (ferry §5, literal): "tapping an unlit direction turns the riff on with that direction;
+    /// tapping the lit direction while the riff is on turns the riff off and remembers the direction;
+    /// while the riff is off, the remembered direction shows in the selected style, dimmed with its row."
+    /// Uses `euclideousRiffDirResolved` (DRUNK/RANDOM→FWD) for the "which direction is lit" check — a
+    /// legacy DRUNK/RANDOM doc shows FWD selected, per Presets rule 1. INV/LOCK/other riff controls (§6)
+    /// never turn the riff on or off (no `riffOn` write).
     private func melodyWalkRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
+        let curDir = line.euclideousRiffDirResolved
+        let isRiff = line.riffOnResolved
         return HStack(spacing: sp4) {
             ForEach(dirs, id: \.self) { d in
-                melodyButton(riffDirShortLabel(d), on: line.riffDirResolved == d, accent: accent,
-                             help: "Walk the riff \(riffDirHelpPhrase(d))") { edit(idx) { $0.riffDir = d; $0.melodyMode = .riff } }
+                let lit = curDir == d
+                melodyButton(riffDirShortLabel(d), on: lit, accent: accent,
+                             help: "How the riff walks. Tap the lit one to turn the riff off.") {
+                    edit(idx) { l in
+                        if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
+                        else { l.riffOn = true; l.riffDir = d }
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
             }
             melodyButton(line.riffLockResolved ? "LOCK" : "FREE", on: line.riffLockResolved, accent: accent,
                          help: "Restart the riff each time the pattern loops") {
-                edit(idx) { $0.riffLock = !($0.riffLockResolved); $0.melodyMode = .riff }
+                edit(idx) { $0.riffLock = !($0.riffLockResolved) }
             }
         }
     }
-    /// MODES row: ADVANCE (HIT/STEP) + ON REST (SKIP/FILL/TIE) + INVERT.
+    /// MODES row: ADVANCE (HIT/STEP) + ON REST (SKIP/FILL/TIE) + INVERT. Per ferry §6, none of these turn
+    /// the riff on or off — "change their setting live... so you can set the riff up before bringing it in."
     private func melodyModesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         HStack(spacing: sp4) {
             melodyButton(line.riffAdvanceStepResolved ? "STEP" : "HIT", on: line.riffAdvanceStepResolved, accent: accent,
                          help: "Move the riff on every step, not just hits") {
-                edit(idx) { $0.riffAdvanceStep = !($0.riffAdvanceStepResolved); $0.melodyMode = .riff }
+                edit(idx) { $0.riffAdvanceStep = !($0.riffAdvanceStepResolved) }
             }
             ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
                 melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent,
-                             help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r; $0.melodyMode = .riff } }
+                             help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
             }
             melodyButton("INVERT", on: line.riffInvertResolved, accent: accent,
                          help: "Flip the riff upside down in pitch") {
-                edit(idx) { $0.riffInvert = !($0.riffInvertResolved); $0.melodyMode = .riff }
+                edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
             }
         }
     }
     /// VALUES row: LEN · NUDGE (the old SHIFT, relabelled per this ferry — same `riffRotate` field, same
-    /// 0...(LEN-1) range) · STRIDE · TRANS.
+    /// 0...(LEN-1) range) · STRIDE · TRANS. Per ferry §6, none of these turn the riff on or off.
     private func melodyValuesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         let n = line.riffLengthResolved
         let nudge = ((line.riffRotateResolved % n) + n) % n
         return HStack(spacing: sp16) {
             melodyStepper("LEN", value: n, range: 1...8, help: "How many steps the riff walk loops over") { v in
-                edit(idx) { $0.riffLength = v; $0.melodyMode = .riff }
+                edit(idx) { $0.riffLength = v }
             }
             melodyStepper("NUDGE", value: nudge, range: 0...(n - 1), help: "Start the riff walk further along the pattern") { v in
-                edit(idx) { $0.riffRotate = v; $0.melodyMode = .riff }
+                edit(idx) { $0.riffRotate = v }
             }
             melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, help: "How many riff steps to move per note") { v in
-                edit(idx) { $0.riffStride = v; $0.melodyMode = .riff }
+                edit(idx) { $0.riffStride = v }
             }
             melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, help: "Shift every riff note up or down the pool") { v in
-                edit(idx) { $0.melodyTranspose = v; $0.melodyMode = .riff }
+                edit(idx) { $0.melodyTranspose = v }
             }
         }
     }
-    /// The whole riff block: strip + WALK + MODES + VALUES, stacked — dims to 42% in NOTE mode (rule 4)
-    /// but stays fully tappable throughout (tapping anything in it switches back to RIFF mode).
+    /// The riff block: strip (ALWAYS full opacity — ferry §3/§7's "the three riff rows," not the strip
+    /// itself) + WALK/MODES/VALUES (dim to 42% only while the riff is off — rule 7), all fully tappable
+    /// throughout regardless of dim state.
     private func melodyRiffBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        let isRiff = line.melodyModeResolved == .riff
+        let isRiff = line.riffOnResolved
         return VStack(spacing: sp4) {
             melodyRiffStrip(idx, line, accent)
-            melodyWalkRow(idx, line, accent)
-            melodyModesRow(idx, line, accent)
-            melodyValuesRow(idx, line, accent)
+            VStack(spacing: sp4) {
+                melodyWalkRow(idx, line, accent)
+                melodyModesRow(idx, line, accent)
+                melodyValuesRow(idx, line, accent)
+            }
+            .opacity(isRiff ? 1.0 : 0.42)
         }
         .frame(height: height)
-        .opacity(isRiff ? 1.0 : 0.42)
     }
     /// The whole MELODY tab — Notes (40pt) · Octave (40pt) · Riff block (whatever's left). Rule 4's "stop
     /// and report, don't shrink type" applied literally: below this floor (3 riff rows at a comfortable
@@ -2564,11 +2607,16 @@ struct EuclideousPage: View {
         // a STALE position from before the pool went empty, since nothing clears it on its own).
         if !suppressMarkers {
             for i in 0..<min(4, lines.count) {
+                // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): "a lane with the riff
+                // off draws no marker" — the old `riffOffDotCell` branch (a dot for a riff-off lane's own
+                // fixed note pick) is removed entire, not just disabled; `riffMarker[i]` is already nil for
+                // a riff-off lane (`updateRiffMarkers`'s own guard), so this is now the ONLY source of an
+                // occupant. `Occupant.isArrow`/`riffMarkerGlyph`'s own dot-drawing branch are left in place,
+                // unreachable — harmless, flagged rather than silently left for a future reader to puzzle
+                // over why a dot branch never fires.
                 if let m = riffMarker[i], m.col == col, m.row == rank {
                     let onRest = col < ranks.count && ranks[col] == 0
                     occupants.append(Occupant(lane: i, isArrow: true, onRest: onRest))
-                } else if let d = riffOffDotCell(lines[i]), d.col == col, d.row == rank {
-                    occupants.append(Occupant(lane: i, isArrow: false, onRest: false))
                 }
             }
         }
@@ -2803,47 +2851,85 @@ struct EuclideousPage: View {
         .frame(width: width, height: 14, alignment: .leading)
         .background(pressed ? Color(hex: 0x22252C) : Color.clear)
     }
-    /// The ordered content items (ferry 2 §2, literal order) — always Source + Mode, then only the
-    /// non-default modifiers that apply, in the stated order.
+    /// The lit-notes layer's own resolved pitches, ascending, for display (summary label / note box). Reuses
+    /// `euclideousGlobalPoolExtended` (already an exact mirror of `riffResolve(wrap:.fold)` for ranks 1...8 —
+    /// the only ranks a lit-note button can ever address) so this can never show a pitch the engine wouldn't
+    /// actually resolve to that same rank. `octaveResolved` (never `riffOctaveResolved`) applies, per "INV
+    /// and TRANS do not apply" — only OCT does.
+    private func euclideousLitPitches(_ line: EuclidLine) -> [Int] {
+        let raw = riffLivePool.map { Int($0) }.sorted()
+        guard !raw.isEmpty else { return [] }
+        let extended = euclideousGlobalPoolExtended(sortedRaw: raw)
+        let poolCount = min(raw.count, 8)
+        let oct12 = 12 * line.octaveResolved
+        var out: [Int] = []
+        for rk in 1...8 where (line.litNotesResolved & (1 << (rk - 1))) != 0 {
+            if rk - 1 < extended.count { out.append(extended[rk - 1] + oct12) }
+        }
+        if line.topLitResolved, poolCount - 1 < extended.count { out.append(extended[poolCount - 1] + oct12) }
+        if line.top2LitResolved {
+            let lo = max(1, poolCount) - 1
+            for i in [lo, poolCount - 1] where i >= 0 && i < extended.count { out.append(extended[i] + oct12) }
+        }
+        return out.sorted()
+    }
+    /// LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-page §2, literal:
+    /// riff on — the existing riff-item list (minus source, already removed) plus " + n" when something is
+    /// lit; riff off — the lit notes in pitch order ("C3 G3"), TOP/TOP2 shown as "TOP"/"TOP 2"; nothing lit
+    /// and riff off — the single item "NO NOTES" (handled by the caller returning early on an empty list
+    /// from `noteViewLabelText`, mirroring how `euclideousSilenceReason`'s own "NO NOTES" already covers the
+    /// note box for the identical condition).
     private func noteViewLabelItems(_ line: EuclidLine) -> [String] {
-        // SOURCE REMOVED FROM THIS LABEL (Paul 2026-10-12, second same-day ferry): the source is now ONE
-        // global choice for the whole page (the new riff-block tabs), not a per-lane fact worth repeating
-        // on every one of the 4 strips.
-        var items: [String] = []
-        if line.useRiffResolved {
-            items.append("RIFF " + riffDirShortLabel(line.riffDirResolved))
-        } else {
-            // §2.2, literal: "the lane's NOTE choice name (e.g. LOWEST, ALL)". The ferry's own worked
-            // examples repeat "LOWEST" (not the raw "LOW") twice, consistently — strong enough to read
-            // as the intended DISPLAY text for this one case, not just a loose gloss (ALL's own example
-            // matches its raw value exactly, so this isn't a blanket rename — just LOW, which reads
-            // abruptly short as a standalone label where HIGH/ALL/etc. already read as complete words).
-            items.append(line.noteSelResolved == .low ? "LOWEST" : line.noteSelResolved.rawValue)
+        guard line.riffOnResolved else {
+            // RIFF OFF: list the lit pitches in pitch order; TOP/TOP2 render as themselves, not their
+            // resolved note name, even though they're sorted into the SAME ascending position their pitch
+            // occupies (per the ferry's own "TOP and TOP 2 show as 'TOP' and 'TOP 2'").
+            let raw = riffLivePool.map { Int($0) }.sorted()
+            guard !raw.isEmpty else {
+                // No pool to resolve against at all — still list the TOGGLE names (dashes have no meaning
+                // here; the note box's own silence-reason branch covers the empty-pool case).
+                var names: [String] = []
+                for rk in 1...8 where (line.litNotesResolved & (1 << (rk - 1))) != 0 { names.append("N\(rk)") }
+                if line.topLitResolved { names.append("TOP") }
+                if line.top2LitResolved { names.append("TOP 2") }
+                return names
+            }
+            let extended = euclideousGlobalPoolExtended(sortedRaw: raw)
+            let poolCount = min(raw.count, 8)
+            let oct12 = 12 * line.octaveResolved
+            let flatKey = euclideousKeyIsFlat(keyRoot)
+            var pairs: [(pitch: Int, label: String)] = []
+            for rk in 1...8 where (line.litNotesResolved & (1 << (rk - 1))) != 0 {
+                if rk - 1 < extended.count { let p = extended[rk - 1] + oct12; pairs.append((p, euclideousNoteViewName(UInt8(max(0, min(127, p))), flatKey: flatKey))) }
+            }
+            if line.topLitResolved, poolCount - 1 < extended.count { pairs.append((extended[poolCount - 1] + oct12, "TOP")) }
+            if line.top2LitResolved {
+                let lo = max(1, poolCount) - 1
+                for i in [lo, poolCount - 1] where i >= 0 && i < extended.count { pairs.append((extended[i] + oct12, "TOP 2")) }
+            }
+            return pairs.sorted { $0.pitch < $1.pitch }.map { $0.label }
         }
-        if line.useRiffResolved {
-            // SHIFT wraps within LENGTH now, not the old literal 8 (melody pop-up ferry 2026-10-10).
-            let n = line.riffLengthResolved
-            let shift = ((line.riffRotateResolved % n) + n) % n
-            if shift != 0 { items.append("SHIFT \(shift)") }
-        }
-        let oct = line.useRiffResolved ? line.riffOctaveResolved : line.octaveResolved
-        if oct != 0 { items.append("OCT \(euclideousSigned(oct))") }
-        if line.useRiffResolved {
-            if line.riffLockResolved { items.append("LOCK") }
-            if line.riffInvertResolved { items.append("INV") }   // riffInvert — NOT the separate HIT/MISS swap toggle
-            if line.riffOnRestResolved != .skip { items.append(line.riffOnRestResolved == .fill ? "REST FILL" : "REST TIE") }
-            // STRIDE/LENGTH (melody pop-up ferry 2026-10-10 §5), after the existing riff items — WALK-
-            // section, RIFF-mode-only fields per §2's own table.
-            if line.riffStrideResolved != 1 { items.append("STRIDE \(line.riffStrideResolved)") }
-            if line.riffLengthResolved != 8 { items.append("LEN \(line.riffLengthResolved)") }
-        }
-        // TRANSPOSE (§5) applies in both modes — PLACEMENT isn't WALK-only, matching the pop-up's own
-        // layout. §5's own literal order is STRIDE·LEN·TRANS·ADV STEP, so TRANS lands here, between the
-        // two RIFF-only groups above and below, even though it isn't itself RIFF-gated.
+        // RIFF ON: today's items list (source already removed, per the 2026-10-12 ferry); the direction
+        // reads `euclideousRiffDirResolved` (DRUNK/RANDOM→FWD) so a legacy doc's display can't disagree
+        // with what the WALK row itself shows as lit.
+        var items: [String] = ["RIFF " + riffDirShortLabel(line.euclideousRiffDirResolved)]
+        let n = line.riffLengthResolved
+        let shift = ((line.riffRotateResolved % n) + n) % n
+        if shift != 0 { items.append("SHIFT \(shift)") }
+        if line.riffOctaveResolved != 0 { items.append("OCT \(euclideousSigned(line.riffOctaveResolved))") }
+        if line.riffLockResolved { items.append("LOCK") }
+        if line.riffInvertResolved { items.append("INV") }
+        if line.riffOnRestResolved != .skip { items.append(line.riffOnRestResolved == .fill ? "REST FILL" : "REST TIE") }
+        if line.riffStrideResolved != 1 { items.append("STRIDE \(line.riffStrideResolved)") }
+        if line.riffLengthResolved != 8 { items.append("LEN \(line.riffLengthResolved)") }
         if line.melodyTransposeResolved != 0 { items.append("TRANS \(euclideousSigned(line.melodyTransposeResolved))") }
-        // ADVANCE (§5, last in the ferry's own order) has no engine effect at all outside RIFF mode —
-        // gated here too, not shown as a dangling, inert setting in NOTE mode.
-        if line.useRiffResolved && line.riffAdvanceStepResolved { items.append("ADV STEP") }
+        if line.riffAdvanceStepResolved { items.append("ADV STEP") }
+        // " + n" (ferry §2, literal spacing): n = how many DISTINCT lit pitches sound alongside the riff
+        // note this hit, i.e. the lit-layer's own resolved set minus whatever coincides with the riff note
+        // itself — an honest best-effort DISPLAY count (the real dedup happens note-by-note in Router.swift;
+        // this reads the SAME live pool to stay consistent, not a second, disagreeing source).
+        let litCount = euclideousLitPitches(line).count
+        if litCount > 0 { items.append("+ \(litCount)") }
         return items
     }
     /// §3.2, literal: "never truncate in the middle of a word or show an ellipsis. If the line doesn't fit,
@@ -2864,6 +2950,11 @@ struct EuclideousPage: View {
     /// is the safe direction; erring generous is the one that reproduces this exact complaint.
     private func noteViewLabelText(_ line: EuclidLine, maxWidth: CGFloat) -> String {
         let items = noteViewLabelItems(line)
+        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): "nothing lit and riff off: NO
+        // NOTES" — `noteViewLabelItems`'s riff-off branch returns an empty list in exactly this case; the
+        // drop-items algorithm below has nothing to show for an empty list (it would silently produce ""),
+        // so this is handled explicitly, matching the note box's own identical silent state.
+        guard !items.isEmpty else { return "NO NOTES" }
         let charWidth: CGFloat = 10 * 0.6 * 1.15
         func estimate(_ s: String) -> CGFloat { CGFloat(s.count) * charWidth }
         func joined(_ n: Int) -> String {
@@ -3056,37 +3147,32 @@ struct EuclideousPage: View {
                 // plain scalar computation; moved to a bare (non-@ViewBuilder) function so ordinary
                 // imperative code works as expected.)
                 let brightness = noteViewBrightness(kind: ev.kind, onsetBeat: ev.onsetBeat, durationBeat: ev.durationBeat, liveBeat: liveBeat)
-                let names = noteViewStackedNames(ev.notes, flatKey: flatKey)
-                // §4.2, literal: "white, bold, VALUE TYPE SIZE" — this was wrongly drawn at `padHeadingSize`
-                // (10pt, this page's AXIS-LABEL size) instead of `padValueSize` (13pt, the page's own
-                // established "value type size" from the layout-system ferry) — a real mismatch against an
-                // explicit instruction, not a judgment call, caught only by re-reading the ferry's literal
-                // words again.
+                let (primary, plusN) = noteViewPrimaryPlusN(ev, flatKey: flatKey)
+                // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-page §1,
+                // literal: "the riff note at the current size [padValueSize]. If lit notes sound with it,
+                // add '+n' at 11pt" (riff on) / "the lowest sounding note plus '+n'" (riff off) — supersedes
+                // the prior ferry's own "up to 3 names stacked" rule (§4.6) entire, not layered on top of it.
                 VStack(spacing: 1) {
-                    ForEach(names.indices, id: \.self) { i in
-                        Text(names[i]).font(.system(size: padValueSize, weight: .heavy, design: .monospaced)).lineLimit(1)
-                    }
+                    if let primary { Text(primary).font(.system(size: padValueSize, weight: .heavy, design: .monospaced)).lineLimit(1) }
+                    if let plusN { Text(plusN).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1) }
                 }
-                // MISS-PLAYING's own outline style RETIRED 2026-10-10 (ferry §4.2: "every note shows in the
-                // normal note-box style") — `kind == 1` is no longer pushed by anything (its one push site,
-                // the old dual-voice miss branch, is gone from Router.swift), so this is now the only style.
                 .foregroundColor(.white).opacity(brightness)
             }
             // else: nothing — the constant #22252C box above, with no content, IS "an empty box."
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
-    /// §4.6, literal: up to 3 names stacked lowest-at-bottom; beyond 3, the top two plus "+n". Returned
-    /// TOP-TO-BOTTOM (index 0 renders first/topmost in the plain VStack above) — highest pitch first, so
-    /// the lowest (or, past 3, the "+n" summary) always lands last/bottom.
-    private func noteViewStackedNames(_ notes: [UInt8], flatKey: Bool) -> [String] {
-        guard !notes.isEmpty else { return [] }
-        let sorted = notes.sorted()   // ascending
-        if sorted.count <= 3 {
-            return sorted.reversed().map { euclideousNoteViewName($0, flatKey: flatKey) }
-        }
-        let topTwo = sorted.suffix(2).reversed().map { euclideousNoteViewName($0, flatKey: flatKey) }
-        return topTwo + ["+\(sorted.count - 2)"]
+    /// Elsewhere-on-page §1, literal: `ev.hasRiffNote` (Router.swift) tells us whether `ev.notes[0]` is
+    /// genuinely the riff's own resolved pitch for this hit — if so, it's the primary (riff on); otherwise
+    /// (riff off, or a FILL/degraded hit with no distinct riff pitch) the LOWEST sounding note is primary,
+    /// matching "riff off: the lowest sounding note" read literally even when riff happens to be on but
+    /// produced nothing of its own this hit. `plusN` is nil when there's nothing else sounding.
+    private func noteViewPrimaryPlusN(_ ev: Router.EuclideousNoteViewEventSnapshot, flatKey: Bool) -> (primary: String?, plusN: String?) {
+        guard !ev.notes.isEmpty else { return (nil, nil) }
+        let primaryPitch = ev.hasRiffNote ? ev.notes[0] : (ev.notes.min() ?? ev.notes[0])
+        let primary = euclideousNoteViewName(primaryPitch, flatKey: flatKey)
+        let n = ev.notes.count - 1
+        return (primary, n > 0 ? "+\(n)" : nil)
     }
 
     private func euclideousDragHUD(_ info: EuclidDragHUDInfo) -> some View {

@@ -188,6 +188,62 @@ final class EffectiveParamsTests: XCTestCase {
         let old = try JSONDecoder().decode(EuclidLine.self, from: json)
         XCTAssertEqual(old.melodyModeResolved, .riff, "the legacy useRiff:true still migrates correctly with no melodyMode key present at all")
     }
+    // LIT NOTES PLUS THE RIFF MIGRATION (Paul 2026-10-13, second same-day ferry — "Presets and parameters")
+    // — `litNotesResolved`/`topLitResolved`/`top2LitResolved`/`riffOnResolved` migrate from BOTH prior eras
+    // via the SAME already-tested `melodyModeResolved`/`noteSelResolved` chain, with no era-branching of
+    // their own (confirmed: era 2's own UI never produces the "any other value" case).
+    func testEuclidLineLitNotesMigratesFromAGenuinelyFreshLine() {
+        let fresh = EuclidLine(pulses: 3, steps: 8)
+        XCTAssertEqual(fresh.litNotesResolved, 0, "a genuinely untouched line has nothing lit")
+        XCTAssertFalse(fresh.topLitResolved); XCTAssertFalse(fresh.top2LitResolved)
+        XCTAssertTrue(fresh.riffOnResolved, "the ferry's own stated fresh-lane default: riff on")
+        XCTAssertFalse(fresh.litMigrationNeedsWarning)
+    }
+    func testEuclidLineLitNotesMigratesFromEra1UseRiffBool() {
+        var riffOn = EuclidLine(pulses: 3, steps: 8); riffOn.useRiff = true
+        XCTAssertEqual(riffOn.litNotesResolved, 0); XCTAssertTrue(riffOn.riffOnResolved)
+        var lowest = EuclidLine(pulses: 3, steps: 8); lowest.useRiff = false; lowest.noteSel = .low
+        XCTAssertEqual(lowest.litNotesResolved, 0b0000_0001, "LOWEST migrates to rank 1 lit")
+        XCTAssertFalse(lowest.riffOnResolved)
+        var noteN = EuclidLine(pulses: 3, steps: 8); noteN.useRiff = false; noteN.noteSel = .n5
+        XCTAssertEqual(noteN.litNotesResolved, 0b0001_0000, "note 5 migrates to rank 5 lit")
+        var highest = EuclidLine(pulses: 3, steps: 8); highest.useRiff = false; highest.noteSel = .high
+        XCTAssertTrue(highest.topLitResolved, "HIGHEST migrates to TOP lit"); XCTAssertEqual(highest.litNotesResolved, 0)
+        var ambiguous = EuclidLine(pulses: 3, steps: 8); ambiguous.useRiff = false; ambiguous.noteSel = .cycle
+        XCTAssertEqual(ambiguous.litNotesResolved, 0b0000_0001, "any other legacy value: 1 lit")
+        XCTAssertFalse(ambiguous.riffOnResolved)
+        XCTAssertTrue(ambiguous.litMigrationNeedsWarning, "and logged — the 'any other value' case needs the one-time migration warning")
+    }
+    func testEuclidLineLitNotesMigratesFromEra2MelodyModeField() {
+        var noteN = EuclidLine(pulses: 3, steps: 8); noteN.melodyMode = .note; noteN.noteSel = .n3
+        XCTAssertEqual(noteN.litNotesResolved, 0b0000_0100, "note 3 (era 2) migrates to rank 3 lit")
+        XCTAssertFalse(noteN.riffOnResolved)
+        var top2 = EuclidLine(pulses: 3, steps: 8); top2.melodyMode = .note; top2.noteSel = .top2
+        XCTAssertTrue(top2.top2LitResolved); XCTAssertFalse(top2.topLitResolved); XCTAssertEqual(top2.litNotesResolved, 0)
+        var riff = EuclidLine(pulses: 3, steps: 8); riff.melodyMode = .riff
+        XCTAssertEqual(riff.litNotesResolved, 0); XCTAssertTrue(riff.riffOnResolved)
+        XCTAssertFalse(riff.litMigrationNeedsWarning, "era 2's own UI never produces the 'any other value' case")
+    }
+    func testEuclidLineLitNotesExplicitFieldsAlwaysWinOverLegacy() {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.useRiff = true           // legacy says riff on, nothing lit
+        line.litNotes = 0b0000_0010   // explicit: rank 2 lit
+        line.riffOn = false           // explicit: riff off
+        XCTAssertEqual(line.litNotesResolved, 0b0000_0010, "the explicit field wins outright over a disagreeing legacy useRiff")
+        XCTAssertFalse(line.riffOnResolved)
+    }
+    // EUCLIDEOUS-SCOPED DRUNK/RANDOM→FWD (Paul 2026-10-13 ferry, Presets rule 1: "the stored direction
+    // carries over. DRUNK becomes FWD") — scoped to Euclideous's own reader; the SHARED `riffDirResolved`
+    // (used by the unrelated generic chain RIFF processor) must stay fully untouched.
+    func testEuclideousRiffDirResolvedCoercesDrunkAndRandomToForward() {
+        var drunk = EuclidLine(pulses: 3, steps: 8); drunk.riffDir = .drunk
+        XCTAssertEqual(drunk.euclideousRiffDirResolved, .forward)
+        XCTAssertEqual(drunk.riffDirResolved, .drunk, "the SHARED accessor is untouched — still serves the generic chain RIFF processor's own DRUNK")
+        var random = EuclidLine(pulses: 3, steps: 8); random.riffDir = .random
+        XCTAssertEqual(random.euclideousRiffDirResolved, .forward)
+        var fwd = EuclidLine(pulses: 3, steps: 8); fwd.riffDir = .reverse
+        XCTAssertEqual(fwd.euclideousRiffDirResolved, .reverse, "every other direction passes through unchanged")
+    }
     // RIFF DIRECTION, PER-LANE (Paul 2026-10-07): moved off the shared EuclideousRiff struct onto EuclidLine
     // itself — "the back/forward, drunk controls should be per lane, not on the riff control."
     func testEuclidLineRiffDirDefaultsForwardAndBiasClamps() {

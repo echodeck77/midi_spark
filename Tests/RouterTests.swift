@@ -5546,14 +5546,20 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ev.kind, 0)
         XCTAssertEqual(ev.notes, [UInt8(74)], "60 (held) + transpose(2) + 12×octave(1) = 74 — the EXACT pitch strikeOne's own n = rawNote+transpose+12*octave sends, per §5.3")
     }
-    func testEuclideousNoteViewFillUsesTheLanesPlainOctaveNotRiffOctave() {
+    // RETIRED/REWRITTEN (Paul 2026-10-13, "lit notes plus the riff" ferry — the 2nd same-day ferry): FILL no
+    // longer resolves ANY distinct riff-layer pitch at all (Q1's resolution: "nothing extra — lit notes
+    // only") — the old `noteSel`-driven "FILL uses the lane's own plain NOTE/OCT pick" mechanism this test
+    // exercised is gone entirely, superseded by the lit-notes layer. Renamed + rewritten to the new, still-
+    // meaningful claim: a FILL-rest hit sounds exactly the lit note(s), at THEIR OWN `octave` — completely
+    // independent of `riffOctave`, which no longer has anything to contribute on a FILL tick.
+    func testEuclideousNoteViewFillSoundsOnlyTheLitNoteAtItsOwnOctave() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])   // always a rest
         // sourceMode: .midi explicit — the melody pop-up ferry (2026-10-10 §2.2) flipped the nil-default
         // to KEY; this test is about octave handling, not source mode, so pin MIDI to keep reading the
         // held chord directly, unaffected by the default change.
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, octave: 2,
-                                             useRiff: true, riffOctave: -1, sourceMode: .midi, riffOnRest: .fill)]
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, octave: 2,
+                                             useRiff: false, litNotes: 0b0000_0001, riffOn: true, riffOctave: -1, sourceMode: .midi, riffOnRest: .fill)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
@@ -5562,9 +5568,120 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()
-        guard let ev = events[0].first else { return XCTFail("FILL should post a normal hit event (§4.5)") }
+        guard let ev = events[0].first else { return XCTFail("FILL should post a normal hit event — the lit note sounds") }
         XCTAssertEqual(ev.kind, 0, "FILL shows as a normal hit, not a rest-flash")
-        XCTAssertEqual(ev.notes, [UInt8(84)], "60 + 12×octave(2) = 84 — FILL uses the line's own plain octave; if riffOctave(-1) were wrongly used instead this would be 48")
+        XCTAssertEqual(ev.notes, [UInt8(84)], "60 + 12×octave(2) = 84 — the lit note's own octave; riffOctave(-1) contributes nothing on a FILL tick (no distinct riff pitch exists anymore)")
+        XCTAssertFalse(ev.hasRiffNote, "FILL never produces a distinct riff pitch — notes[0] is the lit note, not a riff note")
+    }
+    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry) — Acceptance scenarios, each a
+    // direct engine-level proof of the ferry's own literal worked examples.
+    func testEuclideousLitNotesSoundEveryHitWithRiffOff() {
+        // Acceptance 1: "Notes only: light C3 and G3 with the riff off. Every hit plays C3 and G3."
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, useRiff: false, litNotes: 0b0000_0011, riffOn: false, sourceMode: .midi)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([48, 55, 60]), beats: 2, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [48, 55], "both lit ranks (1→C3/48, 2→G3/55) sound every hit; the un-lit rank 3 (60) never strikes")
+    }
+    func testEuclideousRiffAndLitNoteDedupToOneStrikeWhenPitchesCoincide() {
+        // Acceptance 2: "Riff added: tap FWD. Every hit plays C3, G3 and the riff note. Where the riff
+        // note is C3 or G3, that pitch sounds once."
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1 → pool[0] → 48 (C3), coincides with the lit rank-1 button
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: false, litNotes: 0b0000_0011, riffOn: true, sourceMode: .midi)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([48, 55, 60]), beats: 1, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        XCTAssertEqual(Set(ons), [48, 55], "the merged set is {48,55} — the riff's own rank-1 pitch coincides with the lit rank-1 pitch")
+        XCTAssertEqual(ons.filter { $0 == 48 }.count, 1, "the coincident pitch gets exactly ONE note-on, not two")
+    }
+    func testEuclideousNothingLitAndRiffOffIsCompletelySilent() {
+        // Acceptance 7: "Silent lane: unlight everything with the riff off. The lane is silent..."
+        var c = Machine(machineID: "gold", type: .euclid)
+        // litNotes EXPLICITLY 0 (not left nil) — a bare `useRiff: false` with no further fields migrates
+        // `noteSelResolved` to its own `.all` fallback (pick==nil⇒.all), which `litMigrated`'s own "any
+        // other value" branch turns into "1 lit, logged" — the genuinely-fresh "nothing lit" shortcut only
+        // applies when NOTHING, including useRiff, has ever been touched (confirmed by reading `litMigrated`'s
+        // own guard) — explicit fields are the honest way to request "nothing lit" from a touched line.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, useRiff: false, litNotes: 0, riffOn: false, sourceMode: .midi)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 2, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "nothing lit, riff off — the lane never strikes at all")
+    }
+    func testEuclideousOctaveRaisesBothLayers() {
+        // Acceptance 8, first half: "OCT +1 raises both layers."
+        func notesStruck(octave: Int, riffOctave: Int) -> Set<Int> {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, octave: octave, useRiff: false, litNotes: 0b0000_0010, riffOn: true, riffOctave: riffOctave, sourceMode: .midi)]
+            let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        }
+        XCTAssertEqual(notesStruck(octave: 0, riffOctave: 0), [60, 64], "riff rank1→60, lit rank2→64, no shift")
+        XCTAssertEqual(notesStruck(octave: 1, riffOctave: 1), [72, 76], "OCT +1 raises BOTH the riff pitch and the lit pitch by exactly one octave")
+    }
+    func testEuclideousTransposeMovesOnlyTheRiffPitch() {
+        // Acceptance 8, second half: "TRANS +2 moves only the riff note" (here +1, for a cleaner coincidence check).
+        func notesStruck(transpose: Int) -> Set<Int> {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: false, litNotes: 0b0000_0010, riffOn: true, sourceMode: .midi, melodyTranspose: transpose)]
+            let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        }
+        XCTAssertEqual(notesStruck(transpose: 0), [60, 64], "riff rank1→60, lit rank2→64")
+        XCTAssertEqual(notesStruck(transpose: 1), [64], "TRANS +1 moves the riff from rank1(60) to rank2(64) — now coinciding with the UNMOVED lit pitch (still rank2/64), deduping to one note; the lit pitch itself never moved")
+    }
+    func testEuclideousStuckNoteStressRapidLitOctaveRiffToggling() {
+        // Acceptance 10: "Stuck-note stress test: toggle notes, OCT and the riff rapidly... No notes are
+        // left hanging." Drives the SAME router instance through many consecutive renders, flipping
+        // litNotes/octave/riffOn between every call — mirrors this file's own established mid-session-
+        // parameter-change technique (see testEuclideousRiffLengthShrinkMidSessionConfinesNotesToTheNew
+        // Window's identical `runKeepingRouter` + repeated `router.process()` shape).
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func lineFor(_ tick: Int) -> EuclidLine {
+            let lit = UInt8(1 << (tick % 8))
+            return EuclidLine(target: 0, pulses: 1, steps: 1, octave: (tick % 5) - 2, rate: .r1_32,
+                               useRiff: false, litNotes: lit, riffOn: tick % 2 == 0, riffOctave: (tick % 3) - 1,
+                               sourceMode: .midi, riffLength: 8, melodyTranspose: tick % 4)
+        }
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [lineFor(0)]
+        let box0 = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        let router = runKeepingRouter(box0, chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
+        var diag = KernelDiag()
+        var beat = 0.2, ts = 0.2 / tempo * 60.0 * sr
+        for tick in 1...60 {
+            c.paramsA.euclidLines = [lineFor(tick)]
+            let box1 = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]) }
+            router.process(box: box1, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]) },
+                       pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
     }
     func testEuclideousNoteViewRiffRealRankFoldsRiffOctaveOnceNotTwice() {
         var c = Machine(machineID: "gold", type: .euclid)
@@ -5845,22 +5962,31 @@ final class RouterTests: XCTestCase {
     // the whole row" comment) — both formulas read the SAME `cyc`, so if they're both genuinely "1 bar" the
     // two must produce byte-identical onset counts regardless of what `cyc` numerically is.
     func testEuclideousResetSpanOneBarReAnchorsThePatternEveryBar() {
+        // WITNESS MECHANISM REWRITTEN (Paul 2026-10-13, "lit notes plus the riff" ferry): `noteSel: .cycle`
+        // is no longer reachable from Euclideous's own melody resolution (lit notes/riffOn have replaced it
+        // entire) — the original witness technique ("read the engine's own evolving `ord` via which pool
+        // rank sounds") is still exactly what this test needs, just reached through the RIFF layer's FWD
+        // walk instead: for HIT-mode advance (default) on an un-LOCKed (FREE, default) lane, `advOrd == ord`
+        // precisely (confirmed by reading `runEuclidLine`'s own `advOrd` formula) — an 8-step shared riff
+        // pattern `[1,2,3,4,5,6,7,8]` makes `rank = (ord mod 8) + 1`, the SAME shape `.cycle`'s own
+        // `resolveEuclidPick` used to produce, so this remains a faithful, equivalent proof of reset-span's
+        // effect on `ord` — not a weaker substitute.
+        //
         // K=3,N=5 (cycleLen=5 ticks=2.5 beats at rate=r1_8) deliberately does NOT evenly divide the 8-tick/
         // 4-beat bar (stepRate=r1_8, Snap.cols=8) — a 4-of-8 pattern (this file's own usual go-to) ALREADY
         // naturally repeats every bar even with span OFF (8 ticks/cycle happens to equal 1 bar exactly), which
         // would make span's own effect invisible by construction, not absent — caught empirically while
-        // building this test (the first draft used 4-of-8 and couldn't tell the two cases apart). noteSel:
-        // .cycle strikes a DIFFERENT pool-rank note each hit, keyed directly on `ord` — the SAME "read the
-        // engine's own state from which note sounds" technique the DRUNK test above uses, here applied to the
-        // plain (non-riff) ordinal. A first attempt compared raw onset COUNTS between one bar and two bars —
-        // wrong: a steady process doubles its count over double the time regardless of phase-alignment, so
-        // count alone can't distinguish "replays exactly" from "merely as dense." Comparing the actual
-        // SEQUENCE of struck pool-ranks is the real proof.
+        // building this test (the first draft used 4-of-8 and couldn't tell the two cases apart). A first
+        // attempt compared raw onset COUNTS between one bar and two bars — wrong: a steady process doubles its
+        // count over double the time regardless of phase-alignment, so count alone can't distinguish "replays
+        // exactly" from "merely as dense." Comparing the actual SEQUENCE of struck pool-ranks is the real proof.
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         func cyclePicksStruck(resetSpanBars: Int, beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             // sourceMode: .midi explicit — the melody pop-up ferry (2026-10-10 §2.2) flipped the nil-default to KEY.
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, noteSel: .cycle, rate: .r1_8, sourceMode: .midi)]
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+                                                 useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
                                       s.stepRate = .r1_8
@@ -6645,12 +6771,15 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ev.rank, 1, "the pool-rank struck at that step, post-INVERT/MIRROR but pre-TRANSPOSE/OCT — rank 1, untouched by either")
     }
     func testEuclideousNoteViewWipeTelemetryIsAbsentForMuteAndPauseButPresentForFill() {
-        // FILL posts a normal hit (kind 0) and — since the 2026-10-12 riff-grid-markers ferry — DOES now
-        // carry a wipe/marker-eligible column/rank (the rest column it landed on + its own struck pool
-        // index, so the riff-grid marker has a row to draw a FILL-on-rest marker at).
+        // REWRITTEN (Paul 2026-10-13, "lit notes plus the riff" ferry): FILL no longer resolves a distinct
+        // riff-layer pitch at all (Q1) — "the riff position actually read" that the old wipe telemetry used
+        // to point at doesn't exist for a FILL tick anymore (there's no riff rank, just the lit notes sounding
+        // on their own). Wipe/marker telemetry is now ABSENT for FILL too, matching MUTE/PAUSE — the riff
+        // grid only ever marks a GENUINE riff-rank strike (ferry "Riff grid markers": "these show only the
+        // riff").
         var fillC = Machine(machineID: "gold", type: .euclid)
         fillC.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])   // always a rest
-        fillC.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, useRiff: true, sourceMode: .midi, riffOnRest: .fill)]
+        fillC.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: false, litNotes: 0b0000_0001, riffOn: true, sourceMode: .midi, riffOnRest: .fill)]
         let fillSt = PluginState(machines: machineIDs.map { $0 == "gold" ? fillC : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
                                       s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
@@ -6658,10 +6787,10 @@ final class RouterTests: XCTestCase {
         let fillE = RecordingEmitter()
         let fillRouter = runKeepingRouter(SnapshotBuilder.build(from: fillSt), chord([60]), beats: 1, into: fillE, forceColumn: 0)
         let fillEvents = fillRouter.drainEuclideousNoteViewEvents()[0]
-        guard let fillEv = fillEvents.first else { return XCTFail("FILL should post a normal hit event") }
+        guard let fillEv = fillEvents.first else { return XCTFail("FILL should post a normal hit event — the lit note sounds") }
         XCTAssertEqual(fillEv.kind, 0)
-        XCTAssertEqual(fillEv.column, 0, "the always-rest column (steps:1) the walk landed on")
-        XCTAssertEqual(fillEv.rank, 1, ".low against a 1-note pool struck pool index 0, 1-based rank 1")
+        XCTAssertEqual(fillEv.column, -1, "FILL has no genuine riff pitch to mark a grid row for anymore")
+        XCTAssertEqual(fillEv.rank, -1)
 
         // MUTE / PAUSE both silence the masked tick entirely — no NOTE VIEW event is posted for it at all.
         func maskedTickEventCount(mode: MaskMode) -> Int {
@@ -6682,6 +6811,35 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertEqual(maskedTickEventCount(mode: .mute), 1, "MUTE: only the unmasked tick posts — the masked one posts nothing at all")
         XCTAssertEqual(maskedTickEventCount(mode: .pause), 1, "PAUSE: same — the paused tick posts nothing at all")
+    }
+    func testEuclideousMaskRepeatHoldReplaysTheWholeMergedSetNotJustOneNote() {
+        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second ferry) — REPEAT's cache widens to the WHOLE
+        // merged pitch set (riff note + lit notes), not just one note. Mirrors
+        // testEuclideousNoteViewWipeTelemetryRepeatHoldContinuationHasNoColumnButItsOwnTriggerDoes's own
+        // K=1/N=2/ROTATE=1 mask shape + repeatCount=2 exactly (tick1 genuine/primes cache, tick2 the masked
+        // REPEAT TRIGGER, tick3 the one armed HOLD CONTINUATION — all 3 ticks land inside this run's own
+        // 1.1-beat window), with a lit note added on top of the riff so the cache is 2 pitches wide.
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 2, 3])
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 1; m.steps = 2; m.rotate = 1; m.chance = 1.0
+        m.mode = .repeatNote; m.repeatCount = 2
+        // litNotes bit 2 (rank 3, pool[2]=64) is lit throughout — distinct from whichever riff rank is
+        // sounding at each tick, so the merged set is always {riff pitch, 64}, never coinciding.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: false, litNotes: 0b0000_0100, riffOn: true, mask: m, sourceMode: .midi)]
+        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
+        let events = router.drainEuclideousNoteViewEvents()[0]
+        XCTAssertEqual(events.count, 3, "3 real ticks, each posting exactly one combined event")
+        guard events.count == 3 else { return }
+        // repeatCount=2 arms exactly ONE further hold step after the trigger — with only 3 real ticks in
+        // this run, tick 3 is that hold CONTINUATION (bypasses the mask/riff pipeline entirely, per the
+        // sibling wipe-telemetry test above), not a resumed live tick — so all three ticks replay the
+        // IDENTICAL cached set from tick 1, not a progression.
+        XCTAssertEqual(Set(events[0].notes), [60, 64], "tick 1, unmasked: riff rank1(60) + lit rank3(64) — primes the cache")
+        XCTAssertEqual(Set(events[1].notes), [60, 64], "tick 2, the masked REPEAT trigger: replays the WHOLE cached set from tick 1, not just one note")
+        XCTAssertEqual(Set(events[2].notes), [60, 64], "tick 3, the hold CONTINUATION (repeatCount=2's one armed extra step): still replays the same widened cache")
     }
     func testEuclideousNoteViewWipeTelemetryRepeatHoldContinuationHasNoColumnButItsOwnTriggerDoes() {
         var c = Machine(machineID: "gold", type: .euclid)

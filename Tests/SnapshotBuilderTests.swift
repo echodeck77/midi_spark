@@ -707,6 +707,22 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(clamped.euclidLines[0].riffLengthResolved, 8)
         XCTAssertEqual(clamped.euclidLines[0].melodyTransposeResolved, 7)
     }
+    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): `litNotes`/`topLit`/`top2Lit`/
+    // `riffOn` must ALSO survive the fresh-literal reconstruction — the exact regression class this file
+    // keeps guarding for. `melodyMode` is included too: a direct read confirmed it was MISSING from this
+    // reconstruction entirely (a real, pre-existing gap from the just-shipped MELODY tab, closed here
+    // alongside adding these four new fields, so neither ferry's own mode/lit-notes state silently resets
+    // on the very next snapshot rebuild).
+    func testEuclidLineLitNotesRiffOnAndMelodyModeSurviveSnapshotBuild() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, melodyMode: .riff, litNotes: 0b0010_0101, topLit: true, top2Lit: true, riffOn: true)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(a.euclidLines[0].litNotesResolved, 0b0010_0101, "the lit-rank bitmask must survive the resolve, not silently reset")
+        XCTAssertTrue(a.euclidLines[0].topLitResolved, "TOP lit must survive the resolve")
+        XCTAssertTrue(a.euclidLines[0].top2LitResolved, "TOP2 lit must survive the resolve")
+        XCTAssertTrue(a.euclidLines[0].riffOnResolved, "the explicit riffOn must survive the resolve, not fall back to migration")
+        XCTAssertEqual(a.euclidLines[0].melodyModeResolved, .riff, "melodyMode (the migration source for an era-2 doc) must also survive — found MISSING from the fresh-literal reconstruction entirely before this fix")
+    }
     // RHYTHM CARDS / MISS-AS-INVERT (Paul 2026-10-10 ferry): `patternMiss` must ALSO survive the fresh-
     // literal reconstruction — the same standing regression class, now exercised for this field. The 4
     // shared `missNoteSel`/etc. fields (untouched by this ferry, still serving the regular, non-Euclideous

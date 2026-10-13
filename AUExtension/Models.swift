@@ -257,7 +257,79 @@ struct EuclidLine: Codable, Equatable {
     // actually read for "which mode is this lane in" (see `EuclideousMelodyMode`'s own doc comment and
     // `melodyModeResolved` below). `useRiff` is kept, decode-only, purely as this migration's source of old
     // data — never read directly for mode again.
+    //
+    // SUPERSEDED, same day, by the "lit notes plus the riff" ferry below (`litNotes`/`topLit`/`top2Lit`/
+    // `riffOn`): `melodyMode` is now ITSELF decode-only — kept, unread by anything but `litMigrated`'s own
+    // migration formula, since a two-case enum can't represent "some notes lit AND the riff on," which this
+    // ferry's own additive model requires. `melodyModeResolved`/`useRiffResolved` stay too, read ONLY by
+    // that same migration formula — nothing else in Router.swift/EuclideousPage.swift reads either again.
     var melodyMode: EuclideousMelodyMode? = nil
+    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry — "This amends [the MELODY tab]
+    // instructions; where they conflict, this wins... replaces: the one-choice-at-a-time behaviour"). Each
+    // lane now has TWO INDEPENDENT, ADDITIVE layers instead of one mutually-exclusive mode: any number of
+    // the eight note buttons (`litNotes`, a bitmask, bit i = rank i+1) plus TOP/TOP2 can be lit AT THE SAME
+    // TIME the riff is on — both layers sound together on a hit where the riff resolves a real note.
+    //
+    // `riffOn` is the new, GENUINELY INDEPENDENT source of truth for "is the riff on" — not a re-derivation
+    // of `melodyMode` (which can only ever say "note" XOR "riff"). nil on all four ⇒ migrate via
+    // `litMigrated` below; the ferry's own stated fresh-lane default ("nothing lit, riff on, FWD") is
+    // `litMigrated`'s own fallback when NONE of melodyMode/useRiff/noteSel/target/pick were ever touched.
+    var litNotes: UInt8? = nil
+    var topLit: Bool? = nil
+    var top2Lit: Bool? = nil
+    var riffOn: Bool? = nil
+    /// Migration, computed once: reuses the EXISTING, already-correct `melodyModeResolved`/`noteSelResolved`
+    /// (each already collapses BOTH prior eras — the pre-MELODY-tab `useRiff`-bool era and the just-shipped
+    /// `melodyMode`-enum era — into one final value apiece) rather than re-deriving a field-presence
+    /// priority chain by hand. Since the just-shipped MELODY tab's own UI only ever wrote `noteSel` to
+    /// `.n1...n8`/`.high`/`.top2` (confirmed by reading `melodyNotesRow`/`melodyOctaveRow` before this ferry
+    /// retired them), it can never reach the `default` branch below — so ONE flat mapping, with no explicit
+    /// era-branching, satisfies both of the ferry's own literal Presets tables simultaneously: era 1's
+    /// "LOWEST: 1 lit / HIGHEST: TOP lit / note n: n lit / any other value: 1 lit, logged" and era 2's
+    /// "note n: n lit / TOP or TOP2: that one lit / RIFF: nothing lit, riff on" collapse to the identical
+    /// switch, because era 2 structurally never produces the "any other value" case.
+    // RENDER-THREAD SAFETY (caught on review, before this ever ran: `EuclidLine` is carried wholesale into
+    // `SnapParams`/`Snap` and its own `...Resolved` accessors — THIS ONE INCLUDED — are read directly inside
+    // `Router.process()`, i.e. on the AUDIO thread, via `L.litNotesResolved` etc. at the `runEuclidLine` call
+    // site. A `FileHandle.standardError.write` call reachable from here would be a genuine syscall on the
+    // render path — this computed property is therefore PURE (no I/O, no side effects) by construction; it
+    // returns a `warn` flag instead of logging directly. The actual log line is written exactly once per
+    // resolve, on the MAIN thread only, inside `SnapshotBuilder.build()` — see its own call site, mirroring
+    // the pre-existing `euclideousNoteSourceResolved` precedent (also PluginState-level, also main-thread-
+    // only) exactly.
+    private var litMigrated: (lit: UInt8, top: Bool, top2: Bool, riffOn: Bool, warn: Bool) {
+        // A genuinely fresh, never-touched lane must resolve to the ferry's own stated default ("nothing
+        // lit, riff on, FWD"), not fall into the switch below — `melodyModeResolved`/`noteSelResolved`
+        // would otherwise read `.note`/their own `default` ("ALL"-shaped) fallback for a lane that has
+        // NEVER had any of these fields touched, which would wrongly migrate it to "1 lit, logged."
+        guard melodyMode != nil || useRiff != nil || noteSel != nil || target != 0 || pick != nil else {
+            return (0, false, false, true, false)
+        }
+        if melodyModeResolved == .riff { return (0, false, false, true, false) }
+        switch noteSelResolved {
+        case .low: return (0b0000_0001, false, false, false, false)   // "LOWEST: 1 lit" (era 1) == N1
+        case .high: return (0, true, false, false, false)
+        case .top2: return (0, false, true, false, false)
+        case .n1, .n2, .n3, .n4, .n5, .n6, .n7, .n8:
+            let r = noteSelResolved.specificRank ?? 1
+            return (UInt8(1 << (r - 1)), false, false, false, false)
+        default:
+            // ALL/CYCLE/RANDOM/BOT2/RIFF/ARP — only reachable from a pre-MELODY-tab doc (era 2's own UI
+            // never wrote these) — "any other value: 1 lit, and logged" (era 1's own literal wording).
+            return (0b0000_0001, false, false, false, true)
+        }
+    }
+    var litNotesResolved: UInt8 { litNotes ?? litMigrated.lit }
+    var topLitResolved: Bool { topLit ?? litMigrated.top }
+    var top2LitResolved: Bool { top2Lit ?? litMigrated.top2 }
+    var riffOnResolved: Bool { riffOn ?? litMigrated.riffOn }
+    /// True exactly when none of `litNotes`/`topLit`/`top2Lit`/`riffOn` have been explicitly set AND the
+    /// legacy migration landed on the "unexpected value" branch — i.e. this lane genuinely needs the
+    /// one-time migration warning. Read ONLY by `SnapshotBuilder.build()`, on the main thread — never by
+    /// Router.swift. Pure (no I/O), same reasoning as `litMigrated` itself.
+    var litMigrationNeedsWarning: Bool {
+        litNotes == nil && topLit == nil && top2Lit == nil && riffOn == nil && litMigrated.warn
+    }
     var riffRotate: Int? = nil
     var riffOctave: Int? = nil
     // RIFF DIRECTION, PER-LANE (Paul 2026-10-07: "the back/forward, drunk controls should be per lane, not on
@@ -401,6 +473,17 @@ struct EuclidLine: Codable, Equatable {
     // OCT RANGE −2…+2 (ferry "Engine" rule 4 — was ±3).
     var riffOctaveResolved: Int { max(-2, min(2, riffOctave ?? 0)) }
     var riffDirResolved: RiffDir { riffDir ?? .forward }
+    // EUCLIDEOUS-SCOPED DRUNK/RANDOM→FWD (Paul 2026-10-13 ferry, Presets rule 1: "the stored direction
+    // carries over. DRUNK becomes FWD"). `riffDir`/`RiffDir` are SHARED with the unrelated generic chain
+    // RIFF processor, which still reaches DRUNK/RANDOM fully live — this override sits BESIDE the shared
+    // `riffDirResolved`, read only by Euclideous's own engine/UI call sites, mirroring the exact precedent
+    // `octaveResolved`'s own doc comment already establishes (a Euclideous-only range narrowing applied at
+    // the call site, never at the shared accessor). RANDOM was already excluded from Euclideous's own WALK
+    // row by an earlier ferry; included here too so a hand-edited doc can't reach it either.
+    var euclideousRiffDirResolved: RiffDir {
+        let d = riffDirResolved
+        return (d == .drunk || d == .random) ? .forward : d
+    }
     var riffDirSeedResolved: Int { riffDirSeed ?? 0 }
     var riffDirBiasResolved: Double { max(-1, min(1, riffDirBias ?? 0)) }
     var maskResolved: EuclidLineMask { mask ?? EuclidLineMask() }
@@ -454,6 +537,10 @@ extension EuclidLine {
         emitterMask = try c.decodeIfPresent(UInt8.self, forKey: .emitterMask)
         useRiff = try c.decodeIfPresent(Bool.self, forKey: .useRiff)
         melodyMode = try c.decodeIfPresent(EuclideousMelodyMode.self, forKey: .melodyMode)
+        litNotes = try c.decodeIfPresent(UInt8.self, forKey: .litNotes)
+        topLit = try c.decodeIfPresent(Bool.self, forKey: .topLit)
+        top2Lit = try c.decodeIfPresent(Bool.self, forKey: .top2Lit)
+        riffOn = try c.decodeIfPresent(Bool.self, forKey: .riffOn)
         riffRotate = try c.decodeIfPresent(Int.self, forKey: .riffRotate)
         riffOctave = try c.decodeIfPresent(Int.self, forKey: .riffOctave)
         riffDir = try c.decodeIfPresent(RiffDir.self, forKey: .riffDir)
@@ -2125,6 +2212,12 @@ struct PluginState: Codable, Equatable {
                                        // nil->.key fallback, so this default reads correctly even if that
                                        // fallback is ever revised for an unrelated reason.
         x.useRiff = true
+        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, 2nd same-day ferry) — "Default for every lane: nothing
+        // lit, riff on, FWD," realized explicitly here rather than left to the migration fallback: `riffOn`
+        // resolves correctly either way (`useRiff = true` above already drives `litMigrated` to the same
+        // `(0,false,false,true)` result), but setting it directly keeps this factory's own intent legible
+        // without needing to trace through the legacy-migration chain to see what it produces.
+        x.riffOn = true
         x.riffDir = .forward
         switch i {
         case 0: x.pulses = 3; x.steps = 8; x.rate = .r1_8

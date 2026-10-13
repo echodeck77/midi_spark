@@ -196,6 +196,170 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "lit notes plus the riff," the MELODY tab's own mutually-exclusive mode model
+  REPLACED by two independent, additive layers (2026-10-13, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1360 green incl. +12/-4, iOS builds clean). A
+  fully-specified ferry ("Claude Code: lit notes plus the riff on the MELODY tab (ratified)"), planned
+  first (EnterPlanMode, a background Explore agent mapping the riff engine's own call sites, 2
+  AskUserQuestion rounds settling the ferry's own 2 disclosed ambiguities before any code: FILL's
+  substitute pitch on a rest → "nothing extra, lit notes only" (the hit still counts as the "note"
+  outcome for walk/footer/TIE purposes, just with no distinct riff pitch to show); mask modes beyond
+  the ferry's explicit RATCHET/MUTE/PAUSE/CHORD rules → MIRROR/LEAP/CLIMB stay riff-rank-only, OCT/
+  ACCENT/SWELL generalize to the whole merged hit). **THE MODEL FLIP:** the just-shipped MELODY tab
+  (`21a5091`) made NOTE and RIFF mutually exclusive — tapping a note button silenced the riff, tapping
+  any riff control silenced the note pick. This ferry supersedes that entire behaviour: **lit notes**
+  (any of 8 rank buttons + TOP + TOP2, including none) and **the riff** (on/off, one direction when on)
+  become two fully independent, ADDITIVE layers that can sound together on the same hit — "a chord
+  under a moving line" becomes directly buildable for the first time. **MODEL (Models.swift):** 4 new
+  additive-Optional `EuclidLine` fields — `litNotes: UInt8?` (bit *i* = rank *i+1* lit), `topLit`/
+  `top2Lit: Bool?`, `riffOn: Bool?` — each threaded through the CR-8 decoder and, after a background
+  Plan agent independently CONFIRMED it by direct reading before I accepted the finding, through
+  `SnapshotBuilder.swift`'s fresh-literal `EuclidLine(...)` reconstruction (the standing "every field
+  must be threaded through here or it silently resets each render" hazard this file's own history keeps
+  naming — and in THIS pass that same audit caught a genuinely PRE-EXISTING bug from the PRIOR MELODY-
+  tab ferry: `melodyMode` itself had NEVER been threaded through that reconstruction, meaning the just-
+  shipped RIFF-mode toggle may have had zero audible effect in production this whole time; fixed
+  alongside the 4 new fields, with its own dedicated regression test). **MIGRATION, one flat formula
+  covering BOTH prior eras at once** (`litMigrated`, a private computed property): reuses the ALREADY-
+  correct `melodyModeResolved`/`noteSelResolved` accessors (which already collapse the pre-MELODY-tab
+  `useRiff`-bool era AND the just-shipped `melodyMode`-enum era into one final value apiece) rather than
+  re-deriving era-priority by hand — `.riff` mode → nothing lit, riff on; `.low`→1 lit (N1); `.high`→TOP
+  lit; `.top2`→TOP2 lit; `.n1...n8`→that rank lit; any other legacy value (reachable only from a
+  genuinely old, pre-MELODY-tab doc, since era 2's own UI never wrote them) → 1 lit, with a LOGGED
+  warning — moved OFF the render-thread-reachable `EuclidLine` accessor entirely (caught before
+  shipping: `EuclidLine`'s resolved accessors ARE called directly from Router.swift's render loop, so
+  the first draft's inline `FileHandle.standardError.write` was a genuine audio-thread I/O violation)
+  and relocated to a new, main-thread-only block inside `SnapshotBuilder.build()` that walks
+  `doc.euclideousLinesResolved` once per publish and logs there instead — mirroring the pre-existing,
+  confirmed-safe `euclideousNoteSourceResolved` precedent (a `PluginState`-level accessor, never
+  embedded on the render path). A genuinely FRESH, never-touched lane is special-cased separately (none
+  of `melodyMode`/`useRiff`/`noteSel`/`target`/`pick` ever set) to land on the ferry's own literal
+  fresh-lane default (nothing lit, riff on, FWD) rather than falling through to the "any other value,
+  logged" branch. **DRUNK/RANDOM→FWD, Euclideous-scoped only:** new `EuclidLine.
+  euclideousRiffDirResolved` coerces DRUNK/RANDOM to FWD for every Euclideous-side reader (the Router
+  call site, the walk row, the reachable-ranks call, the riff-grid marker prediction, the footer
+  prediction) — the SHARED `riffDirResolved`/`RiffDir` enum is completely untouched, still serving the
+  unrelated generic chain RIFF processor's own live DRUNK/RANDOM, confirmed via the same scoped-override
+  pattern this file already established for `octaveResolved`'s own ±2 clamp. **ENGINE (Router.swift,
+  `runEuclidLine`), the real restructuring:** everything BEFORE the old `if useRiff{}` fork (pattern
+  generation, the `isEuclideousRow` guard, NOTE VIEW timing, the velocity-0 kill-switch, the REPEAT-
+  hold-continuation early return, the walk-advance, the mask ordinal/CHANCE roll, PAUSE's own hard
+  early-return) is completely unaffected — confirmed these already sit in this exact order ahead of any
+  mode-specific logic, so "PAUSE/MUTE apply to the whole hit" and "the walk advances exactly as today"
+  fall out for free once the fork itself is replaced. A brand NEW `if isEuclideousRow {}` branch is
+  inserted directly BEFORE the old `if useRiff {}` block — which is left 100% byte-identical underneath
+  it, unreachable for Euclideous's own row but still serving every ordinary, non-Euclideous BUILD-page
+  EUCLID cell and any hand-edited doc with `useRiff=true` at a plain row (an architectural necessity:
+  `riffOnResolved`'s migration fallback for a genuinely untouched line resolves to `true` per the
+  ferry's own fresh-lane default — running the new pipeline unconditionally for every row would have
+  silently broken the regular processor's default behaviour). **THE UNIFIED PER-HIT PIPELINE:** a
+  fixed-size, no-allocation merge-and-dedup buffer (`var pitches = [Int](repeating: 0, count: 9)` + a
+  linear O(9) scan-then-append `addPitch`, the concrete realization of the ferry's own Engine rule 2 —
+  "at most nine distinct pitches per hit... fixed-size buffers, no allocation or locking on the audio
+  thread") — the riff layer resolves first (walk→rank→INVERT→TRANSPOSE→pool→OCT, unchanged, added to
+  the buffer FIRST so index 0 is reliably "the riff note" for display, with ON REST=FILL falling through
+  with NO substitute pitch per the ratified Q1 answer and ON REST=TIE checking the widened last-sounded
+  cache before deciding silence-vs-hold) independent of whether it produced a pitch, the lit-notes layer
+  resolves every hit regardless of riff state (each lit rank, TOP, TOP2 — each individually resolved
+  against the plain pool via `riffResolve`, INVERT/TRANSPOSE deliberately NOT applied, matching the
+  already-shipped "NOTE mode ignores TRANSPOSE" precedent generalized per-bit), a silence guard (`pitch-
+  Count == 0` → return, no strike, no NOTE VIEW push) covers "nothing lit and riff off" AND "riff
+  produced nothing and nothing is lit" alike, mask transforms apply ONCE against one representative
+  (rank,note) pair and their resulting delta (OCT's octave shift, ACCENT/SWELL's velocity shift) is
+  applied UNIFORMLY across every buffered pitch — generalizing "apply to the whole hit" per the ratified
+  Q2 answer — CHORD's extras append via the same dedup'd `addPitch`, and RATCHET's repeat count is
+  rolled ONCE per hit against the representative rank (a DELIBERATE, ferry-driven reversal of the
+  immediately-prior adversarial-review pass's own per-rank-independent RATCHET seeding — confirmed
+  by re-reading that fix's own regression test, which constructs its fixture at a PLAIN row [0], not
+  `Snap.euclideousRow`, meaning it exercises the untouched, still-fully-valid old code path for the
+  regular non-Euclideous processor; nothing was reverted, the new pipeline simply calls the function
+  once per merged hit rather than per pitch) — every buffered pitch then strikes together sharing one
+  gate/velocity, exactly matching "every note in a hit shares the hit's velocity and gate." **THE
+  WIDENED REPEAT CACHE:** new `euclideousLastSoundedNotes`/`...Count` (flat, 4 lanes × 9 slots) added
+  ALONGSIDE (not replacing) the pre-existing singular `euclideousLastSoundedNote`/`...Vel`, which stay
+  exclusively used by the old/non-Euclideous code path's own REPEAT handling — both the new REPEAT-
+  trigger branch and the pre-existing "hold continuation" early-return (shared by all rows, now
+  branching on `isEuclideousRow` to pick which cache to replay from) needed updating so a REPEAT-hold on
+  Euclideous's own row correctly replays the WHOLE merged pitch set, not just one note — a disclosed
+  interpretation, the direct consistent extension of "every note in a hit shares the gate" to the one
+  mask mode the ferry's own text doesn't explicitly address. **NOTE VIEW TELEMETRY:** `Router.
+  noteViewMaxNotes` bumped 8→9 (sizes every `nvNotes`/`nvScratch`/ring-buffer automatically); a new
+  `hasRiffNote: Bool` field on `EuclideousNoteViewEventSnapshot`, true exactly when the hit's primary
+  pitch (`pitches[0]`) is genuinely the riff's own resolved pitch — false for FILL, riff-off, or any
+  lit-only hit — lets the UI distinguish "riff on, show notes[0] as primary" from "no riff pitch this
+  hit, sort ascending and show the lowest" without re-deriving lane-level state in the display layer.
+  **UI (EuclideousPage.swift):** every MELODY-tab tap handler that used to write `melodyMode`/`noteSel`
+  (switching modes) now toggles its own independent field with NO cross-write at all — note buttons
+  flip their own `litNotes` bit; OCT writes BOTH `octave` AND `riffOctave` together from one shared
+  control (satisfying the ferry's own "OCT +1 raises both layers," a deliberate single-control-two-
+  fields design rather than introducing a third merged field a background Plan agent had suggested and
+  I explicitly rejected, since the two pre-existing fields already cover it with less churn); the RIFF
+  strip directly toggles `riffOn`; a direction button tapped while UNLIT turns riff ON with that
+  direction, tapped while LIT (riff currently on) turns riff OFF and leaves `riffDir` untouched
+  ("remembered"), with the remembered direction rendering selected-but-dimmed while off; every other
+  riff control (LOCK/INV/ADV/REST/LEN/NUDGE/STRIDE/TRANS) changes live with zero `riffOn` write, per the
+  ferry's own explicit "never turn the riff on or off" rule; the 3 riff-rows' 42%-dim wrapper now gates
+  on `riffOnResolved` alone (lit notes never dim them, matching the ferry literally). The riff-off DOT
+  marker on the riff grid is REMOVED entire (`riffOffDotCell` + its one call site deleted) — a riff-off
+  lane now draws nothing on the shared grid, replacing that rule outright per the ferry's own explicit
+  supersession. The step footer gained a 3-way branch: riff on → unchanged; riff off + something lit →
+  every hit step renders in a dimmer grey with no step number (the riff's own prediction has nothing to
+  say); riff off + nothing lit → every step forces the plain miss style regardless of the underlying
+  rhythm, since nothing will sound. The note box and summary label were rewritten around the new
+  `hasRiffNote` flag + a riff-off branch that lists lit pitches in ascending pitch order (TOP/TOP2
+  rendered as the literal strings, "+n" truncation reusing the existing drop-from-the-end algorithm) —
+  "NO NOTES" is a new terminal state on both surfaces (and in `euclideousSilenceReason`, Derivations.
+  swift) for a lane with nothing lit and the riff off. **A SECOND BUG FOUND AND FIXED AS A DIRECT SIDE
+  EFFECT, not part of the ferry's own ask:** a final grep sweep for every remaining `useRiffResolved`/
+  `melodyModeResolved` reference across the touched files turned up a stale read inside
+  `euclideousSilenceReason`'s own "EMPTY RIFF" check — it read the now-legacy-only `useRiffResolved`,
+  which diverges from the live `riffOn` field the instant a user touches the new MELODY tab (a lane
+  could show riff genuinely on via `riffOnResolved` while the silence-reason logic still thought it was
+  off, or vice versa); fixed to read `riffOnResolved` directly, with a dedicated regression test proving
+  the two fields can genuinely disagree. **TESTS:** 1 broken-by-design test rewritten (the Phase-A
+  RATCHET per-rank-independence test is UNCHANGED/still valid for its own non-Euclideous scope, per
+  above — no rewrite needed there after all); 4 pre-existing Euclideous tests fixed after tracing their
+  real failures against the actual log (not guessed) — a FILL note-view test, 2 REPEAT-hold wipe-
+  telemetry tests (the new REPEAT-trigger branch initially omitted column/rank telemetry, caught by a
+  failing assertion and fixed to match the old code's "still reports wipe telemetry on a trigger, not a
+  continuation" behaviour), and a reset-span test rebuilt around an 8-step FWD walk since `.cycle` is no
+  longer a reachable Euclideous noteSel value; +12 new tests across RouterTests/EffectiveParamsTests/
+  SnapshotBuilderTests/DerivationsTests covering the ferry's own Acceptance scenarios directly (lit-
+  notes-only sounds every hit; riff+lit dedup to one strike on pitch collision; nothing-lit-and-riff-off
+  total silence; OCT raising both layers identically; TRANSPOSE moving only the riff pitch; a rapid lit/
+  octave/riff-toggle stuck-note stress fuzz; the widened REPEAT cache replaying the whole merged set, not
+  one note; both preset-era migration tables including the DRUNK→FWD carry-over and the logged-warning
+  path for a genuinely old out-of-range value; the `euclideousRiffDirResolved` coercion itself; the
+  `melodyMode`-missing-from-reconstruction regression guard; the corrected `euclideousSilenceReason`
+  EMPTY RIFF check). Self-caught, during test-writing, before any were shipped wrong: 2 Swift
+  memberwise-init argument-ordering mistakes (this codebase's own repeatedly-documented declaration-
+  order lesson, hit again and fixed by re-deriving the exact field sequence); one test's false
+  assumption that `useRiff: false` alone migrates to "nothing lit" (it doesn't — an explicitly-set
+  `useRiff` takes the real switch path, landing on `noteSelResolved`'s own `.all` default, which falls
+  into the "any other value → 1 lit" branch — fixed by setting `litNotes: 0` explicitly, with an inline
+  comment explaining why the nil-migration shortcut doesn't apply there); one REPEAT-hold test's wrong
+  expected tick-3 values, corrected after re-tracing a sibling test's own already-established K=1/N=2/
+  ROTATE=1 mask timing and realizing tick 3 is the ONE armed hold-continuation (bypassing the pipeline
+  entirely, replaying the cached set verbatim), not a resumed live tick. Full macOS suite confirmed
+  green by reading the actual log tail directly (1360 tests, 0 failures) — not trusted from the
+  notification alone, this session's own repeatedly-reconfirmed standing discipline; iOS app+extension
+  build separately confirmed clean (`** BUILD SUCCEEDED **`) immediately after, since EuclideousPage.
+  swift has no macOS test-target reach. **FLAGGED MISMATCHES, named plainly per CLAUDE.md's own standing
+  rule, since Paul's own ferry text explicitly promises a separate, more detailed pixel/visual spec to
+  follow this implementation, NOT as a blocking dependency:** every literal colour/pixel value in the
+  ferry (the riff-reach-bar exact placement/thickness as a bar rather than the old ring outline, the
+  grey/no-number riff-off footer treatment, the TOP/TOP2 ring overlay) is built to the ferry's own
+  literal hex values and wording but genuinely unverified against the promised follow-up visual spec;
+  "MIDI IN nothing held: lit buttons show dashes where a note name would appear" has no natural UI slot
+  today, since the rank buttons show bare digits ("1".."8"), not note-name text — flagged as a real gap
+  rather than silently implemented against a guessed-at surface, left unbuilt pending the follow-up
+  spec's own clarification of where this applies. **DEVICE-OWED, the whole feature:** every item above
+  plus confirming an old saved session from either migration era (including a DRUNK-direction lane or a
+  disagreeing/out-of-range legacy noteSel value) sounds as the Presets section describes; the stuck-note
+  stress scenario on a real device, not just the fuzz test; the riff-reach-bar/TOP-TOP2-ring restyling
+  and the grey-footer-no-number treatment at real lane-card width; confirm "a chord under a moving line"
+  (lit notes + riff both engaged) actually reads as musically coherent in the hand, the single biggest
+  new capability this ferry unlocks. Plan: `~/.claude/plans/zazzy-exploring-wall.md`.**
 - **▶ ADVERSARIAL REVIEW + FIXES — 8 commits from the preceding 24h reviewed by parallel agents (7 forks +
   1 fresh independent agent on this session's own MELODY-tab commit, deliberately NOT a fork, to avoid
   inherited bias reviewing its own work), every finding re-verified by direct reading before acting

@@ -2828,7 +2828,15 @@ func euclideousSilenceReason(line: EuclidLine, mainOutMask: UInt8, riffAllRest: 
     } else {
         if line.pulses <= 0 { return "0 HITS" }
     }
-    if line.useRiffResolved && riffAllRest { return "EMPTY RIFF" }
+    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second ferry): reads `riffOnResolved` now, not the stale
+    // `useRiffResolved` — that accessor still derives from the OLD, now-unread `melodyMode`/legacy `useRiff`
+    // chain, which no longer reflects whether a lane's riff is genuinely on once the new MELODY tab writes
+    // `riffOn` directly (a real divergence, not just a rename — caught before shipping).
+    if line.riffOnResolved && riffAllRest { return "EMPTY RIFF" }
+    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-the-page §1: "nothing
+    // lit and the riff off" is a NEW silent state — nothing is wired to produce a note at all (neither
+    // layer has anything to resolve), distinct from EMPTY RIFF (riff on, but its own pool is exhausted).
+    if !line.riffOnResolved && line.litNotesResolved == 0 && !line.topLitResolved && !line.top2LitResolved { return "NO NOTES" }
     return nil
 }
 
@@ -2986,13 +2994,21 @@ func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool,
 }
 
 /// Per-step footer state (ferry Part 2) — `prediction` is `euclideousRiffCyclePrediction`'s own output,
-/// `nil` when the lane has riff off entirely (rule 6: every hit gets a plain filled footer, no number).
-/// `riffRanksResolved` is the shared grid's own resolved rank array (0 = rest). A step not in `hitSteps` is
-/// always `.miss`, regardless of riff — INV/customHits are already baked into `hitSteps` by the caller
-/// (via `euclideousLapHitSteps`), so this function needs no separate awareness of either.
+/// `nil` when the lane has riff off entirely. `riffRanksResolved` is the shared grid's own resolved rank
+/// array (0 = rest). A step not in `hitSteps` is always `.miss`, regardless of riff — INV/customHits are
+/// already baked into `hitSteps` by the caller (via `euclideousLapHitSteps`), so this function needs no
+/// separate awareness of either.
+///
+/// `anyLit` (Paul 2026-10-13, second same-day "lit notes plus the riff" ferry, Elsewhere-on-page §4):
+/// SUPERSEDES the prior ferry's own riff-off rule ("every hit gets a plain filled footer, no number," i.e.
+/// unconditional `.hit(riffStep: nil)`) with a 2-way split that now depends on whether anything is lit —
+/// "riff off with notes lit: grey footers, no number" (still `.hit(riffStep: nil)`, just drawn grey at the
+/// `laneFooter` call site, keyed off `riffStep == nil`) vs. "riff off with nothing lit: the miss footer,
+/// because nothing will sound" (every step, hit or miss alike, becomes `.miss`).
 enum EuclidFooterState: Equatable { case hit(riffStep: Int?), hitOnRest(riffStep: Int), miss }
-func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int]) -> [EuclidFooterState] {
+func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int], anyLit: Bool = true) -> [EuclidFooterState] {
     var out = [EuclidFooterState](repeating: .miss, count: max(0, lapSteps))
+    guard prediction != nil || anyLit else { return out }   // riff off, nothing lit: every step is .miss
     // `.bufIdx` is the screen-box position (the footer row sits directly under the step boxes, which never
     // reorder); `i` (the enumerate index) still pairs correctly with `prediction`, since both this function
     // and `euclideousRiffCyclePrediction` walk the SAME `hitSteps` array in the same order. For PING-PONG,

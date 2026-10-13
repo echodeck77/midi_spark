@@ -1928,6 +1928,40 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(offStates[3], .hit(riffStep: nil))
         XCTAssertEqual(offStates[1], .miss)
     }
+    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-page §1 — `euclideous
+    // SilenceReason`'s "EMPTY RIFF" check now reads `riffOnResolved` (the genuinely live source of truth),
+    // not the stale `useRiffResolved` (which still derives from the OLD, now-unread melodyMode/legacy
+    // useRiff chain and can silently disagree once a lane's riff is toggled through the new MELODY tab) —
+    // and a brand-new "NO NOTES" state fires when neither layer has anything to produce a note from.
+    func testEuclideousSilenceReasonEmptyRiffReadsRiffOnNotStaleUseRiffResolved() {
+        var line = EuclidLine(pulses: 4, steps: 8)
+        line.enabled = true; line.emitterMask = 0b0001
+        line.useRiff = false        // STALE legacy field — would read "riff off" if EMPTY RIFF mistakenly used it
+        line.riffOn = true          // the GENUINE, live source of truth — riff is actually on
+        XCTAssertEqual(euclideousSilenceReason(line: line, mainOutMask: 0b1111, riffAllRest: true), "EMPTY RIFF",
+                       "must read riffOnResolved (true), not the disagreeing legacy useRiffResolved (false)")
+    }
+    func testEuclideousSilenceReasonNoNotesWhenNothingLitAndRiffOff() {
+        var line = EuclidLine(pulses: 4, steps: 8)
+        line.enabled = true; line.emitterMask = 0b0001
+        line.riffOn = false; line.litNotes = 0; line.topLit = false; line.top2Lit = false
+        XCTAssertEqual(euclideousSilenceReason(line: line, mainOutMask: 0b1111, riffAllRest: false), "NO NOTES")
+        line.litNotes = 0b0000_0001   // lighting one note clears the silence
+        XCTAssertNil(euclideousSilenceReason(line: line, mainOutMask: 0b1111, riffAllRest: false))
+    }
+    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-page §4 — `anyLit`
+    // supersedes the prior ferry's own unconditional riff-off `.hit(riffStep: nil)` rule: "riff off with
+    // nothing lit: the miss footer, because nothing will sound" (every step, hit included, becomes `.miss`);
+    // "riff off with notes lit" keeps the old `.hit(riffStep: nil)` (drawn grey at the `laneFooter` call
+    // site — a styling concern outside this pure function's own scope).
+    func testEuclideousFooterStatesRiffOffNothingLitForcesEveryStepToMiss() {
+        let hits: [EuclidHitStep] = [0, 3, 6]
+        let ranks = [1, 2, 3, 4, 0, 6, 7, 8]
+        let litStates = euclideousFooterStates(hitSteps: hits, lapSteps: 8, prediction: nil, riffRanksResolved: ranks, anyLit: true)
+        XCTAssertEqual(litStates[0], .hit(riffStep: nil), "riff off, something lit: still a plain hit footer")
+        let emptyStates = euclideousFooterStates(hitSteps: hits, lapSteps: 8, prediction: nil, riffRanksResolved: ranks, anyLit: false)
+        for i in 0..<8 { XCTAssertEqual(emptyStates[i], .miss, "riff off, nothing lit: every step is .miss, hit steps included — step \(i)") }
+    }
     // ── ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second ferry same day) ──────────────────────────────
     /// All 3 of the ferry's own literal worked examples, hand-verified.
     func testEuclideousGlobalPoolExtendedMatchesAllThreeWorkedExamples() {
