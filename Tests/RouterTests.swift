@@ -10499,4 +10499,50 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "a self-listening loop falls silent")
         assertNothingLeftSounding(e)
     }
+
+    /// EUCLID MASK — RATCHET within the Euclideous `isEuclideousRow` pipeline specifically (Paul: "ratchet on
+    /// Euclid mask... still not working in any perceptible way"). CONFIRMED REAL GAP, not a guess: every
+    /// pre-existing `EuclidLineMask`/RATCHET test in this file builds its fixture via `maskFixture`, which
+    /// places its cell at a PLAIN row (`$0.cells[0][0]`) — never `Snap.euclideousRow` — so every one of those
+    /// tests exercises the OLD/legacy, non-Euclideous `!isEuclideousRow` fork further down in `runEuclidLine`
+    /// (unchanged since the 2026-10-12 "ratchet doesn't work" fix), NOT the "lit notes plus the riff" ferry's
+    /// own NEW unified per-hit pipeline Euclideous's own lanes actually run through. That fork has its own,
+    /// separately-written RATCHET call site (`maskRatchetReps`, called against the merged lit/riff pitch set)
+    /// which had ZERO test coverage of its own before this — exactly the same class of blind spot that let
+    /// the original bug ship unnoticed (every existing fixture hardcoded `useRiff: true`, missing the sibling
+    /// NOTE-mode path entirely). This test locks in that the NEW pipeline's own RATCHET call site genuinely
+    /// multiplies note-ons for BOTH ways a lane can sound something — lit notes alone (riff off) and the riff
+    /// layer (riff on) — built and run against the REAL production path (`SnapshotBuilder.build(from:)`, not a
+    /// raw `box()` helper) exactly as a saved Euclideous document reaches the render engine. Dense mask K=N=8
+    /// (every lane hit is masked) + ratchetMin=ratchetMax=3 (fixed, not a range) + a pinned 1-beat lane rate
+    /// isolate RATCHET as the only variable between two runs — asserting the RATIO (3 reps must yield exactly
+    /// 3x a 1-rep/no-ratchet baseline's note-on count) rather than a hand-derived absolute count, since the
+    /// exact hit count this harness's own beat/column arithmetic produces for a given `beats:`/rate pair is
+    /// not something to trust blind (this file's own standing lesson, burned twice already this session by
+    /// hand-derived counts that turned out wrong once actually traced).
+    func testEuclideousMaskRatchetMultipliesNoteOnsInTheUnifiedPipeline() {
+        func onCount(ratchetReps: Int, riffOn: Bool) -> Int {
+            var c = Machine(machineID: "gold", type: .euclid)
+            if riffOn { c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1]) }
+            var m = EuclidLineMask()
+            m.enabled = true; m.pulses = 8; m.steps = 8; m.chance = 1.0
+            m.mode = .ratchet; m.ratchetMin = ratchetReps; m.ratchetMax = ratchetReps
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_1, useRiff: false,
+                                                 litNotes: riffOn ? 0 : 0b0000_0001, riffOn: riffOn, mask: m,
+                                                 sourceMode: .midi, riffLength: riffOn ? 1 : nil)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 && Int($0.note) == 60 }.count
+        }
+        for riffOn in [false, true] {
+            let baseline = onCount(ratchetReps: 1, riffOn: riffOn)
+            let ratcheted = onCount(ratchetReps: 3, riffOn: riffOn)
+            XCTAssertGreaterThan(baseline, 0, "sanity: the lane strikes at all with no ratcheting (riffOn=\(riffOn))")
+            XCTAssertEqual(ratcheted, baseline * 3, "a fixed 3-repeat ratchet must produce exactly 3x the baseline's note-ons (riffOn=\(riffOn))")
+        }
+    }
 }

@@ -196,6 +196,37 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLID MASK RATCHET — investigated end-to-end, no bug found; closed a confirmed test-coverage gap
+  instead (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 564 green incl. +1; iOS
+  unaffected — test-only). Paul: "look into ratchet on Euclid mask. It is still not working in any
+  perceptible way." Traced the full engine path by reading, then VERIFIED rather than assumed — built two
+  throwaway tests against the REAL production pipeline (`SnapshotBuilder.build(from:)`, not a raw `box()`
+  test helper) exercising a `Snap.euclideousRow` lane with MASK PLAY/STOP on, MODE=RATCHET, a dense K=N=8
+  mask pattern, and a fixed repeat count: a 3-repeat ratchet produced EXACTLY 3× the note-ons of a 1-repeat
+  (no-op) control, in BOTH the lit-notes-only (riff off) and riff-on code paths. The mechanism works. **THE
+  REAL, CONFIRMED GAP found along the way:** every single pre-existing `EuclidLineMask`/RATCHET test in
+  `RouterTests.swift` builds its fixture via `maskFixture`, which places its cell at a PLAIN row
+  (`$0.cells[0][0]`), never `Snap.euclideousRow` — so EVERY one of them exercises the OLD/legacy
+  `!isEuclideousRow` fork in `runEuclidLine` (byte-identical since the 2026-10-12 "ratchet doesn't work"
+  fix), never the "lit notes plus the riff" ferry's own NEW unified per-hit pipeline that Euclideous's own
+  lanes actually run through today. That new fork has its own, separately-written `maskRatchetReps` call
+  site (applied against the merged lit/riff pitch set) which had ZERO coverage of its own — the exact same
+  shape of blind spot that let the ORIGINAL Oct 12 bug ship unnoticed in the first place (every fixture back
+  then hardcoded `useRiff: true`, missing the NOTE-mode path entirely). Closed it: +1 permanent
+  `testEuclideousMaskRatchetMultipliesNoteOnsInTheUnifiedPipeline`, asserting the 3× RATIO (not a hand-
+  derived absolute count — this file's own standing lesson, burned twice already this session by exact
+  counts that turned out wrong once actually traced) across both riff-off and riff-on. **HONEST CONCLUSION,
+  since the engine demonstrably isn't broken:** the mismatch between "it works when I test it" and "still
+  not perceptible" most likely sits in USE, not code — two concrete, falsifiable candidates, named rather
+  than silently guessed at: (1) the mask's own PLAY/STOP toggle (the small icon left of the MASK tab's step
+  bar) is a SEPARATE control from picking MODE=RATCHET in the popup — picking a mode doesn't imply turning
+  the mask on, and this exact disconnect was the root cause of the original Oct 12 report too; (2) a fresh/
+  untouched mask defaults to K=1 of N=8 (`pulsesResolved`'s own documented default) — RATCHET then only
+  engages on one in every eight lane hits, easy to miss in a short listen without deliberately raising HITS.
+  Neither could be confirmed or ruled out from here — **DEVICE-OWED:** confirm the mask's PLAY/STOP icon is
+  actually lit (accent-coloured, not dim) on the lane in question, and what its HITS/STEPS values currently
+  are; if both check out and it's still inaudible, that would point back at something this investigation
+  didn't reach (worth a fresh report with those two details confirmed).**
 - **▶ EUCLIDEOUS — a second, PIXEL-EXACT dimensions ferry ("Claude Code: lane card, exact dimensions") built
   on top of the same-day footer/step-row/MELODY rework below — measured-from-mockup x/y/w/h for the card
   frame, the step row, the tab row, and a full RHYTHM-tab rebuild (2026-10-13, on `fix/euclid-no-scroll-
