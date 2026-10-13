@@ -196,6 +196,43 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — a genuine main-thread STACK OVERFLOW crash, root-caused from a real device .ips and fixed
+  (2026-10-13, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS unaffected — pure
+  UI, EuclideousPage.swift has no test-target reach). Paul sent a crash report
+  (`MidiSparkAU-2026-10-13-105224.ips`) from the device, no accompanying description — read directly.
+  **DIAGNOSIS, confirmed from the report itself, not guessed:** `EXC_BAD_ACCESS`/`SIGSEGV`, exception
+  message literally "Thread stack size exceeded" — a genuine main-thread STACK OVERFLOW (the faulting
+  address sat exactly inside thread 0's stack-guard page). The crashing stack showed `swift::Demangle::
+  __runtime::TypeDecoder<...>::decodeMangledType` calling `decodeGenericArgs` calling itself back,
+  repeating DOZENS of times, bottoming out through `closure #1 in closure #1 in EuclideousPage.
+  landscapeLayout(_:)` → `HStack.init` → ... → `EuclideousPage.landscapeLayout(_:)` → `closure #1 in
+  closure #1 in EuclideousPage.body.getter` — with `type metadata for EuclideousLaneTab` sitting directly
+  in one of the crashing thread's own registers. This is the well-known Swift-runtime failure mode where a
+  SwiftUI view tree's combined generic type has grown so deep that `swift_getTypeByMangledName`'s own
+  recursive demangler can no longer decode it within a normal thread's stack — not a logic bug, a type-
+  complexity blowup. **ROOT CAUSE:** this SAME session's "lit notes plus the riff" MELODY-tab rewrite (the
+  entry directly below) added substantially more view structure — 8 independently-ZStack'd/modified note
+  buttons plus TOP/TOP2 (each with its own ring/bar overlays) inside a `ForEach`, plus new WALK/MODES/
+  VALUES rows, all newly nested inside `tabContent`'s already-3-way `@ViewBuilder switch` inside `laneCard`,
+  itself called 4 times from two literal `HStack`s inside `landscapeLayout` (and the structurally-identical
+  `portraitLayout`, equally exposed even though landscape crashed first) — pushing the combined view-tree
+  type past what the runtime could resolve without overflowing the main thread's 1MB stack the first time
+  AttributeGraph needed to materialize it. **FIX, `AnyView` at 3 boundaries — the SAME complexity-breaking
+  technique this exact function already used for its `trailingContent`/`stepCountBadge` slots, not a new
+  pattern:** inside `laneCard`, `laneTabRow(...)` (whose `ForEach(EuclideousLaneTab.allCases)` is the direct
+  match for the register's own "type metadata for EuclideousLaneTab") and `tabContent(...)` (now dominated
+  by the much-larger MELODY case) are each wrapped in `AnyView(...)`; at BOTH `portraitLayout`'s and
+  `landscapeLayout`'s own `HStack`s — the literal frames named in the crash — each of the 4 `laneCard(...)`
+  calls is wrapped in `AnyView(...)` too, so those HStacks resolve to a fixed, simple `TupleView<(AnyView,
+  AnyView)>` instead of a tuple of 4 independently-enormous opaque types. Erasure happens at value-
+  construction boundaries only — nothing about what's drawn, how it behaves, or any persisted state
+  changes; `AnyView`'s own performance cost here is negligible (this page redraws on user interaction, not
+  a 60fps hot loop). iOS build re-confirmed clean (`** BUILD SUCCEEDED **`, read directly from the log)
+  after the fix. **DEVICE-OWED:** the actual crash repro — confirm the MELODY tab (and the rest of the
+  page) now opens/switches without crashing in both orientations on the real device; if it STILL crashes,
+  the next place to look is `melodyNotesRow`'s own `ForEach(1...8)` closure (8 ZStack'd/overlaid/accessible
+  buttons per hit, the single most complex per-item closure added this session) — wrap its own per-rank
+  cell content in `AnyView` next, the same technique applied one level deeper.**
 - **▶ EUCLIDEOUS — "lit notes plus the riff," the MELODY tab's own mutually-exclusive mode model
   REPLACED by two independent, additive layers (2026-10-13, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1360 green incl. +12/-4, iOS builds clean). A

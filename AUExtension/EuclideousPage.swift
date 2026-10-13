@@ -815,9 +815,14 @@ struct EuclideousPage: View {
             portraitHeader().frame(width: containerW, alignment: .leading)
                 .padding(.horizontal, sp16).padding(.top, sp16)
             VStack(spacing: sp16) {
+                // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard
+                // itself): the EXACT frames named in the device crash (`closure #1 in closure #1 in
+                // landscapeLayout`/portraitLayout's own equivalent HStack, resolving 4 laneCard copies'
+                // combined type) — erasing here bounds each HStack to a fixed-size `TupleView<(AnyView,
+                // AnyView)>` instead of a tuple of 4 independently-huge opaque types.
                 VStack(spacing: sp8) {
-                    HStack(spacing: sp8) { laneCard(0, width: laneW, height: laneH); laneCard(1, width: laneW, height: laneH) }
-                    HStack(spacing: sp8) { laneCard(2, width: laneW, height: laneH); laneCard(3, width: laneW, height: laneH) }
+                    HStack(spacing: sp8) { AnyView(laneCard(0, width: laneW, height: laneH)); AnyView(laneCard(1, width: laneW, height: laneH)) }
+                    HStack(spacing: sp8) { AnyView(laneCard(2, width: laneW, height: laneH)); AnyView(laneCard(3, width: laneW, height: laneH)) }
                 }
                 HStack(spacing: sp16) {
                     riffGridView(maxWidth: halfW, rowH: riffRowH).frame(width: halfW, height: sharedRowH)
@@ -851,9 +856,12 @@ struct EuclideousPage: View {
         return VStack(alignment: .leading, spacing: sp16) {
             landscapeHeader().padding(.horizontal, sp16).padding(.top, sp16)
             HStack(spacing: sp16) {
+                // AnyView on each laneCard call — see the 2026-10-13 crash-fix comment inside laneCard and
+                // portraitLayout's identical HStack above. This is the literal pair of frames named in the
+                // device crash report ("closure #1 in closure #1 in EuclideousPage.landscapeLayout(_:)").
                 VStack(spacing: sp8) {
-                    HStack(spacing: sp8) { laneCard(0, width: laneW, height: laneH); laneCard(1, width: laneW, height: laneH) }
-                    HStack(spacing: sp8) { laneCard(2, width: laneW, height: laneH); laneCard(3, width: laneW, height: laneH) }
+                    HStack(spacing: sp8) { AnyView(laneCard(0, width: laneW, height: laneH)); AnyView(laneCard(1, width: laneW, height: laneH)) }
+                    HStack(spacing: sp8) { AnyView(laneCard(2, width: laneW, height: laneH)); AnyView(laneCard(3, width: laneW, height: laneH)) }
                 }
                 .frame(width: laneColW)
                 VStack(spacing: sp16) {
@@ -1368,8 +1376,18 @@ struct EuclideousPage: View {
                           trailingHeight: footerRowH + 2, trailingGap: 2,
                           stepCountBadge: AnyView(stepCountBadge(steps, mask: line.emitterMask ?? 0, accent: accent)),
                           stepCountBadgeWidth: stepCountBadgeTotalWidth)
-            laneTabRow(idx, line, accent, rowH: tabRowH)
-            tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth)
+            // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
+            // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
+            // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
+            // crashing register). The MELODY tab's rewrite this session (8 note buttons + TOP/TOP2 each
+            // individually ZStack'd/modified/ForEach'd, plus the walk/modes/values rows) pushed laneCard's
+            // combined view-tree type past what the Swift runtime can demangle without overflowing the main
+            // thread's 1MB stack when AttributeGraph first resolves it. AnyView here breaks the type up into
+            // independently-resolvable chunks — the SAME technique this function already uses for
+            // `trailingContent`/`stepCountBadge` below — rather than a logic change; nothing about what's
+            // drawn or how it behaves is different.
+            AnyView(laneTabRow(idx, line, accent, rowH: tabRowH))
+            AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth))
         }
         .padding(sp8)
         .frame(width: width, height: height)
