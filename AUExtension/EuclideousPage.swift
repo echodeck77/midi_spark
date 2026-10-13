@@ -1360,33 +1360,45 @@ struct EuclideousPage: View {
     // only the layout (this function) and the slider's own gesture-bearing View (`EuclideousSlider`,
     // declared earlier in this file) needed to change for the rearrangement.
 
-    /// LEFT: STEPS("COUNT")/HITS/VELOCITY stacked side by side, each a VERTICAL slider spanning the full
-    /// row height. RIGHT: OFFSET/TILT/GATE stacked top to bottom, each a HORIZONTAL slider spanning the
-    /// full right column's width. The two columns split the row's width in half with an `sp4` gap between
+    /// LEFT: HITS/STEPS/VELOCITY stacked side by side, each a VERTICAL slider spanning the full row
+    /// height. RIGHT: OFFSET/TILT/GATE stacked top to bottom, each a HORIZONTAL slider spanning the full
+    /// right column's width. The two columns split the row's width in half with an `sp4` gap between
     /// them — no divider line here (unlike `patternControlBlock`'s own ratified 8pt/1pt-divider seam
     /// below this row, which came from a DIFFERENT, separately-ratified spec); nothing in this ask named
     /// one, so a plain gap was the simpler, unassuming choice.
-    // Exact-dimensions ferry (2026-10-13): six EQUAL vertical sliders, in the literal order
-    // HITS·TILT·STEPS·OFFSET·VEL·GATE, a single 4pt-gapped row (was 3 vertical + 3 horizontal split
-    // across two halves — that two-axis design is retired). Width divides the real available space
-    // equally (reduces to the reference table's 51pt at fullWidth=326, matching "wider cards: flexible
-    // items share the extra width" — the same equal-division-no-minimum rule the step cells use);
-    // height is the fixed 118pt the content-height budget below reserves for this row.
+    // RESTORED (2026-10-13, Paul: "I previously requested that three of the six sliders... be
+    // horizontal, but this has been undone") — a same-day "exact dimensions" ferry had flattened all 6
+    // into one row of equal-width VERTICAL sliders (HITS·TILT·STEPS·OFFSET·VEL·GATE), explicitly
+    // retiring this two-column design; that flattening is reverted here per direct instruction, back to
+    // the original two-column split (left column vertical, right column horizontal) `EuclideousSlider`
+    // was always built to support either way (its own `travelPos`/`frac` are fully orientation-agnostic).
     private func sliderRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, rowHeight: CGFloat) -> some View {
-        let fields: [EuclideousSliderField] = [.hits, .tilt, .steps, .offset, .velocity, .gate]
-        let n = CGFloat(fields.count)
-        let sliderW = max(1, (fullWidth - sp4 * (n - 1)) / n)
+        let leftFields: [EuclideousSliderField] = [.hits, .steps, .velocity]
+        let rightFields: [EuclideousSliderField] = [.offset, .tilt, .gate]
+        let halfW = max(1, (fullWidth - sp4) / 2)
+        let leftSliderW = max(1, (halfW - sp4 * 2) / 3)
+        let rightRowH = max(1, (rowHeight - sp4 * 2) / 3)
 
-        func slider(_ field: EuclideousSliderField) -> some View {
+        func verticalSlider(_ field: EuclideousSliderField) -> some View {
             EuclideousSlider(
-                field: field, line: line, accent: accent, width: sliderW, height: rowHeight, horizontal: false,
+                field: field, line: line, accent: accent, width: leftSliderW, height: rowHeight, horizontal: false,
+                onCommit: { mutate in edit(idx, mutate) },
+                onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
+                onRevertToEuclid: { edit(idx) { $0.customHits = nil } })
+        }
+        func horizontalSlider(_ field: EuclideousSliderField) -> some View {
+            EuclideousSlider(
+                field: field, line: line, accent: accent, width: halfW, height: rightRowH, horizontal: true,
                 onCommit: { mutate in edit(idx, mutate) },
                 onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
                 onRevertToEuclid: { edit(idx) { $0.customHits = nil } })
         }
 
         return HStack(spacing: sp4) {
-            ForEach(fields, id: \.rawValue) { field in slider(field) }
+            HStack(spacing: sp4) { ForEach(leftFields, id: \.rawValue) { field in verticalSlider(field) } }
+                .frame(width: halfW, height: rowHeight)
+            VStack(spacing: sp4) { ForEach(rightFields, id: \.rawValue) { field in horizontalSlider(field) } }
+                .frame(width: halfW, height: rowHeight)
         }
         .frame(width: fullWidth, height: rowHeight)
     }
