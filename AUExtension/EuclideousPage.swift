@@ -2647,6 +2647,17 @@ struct EuclideousPage: View {
                     }
                 }
                 .frame(width: max(1, cellW / 2), height: max(1, cellH / 2), alignment: corner)
+                // CONTRAST FIX (Paul 2026-10-13, third same-day ferry: "the arrows... [are] feint against the
+                // background, [ape] the colour scheme on the processor box play button, so use the same
+                // background colour but only in the active corner"): the glyph used to sit directly on the
+                // cell's own on/off fill (white 0.85 or 0.08) with nothing behind it, which washed out against
+                // a lit (bright white) cell especially. `patternUnselectedFill` (#2A2D34) is the EXACT chip
+                // colour `playButton(on:)`'s compact variant already uses for its own background — reused
+                // here, not a new colour, so the marker's corner reads as the same "control chip" language as
+                // the lane's own PLAY/STOP button. Scoped to ONLY this occupant's own quadrant (the `ForEach`
+                // already confines it to the lane's one active corner) — an empty corner with no occupant
+                // keeps the cell's plain on/off fill, unchanged.
+                .background(RoundedRectangle(cornerRadius: 3).fill(patternUnselectedFill))
                 .frame(width: cellW, height: cellH, alignment: corner)
             }
         }
