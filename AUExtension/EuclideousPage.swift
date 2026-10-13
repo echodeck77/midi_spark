@@ -2889,7 +2889,15 @@ struct EuclideousPage: View {
                         riffMarkerGlyph(lane: o.lane, isArrow: o.isArrow, accent: accent, glyphSize: glyphSize)
                     }
                 }
-                .frame(width: max(1, cellW / 2), height: max(1, cellH / 2), alignment: corner)
+                // CENTERING FIX (Paul 2026-10-14, "use exactly quarter of the button and ensure the direction
+                // arrow is centered within that and fills the maximum space without changing the size"): this
+                // inner frame IS exactly one quarter of the cell (cellW/2 × cellH/2, unchanged) — the bug was
+                // its alignment: `corner` (e.g. `.topLeading`) pushed the glyph toward the OUTER cell's own
+                // corner A SECOND TIME, inside its own quarter — so the arrow sat tucked into a sub-corner of
+                // the quarter rather than centred within it. `.center` fixes that; `glyphSize` itself (already
+                // ~84% of the quarter's own smaller dimension, unchanged below) is what "fills the maximum
+                // space" — only the alignment, not the size, changes here.
+                .frame(width: max(1, cellW / 2), height: max(1, cellH / 2), alignment: .center)
                 // CONTRAST FIX (Paul 2026-10-13, third same-day ferry: "the arrows... [are] feint against the
                 // background, [ape] the colour scheme on the processor box play button, so use the same
                 // background colour but only in the active corner"): the glyph used to sit directly on the
@@ -2901,6 +2909,8 @@ struct EuclideousPage: View {
                 // already confines it to the lane's one active corner) — an empty corner with no occupant
                 // keeps the cell's plain on/off fill, unchanged.
                 .background(RoundedRectangle(cornerRadius: 3).fill(patternUnselectedFill))
+                // This OUTER frame is the one that places the whole quarter (background + centred glyph) at
+                // this lane's own corner of the FULL cell — unchanged, still `corner`, not `.center`.
                 .frame(width: cellW, height: cellH, alignment: corner)
             }
         }
