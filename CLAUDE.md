@@ -196,6 +196,92 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — MELODY split into RIFF and NOTES tabs, each layer gets its own octave (2026-10-13, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1401 green incl. +13 new). A
+  fully-ratified ferry (exact pixel coordinate tables for both tabs, exact colors/typography, engine rules,
+  presets migration, help/accessibility strings, Acceptance criteria) with several items marked "(My
+  interpretation.)" — already-decided judgment calls, not open questions. Planned via EnterPlanMode (2
+  parallel Explore agents + a Plan-agent validation pass that caught 5 real holes before any code — missing
+  signature/call-site wiring, the missing `notesOn` gate, a `repRank` fallback lookup that silently breaks
+  under per-note shifts, a render-thread allocation hazard, a non-existent edit I'd incorrectly planned).
+  **TABS:** `EuclideousLaneTab` RHYTHM/RIFF/NOTES/MASK (MELODY retired); a shared 7×7 tab-dot (RIFF/NOTES/MASK,
+  not RHYTHM) replaces MASK's own bespoke inline Circle. **THE MODEL CHANGE, confirmed by two research passes
+  BEFORE any design work:** `octave`/`riffOctave` already exist as two fully independent `EuclidLine` fields,
+  already threaded independently through SnapshotBuilder/Router — splitting the UI control needed NO model/
+  engine change for octave itself; "each layer now has its own octave" was a UI-only merge artifact (one tap
+  handler writing both fields at once), now undone. **THREE GENUINELY NEW FIELDS** (additive-Optional,
+  decode-tolerant, appended after `customHits`): `notesOn: Bool?` (the notes layer's own master switch, nil⇒
+  true) · `noteOctShifts: [Int]?` (per-rank 1-8 extra shift, each −1...1, nil⇒all 0; the RAW optional threads
+  through Router.swift, NEVER the padded `noteOctShiftsResolved` — that accessor allocates, which the render
+  path must never do; mirrors this SAME function's own same-day `customHits` precedent exactly) ·
+  `notesVelOffset: Int?` (added to VEL for lit notes only, −64...+64, nil⇒0). **ENGINE (Router.swift, a
+  21-item validated edit list across `runEuclidLine`'s merged-pitch pipeline):** the single shared `vel: UInt8`
+  becomes a parallel `pitchVel: [UInt8]` array threaded alongside every existing `pitches: [Int]` site —
+  `addPitch` gains a `vel:` parameter (riff's own call seeds `velocityAbsolute` FIRST, so index 0 stays
+  reliably "the riff note" for collision-dedup purposes — first-insertion-wins gives "riff wins on pitch
+  collision" for free, no special case needed); the lit-notes layer gates on `notesOn` and applies `octave +
+  noteOctShift(rk)` per rank (TOP/TOP2 deliberately keep plain `octave` — no per-note shift, per the ferry's
+  explicit rule) with `vel: notesVel = velocityAbsolute + notesVelOffset`; the HIT-WIDE MASK's representative
+  velocity (`repVelBase`) is layer-aware, mirroring the existing `maskOct = hadRiffNote ? riffOctave : octave`
+  pattern exactly; OCT/ACCENT/SWELL's delta now applies independently to each pitch's own already-
+  differentiated velocity (`velDelta`), not a single shared scalar; `reconcileEuclidLegato`'s signature moved
+  `vel: UInt8`→`vels: [UInt8]`; a new `euclideousLastSoundedVels` (4×9, mirroring the existing widened
+  `…Notes` cache) persists per-pitch velocity across a REPEAT hold/trigger, alongside the UNCHANGED singular
+  `euclideousLastSoundedVel` (still exclusively serving the legacy non-Euclideous `.repeatNote` path). A
+  `repRank` fallback lookup (used when the riff is off) needed the SAME per-rank shift the lit-notes layer
+  itself used, or it silently stops matching once any shift is non-zero, feeding a wrong seed into RATCHET's
+  reps-roll and CHORD's interval notes (caught by the validation pass, not guessed). **UI
+  (EuclideousPage.swift):** RIFF tab — a 90×90 card (whole card = the riff's own on/off switch, restoring the
+  remembered direction) containing a new 63×63 mini-grid thumbnail (`riffMiniGrid`, built on a new pure
+  `euclideousRiffStepRanks(ranks:invert:transpose:) -> [Int]` in Derivations.swift — resolves each of the 8
+  STEP positions' own rank through INVERT→TRANSPOSE, mask-oblivious, mirroring Router's real `invRank`/
+  `transposedRank` formula exactly, a genuinely different question from the existing `euclideousRiff
+  ReachableRanks`) + a shared `euclideousOctaveTrough` (extracted from the old merged control, now writing
+  ONLY `riffOctave`) + a 4-group modes row (DIRECTION/ADV+HIT-STEP/REST+SKIP-FILL-TIE/INV+LOCK) + the values
+  row (LEN/NUDGE/STRIDE/TRANS, reused verbatim). NOTES tab — a NOTES strip (master on/off + a new 8-bar
+  lit-notes graphic) beside 8 key columns (now distinguishing unlit-REAL from unlit-COPY, previously
+  collapsed into one look) each with a NEW octave chip (tap-cycles 0→+1→−1→0, writing `noteOctShifts[rk-1]`)
+  + the shared octave trough (writing ONLY `octave`) + TOP/TOP2 + a new bespoke bipolar NOTES VEL bar
+  (absolute touch-to-value + a ~6%-of-travel centre detent + double-tap reset, modelled on `EuclideousSlider`'s
+  TILT mechanism conceptually but built as its own small view — the label-left/value-right layout and fixed
+  287×34 footprint don't match that component's generic stacked-centred convention, and a 7th field case
+  wasn't worth it for one visually-divergent control). **A REAL BUG CAUGHT BY THE BUILD, not guessed, hit
+  TWICE:** a local `func` declaration (any kind, not just ones with an explicit `return`) is disallowed
+  directly inside a `@ViewBuilder` closure's own scope — the NOTES VEL bar's first draft put `pos`/`bar`/
+  `edgeLine` in the outer `GeometryReader` closure; fixed by moving them inside the `Canvas` closure (which
+  isn't `@ViewBuilder`), mirroring `EuclideousSlider`'s own identical idiom, with only plain `let` bindings
+  left in the outer scope. **A REAL TEST BUG CAUGHT BY THE SUITE, the exact pitfall this file's own history
+  already names:** a `TOP`-ignores-shifts test set `useRiff: false` without also setting `litNotes: 0`
+  explicitly — `useRiff: false` alone does NOT migrate to "nothing lit," it falls through to the legacy "any
+  other value → 1 lit" branch, silently lighting rank 1 too and producing a spurious 2nd note; fixed by
+  setting `litNotes: 0` explicitly, matching this project's own already-documented lesson for this exact
+  mistake. **TWO LAYOUT JUDGMENT CALLS, flagged plainly (no literal ferry text survived to verify against):**
+  the ferry's own stated row-height budget (90pt top row / 48pt / 48pt, totalling the usual 202) had no room
+  for direction/modes/values as three SEPARATE rows alongside a 90pt top row — resolved by folding the 4
+  direction buttons into the modes row as a 4th group (ratio 3:2:3:2, reasoned not transcribed) rather than
+  guessing a 4-row layout that would overflow the budget; the NOTES tab's own total (120+8+40+8+34=210) runs
+  slightly over 202 by the same reasoning, the excess clips per this page's own established "fit always wins,
+  nothing shrinks a font" precedent rather than compressing a row below comfortable touch size. Also flagged:
+  the mini-grid's display-fold for an out-of-1...8-range transposed rank (wraps for display only, matching
+  the engine's own octave-extend-never-reject FOLD semantics, not a literal spec); the summary-label tap
+  target's landing tab (now NOTES, a reasoned call since the ferry never re-specified this once MELODY split
+  into two tabs). **TESTS (+13):** EffectiveParamsTests (decode-tolerance, round-trip, independent clamps for
+  all 3 new fields) · SnapshotBuilderTests (the fresh-literal-reconstruction regression guard, this file's own
+  standing convention for every EuclidLine field addition) · RouterTests (a per-note +1 shift sounds a whole
+  octave higher independent of the shared octave; NOTES VEL offsets lit notes but not the riff note, with a
+  riff/lit pitch collision sounding once at the riff's own velocity — the ferry's own literal Acceptance #5;
+  `notesOn: false` silences the layer while the lit bits stay remembered; TOP ignores every per-note shift
+  even when all 8 are set; a stuck-note stress test mirroring the GATE ferry's own stress test, cycling
+  `notesVelOffset` alongside gate/lit-mask/MONO-steal/transport-restart churn — the direct regression guard
+  that the new per-pitch velocity array never leaves a voice open) · DerivationsTests (the new
+  `euclideousRiffStepRanks` helper: invert-then-transpose order, a no-op case, rests staying untouched by
+  transpose alone). **DEVICE-OWED, the whole ferry — no screenshots possible in this environment:** every
+  pixel/color/typography claim in the two new tabs at the real 346×306 reference card (explicitly untested
+  against the literal ferry numbers, since only a plan-file distillation of them survived into this
+  implementation session, not the raw text); the mini-grid's legibility at 63×63; the NOTES VEL bar's
+  absolute-touch feel and centre detent; the octave chip's tap-cycle; the 4-group modes row and the
+  slightly-over-budget NOTES tab actually fitting without visible clipping on a real card; the per-note-shift
+  + NOTES VEL audible effect against a real chord; the tab dot's new shared rendering on all 3 tabs.**
 - **▶ EUCLIDEOUS — GATE follows the rhythm, and 100% is legato (2026-10-13, on `fix/euclid-no-scroll-direction-
   order-2x2-grid`; iOS builds clean; macOS 1388 green incl. +15 — 5 new DerivationsTests, 9 new + 1 rewritten
   RouterTests). A fully-ratified, point-by-point engineering spec (§1 note length below 100% · §2 legato at

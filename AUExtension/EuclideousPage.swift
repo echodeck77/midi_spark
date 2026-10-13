@@ -380,9 +380,15 @@ struct EuclideousSlider: View {
 // (display label only — "RHYTHM is PATTERN renamed," its content is unchanged); the melody pop-up (SOURCE/
 // MODE/NOTE/WALK/PLACEMENT, shipped 2026-10-10) is retired entire in favour of this new tab, which holds
 // every melodic setting a lane has: note choice, octave, and all riff settings.
+// RIFF/NOTES SPLIT (Paul's third same-day ferry): MELODY is retired in favour of two dedicated tabs —
+// RIFF (the whole riff editor + a mini-grid thumbnail that doubles as its own on/off switch) and NOTES
+// (lit notes/TOP/TOP2 + the notes layer's own on/off, per-note octave shifts, octave, and velocity
+// offset) — "this undoes the ruling that one OCT applies to both layers. Each layer now has its own
+// octave." `laneTab` stays purely ephemeral (never persisted), so a lane saved with MELODY open opens
+// on RHYTHM (the array's own fixed default) the instant this binary ships — no migration needed.
 enum EuclideousLaneTab: Int, CaseIterable {
-    case rhythm = 0, melody = 1, mask = 2
-    var label: String { switch self { case .rhythm: "RHYTHM"; case .melody: "MELODY"; case .mask: "MASK" } }
+    case rhythm = 0, riff = 1, notes = 2, mask = 3
+    var label: String { switch self { case .rhythm: "RHYTHM"; case .riff: "RIFF"; case .notes: "NOTES"; case .mask: "MASK" } }
 }
 
 struct EuclideousPage: View {
@@ -606,11 +612,12 @@ struct EuclideousPage: View {
                     maskModePopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
                 // THE MELODY POP-UP IS RETIRED ENTIRE (Paul 2026-10-13 ferry, "MELODY tab on the lane cards"):
-                // every setting it held (note choice, octave, all riff settings) now lives in the new MELODY
-                // tab on each lane's own card (`tabContent`'s `.melody` case) — there is no floating popup
-                // left to anchor. `melodyPopupLane`/`melodyStripFrames`/`EuclideousStripFramePreferenceKey`/
-                // `euclideousMelodyAnchor`/`melodyPopupCard`/`melodyPointer` are all deleted, not left dead —
-                // confirmed by grep before removing, zero remaining readers.
+                // every setting it held (note choice, octave, all riff settings) now lives in the RIFF and
+                // NOTES tabs on each lane's own card (`tabContent`'s `.riff`/`.notes` cases, RIFF/NOTES SPLIT
+                // ferry) — there is no floating popup left to anchor. `melodyPopupLane`/`melodyStripFrames`/
+                // `EuclideousStripFramePreferenceKey`/`euclideousMelodyAnchor`/`melodyPopupCard`/
+                // `melodyPointer` are all deleted, not left dead — confirmed by grep before removing, zero
+                // remaining readers.
                 // RESET SPAN + KEY POPUPS (Paul 2026-10-07) — the SAME scrim+card shape, reused rather than
                 // reinvented, for the two new global pickers.
                 if resetSpanPopupOpen {
@@ -1237,7 +1244,9 @@ struct EuclideousPage: View {
         // LIT NOTES PLUS THE RIFF (Paul 2026-10-13 ferry), Elsewhere-on-page §4: riff off + notes lit → a
         // `.hit(riffStep: nil)` band (drawn grey, no number, by `EuclidCometBar` itself); riff off + nothing
         // lit → `.miss` everywhere, "because nothing will sound."
-        let anyLit = line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved
+        // RIFF/NOTES SPLIT (third same-day ferry): the notes layer's own master switch gates this too —
+        // nothing can be "lit" in the sense that matters here if the whole layer is off.
+        let anyLit = line.notesOnResolved && (line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved)
         return euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: riff.ranksResolved, anyLit: anyLit)
     }
 
@@ -1409,11 +1418,19 @@ struct EuclideousPage: View {
         HStack(spacing: 4) {
             ForEach(EuclideousLaneTab.allCases, id: \.rawValue) { t in
                 let sel = (idx < laneTab.count ? laneTab[idx] : .rhythm) == t
-                // DOT: ONLY MASK carries a dot now (RIFF's own dot retired 2026-10-10 along with its tab) —
-                // filled (lane-coloured) while the mask is PLAYING, hollow while STOPPED (ferry 2026-10-10
-                // "Euclid mask, modes and settings" §5.1 — supersedes the old "configured at all" reading).
-                // PATTERN never shows one (always "on"); I/O never does either (a lane always has some source).
-                let dotOn: Bool = t == .mask && line.maskResolved.enabledResolved
+                // DOT (RIFF/NOTES SPLIT, third same-day ferry §1): RIFF/NOTES/MASK each carry their own
+                // dot again — filled (lane-coloured) while that layer is genuinely ON, hollow while off.
+                // RHYTHM never shows one (always "on"). All three share ONE rendering (below), replacing
+                // MASK's own previously-bespoke inline Circle so the three tabs can't drift onto two
+                // different dot looks.
+                let dotOn: Bool? = {
+                    switch t {
+                    case .rhythm: return nil
+                    case .riff: return line.riffOnResolved
+                    case .notes: return line.notesOnResolved && (line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved)
+                    case .mask: return line.maskResolved.enabledResolved
+                    }
+                }()
                 // VIEWS (2026-10-13 "lane card, exact dimensions" ferry, literal): "Labels are 11pt heavy
                 // with 1pt tracking, centred. The selected tab is TEXT, the others MUTED. A 2pt underline
                 // runs along each tab's bottom edge, the full width of the tab: LANE-100 for the selected
@@ -1423,10 +1440,12 @@ struct EuclideousPage: View {
                     Text(t.label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
                         .foregroundColor(sel ? patternSelectedText : patternUnselectedText)
                         .lineLimit(1)
-                    if t == .mask {
-                        // LANE-100 (this ferry §4.1: "the RIFF/MASK on-dots" — RIFF's own dot retired).
-                        Circle().fill(dotOn ? lane100(accent) : Color.clear)
-                            .overlay(Circle().stroke(dotOn ? lane100(accent) : Color.white.opacity(0.35), lineWidth: 1))
+                    if let on = dotOn {
+                        // LANE-100 — 7×7, filled + a matching 1pt ring when on; a hollow 1.5pt MUTED ring
+                        // when off (so the dot's own presence still tells "this tab HAS an on/off state"
+                        // even while that state is currently off).
+                        Circle().fill(on ? lane100(accent) : Color.clear)
+                            .overlay(Circle().stroke(on ? lane100(accent) : Color(hex: 0xAAB0BA), lineWidth: on ? 1 : 1.5))
                             .frame(width: 7, height: 7)
                     }
                 }
@@ -1456,8 +1475,10 @@ struct EuclideousPage: View {
                 sliderRow(idx, line, accent, fullWidth: fullWidth, rowHeight: sliderH)
                 patternControlBlock(idx, line, accent, fullWidth: fullWidth)
             }
-        case .melody:
-            melodyTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+        case .riff:
+            riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+        case .notes:
+            notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         case .mask:
             let maskCometH = max(1, contentAreaH - contentLineH - sp4)
             VStack(spacing: sp4) {
@@ -1799,209 +1820,6 @@ struct EuclideousPage: View {
         Text(s).font(.system(size: size, weight: .heavy, design: .monospaced)).foregroundColor(color)
             .fixedSize().rotationEffect(.degrees(-90)).frame(width: width).frame(maxHeight: .infinity)
     }
-    /// Notes row: 8 equal, INDEPENDENT toggle buttons — PITCH NAMES, not rank numbers (2026-10-13 ferry §4:
-    /// "pitch names on the notes, not numbers"). Resolves the SAME octave-extended pool + OCT shift the lit-
-    /// notes layer actually strikes (`euclideousGlobalPoolExtended` + `+12*octave`, mirroring Router.swift's
-    /// own `riffResolve` against the plain pool for ranks 1-8 — TRANSPOSE/INVERT never apply there, so no
-    /// FOLD-wrap arithmetic is needed for a rank that's always ≤8) — a button can never show a name the
-    /// engine wouldn't actually sound. An empty pool shows "–" (also, as a side effect, finally answers the
-    /// first MELODY-tab ferry's own flagged gap: "MIDI IN nothing held: lit buttons show dashes"). Lit:
-    /// solid LANE-100 fill, `#0D0F14` text (ferry §1). Unlit: the existing raised (real pool note)/recessed
-    /// (octave-extended copy) styles, unchanged. Riff-reach bars (§2, shown only while the riff is on) mark
-    /// every rank the walk can actually reach (`euclideousRiffReachableRanks`, recomputed fresh on every
-    /// relevant edit — no hand-rolled cache). The TOP/TOP2 ring (§3) overlays whichever button the live
-    /// pick currently resolves to. Never dims (rule 7: "Lit notes never dim them").
-    private func melodyNotesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        let poolCount = min(riffLivePool.count, 8)
-        let riffOn = line.riffOnResolved
-        let litMask = line.litNotesResolved
-        let highRanks = euclideousHighPickRanks(topLit: line.topLitResolved, top2Lit: line.top2LitResolved, poolCount: poolCount)
-        let reachable: Set<Int> = riffOn ? euclideousRiffReachableRanks(
-            dir: line.euclideousRiffDirResolved, length: line.riffLengthResolved, stride: line.riffStrideResolved,
-            rotate: line.riffRotateResolved, ranks: riff.ranksResolved, invert: line.riffInvertResolved,
-            transpose: line.melodyTransposeResolved) : []
-        let extendedPool = euclideousGlobalPoolExtended(sortedRaw: riffLivePool.map { Int($0) })
-        // §6: spell every pitch the same way as the riff grid's own label column — flats by default for
-        // MIDI IN/CHORD, the document's own key-root sharp/flat choice only for KEY (matches
-        // `riffNoteLabelColumn`'s identical `source == .key ? euclideousKeyIsFlat(keyRoot) : true` exactly;
-        // this row used to read the key-root choice unconditionally, the root of the sharp/flat mismatch).
-        let flatKey = noteSource == .key ? euclideousKeyIsFlat(keyRoot) : true
-        return HStack(spacing: 2) {
-            ForEach(1...8, id: \.self) { rank in
-                let isReal = rank <= max(1, poolCount)
-                let lit = (litMask & (1 << (rank - 1))) != 0
-                let ringed = highRanks.contains(rank)
-                let marked = reachable.contains(rank)
-                let pitchName: String = {
-                    guard rank <= extendedPool.count else { return "–" }
-                    let raw = extendedPool[rank - 1] + 12 * line.octaveResolved
-                    guard raw >= 0, raw <= 127 else { return "–" }
-                    return euclideousNoteViewName(UInt8(raw), flatKey: flatKey)
-                }()
-                let split = euclideousSplitNoteOctave(pitchName)
-                let textColor = lit ? Color(hex: 0x0D0F14) : (isReal ? Color.white.opacity(0.75) : Color.white.opacity(0.35))
-                ZStack(alignment: .bottom) {
-                    HStack(alignment: .lastTextBaseline, spacing: 0) {
-                        Text(split.note).font(.system(size: 15, weight: .heavy, design: .monospaced))
-                        Text(split.octave).font(.system(size: 10, weight: .bold, design: .monospaced))
-                    }
-                        .foregroundColor(textColor)
-                        .lineLimit(1)   // §4.6's own standing rule for this tab: truncate, never shrink — no .minimumScaleFactor
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(lit ? lane100(accent) : Color(hex: 0x2A2D34)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(ringed ? (lit ? Color(hex: 0x0D0F14) : lane100(accent)) : Color.clear, lineWidth: 2).padding(2))
-                    // RIFF-REACH BAR (§2): "LANE-100 on unlit buttons, #0D0F14 on lit ones," shown only
-                    // while the riff is on. A judgment call on exact placement/thickness, flagged — the
-                    // promised follow-up visual spec may refine this; a thin bottom-edge bar is the
-                    // minimal reading of "a bar" distinct from the ring above.
-                    if marked {
-                        RoundedRectangle(cornerRadius: 1.5).fill(lit ? Color(hex: 0x0D0F14) : lane100(accent)).frame(height: 3).padding(.horizontal, 4).padding(.bottom, 3)
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { edit(idx) { l in l.litNotes = l.litNotesResolved ^ (1 << (rank - 1)) } }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Note \(rank), \(pitchName), \(lit ? "on" : "off")\(marked ? ", in riff" : "")")
-            }
-        }
-        .frame(height: height)
-    }
-    /// Octave bar merged with TOP/TOP2 at its right end, ONE 40pt row (2026-10-13 ferry §2/§3 — supersedes the
-    /// prior split into two separate rows, which the ferry reports as overflowing the tab's fixed height). A
-    /// recessed trough (#131519 fill, 1pt #262930 border) holds the −2...+2 segments, with a vertical "OCT"
-    /// label to its left; the SELECTED octave renders as a solid LANE-100 pill with INK (dark) digits at 17pt
-    /// plus a soft glow — a deliberately different, more prominent treatment than the generic outlined-option
-    /// style every other chip on this page uses, per the ferry's own explicit "that pill is what makes octave
-    /// prominent." Writes BOTH `octave` AND `riffOctave` together (Acceptance §8: "OCT +1 raises both layers"),
-    /// so the two stay in lockstep from the first touch onward — no mode branch. TOP/TOP2 sit at the row's
-    /// right end as independent toggles (`topLit`/`top2Lit`), never touching `riffOn`/`litNotes`/octave.
-    private func melodyOctaveTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        let oct = line.riffOnResolved ? line.riffOctaveResolved : line.octaveResolved
-        return HStack(spacing: sp4) {
-            melodyVerticalLabel("OCT", size: 10, color: Color(hex: 0x8A909A), width: 14)
-            HStack(spacing: 2) {
-                ForEach(-2...2, id: \.self) { v in
-                    ZStack {
-                        if oct == v {
-                            RoundedRectangle(cornerRadius: 7).fill(lane100(accent))
-                                .shadow(color: lane100(accent).opacity(0.65), radius: 4)
-                                .padding(3)
-                        }
-                        Text(euclideousSigned(v))
-                            .font(.system(size: oct == v ? 17 : 12, weight: .heavy, design: .monospaced))
-                            .foregroundColor(oct == v ? Color(hex: 0x0D0F14) : Color.white.opacity(0.5))
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { edit(idx) { $0.octave = v; $0.riffOctave = v } }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Octave \(euclideousSigned(v)), \(oct == v ? "selected" : "not selected")")
-                }
-            }
-            .padding(4)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x262930), lineWidth: 1))
-            melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest note of the source on every hit, following chord changes.") {
-                edit(idx) { $0.topLit = !($0.topLitResolved) }
-            }
-            .frame(width: 44)
-            melodyButton("TOP2", on: line.top2LitResolved, accent: accent, help: "Play the second-highest note of the source on every hit, following chord changes.") {
-                edit(idx) { $0.top2Lit = !($0.top2LitResolved) }
-            }
-            .frame(width: 52)
-        }
-        .frame(height: height)
-    }
-    /// The RIFF strip, now VERTICAL (2026-10-13 ferry §4: "the vertical RIFF strip to the left of the three
-    /// riff rows") — a plain on/off toggle, spanning the FULL height of the WALK/MODES/VALUES block beside
-    /// it. Turning it on restores the remembered direction (`riffDir`, untouched by this toggle). Colors per
-    /// the ferry literally: on = LANE-100 fill, text+contour `#0D0F14`; off = `#2A2D34` fill, text `#AAB0BA`,
-    /// contour `#5C626C` — unchanged from the horizontal strip this replaces, only the orientation/position
-    /// moved.
-    private func melodyVerticalRiffStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        let isRiff = line.riffOnResolved
-        return melodyVerticalLabel("RIFF", size: 11, color: isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA), width: 34)
-            .frame(width: 34, height: height)
-            .background(RoundedRectangle(cornerRadius: 6).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
-            .contentShape(Rectangle())
-            .onTapGesture { edit(idx) { $0.riffOn = !($0.riffOnResolved) } }
-            .euclideousHelp("Turn the riff on or off. Lit notes play along with it.")
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Riff, \(isRiff ? "on" : "off")")
-    }
-    /// WALK row (2026-10-13 ferry: "Row 1: FWD · REV · PEND · PING, a 4pt extra gap, then INV · LOCK" —
-    /// supersedes the prior layout, which had INV living in the modes row and nothing but LOCK at this row's
-    /// own end). "Tapping an unlit direction turns the riff on with that direction; tapping the lit direction
-    /// while the riff is on turns the riff off and remembers the direction; while the riff is off, the
-    /// remembered direction shows in the selected style, dimmed with its row." Uses `euclideousRiffDirResolved`
-    /// (DRUNK/RANDOM→FWD) for the "which direction is lit" check — a legacy DRUNK/RANDOM doc shows FWD
-    /// selected, per Presets rule 1. INV/LOCK/other riff controls (§6) never turn the riff on or off (no
-    /// `riffOn` write). The "4pt extra gap" reads as the seam between the 4-direction cluster and INV/LOCK
-    /// totalling 8pt (this row's own base 4pt inter-item gap, plus 4 more) — built as two inner HStacks
-    /// (each sp4-spaced internally) joined by an outer 8pt gap, so only that one seam widens.
-    private func melodyWalkRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
-        let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
-        let curDir = line.euclideousRiffDirResolved
-        let isRiff = line.riffOnResolved
-        return HStack(spacing: 8) {
-            HStack(spacing: sp4) {
-                ForEach(dirs, id: \.self) { d in
-                    let lit = curDir == d
-                    melodyButton(riffDirShortLabel(d), on: lit, accent: accent, height: 34,
-                                 help: "How the riff walks. Tap the lit one to turn the riff off.") {
-                        edit(idx) { l in
-                            if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
-                            else { l.riffOn = true; l.riffDir = d }
-                        }
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
-                }
-            }
-            HStack(spacing: sp4) {
-                melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 34,
-                             help: "Flip the riff upside down in pitch") {
-                    edit(idx) { $0.riffInvert = !($0.riffInvertResolved) }
-                }
-                melodyButton("LOCK", on: line.riffLockResolved, accent: accent, height: 34,
-                             help: "Restart the riff each time the pattern loops") {
-                    edit(idx) { $0.riffLock = !($0.riffLockResolved) }
-                }
-            }
-        }
-    }
-    /// MODES row (2026-10-13 ferry: "Row 2: the vertical ADV label, HIT · STEP, an 8pt gap, the vertical
-    /// REST label, SKIP · FILL · TIE" — supersedes the prior single toggle-label HIT/STEP button with two
-    /// distinct, always-visible buttons, matching the same all-options-shown radio convention SKIP/FILL/TIE
-    /// already uses; INV has moved to the walk row, so it's gone from here entirely). Per ferry §6, none of
-    /// these turn the riff on or off — "change their setting live... so you can set the riff up before
-    /// bringing it in." The 8pt gap sits only at the HIT/STEP↔REST-label seam (two inner HStacks, sp4
-    /// internally, joined by an outer 8pt gap — the same technique the walk row's own extra gap uses).
-    private func melodyModesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
-        HStack(spacing: 8) {
-            HStack(spacing: sp4) {
-                melodyVerticalLabel("ADV")
-                melodyButton("HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: 34,
-                             help: "Move the riff only on sounding hits") {
-                    edit(idx) { $0.riffAdvanceStep = false }
-                }
-                melodyButton("STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 34,
-                             help: "Move the riff on every step, not just hits") {
-                    edit(idx) { $0.riffAdvanceStep = true }
-                }
-            }
-            HStack(spacing: sp4) {
-                melodyVerticalLabel("REST")
-                ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
-                    melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent, height: 34,
-                                 help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
-                }
-            }
-        }
-    }
     /// VALUES row: four 69.5×34 stepper chips, LEN · NUDGE (the old SHIFT, relabelled per an earlier ferry —
     /// same `riffRotate` field, same 0...(LEN-1) range) · STRIDE · TRANS, 3pt gaps (2026-10-13 ferry §5).
     /// Per ferry §6, none of these turn the riff on or off.
@@ -2023,38 +1841,438 @@ struct EuclideousPage: View {
             }
         }
     }
-    /// The riff block — the vertical RIFF strip (ALWAYS full opacity — ferry §7's "the three riff rows," not
-    /// the strip itself) sits to the LEFT of the WALK/MODES/VALUES column (dim to 42% only while the riff is
-    /// off), all fully tappable throughout regardless of dim state. Fixed at EXACTLY 110pt (2026-10-13 ferry
-    /// §2): three 34pt rows + 2×sp4(4) gaps = 102+8=110 — no longer "whatever's left," the direct fix for the
-    /// prior overflow (the 3 rows used to want ~128pt but were squeezed into a much smaller leftover height).
-    private func melodyRiffBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
+    // MARK: - RIFF TAB (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs") — every riff
+    // setting + a mini-grid thumbnail that doubles as the riff's own on/off switch + the riff's own octave
+    // (independent of the notes layer's — the ferry's explicit reversal: "each layer now has its own
+    // octave"). Total content height: 90 (card+octave) + 8 + 48 (modes, 4 groups) + 8 + 48 (values) = 202,
+    // matching this page's own established fixed-326×202-tab-content convention exactly.
+    //
+    // A LAYOUT JUDGMENT CALL, flagged plainly: the ferry text available when this was built named a
+    // "direction row" and a "modes row" as separately-described content, but its own stated row-height
+    // budget (90/48/48, three rows total) has no room for both as SEPARATE rows alongside a values row —
+    // resolved by folding the 4 direction buttons in as a 4th group on the SAME 48pt modes row (DIRECTION ·
+    // ADV+HIT/STEP · REST+SKIP/FILL/TIE · INV+LOCK), rather than guessing a 4-row layout that would overflow
+    // the stated 202pt budget. Worth a second look against the real ferry text if this reads wrong in the
+    // hand — the group WIDTH ratio (3:2:3:2) is likewise a reasoned default, not a transcribed number.
+
+    /// The riff card's own mini-grid — a STATIC thumbnail of the shared riff pattern (8 steps × 8 ranks),
+    /// reusing the main riff grid's own 7×7-cell/1pt-gap idiom at a much smaller scale, but answering a
+    /// genuinely different per-cell question: "what rank does THIS step show" (`euclideousRiffStepRanks`,
+    /// mask-oblivious — a static per-step property, not a live mask roll), not "which lane's marker sits
+    /// here." No per-cell drag/accessibility of its own — the card around it carries one combined label.
+    /// A step past this lane's own LEN window is dimmed (it's still part of the SHARED pattern, just not
+    /// currently walked by THIS lane); the live step (`riffPositions[idx]`) gets a highlight ring regardless
+    /// of hit/rest, so the thumbnail always shows "where we are," not just "what the pattern looks like."
+    private func riffMiniGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat) -> some View {
+        let n = 8
+        let stepRanks = euclideousRiffStepRanks(ranks: riff.ranksResolved, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
+        let len = line.riffLengthResolved
+        let curStep = idx < riffPositions.count ? riffPositions[idx] : -1
+        let isRiff = line.riffOnResolved
+        let cell = max(1, (size - 7) / 8)   // 8 cells + 7 gaps of 1pt
+        return VStack(spacing: 1) {
+            ForEach((1...8).reversed(), id: \.self) { rank in
+                HStack(spacing: 1) {
+                    ForEach(0..<n, id: \.self) { col in
+                        let raw = col < stepRanks.count ? stepRanks[col] : 0
+                        // DISPLAY FOLD (judgment call, flagged): a rank pushed outside 1...8 by TRANSPOSE
+                        // still represents a genuine hit (the real engine octave-extends it via `riffResolve
+                        // (wrap: .fold)`, never rejects it) — folded back into the visible 1...8 band here
+                        // so the thumbnail never silently shows FEWER hits than the lane actually plays.
+                        let folded = raw == 0 ? 0 : (((raw - 1) % 8 + 8) % 8) + 1
+                        let isHit = folded == rank
+                        let inWindow = col < len
+                        let isCur = col == curStep
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(isHit ? (inWindow ? (isRiff ? lane100(accent) : Color.white.opacity(0.55)) : Color.white.opacity(0.22)) : Color.white.opacity(0.06))
+                            .overlay(isCur ? RoundedRectangle(cornerRadius: 1.5).stroke(Color.white.opacity(0.9), lineWidth: 1) : nil)
+                            .frame(width: cell, height: cell)
+                    }
+                }
+            }
+        }
+        .frame(width: size, height: size)
+    }
+    /// The riff card itself — a 90×90 thumbnail that ALSO serves as this lane's on/off switch for the whole
+    /// riff layer (ferry §2: "the whole card toggles the riff on and off; turning it on restores the
+    /// remembered direction" — `riffDir` is already persisted independent of `riffOn`, so nothing extra is
+    /// needed to "remember" it; this is the same one-tap-restores idiom the direction buttons below already
+    /// use). The card itself never dims regardless of riff state — its own colour already shows on/off.
+    private func riffCard(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat) -> some View {
+        let isRiff = line.riffOnResolved
+        return VStack(spacing: 4) {
+            Text("RIFF").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+            riffMiniGrid(idx, line, accent, size: 63)
+        }
+        .frame(width: size, height: size)
+        .background(RoundedRectangle(cornerRadius: 8).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { edit(idx) { $0.riffOn = !($0.riffOnResolved) } }
+        .euclideousHelp("The riff as this lane plays it. Tap to turn the riff on or off.")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel({
+            guard isRiff else { return "Riff, off" }
+            let pos = idx < riffPositions.count ? riffPositions[idx] : -1
+            return pos >= 0 ? "Riff, on, now on step \(pos + 1)" : "Riff, on"
+        }())
+    }
+    /// The shared octave-trough control (extracted from the old `melodyOctaveTopRow`, which wrote BOTH
+    /// `octave` and `riffOctave` together — the ferry's explicit reversal means each caller now writes only
+    /// its own one field). A recessed trough (#131519 fill, 1pt #262930 border) holding the −2...+2
+    /// segments; the SELECTED octave renders as a solid LANE-100 pill with INK digits at 17pt plus a soft
+    /// glow — the same deliberately more-prominent treatment every prior octave control on this page uses.
+    private func euclideousOctaveTrough(value: Int, accent: Color, onSet: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 2) {
+            ForEach(-2...2, id: \.self) { v in
+                ZStack {
+                    if value == v {
+                        RoundedRectangle(cornerRadius: 7).fill(lane100(accent))
+                            .shadow(color: lane100(accent).opacity(0.65), radius: 4)
+                            .padding(3)
+                    }
+                    Text(euclideousSigned(v))
+                        .font(.system(size: value == v ? 17 : 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(value == v ? Color(hex: 0x0D0F14) : Color.white.opacity(0.5))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture { onSet(v) }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Octave \(euclideousSigned(v)), \(value == v ? "selected" : "not selected")")
+            }
+        }
+        .padding(4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x262930), lineWidth: 1))
+        .euclideousHelp("Move this layer up or down by octaves.")
+    }
+    /// The RIFF tab's top row — the card (left) + a vertical "OCT" label + the shared octave trough,
+    /// writing ONLY `riffOctave` (never `octave` — the ferry's own explicit reversal of the old merged-OCT
+    /// rule). The card never dims; the label+trough group dims to 42% while the riff is off, matching every
+    /// other riff-only control on this tab.
+    private func riffTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let isRiff = line.riffOnResolved
         return HStack(spacing: sp4) {
-            melodyVerticalRiffStrip(idx, line, accent, height: height)
-            VStack(spacing: sp4) {
-                melodyWalkRow(idx, line, accent).frame(height: 34)
-                melodyModesRow(idx, line, accent).frame(height: 34)
-                melodyValuesRow(idx, line, accent).frame(height: 34)
+            riffCard(idx, line, accent, size: height)
+            HStack(spacing: sp4) {
+                melodyVerticalLabel("OCT", size: 10, color: Color(hex: 0x8A909A), width: 14)
+                euclideousOctaveTrough(value: line.riffOctaveResolved, accent: accent) { v in
+                    edit(idx) { $0.riffOctave = v }
+                }
             }
             .opacity(isRiff ? 1.0 : 0.42)
         }
         .frame(height: height)
     }
-    /// The whole MELODY tab — Notes (40pt) · Octave+TOP/TOP2 merged row (40pt) · Riff block (110pt, FIXED,
-    /// not derived from leftover space — 2026-10-13 ferry §2). The tab's own content area is a fixed 326×202
-    /// box that clips (`laneCard`'s own outer `.clipped()`) — these three fixed heights total 40+4+40+4+110
-    /// =198, a few points under 202, by design: nothing here is compressed to force-fit `contentAreaH`, so if
-    /// a narrower/shorter real card ever offers less than 198, the excess clips rather than shrinking a font,
-    /// matching this function's own established precedent.
-    private func melodyTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        let rowH: CGFloat = 40
-        let octTopRowH: CGFloat = 40
-        let riffH: CGFloat = 110
-        return VStack(spacing: sp4) {
-            melodyNotesRow(idx, line, accent, height: rowH)
-            melodyOctaveTopRow(idx, line, accent, height: octTopRowH)
-            melodyRiffBlock(idx, line, accent, height: riffH)
+    /// The 4-group modes row (see this section's own flagged layout note above): DIRECTION (no label, 4
+    /// equal buttons) · ADV+HIT/STEP · REST+SKIP/FILL/TIE · INV+LOCK. None of the latter 3 groups turn the
+    /// riff on or off (the ferry's standing rule: "change their setting live... so you can set the riff up
+    /// before bringing it in") — only DIRECTION does, mirroring the old melody tab's walk row exactly:
+    /// tapping an unlit direction turns the riff on with that direction; tapping the lit one turns it off
+    /// and remembers it. Group widths split 3:2:3:2 (DIRECTION and REST each carry more buttons than ADV or
+    /// INV/LOCK) — a reasoned default, not a transcribed ratio (flagged above).
+    private func riffModesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat) -> some View {
+        let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
+        let curDir = line.euclideousRiffDirResolved
+        let isRiff = line.riffOnResolved
+        let avail = max(1, fullWidth - sp8 * 3)   // 3 inter-group 8pt gaps
+        let wDir = avail * 3 / 10, wAdv = avail * 2 / 10, wRest = avail * 3 / 10, wInv = avail * 2 / 10
+        return HStack(spacing: sp8) {
+            HStack(spacing: 3) {
+                ForEach(dirs, id: \.self) { d in
+                    let lit = curDir == d
+                    melodyButton(riffDirShortLabel(d), on: lit, accent: accent, height: 40,
+                                 help: "How the riff walks. Tap the lit one to turn the riff off.") {
+                        edit(idx) { l in
+                            if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
+                            else { l.riffOn = true; l.riffDir = d }
+                        }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
+                }
+            }
+            .frame(width: wDir)
+            HStack(spacing: sp4) {
+                melodyVerticalLabel("ADV")
+                melodyButton("HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: 40,
+                             help: "Move the riff only on sounding hits") { edit(idx) { $0.riffAdvanceStep = false } }
+                melodyButton("STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 40,
+                             help: "Move the riff on every step, not just hits") { edit(idx) { $0.riffAdvanceStep = true } }
+            }
+            .frame(width: wAdv)
+            HStack(spacing: sp4) {
+                melodyVerticalLabel("REST")
+                ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
+                    melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent, height: 40,
+                                 help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
+                }
+            }
+            .frame(width: wRest)
+            HStack(spacing: sp4) {
+                melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40,
+                             help: "Flip the riff upside down in pitch") { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
+                melodyButton("LOCK", on: line.riffLockResolved, accent: accent, height: 40,
+                             help: "Restart the riff each time the pattern loops") { edit(idx) { $0.riffLock = !($0.riffLockResolved) } }
+            }
+            .frame(width: wInv)
+        }
+        .opacity(isRiff ? 1.0 : 0.42)
+    }
+    /// The whole RIFF tab — top row (90pt: card + octave) · modes row (48pt, 4 groups) · values row (48pt,
+    /// reusing `melodyValuesRow` verbatim — LEN/NUDGE/STRIDE/TRANS are unchanged by this split, still living
+    /// on their own row). 90+8+48+8+48=202, matching this page's own fixed-content-area convention.
+    private func riffTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
+        VStack(spacing: sp4) {
+            riffTopRow(idx, line, accent, height: 90)
+            riffModesRow(idx, line, accent, fullWidth: fullWidth).frame(height: 48)
+            melodyValuesRow(idx, line, accent).frame(height: 48)
+                .opacity(line.riffOnResolved ? 1.0 : 0.42)
+        }
+    }
+
+    // MARK: - NOTES TAB (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs") — lit notes/
+    // TOP/TOP2 + 4 new things: an on/off strip for the notes layer, per-note octave shifts, the notes
+    // layer's own octave (independent of RIFF's — the ferry's explicit reversal), and a velocity offset for
+    // the notes layer alone. Total content height: 120 (keys+chips) + 8 + 40 (octave+TOP/TOP2) + 8 + 34
+    // (NOTES VEL) = 210 — slightly over this page's usual 202 budget, a disclosed judgment call (see this
+    // section's own layout note) rather than squeezing any one row below a comfortable touch size; the
+    // excess clips per this file's own established "fit always wins, nothing shrinks a font" precedent if a
+    // narrower/shorter real card ever offers less.
+
+    /// One key column: the note button (reusing the lit-notes pitch/ring/riff-reach logic verbatim from the
+    /// old `melodyNotesRow`, but NOW genuinely distinguishing an unlit REAL pool note from an unlit OCTAVE-
+    /// EXTENDED copy — previously collapsed into one "unlit" look) stacked over its own octave chip (tap-
+    /// cycles 0 → +1 → −1 → 0, writing `noteOctShifts[rank-1]` for THIS rank only — "a C3 shifted −1 reads
+    /// C2," applied to the SAME resolved pitch the button itself displays, so the two can never disagree).
+    private func notesKeyColumn(_ idx: Int, _ line: EuclidLine, _ accent: Color, rank: Int, poolCount: Int,
+                                 extendedPool: [Int], flatKey: Bool, highRanks: Set<Int>, reachable: Set<Int>,
+                                 keyHeight: CGFloat, chipHeight: CGFloat) -> some View {
+        let isReal = rank <= max(1, poolCount)
+        let lit = (line.litNotesResolved & (1 << (rank - 1))) != 0
+        let ringed = highRanks.contains(rank)
+        let marked = reachable.contains(rank)
+        let shift = line.noteOctShiftsResolved[rank - 1]
+        let pitchName: String = {
+            guard rank <= extendedPool.count else { return "–" }
+            let raw = extendedPool[rank - 1] + 12 * (line.octaveResolved + shift)
+            guard raw >= 0, raw <= 127 else { return "–" }
+            return euclideousNoteViewName(UInt8(raw), flatKey: flatKey)
+        }()
+        let split = euclideousSplitNoteOctave(pitchName)
+        let fill: Color = lit ? lane100(accent) : (isReal ? Color(hex: 0x30343C) : Color(hex: 0x17191E))
+        let border: Color = lit ? Color.clear : (isReal ? Color(hex: 0x454A54) : Color(hex: 0x202329))
+        let textColor = lit ? Color(hex: 0x0D0F14) : (isReal ? Color.white.opacity(0.75) : Color.white.opacity(0.35))
+        let chipLabel = shift == 0 ? "·" : euclideousSigned(shift)
+        return VStack(spacing: 4) {
+            ZStack(alignment: .bottom) {
+                HStack(alignment: .lastTextBaseline, spacing: 0) {
+                    Text(split.note).font(.system(size: 15, weight: .heavy, design: .monospaced))
+                    Text(split.octave).font(.system(size: 10, weight: .bold, design: .monospaced))
+                }
+                    .foregroundColor(textColor)
+                    .lineLimit(1)   // §4.6's own standing rule for this tab: truncate, never shrink
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(fill))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(border, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(ringed ? (lit ? Color(hex: 0x0D0F14) : lane100(accent)) : Color.clear, lineWidth: 2).padding(2))
+                if marked {
+                    RoundedRectangle(cornerRadius: 1.5).fill(lit ? Color(hex: 0x0D0F14) : lane100(accent)).frame(height: 3).padding(.horizontal, 4).padding(.bottom, 3)
+                }
+            }
+            .frame(height: keyHeight)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                // RIFF/NOTES SPLIT: tapping a key while the notes layer is off turns it on AND applies the
+                // tap in one gesture — the same one-tap-does-both idiom the RIFF direction row already uses.
+                edit(idx) { l in
+                    if !l.notesOnResolved { l.notesOn = true }
+                    l.litNotes = l.litNotesResolved ^ (1 << (rank - 1))
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Note \(rank), \(pitchName), \(lit ? "on" : "off")\(marked ? ", in riff" : "")")
+            Text(chipLabel).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                .foregroundColor(shift == 0 ? Color.white.opacity(0.4) : Color(hex: 0xF2F4F7))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 5).fill(shift == 0 ? Color(hex: 0x2A2D34) : lane20(accent)))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(shift == 0 ? Color.clear : lane100(accent), lineWidth: 1))
+                .frame(height: chipHeight)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    edit(idx) { l in
+                        var s = l.noteOctShiftsResolved
+                        s[rank - 1] = shift == 0 ? 1 : (shift == 1 ? -1 : 0)
+                        l.noteOctShifts = s
+                    }
+                }
+                .euclideousHelp("Shift this note up or down an octave.")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Note \(rank) octave shift, \(shift == 0 ? "none" : euclideousSigned(shift))")
+        }
+    }
+    /// The 8-key row — equal columns across the tab's own available width (`fullWidth` minus the strip and
+    /// its gap, matching this page's own "flexible items share the extra width" convention). Computes the
+    /// pool/pitch/ring/riff-reach context ONCE, mirroring the old `melodyNotesRow` exactly, so a key can
+    /// never show a pitch the engine wouldn't actually sound.
+    private func notesKeysRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, keyHeight: CGFloat, chipHeight: CGFloat) -> some View {
+        let poolCount = min(riffLivePool.count, 8)
+        let riffOn = line.riffOnResolved
+        let highRanks = euclideousHighPickRanks(topLit: line.topLitResolved, top2Lit: line.top2LitResolved, poolCount: poolCount)
+        let reachable: Set<Int> = riffOn ? euclideousRiffReachableRanks(
+            dir: line.euclideousRiffDirResolved, length: line.riffLengthResolved, stride: line.riffStrideResolved,
+            rotate: line.riffRotateResolved, ranks: riff.ranksResolved, invert: line.riffInvertResolved,
+            transpose: line.melodyTransposeResolved) : []
+        let extendedPool = euclideousGlobalPoolExtended(sortedRaw: riffLivePool.map { Int($0) })
+        let flatKey = noteSource == .key ? euclideousKeyIsFlat(keyRoot) : true
+        return HStack(spacing: 3) {
+            ForEach(1...8, id: \.self) { rank in
+                notesKeyColumn(idx, line, accent, rank: rank, poolCount: poolCount, extendedPool: extendedPool,
+                                flatKey: flatKey, highRanks: highRanks, reachable: reachable,
+                                keyHeight: keyHeight, chipHeight: chipHeight)
+            }
+        }
+    }
+    /// The NOTES strip — the whole layer's own on/off master switch (same visual language as the RIFF
+    /// card's own on/off styling, just vertical), carrying a new 8-bar lit-notes graphic (rank 1 at the
+    /// bottom, matching the keys row's own left-to-right rank order read top-down) so the strip itself
+    /// shows WHICH notes are lit without needing to glance across the whole row.
+    private func notesStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
+        let isOn = line.notesOnResolved
+        let litMask = line.litNotesResolved
+        let litCount = (0..<8).filter { (litMask & (1 << $0)) != 0 }.count + (line.topLitResolved ? 1 : 0) + (line.top2LitResolved ? 2 : 0)
+        return VStack(spacing: 8) {
+            Text("NOTES").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(isOn ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+                .fixedSize().rotationEffect(.degrees(-90)).frame(width: 34)
+            VStack(spacing: 1) {
+                ForEach((1...8).reversed(), id: \.self) { rk in
+                    let lit = (litMask & (1 << (rk - 1))) != 0
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill((isOn ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).opacity(lit ? 1.0 : 0.25))
+                        .frame(width: 10, height: 3)
+                }
+            }
+        }
+        .frame(width: 34, height: height)
+        .background(RoundedRectangle(cornerRadius: 6).fill(isOn ? lane100(accent) : Color(hex: 0x2A2D34)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(isOn ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { edit(idx) { $0.notesOn = !($0.notesOnResolved) } }
+        .euclideousHelp("Turn the notes layer on or off. Lit notes are remembered.")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Notes layer, \(isOn ? "on" : "off"), \(litCount) notes lit")
+    }
+    /// The octave/TOP/TOP2 row — the shared octave trough (writing ONLY `octave`, independent of RIFF's own
+    /// `riffOctave` trough) + TOP/TOP2 (reusing `melodyButton` verbatim, same one-tap-turns-the-layer-on
+    /// idiom as the key columns above). Never dims — "the control that toggles a layer never dims," the
+    /// same rule the RIFF card itself follows; these controls remain fully live regardless of `notesOn`.
+    private func notesOctaveTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
+        HStack(spacing: sp4) {
+            euclideousOctaveTrough(value: line.octaveResolved, accent: accent) { v in
+                edit(idx) { l in
+                    if !l.notesOnResolved { l.notesOn = true }
+                    l.octave = v
+                }
+            }
+            melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest note of the source on every hit, following chord changes.") {
+                edit(idx) { l in
+                    if !l.notesOnResolved { l.notesOn = true }
+                    l.topLit = !(l.topLitResolved)
+                }
+            }
+            .frame(width: 46)
+            melodyButton("TOP2", on: line.top2LitResolved, accent: accent, help: "Play the second-highest note of the source on every hit, following chord changes.") {
+                edit(idx) { l in
+                    if !l.notesOnResolved { l.notesOn = true }
+                    l.top2Lit = !(l.top2LitResolved)
+                }
+            }
+            .frame(width: 42)
+        }
+        .frame(height: height)
+    }
+    /// NOTES VEL — a new bespoke bipolar control (−64...+64, default 0), modelled on the SAME mechanism
+    /// `EuclideousSlider`'s TILT case already proves (bipolar fill-from-centre, a static centre tick, a live
+    /// value-edge line, absolute touch-to-value, a centre detent) but as its own small view, not a 7th
+    /// `EuclideousSliderField` case — this control's label-left/value-right layout and fixed 287×34
+    /// footprint don't match that component's generic stacked-centred convention, and forcing a new case
+    /// onto an already-complex shared component for one visually-divergent control isn't worth it. Added to
+    /// (never scales) the lit notes' own base velocity, clamped 1...127 at resolve (Router.swift).
+    private func notesVelBar(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
+        let value = line.notesVelOffsetResolved
+        let lo = -64.0, hi = 64.0
+        return GeometryReader { geo in
+            let size = geo.size
+            let inset: CGFloat = 6
+            let travel = max(1, size.width - inset * 2)
+            // PLAIN `let` BINDINGS ONLY in this outer scope — a nested `func` declaration of any kind
+            // (regardless of its own return style) is disallowed directly inside a `@ViewBuilder` closure
+            // (this file's own standing pitfall). `pos`/`bar`/`edgeLine` move inside the `Canvas` closure
+            // below instead, which is a plain `(GraphicsContext, CGSize) -> Void` closure, not ViewBuilder —
+            // mirroring `EuclideousSlider`'s own identical local-func idiom exactly.
+            let center = inset + CGFloat((0 - lo) / (hi - lo)) * travel
+            let valuePos = inset + CGFloat((Double(value) - lo) / (hi - lo)) * travel
+            ZStack {
+                Canvas { ctx, sz in
+                    func bar(_ a: CGFloat, _ b: CGFloat) -> CGRect { CGRect(x: min(a, b), y: 0, width: abs(b - a), height: sz.height) }
+                    func edgeLine(_ p: CGFloat) -> CGRect { bar(p - 1, p + 1) }
+                    ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: sz), cornerRadius: 6), with: .color(Color(hex: 0x22252C)))
+                    ctx.fill(Path(bar(center, valuePos)), with: .color(accent.opacity(0.2)))
+                    ctx.fill(Path(edgeLine(center)), with: .color(Color(hex: 0x3A3E47)))
+                    ctx.fill(Path(edgeLine(valuePos)), with: .color(accent))
+                }
+                HStack {
+                    Text("NOTES VEL").font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                    Spacer()
+                    Text(euclideousSigned(value)).font(.system(size: 14, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
+                }
+                .padding(.horizontal, 10)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        let clamped = max(inset, min(size.width - inset, g.location.x))
+                        var f = Double((clamped - inset) / travel)
+                        // CENTRE DETENT (~6% of travel), the same convention `euclideousTiltDetentFrac`
+                        // already establishes for EuclideousSlider's own TILT case.
+                        if abs(clamped - center) < travel * 0.06 { f = 0.5 }
+                        let v = Int((lo + f * (hi - lo)).rounded())
+                        edit(idx) { $0.notesVelOffset = max(-64, min(64, v)) }
+                    }
+            )
+            .onTapGesture(count: 2) { edit(idx) { $0.notesVelOffset = 0 } }
+        }
+        .frame(height: 34)
+        .euclideousHelp("Make the lit notes louder or quieter than the riff.")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Notes velocity, \(euclideousSigned(value))")
+        .accessibilityAdjustableAction { direction in
+            let cur = line.notesVelOffsetResolved
+            let target = direction == .increment ? min(64, cur + 4) : max(-64, cur - 4)
+            edit(idx) { $0.notesVelOffset = target }
+        }
+    }
+    /// The whole NOTES tab — the strip (full height, left) beside keys+chips (120pt) · octave/TOP/TOP2
+    /// (40pt) · NOTES VEL (34pt). Body opacity drops to 42% while `notesOn` is false (the strip itself never
+    /// dims, matching the RIFF card's own "the on/off control never dims" rule).
+    private func notesTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
+        let isOn = line.notesOnResolved
+        return HStack(spacing: sp4) {
+            notesStrip(idx, line, accent, height: 210)
+            VStack(spacing: sp4) {
+                notesKeysRow(idx, line, accent, keyHeight: 92, chipHeight: 24)
+                notesOctaveTopRow(idx, line, accent, height: 40)
+                notesVelBar(idx, line, accent)
+            }
+            .opacity(isOn ? 1.0 : 0.42)
         }
     }
 
@@ -2816,12 +3034,16 @@ struct EuclideousPage: View {
             // a plain tap, byte-identical timing to the old `.onTapGesture`), while `pressing:` gives the
             // touch-down/touch-up signal `.onTapGesture` alone never exposed.
             // BEHAVIOUR RULE 6 (Paul 2026-10-13 ferry): tapping the summary label now selects this lane AND
-            // switches it to the MELODY tab — the melody pop-up it used to open is retired entire.
+            // switches it to a melodic tab — the melody pop-up it used to open is retired entire. RIFF/NOTES
+            // SPLIT (third same-day ferry) replaced the single MELODY destination with two tabs; NOTES is
+            // the chosen landing (a judgment call, flagged — the ferry never re-specified this one rule once
+            // MELODY itself was split, and NOTES is the more direct successor to what this label used to
+            // summarize: the lit-pitch/octave state, not the riff's own walk settings).
             Rectangle().fill(Color.clear).frame(width: width, height: 30)
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity,
                                      pressing: { down in if idx < labelPressed.count { labelPressed[idx] = down } },
-                                     perform: { selectedLane = idx; if idx < laneTab.count { laneTab[idx] = .melody } })
+                                     perform: { selectedLane = idx; if idx < laneTab.count { laneTab[idx] = .notes } })
         }
     }
 
@@ -2903,7 +3125,9 @@ struct EuclideousPage: View {
             let flatKey = euclideousKeyIsFlat(keyRoot)
             var pairs: [(pitch: Int, label: String)] = []
             for rk in 1...8 where (line.litNotesResolved & (1 << (rk - 1))) != 0 {
-                if rk - 1 < extended.count { let p = extended[rk - 1] + oct12; pairs.append((p, euclideousNoteViewName(UInt8(max(0, min(127, p))), flatKey: flatKey))) }
+                // RIFF/NOTES SPLIT: each rank's OWN per-note octave shift applies here too — a C3 shifted −1
+                // must read C2 in this label, matching the key buttons' own display (NOTES tab) exactly.
+                if rk - 1 < extended.count { let p = extended[rk - 1] + oct12 + 12 * line.noteOctShiftsResolved[rk - 1]; pairs.append((p, euclideousNoteViewName(UInt8(max(0, min(127, p))), flatKey: flatKey))) }
             }
             if line.topLitResolved, poolCount - 1 < extended.count { pairs.append((extended[poolCount - 1] + oct12, "TOP")) }
             if line.top2LitResolved {
@@ -2931,7 +3155,9 @@ struct EuclideousPage: View {
         // note this hit, i.e. the lit-layer's own resolved set minus whatever coincides with the riff note
         // itself — an honest best-effort DISPLAY count (the real dedup happens note-by-note in Router.swift;
         // this reads the SAME live pool to stay consistent, not a second, disagreeing source).
-        let litCount = euclideousLitPitches(line).count
+        // RIFF/NOTES SPLIT: the notes layer's own master switch gates this count — nothing is "lit" in the
+        // sense that sounds alongside the riff if the whole layer is off, regardless of what's remembered.
+        let litCount = line.notesOnResolved ? euclideousLitPitches(line).count : 0
         if litCount > 0 { items.append("+ \(litCount)") }
         return items
     }

@@ -10887,4 +10887,150 @@ final class RouterTests: XCTestCase {
                        pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+
+    // MARK: - RIFF/NOTES SPLIT (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs") —
+    // per-note octave shifts, the notes layer's own on/off, and its own velocity offset, all independent of
+    // the riff layer's `octave`/`velocityAbsolute`.
+
+    /// Acceptance: "A C3 shifted −1 reads C2" — the same rule applies to the STRUCK PITCH, not just the
+    /// displayed label. A lit note's own `noteOctShifts[rank-1]` entry shifts ONLY that rank, by a whole
+    /// octave (±12 semitones), independent of the lane's shared `octave`.
+    func testEuclideousPerNoteOctaveShiftSoundsAWholeOctaveHigher() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])   // riff off anyway, but rank0=rest either way
+        c.paramsA.euclidLines = [EuclidLine(pulses: 1, steps: 8, rate: .r1_16, useRiff: false, litNotes: 0b0000_0001, riffOn: false,
+                                             mask: EuclidLineMask(), sourceMode: .midi, noteOctShifts: [1, 0, 0, 0, 0, 0, 0, 0])]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60]), beats: 0.3, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 }
+        XCTAssertEqual(ons.count, 1)
+        XCTAssertEqual(ons[0].note, 72, "rank 1's own +1 shift sounds a whole octave (12 semitones) above the plain pool note, independent of the lane's shared octave")
+    }
+
+    /// Acceptance #5 (literal): NOTES VEL offsets the lit notes' own velocity, never the riff note's — and a
+    /// riff/lit pitch collision sounds ONCE, at the riff's own velocity (the riff layer's `addPitch` always
+    /// runs first, so first-insertion-wins dedup gives this for free, not a special case).
+    func testEuclideousNotesVelOffsetsLitNotesOnlyAndCollisionSoundsOnceAtRiffVelocity() {
+        func onsFor(ranks: [Int], litMask: UInt8, offset: Int) -> [(note: UInt8, vel: UInt8)] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: ranks)
+            c.paramsA.euclidLines = [EuclidLine(pulses: 1, steps: 8, velocityAbsolute: 100, rate: .r1_16,
+                                                 useRiff: true, litNotes: litMask, riffOn: true,
+                                                 mask: EuclidLineMask(), sourceMode: .midi, riffLength: 1, notesVelOffset: offset)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            st.euclideousNoteSource = .midi
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord([60, 64]), beats: 0.3, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { (note: $0.note, vel: $0.vel) }.sorted { $0.note < $1.note }
+        }
+        // Riff resolves rank2 (pool[1]=64) at vel 100; rank1 (pool[0]=60) is ALSO lit with a +20 offset —
+        // two genuinely distinct pitches, each carrying its OWN layer's velocity.
+        let distinct = onsFor(ranks: [2], litMask: 0b0000_0001, offset: 20)
+        XCTAssertEqual(distinct.count, 2, "the riff note (64) and the lit note (60) are distinct pitches, both sound")
+        XCTAssertEqual(distinct[0].note, 60); XCTAssertEqual(Int(distinct[0].vel), 120, "lit note: velocityAbsolute(100) + notesVelOffset(20)")
+        XCTAssertEqual(distinct[1].note, 64); XCTAssertEqual(Int(distinct[1].vel), 100, "riff note: velocityAbsolute alone, unaffected by notesVelOffset")
+        // Riff resolves rank1 (pool[0]=60); rank1 is ALSO lit with the SAME +20 offset — the identical pitch
+        // from both layers must collapse to exactly ONE note-on, at the RIFF's own velocity (100), not 120.
+        let collision = onsFor(ranks: [1], litMask: 0b0000_0001, offset: 20)
+        XCTAssertEqual(collision.count, 1, "a riff/lit pitch collision sounds once, not twice")
+        XCTAssertEqual(collision[0].note, 60)
+        XCTAssertEqual(Int(collision[0].vel), 100, "the collision sounds at the RIFF's own velocity, since the riff layer's addPitch always runs first")
+    }
+
+    /// `notesOn: false` silences the whole notes layer while the riff is off — the lit bits themselves are
+    /// unaffected (still "remembered," per Models.swift's own resolved-accessor contract; confirmed
+    /// separately in EffectiveParamsTests), but nothing from them should actually sound.
+    func testEuclideousNotesOnFalseSilencesTheLayerWhileRememberingWhatsLit() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])
+        c.paramsA.euclidLines = [EuclidLine(pulses: 1, steps: 8, rate: .r1_16, useRiff: false, litNotes: 0b0000_0001, topLit: true, riffOn: false,
+                                             mask: EuclidLineMask(), sourceMode: .midi, notesOn: false)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60, 64]), beats: 0.3, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "nothing sounds — riff off AND the whole notes layer off, even though rank 1 and TOP are still lit underneath")
+    }
+
+    /// TOP/TOP2 resolve against the GLOBAL `octave` only, per-note shifts never apply to them (Models.swift's
+    /// own engine comment, "TOP/TOP2 entries at... stay unchanged — no per-note shift, matching the engine
+    /// rule") — even when every one of the 8 per-note shift slots is set, TOP must still resolve the plain,
+    /// unshifted highest pool note.
+    func testEuclideousTopIgnoresPerNoteOctaveShiftsEvenWhenAllAreSet() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])
+        // NOTE, a lesson this file's own history already documents: `useRiff: false` ALONE does not migrate
+        // to "nothing lit" — it falls through to noteSelResolved's own `.all` default, landing on the "any
+        // other legacy value → 1 lit" branch, which would silently light rank 1 too (picking up its own
+        // +1 shift and producing a spurious 2nd note at 72) — `litNotes: 0` must be set explicitly.
+        c.paramsA.euclidLines = [EuclidLine(pulses: 1, steps: 8, rate: .r1_16, useRiff: false, litNotes: 0, topLit: true, riffOn: false,
+                                             mask: EuclidLineMask(), sourceMode: .midi, noteOctShifts: Array(repeating: 1, count: 8))]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 0.3, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 }
+        XCTAssertEqual(ons.count, 1)
+        XCTAssertEqual(ons[0].note, 67, "TOP must resolve the plain highest pool note (67), ignoring every per-note shift slot entirely")
+    }
+
+    /// A stuck-note stress test, mirroring the GATE/legato ferry's own stress test exactly but cycling
+    /// `notesVelOffset` alongside the per-hit lit mask/gate/MONO-steal/transport-restart churn — the
+    /// per-pitch velocity array (`pitchVel`) is new render-thread state this ferry introduced; this is the
+    /// direct regression guard that threading it through REPEAT/legato/MONO-steal/RATCHET never leaves a
+    /// voice open.
+    func testEuclideousRiffNotesSplitStuckNoteStressVelocityOffsetGateFlipMonoStealAndTransportRestart() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func lineFor(_ tick: Int) -> EuclidLine {
+            let gateVal = tick % 2 == 0 ? 1.0 : 0.99
+            let lit = UInt8(1 << (tick % 8))
+            let offset = (tick % 9) * 8 - 32   // cycles through -32...+32
+            return EuclidLine(target: 0, pulses: 3, steps: 8, gate: gateVal, velocityAbsolute: 90, rate: .r1_32,
+                               useRiff: true, litNotes: lit, riffOn: true,
+                               sourceMode: .midi, riffLength: 8, notesVelOffset: offset)
+        }
+        func sceneFor(_ line: EuclidLine, monoOnA: Bool) -> (PluginState) {
+            var gold = Machine(machineID: "gold", type: .euclid)
+            gold.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            gold.paramsA.euclidLines = [line]
+            var s = SceneState.empty()
+            s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+            if monoOnA { s.cells[0][0] = Cell(machineID: "orange", buses: [.a]) }   // a sibling ARP, same bus — steals under MONO LAST
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }, scenes: [s])
+            if monoOnA { st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0] }
+            st.euclideousNoteSource = .midi
+            return st
+        }
+        let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        let router = runKeepingRouter(SnapshotBuilder.build(from: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
+        var diag = KernelDiag()
+        var beat = 0.2, ts = 0.2 / tempo * 60.0 * sr
+        for tick in 1...40 {
+            let monoOnA = (15...24).contains(tick)
+            let box1 = SnapshotBuilder.build(from: sceneFor(lineFor(tick), monoOnA: monoOnA))
+            if tick == 30 {
+                router.process(box: box1, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo,
+                               sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            router.process(box: box1, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: SnapshotBuilder.build(from: sceneFor(lineFor(40), monoOnA: false)),
+                       pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
 }

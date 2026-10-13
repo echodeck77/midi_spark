@@ -738,6 +738,30 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertFalse(untouched.euclidLines[0].patternMissResolved, "nil defaults to HIT, not MISS")
     }
 
+    // RIFF/NOTES SPLIT (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs") —
+    // notesOn/noteOctShifts/notesVelOffset must ALSO survive the fresh-literal reconstruction, the exact
+    // standing regression class every entry in this cluster already guards for.
+    func testEuclidLineRiffNotesSplitFieldsSurviveSnapshotBuild() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, notesOn: false,
+                                                  noteOctShifts: [1, -1, 0, 0, 0, 0, 0, 1], notesVelOffset: -20)]
+        }) { _ in }.machines[0].a
+        XCTAssertFalse(a.euclidLines[0].notesOnResolved, "notesOn must survive the resolve, not silently reset")
+        XCTAssertEqual(a.euclidLines[0].noteOctShiftsResolved, [1, -1, 0, 0, 0, 0, 0, 1], "noteOctShifts must survive the resolve")
+        XCTAssertEqual(a.euclidLines[0].notesVelOffsetResolved, -20, "notesVelOffset must survive the resolve")
+        let untouched = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
+        }) { _ in }.machines[0].a
+        XCTAssertTrue(untouched.euclidLines[0].notesOnResolved, "nil defaults to ON")
+        XCTAssertEqual(untouched.euclidLines[0].noteOctShiftsResolved, Array(repeating: 0, count: 8))
+        XCTAssertEqual(untouched.euclidLines[0].notesVelOffsetResolved, 0)
+        // notesVelOffset clamps here too, mirroring velocityAbsolute's own clamp precedent just below
+        let clamped = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, notesVelOffset: 200)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(clamped.euclidLines[0].notesVelOffsetResolved, 64)
+    }
+
     // XY PAD REDESIGN (Paul 2026-10-09): velocityAbsolute threads through the SAME fresh-literal
     // reconstruction as every other EuclidLine field above — the exact regression class this file keeps
     // guarding for. A NEW field (not a repurposed `velocity`) specifically so an old doc's saved

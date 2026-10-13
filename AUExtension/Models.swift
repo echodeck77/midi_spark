@@ -448,6 +448,13 @@ struct EuclidLine: Codable, Equatable {
         if c.count > n { return Array(c.prefix(n)) }
         return c + Array(repeating: false, count: n - c.count)
     }
+    // RIFF/NOTES SPLIT (Paul 2026-10-13 ferry): the NOTES-tab layer's own three new controls — a master
+    // on/off switch, per-rank (1-8) octave shifts, and a velocity offset — all independent of the riff
+    // layer's own octave/velocity. `octave`/`riffOctave` already existed as two separate fields before this
+    // ferry (the old MELODY tab just merged them into one UI control); these three are genuinely new.
+    var notesOn: Bool? = nil
+    var noteOctShifts: [Int]? = nil
+    var notesVelOffset: Int? = nil
     var gateResolved: Double { gate ?? 0.9 }
     // NOT narrowed to ±2 here (Paul 2026-10-13 ferry, "Engine" rule 4) — `EuclidLine` is SHARED with the
     // regular, non-Euclideous BUILD-page EUCLID processor, whose own OCTAVE stepper reaches ±3 today
@@ -504,6 +511,21 @@ struct EuclidLine: Codable, Equatable {
     /// The effective direction — `direction` once touched under Stage 3, else derived from the legacy `reverse`
     /// bool (FWD/BKW only — PING-PONG never existed before this, so there's nothing for an old doc to migrate to).
     var directionResolved: EuclidDir { direction ?? (reverseResolved ? .bkw : .fwd) }
+    var notesOnResolved: Bool { notesOn ?? true }
+    // UI-CONVENIENCE ONLY (main thread) — pads/clamps to exactly 8 entries, which means it ALLOCATES. The
+    // RENDER THREAD must never call this (Router.swift reads the raw `noteOctShifts: [Int]?` instead, via
+    // a bounds-checked, zero-allocation closure, mirroring this exact file's own `customHits`/
+    // `customHitsResolved` split: `customHitsResolved` also pads/allocates and is likewise never called
+    // from the render path for the same reason — confirmed by an adversarial-review fix that moved
+    // Router.swift's own read off the padded accessor and onto the raw optional, see `runEuclidLine`'s
+    // `if let custom = customHits` branch).
+    var noteOctShiftsResolved: [Int] {
+        var r = noteOctShifts ?? Array(repeating: 0, count: 8)
+        if r.count < 8 { r += Array(repeating: 0, count: 8 - r.count) }
+        if r.count > 8 { r = Array(r.prefix(8)) }
+        return r.map { max(-1, min(1, $0)) }
+    }
+    var notesVelOffsetResolved: Int { max(-64, min(64, notesVelOffset ?? 0)) }
 }
 // DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04): every field EuclidLine has gained SINCE day one
 // was correctly added as Optional, but the five ORIGINAL fields (target/pulses/steps/rotate/invert) are plain
@@ -557,6 +579,9 @@ extension EuclidLine {
         riffAdvanceStep = try c.decodeIfPresent(Bool.self, forKey: .riffAdvanceStep)
         melodyTranspose = try c.decodeIfPresent(Int.self, forKey: .melodyTranspose)
         customHits = try c.decodeIfPresent([Bool].self, forKey: .customHits)
+        notesOn = try c.decodeIfPresent(Bool.self, forKey: .notesOn)
+        noteOctShifts = try c.decodeIfPresent([Int].self, forKey: .noteOctShifts)
+        notesVelOffset = try c.decodeIfPresent(Int.self, forKey: .notesVelOffset)
     }
 }
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it

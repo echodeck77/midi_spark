@@ -726,7 +726,14 @@ enum SnapshotBuilder {
                                                                       riffLength: $0.riffLength.map { clamp($0, 1, 8) },
                                                                       riffAdvanceStep: $0.riffAdvanceStep,
                                                                       melodyTranspose: $0.melodyTranspose.map { clamp($0, -7, 7) },
-                                                                      customHits: $0.customHits) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
+                                                                      customHits: $0.customHits,
+                                                                      // RIFF/NOTES SPLIT (Paul 2026-10-13 ferry): the NOTES-tab layer's own 3 new fields —
+                                                                      // threaded here for the exact same reason every other field on this line is (the
+                                                                      // comment right below). noteOctShifts is a RAW passthrough, no clamp, matching
+                                                                      // customHits' own identical treatment one line up — the render thread reads it
+                                                                      // raw too (never the padded/clamped noteOctShiftsResolved, which allocates).
+                                                                      notesOn: $0.notesOn, noteOctShifts: $0.noteOctShifts,
+                                                                      notesVelOffset: $0.notesVelOffset.map { clamp($0, -64, 64) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
         out.euclideousRiff = { let r = p.euclideousRiff ?? EuclideousRiff(); var rr = r
             rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved
             return rr }()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved/clamped once here

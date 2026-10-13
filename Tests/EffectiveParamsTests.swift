@@ -232,6 +232,51 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(line.litNotesResolved, 0b0000_0010, "the explicit field wins outright over a disagreeing legacy useRiff")
         XCTAssertFalse(line.riffOnResolved)
     }
+    // RIFF/NOTES SPLIT (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs") — three new
+    // EuclidLine fields: notesOn (the notes layer's own master switch), noteOctShifts (per-rank octave
+    // shifts, each -1...1), notesVelOffset (added to VEL for lit notes only, -64...64). Same CR-8 contract
+    // as every prior EuclidLine addition — a doc saved before these existed must still decode without
+    // throwing, resolving to the ferry's own stated defaults: "per-note shifts load as 0, the notes layer
+    // loads as on, the offset loads as 0."
+    func testEuclidLineDecodesWithoutRiffNotesSplitKeys() throws {
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
+        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertTrue(line.notesOnResolved, "nil ⇒ on, the ferry's own stated default")
+        XCTAssertEqual(line.noteOctShiftsResolved, Array(repeating: 0, count: 8))
+        XCTAssertEqual(line.notesVelOffsetResolved, 0)
+    }
+    func testEuclidLineRiffNotesSplitFieldsRoundTripThroughCodable() throws {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.notesOn = false
+        line.noteOctShifts = [1, -1, 0, 0, 0, 0, 0, 1]
+        line.notesVelOffset = -20
+        let data = try JSONEncoder().encode(line)
+        let back = try JSONDecoder().decode(EuclidLine.self, from: data)
+        XCTAssertFalse(back.notesOnResolved)
+        XCTAssertEqual(back.noteOctShiftsResolved, [1, -1, 0, 0, 0, 0, 0, 1])
+        XCTAssertEqual(back.notesVelOffsetResolved, -20)
+    }
+    // CLAMP/PAD, mirroring the standing per-field convention (riffOctave's own clamp test, directly above
+    // this section) — each new field clamps independently of the others.
+    func testEuclidLineNoteOctShiftsClampsEachEntryAndPadsShortArrays() {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.noteOctShifts = [5, -5, 0]   // short (3, not 8) AND out-of-range entries
+        let r = line.noteOctShiftsResolved
+        XCTAssertEqual(r.count, 8, "pads a short array to exactly 8")
+        XCTAssertEqual(r[0], 1, "clamps -1...1")
+        XCTAssertEqual(r[1], -1)
+        XCTAssertEqual(r[2], 0)
+        XCTAssertEqual(r[3], 0, "the padded tail defaults to 0")
+        line.noteOctShifts = Array(repeating: 1, count: 12)   // over-long (12, not 8)
+        XCTAssertEqual(line.noteOctShiftsResolved.count, 8, "truncates an over-long array to exactly 8")
+    }
+    func testEuclidLineNotesVelOffsetClampsToPlusMinus64() {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.notesVelOffset = 200
+        XCTAssertEqual(line.notesVelOffsetResolved, 64)
+        line.notesVelOffset = -200
+        XCTAssertEqual(line.notesVelOffsetResolved, -64)
+    }
     // EUCLIDEOUS-SCOPED DRUNK/RANDOM→FWD (Paul 2026-10-13 ferry, Presets rule 1: "the stored direction
     // carries over. DRUNK becomes FWD") — scoped to Euclideous's own reader; the SHARED `riffDirResolved`
     // (used by the unrelated generic chain RIFF processor) must stay fully untouched.

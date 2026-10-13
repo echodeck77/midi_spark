@@ -1973,6 +1973,25 @@ final class DerivationsTests: XCTestCase {
                                                        ranks: [1, 8], invert: true, transpose: 1)
         XCTAssertEqual(reachable, [2], "rank 1 inverts to 8, +1 transpose runs off the top of the board (dropped) — only rank 8's own inverted+transposed result (2) survives")
     }
+    // RIFF/NOTES SPLIT (Paul's third same-day ferry) — `euclideousRiffStepRanks` resolves each of the 8
+    // STEP positions' own rank, mirroring Router.swift's real per-hit `invRank`/`transposedRank` formula
+    // exactly, mask-oblivious. A genuinely different question from `euclideousRiffReachableRanks` above
+    // (a static per-step property, not "every rank the walk could ever visit").
+    func testEuclideousRiffStepRanksAppliesInvertThenTransposePerStepAndLeavesRestsAlone() {
+        // rank 0 (rest) passes through untouched by BOTH invert and transpose, matching Router.swift's own
+        // `invRank >= 1 ? ... : invRank` guard; rank 1 inverts to 8, then +1 transpose → 9 (left as-is, not
+        // folded here — folding into a displayable 1...8 range is the CALLER's own job, per this function's
+        // own doc comment).
+        XCTAssertEqual(euclideousRiffStepRanks(ranks: [0, 1, 8], invert: true, transpose: 1), [0, 9, 2])
+    }
+    func testEuclideousRiffStepRanksNoOpWhenNotInvertedAndNotTransposed() {
+        XCTAssertEqual(euclideousRiffStepRanks(ranks: [0, 1, 2, 3, 4, 5, 6, 7], invert: false, transpose: 0),
+                       [0, 1, 2, 3, 4, 5, 6, 7])
+    }
+    func testEuclideousRiffStepRanksTransposeAloneShiftsOnlyNonRestSteps() {
+        XCTAssertEqual(euclideousRiffStepRanks(ranks: [0, 3, 0, 5], invert: false, transpose: 2), [0, 5, 0, 7],
+                       "every rest (rank 0) stays exactly 0 — TRANSPOSE alone never turns a rest into a note")
+    }
     func testEuclideousFooterStatesHitMissRestAndRiffOff() {
         // 3 hits (steps 0, 3, 6 of an 8-step lap); predicted riff steps 3, 5(rest), 7 against a grid whose
         // rank 5 is a rest (0).

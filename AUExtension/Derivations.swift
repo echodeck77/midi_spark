@@ -2069,6 +2069,25 @@ func euclideousRiffReachableRanks(dir: RiffDir, length: Int, stride: Int, rotate
     return out
 }
 
+/// RIFF/NOTES SPLIT (Paul's third same-day ferry) — the RIFF tab's own mini-grid thumbnail (a static 8×8
+/// preview, not a live walk) needs "what rank does STEP i show," independent of direction/stride/rotate
+/// entirely (those shape WHEN the walk visits a step, not what that step's own rank IS) — a genuinely
+/// different question from `euclideousRiffReachableRanks` above (which asks "across every ordinal this
+/// lane could ever visit, which ranks show up at all"). Deliberately MASK-oblivious — LEAP/MIRROR/CLIMB
+/// are live per-hit mask ROLLS, not a static per-step property a thumbnail can show (matching the ferry's
+/// own "what the mini grid shows" wording precisely). Mirrors `Router.swift`'s own real per-hit
+/// `invRank`/`transposedRank` formula exactly (the SAME two lines, not an approximation) — a rest (rank 0)
+/// passes through untouched by both INVERT and TRANSPOSE, matching the engine's own "transpose only
+/// applies when invRank >= 1" guard; a non-rest result can legally land outside 1...8 after TRANSPOSE
+/// (the engine's own `riffResolve(wrap: .fold)` octave-extends it rather than rejecting it — the caller
+/// decides how to render that, this function only resolves the rank).
+func euclideousRiffStepRanks(ranks: [Int], invert: Bool, transpose: Int) -> [Int] {
+    ranks.map { rawRank in
+        let invRank = (invert && rawRank >= 1) ? (9 - rawRank) : rawRank
+        return invRank >= 1 ? invRank + transpose : invRank
+    }
+}
+
 /// RIFF TIE LOOKAHEAD FIX, the DRUNK case: a NON-MUTATING simulation of the walk `aheadBy` ticks past `fromPos`
 /// (the already-resolved CURRENT position) — lets TIE ask "what does DRUNK actually play next" without touching
 /// the real persisted walk state (`riffDrunkPos`/`riffDrunkLastTick` in Router.swift). Exact, not approximate:
@@ -2856,7 +2875,11 @@ func euclideousSilenceReason(line: EuclidLine, mainOutMask: UInt8, riffAllRest: 
     // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-the-page §1: "nothing
     // lit and the riff off" is a NEW silent state — nothing is wired to produce a note at all (neither
     // layer has anything to resolve), distinct from EMPTY RIFF (riff on, but its own pool is exhausted).
-    if !line.riffOnResolved && line.litNotesResolved == 0 && !line.topLitResolved && !line.top2LitResolved { return "NO NOTES" }
+    // RIFF/NOTES SPLIT (third same-day ferry): the notes layer can now ALSO be switched off entirely
+    // (`notesOnResolved`, independent of whether anything is still lit/remembered underneath it) — a
+    // lane with riff off AND the notes layer off is silent regardless of what's lit, the direct
+    // generalization of the prior "nothing lit" check to the new master switch.
+    if !line.riffOnResolved && (!line.notesOnResolved || (line.litNotesResolved == 0 && !line.topLitResolved && !line.top2LitResolved)) { return "NO NOTES" }
     return nil
 }
 
