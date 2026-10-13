@@ -1778,6 +1778,56 @@ final class DerivationsTests: XCTestCase {
         // must ALSO read as a hit, even though it's "step 2" under the free-run reading above.
         XCTAssertTrue(euclideousNoteViewIsHit(buf: buf, tickBeat: 2, sub: 1, spanBeats: 2, dir: .fwd), "a span re-anchor must make beat 2 (the span's own step 0) a hit again")
     }
+    // ── GATE FOLLOWS THE RHYTHM (Paul 2026-10-13 ferry) ─────────────────────────────────────────────────────
+    func testEuclideousNextHitGapBeatsFindsTheRealNextHit() {
+        // E(3,8), hits at buffer indices 0, 3, 6 (same known pattern the lap-hit-steps tests below use).
+        let buf = euclideousNoteViewPattern(pulses: 3, steps: 8, rotate: 0, tilt: 0)
+        XCTAssertEqual(euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: 1, spanBeats: 0, fromBeat: 0, cap: 32), 3)
+        XCTAssertEqual(euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: 1, spanBeats: 0, fromBeat: 3, cap: 32), 3)
+        XCTAssertEqual(euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: 1, spanBeats: 0, fromBeat: 6, cap: 32), 2, "wraps across the end of the cycle to step 0 of the next lap")
+    }
+    func testEuclideousNextHitGapBeatsIncludesAResetThatFallsBeforeTheNextHit() {
+        // Same E(3,8) pattern — free-run, the next hit from beat 0 is beat 3 (confirmed above). A 2-beat
+        // RESET SPAN re-anchors step 0 at beat 2, which IS itself a hit — so the real next hit becomes
+        // beat 2, not beat 3, "include a reset if one falls before it."
+        let buf = euclideousNoteViewPattern(pulses: 3, steps: 8, rotate: 0, tilt: 0)
+        XCTAssertEqual(euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: 1, spanBeats: 2, fromBeat: 0, cap: 32), 2)
+    }
+    func testEuclideousNextHitGapBeatsFallsBackToTheCapOnAnAllRestPattern() {
+        let buf = [Bool](repeating: false, count: 8)
+        XCTAssertEqual(euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: 1, spanBeats: 0, fromBeat: 0, cap: 16), 16)
+    }
+    /// Deliberately builds `buf` as a LARGER, PADDED array (24 slots, only the first 8 meaningful) — the
+    /// direct regression guard for the real bug this function's own doc comment names: Router's real
+    /// `euclidBuf` is a fixed, OVERSIZED scratch array, and relying on `buf.count` for the modulus (instead
+    /// of the explicit `n`) silently wraps the cycle at the WRONG length.
+    func testEuclideousNextHitGapBeatsIgnoresTrailingScratchBufferPadding() {
+        var buf = euclideousNoteViewPattern(pulses: 3, steps: 8, rotate: 0, tilt: 0)
+        buf += [Bool](repeating: false, count: 16)   // pad to 24 — buf.count would wrongly suggest a 24-step cycle
+        XCTAssertEqual(euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: 1, spanBeats: 0, fromBeat: 6, cap: 32), 2,
+                       "must wrap at the real step count (8), not the padded buffer's own larger size (24)")
+    }
+    /// Cross-check against the SAME footer-prediction primitive the UI uses (`euclideousLapHitSteps`) — a
+    /// real, rotated+tilted pattern, across all 3 Euclideous directions, confirming the new gap function can
+    /// never silently disagree with what the step footers themselves predict (per the ferry's own "use the
+    /// same prediction the step footers use"; the footer-mirror functions have a documented history of
+    /// drifting from the real engine, so this is a standing regression guard, not a one-off sanity check).
+    func testEuclideousNextHitGapBeatsAgreesWithTheFooterPredictionAcrossAllDirections() {
+        let sub = 0.5
+        for dir: EuclidDir in [.fwd, .bkw, .pingpong] {
+            let buf = euclideousNoteViewPattern(pulses: 3, steps: 8, rotate: 2, tilt: 0.3)
+            let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 2, tilt: 0.3, patternMiss: false, customHits: nil, dir: dir)
+            let cycleLen = euclidCycleLen(dir, n: buf.count)
+            XCTAssertFalse(hits.isEmpty)
+            for i in 0..<hits.count {
+                let thisTick = hits[i].tick
+                let nextTick = i + 1 < hits.count ? hits[i + 1].tick : hits[0].tick + cycleLen
+                let expectedGap = Double(nextTick - thisTick) * sub
+                let got = euclideousNextHitGapBeats(buf: buf, n: 8, dir: dir, sub: sub, spanBeats: 0, fromBeat: Double(thisTick) * sub, cap: cycleLen * 4)
+                XCTAssertEqual(got, expectedGap, accuracy: 1e-9, "dir \(dir), hit \(i): tick \(thisTick) → next \(nextTick)")
+            }
+        }
+    }
     // ── RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry) ────────────────────────────────────────
     func testEuclideousLapHitStepsMatchesThePatternsOwnHitPositions() {
         let buf = euclideousNoteViewPattern(pulses: 3, steps: 8, rotate: 0, tilt: 0)

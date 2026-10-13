@@ -10564,24 +10564,14 @@ final class RouterTests: XCTestCase {
         }
     }
 
-    /// THE AUDIBILITY fix, take 2 (Paul, same thread: first "still not working in any perceptible way,"
-    /// then — after the first attempted fix (giving every repeat the hit's own FULL gate) — "it does affect
-    /// the output... but feels more like a sustain than a ratchet." Root-caused precisely, not guessed: a
-    /// FULL gate is nearly as long as the whole slot a burst occupies, so each repeat barely ends before the
-    /// NEXT repeat's identical pitch retriggers it — the engine's own (correct) same-pitch restrike rule
-    /// then chains them into one continuous legato run, exactly a "sustain," confirmed directly by dumping
-    /// the raw on/off sample stream (a throwaway debug test, not committed) before settling on this fix.
-    /// REAL FIX: a ratchet's own snap is a DIFFERENT musical question from "how long should this lane's note
-    /// sustain" (GATE) — each repeat now gets a short, FIXED 50% duty cycle of its own slot (`sub/nRep`),
-    /// independent of the lane's GATE value entirely, so there is ALWAYS a genuine silent gap before the
-    /// next repeat regardless of how long or short GATE happens to be set. Verified three ways: (1) each
-    /// repeat's own duration is EXACTLY half its slot width, scaling down as nRep rises (by design, not a
-    /// regression of the original "shrinks to inaudible" bug — this floor is a fixed, sane 50%, never
-    /// compounding further with a high ratchet count the way dividing the lane's own GATE by nRep used to);
-    /// (2) that duration is the SAME at a near-legato GATE (0.9) as at a short one (0.1) — proving the fix
-    /// is genuinely GATE-independent, the actual root cause of the "sustain" regression; (3) a genuine
-    /// silent gap exists between each repeat's own off and the next repeat's on (off strictly < next on).
-    func testEuclideousMaskRatchetRepeatsAreShortAndGateIndependent() {
+    /// SUPERSEDED (2026-10-13 GATE/legato ferry §3.2): "each repeat uses its own subdivision as its gap...
+    /// at 100%, each repeat ends just before the next repeat starts." RATCHET's own duty cycle is no longer
+    /// a fixed 50% independent of GATE — it's now `(sub/nRep) * gate`, so GATE genuinely determines how
+    /// much of each repeat's own subdivision it fills. Verified: duration scales with GATE at two different
+    /// values (replacing the old "always exactly 50%" assertion), two different GATE values now produce
+    /// GENUINELY DIFFERENT durations (the opposite of the old "GATE-independent" claim), and at 100% each
+    /// repeat fills its own full subdivision (Acceptance #7: "ratchet ×3 at 100%: three distinct strikes").
+    func testEuclideousMaskRatchetGateDeterminesRepeatDuration() {
         struct Burst { let onsets: [Int64]; let offs: [Int64] }
         func burst(ratchetReps: Int, gateParam: Double) -> Burst {
             var c = Machine(machineID: "gold", type: .euclid)
@@ -10600,19 +10590,301 @@ final class RouterTests: XCTestCase {
             let offs = e.offs.filter { $0.cable == 1 && Int($0.note) == 60 }.map { $0.sample }.sorted().prefix(ratchetReps)
             return Burst(onsets: Array(ons), offs: Array(offs))
         }
-        for gateParam in [0.1, 0.9] {
+        for gateParam in [0.3, 0.7] {
             let b4 = burst(ratchetReps: 4, gateParam: gateParam)
             XCTAssertEqual(b4.onsets.count, 4); XCTAssertEqual(b4.offs.count, 4)
             for i in 0..<4 {
                 let dur = b4.offs[i] - b4.onsets[i]
                 let slot = (i + 1 < 4 ? b4.onsets[i + 1] : b4.onsets[i] + (b4.onsets[1] - b4.onsets[0])) - b4.onsets[i]
-                XCTAssertEqual(Double(dur), Double(slot) * 0.5, accuracy: 2,
-                               "gate=\(gateParam) repeat \(i): duration must be exactly 50% of its own slot, not shrunk further nor stretched into a sustain")
-                XCTAssertLessThan(b4.offs[i], b4.onsets[i] + slot, "gate=\(gateParam) repeat \(i): must leave a real gap before the next onset")
+                XCTAssertEqual(Double(dur), Double(slot) * gateParam, accuracy: 2,
+                               "gate=\(gateParam) repeat \(i): duration must now be GATE's own share of its own slot, not a fixed 50%")
             }
         }
-        let b2 = burst(ratchetReps: 4, gateParam: 0.1); let b9 = burst(ratchetReps: 4, gateParam: 0.9)
-        XCTAssertEqual(b2.offs[0] - b2.onsets[0], b9.offs[0] - b9.onsets[0],
-                       "the ratchet's own snap must be GATE-independent — identical duration at gate=0.1 and gate=0.9")
+        let low = burst(ratchetReps: 4, gateParam: 0.2); let high = burst(ratchetReps: 4, gateParam: 0.9)
+        XCTAssertNotEqual(low.offs[0] - low.onsets[0], high.offs[0] - high.onsets[0],
+                           "ratchet repeat duration must now track GATE — the opposite of the old GATE-independent rule")
+        // Acceptance #7: "Ratchet ×3 at 100%: three distinct strikes" — each fills its own full subdivision.
+        let full = burst(ratchetReps: 3, gateParam: 1.0)
+        XCTAssertEqual(full.onsets.count, 3, "three DISTINCT strikes, never merged, even at 100%")
+        for i in 0..<2 {
+            let slot = full.onsets[i + 1] - full.onsets[i]
+            XCTAssertEqual(Double(full.offs[i] - full.onsets[i]), Double(slot), accuracy: 2,
+                           "at 100%, each repeat fills its own subdivision, ending just before the next starts")
+        }
+    }
+
+    // MARK: - GATE FOLLOWS THE RHYTHM (Paul 2026-10-13 ferry)
+
+    func testEuclideousGateAt50PercentMeasuresAgainstTheRealNextHit() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 2, 3])
+        c.paramsA.euclidLines = [EuclidLine(pulses: 3, steps: 8, gate: 0.5, rate: .r1_16, useRiff: true, riffOn: true,
+                                             mask: EuclidLineMask(), sourceMode: .midi, riffLength: 3)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        // E(3,8): hits at buffer ticks 0,3,6 — real gaps 3,3,2 steps. Ranks 1,2,3 cycle a 3-note chord, so
+        // each hit strikes a DISTINCT pitch (Acceptance #1's own literal setup). beats:2.2 captures exactly
+        // hits 0,1,2,3 (the wrap) and stops BEFORE hit4 (tick 11, tau 2.75) — a hit that far out would
+        // leave hit3's own pitch (60, re-struck by the wrap) un-reconciled at test end, and since this is
+        // GATE=0.5 (not legato) that's a harmless, finite-gated voice either way, but keeping the window
+        // tight avoids a 3rd, chronologically-later same-pitch onset polluting onsFor(60)'s index[1].
+        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 2.2, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let onsFor: (UInt8) -> [Int64] = { note in e.ons.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
+        let offsFor: (UInt8) -> [Int64] = { note in e.offs.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
+        let on1 = onsFor(60)[0], off1 = offsFor(60)[0]
+        let on2 = onsFor(64)[0], off2 = offsFor(64)[0]
+        let on3 = onsFor(67)[0], off3 = offsFor(67)[0]
+        let on1Next = onsFor(60)[1]   // the cycle wraps: hit3 (tick8) replays rank1 = note 60 again
+        XCTAssertEqual(Double(off1 - on1), Double(on2 - on1) * 0.5, accuracy: 2, "1.5 of 3 steps: 50% of the REAL gap to the next hit")
+        XCTAssertEqual(Double(off2 - on2), Double(on3 - on2) * 0.5, accuracy: 2, "1.5 of 3 steps")
+        XCTAssertEqual(Double(off3 - on3), Double(on1Next - on3) * 0.5, accuracy: 2, "1 of 2 steps: the wrap across the end of the cycle")
+    }
+
+    func testEuclideousGateAt100PercentEndsExactly10msAfterTheNextHit() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 2, 3])
+        c.paramsA.euclidLines = [EuclidLine(pulses: 3, steps: 8, gate: 1.0, rate: .r1_16, useRiff: true, riffOn: true,
+                                             mask: EuclidLineMask(), sourceMode: .midi, riffLength: 3)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        // beats:1.2 captures exactly hit0 (tick0, pitch60) and hit1 (tick3, pitch64, tau 0.75), stopping well
+        // before hit2 (tau 1.5) — at GATE=1.0 a legato voice is IMMORTAL until genuinely reconciled, and
+        // anything still open at test end closes via the transport-stop edge's own `renderSampleImmediate`
+        // sentinel (a deliberate "right now" marker, not a real sample count) — keeping the window tight
+        // means hit0's own close (the thing under test) is ALWAYS the real reconcile-computed one, never
+        // shadowed by that sentinel sorting to the front of a later, unrelated close.
+        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1.2, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let onsFor: (UInt8) -> [Int64] = { note in e.ons.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
+        let offsFor: (UInt8) -> [Int64] = { note in e.offs.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
+        let on1 = onsFor(60)[0], off1 = offsFor(60)[0]
+        let on2 = onsFor(64)[0]
+        let overlapSamples = 0.010 * 48_000.0
+        XCTAssertEqual(Double(off1), Double(on2) + overlapSamples, accuracy: 4, "at 100%, a note ends exactly 10ms after the NEXT hit's own note-on")
+    }
+
+    func testEuclideousRepeatedPitchAt100PercentHoldsAsOneNote() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        c.paramsA.euclidLines = [EuclidLine(pulses: 2, steps: 8, gate: 1.0, velocityAbsolute: 77, rate: .r1_16, useRiff: true, riffOn: true,
+                                             mask: EuclidLineMask(), sourceMode: .midi, riffLength: 1)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        // K=2/N=8: two hits per cycle, both resolving rank1 (riffLength 1) — the SAME pitch on consecutive hits.
+        run(SnapshotBuilder.build(from: st), chord([60]), beats: 2, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 && $0.note == 60 }
+        XCTAssertEqual(ons.count, 1, "two consecutive hits on the SAME pitch at 100% must produce exactly ONE note-on, not two")
+        XCTAssertEqual(Int(ons[0].vel), 77, "the held note keeps its FIRST strike's velocity")
+    }
+
+    func testEuclideousRepeatedPitchAt99PercentStrikesTwice() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        c.paramsA.euclidLines = [EuclidLine(pulses: 2, steps: 8, gate: 0.99, rate: .r1_16, useRiff: true, riffOn: true,
+                                             mask: EuclidLineMask(), sourceMode: .midi, riffLength: 1)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        // beats:1.5 captures exactly K=2/N=8's two real hits (ticks 0,4 → tau 0,1.0) and stops before a 3rd,
+        // cycle-2 hit at tau=2.0 would otherwise land right at the window's tail boundary.
+        run(SnapshotBuilder.build(from: st), chord([60]), beats: 1.5, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 && $0.note == 60 }
+        XCTAssertEqual(ons.count, 2, "at 99% (not literally 100) the two hits must strike independently, never merge")
+    }
+
+    func testEuclideousLitNoteSustainsAt100PercentAndRestrikesAt90() {
+        func litOnCount(gate: Double) -> Int {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 2, 3])
+            c.paramsA.euclidLines = [EuclidLine(pulses: 3, steps: 8, gate: gate, rate: .r1_16, useRiff: true,
+                                                 litNotes: 0b0000_0001, riffOn: true, mask: EuclidLineMask(), sourceMode: .midi, riffLength: 3)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            st.euclideousNoteSource = .midi
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 4, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 && $0.note == 60 }.count   // rank 1 = note 60, the lit pick
+        }
+        XCTAssertEqual(litOnCount(gate: 1.0), 1, "the lit note (rank 1) sustains as ONE note-on across all 3 riff-moving hits at 100%")
+        XCTAssertGreaterThan(litOnCount(gate: 0.9), 1, "below 100% the lit note re-strikes on each hit")
+    }
+
+    func testEuclideousSilentSkipRestAt100PercentEndsThePreviousHeldNote() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        // ranks [1, 0] over riffLength 2: hit0 → rank1 (real, held) · hit1 → rank0 = REST, ON REST=SKIP (default).
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 0])
+        c.paramsA.euclidLines = [EuclidLine(pulses: 2, steps: 8, gate: 1.0, rate: .r1_16, useRiff: true, riffOn: true,
+                                             mask: EuclidLineMask(), sourceMode: .midi, riffLength: 2)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        // beats:1.5 — see the sibling 99% test's comment: keeps this to exactly K=2/N=8's two real ticks
+        // (one real hit at tick0, one SKIP rest at tick4) and stops well before a 3rd, cycle-2 hit (tick8,
+        // real again under ranks[1,0]'s own repeat) would land right at the tail boundary.
+        run(SnapshotBuilder.build(from: st), chord([60]), beats: 1.5, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == 1 && $0.note == 60 }.map { $0.sample }.sorted()
+        let offs = e.offs.filter { $0.cable == 1 && $0.note == 60 }.map { $0.sample }.sorted()
+        XCTAssertEqual(ons.count, 1, "only the first hit strikes — the second is a genuine SKIP rest")
+        XCTAssertEqual(offs.count, 1)
+        let samplesPerBeat = 48_000.0 * 60.0 / 120.0
+        let stepSamples = 0.25 * samplesPerBeat   // 1/16 note
+        let overlapSamples = 0.010 * 48_000.0
+        // K=2/N=8 → hits at ticks 0 and 4: a 4-step gap to the rest, which (ferry §2.4) still ends the
+        // held note at THAT hit's time + the overlap — legato never runs through a silence.
+        XCTAssertEqual(Double(offs[0] - ons[0]), 4 * stepSamples + overlapSamples, accuracy: 4,
+                       "the note must end exactly at the SKIP-rest hit's time + the 10ms overlap, not later")
+    }
+
+    func testEuclideousOnRestTieAt60PercentScalesOnlyTheFollowingGap() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        // ranks [1, 0, 3] over riffLength 3: hit0 → rank1 (real, pool[0]=60) · hit1 → rank0 = REST, ON
+        // REST=TIE · hit2 → rank3 (real, pool[2]=67, ends the tie). Rank is 1-indexed into the sorted
+        // pool — "rank2" would resolve to pool[1]=64, not 67 (caught via an RTCDEBUG trace after a first
+        // draft literally wrote `2` expecting "the third pool note," not "the second").
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 0, 3])
+        c.paramsA.euclidLines = [EuclidLine(pulses: 3, steps: 8, gate: 0.6, rate: .r1_16, useRiff: true, riffOn: true,
+                                             mask: EuclidLineMask(), sourceMode: .midi, riffOnRest: .tie, riffLength: 3)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        // beats:1.8 captures exactly hit0 (tick0, real), hit1 (tick3, rest/TIE), hit2 (tick6, real) and
+        // stops before a 4th, cycle-2 hit (tick8, tau 2.0 — ranks wraps back to rank1) would land right
+        // at the tail boundary, same class of fix as the sibling GATE tests above.
+        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1.8, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let onsFor: (UInt8) -> [Int64] = { note in e.ons.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
+        let offsFor: (UInt8) -> [Int64] = { note in e.offs.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
+        let note1On = onsFor(60)[0], note1Off = offsFor(60)[0]
+        let note2On = onsFor(67)[0]
+        let samplesPerBeat = 48_000.0 * 60.0 / 120.0
+        let stepSamples = 0.25 * samplesPerBeat
+        // E(3,8): hits at ticks 0,3,6 — gap hit0→hit1(tie) = 3 steps (UNSCALED), gap hit1→hit2 = 3 steps
+        // (the FOLLOWING gap, scaled by GATE 0.6) — ferry §3.1's own literal formula.
+        let expected = 3 * stepSamples + 0.6 * (3 * stepSamples)
+        XCTAssertEqual(Double(note1Off - note1On), expected, accuracy: 4,
+                       "TIE: length = the full gap up to the tied hit, plus GATE × the gap following it")
+        XCTAssertEqual(Double(note2On - note1On), 6 * stepSamples, accuracy: 4, "sanity: hit2 really lands 6 steps after hit0")
+    }
+
+    /// Validation-pass finding #2 (MONO voice-steal): an EXTERNAL closer can silently steal a legato-held
+    /// voice's slot. Without `forgetEuclideousLegatoSlotAt` (wired into the SAME MONO-steal loop
+    /// `forgetGlideAnchorAtSlot` already uses), reconcile would wrongly keep believing the stolen pitch is
+    /// still held forever, permanently dropping it. A second ARP cell shares bus A under MONO-LAST (every
+    /// new note-on steals) — Euclideous's own held note on that same bus gets stolen, and must correctly
+    /// re-strike on its own next hit rather than going silently, permanently dark.
+    func testEuclideousLegatoRecoversFromAMonoVoiceSteal() {
+        var gold = Machine(machineID: "gold", type: .euclid)
+        gold.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        gold.paramsA.euclidLines = [EuclidLine(pulses: 8, steps: 8, gate: 1.0, rate: .r1_8, useRiff: true, riffOn: true,
+                                                mask: EuclidLineMask(), sourceMode: .midi, riffLength: 1)]
+        var s = SceneState.empty()
+        s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+        s.cells[0][0] = Cell(machineID: "orange", buses: [.a])   // a plain ARP on the SAME bus — steals under MONO LAST
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }, scenes: [s])
+        st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0]   // MONO LAST on A — every new note-on steals
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 4, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let euclidOns = e.ons.filter { $0.cable == 1 && $0.note == 60 }
+        XCTAssertGreaterThan(euclidOns.count, 1, "after the ARP steals the held note's bus-A voice, Euclideous must re-strike on its own next hit rather than silently believing the (now-gone) voice is still held")
+    }
+
+    /// Validation-pass finding #3 (7-edge flush): the legato bookkeeping was only cleared on the transport
+    /// start/stop edge in the first draft — PANIC (and the other 6 `allNotesOff`-accompanying edges) ALSO
+    /// closes every active voice (including an immortal legato one) but would leave stale slot indices
+    /// behind without `flushEuclideousLegato()` wired into the same place `flushGlide`/`flushMod` are.
+    func testEuclideousLegatoBookkeepingIsFlushedByPanicNotJustTransportStop() {
+        var gold = Machine(machineID: "gold", type: .euclid)
+        gold.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])
+        gold.paramsA.euclidLines = [EuclidLine(pulses: 8, steps: 8, gate: 1.0, rate: .r1_8, useRiff: true, riffOn: true,
+                                                mask: EuclidLineMask(), sourceMode: .midi, riffLength: 1)]
+        var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }, scenes: [s])
+        st.euclideousNoteSource = .midi
+        let b = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func win(_ panic: Bool) {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, forceColumn: 0, panic: panic, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        for _ in 0..<4 { win(false) }   // the lane strikes + holds its legato note
+        win(true)                       // PANIC — no transport stop
+        for _ in 0..<8 { win(false) }   // K=8/N=8: the lane hits every tick — it must keep re-striking, not go dark
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        let onsAfterArm = e.ons.filter { $0.cable == 1 && $0.note == 60 }
+        XCTAssertGreaterThan(onsAfterArm.count, 1, "PANIC must flush the legato bookkeeping (not just transport-stop edges) — the lane must keep re-striking its held note after a panic, not silently believe a since-closed voice is still sounding")
+    }
+
+    /// Acceptance #8: "Stuck-note stress test: flip GATE 99↔100%, toggle lit notes/rate, transport
+    /// stop/restart, and a MONO-steal collision partway through. No notes left hanging." Mirrors the
+    /// established `testEuclideousStuckNoteStressRapidLitOctaveRiffToggling` shape, but specifically
+    /// exercises the NEW legato machinery's own worst-case interactions: the 99↔100% boundary (where a
+    /// hit's own treatment flips between "fixed-length strike" and "immortal, reconciled" every other
+    /// tick), a mid-run MONO steal (forcing `forgetEuclideousLegatoSlotAt` to run for real), and a
+    /// transport stop/restart (forcing the 7-edge flush to run for real) — all on the SAME router
+    /// instance, never reset between phases.
+    func testEuclideousGateLegatoStuckNoteStressGateFlipMonoStealAndTransportRestart() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func lineFor(_ tick: Int) -> EuclidLine {
+            let gateVal = tick % 2 == 0 ? 1.0 : 0.99
+            let lit = UInt8(1 << (tick % 8))
+            return EuclidLine(target: 0, pulses: 3, steps: 8, gate: gateVal, rate: .r1_32,
+                               useRiff: true, litNotes: lit, riffOn: true, sourceMode: .midi, riffLength: 8)
+        }
+        func sceneFor(_ line: EuclidLine, monoOnA: Bool) -> (PluginState) {
+            var gold = Machine(machineID: "gold", type: .euclid)
+            gold.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            gold.paramsA.euclidLines = [line]
+            var s = SceneState.empty()
+            s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+            if monoOnA { s.cells[0][0] = Cell(machineID: "orange", buses: [.a]) }   // a sibling ARP, same bus — steals under MONO LAST
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }, scenes: [s])
+            if monoOnA { st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0] }
+            st.euclideousNoteSource = .midi
+            return st
+        }
+        let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        let router = runKeepingRouter(SnapshotBuilder.build(from: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
+        var diag = KernelDiag()
+        var beat = 0.2, ts = 0.2 / tempo * 60.0 * sr
+        for tick in 1...40 {
+            // Ticks 15-24: a MONO collision runs alongside the lane, forcing a real voice steal on bus A.
+            let monoOnA = (15...24).contains(tick)
+            let box1 = SnapshotBuilder.build(from: sceneFor(lineFor(tick), monoOnA: monoOnA))
+            // Tick 30: a transport stop/restart mid-run — exercises the 7-edge flush for real.
+            if tick == 30 {
+                router.process(box: box1, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo,
+                               sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            router.process(box: box1, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: SnapshotBuilder.build(from: sceneFor(lineFor(40), monoOnA: false)),
+                       pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
     }
 }

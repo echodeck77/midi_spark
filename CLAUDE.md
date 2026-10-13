@@ -196,6 +196,142 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — GATE follows the rhythm, and 100% is legato (2026-10-13, on `fix/euclid-no-scroll-direction-
+  order-2x2-grid`; iOS builds clean; macOS 1388 green incl. +15 — 5 new DerivationsTests, 9 new + 1 rewritten
+  RouterTests). A fully-ratified, point-by-point engineering spec (§1 note length below 100% · §2 legato at
+  100% · §3 interactions — TIE/RATCHET/the merged lit-notes+riff pipeline · §4 engine constraints · §5 presets
+  · §6 UI text · 9 literal acceptance scenarios), ratified BEFORE any code with several points explicitly
+  marked "(my interpretation)" rather than left open. **THE MODEL CHANGE:** GATE stops being a fraction of the
+  lane's own fixed per-tick rate (`min(sub*gate, S*0.95)`) and becomes a fraction of the REAL GAP to the
+  lane's own NEXT pattern hit — sparse patterns now hold notes meaningfully longer, by design (disclosed in
+  §5, stored GATE values are unchanged, only their audible meaning). At EXACTLY 100%, GATE becomes genuine
+  LEGATO: a repeated pitch across consecutive hits holds as ONE continuous note (keeping its first velocity,
+  no retrigger); a pitch that drops out gets a clean note-off 10ms after the NEXT hit's own note-ons; a brand
+  new pitch strikes normally — applied uniformly to the riff pitch AND every lit note (TOP/TOP2/rank buttons),
+  the already-shipped additive merge model. **THE NEXT-HIT GAP (`euclideousNextHitGapBeats`, Derivations.
+  swift):** steps forward in absolute beat, re-deriving the RESET-SPAN-aware local tick at each candidate via
+  the EXISTING `euclideousNoteViewIsHit` formula (inlined, not delegated — see the real bug below) — so a
+  RESET SPAN boundary crossed between the two hits is honoured for free, no separate check needed. Bounded at
+  `cycleLen*4` — a DELIBERATE, disclosed departure from the ferry's own literal "bounded at 16 steps" wording,
+  chosen to match `riffTieExtensionBeats`'s own EXISTING lookahead cap exactly, since the two forward-scans
+  this result later combines with (`nextHitGap + tieExt`) need one consistent bound, not two different ones.
+  Deliberately MASK-OBLIVIOUS (§1.3: "mask probability doesn't change the gap... measured to the next PATTERN
+  hit, even if the mask then mutes that hit") — `buf` carries only the rhythm's own hit/rest shape, nothing
+  mask-related. **A REAL BUG, FOUND BY TRACING, NOT GUESSED:** the first implementation passed Router's own
+  `euclidBuf` directly into the new function, which (like the EXISTING `euclideousNoteViewIsHit`) derives its
+  modulus from `buf.count` — but `euclidBuf` is a FIXED, OVERSIZED 16-slot scratch array (`private var
+  euclidBuf = [Bool](repeating: false, count: 16)`), not trimmed to the line's own real step count. An 8-step
+  lane's gap-to-next-hit measurement silently wrapped the cycle at 16 instead of 8, reading its own wrap-around
+  hit as a rest and reporting a wildly wrong gap (2.5 beats instead of 0.5) — caught via an RTCDEBUG trace that
+  dumped the raw buffer contents mid-scan (`buf=1001001000000000`, 16 characters, not 8) after a FIRST,
+  WRONG hypothesis (floating-point drift in the repeated `fromBeat + k*sub` addition) was traced and
+  disproven with full-precision output showing every candidate landing on an EXACT multiple of `sub`. Fixed
+  by giving `euclideousNextHitGapBeats` an EXPLICIT `n:` parameter (matching the EXISTING `isHitAt` closure's
+  own convention inside `runEuclidLine`) and inlining the hit-test formula directly, rather than delegating to
+  `euclideousNoteViewIsHit` at all — +1 regression test building a deliberately padded 24-slot buffer to lock
+  this in. **A SECOND REAL BUG, ALSO FOUND BY TRACING:** the very first legato-held voice, opened with an
+  IMMORTAL `offSample: .max` sentinel (`strikeChord`'s own new `gateBeats == .infinity` branch), was being
+  silently closed one hit later by a COMPLETELY UNRELATED, PRE-EXISTING mechanism — `closeExceptLegatoHolds`/
+  `emitColumnHolds`'s own generic column-transition hold-reconcile, which sweeps EVERY immortal voice
+  (`offSample == .max`) into a `holdCandidate` set regardless of what created it, then closes any candidate no
+  grid-hold cell "adopts" by the end of the transition. Since Euclideous's own row is never a HOLD-type cell,
+  nothing ever adopts a legato voice, so it was closed on the very next column boundary — found via a direct
+  RTCDEBUG trace of `closeVoice`'s own `atSample` parameter, which showed a bizarre `-4294967296` (later
+  identified as `renderSampleImmediate`, a genuine, pre-existing "right now" sentinel constant, not itself a
+  bug — just mis-sorted to the front of a naive `.sorted()` test helper, a separate test-construction lesson,
+  below). Fixed by adding a THIRD immortal-voice tag, `Voice.euclideousLegato`, threaded through `openVoice`→
+  `emitOneBus`→`emitArtic`→`strikeChord` exactly like the EXISTING `rtcHold`/`glideAnchor` tags (unconditional
+  assignment on every `openVoice` call, so a reused slot's stale tag is always cleared), and excluding it from
+  the `holdCandidate` sweep alongside those two. **THE RECONCILE HELPER (`reconcileEuclidLegato`, Router.
+  swift):** called once per processed Euclideous hit (including silent/MUTE'd/empty ones) with that hit's
+  final merged pitch set — at 100% (and not a ratchet hit), a tracked pitch whose voice is STILL genuinely
+  valid (`.active` AND still the same note — the MONO-steal forget-hook, below, nils a stolen slot so it
+  correctly falls through to a fresh re-strike rather than a silent no-op forever) is HELD untouched; anything
+  tracked-but-not-matched gets a real, finite close at "this hit's time + 10ms overlap" — decided ONLY now,
+  event-driven, never pre-scheduled, directly satisfying §2.5.5's "ends when the next hit is processed, not at
+  a time worked out in advance." Below 100% (or a ratchet hit), reconcile just clears this lane's own
+  tracking — the caller strikes normally with its own gap-based gate. **MONO-STEAL + 7-EDGE-FLUSH, both
+  validation-pass findings, built in from the start rather than found after shipping:** a NEW
+  `forgetEuclideousLegatoSlotAt(_:)`, wired into the SAME MONO-steal loop `forgetGlideAnchorAtSlot` already
+  uses (`emitOneBus`'s THE RACK MONO logic), so a stolen legato-held slot is correctly forgotten rather than
+  silently believed-still-held forever — the SAME class of bug this codebase's history already named for
+  GLIDE anchors, extended here by direct analogy. A NEW `flushEuclideousLegato()` (clears all 4 lanes'
+  tracking, pure bookkeeping, no voice manipulation) wired alongside EVERY existing `flushGlide`/`flushMod`
+  call across all 7 `allNotesOff`-accompanying edges in `process()` PLUS `externalFlush` (the Kernel's reel/
+  free-run edges) — without this, a PANIC or scene-switch not accompanied by a transport stop would leave
+  stale slot indices behind. **THE LANE-STOP EDGE, a structural correction found during design, not after
+  shipping wrong:** a first draft nested the stop-detection inside the per-line dispatch loop's own
+  `where ... && L.enabledResolved` guard — structurally incapable of ever observing a TRUE→FALSE transition,
+  since the loop body never runs once `enabledResolved` is false, including on the very render it flips.
+  Fixed with a SEPARATE, unconditional loop over all 4 lines, run once per render call, closing every tracked
+  slot at `windowStart` the instant a line's own `enabledResolved` edge-triggers false. **RATCHET'S OWN GATE
+  (ferry §3.2), a deliberate behaviour change superseding an EARLIER same-session fix:** the hardcoded `(sub/
+  nRep)*0.5` fixed duty cycle (shipped hours earlier in this same session, see below) is now GATE-responsive —
+  `(sub/nRep)*gate` — so at 100% each repeat fills its own FULL subdivision width, ending just before the next
+  one starts, while repeats remain genuinely distinct strikes throughout (never merged, even at 100% — "ratchet
+  repeats are deliberate strikes," per §3.2's own literal wording); a ratchet hit ALWAYS calls reconcile first
+  (closing out whatever was previously legato-held) but is never itself tracked as held — a reasoned,
+  disclosed interpretation, since the ferry's own text never explicitly addresses a ratchet hit arriving while
+  a DIFFERENT pitch is mid-legato-hold. **PAUSE needs no special-casing at all** — it already pre-empts
+  everything below it (including entering riff resolution) before any of the 6 reconcile call sites are
+  reached, so a paused tick never reconciles — a held note continues ringing through a pause undisturbed,
+  consistent with PAUSE's own existing "the walk doesn't advance" semantics, extended here by the same logic
+  rather than separately specified. **ON REST TIE, A FORMULA BUG CAUGHT WHILE WRITING THE TEST, BEFORE ANY
+  TEST RUN, not after a failure:** re-reading §3.1's literal wording ("length = the gap up to the tied hit,
+  PLUS gate × the gap following it") while constructing Acceptance #6's concrete scenario revealed the first-
+  draft formula (`gate * nextHitGapBeats + tieExt`) incorrectly scaled BOTH segments by GATE, when only the
+  tie's own extension should be — fixed with a dedicated `gateBeatsWithTie(_ tieExt:)` helper implementing the
+  correct two-segment formula (the first segment always full/unscaled, only the second GATE-scaled),
+  replacing both the below-100% and REPEAT-cache call sites via a scripted, count-verified substitution.
+  **TWO TEST-CONSTRUCTION BUGS, both self-caught by tracing a failing assertion rather than re-guessing a
+  second time blind (this project's own standing lesson, hit twice in one afternoon):** (1) several Acceptance
+  tests used `beats:` durations that happened to land EXACTLY on a pattern's own multi-cycle tail boundary,
+  leaving one extra, never-reconciled hit's immortal voice open until the test's own final transport-stop
+  flush — which closes with the genuine `renderSampleImmediate` sentinel (`Int64(bitPattern: 0xffffffff
+  00000000)`, a real, pre-existing "emit this right now" marker, NOT itself a bug), and since this huge
+  negative bit-pattern sorts to the FRONT of a naive `.sorted()` array of sample values, index `[0]` silently
+  picked up the sentinel instead of the real chronologically-first event; fixed by tightening every affected
+  test's `beats:` to stop cleanly before the next multi-cycle hit would land. (2) the ON REST TIE test's own
+  `ranks:[1,0,2]` literal was misread by its own author — rank is 1-INDEXED into the sorted pool, so "rank 2"
+  resolves to the pool's SECOND note (64), not its third (67) as assumed — causing `onsFor(67)` to read an
+  empty array and CRASH with a genuine Swift "Index out of range" trap (confirmed via the exported `.xcresult`
+  crash log, pinpointing the exact test source line); fixed by writing the literal rank the test actually
+  intends (`3`, not `2`). **TESTS (+15: 5 DerivationsTests, 9 new + 1 rewritten RouterTests):** the next-hit-
+  gap function (finds the real next hit, wraps at cycle end, includes a reset falling before it, falls back to
+  the cap on an all-rest pattern, ignores trailing scratch-buffer padding — the direct regression guard for the
+  real bug above, and cross-checks against the SAME footer-prediction primitive the step-footer UI uses across
+  all 3 directions, since footer-mirror functions have a documented history of drifting from the real engine);
+  all 9 literal acceptance scenarios (50%/100% gap measurement incl. the cycle wrap; a repeated pitch holding
+  as one note at 100% with its first velocity, vs striking twice at 99%; a lit note sustaining at 100% vs
+  restriking at 90%; a SKIP rest at 100% ending the previous held note at that hit's own time + overlap; ON
+  REST TIE at 60% scaling only the following gap; RATCHET staying distinct at 100% while filling its own full
+  subdivision — folded into the existing ratchet test's own rewrite); plus two validation-pass-driven
+  regression guards beyond the literal 9 (a MONO voice-steal correctly forces a re-strike rather than a
+  silent, permanent drop; a bare PANIC with no accompanying transport stop correctly flushes the bookkeeping,
+  not just the transport-stop edge) and a dedicated stress test (GATE flipping 99↔100% every tick, lit notes/
+  rate also changing, a mid-run MONO collision on the same bus, and a transport stop/restart partway through,
+  all on one un-reset Router instance — `assertNothingLeftSounding` clean throughout). **SCOPE, confirmed via
+  re-reading before implementing:** strictly Euclideous-only — the two OTHER code paths inside `runEuclidLine`
+  (the legacy non-Euclideous `useRiff` fork and the plain NOTE-mode fallback, serving the regular BUILD-page
+  EUCLID processor) keep the OLD `min(sub*gate, S*0.95)+tieExt` formula completely untouched, matching this
+  codebase's own established precedent of scoping Euclideous-only engine changes to the `isEuclideousRow`
+  branch. **UI TEXT:** the GATE long-press help string replaced with the ferry's own literal wording (plainly
+  exceeding this page's prior <60-char house convention — used verbatim per explicit instruction, not
+  shortened); VoiceOver's spoken value gains a ", legato" suffix at exactly 100%, the on-screen compact "100%"
+  text left unchanged. **A SIDE FIX, same session, unrelated to GATE but requested mid-stream:** "I previously
+  requested that three of the six sliders in the Euclid lane rhythm tab be horizontal, but this has been
+  undone, likely in Claude's instruction" — traced to an earlier SAME-DAY "exact dimensions" ferry's own doc
+  comment explicitly stating "that two-axis design is retired," confirming it was a deliberate (per Paul,
+  wrong) change by an earlier pass in this same session, not a regression from this feature's own work.
+  Reverted `sliderRow` back to the two-column layout (left: HITS/STEPS/VEL vertical; right: OFFSET/TILT/GATE
+  horizontal), shipped as its own isolated commit via `git add -p` before the GATE/legato work resumed, so the
+  two changes stay cleanly separable in history. **DEVICE-OWED, the whole feature — nothing here can be
+  confirmed off-device:** the actual audible legato feel at 100% (the slur/overlap, the 10ms close window);
+  the gap-based GATE's feel at various percentages against a real sparse pattern (a long-silent lane now holds
+  audibly longer than before — an intended, disclosed behaviour change on every existing preset, not a
+  regression); RATCHET's new GATE-responsive duty cycle (supersedes the hardcoded 50% shipped only hours
+  earlier the same session); the lane-stop edge's immediate-silence behaviour; the VoiceOver ", legato" suffix
+  actually being announced at the 100% boundary and nowhere else.**
 - **▶ EUCLIDEOUS MELODY TAB — fixed-frame rebuild: notes/octave-merge/riff-block, octave trough+pill, riff-row
   reorder, chip steppers, flat-spelling+glyph unification (2026-10-13, on `fix/euclid-no-scroll-direction-
   order-2x2-grid`; iOS builds clean; macOS 1373 green incl. +1 new/+2 rewritten — pure UI, EuclideousPage.swift/

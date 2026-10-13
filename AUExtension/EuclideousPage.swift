@@ -336,7 +336,7 @@ struct EuclideousSlider: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(edited ? "\(field.name), edited" : field.name)
-        .accessibilityValue(edited ? "double-tap to revert" : euclideousSliderValueText(field, line))
+        .accessibilityValue(edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, line))
         .accessibilityAdjustableAction { direction in
             guard !edited else { return }
             let step = euclideousSliderAccessibilityStep(field)

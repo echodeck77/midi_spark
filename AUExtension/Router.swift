@@ -77,6 +77,15 @@ final class Router {
                                      // owned entirely by emitColumnRatchetPattern (a stateless per-window diff-reconcile, like
                                      // reconcileBypass). Excluded from the grid hold-reconcile (emitColumnHolds candidate loop)
                                      // so the grid boundary never closes it; allNotesOff closes it on every transport/scene edge.
+        var euclideousLegato = false // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): an IMMORTAL legato-held voice owned
+                                     // entirely by reconcileEuclidLegato (its own stateless-per-tick reconcile, mirroring
+                                     // rtcHold/glideAnchor exactly). MUST be excluded from the grid hold-reconcile
+                                     // (holdCandidate/emitColumnHolds) the SAME way rtcHold/glideAnchor already are — found
+                                     // by tracing a real failing test: without this, every legato voice got swept into
+                                     // holdCandidate (its offSample==.max alone made it look like a chord-hold drone) and
+                                     // closed by the generic column-transition reconcile on the VERY NEXT column, since
+                                     // Euclideous's own row never registers as a hold-adopting cell for that mechanism.
+                                     // allNotesOff still closes it on every transport/scene edge (unconditional, as always).
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -383,6 +392,47 @@ final class Router {
     // `maskTransform` for `.repeatNote` anymore — see `runEuclidLine`'s new `isEuclideousRow` branch).
     private var euclideousLastSoundedNotes = [Int8](repeating: -1, count: 4 * 9)
     private var euclideousLastSoundedCount = [Int](repeating: 0, count: 4)
+    // GATE FOLLOWS THE RHYTHM (Paul 2026-10-13 ferry): per-lane LEGATO continuity for GATE=100%. Flat
+    // 4 lanes × 9 slots (matches `euclideousLastSoundedNotes`'s own ceiling — `noteViewMaxNotes`, the real
+    // ceiling `addPitch`/`pitchCount` ever reaches, NOT the ferry's rounder "ten pitches" prose). Each
+    // tracked entry stores the PITCH it represents + the own-cable/ALL-cable `voices[]` SLOT INDEX that
+    // pitch opened — modelled directly on `GlideVoice.slot`'s own proven "store an index, close later by
+    // that index, event-driven" shape, the one piece of this file already solving the identical problem.
+    // A stored slot's identity is re-confirmed at EVERY touch (`active && note == trackedPitch`, not
+    // `.active` alone — STRONGER than GlideVoice's own guard, because a legato hold can span many real
+    // hits/render calls, unlike glide's much shorter column-boundary lifetime, so the window for an
+    // unrelated reuse of the same slot index is correspondingly larger). `euclideousLegatoCount[i]` is the
+    // live length of lane i's own tracked set; entries past that count are stale/unused.
+    private var euclideousLegatoPitch = [Int8](repeating: -1, count: 4 * 9)
+    private var euclideousLegatoOwnSlot = [Int16](repeating: -1, count: 4 * 9)
+    private var euclideousLegatoAllSlot = [Int16](repeating: -1, count: 4 * 9)
+    private var euclideousLegatoCount = [Int](repeating: 0, count: 4)
+    // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
+    // immediately") — checked in its OWN unconditional loop (NOT nested inside the per-line dispatch
+    // loop's own `enabledResolved`-gated `where` clause, which structurally never executes once a lane is
+    // disabled and so could never observe the true→false transition itself).
+    private var euclideousLineWasEnabled = [Bool](repeating: true, count: 4)
+    /// MONO voice-steal hook (mirrors `forgetGlideAnchorAtSlot` exactly, same reason it exists): an
+    /// EXTERNAL closer just force-closed `slot` — forget any legato bookkeeping that still thinks it owns
+    /// that index, so a later reconcile can't mistake a since-reused voice for its own still-held note.
+    /// Bounded (≤36 entries), no allocation.
+    private func forgetEuclideousLegatoSlotAt(_ slot: Int) {
+        for lane in 0..<4 {
+            let base = lane * 9
+            for i in 0..<euclideousLegatoCount[lane] {
+                if Int(euclideousLegatoOwnSlot[base + i]) == slot { euclideousLegatoOwnSlot[base + i] = -1 }
+                if Int(euclideousLegatoAllSlot[base + i]) == slot { euclideousLegatoAllSlot[base + i] = -1 }
+            }
+        }
+    }
+    /// Bookkeeping-only flush (mirrors `flushGlide`/`flushMod`'s own shape and call sites exactly) — the
+    /// underlying voices are ALREADY closed by `allNotesOff` at every one of those same edges (it closes
+    /// every active voice unconditionally, regardless of `offSample`, so an immortal `.max` legato voice
+    /// is swept just like any other); this only clears the PARALLEL tracking so a stale slot index can't
+    /// be mistaken for a still-held note the next time a lane reconciles.
+    private func flushEuclideousLegato() {
+        for i in 0..<4 { euclideousLegatoCount[i] = 0 }
+    }
     // UI-POLLABLE MASK POSITION (Paul 2026-10-11 bug report: "Euclid mask was moving at the main rate, and
     // not progressing on hits from Euclid lane as I'd expect"). ROOT CAUSE, confirmed by reading — the
     // AUDIO/engine side was always correct: `euclideousMaskOrd` above only ever advances inside `if isHit`
@@ -1249,7 +1299,8 @@ final class Router {
     private func openVoice(note: UInt8, chan: UInt8, cable: UInt8, bus: UInt8,
                            onSample: Int64, offSample: Int64,
                            velocity: UInt8 = 96, out: MIDIEmitter?, silent: Bool = false,
-                           bypassRecv: Int8 = -1, meter: Bool = false, rtcHold: Bool = false) -> Int {
+                           bypassRecv: Int8 = -1, meter: Bool = false, rtcHold: Bool = false,
+                           euclideousLegato: Bool = false) -> Int {
         guard let out else { return -1 }
         // Claim a slot BEFORE emitting: at capacity we DROP the note (return −1 without emitting) rather
         // than emit an on we can't schedule an off for — an untrackable note would hang. The drop is CLEAN
@@ -1307,6 +1358,7 @@ final class Router {
         voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < Snap.cells) ? Int16(currentCellIndex) : -1   // SEAL sounding gate (Int16 now — was the grid's hard ceiling at Int8's 127)
         voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
         voices[slot].rtcHold = rtcHold         // RATCHET PATTERN standalone: tag the immortal pass-through sustain (owned by emitColumnRatchetPattern)
+        voices[slot].euclideousLegato = euclideousLegato   // GATE FOLLOWS THE RHYTHM: tag the immortal legato hold (owned by reconcileEuclidLegato) — unconditional, so a reused slot's stale tag is always cleared
         voices[slot].glideAnchor = meter && !rtcHold  // GLIDE: `meter` marks glide direct-injection voices (its sole users — see
                                                // the comment above + the Voice.glideAnchor note); tag them so the
                                                // hold-continuity boundary-close skips them. A reused slot always resets
@@ -1589,6 +1641,7 @@ final class Router {
         allNotesOff(atSample: time, out: out, includeBypass: includeBypass)
         flushGlide(atSample: time, out: out)
         flushMod(box: box, atSample: time, out: out)
+        flushEuclideousLegato()   // 2026-10-13 GATE/legato ferry: same reason as flushGlide/flushMod — allNotesOff just closed every immortal legato voice, forget the stale bookkeeping
     }
     /// PANIC belt-and-braces (incident 2026-08-08 §3): beyond our own tracked note-offs, blast CC120 (all-sound-off)
     /// + CC123 (all-notes-off) on every channel and every cable, so a wedged synth we can't fully account for gets a
@@ -1733,7 +1786,8 @@ final class Router {
     private func emitArtic(note: UInt8, busMask: UInt8,
                            onSample: Int64, offSample: Int64,
                            windowEnd: Int64, velocity: UInt8 = 96,
-                           out: MIDIEmitter?, diag: inout KernelDiag) {
+                           out: MIDIEmitter?, diag: inout KernelDiag,
+                           onVoiceOpened: ((Int) -> Void)? = nil, euclideousLegato: Bool = false) {
         var lastCh: UInt8 = 0
         // role family ALT / TURNS (user 2026-08-04/05): the TURNS emitters take turns playing the INCOMING notes
         // from ANY cell. The turn advances once per ARTICULATION MOMENT (a new onset sample). Two MODES:
@@ -1779,7 +1833,7 @@ final class Router {
             let bus = Int(cm.trailingZeroBitCount)            // 0…3 = A…D
             cm &= cm - 1
             let c = emitOneBus(bus, note: note, velocity: velocity, onSample: onSample,
-                               offSample: offSample, windowEnd: windowEnd, out: out)
+                               offSample: offSample, windowEnd: windowEnd, out: out, onVoiceOpened: onVoiceOpened, euclideousLegato: euclideousLegato)
             if c >= 0 { lastCh = UInt8(c) }
         }
         mask &= ~claimMask
@@ -1787,7 +1841,7 @@ final class Router {
             let bus = Int(mask.trailingZeroBitCount)          // 0…3 = A…D
             mask &= mask - 1
             let c = emitOneBus(bus, note: note, velocity: velocity, onSample: onSample,
-                               offSample: offSample, windowEnd: windowEnd, out: out)
+                               offSample: offSample, windowEnd: windowEnd, out: out, onVoiceOpened: onVoiceOpened, euclideousLegato: euclideousLegato)
             if c >= 0 { lastCh = UInt8(c) }
         }
         diag.emitCount &+= 1
@@ -1801,7 +1855,8 @@ final class Router {
     /// allocation. Both cables are channel-stamped identically and tagged with the origin bus (§6a/§7b).
     @discardableResult
     private func emitOneBus(_ bus: Int, note: UInt8, velocity: UInt8,
-                            onSample: Int64, offSample: Int64, windowEnd: Int64, out: MIDIEmitter?) -> Int {
+                            onSample: Int64, offSample: Int64, windowEnd: Int64, out: MIDIEmitter?,
+                            onVoiceOpened: ((Int) -> Void)? = nil, euclideousLegato: Bool = false) -> Int {
         // emitter strip OCT: shift the OUTGOING note by this emitter's ±octave overlay (0 = none). A note
         // pushed off 0…127 is dropped. Applied FIRST so CLAIM/metering/refcount all key on the real output
         // pitch. `note` is shadowed to the shifted value for the remainder.
@@ -1914,6 +1969,7 @@ final class Router {
                 if !wins { return -1 }
                 for i in voices.indices where voices[i].active && !voices[i].silent && voices[i].bus == UInt8(bus) && voices[i].note != note {
                     if voices[i].glideAnchor { forgetGlideAnchorAtSlot(i, atSample: onSample, out: out) }   // MONO stole a glide anchor → drop the glide's stale slot ref (else a reused slot is wrong-closed later)
+                    forgetEuclideousLegatoSlotAt(i)   // same reason, for a stolen legato-held slot (2026-10-13 GATE/legato ferry) — unconditional, the scan is cheap and harmlessly finds nothing if `i` wasn't tracked
                     closeVoice(i, atSample: onSample, out: out)
                 }
             }
@@ -1970,7 +2026,8 @@ final class Router {
             }
         } else {
             let own = openVoice(note: note, chan: ch, cable: UInt8(outWire + 1), bus: UInt8(bus),   // REDIRECT/SWAP: own cable follows the remapped wire
-                                onSample: onS, offSample: offS, velocity: v, out: out)
+                                onSample: onS, offSample: offS, velocity: v, out: out, euclideousLegato: euclideousLegato)
+            if own >= 0 { onVoiceOpened?(own) }
             if own >= 0 && offS <= windowEnd { closeVoice(own, atSample: offS, out: out) }
         }
         if broadcastAll16 && !previewMode {
@@ -1983,7 +2040,8 @@ final class Router {
             }
         } else {
             let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
-                                onSample: onS, offSample: offS, velocity: v, out: out)
+                                onSample: onS, offSample: offS, velocity: v, out: out, euclideousLegato: euclideousLegato)
+            if all >= 0 { onVoiceOpened?(all) }
             if all >= 0 && offS <= windowEnd { closeVoice(all, atSample: offS, out: out) }
         }
         return Int(ch)
@@ -2097,7 +2155,7 @@ final class Router {
     }
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
-                             beatsPerSample: Double, a: Double, heldCell: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
+                             beatsPerSample: Double, a: Double, heldCell: Int, tempo: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
             var cell = box.cells[effColumn * Snap.rows + r]
             if cell.machineIndex < 0 || cell.muted || cell.dormant { return }   // LADDER dormant
             applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, cycleBeats: cycleBeats, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
@@ -2181,7 +2239,7 @@ final class Router {
                     emitGeneratorRow(mode: dm, cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                      pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
+                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, out: out, diag: &diag)
                 case .weave:
                     emitWeaveRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
@@ -2234,7 +2292,7 @@ final class Router {
                 emitGeneratorRow(mode: mode, cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
+                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, out: out, diag: &diag)
             case .weave:
                 emitWeaveRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                              pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
@@ -2290,8 +2348,8 @@ final class Router {
         // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
         // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+machine+face), so
         // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
-        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 && !voices[i].glideAnchor && !voices[i].rtcHold
-            && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) }   // BYPASS + GLIDE voices are immortal but NOT grid holds — never adopt/close them here; per-part clock scopes to the row
+        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 && !voices[i].glideAnchor && !voices[i].rtcHold && !voices[i].euclideousLegato
+            && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) }   // BYPASS + GLIDE + EUCLIDEOUS-LEGATO voices are immortal but NOT grid holds — never adopt/close them here; per-part clock scopes to the row
         // Proceed while the LIVE pool has notes OR any receiver is latch-armed: an armed receiver's FROZEN pool
         // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
         // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
@@ -3006,7 +3064,7 @@ final class Router {
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
             resetRecorderCapture(full: false)            // RECORDER: keep the committed loop across a stop→start; discard any partial capture
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on transport edges
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: reset the CC on transport edges
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
@@ -3016,7 +3074,7 @@ final class Router {
             diag.panics &+= 1
             clearEchoTails()                             // ECHO: panic drops every pending tail
             resetRecorderCapture(full: true)             // RECORDER: panic clears the loops too
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on panic
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: reset the CC on panic
         }
         // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
         // new snapshot generation) starts clean — a generation change alone doesn't flush. NOT hang-logged.
@@ -3025,7 +3083,7 @@ final class Router {
             prevEffColumn = -1
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
             resetRecorderCapture(full: true)             // RECORDER: the old scene's loops die on the switch
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // MOD: the old scene's CC state resets on the switch
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: the old scene's CC state resets on the switch
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
@@ -3035,7 +3093,7 @@ final class Router {
             prevLatchMask = latchMask
             clearEchoTails()                             // ECHO: the pool swapped — drop tails from the old chord
             resetRecorderCapture(full: false)            // RECORDER: keep the loop across a latch edge; discard partial capture
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
         }
 
         pool.rebuildSorted()
@@ -3053,7 +3111,7 @@ final class Router {
                 for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 }
                 clearEchoTails()
                 resetRecorderCapture(full: false)             // RECORDER: unfreeze keeps the loop
-                flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)
+                flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()
             }
             prevFreezeActive = frozen
         }
@@ -3078,7 +3136,7 @@ final class Router {
             previewPrevColumn = -1; strumProgress[0] = 0        // fresh column edge for the virtual cell
             clearEchoTails()                                    // parity with the other flush edges
             resetRecorderCapture(full: false)             // RECORDER: a uniform↔multi clock switch keeps the loop
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // review 2026-08-23 [4]: allNotesOff closed the immortal MOD/GLIDE anchors — forget their stale bookkeeping (else a reused slot later emits a spurious off + the glide/CC goes silent)
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // review 2026-08-23 [4]: allNotesOff closed the immortal MOD/GLIDE anchors — forget their stale bookkeeping (else a reused slot later emits a spurious off + the glide/CC goes silent)
             prevPreviewActive = preview.active
         }
 
@@ -3108,7 +3166,7 @@ final class Router {
             resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             clearEchoTails()                             // ECHO: a pass restart drops the old pass's tails
             resetRecorderCapture(full: false)             // RECORDER: a pass restart keeps the loop (it IS the loop)
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out)   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
         }
         let beatPos = beatPos - passAnchor
 
@@ -3289,7 +3347,7 @@ final class Router {
             for r in 0..<Snap.rows {
                 emitTickRow(r: r, effColumn: effColumn, S: S, cycleBeats: cycleBeats, windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
+                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, out: out, diag: &diag)
                 emitGlideDriven(box: box, column: effColumn, row: r, beatPos: beatPos, windowBeats: windowBeats,   // §7① [driver→GLIDE]: drain the driver's targets into the mono glide voice
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, out: out)
             }
@@ -3301,7 +3359,7 @@ final class Router {
                 let rowBeat = beatPos - box.rowLaunchAnchor[r]   // PLAY-FERRY LAUNCH: anchored beat so the arp/tick PHASE shifts with the launch (offset math cancels the anchor); 0 ⇒ raw
                 emitTickRow(r: r, effColumn: rowEffColBuf[r], S: rowSBuf[r], cycleBeats: rowCycBuf[r], windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: rowBeat, windowStart: windowStart, windowEnd: windowEnd,
-                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
+                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, out: out, diag: &diag)
                 emitGlideDriven(box: box, column: rowEffColBuf[r], row: r, beatPos: rowBeat, windowBeats: windowBeats,   // §7① per-row clock
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: rowSBuf[r], a: a, out: out)
             }
@@ -4042,7 +4100,7 @@ final class Router {
     private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                                   emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
-                                  cycleBeats: Double = 0, chainDriver: Int = -1, out: MIDIEmitter?, diag: inout KernelDiag) {
+                                  cycleBeats: Double = 0, chainDriver: Int = -1, tempo: Double = 120, out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
         let p = machine.a
@@ -4083,9 +4141,14 @@ final class Router {
         // per-lane loop — byte-identical for every other caller (ARP/RIFF/BURST/the lone-driver `.euclid` path
         // elsewhere in the grid). Only the Euclideous per-line HIT/MISS pick calls below pass a real value
         // (that lane's own resolved pool), so a chord can no longer be picked from the wrong lane's notes.
-        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil, srcOverride: ArraySlice<(note: Int, vel: UInt8)>? = nil) {
+        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil, srcOverride: ArraySlice<(note: Int, vel: UInt8)>? = nil, onVoiceOpened: ((Int) -> Void)? = nil, euclideousLegato: Bool = false) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-            let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): `gateBeats == .infinity` is Euclideous legato's own
+            // "open-ended, I'll close it myself later" sentinel — `tau + .infinity` would otherwise feed a
+            // non-finite musical offset into `sampleOf`, producing garbage. Every OTHER caller passes a
+            // finite `gateBeats`, so `.isInfinite` is never true for them — zero behaviour change elsewhere.
+            let offT: Int64 = gateBeats.isInfinite ? Int64.max
+                : sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             // EUCLIDEOUS PAGE REWORK (2026-10-07): a global MAIN OUT master gate, applied AFTER chopMask's
             // own full DEST/CHOP/MUTE-MATRIX routing resolves `tbm` — not pre-masked into `base` — since
             // ALT-routing (`chopBusMask`) and DEST-routing both construct their own bus bits independent of
@@ -4102,7 +4165,7 @@ final class Router {
                     emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT,
                                    windowEnd: windowEnd, velocity: vel, m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else if tbm != 0 {
-                    emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                    emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag, onVoiceOpened: onVoiceOpened, euclideousLegato: euclideousLegato)
                 }
             }
             // SEQUENTIAL SOURCES (Paul 2026-10-02): a RIFF/ARP-sourced pick resolves to an EXPLICIT note value that
@@ -4117,6 +4180,72 @@ final class Router {
                 if let only = onlyIndex, k != only { continue }
                 strikeOne(sn.note, sn.vel)
             }
+        }
+        // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry) — the shared legato reconcile. Called once per REAL
+        // processed Euclideous hit (including a silent/MUTE'd/empty one) with that hit's FINAL merged
+        // pitch set (`pitches[0..<pitchCount]`). A sibling nested function to `strikeChord` (not defined
+        // inside the per-tick closure below), so it takes `tau`/`busOverride` explicitly, same convention.
+        //
+        // At GATE=100% (and not a ratchet hit): a pitch already tracked AND whose voice is still
+        // genuinely valid (`.active` AND still the same note — the MONO-steal `forgetEuclideousLegato-
+        // SlotAt` hook nils a stolen slot, so a stolen-then-reused held pitch correctly falls through to
+        // a fresh re-strike here, not a silent no-op forever) is HELD — carried forward untouched, no
+        // note-off/note-on, immortal already. Anything tracked but NOT matched (old-only, or matched by
+        // pitch but no longer genuinely valid, or this is a non-legato/ratchet/silent hit) gets a real,
+        // finite close "this hit's time + overlap" — decided ONLY now, event-driven, never pre-scheduled
+        // (ferry §2.5.5). Anything in the new set not matched to a held entry is genuinely NEW — struck
+        // with `gateBeats: .infinity` (immortal, `strikeChord`'s own sentinel), its own/all-cable
+        // `voices[]` slot captured via `onVoiceOpened` and tracked — mirrors `GlideVoice.slot`'s own
+        // proven "store an index, close later by that index" shape.
+        //
+        // Below 100% (or a ratchet hit): just clears this lane's own tracking — the caller strikes
+        // normally with its own (now gap-based) gate formula; any previously-open legato voice's own
+        // already-scheduled finite close (set the moment IT was last reconciled) fires on its own
+        // schedule with no further action needed here.
+        @discardableResult
+        func reconcileEuclidLegato(lineIndex: Int, pitches: [Int], pitchCount: Int, vel: UInt8, tau: Double,
+                                    isRatchetThisHit: Bool, overlapBeats: Double, gatePct: Double, busOverride: UInt8?) -> Bool {
+            let isLegato = Int((gatePct * 100).rounded()) >= 100 && !isRatchetThisHit
+            let base = lineIndex * 9
+            let oldCount = euclideousLegatoCount[lineIndex]
+            var matchedOldIndexForNew = [Int](repeating: -1, count: 9)   // new-set index j → which OLD tracked index i (or -1)
+
+            for i in 0..<oldCount {
+                let trackedPitch = Int(euclideousLegatoPitch[base + i])
+                let ownSlot = Int(euclideousLegatoOwnSlot[base + i]), allSlot = Int(euclideousLegatoAllSlot[base + i])
+                let ownValid = ownSlot >= 0 && ownSlot < voices.count && voices[ownSlot].active && Int(voices[ownSlot].note) == trackedPitch
+                let allValid = allSlot >= 0 && allSlot < voices.count && voices[allSlot].active && Int(voices[allSlot].note) == trackedPitch
+                var heldAsJ = -1
+                if isLegato && (ownValid || allValid) {
+                    for j in 0..<pitchCount where matchedOldIndexForNew[j] < 0 && pitches[j] == trackedPitch { heldAsJ = j; matchedOldIndexForNew[j] = i; break }
+                }
+                if heldAsJ < 0 && (ownValid || allValid) {
+                    let closeOff = sampleOf(musical: tau + overlapBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    if ownValid { voices[ownSlot].offSample = closeOff; if closeOff <= windowEnd { closeVoice(ownSlot, atSample: closeOff, out: out) } }
+                    if allValid { voices[allSlot].offSample = closeOff; if closeOff <= windowEnd { closeVoice(allSlot, atSample: closeOff, out: out) } }
+                }
+            }
+
+            if isLegato {
+                var newPitch = [Int8](repeating: -1, count: 9), newOwn = [Int16](repeating: -1, count: 9), newAll = [Int16](repeating: -1, count: 9)
+                for j in 0..<pitchCount {
+                    newPitch[j] = Int8(clamping: pitches[j])
+                    if matchedOldIndexForNew[j] >= 0 {
+                        let i = matchedOldIndexForNew[j]
+                        newOwn[j] = euclideousLegatoOwnSlot[base + i]; newAll[j] = euclideousLegatoAllSlot[base + i]
+                    } else {
+                        var ownCap = -1, allCap = -1
+                        strikeChord(tau: tau, velScale: 1.0, gateBeats: .infinity, octave: 0, explicitNote: pitches[j], explicitVel: vel, busOverride: busOverride,
+                                    onVoiceOpened: { slot in if ownCap < 0 { ownCap = slot } else { allCap = slot } }, euclideousLegato: true)
+                        newOwn[j] = Int16(ownCap); newAll[j] = Int16(allCap)
+                    }
+                }
+                for j in 0..<pitchCount { euclideousLegatoPitch[base + j] = newPitch[j]; euclideousLegatoOwnSlot[base + j] = newOwn[j]; euclideousLegatoAllSlot[base + j] = newAll[j] }
+                euclideousLegatoCount[lineIndex] = pitchCount
+            } else {
+                euclideousLegatoCount[lineIndex] = 0
+            }
+            return isLegato
         }
         // A window-scan generator's FIRST window in each column scans from colStart (not mWinStart) so the DOWNBEAT
         // strike — and any pulse in [colStart, mWinStart), emit-late/clamped to the block start — fires once, instead
@@ -4424,6 +4553,30 @@ final class Router {
                         let offReal = realOf(mTickBeat + gateBeatsReal, stepBeats: S, a: a)
                         return (onsetReal, offReal - onsetReal)
                     }
+                    // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry) — computed once per tick, Euclideous-only
+                    // (§3: the legacy non-Euclideous `useRiff`/plain-NOTE-mode forks below keep the OLD
+                    // `min(sub * gate, S * 0.95)` formula untouched). `nextHitGapBeats` is the gap to the
+                    // lane's own NEXT REAL pattern hit (§1.2: "after RHYTHM INV and hand edits, at the
+                    // lane's rate... wrapping across the end of the cycle... include a reset if one falls
+                    // before it") — mask-oblivious by construction (§1.3), bounded at the SAME cap
+                    // `riffTieExtensionBeats` already uses so the two forward-scans this combines with
+                    // (`nextHitGapBeats + tieExt`) share one consistent bound. `overlapBeats10ms`/
+                    // `minGateBeats5ms` convert the ferry's literal 10ms/5ms into beats via the live tempo
+                    // (closure-captured from `emitGeneratorRow`'s own new `tempo` parameter).
+                    let nextHitGapBeats = isEuclideousRow
+                        ? euclideousNextHitGapBeats(buf: euclidBuf, n: n, dir: dir, sub: sub, spanBeats: spanBeats, fromBeat: mTickBeat, cap: cycleLen * 4)
+                        : sub
+                    let overlapBeats10ms = 0.010 * (tempo / 60.0)
+                    let minGateBeats5ms = 0.005 * (tempo / 60.0)
+                    // §3.1, literal: "length = the gap UP TO the tied hit, plus GATE × the FOLLOWING gap."
+                    // Only the TIE's own extension scales with GATE — the gap up to the tied hit itself
+                    // (already counted once in `nextHitGapBeats`) is always full/unscaled, since the note
+                    // hasn't reached a real gate decision yet at that point. Caught by writing the
+                    // acceptance test for this exact case, not assumed: the naive `gate * nextHitGapBeats +
+                    // tieExt` (scaling BOTH segments together) would wrongly shrink the first segment too.
+                    func gateBeatsWithTie(_ tieExt: Double) -> Double {
+                        tieExt > 0 ? max(minGateBeats5ms, nextHitGapBeats + gate * tieExt) : max(minGateBeats5ms, gate * nextHitGapBeats)
+                    }
                     if isHit {
                         // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively
                         // off with zero velocity") — confirmed by testing, not assumed: strikeChord's own
@@ -4449,9 +4602,21 @@ final class Router {
                             if isEuclideousRow {
                                 let n = euclideousLastSoundedCount[lineIndex]
                                 if n > 0 {
-                                    let gb = min(sub * gate, S * 0.95)
+                                    let gb = max(minGateBeats5ms, gate * nextHitGapBeats)
                                     let vel = euclideousLastSoundedVel[lineIndex]
-                                    for i in 0..<n { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: Int(euclideousLastSoundedNotes[lineIndex * 9 + i]), explicitVel: vel, busOverride: busOverride) }
+                                    var cachedPitches = [Int](repeating: 0, count: n)
+                                    for i in 0..<n { cachedPitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i]) }
+                                    // GATE/legato: a REPEAT-hold's cached set IS, by definition, exactly what's
+                                    // already tracked — reconcile naturally resolves every one of them as HELD
+                                    // (no re-strike) at 100%, correctly continuing to extend rather than
+                                    // restriking each tick; below 100% it clears tracking and this falls
+                                    // through to the OLD per-tick restrike loop, now on the new gap-based gate.
+                                    let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: cachedPitches, pitchCount: n, vel: vel,
+                                                                         tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
+                                                                         gatePct: gate, busOverride: busOverride)
+                                    if !handled {
+                                        for i in 0..<n { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: cachedPitches[i], explicitVel: vel, busOverride: busOverride) }
+                                    }
                                     if nvSent {
                                         var nc = 0
                                         for i in 0..<n where nc < Router.noteViewMaxNotes { if let p = finalPitch(Int(euclideousLastSoundedNotes[lineIndex * 9 + i]), oct: 0) { nvScratch[nc] = p; nc += 1 } }
@@ -4723,6 +4888,12 @@ final class Router {
                                     case .skip:
                                         // SILENCE outcome — "the whole hit is silent... lit notes do not
                                         // sound" — return now, before the lit-notes layer below ever runs.
+                                        // GATE/legato §2.4: "the notes still end at that hit plus the
+                                        // overlap... legato never runs through a silence" — reconcile with
+                                        // an EMPTY set so any currently-held legato pitch closes here.
+                                        reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vel: 0,
+                                                               tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
+                                                               gatePct: gate, busOverride: busOverride)
                                         if nvSent {
                                             let (onset, duration) = nvTiming(sub)
                                             pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, noteCount: 0)
@@ -4778,7 +4949,13 @@ final class Router {
                             }
                             // SILENCE: "if none are lit, the hit is silent" (riff off) / the riff genuinely
                             // produced nothing AND nothing is lit (riff on, FILL/SKIP-degraded or empty pool).
-                            guard pitchCount > 0 else { return }
+                            guard pitchCount > 0 else {
+                                // GATE/legato §2.4: a genuinely silent hit still closes any held legato note here.
+                                reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vel: 0,
+                                                       tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
+                                                       gatePct: gate, busOverride: busOverride)
+                                return
+                            }
 
                             // EUCLID MASK — REPEAT (Paul 2026-10-10 ferry §3, widened for this ferry): "holding
                             // the riff walk" is read as holding the WHOLE per-tick decision, same as the
@@ -4797,9 +4974,14 @@ final class Router {
                                     for i in 0..<pitchCount { pitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i]) }
                                 }
                                 euclideousMaskRepeatRemaining[lineIndex] = mm.repeatCountResolved - 1
-                                let repGb = min(sub * gate, S * 0.95) + tieExt
+                                let repGb = gateBeatsWithTie(tieExt)
                                 let repVel = euclideousLastSoundedVel[lineIndex]
-                                for j in 0..<pitchCount { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGb, octave: 0, explicitNote: pitches[j], explicitVel: repVel, busOverride: busOverride) }
+                                let repHandled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vel: repVel,
+                                                                        tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
+                                                                        gatePct: gate, busOverride: busOverride)
+                                if !repHandled {
+                                    for j in 0..<pitchCount { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGb, octave: 0, explicitNote: pitches[j], explicitVel: repVel, busOverride: busOverride) }
+                                }
                                 euclideousLastSoundedCount[lineIndex] = pitchCount
                                 for i in 0..<pitchCount { euclideousLastSoundedNotes[lineIndex * 9 + i] = Int8(clamping: pitches[i]) }
                                 if nvSent {
@@ -4841,7 +5023,14 @@ final class Router {
                             let resolveRank: (Int) -> Int? = { r in riffResolve(rank: r, oct: maskOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) }
                             let xf = maskTransform(rank: repRank, note: repNote, vel: UInt8(velocityAbsolute), lineIndex: lineIndex,
                                                    mm: mm, maskedChancePassed: maskedChancePassed, resolveRank: resolveRank)
-                            if xf.muted { return }   // MUTE: "applies to the whole hit" — silent; the walk already advanced normally above
+                            if xf.muted {
+                                // GATE/legato §2.4: MUTE is a mask-level silence of the whole hit — the notes
+                                // still end here, at this hit's time + overlap, not later.
+                                reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vel: 0,
+                                                       tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
+                                                       gatePct: gate, busOverride: busOverride)
+                                return
+                            }   // MUTE: "applies to the whole hit" — silent; the walk already advanced normally above
                             // OCT/ACCENT/SWELL (Q2: "on the whole hit") — the DELTA `maskTransform` applied to
                             // the one representative is applied identically to every OTHER pitch in the merged
                             // set, each independently clamped (a different starting pitch can clip differently
@@ -4855,7 +5044,16 @@ final class Router {
                                 if shifted >= 0 && shifted <= 127 { pitches[i] = shifted }
                             }
 
-                            let gb = min(sub * gate, S * 0.95) + tieExt
+                            // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): the below-100%/REPEAT-cache gate is
+                            // now `gate * nextHitGapBeats` (the gap to the lane's OWN next real pattern hit),
+                            // floored at 5ms, plus TIE's own forward extension — replaces the old fixed
+                            // `min(sub * gate, S * 0.95)`, which measured against the lane's constant rate
+                            // rather than the pattern's own real spacing. The old `S * 0.95` column-overflow
+                            // clamp is obsolete: `gate * nextHitGapBeats` can at most equal `nextHitGapBeats`
+                            // exactly at gate=1.0 (the legato case, handled by reconcile below, never reaches
+                            // this formula at all), so a below-100% note can never overlap into the next hit
+                            // by construction (§1.4's "no overlaps" falls out for free).
+                            let gb = gateBeatsWithTie(tieExt)
                             func cacheWholeSet() {
                                 // REPEAT's own widened cache target (this ferry) — the WHOLE merged set, so a
                                 // FUTURE hold correctly replays every pitch from THIS genuine strike. Written
@@ -4872,8 +5070,15 @@ final class Router {
                             // the Phase A per-rank-independent seed fix stays fully intact for the OLD, non-
                             // Euclideous NOTE-mode-pick path below, which still needs it for its own multi-
                             // note picks; calling it ONCE per hit here is what makes it shared, not a change
-                            // to the function itself).
-                            if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
+                            // to the function itself). Resolved BEFORE reconcile so `isRatchetThisHit` can be
+                            // passed accurately — ferry §3.2: "repeats are deliberate strikes, so they never
+                            // merge, even at 100%" — a ratchet hit always reconciles (closing out whatever was
+                            // previously legato-held) but is never itself tracked as held.
+                            let nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc)
+                            let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vel: vel,
+                                                                 tau: mTickBeat, isRatchetThisHit: nRep != nil, overlapBeats: overlapBeats10ms,
+                                                                 gatePct: gate, busOverride: busOverride)
+                            if let nRep {
                                 // AUDIBLE RATCHET, take 3 — THE REAL ROOT CAUSE (2026-10-13, Paul: first
                                 // "still not working in any perceptible way," then, after take 2 (every
                                 // repeat given the hit's own FULL gate) — "it does affect the output... but
@@ -4894,16 +5099,13 @@ final class Router {
                                 // across render blocks"). Drained one real window at a time as time actually
                                 // advances, each repeat's own earlier voice gets a genuine chance to close
                                 // naturally before the next one opens — restrike no longer overrides it.
-                                // GATE LENGTH, a disclosed deviation from that precedent's own "keep the
-                                // note's own full length" rule: an ARP driver's notes are typically already
-                                // short/staccato by the instrument's own nature, so reusing the full length
-                                // there still leaves real gaps; EUCLID MASK's RATCHET applies to ANY lane
-                                // regardless of its own GATE setting, so a ratchet's own snap is treated as
-                                // a DIFFERENT musical question from "how long should this lane's note
-                                // sustain" — each repeat gets a short, fixed 50% duty cycle of its own slot,
-                                // independent of GATE, confirmed against the user's own "sustain, not
-                                // ratchet" report to be the character actually wanted.
-                                let repGate = (sub / Double(nRep)) * 0.5
+                                // GATE LENGTH (2026-10-13 GATE/legato ferry §3.2, supersedes the earlier
+                                // fixed-50%-duty-cycle version): "each repeat uses its own subdivision as its
+                                // gap... at 100%, each repeat ends just before the next repeat starts" — GATE
+                                // now applies PER-REPEAT too, replacing the hardcoded `*0.5` with `*gate`, so
+                                // at 100% a repeat fills its own full subdivision width (ending right where
+                                // the next one begins) instead of always sitting at a fixed half-width snap.
+                                let repGate = (sub / Double(nRep)) * gate
                                 let repSpacing = sub / Double(nRep)
                                 let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
                                 for j in 0..<pitchCount {
@@ -4929,7 +5131,9 @@ final class Router {
                                 cacheWholeSet()
                                 return
                             }
-                            for j in 0..<pitchCount { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: pitches[j], explicitVel: vel, busOverride: busOverride) }
+                            if !handled {
+                                for j in 0..<pitchCount { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: pitches[j], explicitVel: vel, busOverride: busOverride) }
+                            }
                             cacheWholeSet()
                             if nvSent {
                                 var nc = 0
@@ -5485,6 +5689,30 @@ final class Router {
             } else {
                 riffSrcNoteCount = srcNoteCount
                 for i in 0..<srcNoteCount { riffSrcNoteBuf[i] = srcNoteBuf[i] }
+            }
+            // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry §2.5/§4.4: "lane stopped... end everything
+            // immediately") — a SEPARATE, UNCONDITIONAL loop over all 4 lines, deliberately NOT nested
+            // inside the `where`-filtered dispatch loop below: that loop's own `where ... && L.
+            // enabledResolved` guard means its body never executes once a lane is disabled — including on
+            // the very render where it flips — so a check placed inside it could never observe the
+            // true→false transition at all. Gated on `isEuclideousRow` (the 4-slot `euclideousLegato*`/
+            // `euclideousLineWasEnabled` arrays are Euclideous-specific; an ordinary non-Euclideous EUCLID
+            // row elsewhere in the grid also populates `p.euclidLines`, confirmed elsewhere in this
+            // function — without this guard it would corrupt Euclideous's own tracking).
+            if isEuclideousRow {
+                for i in 0..<4 {
+                    let isEnabled = i < p.euclidLines.count ? p.euclidLines[i].enabledResolved : true
+                    if euclideousLineWasEnabled[i] && !isEnabled {
+                        let base = i * 9
+                        for k in 0..<euclideousLegatoCount[i] {
+                            let ownSlot = Int(euclideousLegatoOwnSlot[base + k]), allSlot = Int(euclideousLegatoAllSlot[base + k])
+                            if ownSlot >= 0 && ownSlot < voices.count && voices[ownSlot].active { closeVoice(ownSlot, atSample: windowStart, out: out) }
+                            if allSlot >= 0 && allSlot < voices.count && voices[allSlot].active { closeVoice(allSlot, atSample: windowStart, out: out) }
+                        }
+                        euclideousLegatoCount[i] = 0
+                    }
+                    euclideousLineWasEnabled[i] = isEnabled
+                }
             }
             for (lineIndex, L) in p.euclidLines.enumerated() where (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved {
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-

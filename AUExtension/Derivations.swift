@@ -2574,7 +2574,7 @@ enum EuclideousSliderField: Int, CaseIterable {
         case .steps: return "How many steps the pattern has"
         case .offset: return "Rotates the pattern around its steps"
         case .tilt: return "Bunches hits toward the start or end"
-        case .gate: return "How long each note holds its step"
+        case .gate: return "How long each note lasts, as a share of the time until the next hit. At 100%, notes join: different notes overlap slightly and repeated notes hold as one."   // 2026-10-13 ferry's own literal text — exceeds this file's older "<60 chars" guideline, used verbatim per explicit instruction
         case .velocity: return "How hard every hit strikes"
         }
     }
@@ -2761,6 +2761,15 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
     case .velocity:
         return "\(line.velocityAbsoluteResolved)"
     }
+}
+/// VoiceOver-only variant (2026-10-13 ferry §6: "add 'legato' to the value at 100%, for example 'Gate,
+/// 100 percent, legato'") — the on-screen compact text stays bare "100%"; only the spoken value gains the
+/// suffix, and only for GATE specifically, at the exact 100% boundary (matching the legato mode's own
+/// threshold, not a near-100% approximation).
+func euclideousSliderAccessibilityValueText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
+    let base = euclideousSliderValueText(field, line)
+    guard field == .gate, Int((line.gateResolved * 100).rounded()) >= 100 else { return base }
+    return "\(base), legato"
 }
 
 // ── NOTE VIEW (Paul 2026-10-10 ferry, "note view, phase 1") — pure note-naming + rhythm-window projection ──────────
@@ -3089,6 +3098,40 @@ func euclideousNoteViewIsHit(buf: [Bool], tickBeat: Double, sub: Double, spanBea
     let localT = Int64((phaseBeat / sub).rounded(.down))
     let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
     return buf[euclidReadIndex(raw, n: n, dir: dir)]
+}
+/// 2026-10-13 ferry ("GATE follows the rhythm"): the beat GAP from `fromBeat` (exclusive) to the lane's own
+/// NEXT real pattern hit — the SAME phaseBeat/columnStart reset-wrap `euclideousNoteViewIsHit` uses, so a
+/// RESET SPAN boundary crossing between the two is honoured automatically: stepping forward in ABSOLUTE beat
+/// and re-deriving the local tick from scratch at each candidate naturally reflects any span boundary crossed,
+/// with no separate reset check. Deliberately takes `n` EXPLICITLY rather than delegating to
+/// `euclideousNoteViewIsHit` (which derives its own modulus from `buf.count`) — caught by an RTCDEBUG trace,
+/// not guessed: the render thread's real `euclidBuf` is a FIXED 16-slot scratch array (Router.swift, `private
+/// var euclidBuf = [Bool](repeating: false, count: 16)`), so `buf.count` is almost always LARGER than the
+/// lane's own real step count — delegating would silently wrap the cycle at 16 (or whatever the scratch
+/// buffer's true allocated size is) instead of at the lane's own `n`, finding the wrong "next hit" entirely
+/// for any `n` short of that allocation (an 8-step lane's own wrap at tick 8 read as a REST, since position 8
+/// in the 16-slot buffer is unrelated padding, not the lane's own step 0 repeating). Deliberately MASK-
+/// OBLIVIOUS (ferry §1.3: "mask probability doesn't change the gap... measured to the next PATTERN hit, even
+/// if the mask then mutes that hit") — `buf` carries only the rhythm's own hit/rest shape (post RHYTHM-INV/
+/// hand-edit/rotate/tilt, exactly as the live engine already builds it), nothing mask-related. Bounded at
+/// `cap` ticks — deliberately reuses `riffTieExtensionBeats`'s own `cycleLen * 4` cap (not the ferry's literal
+/// "bounded at 16 steps") so the two forward-scans this result is later combined with (`nextHitGap + tieExt`)
+/// share one consistent bound, a disclosed judgment call. Returns `cap * sub` (not 0) if nothing is found
+/// within the bound, so an all-rest/degenerate pattern still yields a usable, generous gap rather than a
+/// zero-length note.
+func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, sub: Double, spanBeats: Double, fromBeat: Double, cap: Int) -> Double {
+    guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
+    let cycleLen = euclidCycleLen(dir, n: n)
+    var k = 1
+    while k <= cap {
+        let candidate = fromBeat + Double(k) * sub
+        let phaseBeat = spanBeats > 0 ? (candidate - columnStart(candidate, spanBeats)) : candidate
+        let localT = Int64((phaseBeat / sub).rounded(.down))
+        let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
+        if buf[euclidReadIndex(raw, n: n, dir: dir)] { return Double(k) * sub }
+        k += 1
+    }
+    return Double(cap) * sub
 }
 /// §2.1/§3.3 (Paul 2026-10-11: flipped to match a piano roll's own reading direction, the note more
 /// visible for sitting against the strip's own note box instead of tucked off the far edge): a mark's
