@@ -196,6 +196,76 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — SEQUENCER-PANEL FERRY SELF-AUDIT: 10 confirmed shortfalls against the LITERAL ferry text,
+  all fixed (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1417 green (+2 over the
+  1415 the ferry itself shipped at — 1 DerivationsTest + 1 RouterTest), iOS builds clean). Paul asked for an
+  audit of the just-shipped sequencer-panel/four-riffs/per-lane-reset ferry against spec — pulled the ferry's
+  COMPLETE RAW TEXT straight from this session's own transcript JSONL (not my own plan-file paraphrase of it,
+  which was the thing that actually caused most of these gaps in the first place) and read the shipped code
+  against it clause by clause. **ONE GENUINE ENGINE/AUDIO BUG, the most consequential finding:** the per-lane
+  RESET re-anchored purely from ABSOLUTE beat 0 (`columnStart(beat, resetSteps×stepBeats)`), completely
+  ignoring the LANES sequencer's own LEN — §5's literal wording ("the count restarts when the sequence
+  loops, so the marks stay fixed") requires re-anchoring at the SEQUENCER's own lap boundary instead. This
+  was INVISIBLE at the shipped default (LEN=8, every reset option 1/2/4/8 divides it evenly — the only
+  pre-existing RouterTest exercising this never set LEN away from 8, so it could never have caught this) but
+  silently diverges from the on-screen restart marks the instant LEN is anything else. **FIX:** new pure
+  `euclideousLoopedResetOrigin(beat:stepBeats:resetSteps:loopSteps:)` (Derivations.swift) generalizes the
+  re-anchor to wrap at a genuine outer loop — within one lap of `loopSteps` sequencer steps, a restart lands
+  at local step 0, resetSteps, 2×resetSteps, … (never crossing into the next lap even when resetSteps doesn't
+  divide loopSteps evenly), and a NEW lap always restarts fresh at local step 0 regardless of where the
+  previous lap's own cycle had reached — `loopSteps <= 0` degenerates to the exact original unbounded formula,
+  so every OTHER reset path (the legacy bars-count/span-ladder ones, which have no LEN concept) is untouched.
+  `euclideousNextHitGapBeats` (the TIE lookahead's own forward-scan) gained matching optional `loopStepBeats`/
+  `loopSteps` params (default 0, byte-identical for every pre-existing call site) so the lookahead's own
+  re-anchor prediction can't disagree with the corrected per-hit origin. Both Router.swift call sites updated.
+  +1 DerivationsTest (hand-verified against the exact divergence point — LEN=5/resetSteps=3, deliberately a
+  non-divisor, proving `columnStart`'s own old answer at beat 5 literally disagrees with the fix) +1 RouterTest
+  (the SAME non-dividing LEN=5/resetSteps=3 combination, proving bar 6 — a fresh lap's own step 0 — replays
+  bar 1's exact pick sequence at the ENGINE level, not just in the pure function). **NINE MISSING/MISPLACED UI
+  ELEMENTS, all specified with exact positions/colours in the ferry's own text, none of them built the first
+  time:** (1) the per-lane RESET control was placed on the RHYTHM tab (`resetButton`/`patternControlBlock`),
+  not on the SEQUENCER panel's own LANES tab at "(4, row y), 34×44" as §2 literally places it — moved entire;
+  `resetButton` renamed `sequencerResetBox`, called from inside `sequencerLanesGrid`'s own leading column now,
+  with DIRECTION absorbing the RHYTHM tab's freed width via its existing `.frame(maxWidth: .infinity)`. (2)
+  the LANES/RIFFS grids REFLOWED to exactly LEN columns instead of staying a fixed 8-wide grid with the tail
+  dimmed to 30% opacity — meant the columns could never "line up with the riff grid above" (§1's own explicit
+  requirement) at any LEN≠8; rebuilt both grids around the IDENTICAL leading-column/`cellW` formula
+  `riffGridView` already uses (not independently re-derived), always 8 fixed columns, steps beyond LEN dimmed
+  not removed. (3) editing a riff that isn't playing never hid the walk arrows — it kept drawing them resolved
+  against the EDITING riff's ranks at the engine's TRUE walk position, actively misleading (a pitch that isn't
+  what's sounding) rather than the ferry's explicit "hide the walk arrows" — `updateRiffMarkers` now guards on
+  `activeRiff == playingRiffIndex` up front, clearing every marker otherwise. (4) no "STEP N OF LEN" status
+  readout anywhere — added to `sequencerTabRow`, describing whichever tab is currently selected. (5) no
+  per-tab ON/OFF dot beside LANES/RIFFS — added (filled/hollow-bordered). (6) the RIFFS tab had no per-row
+  label at all (riff number + mini-outline) — only a fading overlay on whichever cell happened to be lit;
+  added a persistent leading-column label per row, matching §3's "no box" wording. (7) no "NOT PLAYING" label
+  in the riff-grid title row. (8) no column-number header row on the new sequencer panel (only the riff grid
+  above it had one) — added to both LANES/RIFFS grids, current-step bold, within-LEN dim grey, beyond-LEN
+  darker. (9) the "RIFF" title, the 4 tabs, and (now) "NOT PLAYING" were 3 stacked rows — the ferry's own
+  literal picture shows all three sharing ONE row ("RIFF  [tabs]            NOT PLAYING"); merged into one
+  HStack. **FOUR VISUAL/COLOUR DEVIATIONS, same pass:** restart marks were tiny 3×3 dots at flat white opacity,
+  not the spec's 3pt-wide×~26pt-tall bar with LIT/UNLIT-dependent ink colour (#0D0F14 on a lit cell, #5C626C
+  on an unlit one, "a lane restarts even while it's silent") — now drawn that way, scaled proportionally to
+  the real cell height; the LANES lit-cell fill was `accent.opacity(0.85)`, not literal LANE-100 — now
+  `lane100(accent)` unmixed; the RIFFS lit-cell fill was translucent white (`white.opacity(0.22)`), not the
+  spec's flat `#DFE3EA` — now exact; the current-step highlight was a plain `Rectangle` at 12% opacity, not a
+  rounded-rect at 6% — now matches; the ON/OFF toggle never flipped its BACKGROUND fill (only text colour),
+  reading far less clearly than the spec's strong "ON: fill #DFE3EA, text ink" flip — now flips the fill too;
+  the RATE and LEN steppers shared one fixed 69.5pt width though the spec gives RATE much more room (182 vs
+  142, since values like "4 BARS" need it) — both now proportionally sized off the real available width in
+  that 182:142 ratio, the same "share the extra width" convention this page already uses elsewhere.
+  **METHODOLOGY NOTE, named plainly because it's the actual lesson here:** every one of these 10 gaps traces
+  to the SAME root cause — the implementation session worked from its own plan file's DISTILLED paraphrase of
+  the ferry (written during planning, necessarily lossy) rather than the ferry's raw text, and several
+  specific placements/colours/layout decisions were quietly re-interpreted as "judgment calls" along the way
+  when the plan's own summary simply hadn't carried the literal instruction forward. Re-reading the actual
+  transcript JSONL (not re-trusting memory of "what I built") is what surfaced all ten; this is the same
+  lesson this project's own history already names for the CLOCK-mode mix-up earlier in the session, now
+  recorded a second time for a different feature. **DEVICE-OWED, unchanged in kind from the shipping entry
+  below, now against the corrected code:** every one of the repositioned/rebuilt elements at real card width;
+  the restart bar's legibility at real cell height; the ON/OFF fill-flip's contrast; confirm a LEN away from
+  8 (untestable visually from here, though now engine-correct and test-covered) actually reads as intended on
+  screen.**
 - **▶ EUCLIDEOUS — "FERRY: sequencer panel, four riffs, per-lane reset," the biggest single ferry of the
   2026-10-14 run — planned via Plan Mode first (3 parallel Explore agents + a Plan-agent validation pass),
   then built end to end (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1424 green

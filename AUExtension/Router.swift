@@ -4556,7 +4556,18 @@ final class Router {
                     // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a
                     // comet's visual position tolerates float imprecision invisibly; the two shouldn't share a code
                     // path just because they share a CONCEPT (the same rate/span/anchor reading).
-                    let phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
+                    // PER-LANE RESET is LEN-RELATIVE (2026-10-14 ferry §5, fixed by a self-audit against the
+                    // ferry's own text): re-anchors against the LANES sequencer's own lap boundary
+                    // (`euclideousLoopedResetOrigin`), not a plain `columnStart` from absolute beat 0 — the
+                    // two formulas only coincidentally agreed at the default LEN=8 (every reset option divides
+                    // it evenly); any other LEN would have silently diverged from the on-screen restart marks.
+                    let phaseBeat: Double
+                    if resetSteps > 0 {
+                        let origin = euclideousLoopedResetOrigin(beat: mTickBeat, stepBeats: lanesSeqStepBeats, resetSteps: resetSteps, loopSteps: p.euclideousLanesSeqLen)
+                        phaseBeat = mTickBeat - origin
+                    } else {
+                        phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
+                    }
                     let localT = Int64((phaseBeat / sub).rounded(.down))
                     let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
                     let ri = euclidReadIndex(raw, n: n, dir: dir)
@@ -4611,7 +4622,8 @@ final class Router {
                     // `minGateBeats5ms` convert the ferry's literal 10ms/5ms into beats via the live tempo
                     // (closure-captured from `emitGeneratorRow`'s own new `tempo` parameter).
                     let nextHitGapBeats = isEuclideousRow
-                        ? euclideousNextHitGapBeats(buf: euclidBuf, n: n, dir: dir, sub: sub, spanBeats: spanBeats, fromBeat: mTickBeat, cap: cycleLen * 4)
+                        ? euclideousNextHitGapBeats(buf: euclidBuf, n: n, dir: dir, sub: sub, spanBeats: spanBeats, fromBeat: mTickBeat, cap: cycleLen * 4,
+                                                     loopStepBeats: resetSteps > 0 ? lanesSeqStepBeats : 0, loopSteps: resetSteps > 0 ? p.euclideousLanesSeqLen : 0)
                         : sub
                     let overlapBeats10ms = 0.010 * (tempo / 60.0)
                     let minGateBeats5ms = 0.005 * (tempo / 60.0)

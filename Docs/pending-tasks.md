@@ -35,14 +35,26 @@ forward as-is, verified green"). This pending-tasks entry had gone stale (still 
 corrected here. All 11 modes (MUTE/PAUSE/RATCHET/REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL) + CHANCE +
 the 2-line MASK tab are built. DEVICE-eye/ear owed (not yet separately re-confirmed since landing).
 
-## ★ EUCLIDEOUS — "sequencer panel, four riffs, per-lane reset" — SHIPPED (2026-10-14; LANDED on
-`fix/euclid-no-scroll-direction-order-2x2-grid`, macOS 1424 green incl. +9, iOS builds clean) — full writeup
-in CLAUDE.md's status log. NOTE VIEW panel replaced by a two-tab SEQUENCER panel (LANES/RIFFS); RESET moved
-machine-wide→per-lane; the single riff became four tabbed riffs with long-press copy/paste/clear.
+## ★ EUCLIDEOUS — "sequencer panel, four riffs, per-lane reset" — SHIPPED + SELF-AUDITED (2026-10-14; LANDED
+on `fix/euclid-no-scroll-direction-order-2x2-grid`, macOS 1417 green incl. +11 total, iOS builds clean) — full
+writeup in CLAUDE.md's status log (two entries: the original build, then the audit-and-fix pass). NOTE VIEW
+panel replaced by a two-tab SEQUENCER panel (LANES/RIFFS); RESET moved machine-wide→per-lane (now correctly
+on the LANES tab, see below); the single riff became four tabbed riffs with long-press copy/paste/clear.
+**A FOLLOW-UP SELF-AUDIT against the ferry's raw text (not the plan's own paraphrase) found + fixed 10 real
+shortfalls** — 1 genuine engine/audio bug (the per-lane reset didn't re-anchor relative to the LANES
+sequencer's own LEN, only invisible because the shipped default LEN=8 happens to divide every reset option
+evenly) + 9 missing/mis-positioned UI elements (the RESET control was on the wrong tab entirely; the grids
+reflowed to LEN columns instead of staying a fixed 8-wide grid dimmed past LEN; walk arrows weren't hidden
+when editing a non-playing riff; no STEP-N-OF-LEN status, per-tab ON/OFF dot, RIFFS per-row label, "NOT
+PLAYING" label, or column-number header; the title/tabs/NOT-PLAYING weren't sharing one row) + several
+colour/sizing deviations (restart-mark shape/colour, RIFFS lit-cell fill, the ON/OFF fill-flip, RATE/LEN
+stepper proportions). All fixed; +2 tests locking in the one real audio-correctness bug specifically.
 - [ ] DEVICE: the sequencer panel's proportional (not pixel-exact) grid sizing at real card width.
-- [ ] DEVICE: the per-lane RESET popup's anchor position/legibility.
+- [ ] DEVICE: the per-lane RESET box's new position (now on the LANES tab itself) + its popup's legibility.
 - [ ] DEVICE: the riff-tab row's bar-chart previews + play-triangle + long-press timing/feel.
 - [ ] DEVICE: confirm the removed header RESET countdown isn't missed before the per-lane control is found.
+- [ ] DEVICE: the restart-mark bar's legibility at real cell height; the ON/OFF toggle's new fill-flip
+      contrast; a LANES/RIFFS LEN away from 8 (now engine-correct + test-covered, but never visually checked).
 - [x] `activeRiff`'s dual edit/play role — **RATIFIED by Paul (2026-10-14): "yes, that's right."** No change.
 - [x] TIE lookahead freezing the triggering hit's own riff selection (not re-resolving per future tick on a
       RIFFS-sequencer switch) — **Paul: leave as built for now, revisit once actually heard.** No change.

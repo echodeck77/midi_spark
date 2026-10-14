@@ -6056,6 +6056,42 @@ final class RouterTests: XCTestCase {
                            "resetSteps=2 re-anchors every 2 bars — bar \(Int(throughBeats / 4) + 1) must replay bar 1's exact pick sequence")
         }
     }
+    // A SELF-AUDIT against the ferry's own raw text (2026-10-14) found the test above never exercises a
+    // LANES LEN that ISN'T a multiple of resetSteps — the exact combination (LEN=8, resetSteps ∈ {1,2,4,8})
+    // under which the first build's engine-level bug was completely invisible (it re-anchored purely from
+    // absolute beat 0, ignoring LEN entirely — §5's literal "the count restarts when the sequence loops, so
+    // the marks stay fixed" requires re-anchoring at the LANES sequencer's own lap boundary instead). Here
+    // LEN=5 does NOT divide resetSteps=3: within one lap, restarts land at local steps 0 and 3 only; a NEW
+    // lap begins at absolute step 5 (bar 6) and must restart FRESH there, even though the OLD unbounded
+    // formula would still be mid-cycle (its own next restart wouldn't land until step 6/bar 7).
+    func testEuclideousPerLaneResetRealignsAtTheLanesSequencersOwnLoopBoundaryNotJustAnUnboundedPeriod() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func picksThroughBar(resetSteps: Int, lenSteps: Int, beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+                                                 useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
+                                                 resetSteps: resetSteps)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.euclideousNoteSource = .midi
+            st.euclideousLanesSeqRate = .oneBar
+            st.euclideousLanesSeqLen = lenSteps
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        }
+        let bar1 = picksThroughBar(resetSteps: 3, lenSteps: 5, beats: 3.9)
+        let throughBar6 = picksThroughBar(resetSteps: 3, lenSteps: 5, beats: 23.9)
+        XCTAssertFalse(bar1.isEmpty)
+        XCTAssertEqual(Array(throughBar6.suffix(bar1.count)), bar1,
+                       "LEN=5 doesn't divide resetSteps=3 — bar 6 begins a new lap and must restart fresh at " +
+                       "local step 0, replaying bar 1's exact pick sequence, not continue the step-3-anchored " +
+                       "cycle an unbounded (LEN-oblivious) formula would produce instead")
+    }
     // LANES SEQUENCER (ferry §5): "the walk/cursor keeps advancing as normal — only the final emission is
     // suppressed" while a lane's own cell is unlit for the current step. Proven by equivalence: a muted
     // bar must drop ITS OWN notes entirely, but the walk position immediately after it must land exactly

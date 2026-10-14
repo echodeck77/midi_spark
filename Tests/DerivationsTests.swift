@@ -2887,6 +2887,31 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNotEqual(free, spanned, "the SPAN control genuinely changes the phase, not just decoration")
     }
 
+    // A SELF-AUDIT against the sequencer-panel ferry's own raw text (2026-10-14) found the first build's
+    // per-lane reset re-anchored purely from absolute beat 0 (`columnStart(beat, resetSteps*stepBeats)`),
+    // ignoring the LANES sequencer's own LEN entirely — §5's literal wording ("the count restarts when the
+    // sequence loops, so the marks stay fixed") requires re-anchoring at the sequencer's own lap boundary
+    // instead. stepBeats=1 for simplicity (step index == beat); resetSteps=3, loopSteps=5 — DELIBERATELY not
+    // a divisor of the loop, so the two formulas can't coincidentally agree (exactly the gap that made this
+    // invisible at the shipped default, LEN=8 with every reset option a divisor of 8).
+    func testEuclideousLoopedResetOriginRealignsAtTheLoopBoundaryUnlikeThePlainUnboundedFormula() {
+        // Within lap 1 (absStep 0..4): restarts at local step 0 and local step 3 (0%3==0, 3%3==0).
+        XCTAssertEqual(euclideousLoopedResetOrigin(beat: 0, stepBeats: 1, resetSteps: 3, loopSteps: 5), 0)
+        XCTAssertEqual(euclideousLoopedResetOrigin(beat: 2, stepBeats: 1, resetSteps: 3, loopSteps: 5), 0)
+        XCTAssertEqual(euclideousLoopedResetOrigin(beat: 3, stepBeats: 1, resetSteps: 3, loopSteps: 5), 3)
+        XCTAssertEqual(euclideousLoopedResetOrigin(beat: 4, stepBeats: 1, resetSteps: 3, loopSteps: 5), 3)
+        // Lap 2 begins at absStep 5 — a NEW lap always restarts fresh at ITS OWN local step 0, even though
+        // the plain unbounded formula (`columnStart`, resetSteps=3 from beat 0) would still be mid-cycle
+        // (floor(5/3)*3 = 3, not 5) — this is the concrete divergence the fix exists to close.
+        XCTAssertEqual(euclideousLoopedResetOrigin(beat: 5, stepBeats: 1, resetSteps: 3, loopSteps: 5), 5)
+        XCTAssertEqual(columnStart(5, 3), 3, "the OLD unbounded formula disagrees here — the actual bug")
+        XCTAssertEqual(euclideousLoopedResetOrigin(beat: 7, stepBeats: 1, resetSteps: 3, loopSteps: 5), 5)
+        XCTAssertEqual(euclideousLoopedResetOrigin(beat: 8, stepBeats: 1, resetSteps: 3, loopSteps: 5), 8)
+        // loopSteps <= 0 degenerates to the exact original unbounded behaviour (every OTHER reset path —
+        // the legacy bars-count/span-ladder ones — has no LEN concept and must stay byte-identical).
+        XCTAssertEqual(euclideousLoopedResetOrigin(beat: 5, stepBeats: 1, resetSteps: 3, loopSteps: 0), columnStart(5, 3))
+    }
+
     // Driver retiming (Paul 2026-09-26, final spec — "a grid with a variable number of steps, each step a
     // mutually exclusive speed, and another row on the same grid for glide"): clockDrawnPhaseInverse must exactly
     // undo clockDrawnPhase across a spread of ratio/glide patterns, origins, and laps — this is the primitive a

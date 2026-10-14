@@ -884,6 +884,15 @@ struct EuclideousPage: View {
     // in `riffGridCell` is removed too. A riff-off lane now contributes no occupant at all, by construction.
 
     private func updateRiffMarkers() {
+        // §7, fixed by a self-audit against the ferry's raw text: "editing a riff that isn't playing: HIDE
+        // the walk arrows" — the first build kept drawing them, resolved against the EDITING riff's ranks at
+        // the engine's TRUE walk position, which is actively misleading (it shows a pitch that isn't what's
+        // actually sounding, not merely "nothing new to show"). Guard this ONCE, up front, rather than
+        // threading a visibility check through every downstream branch below.
+        guard max(0, min(3, activeRiff)) == max(0, min(3, playingRiffIndex)) else {
+            for i in 0..<4 { riffMarker[i] = nil }
+            return
+        }
         let resolved = editingRiff.ranksResolved   // the walk marker is drawn on THIS grid's own cells, so it must read the EDITING riff to correspond to what's actually displayed there
         for i in 0..<4 {
             guard i < lines.count, lines[i].riffOnResolved else { riffMarker[i] = nil; continue }
@@ -1719,33 +1728,37 @@ struct EuclideousPage: View {
     /// off = HIT, on = GAPS. Its behaviour and display are unchanged [from GAPS's own]." Same persisted
     /// field (`patternMiss`), same semantics — only the control SHAPE changed, from two mutually-
     /// exclusive buttons to one toggle.
-    /// PER-LANE RESET (2026-10-14 ferry §3): REPLACES the old machine-wide header RESET control (which
-    /// showed a single, shared "IN n" countdown) — each lane now has its OWN reset-steps count, set here.
-    /// PLACEMENT, flagged as a judgment call: the ratified ferry's own exact placement didn't survive
-    /// verbatim into this implementation session; placed beside INV (the row's one other small fixed-width
-    /// toggle) as the lowest-risk slot in this tab's own tightly pixel-budgeted layout — DIRECTION absorbs
-    /// the modest width reduction via its own existing `.frame(maxWidth: .infinity)`, rather than disturbing
-    /// the RATE grid's hard per-cell math above. Tap opens the anchored popup (`resetPopupCard`, mirroring
+    /// PER-LANE RESET BOX (2026-10-14 ferry §2, literal placement): "Reset box at the start of each row...
+    /// shows the lane's reset: value over the unit STEP/STEPS. OFF shows OFF, with no unit." Lives on the
+    /// SEQUENCER panel's own LANES tab now — a same-session self-audit against the ferry's raw text found
+    /// the first build had placed this on the RHYTHM tab instead (a judgment call that wasn't actually
+    /// warranted; the ferry gives an exact spot). Tap opens the anchored popup (`resetPopupCard`, mirroring
     /// `keyPopupCard`'s own anchored-not-centred idiom) with OFF/1/2/4/8.
-    private func resetButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        let steps = line.resetStepsResolved
-        return Text(steps == 0 ? "OFF" : "×\(steps)")
-            .font(.system(size: 11, weight: .heavy, design: .monospaced))
-            .foregroundColor(steps > 0 ? patternSelectedText : patternUnselectedText)
-            .frame(width: 40, height: rowH)
-            .background(RoundedRectangle(cornerRadius: 7).fill(steps > 0 ? lane20(accent) : patternUnselectedFill))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(steps > 0 ? lane100(accent) : Color.clear, lineWidth: 1))
-            .contentShape(Rectangle())
-            .background(GeometryReader { geo in
-                // Matches `headerSourceGroup`'s own KEY-chip publisher exactly — the SAME named coordinate
-                // space the surrounding ZStack declares (`.coordinateSpace(name: "euclideousXY")`), not
-                // `.global`, since the popup's own `.position(x:y:)` positions within THAT local space.
-                Color.clear.preference(key: EuclideousResetChipFramePreferenceKey.self,
-                                        value: [idx: geo.frame(in: .named("euclideousXY"))])
-            })
-            .onTapGesture { resetPopupLane = idx }
-            .euclideousHelp("How many steps before this lane's pattern re-anchors")
-            .accessibilityLabel("Reset, \(steps == 0 ? "off" : "every \(steps) steps")")
+    private func sequencerResetBox(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
+        let steps = idx < lines.count ? lines[idx].resetStepsResolved : 0
+        let accent = laneAccents[idx % laneAccents.count]
+        return VStack(spacing: 1) {
+            Text(steps == 0 ? "OFF" : "\(steps)").font(.system(size: steps == 0 ? 11 : 14, weight: .heavy, design: .monospaced))
+                .foregroundColor(Color(hex: 0xF2F4F7))
+            if steps > 0 {
+                Text(steps == 1 ? "STEP" : "STEPS").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xAAB0BA))
+            }
+        }
+        .frame(width: width, height: height)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(accent), lineWidth: 1.5))
+        .contentShape(Rectangle())
+        .background(GeometryReader { geo in
+            // Matches `headerSourceGroup`'s own KEY-chip publisher exactly — the SAME named coordinate
+            // space the surrounding ZStack declares (`.coordinateSpace(name: "euclideousXY")`), not
+            // `.global`, since the popup's own `.position(x:y:)` positions within THAT local space.
+            Color.clear.preference(key: EuclideousResetChipFramePreferenceKey.self,
+                                    value: [idx: geo.frame(in: .named("euclideousXY"))])
+        })
+        .onTapGesture { resetPopupLane = idx }
+        .euclideousHelp("How many steps before this lane's pattern re-anchors")
+        .accessibilityLabel("Lane \(idx + 1) reset, \(steps == 0 ? "off" : "every \(steps) steps")")
     }
     private func invButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         let on = line.patternMissResolved
@@ -1894,7 +1907,10 @@ struct EuclideousPage: View {
             HStack(spacing: 3) {   // exact-dimensions ferry: 3pt between the direction group and INV
                 directionRow(idx, line, accent, rowH: rowH).frame(maxWidth: .infinity)
                 invButton(idx, line, accent, rowH: rowH)
-                resetButton(idx, line, accent, rowH: rowH)
+                // RESET moved to the sequencer panel's own LANES tab (2026-10-14 ferry §2 literally places
+                // it there, at the start of each row) — the RHYTHM-tab placement here was a same-session
+                // judgment call that didn't survive a direct re-check against the ferry's own text; DIRECTION
+                // absorbs the freed width via its existing `.frame(maxWidth: .infinity)`.
             }
             laneOutRow(idx, line, accent, rowH: rowH)
         }
@@ -3092,11 +3108,22 @@ struct EuclideousPage: View {
         // without a special case — confirmed by reading, not assumed, since `riffMarker` is only ever set
         // from a genuine NOTE VIEW event or a non-rest grid read, neither of which a silent lane produces.
         let midiEmpty = source == .midi && pool.isEmpty
+        // §7, fixed by a self-audit against the ferry's raw text: the title, the 4 tabs and "NOT PLAYING"
+        // were built as 3 stacked rows — the ferry's own literal picture shows all three sharing ONE row
+        // ("RIFF  [tabs]            NOT PLAYING"). `notPlaying` reuses the exact same clamp both the tab row
+        // and the marker-hiding fix above use, so the three can't independently disagree about this state.
+        let notPlaying = max(0, min(3, activeRiff)) != max(0, min(3, playingRiffIndex))
         return VStack(alignment: .leading, spacing: sp4) {
-            // "RIFF · SHARED" → "RIFF" (2026-10-14 ferry §7): no longer one pattern shared by every
-            // riff-on lane — four independently-stored riffs now, picked by the tab row directly below.
-            Text("RIFF").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-            riffTabRow()
+            HStack(spacing: sp8) {
+                Text("RIFF").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                    .fixedSize()
+                riffTabRow()
+                if notPlaying {
+                    Text("NOT PLAYING").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
+                        .foregroundColor(Color(hex: 0xAAB0BA))
+                        .fixedSize()
+                }
+            }
             if midiEmpty {
                 Text("HOLD NOTES TO PLAY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
             }
@@ -3387,153 +3414,230 @@ struct EuclideousPage: View {
         .frame(width: maxWidth, height: maxHeight)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
     }
+    /// Tab row (2026-10-14 ferry §1, corrected after a self-audit against the raw ferry text — the first
+    /// build dropped the per-tab ON/OFF dot and the "STEP N OF LEN" status entirely): each tab shows its own
+    /// name beside a dot (filled when that tab's sequencer is ON, hollow when OFF); a trailing status reads
+    /// the CURRENTLY SELECTED tab's own live step/len (so it always describes whichever grid is on screen).
     private func sequencerTabRow(width: CGFloat, height: CGFloat) -> some View {
-        HStack(spacing: sp4) {
+        let len = sequencerTab == 0 ? lanesSeq.len : riffsSeq.len
+        let step = sequencerTab == 0 ? lanesSeqStep : riffsSeqStep
+        return HStack(spacing: sp4) {
             ForEach(0..<2, id: \.self) { i in
                 let sel = sequencerTab == i
-                Text(i == 0 ? "LANES" : "RIFFS")
-                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .tracking(0.8)
-                    .foregroundColor(sel ? .white : Color(hex: 0xAAB0BA))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .bottom) {
-                        if sel { Rectangle().fill(Color.white).frame(height: 2) }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { sequencerTab = i }
+                let on = i == 0 ? lanesSeq.on : riffsSeq.on
+                HStack(spacing: 6) {
+                    Text(i == 0 ? "LANES" : "RIFFS")
+                        .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .tracking(0.8)
+                        .foregroundColor(sel ? .white : Color(hex: 0xAAB0BA))
+                    Circle()
+                        .fill(on ? Color(hex: 0xF2F4F7) : Color.clear)
+                        .frame(width: 7, height: 7)
+                        .overlay(Circle().stroke(Color(hex: 0xAAB0BA), lineWidth: on ? 0 : 1.5))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    if sel { Rectangle().fill(Color.white).frame(height: 2) }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { sequencerTab = i }
             }
+            Text("STEP \(max(1, step + 1)) OF \(max(1, len))")
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(Color(hex: 0x8A909A))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .frame(width: width, height: height)
     }
-    /// LANES grid: `lanesSeq.len` columns (1...8) × 4 rows (one per lane). Each cell is a plain on/off toggle
-    /// (`lanesSeq.cells[step*4+lane]`, §2's own row-major convention) tinted the lane's own accent when lit.
-    /// A small white tick above a step marks where THAT LANE's own per-lane RESET (§3, `EuclidLine.
-    /// resetStepsResolved`) re-anchors it — pure client-side arithmetic, no new engine state, since a
-    /// restart happens at every Nth sequencer step starting from step 0 by construction (`resetStepsResolved
-    /// == 0` ⇒ OFF ⇒ no ticks at all). The live playhead (`lanesSeqStep`) highlights the current column
-    /// across all 4 rows, unconditionally (§4: the clock always runs).
+    /// LANES grid (2026-10-14 ferry §1/§2 — REBUILT after a self-audit against the raw ferry text found 3
+    /// real gaps in the first build): ALWAYS 8 fixed columns (not reflowed to LEN), so the column x-positions
+    /// never shift and stay lined up under the main riff grid above — same leading-column/`cellW` formula
+    /// `riffGridView` already uses, not independently re-derived, for exactly that reason; a step beyond LEN
+    /// just dims to 30% rather than disappearing. The per-lane RESET box (§2) now lives HERE at the start of
+    /// each row — moved off the RHYTHM tab, where the first build had wrongly placed it. Restart marks are
+    /// real 3pt-wide bars (not a 3×3 dot), ink-coloured depending on whether that step is lit, bounded to LEN.
     private func sequencerLanesGrid(width: CGFloat, height: CGFloat) -> some View {
-        let n = max(1, min(8, lanesSeq.len))
-        let cellW = width / CGFloat(n)
-        let cellH = height / 4
+        let n = 8
+        let len = max(1, min(8, lanesSeq.len))
+        let headerH: CGFloat = 14
+        let rowsH = max(1, height - headerH - sp4)
+        let cellH = rowsH / 4
+        let gridW = max(1, width - riffLabelColW - sp4)
+        let cellW = max(1, (gridW - sp4 * CGFloat(n - 1)) / CGFloat(n))
         let cells = lanesSeq.cells
-        return ZStack(alignment: .topLeading) {
-            Rectangle().fill(Color.white.opacity(0.12)).frame(width: cellW, height: height)
-                .offset(x: CGFloat(max(0, min(n - 1, lanesSeqStep))) * cellW)
-                .allowsHitTesting(false)
-            VStack(spacing: 0) {
-                ForEach(0..<4, id: \.self) { lane in
-                    HStack(spacing: 0) {
-                        ForEach(0..<n, id: \.self) { step in
-                            let idx = step * 4 + lane
-                            let lit = idx < cells.count ? cells[idx] : true
-                            let accent = laneAccents[lane % laneAccents.count]
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(lit ? accent.opacity(0.85) : Color.white.opacity(0.08))
-                                .padding(1.5)
-                                .frame(width: cellW, height: cellH)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    onEditLanesSeq { s in
-                                        guard idx < s.cells.count else { return }
-                                        s.cells[idx].toggle()
-                                    }
-                                }
-                        }
-                    }
-                }
-            }
-            Canvas { ctx, _ in
-                for lane in 0..<min(4, lines.count) {
-                    let rs = lines[lane].resetStepsResolved
-                    guard rs > 0 else { continue }
-                    var step = 0
-                    while step < n {
-                        let x = CGFloat(step) * cellW + 2
-                        let y = CGFloat(lane) * cellH + 1
-                        ctx.fill(Path(CGRect(x: x, y: y, width: 3, height: 3)), with: .color(.white.opacity(0.9)))
-                        step += rs
-                    }
-                }
-            }
+        let curStep = max(0, min(n - 1, lanesSeqStep))
+
+        func restartBar(lane: Int, step: Int, lit: Bool) -> some View {
+            let rs = lane < lines.count ? lines[lane].resetStepsResolved : 0
+            let marks = rs > 0 && step < len && step % rs == 0
+            return Group { if marks {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(lit ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C))
+                    .frame(width: 3, height: min(26, max(2, cellH - 10)))
+            } }
+            .frame(width: cellW, height: cellH, alignment: .topLeading)
+            .padding(.leading, 4).padding(.top, 6)
             .allowsHitTesting(false)
         }
-        .frame(width: width, height: height)
-    }
-    /// RIFFS grid: `riffsSeq.len` columns × 4 rows (one per riff), RADIO per column — exactly one lit cell
-    /// per step (`riffsSeq.cells[step] == riffIdx`), same one-of-N-per-column shape this page's own
-    /// `stateMatrixRadio` uses elsewhere, hand-built here since a per-cell bar-chart preview (`riffOutlineBars`)
-    /// doesn't fit that shared widget. Tapping any cell in a column sets that column's choice outright.
-    private func sequencerRiffsGrid(width: CGFloat, height: CGFloat) -> some View {
-        let n = max(1, min(8, riffsSeq.len))
-        let cellW = width / CGFloat(n)
-        let cellH = height / 4
-        let cells = riffsSeq.cells
-        return ZStack(alignment: .topLeading) {
-            Rectangle().fill(Color.white.opacity(0.12)).frame(width: cellW, height: height)
-                .offset(x: CGFloat(max(0, min(n - 1, riffsSeqStep))) * cellW)
-                .allowsHitTesting(false)
-            VStack(spacing: 0) {
-                ForEach(0..<4, id: \.self) { riffIdx in
-                    HStack(spacing: 0) {
-                        ForEach(0..<n, id: \.self) { step in
-                            let sel = step < cells.count && cells[step] == riffIdx
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(sel ? Color.white.opacity(0.22) : Color.white.opacity(0.06))
-                                .padding(1.5)
-                                .frame(width: cellW, height: cellH)
-                                .overlay(
-                                    riffOutlineBars(ranks: riffIdx < riffs.count ? riffs[riffIdx].ranksResolved : [], maxHeight: cellH * 0.55)
-                                        .opacity(sel ? 1 : 0.3)
-                                        .padding(3)
-                                )
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    onEditRiffsSeq { cfg in
-                                        guard step < cfg.cells.count else { return }
-                                        cfg.cells[step] = riffIdx
+
+        return VStack(alignment: .leading, spacing: sp4) {
+            HStack(spacing: sp4) {   // header: "RESET" label (§2) + column numbers 1-8 (§1), one shared row
+                Text("RESET").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.3)
+                    .foregroundColor(Color(hex: 0xAAB0BA))
+                    .frame(width: riffLabelColW, height: headerH)
+                ForEach(0..<n, id: \.self) { col in
+                    let isCur = col == curStep
+                    let within = col < len
+                    Text("\(col + 1)").font(.system(size: 10, weight: isCur ? .heavy : .regular, design: .monospaced))
+                        .foregroundColor(isCur ? Color(hex: 0xF2F4F7) : (within ? Color(hex: 0x8A909A) : Color(hex: 0x4A4E57)))
+                        .frame(width: cellW, height: headerH)
+                }
+            }
+            ZStack(alignment: .topLeading) {
+                // CURRENT-STEP HIGHLIGHT (§1: "a rounded rect behind the current column... white at 6%").
+                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06))
+                    .frame(width: cellW + sp4, height: rowsH)
+                    .offset(x: riffLabelColW + sp4 + CGFloat(curStep) * (cellW + sp4) - sp4 / 2)
+                    .allowsHitTesting(false)
+                VStack(spacing: 0) {
+                    ForEach(0..<4, id: \.self) { lane in
+                        let accent = laneAccents[lane % laneAccents.count]
+                        HStack(spacing: sp4) {
+                            sequencerResetBox(lane, width: riffLabelColW, height: cellH)
+                            ForEach(0..<n, id: \.self) { step in
+                                let idx = step * 4 + lane
+                                let lit = idx < cells.count ? cells[idx] : true
+                                let within = step < len
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(lit ? lane100(accent) : Color(hex: 0x22252C))
+                                    .frame(width: cellW, height: cellH)
+                                    .overlay(restartBar(lane: lane, step: step, lit: lit))
+                                    .opacity(within ? 1 : 0.3)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        onEditLanesSeq { s in
+                                            guard idx < s.cells.count else { return }
+                                            s.cells[idx].toggle()
+                                        }
                                     }
-                                }
+                            }
                         }
                     }
                 }
             }
         }
-        .frame(width: width, height: height)
+        .frame(width: width, height: height, alignment: .topLeading)
+    }
+    /// RIFFS grid (2026-10-14 ferry §1/§3 — REBUILT after the same self-audit): ALWAYS 8 fixed columns,
+    /// aligned with the riff grid above via the identical formula `sequencerLanesGrid` uses. RADIO per
+    /// column (exactly one lit cell per step), same one-of-N-per-column shape `stateMatrixRadio` uses
+    /// elsewhere, hand-built since the per-cell bar-chart preview doesn't fit that shared widget. Each row
+    /// now carries a PERSISTENT leading label (riff number + mini-outline, §3) — entirely missing from the
+    /// first build, which only showed the outline as a fading overlay on whichever cell happened to be lit.
+    private func sequencerRiffsGrid(width: CGFloat, height: CGFloat) -> some View {
+        let n = 8
+        let len = max(1, min(8, riffsSeq.len))
+        let headerH: CGFloat = 14
+        let rowsH = max(1, height - headerH - sp4)
+        let cellH = rowsH / 4
+        let gridW = max(1, width - riffLabelColW - sp4)
+        let cellW = max(1, (gridW - sp4 * CGFloat(n - 1)) / CGFloat(n))
+        let cells = riffsSeq.cells
+        let curStep = max(0, min(n - 1, riffsSeqStep))
+
+        return VStack(alignment: .leading, spacing: sp4) {
+            HStack(spacing: sp4) {   // §3: "no reset boxes or marks on this tab" — leading slot stays blank
+                Color.clear.frame(width: riffLabelColW, height: headerH)
+                ForEach(0..<n, id: \.self) { col in
+                    let isCur = col == curStep
+                    let within = col < len
+                    Text("\(col + 1)").font(.system(size: 10, weight: isCur ? .heavy : .regular, design: .monospaced))
+                        .foregroundColor(isCur ? Color(hex: 0xF2F4F7) : (within ? Color(hex: 0x8A909A) : Color(hex: 0x4A4E57)))
+                        .frame(width: cellW, height: headerH)
+                }
+            }
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06))
+                    .frame(width: cellW + sp4, height: rowsH)
+                    .offset(x: riffLabelColW + sp4 + CGFloat(curStep) * (cellW + sp4) - sp4 / 2)
+                    .allowsHitTesting(false)
+                VStack(spacing: 0) {
+                    ForEach(0..<4, id: \.self) { riffIdx in
+                        HStack(spacing: sp4) {
+                            VStack(spacing: 2) {
+                                Text("\(riffIdx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                                    .foregroundColor(Color(hex: 0xDFE3EA))
+                                riffOutlineBars(ranks: riffIdx < riffs.count ? riffs[riffIdx].ranksResolved : [], maxHeight: max(2, cellH * 0.35))
+                            }
+                            .frame(width: riffLabelColW, height: cellH)
+                            ForEach(0..<n, id: \.self) { step in
+                                let sel = step < cells.count && cells[step] == riffIdx
+                                let within = step < len
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x22252C))
+                                    .frame(width: cellW, height: cellH)
+                                    .opacity(within ? 1 : 0.3)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        onEditRiffsSeq { cfg in
+                                            guard step < cfg.cells.count else { return }
+                                            cfg.cells[step] = riffIdx
+                                        }
+                                    }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
     }
     /// ON toggle + RATE + LEN, for whichever tab is currently selected — the controls apply to that
-    /// sequencer only, matching the tab's own content directly below.
+    /// sequencer only, matching the tab's own content directly below. RATE gets noticeably MORE width than
+    /// LEN (182:142 in the ferry's own literal table — a 1.28:1 ratio, scaled here to whatever real width
+    /// is actually available, same "share the extra width proportionally" convention this page already uses
+    /// elsewhere) — found missing by a self-audit: the first build gave both the SAME fixed 69.5pt, which
+    /// risks truncating RATE's own longer values ("¼ BAR", "4 BARS") against LEN's bare single digit.
     private func sequencerControlsRow(width: CGFloat, height: CGFloat) -> some View {
         let isLanes = sequencerTab == 0
         let on = isLanes ? lanesSeq.on : riffsSeq.on
         let rate = isLanes ? lanesSeq.rate : riffsSeq.rate
         let len = isLanes ? lanesSeq.len : riffsSeq.len
+        let onW: CGFloat = 56
+        let remaining = max(1, width - onW - sp8 * 2)
+        let rateW = remaining * 182 / (182 + 142)
+        let lenW = remaining - rateW
         return HStack(spacing: sp8) {
+            // ON/OFF (§1: "ON: fill #dfe3ea, text INK. OFF: fill #2a2d34, text #aab0ba") — found missing by
+            // the same self-audit: the first build never flipped the BACKGROUND, only the text colour, so
+            // the on/off state read far less clearly than the ferry's own strong fill-flip intends.
             Text(on ? "ON" : "OFF")
-                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
-                .frame(width: 48, height: height)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x2A2D34)))
+                .font(.system(size: 12, weight: .heavy, design: .monospaced))
+                .foregroundColor(on ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+                .frame(width: onW, height: height)
+                .background(RoundedRectangle(cornerRadius: 8).fill(on ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if isLanes { onEditLanesSeq { $0.on.toggle() } } else { onEditRiffsSeq { $0.on.toggle() } }
                 }
-            sequencerRateStepper(rate, height: height) { v in
+            sequencerRateStepper(rate, width: rateW, height: height) { v in
                 if isLanes { onEditLanesSeq { $0.rate = v } } else { onEditRiffsSeq { $0.rate = v } }
             }
-            melodyStepper("LEN", value: len, range: 1...8, width: 69.5) { v in
+            melodyStepper("LEN", value: len, range: 1...8, width: lenW) { v in
                 if isLanes { onEditLanesSeq { $0.len = v } } else { onEditRiffsSeq { $0.len = v } }
             }
-            Spacer(minLength: 0)
         }
         .frame(width: width, height: height)
     }
     /// A RATE stepper matching `melodyStepper`'s own visual shell exactly, but stepping through
-    /// `EuclideousSeqRate.allCases` (an enum, not a plain Int range) by index.
-    private func sequencerRateStepper(_ rate: EuclideousSeqRate, height: CGFloat, onChange: @escaping (EuclideousSeqRate) -> Void) -> some View {
+    /// `EuclideousSeqRate.allCases` (an enum, not a plain Int range) by index. Takes an explicit `width` now
+    /// (was a hardcoded 69.5, same as LEN) so it can be proportionally wider per `sequencerControlsRow`.
+    private func sequencerRateStepper(_ rate: EuclideousSeqRate, width: CGFloat, height: CGFloat, onChange: @escaping (EuclideousSeqRate) -> Void) -> some View {
         let all = EuclideousSeqRate.allCases
         let idx = all.firstIndex(of: rate) ?? 2
-        let w: CGFloat = 69.5, arrowZone: CGFloat = 18
+        let arrowZone: CGFloat = 18
         return ZStack {
             RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
             HStack(spacing: 0) {
@@ -3549,7 +3653,7 @@ struct EuclideousPage: View {
                     .frame(width: arrowZone, height: height)
             }
         }
-        .frame(width: w, height: height)
+        .frame(width: width, height: height)
         .overlay(
             HStack(spacing: 0) {
                 Color.clear.contentShape(Rectangle())

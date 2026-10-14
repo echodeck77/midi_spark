@@ -29,6 +29,30 @@ import Foundation
 /// The shared spelling of the `(beat / S).rounded(.down) * S` idiom the Router's emit paths repeat. Pure/testable.
 @inline(__always) func columnStart(_ beat: Double, _ S: Double) -> Double { (beat / S).rounded(.down) * S }
 
+/// A reset re-anchor ORIGIN that itself re-synchronizes at a bounded OUTER loop boundary (2026-10-14 ferry
+/// §5: "the count restarts when the sequence loops, so the marks stay fixed") — found missing by a self-
+/// audit against the ferry's raw text: the first build re-anchored the EUCLID pattern's own reset purely
+/// from absolute beat 0 (`columnStart(beat, resetSteps*stepBeats)`), which only coincidentally matches the
+/// on-screen restart marks when the LANES sequencer's own LEN happens to be a multiple of `resetSteps` (true
+/// for every default combination, since LEN defaults to 8 and 1/2/4/8 all divide it evenly) — it silently
+/// diverges from the marks for any OTHER LEN. This generalizes the re-anchor to ALSO wrap at a genuine outer
+/// loop: within one lap of `loopSteps` sequencer steps, a restart happens at local step 0, `resetSteps`,
+/// `2×resetSteps`, … (never crossing into the next lap even if `resetSteps` doesn't divide `loopSteps`
+/// evenly), and a NEW lap always starts fresh at local step 0 regardless of where the previous lap's own
+/// restart cycle had reached — exactly matching the UI's own restart-mark rule (`step % resetSteps == 0`
+/// for `step` in `0..<loopSteps`), so the two can no longer silently disagree. `loopSteps <= 0` means "no
+/// outer loop" — degenerates to the ORIGINAL, unbounded `columnStart(beat, Double(resetSteps)*stepBeats)`
+/// exactly (every OTHER reset path — the legacy bars-count/span-ladder ones — keeps that unbounded shape,
+/// untouched, since neither has a LEN concept to re-anchor against).
+func euclideousLoopedResetOrigin(beat: Double, stepBeats: Double, resetSteps: Int, loopSteps: Int) -> Double {
+    guard stepBeats > 0, resetSteps > 0 else { return 0 }
+    let absStep = Int((beat / stepBeats).rounded(.down))
+    let lapStartStep = loopSteps > 0 ? (absStep / loopSteps) * loopSteps : 0
+    let stepsSinceLap = absStep - lapStartStep
+    let restartStep = lapStartStep + (stepsSinceLap / resetSteps) * resetSteps
+    return Double(restartStep) * stepBeats
+}
+
 /// The LANES/RIFFS sequencer's own 0..<len step index at `beat` (2026-10-14 ferry, "sequencer panel, four
 /// riffs, per-lane reset" §4: "steps are counted from the host's bar 1... the step clock always runs").
 /// `stepBeats` is the sequencer's own resolved rate (e.g. `EuclideousSeqRate.barsFraction × one-bar-beats`).
@@ -3225,13 +3249,28 @@ func euclideousNoteViewIsHit(buf: [Bool], tickBeat: Double, sub: Double, spanBea
 /// share one consistent bound, a disclosed judgment call. Returns `cap * sub` (not 0) if nothing is found
 /// within the bound, so an all-rest/degenerate pattern still yields a usable, generous gap rather than a
 /// zero-length note.
-func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, sub: Double, spanBeats: Double, fromBeat: Double, cap: Int) -> Double {
+/// `loopStepBeats`/`loopSteps` (both default 0, byte-identical for every pre-existing call site): opt in to
+/// the SAME loop-aware reset origin `euclideousLoopedResetOrigin` uses, for the one caller whose `spanBeats`
+/// came from a step-counted (LEN-bounded) per-lane reset rather than a bar-counted one — otherwise this
+/// lookahead's own re-anchor prediction would silently disagree with the corrected per-hit origin above.
+func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, sub: Double, spanBeats: Double, fromBeat: Double, cap: Int, loopStepBeats: Double = 0, loopSteps: Int = 0) -> Double {
     guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
     let cycleLen = euclidCycleLen(dir, n: n)
     var k = 1
     while k <= cap {
         let candidate = fromBeat + Double(k) * sub
-        let phaseBeat = spanBeats > 0 ? (candidate - columnStart(candidate, spanBeats)) : candidate
+        let phaseBeat: Double
+        if spanBeats > 0 {
+            if loopStepBeats > 0, loopSteps > 0 {
+                let resetSteps = max(1, Int((spanBeats / loopStepBeats).rounded()))
+                let origin = euclideousLoopedResetOrigin(beat: candidate, stepBeats: loopStepBeats, resetSteps: resetSteps, loopSteps: loopSteps)
+                phaseBeat = candidate - origin
+            } else {
+                phaseBeat = candidate - columnStart(candidate, spanBeats)
+            }
+        } else {
+            phaseBeat = candidate
+        }
         let localT = Int64((phaseBeat / sub).rounded(.down))
         let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
         if buf[euclidReadIndex(raw, n: n, dir: dir)] { return Double(k) * sub }
