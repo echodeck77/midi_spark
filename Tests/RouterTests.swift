@@ -6064,6 +6064,95 @@ final class RouterTests: XCTestCase {
     // LEN=5 does NOT divide resetSteps=3: within one lap, restarts land at local steps 0 and 3 only; a NEW
     // lap begins at absolute step 5 (bar 6) and must restart FRESH there, even though the OLD unbounded
     // formula would still be mid-cycle (its own next restart wouldn't land until step 6/bar 7).
+    // Paul's "engine fixes from a recorded clip" ferry (2026-10-14) §1: his recorded clip shows the riff
+    // walk restarting only every 4 bars, not every bar, with both lanes' resetSteps set to 1 STEP and
+    // LANES RATE 1 BAR. Investigated empirically (not just by reading) against the EXACT repro parameters —
+    // RED (3 of 8 at 1/8) and BLUE (5 of 16 at 1/16), isolated and combined. All three confirm the per-lane
+    // reset mechanism itself restarts correctly every bar for this exact setup; kept as permanent regression
+    // coverage for the precise scenario reported, not just the abstract one above. The ONE way this exact
+    // symptom DOES reproduce (confirmed by a throwaway probe, not kept as a test): `euclideousLanesSeqRate`
+    // resolving to `.fourBars` instead of `.oneBar` — this restarts the per-lane mechanism correctly too,
+    // just on a 4-bar period instead of 1, an exact match for the reported symptom. Could not confirm BY
+    // READING why the real session's rate would resolve to fourBars rather than oneBar (every write/resolve
+    // path checked reads oneBar correctly) — raised back to the design channel with a concrete ask: watch
+    // whether the sequencer panel's own "STEP N OF LEN" readout advances once per bar or once per 4 bars.
+    func testEuclideousRedIsolatedResetsEveryBarAtTheExactRepro() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func picksThroughBar(beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
+                                                 useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
+                                                 resetSteps: 1)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.euclideousNoteSource = .midi
+            st.euclideousLanesSeqOn = true
+            st.euclideousLanesSeqRate = .oneBar
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        }
+        let bar1 = picksThroughBar(beats: 3.9)
+        let bar2 = picksThroughBar(beats: 7.9)
+        XCTAssertFalse(bar1.isEmpty)
+        XCTAssertEqual(Array(bar2.suffix(bar1.count)), bar1, "resetSteps=1 must restart every bar")
+    }
+    func testEuclideousBlueIsolatedResetsEveryBarAtTheExactRepro() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func picksThroughBar(beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 16, rate: .r1_16,
+                                                 useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
+                                                 resetSteps: 1)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.euclideousNoteSource = .midi
+            st.euclideousLanesSeqOn = true
+            st.euclideousLanesSeqRate = .oneBar
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        }
+        let bar1 = picksThroughBar(beats: 3.9)
+        let bar2 = picksThroughBar(beats: 7.9)
+        XCTAssertFalse(bar1.isEmpty)
+        XCTAssertEqual(Array(bar2.suffix(bar1.count)), bar1, "resetSteps=1 must restart every bar")
+    }
+    func testEuclideousBothLanesTogetherResetEveryBarAtTheExactRepro() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func picksThroughBar(beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            let red = EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
+                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: 1)
+            let blue = EuclidLine(target: 0, pulses: 5, steps: 16, rate: .r1_16,
+                                   useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: 1)
+            c.paramsA.euclidLines = [red, blue]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.euclideousNoteSource = .midi
+            st.euclideousLanesSeqOn = true
+            st.euclideousLanesSeqRate = .oneBar
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        }
+        let bar1 = picksThroughBar(beats: 3.9)
+        let bar2 = picksThroughBar(beats: 7.9)
+        XCTAssertFalse(bar1.isEmpty)
+        XCTAssertEqual(Array(bar2.suffix(bar1.count)), bar1, "resetSteps=1 must restart every bar for both lanes combined")
+    }
     func testEuclideousPerLaneResetRealignsAtTheLanesSequencersOwnLoopBoundaryNotJustAnUnboundedPeriod() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         func picksThroughBar(resetSteps: Int, lenSteps: Int, beats: Double) -> [Int] {

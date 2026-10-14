@@ -74,6 +74,25 @@ text) — an OFF sequencer's grid/row-labels now dim to 42%, tabs/step-numbers/O
 - [x] `activeRiff`'s dual edit/play role — **RATIFIED by Paul (2026-10-14): "yes, that's right."** No change.
 - [x] TIE lookahead freezing the triggering hit's own riff selection (not re-resolving per future tick on a
       RIFFS-sequencer switch) — **Paul: leave as built for now, revisit once actually heard.** No change.
+**A FOURTH PASS, "engine fixes from a recorded clip" (design-channel ferry, 3 items from a device recording) —
+INVESTIGATED same day, macOS 1420 green incl. +3 regression tests; NO PRODUCTION CODE CHANGED for 2 of the 3
+items — a thorough investigation that came up short of a confirmed fix, not a fix-and-ship.** Full writeup in
+CLAUDE.md's status log.
+- [ ] §1 PER-LANE RESET "only every 4 bars" — core mechanism CONFIRMED CORRECT by both reading and 3 new
+      empirical RouterTests at the exact repro parameters (all pass). The one concrete hypothesis that WOULD
+      exactly reproduce the symptom: `euclideousLanesSeqRate` resolving to `.fourBars` instead of `.oneBar`
+      — but every write/resolve path checked reads `.oneBar` correctly, so the real cause is unconfirmed.
+      **NEEDS FROM PAUL:** watch the sequencer panel's own "STEP N OF LEN" readout while playing — does it
+      advance once per bar, or once every 4 bars? That single observation pins this down either way.
+- [ ] §2 MIDI TIMING "quantised to the buffer" — traced the complete emission pipeline (Router's `sampleOf`,
+      `iterateTicks`, `strikeChord`, `PartTap`/`ReelTap` pass-through, `LiveMIDIEmitter` pass-through) and
+      found the EXACT fix the ferry asks for already built and used throughout — could not find a bug
+      matching the symptom in this codebase. May be host-side (AUM) behaviour, not ours — only an actual
+      device recording at both buffer-size extremes (as the ferry's own ack already asks) can tell.
+- [x] §3 TILT "no effect at −16% on E(3,8)" — **CONFIRMED EXPECTED, not a bug**, by re-deriving the exact
+      formula: the shift magnitude at 16% doesn't cross the rounding boundary for a pattern this sparse (the
+      last hit needs >30% tilt before it moves at all). A genuine "dead zone" for small tilts on sparse
+      patterns, worth knowing, not a defect.
 - [ ] §10 (where do silence messages go) — **Paul: not decided yet, leave the stub as is.** Still open, still
       un-built; don't invent an answer.
 

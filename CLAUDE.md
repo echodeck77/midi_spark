@@ -196,6 +196,68 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: engine fixes from a recorded clip," investigated end-to-end (2026-10-14, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1420 green incl. +3, iOS builds clean). A bug-report
+  ferry built from a recorded device clip (110 BPM, source KEY, two lanes — RED 3-of-8 at 1/8, BLUE 5-of-16
+  at 1/16, both riffOn/FWD/ADV HIT, LANES on with every lane's reset at 1 STEP/LANES RATE 1 BAR). THREE items,
+  no code changed for 2 of them — a thorough, honest-about-its-own-limits investigation, not a fix-and-ship.
+  **§1 PER-LANE RESET "only every 4 bars" — investigated by BOTH reading AND empirical testing, core
+  mechanism CONFIRMED CORRECT, root cause NOT PINNED DOWN:** re-traced the entire write path (the per-lane
+  RESET popup → `onEdit`'s `au?.editDocument` → `BuildPage.swift`'s `p.euclidLines = euclideousLines` publish
+  → SnapshotBuilder's fresh-literal `EuclidLine(...)` reconstruction, confirmed `resetSteps: $0.resetSteps` IS
+  threaded through, not a missed field) and the read path (`Router.swift`'s `resetSteps: isEuclideousRow ?
+  L.resetStepsResolved : 0` → `euclideousLoopedResetOrigin` → `phaseBeat` → `ord`/`advOrd`, the riff walk's
+  own ordinal) line by line — every step checked out correct. THEN built 3 RouterTests reproducing the EXACT
+  repro parameters (RED isolated, BLUE isolated, both together, resetSteps=1 on both, LANES RATE 1 BAR) —
+  **all 3 pass: the engine genuinely restarts both lanes' riff walk every bar**, contradicting nothing in
+  Paul's own report except that it should have reproduced the bug and didn't. **THE ONE CONCRETE, FALSIFIABLE
+  LEAD found via a throwaway probe (not kept as a test):** setting `euclideousLanesSeqRate = .fourBars`
+  instead of `.oneBar` — with EVERYTHING ELSE unchanged — reproduces the EXACT reported symptom bar-for-bar
+  (bar 1 ≠ bar 2, but bar 5 replays bar 1 — a genuine 4-bar period). Checked every place `euclideousLanesSeqRate`
+  could silently resolve wrong (the resolved-accessor default is `.oneBar`, confirmed in Models.swift; the
+  UI-facing `EuclideousLanesSeq` struct's own bare-init default is ALSO `.oneBar`; the RATE stepper's commit/
+  display logic re-checked for an increment/decrement sign-swap, found none) and found NOTHING that would
+  explain the real session landing on `.fourBars` instead of the RATE Paul says he set. **Raised back to the
+  design channel, not guessed at further:** does the sequencer panel's own "STEP N OF LEN" status readout
+  (built in the audit-fix pass, reads the live `lanesSeqStep`/`lanesSeq.len`) visibly advance once per BAR or
+  once every 4 BARS while playing? That single observation would confirm or rule out the rate-misconfiguration
+  hypothesis directly, without needing access to Paul's real document (which this environment cannot inspect).
+  **§2 MIDI TIMING "quantised to the buffer" — traced the complete emission pipeline, found the EXACT fix
+  the ferry describes ALREADY BUILT, could not find a bug matching the symptom:** `Router.sampleOf(musical:
+  beatPos:beatsPerSample:windowStart:S:a:)` (`windowStart + Int64(max(0, (real−beatPos)/beatsPerSample))`) —
+  already "buffer start + the sample offset where its beat position falls within this buffer," the LITERAL
+  fix the ferry asks for — is used by `iterateTicks` for its `onTime`/`offTime`, and independently by
+  `strikeChord`'s own `onT`/`offT` (Euclideous's real emission path, which doesn't consume `iterateTicks`'s
+  own onTime/offTime at all — it recomputes via the same `sampleOf` from `tau`, confirmed harmless since
+  Euclideous's cell is structurally always exactly one slot, so `hasClock` is always false there and the
+  LOCAL/REAL beat distinction `iterateTicks`'s own doc comment warns about never applies to it) and by
+  `reconcileEuclidLegato`'s own note-off close-sample computation. Downstream, `PartTap`/`ReelTap` (the
+  part-roll/reel recording taps Router's output passes through before reaching the host) both forward
+  `sampleTime` UNCHANGED — confirmed by reading, pure pass-through, no re-quantization. `LiveMIDIEmitter`
+  (the final adapter onto the host's `AUMIDIOutputEventBlock`) ALSO passes `sampleTime` through unchanged
+  ("AUEventSampleTime == Int64: passes through unchanged," its own existing comment). **Nowhere in this
+  traced chain does an event get stamped at `windowStart` unconditionally** — every stage already computes/
+  forwards a genuine per-event sample offset. Flagged honestly: this may be describing HOST-side behaviour
+  (how AUM itself batches/delivers AU-emitted MIDI within one render callback) rather than anything in this
+  codebase — only an actual device recording (which this environment cannot produce) can distinguish the two;
+  this is exactly the device test the ferry's own acknowledgement already asks for. **§3 TILT "no visible
+  effect at −16% on E(3,8)" — CONFIRMED EXPECTED, not a bug, by re-deriving the formula directly, not
+  guessed:** `euclidPatternInto(pulses:3,steps:8)`'s own canonical hits are exactly [0,3,6] (hand-verified,
+  `(i·k)%n < k` for i=0..7). `euclidTiltPattern`'s linear blend at tilt=−0.16 computes targets 0 / 3.1 / 6.2
+  for the three hits' ranks 0/1/2 — ALL THREE round to the SAME integer steps (0,3,6) the untilted pattern
+  already has, since the shift magnitude (0.4 and 0.8 of a step) doesn't cross a rounding boundary from this
+  sparse a pattern's own starting continuous positions (3.5→3.1 still rounds to 3; 7→6.2 still rounds to 6).
+  Re-derived the threshold too: the LAST hit (position 7) needs |tilt| > 0.3 before it moves at all for this
+  specific K/N. **This is a disclosed, confirmed property of a sparse pattern's TILT control** — a "dead
+  zone" below some tilt magnitude where integer step positions genuinely don't move, worth naming plainly
+  since it could otherwise read as broken to a user dialling in a small TILT value on a sparse pattern.
+  **TESTS (+3, no production code changed for §1/§2 — nothing confirmed broken to fix):** the three per-lane-
+  reset RouterTests (RED/BLUE/both, at the EXACT repro parameters) are kept as permanent regression coverage
+  for this literal scenario, distinct from the more abstract non-dividing-LEN test the prior audit pass
+  already added. **DEVICE-OWED, explicitly — no re-recorded clip possible from this environment:** §1's
+  diagnostic ask above (the STEP readout's real advance rate); §2's device-vs-host distinction (a real
+  recording at both buffer-size extremes, exactly as the ferry's own acknowledgement requests); confirming
+  §3's dead-zone reading actually matches what Paul expected once explained.**
 - **▶ EUCLIDEOUS — "FERRY: fixes after the sequencer build," 5 numbered corrections (2026-10-14, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS test suite green, iOS builds clean) — a design-
   channel follow-up to the sequencer-panel ferry + its own self-audit, both logged just above. **§1 GRID ROW
