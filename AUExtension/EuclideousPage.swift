@@ -199,6 +199,17 @@ struct EuclideousSlider: View {
     /// TILT disabled on a hand-edited pattern (ferry, literal): "EDITED pattern: TILT is disabled."
     private var edited: Bool { field == .tilt && line.customHits != nil }
 
+    /// A small opaque backing — the colour of the EMPTY track, so the value/label text reads as sitting
+    /// on an island the fill/value-line never crosses (2026-10-14 fixes-after-build ferry §4): GATE at 90%
+    /// put the value line through "90%"; HITS at 0 put it along the bottom of "HITS"; VEL near 127 would
+    /// cross its value at the top. Drawn AFTER the Canvas (so it sits above the fill/line) but is itself
+    /// just padding, not a visual box — it reads as "the text has its own small opaque patch," not a chip.
+    private func backed<V: View>(_ content: V) -> some View {
+        content
+            .padding(.horizontal, 3).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x22252C)))
+    }
+
     var body: some View {
         let curFrac = euclideousSliderFrac(field, line)
         ZStack {
@@ -257,22 +268,27 @@ struct EuclideousSlider: View {
                 // value right, nothing in the middle of the bar. Replaces the vertical sliders' own
                 // stacked value-over-label layout, which crossed the TILT zero line when used here.
                 HStack {
-                    Text(euclideousSliderLabelText(field, line))
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(0.8)
-                        .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                    backed(
+                        Text(euclideousSliderLabelText(field, line))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(0.8)
+                            .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                    )
                     Spacer(minLength: 4)
                     if edited {
                         // THE EDITED CHIP (ferry, literal): "LANE-20 fill, LANE-100 border, 10pt... in
                         // the value position." Its own hit area is the overlay below, not this label.
+                        // Already opaque-backed by its own fill — no additional text backing needed.
                         Text("EDITED").font(.system(size: 10, weight: .heavy, design: .monospaced))
                             .foregroundColor(.white)
                             .padding(.horizontal, 6).padding(.vertical, 3)
                             .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
                     } else {
-                        Text(euclideousSliderValueText(field, line))
-                            .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                            .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                        backed(
+                            Text(euclideousSliderValueText(field, line))
+                                .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                                .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                        )
                     }
                 }
                 .padding(.horizontal, 10)
@@ -283,7 +299,8 @@ struct EuclideousSlider: View {
                     // centred as a pair, each pinned to its own edge via the Spacer between them.
                     if edited {
                         // THE EDITED CHIP (ferry, literal): "LANE-20 fill, LANE-100 border, 10pt... in the
-                        // value position." Its own hit area is the overlay below, not this label.
+                        // value position." Its own hit area is the overlay below, not this label. Already
+                        // opaque-backed by its own fill — no additional text backing needed.
                         Text("EDITED").font(.system(size: 10, weight: .heavy, design: .monospaced))
                             .foregroundColor(.white)
                             .padding(.horizontal, 6).padding(.vertical, 3)
@@ -291,15 +308,19 @@ struct EuclideousSlider: View {
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
                             .padding(.top, 6)
                     } else {
-                        Text(euclideousSliderValueText(field, line))
-                            .font(.system(size: 14, weight: .heavy, design: .monospaced))
-                            .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
-                            .padding(.top, 6)
+                        backed(
+                            Text(euclideousSliderValueText(field, line))
+                                .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                                .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                        )
+                        .padding(.top, 6)
                     }
                     Spacer(minLength: 0)
-                    Text(euclideousSliderLabelText(field, line)).font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
-                        .padding(.bottom, 5)
+                    backed(
+                        Text(euclideousSliderLabelText(field, line)).font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                    )
+                    .padding(.bottom, 5)
                 }
             }
             if helpActive {
@@ -2550,11 +2571,18 @@ struct EuclideousPage: View {
                     ctx.fill(Path(edgeLine(valuePos)), with: .color(accent))
                 }
                 HStack {
+                    // Same text-backing fix as EuclideousSlider (2026-10-14 fixes-after-build ferry §4,
+                    // explicitly named: "this applies to... NOTES VEL") — the value line can sit right
+                    // under either text depending on where the value/centre falls.
                     Text("NOTES VEL").font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                        .padding(.horizontal, 3).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x22252C)))
                     Spacer()
                     Text(euclideousSigned(value)).font(.system(size: 14, weight: .heavy, design: .monospaced))
                         .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
+                        .padding(.horizontal, 3).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x22252C)))
                 }
                 .padding(.horizontal, 10)
             }
@@ -3031,24 +3059,32 @@ struct EuclideousPage: View {
     /// while the RIFFS sequencer is switching between them live, by design (this struct's own doc comment
     /// on `activeRiff`/`playingRiffIndex`). Long-press opens COPY/PASTE/CLEAR.
     private func riffTabRow() -> some View {
+        // FILL/COLOUR FIX (2026-10-14 fixes-after-build ferry §3): the editing tab only got a thin
+        // translucent outline before — "hard to tell which riff the grid is showing" — replaced with the
+        // ferry's own literal flat fill flip. Note the THREE unselected-tab colours genuinely differ from
+        // each other (number #AAB0BA, outline #6A7079, triangle #F2F4F7 — full white, since "is this one
+        // playing" must stay legible even on a tab that isn't being edited), so this can no longer be one
+        // blanket `.foregroundColor()` on the whole VStack — each element is coloured individually now.
         HStack(spacing: sp4) {
             ForEach(0..<4, id: \.self) { i in
                 let sel = i == max(0, min(3, activeRiff))
                 let isPlaying = i == max(0, min(3, playingRiffIndex))
+                let ink = Color(hex: 0x0D0F14)
                 VStack(spacing: 2) {
-                    riffOutlineBars(ranks: i < riffs.count ? riffs[i].ranksResolved : [], maxHeight: 14)
+                    riffOutlineBars(ranks: i < riffs.count ? riffs[i].ranksResolved : [], maxHeight: 14,
+                                     tint: sel ? ink : Color(hex: 0x6A7079))
                     HStack(spacing: 2) {
                         if isPlaying {
                             Image(systemName: "play.fill").font(.system(size: 7, weight: .heavy))
+                                .foregroundColor(sel ? ink : Color(hex: 0xF2F4F7))
                         }
                         Text("\(i + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                            .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
                     }
                 }
-                .foregroundColor(sel ? .white : Color(hex: 0xAAB0BA))
                 .padding(.horizontal, 4).padding(.vertical, 3)
                 .frame(maxWidth: .infinity, minHeight: 28)
-                .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color.white.opacity(0.16) : Color.white.opacity(0.05)))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(sel ? Color.white.opacity(0.4) : Color.clear, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle())
                 .onTapGesture { onSetActiveRiff(i) }
                 .onLongPressGesture(minimumDuration: 0.5) { riffTabMenuLane = i }
@@ -3399,7 +3435,10 @@ struct EuclideousPage: View {
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
         let tabRowH: CGFloat = 20
-        let controlsRowH: CGFloat = 34
+        // Controls row was ~33pt against the ferry's own 44 (2026-10-14 fixes-after-build ferry §1) — the
+        // ratio to the reference panel (307 total) is roughly 44/307 ≈ 0.143; applied proportionally here
+        // rather than a literal 44, same convention as every other size on this page.
+        let controlsRowH: CGFloat = max(1, innerH * 44 / 307)
         let gridH = max(1, innerH - tabRowH - controlsRowH - sp4 * 2)
         return VStack(spacing: sp4) {
             sequencerTabRow(width: innerW, height: tabRowH)
@@ -3462,12 +3501,20 @@ struct EuclideousPage: View {
         let n = 8
         let len = max(1, min(8, lanesSeq.len))
         let headerH: CGFloat = 14
+        // ROW GAPS (2026-10-14 fixes-after-build ferry §1): `VStack(spacing: 0)` between the 4 rows was the
+        // actual cause of "rows merge" — reusing `sp4` here (not the ferry's own literal 3pt) is a deliberate,
+        // disclosed judgment call: the ferry's own "3pt, the same as between columns" is a DESCRIPTIVE fact
+        // about ITS OWN pixel table, not an instruction to retune this page's already-established `sp4`
+        // column-gap token to a different value — reusing the one token keeps rows and columns provably
+        // consistent with each other without introducing a second gap constant.
+        let rowGap = sp4
         let rowsH = max(1, height - headerH - sp4)
-        let cellH = rowsH / 4
+        let cellH = max(1, (rowsH - rowGap * 3) / 4)
         let gridW = max(1, width - riffLabelColW - sp4)
         let cellW = max(1, (gridW - sp4 * CGFloat(n - 1)) / CGFloat(n))
         let cells = lanesSeq.cells
         let curStep = max(0, min(n - 1, lanesSeqStep))
+        let seqOn = lanesSeq.on   // §5 (Paul to confirm): an OFF sequencer's own grid dims to 42%
 
         func restartBar(lane: Int, step: Int, lit: Bool) -> some View {
             let rs = lane < lines.count ? lines[lane].resetStepsResolved : 0
@@ -3482,26 +3529,32 @@ struct EuclideousPage: View {
             .allowsHitTesting(false)
         }
 
-        return VStack(alignment: .leading, spacing: sp4) {
-            HStack(spacing: sp4) {   // header: "RESET" label (§2) + column numbers 1-8 (§1), one shared row
-                Text("RESET").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.3)
-                    .foregroundColor(Color(hex: 0xAAB0BA))
-                    .frame(width: riffLabelColW, height: headerH)
-                ForEach(0..<n, id: \.self) { col in
-                    let isCur = col == curStep
-                    let within = col < len
-                    Text("\(col + 1)").font(.system(size: 10, weight: isCur ? .heavy : .regular, design: .monospaced))
-                        .foregroundColor(isCur ? Color(hex: 0xF2F4F7) : (within ? Color(hex: 0x8A909A) : Color(hex: 0x4A4E57)))
-                        .frame(width: cellW, height: headerH)
+        // The CURRENT-STEP HIGHLIGHT now spans the FULL column — header row included (§1: "y 38, height
+        // 205" covers the column-numbers row too, not just the 4 data rows) — so the header and the data
+        // rows share ONE ZStack/VStack instead of the header sitting outside it.
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06))
+                .frame(width: cellW + sp4, height: height)
+                .offset(x: riffLabelColW + sp4 + CGFloat(curStep) * (cellW + sp4) - sp4 / 2)
+                .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: sp4) {
+                HStack(spacing: sp4) {   // header: "RESET" label (§2) + column numbers 1-8 (§1) — ALWAYS full
+                    // strength (§5: "the step numbers... stay at full strength"), never dimmed by seqOn.
+                    // TRUNCATION FIX (§2): letter-spacing removed + `.fixedSize` so "RESET" renders at its own
+                    // natural width instead of being clipped by the frame proposing only `riffLabelColW`.
+                    Text("RESET").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xAAB0BA))
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(width: riffLabelColW, height: headerH, alignment: .center)
+                    ForEach(0..<n, id: \.self) { col in
+                        let isCur = col == curStep
+                        let within = col < len
+                        Text("\(col + 1)").font(.system(size: 10, weight: isCur ? .heavy : .regular, design: .monospaced))
+                            .foregroundColor(isCur ? Color(hex: 0xF2F4F7) : (within ? Color(hex: 0x8A909A) : Color(hex: 0x4A4E57)))
+                            .frame(width: cellW, height: headerH)
+                    }
                 }
-            }
-            ZStack(alignment: .topLeading) {
-                // CURRENT-STEP HIGHLIGHT (§1: "a rounded rect behind the current column... white at 6%").
-                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06))
-                    .frame(width: cellW + sp4, height: rowsH)
-                    .offset(x: riffLabelColW + sp4 + CGFloat(curStep) * (cellW + sp4) - sp4 / 2)
-                    .allowsHitTesting(false)
-                VStack(spacing: 0) {
+                VStack(spacing: rowGap) {
                     ForEach(0..<4, id: \.self) { lane in
                         let accent = laneAccents[lane % laneAccents.count]
                         HStack(spacing: sp4) {
@@ -3526,6 +3579,7 @@ struct EuclideousPage: View {
                         }
                     }
                 }
+                .opacity(seqOn ? 1 : 0.42)   // §5: grid cells + reset boxes dim when LANES is off; stays editable
             }
         }
         .frame(width: width, height: height, alignment: .topLeading)
@@ -3540,36 +3594,38 @@ struct EuclideousPage: View {
         let n = 8
         let len = max(1, min(8, riffsSeq.len))
         let headerH: CGFloat = 14
+        let rowGap = sp4   // see sequencerLanesGrid's own doc comment on this choice
         let rowsH = max(1, height - headerH - sp4)
-        let cellH = rowsH / 4
+        let cellH = max(1, (rowsH - rowGap * 3) / 4)
         let gridW = max(1, width - riffLabelColW - sp4)
         let cellW = max(1, (gridW - sp4 * CGFloat(n - 1)) / CGFloat(n))
         let cells = riffsSeq.cells
         let curStep = max(0, min(n - 1, riffsSeqStep))
+        let seqOn = riffsSeq.on
 
-        return VStack(alignment: .leading, spacing: sp4) {
-            HStack(spacing: sp4) {   // §3: "no reset boxes or marks on this tab" — leading slot stays blank
-                Color.clear.frame(width: riffLabelColW, height: headerH)
-                ForEach(0..<n, id: \.self) { col in
-                    let isCur = col == curStep
-                    let within = col < len
-                    Text("\(col + 1)").font(.system(size: 10, weight: isCur ? .heavy : .regular, design: .monospaced))
-                        .foregroundColor(isCur ? Color(hex: 0xF2F4F7) : (within ? Color(hex: 0x8A909A) : Color(hex: 0x4A4E57)))
-                        .frame(width: cellW, height: headerH)
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06))
+                .frame(width: cellW + sp4, height: height)
+                .offset(x: riffLabelColW + sp4 + CGFloat(curStep) * (cellW + sp4) - sp4 / 2)
+                .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: sp4) {
+                HStack(spacing: sp4) {   // §3: "no reset boxes or marks on this tab" — leading slot stays blank
+                    Color.clear.frame(width: riffLabelColW, height: headerH)
+                    ForEach(0..<n, id: \.self) { col in
+                        let isCur = col == curStep
+                        let within = col < len
+                        Text("\(col + 1)").font(.system(size: 10, weight: isCur ? .heavy : .regular, design: .monospaced))
+                            .foregroundColor(isCur ? Color(hex: 0xF2F4F7) : (within ? Color(hex: 0x8A909A) : Color(hex: 0x4A4E57)))
+                            .frame(width: cellW, height: headerH)
+                    }
                 }
-            }
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06))
-                    .frame(width: cellW + sp4, height: rowsH)
-                    .offset(x: riffLabelColW + sp4 + CGFloat(curStep) * (cellW + sp4) - sp4 / 2)
-                    .allowsHitTesting(false)
-                VStack(spacing: 0) {
+                VStack(spacing: rowGap) {
                     ForEach(0..<4, id: \.self) { riffIdx in
                         HStack(spacing: sp4) {
                             VStack(spacing: 2) {
                                 Text("\(riffIdx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
                                     .foregroundColor(Color(hex: 0xDFE3EA))
-                                riffOutlineBars(ranks: riffIdx < riffs.count ? riffs[riffIdx].ranksResolved : [], maxHeight: max(2, cellH * 0.35))
+                                riffOutlineBars(ranks: riffIdx < riffs.count ? riffs[riffIdx].ranksResolved : [], maxHeight: max(2, cellH * 0.35), tint: Color(hex: 0xAAB0BA))
                             }
                             .frame(width: riffLabelColW, height: cellH)
                             ForEach(0..<n, id: \.self) { step in
@@ -3590,6 +3646,7 @@ struct EuclideousPage: View {
                         }
                     }
                 }
+                .opacity(seqOn ? 1 : 0.42)   // §5: grid cells + row labels dim when RIFFS is off
             }
         }
         .frame(width: width, height: height, alignment: .topLeading)
@@ -3666,19 +3723,25 @@ struct EuclideousPage: View {
     /// A plain bar-chart contour of a riff's own rank sequence — shared by the RIFFS grid cell preview above
     /// and the riff-tab title row below (Task per 2026-10-14 ferry §7's "a mini outline of that riff").
     /// Rank 0 (rest) draws a thin low baseline tick rather than nothing, so an empty/all-rest riff still
-    /// reads as "present, just silent" rather than looking like a missing/broken tab.
-    private func riffOutlineBars(ranks: [Int], maxHeight: CGFloat) -> some View {
+    /// reads as "present, just silent" rather than looking like a missing/broken tab. `tint` (2026-10-14
+    /// fixes-after-build ferry §3: "one riff should look the same in both places") was hardcoded to a flat
+    /// white before — every caller drew the identical colour regardless of its own background, which is
+    /// where "the tabs draw... dashes" actually came from: a riff-tab's lit background needs DARK ink bars
+    /// while the row label's dark background needs light ones, and a flat white-on-white (or near-white)
+    /// combination at these sizes reads as flattened/dash-like rather than as proportioned bars. The REST
+    /// bar now derives from `tint` too (35% of whatever colour is in context), not a hardcoded white.
+    private func riffOutlineBars(ranks: [Int], maxHeight: CGFloat, tint: Color = .white) -> some View {
         HStack(alignment: .bottom, spacing: 1) {
             ForEach(0..<8, id: \.self) { i in
                 let r = i < ranks.count ? ranks[i] : 0
                 if r > 0 {
                     RoundedRectangle(cornerRadius: 0.5)
-                        .fill(Color.white)
+                        .fill(tint)
                         .frame(maxWidth: .infinity)
                         .frame(height: max(2, CGFloat(r) / 8 * maxHeight))
                 } else {
                     RoundedRectangle(cornerRadius: 0.5)
-                        .fill(Color.white.opacity(0.35))
+                        .fill(tint.opacity(0.35))
                         .frame(maxWidth: .infinity)
                         .frame(height: 1.5)
                 }

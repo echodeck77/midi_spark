@@ -49,12 +49,28 @@ when editing a non-playing riff; no STEP-N-OF-LEN status, per-tab ON/OFF dot, RI
 PLAYING" label, or column-number header; the title/tabs/NOT-PLAYING weren't sharing one row) + several
 colour/sizing deviations (restart-mark shape/colour, RIFFS lit-cell fill, the ON/OFF fill-flip, RATE/LEN
 stepper proportions). All fixed; +2 tests locking in the one real audio-correctness bug specifically.
+**A THIRD PASS, "fixes after the sequencer build" (design-channel ferry, 5 numbered items, 2 of them Paul's
+own fixes not corrections) — LANDED same day, macOS 1417 still green (pure UI, no new tests), iOS builds
+clean.** §1 the data rows used a genuine ZERO inter-row gap (not ~1pt) — rows now have a real gap + the
+controls row grew from ~34pt to the ferry's own 44-equivalent + the current-step highlight now spans the
+header row too, not just the 4 data rows. §2 "RESET" was truncating to "RES…" (SwiftUI single-line-truncates
+once it can't fit a 2nd line vertically, even with no explicit lineLimit) — fixed via `.fixedSize` + removed
+letter-spacing. §3 the editing riff tab's own selected-look was a thin translucent outline (fixed to a flat
+`#DFE3EA`/ink fill-flip) and the shared `riffOutlineBars` had its colour hardcoded to white regardless of
+background (gained a `tint:` param so the tab row and the row-label can each use the right colour for their
+own background). §4 (Paul's own fix) every slider's value/label text now sits on a small opaque backing so
+the value line can't visually cross it. §5 (Paul's own suggestion, explicitly unratified in his own ferry
+text) — an OFF sequencer's grid/row-labels now dim to 42%, tabs/step-numbers/ON-OFF stay full strength.
 - [ ] DEVICE: the sequencer panel's proportional (not pixel-exact) grid sizing at real card width.
 - [ ] DEVICE: the per-lane RESET box's new position (now on the LANES tab itself) + its popup's legibility.
-- [ ] DEVICE: the riff-tab row's bar-chart previews + play-triangle + long-press timing/feel.
+- [ ] DEVICE: the riff-tab row's bar-chart previews + play-triangle + long-press timing/feel, now with the
+      corrected fill/tint colours.
 - [ ] DEVICE: confirm the removed header RESET countdown isn't missed before the per-lane control is found.
 - [ ] DEVICE: the restart-mark bar's legibility at real cell height; the ON/OFF toggle's new fill-flip
       contrast; a LANES/RIFFS LEN away from 8 (now engine-correct + test-covered, but never visually checked).
+- [ ] DEVICE: the row-gap/controls-row-height fix actually reads as 4 distinct rows now, not merged.
+- [ ] DEVICE: confirm §5's 42%-dim-when-off reads as helpful, not a nuisance — **Paul to confirm/ratify**,
+      his own ferry text marks this one as a suggestion, not a settled ruling.
 - [x] `activeRiff`'s dual edit/play role — **RATIFIED by Paul (2026-10-14): "yes, that's right."** No change.
 - [x] TIE lookahead freezing the triggering hit's own riff selection (not re-resolving per future tick on a
       RIFFS-sequencer switch) — **Paul: leave as built for now, revisit once actually heard.** No change.

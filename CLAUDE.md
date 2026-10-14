@@ -196,6 +196,55 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: fixes after the sequencer build," 5 numbered corrections (2026-10-14, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS test suite green, iOS builds clean) — a design-
+  channel follow-up to the sequencer-panel ferry + its own self-audit, both logged just above. **§1 GRID ROW
+  GAPS/HEIGHTS, the real bug:** the 4 data rows used `VStack(spacing: 0)` — not merely a thin 1pt gap, a
+  GENUINE ZERO, which with radius-6 corners on adjacent cells reads exactly as "neighbouring rows merge" (on
+  the RIFFS tab especially, where unlit cells share one flat dark fill end-to-end and the lack of any gap
+  made 4 rows of 8 cells read as 8 continuous columns). Fixed by giving the rows a real `rowGap` (reusing this
+  page's own established `sp4` token rather than the ferry's own literal 3pt — a disclosed, deliberate
+  deviation: "3pt, the same as between columns" is a descriptive fact about the FERRY's OWN pixel table, not
+  an instruction to introduce a second gap constant distinct from the one column gap already shared
+  throughout this page). The CONTROLS ROW (ON/RATE/LEN) was computed at a fixed 34pt against the ferry's own
+  44 — widened proportionally (`innerH × 44/307`, the same "scale the reference ratio, don't hardcode the
+  reference pixel" convention this whole feature already uses, since the panel's real height is never
+  literally 307). The CURRENT-STEP HIGHLIGHT used to span only the 4 data rows — the ferry's own "y 38, height
+  205" covers the column-numbers row too — so the header row and the 4 data rows now share ONE ZStack/VStack
+  (previously the header sat OUTSIDE the highlight's own ZStack entirely), letting the highlight rect cover
+  the full column including the step-number header. **§2 "RESET" TRUNCATED TO "RES…":** `headerH=14` left
+  barely one line's worth of vertical room, and SwiftUI truncates a single-line Text with "…" once it
+  determines a second line can't fit vertically EVEN WITHOUT an explicit `.lineLimit(1)` — removed the 0.3
+  letter-spacing (ferry: "letter-spacing 0") and added `.fixedSize(horizontal: true, vertical: false)` so the
+  label renders at its own natural width instead of being clamped to the frame's proposed width; a tiny
+  overflow past the nominal `riffLabelColW` box is absorbed by the existing gap before column 1, not clipped
+  against anything. **§3 RIFF TABS, two real bugs:** (a) the editing tab's own "selected" look was a
+  translucent-white wash + a 0.4-opacity stroke — genuinely thin, hard to read at a glance — replaced with the
+  ferry's own literal flat fill flip (`#DFE3EA` solid when editing, `#2A2D34` otherwise, no stroke needed once
+  the fill itself is this different). (b) `riffOutlineBars` (shared by the tab row AND the RIFFS-grid per-row
+  label) had its bar/rest colour HARDCODED to plain white/0.35-white regardless of caller — correct-looking on
+  the row label's dark background, but on the tab's own LIGHT editing-background the identical white-on-near-
+  white bars read flat/dash-like rather than as proportioned bars, which is where "the tabs draw... dashes"
+  actually came from. Gained a `tint: Color = .white` param (default preserves the row-label's own pre-existing
+  look verbatim) so each caller colours its own bars/rests correctly for its own background — the tab row now
+  passes INK when editing, `#6A7079` otherwise (with the triangle/number each gaining their OWN distinct colour
+  too, since "other tabs" specifies THREE different hex values for number/outline/triangle, not one blanket
+  colour — this could no longer be a single `.foregroundColor()` on the whole tab VStack). **§4 (Paul's own
+  fix) — THE VALUE LINE CROSSES SLIDER TEXT:** every value/label `Text` across `EuclideousSlider` (both the 3
+  vertical and the 3 horizontal sliders) and `notesVelBar` now sits on a small opaque `#22252C` backing (3pt
+  h-padding, 2pt v-padding, radius 4) — a new shared `backed(_:)` helper on `EuclideousSlider`, applied to
+  every plain value/label Text (NOT the already-self-backed EDITED chip, which needs nothing further) — so the
+  fill/value-edge line now visually stops at the text's own small island instead of passing through the
+  glyphs. **§5 (Paul's own suggestion, EXPLICITLY "Paul to confirm" in the ferry's own status line) — AN OFF
+  SEQUENCER LOOKS LIVE:** when a tab's own sequencer is OFF, its grid cells + row labels (reset boxes on
+  LANES, riff-number+outline on RIFFS) now dim to 42% opacity (matching the main riff grid's own existing
+  off-riff dimming convention) — applied to the 4-row `VStack` as a WHOLE via one `.opacity(seqOn ? 1 : 0.42)`,
+  deliberately placed OUTSIDE the header row (column numbers / RESET label) so those two elements, plus the
+  tab row and the ON/OFF button itself, stay at full strength exactly as the ferry specifies; everything stays
+  tappable/editable regardless of the dimming, since `.opacity()` never disables hit-testing. **DEVICE-OWED,
+  explicitly including §5 since it's not yet ratified:** all 5 items' real-card-width legibility; whether the
+  §5 dimming reads as helpful (distinguishing a live tab from an idle one) or as a nuisance once actually seen,
+  since Paul's own ferry text marks this one as his suggestion pending confirmation, not a settled ruling.**
 - **▶ EUCLIDEOUS — SEQUENCER-PANEL FERRY SELF-AUDIT: 10 confirmed shortfalls against the LITERAL ferry text,
   all fixed (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1417 green (+2 over the
   1415 the ferry itself shipped at — 1 DerivationsTest + 1 RouterTest), iOS builds clean). Paul asked for an
