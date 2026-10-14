@@ -972,6 +972,7 @@ struct EuclideousPage: View {
             headerUndoRedoGroup()
             Spacer(minLength: sp4)
             headerResetChip()
+            headerSourceGroup()
             headerChordsChip()
             headerMainOutGroup()
             headerOnChip()
@@ -994,11 +995,13 @@ struct EuclideousPage: View {
             headerCloseButton()
         }
     }
-    /// PORTRAIT row 2 (this ferry §3.2, literal): RESET · KEY −/chip/+ · CHORDS.
+    /// PORTRAIT row 2 (this ferry §3.2, literal): RESET · KEY −/chip/+ · CHORDS. The MIDI IN/CHORD/KEY
+    /// SOURCE group (Paul 2026-10-14, moved here from the riff panel) sits between them.
     private func headerRow2() -> some View {
         HStack(spacing: sp4) {
             headerResetChip()
             Spacer(minLength: sp4)
+            headerSourceGroup()
             headerChordsChip()
         }
     }
@@ -1061,9 +1064,11 @@ struct EuclideousPage: View {
         }
     }
     // headerKeyGroup REMOVED (Paul 2026-10-12, second same-day ferry): "only its entry point moves" — the
-    // key picker (`keyPopupCard`, content unchanged) now opens exclusively from the new KEY tab beside the
-    // riff grid (`riffSourceTabs`); the old header chip (incl. its +/− quick-step buttons, which have no
-    // described replacement — a disclosed interpretation, not literal text) is gone.
+    // key picker (`keyPopupCard`, content unchanged) opened exclusively from the KEY tab beside the riff
+    // grid for a while (`riffSourceTabs`, since removed — see `headerSourceGroup` below); the old header
+    // chip's own +/− quick-step buttons, which had no described replacement at the time, never came back.
+    // The KEY entry point is now back in the header, just restyled (2026-10-14) — a full-circle move, not
+    // a reversal of this entry's own original reasoning.
     // CHORDS (Paul 2026-10-08) — "next to [KEY] place a chords button that opens a pop-up to a chord grid
     // with rate control."
     private func headerChordsChip() -> some View {
@@ -1073,6 +1078,45 @@ struct EuclideousPage: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
             .contentShape(Rectangle())
             .onTapGesture { chordsPopupOpen = true }
+    }
+    /// MIDI IN/CHORD/KEY SOURCE — MOVED here from the riff-grid panel's own vertical rotated side tabs
+    /// (Paul 2026-10-14: "move the midi in/chords/key control to the top header bar and restyle") —
+    /// restyled from `riffSourceTabs`' narrow 22×62pt rotated-text column into 3 plain horizontal header
+    /// chips, matching every OTHER header control's own convention (10pt heavy monospaced, `headerBtnH`,
+    /// `cornerRadius: 6`) instead of the riff panel's bespoke rotated-tab look. SAME tap behaviour as
+    /// before, byte-for-byte: tapping the already-selected KEY chip opens the key popup; tapping an
+    /// UNSELECTED chip switches the source; tapping an already-selected MIDI IN/CHORD chip does nothing.
+    /// The KEY chip still publishes its own on-screen frame via the SAME `EuclideousRiffTabFramePreferenceKey`
+    /// the popup's anchor already reads — moving the PUBLISHER automatically moves the anchor with it, no
+    /// change needed to the popup-positioning code itself.
+    private func headerSourceGroup() -> some View {
+        let current = noteSource
+        return HStack(spacing: sp4) {
+            ForEach([EuclideousLaneSource.midi, .chords, .key], id: \.self) { src in
+                let selected = current == src
+                let label = src == .midi ? "MIDI IN" : (src == .chords ? "CHORD" : "KEY")
+                let a11y = src == .midi ? "Source, MIDI in" : (src == .chords ? "Source, chord" : "Source, key, double-tap to choose key")
+                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).lineLimit(1)
+                    .padding(.horizontal, sp4).frame(height: headerBtnH)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+                    .background(
+                        GeometryReader { g in
+                            Color.clear.preference(key: EuclideousRiffTabFramePreferenceKey.self,
+                                                     value: src == .key ? g.frame(in: .named("euclideousXY")) : nil)
+                        }
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if src == .key, selected { keyPopupOpen = true }
+                        else if !selected { onSetNoteSource(src) }
+                        // already-selected MIDI IN/CHORD: literally nothing, matching the prior control's own rule.
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(a11y)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
     }
     // The "MAIN OUT" text caption is DROPPED here (kept in the §5 spec's own wording as the group's
     // NAME, not a literal required on-screen label) — each circle already shows its own letter (A/B/C/D).
@@ -2768,12 +2812,13 @@ struct EuclideousPage: View {
     // columns, so the matrix's real rendered width can never exceed its stated budget the way the old
     // gutter's did.
     private let riffLabelColW: CGFloat = 30
-    private let riffTabW: CGFloat = 22, riffTabH: CGFloat = 62
     private func riffGridView(maxWidth: CGFloat, rowH: CGFloat) -> some View {
         let n = 8
         let resolved = riff.ranksResolved
         let ranks = (0..<n).map { $0 < resolved.count ? resolved[$0] : 0 }
-        let sideOverhead = riffLabelColW + sp4 + sp4 + riffTabW
+        // MIDI IN/CHORD/KEY moved to the header (2026-10-14) — the grid reclaims the width the old
+        // vertical source tabs used to occupy; only the label column's own gap is left to account for.
+        let sideOverhead = riffLabelColW + sp4
         let gridW = max(1, maxWidth - sideOverhead)
         let cellW = max(1, (gridW - sp8 * 2 - sp4 * CGFloat(n - 1)) / CGFloat(n))
         // RULE 6, LITERAL: "keeping them square" — the cell is the smaller of its width-derived and
@@ -2834,7 +2879,6 @@ struct EuclideousPage: View {
                             riffDragLastCell = (col, rank)
                         }.onEnded { _ in riffDragLastCell = nil })
                 }
-                riffSourceTabs(cellH: cellH)
             }
         }
         .padding(sp8)
@@ -2870,58 +2914,10 @@ struct EuclideousPage: View {
         }
         .frame(width: riffLabelColW)
     }
-    /// Rule 3, literal: 3 vertical tabs (22×62pt, 5pt radius, 3pt gaps), vertical text top-to-bottom MIDI
-    /// IN/CHORD/KEY, 10pt bold, 1pt letter-spacing. Selected/unselected hexes per rule. Hit area padding
-    /// (rule: "+6pt right/top/bottom, never left") via a wider `contentShape` offset to the right rather
-    /// than a wider visible frame, so the 22pt VISUAL width is unaffected.
-    private func riffSourceTabs(cellH: CGFloat) -> some View {
-        let current = noteSource
-        return VStack(spacing: 3) {
-            ForEach([EuclideousLaneSource.midi, .chords, .key], id: \.self) { src in
-                let selected = current == src
-                let label = src == .midi ? "MIDI IN" : (src == .chords ? "CHORD" : "KEY")
-                let a11y = src == .midi ? "Source, MIDI in" : (src == .chords ? "Source, chord" : "Source, key, double-tap to choose key")
-                ZStack {
-                    // Hit area: +6pt right/top/bottom, never left — an oversized, offset CLEAR rect under
-                    // the visible tab carries the real tap target; the outer `.frame` below (applied to the
-                    // whole ZStack) keeps this tab's LAYOUT size exactly riffTabW×riffTabH, so the 3pt
-                    // inter-tab gaps stay exact — only hit-testing grows, nothing visual shifts.
-                    Color.clear
-                        .frame(width: riffTabW + 6, height: riffTabH + 12)
-                        .offset(x: 3, y: 0)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if src == .key, selected {
-                                keyPopupOpen = true
-                            } else if !selected {
-                                onSetNoteSource(src)
-                            }
-                            // already-selected MIDI IN/CHORD: literally nothing, per the ferry's own rule.
-                        }
-                    Text(label)
-                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .kerning(1)
-                        .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
-                        .fixedSize()
-                        .rotationEffect(.degrees(90))
-                        .frame(width: riffTabW, height: riffTabH)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
-                        .allowsHitTesting(false)
-                }
-                .frame(width: riffTabW, height: riffTabH)
-                .background(
-                    GeometryReader { g in
-                        Color.clear.preference(key: EuclideousRiffTabFramePreferenceKey.self,
-                                                 value: src == .key ? g.frame(in: .named("euclideousXY")) : nil)
-                    }
-                )
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(a11y)
-                .accessibilityAddTraits(selected ? .isSelected : [])
-            }
-        }
-        .frame(width: riffTabW, height: cellH * 8 + sp4 * 7)
-    }
+    // riffSourceTabs REMOVED ENTIRE (Paul 2026-10-14: "move the midi in/chords/key control to the top
+    // header bar and restyle") — superseded by `headerSourceGroup()` above; confirmed zero remaining call
+    // sites before deleting. The shared `EuclideousRiffTabFramePreferenceKey` anchor mechanism survives,
+    // now published by the header's own KEY chip instead.
 
     /// The one write path for the riff grid, shared by every cell the drag gesture crosses (see
     /// `riffDragLastCell`'s doc comment). `toggle: true` (the first cell of a gesture) reproduces the

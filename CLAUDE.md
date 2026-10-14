@@ -196,6 +196,33 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — MIDI IN/CHORD/KEY moved to the top header bar, restyled (2026-10-14, on `fix/euclid-no-
+  scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1405 unaffected — pure UI). Paul: "Please move
+  the midi in/chords/key control to the top header bar and restyle." The control (`riffSourceTabs`) used to
+  sit as a bespoke vertical column in the shared riff grid panel — 3 rotated-text 22×62pt tabs, built
+  specifically for that narrow side-column context. **MOVED, not just relocated:** deleted `riffSourceTabs`
+  entire and built a fresh `headerSourceGroup()` using the header's OWN established chip convention (10pt
+  heavy monospaced, `headerBtnH`, `cornerRadius: 6`, matching `headerResetChip`/`headerChordsChip` exactly)
+  instead of carrying the old rotated-tab look into a horizontal row where it wouldn't fit the visual
+  language. SAME tap behaviour as before, byte-for-byte: tapping the already-selected KEY chip opens the key
+  popup; tapping an unselected chip switches the source; tapping an already-selected MIDI IN/CHORD chip does
+  nothing. Selected = light fill (`#DFE3EA`) + ink text (`#0D0F14`), unselected = `#2A2D34` fill + `#AAB0BA`
+  text — the SAME two hex pairs the old tabs used, just applied to a plain chip shape instead of a rotated
+  one, so the colour language carries over even though the geometry doesn't. **THE KEY-POPUP ANCHOR NEEDED
+  NO CODE CHANGE** — it already reads the chip's own on-screen frame generically via the pre-existing
+  `EuclideousRiffTabFramePreferenceKey` (a plain `CGRect?` preference, not tied to any one view's identity);
+  moving the PUBLISHER (the KEY chip's own `.background(GeometryReader{...})`) to the header automatically
+  moves what the popup anchors to, with the existing `anchorY` floor/ceiling clamp (`min(max(140,...),
+  size.height-140)`) absorbing the header's much smaller `midY` without any further change. **RIFF PANEL
+  RECLAIMS THE WIDTH:** `riffGridView`'s own `sideOverhead` dropped `riffTabW` (now just `riffLabelColW +
+  sp4`), so the 8×8 matrix grows into the space the old side column used to occupy. Wired into BOTH header
+  layouts — portrait row 2 (between RESET and CHORDS) and the single-row landscape header (same position).
+  **DEVICE-OWED, flagged plainly, since none of this is verifiable off-device:** the 3 new chips' real width
+  fit in the header row (landscape's own header-width budget was already tight per an earlier same-week
+  entry's own hand-derived ~611pt threshold — adding 3 more chips narrows that further, untested against a
+  real panel); the key popup's anchor position now that it's anchored near the TOP of the page instead of
+  mid-grid — the existing clamp should keep it on-screen, but its exact FEEL (popping up right under a
+  header chip vs. beside a mid-page tab) is unverified; the new chips' legibility/tap target at real size.**
 - **▶ EUCLIDEOUS — gesture controls re-enabled on the main step-box row, matching EUCLID MASK's own
   (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1405 unaffected —
   pure UI wiring, no new pure logic). Paul: "Please add gesture controls to the euclid lanes. Pulling up add
