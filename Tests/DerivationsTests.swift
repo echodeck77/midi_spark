@@ -3254,7 +3254,10 @@ final class DerivationsTests: XCTestCase {
         r = euclideousSliderRange(.steps, l)
         XCTAssertEqual(r.value, 8); XCTAssertEqual(r.lo, 2); XCTAssertEqual(r.hi, 16)
         r = euclideousSliderRange(.offset, l)
-        XCTAssertEqual(r.value, 2); XCTAssertEqual(r.hi, 7, "OFFSET is 0...STEPS-1")
+        // OFFSET DRAG DIRECTION fix (Paul, on-device): the slider's own displayed value is the MIRROR of
+        // raw rotate, `(n-r)%n` — rotate=2 at steps=8 displays as (8-2)%8=6, not the raw 2 (see
+        // euclideousSliderRange's own comment for why).
+        XCTAssertEqual(r.value, 6); XCTAssertEqual(r.hi, 7, "OFFSET is 0...STEPS-1")
         XCTAssertEqual(euclideousSliderRange(.tilt, l).value, 0.4, accuracy: 1e-9)
         XCTAssertEqual(euclideousSliderRange(.gate, l).value, 0.6, accuracy: 1e-9)
         XCTAssertEqual(euclideousSliderRange(.velocity, l).value, 90)
@@ -3320,11 +3323,28 @@ final class DerivationsTests: XCTestCase {
     func testEuclideousSliderCommitOffsetGateVelocity() {
         var line = EuclidLine(pulses: 1, steps: 8, noteSel: .all)
         euclideousSliderCommit(.offset, &line, snapshot: line, newValue: 11)
-        XCTAssertEqual(line.rotate, 3, "wraps mod steps (11 mod 8 = 3)")
+        // OFFSET DRAG DIRECTION fix: the committed value is the MIRROR of the displayed slider value, not
+        // a direct write — 11 wraps mod 8 to a displayed 3, which mirrors to rotate = (8-3)%8 = 5.
+        XCTAssertEqual(line.rotate, 5, "wraps mod steps (11 mod 8 = 3 displayed), then mirrored to the stored rotate")
         euclideousSliderCommit(.gate, &line, snapshot: line, newValue: 0.5)
         XCTAssertEqual(line.gate, 0.5)
         euclideousSliderCommit(.velocity, &line, snapshot: line, newValue: 200)
         XCTAssertEqual(line.velocityAbsolute, 127, "clamps to the MIDI ceiling")
+    }
+    /// Paul, on-device: "I scroll left, the hits scroll right" — a direct regression guard for the ACTUAL
+    /// visual claim, not just the raw stored number: committing a HIGHER displayed OFFSET value (what
+    /// dragging the slider RIGHT produces) must move a hit's real on-screen box position RIGHT, using the
+    /// SAME `euclidPatternInto` the real step-box row draws with.
+    func testEuclideousSliderOffsetDragRightMovesHitsRightOnScreen() {
+        func boxIndex(displayedOffset: Double) -> Int {
+            var line = EuclidLine(pulses: 1, steps: 8, noteSel: .all)
+            euclideousSliderCommit(.offset, &line, snapshot: line, newValue: displayedOffset)
+            var buf = [Bool](repeating: false, count: 8)
+            euclidPatternInto(&buf, pulses: 1, steps: 8, rotation: line.rotate)
+            return buf.firstIndex(of: true)!
+        }
+        XCTAssertEqual(boxIndex(displayedOffset: 2), (boxIndex(displayedOffset: 0) + 2) % 8,
+                        "dragging right (raising the displayed value by 2) moves the hit 2 boxes to the right")
     }
     func testEuclideousSliderCommitTiltIsANoOpOnAnEditedPattern() {
         let edited = EuclidLine(pulses: 1, steps: 2, noteSel: .all, tilt: 0, customHits: [true, false])

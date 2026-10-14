@@ -196,6 +196,38 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS RHYTHM TAB — the OFFSET slider's drag direction was backwards, fixed (2026-10-14, on `fix/
+  euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1405 green incl. +1 new/+2 updated).
+  Paul, on-device, mid-session: "The offset travels in the opposite way to what I'd expect. I scroll left,
+  the hits scroll right." Confirmed by DERIVING the real formula, not guessed — this project's own standing
+  technique for this exact bug CLASS (the "RATCHET PATTERN/DEST"-style mismatch between a control's own
+  direction and what it visually drives), now hit for the THIRD time in this codebase's history, each time
+  in a genuinely different mechanism. **ROOT CAUSE:** `euclidPatternInto` reads `buf[i] = pattern[(i+rotate)
+  %n]` — a fixed hit's own SCREEN position is `(hitIndex − rotate) mod n`, so INCREASING `rotate` moves a
+  hit LEFT on screen. The OFFSET slider is HORIZONTAL (`sliderRow`'s own two-column layout — left: HITS/
+  STEPS/VEL vertical, right: OFFSET/TILT/GATE horizontal, confirmed by reading the actual current code, not
+  assumed from memory) and used the RAW `rotate mod n` value directly as its displayed/committed quantity —
+  a completely ordinary, unremarkable left=low/right=high slider convention in isolation, but since LOWERING
+  rotate (what dragging LEFT naturally does) moves a hit RIGHT per the formula above, the net effect was
+  backwards from what any horizontal drag should feel like. **FIX, model/engine completely untouched:**
+  `euclideousSliderRange`/`Commit`/`ValueText`'s `.offset` cases now display/commit the MIRRORED quantity
+  `(n − rotate) mod n` instead of raw rotate — a pure reflection, self-inverse, with 0 as its sole fixed
+  point (confirmed by hand: rotate=1↔displayed=n−1, rotate=n−1↔displayed=1) — so dragging RIGHT now LOWERS
+  the stored `rotate`, which by the SAME formula moves hits RIGHT, matching the drag direction at last. The
+  STORED `EuclidLine.rotate` field, `euclidPatternInto`'s own rotation convention, and every OTHER reader of
+  `rotate` (the real step-box row, the NOTE VIEW pattern mirror, the actual render engine) are completely
+  UNCHANGED — confirmed via grep before relying on it: the only 3 non-slider readers of `line.rotate`
+  (`euclideousLapHitSteps` ×2, `euclideousNoteViewPattern`) all need the TRUE value to stay in sync with
+  what actually plays, and none of them were touched. `euclideousSliderRevert`'s `.offset` case (a raw
+  snapshot-restore, unrelated to the display mapping) and the double-tap default (`rotate = 0`, a fixed
+  point of the mirror either way) both needed no change, confirmed by reading before leaving them alone.
+  **TESTS:** +1 new (`testEuclideousSliderOffsetDragRightMovesHitsRightOnScreen` — a direct regression guard
+  for the ACTUAL visual claim, not just the stored number: builds a real pattern via `euclidPatternInto` at
+  two committed offsets and asserts the hit's own box index moves right by the expected amount, the same
+  function the real step-box row draws with) + 2 existing tests corrected to the new mirrored expectations
+  (`testEuclideousSliderRangeReadsEachFieldsCurrentValueAndBounds`, `testEuclideousSliderCommitOffsetGate
+  Velocity`). **DEVICE-OWED:** confirm the drag now genuinely feels right in the hand — the fix is derived
+  from the formula, not heard, same as every other render-path fix in this file.**
 - **▶ EUCLIDEOUS — GATE label reads LEGATO at 100%; the 4 lane OUT toggles are round (2026-10-14, on `fix/
   euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1402 green incl. +1 new). Two small
   polish asks from the same device session as the GATE-floor fix above. **LABEL:** a new, purely display-

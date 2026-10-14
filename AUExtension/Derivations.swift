@@ -2614,9 +2614,22 @@ func euclideousSliderRange(_ field: EuclideousSliderField, _ line: EuclidLine) -
     case .steps:
         return (Double(line.steps), 2, 16)                          // unchanged from the old pad's own min/max
     case .offset:
+        // OFFSET DRAG DIRECTION (Paul, on-device: "I scroll left, the hits scroll right") — confirmed by
+        // deriving the real formula, not guessed: `euclidPatternInto` reads `buf[i] = pattern[(i+rotate)%n]`,
+        // so a fixed hit's own SCREEN position is `(hitIndex - rotate) mod n` — INCREASING rotate moves a
+        // hit LEFT on screen. The raw `rotate mod n` value used to map directly onto this HORIZONTAL
+        // slider's own left=low/right=high convention (a plain, unremarkable slider convention, confirmed
+        // correct in isolation) — so dragging LEFT (lowering the displayed value) lowered `rotate`, which
+        // by the formula above moves a hit RIGHT: backwards from what a horizontal drag should feel like.
+        // Fixed by DISPLAYING/COMMITTING the MIRRORED quantity `(n - rotate) mod n` instead of raw rotate —
+        // the stored field and `euclidPatternInto`'s own rotation convention are completely UNCHANGED (no
+        // engine/model change, no effect on any other reader of `rotate`); only this ONE slider's own
+        // value↔rotate correspondence is inverted, so dragging right (raising the displayed value) now
+        // LOWERS rotate, which moves hits right — drag left moves them left, matching the report exactly.
         let n = max(2, min(16, line.steps))
         let r = ((line.rotate % n) + n) % n
-        return (Double(r), 0, Double(n - 1))                        // 0...STEPS-1
+        let displayed = (n - r) % n
+        return (Double(displayed), 0, Double(n - 1))                // 0...STEPS-1
     case .tilt:
         return (line.tiltResolved, -1, 1)
     case .gate:
@@ -2712,9 +2725,14 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
             if line.pulses > target { line.pulses = target }
         }
     case .offset:
+        // Inverse of euclideousSliderRange's own mirror (see its comment) — `newValue` is the DISPLAYED
+        // quantity the slider's drag position computed; converting it back to the stored `rotate` needs
+        // the same `(n - v) mod n` mirror applied in reverse (it's self-inverse, so the identical formula
+        // undoes it exactly).
         let n = max(2, min(16, line.steps))
         let v = Int(newValue.rounded())
-        line.rotate = ((v % n) + n) % n
+        let mirrored = (n - ((v % n) + n) % n) % n
+        line.rotate = mirrored
     case .tilt:
         guard line.customHits == nil else { return }   // disabled on an edited pattern — defensive; the UI never drags this
         line.tilt = max(-1, min(1, newValue))
@@ -2777,8 +2795,11 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
     case .hits: return "\(line.pulses)"
     case .steps: return "\(line.steps)"
     case .offset:
+        // Shows the SAME mirrored quantity the slider's own fill position represents (euclideousSliderRange's
+        // `.offset` case) — raw `rotate` would disagree with where the fill visibly sits.
         let n = max(2, min(16, line.steps))
-        return "\(((line.rotate % n) + n) % n)"
+        let r = ((line.rotate % n) + n) % n
+        return "\((n - r) % n)"
     case .tilt:
         let pct = Int((line.tiltResolved * 100).rounded())
         return pct == 0 ? "0" : (pct > 0 ? "+\(pct)%" : "−\(-pct)%")
