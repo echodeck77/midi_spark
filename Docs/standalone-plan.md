@@ -1,8 +1,43 @@
-# Standalone app — plan (DEFERRED milestone; seams enforced NOW)
+# Standalone app — plan (ACTIVE as of 2026-10-14 — FourStep)
 
-STATUS: no standalone work is scheduled and none should be started. This
-document exists so that (a) the migration doesn't accidentally make standalone
-expensive, and (b) when the milestone opens, the approach is already decided.
+STATUS CHANGED 2026-10-14: this is no longer a deferred milestone. Paul's
+decision: Euclideous ships as **FourStep**, a standalone AUv3 *and* standalone
+app, built as a SEPARATE Xcode target sharing the engine sources with
+MidiSpark/8x8 State (not a reskin of the existing target, not a fork of the
+engine — see CLAUDE.md's "Scope" section for how the two products relate).
+The three seam rules below are now LOAD-BEARING, not aspirational — every
+change to Router/Kernel/Emission should be checked against them, because a
+second host is being built on top of them, not hypothesised about.
+
+## FourStep target — decisions needed before creating it (none of these exist
+## yet; this is the checklist for when the target is actually scaffolded)
+
+- **Bundle ID.** `com.paulbarrett.FourStep[.AU]` is the default-by-convention
+  choice (same prefix as MidiSpark) unless Paul wants a distinct developer/
+  company identity for this release. Paul's call.
+- **`aumi` component subtype + manufacturer code.** MidiSpark's are `MSpk`/
+  `MSPK` and CLAUDE.md is emphatic those never change because saved AUM
+  sessions key on them — the same will be true the moment anyone saves a
+  FourStep session, so this is a ONE-WAY DOOR to get right before shipping,
+  not something to default quietly. Needs an explicit 4-char subtype (e.g.
+  `4Stp`/`FStp` — not yet chosen) and a decision on whether the manufacturer
+  code stays `MSPK` (same developer) or changes too.
+- **App identity.** Display name, icon, `CFBundleDisplayName` — independent of
+  MidiSpark's "8x8 State" branding; FourStep is its own product listing.
+- **Source sharing, per the rejected-alternative principle above (one engine
+  artifact, not two integration paths):** the new `FourStep`/`FourStepAU`
+  targets should point at the SAME `AUExtension/*.swift` engine files
+  (Router/Kernel/Derivations/Models/Snapshot*/Emission) via target membership,
+  exactly like MidiSparkAU does today — not a copy, not a framework (still
+  rejected, see "Explicitly not now" below). Open question, not yet decided:
+  does the FourStep AU target need `BuildPage.swift`/`RoomsPage.swift`/
+  `GridUI.swift`/`RackMatrix.swift` at all? Those are pure 8×8-grid-workbench
+  UI, structurally irrelevant to Euclideous (which only ever composes
+  `Snap.euclideousRow`) — likely excludable from that target's source list to
+  keep it lean, but this hasn't been audited or decided.
+- **The standalone APP side's own work (described below, still fully
+  unbuilt):** internal transport, CoreMIDI shell, silent render pump. Was
+  "later, when the milestone opens" — the milestone is now open.
 
 ## The approach, decided: the app becomes MidiSpark's SECOND HOST
 

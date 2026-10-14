@@ -1,0 +1,105 @@
+# Working with Claude on FourStep
+
+Not general advice — the rituals this exact codebase has proven work, and the failure modes it's
+hit more than once. Companion to CLAUDE.md: that file is the short brief Claude re-reads every
+session; this is the fuller "how we actually work" reference, read on demand (linked from
+CLAUDE.md's Scope section).
+
+A browsable version of this page lives at
+[the published artifact](https://claude.ai/code/artifact/986ce131-65a4-4c53-ac83-81bad2d48513) —
+this file is the durable copy; update this one, the artifact is a rendering of it, not the
+source of truth.
+
+## The loop
+
+Every well-run feature in this project's history follows the same six beats. Skipping one is the
+single best predictor of rework in the status log.
+
+1. **Plan** — enter plan mode for anything non-trivial. Don't start editing on an ambiguous ask.
+2. **Research in parallel** — Explore agents cover the engine, the UI, and precedent at once, not
+   sequentially in the main thread.
+3. **Ratify** — ambiguous specs get confirmed before code, not interpreted silently.
+4. **Build** — engine logic lives in `Derivations.swift` / `Router.swift` so it reaches the test
+   target.
+5. **Verify, split** — tests prove the engine; nothing proves the UI except an iPad. Say so.
+6. **Ship** — commit → merge → push the moment it's green. Log device debt in one place.
+
+## Read the literal spec text, not your own summary of it
+
+When a spec or ferry arrives as a written message, go back to the raw text — not a plan file's
+paraphrase of it, and not memory of "what I built." A paraphrase is lossy by construction; the
+exact wording often carries a placement, a colour, or a scope boundary that a summary quietly
+drops.
+
+Confirmed pattern, repeatedly: self-audits that re-read a ferry's raw transcript text against the
+shipped code have found five to ten concrete shortfalls each time — missing UI elements, wrong
+placements, colours applied from a prior ferry instead of the current one — none of which a
+second read of the *plan file* would have caught, because the plan file was the thing that
+dropped them in the first place.
+
+## One formula, read by both the engine and the display
+
+The single most repeated bug class in this codebase is a UI indicator — a playhead, a
+highlighted cell, a live sweep — computing its own version of "what step is this right now"
+instead of calling the exact function the audio engine uses to decide what sounds. The two
+drift, the light stops matching the sound, and it reads as random until someone traces it back to
+two formulas instead of one.
+
+- If a UI element claims to represent live engine state, it should call a function the engine
+  itself calls — never re-derive an equivalent one.
+- When fixing this class of bug, trace with a real, disposable debug trace before re-guessing by
+  hand. Hand-derived beat/column arithmetic in this codebase has been wrong often enough that
+  it's no longer trusted without one.
+
+## Name judgment calls; don't silently resolve them
+
+Every reply should open with the bottom line, then explicitly flag anywhere an interpretation was
+made on an ambiguous instruction, or a value (a size, an opacity, a colour) was picked without a
+literal spec to match. Stating it costs one sentence; finding out later it was wrong costs a
+round trip and a rebuild.
+
+## Know what's actually tested before claiming "done"
+
+The split here is sharp and permanent, not a gap to eventually close: pure engine logic in
+`Router.swift` / `Derivations.swift` reaches the macOS unit-test target and should be fully
+covered before anything ships. SwiftUI view code (`EuclideousPage.swift`, `EuclidLaneUI.swift`,
+and every other GridUI/BuildPage file) has **zero** test-target reach — a green build proves it
+compiles, nothing more. For that half, a passing suite is not evidence of correctness; an iPad is
+the only check that exists.
+
+## Device-verification debt is a list, not a feeling buried in prose
+
+Keep it in `Docs/euclideous-device-verification-debt.md` — one line per open item, filed under
+the subsystem it belongs to. Delete the line the moment it's confirmed. A list that only ever
+grows has stopped doing its job.
+
+## CLAUDE.md is a brief, not a diary
+
+The file Claude re-reads every session should stay short enough to actually load and re-read
+every session. History belongs in a separate, append-only file read on demand
+(`Docs/euclideous-status-log.md`), not inside the file re-read on every turn. Update CLAUDE.md's
+"current state" paragraph only when the real architecture changes, not on every individual fix.
+
+## Using the toolset deliberately, not reflexively
+
+- **Plan Mode** before any multi-file or ambiguous build — not for a one-line fix.
+- **Parallel research forks** when a question has independent sub-parts whose noisy intermediate
+  output doesn't need to live in the main conversation.
+- **AskUserQuestion** for a real fork in the road that changes what gets built — a second host
+  target vs. a reskinned existing one, a destructive vs. non-destructive migration — not for
+  anything reversible or guessable.
+- **Memory files** hold durable facts about how Paul likes to work and what's been corrected
+  before — project facts belong in `Docs/`, derivable from the repo itself.
+- **The two-worktree workflow** is a hard rule, not a suggestion — commit, merge, and push from
+  your own worktree the moment work is green; never check out another instance's branch or leave
+  finished work parked.
+
+## Definition of done, for a FourStep feature
+
+| Check | What it means here |
+|---|---|
+| Builds | iOS build clean via the pinned `DEVELOPER_DIR` xcodebuild command — read the actual log, don't trust a background-task notification. |
+| Tests green | Full macOS `MidiSparkTests` run, pinned `-derivedDataPath`, for anything touching Router/Derivations/Models/Snapshot. |
+| Audited against the raw spec | Re-read the literal ratified text once more before calling it complete, not just the plan file. |
+| Device debt logged | Every UI claim that can't be confirmed here gets exactly one line in the debt checklist. |
+| Shipped | Committed, merged to `main`, pushed — not left on a local branch "pending review." |
