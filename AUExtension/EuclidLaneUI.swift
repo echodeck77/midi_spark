@@ -187,6 +187,9 @@ struct EuclidLaneBox: View {
     // to its partner," just not pixel-identical to the spec's own per-cell wording.
     var listenFollowTint: Color? = nil   // FOLLOW: a wash over the whole comet bar in the partner's colour
     var listenShadowTint: Color? = nil   // SHADOW: a footer-height band at the bottom, no text
+    // FERRY (2026-10-14 §5) — passthrough to `EuclidCometBar`'s own `riffOnRest`; `.skip` (every other
+    // caller) ⇒ inert, same reasoning as `footerStates` above.
+    var riffOnRest: EuclidRiffOnRest = .skip
 
     var body: some View {
         let on = line.enabledResolved
@@ -204,7 +207,7 @@ struct EuclidLaneBox: View {
             EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
                            rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved,
                            customHits: line.customHitsResolved(max(2, min(16, line.steps))),
-                           footerStates: footerStates, exactStyle: compact, grouped: grouped,
+                           footerStates: footerStates, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
@@ -319,6 +322,13 @@ struct EuclidCometBar: View {
     // identical to before this ferry; it was never asked to regroup, so it keeps `euclidBoxGeometry`'s own
     // count-dependent gap tiers entirely untouched.
     var grouped: Bool = false
+    // FERRY (2026-10-14 §5, "flash on a hit that plays nothing"): the lane's own ON-REST mode — the one
+    // piece `footerStates`'s own `.hitOnRest` classification doesn't carry (it only knows the riff landed on
+    // a grid-rest, not whether FILL/SKIP/TIE makes that actually sound). `.skip` (every other caller — the
+    // regular BUILD-page EUCLID editor, Euclideous's own MASK-tab bar, neither of which has this concept) ⇒
+    // `euclideousHitFlashStyle` only ever sees it when `footerStates` is ALSO non-nil, so this default is
+    // inert for both.
+    var riffOnRest: EuclidRiffOnRest = .skip
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -466,26 +476,45 @@ struct EuclidCometBar: View {
                             // OUTLINE expands outward — all decay much faster than `recede` so the strike itself
                             // reads as an impact, not just a brighter box.
                             let burst = max(0, 1 - age / 0.35)
-                            // a top-lit gradient fill — a flat fill read as a dead swatch; light-to-dark top-to-
-                            // bottom gives each box a glassy, lit-from-above quality, brightening further on its
-                            // own burst.
-                            ctx.drawLayer { layer in
-                                layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 14 * burst + 4 * recede))
-                                layer.fill(box, with: .linearGradient(Gradient(colors: [tint.opacity(min(1, 0.95 + 0.3 * burst)), tint.opacity(0.55 + 0.25 * recede)]),
-                                                                       startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
-                            }
-                            ctx.stroke(box, with: .color(.white.opacity(0.18 + 0.5 * burst)), lineWidth: 1)
-                            if burst > 0.04 {   // the hot flash core — a bright inset band, not a second shape
-                                let core = Path(roundedRect: rect.insetBy(dx: rect.width * 0.22, dy: rect.height * 0.3), cornerRadius: corner * 0.6)
+                            // FERRY (2026-10-14 §5): "the solid flash means a note started" — a hit landing on a
+                            // rest under SKIP/TIE (or, reasoned one step further, a hit that can never sound at
+                            // all — riff off with nothing lit) plays nothing, so it gets the SAME fade timing
+                            // (age/recede/burst, untouched) rendered as an outline instead of a filled shape.
+                            let flashStyle = euclideousHitFlashStyle(
+                                footerState: (footerStates != nil && i < footerStates!.count) ? footerStates![i] : nil,
+                                onRest: riffOnRest)
+                            if flashStyle == .solid {
+                                // a top-lit gradient fill — a flat fill read as a dead swatch; light-to-dark top-to-
+                                // bottom gives each box a glassy, lit-from-above quality, brightening further on its
+                                // own burst.
                                 ctx.drawLayer { layer in
-                                    layer.addFilter(.shadow(color: .white.opacity(burst), radius: 6 * burst))
-                                    layer.fill(core, with: .color(.white.opacity(burst * 0.9)))
+                                    layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 14 * burst + 4 * recede))
+                                    layer.fill(box, with: .linearGradient(Gradient(colors: [tint.opacity(min(1, 0.95 + 0.3 * burst)), tint.opacity(0.55 + 0.25 * recede)]),
+                                                                           startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
                                 }
-                            }
-                            if burst > 0.06 {   // the shockwave — an expanding box outline, reads as an impact not just a flash
-                                let grow = 11 * (1 - burst)
-                                let ring = Path(roundedRect: rect.insetBy(dx: -grow, dy: -grow), cornerRadius: corner + grow * 0.4)
-                                ctx.stroke(ring, with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
+                                ctx.stroke(box, with: .color(.white.opacity(0.18 + 0.5 * burst)), lineWidth: 1)
+                                if burst > 0.04 {   // the hot flash core — a bright inset band, not a second shape
+                                    let core = Path(roundedRect: rect.insetBy(dx: rect.width * 0.22, dy: rect.height * 0.3), cornerRadius: corner * 0.6)
+                                    ctx.drawLayer { layer in
+                                        layer.addFilter(.shadow(color: .white.opacity(burst), radius: 6 * burst))
+                                        layer.fill(core, with: .color(.white.opacity(burst * 0.9)))
+                                    }
+                                }
+                                if burst > 0.06 {   // the shockwave — an expanding box outline, reads as an impact not just a flash
+                                    let grow = 11 * (1 - burst)
+                                    let ring = Path(roundedRect: rect.insetBy(dx: -grow, dy: -grow), cornerRadius: corner + grow * 0.4)
+                                    ctx.stroke(ring, with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
+                                }
+                            } else {
+                                // OUTLINE FLASH (§5 fix): "the same flash shape... as a 1.5pt outline in the flash
+                                // colour, no fill, same fade" — the identical recede/burst curve, no gradient fill,
+                                // no white hot core; the shockwave ring survives (it was never a fill either).
+                                ctx.stroke(box, with: .color(tint.opacity(min(1, 0.35 + 0.5 * recede + 0.4 * burst))), lineWidth: 1.5)
+                                if burst > 0.06 {
+                                    let grow = 11 * (1 - burst)
+                                    let ring = Path(roundedRect: rect.insetBy(dx: -grow, dy: -grow), cornerRadius: corner + grow * 0.4)
+                                    ctx.stroke(ring, with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
+                                }
                             }
                         } else if exactStyle {
                             // 2026-10-13 ferry, literal: "Hits are LANE-100" — the resting (stopped) hit cell,

@@ -6289,6 +6289,110 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(picks.isEmpty)
         XCTAssertTrue(picks.allSatisfy { $0 == 7 }, "RIFFS sequencer off: the lane must play whichever riff tab is selected (activeRiff), ignoring the unused per-step cells entirely")
     }
+
+    // MARK: - FERRY (2026-10-14, "Euclideous fixes from Paul's 14 Oct run") §3 — "sequencer step length"
+    // CONFIRMED ROOT CAUSE: the sequencer's own step-length math (`euclideousSeqStepIndex`, pure and
+    // already correct) was fed `cyc` — "the row's real cycle length," `cycleBeats > 0 ? cycleBeats :
+    // Double(Snap.cols) * S`, a GRID GEOMETRY quantity (8 columns × the scene's own stepRate) — as a
+    // stand-in for "one host bar." The two only coincide when the grid's stepRate happens to make 8
+    // columns add up to exactly one real bar — which is EXACTLY what `.r1_8` does in 4/4, the stepRate
+    // every pre-existing Euclideous test in this file sets, which is why this was invisible until now.
+    // `beatsPerBar` (new, from the host's own time-signature block) replaces `cyc` for this one purpose.
+    private func stepClockBox(stepRate: StepRate, lanesSeqLen: Int = 8, lanesRate: EuclideousSeqRate = .oneBar) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 8)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.stepRate = stepRate
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                  return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousLanesSeqOn = true
+        st.euclideousLanesSeqRate = lanesRate
+        st.euclideousLanesSeqLen = lanesSeqLen
+        return SnapshotBuilder.build(from: st)
+    }
+    func testEuclideousLanesSeqStepIgnoresGridStepRateAndUsesTheHostsRealBarLength() {
+        // stepRate DELIBERATELY .r1_4, not .r1_8 — the old `cyc` (8 × 1 beat = 8 beats) would have made
+        // "1 BAR" silently mean TWO real 4/4 bars; the fix must ignore the grid entirely.
+        let box = stepClockBox(stepRate: .r1_4)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        func stepAt(_ beat: Double) -> Int {
+            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: 120, beatsPerBar: 4.0,
+                            sampleRate: 48_000, timestampSample: 0, frameCount: 2048, forceColumn: 0, out: e, diag: &diag)
+            return router.euclideousLanesSeqStep()
+        }
+        XCTAssertEqual(stepAt(0), 0, "step 1")
+        XCTAssertEqual(stepAt(3.99), 0, "still step 1")
+        XCTAssertEqual(stepAt(4), 1, "step 2 — one real 4/4 bar later, NOT two")
+        XCTAssertEqual(stepAt(28), 7, "step 8")
+        XCTAssertEqual(stepAt(32), 0, "wraps back to step 1")
+    }
+    func testEuclideousLanesSeqStepRespectsTheHostsRealTimeSignature() {
+        let box = stepClockBox(stepRate: .r1_8)   // the grid stepRate is irrelevant now — confirm it stays that way
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        func stepAt(_ beat: Double, _ bpb: Double) -> Int {
+            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: 120, beatsPerBar: bpb,
+                            sampleRate: 48_000, timestampSample: 0, frameCount: 2048, forceColumn: 0, out: e, diag: &diag)
+            return router.euclideousLanesSeqStep()
+        }
+        XCTAssertEqual(stepAt(2, 4.0), 0, "4/4, 1 BAR: beat 2 is still within bar 1 (step 1, index 0)")
+        XCTAssertEqual(stepAt(2.99, 3.0), 0, "3/4: still bar 1 one hundredth of a beat before the boundary")
+        XCTAssertEqual(stepAt(3, 3.0), 1, "3/4, 1 BAR: beat 3 is the start of bar 2 — step 2 (index 1), the ferry's own literal case")
+    }
+    func testEuclideousRiffsSeqStepAlsoUsesTheHostsRealBarLength() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 8, useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8)]
+        c.paramsA.riffs = [EuclideousRiff.empty, EuclideousRiff.empty, EuclideousRiff.empty, EuclideousRiff.empty]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.stepRate = .r1_4   // non-1/8 again, same proof as the LANES test above
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                  return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousRiffsSeqOn = true
+        st.euclideousRiffsSeqRate = .oneBar
+        st.euclideousRiffsSeqLen = 8
+        let box = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        func stepAt(_ beat: Double) -> Int {
+            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: 120, beatsPerBar: 4.0,
+                            sampleRate: 48_000, timestampSample: 0, frameCount: 2048, forceColumn: 0, out: e, diag: &diag)
+            return router.euclideousRiffsSeqStep()
+        }
+        XCTAssertEqual(stepAt(0), 0)
+        XCTAssertEqual(stepAt(4), 1, "one real bar later — NOT two, which is what the old grid-derived cyc would have given")
+    }
+    /// "Per-lane reset counts these steps, so it inherits the fix" — confirmed architecturally (both read
+    /// the SAME `lanesSeqStepBeats`), and confirmed here on the wire: resetSteps=2 at LANES RATE 1 BAR must
+    /// restart every 2 REAL bars (8 beats at beatsPerBar=4), not every 2 GRID cycles (16 beats, what the old
+    /// `cyc`-based math would have given at this deliberately non-1/8 stepRate).
+    func testEuclideousPerLaneResetInheritsTheHostBeatsPerBarFix() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+                                             useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
+                                             resetSteps: 2)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.stepRate = .r1_4   // non-1/8: the old cyc-based reset would land at beat 16, not 8
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                  return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousLanesSeqOn = true
+        st.euclideousLanesSeqRate = .oneBar
+        func picksThrough(beats: Double) -> [Int] {
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        }
+        let firstPeriod = picksThrough(beats: 7.9)     // through just before beat 8 — one 2-bar reset period at the CORRECT bar length
+        let throughSecondPeriod = picksThrough(beats: 15.9)
+        XCTAssertFalse(firstPeriod.isEmpty)
+        XCTAssertEqual(Array(throughSecondPeriod.suffix(firstPeriod.count)), firstPeriod,
+                       "resetSteps=2 at LANES RATE 1 BAR must restart at beat 8 (2 real bars), replaying the first period's exact picks")
+    }
     // testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary REMOVED (Paul 2026-10-13 ferry, "Remove":
     // "The DRUNK option") — DRUNK is no longer one of Euclideous's own WALK directions, so it no longer
     // has a history-dependent position that could need a special span-boundary nudge; every remaining

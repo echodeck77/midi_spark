@@ -2918,10 +2918,13 @@ func euclideousKeyIsFlat(_ rootPitchClass: Int, scaleType: ScaleType = .major) -
     let relRoot = (((rootPitchClass - shift) % 12) + 12) % 12
     return [5, 10, 3, 8, 1].contains(relRoot)
 }
-/// MIDI 60 → "C3" (the ferry's own literal anchor), sharps or flats per `flatKey`.
+/// MIDI 60 → "C4" (standard convention; CORRECTED from the original "C3" anchor — see the 2026-10-14 ferry
+/// §1 comment below `euclideousAccessibleNoteName` for why every one of its 11 worked chords only
+/// reconciles against this anchor, forcing the same correction here for "one name per note everywhere").
+/// Sharps or flats per `flatKey`.
 func euclideousNoteViewName(_ n: UInt8, flatKey: Bool) -> String {
     let pc = Int(n) % 12
-    let octave = Int(n) / 12 - 2
+    let octave = Int(n) / 12 - 1
     let name = flatKey ? euclideousNoteNamesFlat[pc] : euclideousNoteNamesSharp[pc]
     return "\(name)\(octave)"
 }
@@ -2939,7 +2942,7 @@ func euclideousSplitNoteOctave(_ s: String) -> (note: String, octave: String) {
 /// spelled out as words instead of the ♭/♯ glyphs VoiceOver would otherwise read awkwardly or silently drop.
 func euclideousAccessibleNoteName(_ n: UInt8, flatKey: Bool) -> String {
     let pc = Int(n) % 12
-    let octave = Int(n) / 12 - 2
+    let octave = Int(n) / 12 - 1
     // Mirrors euclideousNoteNamesFlat/Sharp's own letter choice exactly per pitch class (a flat and a sharp
     // spelling of the SAME pitch class can be different LETTERS, e.g. pc=1 is "D flat" or "C sharp" — not
     // derivable from one shared letter table).
@@ -2947,6 +2950,185 @@ func euclideousAccessibleNoteName(_ n: UInt8, flatKey: Bool) -> String {
     let letter = String(raw.first!)
     let suffix = raw.count > 1 ? (flatKey ? " flat" : " sharp") : ""
     return "\(letter)\(suffix) \(octave)"
+}
+
+// ── FERRY (2026-10-14, "Euclideous fixes from Paul's 14 Oct run") §1: NOTE NAMES WITH NO KEY ───────────────
+//
+// Every F♯ was reading G♭ (and every other non-natural pitch class too) whenever the source was MIDI IN or
+// CHORD — `euclideousKeyIsFlat`'s only two call-sites outside KEY mode hardcoded `flatKey: true`
+// unconditionally (confirmed by reading every one of the 4 call sites in EuclideousPage.swift before
+// touching anything — none of them even looked at the held pool). This isn't a flats-vs-sharps bias to
+// retune; a source with no key has no reason to prefer flats at all. Spelling now derives a ROOT from
+// whatever's actually sounding, per Paul's literal algorithm.
+//
+// OCTAVE ANCHOR CORRECTED ALONGSIDE THIS, not asked for in so many words but required by the ferry's OWN
+// worked examples: every one of its 11 test chords only reconciles against `octave = floor(MIDI/12) − 1`
+// (MIDI 60 = C4, the standard convention) — e.g. "50 54 57 → D3 F♯3 A3" needs floor(50/12)−1=3, not the
+// EXISTING `euclideousNoteViewName`'s own floor(n/12)−2 (MIDI 60 = C3, ratified 2026-10-10 as a reasoned
+// fallback when nothing else existed to reuse). Hand-verified against all 11 worked chords before touching
+// anything, not assumed from one example. "One name per note everywhere on the page" means this can't be a
+// second, disagreeing octave convention for the no-key path alone — the SAME physical note must read the
+// SAME octave number regardless of which source is selected — so `euclideousNoteViewName`/
+// `euclideousAccessibleNoteName` (used by KEY mode, "as now") were corrected to the SAME anchor, not left at
+// the old one. A real, disclosed consequence: a KEY-mode octave label that used to read "C3" at MIDI 60 now
+// reads "C4" — a visible change to every existing Euclideous session's own KEY-mode display, flagged plainly
+// rather than silently introduced as a side effect of the no-key fix.
+let euclideousRootNamesMajor = ["C", "D\u{266D}", "D", "E\u{266D}", "E", "F", "F\u{266F}", "G", "A\u{266D}", "A", "B\u{266D}", "B"]
+let euclideousRootNamesMinor = ["C", "C\u{266F}", "D", "E\u{266D}", "E", "F", "F\u{266F}", "G", "G\u{266F}", "A", "B\u{266D}", "B"]
+private let euclideousLetterOrder: [Character] = ["C", "D", "E", "F", "G", "A", "B"]
+private let euclideousLetterPitchClass: [Character: Int] = ["C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11]
+// "1–2 → next letter; 3–4 → 2 letters up; 5 → 3 up; 6–7 → 4 up; 8–9 → 5 up; 10–11 → 6 up" (ferry §1c,
+// literal) — index by the semitone distance above R (1...11; index 0 unused, R itself is a separate case).
+private let euclideousLettersUpByInterval = [0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6]
+
+/// §1a/b, literal: R = the lowest note in `pool` (the chord's OWN known root and "the lowest held note" are
+/// the SAME value for Euclideous's own CHORDS generator — `diatonicChord` always stacks ascending thirds
+/// from the root, and its OPEN spread only ever lifts the MIDDLE voice, never the root, so after `.sorted()`
+/// the root is provably always index 0 — verified by reading `diatonicChord` directly, not assumed — so this
+/// one function correctly serves both MIDI IN and CHORD with no separate "known root" plumbing needed).
+/// Minor table wins when the pitch class 3 semitones above R is present among the pool's OWN pitch classes
+/// (a real minor third sounding), else major. `nil` for an empty pool (nothing to spell relative to).
+func euclideousRelativeRoot(pool: [UInt8]) -> (pc: Int, minor: Bool)? {
+    guard let lowest = pool.min() else { return nil }
+    let rootPC = Int(lowest) % 12
+    let pcs = Set(pool.map { Int($0) % 12 })
+    return (rootPC, pcs.contains((rootPC + 3) % 12))
+}
+
+/// §1c/d, literal: every other note named by its distance above R, mapped to a diatonic letter count via
+/// the ferry's own table, then given whatever accidental makes that letter's NATURAL pitch class match —
+/// collapsing the four octave-crossing spellings (B♯→C, E♯→F, C♭→B, F♭→E) to their plain neighbour. A
+/// double accidental (or worse) has no worked example in the ferry's own 11 test chords — falls back to the
+/// established sharp/flat tables directly, biased toward the overshoot's own sign; flagged as a reasoned
+/// extension of the literal rule, not independently verified. Octave is always `floor(n/12) − 1`, computed
+/// from the RAW MIDI number regardless of which letter was chosen — never derived from the letter's own
+/// position, which is exactly what keeps it correct even after a B♯→C-style substitution.
+func euclideousRelativeNoteName(_ n: UInt8, pool: [UInt8]) -> String {
+    guard let root = euclideousRelativeRoot(pool: pool) else { return "–" }
+    let rootName = root.minor ? euclideousRootNamesMinor[root.pc] : euclideousRootNamesMajor[root.pc]
+    let octave = Int(n) / 12 - 1
+    let pc = Int(n) % 12
+    if pc == root.pc { return "\(rootName)\(octave)" }
+    let d = ((pc - root.pc) % 12 + 12) % 12
+    guard let rootLetter = rootName.first, let rootLetterIdx = euclideousLetterOrder.firstIndex(of: rootLetter) else {
+        return "\(rootName)\(octave)"
+    }
+    let lettersUp = euclideousLettersUpByInterval[d]
+    let targetLetter = euclideousLetterOrder[(rootLetterIdx + lettersUp) % 7]
+    let naturalPC = euclideousLetterPitchClass[targetLetter] ?? 0
+    var diff = ((pc - naturalPC) % 12 + 12) % 12
+    if diff > 6 { diff -= 12 }
+    var name: String
+    switch diff {
+    case 0: name = String(targetLetter)
+    case 1: name = "\(targetLetter)\u{266F}"
+    case -1: name = "\(targetLetter)\u{266D}"
+    default: name = diff > 0 ? euclideousNoteNamesSharp[pc] : euclideousNoteNamesFlat[pc]   // double accidental fallback
+    }
+    switch name {
+    case "B\u{266F}": name = "C"
+    case "E\u{266F}": name = "F"
+    case "C\u{266D}": name = "B"
+    case "F\u{266D}": name = "E"
+    default: break
+    }
+    return "\(name)\(octave)"
+}
+
+/// VoiceOver twin of `euclideousRelativeNoteName`, built by reusing `euclideousSplitNoteOctave` (the SAME
+/// note/octave split the KEY-mode accessible path already relies on) rather than re-deriving letter/octave
+/// logic a second time.
+func euclideousAccessibleRelativeNoteName(_ n: UInt8, pool: [UInt8]) -> String {
+    let full = euclideousRelativeNoteName(n, pool: pool)
+    guard full != "–" else { return "no note" }
+    let split = euclideousSplitNoteOctave(full)
+    var note = split.note
+    var suffix = ""
+    if note.hasSuffix("\u{266F}") { suffix = " sharp"; note.removeLast() }
+    else if note.hasSuffix("\u{266D}") { suffix = " flat"; note.removeLast() }
+    return "\(note)\(suffix) \(split.octave)"
+}
+
+/// ONE dispatcher, used at every note-display call site on the page (ferry §1's own "one name per note
+/// everywhere" rule) — KEY keeps its existing key-driven sharp/flat choice ("as now"); MIDI IN and CHORD
+/// both spell relative to the derived root above. `source` is intentionally the whole enum, not a bool, so
+/// a future third no-key source can't be silently mis-read as "has a key."
+func euclideousDisplayNoteName(_ n: UInt8, source: EuclideousLaneSource, pool: [UInt8], keyRoot: Int, keyType: ScaleType) -> String {
+    if source == .key { return euclideousNoteViewName(n, flatKey: euclideousKeyIsFlat(keyRoot, scaleType: keyType)) }
+    return euclideousRelativeNoteName(n, pool: pool)
+}
+func euclideousAccessibleDisplayNoteName(_ n: UInt8, source: EuclideousLaneSource, pool: [UInt8], keyRoot: Int, keyType: ScaleType) -> String {
+    if source == .key { return euclideousAccessibleNoteName(n, flatKey: euclideousKeyIsFlat(keyRoot, scaleType: keyType)) }
+    return euclideousAccessibleRelativeNoteName(n, pool: pool)
+}
+
+// ── FERRY §2: RIFF-GRID ARROWS MOVE LATE ────────────────────────────────────────────────────────────────
+//
+// ROOT CAUSE (confirmed by reading, not guessed): the riff-tab thumbnail reads `riffPositions[idx]` directly
+// in the view body — a plain, reactive read, current as of whatever SwiftUI render the ~30fps AU poll last
+// triggered. The grid's own arrow (`riffMarker`, a retained `@State` — genuinely needed, since a TIE/SKIP
+// rest must hold the PREVIOUS marker rather than jump, which a pure read of current state alone can't
+// express) was instead re-derived by a SECOND, independent 20Hz `Timer` — two unsynchronized wall-clock
+// timers, with no phase coordination between them, so the arrow lagged the already-current `riffPositions`
+// by up to one 20Hz period (50ms) on a quiet render, and considerably more whenever the RunLoop was busy
+// around a bar line (several of the 20Hz timer's own ticks coalescing/delaying, "several things changing
+// together... arrows of different lanes jump on the same frame even when their hits were 0.3s apart" —
+// exactly what an unrelated, independently-scheduled timer falling behind under load looks like). FIX: the
+// timer is removed; the view now re-derives `riffMarker` via `.onChange` on the SAME `riffPositions`/
+// `wipeEvents`/`playingRiffIndex` state the thumbnail/footer already read reactively — "the same per-lane
+// current riff step... on the same display tick," literally. The MATH below was always correct (it's the
+// SAME per-lane step `updateRiffMarkers` already ran) — extracted to a pure function purely so the "no
+// delay of any kind is built into the math itself" half of this fix is unit-testable; the TIMING half (did
+// the view actually call this promptly) has no test-target reach and stays device-owed, as it always has
+// for anything in EuclideousPage.swift.
+/// One lane's next `riffMarker` value, given its current value and this render's live inputs. Not riff-on →
+/// nil. Position out of range → unchanged (hold). A real rank at this position → jump there. A rest with a
+/// matching fresh FILL event → jump there (that's where sound was actually produced). A rest with nothing
+/// new → unchanged — rests are explicitly OUT OF SCOPE for this fix (Paul is deciding that separately).
+func euclideousRiffMarkerStep(current: (col: Int, row: Int)?, riffOn: Bool, riffPosition: Int,
+                               resolved: [Int], wipeEvent: Router.EuclideousNoteViewEventSnapshot?) -> (col: Int, row: Int)? {
+    guard riffOn else { return nil }
+    guard riffPosition >= 0, riffPosition < 8 else { return current }
+    let col = riffPosition
+    let rank = col < resolved.count ? resolved[col] : 0
+    if rank != 0 { return (col, rank) }
+    if let wipeEvent, wipeEvent.column == Int8(col), wipeEvent.rank >= 1 { return (col, Int(wipeEvent.rank)) }
+    return current
+}
+
+// ── FERRY §4: LANE OUTPUT CHIP WHEN MAIN OUT IS OFF ─────────────────────────────────────────────────────
+enum EuclideousLaneOutChipStyle: Equatable { case filled, hollowDashed, plain }
+/// Ratified 7 Oct: "a lane chip routed to an emitter whose main toggle is off is drawn dashed/hollow" — the
+/// drawing never implemented it; `laneOutRow` collapsed routed-but-main-off to the exact same look as
+/// not-routed (both read the one boolean `routed && mainOn`). The ROUTING itself was always kept (confirmed
+/// by Paul: the chip turns green again the instant main A comes back on) — only the drawing had no third
+/// state to show it. `routed` alone decides the SHAPE; `mainOn` only matters once routed.
+func euclideousLaneOutChipStyle(routed: Bool, mainOn: Bool) -> EuclideousLaneOutChipStyle {
+    guard routed else { return .plain }
+    return mainOn ? .filled : .hollowDashed
+}
+
+// ── FERRY §5: FLASH ON A HIT THAT PLAYS NOTHING ─────────────────────────────────────────────────────────
+enum EuclideousHitFlashStyle: Equatable { case solid, outline }
+/// "The solid flash means a note started" (Paul's own stated rule, generalised one step further than his
+/// literal 4-case table): a rhythm hit that starts nothing gets an outline instead, matching LISTEN's own
+/// convention for a dropped hit. `footerState` is the SAME prediction the footer band already draws from
+/// (so the two can never disagree about which case applies); `onRest` is the one piece the footer's own
+/// `.hitOnRest` classification doesn't yet carry — FILL plays a substitute note (solid), SKIP/TIE play
+/// nothing new (outline). `.miss` (a genuine rhythm rest, OR "riff off with nothing lit" collapsing every
+/// step to miss) is a reasoned EXTENSION beyond the ferry's own four literal test cases, not one of them —
+/// flagged as such: nothing can sound there either, so the same "solid means a note started" principle
+/// says outline, but no worked example in the ferry covers this specific combination. A nil `footerState`
+/// (no footer info available at all, e.g. the regular BUILD-page EUCLID editor's own comet bar, which never
+/// passes `footerStates`) defaults to `.solid` — today's unchanged behaviour, since that editor has no
+/// riff/ON-REST concept to be wrong about.
+func euclideousHitFlashStyle(footerState: EuclidFooterState?, onRest: EuclidRiffOnRest) -> EuclideousHitFlashStyle {
+    guard let footerState else { return .solid }
+    switch footerState {
+    case .hit: return .solid
+    case .hitOnRest: return onRest == .fill ? .solid : .outline
+    case .miss: return .outline
+    }
 }
 
 /// EXPLAIN SILENCE (usability ferry §2, literal priority order): the first applicable reason a lane that's

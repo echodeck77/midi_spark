@@ -580,9 +580,8 @@ struct EuclideousPage: View {
     private var editingRiff: EuclideousRiff { riffs[max(0, min(3, activeRiff))] }
     private var playingRiff: EuclideousRiff { riffs[max(0, min(3, playingRiffIndex))] }
 
-    @State private var selectedLane = 0
     // SEQUENCER PANEL (2026-10-14 ferry §1): which of the two tabs (LANES=0, RIFFS=1) is showing — purely
-    // ephemeral, never persisted, same class as `selectedLane` above.
+    // ephemeral, never persisted.
     @State private var sequencerTab: Int = 0
     // §3.2's FIRST-RUN PAD HINT (the old XY pads' own animated ↕/↔ affordance) is RETIRED along with the
     // pads themselves (usability ferry, 2026-10-12) — not ported to the new sliders. Each slider's own
@@ -646,27 +645,26 @@ struct EuclideousPage: View {
     // which row is choosing a partner.
     @State private var listenPartnerPopup: (lane: Int, row: EuclideousListenRow)? = nil
     // RIFF GRID POSITION MARKERS (Paul 2026-10-12 ferry, Part 1) — each lane's own PERSISTENT marker
-    // (column, row), updated by `riffMarkerTimer` below (was `.onChange(of: riffPositions)` until the
-    // 2026-10-14 off-by-one fix — see that entry's own comment), not recomputed fresh every render:
-    // rule 1's "stays until the lane's next hit moves it... does not flash and fade" means a TIE-on-rest
-    // tick (nothing struck, no fresh event) must leave the PREVIOUS marker exactly where it was, which a
-    // pure-function-of-current-state view could not express on its own (it has no memory of "where was it
-    // last" once the live state has already moved past that tick) — the one piece of this whole ferry that
-    // genuinely needs retained, not derived, UI state.
+    // (column, row): rule 1's "stays until the lane's next hit moves it... does not flash and fade" means a
+    // TIE-on-rest tick (nothing struck, no fresh event) must leave the PREVIOUS marker exactly where it
+    // was, which a pure-function-of-current-state view could not express on its own (it has no memory of
+    // "where was it last" once live state has already moved past that tick) — the one piece of this whole
+    // feature that genuinely needs retained, not derived, UI state.
+    //
+    // TIMER REMOVED (2026-10-14 ferry §2, "riff-grid arrows move late" — CONFIRMED ROOT CAUSE, not the
+    // earlier entry's own unconfirmed "SwiftUI onChange sometimes misses a diff" theory): the prior fix
+    // (a dedicated 20Hz `Timer` re-deriving `riffMarker` on its own schedule) solved THAT report but
+    // introduced a DIFFERENT one — a frame-by-frame recording showed the arrow landing 80–170ms (up to
+    // 390ms near a bar line) after the actual hit, while the riff-tab thumbnail (which reads `riffPositions`
+    // directly in the view body, reactively, on whatever render the ~30fps AU poll last triggered) was
+    // exactly on time. TWO independent, unsynchronized wall-clock timers — the AU's own ~30fps poll writing
+    // `riffPositions`, and this page's own 20Hz re-derivation reading it — have no phase relationship to
+    // each other, so the arrow lagged by up to one 20Hz period on a quiet render, and considerably more
+    // whenever the RunLoop was busy around a bar line (several of the 20Hz timer's own ticks coalescing),
+    // matching the reported variability exactly. FIX: no separate timer at all — `riffMarker` now re-derives
+    // via `.onChange` on the SAME `riffPositions`/`wipeEvents`/`playingRiffIndex` state the thumbnail/footer
+    // already read, so it updates on the identical display tick, by construction, not by timing luck.
     @State private var riffMarker: [(col: Int, row: Int)?] = [nil, nil, nil, nil]
-    // UNCONDITIONAL REFRESH (Paul 2026-10-14, "it sits on 1 for too long, then stays exactly one step
-    // behind forever" — a fixed, permanent one-step lag, not jitter/latency, confirmed by him even at a
-    // very slow riff rate): `.onChange(of: riffPositions)` only calls `updateRiffMarkers()` when SwiftUI's
-    // OWN diffing decides the 4-element array differs from whatever it compared last — if that comparison
-    // is ever made against a value one tick staler than the view's current `riffPositions` (a SwiftUI
-    // view-update-timing question this file can't execute/observe to confirm), exactly one transition
-    // could be silently skipped near the start, after which every later read is correctly one real engine
-    // hit AHEAD of what `riffMarker` last recorded — permanently, since nothing ever re-derives from
-    // scratch again. A dedicated, OWN-TIMER-DRIVEN re-derivation removes any dependency on detecting a
-    // DELTA at all: every tick it just reads the CURRENT `riffPositions`/`wipeEvents` fresh and re-derives
-    // `riffMarker`, so there is no "missed change" for it to miss. Reversible: if this doesn't fix it,
-    // revert to the `.onChange`-only version 2 commits up — see this entry's own commit message.
-    private let riffMarkerTimer = Timer.publish(every: 1.0 / 20.0, on: .main, in: .common).autoconnect()
     // DRAGGABLE RIFF GRID (Paul 2026-10-13, "make the grid draggable"): the matrix used to own one
     // `.onTapGesture` PER CELL — fine for a single tap, but a drag starting on one cell never reaches its
     // neighbours (a tap gesture doesn't track movement at all), so painting a shape across several columns
@@ -840,7 +838,15 @@ struct EuclideousPage: View {
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
             .onPreferenceChange(EuclideousResetChipFramePreferenceKey.self) { resetChipFrames = $0 }
         }
-        .onReceive(riffMarkerTimer) { _ in updateRiffMarkers() }
+        // §2 FIX: react on the SAME state the thumbnail/footer already read, not a separate clock.
+        // `riffPositions`/`wipeEvents`/`playingRiffIndex` are the fast-changing (~30fps-polled) inputs;
+        // `activeRiff` is user-driven (switching which riff this card is editing) but ALSO needs an
+        // immediate recompute — `updateRiffMarkers`'s own top guard hides the arrows the instant the edited
+        // riff stops being the playing one, and that guard only runs when this function is actually called.
+        .onChange(of: riffPositions) { _ in updateRiffMarkers() }
+        .onChange(of: wipeEvents) { _ in updateRiffMarkers() }
+        .onChange(of: playingRiffIndex) { _ in updateRiffMarkers() }
+        .onChange(of: activeRiff) { _ in updateRiffMarkers() }
         .onAppear { updateRiffMarkers() }
     }
 
@@ -953,17 +959,14 @@ struct EuclideousPage: View {
             return
         }
         let resolved = editingRiff.ranksResolved   // the walk marker is drawn on THIS grid's own cells, so it must read the EDITING riff to correspond to what's actually displayed there
+        // §2 FIX: the per-lane step itself is now a pure, tested function (`euclideousRiffMarkerStep`,
+        // Derivations.swift) — this is just the thin per-lane wiring, called whenever ANY of its own inputs
+        // change (see the `.onChange` block above), never on a separate clock of its own.
         for i in 0..<4 {
-            guard i < lines.count, lines[i].riffOnResolved else { riffMarker[i] = nil; continue }
-            guard i < riffPositions.count, riffPositions[i] >= 0, riffPositions[i] < 8 else { continue }
-            let col = riffPositions[i]
-            let rank = col < resolved.count ? resolved[col] : 0
-            if rank != 0 {
-                riffMarker[i] = (col, rank)
-            } else if i < wipeEvents.count, let ev = wipeEvents[i], ev.column == Int8(col), ev.rank >= 1 {
-                riffMarker[i] = (col, Int(ev.rank))
-            }
-            // else: a TIE/SKIP rest with nothing new sounding — leave riffMarker[i] exactly as it was.
+            let riffOn = i < lines.count && lines[i].riffOnResolved
+            let pos = i < riffPositions.count ? riffPositions[i] : -1
+            let ev = i < wipeEvents.count ? wipeEvents[i] : nil
+            riffMarker[i] = euclideousRiffMarkerStep(current: riffMarker[i], riffOn: riffOn, riffPosition: pos, resolved: resolved, wipeEvent: ev)
         }
     }
 
@@ -1550,7 +1553,11 @@ struct EuclideousPage: View {
                           onAllRotateDelta: { d in euclideousApplyAllRhythmX(d) },
                           onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
                           onDragState: { point, allRows in euclideousRhythmDragState(idx, point, allRows) },
-                          onSelect: { selectedLane = idx },
+                          // WHOLE-CARD SELECTION HIGHLIGHT REMOVED (Paul: "remove the highlight that
+                          // sometimes appears around the euclid lane boxes") — `onSelect` has no remaining
+                          // effect anywhere on this page (confirmed by grep before removing the state it
+                          // used to drive), so this is a genuine no-op, not a disabled one.
+                          onSelect: { },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
                           // LANE FOOTER BANDS (2026-10-13 ferry, "footers inside the step cells" — supersedes
                           // the separate trailing row the comment here used to describe): a pure array, not a
@@ -1569,7 +1576,10 @@ struct EuclideousPage: View {
                           // site this ferry's own §1-4 target ("a lane's step row"); the MASK step bar
                           // (§5, `maskStepBar`) opts in separately, and the regular BUILD-page EUCLID
                           // editor (GridUI.swift) is untouched, per `grouped`'s own false default.
-                          grouped: true, listenFollowTint: listenFollowTint, listenShadowTint: listenShadowTint)
+                          grouped: true, listenFollowTint: listenFollowTint, listenShadowTint: listenShadowTint,
+                          // FERRY (2026-10-14 §5): the one piece the footer prediction itself doesn't carry —
+                          // whether landing on a riff rest actually sounds (FILL) or not (SKIP/TIE).
+                          riffOnRest: line.riffOnRestResolved)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -1586,11 +1596,6 @@ struct EuclideousPage: View {
         .padding(cardInset)
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
-        // WHOLE-CARD SELECTION OUTLINE: "2pt border: LANE-100 when the card is selected, transparent
-        // otherwise" (this ferry's own literal spec) — a plain overlay stroke, never consuming layout space,
-        // so toggling selection can't shift where the content sits (the `cardInset` padding above already
-        // accounts for this 2pt, per that ferry's own "8pt padding... 2pt border" framing).
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(selectedLane == idx ? lane100(accent) : Color.clear, lineWidth: 2))
         .clipped()
     }
 
@@ -1867,22 +1872,44 @@ struct EuclideousPage: View {
         let names = ["A", "B", "C", "D"]
         return HStack(spacing: 3) {   // exact-dimensions ferry: 4 equal buttons, 3pt gaps (was sp4=4)
             ForEach(0..<4, id: \.self) { b in
-                let active = ((mask >> UInt8(b)) & 1 != 0) && ((mainOutMask >> UInt8(b)) & 1 != 0)
+                let routed = (mask >> UInt8(b)) & 1 != 0
+                let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
+                // FERRY (2026-10-14 §4): ratified 7 Oct as "routed but main-off draws dashed/hollow" — never
+                // built; the chip collapsed routed-but-main-off to the SAME look as not-routed (both read
+                // the one bool `routed && mainOn`). The ROUTING itself was always correct (confirmed: the
+                // chip turns green the instant main A comes back on) — only the drawing had no 3rd state.
+                let style = euclideousLaneOutChipStyle(routed: routed, mainOn: mainOn)
                 // ROUND (Paul 2026-10-14: "like the buttons on top of the page, strictly no more space") —
                 // mirrors `mainOutToggle`'s own plain `Circle()` fill/stroke exactly; the OUTER footprint
                 // (`.frame(maxWidth: .infinity).frame(height: rowH)`, the tap target) is BYTE-IDENTICAL to
                 // before — only the drawn shape inside it shrinks from a cell-filling RoundedRectangle to a
                 // true circle sized to `rowH` (the row's own existing height, never larger), centred in the
                 // unchanged cell, so the row's total width/height can't grow.
+                let textColor: Color = {
+                    switch style {
+                    case .filled: return patternEmitterActiveText
+                    case .hollowDashed: return lane100(accent)   // §4: "letter in the lane colour" (my interpretation, disclosed)
+                    case .plain: return patternUnselectedText
+                    }
+                }()
                 Text(names[b]).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                    .foregroundColor(active ? patternEmitterActiveText : patternUnselectedText)
+                    .foregroundColor(textColor)
                     .frame(width: rowH, height: rowH)
-                    .background(Circle().fill(active ? lane100(accent) : patternUnselectedFill))
-                    .overlay(Circle().stroke(active ? lane100(accent) : Color.clear, lineWidth: 1))
+                    .background(Circle().fill(style == .filled ? lane100(accent) : (style == .plain ? patternUnselectedFill : Color.clear)))
+                    .overlay(
+                        Group {
+                            switch style {
+                            case .filled: Circle().stroke(lane100(accent), lineWidth: 1)
+                            // §4: "dashed ring in the lane colour, 2pt wide, 3pt dashes with 3pt gaps" (literal).
+                            case .hollowDashed: Circle().stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
+                            case .plain: EmptyView()
+                            }
+                        }
+                    )
                     .frame(maxWidth: .infinity).frame(height: rowH)
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
-                    .accessibilityLabel("Emitter \(names[b])")
+                    .accessibilityLabel("Emitter \(names[b])\(style == .hollowDashed ? ", main output off" : "")")
             }
         }
     }
@@ -2521,7 +2548,7 @@ struct EuclideousPage: View {
     /// cycles 0 → +1 → −1 → 0, writing `noteOctShifts[rank-1]` for THIS rank only — "a C3 shifted −1 reads
     /// C2," applied to the SAME resolved pitch the button itself displays, so the two can never disagree).
     private func notesKeyColumn(_ idx: Int, _ line: EuclidLine, _ accent: Color, rank: Int, poolCount: Int,
-                                 extendedPool: [Int], flatKey: Bool, highRanks: Set<Int>, reachable: Set<Int>,
+                                 extendedPool: [Int], source: EuclideousLaneSource, pool: [UInt8], highRanks: Set<Int>, reachable: Set<Int>,
                                  keyHeight: CGFloat, chipHeight: CGFloat) -> some View {
         let isReal = rank <= max(1, poolCount)
         let lit = (line.litNotesResolved & (1 << (rank - 1))) != 0
@@ -2532,7 +2559,10 @@ struct EuclideousPage: View {
             guard rank <= extendedPool.count else { return "–" }
             let raw = extendedPool[rank - 1] + 12 * (line.octaveResolved + shift)
             guard raw >= 0, raw <= 127 else { return "–" }
-            return euclideousNoteViewName(UInt8(raw), flatKey: flatKey)
+            // FERRY (2026-10-14 §1): "one name per note everywhere" — route through the shared dispatcher
+            // instead of the old unconditional `flatKey: true` for MIDI IN/CHORD (the exact bug: every F♯
+            // read as G♭ regardless of what was actually held).
+            return euclideousDisplayNoteName(UInt8(raw), source: source, pool: pool, keyRoot: keyRoot, keyType: keyType)
         }()
         let split = euclideousSplitNoteOctave(pitchName)
         let fill: Color = lit ? lane100(accent) : (isReal ? Color(hex: 0x30343C) : Color(hex: 0x17191E))
@@ -2599,11 +2629,10 @@ struct EuclideousPage: View {
             rotate: line.riffRotateResolved, ranks: playingRiff.ranksResolved, invert: line.riffInvertResolved,
             transpose: line.melodyTransposeResolved) : []
         let extendedPool = euclideousGlobalPoolExtended(sortedRaw: riffLivePool.map { Int($0) })
-        let flatKey = noteSource == .key ? euclideousKeyIsFlat(keyRoot, scaleType: keyType) : true
         return HStack(spacing: 3) {
             ForEach(1...8, id: \.self) { rank in
                 notesKeyColumn(idx, line, accent, rank: rank, poolCount: poolCount, extendedPool: extendedPool,
-                                flatKey: flatKey, highRanks: highRanks, reachable: reachable,
+                                source: noteSource, pool: riffLivePool, highRanks: highRanks, reachable: reachable,
                                 keyHeight: keyHeight, chipHeight: chipHeight)
             }
         }
@@ -3632,7 +3661,6 @@ struct EuclideousPage: View {
     /// name. "For MIDI IN and CHORD, spell flats by default" (rule 2) — only KEY keeps the existing
     /// root-driven sharp/flat choice (`euclideousKeyIsFlat`).
     private func riffNoteLabelColumn(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat) -> some View {
-        let flatKey = source == .key ? euclideousKeyIsFlat(keyRoot, scaleType: keyType) : true
         // DEAD-CODE FIX (2026-10-13 adversarial review): `euclideousGlobalPoolExtended` was built specifically
         // to feed THIS label column with the correct octave-extended note for ranks beyond the raw held-note
         // count, but was never actually wired in — every rank past `pool.count` showed a plain "–" even though
@@ -3646,12 +3674,14 @@ struct EuclideousPage: View {
                 let hasNote = rank >= 1 && rank <= extended.count
                 let noteValue = hasNote ? UInt8(extended[rank - 1]) : 0
                 let isReal = rank <= pool.count
-                let label: String = hasNote ? euclideousNoteViewName(noteValue, flatKey: flatKey) : "–"
+                // FERRY (2026-10-14 §1): "for MIDI IN and CHORD, spell flats by default" is RETIRED — spell
+                // relative to the actually-held chord instead (see `euclideousDisplayNoteName`'s own doc).
+                let label: String = hasNote ? euclideousDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType) : "–"
                 Text(label).font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(hasNote ? (isReal ? Color(hex: 0xDFE3EA) : Color(hex: 0xDFE3EA).opacity(0.55)) : Color(hex: 0x4A4E57))
                     .frame(width: riffLabelColW, height: cellH, alignment: .trailing)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(hasNote ? "Rank \(rank), \(euclideousAccessibleNoteName(noteValue, flatKey: flatKey))" : "Rank \(rank), no note")
+                    .accessibilityLabel(hasNote ? "Rank \(rank), \(euclideousAccessibleDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType))" : "Rank \(rank), no note")
             }
         }
         .frame(width: riffLabelColW)
@@ -3783,13 +3813,14 @@ struct EuclideousPage: View {
         // continuous drag across several both land here, in `riffSetRank`.
         // ACCESSIBILITY (ferry's own literal text: "Step 3, E♭, lane 1 here, next up"). The note name
         // resolves `riffLivePool` (already a live page property — "the ascending notes currently feeding the
-        // riff's own pool") at this cell's own rank, reusing `euclideousNoteViewName`/`euclideousKeyIsFlat`
-        // (Derivations.swift) exactly as this page's own NOTE VIEW panel already does elsewhere — omitted
-        // (falls back to the bare "Step N" form) only when the pool doesn't currently reach this rank.
+        // riff's own pool") at this cell's own rank — omitted (falls back to the bare "Step N" form) only
+        // when the pool doesn't currently reach this rank. FIXED (2026-10-14 ferry §1): this call site never
+        // checked `noteSource` at all — it unconditionally read the KEY's own sharp/flat choice regardless
+        // of the actual source, a second, independent instance of the exact bug §1 reports. Routed through
+        // the same shared dispatcher as every other note label on the page now.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(occupants.isEmpty ? "" : {
-            let flatKey = euclideousKeyIsFlat(keyRoot, scaleType: keyType)
-            let noteName = (rank >= 1 && rank <= riffLivePool.count) ? euclideousNoteViewName(riffLivePool[rank - 1], flatKey: flatKey) : nil
+            let noteName = (rank >= 1 && rank <= riffLivePool.count) ? euclideousDisplayNoteName(riffLivePool[rank - 1], source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType) : nil
             let stepPart = noteName.map { "Step \(col + 1), \($0)" } ?? "Step \(col + 1)"
             return occupants.map { o in
                 o.isArrow ? "\(stepPart), lane \(o.lane + 1) here, \(riffMarkerDirectionWord(o.lane, lines[o.lane]))"

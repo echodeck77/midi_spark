@@ -1715,19 +1715,20 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - NOTE VIEW (Paul 2026-10-10 ferry) — euclideousNoteViewName, the window/mark pure math
 
-    /// §4.7, literal: "MIDI 60 = C3" — a THIRD octave convention, deliberately disagreeing with both
-    /// `midiNoteName` (0-based, C5) and `RackMatrix.noteName` (standard, C4) above/elsewhere — confirmed
-    /// correct against the ferry's own anchor, not re-derived from either existing function.
-    func testEuclideousNoteViewNameAnchorsMidi60AtC3() {
-        XCTAssertEqual(euclideousNoteViewName(60, flatKey: false), "C3")
-        XCTAssertEqual(euclideousNoteViewName(0, flatKey: false), "C-2")
-        XCTAssertEqual(euclideousNoteViewName(127, flatKey: false), "G8")
+    /// §4.7 (2026-10-10) originally ratified "MIDI 60 = C3" — CORRECTED by the 2026-10-14 ferry §1: every
+    /// one of its 11 worked no-key test chords only reconciles against the STANDARD convention (MIDI 60 =
+    /// C4), forcing this anchor to change for "one name per note everywhere" to hold. Hand-derived, not
+    /// assumed: floor(0/12)−1=−1 ⇒ "C-1"; floor(127/12)−1=9 ⇒ "G9".
+    func testEuclideousNoteViewNameAnchorsMidi60AtC4() {
+        XCTAssertEqual(euclideousNoteViewName(60, flatKey: false), "C4")
+        XCTAssertEqual(euclideousNoteViewName(0, flatKey: false), "C-1")
+        XCTAssertEqual(euclideousNoteViewName(127, flatKey: false), "G9")
     }
     func testEuclideousNoteViewNameSpellsFlatsOnlyWhenAsked() {
         // 2026-10-13 ferry: always the Unicode glyphs, never ASCII "#"/"b".
-        XCTAssertEqual(euclideousNoteViewName(63, flatKey: false), "D\u{266F}3")
-        XCTAssertEqual(euclideousNoteViewName(63, flatKey: true), "E\u{266D}3")
-        XCTAssertEqual(euclideousNoteViewName(61, flatKey: true), "D\u{266D}3", "a flat key still spells the natural white keys the same way")
+        XCTAssertEqual(euclideousNoteViewName(63, flatKey: false), "D\u{266F}4")
+        XCTAssertEqual(euclideousNoteViewName(63, flatKey: true), "E\u{266D}4")
+        XCTAssertEqual(euclideousNoteViewName(61, flatKey: true), "D\u{266D}4", "a flat key still spells the natural white keys the same way")
     }
     func testEuclideousSplitNoteOctaveSeparatesNameFromTrailingDigits() {
         XCTAssertEqual(euclideousSplitNoteOctave("C3").note, "C")
@@ -1739,6 +1740,77 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousSplitNoteOctave("–").note, "–", "the empty-pool placeholder has no digit to split off")
         XCTAssertEqual(euclideousSplitNoteOctave("–").octave, "")
     }
+
+    // MARK: - FERRY (2026-10-14, "Euclideous fixes from Paul's 14 Oct run") §1 — all 11 of the ferry's own
+    // worked chords, hand-verified algebraically before being trusted (see the derivation in
+    // `euclideousRelativeNoteName`'s own doc comment), not just transcribed.
+    func testEuclideousRelativeNoteNameMatchesEveryWorkedChordInTheFerry() {
+        func names(_ pool: [UInt8]) -> [String] { pool.map { euclideousRelativeNoteName($0, pool: pool) } }
+        XCTAssertEqual(names([50, 54, 57]), ["D3", "F\u{266F}3", "A3"])
+        XCTAssertEqual(names([49, 53, 56]), ["D\u{266D}3", "F3", "A\u{266D}3"])
+        XCTAssertEqual(names([49, 52, 56]), ["C\u{266F}3", "E3", "G\u{266F}3"])
+        XCTAssertEqual(names([54, 58, 61]), ["F\u{266F}3", "A\u{266F}3", "C\u{266F}4"])
+        XCTAssertEqual(names([51, 54, 58]), ["E\u{266D}3", "G\u{266D}3", "B\u{266D}3"])
+        XCTAssertEqual(names([57, 61, 66]), ["A3", "C\u{266F}4", "F\u{266F}4"])
+        XCTAssertEqual(names([53, 56, 61]), ["F3", "A\u{266D}3", "D\u{266D}4"])
+        XCTAssertEqual(names([55, 59, 62]), ["G3", "B3", "D4"])
+        XCTAssertEqual(names([52, 55, 59]), ["E3", "G3", "B3"])
+        XCTAssertEqual(names([54, 58, 61, 65]), ["F\u{266F}3", "A\u{266F}3", "C\u{266F}4", "F4"], "E♯ → F, the octave-crossing simplification")
+        XCTAssertEqual(names([49, 53, 56, 59]), ["D\u{266D}3", "F3", "A\u{266D}3", "B3"], "C♭ → B, the octave-crossing simplification")
+    }
+    func testEuclideousRelativeRootPrefersMinorOnlyWhenAThirdAboveItSounds() {
+        XCTAssertFalse(euclideousRelativeRoot(pool: [50, 54, 57])!.minor, "D-F♯-A: no minor third above D (54 is a major third)")
+        XCTAssertTrue(euclideousRelativeRoot(pool: [49, 52, 56])!.minor, "C♯-E-G♯: 52 IS a minor third above 49")
+        XCTAssertNil(euclideousRelativeRoot(pool: []), "nothing held, nothing to spell relative to")
+    }
+    func testEuclideousDisplayNoteNameRoutesKeyModeUnchangedAndOthersThroughTheRelativeAlgorithm() {
+        // KEY mode: "as now" — the existing key-driven sharp/flat choice, ignoring the pool entirely.
+        XCTAssertEqual(euclideousDisplayNoteName(63, source: .key, pool: [50, 54, 57], keyRoot: 0, keyType: .major), "D\u{266F}4")
+        // MIDI/CHORD: the SAME physical note reads differently depending on what's actually held, never flat-by-default.
+        XCTAssertEqual(euclideousDisplayNoteName(54, source: .midi, pool: [50, 54, 57], keyRoot: 0, keyType: .major), "F\u{266F}3",
+                       "the reported bug, fixed: F♯ must not read G♭ just because the source has no key")
+        XCTAssertEqual(euclideousDisplayNoteName(54, source: .chords, pool: [50, 54, 57], keyRoot: 0, keyType: .major), "F\u{266F}3")
+    }
+
+    // MARK: - FERRY §2 — the riff-grid arrow's own pure per-lane step, no delay built into the math itself
+    // (the TIMING half — whether the view calls this promptly — has no test-target reach; see the
+    // production comment on `riffMarker`'s own declaration in EuclideousPage.swift).
+    func testEuclideousRiffMarkerStepTracksTheCurrentPositionWithNoLagOfItsOwn() {
+        let resolved = [1, 2, 0, 3, 4, 0, 5, 6]   // rank 0 = a grid rest at columns 2 and 5
+        // A real rank at the live position: jump there immediately, regardless of where the marker was.
+        XCTAssertEqual(euclideousRiffMarkerStep(current: (7, 6), riffOn: true, riffPosition: 0, resolved: resolved, wipeEvent: nil)!.col, 0)
+        XCTAssertEqual(euclideousRiffMarkerStep(current: nil, riffOn: true, riffPosition: 3, resolved: resolved, wipeEvent: nil)!.col, 3)
+        // Riff off: always nil, regardless of the old marker or the live position.
+        XCTAssertNil(euclideousRiffMarkerStep(current: (0, 1), riffOn: false, riffPosition: 1, resolved: resolved, wipeEvent: nil))
+        // A rest with NO matching fresh event: hold the previous marker exactly (rests stay out of scope).
+        let held = euclideousRiffMarkerStep(current: (1, 2), riffOn: true, riffPosition: 2, resolved: resolved, wipeEvent: nil)
+        XCTAssertEqual(held?.col, 1); XCTAssertEqual(held?.row, 2)
+        // A rest with a matching FILL event: jump to where sound was actually produced.
+        let ev = Router.EuclideousNoteViewEventSnapshot(onsetBeat: 0, durationBeat: 0, kind: 0, notes: [], column: 2, rank: 4)
+        let filled = euclideousRiffMarkerStep(current: (1, 2), riffOn: true, riffPosition: 2, resolved: resolved, wipeEvent: ev)
+        XCTAssertEqual(filled?.col, 2); XCTAssertEqual(filled?.row, 4)
+        // Out-of-range position: hold, don't crash.
+        XCTAssertEqual(euclideousRiffMarkerStep(current: (3, 5), riffOn: true, riffPosition: -1, resolved: resolved, wipeEvent: nil)?.col, 3)
+    }
+
+    // MARK: - FERRY §4 — the lane-output chip's 3-way style, all 4 combinations
+    func testEuclideousLaneOutChipStyleCoversAllFourCombinations() {
+        XCTAssertEqual(euclideousLaneOutChipStyle(routed: true, mainOn: true), .filled)
+        XCTAssertEqual(euclideousLaneOutChipStyle(routed: true, mainOn: false), .hollowDashed)
+        XCTAssertEqual(euclideousLaneOutChipStyle(routed: false, mainOn: true), .plain)
+        XCTAssertEqual(euclideousLaneOutChipStyle(routed: false, mainOn: false), .plain)
+    }
+
+    // MARK: - FERRY §5 — the hit-flash style, the 4 literal cases plus the reasoned `.miss` extension
+    func testEuclideousHitFlashStyleMatchesAllFourLiteralCasesPlusTheMissExtension() {
+        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hit(riffStep: 3), onRest: .skip), .solid, "a hit on a note is always solid")
+        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitOnRest(riffStep: 2), onRest: .fill), .solid, "FILL substitutes a real note")
+        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitOnRest(riffStep: 2), onRest: .skip), .outline, "SKIP plays nothing new")
+        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitOnRest(riffStep: 2), onRest: .tie), .outline, "TIE plays nothing new — the held note carries on")
+        XCTAssertEqual(euclideousHitFlashStyle(footerState: .miss, onRest: .skip), .outline, "nothing can ever sound here either — the reasoned extension")
+        XCTAssertEqual(euclideousHitFlashStyle(footerState: nil, onRest: .skip), .solid, "no footer info at all (the regular BUILD-page editor) ⇒ unchanged default")
+    }
+
     func testEuclideousKeyIsFlatMatchesTheStandardCircleOfFifthsRoots() {
         for root in [5, 10, 3, 8, 1] { XCTAssertTrue(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional flat-key root") }
         for root in [0, 7, 2, 9, 4, 11, 6] { XCTAssertFalse(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional sharp-key root (6/F#-Gb defaults sharp)") }

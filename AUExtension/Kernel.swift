@@ -828,12 +828,23 @@ final class Kernel {
             _ = ts(&flags, nil, nil, nil)
             playing = flags.contains(.moving)
         }
+        // FERRY (2026-10-14 §3, "sequencer step length"): `tsNum`/`tsDen` (the host's real time signature)
+        // were ALREADY being read from the musical context block every render — then discarded. Nothing
+        // downstream had any way to learn the host's real bar length, so Euclideous's own LANES/RIFFS
+        // sequencer silently fell back to the GRID's own geometry (8 columns × the scene's stepRate) as a
+        // stand-in for "one bar" — correct only by coincidence at one specific stepRate. `beatsPerBar` is
+        // this engine's own beat unit (quarter notes, matching `tempo`'s BPM convention throughout this
+        // file) — `tsNum` beats of `1/tsDen` each converts to `tsNum × 4/tsDen` quarter notes (e.g. 4/4 → 4,
+        // 3/4 → 3, 6/8 → 3). Defaults to 4.0 (common time) when the host doesn't report a usable signature,
+        // matching every other "unexpected ⇒ benign" default in this file.
+        var beatsPerBar = 4.0
         if let mc = musicalContext {
             var bpm = 0.0, beat = 0.0
             var tsNum = 0.0; var tsDen: Int = 0; var sampleOffset: Int = 0; var measureBeat = 0.0
             if mc(&bpm, &tsNum, &tsDen, &beat, &sampleOffset, &measureBeat) {
                 tempo = bpm > 0 ? bpm : 120
                 beatPos = beat
+                if tsNum > 0, tsDen > 0 { beatsPerBar = tsNum * 4.0 / Double(tsDen) }
             }
         }
         diag.playing = playing; diag.beat = beatPos; diag.tempo = tempo
@@ -1017,7 +1028,7 @@ final class Kernel {
         } else {
         // ---- hand off to the router (columns, arp, emission, note tracker) — output through the recording tap ----
         router.process(box: box, pool: pool,
-                        playing: rPlaying, beatPos: rBeat, tempo: tempo,
+                        playing: rPlaying, beatPos: rBeat, tempo: tempo, beatsPerBar: beatsPerBar,
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
                         frameCount: frameCount, audition: audition, laneMask: laneMask,

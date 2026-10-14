@@ -267,6 +267,14 @@ final class Router {
     private var masterKey: Int = 0
     private var masterMute = false
     private var masterVelOverride: UInt8 = 0
+    // FERRY (2026-10-14 §3, "sequencer step length") — the host's REAL bar length in beats, set once per
+    // render from `process()`'s new `beatsPerBar` parameter. Default 4.0 (common time) matches every
+    // existing caller/test that doesn't pass it, including the whole pre-existing Euclideous test suite
+    // (every one of which sets `stepRate = .r1_8`, making the OLD grid-derived `cyc` — 8 columns × 0.5
+    // beats — coincidentally equal 4.0 too; confirmed by reading before relying on it, not assumed, so this
+    // fix is byte-identical for the entire existing suite and only changes behaviour for a real host whose
+    // time signature or grid stepRate diverges from that one coincidental combination).
+    private var beatsPerBar: Double = 4.0
     private func rebuildAltSequence(_ count: [UInt8]) {
         altSequence.removeAll(keepingCapacity: true)
         for bus in 0..<4 where bit(altMask, bus) {
@@ -2939,6 +2947,7 @@ final class Router {
                  playing: Bool,
                  beatPos: Double,
                  tempo: Double,
+                 beatsPerBar: Double = 4.0,   // FERRY §3: the host's real beats-per-bar — read from the musical context block, NEVER derived from the grid's own stepRate/column count
                  sampleRate: Double,
                  timestampSample: Double,
                  frameCount: UInt32,
@@ -2967,6 +2976,7 @@ final class Router {
                  diag: inout KernelDiag) {
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
         tickRamps(atSample: Int64(timestampSample))   // §7: advance any in-flight .parameterRamp before this window's over() reads
+        self.beatsPerBar = beatsPerBar              // FERRY §3: this render's real bar length, in this engine's own beat unit (quarter notes)
         self.soloEmitterMask = soloEmitterMask     // emitter strip: additive foot SOLO set (bits A–D)
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
@@ -4569,7 +4579,21 @@ final class Router {
                 // own doc comment in Models.swift). `resetSteps` is resolved to 0 (OFF) for every row OTHER
                 // than Euclideous's (the call site only ever resolves a non-zero value when `isEuclideousRow`),
                 // so this branch is unreachable there and the ORIGINAL bars-based ladder below is unaffected.
-                let lanesSeqStepBeats = p.euclideousLanesSeqRate.barsFraction * cyc
+                // FERRY (2026-10-14 §3, "sequencer step length"): ROOT CAUSE — this used to read `cyc`
+                // ("the row's own real cycle," `cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S` — a GRID
+                // GEOMETRY quantity, 8 columns × the scene's own stepRate) as a stand-in for "one host bar."
+                // The two only coincide when the grid's stepRate happens to make 8 columns add up to exactly
+                // one real bar (e.g. 1/8-note columns in 4/4 — the ENTIRE pre-existing Euclideous test suite
+                // sets `stepRate = .r1_8` for exactly this reason, which is why this bug was invisible to
+                // every test ever written against it). At any other stepRate, or any non-4/4 time signature,
+                // "1 BAR" silently meant something else — confirmed to fully explain the reported symptom (a
+                // 2x undercount, "one move in three bar lines") AND to explain why it coincided with a
+                // DIFFERENT lane's own 2-bar riff wrap: both inherited the SAME wrong bar length, not one
+                // following the other. `beatsPerBar` is the host's REAL bar length (read from the musical
+                // context block's time signature — see `process()`'s own new parameter), independent of the
+                // grid entirely, per the ferry's own literal instruction. Per-lane RESET (just below, via
+                // `spanBeats`) consumes this SAME `lanesSeqStepBeats` and inherits the fix for free.
+                let lanesSeqStepBeats = p.euclideousLanesSeqRate.barsFraction * beatsPerBar
                 let spanBeats = resetSteps > 0 ? Double(resetSteps) * lanesSeqStepBeats
                     : (p.euclideousResetSpanBars > 0 ? Double(p.euclideousResetSpanBars) * cyc
                         : (p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0))
@@ -4942,7 +4966,7 @@ final class Router {
                             // lookahead, simplest-correct in the common case (a RATE-1-bar-or-slower RIFFS
                             // sequencer vs. a short TIE window), wrong only in a narrow edge case.
                             let playingRiffIdx = p.euclideousRiffsSeqOn
-                                ? p.euclideousRiffsSeqCells[euclideousSeqStepIndex(beat: mTickBeat, stepBeats: p.euclideousRiffsSeqRate.barsFraction * cyc, len: p.euclideousRiffsSeqLen)]
+                                ? p.euclideousRiffsSeqCells[euclideousSeqStepIndex(beat: mTickBeat, stepBeats: p.euclideousRiffsSeqRate.barsFraction * beatsPerBar, len: p.euclideousRiffsSeqLen)]
                                 : p.activeRiff
                             let ranks = p.euclideousRiffs[playingRiffIdx].ranks ?? []
                             // RIFF/NOTES SPLIT (2026-10-13 ferry): a lit note's per-rank octave shift, read
@@ -6000,7 +6024,7 @@ final class Router {
             // same as every other per-render `cyc`-derived quantity in this function; only consumed where
             // `isEuclideousRow`. `fBeatPos` (this render window's own start beat) is the right granularity
             // for a once-per-window check, matching the existing `euclideousLineWasEnabled` sweep's own.
-            let lanesSeqStepBeats = p.euclideousLanesSeqRate.barsFraction * cyc
+            let lanesSeqStepBeats = p.euclideousLanesSeqRate.barsFraction * beatsPerBar
             let currentLanesStep = euclideousSeqStepIndex(beat: fBeatPos, stepBeats: lanesSeqStepBeats, len: p.euclideousLanesSeqLen)
             let lanesSeqCells = p.euclideousLanesSeqCells
             // UI POLL (§4/§6, this entry's own doc comment above) — written here, once per render window,
@@ -6008,7 +6032,7 @@ final class Router {
             // same defaulted SnapParams fields just resolve to step 0 / riff 0 there, never read by any UI).
             if isEuclideousRow {
                 euclideousLanesSeqStepLive = currentLanesStep
-                let riffsSeqStepBeats = p.euclideousRiffsSeqRate.barsFraction * cyc
+                let riffsSeqStepBeats = p.euclideousRiffsSeqRate.barsFraction * beatsPerBar
                 let currentRiffsStep = euclideousSeqStepIndex(beat: fBeatPos, stepBeats: riffsSeqStepBeats, len: p.euclideousRiffsSeqLen)
                 euclideousRiffsSeqStepLive = currentRiffsStep
                 euclideousPlayingRiffIndexLive = p.euclideousRiffsSeqOn ? p.euclideousRiffsSeqCells[currentRiffsStep] : p.activeRiff
