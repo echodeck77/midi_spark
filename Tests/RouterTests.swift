@@ -6018,6 +6018,152 @@ final class RouterTests: XCTestCase {
         // not after: a first draft checked the prefix here and the assertion failed for the wrong reason.
         XCTAssertNotEqual(Array(free2Bar.suffix(free1Bar.count)), free1Bar, "FREE: `ord` keeps growing across the bar boundary — bar 2's CYCLE sequence must NOT replay bar 1's, since the two don't start from the same ordinal")
     }
+    // SEQUENCER PANEL (2026-10-14 ferry §3) — RESET moves from one machine-wide bars-count to a PER-LANE
+    // sequencer-steps count, re-anchored at `resetSteps * (LANES RATE in beats)` instead of a literal bar
+    // multiplier. The ferry's own literal worked example: LANES RATE 1 BAR, a lane with resetSteps=4
+    // restarts at (1-based) bars 1 and 5 of an 8-bar loop; resetSteps=2 restarts at bars 1/3/5/7. Proven by
+    // the SAME equivalence technique as `testEuclideousResetSpanOneBarReAnchorsThePatternEveryBar` directly
+    // above (comparing bar N's struck pool-rank sequence against bar 1's, via the riff walk's own `ord`).
+    func testEuclideousPerLaneResetStepsReanchorsAtTheConfiguredPeriod() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func picksStruck(resetSteps: Int, beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+                                                 useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
+                                                 resetSteps: resetSteps)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.euclideousNoteSource = .midi
+            st.euclideousLanesSeqRate = .oneBar   // the ferry's own literal "LANES RATE 1 BAR"
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        }
+        let period4bar1 = picksStruck(resetSteps: 4, beats: 3.9)
+        let period4throughBar5 = picksStruck(resetSteps: 4, beats: 19.9)
+        XCTAssertFalse(period4bar1.isEmpty)
+        XCTAssertEqual(Array(period4throughBar5.suffix(period4bar1.count)), period4bar1,
+                       "resetSteps=4 re-anchors every 4 bars — bar 5 must replay bar 1's exact pick sequence")
+        let period2bar1 = picksStruck(resetSteps: 2, beats: 3.9)
+        XCTAssertFalse(period2bar1.isEmpty)
+        for throughBeats in [11.9, 19.9, 27.9] {   // bars 3, 5, 7 — every odd bar, per resetSteps=2
+            let throughN = picksStruck(resetSteps: 2, beats: throughBeats)
+            XCTAssertEqual(Array(throughN.suffix(period2bar1.count)), period2bar1,
+                           "resetSteps=2 re-anchors every 2 bars — bar \(Int(throughBeats / 4) + 1) must replay bar 1's exact pick sequence")
+        }
+    }
+    // LANES SEQUENCER (ferry §5): "the walk/cursor keeps advancing as normal — only the final emission is
+    // suppressed" while a lane's own cell is unlit for the current step. Proven by equivalence: a muted
+    // bar must drop ITS OWN notes entirely, but the walk position immediately after it must land exactly
+    // where it would have had that bar's hits genuinely sounded (not where it would land had the muted
+    // bar been skipped/paused) — i.e. the combined sequence (bar1 + bar3 + bar4, bar 2 excised) of a
+    // LANES-muted run must equal the SAME excision applied to a free-running (LANES off) control.
+    func testEuclideousLanesSeqMutesEmissionButTheWalkKeepsAdvancing() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func picks(lanesSeqOn: Bool, muteLaneZeroAtStep1: Bool, beats: Double) -> [Int] {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+                                                 useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.euclideousNoteSource = .midi
+            st.euclideousLanesSeqOn = lanesSeqOn
+            st.euclideousLanesSeqRate = .oneBar
+            st.euclideousLanesSeqLen = 4
+            if muteLaneZeroAtStep1 {
+                var cells = [Bool](repeating: true, count: 32)
+                cells[1 * 4 + 0] = false   // lane 0 (index 0) unlit at step 1 (bar 2, 0-indexed)
+                st.euclideousLanesSeqCells = cells
+            }
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        }
+        let controlBar1 = picks(lanesSeqOn: false, muteLaneZeroAtStep1: false, beats: 3.9)
+        let controlBar1and2 = picks(lanesSeqOn: false, muteLaneZeroAtStep1: false, beats: 7.9)
+        let controlAll4Bars = picks(lanesSeqOn: false, muteLaneZeroAtStep1: false, beats: 15.9)
+        let mutedAll4Bars = picks(lanesSeqOn: true, muteLaneZeroAtStep1: true, beats: 15.9)
+        XCTAssertFalse(controlBar1.isEmpty)
+        XCTAssertLessThan(controlBar1and2.count, controlAll4Bars.count, "sanity: bars 3+4 must contribute more onsets under the control")
+        let bar3and4 = Array(controlAll4Bars.suffix(controlAll4Bars.count - controlBar1and2.count))
+        let expectedMuted = controlBar1 + bar3and4
+        XCTAssertEqual(mutedAll4Bars, expectedMuted,
+                       "bar 2 must be silent (its own notes dropped) but bars 3+4 must sound EXACTLY as if bar 2 had genuinely played — proving the walk advanced through the mute, not paused or reset by it")
+    }
+    // RIFFS SEQUENCER (ferry §6/§7): "the riff selected in the riff grid's tabs is the one that plays" when
+    // off; when on, which of the four riffs plays switches per-step. Proven with two maximally-distinguishable
+    // riffs (a constant-low vs. a constant-high rank) so the switch's effect is unambiguous in the struck
+    // pool index — bar 1 must read ONLY the lowest pool note, bar 2 ONLY the highest.
+    func testEuclideousRiffsSeqSwitchesThePlayingRiffAtTheStepBoundary() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+                                             useRiff: false, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)]
+        let constLow = EuclideousRiff(steps: 8, ranks: [Int](repeating: 1, count: 8))
+        let constHigh = EuclideousRiff(steps: 8, ranks: [Int](repeating: 8, count: 8))
+        // FOUR RIFFS live on MachineParams (`c.paramsA`), mirroring `euclideousRiff` itself — confirmed the
+        // only path the real render/publish pipeline actually reaches (`BuildPage.swift`'s own publish
+        // feeds `MachineParams.riffs`, never a PluginState-level field directly).
+        c.paramsA.riffs = [constLow, constHigh, EuclideousRiff.empty, EuclideousRiff.empty]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.stepRate = .r1_8
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                  return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousRiffsSeqOn = true
+        st.euclideousRiffsSeqRate = .oneBar
+        st.euclideousRiffsSeqLen = 2
+        // `euclideousRiffsSeqCellsResolved` requires the FULL canonical 8-entry array regardless of `len` —
+        // a short array fails its own `c.count == 8` guard and falls back to the all-riff-0 default entire,
+        // caught by this exact test's own first run (cells silently read as `[0,0,…]`, not `[0,1]`, so bar 2
+        // never switched at all). Only indices 0/1 are actually consulted at len=2; the rest are padding.
+        st.euclideousRiffsSeqCells = [0, 1, 0, 0, 0, 0, 0, 0]   // bar 1 (step 0) plays riff 0 (constLow), bar 2 (step 1) plays riff 1 (constHigh)
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: 7.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let picks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        XCTAssertFalse(picks.isEmpty)
+        // Isolate bar 1 alone (RATE 1 BAR means step 0 covers all of bar 1) to find exactly where it ends
+        // within the combined 2-bar `picks` sequence above, so bar 2's own suffix can be checked separately.
+        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: 3.9, into: e1, forceColumn: 0)
+        assertNothingLeftSounding(e1)
+        let bar1Picks = e1.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        XCTAssertFalse(bar1Picks.isEmpty)
+        XCTAssertTrue(bar1Picks.allSatisfy { $0 == 0 }, "bar 1 (riff 0, constant-low) must strike only the lowest pool note")
+        let bar2Picks = Array(picks.suffix(picks.count - bar1Picks.count))
+        XCTAssertFalse(bar2Picks.isEmpty)
+        XCTAssertTrue(bar2Picks.allSatisfy { $0 == 7 }, "bar 2 (riff 1, constant-high) must strike only the highest pool note — the switch genuinely took effect at the bar boundary")
+    }
+    func testEuclideousRiffsSeqOffFollowsTheActiveRiffTab() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+                                             useRiff: false, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)]
+        let constLow = EuclideousRiff(steps: 8, ranks: [Int](repeating: 1, count: 8))
+        let constHigh = EuclideousRiff(steps: 8, ranks: [Int](repeating: 8, count: 8))
+        c.paramsA.riffs = [constLow, constHigh, EuclideousRiff.empty, EuclideousRiff.empty]
+        c.paramsA.activeRiff = 1   // editor tab 2 (constHigh) selected
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.stepRate = .r1_8
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                  return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousRiffsSeqOn = false   // OFF — "the selected tab plays," not the sequencer
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: 3.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let picks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
+        XCTAssertFalse(picks.isEmpty)
+        XCTAssertTrue(picks.allSatisfy { $0 == 7 }, "RIFFS sequencer off: the lane must play whichever riff tab is selected (activeRiff), ignoring the unused per-step cells entirely")
+    }
     // testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary REMOVED (Paul 2026-10-13 ferry, "Remove":
     // "The DRUNK option") — DRUNK is no longer one of Euclideous's own WALK directions, so it no longer
     // has a history-dependent position that could need a special span-boundary nudge; every remaining

@@ -455,6 +455,20 @@ struct EuclidLine: Codable, Equatable {
     var notesOn: Bool? = nil
     var noteOctShifts: [Int]? = nil
     var notesVelOffset: Int? = nil
+    // PER-LANE RESET (2026-10-14 ferry, "sequencer panel, four riffs, per-lane reset") — REPLACES the old
+    // machine-wide `PluginState.euclideousResetSpanBars` for Euclideous's row. nil ⇒ OFF (0) at THIS raw
+    // accessor's own level — a real correction, caught by a pre-existing RouterTest failing once this
+    // shipped: `EuclidLine` is constructed directly (bypassing `PluginState.euclideousLinesResolved`
+    // entirely) by every non-Euclideous `.euclid` cell AND by essentially every RouterTest fixture, so a
+    // nil-default of anything but OFF here would silently force a periodic re-anchor onto code that never
+    // asked for one. "A genuinely fresh Euclideous document's lane defaults to 1 step" (§9) is a MIGRATION
+    // rule, not a raw-field default — it's applied explicitly, main-thread-only, inside `PluginState.
+    // euclideousLinesResolved`'s own fresh-document branch, which sets `resetSteps = 1` directly rather than
+    // relying on this accessor's own fallback to do it. Resolved domain is exactly {0=OFF, 1, 2, 4, 8} —
+    // anything else (a stray hand-edited value) falls back to 0/OFF, matching `euclideousResetSpanBarsResolved`'s
+    // own identical "unexpected ⇒ benign" convention.
+    var resetSteps: Int? = nil
+    var resetStepsResolved: Int { let v = resetSteps ?? 0; return [0, 1, 2, 4, 8].contains(v) ? v : 0 }
     var gateResolved: Double { gate ?? 0.9 }
     // NOT narrowed to ±2 here (Paul 2026-10-13 ferry, "Engine" rule 4) — `EuclidLine` is SHARED with the
     // regular, non-Euclideous BUILD-page EUCLID processor, whose own OCTAVE stepper reaches ±3 today
@@ -582,6 +596,7 @@ extension EuclidLine {
         notesOn = try c.decodeIfPresent(Bool.self, forKey: .notesOn)
         noteOctShifts = try c.decodeIfPresent([Int].self, forKey: .noteOctShifts)
         notesVelOffset = try c.decodeIfPresent(Int.self, forKey: .notesVelOffset)
+        resetSteps = try c.decodeIfPresent(Int.self, forKey: .resetSteps)
     }
 }
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
@@ -705,6 +720,14 @@ struct EuclideousRiff: Codable, Equatable {
     /// plain-ascending-mod-8 default; never silence by default either way, matching EuclidLine's own "a
     /// fresh lane defaults to something audible" convention).
     private static let r1Shape = [1, 2, 3, 5, 4, 3, 2, 1]
+    // GENUINELY SILENT (2026-10-14 ferry §9: riff slots 2-4 "start empty") — `ranks: []` does NOT produce
+    // this on its own: `ranksResolved`'s own pad-with-R1-default logic below treats ANY short array
+    // (empty included) as "pad the rest with the default shape," a pre-existing, deliberate fallback from
+    // the original single-riff feature ("never silence by default") — so an empty array still resolves to
+    // the full, audible R1 figure. A genuinely-silent riff needs an EXPLICIT all-rest array of the real
+    // length instead (caught by this feature's own migration test failing against the naive `ranks: []`
+    // before this helper existed).
+    static var empty: EuclideousRiff { EuclideousRiff(steps: 8, ranks: [Int](repeating: 0, count: 8)) }
     var ranksResolved: [Int] {
         let n = stepsResolved
         var r = ranks ?? (0..<n).map { Self.r1Shape[$0 % Self.r1Shape.count] }
@@ -712,6 +735,56 @@ struct EuclideousRiff: Codable, Equatable {
         if r.count > n { r = Array(r.prefix(n)) }
         return r
     }
+}
+// FOUR RIFFS — shared migration (2026-10-14 ferry §7): `riffs == nil` migrates the old SINGLE riff into
+// slot 0; slots 1-3 start EMPTY (§9), a deliberate, disclosed deviation from the ScalePool/chordSeqs
+// precedent (whose own slots 1-3 default to a fresh REAL value). Pure/standalone (not a `PluginState`-only
+// computed property) because BOTH `PluginState` (the persisted document's own copy, read by the UI/undo
+// snapshot) AND `MachineParams` (the per-render-published copy the render engine actually reads, mirroring
+// how `euclideousRiff` itself already lives on both types) need the IDENTICAL fallback rule.
+func euclideousRiffsMigrated(_ riffs: [EuclideousRiff]?, legacySingular: EuclideousRiff) -> [EuclideousRiff] {
+    guard let r = riffs else {
+        return [legacySingular, EuclideousRiff.empty,
+                EuclideousRiff.empty, EuclideousRiff.empty]
+    }
+    var out = Array(r.prefix(4))
+    while out.count < 4 { out.append(EuclideousRiff.empty) }
+    return out
+}
+// SEQUENCER RATE (2026-10-14 ferry, "sequencer panel, four riffs, per-lane reset" §4) — the LANES/RIFFS
+// sequencers' own ¼/½/1/2/4-BAR rate ladder. Genuinely new: grepped the whole codebase before adding this —
+// no existing enum covers fractional-bar multiples (the old reset-span control was a bare whole-bars `Int`,
+// `[0,1,2,4,8,16]`; `ArpRate` is a musical note-rate like 1/8/1/16, an unrelated concept). String-raw so it
+// persists by value, matching every other sibling enum's own convention.
+enum EuclideousSeqRate: String, Codable, CaseIterable {
+    case quarterBar = "¼ BAR", halfBar = "½ BAR", oneBar = "1 BAR", twoBars = "2 BARS", fourBars = "4 BARS"
+    var barsFraction: Double {
+        switch self {
+        case .quarterBar: return 0.25
+        case .halfBar: return 0.5
+        case .oneBar: return 1
+        case .twoBars: return 2
+        case .fourBars: return 4
+        }
+    }
+}
+// SEQUENCER PANEL (2026-10-14 ferry) — two plain, UI-facing bundles (Foundation-only, no SwiftUI dependency,
+// so they live here alongside the other shared models) grouping each sequencer's own ON/RATE/LEN/cells into
+// one value, mirroring `MachineParams`'s own "one mutate closure per feature" convention (`onEditChords`)
+// rather than four separate setters apiece. NOT persisted directly — `AudioUnitViewController` mirrors these
+// from (and writes them back onto) the four separate `PluginState.euclideousLanesSeq*`/`euclideousRiffsSeq*`
+// fields; the bundle exists purely to keep the UI's edit-callback surface small.
+struct EuclideousLanesSeq: Equatable {
+    var on: Bool = false
+    var rate: EuclideousSeqRate = .oneBar
+    var len: Int = 8
+    var cells: [Bool] = [Bool](repeating: true, count: 32)
+}
+struct EuclideousRiffsSeq: Equatable {
+    var on: Bool = false
+    var rate: EuclideousSeqRate = .oneBar
+    var len: Int = 8
+    var cells: [Int] = [Int](repeating: 0, count: 8)
 }
 // EUCLID DIRECTION (Paul 2026-10-01): a DEDICATED enum, not a reuse of RIFF's own `RiffDir` — EUCLID needs only
 // 3 of RiffDir's 6 cases (no RANDOM/DRUNK) and RiffDir's own PENDULUM/PING-PONG naming history (the persisted
@@ -945,6 +1018,12 @@ struct MachineParams: Codable, Equatable {
     var euclidPick: EuclidPick? = nil         // PICK: ALL (today) | CYCLE | LOW | HIGH | RANDOM — what each hit strikes (Paul 2026-08-22)
     var euclidLines: [EuclidLine]? = nil      // EUCLID LINES (§10, ratified): up to 8 lines (each K·N·ROTATE·INVERT·TARGET). nil ⇒ the single euclid above (byte-identical)
     var euclideousRiff: EuclideousRiff? = nil // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06) — only meaningful for Euclideous's cell; nil ⇒ the struct's own plain defaults
+    // FOUR RIFFS (2026-10-14 ferry §7) — mirrors `PluginState.riffs`/`activeRiff` exactly (same name, same
+    // migration), one struct per layer: THIS copy is what `BuildPage.swift`'s publish path actually feeds
+    // the render engine (`p.euclideousRiff = euclideousRiff` already does this for the singular field — the
+    // new plural one needs the identical treatment); `PluginState`'s own copy is the persisted document's.
+    var riffs: [EuclideousRiff]? = nil
+    var activeRiff: Int? = nil
     var mainOutMask: UInt8? = nil // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07) — only meaningful for Euclideous's cell; nil ⇒ 0b1111 (all open, byte-identical for every other chain)
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
@@ -2251,9 +2330,31 @@ struct PluginState: Codable, Equatable {
         }
         return x
     }
+    /// PER-LANE RESET MIGRATION (2026-10-14 ferry): a line's own `resetSteps` stays nil (⇒ 1 step, its bare
+    /// default) for a GENUINELY FRESH document (`euclideousLines == nil` — the whole feature untouched) but
+    /// migrates from the OLD machine-wide `euclideousResetSpanBarsResolved` for a PRE-EXISTING one (any
+    /// document that has ever set `euclideousLines` at all, including every one of the 20 shipped presets,
+    /// none of which ever set `euclideousResetSpanBars` — so this migration leaves every preset's 4 lanes at
+    /// OFF uniformly, matching "existing presets sound as before"). Verified this boundary can't misfire:
+    /// `euclideousLines == nil` is true ONLY for a document where Euclideous was enabled with zero other
+    /// interaction and no preset ever loaded.
     var euclideousLinesResolved: [EuclidLine] {
-        let L = euclideousLines ?? []
-        return (0..<4).map { i in i < L.count ? L[i] : Self.euclideousDefaultLine(i) }
+        let L = euclideousLines
+        let isGenuinelyFresh = (L == nil)
+        return (0..<4).map { i in
+            var line = i < (L ?? []).count ? L![i] : Self.euclideousDefaultLine(i)
+            if line.resetSteps == nil {
+                // §9: "new pages: 1 step" is a MIGRATION rule, not `resetStepsResolved`'s own raw default
+                // (that accessor's nil-default is OFF, deliberately — see its own doc comment) — a
+                // genuinely fresh document's lane gets 1 explicitly, here; a pre-existing one migrates from
+                // whatever the old machine-wide bars-count was.
+                line.resetSteps = isGenuinelyFresh ? 1 : Self.migratedResetSteps(fromBars: euclideousResetSpanBarsResolved)
+            }
+            return line
+        }
+    }
+    private static func migratedResetSteps(fromBars bars: Int) -> Int {
+        switch bars { case 1, 2, 4, 8: return bars; case 16: return 8; default: return 0 }   // 0/anything else → OFF
     }
     var euclideousEnabledResolved: Bool { euclideousEnabled ?? false }
     var euclideousReceiverResolved: Int { max(0, min(3, euclideousReceiver ?? 0)) }
@@ -2261,6 +2362,20 @@ struct PluginState: Codable, Equatable {
     // have opted in via EuclidLine.useRiff. nil ⇒ the struct's own plain defaults (16 steps, an ascending figure).
     var euclideousRiff: EuclideousRiff? = nil
     var euclideousRiffResolved: EuclideousRiff { euclideousRiff ?? EuclideousRiff() }
+    // FOUR RIFFS (2026-10-14 ferry, "sequencer panel, four riffs, per-lane reset" §7) — the riff grid now
+    // holds FOUR independently-stored riffs, picked by tabs. `riffs == nil` ⇒ MIGRATE the old singular
+    // `euclideousRiff` into slot 0; slots 1-3 start EMPTY (§9: "riffs 2-4 empty") — a deliberate, disclosed
+    // deviation from the `ScalePool`/`chordSeqs` precedent (whose own slots 1-3 default to a fresh REAL
+    // value, not empty) — mirror that precedent's SHAPE, not this one specific default. `activeRiff` is
+    // dual-purpose: which riff is shown for EDITING on the grid, and — only when the RIFFS sequencer below
+    // is OFF — which riff actually PLAYS (§6: "the riff selected in the riff grid's tabs is the one that
+    // plays... tapping a riff tab switches riffs live"). One field, two roles — forced by composing §6+§7,
+    // not explicitly stated; the only reading consistent with "editing riff 3 while riff 1 plays" existing
+    // only while the RIFFS sequencer is genuinely ON.
+    var riffs: [EuclideousRiff]? = nil
+    var activeRiff: Int? = nil
+    var riffsResolved: [EuclideousRiff] { euclideousRiffsMigrated(riffs, legacySingular: euclideousRiffResolved) }
+    var activeRiffResolved: Int { max(0, min(3, activeRiff ?? 0)) }
     // EUCLIDEOUS PAGE REWORK (Paul/design-channel, 2026-10-07, ratified — Docs/SPEC-euclideous-rework.md):
     // global controls. `euclideousReceiver`/`euclideousReceiverResolved` above are now UNREACHABLE from any
     // UI (the single IN A/B/C/D selector was removed) but left in place inert, matching how `riffDirBias`
@@ -2274,6 +2389,36 @@ struct PluginState: Codable, Equatable {
     // only, nothing in Router reads it yet.
     var euclideousResetSpanBars: Int? = nil
     var euclideousResetSpanBarsResolved: Int { let v = euclideousResetSpanBars ?? 0; return [0, 1, 2, 4, 8, 16].contains(v) ? v : 0 }
+    // LANES + RIFFS SEQUENCERS (2026-10-14 ferry §2/§3/§4) — the machine-wide RESET control above is REMOVED
+    // from the UI (the per-lane `EuclidLine.resetSteps` replaces it, see `euclideousLinesResolved`'s own
+    // migration); `euclideousResetSpanBars` itself stays wired, unreachable from any new control, purely as
+    // the migration SOURCE value and decode-compat for an already-saved document. Two fully independent
+    // sequences, each its own ON/RATE/LEN/cells (§4: "two separate sequences, each with its own ON, RATE and
+    // LEN") — "the step clock always runs" (§4) means BOTH resolved-rate/len pairs are read unconditionally
+    // by the engine's step-clock math regardless of their own ON state; ON only gates whether that sequence
+    // actually MUTES lanes / SWITCHES riffs.
+    var euclideousLanesSeqOn: Bool? = nil
+    var euclideousLanesSeqRate: EuclideousSeqRate? = nil
+    var euclideousLanesSeqLen: Int? = nil
+    var euclideousLanesSeqCells: [Bool]? = nil   // 32 = 8 steps × 4 lanes, row-major (step*4 + lane); nil ⇒ all lit (§9)
+    var euclideousLanesSeqOnResolved: Bool { euclideousLanesSeqOn ?? false }
+    var euclideousLanesSeqRateResolved: EuclideousSeqRate { euclideousLanesSeqRate ?? .oneBar }
+    var euclideousLanesSeqLenResolved: Int { max(1, min(8, euclideousLanesSeqLen ?? 8)) }
+    var euclideousLanesSeqCellsResolved: [Bool] {
+        guard let c = euclideousLanesSeqCells, c.count == 32 else { return [Bool](repeating: true, count: 32) }
+        return c
+    }
+    var euclideousRiffsSeqOn: Bool? = nil
+    var euclideousRiffsSeqRate: EuclideousSeqRate? = nil
+    var euclideousRiffsSeqLen: Int? = nil
+    var euclideousRiffsSeqCells: [Int]? = nil    // 8, each 0...3 (which riff plays that step); nil ⇒ all riff 0 (§9)
+    var euclideousRiffsSeqOnResolved: Bool { euclideousRiffsSeqOn ?? false }
+    var euclideousRiffsSeqRateResolved: EuclideousSeqRate { euclideousRiffsSeqRate ?? .oneBar }
+    var euclideousRiffsSeqLenResolved: Int { max(1, min(8, euclideousRiffsSeqLen ?? 8)) }
+    var euclideousRiffsSeqCellsResolved: [Int] {
+        guard let c = euclideousRiffsSeqCells, c.count == 8 else { return [Int](repeating: 0, count: 8) }
+        return c.map { max(0, min(3, $0)) }
+    }
     // KEY + SCALE: a page-level root+type pair, reusing the existing `ScaleType` enum purely as storage —
     // does NOT pre-wire the SCALE-door/KEY±/FOUNT machinery §4.3 explicitly leaves open (a genuinely
     // independent new field, not a reference to any door's own scale pool).
@@ -3025,6 +3170,13 @@ struct EuclideousUndoSnapshot: Equatable {
     // page-level setting here (play/stop and MAIN OUT are the only two explicit exceptions, enforced at
     // restore time, not at this snapshot's own shape).
     var noteSource: EuclideousLaneSource
+    // SEQUENCER PANEL (2026-10-14 ferry): four riffs + which one's active + both step clocks — undoable
+    // page-level settings, same bucket as `riff`/`resetSpanBars` above, no §7.3-style exclusion named for
+    // any of these.
+    var riffs: [EuclideousRiff]
+    var activeRiff: Int
+    var lanesSeq: EuclideousLanesSeq
+    var riffsSeq: EuclideousRiffsSeq
 }
 
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack

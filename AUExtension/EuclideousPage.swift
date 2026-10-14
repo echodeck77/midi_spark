@@ -61,6 +61,17 @@ struct EuclideousRiffTabFramePreferenceKey: PreferenceKey {
     }
 }
 
+/// PER-LANE RESET (2026-10-14 ferry §3) — a DICTIONARY, not a single rect like the key-tab key above: all 4
+/// lanes' own reset chips publish their frame every frame (there are 4 simultaneous controls, not one), and
+/// the popup looks up whichever lane is actually open by index — merged, not last-write-wins, so one lane
+/// publishing doesn't clobber another's already-known frame.
+struct EuclideousResetChipFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 /// LONG-PRESS HELP (usability ferry §3.3, literal): "long-pressing any control for 0.5s shows a small
 /// bubble above it with a one-line plain-English explanation; it disappears on release... must never also
 /// change the control's value." Attached ALONGSIDE a control's own `.onTapGesture`, never replacing it —
@@ -436,10 +447,19 @@ struct EuclideousPage: View {
     let lines: [EuclidLine]
     let enabled: Bool
     let lineReady: UInt8
-    // RIFF ADVANCE (Paul 2026-10-06): `riff` is the ONE shared pattern every useRiff-on lane reads; `riffPositions`
-    // is each lane's own live step-cursor into it (index 0...3, -1 = not started/off) — "independent cursor per
-    // lane" into one shared pattern, not a single shared cursor.
-    let riff: EuclideousRiff
+    // FOUR RIFFS (2026-10-14 sequencer-panel ferry §7) — SUPERSEDES the single shared `riff` entirely: the
+    // riff grid now holds FOUR independently-stored patterns, picked by tabs. `activeRiff` is which one is
+    // shown for EDITING (the big 8×8 grid + the lane-card RIFF-tab's own on/off switch read/write this one);
+    // `playingRiffIndex` is which one is ACTUALLY SOUNDING right now (polled live — tracks the RIFFS
+    // sequencer's own per-step choice when it's on, else mirrors `activeRiff` directly, per the model's own
+    // dual-role doc comment) — every lane-local "what will this lane really play" surface (the per-lane
+    // mini-grid thumbnail, the step-row footer prediction, the silence-reason check) reads THIS one, not the
+    // editing tab, since a lane sounds whatever's actually playing regardless of which tab a user happens to
+    // be looking at. `riffPositions` is unchanged — each lane's own live step-cursor into WHICHEVER pattern
+    // it's walking (index 0...3, -1 = not started/off), independent of either riff index above.
+    let riffs: [EuclideousRiff]
+    let activeRiff: Int
+    let playingRiffIndex: Int
     let riffPositions: [Int]
     // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): each lane's live hit-ordinal + DRUNK walk
     // state — the main-thread cycle prediction's own `startOrd`/`drunkLive` baseline, same live-poll class as
@@ -455,14 +475,18 @@ struct EuclideousPage: View {
     // them anywhere else"). Retained here rather than torn out end-to-end so a future ask to show it again
     // doesn't need the whole poll chain (Router/Kernel/MidiSparkAudioUnit/AudioUnitViewController) rebuilt.
     let riffLivePool: [UInt8]
-    // NOTE VIEW (Paul 2026-10-10 ferry): per-lane RECONCILED event state, already folded down to "the latest
-    // thing to show" by AudioUnitViewController's own poll (see its own doc comment) — this view does no
-    // further event-queue bookkeeping, only the fade/hold/rest-flash DISPLAY math, which is a pure function
-    // of (one of these, the live extrapolated beat) evaluated fresh every frame.
-    let noteViewLastEvent: [Router.EuclideousNoteViewEventSnapshot?]
-    let noteViewRestFlash: [Router.EuclideousNoteViewEventSnapshot?]
-    // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0),
-    // reconciled independently from the two above (AudioUnitViewController's own @State doc comment).
+    // SEQUENCER PANEL (2026-10-14 ferry §2/§3/§4) — the two independent step clocks (LANES: which lanes
+    // sound each step; RIFFS: which of the four riffs plays each step), their CONFIG (§2/§3's own ON/RATE/
+    // LEN/cells) and their live, continuously-running step position (§4: "the step clock always runs" —
+    // polled regardless of either sequencer's own ON state, same class as `riffPositions` above).
+    let lanesSeq: EuclideousLanesSeq
+    let riffsSeq: EuclideousRiffsSeq
+    let lanesSeqStep: Int
+    let riffsSeqStep: Int
+    // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0).
+    // The SIBLING NOTE VIEW panel state this queue used to ALSO feed (noteViewLastEvent/RestFlash) was
+    // removed along with that panel (2026-10-14 sequencer-panel ferry) — this one survives, feeding the
+    // riff grid's own walk-arrow markers, a genuinely separate feature.
     let wipeEvents: [Router.EuclideousNoteViewEventSnapshot?]
     // PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config (§2.2-§2.4).
     let resetSpanBars: Int
@@ -483,7 +507,10 @@ struct EuclideousPage: View {
     let onEditChords: (@escaping (inout MachineParams) -> Void) -> Void
     let clock: EuclidLiveClock
     let onEdit: (@escaping (inout [EuclidLine]) -> Void) -> Void
-    let onEditRiff: (@escaping (inout EuclideousRiff) -> Void) -> Void
+    let onEditRiffs: (@escaping (inout [EuclideousRiff]) -> Void) -> Void
+    let onSetActiveRiff: (Int) -> Void
+    let onEditLanesSeq: (@escaping (inout EuclideousLanesSeq) -> Void) -> Void
+    let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     let onToggleEnabled: () -> Void
     let onSetResetSpanBars: (Int) -> Void
     let onSetKeyRoot: (Int) -> Void
@@ -501,10 +528,16 @@ struct EuclideousPage: View {
     let onRedo: () -> Void
     let onClose: () -> Void
 
+    // Clamped single-riff reads — every call site below reads through exactly one of these two, never
+    // `riffs[...]` directly, so the editing/playing distinction (this struct's own doc comment above) can't
+    // be silently mixed up at a call site.
+    private var editingRiff: EuclideousRiff { riffs[max(0, min(3, activeRiff))] }
+    private var playingRiff: EuclideousRiff { riffs[max(0, min(3, playingRiffIndex))] }
+
     @State private var selectedLane = 0
-    // §3.1's own pressed-state tracking for the NOTE VIEW summary label (per-lane, purely local/ephemeral —
-    // matches `selectedLane`/`singleTouchedLanes`'s own established "local @State, never persisted" class).
-    @State private var labelPressed: [Bool] = [false, false, false, false]
+    // SEQUENCER PANEL (2026-10-14 ferry §1): which of the two tabs (LANES=0, RIFFS=1) is showing — purely
+    // ephemeral, never persisted, same class as `selectedLane` above.
+    @State private var sequencerTab: Int = 0
     // §3.2's FIRST-RUN PAD HINT (the old XY pads' own animated ↕/↔ affordance) is RETIRED along with the
     // pads themselves (usability ferry, 2026-10-12) — not ported to the new sliders. Each slider's own
     // visible fill/track already reads as "drag me" far more directly than a flat 2D pad ever did (a
@@ -536,7 +569,20 @@ struct EuclideousPage: View {
     // PER-LANE TABS: which of RHYTHM/MELODY/MASK each lane currently shows — purely local/ephemeral, same
     // convention as touchedPad above (not persisted; a fresh page open always starts every lane on RHYTHM).
     @State private var laneTab: [EuclideousLaneTab] = [.rhythm, .rhythm, .rhythm, .rhythm]
-    @State private var resetSpanPopupOpen = false
+    // headerResetChip/resetSpanPopupOpen/resetSpanPopupCard RETIRED (2026-10-14 sequencer-panel ferry §3:
+    // "RESET becomes per-lane... replacing the old machine-wide header RESET control") — the struct's own
+    // `resetSpanBars`/`onSetResetSpanBars` properties stay in place, unreachable from any new UI, matching
+    // how `euclideousReceiver` was handled when ITS control was dropped (decode-safety + the real migration
+    // SOURCE `EuclidLine.resetStepsResolved` reads, per Models.swift's own doc comment there).
+    @State private var resetPopupLane: Int? = nil
+    @State private var resetChipFrames: [Int: CGRect] = [:]
+    // FOUR RIFFS — the tab row's own long-press COPY/PASTE/CLEAR menu (2026-10-14 ferry §7). No precedent
+    // for a long-press CONTEXT MENU anywhere in this codebase (grepped first) — built as a 5th instance of
+    // the scrim+centred-card family this page already uses 4 times (RESET/MASK MODE/CHORDS/KEY), not an
+    // anchored popover like the per-lane RESET above, matching the plan's own "small 3-row scrim+card
+    // popup" reading, not the anchored one.
+    @State private var riffTabMenuLane: Int? = nil
+    @State private var riffClipboard: EuclideousRiff? = nil
     @State private var keyPopupOpen = false
     // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry): the KEY tab's own captured
     // on-screen frame (via EuclideousRiffTabFramePreferenceKey above), letting the picker open as a
@@ -687,11 +733,22 @@ struct EuclideousPage: View {
                 // remaining readers.
                 // RESET SPAN + KEY POPUPS (Paul 2026-10-07) — the SAME scrim+card shape, reused rather than
                 // reinvented, for the two new global pickers.
-                if resetSpanPopupOpen {
-                    Color.black.opacity(0.55).ignoresSafeArea()
-                        .onTapGesture { resetSpanPopupOpen = false }
+                if let lane = resetPopupLane {
+                    // ANCHORED, not centred (ferry §3: "anchored near the tapped reset box") — same
+                    // non-dimming full-screen tap-catcher idiom as the KEY popup just above.
+                    Color.clear.contentShape(Rectangle()).onTapGesture { resetPopupLane = nil }
+                        .frame(width: geo.size.width, height: geo.size.height)
                         .zIndex(3)
-                    resetSpanPopupCard.position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                    let frame = resetChipFrames[lane]
+                    let anchorX = frame.map { max(110, $0.midX) } ?? geo.size.width / 2
+                    let anchorY = frame.map { $0.maxY + 70 } ?? geo.size.height / 2
+                    resetPopupCard(lane).position(x: min(anchorX, geo.size.width - 110), y: min(max(90, anchorY), geo.size.height - 90)).zIndex(4)
+                }
+                if let lane = riffTabMenuLane {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { riffTabMenuLane = nil }
+                        .zIndex(3)
+                    riffTabMenuCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
                 if keyPopupOpen {
                     // ANCHORED POPOVER (Paul 2026-10-12, second same-day ferry): "a popover anchored to the
@@ -722,6 +779,7 @@ struct EuclideousPage: View {
             }
             .coordinateSpace(name: "euclideousXY")
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
+            .onPreferenceChange(EuclideousResetChipFramePreferenceKey.self) { resetChipFrames = $0 }
         }
         .onReceive(riffMarkerTimer) { _ in updateRiffMarkers() }
         .onAppear { updateRiffMarkers() }
@@ -826,7 +884,7 @@ struct EuclideousPage: View {
     // in `riffGridCell` is removed too. A riff-off lane now contributes no occupant at all, by construction.
 
     private func updateRiffMarkers() {
-        let resolved = riff.ranksResolved
+        let resolved = editingRiff.ranksResolved   // the walk marker is drawn on THIS grid's own cells, so it must read the EDITING riff to correspond to what's actually displayed there
         for i in 0..<4 {
             guard i < lines.count, lines[i].riffOnResolved else { riffMarker[i] = nil; continue }
             guard i < riffPositions.count, riffPositions[i] >= 0, riffPositions[i] < 8 else { continue }
@@ -939,7 +997,7 @@ struct EuclideousPage: View {
                 }
                 HStack(spacing: sp16) {
                     riffGridView(maxWidth: halfW, rowH: riffRowH).frame(width: halfW, height: sharedRowH)
-                    noteViewPanel(maxWidth: halfW, maxHeight: sharedRowH)
+                    sequencerPanel(maxWidth: halfW, maxHeight: sharedRowH)
                 }
             }
             .frame(width: containerW, alignment: .leading)
@@ -979,7 +1037,7 @@ struct EuclideousPage: View {
                 .frame(width: laneColW)
                 VStack(spacing: sp16) {
                     riffGridView(maxWidth: riffColW, rowH: riffRowH).frame(width: riffColW, height: halfH)
-                    noteViewPanel(maxWidth: riffColW, maxHeight: halfH)
+                    sequencerPanel(maxWidth: riffColW, maxHeight: halfH)
                 }
                 .frame(width: riffColW)
             }
@@ -1012,7 +1070,6 @@ struct EuclideousPage: View {
             headerTitle()
             headerUndoRedoGroup()
             Spacer(minLength: sp4)
-            headerResetChip()
             headerSourceGroup()
             headerChordsChip()
             headerMainOutGroup()
@@ -1036,14 +1093,14 @@ struct EuclideousPage: View {
             headerCloseButton()
         }
     }
-    /// PORTRAIT row 2 (this ferry §3.2, literal): RESET · KEY −/chip/+ · CHORDS. The MIDI IN/CHORD/KEY
-    /// SOURCE group (Paul 2026-10-14, moved here from the riff panel) sits between them.
+    /// PORTRAIT row 2: KEY −/chip/+ · CHORDS — RESET was here (this ferry §3.2, literal: "RESET · KEY −/
+    /// chip/+ · CHORDS"), REMOVED entire by the 2026-10-14 sequencer-panel ferry §3 ("replacing the old
+    /// machine-wide header RESET control" with the per-lane `resetButton` on each lane's own RHYTHM tab).
     private func headerRow2() -> some View {
         HStack(spacing: sp4) {
-            headerResetChip()
-            Spacer(minLength: sp4)
             headerSourceGroup()
             headerChordsChip()
+            Spacer(minLength: sp4)
         }
     }
 
@@ -1071,37 +1128,6 @@ struct EuclideousPage: View {
                 .contentShape(Rectangle())
                 .onTapGesture { if canRedo { onRedo() } }
                 .euclideousHelp("Redo the last undone change")
-        }
-    }
-    private func headerResetChip() -> some View {
-        HStack(spacing: sp4) {
-            Text("RESET").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).lineLimit(1)
-            Text(euclideousResetSpanLabel(resetSpanBars))
-                .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                .lineLimit(1)
-                .padding(.horizontal, sp4).frame(height: headerBtnH)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
-                .contentShape(Rectangle())
-                .onTapGesture { resetSpanPopupOpen = true }
-                // §3.3's own literal example: "RESET: Bring every lane back to the start every N bars."
-                .euclideousHelp("Bring every lane back to the start every N bars")
-            // RESET COUNTDOWN (ferry "riff-cell wipes, reset progress on lane cards" §4) — "IN n", counting
-            // down to the next reset; hidden (§4.2) when RESET SPAN is OFF (the chip's own "OFF" value text
-            // above already reads as inert with nothing else needed beside it). UNAFFECTED by Reduce Motion
-            // (§5: "the header countdown still shows") — no `reduceMotion` gate here, deliberately.
-            if resetSpanBars > 0 {
-                let cyc = clock.stepBeats * Double(max(1, clock.cols))
-                // CAPPED (usability ferry §1.2 DSP fix): a whole-bar countdown changes at most once every
-                // few seconds — full display-refresh-rate scheduling here was pure waste. 4Hz is already
-                // far faster than this text could ever visibly need to update.
-                TimelineView(.animation(minimumInterval: 0.25, paused: !clock.playing)) { tl in
-                    let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
-                    let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
-                    let bars = euclideousResetBarsRemaining(liveBeat: liveBeat, spanBeats: spanBeats, cyc: cyc, resetSpanBars: resetSpanBars)
-                    Text("IN \(bars)").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
-                }
-            }
         }
     }
     // headerKeyGroup REMOVED (Paul 2026-10-12, second same-day ferry): "only its entry point moves" — the
@@ -1201,23 +1227,31 @@ struct EuclideousPage: View {
             .onTapGesture { onSetMainOutMask(mainOutMask ^ (1 << UInt8(b))) }
     }
 
-    private func euclideousResetSpanLabel(_ bars: Int) -> String { bars <= 0 ? "OFF" : "\(bars) BAR\(bars == 1 ? "" : "S")" }
-
-    private var resetSpanPopupCard: some View {
-        VStack(spacing: 8) {
-            Text("RESET SPAN").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-            ForEach([0, 1, 2, 4, 8, 16], id: \.self) { v in
-                let on = resetSpanBars == v
-                Text(euclideousResetSpanLabel(v))
+    /// PER-LANE RESET popup (2026-10-14 ferry §3): OFF/1/2/4/8 — the ladder narrows from the old machine-
+    /// wide control's own 0/1/2/4/8/16 (16 dropped — `EuclidLine.resetStepsResolved`'s own domain is
+    /// exactly `{0,1,2,4,8}`, per Models.swift). Same card chrome as the old `resetSpanPopupCard` (kept,
+    /// not reinvented), writing `EuclidLine.resetSteps` via the existing generic `onEdit` funnel — no new
+    /// edit callback needed, unlike `onEditRiffs`/`onEditLanesSeq`/etc, since this is a single per-lane
+    /// field change the generic funnel already handles.
+    private func resetPopupCard(_ lane: Int) -> some View {
+        let current = lane < lines.count ? lines[lane].resetStepsResolved : 0
+        return VStack(spacing: 8) {
+            Text("LANE \(lane + 1) RESET").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            ForEach([0, 1, 2, 4, 8], id: \.self) { v in
+                let on = current == v
+                Text(v == 0 ? "OFF" : "\(v) STEP\(v == 1 ? "" : "S")")
                     .font(.system(size: 13, weight: .heavy, design: .monospaced))
                     .foregroundColor(on ? .black : .white.opacity(0.8))
                     .frame(maxWidth: .infinity).frame(height: 36)
                     .background(RoundedRectangle(cornerRadius: 7).fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
                     .contentShape(Rectangle())
-                    .onTapGesture { onSetResetSpanBars(v); resetSpanPopupOpen = false }
+                    .onTapGesture {
+                        edit(lane) { $0.resetSteps = v }
+                        resetPopupLane = nil
+                    }
             }
         }
-        .padding(16).frame(width: 220)
+        .padding(16).frame(width: 200)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
@@ -1403,7 +1437,7 @@ struct EuclideousPage: View {
         // RIFF/NOTES SPLIT (third same-day ferry): the notes layer's own master switch gates this too —
         // nothing can be "lit" in the sense that matters here if the whole layer is off.
         let anyLit = line.notesOnResolved && (line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved)
-        return euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: riff.ranksResolved, anyLit: anyLit)
+        return euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: editingRiff.ranksResolved, anyLit: anyLit)
     }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
@@ -1685,6 +1719,34 @@ struct EuclideousPage: View {
     /// off = HIT, on = GAPS. Its behaviour and display are unchanged [from GAPS's own]." Same persisted
     /// field (`patternMiss`), same semantics — only the control SHAPE changed, from two mutually-
     /// exclusive buttons to one toggle.
+    /// PER-LANE RESET (2026-10-14 ferry §3): REPLACES the old machine-wide header RESET control (which
+    /// showed a single, shared "IN n" countdown) — each lane now has its OWN reset-steps count, set here.
+    /// PLACEMENT, flagged as a judgment call: the ratified ferry's own exact placement didn't survive
+    /// verbatim into this implementation session; placed beside INV (the row's one other small fixed-width
+    /// toggle) as the lowest-risk slot in this tab's own tightly pixel-budgeted layout — DIRECTION absorbs
+    /// the modest width reduction via its own existing `.frame(maxWidth: .infinity)`, rather than disturbing
+    /// the RATE grid's hard per-cell math above. Tap opens the anchored popup (`resetPopupCard`, mirroring
+    /// `keyPopupCard`'s own anchored-not-centred idiom) with OFF/1/2/4/8.
+    private func resetButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
+        let steps = line.resetStepsResolved
+        return Text(steps == 0 ? "OFF" : "×\(steps)")
+            .font(.system(size: 11, weight: .heavy, design: .monospaced))
+            .foregroundColor(steps > 0 ? patternSelectedText : patternUnselectedText)
+            .frame(width: 40, height: rowH)
+            .background(RoundedRectangle(cornerRadius: 7).fill(steps > 0 ? lane20(accent) : patternUnselectedFill))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(steps > 0 ? lane100(accent) : Color.clear, lineWidth: 1))
+            .contentShape(Rectangle())
+            .background(GeometryReader { geo in
+                // Matches `headerSourceGroup`'s own KEY-chip publisher exactly — the SAME named coordinate
+                // space the surrounding ZStack declares (`.coordinateSpace(name: "euclideousXY")`), not
+                // `.global`, since the popup's own `.position(x:y:)` positions within THAT local space.
+                Color.clear.preference(key: EuclideousResetChipFramePreferenceKey.self,
+                                        value: [idx: geo.frame(in: .named("euclideousXY"))])
+            })
+            .onTapGesture { resetPopupLane = idx }
+            .euclideousHelp("How many steps before this lane's pattern re-anchors")
+            .accessibilityLabel("Reset, \(steps == 0 ? "off" : "every \(steps) steps")")
+    }
     private func invButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         let on = line.patternMissResolved
         return Text("INV").font(.system(size: 11, weight: .heavy, design: .monospaced))
@@ -1832,6 +1894,7 @@ struct EuclideousPage: View {
             HStack(spacing: 3) {   // exact-dimensions ferry: 3pt between the direction group and INV
                 directionRow(idx, line, accent, rowH: rowH).frame(maxWidth: .infinity)
                 invButton(idx, line, accent, rowH: rowH)
+                resetButton(idx, line, accent, rowH: rowH)
             }
             laneOutRow(idx, line, accent, rowH: rowH)
         }
@@ -2070,7 +2133,7 @@ struct EuclideousPage: View {
     /// uniformly with the same `1...8` bounds check, no separate rest-vs-out-of-range branching needed).
     private func riffMiniGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat) -> some View {
         let n = 8
-        let stepRanks = euclideousRiffStepRanks(ranks: riff.ranksResolved, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
+        let stepRanks = euclideousRiffStepRanks(ranks: playingRiff.ranksResolved, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
         let len = line.riffLengthResolved
         let curStep = idx < riffPositions.count ? riffPositions[idx] : -1
         let isRiff = line.riffOnResolved
@@ -2367,7 +2430,7 @@ struct EuclideousPage: View {
         let highRanks = euclideousHighPickRanks(topLit: line.topLitResolved, top2Lit: line.top2LitResolved, poolCount: poolCount)
         let reachable: Set<Int> = riffOn ? euclideousRiffReachableRanks(
             dir: line.euclideousRiffDirResolved, length: line.riffLengthResolved, stride: line.riffStrideResolved,
-            rotate: line.riffRotateResolved, ranks: riff.ranksResolved, invert: line.riffInvertResolved,
+            rotate: line.riffRotateResolved, ranks: playingRiff.ranksResolved, invert: line.riffInvertResolved,
             transpose: line.melodyTransposeResolved) : []
         let extendedPool = euclideousGlobalPoolExtended(sortedRaw: riffLivePool.map { Int($0) })
         let flatKey = noteSource == .key ? euclideousKeyIsFlat(keyRoot, scaleType: keyType) : true
@@ -2946,9 +3009,71 @@ struct EuclideousPage: View {
     // columns, so the matrix's real rendered width can never exceed its stated budget the way the old
     // gutter's did.
     private let riffLabelColW: CGFloat = 30
+    /// FOUR RIFFS (2026-10-14 ferry §7): the tab row sitting above the shared 8×8 grid. Tapping a tab makes
+    /// it the EDITING one (`onSetActiveRiff` — the grid below reads/writes `riffs[activeRiff]`); a small
+    /// play-triangle marks whichever one is ACTUALLY PLAYING (`playingRiffIndex`) — the two can disagree
+    /// while the RIFFS sequencer is switching between them live, by design (this struct's own doc comment
+    /// on `activeRiff`/`playingRiffIndex`). Long-press opens COPY/PASTE/CLEAR.
+    private func riffTabRow() -> some View {
+        HStack(spacing: sp4) {
+            ForEach(0..<4, id: \.self) { i in
+                let sel = i == max(0, min(3, activeRiff))
+                let isPlaying = i == max(0, min(3, playingRiffIndex))
+                VStack(spacing: 2) {
+                    riffOutlineBars(ranks: i < riffs.count ? riffs[i].ranksResolved : [], maxHeight: 14)
+                    HStack(spacing: 2) {
+                        if isPlaying {
+                            Image(systemName: "play.fill").font(.system(size: 7, weight: .heavy))
+                        }
+                        Text("\(i + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    }
+                }
+                .foregroundColor(sel ? .white : Color(hex: 0xAAB0BA))
+                .padding(.horizontal, 4).padding(.vertical, 3)
+                .frame(maxWidth: .infinity, minHeight: 28)
+                .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color.white.opacity(0.16) : Color.white.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(sel ? Color.white.opacity(0.4) : Color.clear, lineWidth: 1))
+                .contentShape(Rectangle())
+                .onTapGesture { onSetActiveRiff(i) }
+                .onLongPressGesture(minimumDuration: 0.5) { riffTabMenuLane = i }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Riff \(i + 1)\(isPlaying ? ", playing" : "")\(sel ? ", editing" : "")")
+            }
+        }
+    }
+    private func riffTabMenuCard(_ idx: Int) -> some View {
+        func row(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+            Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundColor(enabled ? .white.opacity(0.85) : .white.opacity(0.3))
+                .frame(maxWidth: .infinity).frame(height: 36)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
+                .onTapGesture { if enabled { action() } }
+        }
+        return VStack(spacing: 8) {
+            Text("RIFF \(idx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            row("COPY") {
+                riffClipboard = idx < riffs.count ? riffs[idx] : nil
+                riffTabMenuLane = nil
+            }
+            row("PASTE", enabled: riffClipboard != nil) {
+                guard let c = riffClipboard else { return }
+                onEditRiffs { r in guard idx < r.count else { return }; r[idx] = c }
+                riffTabMenuLane = nil
+            }
+            row("CLEAR") {
+                onEditRiffs { r in guard idx < r.count else { return }; r[idx] = .empty }
+                riffTabMenuLane = nil
+            }
+        }
+        .padding(16).frame(width: 180)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
     private func riffGridView(maxWidth: CGFloat, rowH: CGFloat) -> some View {
         let n = 8
-        let resolved = riff.ranksResolved
+        let resolved = editingRiff.ranksResolved
         let ranks = (0..<n).map { $0 < resolved.count ? resolved[$0] : 0 }
         // MIDI IN/CHORD/KEY moved to the header (2026-10-14) — the grid reclaims the width the old
         // vertical source tabs used to occupy; only the label column's own gap is left to account for.
@@ -2968,7 +3093,10 @@ struct EuclideousPage: View {
         // from a genuine NOTE VIEW event or a non-rest grid read, neither of which a silent lane produces.
         let midiEmpty = source == .midi && pool.isEmpty
         return VStack(alignment: .leading, spacing: sp4) {
-            Text("RIFF · SHARED").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            // "RIFF · SHARED" → "RIFF" (2026-10-14 ferry §7): no longer one pattern shared by every
+            // riff-on lane — four independently-stored riffs now, picked by the tab row directly below.
+            Text("RIFF").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            riffTabRow()
             if midiEmpty {
                 Text("HOLD NOTES TO PLAY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
             }
@@ -3059,10 +3187,16 @@ struct EuclideousPage: View {
     /// rest; `toggle: false` (every later cell in the same drag) always sets, so painting across the grid
     /// never accidentally clears a column it merely passes back over.
     private func riffSetRank(col: Int, rank: Int, n: Int, toggle: Bool) {
-        onEditRiff { r in
+        // FOUR RIFFS (2026-10-14 ferry §7): the grid always edits WHICHEVER tab is active — mutate exactly
+        // that one slot of the 4-element array, leaving the other 3 riffs untouched.
+        let idx = max(0, min(3, activeRiff))
+        onEditRiffs { riffs in
+            guard idx < riffs.count else { return }
+            var r = riffs[idx]
             var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
             if col < rr.count { rr[col] = (toggle && rr[col] == rank) ? 0 : rank }
             r.ranks = rr; r.steps = n
+            riffs[idx] = r
         }
     }
 
@@ -3211,472 +3345,242 @@ struct EuclideousPage: View {
         }
     }
 
-    // MARK: - NOTE VIEW, phase 1 (Paul 2026-10-10 ferry — working name, final name to come): four lane strips,
-    // each a continuously-moving rhythm timeline + a note box showing the pitch actually struck, plus (a
-    // direct follow-up ferry) a 14pt per-strip summary label. Replaces the dashed placeholder the layout
-    // ferry removed — "supersedes the previous ferry's instruction to delete that placeholder: replace it
-    // with NOTE VIEW instead" (§0.1).
+
+    // MARK: - SEQUENCER PANEL (2026-10-14 ferry) — REPLACES the NOTE VIEW panel above (same size/position at
+    // both call sites, `portraitLayout`/`landscapeLayout` just swap which function they call). Two tabs:
+    // LANES (which of the 4 lanes sounds each step) and RIFFS (which of the 4 riffs plays each step) — both
+    // a small step-clock grid over its own ON/RATE/LEN controls. "The step clock always runs" (§4): the grid
+    // and its live playhead highlight both read unconditionally from `lanesSeqStep`/`riffsSeqStep`,
+    // independent of either sequencer's own ON state (ON only gates whether the engine actually MUTES/
+    // SWITCHES — see Router.swift's own `lanesSeqMuted`/`playingRiffIdx`).
     //
-    // PANEL CHROME (§0.2, "same panel style as the riff panel"): the SAME `.padding(sp8)` +
-    // `RoundedRectangle(cornerRadius: 12).fill(white 3.5%)` treatment `riffGridView` uses above — read as
-    // covering the container treatment specifically, not a literal requirement for a title row too (riff's
-    // own title exists to NAME a shared, page-level control; NOTE VIEW's 4 strips are self-evidently their
-    // own content, and the panel's real height budget here is tight enough — shared 50/50 with riff, then
-    // split 4 ways — that a title row would meaningfully squeeze the one thing this ferry actually specifies
-    // in detail). Flagged as a judgment call, not silently assumed.
-    private func noteViewPanel(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
-        let innerH = max(1, maxHeight - sp8 * 2)
-        let stripH = max(1, (innerH - sp4 * 3) / 4)   // §1.1: "equal height, 4pt gaps"
+    // PIXEL NOTE, flagged honestly (per this page's own standing disclosure convention): the ratified
+    // ferry's own literal frame math did not survive verbatim into this implementation session — only a
+    // distilled summary did, via the approved plan (an `x = 41.5+43c, y = 56+47r, w:40, h:44`-style absolute
+    // formula, evidently anchored to one specific reference card width this session has no way to confirm).
+    // Built instead with PROPORTIONAL cell sizing derived from the panel's own real available width/height —
+    // the same "share the extra width across stretching items" convention this page's own other ferries
+    // already fall back to when an exact pixel table isn't in hand — rather than reproducing an absolute
+    // formula that could silently clip or float wrong at any width but the one it was written against.
+    // DEVICE-OWED, as always for this page's pixel-level claims.
+    // STUB (§10, open): "where do silence messages go" was explicitly left OPEN by the 2026-10-14 ferry —
+    // raised back to the design channel 2026-10-14, do NOT implement without confirmation. The note-flow
+    // panel this feature retired was the only surface that ever called `euclideousSilenceReason`
+    // (Derivations.swift) — that pure function and its own tests are UNTOUCHED, just orphaned (zero UI call
+    // sites now), ready to be wired into wherever §10 lands once it's answered. Not reused here as a guess.
+    private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
         let innerW = max(1, maxWidth - sp8 * 2)
-        // §2.3, literal: ONE shared window size for all 4 strips, computed ONCE here (not re-derived per
-        // strip, which would recompute the identical answer 4 times from the same inputs) — "fastest
-        // PLAYING lane" excludes a disabled lane's own rate from the comparison (§2.6: a disabled lane
-        // draws no marks at all, so its rate shouldn't be able to force the shared window narrower).
-        let cyc = clock.stepBeats * Double(max(1, clock.cols))
-        let fastestSub = lines.filter { $0.enabledResolved }.map { $0.rate?.beats ?? ArpRate.r1_16.beats }.min() ?? ArpRate.r1_16.beats
-        let windowBeats = euclideousNoteViewWindowBars(fastestSub: max(0.03125, fastestSub), cyc: cyc, trackW: innerW - 56 - sp8) * cyc
-        // DIVIDERS (UI polish ferry §3.6: "a subtle 1pt #22252C divider between strips") — `spacing: 0`
-        // + an explicit divider slot replaces the old bare `spacing: sp4` gap; each divider slot is still
-        // exactly `sp4` tall (the 1pt line centred within it via the second `.frame`), so the panel's total
-        // height budget (`innerH`, computed above from `stripH*4 + sp4*3`) is byte-identical — the divider
-        // rides IN the existing gap, it doesn't add a new one.
-        // DSP FIX (Paul 2026-10-11, "review if there's a way we can keep the CPU down" — Euclideous is now
-        // the app's default/always-open view, so its own steady-state cost matters far more than when it was
-        // an occasional overlay): the 4 strips below used to each own TWO independent 60fps `TimelineView`s
-        // (noteViewTrack + noteViewNoteBox) — 8 separate SwiftUI animation schedulers ticking concurrently
-        // whenever the transport plays, EXACTLY the "per-cell TimelineView explosion" class this page's own
-        // §1.2 DSP fix already named and fixed once for the riff-grid wipes. Re-checking here found the SAME
-        // anti-pattern survived in NOTE VIEW: noteViewTrack's 4 instances were even gated IDENTICALLY
-        // (`paused: !clock.playing`, no per-lane term at all) — pure redundancy, zero behaviour difference
-        // between sharing one and running four. Consolidated into ONE shared `TimelineView` here, `liveBeat`
-        // computed once and threaded down to every strip — collapses 8 schedulers into 1.
-        // noteViewNoteBox's own pause WAS per-lane (`!(clock.playing && line.enabledResolved)`, to freeze a
-        // disabled lane's box per §2.6) — checked rather than assumed safe to drop: `lastEvent`/`restFlash`
-        // are themselves already frozen-by-construction once a lane stops striking (the engine simply never
-        // pushes a new one), so the only residual effect of sharing this tick is letting an ALREADY-in-flight
-        // brightness fade finish settling to its 40% floor instead of freezing mid-fade — a sub-beat-duration
-        // difference (a GATE is a small fraction of one step), imperceptible in practice. Flagged as a
-        // judgment call, not a silent assumption — worth a direct look if a disabled lane's box ever reads as
-        // "still changing" on device.
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !clock.playing)) { tl in
-            let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
-            VStack(spacing: 0) {
-                ForEach(0..<4, id: \.self) { idx in
-                    noteViewStrip(idx, width: innerW, height: stripH, cyc: cyc, windowBeats: windowBeats, liveBeat: liveBeat)
-                    if idx < 3 {
-                        Rectangle().fill(Color(hex: 0x22252C)).frame(height: 1).frame(height: sp4)
-                    }
-                }
+        let innerH = max(1, maxHeight - sp8 * 2)
+        let tabRowH: CGFloat = 20
+        let controlsRowH: CGFloat = 34
+        let gridH = max(1, innerH - tabRowH - controlsRowH - sp4 * 2)
+        return VStack(spacing: sp4) {
+            sequencerTabRow(width: innerW, height: tabRowH)
+            Group {
+                if sequencerTab == 0 { sequencerLanesGrid(width: innerW, height: gridH) }
+                else { sequencerRiffsGrid(width: innerW, height: gridH) }
             }
+            .frame(width: innerW, height: gridH)
+            sequencerControlsRow(width: innerW, height: controlsRowH)
         }
         .padding(sp8)
         .frame(width: maxWidth, height: maxHeight)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
     }
-
-    /// One lane's strip (ferry 1 §1.1-§1.3 + ferry 2 §1.1-§1.4): a 14pt label row, then the track+playhead+
-    /// note-box row filling whatever height remains. `liveBeat` rides down from `noteViewPanel`'s ONE
-    /// shared `TimelineView` (the 2026-10-11 DSP fix) rather than each strip ticking its own.
-    private func noteViewStrip(_ idx: Int, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double, liveBeat: Double) -> some View {
-        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
-        let accent = laneAccents[idx % laneAccents.count]
-        let labelH: CGFloat = 14
-        let bodyH = max(1, height - labelH)
-        return VStack(alignment: .leading, spacing: 0) {
-            noteViewLabelRow(idx, line, accent: accent, width: width)
-            noteViewTrackRow(idx, line, accent: accent, width: width, height: bodyH, cyc: cyc, windowBeats: windowBeats, liveBeat: liveBeat)
-        }
-        .frame(width: width, height: height, alignment: .leading)
-        // CONNECT EACH LANE'S PARTS (usability ferry §5, literal): "its NOTE VIEW strip: a 1pt LANE-100
-        // outline" when the lane is selected — the same `selectedLane` state the card outline already
-        // reads (`laneCard`'s own `.overlay(...stroke(selectedLane == idx ? lane100...))`), so the two can
-        // never disagree about which lane is highlighted.
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(selectedLane == idx ? lane100(accent) : Color.clear, lineWidth: 1))
-        // §5, literal: "tapping a NOTE VIEW strip's track area also selects that lane" — the BASE content's
-        // own tap target, covering the strip's full bounds; the 30pt pop-up-opening overlay below is drawn
-        // (and hit-tests) ON TOP of it, so a tap landing inside that 30pt zone is caught there first (opens
-        // the pop-up, per "the label still opens the pop-up") while anything below it falls through to here.
-        .contentShape(Rectangle())
-        .onTapGesture { selectedLane = idx }
-        .overlay(alignment: .top) {
-            // THE TAP TARGET (§1.1, literal): "a 30pt-tall touch area, extending invisibly into the top
-            // of the track." An `.overlay` never feeds back into its host's own layout size, so this
-            // doesn't steal any height from the track below — it just paints/hit-tests an invisible 30pt
-            // zone OVER the label (14pt) plus the track's own top 16pt. Scoped to exactly 30pt so "taps
-            // on the track and note box must never open it" holds by construction: nothing below this
-            // overlay's own bounds is affected.
-            // §3.1's pressed-state: `minimumDuration: 0` fires `perform` immediately on release (functionally
-            // a plain tap, byte-identical timing to the old `.onTapGesture`), while `pressing:` gives the
-            // touch-down/touch-up signal `.onTapGesture` alone never exposed.
-            // BEHAVIOUR RULE 6 (Paul 2026-10-13 ferry): tapping the summary label now selects this lane AND
-            // switches it to a melodic tab — the melody pop-up it used to open is retired entire. RIFF/NOTES
-            // SPLIT (third same-day ferry) replaced the single MELODY destination with two tabs; NOTES is
-            // the chosen landing (a judgment call, flagged — the ferry never re-specified this one rule once
-            // MELODY itself was split, and NOTES is the more direct successor to what this label used to
-            // summarize: the lit-pitch/octave state, not the riff's own walk settings).
-            Rectangle().fill(Color.clear).frame(width: width, height: 30)
-                .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity,
-                                     pressing: { down in if idx < labelPressed.count { labelPressed[idx] = down } },
-                                     perform: { selectedLane = idx; if idx < laneTab.count { laneTab[idx] = .notes } })
-        }
-    }
-
-    // MARK: - The strip label (NOTE VIEW strip labels ferry, Paul 2026-10-10): display-only, 14pt,
-    // updates automatically since it's a pure read of `line`'s own already-live fields every redraw — no
-    // new state, no new poll. TAPPABLE as of the melody pop-up ferry (§1.1) — the actual tap handling
-    // lives on `noteViewStrip`'s own 30pt overlay above, not here, so this row no longer declares
-    // `.allowsHitTesting(false)` (that would otherwise read as contradicting "the label is tappable" to
-    // a future reader, even though the overlay sitting above it in z-order would already intercept the
-    // touch either way).
-
-    /// §1.3/§1.4 (strip labels ferry), literal: a 6pt LANE-100 dot, then the joined text at 10pt `#AAB0BA`.
-    private func noteViewLabelRow(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat) -> some View {
-        // §3.1, literal: a "›" chevron at the right end (after "+n" if present — already the string's own
-        // tail, so appending here always lands after it) + a pressed state (background lightens to
-        // #22252C while touched). The chevron/dot-and-gap width is reserved OUTSIDE the text's own budget
-        // so `noteViewLabelText`'s own fit/truncation math (textW) never has to account for it.
-        let chevronW: CGFloat = 10
-        let dotAndGap: CGFloat = 6 + 4
-        let textW = max(1, width - dotAndGap - chevronW)
-        let pressed = idx < labelPressed.count && labelPressed[idx]
-        return HStack(spacing: 4) {
-            Circle().fill(lane100(accent)).frame(width: 6, height: 6)
-            Text(noteViewLabelText(line, maxWidth: textW))
-                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
-            Text("›").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(Color(hex: 0xAAB0BA).opacity(0.6))
-        }
-        .frame(width: width, height: 14, alignment: .leading)
-        .background(pressed ? Color(hex: 0x22252C) : Color.clear)
-    }
-    /// The lit-notes layer's own resolved pitches, ascending, for display (summary label / note box). Reuses
-    /// `euclideousGlobalPoolExtended` (already an exact mirror of `riffResolve(wrap:.fold)` for ranks 1...8 —
-    /// the only ranks a lit-note button can ever address) so this can never show a pitch the engine wouldn't
-    /// actually resolve to that same rank. `octaveResolved` (never `riffOctaveResolved`) applies, per "INV
-    /// and TRANS do not apply" — only OCT does.
-    private func euclideousLitPitches(_ line: EuclidLine) -> [Int] {
-        let raw = riffLivePool.map { Int($0) }.sorted()
-        guard !raw.isEmpty else { return [] }
-        let extended = euclideousGlobalPoolExtended(sortedRaw: raw)
-        let poolCount = min(raw.count, 8)
-        let oct12 = 12 * line.octaveResolved
-        var out: [Int] = []
-        for rk in 1...8 where (line.litNotesResolved & (1 << (rk - 1))) != 0 {
-            if rk - 1 < extended.count { out.append(extended[rk - 1] + oct12) }
-        }
-        if line.topLitResolved, poolCount - 1 < extended.count { out.append(extended[poolCount - 1] + oct12) }
-        if line.top2LitResolved {
-            let lo = max(1, poolCount) - 1
-            for i in [lo, poolCount - 1] where i >= 0 && i < extended.count { out.append(extended[i] + oct12) }
-        }
-        return out.sorted()
-    }
-    /// LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-page §2, literal:
-    /// riff on — the existing riff-item list (minus source, already removed) plus " + n" when something is
-    /// lit; riff off — the lit notes in pitch order ("C3 G3"), TOP/TOP2 shown as "TOP"/"TOP 2"; nothing lit
-    /// and riff off — the single item "NO NOTES" (handled by the caller returning early on an empty list
-    /// from `noteViewLabelText`, mirroring how `euclideousSilenceReason`'s own "NO NOTES" already covers the
-    /// note box for the identical condition).
-    private func noteViewLabelItems(_ line: EuclidLine) -> [String] {
-        guard line.riffOnResolved else {
-            // RIFF OFF: list the lit pitches in pitch order; TOP/TOP2 render as themselves, not their
-            // resolved note name, even though they're sorted into the SAME ascending position their pitch
-            // occupies (per the ferry's own "TOP and TOP 2 show as 'TOP' and 'TOP 2'").
-            let raw = riffLivePool.map { Int($0) }.sorted()
-            guard !raw.isEmpty else {
-                // No pool to resolve against at all — still list the TOGGLE names (dashes have no meaning
-                // here; the note box's own silence-reason branch covers the empty-pool case).
-                var names: [String] = []
-                for rk in 1...8 where (line.litNotesResolved & (1 << (rk - 1))) != 0 { names.append("N\(rk)") }
-                if line.topLitResolved { names.append("TOP") }
-                if line.top2LitResolved { names.append("TOP 2") }
-                return names
+    private func sequencerTabRow(width: CGFloat, height: CGFloat) -> some View {
+        HStack(spacing: sp4) {
+            ForEach(0..<2, id: \.self) { i in
+                let sel = sequencerTab == i
+                Text(i == 0 ? "LANES" : "RIFFS")
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundColor(sel ? .white : Color(hex: 0xAAB0BA))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .bottom) {
+                        if sel { Rectangle().fill(Color.white).frame(height: 2) }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { sequencerTab = i }
             }
-            let extended = euclideousGlobalPoolExtended(sortedRaw: raw)
-            let poolCount = min(raw.count, 8)
-            let oct12 = 12 * line.octaveResolved
-            let flatKey = euclideousKeyIsFlat(keyRoot, scaleType: keyType)
-            var pairs: [(pitch: Int, label: String)] = []
-            for rk in 1...8 where (line.litNotesResolved & (1 << (rk - 1))) != 0 {
-                // RIFF/NOTES SPLIT: each rank's OWN per-note octave shift applies here too — a C3 shifted −1
-                // must read C2 in this label, matching the key buttons' own display (NOTES tab) exactly.
-                if rk - 1 < extended.count { let p = extended[rk - 1] + oct12 + 12 * line.noteOctShiftsResolved[rk - 1]; pairs.append((p, euclideousNoteViewName(UInt8(max(0, min(127, p))), flatKey: flatKey))) }
-            }
-            if line.topLitResolved, poolCount - 1 < extended.count { pairs.append((extended[poolCount - 1] + oct12, "TOP")) }
-            if line.top2LitResolved {
-                let lo = max(1, poolCount) - 1
-                for i in [lo, poolCount - 1] where i >= 0 && i < extended.count { pairs.append((extended[i] + oct12, "TOP 2")) }
-            }
-            return pairs.sorted { $0.pitch < $1.pitch }.map { $0.label }
-        }
-        // RIFF ON: today's items list (source already removed, per the 2026-10-12 ferry); the direction
-        // reads `euclideousRiffDirResolved` (DRUNK/RANDOM→FWD) so a legacy doc's display can't disagree
-        // with what the WALK row itself shows as lit.
-        var items: [String] = ["RIFF " + riffDirShortLabel(line.euclideousRiffDirResolved)]
-        let n = line.riffLengthResolved
-        let shift = ((line.riffRotateResolved % n) + n) % n
-        if shift != 0 { items.append("SHIFT \(shift)") }
-        if line.riffOctaveResolved != 0 { items.append("OCT \(euclideousSigned(line.riffOctaveResolved))") }
-        if line.riffLockResolved { items.append("LOCK") }
-        if line.riffInvertResolved { items.append("INV") }
-        if line.riffOnRestResolved != .skip { items.append(line.riffOnRestResolved == .fill ? "REST FILL" : "REST TIE") }
-        if line.riffStrideResolved != 1 { items.append("STRIDE \(line.riffStrideResolved)") }
-        if line.riffLengthResolved != 8 { items.append("LEN \(line.riffLengthResolved)") }
-        if line.melodyTransposeResolved != 0 { items.append("TRANS \(euclideousSigned(line.melodyTransposeResolved))") }
-        if line.riffAdvanceStepResolved { items.append("ADV STEP") }
-        // " + n" (ferry §2, literal spacing): n = how many DISTINCT lit pitches sound alongside the riff
-        // note this hit, i.e. the lit-layer's own resolved set minus whatever coincides with the riff note
-        // itself — an honest best-effort DISPLAY count (the real dedup happens note-by-note in Router.swift;
-        // this reads the SAME live pool to stay consistent, not a second, disagreeing source).
-        // RIFF/NOTES SPLIT: the notes layer's own master switch gates this count — nothing is "lit" in the
-        // sense that sounds alongside the riff if the whole layer is off, regardless of what's remembered.
-        let litCount = line.notesOnResolved ? euclideousLitPitches(line).count : 0
-        if litCount > 0 { items.append("+ \(litCount)") }
-        return items
-    }
-    /// §3.2, literal: "never truncate in the middle of a word or show an ellipsis. If the line doesn't fit,
-    /// drop whole items from the end and finish with '+n'." No live text-measurement API is available here
-    /// (the same disclosed limitation as the axis-label fit-check built for the previous ferry) — estimates
-    /// width via this file's own established 0.6×point-size monospaced-character convention. Tries the full
-    /// item list first, then drops one item from the end at a time (re-joining with "+n" once anything is
-    /// dropped) until the estimate fits — read literally, not reserving Source/Mode as a protected floor
-    /// beyond the natural consequence of them being FIRST in the list (so they're the last to ever be cut).
-    ///
-    /// SAFETY MARGIN (this ferry §1.2/§3.5: "the NOTE VIEW label runs off the edge"/"text currently runs to
-    /// or past the right edge" despite this exact drop-items mechanism already existing) — a ×1.15 fudge on
-    /// the hand-estimated width, not a change to the dropping algorithm itself: this function's own
-    /// disclosed limitation ("no live text-measurement API") means the 0.6×-per-character estimate is a
-    /// GUESS, and an UNDER-estimate is exactly what would let a string the algorithm judges "fits" actually
-    /// overflow on the real device — the one-sided failure mode this bug report is consistent with. Erring
-    /// conservative (dropping one MORE item than strictly necessary in the rare case the estimate undershot)
-    /// is the safe direction; erring generous is the one that reproduces this exact complaint.
-    private func noteViewLabelText(_ line: EuclidLine, maxWidth: CGFloat) -> String {
-        let items = noteViewLabelItems(line)
-        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): "nothing lit and riff off: NO
-        // NOTES" — `noteViewLabelItems`'s riff-off branch returns an empty list in exactly this case; the
-        // drop-items algorithm below has nothing to show for an empty list (it would silently produce ""),
-        // so this is handled explicitly, matching the note box's own identical silent state.
-        guard !items.isEmpty else { return "NO NOTES" }
-        let charWidth: CGFloat = 10 * 0.6 * 1.15
-        func estimate(_ s: String) -> CGFloat { CGFloat(s.count) * charWidth }
-        func joined(_ n: Int) -> String {
-            let shown = items.prefix(n).joined(separator: " · ")
-            let dropped = items.count - n
-            return dropped > 0 ? "\(shown) · +\(dropped)" : shown
-        }
-        for n in stride(from: items.count, through: 1, by: -1) {
-            let s = joined(n)
-            if estimate(s) <= maxWidth { return s }
-        }
-        return joined(1)
-    }
-
-    // MARK: - The track + playhead + note box (ferry 1 §1.2/§2/§3/§4)
-
-    // FLIPPED (Paul 2026-10-11): "right-to-left is what you expect on any piano roll... it also makes the
-    // note being played more visible as it's not tucked offscreen." The note box now leads on the LEFT,
-    // immediately beside the playhead; the track fills the REMAINING width on the right, where upcoming
-    // marks enter and travel leftward toward it.
-    private func noteViewTrackRow(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double, liveBeat: Double) -> some View {
-        let noteBoxW: CGFloat = 56
-        let gap: CGFloat = 8
-        let trackW = max(1, width - noteBoxW - gap)
-        return HStack(spacing: 0) {
-            noteViewNoteBox(idx, line, accent: accent, width: noteBoxW, height: height, liveBeat: liveBeat)
-            Color.clear.frame(width: gap)
-            noteViewTrack(idx, line, accent: accent, width: trackW, height: height, cyc: cyc, windowBeats: windowBeats, liveBeat: liveBeat)
         }
         .frame(width: width, height: height)
     }
-
-    /// The continuously-moving rhythm track (ferry 1 §2/§3) — one `TimelineView` per strip (a disclosed,
-    /// behaviourally-equivalent simplification of "one shared TimelineView per panel": all 4 read the SAME
-    /// `clock` anchor/tempo, so they tick in lockstep off the same display-link schedule regardless of
-    /// whether they share one `TimelineView` instance or each own one). CAPPED AT 1/60 (usability ferry
-    /// §1.2 DSP fix, "NOTE VIEW" named explicitly) — SUPERSEDES the earlier ferry's own "render at the
-    /// display refresh rate" instruction (no cap at all), now that a newer, more urgent priority (the
-    /// reported DSP spike) explicitly calls this view out by name. 1/60 is still imperceptibly different
-    /// from a mark landing "exactly on the beat" to any human eye (a ProMotion display's own 120Hz is pure
-    /// headroom no one can see used), while roughly halving this view's worst-case per-frame cost.
-    private func noteViewTrack(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, cyc: Double, windowBeats: Double, liveBeat: Double) -> some View {
-        let running = clock.playing && line.enabledResolved   // §2.6: a stopped lane draws no marks
-        let sub = max(0.03125, line.rate?.beats ?? ArpRate.r1_16.beats)
-        let buf = euclideousNoteViewPattern(pulses: line.pulses, steps: line.steps, rotate: line.rotate, tilt: line.tiltResolved, patternMiss: line.patternMissResolved, customHits: line.customHitsResolved(max(2, min(16, line.steps))))
-        let spanBeats = euclideousNoteViewSpanBeats(resetSpanBars: resetSpanBars, cyc: cyc)
-        let dir = line.directionResolved
-        return Canvas { ctx, size in
-                guard windowBeats > 0 else { return }
-                // BASELINE (UI polish ferry §3.3: "stopped lanes currently show nothing under their
-                // label... draw the track baseline... so all four strips always look the same shape") — a
-                // constant 1pt #2A2D34 line, drawn UNCONDITIONALLY (running or stopped), so every strip
-                // keeps an identical base shape regardless of each individual lane's own play state; marks
-                // (below) layer on top of it only while actually running.
-                ctx.fill(Path(CGRect(x: 0, y: size.height / 2 - 0.5, width: size.width, height: 1)), with: .color(Color(hex: 0x2A2D34)))
-                // RE-CHECKED, a real bug fixed on an earlier pass: `euclideousNoteViewMarkX` makes any tick
-                // with `age = tickBeat - nowBeat` in `0...windowBeats` visible — meaning FUTURE ticks up to
-                // a full `windowBeats` ahead must be scanned, not just one. The original loop's upper bound
-                // was a bare `latestTick + 1` (one tick ahead, a leftover from an earlier, wrong mental
-                // model that only "the next tick" needed drawing) while its LOWER bound wastefully scanned
-                // `lookback` ticks that can never satisfy `age >= 0` in the first place (tick `latestTick`
-                // itself already has `age <= 0` by construction — anything earlier is strictly more
-                // negative). Fixed: scan forward from `latestTick` through the full lookahead the window
-                // actually promises, nothing behind it (the position function's own guard discards anything
-                // that doesn't belong, so a little slack here costs nothing).
-                if running {
-                    let latestTick = Int((liveBeat / sub).rounded(.down))
-                    let aheadTicks = Int((windowBeats / sub).rounded(.up)) + 1
-                    for t in latestTick...(latestTick + aheadTicks) {
-                        let tickBeat = Double(t) * sub
-                        guard let x = euclideousNoteViewMarkX(tickBeat: tickBeat, nowBeat: liveBeat, windowBeats: windowBeats, trackW: size.width) else { continue }
-                        let isHit = euclideousNoteViewIsHit(buf: buf, tickBeat: tickBeat, sub: sub, spanBeats: spanBeats, dir: dir)
-                        // FADE-IN AT THE ENTRY EDGE (UI polish ferry §3.4: "marks entering... are cut off
-                        // hard (half-marks look like a 'D'). Fade marks in over the first 12pt of the track
-                        // instead of clipping them.") The ferry's own wording names the LEFT edge, but
-                        // describes the PRE-FLIP layout (marks used to enter left, travel right) — this
-                        // session's own direction flip (Paul 2026-10-11, "right-to-left is what you expect
-                        // on any piano roll") moved the entry edge to the RIGHT (`x` near `size.width`); the
-                        // fade is applied at whichever edge marks actually enter from NOW, matching the
-                        // ferry's INTENT (soften the entry, wherever it is) rather than its now-stale literal
-                        // side. `distFromEntry` is simply how far `x` sits from the track's own entry edge.
-                        let distFromEntry = size.width - x
-                        let fadeIn = distFromEntry < 12 ? max(0, distFromEntry / 12) : 1
-                        noteViewDrawMark(&ctx, x: x, midY: size.height / 2, isHit: isHit, accent: accent, opacity: fadeIn)
+    /// LANES grid: `lanesSeq.len` columns (1...8) × 4 rows (one per lane). Each cell is a plain on/off toggle
+    /// (`lanesSeq.cells[step*4+lane]`, §2's own row-major convention) tinted the lane's own accent when lit.
+    /// A small white tick above a step marks where THAT LANE's own per-lane RESET (§3, `EuclidLine.
+    /// resetStepsResolved`) re-anchors it — pure client-side arithmetic, no new engine state, since a
+    /// restart happens at every Nth sequencer step starting from step 0 by construction (`resetStepsResolved
+    /// == 0` ⇒ OFF ⇒ no ticks at all). The live playhead (`lanesSeqStep`) highlights the current column
+    /// across all 4 rows, unconditionally (§4: the clock always runs).
+    private func sequencerLanesGrid(width: CGFloat, height: CGFloat) -> some View {
+        let n = max(1, min(8, lanesSeq.len))
+        let cellW = width / CGFloat(n)
+        let cellH = height / 4
+        let cells = lanesSeq.cells
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(Color.white.opacity(0.12)).frame(width: cellW, height: height)
+                .offset(x: CGFloat(max(0, min(n - 1, lanesSeqStep))) * cellW)
+                .allowsHitTesting(false)
+            VStack(spacing: 0) {
+                ForEach(0..<4, id: \.self) { lane in
+                    HStack(spacing: 0) {
+                        ForEach(0..<n, id: \.self) { step in
+                            let idx = step * 4 + lane
+                            let lit = idx < cells.count ? cells[idx] : true
+                            let accent = laneAccents[lane % laneAccents.count]
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(lit ? accent.opacity(0.85) : Color.white.opacity(0.08))
+                                .padding(1.5)
+                                .frame(width: cellW, height: cellH)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    onEditLanesSeq { s in
+                                        guard idx < s.cells.count else { return }
+                                        s.cells[idx].toggle()
+                                    }
+                                }
+                        }
                     }
                 }
-                // PLAYHEAD (§1.2, flipped 2026-10-11; §3.3 unconditional): fixed 2pt white-60% line at the
-                // track's trailing edge — the LEFT edge (right beside the note box) — drawn every frame
-                // regardless of `running`, so a stopped lane's track still shows where marks WOULD land,
-                // just with none currently approaching it.
-                ctx.fill(Path(CGRect(x: 0, y: 0, width: 2, height: size.height)), with: .color(Color.white.opacity(0.6)))
             }
+            Canvas { ctx, _ in
+                for lane in 0..<min(4, lines.count) {
+                    let rs = lines[lane].resetStepsResolved
+                    guard rs > 0 else { continue }
+                    var step = 0
+                    while step < n {
+                        let x = CGFloat(step) * cellW + 2
+                        let y = CGFloat(lane) * cellH + 1
+                        ctx.fill(Path(CGRect(x: x, y: y, width: 3, height: 3)), with: .color(.white.opacity(0.9)))
+                        step += rs
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+        }
         .frame(width: width, height: height)
     }
-    /// §3, literal mark styles. The hit's own 16pt tail fades RIGHT (behind the direction of travel, since
-    /// marks move right→left toward the playhead on the left — flipped 2026-10-11, Paul: "right-to-left is
-    /// what you expect on any piano roll"). `opacity` (UI polish ferry §3.4) fades a mark in over its first
-    /// 12pt from the track's entry edge, applied as a layer-wide multiplier so it scales the WHOLE mark
-    /// (tail gradient + head/dot alike) uniformly rather than needing a second opacity baked into each draw.
-    private func noteViewDrawMark(_ ctx: inout GraphicsContext, x: CGFloat, midY: CGFloat, isHit: Bool, accent: Color, opacity: CGFloat = 1) {
-        ctx.drawLayer { layer in
-            layer.opacity = opacity
-            if isHit {
-                var tail = Path(); tail.move(to: CGPoint(x: x, y: midY)); tail.addLine(to: CGPoint(x: x + 16, y: midY))
-                layer.stroke(tail, with: .linearGradient(Gradient(colors: [lane100(accent).opacity(0.6), lane100(accent).opacity(0)]),
-                                                          startPoint: CGPoint(x: x, y: midY), endPoint: CGPoint(x: x + 16, y: midY)), lineWidth: 2)
-                layer.fill(Path(ellipseIn: CGRect(x: x - 4, y: midY - 4, width: 8, height: 8)), with: .color(lane100(accent)))
-            } else {
-                // the hollow-ring "miss-playing" mark RETIRED 2026-10-10 (ferry §4.2) — there's only ever
-                // one voice per lane now, so a silent step is always this plain dim dot, never a second
-                // mark style.
-                layer.fill(Path(ellipseIn: CGRect(x: x - 2, y: midY - 2, width: 4, height: 4)), with: .color(Color(hex: 0x3A3E47)))
-            }
-        }
-    }
-
-    /// The note box (ferry 1 §4) — a pure function of (the reconciled last event / rest-flash for this
-    /// lane, the live extrapolated beat), evaluated fresh every frame; no event-queue bookkeeping happens
-    /// here, that's already done once in AudioUnitViewController's own poll.
-    /// `liveBeat` rides down from `noteViewPanel`'s shared `TimelineView` (2026-10-11 DSP fix — see that
-    /// function's own comment for why dropping this box's former PER-LANE pause is safe in practice: the
-    /// upstream `lastEvent`/`restFlash` snapshots already freeze by construction once a lane stops striking,
-    /// so sharing the tick only lets an already-in-flight sub-beat fade finish settling, nothing new appears).
-    private func noteViewNoteBox(_ idx: Int, _ line: EuclidLine, accent: Color, width: CGFloat, height: CGFloat, liveBeat: Double) -> some View {
-        let lastEvent = idx < noteViewLastEvent.count ? noteViewLastEvent[idx] : nil
-        let restFlash = idx < noteViewRestFlash.count ? noteViewRestFlash[idx] : nil
-        let flatKey = euclideousKeyIsFlat(keyRoot, scaleType: keyType)
-        // EXPLAIN SILENCE (usability ferry §2) — evaluated only while the TRANSPORT is actually running
-        // ("a lane that's playing but cannot produce a note"); a fully stopped transport leaves NOTE VIEW
-        // exactly as it already was (frozen on whatever it last showed), nothing new to explain.
-        let silenceReason = clock.playing
-            ? euclideousSilenceReason(line: line, mainOutMask: mainOutMask,
-                                       riffAllRest: riff.ranksResolved.allSatisfy { $0 == 0 })
-            : nil
-        return noteViewNoteBoxContent(liveBeat: liveBeat, lastEvent: lastEvent, restFlash: restFlash, accent: accent, flatKey: flatKey, silenceReason: silenceReason)
-            .frame(width: width, height: height)
-    }
-    /// §4.4/§4.5 brightness: kind 0/1 fade continuously over the gate (1.0→0.4); kind 3 (a tied hit) is a
-    /// step — full brightness throughout the whole extended span, settling only once it genuinely ends —
-    /// per §4.5's own distinct wording. A plain function, not inlined into the `@ViewBuilder` body above,
-    /// since an `if/else` assigning to a scalar `let` fails Swift's result-builder transform there.
-    private func noteViewBrightness(kind: UInt8, onsetBeat: Double, durationBeat: Double, liveBeat: Double) -> Double {
-        if kind == 3 { return liveBeat < onsetBeat + durationBeat ? 1.0 : 0.4 }
-        let t = durationBeat > 0 ? max(0, min(1, (liveBeat - onsetBeat) / durationBeat)) : 1
-        return 1.0 - 0.6 * t
-    }
-    @ViewBuilder private func noteViewNoteBoxContent(liveBeat: Double, lastEvent: Router.EuclideousNoteViewEventSnapshot?, restFlash: Router.EuclideousNoteViewEventSnapshot?, accent: Color, flatKey: Bool, silenceReason: String? = nil) -> some View {
-        // THE BOX ITSELF IS CONSTANT (UI polish ferry §3.1, literal: "every lane shows its note box AT ALL
-        // TIMES: ... #22252C background, 8pt corner radius... an empty box when the lane hasn't played
-        // yet") — a single base layer, drawn identically regardless of state. ROOT CAUSE of "lanes 1–3 show
-        // floating text with no box, lane 4 shows an empty box": the three states below used to each draw
-        // their OWN differently-styled background (6pt radius, and either 4%/6% white or a `lane20(accent)`
-        // fill further multiplied by `brightness`, as low as ~0.4 × 0.2 ≈ 8% opacity) — subtle enough to
-        // read as "no box, just floating text" against the page's own dark ground, and inconsistent between
-        // states besides. Superseded by this ferry's own explicit, constant spec — CONTENT (the text) is
-        // now the only thing that varies; the container never does.
-        ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C))
-            // EXPLAIN SILENCE (usability ferry §2, literal): "shows the reason... in place of a note name" —
-            // checked FIRST, fully replacing whatever restFlash/lastEvent would otherwise show. Safe to check
-            // unconditionally ahead of them: a lane in one of these 7 states can't be genuinely sounding, so
-            // the engine wouldn't be posting a real restFlash/lastEvent for it to begin with — the two are
-            // mutually exclusive in practice, not just by this ordering.
-            if let reason = silenceReason {
-                Text(reason).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Color(hex: 0xAAB0BA)).multilineTextAlignment(.center).lineLimit(2)
-                    .padding(.horizontal, 2)
-            }
-            // §4.5, SKIP: "show a grey '—' for one step's duration, then return to the previous note at
-            // 40%" — the flash is checked first and, while active, fully REPLACES whatever the note box
-            // would otherwise show; once it ends, falls straight through to `lastEvent`'s own (already-
-            // 40%, since real time has passed) state below, with no special-case code needed for the
-            // "return to" part.
-            else if let rf = restFlash, liveBeat >= rf.onsetBeat, liveBeat < rf.onsetBeat + rf.durationBeat {
-                Text("—").font(.system(size: padValueSize, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Color(hex: 0x8A909A))
-            } else if let ev = lastEvent {
-                // RE-CHECKED: §4.4's general rule ("fades linearly... over the note's gate length") is for
-                // a plain hit/miss (kind 0/1) — but §4.5's TIE case is worded distinctly ("keep showing the
-                // held note at FULL brightness, fading FROM THE END of the extended note"), not "use 4.4's
-                // formula with a longer input." Read literally: a tied note stays fully lit for its WHOLE
-                // held span (it's still genuinely sounding) and only settles to the 40% floor once that
-                // span is actually over — a step, not a second gradual ramp (the ferry names no separate
-                // post-release fade duration, and §4.4's own closing line — "stays at 40% until the next
-                // note" — already describes that floor as a plain settled state, not something reached via
-                // its own fade). `kind == 3` (Router.swift, a tied hit) is the one case this applies to;
-                // kind 0/1 keep the continuous ramp. (An `if/else` STATEMENT assigning to this `let`
-                // directly, written inline here, fails to compile inside a `@ViewBuilder` body — Swift's
-                // result-builder transform tries to treat the `if` as View-producing control flow, not a
-                // plain scalar computation; moved to a bare (non-@ViewBuilder) function so ordinary
-                // imperative code works as expected.)
-                let brightness = noteViewBrightness(kind: ev.kind, onsetBeat: ev.onsetBeat, durationBeat: ev.durationBeat, liveBeat: liveBeat)
-                let (primary, plusN) = noteViewPrimaryPlusN(ev, flatKey: flatKey)
-                // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-page §1,
-                // literal: "the riff note at the current size [padValueSize]. If lit notes sound with it,
-                // add '+n' at 11pt" (riff on) / "the lowest sounding note plus '+n'" (riff off) — supersedes
-                // the prior ferry's own "up to 3 names stacked" rule (§4.6) entire, not layered on top of it.
-                VStack(spacing: 1) {
-                    if let primary { Text(primary).font(.system(size: padValueSize, weight: .heavy, design: .monospaced)).lineLimit(1) }
-                    if let plusN { Text(plusN).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1) }
+    /// RIFFS grid: `riffsSeq.len` columns × 4 rows (one per riff), RADIO per column — exactly one lit cell
+    /// per step (`riffsSeq.cells[step] == riffIdx`), same one-of-N-per-column shape this page's own
+    /// `stateMatrixRadio` uses elsewhere, hand-built here since a per-cell bar-chart preview (`riffOutlineBars`)
+    /// doesn't fit that shared widget. Tapping any cell in a column sets that column's choice outright.
+    private func sequencerRiffsGrid(width: CGFloat, height: CGFloat) -> some View {
+        let n = max(1, min(8, riffsSeq.len))
+        let cellW = width / CGFloat(n)
+        let cellH = height / 4
+        let cells = riffsSeq.cells
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(Color.white.opacity(0.12)).frame(width: cellW, height: height)
+                .offset(x: CGFloat(max(0, min(n - 1, riffsSeqStep))) * cellW)
+                .allowsHitTesting(false)
+            VStack(spacing: 0) {
+                ForEach(0..<4, id: \.self) { riffIdx in
+                    HStack(spacing: 0) {
+                        ForEach(0..<n, id: \.self) { step in
+                            let sel = step < cells.count && cells[step] == riffIdx
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(sel ? Color.white.opacity(0.22) : Color.white.opacity(0.06))
+                                .padding(1.5)
+                                .frame(width: cellW, height: cellH)
+                                .overlay(
+                                    riffOutlineBars(ranks: riffIdx < riffs.count ? riffs[riffIdx].ranksResolved : [], maxHeight: cellH * 0.55)
+                                        .opacity(sel ? 1 : 0.3)
+                                        .padding(3)
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    onEditRiffsSeq { cfg in
+                                        guard step < cfg.cells.count else { return }
+                                        cfg.cells[step] = riffIdx
+                                    }
+                                }
+                        }
+                    }
                 }
-                .foregroundColor(.white).opacity(brightness)
             }
-            // else: nothing — the constant #22252C box above, with no content, IS "an empty box."
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(width: width, height: height)
     }
-    /// Elsewhere-on-page §1, literal: `ev.hasRiffNote` (Router.swift) tells us whether `ev.notes[0]` is
-    /// genuinely the riff's own resolved pitch for this hit — if so, it's the primary (riff on); otherwise
-    /// (riff off, or a FILL/degraded hit with no distinct riff pitch) the LOWEST sounding note is primary,
-    /// matching "riff off: the lowest sounding note" read literally even when riff happens to be on but
-    /// produced nothing of its own this hit. `plusN` is nil when there's nothing else sounding.
-    private func noteViewPrimaryPlusN(_ ev: Router.EuclideousNoteViewEventSnapshot, flatKey: Bool) -> (primary: String?, plusN: String?) {
-        guard !ev.notes.isEmpty else { return (nil, nil) }
-        let primaryPitch = ev.hasRiffNote ? ev.notes[0] : (ev.notes.min() ?? ev.notes[0])
-        let primary = euclideousNoteViewName(primaryPitch, flatKey: flatKey)
-        let n = ev.notes.count - 1
-        return (primary, n > 0 ? "+\(n)" : nil)
+    /// ON toggle + RATE + LEN, for whichever tab is currently selected — the controls apply to that
+    /// sequencer only, matching the tab's own content directly below.
+    private func sequencerControlsRow(width: CGFloat, height: CGFloat) -> some View {
+        let isLanes = sequencerTab == 0
+        let on = isLanes ? lanesSeq.on : riffsSeq.on
+        let rate = isLanes ? lanesSeq.rate : riffsSeq.rate
+        let len = isLanes ? lanesSeq.len : riffsSeq.len
+        return HStack(spacing: sp8) {
+            Text(on ? "ON" : "OFF")
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+                .frame(width: 48, height: height)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x2A2D34)))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isLanes { onEditLanesSeq { $0.on.toggle() } } else { onEditRiffsSeq { $0.on.toggle() } }
+                }
+            sequencerRateStepper(rate, height: height) { v in
+                if isLanes { onEditLanesSeq { $0.rate = v } } else { onEditRiffsSeq { $0.rate = v } }
+            }
+            melodyStepper("LEN", value: len, range: 1...8, width: 69.5) { v in
+                if isLanes { onEditLanesSeq { $0.len = v } } else { onEditRiffsSeq { $0.len = v } }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(width: width, height: height)
+    }
+    /// A RATE stepper matching `melodyStepper`'s own visual shell exactly, but stepping through
+    /// `EuclideousSeqRate.allCases` (an enum, not a plain Int range) by index.
+    private func sequencerRateStepper(_ rate: EuclideousSeqRate, height: CGFloat, onChange: @escaping (EuclideousSeqRate) -> Void) -> some View {
+        let all = EuclideousSeqRate.allCases
+        let idx = all.firstIndex(of: rate) ?? 2
+        let w: CGFloat = 69.5, arrowZone: CGFloat = 18
+        return ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+            HStack(spacing: 0) {
+                Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    .frame(width: arrowZone, height: height)
+                VStack(spacing: 2) {
+                    Text("RATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    Text(rate.rawValue)
+                        .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+                Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    .frame(width: arrowZone, height: height)
+            }
+        }
+        .frame(width: w, height: height)
+        .overlay(
+            HStack(spacing: 0) {
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { onChange(all[max(0, idx - 1)]) }
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { onChange(all[min(all.count - 1, idx + 1)]) }
+            }
+        )
+    }
+    /// A plain bar-chart contour of a riff's own rank sequence — shared by the RIFFS grid cell preview above
+    /// and the riff-tab title row below (Task per 2026-10-14 ferry §7's "a mini outline of that riff").
+    /// Rank 0 (rest) draws a thin low baseline tick rather than nothing, so an empty/all-rest riff still
+    /// reads as "present, just silent" rather than looking like a missing/broken tab.
+    private func riffOutlineBars(ranks: [Int], maxHeight: CGFloat) -> some View {
+        HStack(alignment: .bottom, spacing: 1) {
+            ForEach(0..<8, id: \.self) { i in
+                let r = i < ranks.count ? ranks[i] : 0
+                if r > 0 {
+                    RoundedRectangle(cornerRadius: 0.5)
+                        .fill(Color.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: max(2, CGFloat(r) / 8 * maxHeight))
+                } else {
+                    RoundedRectangle(cornerRadius: 0.5)
+                        .fill(Color.white.opacity(0.35))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 1.5)
+                }
+            }
+        }
+        .frame(maxHeight: maxHeight, alignment: .bottom)
     }
 
     private func euclideousDragHUD(_ info: EuclidDragHUDInfo) -> some View {

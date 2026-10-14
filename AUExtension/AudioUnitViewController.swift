@@ -217,7 +217,9 @@ struct DiagView: View {
     func euclideousSnapshot() -> EuclideousUndoSnapshot {
         EuclideousUndoSnapshot(lines: euclideousLines, riff: euclideousRiff, resetSpanBars: euclideousResetSpanBars,
                                 keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords,
-                                noteSource: euclideousNoteSource)
+                                noteSource: euclideousNoteSource,
+                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
+                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -242,10 +244,19 @@ struct DiagView: View {
         euclideousKeyType = s.keyType
         euclideousChords = s.chords
         euclideousNoteSource = s.noteSource
+        euclideousRiffs = s.riffs
+        euclideousActiveRiff = s.activeRiff
+        euclideousLanesSeq = s.lanesSeq
+        euclideousRiffsSeq = s.riffsSeq
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
             $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType; $0.euclideousChords = s.chords
             $0.euclideousNoteSource = s.noteSource
+            $0.riffs = s.riffs; $0.activeRiff = s.activeRiff
+            $0.euclideousLanesSeqOn = s.lanesSeq.on; $0.euclideousLanesSeqRate = s.lanesSeq.rate
+            $0.euclideousLanesSeqLen = s.lanesSeq.len; $0.euclideousLanesSeqCells = s.lanesSeq.cells
+            $0.euclideousRiffsSeqOn = s.riffsSeq.on; $0.euclideousRiffsSeqRate = s.riffsSeq.rate
+            $0.euclideousRiffsSeqLen = s.riffsSeq.len; $0.euclideousRiffsSeqCells = s.riffsSeq.cells
         }
         buildPublishScene()
     }
@@ -268,6 +279,15 @@ struct DiagView: View {
     // live-mirror treatment as euclideousLines/Enabled/Receiver above, resynced on the slow timer); `euclideousRiffPositions`
     // is a live, responsive PER-LANE INDICATOR (not persisted config), polled on the fast meterTimer beside euclideousLineReady.
     @State var euclideousRiff: EuclideousRiff = EuclideousRiff()
+    // SEQUENCER PANEL (2026-10-14 ferry) — `euclideousRiff` above stays in place, unreachable from any new
+    // UI (decode-safety for an old saved doc, same treatment `euclideousReceiver` already got) — `euclideous
+    // Riffs`/`euclideousActiveRiff` are the real, live CONFIG mirrors now (same persisted/slow-resync
+    // treatment as `euclideousRiff` used to be the sole owner of).
+    @State var euclideousRiffs: [EuclideousRiff] = [EuclideousRiff(), EuclideousRiff.empty,
+                                                     EuclideousRiff.empty, EuclideousRiff.empty]
+    @State var euclideousActiveRiff: Int = 0
+    @State var euclideousLanesSeq = EuclideousLanesSeq()
+    @State var euclideousRiffsSeq = EuclideousRiffsSeq()
     @State var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
     // EUCLID MASK — LIVE POSITION (Paul 2026-10-11 bugfix: "Euclid mask was moving at the main rate, and
     // not progressing on hits from Euclid lane"). Same class as euclideousRiffPositions above — a live,
@@ -278,19 +298,17 @@ struct DiagView: View {
     // RIFF PANEL — RESOLVED NOTES (Paul 2026-10-08): the ascending notes currently feeding the riff's own
     // pool — live, responsive (same fast poll as euclideousRiffPositions above), NOT persisted config.
     @State var euclideousRiffLivePool: [UInt8] = []
-    // NOTE VIEW (Paul 2026-10-10 ferry): per-lane RECONCILED state, built from draining the new fast-poll
-    // event queue (see the `showEuclideous` block below) — `euclideousNVLastEvent` is each lane's latest
-    // HIT/MISS-PLAYING outcome (kind 0/1), `euclideousNVRestFlash` is its latest riff-ON-REST=SKIP flash
-    // (kind 2), kept SEPARATELY so a flash ending doesn't clobber what the note box reverts to (ferry §4.5:
-    // "...then returns to the previous note at 40%"). Live/responsive, NOT persisted config — same class
-    // as euclideousRiffPositions/LivePool above.
-    @State var euclideousNVLastEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
-    @State var euclideousNVRestFlash: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
-    // RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards") — a THIRD
-    // independent reconciled slot per lane, alongside the two above: each lane's latest wipe-ELIGIBLE
-    // event (column/rank >= 0), kept separately so it can't be clobbered by an ordinary hit/rest-flash
-    // event that isn't itself wipe-eligible (e.g. a FILL/CHORD-extra-note push, which always carries
-    // column/rank == -1 and must never overwrite a genuinely still-sweeping wipe).
+    // SEQUENCER PANEL (2026-10-14 ferry) — the two step clocks + which riff is currently playing, polled at
+    // the same fast cadence as the riff positions above (the step clock "always runs," per §4).
+    @State var euclideousLanesSeqStep: Int = -1
+    @State var euclideousRiffsSeqStep: Int = -1
+    @State var euclideousPlayingRiffIndex: Int = 0
+    // RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards") — each lane's
+    // latest wipe-ELIGIBLE event (column/rank >= 0), built from draining the fast-poll event queue (see the
+    // `showEuclideous` block below). The SIBLING reconciled slots this queue used to ALSO feed
+    // (euclideousNVLastEvent/RestFlash, the retired NOTE VIEW panel's own "what's current" state) were
+    // removed with that panel (2026-10-14 sequencer-panel ferry, which replaced it) — this one survives
+    // unchanged, since it feeds the riff grid's own walk-arrow markers, a genuinely separate feature.
     @State var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
     // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): the live hit-ordinal + DRUNK walk state
     // the main-thread cycle prediction needs as its own `startOrd`/`drunkLive` baseline — same live/
@@ -791,6 +809,10 @@ struct DiagView: View {
         euclideousLanesSourceMidi = au.uiEuclideousLanesSourceMidi()
         euclideousMainOutMask = au.uiEuclideousMainOutMask()
         euclideousChords = au.uiEuclideousChords()
+        euclideousRiffs = au.uiEuclideousRiffs()
+        euclideousActiveRiff = au.uiEuclideousActiveRiff()
+        euclideousLanesSeq = au.uiEuclideousLanesSeq()
+        euclideousRiffsSeq = au.uiEuclideousRiffsSeq()
     }
 
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
@@ -1019,8 +1041,10 @@ struct DiagView: View {
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
                     EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled,
                                    lineReady: euclideousLineReady,
-                                   riff: euclideousRiff, riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
-                                   noteViewLastEvent: euclideousNVLastEvent, noteViewRestFlash: euclideousNVRestFlash,
+                                   riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, playingRiffIndex: euclideousPlayingRiffIndex,
+                                   riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
+                                   lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq,
+                                   lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                    wipeEvents: euclideousWipeEvent,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
                                    noteSource: euclideousNoteSource,
@@ -1055,12 +1079,40 @@ struct DiagView: View {
                                        au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
                                        buildPublishScene()
                                    },
-                                   onEditRiff: { mutate in
-                                       euclideousRecordUndo(coalesceKey: "euclideousRiff")
-                                       var riff = euclideousRiff
-                                       mutate(&riff)
-                                       euclideousRiff = riff
-                                       au?.editDocument(coalesceKey: "euclideousRiff") { $0.euclideousRiff = riff }
+                                   onEditRiffs: { mutate in
+                                       euclideousRecordUndo(coalesceKey: "euclideousRiffs")
+                                       var riffs = euclideousRiffs
+                                       mutate(&riffs)
+                                       euclideousRiffs = riffs
+                                       au?.editDocument(coalesceKey: "euclideousRiffs") { $0.riffs = riffs }
+                                       buildPublishScene()
+                                   },
+                                   onSetActiveRiff: { v in
+                                       euclideousRecordUndo(coalesceKey: nil)
+                                       euclideousActiveRiff = v
+                                       au?.editDocument { $0.activeRiff = v }
+                                       buildPublishScene()
+                                   },
+                                   onEditLanesSeq: { mutate in
+                                       euclideousRecordUndo(coalesceKey: "euclideousLanesSeq")
+                                       var s = euclideousLanesSeq
+                                       mutate(&s)
+                                       euclideousLanesSeq = s
+                                       au?.editDocument(coalesceKey: "euclideousLanesSeq") {
+                                           $0.euclideousLanesSeqOn = s.on; $0.euclideousLanesSeqRate = s.rate
+                                           $0.euclideousLanesSeqLen = s.len; $0.euclideousLanesSeqCells = s.cells
+                                       }
+                                       buildPublishScene()
+                                   },
+                                   onEditRiffsSeq: { mutate in
+                                       euclideousRecordUndo(coalesceKey: "euclideousRiffsSeq")
+                                       var s = euclideousRiffsSeq
+                                       mutate(&s)
+                                       euclideousRiffsSeq = s
+                                       au?.editDocument(coalesceKey: "euclideousRiffsSeq") {
+                                           $0.euclideousRiffsSeqOn = s.on; $0.euclideousRiffsSeqRate = s.rate
+                                           $0.euclideousRiffsSeqLen = s.len; $0.euclideousRiffsSeqCells = s.cells
+                                       }
                                        buildPublishScene()
                                    },
                                    onToggleEnabled: {
@@ -1185,28 +1237,29 @@ struct DiagView: View {
                 if mp != euclideousMaskPositions { euclideousMaskPositions = mp }
                 let rlp = au.pollEuclideousRiffLivePool()
                 if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
-                // NOTE VIEW (Paul 2026-10-10 ferry): drain the new per-lane event queue and fold it into the
-                // two reconciled "what's current" slots — a HIT/MISS-PLAYING event (kind 0/1) replaces
-                // `euclideousNVLastEvent[lane]`, a rest-flash (kind 2) replaces `euclideousNVRestFlash[lane]`
-                // INDEPENDENTLY, so a flash ending can't clobber the note the box should revert to. Events
-                // are walked oldest→newest (the drain's own order) so if a burst delivers more than one for
-                // the same lane in one poll tick, only the genuinely latest survives — no fade/freeze math
-                // happens here, that's a pure function of (stored event, live beat) evaluated at draw time.
+                let lss = au.pollEuclideousLanesSeqStep()
+                if lss != euclideousLanesSeqStep { euclideousLanesSeqStep = lss }
+                let rss = au.pollEuclideousRiffsSeqStep()
+                if rss != euclideousRiffsSeqStep { euclideousRiffsSeqStep = rss }
+                let pri = au.pollEuclideousPlayingRiffIndex()
+                if pri != euclideousPlayingRiffIndex { euclideousPlayingRiffIndex = pri }
+                // RIFF-CELL WIPES (Paul 2026-10-10 ferry): drain the per-lane event queue and fold it into
+                // ONE reconciled slot — the NOTE VIEW panel this queue originally also fed (euclideousNV
+                // LastEvent/RestFlash) was RETIRED by the 2026-10-14 sequencer-panel ferry (superseded by
+                // the new SEQUENCER panel); this wipe-mark reconciliation is genuinely separate (it feeds
+                // the riff grid's own walk-arrow markers, not that panel) and survives unchanged. Only a
+                // genuinely wipe-eligible event (column >= 0) ever overwrites it, so an ordinary FILL/
+                // CHORD-extra push (column == -1) can't clobber a wipe still mid-sweep.
                 let nvEvents = au.pollEuclideousNoteViewEvents()
                 if nvEvents.count == 4 {
-                    var newLast = euclideousNVLastEvent, newFlash = euclideousNVRestFlash, newWipe = euclideousWipeEvent, changed = false
+                    var newWipe = euclideousWipeEvent, changed = false
                     for lane in 0..<4 {
-                        for ev in nvEvents[lane] {
-                            if ev.kind == 2 { newFlash[lane] = ev } else { newLast[lane] = ev }
-                            // RIFF-CELL WIPES: a THIRD, independent reconciled slot (see its own @State
-                            // doc comment above) — only a genuinely wipe-eligible event (column >= 0)
-                            // ever overwrites it, so an ordinary FILL/CHORD-extra push (column == -1)
-                            // can't clobber a wipe still mid-sweep.
-                            if ev.column >= 0 { newWipe[lane] = ev }
+                        for ev in nvEvents[lane] where ev.column >= 0 {
+                            newWipe[lane] = ev
                             changed = true
                         }
                     }
-                    if changed { euclideousNVLastEvent = newLast; euclideousNVRestFlash = newFlash; euclideousWipeEvent = newWipe }
+                    if changed { euclideousWipeEvent = newWipe }
                 }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the
@@ -1289,6 +1342,11 @@ struct DiagView: View {
             let emom = au.uiEuclideousMainOutMask(); if emom != euclideousMainOutMask { euclideousMainOutMask = emom; euclideousResynced = true }
             let echd = au.uiEuclideousChords(); if echd != euclideousChords { euclideousChords = echd; euclideousResynced = true }
             let ens = au.uiEuclideousNoteSource(); if ens != euclideousNoteSource { euclideousNoteSource = ens; euclideousResynced = true }
+            // SEQUENCER PANEL (2026-10-14 ferry) — same checklist discipline as the 6 lines just above.
+            let erfs = au.uiEuclideousRiffs(); if erfs != euclideousRiffs { euclideousRiffs = erfs; euclideousResynced = true }
+            let ear = au.uiEuclideousActiveRiff(); if ear != euclideousActiveRiff { euclideousActiveRiff = ear; euclideousResynced = true }
+            let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
+            let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
             if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)
@@ -1541,7 +1599,13 @@ struct DiagView: View {
                                 meters.cellRoll[i].append(BuildRollNote(born: now, vel: Double(meters.cellNoteVel[i * 6 + k]) / 127.0, lane: rollLaneForPitch(Int(meters.cellNotePitch[i * 6 + k]))))
                             }
                         } else {
-                            meters.cellRoll[i].append(BuildRollNote(born: now, vel: meters.cellHitVel[i], lane: 0.35 + 0.3 * Double((i &* 40503) % 100) / 100.0))
+                            // Broken into sub-expressions (was a single-expression type-check timeout once
+                            // this file grew past some unrelated threshold this session — "the compiler is
+                            // unable to type-check this expression in reasonable time," a known Swift
+                            // type-checker sensitivity to surrounding file complexity, not a logic change).
+                            let pseudoRandom: Double = Double((i &* 40503) % 100) / 100.0
+                            let lane: Double = 0.35 + 0.3 * pseudoRandom
+                            meters.cellRoll[i].append(BuildRollNote(born: now, vel: meters.cellHitVel[i], lane: lane))
                         }
                         if meters.cellRoll[i].count > 16 { meters.cellRoll[i].removeFirst(meters.cellRoll[i].count - 16) }
                     }

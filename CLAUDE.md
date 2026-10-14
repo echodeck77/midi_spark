@@ -196,6 +196,132 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: sequencer panel, four riffs, per-lane reset," the biggest single ferry of the
+  2026-10-14 run — planned via Plan Mode first (3 parallel Explore agents + a Plan-agent validation pass),
+  then built end to end (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1424 green
+  (was 1415 at session start, +9 net — some pre-existing tests were REWRITTEN not just added-alongside, see
+  below); iOS builds clean). Replaces the NOTE VIEW panel with a SEQUENCER panel (LANES tab: which of the 4
+  lanes sounds each step; RIFFS tab: which of 4 independently-stored riffs plays each step), moves RESET from
+  one machine-wide bars-count to a per-lane sequencer-steps count, and turns the single shared riff into four
+  riffs picked by tabs. **TWO CORRECTIONS TO THE PLAN'S OWN GROUND TRUTH, found only by tracing/testing, not
+  assumed from the plan's text:** (1) the plan's own Section B(iii) said to resolve the four riffs "exactly
+  like today's single `out.euclideousRiff` at SnapshotBuilder.swift:737-739" (a `MachineParams`-routed path) —
+  built that way initially, but ALSO added a second, row-gated `PluginState`-direct path (matching how
+  `euclideousResetSpanBars`/chords/key already reach SnapParams) for `riffs`/`activeRiff` specifically,
+  reasoning it was "simpler, matches the newer pattern." Every pre-existing RouterTest exercising Euclideous's
+  riff (`testEuclideousResetSpanOneBarReAnchorsThePatternEveryBar` etc.) configures the fixture via `c.paramsA.
+  euclideousRiff = EuclideousRiff(...)` — MachineParams, not PluginState — and `BuildPage.swift`'s own publish
+  path (`p.euclideousRiff = euclideousRiff`) ALSO builds a fresh MachineParams every time, never writing a
+  PluginState-level field the render path would read. The row-gated reading was simply never populated by
+  anything real; reverted to the SAME MachineParams-routed path as the singular field (new `MachineParams.
+  riffs`/`activeRiff`, mirroring `MachineParams.euclideousRiff` exactly; `BuildPage.swift`'s publish line
+  extended to carry them; a new shared pure `euclideousRiffsMigrated(_:legacySingular:)` factored out so BOTH
+  `PluginState.riffsResolved` — the persisted document's own copy, for UI/undo — and the per-machine resolve
+  — the render-reaching copy — apply the identical migration rule without duplicating it). The LANES/RIFFS
+  sequencer's own ON/RATE/LEN/cells fields genuinely ARE page-level-only with no MachineParams equivalent, so
+  THEIR row-gated PluginState-direct path is correct as originally built — only riffs/activeRiff needed the
+  correction. (2) `EuclideousRiff(ranks: [])` does NOT mean "silent" — `ranksResolved`'s own PRE-EXISTING
+  pad-with-R1-default-shape fallback (built for the original single-riff feature, "never silence by default
+  either way") treats ANY short array, empty included, as "pad the rest with the default audible figure," not
+  as rests. A riff slot meant to start genuinely empty (§9: "riffs 2-4 empty") needs an EXPLICIT all-rest
+  array of the real length instead — new `EuclideousRiff.empty` static constant (`ranks: [Int](repeating: 0,
+  count: 8)`), replacing every `ranks: []` construction across Models.swift/AudioUnitViewController.swift/
+  RouterTests.swift. Caught by this feature's OWN migration test failing on its first run, not assumed.
+  **A THIRD, SEPARATE REAL BUG, found the same way (a pre-existing test the SAME feature newly broke):**
+  `EuclidLine.resetStepsResolved`'s own nil-default was `?? 1` (ON every bar) — correct ONLY for a genuinely
+  fresh EUCLIDEOUS document (§9: "new pages: 1 step"), but `EuclidLine` is constructed DIRECTLY by every
+  ordinary non-Euclideous `.euclid` cell AND by essentially every RouterTest fixture, all of which bypass
+  `PluginState.euclideousLinesResolved`'s own migration entirely — so this one default silently forced a
+  bar-by-bar re-anchor onto code that never asked for one, breaking the pre-existing
+  `testEuclideousResetSpanOneBarReAnchorsThePatternEveryBar` (FREE mode's `ord` stopped growing across the bar
+  boundary — bar 2 started replaying bar 1 identically). Fixed at the RIGHT layer: the raw accessor's
+  nil-default is now `0` (OFF, matching `euclideousResetSpanBarsResolved`'s own "unexpected ⇒ benign"
+  convention), and "a fresh document's lane defaults to 1" is applied explicitly inside `euclideousLinesResolved`'s
+  own fresh-document branch instead (`line.resetSteps = isGenuinelyFresh ? 1 : migratedResetSteps(...)`) — the
+  SAME "document-level migration rule vs. raw-field default" distinction the riffs/MachineParams correction
+  above also turned on, now named as the recurring shape it is. **ENGINE (Router.swift):** B(i) per-lane
+  reset re-anchor — `spanBeats = resetSteps > 0 ? Double(resetSteps) × (LANES-rate-derived step-beats) : ...`
+  (the OLD `euclideousResetSpanBars`-driven branch stays, now permanently unreachable for Euclideous's row —
+  decode-only, matching the standing "stays in place, unreachable" precedent). B(ii) LANES-sequencer
+  mute-but-keep-walking — widens the EXISTING `if xf.muted {}` check (the mask's own MUTE-mode precedent,
+  "applies to the whole hit... the walk already advanced normally above") to `if xf.muted || lanesSeqMuted {}`,
+  with `lanesSeqMuted` resolved once per render window (shared with a NEW parallel note-off edge-detect array,
+  `euclideousLaneWasAudibleThisStep`, mirroring the existing `euclideousLineWasEnabled` PLAY/STOP sweep
+  exactly) so a lane's held legato notes close PROMPTLY at the mute boundary, not whenever that lane's own
+  next (possibly much later) hit happens to land. B(iii) RIFFS-sequencer riff selection — `let playingRiffIdx
+  = p.euclideousRiffsSeqOn ? p.euclideousRiffsSeqCells[step] : p.activeRiff; let ranks = p.euclideousRiffs
+  [playingRiffIdx].ranks ?? []` resolved freshly PER HIT (`mTickBeat`, finer-grained than the mute check's
+  per-window `fBeatPos`, since a riff switch changes WHICH PITCH sounds, not just whether one does).
+  **DISCLOSED JUDGMENT CALL, not addressed by the ferry's own text, raised back to design:** `riffTie
+  ExtensionBeats`'s forward lookahead closes over the CURRENT hit's `ranks` — a riff switch landing inside
+  that lookahead's own window is not re-resolved; the riff selected at the triggering hit is used for the
+  whole TIE extension, simplest-correct for the common case (a RATE-1-bar-or-slower RIFFS sequencer vs. a
+  short TIE window), wrong only in a narrow edge case. **LIVE-STATE POLLING:** 3 new values
+  (`euclideousLanesSeqStep`/`RiffsSeqStep`/`PlayingRiffIndex`) via the standard 4-hop Router→Kernel→
+  MidiSparkAudioUnit→AudioUnitViewController template, written once per render window regardless of either
+  sequencer's own ON state (§4: "the step clock always runs"). **UI (EuclideousPage.swift):** the ~470-line
+  NOTE VIEW panel chain (`noteViewPanel`/`Strip`/`LabelRow`/`TrackRow`/`Track`/`NoteBox`/`NoteBoxContent`/
+  `PrimaryPlusN` + its own `noteViewLastEvent`/`RestFlash`/`labelPressed` state) is REMOVED ENTIRE, replaced
+  by a new `sequencerPanel` at the SAME two call sites (identical size/position by construction — only the
+  function called changed) — a two-tab (LANES/RIFFS) bespoke grid, each cell a plain tap/radio toggle, a
+  small Canvas overlay drawing a per-lane restart tick at every Nth step (pure client-side arithmetic off
+  `resetStepsResolved`, no new engine state), a live playhead highlight reading the new poll values
+  unconditionally, and an ON/RATE/LEN controls row (`sequencerRateStepper` mirrors `melodyStepper`'s own
+  visual shell for the new `EuclideousSeqRate` ladder). **PIXEL NOTE, flagged honestly:** the ratified
+  ferry's own literal frame math (an absolute `x=41.5+43c, y=56+47r`-style formula, evidently anchored to one
+  specific reference card width) did not survive verbatim into this implementation session — only a
+  distilled summary did, via the approved plan. Built instead with PROPORTIONAL sizing derived from the
+  panel's own real available width/height (this page's own established "share the extra width" fallback
+  convention for a ferry without an exact pixel table in hand), not a literal reproduction of a formula this
+  session has no way to confirm. The riff grid's "RIFF · SHARED" title is now bare "RIFF" + a new 4-tab row
+  (`riffTabRow`, each tab a bar-chart contour via new `riffOutlineBars` — shared with the sequencer panel's
+  own RIFFS-grid cell preview — plus a play-triangle on whichever riff is ACTUALLY SOUNDING, independent of
+  which tab is open for EDITING) with long-press COPY/PASTE/CLEAR (`riffTabMenuCard`, a plain centred
+  scrim+card, the 5th instance of this page's own established popup family — the first context-menu-style
+  interaction anywhere in this codebase, grepped for precedent first, found none). The old machine-wide
+  header RESET chip + its "IN n" countdown are REMOVED entire (struct's own `resetSpanBars`/`onSetResetSpanBars`
+  stay in place, unreachable, decode-only — the standing `euclideousReceiver` precedent); a new per-lane
+  `resetButton` (OFF/×N) sits beside INV on each lane's own RHYTHM tab, opening an ANCHORED popup
+  (`resetPopupCard`, mirroring the KEY chip's own anchored-not-centred idiom, via a new `[Int:CGRect]`
+  dictionary preference key since 4 simultaneous chips need independent frames, unlike the KEY tab's single-
+  rect key) — PLACEMENT flagged as a judgment call (the ferry's own exact pixel placement didn't survive
+  either; chosen as the lowest-risk slot in `patternControlBlock`'s own tightly pixel-budgeted layout, DIRECTION
+  absorbing the modest width reduction via its existing `.frame(maxWidth: .infinity)` rather than disturbing
+  the RATE grid's hard per-cell math above it). **§10, EXPLICITLY LEFT OPEN per the ferry's own instruction
+  ("leave a marked stub and raise it in your reply, don't invent an answer"):** "where do silence messages go"
+  has no answer here — a marked `// STUB (§10, open)` comment sits at the sequencer panel's own top, and
+  `euclideousSilenceReason` (Derivations.swift) is now fully orphaned (zero UI call sites — its one and only
+  caller was the deleted panel) but left completely untouched, ready for wherever §10 eventually lands.
+  **`activeRiff`'s DUAL ROLE, a disclosed, forced reading, not explicitly stated by the ferry:** which riff a
+  user is EDITING and which riff is ACTUALLY PLAYING are the same field only while the RIFFS sequencer is OFF
+  (§6: "the riff selected in the riff grid's tabs is the one that plays... tapping a tab switches riffs
+  live") — the only reading consistent with "editing riff 3 while riff 1 plays" existing at all once RIFFS is
+  genuinely ON. **A FOURTH, UNRELATED bug fixed in passing:** AudioUnitViewController.swift's own
+  `BuildRollNote(lane:)` construction (pre-existing, nothing to do with this feature) hit a genuine Swift
+  type-checker timeout ("unable to type-check this expression in reasonable time") once this session's edits
+  pushed the surrounding file's complexity past some threshold — broken into named sub-expressions, no logic
+  change. **TESTS (+9 net, several pre-existing REWRITTEN not just added-beside, per the corrections above):**
+  reset-steps migration table + fresh-document default (EffectiveParamsTests); riffs/activeRiff migration +
+  clamp (EffectiveParamsTests); LANES/RIFFS sequencer field defaults + malformed-array/clamp safety
+  (EffectiveParamsTests); the ferry's own literal worked example as a RouterTest oracle (LANES RATE 1 BAR,
+  resetSteps=4 restarts at bars 1/5, resetSteps=2 at bars 1/3/5/7, via the project's own standing "equivalence,
+  not a hand-derived count" convention); LANES-mute keeps the walk advancing (a muted bar's notes silenced but
+  the walk lands exactly where it would have, proven by excising the muted bar from a free-running control's
+  own sequence); RIFFS switches the playing riff at the bar boundary (two maximally-distinguishable constant-
+  rank riffs); RIFFS-off follows the selected tab. **TWO TEST-CONSTRUCTION BUGS SELF-CAUGHT, traced with
+  throwaway RTCDEBUG stderr/print traces per this project's own standing technique, not re-guessed blind:** (1)
+  both new RIFFS-seq tests set `useRiff: false` without ALSO setting `litNotes: 0` — the EXACT, already-
+  documented pitfall from this codebase's own history ("`useRiff: false` alone does NOT migrate to 'nothing
+  lit,' it falls through to the legacy 'any other value → 1 lit' branch") — silently lighting rank 1 (the
+  lowest pool note) alongside the riff's own pitch; (2) `euclideousRiffsSeqCellsResolved`'s own defensive
+  `c.count == 8` guard (no partial-array padding, unlike the LANES-seq cells array) silently discarded a
+  2-entry `[0,1]` test array back to its all-riff-0 default — fixed by passing the full canonical 8 entries.
+  **DEVICE-OWED, the whole UI half — nothing here could be screenshot-verified in this environment:** the
+  sequencer panel's proportional (not pixel-exact) grid sizing at real card width; the per-lane RESET popup's
+  anchor position/legibility; the riff-tab row's bar-chart previews + play-triangle + long-press timing/feel;
+  confirm the removed header RESET countdown isn't missed before the per-lane control is discovered; the
+  overall two-tab panel reading clearly at real size, matching this page's own repeated disclosure for every
+  prior ferry's pixel-level claims. Plan: `~/.claude/plans/zazzy-exploring-wall.md`.**
 - **▶ EUCLIDEOUS — "FERRY: Step groups on the lane step row," the RHYTHM tab's main step box row (and the
   MASK step bar) now reads in groups of 4 (or 3 under triplet feel), with a leftover rule (2026-10-14, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS unaffected — `EuclidLaneUI.swift`

@@ -535,6 +535,19 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiEuclideousEnabled() -> Bool { document.euclideousEnabledResolved }
     func uiEuclideousReceiver() -> Int { document.euclideousReceiverResolved }
     func uiEuclideousRiff() -> EuclideousRiff { document.euclideousRiffResolved }   // EUCLIDEOUS's shared riff pattern (Paul 2026-10-06)
+    // SEQUENCER PANEL (2026-10-14 ferry): four independently-stored riffs + per-lane reset's own LANES/RIFFS
+    // step clocks. `uiEuclideousRiff()` above stays in place, decode-only — `riffsResolved` migrates it into
+    // slot 0 the instant it's read, so nothing downstream of THIS forwarder ever needs the old field again.
+    func uiEuclideousRiffs() -> [EuclideousRiff] { document.riffsResolved }
+    func uiEuclideousActiveRiff() -> Int { document.activeRiffResolved }
+    func uiEuclideousLanesSeq() -> EuclideousLanesSeq {
+        EuclideousLanesSeq(on: document.euclideousLanesSeqOnResolved, rate: document.euclideousLanesSeqRateResolved,
+                            len: document.euclideousLanesSeqLenResolved, cells: document.euclideousLanesSeqCellsResolved)
+    }
+    func uiEuclideousRiffsSeq() -> EuclideousRiffsSeq {
+        EuclideousRiffsSeq(on: document.euclideousRiffsSeqOnResolved, rate: document.euclideousRiffsSeqRateResolved,
+                            len: document.euclideousRiffsSeqLenResolved, cells: document.euclideousRiffsSeqCellsResolved)
+    }
     // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config.
     func uiEuclideousResetSpanBars() -> Int { document.euclideousResetSpanBarsResolved }
     func uiEuclideousKeyRoot() -> Int { document.euclideousKeyRootResolved }
@@ -566,6 +579,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// same fast ~30fps cadence as the riff positions/beacon above (a per-tick feed, not config). A true
     /// drain (read-and-clear): each call only ever returns events posted SINCE the previous call.
     func pollEuclideousNoteViewEvents() -> [[Router.EuclideousNoteViewEventSnapshot]] { kernel.euclideousNoteViewEvents() }
+    /// SEQUENCER PANEL (2026-10-14 ferry): same fast ~30fps cadence as the riff positions above — the
+    /// step-clock "always runs" (§4), so the lit cell must track it live, not on the slower config-resync poll.
+    func pollEuclideousLanesSeqStep() -> Int { kernel.euclideousLanesSeqStep() }
+    func pollEuclideousRiffsSeqStep() -> Int { kernel.euclideousRiffsSeqStep() }
+    func pollEuclideousPlayingRiffIndex() -> Int { kernel.euclideousPlayingRiffIndex() }
     func uiClaimLeak() -> [Int] { document.claimLeakResolved }
     func setClaim(_ bus: Int) {
         guard (0..<4).contains(bus) else { return }

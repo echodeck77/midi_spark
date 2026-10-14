@@ -195,6 +195,21 @@ struct SnapParams {
     var euclideousChordKeyRoot: Int = 0
     var euclideousChordKeyTones: [Int] = [0, 2, 4, 5, 7, 9, 11]   // natural minor's own intervals would be more apt as a default, but this is overwritten every render for Euclideous's row regardless — harmless placeholder
     var euclideousResetSpanBars: Int = 0   // 0 = OFF; resolved straight from doc.euclideousResetSpanBarsResolved, gated to Snap.euclideousRow
+    // SEQUENCER PANEL (2026-10-14 ferry): four independently-stored riffs (replacing the single shared
+    // `euclideousRiff` above for Euclideous's own row — see Router.swift's `playingRiffIdx` in the unified
+    // "lit notes plus the riff" pipeline) + two 1-bar-default step clocks (LANES: which lanes sound each
+    // step; RIFFS: which of the four riffs plays each step), both gated to `Snap.euclideousRow` exactly
+    // like `euclideousResetSpanBars` above — inert (all-default) for every other `.euclid` cell in the grid.
+    var euclideousRiffs: [EuclideousRiff] = [EuclideousRiff(), EuclideousRiff(), EuclideousRiff(), EuclideousRiff()]
+    var activeRiff: Int = 0   // which riff plays when RIFFS seq is off (and which tab the editor shows)
+    var euclideousLanesSeqOn: Bool = false
+    var euclideousLanesSeqRate: EuclideousSeqRate = .oneBar
+    var euclideousLanesSeqLen: Int = 8
+    var euclideousLanesSeqCells: [Bool] = [Bool](repeating: true, count: 32)   // step*4 + lane, row-major
+    var euclideousRiffsSeqOn: Bool = false
+    var euclideousRiffsSeqRate: EuclideousSeqRate = .oneBar
+    var euclideousRiffsSeqLen: Int = 8
+    var euclideousRiffsSeqCells: [Int] = [Int](repeating: 0, count: 8)   // which riff (0...3) plays each step
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
     var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns
     var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)

@@ -144,6 +144,26 @@ enum SnapshotBuilder {
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
                     sc.procs[0].euclideousResetSpanBars = doc.euclideousResetSpanBarsResolved
                 }
+                // SEQUENCER PANEL (2026-10-14 ferry) — a THIRD such guard, same shape as the RESET SPAN one
+                // directly above: a page-level PluginState global reaching Euclideous's one cell's SnapParams
+                // with NO MachineParams hop at all — genuinely page-level-only concepts (ON/RATE/LEN/cells
+                // for either sequencer), unlike `euclideousRiffs`/`activeRiff` (moved to the per-machine
+                // resolve below, a few hundred lines down — those need the SAME `MachineParams`-routed path
+                // the OLDER singular `euclideousRiff` field already uses, confirmed the hard way: every
+                // pre-existing RouterTest configures a Euclideous fixture via `c.paramsA.euclideousRiff =`,
+                // not a PluginState-level field, and `BuildPage.swift`'s own publish path builds the
+                // Euclideous cell's MachineParams fresh from live @State every time — a row-gated PluginState
+                // read would silently never see what either of those actually populate).
+                if r == Snap.euclideousRow, !sc.procs.isEmpty {
+                    sc.procs[0].euclideousLanesSeqOn = doc.euclideousLanesSeqOnResolved
+                    sc.procs[0].euclideousLanesSeqRate = doc.euclideousLanesSeqRateResolved
+                    sc.procs[0].euclideousLanesSeqLen = doc.euclideousLanesSeqLenResolved
+                    sc.procs[0].euclideousLanesSeqCells = doc.euclideousLanesSeqCellsResolved
+                    sc.procs[0].euclideousRiffsSeqOn = doc.euclideousRiffsSeqOnResolved
+                    sc.procs[0].euclideousRiffsSeqRate = doc.euclideousRiffsSeqRateResolved
+                    sc.procs[0].euclideousRiffsSeqLen = doc.euclideousRiffsSeqLenResolved
+                    sc.procs[0].euclideousRiffsSeqCells = doc.euclideousRiffsSeqCellsResolved
+                }
                 // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Presets rule 1's own "any
                 // other value: 1 lit, and logged" — the ONE place this warning may actually fire: once per
                 // `build()`, main-thread-only (RENDER-THREAD SAFETY, per `EuclidLine.litMigrationNeedsWarning`'s
@@ -733,10 +753,26 @@ enum SnapshotBuilder {
                                                                       // customHits' own identical treatment one line up — the render thread reads it
                                                                       // raw too (never the padded/clamped noteOctShiftsResolved, which allocates).
                                                                       notesOn: $0.notesOn, noteOctShifts: $0.noteOctShifts,
-                                                                      notesVelOffset: $0.notesVelOffset.map { clamp($0, -64, 64) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
+                                                                      notesVelOffset: $0.notesVelOffset.map { clamp($0, -64, 64) },
+                                                                      // SEQUENCER PANEL (2026-10-14 ferry §3): per-lane RESET, in sequencer steps —
+                                                                      // raw passthrough (no clamp needed here; `resetStepsResolved`'s own set-
+                                                                      // membership check {0,1,2,4,8} already guards it wherever it's actually read).
+                                                                      resetSteps: $0.resetSteps) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
         out.euclideousRiff = { let r = p.euclideousRiff ?? EuclideousRiff(); var rr = r
             rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved
             return rr }()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved/clamped once here
+        // FOUR RIFFS (2026-10-14 ferry §7) — same `MachineParams`-routed path as `euclideousRiff` directly
+        // above (not the row-gated PluginState path other Euclideous page-globals use — see that block's
+        // own doc comment for why). Each slot normalized the SAME way the singular field just was
+        // (`.ranksResolved` applies the R1-default-shape fallback for a nil/unauthored riff) — a raw
+        // pass-through would leave `.ranks` nil for any slot whose user-authored value is nil, and
+        // Router.swift's `playingRiffIdx` lookup reads `.ranks ?? []` (empty, not the real default).
+        out.euclideousRiffs = euclideousRiffsMigrated(p.riffs, legacySingular: out.euclideousRiff).map { r in
+            var rr = r
+            rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved
+            return rr
+        }
+        out.activeRiff = max(0, min(3, p.activeRiff ?? 0))
         out.mainOutMask = (p.mainOutMask ?? 0b1111) & 0x0F   // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07); nil ⇒ all-open, byte-identical for every other chain
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)

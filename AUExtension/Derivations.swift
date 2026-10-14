@@ -29,6 +29,21 @@ import Foundation
 /// The shared spelling of the `(beat / S).rounded(.down) * S` idiom the Router's emit paths repeat. Pure/testable.
 @inline(__always) func columnStart(_ beat: Double, _ S: Double) -> Double { (beat / S).rounded(.down) * S }
 
+/// The LANES/RIFFS sequencer's own 0..<len step index at `beat` (2026-10-14 ferry, "sequencer panel, four
+/// riffs, per-lane reset" §4: "steps are counted from the host's bar 1... the step clock always runs").
+/// `stepBeats` is the sequencer's own resolved rate (e.g. `EuclideousSeqRate.barsFraction × one-bar-beats`).
+/// Pure, derived-never-accumulated: `beat` is already an absolute host-beat position (this engine's own
+/// standing convention, beat 0 = the transport origin / the host's bar 1), so flooring straight from it IS
+/// "counted from the host's bar 1" — no separate anchor/reset state needed, the step clock genuinely always
+/// runs for free. `len` is NOT the number of steps the pattern itself has — it's the sequencer's own loop
+/// length (1...8); "the count restarts when the sequence loops" (§5) falls out of the plain modulus.
+func euclideousSeqStepIndex(beat: Double, stepBeats: Double, len: Int) -> Int {
+    guard stepBeats > 0 else { return 0 }
+    let n = max(1, len)
+    let absStep = Int((beat / stepBeats).rounded(.down))
+    return ((absStep % n) + n) % n
+}
+
 // THE SPAN LADDER (Paul 2026-08-22 §3): CELL|ROW generalises to a dial — 1·2·3·4·6·8 columns, then ×2·×4 bars
 // (stored as 16/32). The pattern anchors at the row origin and repeats every N columns → polymeter at processor grain
 // (odd N against the 8-column row). CELL = 1, ROW = 8 are the byte-identical endpoints (S and the row/bar width).

@@ -356,6 +356,77 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(fresh.sourceModeResolved, .key, "nil ⇒ KEY, per the melody pop-up ferry's own §2.2")
     }
 
+    // SEQUENCER PANEL (2026-10-14 ferry §3/§9): per-lane RESET replaces the old machine-wide
+    // `euclideousResetSpanBars` bars-count. `euclideousLinesResolved` migrates a PRE-EXISTING document's
+    // lanes (one per entry in the table below — the ferry's own literal "0=OFF·1·2·4·8·16→8" mapping) but
+    // NEVER a genuinely fresh one, which gets the plain "new pages: 1 step" default regardless of whatever
+    // stale `euclideousResetSpanBars` happens to be sitting unread on the document.
+    func testEuclideousLinesResolvedMigratesResetStepsFromLegacyBarsCount() {
+        for (bars, expected) in [(0, 0), (1, 1), (2, 2), (4, 4), (8, 8), (16, 8)] {
+            var st = doc()
+            st.euclideousLines = [EuclidLine(noteSel: .all), EuclidLine(noteSel: .all),
+                                   EuclidLine(noteSel: .all), EuclidLine(noteSel: .all)]
+            st.euclideousResetSpanBars = bars
+            let lines = st.euclideousLinesResolved
+            XCTAssertEqual(lines.count, 4)
+            for (i, l) in lines.enumerated() {
+                XCTAssertEqual(l.resetStepsResolved, expected, "bars=\(bars) lane \(i) should migrate to resetSteps=\(expected)")
+            }
+        }
+    }
+    func testEuclideousLinesResolvedFreshDocumentDefaultsResetStepsToOneIgnoringLegacyBars() {
+        var st = doc()
+        st.euclideousResetSpanBars = 8   // must be IGNORED — euclideousLines is nil (genuinely fresh), not migrated
+        for l in st.euclideousLinesResolved {
+            XCTAssertEqual(l.resetStepsResolved, 1, "a genuinely fresh document's lanes default to 1 step, never consulting a legacy bars-count that was never actually authored")
+        }
+    }
+    // FOUR RIFFS (ferry §7/§9): `riffs == nil` migrates the old singular `euclideousRiff` into slot 0;
+    // slots 1-3 start EMPTY — a deliberate, disclosed deviation from the ScalePool/chordSeqs precedent
+    // (whose own slots 1-3 default to a fresh REAL value), named explicitly in this test's own title.
+    func testRiffsResolvedMigratesSingularRiffIntoSlotZeroOthersEmpty() {
+        var st = doc()
+        st.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        let riffs = st.riffsResolved
+        XCTAssertEqual(riffs.count, 4)
+        XCTAssertEqual(riffs[0].ranksResolved, st.euclideousRiffResolved.ranksResolved, "slot 0 migrates the old singular riff exactly")
+        for i in 1...3 {
+            XCTAssertTrue(riffs[i].ranksResolved.allSatisfy { $0 == 0 }, "slot \(i) must start empty (all rest), not a fresh real default like ScalePool's own precedent")
+        }
+    }
+    func testActiveRiffResolvedClampsToZeroThreeAndDefaultsToZero() {
+        var st = doc()
+        XCTAssertEqual(st.activeRiffResolved, 0, "nil ⇒ riff 0, the only riff a migrated/fresh document actually has content in")
+        st.activeRiff = 9
+        XCTAssertEqual(st.activeRiffResolved, 3, "clamps to the real 0...3 range")
+        st.activeRiff = -4
+        XCTAssertEqual(st.activeRiffResolved, 0)
+    }
+    // LANES/RIFFS SEQUENCERS (ferry §4/§9) — both default OFF, 1 BAR, LEN 8, with cells defaulting to
+    // "everything lit"/"everything plays riff 0" so a never-touched document is byte-identical to the
+    // feature not existing at all.
+    func testEuclideousLanesAndRiffsSeqDefaultOffWithAllCellsOpen() {
+        let st = doc()
+        XCTAssertFalse(st.euclideousLanesSeqOnResolved)
+        XCTAssertEqual(st.euclideousLanesSeqRateResolved, .oneBar)
+        XCTAssertEqual(st.euclideousLanesSeqLenResolved, 8)
+        XCTAssertTrue(st.euclideousLanesSeqCellsResolved.allSatisfy { $0 }, "nil ⇒ every lane lit at every step")
+        XCTAssertFalse(st.euclideousRiffsSeqOnResolved)
+        XCTAssertEqual(st.euclideousRiffsSeqLenResolved, 8)
+        XCTAssertTrue(st.euclideousRiffsSeqCellsResolved.allSatisfy { $0 == 0 }, "nil ⇒ every step plays riff 0")
+    }
+    func testEuclideousLanesSeqCellsResolvedIgnoresAMalformedStoredArray() {
+        var st = doc()
+        st.euclideousLanesSeqCells = [true, false]   // wrong length (not 32) — must fall back to the all-lit default, not crash
+        XCTAssertEqual(st.euclideousLanesSeqCellsResolved.count, 32)
+        XCTAssertTrue(st.euclideousLanesSeqCellsResolved.allSatisfy { $0 })
+    }
+    func testEuclideousRiffsSeqCellsResolvedClampsEachEntryToZeroThree() {
+        var st = doc()
+        st.euclideousRiffsSeqCells = [0, 1, 2, 3, 9, -5, 0, 1]
+        XCTAssertEqual(st.euclideousRiffsSeqCellsResolved, [0, 1, 2, 3, 3, 0, 0, 1])
+    }
+
     // EUCLIDEOUS: PluginState's own persisted config — a doc saved before this feature existed must decode with
     // the page simply absent/disabled, never throw (the same CR-8 contract every other PluginState field follows).
     func testEuclideousFieldsDecodeAbsentAndResolveToDisabled() throws {
