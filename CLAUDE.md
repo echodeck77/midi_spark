@@ -196,6 +196,49 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: RHYTHM tab sliders — keep the mix," 3 fixes to the two-column six-slider layout
+  (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1403 unaffected —
+  pure UI, `EuclideousSlider`/`sliderRow` have no test-target reach). Paul's ruling, relayed in full: the
+  mixed layout (HITS/STEPS/VEL vertical left, OFFSET/TILT/GATE horizontal right) STAYS, superseding the
+  earlier "all six vertical" spec outright — "keep the sizes, positions and absolute touch as built," then 3
+  numbered fixes. **FIX 1 — horizontal-bar text, the real bug:** `EuclideousSlider`'s text layer was ONE
+  `VStack` (value stacked above label) used UNCONDITIONALLY for both orientations — fine for a vertical
+  slider's own tall, narrow face, but on a wide horizontal bar this put BOTH lines centred in the middle of
+  the bar, directly over the TILT zero line and fill. Split into two branches: vertical keeps the existing
+  value-top/label-bottom stack byte-for-byte; horizontal is a NEW one-line `HStack` reusing the NOTES VEL
+  bar's own established convention exactly — name left (10pt, `#aab0ba`, 0.8 tracking), value right (13pt
+  weight 800, `#f2f4f7`), both inset 10pt, vertically centred by the surrounding `ZStack`'s own default
+  alignment (no explicit frame needed, matching how NOTES VEL's identical `HStack` already achieves this).
+  The EDITED chip (a hand-edited TILT pattern) gets the same left/right substitution — name stays left,
+  "EDITED" takes the value's old slot on the right, never centred over the bar either. **FIX 2 — TILT's zero
+  line was drawn ON TOP of the fill, now drawn BEHIND it:** a plain 3-line reorder inside the Canvas (was
+  fill → zero-line → value-edge; now zero-line → fill → value-edge) — "behind everything" read literally as
+  a draw-order instruction, not a new blend mode or opacity change; the zero line's own colour/width (1pt
+  `#3a3e47`, full cross-axis height) and the value edge's (2pt, lane accent) are unchanged, confirmed via
+  `lane20`/`lane100` already being bare `accent.opacity(0.2)`/`accent` — the fill and edge were ALREADY the
+  exact LANE-20/LANE-100 colours the ferry names, nothing to change there. Fix 1 is what actually stops the
+  zero line (or anything else) from crossing the text now — once the text moved off-centre, there's nothing
+  left in the middle of the bar for a centred line to cross; the ferry's own closing words on this ("after
+  fix 1, nothing crosses the text") are read as confirming that causal relationship, not asking for a THIRD,
+  separate z-order fix for the text layer itself. **FIX 3 — dead strip between stacked horizontal bars:** a
+  new `touchPad: CGFloat = 0` on `EuclideousSlider` (declared `var`, not `let` — a `let` property's own
+  default value is NOT picked up by Swift's synthesized memberwise init, SE-0242 applies to `var` only;
+  caught by the real build failing "extra argument 'touchPad' in call" on the FIRST attempt, not guessed
+  around) expands ONLY the gesture's own `.contentShape` past the slider's visual `width×height` frame (via
+  a literal oversized `Path(CGRect(...))`, since `Path` itself conforms to `Shape`) — the Canvas/text content
+  underneath is completely unaffected, still drawn at the original size. Confirmed safe before writing it:
+  `DragGesture`'s own `g.location` stays relative to the view's UNCHANGED frame regardless of how far the
+  contentShape extends beyond it, and a horizontal slider's whole touch-to-value mapping only ever reads
+  `g.location.x` — so padding the shape 2pt vertically (into each neighbouring `sp4`(4pt) gap, wired only on
+  `horizontalSlider`'s own call in `sliderRow`, vertical sliders untouched at the default 0) can't perturb
+  where a touch resolves along the travel axis, only widen which touches are accepted as belonging to this
+  slider at all — two adjacent bars' 2pt extensions meet exactly in the middle of their shared 4pt gap, no
+  dead strip, no overlap. **DEVICE-OWED, the whole ferry — nothing here was visually verifiable off-device:**
+  the one-line text's legibility/spacing at real bar width; the zero-line-behind-fill reorder actually reading
+  as "a static reference the fill passes over" rather than a subtle, hard-to-notice change; the touch-area
+  expansion's real feel at the card's own actual height (this session's own hand-arithmetic put a single bar
+  at ≈36.67pt + 2+2 ≈ 40.67pt — close to, not exactly, the ferry's own "about 42–44pt," which its own wording
+  treats as an approximation, not a literal target to force).**
 - **▶ EUCLIDEOUS — "FERRY: RIFF tab fixes," 5 numbered corrections to the just-shipped RIFF/NOTES split
   (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1403 green incl. +1
   new). A follow-up design-channel ferry, read directly from the raw session transcript rather than

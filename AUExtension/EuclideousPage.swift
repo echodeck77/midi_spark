@@ -152,6 +152,10 @@ struct EuclideousSlider: View {
     let width: CGFloat
     let height: CGFloat
     let horizontal: Bool
+    var touchPad: CGFloat = 0   // 2026-10-14 ferry Fix 3: extra hit-testing margin, vertical only, horizontal
+    // sliders. `var` (not `let`): a `let` property's own default value is NOT picked up by Swift's
+    // synthesized memberwise init (SE-0242 only applies to `var`) — a `let` here would make every existing
+    // call site that omits this param fail to compile, confirmed by the real build before landing on `var`.
     let onCommit: (@escaping (inout EuclidLine) -> Void) -> Void
     let onDoubleTap: () -> Void
     let onRevertToEuclid: () -> Void
@@ -219,12 +223,14 @@ struct EuclideousSlider: View {
                     // for positive / down for negative when vertical, left/right when horizontal.
                     // "A centre tick is always visible."
                     let center = len / 2, value = pos(curFrac)
-                    ctx.fill(Path(bar(center, value)), with: .color(accent.opacity(0.2)))
-                    // Exact-dimensions ferry (2026-10-13): TILT's always-visible centre reference line
-                    // is now the same neutral grey as every other slider's static ticks (#3a3e47), not
-                    // the lane accent — distinguishing "where centre is" (static) from "where the value
-                    // sits" (the accent edgeLine(value) line right below, still live-coloured).
+                    // FIX 2 (2026-10-14 ferry, "RHYTHM tab sliders: keep the mix"): the zero line is now
+                    // drawn BEHIND the fill, not on top of it — "1pt #3a3e47, full height, at the centre,
+                    // behind everything" — a plain draw-order swap (was fill-then-zero-line-then-value-
+                    // edge; now zero-line-then-fill-then-value-edge). Still the same neutral grey as every
+                    // other slider's static ticks, distinguishing "where centre is" (static) from "where
+                    // the value sits" (the accent edgeLine(value) line, still live-coloured, drawn last).
                     ctx.fill(Path(edgeLine(center)), with: .color(Color(hex: 0x3A3E47)))
+                    ctx.fill(Path(bar(center, value)), with: .color(accent.opacity(0.2)))
                     ctx.fill(Path(edgeLine(value)), with: .color(accent))
                 } else {
                     // UNIPOLAR (ferry, literal): "rises from the bottom of the track to the value" —
@@ -234,29 +240,56 @@ struct EuclideousSlider: View {
                     ctx.fill(Path(edgeLine(value)), with: .color(accent))
                 }
             }
-            VStack(spacing: 0) {
-                // Exact-dimensions ferry (2026-10-13): value text 14pt heavy TEXT, 6pt from the
-                // slider's top edge; label 10pt MUTED, 5pt from the bottom — no longer vertically
-                // centred as a pair, each pinned to its own edge via the Spacer between them.
-                if edited {
-                    // THE EDITED CHIP (ferry, literal): "LANE-20 fill, LANE-100 border, 10pt... in the
-                    // value position." Its own hit area is the overlay below, not this label.
-                    Text("EDITED").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
-                        .padding(.top, 6)
-                } else {
-                    Text(euclideousSliderValueText(field, line))
-                        .font(.system(size: 14, weight: .heavy, design: .monospaced))
-                        .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
-                        .padding(.top, 6)
+            if horizontal {
+                // FIX 1 (2026-10-14 ferry, "RHYTHM tab sliders: keep the mix"): one line, vertically
+                // centred, matching the NOTES VEL bar's own established convention exactly — name left,
+                // value right, nothing in the middle of the bar. Replaces the vertical sliders' own
+                // stacked value-over-label layout, which crossed the TILT zero line when used here.
+                HStack {
+                    Text(euclideousSliderLabelText(field, line))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(0.8)
+                        .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if edited {
+                        // THE EDITED CHIP (ferry, literal): "LANE-20 fill, LANE-100 border, 10pt... in
+                        // the value position." Its own hit area is the overlay below, not this label.
+                        Text("EDITED").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
+                    } else {
+                        Text(euclideousSliderValueText(field, line))
+                            .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                            .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                    }
                 }
-                Spacer(minLength: 0)
-                Text(euclideousSliderLabelText(field, line)).font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
-                    .padding(.bottom, 5)
+                .padding(.horizontal, 10)
+            } else {
+                VStack(spacing: 0) {
+                    // Exact-dimensions ferry (2026-10-13): value text 14pt heavy TEXT, 6pt from the
+                    // slider's top edge; label 10pt MUTED, 5pt from the bottom — no longer vertically
+                    // centred as a pair, each pinned to its own edge via the Spacer between them.
+                    if edited {
+                        // THE EDITED CHIP (ferry, literal): "LANE-20 fill, LANE-100 border, 10pt... in the
+                        // value position." Its own hit area is the overlay below, not this label.
+                        Text("EDITED").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
+                            .padding(.top, 6)
+                    } else {
+                        Text(euclideousSliderValueText(field, line))
+                            .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                            .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                            .padding(.top, 6)
+                    }
+                    Spacer(minLength: 0)
+                    Text(euclideousSliderLabelText(field, line)).font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                        .padding(.bottom, 5)
+                }
             }
             if helpActive {
                 Text(field.help).font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -274,7 +307,15 @@ struct EuclideousSlider: View {
         // THE 2pt TOUCH BORDER is REMOVED (Paul 2026-10-12: "when a slider is selected it has an outline
         // appear. Please remove this behaviour") — was the ferry's own original "while touched: a 2pt
         // LANE-100 border" spec; `touching` (the @State that drove it) is gone too, having no other use.
-        .contentShape(Rectangle())
+        // FIX 3 (2026-10-14 ferry): `touchPad` extends the HIT-TESTING area only — never the visual frame
+        // above — by that many points above and below, so a touch landing in the gap between two stacked
+        // horizontal sliders still lands on whichever one it's closer to, with no dead strip between them.
+        // `DragGesture`'s own `g.location` stays relative to this view's UNCHANGED `width×height` frame
+        // regardless (a contentShape extending beyond a view's bounds doesn't move its own coordinate
+        // origin), and a horizontal slider's fraction math only ever reads `g.location.x` — so padding the
+        // shape vertically can't perturb where a touch resolves along the travel axis, only widen where a
+        // touch is still accepted as belonging to this slider at all.
+        .contentShape(touchPad > 0 ? Path(CGRect(x: 0, y: -touchPad, width: width, height: height + touchPad * 2)) : Path(CGRect(x: 0, y: 0, width: width, height: height)))
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { g in
@@ -1522,6 +1563,7 @@ struct EuclideousPage: View {
         func horizontalSlider(_ field: EuclideousSliderField) -> some View {
             EuclideousSlider(
                 field: field, line: line, accent: accent, width: halfW, height: rightRowH, horizontal: true,
+                touchPad: 2,   // 2026-10-14 ferry Fix 3: 2pt into each neighbouring sp4(4pt) gap, no dead strip
                 onCommit: { mutate in edit(idx, mutate) },
                 onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
                 onRevertToEuclid: { edit(idx) { $0.customHits = nil } })
