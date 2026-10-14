@@ -1455,7 +1455,13 @@ struct EuclideousPage: View {
                           stepCountBadgeWidth: stepCountBadgeTotalWidth,
                           // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
                           // triangle play button, flat LANE-100/#2c2f36 cell colours, the hand-placed notch.
-                          compact: true)
+                          compact: true,
+                          // STEP GROUPS (2026-10-14 ferry): the RHYTHM tab's own main step row groups its
+                          // steps (4, or 3 under triplet feel) with a leftover rule — this is the ONE call
+                          // site this ferry's own §1-4 target ("a lane's step row"); the MASK step bar
+                          // (§5, `maskStepBar`) opts in separately, and the regular BUILD-page EUCLID
+                          // editor (GridUI.swift) is untouched, per `grouped`'s own false default.
+                          grouped: true)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -2540,23 +2546,32 @@ struct EuclideousPage: View {
     /// pads elsewhere on this page construct it the same way) for the identical 1-/2-finger drag + pinch
     /// interaction `EuclidCometBar` itself used internally, so dragging/pinching this bar to edit HITS/
     /// ROTATE/STEPS is completely unchanged — only the DRAWING underneath it is new.
-    private func maskStepBar(_ idx: Int, _ m: EuclidLineMask, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
+    private func maskStepBar(_ idx: Int, _ m: EuclidLineMask, _ accent: Color, rate: ArpRate, width: CGFloat, height: CGFloat) -> some View {
         let n = max(2, min(16, m.stepsResolved))
         let k = max(0, min(n, m.pulsesResolved))
         let rotate = m.rotate ?? 0
         let pos = idx < maskPositions.count ? maskPositions[idx] : -1
         let insetL: CGFloat = 6, insetR: CGFloat = 6
+        // STEP GROUPS (2026-10-14 ferry §5, literal): "uses the same groups, gaps and rule [as the lane's
+        // step row]... the same group size as its lane" — `rate` is the LANE's own resolved rate (passed by
+        // `maskCometRow`), not a separate mask-level concept, so this bar can't land on a different group
+        // size than the lane it belongs to. "The mask's timing is still deferred, and this does not decide
+        // it" (the ferry's own disclosed scope limit) — only the STEP-ROW's visual grouping changes here.
+        let groupSize = euclidStepGroupSize(forRate: rate)
+        let usableW = max(1, width - insetL - insetR)
+        let groupGeo = euclidGroupedBoxGeometry(n: n, g: groupSize, usableWidth: usableW)
         // SENSITIVITY, matching `EuclidCometBar`'s own convention exactly (Router.swift's box geometry, not
         // the gesture pad's SEPARATE 14pt visual padding below — that padding only shrinks the pad's own
         // touch area, it was never part of the box-pitch calculation EuclidCometBar itself uses either).
-        let rotateStepPt = euclidBoxGeometry(n: n, usableWidth: max(1, width - insetL - insetR)).pitch
+        let rotateStepPt: CGFloat = n > 1 ? (groupGeo.xs[n - 1] - groupGeo.xs[0]) / CGFloat(n - 1) : usableW / CGFloat(n)
         return ZStack {
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
                 euclidPatternInto(&buf, pulses: k, steps: n, rotation: rotate)
                 let midY = size.height / 2
-                let usableW = max(1, size.width - insetL - insetR)
-                let (boxW, gap, _) = euclidBoxGeometry(n: n, usableWidth: usableW)
+                let localUsableW = max(1, size.width - insetL - insetR)
+                let localGeo = euclidGroupedBoxGeometry(n: n, g: groupSize, usableWidth: localUsableW)
+                let boxW = localGeo.stepW
                 // RAISED 30→60 (Paul 2026-10-11, the PATTERN/MASK layout move — this bar now has real
                 // extra height to use, where it used to sit capped inside a flat 36pt row regardless; a
                 // judgment call on the new ceiling itself, not device-verified against how it actually
@@ -2564,7 +2579,7 @@ struct EuclideousPage: View {
                 let boxH = min(60, size.height - 6)
                 let corner = min(5, boxW / 2.2)
                 for i in 0..<n {
-                    let rect = CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
+                    let rect = CGRect(x: insetL + localGeo.xs[i], y: midY - boxH / 2, width: boxW, height: boxH)
                     let box = Path(roundedRect: rect, cornerRadius: corner)
                     let current = i == pos
                     if buf[i] {
@@ -2574,6 +2589,18 @@ struct EuclideousPage: View {
                         ctx.fill(box, with: .color(.white.opacity(0.09)))
                         ctx.stroke(box, with: .color(current ? accent : .white.opacity(0.16)), lineWidth: current ? 1.5 : 1)
                     }
+                }
+                // LEFTOVER RULE (ferry §3/§5) — drawn INSIDE this Canvas (unlike the RHYTHM tab's own comet
+                // bar, this bar's boxes don't fill its whole height — `boxH` is capped well under `size.
+                // height`, so there's real room below them for the rule within the same Canvas, no separate
+                // overlay needed). A JUDGMENT CALL, flagged: the ferry gives no mask-specific pixel budget
+                // ("my interpretation of how this applies to the mask") — at a very constrained real height
+                // the 4pt the rule needs (2pt gap + 2pt bar) below `boxH`'s own bottom edge may be tighter
+                // than this reasoning assumed; unverified off-device.
+                if let rx = localGeo.ruleX, let rw = localGeo.ruleW {
+                    let ruleY = min(size.height - 2, midY + boxH / 2 + 2)
+                    let rule = CGRect(x: insetL + rx, y: ruleY, width: rw, height: 2)
+                    ctx.fill(Path(roundedRect: rule, cornerRadius: 1), with: .color(accent))
                 }
             }
             .allowsHitTesting(false)
@@ -2606,7 +2633,7 @@ struct EuclideousPage: View {
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
                 .onTapGesture { editMask(idx) { $0.enabled = !$0.enabledResolved } }
-            maskStepBar(idx, m, accent,
+            maskStepBar(idx, m, accent, rate: line.rate ?? .r1_16,
                         // 36(play)+36(step count)+2×sp4(the HStack's own gaps either side of this view)
                         width: max(1, width - 36 - 36 - sp4 * 2), height: max(36, height))
             Text("\(steps)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))

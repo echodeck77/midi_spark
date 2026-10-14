@@ -196,6 +196,64 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: Step groups on the lane step row," the RHYTHM tab's main step box row (and the
+  MASK step bar) now reads in groups of 4 (or 3 under triplet feel), with a leftover rule (2026-10-14, on
+  `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS unaffected — `EuclidLaneUI.swift`
+  imports UIKit, so it has never reached the macOS test target; the new pure geometry formula was instead
+  independently re-run outside Swift (a throwaway Python script) against ALL 8 of the ferry's own literal
+  check tables and matched every one to the given precision before being trusted). RATIFIED by Paul, complete
+  in text with no picture. **THE GEOMETRY, a genuinely new gap system, not a generalization of the old one:**
+  new `EuclidStepGroupGeometry`/`euclidGroupedBoxGeometry(n:g:usableWidth:)` (EuclidLaneUI.swift, beside the
+  pre-existing `euclidBoxGeometry` — kept, untouched, still serving any caller that doesn't opt in) — fixed
+  2pt gaps WITHIN a group, 7pt BETWEEN groups, regardless of step count (replacing, for an opted-in caller
+  only, the old count-dependent 3pt/2pt tiers) — `x(i) = i·w + 2·i + 5·⌊i/g⌋`, `w = (W − totalGaps)/n`,
+  `totalGaps = 2·(n−G) + 7·(G−1)`, `G = ⌈n/g⌉`. Groups count from step 1 and are fixed to STEP POSITION —
+  never to whatever's hit (OFFSET/TILT/hand-edited patterns/DIRECTION/INVERT only ever change which box
+  lights up, never where a box's own rect sits; this was already true of the existing grid, extended here
+  rather than re-litigated). New `euclidStepGroupSize(forRate:)` returns g=3 under triplet feel (`euclideous-
+  RateDivisionFeel(rate).feel == 2`), g=4 otherwise — shared by both call sites below so they can't
+  independently land on different group sizes for what's meant to be the same lane. **WIRING, additive and
+  opt-in throughout — `grouped: Bool = false` on both `EuclidCometBar` and `EuclidLaneBox`** (a plain
+  passthrough on the latter), so the regular BUILD-page EUCLID editor (GridUI.swift, which never passes it)
+  is BYTE-IDENTICAL to before this ferry — confirmed by construction, not just asserted: with `grouped`
+  false, `groupGeo` is nil everywhere it's read, and every one of the 3 geometry call sites (the gesture's
+  `rotateStepPt`, the footer-accessibility overlay, the Canvas's own box positions) falls through to the
+  OLD `euclidBoxGeometry`-derived values unchanged. Euclideous's own RHYTHM-tab lane card is the ONE call
+  site that opts in (`EuclidLaneBox(..., grouped: true)`); the MASK step bar (`maskStepBar`, §5: "uses the
+  same group size as its lane") opts in separately, reading the LANE's own resolved rate
+  (`maskCometRow` now passes `rate: line.rate ?? .r1_16` down to it) so the mask can't disagree with its own
+  lane's grouping — "the mask's timing is still deferred, and this does not decide it" (the ferry's own
+  disclosed scope limit) is honoured literally: only the step row's visual grouping changed, nothing about
+  when the mask actually advances. **THE RULE, two different placements for two different reasons:** on
+  `EuclidCometBar` (Euclideous's own comet bar, `exactStyle`), the step boxes fill the Canvas's FULL height
+  (`boxH = size.height`), leaving no room inside that Canvas for a rule drawn below them — so it's drawn as
+  a plain `.overlay(alignment: .bottomLeading)` on the whole bar, offset 4pt down (2pt gap + its own 2pt
+  height) and right by `insetL + ruleX` — confirmed safe against the one real risk (the card's own `.clipped
+  ()` cutting it off): that clip sits at the OUTER card boundary, well past the 6pt inter-row gap this rule
+  actually lives in, so it isn't cut. On `maskStepBar`, the boxes are capped well under the Canvas's own
+  height (`boxH = min(60, size.height−6)`), so there's genuine room left inside that SAME Canvas — the rule
+  draws there directly, clamped (`min(size.height−2, ...)`) so it can't overflow the Canvas on an unusually
+  short real container. **GESTURE SENSITIVITY, a disclosed judgment call — the ferry doesn't address this:**
+  `rotateStepPt` (how many points of finger-drag = one step, for the existing rotate gesture) becomes the
+  row's own AVERAGE pitch under grouping (`(xs[n-1]−xs[0])/(n−1)`) rather than a fixed per-step value, since
+  individual pitches are no longer uniform; this formula reduces to EXACTLY the old `boxGeo.pitch` when
+  ungrouped (not a special case — `xs[i]=i·pitch` makes the average trivially equal the pitch itself),
+  confirmed algebraically before relying on it. **§6 "TOUCH (hit editing)," investigated and found not
+  applicable — nothing silently skipped:** grepped this whole file and `GridUI.swift` for any existing "tap a
+  specific step box to toggle it" mechanism and found none — `EuclidGesturePad`'s only touch interactions are
+  relative drags (rotate/hits) and a pinch (steps); a hand-edited pattern (`customHits`) is built by the
+  RHYTHM tab's own HITS slider rebuild logic, never by tapping a box directly. The ferry's own "(My
+  interpretation.)" on this section reads, in light of that, as describing a gesture that doesn't exist yet
+  in this codebase rather than one this fix needed to touch — left unbuilt, flagged here rather than
+  silently ignored or invented from nothing. **ACKNOWLEDGEMENT, honestly incomplete:** the ferry's own
+  closing line asks for screenshots at 7/8/13/16 steps plus one triplet-feel lane at 7 steps — this
+  environment has no device/simulator visual access and cannot produce any of them; the formula's own
+  independent re-verification above (matching all 8 given check tables exactly) is the strongest
+  confirmation available from here, not a substitute for actually looking at it. **DEVICE-OWED, the whole
+  ferry:** the rule's real legibility/position at actual card size, especially the `EuclidCometBar` overlay's
+  placement in the inter-row gap (reasoned through SwiftUI's own layout-then-overlay model, not rendered);
+  the MASK step bar's rule at a real, possibly height-constrained container (flagged inline as a genuine,
+  not just ritual, risk); triplet feel's g=3 grouping actually reading clearly at real step-box size.**
 - **▶ EUCLIDEOUS — "FERRY: RHYTHM tab sliders — keep the mix," 3 fixes to the two-column six-slider layout
   (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1403 unaffected —
   pure UI, `EuclideousSlider`/`sliderRow` have no test-target reach). Paul's ruling, relayed in full: the

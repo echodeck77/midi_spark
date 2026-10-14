@@ -63,6 +63,48 @@ func euclidBoxGeometry(n: Int, usableWidth: CGFloat) -> (boxW: CGFloat, gap: CGF
     return (boxW, gap, boxW + gap)
 }
 
+/// STEP GROUPS (2026-10-14 ferry, "Step groups on the lane step row") — a SEPARATE, opt-in geometry from
+/// `euclidBoxGeometry` above (not a generalization of it: the gap system is genuinely different — a fixed
+/// 2pt WITHIN a group and 7pt BETWEEN groups, regardless of step count, replacing that function's own
+/// count-dependent 3pt/2pt tiers for whichever caller opts in). Groups count from step 1, left to right, and
+/// are FIXED TO STEP POSITION — never to whatever's currently hit (OFFSET/TILT/hand-edited hits/DIRECTION/
+/// INVERT only ever change which box lights up, never where a box's own rect sits; this struct decides
+/// position alone). `xs[i]` is each step's own left edge (0-based, excluding any caller-side inset); the
+/// formula is the ferry's own literal one, hand-verified against every one of its 7 given check tables
+/// before being trusted (e.g. n=7,g=4: w=29.86, x(4)=4×29.86+2×4+5×1=132.44, matching the ferry's own
+/// "groups at 0, 132.43" exactly, mod rounding). `ruleX`/`ruleW` describe the LEFTOVER rule (nil when n is
+/// an exact multiple of g — "counts that divide evenly get no rule"): the leftover is a group's own trailing
+/// SHORT remainder (`n mod g`), or — when n itself is smaller than g — the WHOLE row.
+struct EuclidStepGroupGeometry {
+    let stepW: CGFloat
+    let xs: [CGFloat]
+    let ruleX: CGFloat?
+    let ruleW: CGFloat?
+}
+func euclidGroupedBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGroupGeometry {
+    guard n > 0 else { return EuclidStepGroupGeometry(stepW: 0, xs: [], ruleX: nil, ruleW: nil) }
+    let gSize = max(1, g)
+    let groups = max(1, Int((Double(n) / Double(gSize)).rounded(.up)))
+    let withinGaps = max(0, n - groups)      // one fewer 2pt gap than steps, per group, summed over all groups
+    let betweenGaps = max(0, groups - 1)     // one fewer 7pt gap than the group count
+    let totalGaps = CGFloat(withinGaps) * 2 + CGFloat(betweenGaps) * 7
+    let w = max(0.5, (usableWidth - totalGaps) / CGFloat(n))
+    var xs = [CGFloat](repeating: 0, count: n)
+    for i in 0..<n { xs[i] = CGFloat(i) * w + 2 * CGFloat(i) + 5 * CGFloat(i / gSize) }
+    let leftover = n % gSize
+    guard leftover != 0 else { return EuclidStepGroupGeometry(stepW: w, xs: xs, ruleX: nil, ruleW: nil) }
+    let firstLeftoverIdx = n - leftover
+    let x0 = xs[firstLeftoverIdx]
+    let xEnd = xs[n - 1] + w
+    return EuclidStepGroupGeometry(stepW: w, xs: xs, ruleX: x0, ruleW: xEnd - x0)
+}
+/// The group size for a given RATE — g=3 under triplet feel, g=4 otherwise (ferry §4, literal). Shared by
+/// `EuclidCometBar` and the MASK step bar (ferry §5: "uses the same group size as its lane") so the two
+/// can't independently land on different group sizes for what's meant to be the same lane.
+func euclidStepGroupSize(forRate rate: ArpRate) -> Int {
+    euclideousRateDivisionFeel(rate).feel == 2 ? 3 : 4
+}
+
 /// Builds the floating drag-HUD payload for a lane's gesture — a free function (not baked into
 /// `EuclidLaneBox` itself) so every caller constructs the SAME "ALL LANES" vs "LANE N" label the
 /// same way, without duplicating the logic at each call site.
@@ -133,6 +175,9 @@ struct EuclidLaneBox: View {
     // draws both now — `selected` is always `false` at Euclideous's call site anyway). `false` (every other
     // caller, incl. the regular BUILD-page EUCLID editor) ⇒ byte-identical to before this ferry.
     var compact: Bool = false
+    // STEP GROUPS (2026-10-14 ferry) — passthrough to `EuclidCometBar`'s own `grouped`; `false` (every
+    // other caller, incl. the regular BUILD-page EUCLID editor) ⇒ byte-identical to before this ferry.
+    var grouped: Bool = false
 
     var body: some View {
         let on = line.enabledResolved
@@ -150,7 +195,7 @@ struct EuclidLaneBox: View {
             EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
                            rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved,
                            customHits: line.customHitsResolved(max(2, min(16, line.steps))),
-                           footerStates: footerStates, exactStyle: compact,
+                           footerStates: footerStates, exactStyle: compact, grouped: grouped,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
@@ -257,6 +302,12 @@ struct EuclidCometBar: View {
     // and the hand-placed notch marker on a hand-edited pattern. `false` (every other caller — the regular
     // BUILD-page EUCLID editor, Euclideous's own MASK-tab bar) ⇒ byte-identical to before this ferry.
     var exactStyle: Bool = false
+    // STEP GROUPS (2026-10-14 ferry, "Step groups on the lane step row") — groups of `euclidStepGroupSize
+    // (forRate: rate)` steps (4 normally, 3 under triplet feel), 2pt gaps within a group / 7pt between, with
+    // a leftover-group rule. `false` (every other caller — the regular BUILD-page EUCLID editor) ⇒ byte-
+    // identical to before this ferry; it was never asked to regroup, so it keeps `euclidBoxGeometry`'s own
+    // count-dependent gap tiers entirely untouched.
+    var grouped: Bool = false
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -290,8 +341,17 @@ struct EuclidCometBar: View {
         // width)` at the very end of this body pins to this SAME `width` — the two can't disagree) — reused
         // here, at body scope, only for the gesture's rotate-sensitivity and the footer-band accessibility
         // overlay below, neither of which has access to the Canvas's own local `size`.
-        let boxGeo = euclidBoxGeometry(n: n, usableWidth: max(1, width - insetL - insetR))
-        let rotateStepPt = boxGeo.pitch
+        let usableOuter = max(1, width - insetL - insetR)
+        let groupSize = euclidStepGroupSize(forRate: rate)
+        let groupGeo = grouped ? euclidGroupedBoxGeometry(n: n, g: groupSize, usableWidth: usableOuter) : nil
+        let boxGeo = euclidBoxGeometry(n: n, usableWidth: usableOuter)
+        // STEP-GROUPS (2026-10-14 ferry): one shared step-position list for both the gesture's rotate-
+        // sensitivity and the footer-band accessibility overlay — `groupGeo` when grouped, else the plain
+        // uniform-pitch list, which reduces `rotateStepPt` below to EXACTLY `boxGeo.pitch` (byte-identical
+        // for every ungrouped caller, not a special case: with xs[i] = i×pitch, (xs[n-1]-xs[0])/(n-1) = pitch).
+        let stepXs: [CGFloat] = groupGeo?.xs ?? (0..<n).map { CGFloat($0) * boxGeo.pitch }
+        let stepW: CGFloat = groupGeo?.stepW ?? boxGeo.boxW
+        let rotateStepPt: CGFloat = n > 1 ? (stepXs[n - 1] - stepXs[0]) / CGFloat(n - 1) : boxGeo.pitch
         ZStack {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running)) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
@@ -324,8 +384,17 @@ struct EuclidCometBar: View {
                 func xFor(_ pos: Double) -> CGFloat { insetL + usable * CGFloat(pos / Double(n)) }   // the comet still rides this CONTINUOUS position — independent of the discrete boxes below
                 // STEP BOXES: N bounded, gap-separated rounded-rect slots read the step COUNT at a glance — the
                 // boxes themselves ARE the grid, with or without anything lit. Gap narrows as N grows so a dense
-                // 16-step lane doesn't crush its boxes into nothing.
-                let (boxW, gap, _) = euclidBoxGeometry(n: n, usableWidth: usable)   // the SAME shared formula the outer rotate-drag sensitivity uses — can't drift apart
+                // 16-step lane doesn't crush its boxes into nothing — UNLESS `grouped` (2026-10-14 ferry), which
+                // uses `euclidGroupedBoxGeometry`'s own fixed 2pt-within/7pt-between gaps instead, the SAME
+                // formula the outer rotate-drag sensitivity/footer-accessibility overlay independently recompute
+                // from `width` (pinned equal to this Canvas's own `size.width` by the `.frame(width: width)` at
+                // the very end of this body) — can't drift apart.
+                let localGroupGeo = grouped ? euclidGroupedBoxGeometry(n: n, g: euclidStepGroupSize(forRate: rate), usableWidth: usable) : nil
+                let (boxW, boxXs): (CGFloat, [CGFloat]) = {
+                    if let g = localGroupGeo { return (g.stepW, g.xs) }
+                    let (bw, gp, _) = euclidBoxGeometry(n: n, usableWidth: usable)
+                    return (bw, (0..<n).map { CGFloat($0) * (bw + gp) })
+                }()
                 // "Each step cell is one 44pt-tall rounded rectangle (6pt radius), the same height as the play
                 // button and the count box" (2026-10-13 ferry §1, literal) — the cell now fills this bar's
                 // whole rendered height (was capped at 30pt with margin above/below) and the corner radius is
@@ -336,7 +405,7 @@ struct EuclidCometBar: View {
                 let boxH = size.height
                 let corner: CGFloat = 6
                 func boxRect(_ i: Int) -> CGRect {
-                    CGRect(x: insetL + CGFloat(i) * (boxW + gap), y: midY - boxH / 2, width: boxW, height: boxH)
+                    CGRect(x: insetL + boxXs[i], y: midY - boxH / 2, width: boxW, height: boxH)
                 }
                 func boxPath(_ rect: CGRect) -> Path {
                     RoundedRectangle(cornerRadius: corner).path(in: rect)
@@ -519,8 +588,8 @@ struct EuclidCometBar: View {
         // FOOTER BAND ACCESSIBILITY (ferry's own literal text — carried over from the retired separate
         // footer row's own overlay, same labels, same "one invisible per-step element" idiom): a Canvas has
         // no per-region accessibility of its own, so VoiceOver gets one labelled, non-interactive element per
-        // step at the SAME x each box occupies — `boxGeo` is the identical formula the Canvas itself uses, so
-        // this can't drift from what's actually drawn.
+        // step at the SAME x each box occupies — `stepXs`/`stepW` are the identical formula the Canvas itself
+        // uses (grouped or not), so this can't drift from what's actually drawn.
         if let footerStates {
             ZStack(alignment: .topLeading) {
                 ForEach(0..<n, id: \.self) { i in
@@ -535,15 +604,34 @@ struct EuclidCometBar: View {
                         }
                     }()
                     Color.clear
-                        .frame(width: boxGeo.boxW)   // two chained `.frame()` calls — this codebase's own
+                        .frame(width: stepW)   // two chained `.frame()` calls — this codebase's own
                         .frame(maxHeight: .infinity)  // standard idiom; `width:`/`maxHeight:` can't mix in one call
-                        .offset(x: insetL + CGFloat(i) * boxGeo.pitch, y: 0)
+                        .offset(x: insetL + stepXs[i], y: 0)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(label)
                 }
             }
             .allowsHitTesting(false)
         }
+        }
+        // LEFTOVER RULE (2026-10-14 ferry, "Step groups on the lane step row" §3): a 2pt bar, 1pt corner
+        // radius, LANE-100, sitting 2pt below the bottom of the step cells — drawn OUTSIDE the Canvas above
+        // (which, for `exactStyle` callers, has its own box fill the Canvas's FULL height, leaving no room
+        // inside it for anything below the boxes) as a plain overlay anchored to this whole bar's own
+        // bottom-left corner, then nudged right/down into position. Shown only when `grouped` AND the step
+        // count isn't an exact multiple of the group size ("counts that divide evenly get no rule") — reads
+        // `groupGeo` (computed once at body scope, the SAME values the Canvas's own `localGroupGeo` re-derives
+        // from `size.width`, which `.frame(width: width)` below pins to this identical `width`). Depends on
+        // nothing but `n`/`grouped`/`rate` — never hits/play state/the riff — and never responds to touch
+        // (layered in an `.overlay`, outside any gesture/hit-testing path; nothing here calls `.contentShape`
+        // or attaches a gesture).
+        .overlay(alignment: .bottomLeading) {
+            if let g = groupGeo, let rx = g.ruleX, let rw = g.ruleW {
+                RoundedRectangle(cornerRadius: 1).fill(tint)
+                    .frame(width: rw, height: 2)
+                    .offset(x: insetL + rx, y: 4)
+                    .allowsHitTesting(false)
+            }
         }
         // PIN THE REAL RENDER WIDTH TO THE `width` PARAMETER (found 2026-10-13, chasing "the lane footer
         // cells don't line up with the step boxes above them"): nothing below this struct's own body EVER
