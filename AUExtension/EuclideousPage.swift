@@ -474,6 +474,18 @@ struct EuclideousPage: View {
     @State private var singleTouchedLanes: Set<Int> = []
     @State private var allRowsTouched = false
     @State private var dragHUDInfo: EuclidDragHUDInfo? = nil
+    // RHYTHM GESTURE CONTROLS (Paul 2026-10-14: "pulling up add hits, down removes hits, left and right are
+    // offset — these existing controls exist in euclid mask") — re-enables the main step-box row's own
+    // `EuclidGesturePad` (NEUTERED back on 2026-10-09 when the 4 square pads, later the 6 sliders, took over
+    // hits/rotate editing — `laneCard`'s own `onRotateDelta`/`onHitsDelta` were left as `{ _ in }` no-ops).
+    // `rhythmGestureSnapshot` is the line as it stood at the START of the CURRENT gesture (nil = no gesture
+    // in progress) — captured ONCE per gesture (the first non-nil `onDragState` point), not every tick, so
+    // HITS' own edited-pattern rebuild can round-trip exactly like the slider's identical mechanism does
+    // (`euclideousSliderCommit`'s own snapshot contract). `rhythmHitsAccum`/`rhythmOffsetAccum` accumulate
+    // the raw deltas since that same gesture start.
+    @State private var rhythmGestureSnapshot: [EuclidLine?] = [nil, nil, nil, nil]
+    @State private var rhythmHitsAccum: [Int] = [0, 0, 0, 0]
+    @State private var rhythmOffsetAccum: [Int] = [0, 0, 0, 0]
     // MELODY POP-UP RETIRED 2026-10-13 ("MELODY tab on the lane cards") — `melodyPopupLane`/
     // `melodyStripFrames` are gone with it, superseded by `laneTab` below (a lane shows its melody
     // settings in-card, on its own tab, not in a floating anchored popup).
@@ -1334,10 +1346,19 @@ struct EuclideousPage: View {
                           // selection indicator moved to a single outline around the ENTIRE card below.
                           selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
                           clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
-                          onRotateDelta: { _ in }, onHitsDelta: { _ in },      // NEUTERED — the 4 square pads below own this now
+                          // RHYTHM GESTURE CONTROLS (Paul 2026-10-14, re-enabled — mirrors MASK's own
+                          // identical wiring, `maskStepBar` below, just targeting this lane's REAL
+                          // pulses/rotate instead of its mask's): up adds hits, down removes, left/right
+                          // is offset — routed through the SAME `euclideousSliderCommit` the RHYTHM tab's
+                          // own HITS/OFFSET sliders use, so an edited (hand-drawn) pattern rebuilds/round-
+                          // trips identically whichever control you drag, and OFFSET can't disagree with
+                          // the slider's own just-fixed drag-direction mirror.
+                          onRotateDelta: { d in euclideousApplyRhythmX(idx, d) },
+                          onHitsDelta: { d in euclideousApplyRhythmY(idx, d) },
                           onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
-                          onAllRotateDelta: { _ in }, onAllHitsDelta: { _ in },   // NEUTERED, same reason
-                          onDragState: { _, _ in },                              // no HUD/highlight from the comet bar anymore — the pads report their own
+                          onAllRotateDelta: { d in euclideousApplyAllRhythmX(d) },
+                          onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
+                          onDragState: { point, allRows in euclideousRhythmDragState(idx, point, allRows) },
                           onSelect: { selectedLane = idx },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
                           // LANE FOOTER BANDS (2026-10-13 ferry, "footers inside the step cells" — supersedes
@@ -2452,6 +2473,59 @@ struct EuclideousPage: View {
     private func euclideousApplyMaskY(_ idx: Int, _ d: Int) { editMask(idx) { applyMaskHits(&$0, d) } }
     private func euclideousApplyAllMaskX(_ d: Int) { onEdit { lines in for i in lines.indices { var m = lines[i].mask ?? EuclidLineMask(); applyMaskRotate(&m, d); lines[i].mask = m } } }
     private func euclideousApplyAllMaskY(_ d: Int) { onEdit { lines in for i in lines.indices { var m = lines[i].mask ?? EuclidLineMask(); applyMaskHits(&m, d); lines[i].mask = m } } }
+
+    // RHYTHM GESTURE CONTROLS (Paul 2026-10-14) — the main step-box row's own drag, re-wired onto this
+    // lane's REAL pulses/rotate (not its mask's). Unlike MASK's direct `pulses+d`/`(rotate-d)%n` mutation,
+    // the SINGLE-lane path routes through `euclideousSliderCommit` — the SAME function the RHYTHM tab's own
+    // HITS/OFFSET sliders call — so a hand-edited (`customHits`) pattern rebuilds/round-trips identically
+    // regardless of which control you drag, and OFFSET can't disagree with the slider's own just-fixed
+    // drag-direction mirror (`euclideousSliderRange`/`Commit`'s `.offset` cases display/commit `(n-rotate)
+    // %n`, not raw rotate — see those functions' own doc comments). `rhythmGestureSnapshot[idx]` is the line
+    // as it stood at gesture-START (captured once by `euclideousRhythmDragState` below), so dragging back to
+    // the start reproduces the exact original pattern, exactly like the slider's own touch-down snapshot.
+    private func euclideousApplyRhythmX(_ idx: Int, _ d: Int) {
+        let snap = rhythmGestureSnapshot[idx] ?? (idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all))
+        rhythmOffsetAccum[idx] += d   // d > 0 = rightward drag (EuclidGesturePad's own established convention)
+        let base = euclideousSliderRange(.offset, snap).value   // the snapshot's own DISPLAYED (mirrored) offset, not raw rotate
+        edit(idx) { l in euclideousSliderCommit(.offset, &l, snapshot: snap, newValue: base + Double(rhythmOffsetAccum[idx])) }
+    }
+    private func euclideousApplyRhythmY(_ idx: Int, _ d: Int) {
+        let snap = rhythmGestureSnapshot[idx] ?? (idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all))
+        rhythmHitsAccum[idx] += d   // d > 0 = upward drag (matches MASK's own onHitsDelta convention exactly)
+        edit(idx) { l in euclideousSliderCommit(.hits, &l, snapshot: snap, newValue: Double(snap.pulses + rhythmHitsAccum[idx])) }
+    }
+    // ALL-LANES 2-finger variants — mirror MASK's own SIMPLER, direct-mutation model (no edited-pattern
+    // rebuild awareness here), a disclosed scope trade-off: a hand-edited lane caught by an all-lanes bump
+    // keeps its OLD customHits shape, padded/truncated against the new pulse count by the existing render-
+    // side `customHitsResolved` bounds-check rather than cleanly rebuilt — matching how every OTHER bulk/
+    // all-lanes gesture on this page already treats `customHits` (none of them are rebuild-aware either).
+    private func euclideousApplyAllRhythmX(_ d: Int) {
+        onEdit { lines in for i in lines.indices { let n = max(2, min(16, lines[i].steps)); lines[i].rotate = ((lines[i].rotate - d) % n + n) % n } }
+    }
+    private func euclideousApplyAllRhythmY(_ d: Int) {
+        onEdit { lines in for i in lines.indices { let n = max(2, min(16, lines[i].steps)); lines[i].pulses = max(0, min(n, lines[i].pulses + d)) } }
+    }
+    /// Captures the gesture-start snapshot ONCE (the first non-nil point of a NEW gesture — `onDragState`
+    /// reports a non-nil point on every `.changed` tick, so a naive "always capture" would silently re-
+    /// freeze the snapshot every tick, breaking the round-trip-to-start guarantee `euclideousSliderCommit`'s
+    /// own HITS rebuild depends on) and clears all gesture state at gesture-end (nil point).
+    private func euclideousRhythmDragState(_ idx: Int, _ point: CGPoint?, _ allRows: Bool) {
+        guard let point else {
+            dragHUDInfo = nil
+            rhythmGestureSnapshot[idx] = nil
+            rhythmHitsAccum[idx] = 0; rhythmOffsetAccum[idx] = 0
+            return
+        }
+        if rhythmGestureSnapshot[idx] == nil {
+            rhythmGestureSnapshot[idx] = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+            rhythmHitsAccum[idx] = 0; rhythmOffsetAccum[idx] = 0
+        }
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let n = max(2, min(16, line.steps))
+        let displayedOffset = Int(euclideousSliderRange(.offset, line).value)
+        dragHUDInfo = EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
+                                         primary: "\(line.pulses) OF \(n)", secondary: "OFFSET \(displayedOffset)", point: point)
+    }
 
     /// MASK line 2 (Paul 2026-10-10, "Euclid mask, modes and settings" ferry §4) — REPLACES the deferred
     /// "EFFECT — NOT YET AVAILABLE" stub now that the mask has a real engine effect. MODE chip · up to 2

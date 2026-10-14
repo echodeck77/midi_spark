@@ -196,6 +196,46 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — gesture controls re-enabled on the main step-box row, matching EUCLID MASK's own
+  (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1405 unaffected —
+  pure UI wiring, no new pure logic). Paul: "Please add gesture controls to the euclid lanes. Pulling up add
+  hits, down removes hits, left and right are offset. These existing controls exist in euclid mask." Every
+  lane's own `EuclidLaneBox` (the always-visible step-box row at the top of the card, regardless of which
+  tab is selected) ALREADY hosts an `EuclidGesturePad` internally — its `onRotateDelta`/`onHitsDelta`/
+  `onAllRotateDelta`/`onAllHitsDelta`/`onDragState` were explicitly NEUTERED (`{ _ in }`) back on 2026-10-09
+  when the 4 square pads (later the 6 sliders) took over hits/rotate editing; PINCH (`onStepsDelta`) was the
+  one thing deliberately kept live. Re-wired all five to real handlers, mirroring `maskStepBar`'s own
+  identical wiring (`euclideousApplyMaskX`/`Y`) but targeting this lane's REAL `pulses`/`rotate` instead of
+  its mask's. **THE ONE REAL DESIGN DECISION:** MASK's own gesture mutates `EuclidLineMask.pulses`/`rotate`
+  DIRECTLY (`pulses = max(0,min(steps,pulses+d))`, no further concept to preserve) — but `EuclidLine` ALSO
+  carries an optional hand-edited `customHits` pattern the RHYTHM tab's own HITS slider already knows how to
+  REBUILD correctly (`euclideousSliderCommit`'s snapshot-based `euclidRebuildPattern`, "dragging back to the
+  start restores the pattern exactly"). A naive direct-mutation gesture (MASK's own shape) would silently
+  desync `customHits` from a changed `pulses` count. FIX: the single-LANE gesture routes through THAT SAME
+  `euclideousSliderCommit` function instead of a parallel direct mutation — a new per-lane
+  `rhythmGestureSnapshot: [EuclidLine?]` captures the line as it stood at gesture-START (the first non-nil
+  `onDragState` point of a NEW gesture, not every tick — `onDragState` reports a point on every `.changed`
+  tick, so a naive "always capture" would re-freeze the snapshot continuously and break the round-trip-to-
+  start guarantee), with `rhythmHitsAccum`/`rhythmOffsetAccum` accumulating the raw deltas since that start;
+  each tick calls `euclideousSliderCommit(.hits/.offset, &line, snapshot:, newValue: snapshotBase +
+  accumulated)` — reusing the EXACT proven commit logic the slider itself calls, so dragging the gesture and
+  dragging the slider can never produce two different final shapes for the same inputs. **OFFSET SPECIFICALLY
+  reuses the just-shipped drag-direction mirror fix for free** — `euclideousSliderRange(.offset,...)`/
+  `Commit` already display/commit the MIRRORED `(n−rotate)%n` quantity (see that fix's own entry above), so
+  routing the gesture through the SAME function means "drag right moves hits right" holds for the gesture
+  too, with zero duplicate sign logic to keep in sync. **ALL-LANES (2-finger) variant, a disclosed scope
+  trade-off:** mirrors MASK's own SIMPLER direct-mutation model (`pulses+d`/`(rotate-d)%n` per lane, no
+  snapshot/rebuild) rather than tracking 4 simultaneous snapshots — a hand-edited lane caught by an all-
+  lanes bump keeps its OLD `customHits` shape, padded/truncated against the new pulse count by the existing
+  render-side bounds-check rather than cleanly rebuilt, matching how every OTHER all-lanes gesture on this
+  page already treats `customHits` (none of them are rebuild-aware either). The drag HUD (`dragHUDInfo`)
+  shows the SAME "OFFSET N" displayed/mirrored quantity the slider's own value text shows, never raw
+  `rotate`, so the transient HUD and the permanent slider can't disagree about what a number means. No new
+  pure logic (`euclideousSliderCommit`/`Range` were already fully tested) — this is UI-state glue with no
+  macOS test-target reach, same as every other GridUI/EuclideousPage change in this file. **DEVICE-OWED:**
+  the whole feature, as always for a gesture — the up/down/left/right feel, the HUD's legibility while
+  dragging, and confirming a hand-edited pattern's shape survives a single-lane drag-up-then-down round trip
+  exactly as it does on the slider.**
 - **▶ EUCLIDEOUS RHYTHM TAB — the OFFSET slider's drag direction was backwards, fixed (2026-10-14, on `fix/
   euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1405 green incl. +1 new/+2 updated).
   Paul, on-device, mid-session: "The offset travels in the opposite way to what I'd expect. I scroll left,
