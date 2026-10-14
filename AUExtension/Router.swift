@@ -4476,28 +4476,54 @@ final class Router {
                                 // per-tick recompute; `iterateTicks` can process several ticks per call, all
                                 // seeing the identical per-window decision, an accepted, disclosed coarseness
                                 // matching this codebase's own standing tolerance for this class of edge).
-                                resetSteps: Int = 0, lanesSeqMuted: Bool = false) {
-                let n = max(2, min(16, nIn))
-                let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
-                // HAND-EDITED PATTERN (6-sliders ferry, Paul 2026-10-12): a non-nil `customHits` REPLACES
-                // pure generation entirely — it's the already-resolved hit pattern a HITS-slider rebuild
-                // produced (`euclidRebuildPattern`, Derivations.swift), so TILT has nothing left to bias
-                // (the UI disables it, and this is the engine-side half of that: tilt is simply never
-                // consulted once a custom pattern is in play). OFFSET (rotation) still applies — it's a
-                // position-shift on top of WHATEVER the base shape is, pure or edited, same as always.
-                if let custom = customHits, !custom.isEmpty {
-                    for i in 0..<n { euclidBuf[i] = i < custom.count ? custom[i] : false }
+                                resetSteps: Int = 0, lanesSeqMuted: Bool = false,
+                                // LISTEN TAB (ferry 2026-10-14) — all additive, defaulted to "off," so this
+                                // function's one existing call site is the only one that needs to change.
+                                // Partner indices are plain Ints (-1 = none/not applicable) rather than a
+                                // bundled struct: `p.euclidLines`/`laneNotes`/`laneCount` are ALREADY in
+                                // this closure's own captured scope (this is a nested func inside
+                                // `process()`), so looking a partner's EuclidLine/pool up here directly is
+                                // simpler and cheaper than having the call site pre-build and pass it.
+                                listenRhythmMode: EuclideousRhythmMode? = nil, listenRhythmPartnerIdx: Int = -1, listenFollowRatio: Double = 1.0,
+                                listenLevelMode: EuclideousLevelMode? = nil, listenLevelPartnerIdx: Int = -1, listenLevelAmount: Double = 0.4,
+                                listenPitchMode: EuclideousPitchMode? = nil, listenPitchPartnerIdx: Int = -1, listenPitchPartnerAny: Bool = false,
+                                listenShadowInterval: Int = 0, listenShadowOctave: Int = 0, listenAvoidAction: EuclideousAvoidAction = .mute) {
+                // LISTEN/FOLLOW (§5): REPLACES this lane's own generation entirely — the finished pattern
+                // becomes the PARTNER's own (its OFFSET/TILT/INV/hand-edits already baked in by the SAME
+                // `euclideousBuildPattern` helper, called fresh on the partner's current `EuclidLine`), and
+                // `n` becomes the partner's own step count ("its step count"). This lane's own
+                // OFFSET/INV still apply AFTER this, on top of the inherited shape — see the
+                // `euclidRotateBuffer`/`patternMiss` calls immediately below, both left completely
+                // unconditional so they keep doing exactly that for a FOLLOWing lane too.
+                let n: Int
+                let followPartnerValid = listenRhythmMode == .follow && listenRhythmPartnerIdx >= 0 && listenRhythmPartnerIdx < p.euclidLines.count
+                if followPartnerValid {
+                    let partner = euclideousBuildPattern(p.euclidLines[listenRhythmPartnerIdx])
+                    n = partner.n
+                    for i in 0..<n { euclidBuf[i] = partner.buf[i] }
                 } else {
-                    // TILT BEFORE ROTATION (Paul 2026-10-11: "the offset makes tilt look indecipherable...
-                    // maybe this could adjust to offset" — see `euclidTiltPattern`'s own doc comment for the
-                    // full reasoning). Build the pattern unrotated, bias it early/middle/late while its own
-                    // step 0 still means "the start of this pattern," THEN rotate the already-tilted result —
-                    // so OFFSET slides the shape around the column without silently redefining what TILT's
-                    // bias was relative to. Every downstream read of `euclidBuf` (the hit/rest test, the
-                    // CYCLE/RANDOM ordinal walk, MISS's complement) still just picks up the final shape, zero
-                    // other changes needed anywhere in this function.
-                    euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: 0)
-                    if tilt != 0 { euclidTiltPattern(&euclidBuf, pulses: k, steps: n, tilt: tilt) }
+                    n = max(2, min(16, nIn))
+                    let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
+                    // HAND-EDITED PATTERN (6-sliders ferry, Paul 2026-10-12): a non-nil `customHits` REPLACES
+                    // pure generation entirely — it's the already-resolved hit pattern a HITS-slider rebuild
+                    // produced (`euclidRebuildPattern`, Derivations.swift), so TILT has nothing left to bias
+                    // (the UI disables it, and this is the engine-side half of that: tilt is simply never
+                    // consulted once a custom pattern is in play). OFFSET (rotation) still applies — it's a
+                    // position-shift on top of WHATEVER the base shape is, pure or edited, same as always.
+                    if let custom = customHits, !custom.isEmpty {
+                        for i in 0..<n { euclidBuf[i] = i < custom.count ? custom[i] : false }
+                    } else {
+                        // TILT BEFORE ROTATION (Paul 2026-10-11: "the offset makes tilt look indecipherable...
+                        // maybe this could adjust to offset" — see `euclidTiltPattern`'s own doc comment for the
+                        // full reasoning). Build the pattern unrotated, bias it early/middle/late while its own
+                        // step 0 still means "the start of this pattern," THEN rotate the already-tilted result —
+                        // so OFFSET slides the shape around the column without silently redefining what TILT's
+                        // bias was relative to. Every downstream read of `euclidBuf` (the hit/rest test, the
+                        // CYCLE/RANDOM ordinal walk, MISS's complement) still just picks up the final shape, zero
+                        // other changes needed anywhere in this function.
+                        euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: 0)
+                        if tilt != 0 { euclidTiltPattern(&euclidBuf, pulses: k, steps: n, tilt: tilt) }
+                    }
                 }
                 euclidRotateBuffer(&euclidBuf, steps: n, rotation: rotate)
                 // MISS = PATTERN INVERT (Paul 2026-10-10 ferry §2.2: "after HITS, TILT and OFFSET have produced
@@ -4516,7 +4542,11 @@ final class Router {
                 // L.rate?.beats ?? p.euclidRateBeats) instead of this closure directly capturing the machine-wide
                 // field — lets each of Euclideous's 4 lines run its own rate; every existing non-Euclideous call
                 // resolves to the exact same machine-wide value as before, byte-identical.
-                let sub = rate
+                // LISTEN/FOLLOW (§5, "taken from the partner: … its step length"): the follower's own rate
+                // becomes the partner's own rate × the multiplier — `listenFollowRatio` is already the
+                // correct 2^−exponent (×2 halves the step length, ÷2 doubles it; see
+                // `EuclidLine.listenFollowRatioResolved`'s own doc comment for the worked sign check).
+                let sub = followPartnerValid ? (p.euclidLines[listenRhythmPartnerIdx].rate?.beats ?? p.euclidRateBeats) * listenFollowRatio : rate
                 // RESET SPAN (Paul 2026-10-08, §2.2): Euclideous's own GLOBAL reset-span control — resolved
                 // directly from `doc.euclideousResetSpanBarsResolved` into `p.euclideousResetSpanBars` (gated
                 // to Euclideous's own row in SnapshotBuilder, 0 for every other `.euclid` cell) — OVERRIDES the
@@ -4571,7 +4601,29 @@ final class Router {
                     let localT = Int64((phaseBeat / sub).rounded(.down))
                     let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
                     let ri = euclidReadIndex(raw, n: n, dir: dir)
-                    let isHit = euclidBuf[ri]
+                    let rawIsHit = euclidBuf[ri]
+                    // LISTEN/WITH/GAPS (§5): "coincide" is checked at THIS exact tick's absolute beat
+                    // against the PARTNER's own step pattern (not its sounding riff note — "whether or
+                    // not it sounded... riff rests, mutes and the LANES grid don't change it," the
+                    // ferry's own literal words). A WITH-mismatch or a GAPS-match silences this tick as
+                    // if it were never a hit — `isHit` folds the check in directly, so every downstream
+                    // consumer (the strike decision) treats a filtered-out tick like a genuine pattern
+                    // rest. `hitsUpTo`/`cycleHits`/the riff walk below all read `euclidBuf`/`isHitAt`
+                    // directly, NOT `isHit` — so the PATTERN/ordinal math stays exactly this lane's own,
+                    // matching "the lane keeps its own rhythm" (only whether this tick actually STRIKES
+                    // is filtered, not the walk/ordinal that any riff on this lane depends on).
+                    let passesListenRhythmFilter: Bool = {
+                        guard rawIsHit, let mode = listenRhythmMode, mode != .follow,
+                              listenRhythmPartnerIdx >= 0, listenRhythmPartnerIdx < p.euclidLines.count else { return true }
+                        let partnerLine = p.euclidLines[listenRhythmPartnerIdx]
+                        let partner = euclideousBuildPattern(partnerLine)
+                        let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
+                        let epsilonBeats = 0.001 * (tempo / 60.0)
+                        let coincides = euclideousListenPartnerHasHitAt(buf: partner.buf, n: partner.n, dir: partnerLine.directionResolved,
+                                                                          rateBeats: partnerRate, spanBeats: spanBeats, atBeat: mTickBeat, epsilonBeats: epsilonBeats)
+                        return mode == .with ? coincides : !coincides
+                    }()
+                    let isHit = rawIsHit && passesListenRhythmFilter
                     let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle within the span (localT = cy·cycleLen + raw) — shared by both the HIT and MISS ordinals below
                     // NOTE VIEW (Paul 2026-10-10 ferry) — two small helpers shared by all 4 push sites below.
                     // `finalPitch` replicates (not reuses — `strikeChord`'s `strikeOne` is a widely-shared
@@ -4924,7 +4976,38 @@ final class Router {
                             var riffRank = 0, riffNote = 0
                             var tieExt = 0.0
                             var wipeColumn: Int8 = -1, wipeRankOut: Int8 = -1
-                            if riffOn, thisLaneCount > 0 {
+                            // LISTEN/SHADOW (§6): REPLACES the riff+lit-notes layers below entirely — "the
+                            // lane's own riff and lit notes are ignored." Resolves the partner's own most
+                            // recent real hit (sticky, matching the UI's own marker — "(My interpretation)"
+                            // of "the note under the partner's walk arrow at that moment," since the arrow
+                            // itself is sticky, not instantaneous), then shifts by INTERVAL (a pool-rank
+                            // shift, BEFORE the fold) and OCT (combined with the partner's OWN riffOctave in
+                            // one `riffResolve` call, so a rank pushed out of the pool by INTERVAL folds by
+                            // octave exactly once, not twice). "If the partner's riff is off, the shadow is
+                            // silent" / "if the partner's arrow is on a rest, the shadow rests too" both
+                            // fall out of `euclideousListenPartnerNoteAt` returning nil (riff off is checked
+                            // explicitly; a genuinely silent partner — never yet struck a real note within
+                            // the bounded backward scan — is indistinguishable from "resting" and both
+                            // correctly produce silence here).
+                            let shadowPartnerValid = listenPitchMode == .shadow && listenPitchPartnerIdx >= 0 && listenPitchPartnerIdx < p.euclidLines.count
+                            if shadowPartnerValid {
+                                let partnerLine = p.euclidLines[listenPitchPartnerIdx]
+                                if partnerLine.riffOnResolved {
+                                    let partner = euclideousBuildPattern(partnerLine)
+                                    let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
+                                    if let hit = euclideousListenPartnerNoteAt(
+                                        buf: partner.buf, n: partner.n, dir: partnerLine.directionResolved,
+                                        rateBeats: partnerRate, spanBeats: spanBeats, atBeat: mTickBeat, epsilonBeats: nil,
+                                        line: partnerLine, ranks: ranks, poolCount: thisLaneCount, poolAsc: { notes[$0].note }
+                                    ), let shadowNote = riffResolve(rank: hit.rank + listenShadowInterval,
+                                                                      oct: partnerLine.riffOctaveResolved + listenShadowOctave,
+                                                                      n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                        hadRiffNote = true
+                                        riffRank = hit.rank; riffNote = shadowNote
+                                        addPitch(shadowNote, vel: UInt8(velocityAbsolute))
+                                    }
+                                }
+                            } else if riffOn, thisLaneCount > 0 {
                                 let leapStep = (maskedChancePassed && mm.modeResolved == .leap)
                                     ? (((playedStep + mm.leapStepsResolved) % riffLength) + riffLength) % riffLength
                                     : playedStep
@@ -5032,7 +5115,7 @@ final class Router {
                             // NOTES ON/OFF (2026-10-13 ferry): "turning it off silences the lit notes from the
                             // next hit, but keeps them lit, so they're remembered" — gated here, at the SOUNDING
                             // step only; `litNotes`/`topLit`/`top2Lit` storage above is never touched by this.
-                            if notesOn, thisLaneCount > 0 {
+                            if !shadowPartnerValid, notesOn, thisLaneCount > 0 {
                                 for rk in 1...8 where (litNotes & (1 << (rk - 1))) != 0 {
                                     if let pch = riffResolve(rank: rk, oct: octave + noteOctShift(rk), n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel) }
                                 }
@@ -5054,6 +5137,75 @@ final class Router {
                                                        tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
                                                        gatePct: gate, busOverride: busOverride)
                                 return
+                            }
+                            // LISTEN/AVOID (§6): checks EACH already-resolved pitch for a coincident collision
+                            // against the partner (or, with ANY, every OTHER lane) — MUTE drops it, MOVE tries
+                            // the next pool rank up, bounded to one full lap of the pool ("within one octave").
+                            // Scoped to the RIFF-sourced pitch (index 0, when `hadRiffNote` — the one pitch this
+                            // function tracks a RANK for); a colliding LIT note is always MUTEd, since there's
+                            // no tracked rank to MOVE it from — a disclosed simplification, not a silent gap.
+                            // "Same pitch" = the same MIDI note number — §6's own open "(My interpretation.)" on
+                            // cross-octave matching is resolved here as NO (an exact note-number match only),
+                            // the literal reading of the ferry's own stated rule.
+                            if listenPitchMode == .avoid {
+                                let epsilonBeats = 0.001 * (tempo / 60.0)
+                                func avoidCollides(_ note: Int, _ atBeat: Double) -> Bool {
+                                    func checks(_ other: EuclidLine) -> Bool {
+                                        guard other.riffOnResolved else { return false }
+                                        let pat = euclideousBuildPattern(other)
+                                        let rate = other.rate?.beats ?? p.euclidRateBeats
+                                        guard let hit = euclideousListenPartnerNoteAt(buf: pat.buf, n: pat.n, dir: other.directionResolved,
+                                                                                        rateBeats: rate, spanBeats: spanBeats, atBeat: atBeat, epsilonBeats: epsilonBeats,
+                                                                                        line: other, ranks: ranks, poolCount: thisLaneCount, poolAsc: { notes[$0].note }) else { return false }
+                                        return hit.note == note
+                                    }
+                                    if listenPitchPartnerAny {
+                                        for j in 0..<p.euclidLines.count where j != lineIndex { if checks(p.euclidLines[j]) { return true } }
+                                        return false
+                                    }
+                                    guard listenPitchPartnerIdx >= 0, listenPitchPartnerIdx < p.euclidLines.count else { return false }
+                                    return checks(p.euclidLines[listenPitchPartnerIdx])
+                                }
+                                var i = 0
+                                while i < pitchCount {
+                                    if avoidCollides(pitches[i], mTickBeat) {
+                                        var moved = false
+                                        if listenAvoidAction == .move, i == 0, hadRiffNote, thisLaneCount > 0 {
+                                            for k in 1...thisLaneCount {
+                                                if let cand = riffResolve(rank: riffRank + k, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }), !avoidCollides(cand, mTickBeat) {
+                                                    pitches[0] = cand; moved = true; break
+                                                }
+                                            }
+                                        }
+                                        if moved { i += 1; continue }
+                                        pitches[i] = pitches[pitchCount - 1]; pitchVel[i] = pitchVel[pitchCount - 1]
+                                        pitchCount -= 1
+                                    } else {
+                                        i += 1
+                                    }
+                                }
+                                guard pitchCount > 0 else {
+                                    reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [],
+                                                           tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
+                                                           gatePct: gate, busOverride: busOverride)
+                                    return
+                                }
+                            }
+                            // LISTEN/DUCK/ACCENT (§7): "on a hit that coincides with a partner hit" — reuses
+                            // the SAME coincidence definition WITH/GAPS use (the partner's own step pattern,
+                            // not its sounding note). Scales every pitch's already-resolved velocity, "after
+                            // the lane's own VEL."
+                            if let levelMode = listenLevelMode, listenLevelPartnerIdx >= 0, listenLevelPartnerIdx < p.euclidLines.count {
+                                let partnerLine = p.euclidLines[listenLevelPartnerIdx]
+                                let partner = euclideousBuildPattern(partnerLine)
+                                let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
+                                let epsilonBeats = 0.001 * (tempo / 60.0)
+                                let coincides = euclideousListenPartnerHasHitAt(buf: partner.buf, n: partner.n, dir: partnerLine.directionResolved,
+                                                                                  rateBeats: partnerRate, spanBeats: spanBeats, atBeat: mTickBeat, epsilonBeats: epsilonBeats)
+                                if coincides {
+                                    let scale = levelMode == .duck ? (1.0 - listenLevelAmount) : (1.0 + listenLevelAmount)
+                                    for i in 0..<pitchCount { pitchVel[i] = UInt8(max(1, min(127, Int((Double(pitchVel[i]) * scale).rounded())))) }
+                                }
                             }
 
                             // EUCLID MASK — REPEAT (Paul 2026-10-10 ferry §3, widened for this ferry): "holding
@@ -5879,7 +6031,17 @@ final class Router {
                     euclideousLaneWasAudibleThisStep[i] = isAudible
                 }
             }
-            for (lineIndex, L) in p.euclidLines.enumerated() where (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved {
+            // LISTEN (ferry 2026-10-14 §9): "a partner is processed before any lane that listens to it" —
+            // Euclideous's own row walks its 4 lanes in that dependency order instead of raw array order;
+            // every OTHER `.euclid` cell (LISTEN fields always nil there) gets the byte-identical plain
+            // index order back, since `euclideousListenProcessingOrder` reduces to it when no lane has any
+            // LISTEN mode lit (confirmed by construction: with every `deps[i]` empty, Kahn's algorithm
+            // places lane 0, then 1, then 2, then 3, in that exact order).
+            let euclideousListenOrder = isEuclideousRow ? euclideousListenProcessingOrder(p.euclidLines) : Array(p.euclidLines.indices)
+            for lineIndex in euclideousListenOrder {
+                guard lineIndex < p.euclidLines.count else { continue }
+                let L = p.euclidLines[lineIndex]
+                guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { continue }
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
                 // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the
                 // cell's own bm, via strikeChord's busOverride).
@@ -5915,7 +6077,16 @@ final class Router {
                               tilt: L.tiltResolved,
                               riffLock: L.riffLockResolved, riffInvert: L.riffInvertResolved, riffOnRest: L.riffOnRestResolved,
                               riffStride: L.riffStrideResolved, riffLength: L.riffLengthResolved, riffAdvanceStep: L.riffAdvanceStepResolved,
-                              melodyTranspose: L.melodyTransposeResolved, mask: L.maskResolved,
+                              // LISTEN (ferry 2026-10-14 §1): "stop the Euclid mask affecting output" —
+                              // Euclideous's own row now ALWAYS passes a disabled (default) mask, ignoring
+                              // whatever `L.mask` holds, so every MASK-driven branch inside `runEuclidLine`
+                              // (MUTE/PAUSE/RATCHET/REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL) goes
+                              // inert for Euclideous specifically — the FIELD/UI's underlying data and the
+                              // engine code that reads it are both kept exactly as they were ("keep the
+                              // mask's code and saved data for now"), just never fed a genuinely-enabled
+                              // mask here. The non-Euclideous call path (none exists today, but kept
+                              // symmetric for any future caller) still passes the real resolved mask.
+                              melodyTranspose: L.melodyTransposeResolved, mask: isEuclideousRow ? EuclidLineMask() : L.maskResolved,
                               // RENDER-THREAD ALLOCATION FIX (2026-10-13 adversarial review): `customHitsResolved`
                               // can allocate (padding/truncating to a target length) whenever the stored array's
                               // own length disagrees with the target — a latent, currently-unreachable risk since
@@ -5941,7 +6112,14 @@ final class Router {
                               // closure built inside runEuclidLine bounds-checks the raw optional directly,
                               // mirroring customHits' own identical raw-passthrough just above.
                               notesOn: L.notesOnResolved, noteOctShifts: L.noteOctShifts, notesVelOffset: L.notesVelOffsetResolved,
-                              resetSteps: isEuclideousRow ? L.resetStepsResolved : 0, lanesSeqMuted: lanesSeqMuted)
+                              resetSteps: isEuclideousRow ? L.resetStepsResolved : 0, lanesSeqMuted: lanesSeqMuted,
+                              // LISTEN (ferry 2026-10-14) — only Euclideous's own row ever has a non-nil
+                              // mode here (every other `.euclid` cell's `EuclidLine` never sets these
+                              // fields, so they resolve to the byte-identical "off" defaults below).
+                              listenRhythmMode: L.listenRhythmMode, listenRhythmPartnerIdx: L.listenRhythmPartnerResolved, listenFollowRatio: L.listenFollowRatioResolved,
+                              listenLevelMode: L.listenLevelMode, listenLevelPartnerIdx: L.listenLevelPartnerResolved, listenLevelAmount: L.listenLevelAmountResolved,
+                              listenPitchMode: L.listenPitchMode, listenPitchPartnerIdx: L.listenPitchPartnerResolved, listenPitchPartnerAny: L.listenPitchPartnerAnyResolved,
+                              listenShadowInterval: L.listenShadowIntervalResolved, listenShadowOctave: L.listenShadowOctaveResolved, listenAvoidAction: L.listenAvoidActionResolved)
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))

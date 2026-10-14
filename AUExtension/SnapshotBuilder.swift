@@ -757,7 +757,26 @@ enum SnapshotBuilder {
                                                                       // SEQUENCER PANEL (2026-10-14 ferry §3): per-lane RESET, in sequencer steps —
                                                                       // raw passthrough (no clamp needed here; `resetStepsResolved`'s own set-
                                                                       // membership check {0,1,2,4,8} already guards it wherever it's actually read).
-                                                                      resetSteps: $0.resetSteps) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
+                                                                      resetSteps: $0.resetSteps,
+                                                                      // LISTEN TAB (ferry 2026-10-14) — threaded here for the EXACT SAME reason every
+                                                                      // other field on this line is (see this line's own trailing comment): missing
+                                                                      // any of these would silently reset every LISTEN setting to "off" on the very
+                                                                      // next snapshot rebuild, the identical gotcha class `customHits`/`notesOn`
+                                                                      // above were each added to guard against in turn.
+                                                                      listenRhythmMode: $0.listenRhythmMode, listenRhythmPartner: $0.listenRhythmPartner.map { clamp($0, 0, 3) },
+                                                                      listenFollowMult: $0.listenFollowMult.map { clamp($0, -3, 2) },
+                                                                      listenPitchMode: $0.listenPitchMode, listenPitchPartner: $0.listenPitchPartner.map { clamp($0, 0, 3) },
+                                                                      listenPitchPartnerAny: $0.listenPitchPartnerAny,
+                                                                      listenShadowInterval: $0.listenShadowInterval.map { clamp($0, -7, 7) },
+                                                                      listenShadowOctave: $0.listenShadowOctave.map { clamp($0, -2, 2) },
+                                                                      listenAvoidAction: $0.listenAvoidAction,
+                                                                      listenLevelMode: $0.listenLevelMode, listenLevelPartner: $0.listenLevelPartner.map { clamp($0, 0, 3) },
+                                                                      listenLevelAmount: $0.listenLevelAmount.map { clamp($0, 0, 1) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
+        // LISTEN TAB preset-load safety (§4's own "(My interpretation.)"): "if a loaded preset contains a
+        // loop, switch off the row that closes it." Applied ONCE here, after every lane's own fields have
+        // been resolved above, so a hand-edited or legacy doc can never reach the render path (or the UI,
+        // which reads this SAME resolved `out.euclidLines`) carrying an un-processable cycle.
+        out.euclidLines = euclideousListenBreakLoops(out.euclidLines)
         out.euclideousRiff = { let r = p.euclideousRiff ?? EuclideousRiff(); var rr = r
             rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved
             return rr }()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved/clamped once here

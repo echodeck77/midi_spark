@@ -7099,71 +7099,45 @@ final class RouterTests: XCTestCase {
             let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62]), beats: 0.6, into: e2, forceColumn: 0)
             return router.drainEuclideousNoteViewEvents()[0].count
         }
-        XCTAssertEqual(maskedTickEventCount(mode: .mute), 1, "MUTE: only the unmasked tick posts — the masked one posts nothing at all")
-        XCTAssertEqual(maskedTickEventCount(mode: .pause), 1, "PAUSE: same — the paused tick posts nothing at all")
+        // LISTEN (ferry 2026-10-14 §1, "stop the Euclid mask affecting output"): SUPERSEDES the original
+        // assertion here (MUTE/PAUSE used to silence the masked tick entirely, posting 1 event instead of
+        // 2) — the mask is now unconditionally disabled for Euclideous's own row, so BOTH ticks post a
+        // genuine event regardless of `mode`.
+        XCTAssertEqual(maskedTickEventCount(mode: .mute), 2, "LISTEN ferry: the mask no longer silences anything on Euclideous's row — both ticks post")
+        XCTAssertEqual(maskedTickEventCount(mode: .pause), 2, "LISTEN ferry: same for PAUSE — the mask is inert here now")
     }
-    func testEuclideousMaskRepeatHoldReplaysTheWholeMergedSetNotJustOneNote() {
-        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second ferry) — REPEAT's cache widens to the WHOLE
-        // merged pitch set (riff note + lit notes), not just one note. Mirrors
-        // testEuclideousNoteViewWipeTelemetryRepeatHoldContinuationHasNoColumnButItsOwnTriggerDoes's own
-        // K=1/N=2/ROTATE=1 mask shape + repeatCount=2 exactly (tick1 genuine/primes cache, tick2 the masked
-        // REPEAT TRIGGER, tick3 the one armed HOLD CONTINUATION — all 3 ticks land inside this run's own
-        // 1.1-beat window), with a lit note added on top of the riff so the cache is 2 pitches wide.
+    // LISTEN (ferry 2026-10-14 §1): SUPERSEDES `testEuclideousMaskRepeatHoldReplaysTheWholeMergedSetNotJust
+    // OneNote` and `testEuclideousNoteViewWipeTelemetryRepeatHoldContinuationHasNoColumnButItsOwnTriggerDoes`
+    // entirely — both tested the MASK's own REPEAT-HOLD mechanism actually substituting a cached set/hiding
+    // the real riff position, which can no longer happen now that the mask never engages on Euclideous's
+    // row at all. Reuses the identical fixture (K=1/N=2/ROTATE=1 "repeat" mask, 3 riff ticks ranks 1→2→3,
+    // litNotes bit for rank 3 always on) to prove the mask config is now completely irrelevant: every tick
+    // plays its OWN genuine riff note (no held/repeated cache) at its OWN real riff position (no -1/-1
+    // "bypassed the pipeline" tick).
+    func testEuclideousMaskRepeatConfigIsNowANoOp() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 2, 3])
         var m = EuclidLineMask(); m.enabled = true; m.pulses = 1; m.steps = 2; m.rotate = 1; m.chance = 1.0
         m.mode = .repeatNote; m.repeatCount = 2
-        // litNotes bit 2 (rank 3, pool[2]=64) is lit throughout — distinct from whichever riff rank is
-        // sounding at each tick, so the merged set is always {riff pitch, 64}, never coinciding.
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: false, litNotes: 0b0000_0100, riffOn: true, mask: m, sourceMode: .midi)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
-        st.euclideousNoteSource = .midi   // the per-line sourceMode above is decode-only — the REAL pool
-        // source is this page-level field (self-caught: without it, `euclideousNoteSourceResolved` falls
-        // back to `euclideousLinesResolved[0]` — a SEPARATE, page-level array this test never populates,
-        // defaulting to KEY mode and silently reading a C-natural-minor scale pool instead of the chord below).
+        st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
         let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()[0]
         XCTAssertEqual(events.count, 3, "3 real ticks, each posting exactly one combined event")
         guard events.count == 3 else { return }
-        // repeatCount=2 arms exactly ONE further hold step after the trigger — with only 3 real ticks in
-        // this run, tick 3 is that hold CONTINUATION (bypasses the mask/riff pipeline entirely, per the
-        // sibling wipe-telemetry test above), not a resumed live tick — so all three ticks replay the
-        // IDENTICAL cached set from tick 1, not a progression.
-        XCTAssertEqual(Set(events[0].notes), [60, 64], "tick 1, unmasked: riff rank1(60) + lit rank3(64) — primes the cache")
-        XCTAssertEqual(Set(events[1].notes), [60, 64], "tick 2, the masked REPEAT trigger: replays the WHOLE cached set from tick 1, not just one note")
-        XCTAssertEqual(Set(events[2].notes), [60, 64], "tick 3, the hold CONTINUATION (repeatCount=2's one armed extra step): still replays the same widened cache")
-    }
-    func testEuclideousNoteViewWipeTelemetryRepeatHoldContinuationHasNoColumnButItsOwnTriggerDoes() {
-        var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 3, ranks: [1, 2, 3])
-        // K=1/N=2/ROTATE=1 masks exactly the SECOND tick of every 2-tick mask lap (verified against
-        // euclidPatternInto's own `buf[i] = ((i+rot)%n * k) % n < k` formula: rot=0 hits index 0, rot=1
-        // hits index 1) — tick 1 is unmasked (establishes the REPEAT cache); tick 2 is the masked REPEAT
-        // TRIGGER (re-strikes the cache, arms 1 further hold step); tick 3 is the HOLD CONTINUATION, which
-        // bypasses the mask/riff-position pipeline entirely (checked at the very top of the per-tick closure,
-        // before `euclideousMaskOrd` even increments).
-        var m = EuclidLineMask(); m.enabled = true; m.pulses = 1; m.steps = 2; m.rotate = 1; m.chance = 1.0
-        m.mode = .repeatNote; m.repeatCount = 2
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 3, rate: .r1_8, useRiff: true, mask: m, sourceMode: .midi)]
-        let st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                             scenes: [{ var s = SceneState.empty()
-                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                 return s }()])
-        let e = RecordingEmitter()
-        // 1.1 beats: K=N=3 (every tick a hit) at r1_8 (sub=0.5) ⇒ ticks at beats 0/0.5/1.0, cycling back to
-        // a 4th tick only at beat 1.5 — 1.1 safely captures exactly the 3 ticks under test, nothing further.
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
-        let events = router.drainEuclideousNoteViewEvents()[0]
-        XCTAssertEqual(events.count, 3, "3 real ticks, each posting exactly one event")
-        guard events.count == 3 else { return }
-        XCTAssertEqual(events[0].column, 0, "tick 1, unmasked — riff step 0")
-        XCTAssertEqual(events[0].rank, 1, "tick 1 — rank 1")
-        XCTAssertEqual(events[1].column, 1, "tick 2, the masked REPEAT trigger — still shows the riff position actually read (step 1), even though the SOUNDING pitch is the cached note from tick 1")
-        XCTAssertEqual(events[1].rank, 2, "tick 2 — rank 2, the position's own rank, independent of which pitch actually sounded")
-        XCTAssertEqual(events[2].column, -1, "tick 3, the hold continuation — bypasses the mask/riff-position pipeline entirely, so no wipe-eligible column")
-        XCTAssertEqual(events[2].rank, -1)
+        // No more REPEAT substitution — each tick sounds its OWN riff rank (1→60, 2→62, 3→64) plus the
+        // always-lit rank-3 note (64, deduped against tick 3's own riff note).
+        XCTAssertEqual(Set(events[0].notes), [60, 64], "tick 1: riff rank1(60) + lit rank3(64)")
+        XCTAssertEqual(Set(events[1].notes), [62, 64], "tick 2: riff rank2(62) + lit rank3(64) — NOT held over from tick 1 anymore")
+        XCTAssertEqual(Set(events[2].notes), [64], "tick 3: riff rank3(64), deduped against the identical lit note — NOT a repeated tick 1/2 cache")
+        XCTAssertEqual(events[0].column, 0); XCTAssertEqual(events[0].rank, 1)
+        XCTAssertEqual(events[1].column, 1, "tick 2 now shows its OWN real riff position — the mask's REPEAT trigger no longer intercepts it")
+        XCTAssertEqual(events[1].rank, 2)
+        XCTAssertEqual(events[2].column, 2, "tick 3 is a genuine live tick now, never a hold continuation — it has a real column")
+        XCTAssertEqual(events[2].rank, 3)
     }
 
     // ── RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry) — the new `euclideousRiffWalkState()`
@@ -10806,7 +10780,15 @@ final class RouterTests: XCTestCase {
     /// count, since the exact hit count this harness's own beat/column arithmetic produces for a given
     /// `beats:`/rate pair is not something to trust blind (this file's own standing lesson, burned more than
     /// once already this session by hand-derived counts that turned out wrong once actually traced).
-    func testEuclideousMaskRatchetMultipliesNoteOnsInTheUnifiedPipeline() {
+    // LISTEN (ferry 2026-10-14 §1, "stop the Euclid mask affecting output"): SUPERSEDES
+    // `testEuclideousMaskRatchetMultipliesNoteOnsInTheUnifiedPipeline` and
+    // `testEuclideousMaskRatchetGateDeterminesRepeatDuration` entirely — both tested RATCHET actually
+    // multiplying note-ons/sharing GATE across repeats, which can no longer happen now that the mask never
+    // engages on Euclideous's row. Reuses the identical fixtures to prove the ratchet config is now fully
+    // inert: a "3-repeat" ratchet produces the SAME note-on count as a "1-repeat" (no multiplication), and
+    // a configured ratchet's own GATE behaves exactly like a plain, unratcheted hit (one onset/offset pair
+    // per real tick, sized by GATE alone — never split across repeat subdivisions).
+    func testEuclideousMaskRatchetConfigIsNowANoOp() {
         func onCount(ratchetReps: Int, riffOn: Bool) -> Int {
             var c = Machine(machineID: "gold", type: .euclid)
             if riffOn { c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1]) }
@@ -10818,33 +10800,21 @@ final class RouterTests: XCTestCase {
                                                  sourceMode: .midi, riffLength: riffOn ? 1 : nil)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
-            st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
+            st.euclideousNoteSource = .midi
             let e = RecordingEmitter()
-            // A SPARSE lane pattern (1 of 8) pushes the next real hit 32 beats away — beats:10 gives the
-            // one hit (at tick 0) plenty of trailing room for its own 3-repeat echo burst to fully drain
-            // with no second hit interfering.
             run(SnapshotBuilder.build(from: st), chord([60]), beats: 10, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 && Int($0.note) == 60 }.count
         }
         for riffOn in [false, true] {
             let baseline = onCount(ratchetReps: 1, riffOn: riffOn)
-            let ratcheted = onCount(ratchetReps: 3, riffOn: riffOn)
-            XCTAssertGreaterThan(baseline, 0, "sanity: the lane strikes at all with no ratcheting (riffOn=\(riffOn))")
-            XCTAssertEqual(ratcheted, baseline * 3, "a fixed 3-repeat ratchet must produce exactly 3x the baseline's note-ons (riffOn=\(riffOn))")
+            let configuredRatchet = onCount(ratchetReps: 3, riffOn: riffOn)
+            XCTAssertGreaterThan(baseline, 0, "sanity: the lane strikes at all (riffOn=\(riffOn))")
+            XCTAssertEqual(configuredRatchet, baseline, "LISTEN ferry: a 3-repeat ratchet config no longer multiplies note-ons on Euclideous's row — it's the SAME as the unratcheted baseline (riffOn=\(riffOn))")
         }
     }
-
-    /// SUPERSEDED (2026-10-13 GATE/legato ferry §3.2): "each repeat uses its own subdivision as its gap...
-    /// at 100%, each repeat ends just before the next repeat starts." RATCHET's own duty cycle is no longer
-    /// a fixed 50% independent of GATE — it's now `(sub/nRep) * gate`, so GATE genuinely determines how
-    /// much of each repeat's own subdivision it fills. Verified: duration scales with GATE at two different
-    /// values (replacing the old "always exactly 50%" assertion), two different GATE values now produce
-    /// GENUINELY DIFFERENT durations (the opposite of the old "GATE-independent" claim), and at 100% each
-    /// repeat fills its own full subdivision (Acceptance #7: "ratchet ×3 at 100%: three distinct strikes").
-    func testEuclideousMaskRatchetGateDeterminesRepeatDuration() {
-        struct Burst { let onsets: [Int64]; let offs: [Int64] }
-        func burst(ratchetReps: Int, gateParam: Double) -> Burst {
+    func testEuclideousMaskRatchetGateConfigIsNowANoOp() {
+        func onceOnly(ratchetReps: Int, gateParam: Double) -> (onset: Int64, off: Int64)? {
             var c = Machine(machineID: "gold", type: .euclid)
             var m = EuclidLineMask()
             m.enabled = true; m.pulses = 8; m.steps = 8; m.chance = 1.0
@@ -10855,33 +10825,24 @@ final class RouterTests: XCTestCase {
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
             st.euclideousNoteSource = .midi
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e, forceColumn: 0)
+            // K=N=8 at r1_1 ⇒ a tick every beat. GATE follows the REAL rhythm (the gap to the next hit, not
+            // a fixed rate duration) — the window must extend past tick 1 so that gap is resolvable, or a
+            // 70%-of-one-beat close (0.7 beats) would still be open at window's end regardless of GATE.
+            run(SnapshotBuilder.build(from: st), chord([60]), beats: 2.2, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
-            let ons = e.ons.filter { $0.cable == 1 && Int($0.note) == 60 }.map { $0.sample }.sorted().prefix(ratchetReps)
-            let offs = e.offs.filter { $0.cable == 1 && Int($0.note) == 60 }.map { $0.sample }.sorted().prefix(ratchetReps)
-            return Burst(onsets: Array(ons), offs: Array(offs))
+            guard let on = e.ons.filter({ $0.cable == 1 && Int($0.note) == 60 }).map({ $0.sample }).min(),
+                  let off = e.offs.filter({ $0.cable == 1 && Int($0.note) == 60 && $0.sample > on }).map({ $0.sample }).min() else { return nil }
+            return (on, off)
         }
-        for gateParam in [0.3, 0.7] {
-            let b4 = burst(ratchetReps: 4, gateParam: gateParam)
-            XCTAssertEqual(b4.onsets.count, 4); XCTAssertEqual(b4.offs.count, 4)
-            for i in 0..<4 {
-                let dur = b4.offs[i] - b4.onsets[i]
-                let slot = (i + 1 < 4 ? b4.onsets[i + 1] : b4.onsets[i] + (b4.onsets[1] - b4.onsets[0])) - b4.onsets[i]
-                XCTAssertEqual(Double(dur), Double(slot) * gateParam, accuracy: 2,
-                               "gate=\(gateParam) repeat \(i): duration must now be GATE's own share of its own slot, not a fixed 50%")
-            }
+        // A "4-repeat ratchet" config now produces exactly ONE onset/offset pair for the tick — never 4 —
+        // and GATE sizes that ONE note directly against its own full step length (1 beat @ r1_1), exactly
+        // as an unratcheted hit would, confirming the ratchet's own repeat-subdivision math never runs.
+        guard let g30 = onceOnly(ratchetReps: 4, gateParam: 0.3), let g70 = onceOnly(ratchetReps: 4, gateParam: 0.7) else {
+            return XCTFail("expected exactly one onset/offset pair per tick now that ratchet is inert")
         }
-        let low = burst(ratchetReps: 4, gateParam: 0.2); let high = burst(ratchetReps: 4, gateParam: 0.9)
-        XCTAssertNotEqual(low.offs[0] - low.onsets[0], high.offs[0] - high.onsets[0],
-                           "ratchet repeat duration must now track GATE — the opposite of the old GATE-independent rule")
-        // Acceptance #7: "Ratchet ×3 at 100%: three distinct strikes" — each fills its own full subdivision.
-        let full = burst(ratchetReps: 3, gateParam: 1.0)
-        XCTAssertEqual(full.onsets.count, 3, "three DISTINCT strikes, never merged, even at 100%")
-        for i in 0..<2 {
-            let slot = full.onsets[i + 1] - full.onsets[i]
-            XCTAssertEqual(Double(full.offs[i] - full.onsets[i]), Double(slot), accuracy: 2,
-                           "at 100%, each repeat fills its own subdivision, ending just before the next starts")
-        }
+        let dur30 = g30.off - g30.onset, dur70 = g70.off - g70.onset
+        XCTAssertNotEqual(dur30, dur70, "GATE still determines the note's own length directly — 30% vs 70% of one full step must differ")
+        XCTAssertLessThan(dur30, dur70, "a smaller GATE must still produce a shorter note")
     }
 
     // MARK: - GATE FOLLOWS THE RHYTHM (Paul 2026-10-13 ferry)
@@ -11303,5 +11264,138 @@ final class RouterTests: XCTestCase {
         router.process(box: SnapshotBuilder.build(from: sceneFor(lineFor(40), monoOnA: false)),
                        pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════
+    // MARK: - LISTEN TAB (ferry 2026-10-14, "the LISTEN tab (lane relationships)") — §11's own T1-T9.
+    // Shared setup exactly per §11: 110 BPM, C minor, riff ranks [1,2,3,5,4,3,2,1] (the shipped R1 default
+    // shape — confirmed by hand against the pool below: rank1=C2…rank5=G2 reproduces "C2 D2 E♭2 G2 F2 E♭2
+    // D2 C2" exactly). RED = lane 0 (cable/bus A), BLUE = lane 1 (cable/bus B) — kept on separate buses
+    // purely so this harness can tell the two lanes' own note-ons apart in one shared recording; nothing
+    // about LISTEN itself depends on that. Pool = C natural minor from C2 (MIDI 36): the SAME 7-note
+    // ascending set either SOURCE=KEY would resolve to, used directly via SOURCE=MIDI for a simpler,
+    // perfectly deterministic test pool (no scale-door wiring needed to reach the identical ranks→notes
+    // mapping §11 itself gives in note names).
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════
+    private let listenPoolCMinor: [UInt8] = [36, 38, 39, 41, 43, 44, 46]   // C2 D2 E♭2 F2 G2 A♭2 B♭2
+    private func listenRedLine() -> EuclidLine {
+        EuclidLine(target: 0, pulses: 3, steps: 8, velocityAbsolute: 100, rate: .r1_8, emitterMask: 0b0001, useRiff: true, riffOn: true, sourceMode: .midi)
+    }
+    private func listenBlueLine() -> EuclidLine {
+        EuclidLine(target: 0, pulses: 4, steps: 8, velocityAbsolute: 100, rate: .r1_8, emitterMask: 0b0010, useRiff: true, riffOn: true, sourceMode: .midi)
+    }
+    /// Builds the 2-lane (+2 unused/silent) Euclideous cell, runs it for exactly one 8-step lap (forceColumn:
+    /// 0, beats sized to 8 steps at 1/8 + a safety margin), and returns every note BLUE (cable 2) actually
+    /// struck, in time order, each tagged with which 0-based column (of the shared 8-step grid) it landed on.
+    private func listenRun(_ red: EuclidLine, _ blue: EuclidLine) -> [(col: Int, note: UInt8, vel: UInt8)] {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 5, 4, 3, 2, 1])
+        c.paramsA.euclidLines = [red, blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        let tempo = 110.0, sr = 48_000.0
+        // 8 steps × 0.5 beat/step = 4 beats for one full lap. The riff-ordinal walk each lane rides is
+        // MONOTONIC across laps (never resets at the lap boundary) — so a 2nd-lap repeat of column 0,
+        // though rhythmically redundant (same grid column, invisible to a per-column dedup check), still
+        // advances to a genuinely NEW rank and fires as a real extra note. 3.9 stops comfortably after
+        // the last real hit (column 6, beat 3.0) but strictly before the 2nd lap's column 0 (beat 4.0).
+        run(SnapshotBuilder.build(from: st), chord(listenPoolCMinor), beats: 3.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
+        assertNothingLeftSounding(e)
+        return e.ons.filter { $0.cable == 2 }.sorted { $0.sample < $1.sample }.map { ev in
+            let beat = Double(ev.sample) / sr * tempo / 60.0
+            let col = Int((beat / 0.5).rounded()) % 8
+            return (col, ev.note, ev.vel)
+        }
+    }
+    /// An 8-char "x../." rhythm string from BLUE's own struck columns (T1-T4's own reporting format).
+    private func listenRhythmString(_ hits: [(col: Int, note: UInt8, vel: UInt8)]) -> String {
+        var s = Array(repeating: Character("."), count: 8)
+        for h in hits { s[h.col] = "x" }
+        return String(s)
+    }
+    func testListenT1Follow() {
+        var blue = listenBlueLine(); blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(listenRhythmString(hits), "x..x..x.", "T1 FOLLOW: blue inherits red's own 3-of-8 pattern exactly")
+    }
+    func testListenT2FollowPlusInvert() {
+        var blue = listenBlueLine(); blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0; blue.patternMiss = true
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(listenRhythmString(hits), ".xx.xx.x", "T2 FOLLOW+INV: blue plays exactly red's gaps (the complement of red's pattern)")
+    }
+    func testListenT3With() {
+        var blue = listenBlueLine(); blue.listenRhythmMode = .with; blue.listenRhythmPartner = 0
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(listenRhythmString(hits), "x.....x.", "T3 WITH: blue's own 4-of-8 hits, kept only where they coincide with red's 3-of-8")
+    }
+    func testListenT4Gaps() {
+        var blue = listenBlueLine(); blue.listenRhythmMode = .gaps; blue.listenRhythmPartner = 0
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(listenRhythmString(hits), "..x.x...", "T4 GAPS: blue's own 4-of-8 hits, kept only where they DON'T coincide with red's 3-of-8")
+    }
+    func testListenT5Shadow() {
+        var blue = listenBlueLine()
+        blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0
+        blue.listenPitchMode = .shadow; blue.listenPitchPartner = 0; blue.listenShadowInterval = 2   // 3RD
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(hits.map { $0.note }, [39, 41, 43], "T5 SHADOW+3RD: red plays C2/D2/E\u{266D}2 (36/38/39) at its 3 hits; blue, a diatonic 3rd above each, plays E\u{266D}2/F2/G2 (39/41/43)")
+    }
+    func testListenT6AvoidMute() {
+        var blue = listenBlueLine()
+        blue.pulses = 3   // "give blue exactly red's settings" — same 3-of-8 pattern, same riff/walk
+        blue.listenPitchMode = .avoid; blue.listenPitchPartner = 0   // default action is MUTE
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(hits.count, 0, "T6 AVOID/MUTE: blue would play exactly what red plays at every coincident hit — all of them MUTEd")
+    }
+    func testListenT6AvoidMove() {
+        var blue = listenBlueLine()
+        blue.pulses = 3
+        blue.listenPitchMode = .avoid; blue.listenPitchPartner = 0; blue.listenAvoidAction = .move
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(hits.map { $0.note }, [38, 39, 41], "T6 AVOID/MOVE: red plays C2/D2/E\u{266D}2; blue MOVEs to the next free pool note up each time — D2/E\u{266D}2/F2 (38/39/41)")
+    }
+    func testListenT7DuckAndAccent() {
+        func run_(_ mode: EuclideousLevelMode) -> [Int: UInt8] {
+            var blue = listenBlueLine()   // blue's OWN 4-of-8 rhythm — no RHYTHM-row LISTEN at all
+            blue.listenLevelMode = mode; blue.listenLevelPartner = 0; blue.listenLevelAmount = 0.4
+            let hits = listenRun(listenRedLine(), blue)
+            var byCol: [Int: UInt8] = [:]
+            for h in hits { byCol[h.col] = h.vel }
+            return byCol
+        }
+        let duck = run_(.duck)
+        XCTAssertEqual(duck[0], 60, "T7 DUCK: step 1 (col 0) coincides with red — 100×(1−0.4)=60")
+        XCTAssertEqual(duck[2], 100, "T7 DUCK: step 3 (col 2) does not coincide with red — stays 100")
+        XCTAssertEqual(duck[4], 100, "T7 DUCK: step 5 (col 4) does not coincide with red — stays 100")
+        XCTAssertEqual(duck[6], 60, "T7 DUCK: step 7 (col 6) coincides with red — 100×(1−0.4)=60")
+        let accent = run_(.accent)
+        XCTAssertEqual(accent[0], 127, "T7 ACCENT: step 1 coincides — 100×1.4=140, capped to 127")
+        XCTAssertEqual(accent[2], 100, "T7 ACCENT: step 3 does not coincide — stays 100")
+        XCTAssertEqual(accent[4], 100, "T7 ACCENT: step 5 does not coincide — stays 100")
+        XCTAssertEqual(accent[6], 127, "T7 ACCENT: step 7 coincides — 100×1.4=140, capped to 127")
+    }
+    func testListenT8LoopsGreyOutTheWholeCycle() {
+        // "with red FOLLOW blue, red is greyed out in all three of blue's partner pickers."
+        var red = listenRedLine(); red.listenRhythmMode = .follow; red.listenRhythmPartner = 1   // red → blue
+        let lines = [red, listenBlueLine(), EuclidLine(), EuclidLine()]
+        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .rhythm).contains(0), "T8: red greyed in blue's own RHYTHM picker (direct loop)")
+        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .pitch).contains(0), "T8: red greyed in blue's PITCH picker too")
+        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .level).contains(0), "T8: red greyed in blue's LEVEL picker too")
+    }
+    func testListenT9TurningFollowOffRestoresTheLanesOwnSettings() {
+        // "blue on its own 4 hits / 8 → FOLLOW red → turn FOLLOW off → blue is back to 4 hits / 8 with its
+        // own rate and offset." Engine-level: FOLLOW never mutates blue's OWN pulses/steps/rotate/rate —
+        // it only substitutes at render time while the mode is lit, so turning it off must reproduce
+        // EXACTLY what a plain (never-FOLLOWed) blue would have played, byte for byte.
+        let plainBlue = listenBlueLine()
+        let plainHits = listenRhythmString(listenRun(listenRedLine(), plainBlue))
+        var followedThenOff = listenBlueLine()
+        followedThenOff.listenRhythmMode = .follow; followedThenOff.listenRhythmPartner = 0
+        followedThenOff.listenRhythmMode = nil; followedThenOff.listenRhythmPartner = nil   // "turn FOLLOW off"
+        let restoredHits = listenRhythmString(listenRun(listenRedLine(), followedThenOff))
+        XCTAssertEqual(restoredHits, "x.x.x.x.", "T9: blue's own 4-of-8 pattern, unchanged")
+        XCTAssertEqual(restoredHits, plainHits, "T9: byte-identical to a blue that was never FOLLOWing at all")
     }
 }

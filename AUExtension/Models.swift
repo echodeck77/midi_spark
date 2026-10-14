@@ -469,6 +469,49 @@ struct EuclidLine: Codable, Equatable {
     // own identical "unexpected ⇒ benign" convention.
     var resetSteps: Int? = nil
     var resetStepsResolved: Int { let v = resetSteps ?? 0; return [0, 1, 2, 4, 8].contains(v) ? v : 0 }
+    // LISTEN TAB (ferry 2026-10-14, "the LISTEN tab (lane relationships)", RATIFIED): each lane can take
+    // RHYTHM/PITCH/LEVEL from another lane, its "partner." Three independent rows, each with at most one
+    // lit mode + its own partner lane. All additive-Optional, same CR-8 reasoning as every other field
+    // added to this struct — nil everywhere ⇒ a pre-LISTEN doc plays byte-identical (every row "off,"
+    // using the lane's own settings, exactly §0/§10's stated defaults).
+    var listenRhythmMode: EuclideousRhythmMode? = nil
+    var listenRhythmPartner: Int? = nil
+    // FOLLOW's own rate multiplier (§5): an EXPONENT of 2, not the ratio itself — -3...-1 = ÷8/÷4/÷2,
+    // 0 = ×1 (default), 1...2 = ×2/×4. `listenFollowRatio` below converts to the actual ratio Router.swift
+    // applies to the partner's own step length.
+    var listenFollowMult: Int? = nil
+    var listenPitchMode: EuclideousPitchMode? = nil
+    var listenPitchPartner: Int? = nil
+    // ANY (§4, AVOID only): a SEPARATE bool rather than overloading `listenPitchPartner` with a sentinel
+    // index — keeps "which lane" and "is it ANY" from ever being confused by a future reader, and a
+    // picker UI never has to reserve a magic Int.
+    var listenPitchPartnerAny: Bool? = nil
+    // SHADOW's INTERVAL (§6): pool-step count, −7...+7, default 0 (UNISON). OCT: −2...+2, default 0.
+    var listenShadowInterval: Int? = nil
+    var listenShadowOctave: Int? = nil
+    // AVOID's own action (§6): nil ⇒ MUTE (the spec's own stated default).
+    var listenAvoidAction: EuclideousAvoidAction? = nil
+    var listenLevelMode: EuclideousLevelMode? = nil
+    var listenLevelPartner: Int? = nil
+    // AMOUNT (§7): 0...1 in 0.05 steps, default 0.4 (40%) — shared by DUCK and ACCENT, per lane.
+    var listenLevelAmount: Double? = nil
+    var listenRhythmPartnerResolved: Int { max(0, min(3, listenRhythmPartner ?? 0)) }
+    var listenPitchPartnerResolved: Int { max(0, min(3, listenPitchPartner ?? 0)) }
+    var listenPitchPartnerAnyResolved: Bool { listenPitchPartnerAny ?? false }
+    var listenLevelPartnerResolved: Int { max(0, min(3, listenLevelPartner ?? 0)) }
+    var listenFollowMultResolved: Int { max(-3, min(2, listenFollowMult ?? 0)) }
+    /// The actual multiplier applied to the partner's own rate (beats-per-step) to get this lane's own
+    /// rate — the INVERSE power of 2, so ×2 (exponent 1, "twice as fast") HALVES the step length
+    /// (0.5 = 2^−1), ÷2 (exponent −1, "half as fast") DOUBLES it (2 = 2^1), matching §5's own worked
+    /// definition exactly: "×2 = twice as fast (half the partner's step length)."
+    var listenFollowRatioResolved: Double { pow(2.0, Double(-listenFollowMultResolved)) }
+    var listenShadowIntervalResolved: Int { max(-7, min(7, listenShadowInterval ?? 0)) }
+    var listenShadowOctaveResolved: Int { max(-2, min(2, listenShadowOctave ?? 0)) }
+    var listenAvoidActionResolved: EuclideousAvoidAction { listenAvoidAction ?? .mute }
+    var listenLevelAmountResolved: Double {
+        let raw = max(0, min(1, listenLevelAmount ?? 0.4))
+        return (raw / 0.05).rounded() * 0.05
+    }
     var gateResolved: Double { gate ?? 0.9 }
     // NOT narrowed to ±2 here (Paul 2026-10-13 ferry, "Engine" rule 4) — `EuclidLine` is SHARED with the
     // regular, non-Euclideous BUILD-page EUCLID processor, whose own OCTAVE stepper reaches ±3 today
@@ -597,8 +640,25 @@ extension EuclidLine {
         noteOctShifts = try c.decodeIfPresent([Int].self, forKey: .noteOctShifts)
         notesVelOffset = try c.decodeIfPresent(Int.self, forKey: .notesVelOffset)
         resetSteps = try c.decodeIfPresent(Int.self, forKey: .resetSteps)
+        listenRhythmMode = try c.decodeIfPresent(EuclideousRhythmMode.self, forKey: .listenRhythmMode)
+        listenRhythmPartner = try c.decodeIfPresent(Int.self, forKey: .listenRhythmPartner)
+        listenFollowMult = try c.decodeIfPresent(Int.self, forKey: .listenFollowMult)
+        listenPitchMode = try c.decodeIfPresent(EuclideousPitchMode.self, forKey: .listenPitchMode)
+        listenPitchPartner = try c.decodeIfPresent(Int.self, forKey: .listenPitchPartner)
+        listenPitchPartnerAny = try c.decodeIfPresent(Bool.self, forKey: .listenPitchPartnerAny)
+        listenShadowInterval = try c.decodeIfPresent(Int.self, forKey: .listenShadowInterval)
+        listenShadowOctave = try c.decodeIfPresent(Int.self, forKey: .listenShadowOctave)
+        listenAvoidAction = try c.decodeIfPresent(EuclideousAvoidAction.self, forKey: .listenAvoidAction)
+        listenLevelMode = try c.decodeIfPresent(EuclideousLevelMode.self, forKey: .listenLevelMode)
+        listenLevelPartner = try c.decodeIfPresent(Int.self, forKey: .listenLevelPartner)
+        listenLevelAmount = try c.decodeIfPresent(Double.self, forKey: .listenLevelAmount)
     }
 }
+// LISTEN TAB enums (ferry 2026-10-14) — String-raw, matching every sibling enum on this struct.
+enum EuclideousRhythmMode: String, Codable, CaseIterable { case follow = "FOLLOW", with = "WITH", gaps = "GAPS" }
+enum EuclideousPitchMode: String, Codable, CaseIterable { case shadow = "SHADOW", avoid = "AVOID" }
+enum EuclideousLevelMode: String, Codable, CaseIterable { case duck = "DUCK", accent = "ACCENT" }
+enum EuclideousAvoidAction: String, Codable, CaseIterable { case mute = "MUTE", move = "MOVE" }
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
 // persists by value, matching every other riff-adjacent enum's own convention (RiffDir, EuclidNoteSel, …).
 enum EuclidRiffOnRest: String, Codable, CaseIterable { case skip = "SKIP", fill = "FILL", tie = "TIE" }

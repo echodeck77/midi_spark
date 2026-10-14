@@ -460,8 +460,13 @@ struct EuclideousSlider: View {
 // octave." `laneTab` stays purely ephemeral (never persisted), so a lane saved with MELODY open opens
 // on RHYTHM (the array's own fixed default) the instant this binary ships — no migration needed.
 enum EuclideousLaneTab: Int, CaseIterable {
-    case rhythm = 0, riff = 1, notes = 2, mask = 3
-    var label: String { switch self { case .rhythm: "RHYTHM"; case .riff: "RIFF"; case .notes: "NOTES"; case .mask: "MASK" } }
+    // LISTEN REPLACES MASK (ferry 2026-10-14 §1): "Remove the MASK tab and stop the Euclid mask affecting
+    // output. Keep the mask's code and saved data for now." — the tab ITSELF is gone (this case renamed,
+    // not added alongside); `EuclidLine.mask`/`EuclidLineMask`/`runEuclidLine`'s own mask-application code
+    // are all untouched, just never reachable from the UI and never fed a genuinely-enabled mask by the
+    // one call site that used to (see Router.swift's own call-site comment).
+    case rhythm = 0, riff = 1, notes = 2, listen = 3
+    var label: String { switch self { case .rhythm: "RHYTHM"; case .riff: "RIFF"; case .notes: "NOTES"; case .listen: "LISTEN" } }
 }
 
 struct EuclideousPage: View {
@@ -616,6 +621,10 @@ struct EuclideousPage: View {
     // MASK MODE POPUP (Paul 2026-10-10, "Euclid mask, modes and settings" ferry §4): "tapping opens a picker
     // of the 11 modes, grouped" — same scrim+centred-card shape as `ratePopupCard`. nil = no popup open.
     @State private var maskModePopupLane: Int? = nil
+    // LISTEN PARTNER POPUP (ferry 2026-10-14 §4): "tap opens a picker with the other three lane colours" —
+    // same scrim+centred-card shape as `maskModePopupCard`. nil = no popup open; otherwise which lane's
+    // which row is choosing a partner.
+    @State private var listenPartnerPopup: (lane: Int, row: EuclideousListenRow)? = nil
     // RIFF GRID POSITION MARKERS (Paul 2026-10-12 ferry, Part 1) — each lane's own PERSISTENT marker
     // (column, row), updated by `riffMarkerTimer` below (was `.onChange(of: riffPositions)` until the
     // 2026-10-14 off-by-one fix — see that entry's own comment), not recomputed fresh every render:
@@ -663,6 +672,8 @@ struct EuclideousPage: View {
         Color(red: 0.95, green: 0.75, blue: 0.25), Color(red: 0.55, green: 0.85, blue: 0.45),
     ]
     private let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    /// §3's own partner-button colour names — `laneAccents`' own declared order (RED/BLUE/YELLOW/GREEN).
+    private func listenLaneColourName(_ i: Int) -> String { ["RED", "BLUE", "YELLOW", "GREEN"][max(0, min(3, i))] }
 
     // ================================================================================================
     // THE LAYOUT SYSTEM (Paul 2026-10-09, ferry: "rebuild the layout on the system below; don't patch
@@ -744,6 +755,13 @@ struct EuclideousPage: View {
                         .onTapGesture { maskModePopupLane = nil }
                         .zIndex(3)
                     maskModePopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                }
+                // LISTEN PARTNER POP-UP (ferry 2026-10-14 §4) — same scrim+centred-card shape.
+                if let target = listenPartnerPopup {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { listenPartnerPopup = nil }
+                        .zIndex(3)
+                    listenPartnerPopupCard(lane: target.lane, row: target.row).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
                 // THE MELODY POP-UP IS RETIRED ENTIRE (Paul 2026-10-13 ferry, "MELODY tab on the lane cards"):
                 // every setting it held (note choice, octave, all riff settings) now lives in the RIFF and
@@ -1489,6 +1507,10 @@ struct EuclideousPage: View {
         let contentAreaH = max(1, height - cometRowH - tabRowH - outerVPad - rowGaps)
         let steps = max(2, min(16, line.steps))
         VStack(alignment: .leading, spacing: cardRowGap) {
+            // LISTEN TAB (ferry 2026-10-14 §8) — see `EuclidLaneBox`'s own doc comment on the two tints for
+            // the disclosed simplification (a whole-bar wash/band, not a per-cell recolour).
+            let listenFollowTint: Color? = line.listenRhythmMode == .follow ? laneAccents[line.listenRhythmPartnerResolved % laneAccents.count] : nil
+            let listenShadowTint: Color? = line.listenPitchMode == .shadow ? laneAccents[line.listenPitchPartnerResolved % laneAccents.count] : nil
             EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                           // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                           // border/fill around just this row (the step-bar area) — always `false` now; the
@@ -1515,7 +1537,9 @@ struct EuclideousPage: View {
                           // view — `EuclidCometBar` draws each step's own band directly inside that step's
                           // own cell rect now, so there's no separate row height/gap to budget here at all.
                           footerStates: laneFooterStates(idx, line),
-                          stepCountBadge: AnyView(stepCountBadge(steps)),
+                          stepCountBadge: AnyView(stepCountBadge(
+                              listenFollowTint != nil ? euclideousBuildPattern(lines[min(3, max(0, line.listenRhythmPartnerResolved))]).n : steps,
+                              dotTint: listenFollowTint)),
                           stepCountBadgeWidth: stepCountBadgeTotalWidth,
                           // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
                           // triangle play button, flat LANE-100/#2c2f36 cell colours, the hand-placed notch.
@@ -1525,7 +1549,7 @@ struct EuclideousPage: View {
                           // site this ferry's own §1-4 target ("a lane's step row"); the MASK step bar
                           // (§5, `maskStepBar`) opts in separately, and the regular BUILD-page EUCLID
                           // editor (GridUI.swift) is untouched, per `grouped`'s own false default.
-                          grouped: true)
+                          grouped: true, listenFollowTint: listenFollowTint, listenShadowTint: listenShadowTint)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -1556,10 +1580,15 @@ struct EuclideousPage: View {
     // ferry's own RHYTHM table), making the count box's old secondary content redundant; dropped here rather
     // than kept alongside it. `accent`/`mask` params are gone — this box no longer needs either.
     private var stepCountBadgeTotalWidth: CGFloat { 44 }
-    private func stepCountBadge(_ n: Int) -> some View {
-        Text("\(n)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
-            .frame(width: stepCountBadgeTotalWidth, height: 44)
-            .background(RoundedRectangle(cornerRadius: 9).fill(patternUnselectedFill))
+    /// §8: "FOLLOW: the count box shows the inherited step count, with an 8pt dot in the partner's
+    /// LANE-100 3pt below the number." `dotTint` nil (every other state) ⇒ byte-identical to before.
+    private func stepCountBadge(_ n: Int, dotTint: Color? = nil) -> some View {
+        VStack(spacing: 3) {
+            Text("\(n)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
+            if let dotTint { Circle().fill(dotTint).frame(width: 8, height: 8) }
+        }
+        .frame(width: stepCountBadgeTotalWidth, height: 44)
+        .background(RoundedRectangle(cornerRadius: 9).fill(patternUnselectedFill))
     }
 
     // MARK: - COLOUR HIERARCHY (this ferry §4): "lane colour is currently used at full strength in about
@@ -1664,7 +1693,8 @@ struct EuclideousPage: View {
                     case .rhythm: return nil
                     case .riff: return line.riffOnResolved
                     case .notes: return line.notesOnResolved && (line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved)
-                    case .mask: return line.maskResolved.enabledResolved
+                    // LISTEN (§1): "filled... when ANY row has a lit button, hollow otherwise."
+                    case .listen: return line.listenRhythmMode != nil || line.listenPitchMode != nil || line.listenLevelMode != nil
                     }
                 }()
                 // VIEWS (2026-10-13 "lane card, exact dimensions" ferry, literal): "Labels are 11pt heavy
@@ -1715,12 +1745,8 @@ struct EuclideousPage: View {
             riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         case .notes:
             notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
-        case .mask:
-            let maskCometH = max(1, contentAreaH - contentLineH - sp4)
-            VStack(spacing: sp4) {
-                maskCometRow(idx, line, accent, width: fullWidth, height: maskCometH)
-                maskLine2(idx, line, accent, rowH: contentLineH, width: fullWidth)
-            }
+        case .listen:
+            listenTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         }
     }
 
@@ -3008,6 +3034,261 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
+
+    // MARK: - LISTEN TAB (ferry 2026-10-14, "the LISTEN tab (lane relationships)", RATIFIED) — §1-§4.
+    // Three independent rows (RHYTHM/PITCH/LEVEL), each a row label + mode buttons + a partner button,
+    // plus a 4-stepper details row. §3's own literal pixel layout is reproduced at the page's own 326pt
+    // reference width (`fullWidth`) the same way every OTHER tab on this page already does (e.g.
+    // `patternControlBlock`'s own literal `80`/`38` constants) — proportional only where the spec's own
+    // numbers already express a width split (the mode-button group), fixed where the spec gives a fixed
+    // width (the 13pt label, the 44pt partner button).
+
+    private func listenModeButton(name: String, hint: String, lit: Bool, width: CGFloat, height: CGFloat, accent: Color, action: @escaping () -> Void) -> some View {
+        VStack(spacing: 3) {
+            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+                .foregroundColor(lit ? patternSelectedText : patternUnselectedText).lineLimit(1).minimumScaleFactor(0.8)
+            Text(hint).font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(lit ? Color(hex: 0xDFE3EA) : Color(hex: 0x8A909A)).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(width: width, height: height)
+        .background(RoundedRectangle(cornerRadius: 7).fill(lit ? lane20(accent) : patternUnselectedFill))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(lit ? lane100(accent) : Color.clear, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+    }
+    /// §3's own ANY glyph: "a circle split into four quarters (red, blue, yellow, green, clockwise from
+    /// the top)." Four quarter-pie wedges via `Path`, each a plain 90° arc from the lane's own accent.
+    private func listenAnyDot(size: CGFloat) -> some View {
+        Canvas { ctx, sz in
+            let c = CGPoint(x: sz.width / 2, y: sz.height / 2), r = min(sz.width, sz.height) / 2
+            for i in 0..<4 {
+                var p = Path()
+                p.move(to: c)
+                p.addArc(center: c, radius: r, startAngle: .degrees(Double(i) * 90 - 90), endAngle: .degrees(Double(i + 1) * 90 - 90), clockwise: false)
+                p.closeSubpath()
+                ctx.fill(p, with: .color(laneAccents[i]))
+            }
+        }
+        .frame(width: size, height: size)
+    }
+    /// §3's own partner button — 44×44, radius 9. Lit (this row has a mode on): the partner's identity
+    /// (a dot + colour name, or the ANY glyph) over `#2a2d34`/`#3a3e47`-bordered fill; tapping opens the
+    /// picker. Unlit (no mode on this row): a plain "—" over `#22252c`, not tappable.
+    @ViewBuilder private func listenPartnerButton(idx: Int, row: EuclideousListenRow, width: CGFloat, height: CGFloat) -> some View {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let hasMode: Bool = {
+            switch row {
+            case .rhythm: return line.listenRhythmMode != nil
+            case .pitch: return line.listenPitchMode != nil
+            case .level: return line.listenLevelMode != nil
+            }
+        }()
+        if hasMode {
+            let isAny = row == .pitch && line.listenPitchPartnerAnyResolved
+            let partnerIdx: Int = {
+                switch row {
+                case .rhythm: return line.listenRhythmPartnerResolved
+                case .pitch: return line.listenPitchPartnerResolved
+                case .level: return line.listenLevelPartnerResolved
+                }
+            }()
+            VStack(spacing: 3) {
+                if isAny { listenAnyDot(size: 18) }
+                else { Circle().fill(laneAccents[partnerIdx % laneAccents.count]).frame(width: 18, height: 18) }
+                Text(isAny ? "ANY" : listenLaneColourName(partnerIdx)).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .frame(width: width, height: height)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { listenPartnerPopup = (idx, row) }
+        } else {
+            Text("—").font(.system(size: 13, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x4A4E57))
+                .frame(width: width, height: height)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x22252C)))
+        }
+    }
+    /// §4's own picker — "the other three lane colours, plus ANY when the row's mode is AVOID." Greyed
+    /// (per `euclideousListenGreyedPartners`) entries are shown but not tappable. Reuses the SAME
+    /// scrim+centred-card shell as `maskModePopupCard`, mounted at the overlay site above.
+    private func listenPartnerPopupCard(lane: Int, row: EuclideousListenRow) -> some View {
+        let accent = laneAccents[lane % laneAccents.count]
+        let grey = euclideousListenGreyedPartners(lines, lane: lane, row: row)
+        let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        let currentAny = row == .pitch && line.listenPitchPartnerAnyResolved
+        func setPartner(_ p: Int?, any: Bool) {
+            edit(lane) {
+                switch row {
+                case .rhythm: $0.listenRhythmPartner = p
+                case .pitch: $0.listenPitchPartner = p; $0.listenPitchPartnerAny = any
+                case .level: $0.listenLevelPartner = p
+                }
+            }
+            listenPartnerPopup = nil
+        }
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("LANE \(lane + 1) PARTNER").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            HStack(spacing: 6) {
+                ForEach(0..<4, id: \.self) { p in
+                    let isGrey = p == lane || grey.contains(p)
+                    let isSel: Bool = {
+                        switch row {
+                        case .rhythm: return !currentAny && line.listenRhythmPartnerResolved == p && line.listenRhythmMode != nil
+                        case .pitch: return !currentAny && line.listenPitchPartnerResolved == p && line.listenPitchMode != nil
+                        case .level: return !currentAny && line.listenLevelPartnerResolved == p && line.listenLevelMode != nil
+                        }
+                    }()
+                    VStack(spacing: 4) {
+                        Circle().fill(laneAccents[p]).frame(width: 22, height: 22).opacity(isGrey ? 0.3 : 1)
+                        Text(listenLaneColourName(p)).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(isGrey ? Color(hex: 0x4A4E57) : .white.opacity(0.75))
+                    }
+                    .frame(maxWidth: .infinity).frame(height: 56)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(isSel ? lane20(accent) : Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(isSel ? lane100(accent) : Color.clear, lineWidth: 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture { if p != lane, !grey.contains(p) { setPartner(p, any: false) } }
+                }
+                if row == .pitch, line.listenPitchMode == .avoid {
+                    VStack(spacing: 4) {
+                        listenAnyDot(size: 22)
+                        Text("ANY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
+                    }
+                    .frame(maxWidth: .infinity).frame(height: 56)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(currentAny ? lane20(accent) : Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(currentAny ? lane100(accent) : Color.clear, lineWidth: 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture { setPartner(nil, any: true) }
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
+    /// §3's own details-row stepper — fill `#2a2d34`, radius 7, 16pt ‹/› zones, label(10pt)/value(13pt
+    /// heavy) centred 2pt apart. §3: "A stepper whose mode isn't lit is drawn at 42% opacity and doesn't
+    /// respond."
+    private func listenStepper(_ label: String, value: String, enabled: Bool, width: CGFloat, height: CGFloat, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> some View {
+        HStack(spacing: 0) {
+            Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                .frame(width: 16, height: height)
+                .contentShape(Rectangle()).onTapGesture { if enabled { onDec() } }
+            VStack(spacing: 2) {
+                Text(label).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text(value).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+            Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                .frame(width: 16, height: height)
+                .contentShape(Rectangle()).onTapGesture { if enabled { onInc() } }
+        }
+        .frame(width: width, height: height)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34)))
+        .opacity(enabled ? 1 : 0.42)
+    }
+    /// §6's own INTERVAL naming table — KEY source names it diatonically; CHORD/MIDI IN show the bare
+    /// signed pool-step count.
+    private func listenIntervalText(_ v: Int, keySource: Bool) -> String {
+        guard keySource else { return v > 0 ? "+\(v)" : "\(v)" }
+        let names = ["−OCT", "−7TH", "−6TH", "−5TH", "−4TH", "−3RD", "−2ND", "UNISON", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "OCT"]
+        let idx = max(-7, min(7, v)) + 7
+        return names[idx]
+    }
+    private func listenTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
+        let rowH: CGFloat = 44
+        let labelW: CGFloat = 13
+        let partnerW: CGFloat = 44
+        let modeGroupW = max(1, fullWidth - labelW - 3 - partnerW - 6)
+        let btn3W = max(1, (modeGroupW - 3 * 2) / 3)
+        let btn2W = max(1, (modeGroupW - 3) / 2)
+        func row<Content: View>(_ label: String, row: EuclideousListenRow, @ViewBuilder buttons: () -> Content) -> some View {
+            HStack(spacing: 0) {
+                melodyVerticalLabel(label, size: 10, color: Color(hex: 0x8A909A), width: labelW)
+                Spacer().frame(width: 3)
+                HStack(spacing: 3) { buttons() }
+                Spacer().frame(width: 6)
+                listenPartnerButton(idx: idx, row: row, width: partnerW, height: rowH)
+            }
+            .frame(width: fullWidth, height: rowH)
+        }
+        let detailsW = max(1, (fullWidth - 3 * 3) / 4)
+        let shadowLit = line.listenPitchMode == .shadow
+        let avoidLit = line.listenPitchMode == .avoid
+        let levelLit = line.listenLevelMode != nil
+        let keySource = line.sourceModeResolved == .key
+        return VStack(spacing: 6) {
+            row("RHYTHM", row: .rhythm) {
+                listenModeButton(name: "FOLLOW", hint: "COPY HITS", lit: line.listenRhythmMode == .follow, width: btn3W, height: rowH, accent: accent) {
+                    toggleListenRhythmMode(idx, .follow)
+                }
+                listenModeButton(name: "WITH", hint: "SHARED HITS", lit: line.listenRhythmMode == .with, width: btn3W, height: rowH, accent: accent) {
+                    toggleListenRhythmMode(idx, .with)
+                }
+                listenModeButton(name: "GAPS", hint: "IN ITS GAPS", lit: line.listenRhythmMode == .gaps, width: btn3W, height: rowH, accent: accent) {
+                    toggleListenRhythmMode(idx, .gaps)
+                }
+            }
+            row("PITCH", row: .pitch) {
+                listenModeButton(name: "SHADOW", hint: "TAKE ITS NOTE", lit: shadowLit, width: btn2W, height: rowH, accent: accent) {
+                    toggleListenPitchMode(idx, .shadow)
+                }
+                listenModeButton(name: "AVOID", hint: "NOT ITS NOTE", lit: avoidLit, width: btn2W, height: rowH, accent: accent) {
+                    toggleListenPitchMode(idx, .avoid)
+                }
+            }
+            row("LEVEL", row: .level) {
+                listenModeButton(name: "DUCK", hint: "QUIETER WITH IT", lit: line.listenLevelMode == .duck, width: btn2W, height: rowH, accent: accent) {
+                    toggleListenLevelMode(idx, .duck)
+                }
+                listenModeButton(name: "ACCENT", hint: "LOUDER WITH IT", lit: line.listenLevelMode == .accent, width: btn2W, height: rowH, accent: accent) {
+                    toggleListenLevelMode(idx, .accent)
+                }
+            }
+            HStack(spacing: 3) {
+                listenStepper("INTERVAL", value: listenIntervalText(line.listenShadowIntervalResolved, keySource: keySource), enabled: shadowLit, width: detailsW, height: 48,
+                              onDec: { edit(idx) { $0.listenShadowInterval = max(-7, $0.listenShadowIntervalResolved - 1) } },
+                              onInc: { edit(idx) { $0.listenShadowInterval = min(7, $0.listenShadowIntervalResolved + 1) } })
+                listenStepper("OCT", value: euclideousSigned(line.listenShadowOctaveResolved), enabled: shadowLit, width: detailsW, height: 48,
+                              onDec: { edit(idx) { $0.listenShadowOctave = max(-2, $0.listenShadowOctaveResolved - 1) } },
+                              onInc: { edit(idx) { $0.listenShadowOctave = min(2, $0.listenShadowOctaveResolved + 1) } })
+                listenStepper("AVOID", value: line.listenAvoidActionResolved.rawValue, enabled: avoidLit, width: detailsW, height: 48,
+                              onDec: { edit(idx) { $0.listenAvoidAction = $0.listenAvoidActionResolved == .mute ? .move : .mute } },
+                              onInc: { edit(idx) { $0.listenAvoidAction = $0.listenAvoidActionResolved == .mute ? .move : .mute } })
+                listenStepper("AMOUNT", value: "\(Int((line.listenLevelAmountResolved * 100).rounded()))%", enabled: levelLit, width: detailsW, height: 48,
+                              onDec: { edit(idx) { $0.listenLevelAmount = max(0, $0.listenLevelAmountResolved - 0.05) } },
+                              onInc: { edit(idx) { $0.listenLevelAmount = min(1, $0.listenLevelAmountResolved + 0.05) } })
+            }
+            .frame(width: fullWidth, height: 48)
+        }
+        .frame(width: fullWidth, height: contentAreaH, alignment: .top)
+    }
+    /// §4's own tap rule: "tapping an unlit mode lights it... tapping the lit mode turns it off, and that
+    /// row goes back to the lane's own setting." / "when a mode is first lit, its partner is the next
+    /// valid lane... if no lane is valid, the mode can't be lit." Three concrete functions, not one
+    /// generic — a `EuclideousRhythmMode`/`PitchMode`/`LevelMode` are three genuinely different types with
+    /// no shared protocol worth inventing just to force one call site, and three plain functions carry no
+    /// risk of a mismatched-type crash the way a generic-plus-force-cast version would.
+    private func toggleListenRhythmMode(_ idx: Int, _ mode: EuclideousRhythmMode) {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        if line.listenRhythmMode == mode { edit(idx) { $0.listenRhythmMode = nil; $0.listenRhythmPartner = nil }; return }
+        guard let partner = euclideousListenDefaultPartner(lines, lane: idx, row: .rhythm) else { return }
+        edit(idx) { $0.listenRhythmMode = mode; $0.listenRhythmPartner = partner; if mode == .follow { $0.rotate = 0 } }
+    }
+    private func toggleListenPitchMode(_ idx: Int, _ mode: EuclideousPitchMode) {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        if line.listenPitchMode == mode { edit(idx) { $0.listenPitchMode = nil; $0.listenPitchPartner = nil; $0.listenPitchPartnerAny = nil }; return }
+        guard let partner = euclideousListenDefaultPartner(lines, lane: idx, row: .pitch) else { return }
+        edit(idx) { $0.listenPitchMode = mode; $0.listenPitchPartner = partner; $0.listenPitchPartnerAny = false }
+    }
+    private func toggleListenLevelMode(_ idx: Int, _ mode: EuclideousLevelMode) {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        if line.listenLevelMode == mode { edit(idx) { $0.listenLevelMode = nil; $0.listenLevelPartner = nil }; return }
+        guard let partner = euclideousListenDefaultPartner(lines, lane: idx, row: .level) else { return }
+        edit(idx) { $0.listenLevelMode = mode; $0.listenLevelPartner = partner }
     }
 
     // The I/O tab is MOOT (confirmed by reading, not assumed) — it was already retired entirely on

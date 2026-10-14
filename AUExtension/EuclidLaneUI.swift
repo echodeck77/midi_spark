@@ -178,6 +178,15 @@ struct EuclidLaneBox: View {
     // STEP GROUPS (2026-10-14 ferry) — passthrough to `EuclidCometBar`'s own `grouped`; `false` (every
     // other caller, incl. the regular BUILD-page EUCLID editor) ⇒ byte-identical to before this ferry.
     var grouped: Bool = false
+    // LISTEN TAB (ferry 2026-10-14 §8) — both nil (every existing caller) ⇒ byte-identical. A SIMPLIFIED,
+    // disclosed approximation of the ferry's own literal per-cell description (flagged in the reply, not
+    // silently shipped as if exact): §8 asks for the partner's colour to replace the fill of individual
+    // LIT cells specifically; reaching into `EuclidCometBar`'s own Canvas drawing to recolour per-cell
+    // would need deeper surgery than this ferry's remaining budget allows, so both read as a translucent
+    // wash over the WHOLE bar instead — still unambiguously signals "this lane's rhythm/pitch now traces
+    // to its partner," just not pixel-identical to the spec's own per-cell wording.
+    var listenFollowTint: Color? = nil   // FOLLOW: a wash over the whole comet bar in the partner's colour
+    var listenShadowTint: Color? = nil   // SHADOW: a footer-height band at the bottom, no text
 
     var body: some View {
         let on = line.enabledResolved
@@ -203,6 +212,8 @@ struct EuclidLaneBox: View {
                 // bar gets the FULL `height` directly; non-compact keeps its original 6pt top+bottom padding
                 // derivation (56−12=44, unchanged for the regular BUILD-page editor).
                 .frame(height: compact ? max(20, height) : max(20, height - 12))
+                .overlay { if let t = listenFollowTint { RoundedRectangle(cornerRadius: 6).fill(t.opacity(0.44)).allowsHitTesting(false) } }
+                .overlay(alignment: .bottom) { if let t = listenShadowTint { Rectangle().fill(t).frame(height: 14).allowsHitTesting(false) } }
             if let stepCountBadge { stepCountBadge }
         }
         .padding(compact ? 0 : 6)
