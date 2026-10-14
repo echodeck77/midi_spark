@@ -497,13 +497,27 @@ struct EuclideousPage: View {
     // of the 11 modes, grouped" — same scrim+centred-card shape as `ratePopupCard`. nil = no popup open.
     @State private var maskModePopupLane: Int? = nil
     // RIFF GRID POSITION MARKERS (Paul 2026-10-12 ferry, Part 1) — each lane's own PERSISTENT marker
-    // (column, row), updated by `.onChange(of: riffPositions)` below, not recomputed fresh every render:
+    // (column, row), updated by `riffMarkerTimer` below (was `.onChange(of: riffPositions)` until the
+    // 2026-10-14 off-by-one fix — see that entry's own comment), not recomputed fresh every render:
     // rule 1's "stays until the lane's next hit moves it... does not flash and fade" means a TIE-on-rest
     // tick (nothing struck, no fresh event) must leave the PREVIOUS marker exactly where it was, which a
     // pure-function-of-current-state view could not express on its own (it has no memory of "where was it
     // last" once the live state has already moved past that tick) — the one piece of this whole ferry that
     // genuinely needs retained, not derived, UI state.
     @State private var riffMarker: [(col: Int, row: Int)?] = [nil, nil, nil, nil]
+    // UNCONDITIONAL REFRESH (Paul 2026-10-14, "it sits on 1 for too long, then stays exactly one step
+    // behind forever" — a fixed, permanent one-step lag, not jitter/latency, confirmed by him even at a
+    // very slow riff rate): `.onChange(of: riffPositions)` only calls `updateRiffMarkers()` when SwiftUI's
+    // OWN diffing decides the 4-element array differs from whatever it compared last — if that comparison
+    // is ever made against a value one tick staler than the view's current `riffPositions` (a SwiftUI
+    // view-update-timing question this file can't execute/observe to confirm), exactly one transition
+    // could be silently skipped near the start, after which every later read is correctly one real engine
+    // hit AHEAD of what `riffMarker` last recorded — permanently, since nothing ever re-derives from
+    // scratch again. A dedicated, OWN-TIMER-DRIVEN re-derivation removes any dependency on detecting a
+    // DELTA at all: every tick it just reads the CURRENT `riffPositions`/`wipeEvents` fresh and re-derives
+    // `riffMarker`, so there is no "missed change" for it to miss. Reversible: if this doesn't fix it,
+    // revert to the `.onChange`-only version 2 commits up — see this entry's own commit message.
+    private let riffMarkerTimer = Timer.publish(every: 1.0 / 20.0, on: .main, in: .common).autoconnect()
     // DRAGGABLE RIFF GRID (Paul 2026-10-13, "make the grid draggable"): the matrix used to own one
     // `.onTapGesture` PER CELL — fine for a single tap, but a drag starting on one cell never reaches its
     // neighbours (a tap gesture doesn't track movement at all), so painting a shape across several columns
@@ -656,7 +670,7 @@ struct EuclideousPage: View {
             .coordinateSpace(name: "euclideousXY")
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
         }
-        .onChange(of: riffPositions) { _ in updateRiffMarkers() }
+        .onReceive(riffMarkerTimer) { _ in updateRiffMarkers() }
         .onAppear { updateRiffMarkers() }
     }
 
