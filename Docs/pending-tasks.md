@@ -63,8 +63,8 @@ the value line can't visually cross it. §5 (Paul's own suggestion, explicitly u
 text) — an OFF sequencer's grid/row-labels now dim to 42%, tabs/step-numbers/ON-OFF stay full strength.
 - [ ] DEVICE: the sequencer panel's proportional (not pixel-exact) grid sizing at real card width.
 - [ ] DEVICE: the per-lane RESET box's new position (now on the LANES tab itself) + its popup's legibility.
-- [ ] DEVICE: the riff-tab row's bar-chart previews + play-triangle + long-press timing/feel, now with the
-      corrected fill/tint colours.
+- [ ] DEVICE: the riff-tab row's mini-grid icon (REPLACED the bar-chart preview, see the icon-redesign entry
+      below) + play-triangle + long-press timing/feel.
 - [ ] DEVICE: confirm the removed header RESET countdown isn't missed before the per-lane control is found.
 - [ ] DEVICE: the restart-mark bar's legibility at real cell height; the ON/OFF toggle's new fill-flip
       contrast; a LANES/RIFFS LEN away from 8 (now engine-correct + test-covered, but never visually checked).
@@ -93,6 +93,15 @@ CLAUDE.md's status log.
       formula: the shift magnitude at 16% doesn't cross the rounding boundary for a pattern this sparse (the
       last hit needs >30% tilt before it moves at all). A genuine "dead zone" for small tilts on sparse
       patterns, worth knowing, not a defect.
+**A FIFTH PASS, "riff icon redesign" (design-channel ferry) — SHIPPED same day, iOS builds clean (pure UI, no
+macOS test-target reach).** The bar-chart outline (`riffOutlineBars`) is RETIRED entire, replaced by a new
+`riffMiniIcon` — a literal, fixed 31×23pt mini riff grid (8 steps × 8 ranks, note marks + dots, rest = a
+dotted column) used in both the riff-grid tab row (now a ONE-LINE layout: triangle+number, 8pt gap, icon —
+replacing the old two-line layout) and the RIFFS-tab row labels. Full writeup in CLAUDE.md's status log.
+- [ ] DEVICE: the new icon's legibility at its fixed 31×23pt size in both placements, with a riff that has
+      rests and an empty riff, exactly as the ferry's own acknowledgement asks for a screenshot of.
+- [ ] DEVICE: confirm the fixed (non-scaling) icon width doesn't overflow a real, possibly-narrow tab —
+      flagged as a genuine risk, unlike the old bar-chart which stretched to fit its container.
 - [ ] §10 (where do silence messages go) — **Paul: not decided yet, leave the stub as is.** Still open, still
       un-built; don't invent an answer.
 

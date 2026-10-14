@@ -196,6 +196,36 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: riff icon redesign," the bar-chart outline replaced with a literal mini riff grid
+  (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; UI-only, no macOS test-
+  target reach — EuclideousPage.swift, as always for this page). Replaces `riffOutlineBars` (the bar-chart
+  contour built across several earlier ferries, most recently re-tinted in the "fixes after the sequencer
+  build" pass) with a new `riffMiniIcon`, used in BOTH places it appeared — the riff-grid tab row and the
+  RIFFS-tab row labels. **A literal, FIXED 31×23pt asset, deliberately NOT scaled to its container** (unlike
+  the bar-chart it replaces, which took a `maxHeight` and stretched) — the ferry names this as a specific
+  pixel object, not a proportional abstraction: 8 columns (steps, 4pt pitch) × 8 rows (ranks 8-top/1-bottom,
+  3pt pitch); a step with a note at rank r draws a 3×2pt mark (radius 0.5) at that row, every OTHER row for
+  that step draws a 1×1pt dot — so a rest (rank 0, or a short `ranks` array) is a full column of dots, and an
+  empty riff is dots throughout. "Shows the riff exactly as stored, no lane's INV/TRANS/octave applies" holds
+  for free — `ranks` is each riff's own `.ranksResolved` (a riff-level resolve), never run through any LANE's
+  own transform. **PLACEMENT, a real layout change for the tab row, not just a recolour:** the tab row's old
+  TWO-LINE layout (outline above, number+triangle below) is replaced with the ferry's literal ONE-LINE
+  layout — triangle (playing riff only) + number, an 8pt gap, then the icon — all still centred within the
+  tab's existing size/fill; the tab's own fill/number/triangle colours are UNCHANGED from the prior "fixes
+  after the sequencer build" pass (this ferry only re-specifies the ICON's own note/dot colours, not the
+  tab chrome around it). The RIFFS-tab row label keeps its existing proportional container (`riffLabelColW`/
+  `cellH`, the page's own established "proportional not literal" convention for THIS feature's surrounding
+  layout, which the ferry doesn't ask to change) but its number-to-icon spacing moves from 2pt to the
+  ferry's literal 3pt, and the icon itself swaps in with this panel's own colours (notes `#DFE3EA`, dots
+  `#3A3E47`). **COLOURS, all three contexts applied exactly as given:** editing tab (fill `#DFE3EA`) → notes
+  INK `#0D0F14`, dots INK at 30% opacity; other tabs (fill `#2A2D34`) → notes `#DFE3EA`, dots `#4A4E57`
+  (the old bar-chart's unselected tint for this state was `#6A7079` — retired along with the bar-chart
+  itself, not reused for the icon's dots); RIFFS row labels (panel `#15161A`) → notes `#DFE3EA`, dots
+  `#3A3E47`. **DEVICE-OWED, explicitly — no
+  screenshot possible in this environment, exactly what the ferry's own acknowledgement asks for:** the riff
+  tabs' and RIFFS tab's real legibility with a riff that has rests and an empty riff, at the fixed 31×23pt
+  icon size against the tabs' real (possibly narrow) width — a genuine, disclosed risk since the icon's size
+  no longer adapts to a cramped tab the way the old proportional bar-chart did.**
 - **▶ EUCLIDEOUS — "FERRY: engine fixes from a recorded clip," investigated end-to-end (2026-10-14, on
   `fix/euclid-no-scroll-direction-order-2x2-grid`; macOS 1420 green incl. +3, iOS builds clean). A bug-report
   ferry built from a recorded device clip (110 BPM, source KEY, two lanes — RED 3-of-8 at 1/8, BLUE 5-of-16

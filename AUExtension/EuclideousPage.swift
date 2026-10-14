@@ -3070,9 +3070,12 @@ struct EuclideousPage: View {
                 let sel = i == max(0, min(3, activeRiff))
                 let isPlaying = i == max(0, min(3, playingRiffIndex))
                 let ink = Color(hex: 0x0D0F14)
-                VStack(spacing: 2) {
-                    riffOutlineBars(ranks: i < riffs.count ? riffs[i].ranksResolved : [], maxHeight: 14,
-                                     tint: sel ? ink : Color(hex: 0x6A7079))
+                // ONE LINE (2026-10-14 "riff icon redesign" ferry, literal placement): "the play triangle
+                // and the number, then an 8pt gap, then the icon" — REPLACES the old two-line (outline
+                // above, number+triangle below) layout entire. Tab fill/number/triangle colours are
+                // UNCHANGED from the prior fixes-after-build ferry (this one only re-specifies the icon's
+                // own note/dot colours); the icon itself replaces riffOutlineBars.
+                HStack(spacing: 8) {
                     HStack(spacing: 2) {
                         if isPlaying {
                             Image(systemName: "play.fill").font(.system(size: 7, weight: .heavy))
@@ -3081,6 +3084,9 @@ struct EuclideousPage: View {
                         Text("\(i + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
                             .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
                     }
+                    riffMiniIcon(ranks: i < riffs.count ? riffs[i].ranksResolved : [],
+                                 noteColor: sel ? ink : Color(hex: 0xDFE3EA),
+                                 dotColor: sel ? ink.opacity(0.3) : Color(hex: 0x4A4E57))
                 }
                 .padding(.horizontal, 4).padding(.vertical, 3)
                 .frame(maxWidth: .infinity, minHeight: 28)
@@ -3622,10 +3628,15 @@ struct EuclideousPage: View {
                 VStack(spacing: rowGap) {
                     ForEach(0..<4, id: \.self) { riffIdx in
                         HStack(spacing: sp4) {
-                            VStack(spacing: 2) {
+                            // RIFFS tab row label (2026-10-14 "riff icon redesign" ferry, literal): "the riff
+                            // number above the icon, 3pt apart, centred" — the bar-chart outline is gone,
+                            // replaced by the same fixed mini-grid the tabs use, with this panel's own
+                            // #15161A-background colours (notes #DFE3EA, dots #3A3E47).
+                            VStack(spacing: 3) {
                                 Text("\(riffIdx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
                                     .foregroundColor(Color(hex: 0xDFE3EA))
-                                riffOutlineBars(ranks: riffIdx < riffs.count ? riffs[riffIdx].ranksResolved : [], maxHeight: max(2, cellH * 0.35), tint: Color(hex: 0xAAB0BA))
+                                riffMiniIcon(ranks: riffIdx < riffs.count ? riffs[riffIdx].ranksResolved : [],
+                                             noteColor: Color(hex: 0xDFE3EA), dotColor: Color(hex: 0x3A3E47))
                             }
                             .frame(width: riffLabelColW, height: cellH)
                             ForEach(0..<n, id: \.self) { step in
@@ -3720,34 +3731,33 @@ struct EuclideousPage: View {
             }
         )
     }
-    /// A plain bar-chart contour of a riff's own rank sequence — shared by the RIFFS grid cell preview above
-    /// and the riff-tab title row below (Task per 2026-10-14 ferry §7's "a mini outline of that riff").
-    /// Rank 0 (rest) draws a thin low baseline tick rather than nothing, so an empty/all-rest riff still
-    /// reads as "present, just silent" rather than looking like a missing/broken tab. `tint` (2026-10-14
-    /// fixes-after-build ferry §3: "one riff should look the same in both places") was hardcoded to a flat
-    /// white before — every caller drew the identical colour regardless of its own background, which is
-    /// where "the tabs draw... dashes" actually came from: a riff-tab's lit background needs DARK ink bars
-    /// while the row label's dark background needs light ones, and a flat white-on-white (or near-white)
-    /// combination at these sizes reads as flattened/dash-like rather than as proportioned bars. The REST
-    /// bar now derives from `tint` too (35% of whatever colour is in context), not a hardcoded white.
-    private func riffOutlineBars(ranks: [Int], maxHeight: CGFloat, tint: Color = .white) -> some View {
-        HStack(alignment: .bottom, spacing: 1) {
-            ForEach(0..<8, id: \.self) { i in
-                let r = i < ranks.count ? ranks[i] : 0
-                if r > 0 {
-                    RoundedRectangle(cornerRadius: 0.5)
-                        .fill(tint)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: max(2, CGFloat(r) / 8 * maxHeight))
-                } else {
-                    RoundedRectangle(cornerRadius: 0.5)
-                        .fill(tint.opacity(0.35))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 1.5)
+    /// THE MINI RIFF GRID (2026-10-14 ferry "riff icon redesign" — REPLACES the bar-chart outline entire, in
+    /// both places it appeared: the riff-tab title row and the RIFFS-tab row labels). A literal fixed 31×23pt
+    /// grid — NOT scaled to its container, unlike the bar-chart it replaces, since the ferry names this as a
+    /// literal pixel asset (8 columns of steps, 4pt pitch; 8 rows of ranks 8-top/1-bottom, 3pt pitch) rather
+    /// than a proportionally-resized abstraction. A step with a note at rank r draws a 3×2pt mark (radius
+    /// 0.5) at that row; every OTHER row for that step gets a 1×1pt dot — so a rest (rank 0, or past the
+    /// end of a short `ranks` array) is a full column of dots, and an empty riff is dots throughout. Shows
+    /// the riff exactly as stored — no lane's INV/TRANS/octave applies, satisfied for free since `ranks` is
+    /// already each riff's own `.ranksResolved` (a riff-level resolve, never a lane-level transform).
+    private func riffMiniIcon(ranks: [Int], noteColor: Color, dotColor: Color) -> some View {
+        Canvas { ctx, _ in
+            for step in 0..<8 {
+                let r = step < ranks.count ? ranks[step] : 0
+                let noteRow = (r >= 1 && r <= 8) ? (8 - r) : -1   // row index 0...7 from the top; -1 = rest, no row matches, so every row below draws a dot
+                let x = CGFloat(step) * 4
+                for row in 0..<8 {
+                    if row == noteRow {
+                        let rect = CGRect(x: x, y: CGFloat(row) * 3, width: 3, height: 2)
+                        ctx.fill(Path(roundedRect: rect, cornerRadius: 0.5), with: .color(noteColor))
+                    } else {
+                        let rect = CGRect(x: x + 1, y: CGFloat(row) * 3 + 0.5, width: 1, height: 1)
+                        ctx.fill(Path(rect), with: .color(dotColor))
+                    }
                 }
             }
         }
-        .frame(maxHeight: maxHeight, alignment: .bottom)
+        .frame(width: 31, height: 23)
     }
 
     private func euclideousDragHUD(_ info: EuclidDragHUDInfo) -> some View {
