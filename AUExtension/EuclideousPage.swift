@@ -170,6 +170,16 @@ struct EuclideousSlider: View {
     let onCommit: (@escaping (inout EuclidLine) -> Void) -> Void
     let onDoubleTap: () -> Void
     let onRevertToEuclid: () -> Void
+    // LISTEN/FOLLOW (§5, adversarial-review fix, 2026-10-15): "HITS, STEPS and TILT show the partner's
+    // values at 42% opacity and can't be dragged" — `displayOverrideLine` (the partner's own EuclidLine,
+    // when FOLLOW is lit for this lane) makes every display computation below read the PARTNER's value
+    // instead of this line's own; `listenFollowLocked` (true for exactly those 3 fields while following)
+    // dims the whole slider and disables its gesture/double-tap/accessibility-adjust, mirroring the
+    // EXISTING `edited` mechanism's own disable-the-gesture shape rather than inventing a second one.
+    // Both default nil/false — every pre-existing call site (every OTHER field, every non-Euclideous
+    // caller — there are none, but the principle holds) is byte-identical.
+    var displayOverrideLine: EuclidLine? = nil
+    var listenFollowLocked: Bool = false
 
     @State private var snapshot: EuclidLine? = nil
     @State private var lastCommitted: Double? = nil
@@ -197,7 +207,13 @@ struct EuclideousSlider: View {
     }
 
     /// TILT disabled on a hand-edited pattern (ferry, literal): "EDITED pattern: TILT is disabled."
-    private var edited: Bool { field == .tilt && line.customHits != nil }
+    /// FOLLOW (§5) takes priority over this when both would apply to the same field — a FOLLOWing
+    /// lane's own hand edits are moot (its generation is replaced entirely), so the slider should read
+    /// as locked-to-the-partner, not as "EDITED," while following.
+    private var edited: Bool { field == .tilt && line.customHits != nil && !listenFollowLocked }
+    /// §5: display FROM the partner while locked, otherwise this line's own value — the one switch every
+    /// display computation below reads through, so the two can never independently drift.
+    private var effectiveLine: EuclidLine { displayOverrideLine ?? line }
 
     /// A small opaque backing — the colour of the EMPTY track, so the value/label text reads as sitting
     /// on an island the fill/value-line never crosses (2026-10-14 fixes-after-build ferry §4): GATE at 90%
@@ -211,7 +227,7 @@ struct EuclideousSlider: View {
     }
 
     var body: some View {
-        let curFrac = euclideousSliderFrac(field, line)
+        let curFrac = euclideousSliderFrac(field, effectiveLine)
         ZStack {
             Canvas { ctx, size in
                 ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 8), with: .color(Color(hex: 0x22252C)))
@@ -230,7 +246,7 @@ struct EuclideousSlider: View {
                 if !edited {
                     // TICKS (ferry, literal): "1pt high, 5pt long, at the left edge of the track" — HITS/
                     // OFFSET only. Rotated for a horizontal track: 1pt wide, 5pt long, at the BOTTOM edge.
-                    for tf in euclideousSliderTickFracs(field, line) {
+                    for tf in euclideousSliderTickFracs(field, effectiveLine) {
                         let tp = pos(tf)
                         let tick: CGRect = horizontal ? CGRect(x: tp - 0.5, y: size.height - 5, width: 1, height: 5)
                                                        : CGRect(x: 0, y: tp - 0.5, width: 5, height: 1)
@@ -269,7 +285,7 @@ struct EuclideousSlider: View {
                 // stacked value-over-label layout, which crossed the TILT zero line when used here.
                 HStack {
                     backed(
-                        Text(euclideousSliderLabelText(field, line))
+                        Text(euclideousSliderLabelText(field, effectiveLine))
                             .font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(0.8)
                             .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
                     )
@@ -285,7 +301,7 @@ struct EuclideousSlider: View {
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
                     } else {
                         backed(
-                            Text(euclideousSliderValueText(field, line))
+                            Text(euclideousSliderValueText(field, effectiveLine))
                                 .font(.system(size: 13, weight: .heavy, design: .monospaced))
                                 .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
                         )
@@ -309,7 +325,7 @@ struct EuclideousSlider: View {
                             .padding(.top, 6)
                     } else {
                         backed(
-                            Text(euclideousSliderValueText(field, line))
+                            Text(euclideousSliderValueText(field, effectiveLine))
                                 .font(.system(size: 14, weight: .heavy, design: .monospaced))
                                 .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
                         )
@@ -317,7 +333,7 @@ struct EuclideousSlider: View {
                     }
                     Spacer(minLength: 0)
                     backed(
-                        Text(euclideousSliderLabelText(field, line)).font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        Text(euclideousSliderLabelText(field, effectiveLine)).font(.system(size: 10, weight: .semibold, design: .monospaced))
                             .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
                     )
                     .padding(.bottom, 5)
@@ -336,6 +352,10 @@ struct EuclideousSlider: View {
             }
         }
         .frame(width: width, height: height)
+        // LISTEN/FOLLOW (§5): "HITS, STEPS and TILT show the partner's values at 42% opacity" —
+        // a plain opacity multiply on the whole slider; `displayOverrideLine`/`effectiveLine` above
+        // already make every drawn/text value the partner's own, so this is purely the dimming half.
+        .opacity(listenFollowLocked ? 0.42 : 1)
         // THE 2pt TOUCH BORDER is REMOVED (Paul 2026-10-12: "when a slider is selected it has an outline
         // appear. Please remove this behaviour") — was the ferry's own original "while touched: a 2pt
         // LANE-100 border" spec; `touching` (the @State that drove it) is gone too, having no other use.
@@ -351,7 +371,7 @@ struct EuclideousSlider: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { g in
-                    guard !edited else { return }   // ferry, literal: "touches elsewhere on a disabled TILT do nothing"
+                    guard !edited, !listenFollowLocked else { return }   // ferry, literal: "touches elsewhere on a disabled TILT do nothing" / "[HITS/STEPS/TILT] can't be dragged" while following
                     if snapshot == nil {
                         snapshot = line
                         lastCommitted = euclideousSliderRange(field, line).value
@@ -374,7 +394,7 @@ struct EuclideousSlider: View {
                     }
                 }
                 .onEnded { g in
-                    guard !edited else { return }
+                    guard !edited, !listenFollowLocked else { return }
                     let start = startLocation ?? g.location
                     let totalMoved = hypot(g.location.x - start.x, g.location.y - start.y)
                     let wasShortTap = totalMoved <= 4 && !helpActive
@@ -408,10 +428,10 @@ struct EuclideousSlider: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(edited ? "\(field.name), edited" : field.name)
-        .accessibilityValue(edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, line))
+        .accessibilityLabel(listenFollowLocked ? "\(field.name), following" : (edited ? "\(field.name), edited" : field.name))
+        .accessibilityValue(edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, effectiveLine))
         .accessibilityAdjustableAction { direction in
-            guard !edited else { return }
+            guard !edited, !listenFollowLocked else { return }
             let step = euclideousSliderAccessibilityStep(field)
             let cur = euclideousSliderRange(field, line).value
             let target = direction == .increment ? cur + step : cur - step
@@ -1651,13 +1671,25 @@ struct EuclideousPage: View {
         let halfW = max(1, (fullWidth - sp4) / 2)
         let leftSliderW = max(1, (halfW - sp4 * 2) / 3)
         let rightRowH = max(1, (rowHeight - sp4 * 2) / 3)
+        // LISTEN/FOLLOW (§5, adversarial-review fix): "HITS, STEPS and TILT show the partner's values at
+        // 42% opacity and can't be dragged... VEL, GATE, direction and outputs stay the follower's own."
+        // The exact 3-field set this row owns that's affected — OFFSET (this row's own `.offset` field)
+        // is explicitly excluded even though it's drawn here, matching "OFFSET stays live" literally.
+        let followPartner: EuclidLine? = {
+            guard line.listenRhythmMode == .follow else { return nil }
+            let p = line.listenRhythmPartnerResolved
+            return p >= 0 && p < lines.count ? lines[p] : nil
+        }()
+        let lockedFields: Set<EuclideousSliderField> = followPartner != nil ? [.hits, .steps, .tilt] : []
 
         func verticalSlider(_ field: EuclideousSliderField) -> some View {
             EuclideousSlider(
                 field: field, line: line, accent: accent, width: leftSliderW, height: rowHeight, horizontal: false,
                 onCommit: { mutate in edit(idx, mutate) },
                 onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
-                onRevertToEuclid: { edit(idx) { $0.customHits = nil } })
+                onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+                displayOverrideLine: lockedFields.contains(field) ? followPartner : nil,
+                listenFollowLocked: lockedFields.contains(field))
         }
         func horizontalSlider(_ field: EuclideousSliderField) -> some View {
             EuclideousSlider(
@@ -1665,7 +1697,9 @@ struct EuclideousPage: View {
                 touchPad: 2,   // 2026-10-14 ferry Fix 3: 2pt into each neighbouring sp4(4pt) gap, no dead strip
                 onCommit: { mutate in edit(idx, mutate) },
                 onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
-                onRevertToEuclid: { edit(idx) { $0.customHits = nil } })
+                onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+                displayOverrideLine: lockedFields.contains(field) ? followPartner : nil,
+                listenFollowLocked: lockedFields.contains(field))
         }
 
         return HStack(spacing: sp4) {
@@ -1915,36 +1949,86 @@ struct EuclideousPage: View {
         func setRate(division: Int? = nil, feel: Int? = nil) {
             edit(idx) { $0.rate = euclideousRateFromDivisionFeel(division: division ?? curDiv, feel: feel ?? curFeel) }
         }
+        // LISTEN/FOLLOW (§5, adversarial-review fix): "the six rate cells become multipliers: ÷8 ÷4 ÷2
+        // on the top row, ×1 ×2 ×4 on the bottom row... a multiplier whose result would fall outside
+        // 1/1-1/32 is greyed... the three feel cells show the partner's feel at 42% opacity."
+        let followPartner: EuclidLine? = {
+            guard line.listenRhythmMode == .follow else { return nil }
+            let p = line.listenRhythmPartnerResolved
+            return p >= 0 && p < lines.count ? lines[p] : nil
+        }()
+        let multLabels: [[String]] = [["÷8", "÷4", "÷2"], ["×1", "×2", "×4"]]
+        let multExponents: [[Int]] = [[-3, -2, -1], [0, 1, 2]]
+        func multValid(_ mult: Int, partnerBeats: Double) -> Bool {
+            let result = partnerBeats * pow(2.0, Double(-mult))
+            return result >= ArpRate.r1_32.beats - 0.0001 && result <= ArpRate.r1_1.beats + 0.0001
+        }
 
         let rateHalf = HStack(spacing: gridGap) {
-            VStack(spacing: gap) {   // 4pt between the 2 rate-grid rows (ferry rule 2), not the 3pt column gap
-                ForEach(0..<2, id: \.self) { row in
-                    HStack(spacing: gridGap) {
-                        ForEach(0..<3, id: \.self) { col in
-                            let d = row * 3 + col
-                            let on = d == curDiv
-                            Text(divisionLabels[d]).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                                .foregroundColor(on ? patternSelectedText : patternUnselectedText)
-                                .frame(width: cellW, height: cellH)
-                                .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
-                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                                .contentShape(Rectangle())
-                                .onTapGesture { setRate(division: d) }
+            if let partner = followPartner {
+                let partnerBeats = partner.rate?.beats ?? autoRate.beats
+                let curMult = line.listenFollowMultResolved
+                VStack(spacing: gap) {
+                    ForEach(0..<2, id: \.self) { row in
+                        HStack(spacing: gridGap) {
+                            ForEach(0..<3, id: \.self) { col in
+                                let m = multExponents[row][col]
+                                let on = m == curMult
+                                let valid = multValid(m, partnerBeats: partnerBeats)
+                                Text(multLabels[row][col]).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                                    .foregroundColor(!valid ? patternUnselectedText.opacity(0.4) : (on ? patternSelectedText : patternUnselectedText))
+                                    .frame(width: cellW, height: cellH)
+                                    .background(RoundedRectangle(cornerRadius: 7).fill(on && valid ? lane20(accent) : patternUnselectedFill))
+                                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(on && valid ? lane100(accent) : Color.clear, lineWidth: 1))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { if valid { edit(idx) { $0.listenFollowMult = m } } }
+                            }
                         }
                     }
                 }
-            }
-            VStack(spacing: gridGap) {
-                ForEach(0..<3, id: \.self) { f in
-                    let on = f == curFeel
-                    feelGlyph(f)
-                        .foregroundColor(on ? patternSelectedText : patternUnselectedText)
-                        .frame(width: feelColW, height: feelBtnH)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : patternUnselectedFill))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                        .contentShape(Rectangle())
-                        .onTapGesture { setRate(feel: f) }
-                        .accessibilityLabel(feelLabels[f])
+                VStack(spacing: gridGap) {
+                    ForEach(0..<3, id: \.self) { f in
+                        let on = f == euclideousRateDivisionFeel(partner.rate ?? autoRate).1
+                        feelGlyph(f)
+                            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                            .frame(width: feelColW, height: feelBtnH)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : patternUnselectedFill))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                            .accessibilityLabel(feelLabels[f])
+                    }
+                }
+                .opacity(0.42)
+                .allowsHitTesting(false)
+            } else {
+                VStack(spacing: gap) {   // 4pt between the 2 rate-grid rows (ferry rule 2), not the 3pt column gap
+                    ForEach(0..<2, id: \.self) { row in
+                        HStack(spacing: gridGap) {
+                            ForEach(0..<3, id: \.self) { col in
+                                let d = row * 3 + col
+                                let on = d == curDiv
+                                Text(divisionLabels[d]).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                                    .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                                    .frame(width: cellW, height: cellH)
+                                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
+                                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { setRate(division: d) }
+                            }
+                        }
+                    }
+                }
+                VStack(spacing: gridGap) {
+                    ForEach(0..<3, id: \.self) { f in
+                        let on = f == curFeel
+                        feelGlyph(f)
+                            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                            .frame(width: feelColW, height: feelBtnH)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : patternUnselectedFill))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                            .contentShape(Rectangle())
+                            .onTapGesture { setRate(feel: f) }
+                            .accessibilityLabel(feelLabels[f])
+                    }
                 }
             }
         }
@@ -2395,11 +2479,30 @@ struct EuclideousPage: View {
     /// with 4pt row gaps, giving 194 — corrected to the ferry's explicit 8pt gaps here, since its own y-
     /// coordinates for rows 2/3 — "at (0, 98)", "at (0, 154)" — only reconcile at 8pt: 90+8=98, 98+48+8=154).
     private func riffTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        VStack(spacing: sp8) {
-            riffTopRow(idx, line, accent, height: 90)
-            riffModesRow(idx, line, accent, fullWidth: fullWidth).frame(height: 48)
-            melodyValuesRow(idx, line, accent, fullWidth: fullWidth).frame(height: 48)
-                .opacity(line.riffOnResolved ? 1.0 : 0.42)
+        ZStack {
+            VStack(spacing: sp8) {
+                riffTopRow(idx, line, accent, height: 90)
+                riffModesRow(idx, line, accent, fullWidth: fullWidth).frame(height: 48)
+                melodyValuesRow(idx, line, accent, fullWidth: fullWidth).frame(height: 48)
+                    .opacity(line.riffOnResolved ? 1.0 : 0.42)
+            }
+            .opacity(line.listenPitchMode == .shadow ? 0.42 : 1)
+            .allowsHitTesting(line.listenPitchMode != .shadow)
+            listenShadowingOverlay(line)
+        }
+    }
+    /// §6 ("the lane's own riff and lit notes are ignored... drawn at 42% opacity, with 'SHADOWING RED'
+    /// ... centred over them"), shared by both `riffTabContent` and `notesTabContent` so the two tabs
+    /// can't independently drift on the exact text/colour. `nil` (not SHADOWing) draws nothing.
+    @ViewBuilder private func listenShadowingOverlay(_ line: EuclidLine) -> some View {
+        if line.listenPitchMode == .shadow {
+            let p = line.listenPitchPartnerResolved
+            let partnerAccent = laneAccents[p % laneAccents.count]
+            Text("SHADOWING \(listenLaneColourName(p))")
+                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(partnerAccent)
+                .multilineTextAlignment(.center)
+                .allowsHitTesting(false)
         }
     }
 
@@ -2642,14 +2745,20 @@ struct EuclideousPage: View {
     /// dims, matching the RIFF card's own "the on/off control never dims" rule).
     private func notesTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let isOn = line.notesOnResolved
-        return HStack(spacing: sp4) {
-            notesStrip(idx, line, accent, height: 210)
-            VStack(spacing: sp4) {
-                notesKeysRow(idx, line, accent, keyHeight: 92, chipHeight: 24)
-                notesOctaveTopRow(idx, line, accent, height: 40)
-                notesVelBar(idx, line, accent)
+        let shadowing = line.listenPitchMode == .shadow
+        return ZStack {
+            HStack(spacing: sp4) {
+                notesStrip(idx, line, accent, height: 210)
+                VStack(spacing: sp4) {
+                    notesKeysRow(idx, line, accent, keyHeight: 92, chipHeight: 24)
+                    notesOctaveTopRow(idx, line, accent, height: 40)
+                    notesVelBar(idx, line, accent)
+                }
+                .opacity(isOn ? 1.0 : 0.42)
             }
-            .opacity(isOn ? 1.0 : 0.42)
+            .opacity(shadowing ? 0.42 : 1)
+            .allowsHitTesting(!shadowing)
+            listenShadowingOverlay(line)
         }
     }
 
@@ -3045,11 +3154,14 @@ struct EuclideousPage: View {
     // width (the 13pt label, the 44pt partner button).
 
     private func listenModeButton(name: String, hint: String, lit: Bool, width: CGFloat, height: CGFloat, accent: Color, action: @escaping () -> Void) -> some View {
+        // `.minimumScaleFactor` removed on both lines (adversarial-review fix) — this page's own standing
+        // rule is "truncate, never shrink"; every name/hint pair here fits the 84.67pt/128.5pt button
+        // widths at 11pt/10pt comfortably (the longest hint, "QUIETER WITH IT", is well under 128.5pt).
         VStack(spacing: 3) {
             Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
-                .foregroundColor(lit ? patternSelectedText : patternUnselectedText).lineLimit(1).minimumScaleFactor(0.8)
+                .foregroundColor(lit ? patternSelectedText : patternUnselectedText).lineLimit(1)
             Text(hint).font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(lit ? Color(hex: 0xDFE3EA) : Color(hex: 0x8A909A)).lineLimit(1).minimumScaleFactor(0.7)
+                .foregroundColor(lit ? Color(hex: 0xDFE3EA) : Color(hex: 0x8A909A)).lineLimit(1)
         }
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 7).fill(lit ? lane20(accent) : patternUnselectedFill))
@@ -3093,10 +3205,18 @@ struct EuclideousPage: View {
                 case .level: return line.listenLevelPartnerResolved
                 }
             }()
+            // LISTEN/SHADOW (§6, adversarial-review fix): "if the partner's riff is off, the shadow is
+            // silent, and the PITCH row's partner button shows NO RIFF instead of the colour name."
+            let partnerRiffOff = row == .pitch && line.listenPitchMode == .shadow && !isAny
+                && partnerIdx < lines.count && !lines[partnerIdx].riffOnResolved
             VStack(spacing: 3) {
                 if isAny { listenAnyDot(size: 18) }
                 else { Circle().fill(laneAccents[partnerIdx % laneAccents.count]).frame(width: 18, height: 18) }
-                Text(isAny ? "ANY" : listenLaneColourName(partnerIdx)).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1).minimumScaleFactor(0.7)
+                // `.minimumScaleFactor` removed (adversarial-review fix) — this page's own standing rule,
+                // stated repeatedly throughout its history, is "truncate, never shrink"; every name here
+                // (RED/BLUE/YELLOW/GREEN/ANY/NO RIFF) fits this button's real width at 10pt regardless.
+                Text(isAny ? "ANY" : (partnerRiffOff ? "NO RIFF" : listenLaneColourName(partnerIdx)))
+                    .font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
             }
             .frame(width: width, height: height)
             .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
@@ -3179,7 +3299,9 @@ struct EuclideousPage: View {
                 .contentShape(Rectangle()).onTapGesture { if enabled { onDec() } }
             VStack(spacing: 2) {
                 Text(label).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                Text(value).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                // `.minimumScaleFactor` removed (adversarial-review fix) — every value this stepper shows
+                // (UNISON/−7TH.../100%/MUTE/MOVE) fits its 79.25pt width at 13pt comfortably.
+                Text(value).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
@@ -3220,7 +3342,12 @@ struct EuclideousPage: View {
         let avoidLit = line.listenPitchMode == .avoid
         let levelLit = line.listenLevelMode != nil
         let keySource = line.sourceModeResolved == .key
-        return VStack(spacing: 6) {
+        // LAYOUT (§2/§3, adversarial-review fix): a uniform 6pt VStack spacing put the details row at
+        // y150, 4pt short of the spec's own y154 — RHYTHM(y0)→PITCH(y50)→LEVEL(y100) are each a 6pt gap
+        // apart, but LEVEL(ends y144)→details(y154) is a 10pt gap, not 6. Explicit per-gap spacers
+        // (0+6+6+10) reproduce the spec's own y-coordinates exactly and sum to the full 202pt budget
+        // (44·3 + 6·2 + 10 + 48 = 202) with none left over as unintended trailing space.
+        return VStack(spacing: 0) {
             row("RHYTHM", row: .rhythm) {
                 listenModeButton(name: "FOLLOW", hint: "COPY HITS", lit: line.listenRhythmMode == .follow, width: btn3W, height: rowH, accent: accent) {
                     toggleListenRhythmMode(idx, .follow)
@@ -3232,6 +3359,7 @@ struct EuclideousPage: View {
                     toggleListenRhythmMode(idx, .gaps)
                 }
             }
+            Spacer().frame(height: 6)
             row("PITCH", row: .pitch) {
                 listenModeButton(name: "SHADOW", hint: "TAKE ITS NOTE", lit: shadowLit, width: btn2W, height: rowH, accent: accent) {
                     toggleListenPitchMode(idx, .shadow)
@@ -3240,6 +3368,7 @@ struct EuclideousPage: View {
                     toggleListenPitchMode(idx, .avoid)
                 }
             }
+            Spacer().frame(height: 6)
             row("LEVEL", row: .level) {
                 listenModeButton(name: "DUCK", hint: "QUIETER WITH IT", lit: line.listenLevelMode == .duck, width: btn2W, height: rowH, accent: accent) {
                     toggleListenLevelMode(idx, .duck)
@@ -3248,6 +3377,7 @@ struct EuclideousPage: View {
                     toggleListenLevelMode(idx, .accent)
                 }
             }
+            Spacer().frame(height: 10)
             HStack(spacing: 3) {
                 listenStepper("INTERVAL", value: listenIntervalText(line.listenShadowIntervalResolved, keySource: keySource), enabled: shadowLit, width: detailsW, height: 48,
                               onDec: { edit(idx) { $0.listenShadowInterval = max(-7, $0.listenShadowIntervalResolved - 1) } },
@@ -3578,6 +3708,10 @@ struct EuclideousPage: View {
                 // occupant. `Occupant.isArrow`/`riffMarkerGlyph`'s own dot-drawing branch are left in place,
                 // unreachable — harmless, flagged rather than silently left for a future reader to puzzle
                 // over why a dot branch never fires.
+                // LISTEN/SHADOW (§6, adversarial-review fix): "a shadowing lane shows no walk arrow on
+                // the riff grid" — its own riff is overridden entirely, so its marker is suppressed here
+                // the same way a riff-off lane's already is (that lane's own `riffMarker[i]` stays nil).
+                if lines[i].listenPitchMode == .shadow { continue }
                 if let m = riffMarker[i], m.col == col, m.row == rank {
                     let onRest = col < ranks.count && ranks[col] == 0
                     occupants.append(Occupant(lane: i, isArrow: true, onRest: onRest))

@@ -864,6 +864,14 @@ final class Router {
     // weave-XOR-generator per cell (never nested) → one buffer each; tutti CAN nest ([TUTTI-pattern → TUTTI] folds the
     // emitter through applyStage) → the emitter (A) and applyStage (B) take SEPARATE rank buffers.
     private var euclidBuf = [Bool](repeating: false, count: 16)
+    // LISTEN (ferry 2026-10-14, adversarial-review fix): a SEPARATE reused buffer for building a
+    // PARTNER lane's pattern — `euclidListenReaches`/euclideousBuildPatternInto must never write into
+    // `euclidBuf` itself, since that's THIS lane's own pattern, still needed for the rest of this same
+    // tick's evaluation. Shared across every FOLLOW/WITH/GAPS/SHADOW/AVOID/DUCK/ACCENT partner lookup
+    // inside one `runEuclidLine` call — each use is synchronous (build, read, discard) before the next,
+    // so one buffer safely serves all of them, even across several different partners in sequence (the
+    // ANY-partner AVOID case loops over up to 3 lanes, each fully consumed before the next overwrites it).
+    private var euclidListenScratch = [Bool](repeating: false, count: 16)
     private var burstBuf = [Double](repeating: 0, count: 16)
     private var tuttiRankBufA = [Int](repeating: 0, count: 128)
     private var tuttiRankBufB = [Int](repeating: 0, count: 128)
@@ -4498,9 +4506,8 @@ final class Router {
                 let n: Int
                 let followPartnerValid = listenRhythmMode == .follow && listenRhythmPartnerIdx >= 0 && listenRhythmPartnerIdx < p.euclidLines.count
                 if followPartnerValid {
-                    let partner = euclideousBuildPattern(p.euclidLines[listenRhythmPartnerIdx])
-                    n = partner.n
-                    for i in 0..<n { euclidBuf[i] = partner.buf[i] }
+                    n = euclideousBuildPatternInto(p.euclidLines[listenRhythmPartnerIdx], buf: &euclidListenScratch)
+                    for i in 0..<n { euclidBuf[i] = euclidListenScratch[i] }
                 } else {
                     n = max(2, min(16, nIn))
                     let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
@@ -4616,10 +4623,10 @@ final class Router {
                         guard rawIsHit, let mode = listenRhythmMode, mode != .follow,
                               listenRhythmPartnerIdx >= 0, listenRhythmPartnerIdx < p.euclidLines.count else { return true }
                         let partnerLine = p.euclidLines[listenRhythmPartnerIdx]
-                        let partner = euclideousBuildPattern(partnerLine)
+                        let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
                         let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
                         let epsilonBeats = 0.001 * (tempo / 60.0)
-                        let coincides = euclideousListenPartnerHasHitAt(buf: partner.buf, n: partner.n, dir: partnerLine.directionResolved,
+                        let coincides = euclideousListenPartnerHasHitAt(buf: euclidListenScratch, n: partnerN, dir: partnerLine.directionResolved,
                                                                           rateBeats: partnerRate, spanBeats: spanBeats, atBeat: mTickBeat, epsilonBeats: epsilonBeats)
                         return mode == .with ? coincides : !coincides
                     }()
@@ -4993,10 +5000,10 @@ final class Router {
                             if shadowPartnerValid {
                                 let partnerLine = p.euclidLines[listenPitchPartnerIdx]
                                 if partnerLine.riffOnResolved {
-                                    let partner = euclideousBuildPattern(partnerLine)
+                                    let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
                                     let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
                                     if let hit = euclideousListenPartnerNoteAt(
-                                        buf: partner.buf, n: partner.n, dir: partnerLine.directionResolved,
+                                        buf: euclidListenScratch, n: partnerN, dir: partnerLine.directionResolved,
                                         rateBeats: partnerRate, spanBeats: spanBeats, atBeat: mTickBeat, epsilonBeats: nil,
                                         line: partnerLine, ranks: ranks, poolCount: thisLaneCount, poolAsc: { notes[$0].note }
                                     ), let shadowNote = riffResolve(rank: hit.rank + listenShadowInterval,
@@ -5152,9 +5159,9 @@ final class Router {
                                 func avoidCollides(_ note: Int, _ atBeat: Double) -> Bool {
                                     func checks(_ other: EuclidLine) -> Bool {
                                         guard other.riffOnResolved else { return false }
-                                        let pat = euclideousBuildPattern(other)
+                                        let patN = euclideousBuildPatternInto(other, buf: &euclidListenScratch)
                                         let rate = other.rate?.beats ?? p.euclidRateBeats
-                                        guard let hit = euclideousListenPartnerNoteAt(buf: pat.buf, n: pat.n, dir: other.directionResolved,
+                                        guard let hit = euclideousListenPartnerNoteAt(buf: euclidListenScratch, n: patN, dir: other.directionResolved,
                                                                                         rateBeats: rate, spanBeats: spanBeats, atBeat: atBeat, epsilonBeats: epsilonBeats,
                                                                                         line: other, ranks: ranks, poolCount: thisLaneCount, poolAsc: { notes[$0].note }) else { return false }
                                         return hit.note == note
@@ -5197,10 +5204,10 @@ final class Router {
                             // the lane's own VEL."
                             if let levelMode = listenLevelMode, listenLevelPartnerIdx >= 0, listenLevelPartnerIdx < p.euclidLines.count {
                                 let partnerLine = p.euclidLines[listenLevelPartnerIdx]
-                                let partner = euclideousBuildPattern(partnerLine)
+                                let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
                                 let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
                                 let epsilonBeats = 0.001 * (tempo / 60.0)
-                                let coincides = euclideousListenPartnerHasHitAt(buf: partner.buf, n: partner.n, dir: partnerLine.directionResolved,
+                                let coincides = euclideousListenPartnerHasHitAt(buf: euclidListenScratch, n: partnerN, dir: partnerLine.directionResolved,
                                                                                   rateBeats: partnerRate, spanBeats: spanBeats, atBeat: mTickBeat, epsilonBeats: epsilonBeats)
                                 if coincides {
                                     let scale = levelMode == .duck ? (1.0 - listenLevelAmount) : (1.0 + listenLevelAmount)

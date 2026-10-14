@@ -11398,4 +11398,28 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(restoredHits, "x.x.x.x.", "T9: blue's own 4-of-8 pattern, unchanged")
         XCTAssertEqual(restoredHits, plainHits, "T9: byte-identical to a blue that was never FOLLOWing at all")
     }
+    // MARK: - Adversarial-review fixes (2026-10-15): AVOID+ANY loop-detection gap
+    // Lane 0 (red) has PITCH/AVOID with partner ANY — implicitly depending on every other lane. Lane 1
+    // (blue) must NOT be allowed to pick lane 0 as its own RHYTHM/PITCH/LEVEL partner, since doing so
+    // would close a real cycle (0 depends on 1 via ANY; 1 would now depend on 0 directly).
+    func testListenAvoidAnyGreysOutInEveryOtherRowToo() {
+        var red = listenRedLine(); red.listenPitchMode = .avoid; red.listenPitchPartnerAny = true
+        let lines = [red, listenBlueLine(), EuclidLine(), EuclidLine()]
+        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .rhythm).contains(0),
+                      "lane 0's AVOID+ANY must grey lane 0 out of lane 1's own RHYTHM picker")
+        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .pitch).contains(0),
+                      "...and its PITCH picker")
+        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .level).contains(0),
+                      "...and its LEVEL picker")
+    }
+    func testListenAvoidAnyLoopIsBrokenOnPresetLoad() {
+        var red = listenRedLine(); red.listenPitchMode = .avoid; red.listenPitchPartnerAny = true
+        var blue = listenBlueLine(); blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0   // blue → red, closing the loop
+        let fixed = euclideousListenBreakLoops([red, blue, EuclidLine(), EuclidLine()])
+        // Scanned lane 0 first (nothing to break yet, its AVOID+ANY is recorded) then lane 1 — lane 1's
+        // own FOLLOW is what closes the loop, so IT is the one switched off, matching this function's
+        // existing "the row that closes it" convention for the non-ANY case.
+        XCTAssertNotNil(fixed[0].listenPitchMode, "red's AVOID+ANY itself is untouched — it didn't close anything")
+        XCTAssertNil(fixed[1].listenRhythmMode, "blue's own FOLLOW (the edge that actually closed the loop) is switched off")
+    }
 }

@@ -3339,9 +3339,13 @@ func euclideousListenReaches(_ edges: [[Int]], from: Int, to: Int) -> Bool {
 /// each listing the lane(s) IT currently listens to. `excludeLane`/`excludeRow`, when given, omits that
 /// ONE row from the graph (used by the picker: the row being edited is about to be overwritten by
 /// whichever candidate gets picked, so testing a candidate against that row's OWN prior choice would be
-/// circular reasoning, not a real constraint). An AVOID row with ANY contributes no edge — §9's own doc
-/// comment explains why that's the right call, not an oversight: ANY depends on every other lane
-/// collectively, which can never itself be the lane that "closes a loop" through one single edge.
+/// circular reasoning, not a real constraint). An AVOID row with ANY contributes an edge to EVERY OTHER
+/// lane, not zero edges (adversarial-review fix, 2026-10-15 — the ORIGINAL "ANY can never itself be the
+/// lane that closes a loop through one single edge" reasoning was wrong: if lane A has AVOID+ANY and
+/// lane B then picks A as ITS own FOLLOW/WITH/GAPS/SHADOW/DUCK/ACCENT partner, A→B [one of ANY's many
+/// edges] + B→A [the new pick] is a genuine 2-lane cycle, and the picker must grey A out of B's list to
+/// prevent it — exactly matching the multi-edge treatment `euclideousListenProcessingOrder`'s own,
+/// separate dependency computation already gives ANY, a few lines below).
 enum EuclideousListenRow { case rhythm, pitch, level }
 func euclideousListenEdges(_ lines: [EuclidLine], excludeLane: Int = -1, excludeRow: EuclideousListenRow? = nil) -> [[Int]] {
     let n = min(4, lines.count)
@@ -3352,9 +3356,13 @@ func euclideousListenEdges(_ lines: [EuclidLine], excludeLane: Int = -1, exclude
             let p = L.listenRhythmPartnerResolved
             if p != i, p < n { edges[i].append(p) }
         }
-        if !(i == excludeLane && excludeRow == .pitch), L.listenPitchMode != nil, !L.listenPitchPartnerAnyResolved {
-            let p = L.listenPitchPartnerResolved
-            if p != i, p < n { edges[i].append(p) }
+        if !(i == excludeLane && excludeRow == .pitch), L.listenPitchMode != nil {
+            if L.listenPitchPartnerAnyResolved {
+                for j in 0..<n where j != i { edges[i].append(j) }
+            } else {
+                let p = L.listenPitchPartnerResolved
+                if p != i, p < n { edges[i].append(p) }
+            }
         }
         if !(i == excludeLane && excludeRow == .level), L.listenLevelMode != nil {
             let p = L.listenLevelPartnerResolved
@@ -3444,11 +3452,23 @@ func euclideousListenBreakLoops(_ lines: [EuclidLine]) -> [EuclidLine] {
                 else { edges[i].append(p) }
             }
         }
-        if result[i].listenPitchMode != nil, !result[i].listenPitchPartnerAnyResolved {
-            let p = result[i].listenPitchPartnerResolved
-            if p != i, p < n {
-                if euclideousListenReaches(edges, from: p, to: i) { result[i].listenPitchMode = nil; result[i].listenPitchPartner = nil }
-                else { edges[i].append(p) }
+        if result[i].listenPitchMode != nil {
+            if result[i].listenPitchPartnerAnyResolved {
+                // ANY depends on every OTHER lane (adversarial-review fix, 2026-10-15 — mirrors the
+                // identical fix in `euclideousListenEdges`): if any one of them can already reach `i`,
+                // adding `i`→that-lane (one of ANY's many implicit edges) would close a cycle, so break
+                // this lane's own PITCH row rather than let a loaded preset carry an undetected loop.
+                if (0..<n).contains(where: { j in j != i && euclideousListenReaches(edges, from: j, to: i) }) {
+                    result[i].listenPitchMode = nil; result[i].listenPitchPartner = nil; result[i].listenPitchPartnerAny = nil
+                } else {
+                    for j in 0..<n where j != i { edges[i].append(j) }
+                }
+            } else {
+                let p = result[i].listenPitchPartnerResolved
+                if p != i, p < n {
+                    if euclideousListenReaches(edges, from: p, to: i) { result[i].listenPitchMode = nil; result[i].listenPitchPartner = nil }
+                    else { edges[i].append(p) }
+                }
             }
         }
         if result[i].listenLevelMode != nil {
@@ -3471,10 +3491,15 @@ func euclideousListenBreakLoops(_ lines: [EuclidLine]) -> [EuclidLine] {
 /// Deliberately does NOT replicate `p.euclidPulsesFromPool` (the regular, non-Euclideous HITS-FROM-POOL
 /// override) — Euclideous's own UI has no control for it and never sets it, so every real caller is
 /// unaffected; a hand-edited doc that somehow combined the two is an unreached, disclosed edge case.
-func euclideousBuildPattern(_ L: EuclidLine) -> (buf: [Bool], n: Int) {
+/// The no-allocation form (adversarial-review fix, 2026-10-15): writes into a CALLER-OWNED, reused
+/// buffer (sized >=16, matching `euclidBuf`/every other fixed scratch buffer in this codebase) instead
+/// of allocating+returning a fresh array — this is the form the render thread must call. Reads
+/// `L.customHits` RAW, never `.customHitsResolved`, which pads/allocates a fresh array of its own — the
+/// identical raw-passthrough-with-manual-bounds-check idiom `runEuclidLine`'s own (non-LISTEN) pattern
+/// build already uses for this exact field, so this function can never allocate regardless of caller.
+func euclideousBuildPatternInto(_ L: EuclidLine, buf: inout [Bool]) -> Int {
     let n = max(2, min(16, L.steps))
-    var buf = [Bool](repeating: false, count: n)
-    if let custom = L.customHitsResolved(n), !custom.isEmpty {
+    if let custom = L.customHits, !custom.isEmpty {
         for i in 0..<n { buf[i] = i < custom.count ? custom[i] : false }
     } else {
         let k = max(0, min(n, L.pulses))
@@ -3483,6 +3508,14 @@ func euclideousBuildPattern(_ L: EuclidLine) -> (buf: [Bool], n: Int) {
     }
     euclidRotateBuffer(&buf, steps: n, rotation: L.rotate)
     if L.patternMissResolved { for i in 0..<n { buf[i].toggle() } }
+    return n
+}
+/// Convenience value-returning wrapper for non-render-thread callers (UI code, tests), where a fresh
+/// array is harmless. The render path must call `euclideousBuildPatternInto` directly against a reused
+/// buffer instead (see its own doc comment) — never this wrapper, which allocates on every call.
+func euclideousBuildPattern(_ L: EuclidLine) -> (buf: [Bool], n: Int) {
+    var buf = [Bool](repeating: false, count: 16)
+    let n = euclideousBuildPatternInto(L, buf: &buf)
     return (buf, n)
 }
 /// §5's own "coincide" test for WITH/GAPS: does the PARTNER's step pattern (not its sounding riff note —
