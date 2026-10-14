@@ -1744,6 +1744,29 @@ final class DerivationsTests: XCTestCase {
         for root in [0, 7, 2, 9, 4, 11, 6] { XCTAssertFalse(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional sharp-key root (6/F#-Gb defaults sharp)") }
         XCTAssertEqual(euclideousKeyIsFlat(-7), euclideousKeyIsFlat(5), "negative roots wrap the same as any other pitch-class math in this codebase")
     }
+    /// Fix 5 (2026-10-14 ferry) — the regression guard for the exact reported bug: a C natural-minor pool
+    /// must spell E♭/A♭/B♭, not D♯/G♯/A♯. C minor's root (0) tests flat only once shifted to its relative
+    /// major (C → Eb, +3 semitones) — the un-shifted, major-only reading of root 0 is sharp, confirming the
+    /// shift is actually doing something here, not a no-op that happened to agree by coincidence.
+    func testEuclideousKeyIsFlatUsesTheScalesRelativeMajorNotTheBareRoot() {
+        XCTAssertFalse(euclideousKeyIsFlat(0), "C major (or an unspecified scale) reads sharp at the bare root")
+        XCTAssertTrue(euclideousKeyIsFlat(0, scaleType: .naturalMinor), "C natural minor's relative major is Eb — a flat key")
+        XCTAssertTrue(euclideousKeyIsFlat(0, scaleType: .harmonicMinor))
+        XCTAssertTrue(euclideousKeyIsFlat(0, scaleType: .melodicMinor))
+        XCTAssertTrue(euclideousKeyIsFlat(0, scaleType: .minorPentatonic))
+        XCTAssertTrue(euclideousKeyIsFlat(0, scaleType: .blues))
+        // D dorian's relative major is C (shift 2) — reads the same as plain C major: sharp.
+        XCTAssertFalse(euclideousKeyIsFlat(2, scaleType: .dorian))
+        // E phrygian's relative major is C (shift 4) — same, sharp.
+        XCTAssertFalse(euclideousKeyIsFlat(4, scaleType: .phrygian))
+        // F lydian's relative major is C (shift 5) — same, sharp.
+        XCTAssertFalse(euclideousKeyIsFlat(5, scaleType: .lydian))
+        // G mixolydian's relative major is C (shift 7) — same, sharp.
+        XCTAssertFalse(euclideousKeyIsFlat(7, scaleType: .mixolydian))
+        // Whole-tone/chromatic have no relative-major concept — fall back to the bare-root (major) reading.
+        XCTAssertEqual(euclideousKeyIsFlat(3, scaleType: .wholeTone), euclideousKeyIsFlat(3))
+        XCTAssertEqual(euclideousKeyIsFlat(3, scaleType: .chromatic), euclideousKeyIsFlat(3))
+    }
 
     /// §2, the rhythm-only tick/window projection — mirrors `Router.runEuclidLine`'s own hit-test exactly
     /// (same pure functions, same order) so a projected mark can never silently disagree with what the

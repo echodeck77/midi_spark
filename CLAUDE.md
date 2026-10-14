@@ -196,6 +196,87 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: RIFF tab fixes," 5 numbered corrections to the just-shipped RIFF/NOTES split
+  (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1403 green incl. +1
+  new). A follow-up design-channel ferry, read directly from the raw session transcript rather than
+  paraphrased — the summarized context this turn picked up from carried only a high-level description of the
+  5 fixes, not their literal pixel/colour tables, so the actual ferry text was recovered from the conversation
+  JSONL first (`grep`+`python3 json.loads`, not guessed) before any code was touched; this session's own
+  standing discipline (never fabricate a coordinate/colour spec) made that the right call rather than
+  inventing plausible-looking values. **FIX 1 — the riff mini-grid thumbnail rebuilt entire:** was see-
+  through note cells, an empty cell lighter than the card, and the current step drawn as a 1pt white STROKE
+  ring over the WHOLE column of ranks (not just the lit cell) — all three named in the ferry's own bug
+  report. Now every cell is a plain filled square (no strokes/outlines/cut-outs/masks/column-highlight
+  anywhere); "current step" is shown purely by giving JUST that one lit cell its own distinct fill colour.
+  Also drops a judgment call from the original build (folding an out-of-range transposed rank back into
+  1...8 so it still showed as a hit) — the ferry states literally "if r is outside 1–8, that column shows no
+  lit cell," now followed exactly, with the rest/out-of-range cases sharing one uniform bounds check.
+  **THE "ARROW DISAGREES WITH THE THUMBNAIL" REPORT, investigated not guessed:** traced both the mini-grid's
+  `curStep` and the big riff grid's own walk-arrow (`updateRiffMarkers`'s `col = riffPositions[i]`) and
+  confirmed they read the IDENTICAL raw value with zero transform in either path — so there is no separate
+  indexing bug to fix; the new bold, unambiguous fill-based highlight (replacing the old 1pt stroke, easy to
+  miscount by one column at thumbnail scale) is the most likely actual fix for the reported symptom, named
+  honestly as reasoned-not-confirmed since neither path could be visually re-inspected here. **FIX 2 — the
+  RIFF tab's own layout restructured, SUPERSEDING a judgment call from the original split:** that build folded
+  DIRECTION into the modes row as a 4th group (3:2:3:2, reasoned since no literal ferry text had survived
+  into that pass) — the real row budget never had room for a 13-button row without truncating labels ("PE…,
+  PI…, ST…, SK…, FI….", the ferry's own literal bug report). DIRECTION now lives on `riffTopRow`'s own right-
+  hand column, stacked below the OCT trough (which gained its own "OCT" label built INSIDE it, radius 10, via
+  new optional `label`/`radius` params on the shared `euclideousOctaveTrough` — both default nil/8, so the
+  NOTES tab's own unlabelled trough, never mentioned by this ferry, is byte-identical). The modes row narrows
+  back to exactly 3 groups (ADV+HIT/STEP · REST+SKIP/FILL/TIE · INV+LOCK) at FULL label width, 11pt/radius-7
+  buttons (new `fontSize`/`cornerRadius` params on the shared `melodyButton`, both defaulting to the prior
+  10pt/radius-6 so every OTHER call site on this page is unaffected). Every group width is the ferry's own
+  literal 326pt-reference number (ADV 93.82 · REST 134.59 · INV 81.6) — RE-VERIFIED ALGEBRAICALLY against
+  every one of the ferry's own given x-coordinates before being trusted (e.g. ADV = label(13) + gap(3) + 2
+  buttons of 37.41 + 1 internal gap(3) = 93.82, exactly reproducing the ferry's own literal "HIT x 16 · STEP x
+  56.41") — scaled proportionally at any other width per the ferry's own explicit "share the extra width
+  across the stretching items" rule (each group's own button area absorbs its proportional share; labels and
+  gaps stay fixed). Also corrected the row gaps themselves from 4pt to 8pt — the previous build's own
+  `VStack(spacing: sp4)` gave 90+4+48+4+48=194, not the ferry's own stated "90+8+48+8+48=202," confirmed by
+  the ferry's own row y-coordinates ("at (0, 98)", "at (0, 154)") only reconciling at 8pt gaps. **FIX 3 — the
+  steppers row (LEN/NUDGE/STRIDE/TRANS) now spans the tab's own full width:** was a narrower, centred row of
+  4× fixed-69.5pt chips; `melodyStepper` gained a `width` param (default 69.5, preserving its shape anywhere
+  else it might be reused) and `melodyValuesRow` now computes each chip's width from the tab's real width
+  `(fullWidth − 3×3pt gaps) / 4` — exactly 79.25 at the 326pt reference, matching the ferry's own literal
+  table; its internal ‹/› decorative zones widened 14→18pt to match (`43.25 = 79.25 − 18×2`, the ferry's own
+  given centre-zone width), value text 13→14pt, VStack spacing 1→2pt, arrow/label colours moved to the exact
+  `#8a909a` constant this page already uses elsewhere (previously a close-but-not-exact `.white.opacity`
+  approximation). **FIX 4 — the NOTES tab's TOP/TOP2 pair reordered and relabelled:** TOP 2 now comes FIRST
+  (46pt wide, was TOP's own width), TOP second (42pt, was TOP2's) — a literal width swap, not just an order
+  swap — and TOP2's own button label gained a space ("TOP2" → "TOP 2"), matching the summary-label text
+  elsewhere on this page which already used the spaced form. **FIX 5 — note-name spelling now follows the
+  actual key, not an incomplete major-only heuristic — the real bug, found by tracing not guessed:**
+  `euclideousKeyIsFlat` tested only the bare key ROOT against a standard circle-of-fifths flat-key list —
+  correct for MAJOR keys only. `PluginState.euclideousKeyTypeResolved` defaults a fresh/untouched Euclideous
+  session to `.naturalMinor`, so this bug was reachable on DAY ONE for anyone who never explicitly set a key
+  type, not an edge case — exactly matching the ferry's own repro (a C-minor pool spelling D♯2/G♯2/A♯2
+  instead of the correct E♭2/A♭2/B♭2). **FIX:** new `euclideousScaleRelativeMajorShift(ScaleType) -> Int`
+  (Derivations.swift) returns the semitone shift from a scale's own root to its conventional "relative major"
+  root — the true reference every circle-of-fifths bias is keyed on — derived from each mode's literal scale-
+  degree relationship to the major scale it's a mode of (dorian=2, phrygian=4, lydian=5, mixolydian=7, hand-
+  verified against C major: e.g. D dorian's relative major is C, a shift of exactly 2). The three minor
+  variants (natural/harmonic/melodic) share natural minor's own shift (9) — their altered degrees don't change
+  which key signature conventionally notates them; major/minor pentatonic and blues inherit whichever family
+  they're built from; whole-tone/chromatic have no relative-major concept at all, so they fall back to major's
+  shift (0) as a DISCLOSED reasoned default, not a literal music-theory convention. `euclideousKeyIsFlat`
+  gained a `scaleType: ScaleType = .major` param (default = a no-op shift, so the function's own 3 pre-
+  existing pitch-class-table tests and any caller that doesn't pass the real type keep their exact prior
+  behaviour) — all 5 real call sites across this page (the NOTES keys row, the riff grid's row-label column,
+  the riff grid's accessibility label, the NOTES summary-label pairs, NOTE VIEW's note box) now pass the
+  page's own `keyType: ScaleType` property, closing the gap at every reachable surface, not just the one the
+  ferry named. **TESTS:** +1 DerivationsTest (`testEuclideousKeyIsFlatUsesTheScalesRelativeMajorNotTheBareRoot`)
+  — the literal C-natural-minor repro plus every other `ScaleType` case, each hand-verified against its own
+  relative-major root rather than asserted blind. **ACKNOWLEDGEMENT, honestly incomplete:** the ferry's own
+  closing line asks for "a screenshot of the blue and yellow RIFF tabs in the same state as riff-fix.png" —
+  this environment has no device/simulator visual access and cannot produce one; this status entry plus the
+  diff is the only acknowledgement possible from here. **DEVICE-OWED, the whole ferry:** every pixel/colour
+  claim above at real card width (the proportional group-width formula's behaviour at a non-326pt card in
+  particular, since it was never literally given for any other width); whether Fix 1's new bold fill-based
+  current-step highlight actually reads as agreeing with the big grid's arrow now (reasoned, not confirmed —
+  see Fix 1's own note on why no separate indexing bug was found); the OCT trough's new inside-label fit at
+  real size; Fix 5's spelling fix against a real C-minor (or any other non-major-key) session, on both the
+  NOTES tab and the riff grid's row labels.**
 - **▶ EUCLIDEOUS — MIDI IN/CHORD/KEY moved to the top header bar, restyled (2026-10-14, on `fix/euclid-no-
   scroll-direction-order-2x2-grid`; iOS builds clean; macOS 1405 unaffected — pure UI). Paul: "Please move
   the midi in/chords/key control to the top header bar and restyle." The control (`riffSourceTabs`) used to

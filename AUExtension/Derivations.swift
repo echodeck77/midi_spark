@@ -2843,13 +2843,41 @@ func euclideousSliderLabelText(_ field: EuclideousSliderField, _ line: EuclidLin
 // prior ASCII spelling was the root of the note-button-vs-riff-grid-label mismatch this ferry fixes.
 let euclideousNoteNamesSharp = ["C", "C\u{266F}", "D", "D\u{266F}", "E", "F", "F\u{266F}", "G", "G\u{266F}", "A", "A\u{266F}", "B"]
 let euclideousNoteNamesFlat  = ["C", "D\u{266D}", "D", "E\u{266D}", "E", "F", "G\u{266D}", "G", "A\u{266D}", "A", "B\u{266D}", "B"]
-/// A standard circle-of-fifths sharp/flat bias, keyed on the KEY'S ROOT pitch class alone — a reasoned, not
-/// measured, simplification (real music theory sometimes spells a mode's accidentals differently depending on
-/// more than just the root), flagged as such rather than presented as definitive. F/Bb/Eb/Ab/Db read flat;
-/// everything else reads sharp, including F#/Gb's own genuine enharmonic ambiguity (defaulted to sharp — F#,
-/// not Gb — as the more common convention when the choice is otherwise arbitrary).
-func euclideousKeyIsFlat(_ rootPitchClass: Int) -> Bool {
-    [5, 10, 3, 8, 1].contains(((rootPitchClass % 12) + 12) % 12)
+/// Fix 5 (2026-10-14 ferry, "FERRY — RIFF tab fixes"): how many semitones to SUBTRACT from a scale's own
+/// root to reach its conventional "relative major" root — the reference every circle-of-fifths flat/sharp
+/// bias is actually keyed on. Found and fixed by tracing the reported symptom (a C-minor pool spelling
+/// D♯2/G♯2/A♯2 instead of E♭2/A♭2/B♭2) to `euclideousKeyIsFlat` testing the KEY'S OWN root directly — correct
+/// only for MAJOR keys; `euclideousKeyTypeResolved` defaults a fresh/untouched Euclideous session to
+/// `.naturalMinor`, so this bug was reachable on day one, not an edge case. Dorian/phrygian/lydian/mixolydian
+/// use their literal scale-degree relationship to the major scale they're a mode of (e.g. D dorian's own
+/// relative major is C, a shift of 2 semitones — verified against all four: root − shift ≡ 0 when the root
+/// IS that degree of C major). The three minor variants share natural minor's own shift — their altered
+/// degrees don't change which key signature is conventionally used to notate them. Major/minor pentatonic and
+/// blues inherit whichever of major/minor they're built from. Whole-tone and chromatic have no relative-major
+/// concept at all (every semitone is in play, or none are a privileged "7"), so they fall back to major's
+/// shift (0) as a reasoned default — flagged here, not a literal music-theory convention.
+func euclideousScaleRelativeMajorShift(_ t: ScaleType) -> Int {
+    switch t {
+    case .major, .majorPentatonic, .wholeTone, .chromatic: return 0
+    case .naturalMinor, .harmonicMinor, .melodicMinor, .minorPentatonic, .blues: return 9
+    case .dorian: return 2
+    case .phrygian: return 4
+    case .lydian: return 5
+    case .mixolydian: return 7
+    }
+}
+/// A standard circle-of-fifths sharp/flat bias — keyed on the scale's own RELATIVE MAJOR root (via
+/// `euclideousScaleRelativeMajorShift`), not the bare key root, so a minor-family (or modal) key spells
+/// correctly, not just a major one. `scaleType` defaults to `.major` (a no-op shift) so every pre-existing
+/// call site — and the 3 pitch-class-table tests that predate scale-awareness — keep their exact prior
+/// behaviour unless they explicitly pass the real key type. F/Bb/Eb/Ab/Db (of the RELATIVE MAJOR) read
+/// flat; everything else reads sharp, including F#/Gb's own genuine enharmonic ambiguity (defaulted to
+/// sharp, the more common convention when the choice is otherwise arbitrary) — a reasoned, not measured,
+/// simplification, flagged as such rather than presented as definitive.
+func euclideousKeyIsFlat(_ rootPitchClass: Int, scaleType: ScaleType = .major) -> Bool {
+    let shift = euclideousScaleRelativeMajorShift(scaleType)
+    let relRoot = (((rootPitchClass - shift) % 12) + 12) % 12
+    return [5, 10, 3, 8, 1].contains(relRoot)
 }
 /// MIDI 60 → "C3" (the ferry's own literal anchor), sharps or flats per `flatKey`.
 func euclideousNoteViewName(_ n: UInt8, flatKey: Bool) -> String {
