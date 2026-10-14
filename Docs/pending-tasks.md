@@ -43,14 +43,11 @@ machine-wide→per-lane; the single riff became four tabbed riffs with long-pres
 - [ ] DEVICE: the per-lane RESET popup's anchor position/legibility.
 - [ ] DEVICE: the riff-tab row's bar-chart previews + play-triangle + long-press timing/feel.
 - [ ] DEVICE: confirm the removed header RESET countdown isn't missed before the per-lane control is found.
-- [ ] RAISED TO DESIGN, awaiting Paul's ruling (not yet actioned either way):
-  - TIE lookahead freezes the triggering hit's own riff selection rather than re-resolving per future tick if
-    a RIFFS-sequencer switch falls inside the TIE's forward window — correct in the common case, wrong only
-    in a narrow overlap; confirm this reading or specify the alternative.
-  - `activeRiff` plays a dual edit/play role (same field only while RIFFS seq is OFF) — forced by composing
-    the ferry's own §6+§7, not stated explicitly; confirm.
-  - §10 (where do silence messages go) is an explicit, un-built stub per the ferry's own instruction — needs
-    a real design answer before anything is built there.
+- [x] `activeRiff`'s dual edit/play role — **RATIFIED by Paul (2026-10-14): "yes, that's right."** No change.
+- [x] TIE lookahead freezing the triggering hit's own riff selection (not re-resolving per future tick on a
+      RIFFS-sequencer switch) — **Paul: leave as built for now, revisit once actually heard.** No change.
+- [ ] §10 (where do silence messages go) — **Paul: not decided yet, leave the stub as is.** Still open, still
+      un-built; don't invent an answer.
 
 ## ★ PASSGATE — REMOVED ENTIRELY (2026-09-28; LANDED on `refactor/remove-passgate`, `2839240`, macOS 1142 green, iOS
 builds). The processor + its engine plumbing are gone; `ProcessorType.empty` is now purely the internal empty-chain-
