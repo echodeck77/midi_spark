@@ -29,17 +29,28 @@ contradicting the ferry's own "0 hits in MISS plays every step" example), in CLA
 - [ ] DEVICE: the restyled HIT/MISS control reads as a persistent setting (LANE-20/LANE-100-border), not the
       old underline view-style.
 
-## ★ EUCLIDEOUS — "Euclid mask, modes and settings" — PLANNING (2026-10-10, relayed same session as the MISS
-ferry above). Replaces the MASK tab's "EFFECT — NOT YET AVAILABLE" stub with a real per-lane mask stage: a
-Euclidean HITS/STEPS/ROTATE pattern (own PLAY/STOP) ticking once per SOUNDING step of the lane (post-invert),
-each masked step rolling a seeded CHANCE before applying one of 11 modes (MUTE/PAUSE/RATCHET/REPEAT/CHORD/
-OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — walk-changing modes like FLIP explicitly out of scope). Real new engine
-surface: a seeded-reproducible-from-reset RNG, two stateful running offsets (CLIMB transpose, SWELL velocity)
-with WRAP/BOUNCE range behaviour, and a note-ownership/ref-count rule so overlapping CHORD/RATCHET notes on
-one output never cut each other off prematurely (build it if it doesn't already exist). New UI: a 2-line MASK
-tab (step bar + STEPS, then MODE chip + up to 2 parameter chips + CHANCE, drag-to-change/tap-to-cycle/double-
-tap-reset). Paul's own specified build order: (1) shared settings/CHANCE/MUTE/PAUSE, (2) RATCHET/CHORD/OCT/
-ACCENT/CLIMB, (3) MIRROR/REPEAT/LEAP/SWELL — reporting after each group. Not yet started — plan in progress.
+## ★ EUCLIDEOUS — "Euclid mask, modes and settings" — SHIPPED (2026-10-10; LANDED same session as the riff-
+cell-wipes ferry — see CLAUDE.md's status log, "the mask-modes ferry was found fully built and tested, carried
+forward as-is, verified green"). This pending-tasks entry had gone stale (still said PLANNING/not-started) —
+corrected here. All 11 modes (MUTE/PAUSE/RATCHET/REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL) + CHANCE +
+the 2-line MASK tab are built. DEVICE-eye/ear owed (not yet separately re-confirmed since landing).
+
+## ★ EUCLIDEOUS — "sequencer panel, four riffs, per-lane reset" — SHIPPED (2026-10-14; LANDED on
+`fix/euclid-no-scroll-direction-order-2x2-grid`, macOS 1424 green incl. +9, iOS builds clean) — full writeup
+in CLAUDE.md's status log. NOTE VIEW panel replaced by a two-tab SEQUENCER panel (LANES/RIFFS); RESET moved
+machine-wide→per-lane; the single riff became four tabbed riffs with long-press copy/paste/clear.
+- [ ] DEVICE: the sequencer panel's proportional (not pixel-exact) grid sizing at real card width.
+- [ ] DEVICE: the per-lane RESET popup's anchor position/legibility.
+- [ ] DEVICE: the riff-tab row's bar-chart previews + play-triangle + long-press timing/feel.
+- [ ] DEVICE: confirm the removed header RESET countdown isn't missed before the per-lane control is found.
+- [ ] RAISED TO DESIGN, awaiting Paul's ruling (not yet actioned either way):
+  - TIE lookahead freezes the triggering hit's own riff selection rather than re-resolving per future tick if
+    a RIFFS-sequencer switch falls inside the TIE's forward window — correct in the common case, wrong only
+    in a narrow overlap; confirm this reading or specify the alternative.
+  - `activeRiff` plays a dual edit/play role (same field only while RIFFS seq is OFF) — forced by composing
+    the ferry's own §6+§7, not stated explicitly; confirm.
+  - §10 (where do silence messages go) is an explicit, un-built stub per the ferry's own instruction — needs
+    a real design answer before anything is built there.
 
 ## ★ PASSGATE — REMOVED ENTIRELY (2026-09-28; LANDED on `refactor/remove-passgate`, `2839240`, macOS 1142 green, iOS
 builds). The processor + its engine plumbing are gone; `ProcessorType.empty` is now purely the internal empty-chain-
