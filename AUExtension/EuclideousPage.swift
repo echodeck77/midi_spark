@@ -621,6 +621,16 @@ struct EuclideousPage: View {
     // SOURCE `EuclidLine.resetStepsResolved` reads, per Models.swift's own doc comment there).
     @State private var resetPopupLane: Int? = nil
     @State private var resetChipFrames: [Int: CGRect] = [:]
+    // PER-STEP RESTART MARKS (2026-10-15 ferry, "per-step restart points on the LANES tab" §4): which lanes
+    // currently have their RESET box held — a Set, not a single Int, because §4.3 explicitly allows "two
+    // RESET boxes held → both lanes in edit mode" simultaneously. The matching touch-down timestamp + the
+    // lane's own mask AT touch-down (keyed the same way) are what §4.6's quick-tap/long-hold split reads: a
+    // release counts as "a quick tap" only if it was short AND the mask is back to exactly what it was at
+    // touch-down — comparing the actual resolved mask, not a separate dirty flag, so it can't go stale if a
+    // toggle is ever added on a path that forgets to set a flag.
+    @State private var restartEditLanes: Set<Int> = []
+    @State private var restartEditTouchDown: [Int: Date] = [:]
+    @State private var restartEditOriginalMask: [Int: UInt8] = [:]
     // FOUR RIFFS — the tab row's own long-press COPY/PASTE/CLEAR menu (2026-10-14 ferry §7). No precedent
     // for a long-press CONTEXT MENU anywhere in this codebase (grepped first) — built as a 5th instance of
     // the scrim+centred-card family this page already uses 4 times (RESET/MASK MODE/CHORDS/KEY), not an
@@ -1163,31 +1173,63 @@ struct EuclideousPage: View {
             .onTapGesture { onSetMainOutMask(mainOutMask ^ (1 << UInt8(b))) }
     }
 
-    /// PER-LANE RESET popup (2026-10-14 ferry §3): OFF/1/2/4/8 — the ladder narrows from the old machine-
-    /// wide control's own 0/1/2/4/8/16 (16 dropped — `EuclidLine.resetStepsResolved`'s own domain is
-    /// exactly `{0,1,2,4,8}`, per Models.swift). Same card chrome as the old `resetSpanPopupCard` (kept,
-    /// not reinvented), writing `EuclidLine.resetSteps` via the existing generic `onEdit` funnel — no new
-    /// edit callback needed, unlike `onEditRiffs`/`onEditLanesSeq`/etc, since this is a single per-lane
-    /// field change the generic funnel already handles.
+    /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
+    /// 1/2/4/8 list): same outer card chrome as before (kept, not reinvented — §6 itself: "keep the existing
+    /// popup's presentation... only the content changes," and this codebase's own standing "source wins
+    /// over a screenshot measurement" rule applies here too, so the OUTER card's fill/border/radius/padding/
+    /// width/shadow stay exactly what's already shipped; only the three rows inside are new). Picking a
+    /// chip stamps `EuclidLine.restartMask` via the existing generic `edit`/`onEdit` funnel — the SAME path
+    /// (and therefore the same undo-coalescing behaviour) a direct hand-edit during a hold already uses.
     private func resetPopupCard(_ lane: Int) -> some View {
-        let current = lane < lines.count ? lines[lane].resetStepsResolved : 0
-        return VStack(spacing: 8) {
-            Text("LANE \(lane + 1) RESET").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-            ForEach([0, 1, 2, 4, 8], id: \.self) { v in
-                let on = current == v
-                Text(v == 0 ? "OFF" : "\(v) STEP\(v == 1 ? "" : "S")")
-                    .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : .white.opacity(0.8))
-                    .frame(maxWidth: .infinity).frame(height: 36)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        edit(lane) { $0.resetSteps = v }
+        let mask = lane < lines.count ? lines[lane].restartMaskResolved : 0
+        let len = max(1, min(8, lanesSeq.len))
+        let label = euclideousRestartLabel(mask: mask, loopSteps: len)
+        let accent = laneAccents[lane % laneAccents.count]
+        func chip(_ title: String, width: CGFloat, selected: Bool, action: @escaping () -> Void) -> some View {
+            Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(selected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                .frame(width: width, height: 30)
+                .background(RoundedRectangle(cornerRadius: 6).fill(selected ? lane20(accent) : Color(hex: 0x2A2D34)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? lane100(accent) : Color.clear, lineWidth: 1))
+                .contentShape(Rectangle())
+                .onTapGesture(perform: action)
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("RESTART · LANE \(lane + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .tracking(0.04).foregroundColor(Color(hex: 0xAAB0BA))
+                Spacer()
+                if label.unit == "PTS" {
+                    Text("CUSTOM · \(label.value) PTS").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xF2F4F7))
+                        .padding(.horizontal, 4).frame(height: 14)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(lane20(accent)))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(lane100(accent), lineWidth: 1))
+                }
+            }
+            .frame(height: 14)
+            HStack(spacing: 4) {
+                Text("EVERY").font(.system(size: 9, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                ForEach([1, 2, 4, 8], id: \.self) { n in
+                    let selected = label.unit == "STEP" && label.value == "\(n)"
+                    chip("\(n)", width: 30, selected: selected) {
+                        edit(lane) { $0.restartMask = euclideousStampMask(n) }
                         resetPopupLane = nil
                     }
+                }
+                Text("STEP").font(.system(size: 9, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Spacer(minLength: 8)
+                chip("OFF", width: 38, selected: label.unit == "OFF") {
+                    edit(lane) { $0.restartMask = 0 }
+                    resetPopupLane = nil
+                }
             }
+            .frame(height: 30)
+            Text("HOLD RESET + TAP STEPS = CUSTOM").font(.system(size: 9, design: .monospaced))
+                .tracking(0.02).foregroundColor(Color(hex: 0x8A909A))
+                .frame(height: 12)
         }
-        .padding(16).frame(width: 200)
+        .padding(16).frame(width: 256)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
@@ -1685,20 +1727,36 @@ struct EuclideousPage: View {
     /// the first build had placed this on the RHYTHM tab instead (a judgment call that wasn't actually
     /// warranted; the ferry gives an exact spot). Tap opens the anchored popup (`resetPopupCard`, mirroring
     /// `keyPopupCard`'s own anchored-not-centred idiom) with OFF/1/2/4/8.
-    private func sequencerResetBox(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
-        let steps = idx < lines.count ? lines[idx].resetStepsResolved : 0
+    /// 2026-10-15 ferry ("per-step restart points on the LANES tab" §3/§4.2/§4.5/§4.6/§4.9): REPLACES the
+    /// old OFF/1/2/4/8-only label with `euclideousRestartLabel`'s general value/unit pair, and the old plain
+    /// tap-opens-popup action with a press-vs-hold split — there was no separate long-press action on this
+    /// box before (confirmed by reading the prior build: its only gesture was the `.onTapGesture` below), so
+    /// nothing is being replaced out from under an existing hold behaviour. Touch-down enters restart-edit
+    /// mode immediately (§4.2, "at once, no delay, no animation") via `DragGesture(minimumDistance: 0)` — a
+    /// plain `.onTapGesture`/`LongPressGesture` can't do this: SwiftUI only resolves either of those AFTER a
+    /// movement/duration threshold, but §4.2 wants the FIRST touch sample to count. Release then decides, in
+    /// retrospect, whether the whole press was "a quick tap" (§4.6: <300 ms AND the mask is unchanged from
+    /// touch-down) — comparing the live resolved mask against the one captured at touch-down, not a separate
+    /// dirty flag, so a toggle added on some other path can't silently fall out of sync with this check.
+    private func sequencerResetBox(_ idx: Int, width: CGFloat, height: CGFloat, cellW: CGFloat, gap: CGFloat) -> some View {
+        let mask = idx < lines.count ? lines[idx].restartMaskResolved : 0
+        let len = idx < lines.count ? max(1, min(8, lanesSeq.len)) : 8
+        let label = euclideousRestartLabel(mask: mask, loopSteps: len)
         let accent = laneAccents[idx % laneAccents.count]
+        let editing = restartEditLanes.contains(idx)
+        // §6: "while open, the anchored RESET box shows the selected-choice style" — a THIRD look, distinct
+        // from both the plain idle chip and the solid held-fill (§5), for when the popover is open via a
+        // quick tap (by which point the hold itself has already ended, so `editing` is false).
+        let popoverOpenHere = resetPopupLane == idx
         return VStack(spacing: 1) {
-            Text(steps == 0 ? "OFF" : "\(steps)").font(.system(size: steps == 0 ? 11 : 14, weight: .heavy, design: .monospaced))
-                .foregroundColor(Color(hex: 0xF2F4F7))
-            if steps > 0 {
-                Text(steps == 1 ? "STEP" : "STEPS").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Color(hex: 0xAAB0BA))
-            }
+            Text(label.value).font(.system(size: label.unit == "OFF" ? 13 : 14, weight: .heavy, design: .monospaced))
+                .foregroundColor(editing ? Color(hex: 0x0D0F14) : Color(hex: 0xF2F4F7))
+            Text(label.unit).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(editing ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
         }
         .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34)))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(accent), lineWidth: 1.5))
+        .background(RoundedRectangle(cornerRadius: 7).fill(editing ? lane100(accent) : (popoverOpenHere ? lane20(accent) : Color(hex: 0x2A2D34))))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(editing ? Color.clear : lane100(accent), lineWidth: 1.5))
         .contentShape(Rectangle())
         .background(GeometryReader { geo in
             // Matches `headerSourceGroup`'s own KEY-chip publisher exactly — the SAME named coordinate
@@ -1707,9 +1765,43 @@ struct EuclideousPage: View {
             Color.clear.preference(key: EuclideousResetChipFramePreferenceKey.self,
                                     value: [idx: geo.frame(in: .named("euclideousXY"))])
         })
-        .onTapGesture { resetPopupLane = idx }
-        .euclideousHelp("How many steps before this lane's pattern re-anchors")
-        .accessibilityLabel("Lane \(idx + 1) reset, \(steps == 0 ? "off" : "every \(steps) steps")")
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    if !restartEditLanes.contains(idx) {
+                        restartEditLanes.insert(idx)
+                        restartEditTouchDown[idx] = Date()
+                        restartEditOriginalMask[idx] = mask
+                    }
+                }
+                .onEnded { value in
+                    let touchDown = restartEditTouchDown[idx]
+                    let original = restartEditOriginalMask[idx] ?? mask
+                    restartEditLanes.remove(idx)
+                    restartEditTouchDown[idx] = nil
+                    restartEditOriginalMask[idx] = nil
+                    // ONE-THUMB SHORTCUT (§4.4): the SAME finger slid off the box and lifted over a step of
+                    // this lane — toggle that step's mark. Hit-tested with the grid's own cellW/gap (passed
+                    // in by the caller, the SAME values it draws the cells with — the two can never silently
+                    // disagree because there's only the one source for them).
+                    if let step = euclideousRestartStepHitTest(localX: value.location.x, labelW: width, gap: gap,
+                                                                cellW: cellW, columns: 8) {
+                        edit(idx) { $0.restartMask = $0.restartMaskResolved ^ (1 << step) }
+                    }
+                    // QUICK TAP (§4.6): short press, mask unchanged by the time it released (neither a hand
+                    // edit nor the one-thumb toggle above moved it) → the presets popover. A longer press, or
+                    // any edit during the press (including the one-thumb toggle just above, since that WOULD
+                    // have changed the live mask before this comparison runs), never opens it.
+                    let shortEnough = touchDown.map { Date().timeIntervalSince($0) < 0.3 } ?? false
+                    let liveMask = idx < lines.count ? lines[idx].restartMaskResolved : mask
+                    if shortEnough && liveMask == original {
+                        resetPopupLane = idx
+                    }
+                }
+        )
+        .euclideousHelp("Hold and tap steps for custom restart points; tap for presets")
+        .accessibilityLabel("Lane \(idx + 1) restarts: \(euclideousRestartAccessibleLabel(mask: mask, loopSteps: len))")
+        .accessibilityHint("Double-tap for presets")
     }
     private func invButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         let on = line.patternMissResolved
@@ -3777,6 +3869,10 @@ struct EuclideousPage: View {
     private func sequencerTabRow(width: CGFloat, height: CGFloat) -> some View {
         let len = sequencerTab == 0 ? lanesSeq.len : riffsSeq.len
         let step = sequencerTab == 0 ? lanesSeqStep : riffsSeqStep
+        // "TAP = RESTART" (2026-10-15 ferry §5): while any lane's RESET is held, this slot's own live step
+        // readout is replaced by the hold's own status line, in the lowest-numbered held lane's colour ("if
+        // several are held").
+        let heldLane = restartEditLanes.min()
         return HStack(spacing: sp4) {
             ForEach(0..<2, id: \.self) { i in
                 let sel = sequencerTab == i
@@ -3798,12 +3894,21 @@ struct EuclideousPage: View {
                 .contentShape(Rectangle())
                 .onTapGesture { sequencerTab = i }
             }
-            Text("STEP \(max(1, step + 1)) OF \(max(1, len))")
-                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .tracking(0.5)
-                .foregroundColor(Color(hex: 0x8A909A))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            if let heldLane {
+                Text("TAP = RESTART")
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(lane100(laneAccents[heldLane % laneAccents.count]))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            } else {
+                Text("STEP \(max(1, step + 1)) OF \(max(1, len))")
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(Color(hex: 0x8A909A))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         }
         .frame(width: width, height: height)
     }
@@ -3833,16 +3938,36 @@ struct EuclideousPage: View {
         let curStep = max(0, min(n - 1, lanesSeqStep))
         let seqOn = lanesSeq.on   // §5 (Paul to confirm): an OFF sequencer's own grid dims to 42%
 
-        func restartBar(lane: Int, step: Int, lit: Bool) -> some View {
-            let rs = lane < lines.count ? lines[lane].resetStepsResolved : 0
-            let marks = rs > 0 && step < len && step % rs == 0
-            return Group { if marks {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(lit ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C))
-                    .frame(width: 3, height: min(26, max(2, cellH - 10)))
-            } }
+        // 2026-10-15 ferry §2.3/§3/§5: marks now read the resolved MASK directly (one bit per step) instead
+        // of re-deriving "is this a multiple of resetSteps" — the SAME data `euclideousMaskedResetOrigin`
+        // resolves against in the engine, no second derivation. `editingThisLane` switches to the §5 edit-
+        // mode visuals (bright bar / dashed "tap here" slot); outside edit mode this is BYTE-IDENTICAL to the
+        // shipped visual (§5: "outside edit mode, marks look exactly as shipped... now drawn from the
+        // resolved mask" — only the boolean test's SOURCE changed, not one shipped pixel value, since "where
+        // source disagrees [with the ferry's own screenshot measurement], source wins").
+        func restartBar(lane: Int, step: Int, lit: Bool, editingThisLane: Bool) -> some View {
+            let mask = lane < lines.count ? lines[lane].restartMaskResolved : 0
+            let marked = step < len && (mask & (1 << step)) != 0
+            return Group {
+                if editingThisLane {
+                    let barH = max(2, cellH - 8)
+                    if marked {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color(hex: 0xF2F4F7))
+                            .frame(width: 4, height: barH)
+                    } else {
+                        Path { p in p.move(to: CGPoint(x: 0.75, y: 0)); p.addLine(to: CGPoint(x: 0.75, y: barH)) }
+                            .stroke(Color(hex: 0x5C626C), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+                            .frame(width: 1.5, height: barH)
+                    }
+                } else if marked {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(lit ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C))
+                        .frame(width: 3, height: min(26, max(2, cellH - 10)))
+                }
+            }
             .frame(width: cellW, height: cellH, alignment: .topLeading)
-            .padding(.leading, 4).padding(.top, 6)
+            .padding(.leading, editingThisLane ? 2 : 4).padding(.top, editingThisLane ? 4 : 6)
             .allowsHitTesting(false)
         }
 
@@ -3874,29 +3999,51 @@ struct EuclideousPage: View {
                 VStack(spacing: rowGap) {
                     ForEach(0..<4, id: \.self) { lane in
                         let accent = laneAccents[lane % laneAccents.count]
+                        let editingThisLane = restartEditLanes.contains(lane)
+                        let anyEditing = !restartEditLanes.isEmpty
                         HStack(spacing: sp4) {
-                            sequencerResetBox(lane, width: riffLabelColW, height: cellH)
+                            sequencerResetBox(lane, width: riffLabelColW, height: cellH, cellW: cellW, gap: sp4)
                             ForEach(0..<n, id: \.self) { step in
                                 let idx = step * 4 + lane
                                 let lit = idx < cells.count ? cells[idx] : true
                                 let within = step < len
+                                let laneMask = lane < lines.count ? lines[lane].restartMaskResolved : 0
+                                let marked = within && (laneMask & (1 << step)) != 0
                                 RoundedRectangle(cornerRadius: 6)
-                                    .fill(lit ? lane100(accent) : Color(hex: 0x22252C))
+                                    .fill(editingThisLane && lit ? lane20(accent) : (lit ? lane100(accent) : Color(hex: 0x22252C)))
+                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(editingThisLane && lit ? lane40(accent) : Color.clear, lineWidth: 1))
                                     .frame(width: cellW, height: cellH)
-                                    .overlay(restartBar(lane: lane, step: step, lit: lit))
+                                    .overlay(restartBar(lane: lane, step: step, lit: lit, editingThisLane: editingThisLane))
                                     .opacity(within ? 1 : 0.3)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
-                                        onEditLanesSeq { s in
-                                            guard idx < s.cells.count else { return }
-                                            s.cells[idx].toggle()
+                                        if editingThisLane {
+                                            // §4.3: a tap on the HELD lane's own step toggles its restart
+                                            // mark; it never changes mute.
+                                            edit(lane) { $0.restartMask = $0.restartMaskResolved ^ (1 << step) }
+                                        } else if !anyEditing {
+                                            // §4.3: "taps on other lanes' steps do nothing" while any RESET
+                                            // is held — mute only toggles when nothing is being edited.
+                                            onEditLanesSeq { s in
+                                                guard idx < s.cells.count else { return }
+                                                s.cells[idx].toggle()
+                                            }
                                         }
+                                    }
+                                    // §4.9: VoiceOver can't do the hold — a custom action always offers the
+                                    // mark toggle, independent of edit mode.
+                                    .accessibilityLabel("Lane \(lane + 1), step \(step + 1)\(marked ? ", restarts here" : "")")
+                                    .accessibilityAction(named: "Toggle restart") {
+                                        edit(lane) { $0.restartMask = $0.restartMaskResolved ^ (1 << step) }
                                     }
                             }
                         }
+                        // §5: the HELD lane's own row shows at full strength even while LANES is OFF; every
+                        // other row keeps the existing OFF-dim (42%) AND dims to the SAME 42% while a
+                        // DIFFERENT lane is held, reusing the one existing dim value for both reasons.
+                        .opacity(editingThisLane ? 1 : ((anyEditing || !seqOn) ? 0.42 : 1))
                     }
                 }
-                .opacity(seqOn ? 1 : 0.42)   // §5: grid cells + reset boxes dim when LANES is off; stays editable
             }
         }
         .frame(width: width, height: height, alignment: .topLeading)

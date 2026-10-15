@@ -4503,7 +4503,7 @@ final class Router {
                                 // per-tick recompute; `iterateTicks` can process several ticks per call, all
                                 // seeing the identical per-window decision, an accepted, disclosed coarseness
                                 // matching this codebase's own standing tolerance for this class of edge).
-                                resetSteps: Int = 0, lanesSeqMuted: Bool = false,
+                                restartMask: UInt8 = 0, lanesSeqMuted: Bool = false,
                                 // LISTEN TAB (ferry 2026-10-14) — all additive, defaulted to "off," so this
                                 // function's one existing call site is the only one that needs to change.
                                 // Partner indices are plain Ints (-1 = none/not applicable) rather than a
@@ -4581,13 +4581,21 @@ final class Router {
                 // once for the same line. `cyc` (this render's own "one bar" beat-length, already computed
                 // above) is multiplied directly by the literal bar count — not routed through `spanLadderBeats`'s
                 // own ladder, which tops out at 8 bars (its n=64 case) and has no slot for 16.
-                // PER-LANE RESET (2026-10-14 ferry §3/§9): RESET is now set PER LANE, on the LANES tab, in
+                // PER-LANE RESET (2026-10-14 ferry §3/§9, generalised to an 8-bit mask by the 2026-10-15 ferry
+                // "per-step restart points on the LANES tab"): RESET is now set PER LANE, on the LANES tab, in
                 // SEQUENCER STEPS (not bars) — supersedes the machine-wide `euclideousResetSpanBars` header
                 // control for Euclideous's own row entirely (that field/its wiring stay in place, decode-only,
                 // consulted only by `migratedResetSteps` at migration time — see EuclidLine.resetStepsResolved's
-                // own doc comment in Models.swift). `resetSteps` is resolved to 0 (OFF) for every row OTHER
+                // own doc comment in Models.swift). `restartMask` is resolved to 0 (OFF) for every row OTHER
                 // than Euclideous's (the call site only ever resolves a non-zero value when `isEuclideousRow`),
                 // so this branch is unreachable there and the ORIGINAL bars-based ladder below is unaffected.
+                // `spanBeats` here is now only a coarse "is a per-lane reset active at all" span, one full LANES
+                // lap long — it no longer encodes a single restart interval (an arbitrary mask has none), so it
+                // feeds ONLY the two callers that need a plain non-mask-aware span: the LISTEN/WITH coincidence
+                // check below (`euclideousListenPartnerHasHitAt`, unaffected by this ferry, out of scope) and
+                // the TIE lookahead's own non-masked fallback branch (never taken while `restartMask != 0`,
+                // since that branch now always has a real mask to use). The actual per-hit origin a few lines
+                // below reads `restartMask` directly through `euclideousMaskedResetOrigin`, never `spanBeats`.
                 // FERRY (2026-10-14 §3, "sequencer step length"): ROOT CAUSE — this used to read `cyc`
                 // ("the row's own real cycle," `cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S` — a GRID
                 // GEOMETRY quantity, 8 columns × the scene's own stepRate) as a stand-in for "one host bar."
@@ -4603,7 +4611,7 @@ final class Router {
                 // grid entirely, per the ferry's own literal instruction. Per-lane RESET (just below, via
                 // `spanBeats`) consumes this SAME `lanesSeqStepBeats` and inherits the fix for free.
                 let lanesSeqStepBeats = p.euclideousLanesSeqRate.barsFraction * beatsPerBar
-                let spanBeats = resetSteps > 0 ? Double(resetSteps) * lanesSeqStepBeats
+                let spanBeats = restartMask != 0 ? Double(p.euclideousLanesSeqLen) * lanesSeqStepBeats
                     : (p.euclideousResetSpanBars > 0 ? Double(p.euclideousResetSpanBars) * cyc
                         : (p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0))
                 // cycleLen (2n under PING-PONG, else n): looping the hit-count over the FULL cycle naturally
@@ -4627,13 +4635,14 @@ final class Router {
                     // comet's visual position tolerates float imprecision invisibly; the two shouldn't share a code
                     // path just because they share a CONCEPT (the same rate/span/anchor reading).
                     // PER-LANE RESET is LEN-RELATIVE (2026-10-14 ferry §5, fixed by a self-audit against the
-                    // ferry's own text): re-anchors against the LANES sequencer's own lap boundary
-                    // (`euclideousLoopedResetOrigin`), not a plain `columnStart` from absolute beat 0 — the
-                    // two formulas only coincidentally agreed at the default LEN=8 (every reset option divides
-                    // it evenly); any other LEN would have silently diverged from the on-screen restart marks.
+                    // ferry's own text; generalised to an arbitrary mask by the 2026-10-15 ferry): re-anchors
+                    // against the LANES sequencer's own lap boundary (`euclideousMaskedResetOrigin`), not a
+                    // plain `columnStart` from absolute beat 0 — the two formulas only coincidentally agreed
+                    // at the default LEN=8 every-N presets (every one of 1/2/4/8 divides it evenly); any other
+                    // LEN, or any hand-placed mask, would silently diverge from the on-screen restart marks.
                     let phaseBeat: Double
-                    if resetSteps > 0 {
-                        let origin = euclideousLoopedResetOrigin(beat: mTickBeat, stepBeats: lanesSeqStepBeats, resetSteps: resetSteps, loopSteps: p.euclideousLanesSeqLen)
+                    if restartMask != 0 {
+                        let origin = euclideousMaskedResetOrigin(beat: mTickBeat, stepBeats: lanesSeqStepBeats, mask: restartMask, loopSteps: p.euclideousLanesSeqLen)
                         phaseBeat = mTickBeat - origin
                     } else {
                         phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
@@ -4715,7 +4724,7 @@ final class Router {
                     // (closure-captured from `emitGeneratorRow`'s own new `tempo` parameter).
                     let nextHitGapBeats = isEuclideousRow
                         ? euclideousNextHitGapBeats(buf: euclidBuf, n: n, dir: dir, sub: sub, spanBeats: spanBeats, fromBeat: mTickBeat, cap: cycleLen * 4,
-                                                     loopStepBeats: resetSteps > 0 ? lanesSeqStepBeats : 0, loopSteps: resetSteps > 0 ? p.euclideousLanesSeqLen : 0)
+                                                     mask: restartMask, loopStepBeats: restartMask != 0 ? lanesSeqStepBeats : 0, loopSteps: restartMask != 0 ? p.euclideousLanesSeqLen : 0)
                         : sub
                     let overlapBeats10ms = 0.010 * (tempo / 60.0)
                     let minGateBeats5ms = 0.005 * (tempo / 60.0)
@@ -6152,7 +6161,7 @@ final class Router {
                               // closure built inside runEuclidLine bounds-checks the raw optional directly,
                               // mirroring customHits' own identical raw-passthrough just above.
                               notesOn: L.notesOnResolved, noteOctShifts: L.noteOctShifts, notesVelOffset: L.notesVelOffsetResolved,
-                              resetSteps: isEuclideousRow ? L.resetStepsResolved : 0, lanesSeqMuted: lanesSeqMuted,
+                              restartMask: isEuclideousRow ? L.restartMaskResolved : 0, lanesSeqMuted: lanesSeqMuted,
                               // LISTEN (ferry 2026-10-14) — only Euclideous's own row ever has a non-nil
                               // mode here (every other `.euclid` cell's `EuclidLine` never sets these
                               // fields, so they resolve to the byte-identical "off" defaults below).

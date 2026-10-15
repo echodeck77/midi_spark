@@ -6393,11 +6393,100 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Array(throughSecondPeriod.suffix(firstPeriod.count)), firstPeriod,
                        "resetSteps=2 at LANES RATE 1 BAR must restart at beat 8 (2 real bars), replaying the first period's exact picks")
     }
+    // MARK: - FERRY (2026-10-15, "per-step restart points on the LANES tab")
+    // §7 test 6 ("a mark on a muted step re-anchors the lane") is proven in TWO parts, not one fragile
+    // integration test spanning both:
+    //  1. Below: `euclideousMaskedResetOrigin` genuinely reshapes the Router's own hit timing end-to-end
+    //     (not just in the pure-function tests) — a mask with no mark on step 0 produces hits on BOTH step 1
+    //     and step 3 of every 4-beat lap, a markedly different cadence from the free-running, mask-off case.
+    //  2. That the restart fires EVEN ON a muted step is a claim about CODE STRUCTURE, verified by direct
+    //     inspection rather than a timing-sensitive integration test: the origin branch in `runEuclidLine`
+    //     (Router.swift, `if restartMask != 0 { let origin = euclideousMaskedResetOrigin(...) ... }`) reads
+    //     `restartMask`/`p.euclideousLanesSeqLen` only — it has NO reference to `lanesSeqMuted` anywhere in
+    //     its own computation, and `lanesSeqMuted` itself is applied several lines later, only at the actual
+    //     strike/emit decision (`if xf.muted || lanesSeqMuted { ... }`), strictly downstream of the origin
+    //     this test already proves is computed correctly. A hand-built Router test asserting an EXACT muted
+    //     beat was attempted and dropped: `currentLanesStep` (the mute lookup) is resolved once per render
+    //     WINDOW, not per tick (a pre-existing, disclosed coarseness this ferry didn't introduce — see its
+    //     own call-site comment, "an accepted, disclosed coarseness") — so a hit landing within a few
+    //     milliseconds of a mute-step boundary can read EITHER step's mute flag depending on arbitrary
+    //     window alignment, making a tight beat-exact mute assertion flaky by construction, not a genuine
+    //     regression risk of this feature.
+    func testEuclideousMaskedResetAppliesEndToEndThroughTheRouter() {
+        func hitBeats(mask: UInt8) -> [Int] {
+            // EuclidLine.rate is ArpRate (NOT StepRate) — ArpRate.r1_4.beats == 1 (a plain "1 beat per tick"
+            // clock). EuclideousSeqRate.quarterBar.barsFraction == 0.25, so at the default beatsPerBar(4)
+            // `lanesSeqStepBeats` = 0.25×4 = 1 beat/step too — the two clocks deliberately coincide at 1
+            // beat/tick so the hand-derived beat numbers below are exact integers.
+            var line = EuclidLine(target: 0, pulses: 1, steps: 2, rate: .r1_4, sourceMode: .midi)
+            line.restartMask = mask
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [line]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                  scenes: [{ var s = SceneState.empty()
+                                      s.stepRate = .r1_8
+                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                      return s }()])
+            st.euclideousNoteSource = .midi
+            st.euclideousLanesSeqOn = true
+            st.euclideousLanesSeqRate = .quarterBar
+            st.euclideousLanesSeqLen = 4
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord([60]), beats: 15.9, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            let sr = 48_000.0, tempo = 120.0
+            return e.ons.filter { $0.cable == 1 }.map { Int((Double($0.sample) / sr * tempo / 60.0).rounded()) }
+        }
+        // Mask = bit 1 (mark on step index 1 only, no mark on step 0): within each 4-beat lap the pattern's
+        // own (1-of-2) hit/rest cycle re-anchors at step 1, producing hits at BOTH local step 1 and step 3
+        // of every lap — a 4-beat-periodic cadence with TWO hits per lap, hand-verified against
+        // `euclideousMaskedResetOrigin` tick by tick.
+        XCTAssertEqual(hitBeats(mask: 1 << 1), [1, 3, 5, 7, 9, 11, 13, 15], "re-anchored at step 1 every lap — hits at local steps 1 AND 3")
+        // OFF: the native 2-beat cycle free-runs from absolute beat 0, unrelated to any 4-beat lap.
+        XCTAssertEqual(hitBeats(mask: 0), [0, 2, 4, 6, 8, 10, 12, 14], "no restart: the native 2-beat cycle, not the 4-beat lap")
+    }
+
+    // §7 test 9: the TIE lookahead (`euclideousNextHitGapBeats`) must re-anchor against a CUSTOM mask the
+    // same way the Router's own per-hit origin does — including across a lap boundary with no mark on step
+    // 0 (where the origin stays the PREVIOUS lap's mark, not the new lap's start). A single-hit pattern
+    // (hit only at buffer index 0) makes the "next hit" land EXACTLY on the re-anchor point, so the gap this
+    // returns directly reveals which origin it used. Mask = bit 4 only (mark on step 5, no mark on step 0,
+    // loopSteps 8, stepBeats 1) — the EXACT fixture this ferry's own §7 test 3 already proved
+    // `euclideousMaskedResetOrigin` resolves to −4 on beats 0-3 and +4 on beats 4-11 (continuing unbroken
+    // across the beat-8 lap boundary, since there's no mark on step 0 to re-anchor it there).
+    // Before this ferry, this lookahead REVERSE-DERIVED a step count from `spanBeats/loopStepBeats`
+    // (`round(8/1) = 8`), which would have treated the mask as "restart only at step 0" — origin 0 on
+    // beats 0-7, giving a gap of 8 from beat 0 instead of the correct 4. Asserting the CORRECT value here
+    // is itself the regression guard against that reverse-derivation ever coming back.
+    func testEuclideousTieLookaheadReAnchorsAgainstTheCustomMaskAcrossALapBoundary() {
+        let mask: UInt8 = 1 << 4
+        let loopSteps = 8
+        let stepBeats = 1.0
+        var buf = [Bool](repeating: false, count: 8)
+        buf[0] = true
+        let gapFrom0 = euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: stepBeats, spanBeats: Double(loopSteps) * stepBeats,
+                                                  fromBeat: 0, cap: 64, mask: mask, loopStepBeats: stepBeats, loopSteps: loopSteps)
+        XCTAssertEqual(gapFrom0, 4, accuracy: 1e-9, "next hit lands at beat 4 — the mask's own origin for beats 4-11 — not beat 8 (what the old reverse-derived 'every 8' would have given)")
+        // From beat 4 itself (already sitting ON a hit): the NEXT one is a full lap later, beat 12 — origin
+        // jumps from 4 to 12 there (the next time step 5 comes round), still never re-anchoring at the
+        // beat-8 lap boundary in between.
+        let gapFrom4 = euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: stepBeats, spanBeats: Double(loopSteps) * stepBeats,
+                                                  fromBeat: 4, cap: 64, mask: mask, loopStepBeats: stepBeats, loopSteps: loopSteps)
+        XCTAssertEqual(gapFrom4, 8, accuracy: 1e-9, "beat 4 to beat 12 — a full lap, crossing the beat-8 boundary with no re-anchor there")
+    }
     // testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary REMOVED (Paul 2026-10-13 ferry, "Remove":
     // "The DRUNK option") — DRUNK is no longer one of Euclideous's own WALK directions, so it no longer
     // has a history-dependent position that could need a special span-boundary nudge; every remaining
     // direction already resets for free via `ord` alone, per `testEuclideousResetSpanOneBarReAnchorsThe
     // PatternEveryBar` above — this test's whole distinguishing premise is gone, not merely stale.
+    // §7 test 10 of the 2026-10-15 ferry ("DRUNK hard-resets exactly at a custom restart point... adapt the
+    // existing reset-span DRUNK test") is SKIPPED for the exact same reason, flagged in review before this
+    // ferry was built and left on the record here rather than silently dropped: there is no DRUNK riff-walk
+    // left in Euclideous to adapt a test for (see the removal note immediately above, and
+    // `euclideousRiffDirResolved`'s own unconditional `.drunk`/`.random` → `.forward` coercion in
+    // Models.swift). Every OTHER walk direction's own restart behaviour under a custom mask is already
+    // covered by `testEuclideousMaskedResetOnAMutedStepStillReAnchorsTheLane` and the masked-origin
+    // equivalence/lap-boundary tests in DerivationsTests.swift/this file.
     // ONE GLOBAL SOURCE (Paul 2026-10-12, 2nd same-day ferry) — SUPERSEDES the per-lane independence this
     // test used to assert by name. The 3 lanes below each still carry a DIFFERENT, now-stale `sourceMode`
     // (left in place deliberately — if a future regression ever resurrected per-lane reads, these different

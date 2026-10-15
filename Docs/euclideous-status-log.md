@@ -12,6 +12,52 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: per-step restart points on the LANES tab," REPLACES the 4-value RESET ladder with
+  an 8-bit per-lane restart MASK (2026-10-15, on `feat/euclid-per-step-restart-marks`; iOS builds clean,
+  macOS 1454 tests green incl. +14 new; EuclideousPage.swift gestures/visuals are UI-only, no macOS test-
+  target reach). Reviewed against the raw ferry text BEFORE building (Paul: "let me know if you disagree") —
+  three findings surfaced and were folded into the build rather than blocking it: (1) DRUNK was already
+  removed from Euclideous's riff-walk on 2026-10-13, so §2.3/§7-test-10's DRUNK references are dropped, not
+  adapted; (2) the TIE lookahead (`euclideousNextHitGapBeats`) didn't take `resetSteps` as a real parameter —
+  it reverse-derived a step count from `spanBeats/loopStepBeats`, a trick that can't generalise to an
+  arbitrary mask, so it now takes `mask` directly and calls the masked origin function exactly like the
+  per-hit path; (3) the migration subtlety (a naive per-line `mask ?? stamp(old value)` could miss the
+  document-level "fresh page → 1 step" rule) was avoided by having `restartMaskResolved` fall back through
+  `resetStepsResolved` — which has ALREADY had that migration applied by the time any resolved line is read —
+  rather than re-deriving it. **MODEL:** `EuclidLine.restartMask: UInt8?` (additive-Optional, bit s = restart
+  at step s+1), `restartMaskResolved = restartMask ?? euclideousStampMask(resetStepsResolved)`; `resetSteps`
+  kept decodable, nothing writes it anymore. **ENGINE (Derivations.swift, pure, test-covered):**
+  `euclideousStampMask(_:)` ("every N" → bits 0,N,2N… below 8), `euclideousMaskedResetOrigin(beat:stepBeats:
+  mask:loopSteps:)` (generalises `euclideousLoopedResetOrigin` — equivalence-swept against it for every N∈
+  {1,2,4,8} and every LEN 1–8 at a non-integer stepBeats over 3 laps), `euclideousRestartLabel`/
+  `euclideousRestartAccessibleLabel` (the box's N·STEP/–·OFF/k·PTS text + VoiceOver phrasing),
+  `euclideousRestartStepHitTest` (the one-thumb-slide hit-test, shared by the gesture and its own unit test).
+  Router.swift routes the per-hit origin, the TIE lookahead, and the `spanBeats` gate all through the SAME
+  resolved mask — no second derivation anywhere. **GESTURES/VISUALS (EuclideousPage.swift, device-owed):**
+  touch-down on a RESET box enters restart-edit mode immediately via `DragGesture(minimumDistance:0)`
+  (SwiftUI's own tap/long-press gestures only resolve AFTER a threshold, too late for "at once, no delay");
+  release decides retrospectively whether it was a quick tap (<300ms, mask unchanged → presets popover) or a
+  hold; a second finger's tap on that lane's own step cells toggles marks independently (confirmed
+  architecturally sound before building: the LANES grid's existing mute gesture was already a plain per-cell
+  `.onTapGesture`, not one exclusive gesture spanning the whole matrix, so two simultaneous touches on
+  sibling cells was never at risk the way it would be with the riff grid's own single-overlay drag). Presets
+  popover content rebuilt (EVERY 1/2/4/8/OFF chips + a CUSTOM·k·PTS tag + the hold-to-custom hint), outer
+  card chrome kept exactly as shipped. Mute-coalescing undo "for free": every mark toggle routes through the
+  SAME `edit()`/`onEdit` funnel every other per-lane field already uses, whose existing `coalesceKey:
+  "euclideous"` already merges consecutive same-key edits into one undo step — no new bookkeeping needed, and
+  no new drift risk introduced beyond that mechanism's existing, pre-dating-this-ferry same-key coalescing
+  behaviour. **TESTS (+14):** stamp-mask table, the equivalence sweep, mask-on-steps-157, mask-on-step-5-only
+  incl. negative lap-0 origin, OFF, the label's every worked example incl. beyond-LEN→OFF, the accessible-
+  label phrasing, the hit-test geometry, a Router-level end-to-end timing test (hand-derived tick-by-tick,
+  confirms the masked origin reshapes real Router output, not just the pure function), persistence/decode/
+  round-trip. §7 test 6's "muted step still restarts" claim is proven by direct code-inspection instead of a
+  timing-sensitive integration test — `lanesSeqMuted` is applied strictly downstream of (and has no
+  reference inside) the origin computation; a hand-built exact-beat Router test was attempted and dropped
+  because the mute lookup's own pre-existing per-render-window (not per-tick) granularity makes a
+  millisecond-tight mute-boundary assertion flaky by construction, unrelated to this feature's own
+  correctness. **DEVICE-OWED (see the debt doc below):** the whole two-finger hold+tap interaction, the
+  300ms tap/hold threshold, one-thumb slide-and-lift accuracy, edit-mode legibility, "TAP = RESTART" fit at
+  the smallest panel width, and the OFF/no-mark-on-step-0 cases audibly running through a lap boundary.**
 - **▶ EUCLIDEOUS — "FERRY: Riff-grid walk tags with threads" (2026-10-15, ratified by Paul: he chose THREAD from three
   motion styles; on `feature/processor-live-sweep`; macOS suite green, iOS builds clean; ALL visuals/timing DEVICE-OWED —
   the painters were rendered to PNG on macOS for a geometry check, nothing here has been seen or heard on the iPad).**

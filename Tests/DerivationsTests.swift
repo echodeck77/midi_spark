@@ -2984,6 +2984,114 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousLoopedResetOrigin(beat: 5, stepBeats: 1, resetSteps: 3, loopSteps: 0), columnStart(5, 3))
     }
 
+    // 2026-10-15 ferry, "per-step restart points on the LANES tab" — §1.2's "every N sets bits 0, N, 2N, …
+    // below 8."
+    func testEuclideousStampMaskMatchesEveryWorkedExample() {
+        XCTAssertEqual(euclideousStampMask(1), 0xFF)
+        XCTAssertEqual(euclideousStampMask(2), 0b01010101)
+        XCTAssertEqual(euclideousStampMask(4), 0b00010001)
+        XCTAssertEqual(euclideousStampMask(8), 0b00000001)
+        XCTAssertEqual(euclideousStampMask(0), 0, "OFF ⇒ empty mask")
+        XCTAssertEqual(euclideousStampMask(-1), 0, "defensive: never loops forever on a non-positive N")
+    }
+
+    // §7 test 1 (equivalence sweep): for every N in {1,2,4,8} and every LEN 1...8, the masked function must
+    // return EXACTLY what the old resetSteps-based function returns for resetSteps=N — at a NON-INTEGER
+    // stepBeats (0.75, so a naive float-precision slip can't hide), over three full laps.
+    func testEuclideousMaskedResetOriginEquivalenceSweepAtNonIntegerStepBeatsOverThreeLaps() {
+        let stepBeats = 0.75
+        for n in [1, 2, 4, 8] {
+            let mask = euclideousStampMask(n)
+            for len in 1...8 {
+                let lapBeats = Double(len) * stepBeats
+                var beat = 0.0
+                while beat < lapBeats * 3 {
+                    let old = euclideousLoopedResetOrigin(beat: beat, stepBeats: stepBeats, resetSteps: n, loopSteps: len)
+                    let new = euclideousMaskedResetOrigin(beat: beat, stepBeats: stepBeats, mask: mask, loopSteps: len)
+                    XCTAssertEqual(new, old, accuracy: 1e-9, "N=\(n) LEN=\(len) beat=\(beat)")
+                    beat += stepBeats / 4
+                }
+            }
+        }
+    }
+
+    // §7 test 2: a hand-placed mask on steps 1, 5, 7 (bits 0, 4, 6) at LEN 8.
+    func testEuclideousMaskedResetOriginOnSteps157AtLen8() {
+        let mask: UInt8 = (1 << 0) | (1 << 4) | (1 << 6)
+        let sb = 1.0
+        for beat in [0.0, 1, 2, 3] { XCTAssertEqual(euclideousMaskedResetOrigin(beat: beat, stepBeats: sb, mask: mask, loopSteps: 8), 0, "beat \(beat)") }
+        for beat in [4.0, 5] { XCTAssertEqual(euclideousMaskedResetOrigin(beat: beat, stepBeats: sb, mask: mask, loopSteps: 8), 4, "beat \(beat)") }
+        for beat in [6.0, 7] { XCTAssertEqual(euclideousMaskedResetOrigin(beat: beat, stepBeats: sb, mask: mask, loopSteps: 8), 6, "beat \(beat)") }
+        // the next lap restarts at its own step 1 (local beat 8 = lap 2's step 0)
+        XCTAssertEqual(euclideousMaskedResetOrigin(beat: 8, stepBeats: sb, mask: mask, loopSteps: 8), 8)
+    }
+
+    // §7 test 3: a mask on step 5 ONLY (bit 4), LEN 8 — steps 1-4 of lap k take step 5 of lap k-1 as their
+    // origin (no restart at the lap boundary, since there's no mark on step 0/local step 0). Includes lap 0,
+    // where this is a NEGATIVE origin (no previous lap exists yet) — deterministic, no crash.
+    func testEuclideousMaskedResetOriginOnStep5OnlyAtLen8IncludesNegativeLap0Origin() {
+        let mask: UInt8 = 1 << 4
+        let sb = 1.0
+        // Lap 0 (absStep 0...3): no mark has been reached yet this lap, so the origin falls back to the
+        // PREVIOUS (imaginary) lap's own step 5 — one full lap (8 beats) before THIS lap's start (0), plus
+        // the mark's own offset (4): 0 - 8 + 4 = -4.
+        XCTAssertEqual(euclideousMaskedResetOrigin(beat: 0, stepBeats: sb, mask: mask, loopSteps: 8), -4)
+        XCTAssertEqual(euclideousMaskedResetOrigin(beat: 3, stepBeats: sb, mask: mask, loopSteps: 8), -4)
+        // Lap 0's own step 5 (beat 4) — now the mark IS at or before local step, origin becomes 4
+        XCTAssertEqual(euclideousMaskedResetOrigin(beat: 4, stepBeats: sb, mask: mask, loopSteps: 8), 4)
+        XCTAssertEqual(euclideousMaskedResetOrigin(beat: 7, stepBeats: sb, mask: mask, loopSteps: 8), 4)
+        // Lap 1 (absStep 8...11, before its own step 5 at absStep 12): origin is LAP 0's step 5 (beat 4), not lap 1's own start (beat 8)
+        XCTAssertEqual(euclideousMaskedResetOrigin(beat: 8, stepBeats: sb, mask: mask, loopSteps: 8), 4, "no restart at the lap boundary — still running from the previous lap's mark")
+        XCTAssertEqual(euclideousMaskedResetOrigin(beat: 11, stepBeats: sb, mask: mask, loopSteps: 8), 4)
+        XCTAssertEqual(euclideousMaskedResetOrigin(beat: 12, stepBeats: sb, mask: mask, loopSteps: 8), 12)
+    }
+
+    // §7 test 4: OFF (empty mask) — origin is 0 for every beat.
+    func testEuclideousMaskedResetOriginOffIsAlwaysZero() {
+        for beat in [0.0, 1, 5, 100, -5] {
+            XCTAssertEqual(euclideousMaskedResetOrigin(beat: beat, stepBeats: 1, mask: 0, loopSteps: 8), 0)
+        }
+    }
+
+    // §3/§7 test 7 (the RESET box label) + §7 test 5 (beyond-LEN marks read as OFF).
+    func testEuclideousRestartLabelMatchesEveryWorkedExample() {
+        XCTAssertEqual(euclideousRestartLabel(mask: euclideousStampMask(2), loopSteps: 8), EuclideousRestartLabel(value: "2", unit: "STEP"))
+        let marks157: UInt8 = (1 << 0) | (1 << 4) | (1 << 6)
+        XCTAssertEqual(euclideousRestartLabel(mask: marks157, loopSteps: 8), EuclideousRestartLabel(value: "3", unit: "PTS"))
+        let marks15: UInt8 = (1 << 0) | (1 << 4)
+        XCTAssertEqual(euclideousRestartLabel(mask: marks15, loopSteps: 8), EuclideousRestartLabel(value: "4", unit: "STEP"), "indistinguishable from a true every-4 stamp — §1.2's own point")
+        XCTAssertEqual(euclideousRestartLabel(mask: euclideousStampMask(4), loopSteps: 4), EuclideousRestartLabel(value: "4", unit: "STEP"))
+        XCTAssertEqual(euclideousRestartLabel(mask: euclideousStampMask(8), loopSteps: 4), EuclideousRestartLabel(value: "4", unit: "STEP"), "every-8 narrows to the same effective mask as every-4 at LEN 4")
+        XCTAssertEqual(euclideousRestartLabel(mask: 0, loopSteps: 8), EuclideousRestartLabel(value: "\u{2013}", unit: "OFF"))
+        // §7 test 5: marks ONLY on steps 6-7 (bits 5,6) at LEN 4 — both bits are beyond LEN, so the EFFECTIVE
+        // mask (bits below LEN only) is empty, behaving exactly like OFF.
+        let marks67: UInt8 = (1 << 5) | (1 << 6)
+        XCTAssertEqual(euclideousRestartLabel(mask: marks67, loopSteps: 4), EuclideousRestartLabel(value: "\u{2013}", unit: "OFF"))
+    }
+
+    func testEuclideousRestartAccessibleLabelPhrasesAllThreeCases() {
+        XCTAssertEqual(euclideousRestartAccessibleLabel(mask: 0, loopSteps: 8), "off")
+        XCTAssertEqual(euclideousRestartAccessibleLabel(mask: euclideousStampMask(4), loopSteps: 8), "every 4 steps")
+        let marks157: UInt8 = (1 << 0) | (1 << 4) | (1 << 6)
+        XCTAssertEqual(euclideousRestartAccessibleLabel(mask: marks157, loopSteps: 8), "3 custom points")
+    }
+
+    // §4.4's one-thumb hit-test: a touch inside the RESET box itself, in a column gap, or past the last
+    // column misses (nil); a touch inside any of the 8 cells lands on that exact step.
+    func testEuclideousRestartStepHitTestMatchesTheGridsOwnGeometry() {
+        let labelW: CGFloat = 40, gap: CGFloat = 4, cellW: CGFloat = 30
+        XCTAssertNil(euclideousRestartStepHitTest(localX: 20, labelW: labelW, gap: gap, cellW: cellW, columns: 8), "still inside the box")
+        for step in 0..<8 {
+            let cellStartX = labelW + gap + CGFloat(step) * (cellW + gap)
+            XCTAssertEqual(euclideousRestartStepHitTest(localX: cellStartX + 1, labelW: labelW, gap: gap, cellW: cellW, columns: 8), step)
+            XCTAssertEqual(euclideousRestartStepHitTest(localX: cellStartX + cellW - 1, labelW: labelW, gap: gap, cellW: cellW, columns: 8), step)
+        }
+        let gapX = labelW + gap + CGFloat(2) * (cellW + gap) - gap / 2
+        XCTAssertNil(euclideousRestartStepHitTest(localX: gapX, labelW: labelW, gap: gap, cellW: cellW, columns: 8), "inside the gap between step 2 and step 3")
+        let pastLastX = labelW + gap + CGFloat(8) * (cellW + gap)
+        XCTAssertNil(euclideousRestartStepHitTest(localX: pastLastX, labelW: labelW, gap: gap, cellW: cellW, columns: 8), "past the last column")
+    }
+
     // Driver retiming (Paul 2026-09-26, final spec — "a grid with a variable number of steps, each step a
     // mutually exclusive speed, and another row on the same grid for glide"): clockDrawnPhaseInverse must exactly
     // undo clockDrawnPhase across a spread of ratio/glide patterns, origins, and laps — this is the primitive a

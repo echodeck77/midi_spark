@@ -5,6 +5,14 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — "per-step restart points on the LANES tab" — SHIPPED (2026-10-15; LANDED on
+`feat/euclid-per-step-restart-marks`, macOS 1454 green incl. +14, iOS builds clean) — replaces the old
+OFF/1/2/4/8 per-lane RESET with an 8-bit per-step restart mask, editable by holding a lane's RESET box and
+tapping its steps. Reviewed against the raw ferry text before building; 3 findings (DRUNK already removed,
+the TIE lookahead's reverse-derivation, the migration-layering subtlety) folded in rather than blocking. Full
+story in CLAUDE.md's status log.
+- [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "Sequencer panel" section (6 items) — the
+      two-finger hold+tap gesture is the one with the most architectural weight riding on it.
 ## ★ EUCLIDEOUS MELODY POP-UP — SHIPPED (2026-10-10; LANDED on `fix/euclid-no-scroll-direction-order-2x2-grid`,
 macOS 1280 green incl. +12, iOS builds clean) — see CLAUDE.md's status log for the full writeup.
 - [ ] DEVICE: the pop-up's layout in portrait/landscape (RIFF mode, NOTE mode, a case forcing the scroll).

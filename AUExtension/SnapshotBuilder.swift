@@ -757,7 +757,12 @@ enum SnapshotBuilder {
                                                                       // SEQUENCER PANEL (2026-10-14 ferry §3): per-lane RESET, in sequencer steps —
                                                                       // raw passthrough (no clamp needed here; `resetStepsResolved`'s own set-
                                                                       // membership check {0,1,2,4,8} already guards it wherever it's actually read).
+                                                                      // Kept decodable, nothing writes it anymore (see restartMask below).
                                                                       resetSteps: $0.resetSteps,
+                                                                      // PER-STEP RESTART MASK (2026-10-15 ferry) — raw passthrough, same reasoning
+                                                                      // as resetSteps above; `restartMaskResolved`'s own fallback does the real work
+                                                                      // wherever this is actually read.
+                                                                      restartMask: $0.restartMask,
                                                                       // LISTEN TAB (ferry 2026-10-14) — threaded here for the EXACT SAME reason every
                                                                       // other field on this line is (see this line's own trailing comment): missing
                                                                       // any of these would silently reset every LISTEN setting to "off" on the very

@@ -469,6 +469,19 @@ struct EuclidLine: Codable, Equatable {
     // own identical "unexpected ⇒ benign" convention.
     var resetSteps: Int? = nil
     var resetStepsResolved: Int { let v = resetSteps ?? 0; return [0, 1, 2, 4, 8].contains(v) ? v : 0 }
+    // PER-STEP RESTART MASK (2026-10-15 ferry, "per-step restart points on the LANES tab") — REPLACES
+    // `resetSteps` as the thing every new write touches. `resetSteps` stays in the struct, decodable, but
+    // nothing writes it anymore. Bit s (0..<8) set ⇒ the lane restarts at the start of sequencer step s+1.
+    // `restartMaskResolved` falls back through `resetStepsResolved` (NOT the raw `resetSteps` field, and NOT
+    // a fresh re-implementation of the old machine-wide-bars migration) — that accessor has ALREADY had
+    // `PluginState.euclideousLinesResolved`'s document-level migration applied to its backing `resetSteps`
+    // by the time any code reads a resolved line (fresh doc ⇒ 1, pre-existing doc ⇒ migrated-from-bars), so
+    // layering the mask's fallback on top of it inherits that migration for free — no second migration path
+    // to keep in sync. A line built directly (bypassing `euclideousLinesResolved` — every non-Euclideous
+    // `.euclid` cell, every RouterTest fixture) still resolves to OFF, same as `resetStepsResolved` itself,
+    // for the identical reason documented on that accessor above.
+    var restartMask: UInt8? = nil
+    var restartMaskResolved: UInt8 { restartMask ?? euclideousStampMask(resetStepsResolved) }
     // LISTEN TAB (ferry 2026-10-14, "the LISTEN tab (lane relationships)", RATIFIED): each lane can take
     // RHYTHM/PITCH/LEVEL from another lane, its "partner." Three independent rows, each with at most one
     // lit mode + its own partner lane. All additive-Optional, same CR-8 reasoning as every other field
@@ -640,6 +653,7 @@ extension EuclidLine {
         noteOctShifts = try c.decodeIfPresent([Int].self, forKey: .noteOctShifts)
         notesVelOffset = try c.decodeIfPresent(Int.self, forKey: .notesVelOffset)
         resetSteps = try c.decodeIfPresent(Int.self, forKey: .resetSteps)
+        restartMask = try c.decodeIfPresent(UInt8.self, forKey: .restartMask)
         listenRhythmMode = try c.decodeIfPresent(EuclideousRhythmMode.self, forKey: .listenRhythmMode)
         listenRhythmPartner = try c.decodeIfPresent(Int.self, forKey: .listenRhythmPartner)
         listenFollowMult = try c.decodeIfPresent(Int.self, forKey: .listenFollowMult)

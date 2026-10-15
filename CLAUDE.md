@@ -218,9 +218,12 @@ the same pipeline as any other row; it is not a special-cased render path.
   ordinary Router/Kernel/SnapshotBox pipeline, not a separate render path.
 - **Four lanes** (`EuclidLine` × 4, `PluginState.euclideousLines`), each with RHYTHM (K-of-N
   pattern, HITS/STEPS/OFFSET/TILT/GATE/VELOCITY sliders, FWD/BKW/PING-PONG direction, a per-lane
-  RESET that re-anchors to the LANES sequencer's own lap boundary rather than a raw bar count),
-  RIFF (a walk — FWD/REV/PENDULUM/PING-PONG/RANDOM/DRUNK — over the shared 8-step rank matrix;
-  LOCK/FREE, INVERT, ON-REST SKIP/FILL/TIE, STRIDE/LENGTH/ADVANCE/TRANSPOSE, ±2 octave, riff
+  RESET — an 8-bit restart MASK, 2026-10-15 ferry, one bit per LANES step, editable by holding the
+  box and tapping steps, or via an EVERY-1/2/4/8/OFF presets popover — that re-anchors to the LANES
+  sequencer's own lap boundary rather than a raw bar count; `EuclidLine.restartMaskResolved`, engine
+  formula `euclideousMaskedResetOrigin`), RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
+  shared 8-step rank matrix; DRUNK/RANDOM were removed from this walk 2026-10-13 and now coerce to
+  FWD; LOCK/FREE, INVERT, ON-REST SKIP/FILL/TIE, STRIDE/LENGTH/ADVANCE/TRANSPOSE, ±2 octave, riff
   capture), NOTES (an additive lit-note layer independent of the riff — up to 8 ranks + TOP/TOP2,
   per-note octave shift, a bipolar velocity offset), and MASK (11 modes — MUTE/PAUSE/RATCHET/
   REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — gated by CHANCE).

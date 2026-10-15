@@ -53,6 +53,99 @@ func euclideousLoopedResetOrigin(beat: Double, stepBeats: Double, resetSteps: In
     return Double(restartStep) * stepBeats
 }
 
+/// "Every N" as an 8-bit stamp (2026-10-15 ferry §1.2): bits 0, N, 2N, … below 8 set; N ≤ 0 ⇒ empty (OFF).
+/// The ONLY place a preset number becomes a mask — `EuclidLine.restartMaskResolved`'s own fallback and the
+/// presets popover both call this, so "every N" can never drift between the two.
+func euclideousStampMask(_ n: Int) -> UInt8 {
+    guard n > 0 else { return 0 }
+    var m: UInt8 = 0
+    var s = 0
+    while s < 8 { m |= (1 << s); s += n }
+    return m
+}
+
+/// Generalises `euclideousLoopedResetOrigin` to an arbitrary per-step restart mask (2026-10-15 ferry, "per-
+/// step restart points on the LANES tab" §2.1). Bit s (0..<loopSteps) set ⇒ the lane restarts at the start
+/// of sequencer step s. Only bits below `loopSteps` take effect (§1.3) — masked here, so no caller can forget
+/// to. "No restart point yet this lap" (no set bit at or before the current lap-local step) means the lane
+/// is STILL running from the PREVIOUS lap's last restart point, not lap-start — so a mask with no mark on
+/// step 0 does NOT re-anchor the lane when the sequence loops. This can return a NEGATIVE origin in the very
+/// first lap (there is no "previous lap" yet, same as the ferry's own worked example) — plain arithmetic,
+/// every caller handles it exactly like any other beat-0-relative origin, no special-casing. Deliberately a
+/// plain `while` scan over at most 8 bits rather than a `Range` built from `local` — `local` can itself be
+/// negative for a beat before the transport's bar 1 (the same truncating-division quirk already present in
+/// `euclideousLoopedResetOrigin` above, reused here on purpose, §2.1's "reuse the existing flooring exactly"),
+/// and `0...local` with a negative `local` is a Swift trap, not a quiet no-op.
+func euclideousMaskedResetOrigin(beat: Double, stepBeats: Double, mask: UInt8, loopSteps: Int) -> Double {
+    guard stepBeats > 0, loopSteps > 0 else { return 0 }
+    let n = min(8, loopSteps)
+    let widthMask: UInt8 = n >= 8 ? 0xFF : UInt8((1 << n) - 1)
+    let m = mask & widthMask
+    guard m != 0 else { return 0 }
+    let absStep = Int((beat / stepBeats).rounded(.down))
+    let lapStartStep = (absStep / n) * n
+    let lapStart = Double(lapStartStep) * stepBeats
+    let local = absStep - lapStartStep
+    var bestAtOrBeforeLocal = -1
+    var highestSet = -1
+    var s = 0
+    while s < n {
+        if (m & (1 << s)) != 0 {
+            highestSet = s
+            if s <= local { bestAtOrBeforeLocal = s }
+        }
+        s += 1
+    }
+    if bestAtOrBeforeLocal >= 0 { return lapStart + Double(bestAtOrBeforeLocal) * stepBeats }
+    let lapBeats = Double(n) * stepBeats
+    return lapStart - lapBeats + Double(highestSet) * stepBeats
+}
+
+/// Which step index (0..<columns) a finger sliding off the RESET box lands on, given an X offset measured
+/// from the box's OWN local left edge (2026-10-15 ferry §4.4, "one-thumb shortcut... hit-test with the same
+/// cell-width and gap formula the grid draws with"). `labelW` is the RESET box's own width; the gap to its
+/// right, and between every pair of cells after it, is the same `gap`. A touch still inside the box, in a
+/// gap, or past the last cell misses (nil) — "lifting anywhere else does nothing" (§4.4).
+func euclideousRestartStepHitTest(localX: CGFloat, labelW: CGFloat, gap: CGFloat, cellW: CGFloat, columns: Int) -> Int? {
+    guard cellW > 0, columns > 0 else { return nil }
+    let x = localX - labelW - gap
+    guard x >= 0 else { return nil }
+    let period = cellW + gap
+    let step = Int((x / period).rounded(.down))
+    guard step >= 0, step < columns else { return nil }
+    let withinCellX = x - CGFloat(step) * period
+    return withinCellX <= cellW ? step : nil
+}
+
+/// The RESET box's own label (2026-10-15 ferry §3), pure, derived from the lane's effective mask (bits below
+/// `loopSteps` only). Tests N = 1, 2, 4, 8 in that order against the mask restricted to `loopSteps` — first
+/// match wins, so two different stamps that happen to coincide once narrowed to a short LEN (e.g. every-4 and
+/// every-8 at LEN 4, both narrow to {bit 0}) read identically, matching §1.2's "nothing records which preset
+/// was picked."
+struct EuclideousRestartLabel: Equatable { let value: String; let unit: String }
+func euclideousRestartLabel(mask: UInt8, loopSteps: Int) -> EuclideousRestartLabel {
+    let n = clamp(loopSteps, 0, 8)
+    let widthMask: UInt8 = n <= 0 ? 0 : (n >= 8 ? 0xFF : UInt8((1 << n) - 1))
+    let effective = mask & widthMask
+    if effective == 0 { return EuclideousRestartLabel(value: "\u{2013}", unit: "OFF") }
+    for N in [1, 2, 4, 8] where (euclideousStampMask(N) & widthMask) == effective {
+        return EuclideousRestartLabel(value: "\(N)", unit: "STEP")
+    }
+    let count = (0..<8).filter { (effective & (1 << $0)) != 0 }.count
+    return EuclideousRestartLabel(value: "\(count)", unit: "PTS")
+}
+/// The RESET box's VoiceOver phrasing (2026-10-15 ferry §4.9): "every N steps" / "off" / "k custom points" —
+/// reuses `euclideousRestartLabel`'s own stamp-detection so the spoken and on-screen labels can never disagree
+/// about what the mask resolves to, just phrased in full words instead of a compact value/unit pair.
+func euclideousRestartAccessibleLabel(mask: UInt8, loopSteps: Int) -> String {
+    let label = euclideousRestartLabel(mask: mask, loopSteps: loopSteps)
+    switch label.unit {
+    case "OFF": return "off"
+    case "STEP": return "every \(label.value) steps"
+    default: return "\(label.value) custom points"
+    }
+}
+
 /// The LANES/RIFFS sequencer's own 0..<len step index at `beat` (2026-10-14 ferry, "sequencer panel, four
 /// riffs, per-lane reset" §4: "steps are counted from the host's bar 1... the step clock always runs").
 /// `stepBeats` is the sequencer's own resolved rate (e.g. `EuclideousSeqRate.barsFraction × one-bar-beats`).
@@ -3431,11 +3524,18 @@ func euclideousNoteViewIsHit(buf: [Bool], tickBeat: Double, sub: Double, spanBea
 /// share one consistent bound, a disclosed judgment call. Returns `cap * sub` (not 0) if nothing is found
 /// within the bound, so an all-rest/degenerate pattern still yields a usable, generous gap rather than a
 /// zero-length note.
-/// `loopStepBeats`/`loopSteps` (both default 0, byte-identical for every pre-existing call site): opt in to
-/// the SAME loop-aware reset origin `euclideousLoopedResetOrigin` uses, for the one caller whose `spanBeats`
-/// came from a step-counted (LEN-bounded) per-lane reset rather than a bar-counted one — otherwise this
-/// lookahead's own re-anchor prediction would silently disagree with the corrected per-hit origin above.
-func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, sub: Double, spanBeats: Double, fromBeat: Double, cap: Int, loopStepBeats: Double = 0, loopSteps: Int = 0) -> Double {
+/// `mask`/`loopStepBeats`/`loopSteps` (mask 0 / the other two 0, byte-identical for every pre-existing call
+/// site): opt in to the SAME masked reset origin `euclideousMaskedResetOrigin` uses, for the one caller whose
+/// `spanBeats` came from a step-counted (LEN-bounded) per-lane reset rather than a bar-counted one — otherwise
+/// this lookahead's own re-anchor prediction would silently disagree with the corrected per-hit origin above.
+/// 2026-10-15 ferry ("per-step restart points," §2.3 "one formula... the TIE lookahead takes the mask instead
+/// of resetSteps"): previously this REVERSE-DERIVED a step count from `(spanBeats / loopStepBeats).rounded()`
+/// — a trick that only worked because every caller's `spanBeats` was literally `N × loopStepBeats` for one of
+/// the four clean "every N" presets. An arbitrary hand-placed mask has no such N (two different masks with the
+/// same POPULATION COUNT round-trip to the same wrong N through that division), so the mask is now threaded
+/// through directly and `euclideousMaskedResetOrigin` is called on it exactly like the per-hit origin above —
+/// no second derivation, matching §2.3 literally.
+func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, sub: Double, spanBeats: Double, fromBeat: Double, cap: Int, mask: UInt8 = 0, loopStepBeats: Double = 0, loopSteps: Int = 0) -> Double {
     guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
     let cycleLen = euclidCycleLen(dir, n: n)
     var k = 1
@@ -3443,9 +3543,8 @@ func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, sub: Double,
         let candidate = fromBeat + Double(k) * sub
         let phaseBeat: Double
         if spanBeats > 0 {
-            if loopStepBeats > 0, loopSteps > 0 {
-                let resetSteps = max(1, Int((spanBeats / loopStepBeats).rounded()))
-                let origin = euclideousLoopedResetOrigin(beat: candidate, stepBeats: loopStepBeats, resetSteps: resetSteps, loopSteps: loopSteps)
+            if mask != 0, loopStepBeats > 0, loopSteps > 0 {
+                let origin = euclideousMaskedResetOrigin(beat: candidate, stepBeats: loopStepBeats, mask: mask, loopSteps: loopSteps)
                 phaseBeat = candidate - origin
             } else {
                 phaseBeat = candidate - columnStart(candidate, spanBeats)

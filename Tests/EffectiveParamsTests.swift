@@ -381,6 +381,49 @@ final class EffectiveParamsTests: XCTestCase {
             XCTAssertEqual(l.resetStepsResolved, 1, "a genuinely fresh document's lanes default to 1 step, never consulting a legacy bars-count that was never actually authored")
         }
     }
+
+    // §7 test 8 (2026-10-15 ferry, "per-step restart points"): `restartMask`'s own fallback
+    // (`euclideousStampMask(resetStepsResolved)`) rides ENTIRELY on `resetStepsResolved`'s own ALREADY-
+    // migrated value — a pre-feature document (old `resetSteps`/legacy-bars, never touched `restartMask`)
+    // must resolve to the exact stamp of whatever `resetStepsResolved` would have been, including the
+    // document-level "fresh page ⇒ 1 step" migration from the two tests just above, with NO separate
+    // migration path of its own to drift out of sync.
+    func testEuclideousRestartMaskResolvedFallsBackToStampOfTheAlreadyMigratedResetSteps() {
+        for (bars, expectedSteps) in [(0, 0), (1, 1), (2, 2), (4, 4), (8, 8), (16, 8)] {
+            var st = doc()
+            st.euclideousLines = [EuclidLine(noteSel: .all), EuclidLine(noteSel: .all),
+                                   EuclidLine(noteSel: .all), EuclidLine(noteSel: .all)]
+            st.euclideousResetSpanBars = bars
+            for l in st.euclideousLinesResolved {
+                XCTAssertEqual(l.restartMaskResolved, euclideousStampMask(expectedSteps), "bars=\(bars)")
+            }
+        }
+        // Fresh document: no euclideousLines at all → migrates to 1 step → stamp(1) = every bit set.
+        var fresh = doc()
+        fresh.euclideousResetSpanBars = 8   // must still be ignored, exactly like the resetSteps-only test above
+        for l in fresh.euclideousLinesResolved {
+            XCTAssertEqual(l.restartMaskResolved, euclideousStampMask(1))
+        }
+    }
+    // A pre-feature line (only the old `resetSteps` key, `restartMask` never written) decodes without
+    // throwing and resolves to the stamp of that old value — no factory reset.
+    func testEuclidLineDecodesWithoutRestartMaskKeyAndResolvesToStampOfOldResetSteps() throws {
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"resetSteps":2}"#.utf8)
+        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertNil(line.restartMask)
+        XCTAssertEqual(line.restartMaskResolved, euclideousStampMask(2))
+    }
+    // A hand-placed custom mask (not one of the four clean stamps) round-trips byte-identically through
+    // encode/decode — §1.4's "every write... writes the mask... stop writing the old field but keep it
+    // decodable."
+    func testEuclidLineRestartMaskRoundTripsThroughCodable() throws {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.restartMask = 0b10010001   // steps 1, 5, 8 — not any clean "every N" stamp
+        let data = try JSONEncoder().encode(line)
+        let back = try JSONDecoder().decode(EuclidLine.self, from: data)
+        XCTAssertEqual(back.restartMask, 0b10010001)
+        XCTAssertEqual(back.restartMaskResolved, 0b10010001)
+    }
     // FOUR RIFFS (ferry §7/§9): `riffs == nil` migrates the old singular `euclideousRiff` into slot 0;
     // slots 1-3 start EMPTY — a deliberate, disclosed deviation from the ScalePool/chordSeqs precedent
     // (whose own slots 1-3 default to a fresh REAL value), named explicitly in this test's own title.
