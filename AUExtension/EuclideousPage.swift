@@ -557,6 +557,14 @@ struct EuclideousPage: View {
     let onSetActiveRiff: (Int) -> Void
     let onEditLanesSeq: (@escaping (inout EuclideousLanesSeq) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
+    // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
+    // `onSetActiveRiff`/`onSetKeyRoot` below, not a continuous gesture. Routing a preset pick through the
+    // generic `edit()`/`onEdit` funnel would share ITS `coalesceKey: "euclideous"` with every other per-lane
+    // field edit, letting a pick silently merge into whatever unrelated euclideous-line edit happened
+    // immediately before it — a real adversarial-review finding, not a hypothetical. A dedicated setter with
+    // its own `coalesceKey: nil` (same idiom as those two) guarantees its own undo step regardless of what
+    // came before it.
+    let onSetRestartMask: (Int, UInt8) -> Void
     let onToggleEnabled: () -> Void
     let onSetResetSpanBars: (Int) -> Void
     let onSetKeyRoot: (Int) -> Void
@@ -1213,14 +1221,14 @@ struct EuclideousPage: View {
                 ForEach([1, 2, 4, 8], id: \.self) { n in
                     let selected = label.unit == "STEP" && label.value == "\(n)"
                     chip("\(n)", width: 30, selected: selected) {
-                        edit(lane) { $0.restartMask = euclideousStampMask(n) }
+                        onSetRestartMask(lane, euclideousStampMask(n))
                         resetPopupLane = nil
                     }
                 }
                 Text("STEP").font(.system(size: 9, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                 Spacer(minLength: 8)
                 chip("OFF", width: 38, selected: label.unit == "OFF") {
-                    edit(lane) { $0.restartMask = 0 }
+                    onSetRestartMask(lane, 0)
                     resetPopupLane = nil
                 }
             }
@@ -1229,9 +1237,9 @@ struct EuclideousPage: View {
                 .tracking(0.02).foregroundColor(Color(hex: 0x8A909A))
                 .frame(height: 12)
         }
-        .padding(16).frame(width: 256)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .padding(8).frame(width: 256)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
@@ -3892,7 +3900,10 @@ struct EuclideousPage: View {
                     if sel { Rectangle().fill(Color.white).frame(height: 2) }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { sequencerTab = i }
+                .onTapGesture {
+                    sequencerTab = i
+                    resetPopupLane = nil   // §6: "switching tabs closes it"
+                }
             }
             if let heldLane {
                 Text("TAP = RESTART")
@@ -3946,8 +3957,11 @@ struct EuclideousPage: View {
         // resolved mask" — only the boolean test's SOURCE changed, not one shipped pixel value, since "where
         // source disagrees [with the ferry's own screenshot measurement], source wins").
         func restartBar(lane: Int, step: Int, lit: Bool, editingThisLane: Bool) -> some View {
+            // §1.3: bits at/beyond LEN are drawn too (the enclosing cell's own existing beyond-LEN
+            // `.opacity(within ? 1 : 0.3)` dims them, same as everything else in that cell) — NOT hidden,
+            // so a mark never silently "disappears" when LEN is shrunk past it.
             let mask = lane < lines.count ? lines[lane].restartMaskResolved : 0
-            let marked = step < len && (mask & (1 << step)) != 0
+            let marked = (mask & (1 << step)) != 0
             return Group {
                 if editingThisLane {
                     let barH = max(2, cellH - 8)
@@ -4031,8 +4045,11 @@ struct EuclideousPage: View {
                                         }
                                     }
                                     // §4.9: VoiceOver can't do the hold — a custom action always offers the
-                                    // mark toggle, independent of edit mode.
-                                    .accessibilityLabel("Lane \(lane + 1), step \(step + 1)\(marked ? ", restarts here" : "")")
+                                    // mark toggle, independent of edit mode. "restarts here" is the cell's
+                                    // VALUE (its current state), not part of its label — the literal split the
+                                    // ferry draws, matching how a stateful control's label/value normally work.
+                                    .accessibilityLabel("Lane \(lane + 1), step \(step + 1)")
+                                    .accessibilityValue(marked ? "restarts here" : "")
                                     .accessibilityAction(named: "Toggle restart") {
                                         edit(lane) { $0.restartMask = $0.restartMaskResolved ^ (1 << step) }
                                     }

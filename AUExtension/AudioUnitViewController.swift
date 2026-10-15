@@ -1116,6 +1116,20 @@ struct DiagView: View {
                                        }
                                        buildPublishScene()
                                    },
+                                   // §4.8 (2026-10-15 ferry, "per-step restart points"): a discrete pick, same
+                                   // class as onSetActiveRiff/onSetKeyRoot above/below — coalesceKey: nil so it
+                                   // always records its OWN undo step, never merging into whatever unrelated
+                                   // euclideous-line edit happened immediately before it (the generic onEdit
+                                   // funnel's shared "euclideous" key would have let that happen).
+                                   onSetRestartMask: { lane, mask in
+                                       euclideousRecordUndo(coalesceKey: nil)
+                                       guard lane >= 0, lane < euclideousLines.count else { return }
+                                       var lines = euclideousLines
+                                       lines[lane].restartMask = mask
+                                       euclideousLines = lines
+                                       au?.editDocument { $0.euclideousLines = lines }
+                                       buildPublishScene()
+                                   },
                                    onToggleEnabled: {
                                        // §7.3 ("play/stop... not undoable"): the WHOLE-INSTRUMENT on/off chip —
                                        // deliberately NOT recorded onto euclideousUndo, same reasoning as the
