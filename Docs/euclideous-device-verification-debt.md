@@ -30,6 +30,13 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - OFF and "no mark on step 1" cases audibly run through the LANES lap boundary as expected (engine-proven
   off-device; wants an ear on the real instrument too).
 
+### LISTEN remembers its partner (2026-10-16)
+- On each LISTEN row (RHYTHM / PITCH / LEVEL): pick a partner, tap the lit mode off, tap a mode on again — the same partner is
+  back with no re-choosing; swapping FOLLOW → WITH → GAPS (and SHADOW ↔ AVOID, DUCK ↔ ACCENT) keeps it too.
+- PITCH: choose AVOID + ANY, switch to SHADOW (it shadows the lane you had picked before ANY), switch back (ANY returns).
+- A remembered partner that has since become illegal (it now follows something, or lighting it would close a loop) falls back to
+  the next valid lane instead of lighting something broken.
+
 ### FOLLOW lanes look and feel like their partner (2026-10-16)
 - The follower's lit cells are the PARTNER's colour at 75% — faded enough to read as "borrowed", not so faded they look off;
   the comet head is still the follower's own colour; a strike's flash still reads against the faded fill.

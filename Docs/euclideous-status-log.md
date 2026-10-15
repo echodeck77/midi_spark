@@ -12,6 +12,27 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — LISTEN REMEMBERS ITS PARTNER (2026-10-16, Paul: "when moving from listen to own or hits, it's resetting the
+  thing it's listening to, so I have to rechoose it every time. Persist it. Review how it should behave on other rows too.";
+  on `feature/listen-persist-partner`; iOS builds clean; macOS suite green, +5 tests).** CAUSE: turning a lit mode off cleared
+  the row's partner (`listenRhythmPartner = nil`, and for PITCH the ANY flag too), and LIGHTING any mode — including swapping
+  FOLLOW → WITH → GAPS inside a row — always overwrote the partner with the §4 auto-pick (the next lane), so the choice was lost
+  on every switch. THE RULE NOW, SAME FOR ALL THREE ROWS: (1) a mode being switched OFF or SWAPPED for another mode of the same
+  row never touches the partner; (2) lighting a mode puts the REMEMBERED partner back if it is still legal
+  (`euclideousListenPartnerToLight`: not the lane itself, no loop, not a lane that is itself following/shadowing for FOLLOW/
+  SHADOW) and otherwise falls back to the next valid lane, and if none is valid the mode can't light (unchanged); (3) the three
+  rows are independent; (4) the per-mode settings were never cleared and still aren't — FOLLOW's multiplier, SHADOW's
+  INTERVAL/OCT, AVOID's MUTE/MOVE, the level AMOUNT. PITCH specifics: the ANY flag is now REMEMBERED too, but
+  `listenPitchPartnerAnyResolved` only counts while AVOID is lit (so a remembered ANY can't make a SHADOW lane depend on every
+  other lane in the loop graph, the processing order or the engine); lighting AVOID restores ANY if it is still legal
+  (`euclideousListenAnyIsLegal`: no other lane can reach this one), else lights on the specific partner; and the picker's ANY
+  chip no longer wipes the specific partner (`setPartner(nil, any: true)` used to set it to nil), so AVOID(ANY) → SHADOW
+  has a lane to shadow. The three toggles are now pure functions (`euclideousListenToggleRhythm/Pitch/Level`) the page just
+  applies, so the rule is tested. Preset load's loop-breaker still clears the offending row's partner (that edge IS the
+  culprit). **NOT CHANGED, FOR PAUL:** (a) lighting FOLLOW still zeroes the lane's OWN offset (`rotate = 0`, the LISTEN ferry's
+  rule), so FOLLOW → off leaves the lane with offset 0 rather than what it had — the same kind of loss; fixing it needs one new
+  saved field. (b) An unlit row still shows the ferry's plain "—"; it could show the remembered partner faintly so you can see
+  who will come back.
 - **▶ EUCLIDEOUS — A FOLLOW LANE LOOKS AND FEELS LIKE WHAT IT FOLLOWS (2026-10-16, Paul's direction; on `feature/follow-appearance`;
   iOS builds clean; macOS suite green, +2 tests; ALL visuals/gesture feel device-owed).** PAUL'S WORDS: "When a euclid lane is
   listening, I want the appearance of the lane itself to reflect what it's listening to — not what it has stored for itself …

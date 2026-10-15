@@ -3478,7 +3478,7 @@ struct EuclideousPage: View {
             edit(lane) {
                 switch row {
                 case .rhythm: $0.listenRhythmPartner = p
-                case .pitch: $0.listenPitchPartner = p; $0.listenPitchPartnerAny = any
+                case .pitch: if let p { $0.listenPitchPartner = p }; $0.listenPitchPartnerAny = any   // ANY (p == nil) keeps the specific partner for when AVOID → SHADOW
                 case .level: $0.listenLevelPartner = p
                 }
             }
@@ -3639,23 +3639,16 @@ struct EuclideousPage: View {
     /// generic — a `EuclideousRhythmMode`/`PitchMode`/`LevelMode` are three genuinely different types with
     /// no shared protocol worth inventing just to force one call site, and three plain functions carry no
     /// risk of a mismatched-type crash the way a generic-plus-force-cast version would.
+    // Each toggle is a pure function (Derivations.swift) so the "remember the partner" rule is tested: switching a mode off, or
+    // swapping it for another mode in the same row, never clears the partner the lane picked.
     private func toggleListenRhythmMode(_ idx: Int, _ mode: EuclideousRhythmMode) {
-        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
-        if line.listenRhythmMode == mode { edit(idx) { $0.listenRhythmMode = nil; $0.listenRhythmPartner = nil }; return }
-        guard let partner = euclideousListenDefaultPartner(lines, lane: idx, row: .rhythm) else { return }
-        edit(idx) { $0.listenRhythmMode = mode; $0.listenRhythmPartner = partner; if mode == .follow { $0.rotate = 0 } }
+        if let updated = euclideousListenToggleRhythm(lines, lane: idx, mode: mode) { edit(idx) { $0 = updated } }
     }
     private func toggleListenPitchMode(_ idx: Int, _ mode: EuclideousPitchMode) {
-        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
-        if line.listenPitchMode == mode { edit(idx) { $0.listenPitchMode = nil; $0.listenPitchPartner = nil; $0.listenPitchPartnerAny = nil }; return }
-        guard let partner = euclideousListenDefaultPartner(lines, lane: idx, row: .pitch) else { return }
-        edit(idx) { $0.listenPitchMode = mode; $0.listenPitchPartner = partner; $0.listenPitchPartnerAny = false }
+        if let updated = euclideousListenTogglePitch(lines, lane: idx, mode: mode) { edit(idx) { $0 = updated } }
     }
     private func toggleListenLevelMode(_ idx: Int, _ mode: EuclideousLevelMode) {
-        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
-        if line.listenLevelMode == mode { edit(idx) { $0.listenLevelMode = nil; $0.listenLevelPartner = nil }; return }
-        guard let partner = euclideousListenDefaultPartner(lines, lane: idx, row: .level) else { return }
-        edit(idx) { $0.listenLevelMode = mode; $0.listenLevelPartner = partner }
+        if let updated = euclideousListenToggleLevel(lines, lane: idx, mode: mode) { edit(idx) { $0 = updated } }
     }
 
     // The I/O tab is MOOT (confirmed by reading, not assumed) — it was already retired entirely on

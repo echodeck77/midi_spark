@@ -3690,6 +3690,72 @@ func euclideousListenDefaultPartner(_ lines: [EuclidLine], lane: Int, row: Eucli
     }
     return nil
 }
+/// The partner a row takes when its mode is LIT. The lane REMEMBERS the partner it last had on that row (a mode being switched
+/// off, or swapped for another mode of the same row, never clears it), so lighting a mode puts the same partner back — as long
+/// as it is still a legal choice (not greyed: not the lane itself, no loop, not a lane that is itself following/shadowing for
+/// FOLLOW/SHADOW rows). If it has become illegal, or the lane never chose one, the §4 auto-pick (next valid lane) applies.
+/// `nil` ⇒ no lane is valid, so the mode can't be lit (the ferry's own rule).
+func euclideousListenPartnerToLight(_ lines: [EuclidLine], lane: Int, row: EuclideousListenRow) -> Int? {
+    guard lane >= 0, lane < lines.count else { return nil }
+    let stored: Int?
+    switch row {
+    case .rhythm: stored = lines[lane].listenRhythmPartner
+    case .pitch: stored = lines[lane].listenPitchPartner
+    case .level: stored = lines[lane].listenLevelPartner
+    }
+    if let stored, stored >= 0, stored < min(4, lines.count), !euclideousListenGreyedPartners(lines, lane: lane, row: row).contains(stored) {
+        return stored
+    }
+    return euclideousListenDefaultPartner(lines, lane: lane, row: row)
+}
+/// Whether AVOID may use ANY for `lane` right now: ANY depends on EVERY other lane, so it is illegal if any other lane can
+/// already reach this one (the same test the preset-load loop-breaker uses).
+func euclideousListenAnyIsLegal(_ lines: [EuclidLine], lane: Int) -> Bool {
+    let n = min(4, lines.count)
+    guard lane >= 0, lane < n else { return false }
+    let edges = euclideousListenEdges(lines, excludeLane: lane, excludeRow: .pitch)
+    return !(0..<n).contains { $0 != lane && euclideousListenReaches(edges, from: $0, to: lane) }
+}
+/// Tapping a RHYTHM mode button: returns the lane's updated line, or nil when nothing should change (no valid partner).
+/// Tapping the lit mode turns the row OFF and the lane goes back to its own rhythm — its partner is REMEMBERED. Lighting a
+/// mode (from off, or switching FOLLOW/WITH/GAPS) restores the remembered partner when still legal.
+/// (Lighting FOLLOW still zeroes the lane's OWN offset, the LISTEN ferry's rule — see the status log.)
+func euclideousListenToggleRhythm(_ lines: [EuclidLine], lane: Int, mode: EuclideousRhythmMode) -> EuclidLine? {
+    guard lane >= 0, lane < lines.count else { return nil }
+    var L = lines[lane]
+    if L.listenRhythmMode == mode { L.listenRhythmMode = nil; return L }
+    guard let partner = euclideousListenPartnerToLight(lines, lane: lane, row: .rhythm) else { return nil }
+    L.listenRhythmMode = mode; L.listenRhythmPartner = partner
+    if mode == .follow { L.rotate = 0 }
+    return L
+}
+/// Tapping a PITCH mode button. Off keeps the partner AND the ANY flag. AVOID restores ANY if it was chosen and is still legal
+/// (it needs no specific partner); otherwise AVOID and SHADOW both need a specific, legal partner. SHADOW leaves the stored ANY
+/// untouched — it can't use ANY, and `listenPitchPartnerAnyResolved` ignores it unless AVOID is lit.
+func euclideousListenTogglePitch(_ lines: [EuclidLine], lane: Int, mode: EuclideousPitchMode) -> EuclidLine? {
+    guard lane >= 0, lane < lines.count else { return nil }
+    var L = lines[lane]
+    if L.listenPitchMode == mode { L.listenPitchMode = nil; return L }
+    let partner = euclideousListenPartnerToLight(lines, lane: lane, row: .pitch)
+    if mode == .avoid, L.listenPitchPartnerAny == true, euclideousListenAnyIsLegal(lines, lane: lane) {
+        L.listenPitchMode = mode
+        if let partner { L.listenPitchPartner = partner }
+        return L
+    }
+    guard let partner else { return nil }
+    L.listenPitchMode = mode; L.listenPitchPartner = partner
+    if mode == .avoid { L.listenPitchPartnerAny = false }
+    return L
+}
+/// Tapping a LEVEL mode button: off keeps the partner; lighting (from off, or DUCK ↔ ACCENT) restores it when still legal.
+func euclideousListenToggleLevel(_ lines: [EuclidLine], lane: Int, mode: EuclideousLevelMode) -> EuclidLine? {
+    guard lane >= 0, lane < lines.count else { return nil }
+    var L = lines[lane]
+    if L.listenLevelMode == mode { L.listenLevelMode = nil; return L }
+    guard let partner = euclideousListenPartnerToLight(lines, lane: lane, row: .level) else { return nil }
+    L.listenLevelMode = mode; L.listenLevelPartner = partner
+    return L
+}
 /// §9's per-tick processing order: a partner is always processed before any lane that listens to it.
 /// Kahn's algorithm on the (always-acyclic, by the picker's own construction) 4-node dependency graph. An
 /// ANY-partner AVOID row depends on every OTHER lane's own output, not one named partner — ordered after

@@ -33,6 +33,11 @@ Full story in `Docs/euclideous-status-log.md`.
 - [x] DONE 2026-10-16 (Paul): a FOLLOW lane's comet sweeps at the partner's rate × multiplier, its lit cells are the partner's
       colour (faded), and its bar gestures edit the partner. See the status log ("A FOLLOW LANE LOOKS AND FEELS LIKE WHAT IT
       FOLLOWS").
+- [x] DONE 2026-10-16 (Paul): LISTEN remembers its partner (and ANY / per-mode settings) across off/on and mode swaps, on all
+      three rows. See the status log ("LISTEN REMEMBERS ITS PARTNER").
+- [ ] DECIDE (Paul): lighting FOLLOW zeroes the lane's OWN offset and turning it off doesn't restore it — save the lane's own
+      offset when FOLLOW lights and put it back when FOLLOW goes off (one new saved field)?
+- [ ] DECIDE (Paul): an unlit LISTEN row shows a plain "—" (the ferry's wording) — show the remembered partner faintly instead?
 - [ ] DECIDE (Paul) — "similar clarity" for the OTHER listen modes (proposals in the 2026-10-16 reply): (a) SHADOW's footer
       still draws the lane's OWN riff step numbers although the engine ignores them (a bug, same class as the FOLLOW footer) —
       show plain partner-colour bands instead? (b) WITH/GAPS: mark which of the lane's own hits sound vs are silenced, and the

@@ -512,7 +512,10 @@ struct EuclidLine: Codable, Equatable {
     var listenLevelAmount: Double? = nil
     var listenRhythmPartnerResolved: Int { max(0, min(3, listenRhythmPartner ?? 0)) }
     var listenPitchPartnerResolved: Int { max(0, min(3, listenPitchPartner ?? 0)) }
-    var listenPitchPartnerAnyResolved: Bool { listenPitchPartnerAny ?? false }
+    /// ANY is only meaningful for AVOID. The stored flag is REMEMBERED while the row is off or on SHADOW (so switching modes and
+    /// back restores it), but it counts only while AVOID is the lit mode — every reader (loop graph, processing order, the
+    /// engine, the picker) goes through this, so a remembered ANY can never make a SHADOW lane depend on every other lane.
+    var listenPitchPartnerAnyResolved: Bool { (listenPitchPartnerAny ?? false) && listenPitchMode == .avoid }
     var listenLevelPartnerResolved: Int { max(0, min(3, listenLevelPartner ?? 0)) }
     var listenFollowMultResolved: Int { max(-3, min(2, listenFollowMult ?? 0)) }
     /// The actual multiplier applied to the partner's own rate (beats-per-step) to get this lane's own
