@@ -94,6 +94,23 @@ project has been building this whole stretch.
   once (default lanes 1–2, KEY source, need no input); OUTPUTS group is 199.98pt wide vs the spec's ≈203; the chord
   popup keeps its dimming scrim; §7.3's dashed OUT circle was already shipped (4764aae) and is verified only. **DEVICE-
   OWED:** every item under "Header (Fourfold…)" in `Docs/euclideous-device-verification-debt.md`.**
+  **ADVERSARIAL REVIEW (same day), 7 findings, all addressed:** (1) a HELD but OFF ring drew no disc yet an ink letter —
+  invisible on the dark ground; the disc/letter choice is now two tested pure functions (`euclideousRingDisc`,
+  `euclideousRingLetterTone`) and a held ring ALWAYS gets the light disc (§4.7), re-rendered on macOS to confirm; (2) the
+  layout centred the caption-inclusive OUTPUTS group on the lane gutter, putting the RINGS ~12pt right of it — the rings
+  are now what centres (`outputsLead`/`ringsSpan` on `EuclideousHeaderGroupWidths`), and the test that claimed this now
+  measures the rings (plus new B/C coverage); (3) the OUT-circle pulse ring was painted over by the next circle (later
+  HStack siblings draw above earlier overlays) — a ringed cell is raised with `zIndex` (the RHYTHM-tab cell too); (4) the
+  four rings shared ONE press slot, so a second finger swallowed both taps — each ring is now its own
+  `EuclideousRingPressable` driving a pure `EuclideousRingPress` machine (tested incl. cancel and two-rings-independent),
+  whose cancelled-touch cleanup is deferred one turn so it can never race `onEnded`; (5) VoiceOver now gets `.isToggle`
+  on iOS 17+ (`.isButton` kept for the iOS 16 target) and no separate value, so state is spoken once, in the spec's own
+  string; (6)/(7) the flare is NOT driven by the comet bar's feed (it has none — pattern + page clock), so it follows the
+  engine's real strike events on the UI's extrapolated beat clock: it can differ from the comet bar by up to a quarter
+  step under swing, shares the walk tags' open UI-clock-vs-audible-time offset, and for AUTO-rate lanes ages on the same
+  `rate ?? .r1_16` step the comet bar uses (the engine uses the machine rate). That is a deliberate, disclosed deviation
+  from §4.8's "use the comet bar's feed", not an oversight — device-check it (debt list), and if the two visibly disagree
+  the options are a calibration constant or driving both from one feed.
 - **▶ EUCLIDEOUS — "FERRY: per-step restart points on the LANES tab," REPLACES the 4-value RESET ladder with
   an 8-bit per-lane restart MASK (2026-10-15, on `feat/euclid-per-step-restart-marks`; iOS builds clean,
   macOS 1454 tests green incl. +14 new; EuclideousPage.swift gestures/visuals are UI-only, no macOS test-

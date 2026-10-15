@@ -4077,6 +4077,8 @@ final class DerivationsTests: XCTestCase {
             }
         }
     }
+    /// The x of the middle of the FOUR RINGS (not the OUTPUTS group): the group's x + the caption's lead + half the rings' span.
+    private func ringsCentre(_ l: EuclideousHeaderLayout) -> CGFloat { l.outputs.x + l.widths.outputsLead + l.widths.ringsSpan / 2 }
     func testFourfoldGroupWidthsComeFromTheSameConstantsTheViewsDrawWith() {
         let f = euclideousHeaderGroupWidths(compact: false)
         let wordmark: CGFloat = 8 * 11 * 0.76          // 8 chars × 11pt × (0.6 advance + 0.16 tracking)
@@ -4084,10 +4086,13 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88, accuracy: 1e-9)
         XCTAssertEqual(f.brand, 192, accuracy: 0.2)
         XCTAssertEqual(f.outputs, caption + 4 + 176, accuracy: 1e-9)
+        XCTAssertEqual(f.outputsLead, caption + 4, accuracy: 1e-9, "the caption + sp4 before the first ring's target")
+        XCTAssertEqual(f.ringsSpan, 176, accuracy: 1e-9)
         XCTAssertEqual(f.notes, 312); XCTAssertEqual(f.utilities, 88)
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
         XCTAssertEqual(c.brand, 93); XCTAssertEqual(c.outputs, 160); XCTAssertEqual(c.utilities, 72)
+        XCTAssertEqual(c.outputsLead, 0, "layout C hides the caption: the group IS the rings")
         XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 341, "layout C's row 1 — the spec's ≈341, which only reconciles with an sp8 mark→undo gap")
         XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
     }
@@ -4097,7 +4102,8 @@ final class DerivationsTests: XCTestCase {
         let cols = euclideousLandscapeColumns(containerW: 1158)
         XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1158, accuracy: 1e-9)
         XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
-        XCTAssertEqual(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, accuracy: 1e-9, "rings centred on the lane grid's centre (the 2×2's vertical gutter)")
+        XCTAssertEqual(ringsCentre(l), cols.laneCentreX, accuracy: 1e-9, "the RINGS (not the caption-inclusive group) centred on the lane grid's centre (the 2×2's vertical gutter)")
+        XCTAssertNotEqual(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, "…so the caption-inclusive group is NOT what's centred")
         assertHeaderInvariants(l, 1158, "A@1158")
     }
     func testFourfoldLayoutASlidesNotesAndRingsAt868() {
@@ -4106,7 +4112,7 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(l.kind, .a)
         XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
         XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), 16, accuracy: 1e-9)
-        XCTAssertGreaterThan(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, "rings slid right to clear BRAND")
+        XCTAssertGreaterThan(ringsCentre(l), cols.laneCentreX, "rings slid right to clear BRAND")
         XCTAssertEqual(l.outputs.x - (l.brand.x + l.brand.width), 16, accuracy: 1e-9)
         assertHeaderInvariants(l, 868, "A@868")
     }
@@ -4127,6 +4133,25 @@ final class DerivationsTests: XCTestCase {
         // portrait never uses A, however wide.
         XCTAssertEqual(hdrLayout(1200, landscape: false).kind, .b)
     }
+    func testFourfoldRingsCentreOnTheLaneGutterInBWhenNothingClampsThem() {
+        // Portrait B at 900: lane grid spans the container, so the gutter is its centre; nothing clamps the rings.
+        let b = hdrLayout(900, landscape: false)
+        XCTAssertEqual(b.kind, .b)
+        XCTAssertEqual(ringsCentre(b), 450, accuracy: 1e-9)
+        assertHeaderInvariants(b, 900, "B@900")
+        // A landscape window too narrow for A: B uses the LANE column's gutter, not the container's centre.
+        let lb = hdrLayout(760, landscape: true)
+        let cols = euclideousLandscapeColumns(containerW: 760)
+        XCTAssertEqual(lb.kind, .b)
+        XCTAssertEqual(ringsCentre(lb), max(cols.laneCentreX, lb.widths.brand + lb.widths.gap + lb.widths.outputsLead + lb.widths.ringsSpan / 2), accuracy: 1e-9)
+        assertHeaderInvariants(lb, 760, "B@760 landscape")
+        // C has no caption, so its group and its rings share one centre.
+        let c = hdrLayout(520, landscape: false)
+        XCTAssertEqual(c.kind, .b) // 520 ≥ 512: still B
+        let c2 = hdrLayout(500, landscape: false)
+        XCTAssertEqual(c2.kind, .c)
+        XCTAssertEqual(ringsCentre(c2), c2.outputs.x + c2.outputs.width / 2, accuracy: 1e-9)
+    }
     func testFourfoldLayoutAFitsExactlyAtItsOwnNeedWithEveryGroupPacked() {
         let w = euclideousHeaderGroupWidths(compact: false)
         let need = w.brand + w.outputs + w.notes + w.utilities + 3 * w.gap
@@ -4146,6 +4171,62 @@ final class DerivationsTests: XCTestCase {
         var last = 2.0
         for i in 0...60 { let v = euclideousRingFlare(ageSteps: Double(i) * 0.03); XCTAssertLessThanOrEqual(v, last + 1e-12); last = v }
         XCTAssertEqual(euclideousFlareAfterglowSteps, 1.5); XCTAssertEqual(euclideousFlareBurstSteps, 0.35)
+    }
+    // The painter's disc/letter decision (held OFF must still get its light disc, or the ink letter vanishes on the ground).
+    func testFourfoldRingDiscAndLetterTable() {
+        typealias M = EuclideousOutputRingMode
+        for mode in [M.onRouted, .onUnrouted, .off] {
+            XCTAssertEqual(euclideousRingDisc(mode: mode, held: true), .held, "held always has the light disc, even OFF (\(mode))")
+            XCTAssertEqual(euclideousRingLetterTone(mode: mode, held: true), .ink)
+        }
+        XCTAssertEqual(euclideousRingDisc(mode: .onRouted, held: false), .base)
+        XCTAssertEqual(euclideousRingDisc(mode: .onUnrouted, held: false), .base)
+        XCTAssertEqual(euclideousRingDisc(mode: .off, held: false), .none, "OFF: no disc, the ground shows through")
+        XCTAssertEqual(euclideousRingLetterTone(mode: .onRouted, held: false), .on)
+        XCTAssertEqual(euclideousRingLetterTone(mode: .onUnrouted, held: false), .unrouted)
+        XCTAssertEqual(euclideousRingLetterTone(mode: .off, held: false), .off)
+        // the invariant that was broken: an INK letter never sits without the light disc.
+        for mode in [M.onRouted, .onUnrouted, .off] { for held in [false, true] {
+            if euclideousRingLetterTone(mode: mode, held: held) == .ink { XCTAssertEqual(euclideousRingDisc(mode: mode, held: held), .held) }
+        } }
+    }
+    // The tap-vs-hold machine (§4.6/§4.7).
+    func testFourfoldRingPressTapHoldDragAndCancel() {
+        // tap: release before the hold timer fires
+        var p = EuclideousRingPress(); p.touchDown()
+        XCTAssertEqual(p.touchEnded(), .tap)
+        // a stale timer (fires after the release) does nothing, and a second release is inert
+        XCTAssertEqual(p.holdTimerFired(), .none); XCTAssertEqual(p.touchEnded(), .none)
+        // hold: timer fires while down → trace; release ends it and NEVER taps
+        p.touchDown()
+        XCTAssertEqual(p.holdTimerFired(), .holdBegan)
+        XCTAssertEqual(p.holdTimerFired(), .none, "the hold begins once")
+        XCTAssertEqual(p.touchEnded(), .holdEnded)
+        // drag off before the timer: no tap, no hold
+        p.touchDown(); p.moved(distance: EuclideousRingPress.dragCancel + 1)
+        XCTAssertEqual(p.holdTimerFired(), .none); XCTAssertEqual(p.touchEnded(), .none)
+        // a small wobble is still a tap; dragging after the hold fired does not cancel it
+        p.touchDown(); p.moved(distance: EuclideousRingPress.dragCancel - 1)
+        XCTAssertEqual(p.touchEnded(), .tap)
+        p.touchDown(); XCTAssertEqual(p.holdTimerFired(), .holdBegan); p.moved(distance: 200)
+        XCTAssertEqual(p.touchEnded(), .holdEnded, "still a hold, still no tap")
+        // a CANCELLED touch ends a started hold (so the trace can't stay stuck) and is silent otherwise
+        p.touchDown(); XCTAssertEqual(p.holdTimerFired(), .holdBegan)
+        XCTAssertEqual(p.touchCancelled(), .holdEnded)
+        p.touchDown(); XCTAssertEqual(p.touchCancelled(), .none, "cancelled before the hold: no tap")
+        XCTAssertEqual(p.touchEnded(), .none)
+        XCTAssertEqual(EuclideousRingPress.holdSeconds, 0.3)
+    }
+    func testFourfoldTwoRingsPressIndependently() {
+        // The bug this guards: one shared press slot made a second finger swallow BOTH taps. Each ring owns its own machine.
+        var a = EuclideousRingPress(), b = EuclideousRingPress()
+        a.touchDown(); b.touchDown()
+        XCTAssertEqual(b.touchEnded(), .tap)
+        XCTAssertEqual(a.touchEnded(), .tap)
+        // a holds while b taps
+        a.touchDown(); XCTAssertEqual(a.holdTimerFired(), .holdBegan)
+        b.touchDown(); XCTAssertEqual(b.touchEnded(), .tap)
+        XCTAssertEqual(a.touchEnded(), .holdEnded)
     }
     func testFourfoldLaneMasksReadTheSameFieldLaneOutRowEdits() {
         var a = EuclidLine(); a.emitterMask = 0b0101

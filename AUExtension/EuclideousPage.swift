@@ -712,19 +712,11 @@ struct EuclideousPage: View {
     @State private var riffKeyTabFrame: CGRect? = nil
     @State private var chordsPopupOpen = false
     // FOURFOLD HEADER (2026-10-15): the selected CHORDS segment's frame (the chord grid anchors under it), the output ring
-    // currently HELD (§4.7, nil = none), the last tapped output's PULSE (§7.1), and the ring press-in-progress bookkeeping
-    // (which ring, whether the 300ms hold already fired, whether the press was cancelled by dragging off).
+    // currently HELD (§4.7, nil = none) and the last tapped output's PULSE (§7.1). Each ring's own tap-vs-hold press state
+    // lives INSIDE `EuclideousRingPressable` (one instance per ring), not here.
     @State private var chordsSegmentFrame: CGRect? = nil
     @State private var heldOutput: Int? = nil
     @State private var outputPulse: EuclideousOutputPulse? = nil
-    @State private var ringPressOutput: Int? = nil
-    @State private var ringHoldFired = false
-    @State private var ringPressCancelled = false
-    @State private var ringHoldTask: Task<Void, Never>? = nil
-    /// True only while a finger is down on a ring. A `GestureState` resets itself when the gesture ENDS OR IS CANCELLED
-    /// (a system gesture, the app backgrounding — `onEnded` is NOT called then), so its change is the cleanup hook that
-    /// guarantees a held trace can never stay stuck on.
-    @GestureState private var ringTouching = false
     // riffDirPopupLane RETIRED 2026-10-10 alongside the RIFF tab — direction selection lives inline in the
     // melody pop-up's WALK section now, no separate nested popup needed.
     // MASK MODE POPUP (Paul 2026-10-10, "Euclid mask, modes and settings" ferry §4): "tapping opens a picker
@@ -1194,11 +1186,6 @@ struct EuclideousPage: View {
                 }
             }
         }
-        .onChange(of: ringTouching) { touching in
-            // Finger lifted (or the touch was cancelled): whatever the press left behind is cleared. After a normal
-            // `onEnded` everything is already reset, so this is a no-op then.
-            if !touching { ringHoldTask?.cancel(); ringHoldTask = nil; heldOutput = nil; ringPressOutput = nil; ringHoldFired = false; ringPressCancelled = false }
-        }
     }
 
     /// A quarter's flare: its lane routes to this output, the output is ON, the transport runs, and that lane's latest real
@@ -1218,18 +1205,26 @@ struct EuclideousPage: View {
         let masks = euclideousLaneMasks(lines)
         let state = euclideousOutputRingState(output: b, laneMasks: masks, mainOutMask: mainOutMask)
         let held = heldOutput == b
-        return EuclideousOutputRing(letter: ["A", "B", "C", "D"][b], state: state, laneColours: laneAccents, held: held,
-                                    flare: ringFlare(b, masks: masks, beat: beat), width: pitch, height: HM.rowH)
-            .opacity(heldOutput != nil && !held ? 0.42 : 1)        // §4.7: while one is held, the other three sit at 42%
-            .contentShape(Rectangle())
-            .gesture(ringGesture(b))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(ringAccessibilityLabel(b, state: state))
-            .accessibilityValue(state.mode == .off ? "off" : "on")
-            .accessibilityHint("Hold to show its lanes")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { toggleMainOut(b); pulseOutput(b) }
-            .accessibilityAction(named: "Show its lanes") { pulseOutput(b) }   // VoiceOver can't perform a hold
+        let flare = ringFlare(b, masks: masks, beat: beat)
+        return EuclideousRingPressable(
+            onTap: { toggleMainOut(b); pulseOutput(b) },
+            onHold: { began in
+                // A hold NEVER toggles. Only the ring that is currently the traced one may clear the trace.
+                if began { heldOutput = b } else if heldOutput == b { heldOutput = nil }
+            }
+        ) {
+            EuclideousOutputRing(letter: ["A", "B", "C", "D"][b], state: state, laneColours: laneAccents, held: held,
+                                 flare: flare, width: pitch, height: HM.rowH)
+                .opacity(heldOutput != nil && !held ? 0.42 : 1)        // §4.7: while one is held, the other three sit at 42%
+        }
+        .accessibilityElement(children: .ignore)
+        // §4.9: "Main out A, on, fed by lanes 1 and 4" — the state is IN the label (spec string), so no separate value.
+        .accessibilityLabel(ringAccessibilityLabel(b, state: state))
+        .accessibilityHint("Hold to show its lanes")
+        .accessibilityAddTraits(.isButton)
+        .ringToggleTrait()
+        .accessibilityAction { toggleMainOut(b); pulseOutput(b) }
+        .accessibilityAction(named: "Show its lanes") { pulseOutput(b) }   // VoiceOver can't perform a hold
     }
     private func ringAccessibilityLabel(_ b: Int, state: EuclideousOutputRingState) -> String {
         let fed = (0..<4).filter { state.lit[$0] }.map { $0 + 1 }
@@ -1251,31 +1246,6 @@ struct EuclideousPage: View {
             if outputPulse?.token == token { outputPulse = nil }
         }
     }
-    /// TAP vs HOLD (§4.6/§4.7): release within 300ms = tap (toggle, then pulse); 300ms or more = hold (trace until release —
-    /// a hold NEVER toggles). Dragging well off the ring before the hold fires cancels the press entirely.
-    private func ringGesture(_ b: Int) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($ringTouching) { _, touching, _ in touching = true }
-            .onChanged { g in
-                if ringPressOutput == nil {
-                    ringPressOutput = b; ringHoldFired = false; ringPressCancelled = false
-                    ringHoldTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 300_000_000)
-                        guard !Task.isCancelled, ringPressOutput == b, !ringPressCancelled else { return }
-                        ringHoldFired = true; heldOutput = b
-                    }
-                } else if !ringHoldFired, !ringPressCancelled, hypot(g.translation.width, g.translation.height) > 14 {
-                    ringPressCancelled = true; ringHoldTask?.cancel()
-                }
-            }
-            .onEnded { _ in
-                ringHoldTask?.cancel(); ringHoldTask = nil
-                if ringHoldFired { heldOutput = nil }
-                else if !ringPressCancelled, ringPressOutput == b { toggleMainOut(b); pulseOutput(b) }
-                ringPressOutput = nil; ringHoldFired = false; ringPressCancelled = false
-            }
-    }
-
     // MARK: NOTES — the source control + the key pill
     private func headerNotes() -> some View {
         HStack(spacing: HM.sp8) {
@@ -1904,6 +1874,8 @@ struct EuclideousPage: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { if idx < laneTab.count { laneTab[idx] = t } }
+                // A ringed cell is raised above its siblings so the ring (which grows past the cell) is never painted over.
+                .zIndex(t == .rhythm && outputCue(forLane: idx)?.cue == .ringRhythmTab ? 1 : 0)
             }
         }
     }
@@ -2121,6 +2093,10 @@ struct EuclideousPage: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
+                    // FOURFOLD §7.1: the cue ring grows past its circle into the 3pt gaps. Later HStack siblings paint ABOVE
+                    // earlier siblings' overlays, so a ringed circle is raised above its neighbours or the next circle's fill
+                    // would cover the ring's far side.
+                    .zIndex({ if let c = outputCue(forLane: idx), c.cue == .ringOutCircle, c.output == b { return 1.0 }; return 0.0 }())
                     .accessibilityLabel("Emitter \(names[b])\(style == .hollowDashed ? ", main output off" : "")")
             }
         }

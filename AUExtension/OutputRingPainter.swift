@@ -46,11 +46,13 @@ struct EuclideousOutputRing: View {
         Canvas { ctx, size in
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
             let r = Self.radius
-            // DISC (not drawn at all when off — the ground shows through).
-            if state.mode != .off {
+            // DISC: none when off (the ground shows through) — EXCEPT while held, whose light disc is unconditional (§4.7);
+            // `euclideousRingDisc` is the one decision, tested, so a held OFF ring can't end up with an ink letter on no disc.
+            let discKind = euclideousRingDisc(mode: state.mode, held: held)
+            if discKind != .none {
                 let disc = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-                ctx.fill(disc, with: .color(held ? EuclideousRingPalette.heldDisc : EuclideousRingPalette.disc))
-                if !held {
+                ctx.fill(disc, with: .color(discKind == .held ? EuclideousRingPalette.heldDisc : EuclideousRingPalette.disc))
+                if discKind == .base {
                     for lane in 0..<4 where lane < flare.count && flare[lane] > 0 && lane < laneColours.count {
                         ctx.fill(disc, with: .color(laneColours[lane].opacity(0.2 * flare[lane])))
                     }
@@ -83,9 +85,13 @@ struct EuclideousOutputRing: View {
                 }
             }
             // LETTER
-            let letterColour: Color = held ? EuclideousRingPalette.ink
-                : (state.mode == .onRouted ? EuclideousRingPalette.letterOn
-                   : (state.mode == .onUnrouted ? EuclideousRingPalette.letterUnrouted : EuclideousRingPalette.letterOff))
+            let letterColour: Color
+            switch euclideousRingLetterTone(mode: state.mode, held: held) {
+            case .ink: letterColour = EuclideousRingPalette.ink
+            case .on: letterColour = EuclideousRingPalette.letterOn
+            case .unrouted: letterColour = EuclideousRingPalette.letterUnrouted
+            case .off: letterColour = EuclideousRingPalette.letterOff
+            }
             ctx.draw(Text(letter).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(letterColour), at: c)
         }
         .frame(width: width, height: height)
@@ -105,5 +111,73 @@ struct FourfoldMark: View {
         }
         .frame(width: EuclideousHeaderMetrics.markSize, height: EuclideousHeaderMetrics.markSize)
         .accessibilityHidden(true)
+    }
+}
+
+/// Wraps ONE output ring with its own tap-vs-hold handling (`EuclideousRingPress`, pure + tested). Each ring owns its own
+/// `@State` and `@GestureState`, so two fingers on two rings are independent (a shared slot would swallow both taps), and a
+/// touch the system CANCELS (no `onEnded`) still ends a started hold through the `GestureState` reset.
+struct EuclideousRingPressable<Content: View>: View {
+    let onTap: () -> Void
+    /// `true` when the 300ms hold fires, `false` when that hold ends (release OR cancellation).
+    let onHold: (Bool) -> Void
+    @ViewBuilder let content: () -> Content
+
+    @State private var press = EuclideousRingPress()
+    @State private var holdTask: Task<Void, Never>? = nil
+    @GestureState private var touching = false
+
+    var body: some View {
+        content()
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($touching) { _, t, _ in t = true }
+                    .onChanged { g in
+                        if !press.down {
+                            press.touchDown()
+                            holdTask = Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: UInt64(EuclideousRingPress.holdSeconds * 1_000_000_000))
+                                guard !Task.isCancelled else { return }
+                                perform(press.holdTimerFired())
+                            }
+                        } else {
+                            press.moved(distance: Double(hypot(g.translation.width, g.translation.height)))
+                            if press.cancelled { holdTask?.cancel() }
+                        }
+                    }
+                    .onEnded { _ in
+                        holdTask?.cancel(); holdTask = nil
+                        perform(press.touchEnded())
+                    }
+            )
+            .onChange(of: touching) { t in
+                // The finger is gone. After a normal release `onEnded` has already run (and reset `press`), so this is a
+                // no-op; after a CANCELLED touch `onEnded` never runs and this is what ends a started hold. Deferred one
+                // turn so it can never race ahead of `onEnded` and eat a tap.
+                guard !t else { return }
+                Task { @MainActor in
+                    guard press.down else { return }
+                    holdTask?.cancel(); holdTask = nil
+                    perform(press.touchCancelled())
+                }
+            }
+    }
+
+    private func perform(_ a: EuclideousRingPress.Action) {
+        switch a {
+        case .tap: onTap()
+        case .holdBegan: onHold(true)
+        case .holdEnded: onHold(false)
+        case .none: break
+        }
+    }
+}
+
+extension View {
+    /// §4.9 asks for a TOGGLE trait. `.isToggle` is iOS 17 / macOS 14; the target is iOS 16, where the ring keeps its
+    /// `.isButton` trait (added at the call site) and the "on"/"off" word already in its label.
+    @ViewBuilder func ringToggleTrait() -> some View {
+        if #available(iOS 17.0, macOS 14.0, *) { self.accessibilityAddTraits(.isToggle) } else { self }
     }
 }

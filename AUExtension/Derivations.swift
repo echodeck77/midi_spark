@@ -4666,6 +4666,58 @@ func euclideousListenOnAllIsLit(_ mask: UInt16) -> Bool { mask == 0xFFFF }
 /// wrapped prose a hand-rolled constant-based formula could only approximate, not reproduce exactly.
 func euclideousSettingsSheetWidth(containerW: CGFloat) -> CGFloat { min(448, containerW) }
 
+// ── ring painting decisions + the press state machine ───────────────────────────────────────────────
+
+/// What sits behind an output ring's letter. Spec §4.5: OFF draws NO disc ("the ground shows through") — but HELD (§4.7)
+/// is "disc #DFE3EA, letter ink", unconditionally, so a held OFF output still gets its (light) disc; without it the ink
+/// letter would sit on the near-identical dark page ground and vanish.
+enum EuclideousRingDisc: Equatable { case none, base, held }
+func euclideousRingDisc(mode: EuclideousOutputRingMode, held: Bool) -> EuclideousRingDisc {
+    if held { return .held }
+    return mode == .off ? .none : .base
+}
+/// The letter's tone: ink only ever on the held (light) disc; otherwise by mode.
+enum EuclideousRingLetterTone: Equatable { case ink, on, unrouted, off }
+func euclideousRingLetterTone(mode: EuclideousOutputRingMode, held: Bool) -> EuclideousRingLetterTone {
+    if held { return .ink }
+    switch mode { case .onRouted: return .on; case .onUnrouted: return .unrouted; case .off: return .off }
+}
+
+/// One output ring's tap-vs-hold decision (spec §4.6/§4.7), kept PURE so it can be tested and so each ring owns its own
+/// instance (a second finger on another ring can never disturb this one). Feed it the touch's events; it says what to do.
+///   • release before `holdSeconds`            → `.tap`   (toggle, then pulse)
+///   • the hold timer firing while still down  → `.holdBegan` (trace until release); the release then says `.holdEnded`
+///     and NEVER `.tap` (a hold never toggles)
+///   • dragging more than `dragCancel` away before the hold fires cancels the press entirely (no tap, no hold)
+///   • a touch that is CANCELLED (system gesture, app backgrounded — no normal release) still ends a started hold
+struct EuclideousRingPress: Equatable {
+    static let holdSeconds: Double = 0.3
+    static let dragCancel: Double = 14
+    enum Action: Equatable { case none, tap, holdBegan, holdEnded }
+    private(set) var down = false
+    private(set) var holdFired = false
+    private(set) var cancelled = false
+    mutating func touchDown() { down = true; holdFired = false; cancelled = false }
+    mutating func moved(distance: Double) {
+        if down && !holdFired && !cancelled && distance > Self.dragCancel { cancelled = true }
+    }
+    mutating func holdTimerFired() -> Action {
+        guard down, !holdFired, !cancelled else { return .none }
+        holdFired = true
+        return .holdBegan
+    }
+    mutating func touchEnded() -> Action {
+        let a: Action = !down ? .none : (holdFired ? .holdEnded : (cancelled ? .none : .tap))
+        self = EuclideousRingPress()
+        return a
+    }
+    mutating func touchCancelled() -> Action {
+        let a: Action = (down && holdFired) ? .holdEnded : .none
+        self = EuclideousRingPress()
+        return a
+    }
+}
+
 // ── layout ladder ───────────────────────────────────────────────────────────────────────────────────
 
 enum EuclideousHeaderMetrics {
@@ -4691,6 +4743,11 @@ enum EuclideousHeaderMetrics {
 struct EuclideousHeaderGroupWidths: Equatable {
     var brand: CGFloat, outputs: CGFloat, notes: CGFloat, utilities: CGFloat
     var gap: CGFloat            // the space between row-1 groups: sp16 (A, B) or sp8 (C)
+    /// How far into the OUTPUTS group the first ring's target starts (the "OUT" caption + sp4; 0 when the caption is hidden).
+    /// The RINGS — not the whole group — are what the spec centres on the lane gutter (§2.3), so the layout needs this.
+    var outputsLead: CGFloat
+    /// The four rings' own span (the OUTPUTS group minus its lead).
+    var ringsSpan: CGFloat { outputs - outputsLead }
 }
 /// Each group's width, once, from the same constants the views draw with.
 func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
@@ -4699,9 +4756,10 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     let wordmarkW = M.wordmarkWidth
     let captionW = M.captionWidth
     let brand = M.markSize + M.sp8 + (compact ? 0 : wordmarkW + M.sp16) + 2 * t
-    let outputs = (compact ? 0 : captionW + M.sp4) + 4 * (compact ? M.compactRingPitch : M.ringPitch)
+    let lead = compact ? 0 : captionW + M.sp4
+    let outputs = lead + 4 * (compact ? M.compactRingPitch : M.ringPitch)
     return EuclideousHeaderGroupWidths(brand: brand, outputs: outputs, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth,
-                                       utilities: 2 * t, gap: compact ? M.sp8 : M.sp16)
+                                       utilities: 2 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
 }
 
 /// The landscape page's column split — ONE definition for the body (`landscapeLayout`) and the header (which wants the
@@ -4731,7 +4789,8 @@ private func headerClamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat 
 /// The first layout that fits `containerW` (page width − sp16 × 2). `riffLeadingX` / `laneCentreX` are in container
 /// coordinates (see `euclideousLandscapeColumns`; portrait passes the container centre for `laneCentreX`). Portrait
 /// never uses A. Positions are solved with ONE clamp per group, so no combination of slides can leave two groups
-/// closer than their stated gap while the layout still "fits".
+/// closer than their stated gap while the layout still "fits". The RINGS (not the OUTPUTS group with its caption) are what
+/// centre on `laneCentreX` (spec §2.3), so the group's x is `laneCentreX − outputsLead − ringsSpan/2`, then clamped.
 func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX: CGFloat, laneCentreX: CGFloat) -> EuclideousHeaderLayout {
     typealias M = EuclideousHeaderMetrics
     let full = euclideousHeaderGroupWidths(compact: false)
@@ -4742,7 +4801,7 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
         // NOTES: on the riff panel's leading edge, slid left until it clears UTILITIES by sp16 — but never so far left
         // that the rings (and BRAND) lose their own room.
         let notesX = headerClamp(riffLeadingX, full.brand + full.outputs + 2 * full.gap, uX - full.gap - full.notes)
-        let ringsX = headerClamp(laneCentreX - full.outputs / 2, full.brand + full.gap, notesX - full.gap - full.outputs)
+        let ringsX = headerClamp(laneCentreX - full.outputsLead - full.ringsSpan / 2, full.brand + full.gap, notesX - full.gap - full.outputs)
         return EuclideousHeaderLayout(kind: .a, widths: full,
                                       brand: .init(x: 0, width: full.brand, row: 0), outputs: .init(x: ringsX, width: full.outputs, row: 0),
                                       notes: .init(x: notesX, width: full.notes, row: 0), utilities: .init(x: uX, width: full.utilities, row: 0))
@@ -4750,7 +4809,7 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
     let compact = containerW < bNeeds
     let w = compact ? euclideousHeaderGroupWidths(compact: true) : full
     let uX = containerW - w.utilities
-    let ringsX = headerClamp(laneCentreX - w.outputs / 2, w.brand + w.gap, uX - w.gap - w.outputs)
+    let ringsX = headerClamp(laneCentreX - w.outputsLead - w.ringsSpan / 2, w.brand + w.gap, uX - w.gap - w.outputs)
     return EuclideousHeaderLayout(kind: compact ? .c : .b, widths: w,
                                   brand: .init(x: 0, width: w.brand, row: 0), outputs: .init(x: ringsX, width: w.outputs, row: 0),
                                   notes: .init(x: 0, width: w.notes, row: 1), utilities: .init(x: uX, width: w.utilities, row: 0))

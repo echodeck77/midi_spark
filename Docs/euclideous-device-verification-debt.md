@@ -46,6 +46,16 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - Key pop-up anchored under the pill and chord grid anchored under the CHORDS segment: position and clamping in both
   orientations; the chord card fits below the header at 375pt.
 - C's 36pt icon targets are still comfortable.
+- Holding an OFF ring: the light disc with dashed quarters and an ink letter reads clearly (macOS render looked right;
+  confirm at 36pt on the iPad).
+- The OUT-circle pulse ring is no longer painted over by its neighbour, and expanding over the 3pt gaps still looks tidy;
+  tapping two rings with two fingers toggles both.
+- Ring flare vs the comet bar: the ring follows REAL strike events (not the comet bar's pattern+clock), so under SWING
+  they can differ by up to a quarter step, and AUTO-rate lanes use the comet bar's `rate ?? 1/16` step. Compare them with
+  swing at 75% and with a lane left on AUTO rate at a non-1/16 machine rate; if they visibly disagree, calibrate or share
+  one feed.
+- VoiceOver on a ring (iOS 17+ speaks "toggle"; iOS 16 speaks "button"): "Main out A, on, fed by lanes 1 and 4" is read
+  once, with no trailing duplicate "on".
 - A FRESH instance now plays immediately (no ON chip; free-run is always on; default lanes 1–2 use the KEY source,
   which needs no input) — is that acceptable, or should defaults ship with lanes stopped?
 
