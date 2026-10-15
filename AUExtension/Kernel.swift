@@ -14,6 +14,14 @@ import AVFoundation
 import CoreMIDI
 import os
 
+#if DEBUG
+private let debugMachTimebase: mach_timebase_info_data_t = { var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return t }()
+/// A host time (mach absolute time ticks) as seconds on the `CACurrentMediaTime` timeline — DEBUG device log only.
+private func debugHostSeconds(_ host: UInt64) -> Double {
+    Double(host) * Double(debugMachTimebase.numer) / Double(max(1, debugMachTimebase.denom)) / 1_000_000_000
+}
+#endif
+
 // KernelDiag moved to Diag.swift (Foundation-only) so Router can compile into the unit-test target.
 
 /// The LIVE emission seam: adapts the render engine's Foundation-only `MIDIEmitter` protocol onto the
@@ -1027,6 +1035,11 @@ final class Kernel {
                         beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
         } else {
         // ---- hand off to the router (columns, arp, emission, note tracker) — output through the recording tap ----
+        #if DEBUG
+        // DEVICE LOG (walk-tags ferry 2026-10-15): stamp the window's first sample on the CACurrentMediaTime timeline so
+        // the Router can date each note-on for the page's "HIT lane step t" line. Debug builds only; two scalar writes.
+        router.debugWindowHostSeconds = timestamp.pointee.mFlags.contains(.hostTimeValid) ? debugHostSeconds(timestamp.pointee.mHostTime) : 0
+        #endif
         router.process(box: box, pool: pool,
                         playing: rPlaying, beatPos: rBeat, tempo: tempo, beatsPerBar: beatsPerBar,
                         sampleRate: sampleRate,

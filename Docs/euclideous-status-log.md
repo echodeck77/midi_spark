@@ -12,6 +12,74 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: Riff-grid walk tags with threads" (2026-10-15, ratified by Paul: he chose THREAD from three
+  motion styles; on `feature/processor-live-sweep`; macOS suite green, iOS builds clean; ALL visuals/timing DEVICE-OWED —
+  the painters were rendered to PNG on macOS for a geometry check, nothing here has been seen or heard on the iPad).**
+  Each riff-on lane now draws an arrow-shaped TAG on the shared riff grid (18×11pt pentagon, lane colour, 1.5pt INK
+  outline, point facing the lane's NEXT move) in its fixed corner seat, plus a THREAD (1.5pt lane colour @80% over a
+  3.5pt INK casing @90%) to the seat it takes at its next advance, ending in a 5pt dot (hollow 6pt ring when that advance
+  lands on a rest). At each advance the tag flies its thread (ease-out cubic-bezier(.2,.8,.2,1), 80ms or half the
+  interval if shorter) and ARRIVES at the advance's scheduled time — it departs BEFORE the hit. SUPERSEDES the 2026-10-13
+  corner chip + triangle (removed). **PREREQUISITE (the 14 Oct "arrows move late" item):** the old `riffMarker` @State +
+  20Hz `riffMarkerTimer` + `updateRiffMarkers()` are DELETED — a tag has no retained state; every frame it is re-derived
+  from the polled step (`riffPositions`, the SAME value the RIFF-tab thumbnail reads) and the live beat, in the same
+  render as the thumbnail, no debounce. **HOW THE EARLY DEPARTURE WORKS:** `Derivations.swift` gains a pure MIRROR of
+  `runEuclidLine`'s tick arithmetic (`euclideousWalkTick`: phase/localT/raw/hitsUpTo/ord/advOrd → played step, incl.
+  per-lane RESET, global reset span, LOCK, ADV STEP, FOLLOW's borrowed pattern/rate, swing) so the next hit's step AND its
+  real onset beat are predicted. `RouterTests.testWalkTagMirrorMatchesTheEnginesOwnWalkAcrossConfigurations` runs the
+  REAL router over 12 walk configurations × 4 end-beats and checks the polled step + ordinal against the mirror — the
+  guard against the two drifting. **THE POLL STAYS THE AUTHORITY:** a flight is only animated when the prediction
+  agrees with the polled step (the predicted landing, the next hit — the engine renders slightly ahead — or the previous
+  one for ≤150ms of poll lag); otherwise the tag just sits on the polled step with no thread (so WITH/GAPS-filtered lanes,
+  a stalled walk, or an edit mid-flight degrade to a static tag rather than a wrong one). **GEOMETRY:** seats are
+  corner-anchored (insets 2/2.5pt), reproducing the ferry's table exactly at the 42.5×29 reference block; smaller blocks
+  scale the whole tag down proportionally (`euclideousTagScale`, NOT in the spec — a guard so a corner tag can't overflow
+  a ~26pt landscape cell); bigger blocks never enlarge it. A wrap (FWD last→first, REV first→last, a wrapping STRIDE) is
+  drawn as an exit piece (tag height, to 2pt past the end block the walk actually visits — computed from LEN/NUDGE/STRIDE)
+  and an entry piece (2pt before the other end, at the destination's height); a LOCK/reset restart is ONE straight
+  thread, never a wrap; a zero-length move has no thread/dot. A rest sits hollow at the last note's height (nearest note
+  behind in walk order if none has played; empty riff → no tag). PEND/PING turns flip the tag about its centre
+  (scaleX 1→0→−1, 100ms, 20ms after landing). **FILES:** `WalkTagPainter.swift` (new, SwiftUI-only — the Canvas painters,
+  kept out of the page so a macOS harness could render them); `EuclideousPage.swift` (one `TimelineView`+`Canvas` overlay
+  in `riffGridView`, threads then tags, lane order; `riffGridCell` keeps only the fill + VoiceOver label); `EuclidLiveClock`
+  gained `swing` (default 50, only the tags read it). **DEBUG DEVICE LOG** (`#if DEBUG`): `ARRIVE lane step t` /
+  `HIT lane step t` (1-based; t = seconds on the CACurrentMediaTime timeline). ARRIVE = the tag's PREDICTED landing on
+  the UI clock. HIT = the note-on as the ENGINE stamped it on the host clock (Kernel stamps each window's `mHostTime` →
+  Router → the NOTE VIEW event's `hostSeconds`; `HIT~` marks the UI-clock fallback when the host gave no valid host time,
+  which says nothing about the engine). Only hits that PLAY have a HIT (a rest raises no engine event).
+  **ADVERSARIAL REVIEW (same session, against the ferry text) — FIXED:** (1) a PEND/PING turn flip was cut short when a
+  fast lane set off again before the flip finished — it now carries through the flight; (2) the hollow tag's "last note
+  played" height was found by walking ORDINALS back, wrong under ADV STEP (ordinals tick on non-hits) and across a
+  LOCK/reset restart — it now walks the lane's real earlier hits; (3) a poll lagging by more than one hit on a very fast
+  lane degraded to a static tag — now tolerated for 150ms per hit. ADDED: `testWalkTagPredictedOnsetsMatchTheEngines
+  NoteOnSamples` (the ferry's core claim: predicted arrival == the engine's emitted note-on sample, swing 50/62/75, within
+  0.002 beat — it first FAILED because a 1-note pool folds ranks 7–8 above MIDI 127 so those hits are silent, a test-setup
+  error not a mirror error), a FOLLOW-lane mirror test, and a cross-check of the mirror against the lane footer.
+  **FOUND, NOT FIXED (outside "footers stay as built"):** the lane FOOTER disagrees with the engine under LOCK + ADV STEP
+  when the lap's first hit isn't on tick 0 — `euclideousRiffLapBaseline` returns startOrd 0 for any locked lane and the
+  prediction subtracts the first hit's tick, while the engine feeds the walk the lap-local tick itself. The tags follow
+  the engine (verified), so there the tag and the footer will show different steps. **OPEN RISKS, stated plainly:** (a)
+  THE 17ms BAR IS NOT GUARANTEED BY CONSTRUCTION. Everything is exact in the engine's own beat domain, but the UI clock is
+  `meters.beatAnchor` + elapsed, and `syncBeat`'s own comment says that anchor bakes in render/output latency + main-thread
+  jitter and is re-baked at every transport start / tempo change / >0.25-beat jump. So ARRIVE − HIT may show a constant
+  offset (tens of ms) that changes per transport start; fixing it needs either a calibration constant read off the log or
+  the Kernel publishing per-window host time in release builds (a render-path change I did not make unasked). (b) The tag
+  can differ from the RIFF-tab thumbnail for ≤ one flight (≤80ms): the thumbnail shows the polled step the moment the
+  engine renders the hit, the tag arrives on the UI clock. (c) WITH/GAPS filter ticks the engine skips but the mirror
+  (like the footer) counts as hits, so those lanes mostly show static tags. (d) the old glyph's stride cue (extra
+  arrowheads / a number) is gone — the ferry removes the chip and triangle and names nothing in its place; stride now
+  shows only as thread length. (e) I could NOT find the text of item 2 of the 14 Oct ferry anywhere in this machine's
+  session transcripts; I treated the prerequisite as "tag and thumbnail read the same polled step with no retained/
+  debounced state", which is what I built. **DISCLOSED JUDGMENT CALLS:** wrap flight = two half-moves, each eased (exit
+  fades out by 50%, entry fades back in); the turn flip is linear in scaleX; "walk direction" is measured in walk space
+  (pre-NUDGE) and a wrap is decided in display space; the hollow-dot ring geometry (r 1.5–3.0 lane, 3.0–4.0 INK) is my
+  reading of "6pt, 1.5pt ring, 1pt INK outside". **TESTS (+30 Derivations, +3 Router):** the ferry's §6 tables (rects,
+  FWD/REV/PEND/PING facing, thread/rest/wrap/LEN-5/zero-length/stopped, timing 0.25s→depart H−0.080 / 0.10s→H−0.050), plus
+  rest height, empty riff, poll disagreement, swing onset, wrap fade, turn flip (+ through a flight), footer agreement,
+  played-note height; Router: mirror vs engine over 12 walk configurations × 4 end-beats, the FOLLOW lane, and engine
+  note-on samples vs predicted arrivals. **DEVICE-OWED:** the whole look at real cell size; ARRIVE vs HIT within 17ms on a
+  running lane (swing 50 and swung — expect to need the calibration in risk (a)); that WITH/GAPS/SHADOW lanes read
+  acceptably as static tags; CPU of the 60fps overlay.
 - **▶ EUCLIDEOUS — "FERRY: riff icon redesign," the bar-chart outline replaced with a literal mini riff grid
   (2026-10-14, on `fix/euclid-no-scroll-direction-order-2x2-grid`; iOS builds clean; UI-only, no macOS test-
   target reach — EuclideousPage.swift, as always for this page). Replaces `riffOutlineBars` (the bar-chart

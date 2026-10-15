@@ -3999,3 +3999,441 @@ func roomsStampSource(auditionEdited: [ProcessorSlot]?,
     if let s = sideRow { return s }                           // the aimed side-button's part row
     return nil
 }
+
+// MARK: - RIFF-GRID WALK TAGS WITH THREADS (ferry "Riff-grid walk tags with threads", ratified by Paul 2026-10-15)
+//
+// Each riff-on lane draws an arrow-shaped TAG on the shared riff grid (replacing the dark chip + small
+// triangle), pointing the way its walk is about to move, with a THREAD to the seat it will take at its next
+// advance. At each advance the tag travels its thread and ARRIVES exactly at the advance's scheduled time —
+// so it departs BEFORE the hit, which is only possible because the schedule is PREDICTED here (a pure mirror of
+// `Router.runEuclidLine`'s own tick/ordinal/walk arithmetic) rather than learned from the poll. Everything in
+// this section is Foundation-only, pure and stateless: the page re-derives the whole picture from the live beat
+// every frame, so there is no retained tag state to drift out of step with the thumbnail (the prerequisite).
+//
+// The polled step (`riffPositions`, the SAME value the RIFF-tab thumbnail reads) stays the authority for where a
+// lane IS: `euclideousWalkTagPlan` only animates a flight when the prediction agrees with it (±1 hit of poll
+// latency/lead); otherwise the tag simply sits on the polled step with no thread.
+
+enum EuclideousTagMetrics {
+    static let refBlockW: CGFloat = 42.5
+    static let refBlockH: CGFloat = 29
+    static let tagW: CGFloat = 18
+    static let tagH: CGFloat = 11
+    static let bodyW: CGFloat = 13
+    static let pointW: CGFloat = 5
+    static let insetX: CGFloat = 2
+    static let insetY: CGFloat = 2.5
+    static let wrapOvershoot: CGFloat = 2
+    /// Longest a flight may take; a short interval caps it at half the time since the lane's previous advance.
+    static let flightMaxSeconds: Double = 0.080
+    static let turnDelaySeconds: Double = 0.020
+    static let turnSeconds: Double = 0.100
+    /// How long the polled step may trail the predicted landing before the prediction is distrusted.
+    static let pollLagGraceSeconds: Double = 0.150
+}
+
+/// 1 at (or above) the reference 42.5 × 29pt block; smaller blocks scale the whole tag (and its seat insets)
+/// down proportionally so a corner tag can never overflow its own block. Not part of the ratified spec — the spec
+/// only gives the reference size — so it is a no-op wherever the spec's numbers apply.
+func euclideousTagScale(blockW: CGFloat, blockH: CGFloat) -> CGFloat {
+    max(0.1, min(1, min(blockW / EuclideousTagMetrics.refBlockW, blockH / EuclideousTagMetrics.refBlockH)))
+}
+
+/// The lane's tag seat inside a block, relative to the block's top-left. Lane 0 top-left, 1 top-right, 2
+/// bottom-left, 3 bottom-right (the lane-card grid's own corners). Reference block: red (2,2.5), blue (22.5,2.5),
+/// yellow (2,15.5), green (22.5,15.5), each 18 × 11.
+func euclideousTagRect(lane: Int, blockW: CGFloat, blockH: CGFloat) -> CGRect {
+    let s = euclideousTagScale(blockW: blockW, blockH: blockH)
+    let w = EuclideousTagMetrics.tagW * s, h = EuclideousTagMetrics.tagH * s
+    let ix = EuclideousTagMetrics.insetX * s, iy = EuclideousTagMetrics.insetY * s
+    let l = posMod(lane, 4)
+    let right = (l == 1 || l == 3), bottom = (l == 2 || l == 3)
+    return CGRect(x: right ? blockW - ix - w : ix, y: bottom ? blockH - iy - h : iy, width: w, height: h)
+}
+func euclideousTagCentre(lane: Int, blockW: CGFloat, blockH: CGFloat) -> CGPoint {
+    let r = euclideousTagRect(lane: lane, blockW: blockW, blockH: blockH)
+    return CGPoint(x: r.midX, y: r.midY)
+}
+/// Centre of `lane`'s seat on the block at (`col` 0…7, `rank` 1…8; rank 8 is the top row), in the riff grid's
+/// own coordinate space (top-left of the matrix = origin).
+func euclideousTagSeatCentre(lane: Int, col: Int, rank: Int, cellW: CGFloat, cellH: CGFloat, gap: CGFloat) -> CGPoint {
+    let c = euclideousTagCentre(lane: lane, blockW: cellW, blockH: cellH)
+    return CGPoint(x: CGFloat(col) * (cellW + gap) + c.x, y: CGFloat(8 - rank) * (cellH + gap) + c.y)
+}
+
+/// CSS-style cubic-bezier easing (x → y) through (0,0),(x1,y1),(x2,y2),(1,1) — the ferry's ease-out is
+/// (0.2, 0.8, 0.2, 1). Solves x(t) = x by bisection (x(t) is monotonic for these control points).
+func euclideousCubicBezierEase(_ x1: Double, _ y1: Double, _ x2: Double, _ y2: Double, _ x: Double) -> Double {
+    if x <= 0 { return 0 }
+    if x >= 1 { return 1 }
+    func b(_ t: Double, _ p1: Double, _ p2: Double) -> Double { let u = 1 - t; return 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t }
+    var lo = 0.0, hi = 1.0, t = x
+    for _ in 0..<48 {
+        let v = b(t, x1, x2)
+        if abs(v - x) < 1e-10 { break }
+        if v < x { lo = t } else { hi = t }
+        t = (lo + hi) / 2
+    }
+    return b(t, y1, y2)
+}
+func euclideousTagEase(_ u: Double) -> Double { euclideousCubicBezierEase(0.2, 0.8, 0.2, 1, u) }
+
+/// Seconds a flight takes: 80ms, or half the time since the lane's previous advance if that is shorter.
+func euclideousTagFlightDuration(previousAdvance p: Double?, nextAdvance h: Double) -> Double {
+    guard let p else { return EuclideousTagMetrics.flightMaxSeconds }
+    return max(0, min(EuclideousTagMetrics.flightMaxSeconds, (h - p) / 2))
+}
+enum EuclideousTagPhase: Equatable {
+    case seated                    // on its seat, thread showing (from the previous advance until departure)
+    case inFlight(raw: Double)     // travelling; raw is linear 0…1 over the flight, un-eased
+    case landed                    // at/after the scheduled advance — the caller re-plans from here
+}
+/// All times in seconds on one clock. Departure = next − duration; arrival = next (the advance's scheduled time).
+func euclideousTagPhase(now: Double, previousAdvance p: Double?, nextAdvance h: Double) -> EuclideousTagPhase {
+    let d = euclideousTagFlightDuration(previousAdvance: p, nextAdvance: h)
+    let depart = h - d
+    if now < depart { return .seated }
+    if now < h { return .inFlight(raw: d > 0 ? (now - depart) / d : 1) }
+    return .landed
+}
+
+// ── the engine mirror ───────────────────────────────────────────────────────────────────────────────
+
+/// Everything `Router.runEuclidLine` reads to decide, for an absolute tick, whether it is a hit and which riff
+/// step the walk lands on.
+struct EuclideousWalkLaneConfig {
+    var buf: [Bool]                 // the finished pattern (post FOLLOW / OFFSET / TILT / INV)
+    var n: Int
+    var dir: EuclidDir
+    var sub: Double                 // beats per tick (the lane's rate, × the FOLLOW multiplier)
+    var spanBeats: Double = 0       // RESET span in beats; 0 = free-run
+    var resetSteps: Int = 0         // per-lane sequencer RESET (steps); >0 selects the looped origin
+    var loopStepBeats: Double = 0
+    var loopSteps: Int = 8
+    var riffDir: RiffDir = .forward
+    var stride: Int = 1
+    var length: Int = 8
+    var rotate: Int = 0
+    var locked: Bool = false        // LOCK
+    var advanceStep: Bool = false   // ADV STEP
+    var seed: UInt64 = 0
+    /// SWING: the engine ticks in MUSICAL beats and maps each tick's onset to real time through `realOf`
+    /// (`a` = swing% / 50, `swingStepBeats` = the scene's step beats). `a == 1` (50%) is the identity.
+    var swingA: Double = 1
+    var swingStepBeats: Double = 0.5
+}
+
+func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, resetSpanBars: Int,
+                              lanesSeqRate: EuclideousSeqRate, lanesSeqLen: Int,
+                              defaultRateBeats: Double = 0.25, swingPercent: Double = 50, stepBeats: Double = 0.5) -> EuclideousWalkLaneConfig? {
+    guard lane >= 0, lane < lines.count else { return nil }
+    let L = lines[lane]
+    let followIdx = L.listenRhythmPartnerResolved
+    let follow = L.listenRhythmMode == .follow && followIdx >= 0 && followIdx < lines.count
+    var buf: [Bool]; let n: Int; let sub: Double
+    if follow {
+        // Mirrors Router: the partner's finished pattern + step count, then THIS lane's own OFFSET / INV on top.
+        let partner = lines[followIdx]
+        let pb = euclideousBuildPattern(partner)
+        buf = pb.buf; n = pb.n
+        euclidRotateBuffer(&buf, steps: n, rotation: L.rotate)
+        if L.patternMissResolved { for i in 0..<n { buf[i].toggle() } }
+        sub = (partner.rate?.beats ?? defaultRateBeats) * L.listenFollowRatioResolved
+    } else {
+        let b = euclideousBuildPattern(L)
+        buf = b.buf; n = b.n
+        sub = L.rate?.beats ?? defaultRateBeats
+    }
+    let lanesStepBeats = lanesSeqRate.barsFraction * cyc
+    let resetSteps = L.resetStepsResolved
+    let spanBeats = resetSteps > 0 ? Double(resetSteps) * lanesStepBeats : (resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0)
+    return EuclideousWalkLaneConfig(buf: buf, n: n, dir: L.directionResolved, sub: sub, spanBeats: spanBeats,
+                                    resetSteps: resetSteps, loopStepBeats: lanesStepBeats, loopSteps: lanesSeqLen,
+                                    riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: L.riffLengthResolved,
+                                    rotate: L.riffRotateResolved, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved,
+                                    seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)),
+                                    swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats))
+}
+/// A tick's REAL onset beat — what the note-on is scheduled at (swing-warped), the time a tag must arrive.
+func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Double {
+    let m = Double(tick) * c.sub
+    return c.swingA == 1 ? m : realOf(m, stepBeats: c.swingStepBeats, a: c.swingA)
+}
+
+struct EuclideousWalkTick: Equatable {
+    var isHit: Bool
+    var advOrd: Int64        // the ordinal fed to the walk (`euclideousRiffLastOrd` on the render side)
+    var playedStep: Int      // 0-based riff step (`euclideousRiffStep` on the render side)
+}
+/// One absolute tick, evaluated exactly the way `runEuclidLine` does (same `Double(tick) * sub` beat, same
+/// floor/mod arithmetic, same `hitsUpTo`/`ord`/`advOrd` formulas) — so the predicted schedule cannot drift from
+/// the engine's by anything but the clock itself.
+func euclideousWalkTick(_ c: EuclideousWalkLaneConfig, tick: Int64) -> EuclideousWalkTick {
+    let n = c.n
+    let cycleLen = euclidCycleLen(c.dir, n: n)
+    var cycleHits = 0
+    for s in 0..<cycleLen where c.buf[euclidReadIndex(s, n: n, dir: c.dir)] { cycleHits += 1 }
+    let effHits = Int64(max(1, cycleHits))
+    let tickBeat = Double(tick) * c.sub
+    let phaseBeat: Double
+    if c.resetSteps > 0 {
+        phaseBeat = tickBeat - euclideousLoopedResetOrigin(beat: tickBeat, stepBeats: c.loopStepBeats, resetSteps: c.resetSteps, loopSteps: c.loopSteps)
+    } else {
+        phaseBeat = c.spanBeats > 0 ? (tickBeat - columnStart(tickBeat, c.spanBeats)) : tickBeat
+    }
+    let localT = Int64((phaseBeat / c.sub).rounded(.down))
+    let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
+    let isHit = c.buf[euclidReadIndex(raw, n: n, dir: c.dir)]
+    let cy = (localT - Int64(raw)) / Int64(cycleLen)
+    var hitsUpTo = 0
+    for s in 0...raw where c.buf[euclidReadIndex(s, n: n, dir: c.dir)] { hitsUpTo += 1 }
+    let ord = cy * effHits + Int64(hitsUpTo - 1)
+    let adv: Int64 = c.advanceStep ? (c.locked ? Int64(raw) : localT) : (c.locked ? Int64(hitsUpTo - 1) : ord)
+    return EuclideousWalkTick(isHit: isHit, advOrd: adv, playedStep: euclideousWalkStep(c, ord: adv))
+}
+/// The riff step (0-based, post-NUDGE) the walk lands on at ordinal `ord`.
+func euclideousWalkStep(_ c: EuclideousWalkLaneConfig, ord: Int64) -> Int {
+    riffRotateStep(riffStepAt(c.riffDir, raw: Int(ord) * c.stride, steps: max(1, c.length), seed: c.seed), by: c.rotate, steps: max(1, c.length))
+}
+/// The walk position BEFORE NUDGE — the axis "up the steps / down the steps" is measured on.
+private func euclideousWalkPos(_ c: EuclideousWalkLaneConfig, ord: Int64) -> Int {
+    riffStepAt(c.riffDir, raw: Int(ord) * c.stride, steps: max(1, c.length), seed: c.seed)
+}
+
+/// Hit ticks around `beat`: `prev` is newest-first (the first is the latest hit at or before `beat`), `next` is
+/// oldest-first (the first is the next hit strictly after it). Bounded, so an all-rest pattern returns empty.
+func euclideousWalkScanHits(_ c: EuclideousWalkLaneConfig, beat: Double, back: Int, ahead: Int) -> (prev: [Int64], next: [Int64]) {
+    guard c.sub > 0, c.n > 0 else { return ([], []) }
+    // `beat` is REAL; ticks live in musical beats — map it across the swing warp first (monotonic, so the last
+    // tick whose real onset is ≤ `beat` is the one whose musical beat is the last ≤ musicalOf(beat)).
+    let mBeat = c.swingA == 1 ? beat : musicalOf(beat, stepBeats: c.swingStepBeats, a: c.swingA)
+    let k0 = Int64((mBeat / c.sub).rounded(.down))
+    let cap = Int64(euclidCycleLen(c.dir, n: c.n) * 4 + 16)
+    var prev: [Int64] = [], next: [Int64] = []
+    var k = k0, scanned: Int64 = 0
+    while prev.count < back && scanned < cap {
+        if euclideousWalkTick(c, tick: k).isHit { prev.append(k) }
+        k -= 1; scanned += 1
+    }
+    k = k0 + 1; scanned = 0
+    while next.count < ahead && scanned < cap {
+        if euclideousWalkTick(c, tick: k).isHit { next.append(k) }
+        k += 1; scanned += 1
+    }
+    return (prev, next)
+}
+
+/// The leftmost / rightmost displayed steps (0-based) the lane's walk ever lands on, as the walk itself computes
+/// them from direction, LEN, NUDGE and STRIDE — the "loop's end blocks" a wrap thread runs out past.
+func euclideousWalkVisitedRange(dir: RiffDir, length: Int, stride: Int, rotate: Int) -> (min: Int, max: Int) {
+    let len = max(1, length)
+    var lo = Int.max, hi = Int.min
+    for ord in 0..<(2 * 8 * 7 + 2 * len) {
+        let pos = riffStepAt(dir, raw: ord * stride, steps: len, seed: 0)
+        let s = riffRotateStep(pos, by: rotate, steps: len)
+        lo = Swift.min(lo, s); hi = Swift.max(hi, s)
+    }
+    return (lo, hi)
+}
+
+// ── the plan ────────────────────────────────────────────────────────────────────────────────────────
+
+struct EuclideousTagDest: Equatable { var step: Int; var rank: Int; var isRest: Bool }
+struct EuclideousWalkTagPlan: Equatable {
+    var seatStep: Int            // 0-based column the tag sits in
+    var seatRank: Int            // 1…8 row (a rest keeps the last note's row)
+    var seatIsRest: Bool         // drawn hollow
+    var facingRight: Bool        // the point faces the lane's next move
+    var turned: Bool             // the next move reverses the last one (PEND / PING)
+    var dest: EuclideousTagDest? // where the next advance lands (nil when nothing is scheduled)
+    var isWrap: Bool
+    var isReset: Bool
+    var landedSeconds: Double?   // the previous advance, relative to "now" (≤ 0)
+    var nextSeconds: Double?     // the next advance, relative to "now" (> 0)
+    var landedTick: Int64?
+    var visitedMin: Int
+    var visitedMax: Int
+}
+
+/// `ranks` is the playing riff's rank per step (0 = rest). `polledStep` is the lane's live step (the SAME value
+/// the RIFF-tab thumbnail reads; < 0 = not started). `running` = transport playing AND the lane playing. Returns
+/// nil when there is nothing to draw (not started, or the riff has no notes on the steps the walk visits).
+func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Double, secondsPerBeat spb: Double,
+                           polledStep: Int, running: Bool) -> EuclideousWalkTagPlan? {
+    guard polledStep >= 0 else { return nil }
+    let len = max(1, min(8, cfg.length))
+    func rankAt(_ s: Int) -> Int { s >= 0 && s < ranks.count ? max(0, min(8, ranks[s])) : 0 }
+    guard (0..<len).contains(where: { rankAt($0) >= 1 }) else { return nil }   // empty riff: no tag
+    let vis = euclideousWalkVisitedRange(dir: cfg.riffDir, length: len, stride: cfg.stride, rotate: cfg.rotate)
+
+    // A tag sitting on the polled step with nothing scheduled: stopped transport, stopped lane, no hits, or a
+    // prediction the poll doesn't corroborate.
+    func staticPlan() -> EuclideousWalkTagPlan? {
+        let step = min(polledStep, 7)
+        let right = cfg.riffDir != .reverse
+        var rank = rankAt(step)
+        let rest = rank == 0
+        if rest {
+            var found = 0
+            for j in 1...len {
+                let r = rankAt(posMod(step + (right ? -j : j), len))
+                if r >= 1 { found = r; break }
+            }
+            guard found >= 1 else { return nil }
+            rank = found
+        }
+        return EuclideousWalkTagPlan(seatStep: step, seatRank: rank, seatIsRest: rest, facingRight: right, turned: false, dest: nil,
+                                     isWrap: false, isReset: false, landedSeconds: nil, nextSeconds: nil, landedTick: nil,
+                                     visitedMin: vis.min, visitedMax: vis.max)
+    }
+    guard running, cfg.sub > 0, spb > 0 else { return staticPlan() }
+    let scan = euclideousWalkScanHits(cfg, beat: beat, back: 5, ahead: 1)
+    guard let pTick = scan.prev.first, let hTick = scan.next.first else { return staticPlan() }
+    let tP = euclideousWalkTick(cfg, tick: pTick), tH = euclideousWalkTick(cfg, tick: hTick)
+    let secP = (euclideousWalkRealBeat(cfg, tick: pTick) - beat) * spb
+    let secH = (euclideousWalkRealBeat(cfg, tick: hTick) - beat) * spb
+
+    // Poll corroboration: the polled step must be the predicted landing, or the next one (the engine renders a
+    // little ahead of the UI clock), or — for a short while — the one before (poll latency).
+    // (A very fast lane can leave the poll more than one hit behind, so each earlier hit is allowed while the hit
+    // AFTER it is still within the grace window.)
+    let lagOK: Bool = {
+        for j in 1..<max(1, min(4, scan.prev.count)) {
+            let sinceNewer = (beat - euclideousWalkRealBeat(cfg, tick: scan.prev[j - 1])) * spb
+            if sinceNewer < EuclideousTagMetrics.pollLagGraceSeconds && polledStep == euclideousWalkTick(cfg, tick: scan.prev[j]).playedStep { return true }
+        }
+        return false
+    }()
+    guard polledStep == tP.playedStep || polledStep == tH.playedStep || lagOK else { return staticPlan() }
+
+    // Heights. A rest keeps the row of the last note the walk played; none ever played ⇒ nearest note behind.
+    func heldRank(before ord: Int64) -> Int? {
+        // The last note the lane actually PLAYED: walk back through its real earlier hits (correct under ADV STEP,
+        // where ordinals also tick on non-hits, and across a LOCK/reset restart, where they jump back to 0).
+        for t in scan.prev.dropFirst() {
+            let r = rankAt(euclideousWalkTick(cfg, tick: t).playedStep)
+            if r >= 1 { return r }
+        }
+        // None in the recent hits (a long run of rests, or the lane has barely started): the nearest note behind in
+        // walk order.
+        for j in 1...(2 * len + 2) {
+            let r = rankAt(euclideousWalkStep(cfg, ord: ord - Int64(j)))
+            if r >= 1 { return r }
+        }
+        return nil
+    }
+    let seatStep = tP.playedStep
+    var seatRank = rankAt(seatStep)
+    let seatIsRest = seatRank == 0
+    if seatIsRest { guard let held = heldRank(before: tP.advOrd) else { return nil }; seatRank = held }
+    let destStep = tH.playedStep
+    let destRankRaw = rankAt(destStep)
+    let dest = EuclideousTagDest(step: destStep, rank: destRankRaw >= 1 ? destRankRaw : seatRank, isRest: destRankRaw == 0)
+    let isReset = tH.advOrd <= tP.advOrd
+
+    // Facing: the direction of each move across the recent hits, carrying the previous facing through zero-length
+    // moves (PING's repeated end step) — and, for a restart, the direction the walk WOULD have gone.
+    let seq = Array(scan.prev.reversed()) + [hTick]
+    let ords: [Int64] = seq.map { euclideousWalkTick(cfg, tick: $0).advOrd }
+    func moveFacing(_ a: Int64, _ b: Int64, reset: Bool) -> Bool? {
+        switch cfg.riffDir {
+        case .forward, .random, .drunk: return true
+        case .reverse: return false
+        case .pendulum, .pingpong:
+            let d = euclideousWalkPos(cfg, ord: reset ? a + 1 : b) - euclideousWalkPos(cfg, ord: a)
+            return d > 0 ? true : (d < 0 ? false : nil)
+        }
+    }
+    var facings: [Bool] = []
+    var carry = true
+    for i in 0..<(seq.count - 1) {
+        if let f = moveFacing(ords[i], ords[i + 1], reset: ords[i + 1] <= ords[i]) { carry = f }
+        facings.append(carry)
+    }
+    let facingRight = facings.last ?? true
+    let prevFacing = facings.count >= 2 ? facings[facings.count - 2] : facingRight
+
+    // Wrap (display space): the move heads one way but its destination lies the other way, so the thread leaves
+    // by the end of the loop and re-enters at the other. A restart is never a wrap.
+    let isWrap = !isReset && ((facingRight && destStep < seatStep) || (!facingRight && destStep > seatStep))
+    return EuclideousWalkTagPlan(seatStep: seatStep, seatRank: seatRank, seatIsRest: seatIsRest, facingRight: facingRight,
+                                 turned: prevFacing != facingRight, dest: dest, isWrap: isWrap, isReset: isReset,
+                                 landedSeconds: secP, nextSeconds: secH, landedTick: pTick,
+                                 visitedMin: vis.min, visitedMax: vis.max)
+}
+
+// ── thread geometry + motion ────────────────────────────────────────────────────────────────────────
+
+struct EuclideousThreadSegment: Equatable { var from: CGPoint; var to: CGPoint }
+struct EuclideousThreadGeometry: Equatable {
+    var segments: [EuclideousThreadSegment]   // one straight line, or [exit piece, entry piece] for a wrap
+    var dot: CGPoint
+    var hollowDot: Bool
+    var isWrap: Bool
+}
+/// nil = no thread (nothing scheduled, or a zero-length move: the destination is the current seat).
+func euclideousThreadGeometry(lane: Int, plan: EuclideousWalkTagPlan, cellW: CGFloat, cellH: CGFloat, gap: CGFloat) -> EuclideousThreadGeometry? {
+    guard let d = plan.dest else { return nil }
+    if d.step == plan.seatStep && d.rank == plan.seatRank { return nil }
+    let from = euclideousTagSeatCentre(lane: lane, col: plan.seatStep, rank: plan.seatRank, cellW: cellW, cellH: cellH, gap: gap)
+    let to = euclideousTagSeatCentre(lane: lane, col: d.step, rank: d.rank, cellW: cellW, cellH: cellH, gap: gap)
+    guard plan.isWrap else {
+        return EuclideousThreadGeometry(segments: [EuclideousThreadSegment(from: from, to: to)], dot: to, hollowDot: d.isRest, isWrap: false)
+    }
+    let pitch = cellW + gap, over = EuclideousTagMetrics.wrapOvershoot
+    let rightEdge = CGFloat(plan.visitedMax) * pitch + cellW + over
+    let leftEdge = CGFloat(plan.visitedMin) * pitch - over
+    let exitX = plan.facingRight ? rightEdge : leftEdge
+    let entryX = plan.facingRight ? leftEdge : rightEdge
+    return EuclideousThreadGeometry(segments: [EuclideousThreadSegment(from: from, to: CGPoint(x: exitX, y: from.y)),
+                                               EuclideousThreadSegment(from: CGPoint(x: entryX, y: to.y), to: to)],
+                                    dot: to, hollowDot: d.isRest, isWrap: true)
+}
+/// Where the tag is, and how opaque, `raw` (0…1, linear) of the way through a flight. A straight move eases along
+/// the one line; a wrap travels the exit piece fading out over the first half, then the entry piece fading back in.
+func euclideousTagFlightPose(_ g: EuclideousThreadGeometry, raw: Double) -> (centre: CGPoint, opacity: Double) {
+    func lerp(_ s: EuclideousThreadSegment, _ e: Double) -> CGPoint {
+        CGPoint(x: s.from.x + (s.to.x - s.from.x) * CGFloat(e), y: s.from.y + (s.to.y - s.from.y) * CGFloat(e))
+    }
+    let r = max(0, min(1, raw))
+    if !g.isWrap || g.segments.count < 2 { return (lerp(g.segments[0], euclideousTagEase(r)), 1) }
+    if r <= 0.5 { let u = r * 2; return (lerp(g.segments[0], euclideousTagEase(u)), 1 - u) }
+    let u = (r - 0.5) * 2
+    return (lerp(g.segments[1], euclideousTagEase(u)), u)
+}
+
+struct EuclideousTagDrawing: Equatable {
+    var centre: CGPoint
+    var hollow: Bool
+    var pointsRight: Bool
+    var scaleX: Double                           // 1 normally; sweeps 1 → 0 → −1 across a turn
+    var opacity: Double
+    var thread: EuclideousThreadGeometry?        // only while seated with a move scheduled
+}
+/// One lane, one instant: the plan's time offsets are already relative to "now" (landed ≤ 0 < next).
+func euclideousTagDrawing(lane: Int, plan: EuclideousWalkTagPlan, cellW: CGFloat, cellH: CGFloat, gap: CGFloat) -> EuclideousTagDrawing {
+    let seat = euclideousTagSeatCentre(lane: lane, col: plan.seatStep, rank: plan.seatRank, cellW: cellW, cellH: cellH, gap: gap)
+    var out = EuclideousTagDrawing(centre: seat, hollow: plan.seatIsRest, pointsRight: plan.facingRight, scaleX: 1, opacity: 1, thread: nil)
+    guard let nextS = plan.nextSeconds else { return out }
+    let geo = euclideousThreadGeometry(lane: lane, plan: plan, cellW: cellW, cellH: cellH, gap: gap)
+    // TURN: on landing, a horizontal flip about the tag's own centre — begins 20ms after arrival, lasts 100ms. A fast
+    // lane can set off again before the flip is done, so it carries on through the flight rather than snapping.
+    if plan.turned, let landed = plan.landedSeconds {
+        let since = -landed
+        if since < EuclideousTagMetrics.turnDelaySeconds + EuclideousTagMetrics.turnSeconds {
+            out.pointsRight = !plan.facingRight   // still the old way round until the flip completes
+            if since >= EuclideousTagMetrics.turnDelaySeconds {
+                out.scaleX = 1 - 2 * (since - EuclideousTagMetrics.turnDelaySeconds) / EuclideousTagMetrics.turnSeconds
+            }
+        }
+    }
+    switch euclideousTagPhase(now: 0, previousAdvance: plan.landedSeconds, nextAdvance: nextS) {
+    case .seated:
+        out.thread = geo
+    case .inFlight(let raw):
+        if let geo { let pose = euclideousTagFlightPose(geo, raw: raw); out.centre = pose.centre; out.opacity = pose.opacity }
+    case .landed:
+        break
+    }
+    return out
+}

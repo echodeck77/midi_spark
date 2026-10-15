@@ -239,6 +239,13 @@ the same pipeline as any other row; it is not a special-cased render path.
   reserved placeholder box), proportionally sized — no literal pixel formula survives from any
   mockup; every size claim in the log is reasoned-from-the-layout-model, not measured against a
   real screen, unless explicitly marked device-confirmed.
+- **Riff-grid walk tags (2026-10-15).** Each riff-on lane's marker on the shared riff grid is a STATELESS
+  tag + thread: every frame it is re-derived from the polled step (`riffPositions`, the same value the RIFF-tab
+  thumbnail reads) and the live beat, via a pure mirror of `runEuclidLine`'s tick arithmetic
+  (`euclideousWalkTick`, Derivations.swift) — that mirror is what lets a tag depart BEFORE the hit. If you change
+  how the walk advances in `Router.runEuclidLine` (ordinal, LOCK, ADV STEP, RESET, FOLLOW, swing), change the
+  mirror too — `RouterTests.testWalkTag*` compare the two against the real router and will fail if they drift.
+  Open timing risk (UI clock vs audible time) and known footer/engine disagreement: see the status log entry.
 - **Recurring bug class, worth knowing before touching playhead/indicator code:** a UI
   indicator reading a DIFFERENT clock/formula than the one the engine actually uses to decide
   what sounds — hit repeatedly across RATCHET, DEST, the per-lane mask step bar, the ARP-rate

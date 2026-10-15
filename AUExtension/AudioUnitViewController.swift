@@ -1070,7 +1070,7 @@ struct DiagView: View {
                                        au?.editDocument(coalesceKey: "euclideousChords") { $0.euclideousChords = c }
                                        buildPublishScene()
                                    },
-                                   clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying),
+                                   clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying, swing: Double(swing)),
                                    onEdit: { mutate in
                                        euclideousRecordUndo(coalesceKey: "euclideous")
                                        var lines = euclideousLines

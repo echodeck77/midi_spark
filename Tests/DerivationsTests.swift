@@ -3542,4 +3542,337 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousRateFromDivisionFeel(division: -1, feel: 0), .r1_1)
         XCTAssertEqual(euclideousRateFromDivisionFeel(division: 99, feel: 99), .r1_32t)
     }
+
+    // ── RIFF-GRID WALK TAGS WITH THREADS (ferry, ratified by Paul 2026-10-15) ───────────────────────────
+    // Reference block 42.5 × 29pt, 4pt gaps. Every lane below hits on EVERY tick (8 of 8) with sub = 0.25, so tick k
+    // is the lane's k-th hit and (FREE, ADV HIT) its walk ordinal is k — which lets a test name "the landing on
+    // ordinal k" directly. Ticks are taken well away from 0 so the scan's look-back never reaches a negative tick.
+    private let wtW: CGFloat = 42.5, wtH: CGFloat = 29, wtGap: CGFloat = 4
+    private func wtConfig(sub: Double = 0.25, dir: RiffDir = .forward, length: Int = 8, stride: Int = 1, rotate: Int = 0, locked: Bool = false, advanceStep: Bool = false) -> EuclideousWalkLaneConfig {
+        EuclideousWalkLaneConfig(buf: [Bool](repeating: true, count: 16), n: 8, dir: .fwd, sub: sub, riffDir: dir, stride: stride, length: length,
+                                 rotate: rotate, locked: locked, advanceStep: advanceStep)
+    }
+    /// The plan "just after" tick `k` landed (a quarter of a tick later), 120 BPM, polled step = what the engine
+    /// would report for that hit. `ranks` default: step i sits on row i+1.
+    private func wtPlan(_ cfg: EuclideousWalkLaneConfig, tick k: Int64, ranks: [Int] = [1, 2, 3, 4, 5, 6, 7, 8], running: Bool = true) -> EuclideousWalkTagPlan? {
+        euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: (Double(k) + 0.25) * cfg.sub, secondsPerBeat: 0.5,
+                              polledStep: euclideousWalkTick(cfg, tick: k).playedStep, running: running)
+    }
+    private func wtGeo(_ plan: EuclideousWalkTagPlan, lane: Int = 0) -> EuclideousThreadGeometry? {
+        euclideousThreadGeometry(lane: lane, plan: plan, cellW: wtW, cellH: wtH, gap: wtGap)
+    }
+    private func wtSeat(_ lane: Int, col: Int, rank: Int) -> CGPoint {
+        euclideousTagSeatCentre(lane: lane, col: col, rank: rank, cellW: wtW, cellH: wtH, gap: wtGap)
+    }
+
+    // Geometry ---------------------------------------------------------------------------------------
+    func testWalkTagRectsMatchTheFerryTableAtTheReferenceBlock() {
+        XCTAssertEqual(euclideousTagRect(lane: 0, blockW: 42.5, blockH: 29), CGRect(x: 2, y: 2.5, width: 18, height: 11))
+        XCTAssertEqual(euclideousTagRect(lane: 1, blockW: 42.5, blockH: 29), CGRect(x: 22.5, y: 2.5, width: 18, height: 11))
+        XCTAssertEqual(euclideousTagRect(lane: 2, blockW: 42.5, blockH: 29), CGRect(x: 2, y: 15.5, width: 18, height: 11))
+        XCTAssertEqual(euclideousTagRect(lane: 3, blockW: 42.5, blockH: 29), CGRect(x: 22.5, y: 15.5, width: 18, height: 11))
+        for lane in 0..<4 {
+            let r = euclideousTagRect(lane: lane, blockW: 42.5, blockH: 29)
+            let c = euclideousTagCentre(lane: lane, blockW: 42.5, blockH: 29)
+            XCTAssertEqual(c.x, r.origin.x + 9, accuracy: 1e-9); XCTAssertEqual(c.y, r.origin.y + 5.5, accuracy: 1e-9)
+        }
+    }
+    func testWalkTagScalesDownOnlyBelowTheReferenceBlock() {
+        XCTAssertEqual(euclideousTagScale(blockW: 42.5, blockH: 29), 1)
+        XCTAssertEqual(euclideousTagScale(blockW: 80, blockH: 60), 1, "a bigger block never enlarges the tag")
+        let r = euclideousTagRect(lane: 3, blockW: 21.25, blockH: 14.5)
+        XCTAssertEqual(r.width, 9, accuracy: 1e-9); XCTAssertLessThanOrEqual(r.maxX, 21.25); XCTAssertLessThanOrEqual(r.maxY, 14.5)
+    }
+
+    // Direction --------------------------------------------------------------------------------------
+    func testWalkTagFwdPointsRightAtEveryStepAndRevLeft() {
+        let f = wtConfig(dir: .forward), r = wtConfig(dir: .reverse)
+        for k in Int64(160)..<Int64(176) {
+            XCTAssertEqual(wtPlan(f, tick: k)?.facingRight, true, "FWD tick \(k)")
+            XCTAssertEqual(wtPlan(r, tick: k)?.facingRight, false, "REV tick \(k)")
+        }
+    }
+    func testWalkTagPendulumFacesRightGoingUpLeftOnLandingAtEightAndDownAndRightOnLandingAtOne() {
+        let c = wtConfig(dir: .pendulum)   // positions by ordinal: 0…7, 6…1, 0, 1…  (period 14)
+        let base: Int64 = 14 * 12
+        for o in Int64(0)...6 { XCTAssertEqual(wtPlan(c, tick: base + o)?.facingRight, true, "going up, step \(o + 1)") }
+        XCTAssertEqual(wtPlan(c, tick: base + 7)?.seatStep, 7)
+        XCTAssertEqual(wtPlan(c, tick: base + 7)?.facingRight, false, "landing on 8: the next move goes down")
+        for o in Int64(8)...13 { XCTAssertEqual(wtPlan(c, tick: base + o)?.facingRight, false, "on the way down, ord \(o)") }
+        XCTAssertEqual(wtPlan(c, tick: base + 14)?.seatStep, 0)
+        XCTAssertEqual(wtPlan(c, tick: base + 14)?.facingRight, true, "landing on 1: right")
+        XCTAssertEqual(wtPlan(c, tick: base + 7)?.turned, true); XCTAssertEqual(wtPlan(c, tick: base + 14)?.turned, true)
+        XCTAssertEqual(wtPlan(c, tick: base + 3)?.turned, false)
+    }
+    func testWalkTagPingRepeatsTheEndStepAndTurnsOnTheSecondLanding() {
+        let c = wtConfig(dir: .pingpong)   // positions by ordinal: 0…7, 7…0, 0, 1…  (period 16): the end steps repeat
+        let base: Int64 = 16 * 9
+        XCTAssertEqual(wtPlan(c, tick: base + 7)?.seatStep, 7); XCTAssertEqual(wtPlan(c, tick: base + 8)?.seatStep, 7)
+        XCTAssertEqual(wtPlan(c, tick: base + 7)?.facingRight, true, "first landing at 8: the next move is zero-length, so it keeps pointing right")
+        XCTAssertEqual(wtPlan(c, tick: base + 7)?.turned, false)
+        XCTAssertEqual(wtPlan(c, tick: base + 8)?.facingRight, false, "second landing at 8: the next move goes back")
+        XCTAssertEqual(wtPlan(c, tick: base + 8)?.turned, true, "…so the turn happens on this landing, not the first")
+        XCTAssertNil(wtGeo(wtPlan(c, tick: base + 7)!), "the repeated end step is a zero-length move: no thread")
+        XCTAssertEqual(wtPlan(c, tick: base + 15)?.facingRight, false, "first landing at 1 keeps pointing left")
+        XCTAssertEqual(wtPlan(c, tick: base + 16)?.facingRight, true, "second landing at 1 turns right")
+    }
+
+    // Thread -----------------------------------------------------------------------------------------
+    func testWalkTagThreadIsOneLineBetweenSeatCentresWithASolidDot() {
+        let plan = wtPlan(wtConfig(), tick: 82)!   // FWD at step 3, next advance plays step 4
+        XCTAssertEqual(plan.seatStep, 2); XCTAssertEqual(plan.dest?.step, 3)
+        let g = wtGeo(plan)!
+        XCTAssertEqual(g.segments, [EuclideousThreadSegment(from: wtSeat(0, col: 2, rank: 3), to: wtSeat(0, col: 3, rank: 4))])
+        XCTAssertEqual(g.dot, wtSeat(0, col: 3, rank: 4)); XCTAssertFalse(g.hollowDot); XCTAssertFalse(g.isWrap)
+    }
+    func testWalkTagThreadToARestIsAHollowDotAtTheCurrentNotesHeight() {
+        let ranks = [1, 2, 3, 4, 5, 6, 7, 0]   // step 8 is a rest
+        let plan = wtPlan(wtConfig(), tick: 8 * 10 + 6, ranks: ranks)!   // at step 7 (row 7); the next advance lands on the rest
+        let g = wtGeo(plan)!
+        XCTAssertTrue(g.hollowDot)
+        XCTAssertEqual(g.dot, wtSeat(0, col: 7, rank: 7), "column 8, at the current note's height")
+        XCTAssertEqual(plan.dest, EuclideousTagDest(step: 7, rank: 7, isRest: true))
+    }
+    func testWalkTagFwdAtTheLastStepWrapsOutPastColumnEightAndInFromColumnOne() {
+        let plan = wtPlan(wtConfig(), tick: 8 * 10 + 7)!   // FWD LEN 8 at step 8
+        XCTAssertTrue(plan.isWrap)
+        let g = wtGeo(plan)!
+        let from = wtSeat(0, col: 7, rank: 8), to = wtSeat(0, col: 0, rank: 1)
+        XCTAssertEqual(g.segments.count, 2)
+        XCTAssertEqual(g.segments[0], EuclideousThreadSegment(from: from, to: CGPoint(x: 7 * (wtW + wtGap) + wtW + 2, y: from.y)))
+        XCTAssertEqual(g.segments[1], EuclideousThreadSegment(from: CGPoint(x: -2, y: to.y), to: to))
+        XCTAssertEqual(g.dot, to)
+    }
+    func testWalkTagRevAtStepOneWrapsOutBeforeColumnOneAndInFromPastColumnEight() {
+        let plan = wtPlan(wtConfig(dir: .reverse), tick: 8 * 10 + 7)!   // REV: ordinal 7 → position 0 → step 1
+        XCTAssertEqual(plan.seatStep, 0); XCTAssertEqual(plan.dest?.step, 7); XCTAssertTrue(plan.isWrap)
+        let g = wtGeo(plan)!
+        let from = wtSeat(0, col: 0, rank: 1), to = wtSeat(0, col: 7, rank: 8)
+        XCTAssertEqual(g.segments[0], EuclideousThreadSegment(from: from, to: CGPoint(x: -2, y: from.y)))
+        XCTAssertEqual(g.segments[1], EuclideousThreadSegment(from: CGPoint(x: 7 * (wtW + wtGap) + wtW + 2, y: to.y), to: to))
+    }
+    func testWalkTagFwdLenFiveAtStepFiveWrapsAtColumnFiveNotEight() {
+        let plan = wtPlan(wtConfig(length: 5), tick: 5 * 20 + 4)!
+        XCTAssertEqual(plan.seatStep, 4); XCTAssertTrue(plan.isWrap)
+        let g = wtGeo(plan)!
+        XCTAssertEqual(g.segments[0].to.x, 4 * (wtW + wtGap) + wtW + 2, accuracy: 1e-9)
+        XCTAssertEqual(g.segments[1].from.x, -2, accuracy: 1e-9)
+    }
+    func testWalkTagWrapEndsFollowTheStepsTheWalkActuallyVisits() {
+        // STRIDE 2 on LEN 8 only ever lands on 1,3,5,7: the loop's end blocks are columns 1 and 7.
+        let r = euclideousWalkVisitedRange(dir: .forward, length: 8, stride: 2, rotate: 0)
+        XCTAssertEqual(r.min, 0); XCTAssertEqual(r.max, 6)
+        XCTAssertEqual(euclideousWalkVisitedRange(dir: .forward, length: 8, stride: 1, rotate: 0).max, 7)
+        XCTAssertEqual(euclideousWalkVisitedRange(dir: .forward, length: 5, stride: 1, rotate: 3).max, 4)
+    }
+    func testWalkTagLockRestartIsOneStraightThreadNotAWrap() {
+        // LOCK restarts the ordinal at every lap of the lane's own 8-tick pattern: the last hit's successor is
+        // ordinal 0 again. With LEN 5 the walk sits on step 3 (ordinal 7 mod 5) and restarts at step 1.
+        let c = wtConfig(length: 5, locked: true)
+        let plan = wtPlan(c, tick: 8 * 10 + 7)!
+        XCTAssertTrue(plan.isReset); XCTAssertFalse(plan.isWrap, "a restart is never drawn as a wrap")
+        XCTAssertEqual(plan.facingRight, true, "…and the tag keeps pointing its walk direction")
+        XCTAssertEqual(wtGeo(plan)?.segments.count, 1)
+        XCTAssertEqual(wtGeo(plan)?.segments.first?.to, wtSeat(0, col: plan.dest!.step, rank: plan.dest!.rank))
+    }
+    func testWalkTagZeroLengthMoveHasNoThreadAndNoDot() {
+        let plan = wtPlan(wtConfig(length: 1), tick: 100)!   // a one-step walk: the destination is the current seat
+        XCTAssertEqual(plan.dest?.step, plan.seatStep)
+        XCTAssertNil(wtGeo(plan))
+        XCTAssertNil(euclideousTagDrawing(lane: 0, plan: plan, cellW: wtW, cellH: wtH, gap: wtGap).thread)
+    }
+    func testWalkTagTransportStoppedShowsTheTagWithNoThread() {
+        let plan = wtPlan(wtConfig(), tick: 82, running: false)!
+        XCTAssertNil(plan.nextSeconds); XCTAssertNil(plan.dest)
+        let d = euclideousTagDrawing(lane: 0, plan: plan, cellW: wtW, cellH: wtH, gap: wtGap)
+        XCTAssertNil(d.thread)
+        XCTAssertEqual(d.centre, wtSeat(0, col: 2, rank: 3))
+    }
+
+    // Rests, empty riffs, the poll ---------------------------------------------------------------------
+    func testWalkTagOnARestSitsHollowAtTheLastNotesHeight() {
+        let ranks = [3, 0, 0, 6, 0, 0, 0, 0]
+        let plan = wtPlan(wtConfig(), tick: 8 * 10 + 2, ranks: ranks)!   // step 3 is a rest; the walk last played step 1 (row 3)
+        XCTAssertTrue(plan.seatIsRest); XCTAssertEqual(plan.seatStep, 2); XCTAssertEqual(plan.seatRank, 3)
+        let atFour = wtPlan(wtConfig(), tick: 8 * 10 + 5, ranks: ranks)!   // step 6 is a rest; the last note was step 4 (row 6)
+        XCTAssertTrue(atFour.seatIsRest); XCTAssertEqual(atFour.seatRank, 6)
+    }
+    func testWalkTagBeforeAnyNoteHasPlayedUsesTheNearestNoteBehindInWalkOrder() {
+        let ranks = [0, 0, 0, 0, 0, 0, 0, 5]   // only step 8 is a note; the tag is on step 2 and has "never played" yet
+        let plan = wtPlan(wtConfig(), tick: 8 * 10 + 1, ranks: ranks)!
+        XCTAssertTrue(plan.seatIsRest); XCTAssertEqual(plan.seatRank, 5, "behind step 2 in FWD order is step 1, then 8")
+    }
+    func testWalkTagEmptyRiffShowsNoTag() {
+        XCTAssertNil(wtPlan(wtConfig(), tick: 100, ranks: [0, 0, 0, 0, 0, 0, 0, 0]))
+        XCTAssertNil(wtPlan(wtConfig(length: 3), tick: 100, ranks: [0, 0, 0, 4, 4, 4, 4, 4]), "notes beyond LEN are never visited")
+    }
+    func testWalkTagNotStartedShowsNoTag() {
+        let cfg = wtConfig()
+        XCTAssertNil(euclideousWalkTagPlan(cfg: cfg, ranks: [1, 2, 3, 4, 5, 6, 7, 8], beat: 25, secondsPerBeat: 0.5, polledStep: -1, running: true))
+    }
+    func testWalkTagFollowsThePolledStepAndGoesStaticWhenThePredictionDisagrees() {
+        let cfg = wtConfig()
+        let beat = (82.0 + 0.25) * cfg.sub
+        let ranks = [1, 2, 3, 4, 5, 6, 7, 8]
+        let ok = euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: 0.5, polledStep: 2, running: true)!
+        XCTAssertNotNil(ok.nextSeconds, "polled step == predicted landing: a flight is scheduled")
+        let lagging = euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: 0.5, polledStep: 1, running: true)!
+        XCTAssertEqual(lagging.seatStep, 2, "poll one hit behind, within the grace: the tag is already on the landing")
+        let lost = euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: 0.5, polledStep: 6, running: true)!
+        XCTAssertEqual(lost.seatStep, 6, "the polled step is the authority when the prediction can't account for it")
+        XCTAssertNil(lost.nextSeconds); XCTAssertNil(lost.dest)
+    }
+
+    // Timing (a fake clock: previous advance P, next advance H, all in seconds) --------------------------
+    func testWalkTagFlightDurationIsEightyMsOrHalfTheIntervalIfShorter() {
+        XCTAssertEqual(euclideousTagFlightDuration(previousAdvance: 10.00, nextAdvance: 10.25), 0.080, accuracy: 1e-12)
+        XCTAssertEqual(euclideousTagFlightDuration(previousAdvance: 10.00, nextAdvance: 10.10), 0.050, accuracy: 1e-12)
+        XCTAssertEqual(euclideousTagFlightDuration(previousAdvance: nil, nextAdvance: 10.10), 0.080, accuracy: 1e-12)
+    }
+    func testWalkTagDepartsBeforeTheHitAndArrivesOnIt() {
+        // H − P = 0.25s → departs H − 0.080s, arrives H.
+        let P = 10.0, H = 10.25
+        XCTAssertEqual(euclideousTagPhase(now: H - 0.0801, previousAdvance: P, nextAdvance: H), .seated)
+        guard case .inFlight(let rawStart) = euclideousTagPhase(now: H - 0.080, previousAdvance: P, nextAdvance: H) else { return XCTFail("departure") }
+        XCTAssertEqual(rawStart, 0, accuracy: 1e-9)
+        guard case .inFlight(let rawMid) = euclideousTagPhase(now: H - 0.040, previousAdvance: P, nextAdvance: H) else { return XCTFail("mid flight") }
+        XCTAssertEqual(rawMid, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(euclideousTagPhase(now: H, previousAdvance: P, nextAdvance: H), .landed, "arrives exactly at the advance")
+        // H − P = 0.10s → departs H − 0.050s.
+        XCTAssertEqual(euclideousTagPhase(now: 10.0499, previousAdvance: 10.0, nextAdvance: 10.10), .seated)
+        guard case .inFlight = euclideousTagPhase(now: 10.0501, previousAdvance: 10.0, nextAdvance: 10.10) else { return XCTFail("short-interval departure") }
+    }
+    func testWalkTagThreadIsVisibleFromTheAdvanceUntilDepartureHiddenInFlightAndBackFromTheNextOne() {
+        let cfg = wtConfig()
+        // A real plan, stepped through its flight with the clock: P = tick 82, H = tick 83 (0.125s apart at 120 BPM,
+        // sub 0.25 ⇒ 0.125s/tick), so the flight is the last 0.0625s.
+        func drawing(atTickFraction f: Double) -> EuclideousTagDrawing {
+            let beat = (82.0 + f) * cfg.sub
+            let plan = euclideousWalkTagPlan(cfg: cfg, ranks: [1, 2, 3, 4, 5, 6, 7, 8], beat: beat, secondsPerBeat: 0.5, polledStep: 2, running: true)!
+            return euclideousTagDrawing(lane: 0, plan: plan, cellW: wtW, cellH: wtH, gap: wtGap)
+        }
+        XCTAssertNotNil(drawing(atTickFraction: 0.0).thread, "visible from the advance")
+        XCTAssertNotNil(drawing(atTickFraction: 0.4).thread, "…until departure")
+        XCTAssertNil(drawing(atTickFraction: 0.75).thread, "hidden in flight")
+        XCTAssertNotEqual(drawing(atTickFraction: 0.75).centre, wtSeat(0, col: 2, rank: 3), "the tag has left its seat")
+        let landed = euclideousWalkTagPlan(cfg: cfg, ranks: [1, 2, 3, 4, 5, 6, 7, 8], beat: (83.0 + 0.1) * cfg.sub, secondsPerBeat: 0.5, polledStep: 3, running: true)!
+        XCTAssertEqual(landed.seatStep, 3)
+        XCTAssertNotNil(euclideousTagDrawing(lane: 0, plan: landed, cellW: wtW, cellH: wtH, gap: wtGap).thread, "the next thread is visible from the next advance")
+    }
+    func testWalkTagArrivesOnTheDestinationSeatAndHollowSwitchesOnArrivalNotDuringTheMove() {
+        let cfg = wtConfig()
+        let ranks = [1, 2, 3, 4, 5, 6, 7, 0]
+        func drawing(tick: Int64, f: Double, polled: Int) -> EuclideousTagDrawing {
+            let plan = euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: (Double(tick) + f) * cfg.sub, secondsPerBeat: 0.5, polledStep: polled, running: true)!
+            return euclideousTagDrawing(lane: 0, plan: plan, cellW: wtW, cellH: wtH, gap: wtGap)
+        }
+        let flight = drawing(tick: 8 * 10 + 6, f: 0.9, polled: 6)          // approaching the rest on step 8
+        XCTAssertFalse(flight.hollow, "still the note's filled tag while it travels")
+        let arrived = drawing(tick: 8 * 10 + 7, f: 0.0, polled: 7)
+        XCTAssertTrue(arrived.hollow, "hollow once it has landed on the rest")
+        XCTAssertEqual(arrived.centre.x, wtSeat(0, col: 7, rank: 7).x, accuracy: 1e-6)
+        XCTAssertEqual(arrived.centre.y, wtSeat(0, col: 7, rank: 7).y, accuracy: 1e-6)
+    }
+    func testWalkTagEaseIsAnEaseOutThroughTheEndpoints() {
+        XCTAssertEqual(euclideousTagEase(0), 0); XCTAssertEqual(euclideousTagEase(1), 1)
+        XCTAssertGreaterThan(euclideousTagEase(0.25), 0.25, "ease-out is ahead of linear early on")
+        var last = -1.0
+        for i in 0...20 { let v = euclideousTagEase(Double(i) / 20); XCTAssertGreaterThanOrEqual(v, last); last = v }
+    }
+    func testWalkTagWrapFlightFadesOutAlongTheExitPieceAndBackInAlongTheEntryPiece() {
+        let plan = wtPlan(wtConfig(), tick: 8 * 10 + 7)!
+        let g = wtGeo(plan)!
+        let start = euclideousTagFlightPose(g, raw: 0), mid = euclideousTagFlightPose(g, raw: 0.5), end = euclideousTagFlightPose(g, raw: 1)
+        XCTAssertEqual(start.opacity, 1, accuracy: 1e-9); XCTAssertEqual(start.centre, g.segments[0].from)
+        XCTAssertEqual(mid.opacity, 0, accuracy: 1e-9, "fully faded by half the duration")
+        XCTAssertEqual(end.opacity, 1, accuracy: 1e-9); XCTAssertEqual(end.centre.x, g.dot.x, accuracy: 1e-6); XCTAssertEqual(end.centre.y, g.dot.y, accuracy: 1e-6)
+        let early = euclideousTagFlightPose(g, raw: 0.4), late = euclideousTagFlightPose(g, raw: 0.6)
+        XCTAssertEqual(early.centre.y, g.segments[0].from.y, accuracy: 1e-9, "the exit piece is horizontal at the tag's own height")
+        XCTAssertEqual(late.centre.y, g.segments[1].to.y, accuracy: 1e-9, "the entry piece is horizontal at the destination's height")
+    }
+    func testWalkTagTurnFlipsAboutItsCentreStartingTwentyMsAfterArrival() {
+        let cfg = wtConfig(sub: 1.0, dir: .pendulum)   // a quarter-note tick (0.5s at 120 BPM): room for the 120ms flip before the next departure
+        let base: Int64 = 14 * 12
+        func drawing(secondsAfterLanding t: Double) -> EuclideousTagDrawing {
+            let beat = (Double(base + 7) * cfg.sub) + t / 0.5
+            let plan = euclideousWalkTagPlan(cfg: cfg, ranks: [1, 2, 3, 4, 5, 6, 7, 8], beat: beat, secondsPerBeat: 0.5, polledStep: 7, running: true)!
+            return euclideousTagDrawing(lane: 0, plan: plan, cellW: wtW, cellH: wtH, gap: wtGap)
+        }
+        XCTAssertEqual(drawing(secondsAfterLanding: 0.005).scaleX, 1, accuracy: 1e-9)
+        XCTAssertTrue(drawing(secondsAfterLanding: 0.005).pointsRight, "still facing the way it arrived for the first 20ms")
+        XCTAssertEqual(drawing(secondsAfterLanding: 0.070).scaleX, 0, accuracy: 1e-6, "edge-on halfway through the 100ms flip")
+        let done = drawing(secondsAfterLanding: 0.118)
+        XCTAssertLessThan(done.scaleX, -0.9, "scaleX has swept 1 → 0 → −1")
+        XCTAssertNotNil(drawing(secondsAfterLanding: 0.0).thread, "the new thread appears on arrival, not after the flip")
+    }
+
+    func testWalkTagSchedulesTheSwungOnsetNotTheStraightTickBeat() {
+        // 1/8 ticks with the scene step S = 0.5 and swing 75% (a = 1.5): odd ticks land at base + a·S = 0.75 into the
+        // beat-pair instead of 0.5. The tag must arrive at the note-on's REAL time, not the straight tick beat.
+        var cfg = wtConfig(sub: 0.5)
+        cfg.swingA = 1.5; cfg.swingStepBeats = 0.5
+        let plan = euclideousWalkTagPlan(cfg: cfg, ranks: [1, 2, 3, 4, 5, 6, 7, 8], beat: 50.2, secondsPerBeat: 0.5,
+                                         polledStep: euclideousWalkTick(cfg, tick: 100).playedStep, running: true)!
+        XCTAssertEqual(plan.nextSeconds!, (50.75 - 50.2) * 0.5, accuracy: 1e-9, "tick 101 sounds at 50.75, not 50.5")
+        XCTAssertEqual(plan.landedSeconds!, (50.0 - 50.2) * 0.5, accuracy: 1e-9)
+        XCTAssertEqual(euclideousWalkRealBeat(cfg, tick: 101), 50.75, accuracy: 1e-12)
+        // No swing: the straight tick beat.
+        var straight = cfg; straight.swingA = 1
+        XCTAssertEqual(euclideousWalkRealBeat(straight, tick: 101), 50.5, accuracy: 1e-12)
+    }
+
+    // The ferry: a tag's destination is "the same value the lane footer shows for that hit". Cross-check the mirror's
+    // played step for every hit of a lap against the footer's own `euclideousRiffCyclePrediction`.
+    private func wtFooterAgreement(_ name: String, walk: (inout EuclidLine) -> Void, file: StaticString = #filePath, line: UInt = #line) {
+        var L = EuclidLine(target: 0, pulses: 5, steps: 8, rate: .r1_16, useRiff: true, sourceMode: .midi)
+        L.rotate = 3
+        walk(&L)
+        let cfg = euclideousWalkLaneConfig(lane: 0, lines: [L], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        let hitSteps = euclideousLapHitSteps(pulses: L.pulses, steps: 8, rotate: L.rotate, tilt: L.tiltResolved, patternMiss: false, customHits: nil, dir: L.directionResolved)
+        let lapStart = Int64(8 * 100)
+        let lapTicks = (lapStart..<(lapStart + 8)).filter { euclideousWalkTick(cfg, tick: $0).isHit }
+        XCTAssertEqual(lapTicks.count, hitSteps.count, "\(name): same hits per lap", file: file, line: line)
+        let live = euclideousWalkTick(cfg, tick: lapTicks[0]).advOrd
+        let base = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: 8, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved, liveOrd: live, dir: L.directionResolved)
+        let footer = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: L.riffAdvanceStepResolved, dir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved,
+                                                   length: L.riffLengthResolved, rotate: L.riffRotateResolved, seed: 0, startOrd: base.startOrd)
+        for (i, t) in lapTicks.enumerated() {
+            XCTAssertEqual(footer[i] - 1, euclideousWalkTick(cfg, tick: t).playedStep, "\(name): hit \(i)", file: file, line: line)
+        }
+    }
+    func testWalkTagDestinationsAgreeWithTheLaneFooterForFreeAndLockedHitAdvance() {
+        wtFooterAgreement("FREE/HIT") { _ in }
+        wtFooterAgreement("FREE/HIT pendulum stride 3 len 6") { $0.riffDir = .pendulum; $0.riffStride = 3; $0.riffLength = 6 }
+        wtFooterAgreement("LOCK/HIT") { $0.riffLock = true }
+        wtFooterAgreement("FREE/STEP") { $0.riffAdvanceStep = true }
+        // NOT covered, on purpose: LOCK + ADV STEP. There the footer (`euclideousRiffLapBaseline` returns startOrd 0 for any
+        // locked lane) predicts steps that are off by the lap's first-hit tick, while the engine feeds the walk the lap-local
+        // tick itself — so the mirror (which matches the engine, see RouterTests) and the footer disagree. Pre-existing
+        // footer bug, outside this ferry's "footers stay as built"; reported to Paul.
+    }
+
+    func testWalkTagTurnFlipCarriesThroughAFlightThatSetsOffBeforeItHasFinished() {
+        // 1/16 at 120 BPM = 125ms between hits ⇒ the flight departs 62.5ms after landing, mid-flip (flip = 20…120ms).
+        let cfg = wtConfig(sub: 0.25, dir: .pendulum)
+        let base: Int64 = 14 * 12
+        let beat = Double(base + 7) * cfg.sub + 0.085 / 0.5   // 85ms after landing on step 8: in flight, 65ms into the flip
+        let plan = euclideousWalkTagPlan(cfg: cfg, ranks: [1, 2, 3, 4, 5, 6, 7, 8], beat: beat, secondsPerBeat: 0.5, polledStep: 7, running: true)!
+        let d = euclideousTagDrawing(lane: 0, plan: plan, cellW: wtW, cellH: wtH, gap: wtGap)
+        XCTAssertNil(d.thread, "in flight")
+        XCTAssertEqual(d.scaleX, 1 - 2 * (0.085 - 0.020) / 0.100, accuracy: 1e-6, "the flip is still running mid-flight")
+        XCTAssertTrue(d.pointsRight, "still facing the way it arrived until the flip completes")
+    }
+    func testWalkTagHeldHeightUsesTheLastNoteActuallyPlayedNotAnOrdinalWalk() {
+        // ADV STEP: ordinals tick on every pattern step, but only hits play. 2 hits per 8 steps at steps 0 and 5 (rank 4 / rank 0):
+        var cfg = wtConfig(advanceStep: true)
+        cfg.buf = [true, false, false, false, false, true, false, false] + [Bool](repeating: false, count: 8)
+        let ranks = [4, 0, 0, 0, 0, 0, 0, 0]
+        // At the hit on tick 8·10+5 the walk lands on step (ord 85 mod 8) = 5 (a rest). The last PLAYED note was the hit
+        // at tick 80 → step 0 → rank 4. (An ordinal walk would also find rank 4 here; make it differ: ranks[3] = 9→clamped.)
+        let plan = euclideousWalkTagPlan(cfg: cfg, ranks: [4, 0, 0, 7, 0, 0, 0, 0], beat: (8.0 * 10 + 5 + 0.25) * cfg.sub, secondsPerBeat: 0.5,
+                                         polledStep: 5, running: true)!
+        _ = ranks
+        XCTAssertTrue(plan.seatIsRest)
+        XCTAssertEqual(plan.seatRank, 4, "the previous hit played step 1 (row 4); step 4's row-7 note was never struck, so it can't set the height")
+    }
 }

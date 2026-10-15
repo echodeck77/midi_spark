@@ -616,6 +616,10 @@ final class Router {
     // no distinct riff pitch per this ferry's own ruling) — lets the display layer (note box/summary label)
     // show "the riff note + n" vs. "the lowest sounding note + n" without re-deriving lane-level state.
     private var nvHasRiffNote = [Bool](repeating: false, count: 4 * Router.noteViewRing)
+    private var nvHostSeconds = [Double](repeating: 0, count: 4 * Router.noteViewRing)   // DEBUG device log: the note-on's host-clock time (see the snapshot field)
+    /// Set by the Kernel (DEBUG only) before each `process` — the host-clock seconds of this window's first sample; 0 = unknown.
+    var debugWindowHostSeconds: Double = 0
+    private var fSampleRate: Double = 48_000
     private var nvHead = [Int](repeating: 0, count: 4)
     private var nvNew  = [Int](repeating: 0, count: 4)
     // §5.1, literal: "nothing in this view may block or allocate on the audio thread." A caller-built
@@ -639,6 +643,7 @@ final class Router {
         let slot = lane * Router.noteViewRing + nvHead[lane]
         nvOnsetBeat[slot] = onsetBeat; nvDurationBeat[slot] = durationBeat; nvKind[slot] = kind
         nvColumn[slot] = column; nvRank[slot] = rank; nvHasRiffNote[slot] = hasRiffNote
+        nvHostSeconds[slot] = (debugWindowHostSeconds > 0 && fBeatsPerSample > 0) ? debugWindowHostSeconds + (onsetBeat - fBeatPos) / fBeatsPerSample / fSampleRate : 0
         let nc = max(0, min(Router.noteViewMaxNotes, noteCount))
         nvNoteCount[slot] = UInt8(nc)
         let nbase = slot * Router.noteViewMaxNotes
@@ -1583,6 +1588,10 @@ final class Router {
         var rank: Int8 = -1
         // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second ferry): see `nvHasRiffNote`'s own doc comment.
         var hasRiffNote: Bool = false
+        /// DEBUG DEVICE LOG (walk-tags ferry 2026-10-15): the note-on's moment on the host clock (`CACurrentMediaTime`
+        /// timeline) — the window's host time + the onset's sample offset. 0 = unknown (the Kernel only stamps it in
+        /// DEBUG builds, and only when the host supplied a valid host time).
+        var hostSeconds: Double = 0
     }
     func drainEuclideousNoteViewEvents() -> [[EuclideousNoteViewEventSnapshot]] {
         var out: [[EuclideousNoteViewEventSnapshot]] = []
@@ -1597,7 +1606,7 @@ final class Router {
                 let nbase = slot * Router.noteViewMaxNotes
                 let cnt = Int(nvNoteCount[slot])
                 let notes = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvNotes[nbase + $0] }
-                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot]))
+                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], hostSeconds: nvHostSeconds[slot]))
             }
             out.append(events)
         }
@@ -3062,7 +3071,7 @@ final class Router {
         }
         let beatsPerSample = tempo / 60.0 / sampleRate
         focusCellIdx = focusCell                              // FOCUS note-event feed: this render's target cell + beat conversion
-        fBeatPos = beatPos; fBeatsPerSample = beatsPerSample; fWindowStart = windowStart
+        fBeatPos = beatPos; fBeatsPerSample = beatsPerSample; fWindowStart = windowStart; fSampleRate = sampleRate
         let swing = min(75, max(50, over(1, box.swing)))
         let a = swing / 50.0
         var S = box.stepBeats

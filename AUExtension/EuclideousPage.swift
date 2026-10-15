@@ -644,27 +644,16 @@ struct EuclideousPage: View {
     // same scrim+centred-card shape as `maskModePopupCard`. nil = no popup open; otherwise which lane's
     // which row is choosing a partner.
     @State private var listenPartnerPopup: (lane: Int, row: EuclideousListenRow)? = nil
-    // RIFF GRID POSITION MARKERS (Paul 2026-10-12 ferry, Part 1) — each lane's own PERSISTENT marker
-    // (column, row): rule 1's "stays until the lane's next hit moves it... does not flash and fade" means a
-    // TIE-on-rest tick (nothing struck, no fresh event) must leave the PREVIOUS marker exactly where it
-    // was, which a pure-function-of-current-state view could not express on its own (it has no memory of
-    // "where was it last" once live state has already moved past that tick) — the one piece of this whole
-    // feature that genuinely needs retained, not derived, UI state.
-    //
-    // TIMER REMOVED (2026-10-14 ferry §2, "riff-grid arrows move late" — CONFIRMED ROOT CAUSE, not the
-    // earlier entry's own unconfirmed "SwiftUI onChange sometimes misses a diff" theory): the prior fix
-    // (a dedicated 20Hz `Timer` re-deriving `riffMarker` on its own schedule) solved THAT report but
-    // introduced a DIFFERENT one — a frame-by-frame recording showed the arrow landing 80–170ms (up to
-    // 390ms near a bar line) after the actual hit, while the riff-tab thumbnail (which reads `riffPositions`
-    // directly in the view body, reactively, on whatever render the ~30fps AU poll last triggered) was
-    // exactly on time. TWO independent, unsynchronized wall-clock timers — the AU's own ~30fps poll writing
-    // `riffPositions`, and this page's own 20Hz re-derivation reading it — have no phase relationship to
-    // each other, so the arrow lagged by up to one 20Hz period on a quiet render, and considerably more
-    // whenever the RunLoop was busy around a bar line (several of the 20Hz timer's own ticks coalescing),
-    // matching the reported variability exactly. FIX: no separate timer at all — `riffMarker` now re-derives
-    // via `.onChange` on the SAME `riffPositions`/`wipeEvents`/`playingRiffIndex` state the thumbnail/footer
-    // already read, so it updates on the identical display tick, by construction, not by timing luck.
-    @State private var riffMarker: [(col: Int, row: Int)?] = [nil, nil, nil, nil]
+    // WALK TAGS WITH THREADS (ferry 2026-10-15) REPLACE the riff grid's retained `riffMarker` state and its 20Hz
+    // refresh timer ENTIRELY. That state was the "arrows move late" prerequisite: a tag position derived through a
+    // timer-sampled, retained copy of `riffPositions` can trail the RIFF-tab thumbnail, which reads
+    // `riffPositions` straight off the view in the same render. A tag now has no state of its own — every frame
+    // it is re-derived from the polled step (the thumbnail's own value) and the live beat (see
+    // `euclideousWalkTagPlan`, Derivations.swift), so the two cannot disagree on a display tick and nothing is
+    // debounced. `walkTagLog` only exists for the DEBUG device log.
+    #if DEBUG
+    @State private var walkTagLog = EuclideousWalkTagLog()
+    #endif
     // DRAGGABLE RIFF GRID (Paul 2026-10-13, "make the grid draggable"): the matrix used to own one
     // `.onTapGesture` PER CELL — fine for a single tap, but a drag starting on one cell never reaches its
     // neighbours (a tap gesture doesn't track movement at all), so painting a shape across several columns
@@ -838,137 +827,13 @@ struct EuclideousPage: View {
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
             .onPreferenceChange(EuclideousResetChipFramePreferenceKey.self) { resetChipFrames = $0 }
         }
-        // §2 FIX: react on the SAME state the thumbnail/footer already read, not a separate clock.
-        // `riffPositions`/`wipeEvents`/`playingRiffIndex` are the fast-changing (~30fps-polled) inputs;
-        // `activeRiff` is user-driven (switching which riff this card is editing) but ALSO needs an
-        // immediate recompute — `updateRiffMarkers`'s own top guard hides the arrows the instant the edited
-        // riff stops being the playing one, and that guard only runs when this function is actually called.
-        .onChange(of: riffPositions) { _ in updateRiffMarkers() }
-        .onChange(of: wipeEvents) { _ in updateRiffMarkers() }
-        .onChange(of: playingRiffIndex) { _ in updateRiffMarkers() }
-        .onChange(of: activeRiff) { _ in updateRiffMarkers() }
-        .onAppear { updateRiffMarkers() }
+        #if DEBUG
+        .onChange(of: wipeEvents) { evs in logWalkTagHits(evs) }
+        #endif
     }
 
-    /// Whether this lane's walk is heading to a HIGHER or LOWER step next — drives the marker's arrow
-    /// direction (▶/"next up" for true, ◀/"next down" for false). `nil` when there's nothing meaningful to
-    /// compare against yet (riff off, fewer than 2 hits in the lap, or a degenerate 1-step walk). Reuses the
-    /// SAME `euclideousLapHitSteps`/`euclideousRiffLapBaseline`/`euclideousRiffCyclePrediction` pure
-    /// functions `laneFooterStates` calls — invoked again here rather than threaded across two independent
-    /// view hierarchies, matching how `euclideousNoteViewPattern` is already called from several independent
-    /// UI sites in this file.
-    ///
-    /// BUGFIX (Paul 2026-10-14, "arrows point the wrong way even though all play directions are forward"):
-    /// SUPERSEDES the previous `riffMarkerNextStep(_:_:) -> Int?`, which returned the raw predicted step and
-    /// left callers to compare it against `riffMarker[lane].col + 1` as a plain linear `>=` — correct for
-    /// every step EXCEPT the one at each lap's wrap boundary. FWD's walk position counts 1…`length` then
-    /// wraps back to 1 (`riffStepAt(.forward, …) = raw mod steps`, confirmed by direct read) — a linear
-    /// comparison sees that wrap (`length → 1`) as a big DECREASE and points the arrow left, even though the
-    /// walk is still advancing forward, just cyclically. REVERSE has the mirror-image bug at its own wrap
-    /// (`1 → length` reads as a big increase, pointing right). Fixed by comparing the SHORTEST SIGNED
-    /// distance around the walk's own `length`-position cycle instead of a plain difference — a wrap is then
-    /// indistinguishable from any other single step in the same direction. (The earlier `riffMarkerDirectionWord`
-    /// comment claiming this comparison lived in "1-based COLUMN number" space was itself part of the
-    /// confusion — the live-polled `riffMarker[lane].col` and the independently-predicted `current`/`next`
-    /// below are the SAME walk-position axis in principle, but polled through two separate channels; computing
-    /// the direction entirely from one self-consistent source — this function's own `prediction` — removes
-    /// that cross-poll risk too, not just the wraparound bug.)
-    private func riffMarkerPointsRight(_ idx: Int, _ line: EuclidLine) -> Bool? {
-        guard line.riffOnResolved, idx < riffWalkState.count else { return nil }
-        // FORWARD/REVERSE ARE UNCONDITIONAL (Paul 2026-10-14, "I'm also seeing the occasional arrow pointing
-        // in the wrong direction" — a REGRESSION this same fix's own circular-distance comparison introduced
-        // for STRIDE > half the walk's own LENGTH, found by tracing a concrete example, not guessed): FWD's
-        // underlying `advOrd` (hence `raw = advOrd * stride`) only ever INCREASES between hits — `riffStepAt`
-        // then folds that ever-increasing `raw` into `[0, length)` via a plain `mod`. For stride=1 the fold
-        // only ever advances by 1 at a time, so "the shortest circular path" and "the true direction" always
-        // agree — which is why the ORIGINAL bug (the wrap from `length` back to `1`) was fixable by taking
-        // the shorter path. But for a LARGER stride (reachable: stride clamps 1...7, length clamps 1...8,
-        // e.g. stride=5/length=8), a single hit can hop PAST the halfway point of the cycle even with NO
-        // wrap at all (worked example: current=1, next=6 — a genuine, non-wrapping +5 forward hop — the
-        // shortest circular path from 1 to 6 is -3, the WRONG way round, so the old comparison misread this
-        // as "backward"). FORWARD is PROVABLY always "right" and REVERSE always "left" regardless of stride
-        // or wrap, by construction — there is no comparison that can get this wrong, so none is attempted;
-        // the `prediction`-based circular comparison below is kept for PENDULUM/PINGPONG/RANDOM only, where
-        // the direction genuinely does alternate (or has none) and a real comparison is unavoidable.
-        switch line.euclideousRiffDirResolved {
-        case .forward: return true
-        case .reverse: return false
-        default: break
-        }
-        let steps = max(2, min(16, line.steps))
-        let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
-                                              tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
-                                              customHits: line.customHitsResolved(steps), dir: line.directionResolved)
-        guard hitSteps.count >= 2 else { return nil }
-        let ws = riffWalkState[idx]
-        let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
-        let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
-                                                   liveOrd: ws, dir: line.directionResolved)
-        let length = line.riffLengthResolved
-        let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.euclideousRiffDirResolved,
-                                                         stride: line.riffStrideResolved, length: length,
-                                                         rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
-                                                         startOrd: baseline.startOrd)
-        guard !prediction.isEmpty, length > 1 else { return nil }
-        let current = prediction[baseline.currentHitIndex]
-        let nextIdx = (baseline.currentHitIndex + 1) % prediction.count
-        let next = prediction[nextIdx]
-        // PINGPONG's doubled-endpoint tick (Paul 2026-10-12 ferry, disclosed interpretation beyond his own
-        // text): two consecutive hits can land on the SAME riff step — a plain next-vs-current comparison
-        // reads as "no direction" right when it matters most (the marker is sitting exactly on an
-        // endpoint). Resolved by comparing against the PREVIOUS step instead, continuing whichever
-        // direction was already in motion for this one tick (the genuine reversal shows correctly on the
-        // FOLLOWING tick, once `current` itself has moved past the dwell). A lane that's dwelled on the
-        // SAME step for 3+ consecutive hits (current == previous too) has no real direction to continue —
-        // defaults to right, matching this function's own "nothing to compare" `nil` callers' own `?? true`.
-        if next == current, line.riffDirResolved == .pingpong {
-            let prevIdx = (baseline.currentHitIndex - 1 + prediction.count) % prediction.count
-            let previous = prediction[prevIdx]
-            if current != previous { return current > previous }
-            return true
-        }
-        // CIRCULAR DIRECTION: the shortest signed distance from `current` to `next` around the walk's own
-        // `length`-position cycle — ties (exactly half the cycle away) round to "right" by construction
-        // (an inherently ambiguous case, not one the data can resolve either way).
-        var delta = (next - current) % length
-        if delta > length / 2 { delta -= length } else if delta < -(length / 2) { delta += length }
-        return delta >= 0
-    }
-
-    /// RIFF GRID POSITION MARKERS (Paul 2026-10-12 ferry, Part 1 rule 7) — updates `riffMarker[i]` on every
-    /// `riffPositions` poll tick. A non-rest column is read directly off the shared grid (no telemetry
-    /// needed — the rank IS the column's own resolved value); a rest column consults the SAME reconciled
-    /// `wipeEvents[i]` FILL-on-rest tells us about elsewhere on this page, and — matching rule 7's own
-    /// "with SKIP, the marker sits on the step actually played" read literally as "the step where sound was
-    /// actually produced," a disclosed refinement of Paul's own text, not implied by it — a TIE/SKIP rest
-    /// with no matching fresh event leaves the PREVIOUS marker untouched rather than jumping to a rest
-    /// column with no row to draw on.
-    // riffOffDotCell REMOVED (Paul 2026-10-13, "lit notes plus the riff" ferry — "Riff grid markers: these
-    // show only the riff. A lane with the riff off draws no marker. This replaces the 'riff off: a dot'
-    // rule.") — the dot-for-riff-off mechanism above is gone entire, not merely disabled; its one call site
-    // in `riffGridCell` is removed too. A riff-off lane now contributes no occupant at all, by construction.
-
-    private func updateRiffMarkers() {
-        // §7, fixed by a self-audit against the ferry's raw text: "editing a riff that isn't playing: HIDE
-        // the walk arrows" — the first build kept drawing them, resolved against the EDITING riff's ranks at
-        // the engine's TRUE walk position, which is actively misleading (it shows a pitch that isn't what's
-        // actually sounding, not merely "nothing new to show"). Guard this ONCE, up front, rather than
-        // threading a visibility check through every downstream branch below.
-        guard max(0, min(3, activeRiff)) == max(0, min(3, playingRiffIndex)) else {
-            for i in 0..<4 { riffMarker[i] = nil }
-            return
-        }
-        let resolved = editingRiff.ranksResolved   // the walk marker is drawn on THIS grid's own cells, so it must read the EDITING riff to correspond to what's actually displayed there
-        // §2 FIX: the per-lane step itself is now a pure, tested function (`euclideousRiffMarkerStep`,
-        // Derivations.swift) — this is just the thin per-lane wiring, called whenever ANY of its own inputs
-        // change (see the `.onChange` block above), never on a separate clock of its own.
-        for i in 0..<4 {
-            let riffOn = i < lines.count && lines[i].riffOnResolved
-            let pos = i < riffPositions.count ? riffPositions[i] : -1
-            let ev = i < wipeEvents.count ? wipeEvents[i] : nil
-            riffMarker[i] = euclideousRiffMarkerStep(current: riffMarker[i], riffOn: riffOn, riffPosition: pos, resolved: resolved, wipeEvent: ev)
-        }
-    }
+    // (riffMarkerPointsRight / updateRiffMarkers REMOVED — superseded by the stateless walk-tag plan; see the
+    // 2026-10-15 note on the old `riffMarker` state above.)
 
     // MARK: - ONE CONTAINER (this ferry §1.3, re-affirming the layout-system ferry's own rule): "the view's
     // bounds minus 16pt left and right. Header, lane grid and riff panel all span exactly that container.
@@ -3584,12 +3449,16 @@ struct EuclideousPage: View {
         let cellH = min(max(1, rowH), cellW)
         let source = noteSource
         let pool = riffLivePool
-        // LIVE STATE (rule, "Live states" §1): MIDI IN with nothing held — no arrows anywhere on the grid.
-        // `riffGridCell` already draws nothing for a lane with no `riffMarker`/dot cell match, and an empty
-        // pool means NO rank can resolve a note at all, so this falls out of the existing per-cell logic
-        // without a special case — confirmed by reading, not assumed, since `riffMarker` is only ever set
-        // from a genuine NOTE VIEW event or a non-rest grid read, neither of which a silent lane produces.
+        // LIVE STATE (rule, "Live states" §1): MIDI IN with nothing held — no tags anywhere on the grid. An empty
+        // pool means NO rank can resolve a note at all, so the tags are suppressed outright below.
         let midiEmpty = source == .midi && pool.isEmpty
+        // WALK TAGS (ferry 2026-10-15): `tagCfgs` is built once per body; the overlay re-derives every tag from it
+        // each frame. `tagSeats` is the same plan evaluated now, used ONLY for the per-cell VoiceOver labels.
+        let tagCfgs = walkTagConfigs(suppress: midiEmpty)
+        let tagPlansNow = walkTagPlans(cfgs: tagCfgs, ranks: ranks, beat: walkTagBeat(at: Date()))
+        let tagSeats: [WalkTagSeat] = (0..<4).compactMap { i in
+            tagPlansNow[i].map { WalkTagSeat(lane: i, col: $0.seatStep, rank: $0.seatRank, facingRight: $0.facingRight) }
+        }
         // §7, fixed by a self-audit against the ferry's raw text: the title, the 4 tabs and "NOT PLAYING"
         // were built as 3 stacked rows — the ferry's own literal picture shows all three sharing ONE row
         // ("RIFF  [tabs]            NOT PLAYING"). `notPlaying` reuses the exact same clamp both the tab row
@@ -3633,10 +3502,15 @@ struct EuclideousPage: View {
                         ForEach((1...8).reversed(), id: \.self) { rank in
                             HStack(spacing: sp4) {
                                 ForEach(0..<n, id: \.self) { col in
-                                    riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, suppressMarkers: midiEmpty)
+                                    riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, seats: tagSeats)
                                 }
                             }
                         }
+                    }
+                    // Overlay (not a ZStack sibling): its frame is deliberately a few points larger than the grid so a
+                    // wrap thread's 2pt overshoot is never clipped, and an overlay's size can't change the layout.
+                    .overlay(alignment: .topLeading) {
+                        riffWalkTagOverlay(cfgs: tagCfgs, ranks: ranks, cellW: cellW, cellH: cellH, gridW: gridW, gridH: gridH)
                     }
                     Color.clear
                         .frame(width: gridW, height: gridH)
@@ -3710,154 +3584,145 @@ struct EuclideousPage: View {
         }
     }
 
-    /// One riff-grid matrix cell — an "occupant" is either a riff-on lane whose `riffMarker` sits here (an
-    /// arrow) or a riff-off lane whose fixed-note dot sits here (a dot). REDESIGNED (Paul 2026-10-13: "the
-    /// arrows... have black background, please fix this. I'd like the arrow to fill the corner of the cell
-    /// that corresponds with the position of the Euclid lane controls") — SUPERSEDES the 2026-10-12 ferry's
-    /// own rules 5/6 entirely (whole-cell `#15171C` dark fill + horizontal lane-order banding). The "black
-    /// background" WAS that whole-cell fill, not anything the glyph itself drew — removed outright; a
-    /// marker-holding cell now keeps the SAME plain on/off fill every other cell has, unconditionally. Each
-    /// lane gets ONE FIXED CORNER, mirroring exactly where that lane's own card sits in the real 2×2 lane-
-    /// card grid (`portraitLayout`/`landscapeLayout`'s own literal `HStack{0,1}` top row / `HStack{2,3}`
-    /// bottom row) — lane 0 top-left, lane 1 top-right, lane 2 bottom-left, lane 3 bottom-right — so the
-    /// corner a marker lights up in always points at that lane's own control card. Since each lane owns a
-    /// DISTINCT corner, two lanes sharing one cell can never collide or need count-dependent sizing the way
-    /// banding did; glyph size is now a function of the quadrant's own (half-cell) size alone.
-    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, suppressMarkers: Bool = false) -> some View {
-        struct Occupant { let lane: Int; let isArrow: Bool; let onRest: Bool }
-        var occupants: [Occupant] = []
-        // LIVE STATE (ferry "Live states" §1, literal): MIDI IN with nothing held draws NO arrows anywhere
-        // on the grid — `suppressMarkers` is the one explicit override (`riffMarker` can briefly still hold
-        // a STALE position from before the pool went empty, since nothing clears it on its own).
-        if !suppressMarkers {
-            for i in 0..<min(4, lines.count) {
-                // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): "a lane with the riff
-                // off draws no marker" — the old `riffOffDotCell` branch (a dot for a riff-off lane's own
-                // fixed note pick) is removed entire, not just disabled; `riffMarker[i]` is already nil for
-                // a riff-off lane (`updateRiffMarkers`'s own guard), so this is now the ONLY source of an
-                // occupant. `Occupant.isArrow`/`riffMarkerGlyph`'s own dot-drawing branch are left in place,
-                // unreachable — harmless, flagged rather than silently left for a future reader to puzzle
-                // over why a dot branch never fires.
-                // LISTEN/SHADOW (§6, adversarial-review fix): "a shadowing lane shows no walk arrow on
-                // the riff grid" — its own riff is overridden entirely, so its marker is suppressed here
-                // the same way a riff-off lane's already is (that lane's own `riffMarker[i]` stays nil).
-                if lines[i].listenPitchMode == .shadow { continue }
-                if let m = riffMarker[i], m.col == col, m.row == rank {
-                    let onRest = col < ranks.count && ranks[col] == 0
-                    occupants.append(Occupant(lane: i, isArrow: true, onRest: onRest))
+    // MARK: - WALK TAGS WITH THREADS (ferry 2026-10-15)
+    //
+    // Each riff-on lane draws an arrow-shaped TAG on the shared grid, in the lane's colour, pointing the way its walk
+    // is about to move, with a THREAD to the seat it takes at its next advance; at each advance the tag travels the
+    // thread and ARRIVES at the advance's scheduled time. This SUPERSEDES the 2026-10-13 per-cell corner chip +
+    // triangle (the dark chip and its 7.5pt triangle are removed) — only the lane → corner mapping survives, as the
+    // tag's seat inside each block (`euclideousTagRect`). All the maths lives in Derivations.swift
+    // (`euclideousWalkTagPlan` / `euclideousTagDrawing`), pure and unit-tested; this section only decides WHICH lanes
+    // show a tag and paints what those functions return.
+
+    /// One lane's resting position, for the per-cell VoiceOver label only (the picture is the Canvas overlay below).
+    private struct WalkTagSeat { let lane: Int; let col: Int; let rank: Int; let facingRight: Bool }
+
+    /// When a lane shows a tag at all — the rules the old marker followed, unchanged: riff ON; not SHADOWing (its
+    /// own riff is overridden entirely, LISTEN §6); and the grid must be showing the riff that is actually playing
+    /// (editing another tab hides the tags, they'd be resolved against the wrong riff). MIDI-IN-with-nothing-held
+    /// suppression is applied by the caller.
+    private func walkTagShows(_ i: Int) -> Bool {
+        guard i < min(4, lines.count), lines[i].riffOnResolved, lines[i].listenPitchMode != .shadow else { return false }
+        return max(0, min(3, activeRiff)) == max(0, min(3, playingRiffIndex))
+    }
+    private func walkTagConfigs(suppress: Bool) -> [EuclideousWalkLaneConfig?] {
+        let cyc = clock.stepBeats * Double(max(1, clock.cols))
+        return (0..<4).map { i in
+            guard !suppress, walkTagShows(i) else { return nil }
+            return euclideousWalkLaneConfig(lane: i, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
+                                            lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len,
+                                            swingPercent: clock.swing, stepBeats: clock.stepBeats)
+        }
+    }
+    /// The UI clock's beat at `date` — the same `anchor + elapsed × tempo` extrapolation every other live view on
+    /// this page uses (frozen at the anchor while the transport is stopped).
+    private func walkTagBeat(at date: Date) -> Double {
+        clock.playing ? clock.anchor + date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
+    }
+    private func walkTagPlans(cfgs: [EuclideousWalkLaneConfig?], ranks: [Int], beat: Double) -> [EuclideousWalkTagPlan?] {
+        let spb = 60.0 / max(1.0, clock.tempo)
+        return (0..<4).map { i in
+            guard let cfg = cfgs[i], i < riffPositions.count, i < lines.count else { return nil }
+            return euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i],
+                                         running: clock.playing && lines[i].enabledResolved)
+        }
+    }
+
+    /// The tags + threads, drawn OVER the matrix and UNDER the (transparent) drag gesture overlay: blocks, then all
+    /// threads, then all tags; within threads and within tags in lane order red, blue, yellow, green (green on top).
+    /// One `TimelineView` for the whole overlay (the 2026-10-11 DSP lesson: never one per cell), paused while the
+    /// transport is stopped — a stopped transport draws the tags once, with no threads (nothing is scheduled).
+    private func riffWalkTagOverlay(cfgs: [EuclideousWalkLaneConfig?], ranks: [Int], cellW: CGFloat, cellH: CGFloat, gridW: CGFloat, gridH: CGFloat) -> some View {
+        let pad: CGFloat = 8   // room for a wrap thread's 2pt overshoot past the grid's outer edges (and stroke widths)
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !clock.playing)) { tl in
+            Canvas { ctx, _ in
+                let beat = walkTagBeat(at: tl.date)
+                let plans = walkTagPlans(cfgs: cfgs, ranks: ranks, beat: beat)
+                let drawings: [EuclideousTagDrawing?] = (0..<4).map { i in
+                    plans[i].map { euclideousTagDrawing(lane: i, plan: $0, cellW: cellW, cellH: cellH, gap: sp4) }
                 }
+                ctx.translateBy(x: pad, y: pad)
+                for i in 0..<4 { if let t = drawings[i]?.thread { drawWalkThread(&ctx, lane: i, t) } }
+                for i in 0..<4 { if let d = drawings[i] { drawWalkTag(&ctx, lane: i, d, cellW: cellW, cellH: cellH) } }
+                #if DEBUG
+                logWalkTagArrivals(plans)
+                #endif
+            }
+            .frame(width: gridW + pad * 2, height: gridH + pad * 2)
+        }
+        .frame(width: gridW + pad * 2, height: gridH + pad * 2)
+        .offset(x: -pad, y: -pad)
+        .allowsHitTesting(false)
+    }
+    private func drawWalkThread(_ ctx: inout GraphicsContext, lane: Int, _ g: EuclideousThreadGeometry) {
+        EuclideousWalkTagPainter.drawThread(&ctx, accent: laneAccents[lane % laneAccents.count], g)
+    }
+    private func drawWalkTag(_ ctx: inout GraphicsContext, lane: Int, _ d: EuclideousTagDrawing, cellW: CGFloat, cellH: CGFloat) {
+        EuclideousWalkTagPainter.drawTag(&ctx, lane: lane, accent: laneAccents[lane % laneAccents.count], d, cellW: cellW, cellH: cellH)
+    }
+
+    #if DEBUG
+    /// Device log for the timing check (ferry §6): "ARRIVE lane step t" when a tag lands and "HIT lane step t" at the
+    /// note-on (lane and step 1-based; t in seconds on the CACurrentMediaTime timeline). ARRIVE's t is the tag's
+    /// PREDICTED landing moment on the UI clock (now + the plan's landed offset). HIT's t is the note-on's moment as
+    /// the ENGINE stamped it on the host clock (Kernel → Router → the NOTE VIEW event's `hostSeconds`), so
+    /// ARRIVE − HIT is the UI-clock-vs-engine error the ferry's 17ms bar is about. Caveats: only hits that PLAY have a
+    /// HIT (a rest raises no engine event); only the newest event per lane per poll is seen; a host that supplies no
+    /// valid host time falls back to a UI-clock estimate, marked with "~" (and then the pair says nothing about the
+    /// engine).
+    final class EuclideousWalkTagLog {
+        var lastLanded: [Int64?] = [nil, nil, nil, nil]
+        var lastEvents: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
+    }
+    private func logWalkTagArrivals(_ plans: [EuclideousWalkTagPlan?]) {
+        for i in 0..<4 {
+            guard let p = plans[i], let tick = p.landedTick, let landed = p.landedSeconds else { walkTagLog.lastLanded[i] = nil; continue }
+            if walkTagLog.lastLanded[i] != tick {
+                walkTagLog.lastLanded[i] = tick
+                print(String(format: "ARRIVE %d %d %.4f", i + 1, p.seatStep + 1, CACurrentMediaTime() + landed))
             }
         }
+    }
+    private func logWalkTagHits(_ evs: [Router.EuclideousNoteViewEventSnapshot?]) {
+        let spb = 60.0 / max(1.0, clock.tempo)
+        let beatNow = walkTagBeat(at: Date())
+        for i in 0..<min(4, evs.count) {
+            guard let ev = evs[i], ev.column >= 0, ev != walkTagLog.lastEvents[i] else { continue }
+            walkTagLog.lastEvents[i] = ev
+            if ev.hostSeconds > 0 {
+                print(String(format: "HIT %d %d %.4f", i + 1, Int(ev.column) + 1, ev.hostSeconds))
+            } else {
+                print(String(format: "HIT~ %d %d %.4f", i + 1, Int(ev.column) + 1, CACurrentMediaTime() - (beatNow - ev.onsetBeat) * spb))
+            }
+        }
+    }
+    #endif
+
+    /// One riff-grid matrix cell: the plain on/off fill and ambient border, plus the VoiceOver label for any lane
+    /// whose tag currently sits here. The tags themselves are NOT drawn per cell any more — they travel between
+    /// cells, so they live in `riffWalkTagOverlay`.
+    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, seats: [WalkTagSeat] = []) -> some View {
         let on = col < ranks.count && ranks[col] == rank
-        // LANE → CORNER, matching the real lane-card grid exactly (see this function's own doc comment).
-        let corners: [Alignment] = [.topLeading, .topTrailing, .bottomLeading, .bottomTrailing]
-        // OVERFLOW FIX (2026-10-13 adversarial review): the old flat `max(8, ...)` floor could exceed the
-        // glyph's own half-cell quadrant whenever `min(cellW,cellH) < 16` — this codebase's own history
-        // already documents cells shrinking to ~7.4pt on a real narrow portrait panel, so this wasn't
-        // theoretical. `halfCell` is the true available space (the quadrant's own smaller dimension); the
-        // floor is now `min(4, halfCell)` instead of a flat `8` — mathematically provably never exceeds
-        // `halfCell` (both arguments to the outer `max` are individually ≤ halfCell, so their max is too,
-        // and wrapping in `min(16, ...)` can only shrink further) — the glyph can no longer push past its
-        // own quadrant into the neighbouring one.
-        let halfCell = min(cellW, cellH) / 2
-        let glyphSize = min(16, max(halfCell * 0.84, min(4, halfCell)))
+        let here = seats.filter { $0.col == col && $0.rank == rank }
         return ZStack {
             RoundedRectangle(cornerRadius: 3)
                 .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
                 // rule 5: "keeps its light selection border" — an ambient 1pt light border on every cell,
-                // unconditionally (unaffected by this redesign).
+                // unconditionally.
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.12), lineWidth: 1))
-            ForEach(occupants, id: \.lane) { o in
-                let accent = laneAccents[o.lane % laneAccents.count]
-                let corner = corners[o.lane % corners.count]
-                Group {
-                    if o.isArrow && o.onRest {
-                        // rule 7, now scoped to just this lane's own corner (not the whole cell, which no
-                        // longer has a single exclusive "occupied" state to dash) — a FILL/TIE landing on a
-                        // rest still reads as distinct from a normal real-rank hit.
-                        riffMarkerGlyph(lane: o.lane, isArrow: o.isArrow, accent: accent, glyphSize: glyphSize)
-                            .padding(2)
-                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color(hex: 0x8A909A), style: StrokeStyle(lineWidth: 1, dash: [2, 1])))
-                    } else {
-                        riffMarkerGlyph(lane: o.lane, isArrow: o.isArrow, accent: accent, glyphSize: glyphSize)
-                    }
-                }
-                // CENTERING FIX (Paul 2026-10-14, "use exactly quarter of the button and ensure the direction
-                // arrow is centered within that and fills the maximum space without changing the size"): this
-                // inner frame IS exactly one quarter of the cell (cellW/2 × cellH/2, unchanged) — the bug was
-                // its alignment: `corner` (e.g. `.topLeading`) pushed the glyph toward the OUTER cell's own
-                // corner A SECOND TIME, inside its own quarter — so the arrow sat tucked into a sub-corner of
-                // the quarter rather than centred within it. `.center` fixes that; `glyphSize` itself (already
-                // ~84% of the quarter's own smaller dimension, unchanged below) is what "fills the maximum
-                // space" — only the alignment, not the size, changes here.
-                .frame(width: max(1, cellW / 2), height: max(1, cellH / 2), alignment: .center)
-                // CONTRAST FIX (Paul 2026-10-13, third same-day ferry: "the arrows... [are] feint against the
-                // background, [ape] the colour scheme on the processor box play button, so use the same
-                // background colour but only in the active corner"): the glyph used to sit directly on the
-                // cell's own on/off fill (white 0.85 or 0.08) with nothing behind it, which washed out against
-                // a lit (bright white) cell especially. `patternUnselectedFill` (#2A2D34) is the EXACT chip
-                // colour `playButton(on:)`'s compact variant already uses for its own background — reused
-                // here, not a new colour, so the marker's corner reads as the same "control chip" language as
-                // the lane's own PLAY/STOP button. Scoped to ONLY this occupant's own quadrant (the `ForEach`
-                // already confines it to the lane's one active corner) — an empty corner with no occupant
-                // keeps the cell's plain on/off fill, unchanged.
-                .background(RoundedRectangle(cornerRadius: 3).fill(patternUnselectedFill))
-                // This OUTER frame is the one that places the whole quarter (background + centred glyph) at
-                // this lane's own corner of the FULL cell — unchanged, still `corner`, not `.center`.
-                .frame(width: cellW, height: cellH, alignment: corner)
-            }
         }
         .frame(width: cellW, height: cellH)
-        // The per-cell gesture is GONE — `riffGridView`'s own drag overlay now owns tap AND drag for the
-        // whole matrix at once (see `riffDragLastCell`'s doc comment), so a plain tap on a single cell and a
-        // continuous drag across several both land here, in `riffSetRank`.
-        // ACCESSIBILITY (ferry's own literal text: "Step 3, E♭, lane 1 here, next up"). The note name
-        // resolves `riffLivePool` (already a live page property — "the ascending notes currently feeding the
-        // riff's own pool") at this cell's own rank — omitted (falls back to the bare "Step N" form) only
-        // when the pool doesn't currently reach this rank. FIXED (2026-10-14 ferry §1): this call site never
-        // checked `noteSource` at all — it unconditionally read the KEY's own sharp/flat choice regardless
-        // of the actual source, a second, independent instance of the exact bug §1 reports. Routed through
-        // the same shared dispatcher as every other note label on the page now.
+        // The per-cell gesture is GONE — `riffGridView`'s own drag overlay owns tap AND drag for the whole matrix.
+        // ACCESSIBILITY (ferry's own literal text: "Step 3, E♭, lane 1 here, next up"). The note name resolves
+        // `riffLivePool` at this cell's own rank — omitted (bare "Step N") only when the pool doesn't currently reach
+        // it. Routed through the shared `euclideousDisplayNoteName` dispatcher (2026-10-14 ferry §1: one name per note
+        // everywhere, honouring the actual note source).
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(occupants.isEmpty ? "" : {
+        .accessibilityLabel(here.isEmpty ? "" : {
             let noteName = (rank >= 1 && rank <= riffLivePool.count) ? euclideousDisplayNoteName(riffLivePool[rank - 1], source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType) : nil
             let stepPart = noteName.map { "Step \(col + 1), \($0)" } ?? "Step \(col + 1)"
-            return occupants.map { o in
-                o.isArrow ? "\(stepPart), lane \(o.lane + 1) here, \(riffMarkerDirectionWord(o.lane, lines[o.lane]))"
-                          : "Lane \(o.lane + 1)'s fixed note here"
-            }.joined(separator: "; ")
+            return here.map { "\(stepPart), lane \($0.lane + 1) here, \($0.facingRight ? "next up" : "next down")" }.joined(separator: "; ")
         }())
-    }
-    /// "next up" / "next down" for the accessibility label — a plain-English gloss of the SAME comparison
-    /// `riffMarkerGlyph` uses for its own arrow glyph, so the two can never disagree.
-    private func riffMarkerDirectionWord(_ lane: Int, _ line: EuclidLine) -> String {
-        guard riffMarker[lane] != nil, let pointsRight = riffMarkerPointsRight(lane, line) else { return "here" }
-        return pointsRight ? "next up" : "next down"
-    }
-    /// One occupant's own glyph (rule 2/3): an arrow (riff-on) pointing toward its next move, with stride-
-    /// based extra arrowheads/a number; a plain dot (riff-off, rule 4).
-    private func riffMarkerGlyph(lane: Int, isArrow: Bool, accent: Color, glyphSize: CGFloat) -> some View {
-        Group {
-            if !isArrow {
-                Circle().fill(lane100(accent)).frame(width: min(10, glyphSize * 0.4), height: min(10, glyphSize * 0.4))
-            } else {
-                let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
-                let hasMarker = lane < riffMarker.count && riffMarker[lane] != nil
-                let pointsRight = hasMarker ? (riffMarkerPointsRight(lane, line) ?? true) : true
-                let glyph = pointsRight ? "▶" : "◀"
-                let stride = line.riffStrideResolved
-                HStack(spacing: 1) {
-                    if stride <= 3 {
-                        ForEach(0..<max(1, stride), id: \.self) { _ in
-                            Text(glyph).font(.system(size: glyphSize, weight: .heavy)).foregroundColor(lane100(accent))
-                        }
-                    } else {
-                        Text(glyph).font(.system(size: glyphSize, weight: .heavy)).foregroundColor(lane100(accent))
-                        Text("\(stride)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(lane100(accent))
-                    }
-                }
-            }
-        }
     }
 
 

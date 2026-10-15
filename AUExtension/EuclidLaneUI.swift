@@ -23,6 +23,7 @@ struct EuclidLiveClock {
     var anchorAt: Date
     var tempo: Double
     var playing: Bool         // the HOST transport (a lane's OWN play/stop is a separate, caller-supplied flag)
+    var swing: Double = 50    // swing %, 50…75 — only the riff-grid walk tags read it (a hit's real onset is swing-warped)
 }
 
 /// The play-button triangle (2026-10-13 "lane card, exact dimensions" ferry, literal: "14 wide × 18 tall,
