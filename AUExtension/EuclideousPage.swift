@@ -2038,7 +2038,15 @@ struct EuclideousPage: View {
                     }
                 }
         )
-        .euclideousHelp("Hold and tap steps for custom restart points; tap for presets")
+        // NO `.euclideousHelp` here, unlike most controls on this page — its own doc comment scopes it
+        // DELIBERATELY to "a plain `.onTapGesture`-only control" and excludes every other drag/pinch-based
+        // control for the same reason (the XY pads, the mask's drag-to-adjust chips): a 0.5s+ hold is
+        // exactly this control's OWN core interaction (§4.7), so the help bubble's competing
+        // `.onLongPressGesture` would race the restart-hold `DragGesture` on the identical touch instead of
+        // layering safely alongside a plain tap. Found on a later adversarial-review pass, not caught when
+        // this control's gesture was first changed from a plain tap to a hold. Discovery still exists
+        // without it — the popover's own "HOLD RESET + TAP STEPS = CUSTOM" hint row (§6) and the
+        // accessibility hint below.
         .accessibilityLabel("Lane \(idx + 1) restarts: \(euclideousRestartAccessibleLabel(mask: mask, loopSteps: len))")
         .accessibilityHint("Double-tap for presets")
     }
