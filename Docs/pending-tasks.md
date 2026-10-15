@@ -5,6 +5,17 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — "Fourfold header (key pill, no ON, outputs that point at the lanes)" — SHIPPED (2026-10-15;
+LANDED on `feature/fourfold-header`, macOS green, iOS builds clean) — ON chip gone (page always runs), one MIDI IN ·
+CHORDS · KEY control + a key pill, MAIN OUT turned into output rings (tap pulses / hold traces / quarters flare on real
+strikes), header regrouped BRAND · OUTPUTS · NOTES · UTILITIES with an A/B/C fit ladder from one pure layout function.
+Full story in `Docs/euclideous-status-log.md`.
+- [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "Header (Fourfold…)" section (fit in AUM both
+      orientations, tap-vs-hold, flare sync, popup anchors, fresh-instance-plays-at-once).
+- [ ] DECIDE (Paul): should a fresh instance ship with lanes stopped now that nothing but lane PLAY/STOP and the rings
+      can silence it? (Currently default lanes 1–2 play at once.)
+- [ ] OPEN (parked, remind Paul): the five riff-grid walk-tag questions — see `Docs/euclideous-status-log.md`
+      ("Riff-grid walk tags with threads").
 ## ★ EUCLIDEOUS — "per-step restart points on the LANES tab" — SHIPPED (2026-10-15; LANDED on
 `feat/euclid-per-step-restart-marks`, macOS 1454 green incl. +14, iOS builds clean) — replaces the old
 OFF/1/2/4/8 per-lane RESET with an 8-bit per-step restart mask, editable by holding a lane's RESET box and

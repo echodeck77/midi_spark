@@ -12,6 +12,41 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: Fourfold header (key pill, no ON, outputs that point at the lanes)" (2026-10-15, on
+  `feature/fourfold-header`; iOS builds clean, macOS 1501 tests green incl. the new pure-layer tests; the page/painter
+  visuals are UI-only and DEVICE-owed). Planned first (Plan Mode, audited against the raw ferry text and the code on
+  main), five assumed defaults approved with the plan. **ON REMOVED:** `euclideousEnabledResolved` is now always `true`
+  (the stored field stays decodable and round-trips untouched — a preset saved "off" now plays); the ON chip, the
+  page's `enabled`/`onToggleEnabled` and the VC's closure are gone; free-run is therefore always on. `euclideousEnabled`
+  is not an AU parameter — its only writers were the ON chip and `EuclideousPresets.swift` (sets true; left).
+  **HEADER = BRAND · OUTPUTS · NOTES · UTILITIES, laid out by ONE pure function:** `euclideousHeaderLayout`
+  (Derivations.swift) returns the A/B/C ladder kind, row count, header height and every group's frame from the same
+  constants the views draw with, with ONE clamp solve (not sequential nudges); `euclideousLandscapeColumns` (the riff/
+  lane split, extracted from `landscapeLayout`) gives A its anchor x's (NOTES on the riff panel's leading edge, rings
+  on the lane grid's centre); the body layouts read the same two functions, so header and page can't disagree. Rows are
+  44pt tall (44pt targets) with a 9pt top margin so the spec's 31pt centre line holds literally (a 7pt/21pt cost to the
+  lane block, flagged); C's mark→undo gap is sp8 (the only reading that reproduces the spec's ≈341), so C's floor page
+  width is 373 (341 + 2·sp16). **OUTPUT RINGS (`OutputRingPainter.swift`, SwiftUI-only, harness-rendered on macOS):**
+  disc r17 + four 66° quarter arcs at 315/45/225/135° (= lanes TL/TR/BL/BR) lit in the lane's own colour when that
+  lane routes to the output; unrouted = dim, output off = dashed. Pure state in `euclideousOutputRingState`; tap toggles
+  the MAIN OUT bit (no undo, as before) then PULSES the routed lanes' OUT circles (or RHYTHM tab when it is the visible
+  one); a 300ms hold TRACES (never toggles; non-routed lanes dim to 42%; `@GestureState` guarantees a cancelled touch
+  can't leave lanes dimmed) — `euclideousOutputCues` decides both. **FLARE FEED (D1):** a quarter flares on a REAL
+  strike — the VC already polled the engine's NOTE VIEW event ring at ~30fps; it now also keeps the latest kind 0/3
+  strike per lane (any column) and passes `strikeEvents` to the page, which ages it in lane-step units through
+  `euclideousRingFlare`, whose afterglow 1.5 / burst 0.35 constants are now shared with the comet bar. No engine
+  change, no new polling. **NOTES:** one MIDI IN · CHORDS · KEY segmented control (184pt, 66/70/40) replaces the three
+  source chips + CHORDS chip; the selected CHORDS segment shows a chevron and opens the chord grid anchored under it;
+  KEY no longer opens anything — the new 120×32 key pill shows `euclideousKeyLabel` (shared with `Receiver.scaleLabel`,
+  so "C MINOR"/"A MIXO"/"D DORIAN"; the spec's "F♯ MIXOLYDIAN" isn't producible from that format) and opens the existing
+  key pop-up, now anchored under the pill. **TESTS:** key label for every root × scale; ring state across all 16 mask
+  combinations × 4 outputs; cues (pulse/trace); group widths; layout A@1158 / A slid@868 / B@600 / C@343, the 373 floor,
+  an exact-need sweep (no overlaps, nothing past the edges); flare envelope; lane masks; resolver (stored false →
+  true, round-trips). **FLAGGED:** (D2) 44pt rows + 9pt top margin push the lane block down; (D3) key-label format;
+  (D4) wordmark FOURFOLD only — product/target/AU names stay FourStep/MidiSpark; (D5) a FRESH instance now plays at
+  once (default lanes 1–2, KEY source, need no input); OUTPUTS group is 199.98pt wide vs the spec's ≈203; the chord
+  popup keeps its dimming scrim; §7.3's dashed OUT circle was already shipped (4764aae) and is verified only. **DEVICE-
+  OWED:** every item under "Header (Fourfold…)" in `Docs/euclideous-device-verification-debt.md`.**
 - **▶ EUCLIDEOUS — "FERRY: per-step restart points on the LANES tab," REPLACES the 4-value RESET ladder with
   an 8-bit per-lane restart MASK (2026-10-15, on `feat/euclid-per-step-restart-marks`; iOS builds clean,
   macOS 1454 tests green incl. +14 new; EuclideousPage.swift gestures/visuals are UI-only, no macOS test-

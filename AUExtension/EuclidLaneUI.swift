@@ -472,12 +472,12 @@ struct EuclidCometBar: View {
                                 func wrap(_ v: Double) -> Double { let r = v.truncatingRemainder(dividingBy: cycleLen); return r < 0 ? r + cycleLen : r }
                                 age = min(wrap(cometRaw - Double(i)), wrap(cometRaw - (cycleLen - Double(i))))
                             }
-                            let recede = max(0, 1 - age / 1.5)     // the lingering afterglow (unchanged window)
+                            let recede = max(0, 1 - age / euclideousFlareAfterglowSteps)     // the lingering afterglow (unchanged window — now a shared constant, so the Fourfold output rings fade with it)
                             // DRAMATIC HIT: a short, sharp BURST window layered on top of the lingering afterglow:
                             // the box's glow swells, a hot white flash core blooms inside it, and a shockwave
                             // OUTLINE expands outward — all decay much faster than `recede` so the strike itself
                             // reads as an impact, not just a brighter box.
-                            let burst = max(0, 1 - age / 0.35)
+                            let burst = max(0, 1 - age / euclideousFlareBurstSteps)
                             // FERRY (2026-10-14 §5): "the solid flash means a note started" — a hit landing on a
                             // rest under SKIP/TIE (or, reasoned one step further, a hit that can never sound at
                             // all — riff off with nothing lit) plays nothing, so it gets the SAME fade timing

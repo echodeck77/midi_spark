@@ -472,11 +472,11 @@ final class EffectiveParamsTests: XCTestCase {
 
     // EUCLIDEOUS: PluginState's own persisted config — a doc saved before this feature existed must decode with
     // the page simply absent/disabled, never throw (the same CR-8 contract every other PluginState field follows).
-    func testEuclideousFieldsDecodeAbsentAndResolveToDisabled() throws {
+    func testEuclideousFieldsDecodeAbsentAndResolveToTheirDefaults() throws {
         let legacy = doc()   // no euclideousLines/Enabled/Receiver keys at all — PluginState's synthesized Decodable
         let data = try JSONEncoder().encode(legacy)
         let back = try JSONDecoder().decode(PluginState.self, from: data)
-        XCTAssertFalse(back.euclideousEnabledResolved)
+        XCTAssertTrue(back.euclideousEnabledResolved, "Fourfold header ferry §1: the page always runs — an absent field is no longer 'off'")
         XCTAssertEqual(back.euclideousReceiverResolved, 0)
         XCTAssertEqual(back.euclideousLinesResolved.count, 4, "always pads to exactly 4, mirroring euclidLinesForEditing()")
         // PER-INDEX DEFAULT, REVISED (usability ferry §8.2, 2026-10-11, literal): "riff R1; lane 1: riff
@@ -1016,5 +1016,18 @@ final class EffectiveParamsTests: XCTestCase {
         case .maskChordGate: return s.maskChordGate; case .maskChordOct: return Double(s.maskChordOct)
         case .arpVelocity: return s.arpVelocity; case .arpVelTilt: return s.arpVelTilt
         }
+    }
+
+    // FOURFOLD HEADER ferry §1.2/§10.4: the ON chip is gone, so a document (or preset) SAVED with the page off must load
+    // audible — the resolver wins — while the stored value itself is never rewritten.
+    func testEuclideousEnabledStoredFalseResolvesTrueAndRoundTripsUntouched() throws {
+        var st = doc()
+        st.euclideousEnabled = false
+        XCTAssertTrue(st.euclideousEnabledResolved, "stored false still resolves true")
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(st))
+        XCTAssertEqual(back.euclideousEnabled, false, "the stored field round-trips without loss")
+        XCTAssertTrue(back.euclideousEnabledResolved)
+        var on = doc(); on.euclideousEnabled = true
+        XCTAssertEqual(try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(on)).euclideousEnabled, true)
     }
 }

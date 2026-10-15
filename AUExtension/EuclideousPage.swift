@@ -72,6 +72,44 @@ struct EuclideousResetChipFramePreferenceKey: PreferenceKey {
     }
 }
 
+/// The selected CHORDS segment's own on-screen frame (Fourfold header ferry §5.3) — the chord-grid pop-up anchors under it,
+/// exactly as the key pop-up anchors under the key pill. Only that one segment publishes, so a single rect suffices.
+struct EuclideousChordsSegmentFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        if let v = nextValue() { value = v }
+    }
+}
+
+/// A tapped output's pulse (Fourfold header §7.1): `token` increments per tap so a second tap restarts the ring animation.
+struct EuclideousOutputPulse: Equatable { var output: Int; var token: Int }
+/// What one lane shows for the active output cue (pulse or hold-trace): which output, whether it's a held trace, and the
+/// cue itself (`dim`, or a ring around the OUT circle / RHYTHM tab).
+struct EuclideousOutputCueInfo { let output: Int; let held: Bool; let token: Int; let cue: EuclideousOutputCue }
+
+/// The ring a pulse/trace draws on a lane (Fourfold header §7.1/§7.2): 2pt #DFE3EA. A PULSE starts at 95% opacity and
+/// scale 1 and eases out over 650ms to 0% and scale 1.35; a HELD trace sits still at 95% until release. Visual only — never
+/// blocks a touch. Reduce Motion: fade only, no scale.
+struct EuclideousOutputCueRing: View {
+    enum Kind { case circle, tab }
+    let kind: Kind
+    let held: Bool
+    let reduceMotion: Bool
+    @State private var progress: CGFloat = 0
+    var body: some View {
+        Group {
+            switch kind {
+            case .circle: Circle().stroke(Color(hex: 0xDFE3EA), lineWidth: 2)
+            case .tab: RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0xDFE3EA), lineWidth: 2).padding(4)
+            }
+        }
+        .opacity(held ? 0.95 : 0.95 * Double(1 - progress))
+        .scaleEffect(held || reduceMotion ? 1 : 1 + 0.35 * progress)
+        .allowsHitTesting(false)
+        .onAppear { if !held { withAnimation(.easeOut(duration: 0.65)) { progress = 1 } } }
+    }
+}
+
 /// LONG-PRESS HELP (usability ferry §3.3, literal): "long-pressing any control for 0.5s shows a small
 /// bubble above it with a one-line plain-English explanation; it disappears on release... must never also
 /// change the control's value." Attached ALONGSIDE a control's own `.onTapGesture`, never replacing it —
@@ -491,7 +529,6 @@ enum EuclideousLaneTab: Int, CaseIterable {
 
 struct EuclideousPage: View {
     let lines: [EuclidLine]
-    let enabled: Bool
     let lineReady: UInt8
     // FOUR RIFFS (2026-10-14 sequencer-panel ferry §7) — SUPERSEDES the single shared `riff` entirely: the
     // riff grid now holds FOUR independently-stored patterns, picked by tabs. `activeRiff` is which one is
@@ -534,6 +571,8 @@ struct EuclideousPage: View {
     // removed along with that panel (2026-10-14 sequencer-panel ferry) — this one survives, feeding the
     // riff grid's own walk-arrow markers, a genuinely separate feature.
     let wipeEvents: [Router.EuclideousNoteViewEventSnapshot?]
+    // FOURFOLD HEADER (§4.8): each lane's latest real strike of any kind — read ONLY by the output rings' flare.
+    let strikeEvents: [Router.EuclideousNoteViewEventSnapshot?]
     // PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config (§2.2-§2.4).
     let resetSpanBars: Int
     let keyRoot: Int
@@ -565,7 +604,6 @@ struct EuclideousPage: View {
     // its own `coalesceKey: nil` (same idiom as those two) guarantees its own undo step regardless of what
     // came before it.
     let onSetRestartMask: (Int, UInt8) -> Void
-    let onToggleEnabled: () -> Void
     let onSetResetSpanBars: (Int) -> Void
     let onSetKeyRoot: (Int) -> Void
     let onSetKeyType: (ScaleType) -> Void
@@ -653,6 +691,20 @@ struct EuclideousPage: View {
     // once, in which case the popup falls back to centre (handled at the render site).
     @State private var riffKeyTabFrame: CGRect? = nil
     @State private var chordsPopupOpen = false
+    // FOURFOLD HEADER (2026-10-15): the selected CHORDS segment's frame (the chord grid anchors under it), the output ring
+    // currently HELD (§4.7, nil = none), the last tapped output's PULSE (§7.1), and the ring press-in-progress bookkeeping
+    // (which ring, whether the 300ms hold already fired, whether the press was cancelled by dragging off).
+    @State private var chordsSegmentFrame: CGRect? = nil
+    @State private var heldOutput: Int? = nil
+    @State private var outputPulse: EuclideousOutputPulse? = nil
+    @State private var ringPressOutput: Int? = nil
+    @State private var ringHoldFired = false
+    @State private var ringPressCancelled = false
+    @State private var ringHoldTask: Task<Void, Never>? = nil
+    /// True only while a finger is down on a ring. A `GestureState` resets itself when the gesture ENDS OR IS CANCELLED
+    /// (a system gesture, the app backgrounding — `onEnded` is NOT called then), so its change is the cleanup hook that
+    /// guarantees a held trace can never stay stuck on.
+    @GestureState private var ringTouching = false
     // riffDirPopupLane RETIRED 2026-10-10 alongside the RIFF tab — direction selection lives inline in the
     // melody pop-up's WALK section now, no separate nested popup needed.
     // MASK MODE POPUP (Paul 2026-10-10, "Euclid mask, modes and settings" ferry §4): "tapping opens a picker
@@ -711,12 +763,6 @@ struct EuclideousPage: View {
     private let sp4: CGFloat = 4     // gap between elements INSIDE a card: pads, segmented buttons, rows
     private let sp8: CGFloat = 8     // gap between lane cards; padding inside every card/panel, all 4 sides
     private let sp16: CGFloat = 16   // page margins; gap between header / lane grid / riff panel
-
-    // --- PROTECTED ABSOLUTE SIZE (ferry §3, 2026-10-08 — a component dimension, not spacing, so the
-    // 4/8/16 scale doesn't apply to it): MAIN OUT's own header circles never shrink below this. (The
-    // sibling `laneOutSize`, for the old circular per-lane OUT toggles, is gone — those toggles are now
-    // equal-width buttons inside `patternControlBlock`'s fixed 40pt row, 2026-10-12.) ---
-    private let mainOutSize: CGFloat = 36
 
     // --- TYPE SCALE: `padValueSize` is still the NOTE VIEW pad-readout size. `padSubtitleSize` (the old
     // shared pad-readout/tab-label pair) was retired 2026-10-13 — the 2026-10-13 "exact dimensions" ferry
@@ -815,27 +861,37 @@ struct EuclideousPage: View {
                     riffTabMenuCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
                 if keyPopupOpen {
-                    // ANCHORED POPOVER (Paul 2026-10-12, second same-day ferry): "a popover anchored to the
-                    // tab... dismiss by tapping outside" — a non-dimming full-screen tap-catcher (the SAME
-                    // "anchored, not a modal" pattern the melody pop-up already established on this page),
-                    // positioned beside the captured KEY tab frame; falls back to centre-screen if the tab
-                    // hasn't published a frame yet (shouldn't happen in practice once the page has rendered
-                    // once, but a defensive default costs nothing).
+                    // ANCHORED POPOVER, now UNDER THE KEY PILL (Fourfold header ferry §6.2): a non-dimming full-screen
+                    // tap-catcher, and the card's TOP edge sp4 below the pill, its leading edge on the pill's (clamped
+                    // inside the page). The old placement centred the card beside the anchor at y ≥ 140 — fine for a
+                    // mid-page tab, wrong for a header pill (it would hang ~50pt off the top). Falls back to centre if the
+                    // pill hasn't published a frame yet.
                     Color.clear.contentShape(Rectangle()).onTapGesture { keyPopupOpen = false }
                         .frame(width: geo.size.width, height: geo.size.height)
                         .zIndex(3)
-                    let anchorX = riffKeyTabFrame.map { max(170, $0.minX - 10) } ?? geo.size.width / 2
-                    let anchorY = riffKeyTabFrame.map { $0.midY } ?? geo.size.height / 2
-                    keyPopupCard.position(x: min(anchorX, geo.size.width - 170), y: min(max(140, anchorY), geo.size.height - 140)).zIndex(4)
+                    if let f = riffKeyTabFrame {
+                        keyPopupCard
+                            .offset(x: min(max(f.minX, sp8), max(sp8, geo.size.width - 260 - sp8)), y: f.maxY + sp4)
+                            .zIndex(4)
+                    } else {
+                        keyPopupCard.position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                    }
                 }
-                // THE CHORDS POP-UP (Paul 2026-10-08) — same scrim+card shape as RESET SPAN/KEY above, but
-                // sized from the real available space (like `buildReceiverChordPopup`'s own `min(620, size.width
-                // - 32)` precedent) since a full degree matrix needs much more room than those two small cards.
+                // THE CHORDS POP-UP — same dimming scrim as before (content unchanged), but ANCHORED under the selected
+                // CHORDS segment (Fourfold header ferry §5.3) instead of centred: top edge sp4 below the segment, leading
+                // edge on the segment's, clamped inside the page (the card is up to 640 wide).
                 if chordsPopupOpen {
                     Color.black.opacity(0.55).ignoresSafeArea()
                         .onTapGesture { chordsPopupOpen = false }
                         .zIndex(3)
-                    chordsPopupCard(geo.size).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                    if let f = chordsSegmentFrame {
+                        let cardW = min(640, geo.size.width - 32)
+                        chordsPopupCard(geo.size)
+                            .offset(x: min(max(f.minX, sp8), max(sp8, geo.size.width - cardW - sp8)), y: f.maxY + sp4)
+                            .zIndex(4)
+                    } else {
+                        chordsPopupCard(geo.size).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                    }
                 }
                 // THE XY PAD VALUE BUBBLE is RETIRED along with the pads themselves (usability ferry,
                 // 2026-10-12) — each of the six new sliders shows its own value permanently, in place, so
@@ -843,6 +899,7 @@ struct EuclideousPage: View {
             }
             .coordinateSpace(name: "euclideousXY")
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
+            .onPreferenceChange(EuclideousChordsSegmentFramePreferenceKey.self) { if let f = $0 { chordsSegmentFrame = f } }
             .onPreferenceChange(EuclideousResetChipFramePreferenceKey.self) { resetChipFrames = $0 }
         }
         #if DEBUG
@@ -918,9 +975,10 @@ struct EuclideousPage: View {
     /// "fit always wins, but the primary content is protected first" precedent an earlier ferry established.
     private let riffRowHTarget: CGFloat = 20
     private func portraitLayout(_ size: CGSize) -> some View {
-        let headerH = portraitHeaderHeight
         let containerW = size.width - sp16 * 2
-        let totalBelowH = max(1, size.height - headerH - sp16 * 3)   // top margin + header↔grid gap + bottom margin
+        let hdr = headerLayout(containerW: containerW, isLandscape: false)
+        let headerH = hdr.height
+        let totalBelowH = max(1, size.height - headerH - (HM.topMargin + sp16 * 2))   // header top margin (9, keeps the 31pt centre line) + header↔grid gap + bottom margin
         let riffTargetH = riffPanelHeight(rowH: riffRowHTarget)
         let laneGridMinH = laneCardFixedOverhead * 2 + sp8   // 2 lane-card rows + the gap between them; the gesture-pad row alone shrinks toward 0
         let sharedRowH = min(riffTargetH, max(1, totalBelowH - sp16 - laneGridMinH))
@@ -937,8 +995,8 @@ struct EuclideousPage: View {
             // the real screen with nothing to clip or compress it — the confirmed root cause of "D cut off,
             // ON/close missing." Same frame-then-pad order as the content VStack below, so both compute the
             // identical left/right margin from the SAME `containerW`.
-            portraitHeader().frame(width: containerW, alignment: .leading)
-                .padding(.horizontal, sp16).padding(.top, sp16)
+            fourfoldHeader(hdr, containerW: containerW)
+                .padding(.horizontal, sp16).padding(.top, HM.topMargin)
             VStack(spacing: sp16) {
                 // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard
                 // itself): the EXACT frames named in the device crash (`closure #1 in closure #1 in
@@ -969,17 +1027,19 @@ struct EuclideousPage: View {
     /// — now riff (top) / NOTE VIEW (bottom), splitting that SAME column height 50/50 (the same judgment
     /// call as portrait's own split, flagged there).
     private func landscapeLayout(_ size: CGSize) -> some View {
-        let headerH = landscapeHeaderHeight
         let containerW = size.width - sp16 * 2
-        let belowH = max(1, size.height - headerH - sp16 * 3)   // top margin + header↔grid gap + bottom margin
-        let riffColW = containerW * 0.36
-        let laneColW = containerW - riffColW - sp16
+        let hdr = headerLayout(containerW: containerW, isLandscape: true)
+        let headerH = hdr.height
+        let belowH = max(1, size.height - headerH - (HM.topMargin + sp16 * 2))   // header top margin (9, keeps the 31pt centre line) + header↔grid gap + bottom margin
+        let cols = euclideousLandscapeColumns(containerW: containerW)   // ONE column split, shared with the header (riff panel's edge, lane gutter)
+        let riffColW = cols.riffColW
+        let laneColW = cols.laneColW
         let laneW = max(1, (laneColW - sp8) / 2)
         let laneH = max(1, (belowH - sp8) / 2)
         let halfH = max(1, (belowH - sp16) / 2)   // riff (top) / NOTE VIEW (bottom), 50/50
         let riffRowH = riffRowHForPanelHeight(halfH)
         return VStack(alignment: .leading, spacing: sp16) {
-            landscapeHeader().padding(.horizontal, sp16).padding(.top, sp16)
+            fourfoldHeader(hdr, containerW: containerW).padding(.horizontal, sp16).padding(.top, HM.topMargin)
             HStack(spacing: sp16) {
                 // AnyView on each laneCard call — see the 2026-10-13 crash-fix comment inside laneCard and
                 // portraitLayout's identical HStack above. This is the literal pair of frames named in the
@@ -1000,185 +1060,286 @@ struct EuclideousPage: View {
         }
     }
 
-    // MARK: - Header (this ferry §3, literal): BOTH orientations show exactly EUCLIDEOUS · RESET · KEY −/
-    // chip/+ · CHORDS · MAIN OUT A B C D · ON · close — "nothing in the header may be clipped or missing"
-    // (§3.3). LANDSCAPE is one row, that exact order. PORTRAIT splits across two rows per §3.2's own
-    // literal assignment: row 1 = EUCLIDEOUS · MAIN OUT A B C D · ON · close; row 2 = RESET · KEY −/chip/+
-    // · CHORDS (RESET moved OFF row 1 — a direct, deliberate change from the prior ferry's own split, not
-    // a continuation of it). Every label is a flat 10pt with NO `.minimumScaleFactor` (§6.1's own floor —
-    // see the per-function comments below for why a scale factor is now actively forbidden, not just unused).
-    private let headerRowH: CGFloat = 30
-    private let headerBtnH: CGFloat = 28
+    // MARK: - FOURFOLD HEADER (ferry "Fourfold header", approved by Paul 2026-10-15) — replaces the old one-row-or-two
+    // header (title · undo/redo · MIDI IN/CHORD/KEY chips · CHORDS chip · MAIN OUT circles · ON · presets · close) with four
+    // GROUPS that each sit over what they control: BRAND (mark, FOURFOLD, undo/redo) · OUTPUTS (the four output rings) ·
+    // NOTES (the source control + the key pill) · UTILITIES (presets, close). ON is gone — the page always runs.
+    //
+    // ONE FORMULA: every position/size below comes from `euclideousHeaderLayout` / `EuclideousHeaderMetrics`
+    // (Derivations.swift, unit-tested) — the layout (A one row / B two rows / C compact two rows) is CHOSEN from the same
+    // numbers the views are DRAWN with, and `portraitLayout`/`landscapeLayout` read this header's height and the landscape
+    // column split from the same functions, so the body and the header can never disagree. No ScrollView, no
+    // `.minimumScaleFactor` (house rules): text that doesn't fit truncates.
+    private typealias HM = EuclideousHeaderMetrics
+    private var headerInk: Color { Color(hex: 0x0D0F14) }
+    private var headerText: Color { Color(hex: 0xF2F4F7) }
+    private var headerMuted: Color { Color(hex: 0xAAB0BA) }
+    private var headerDim: Color { Color(hex: 0x8A909A) }
 
-    private var portraitHeaderHeight: CGFloat { headerRowH * 2 + sp4 }
-    private var landscapeHeaderHeight: CGFloat { headerRowH }
-
-    private func portraitHeader() -> some View {
-        VStack(spacing: sp4) {
-            headerRow1().frame(height: headerRowH)
-            headerRow2().frame(height: headerRowH)
+    private func headerLayout(containerW: CGFloat, isLandscape: Bool) -> EuclideousHeaderLayout {
+        if isLandscape {
+            let c = euclideousLandscapeColumns(containerW: containerW)
+            return euclideousHeaderLayout(containerW: containerW, isLandscape: true, riffLeadingX: c.riffLeadingX, laneCentreX: c.laneCentreX)
         }
-    }
-    private func landscapeHeader() -> some View {
-        HStack(spacing: sp4) {
-            headerTitle()
-            headerUndoRedoGroup()
-            Spacer(minLength: sp4)
-            headerSourceGroup()
-            headerChordsChip()
-            headerMainOutGroup()
-            headerOnChip()
-            headerPresetButton()
-            headerCloseButton()
-        }
-        .frame(height: headerRowH)
+        // Portrait: the lane grid spans the whole container, so its vertical gutter is the container's centre.
+        return euclideousHeaderLayout(containerW: containerW, isLandscape: false, riffLeadingX: 0, laneCentreX: containerW / 2)
     }
 
-    /// PORTRAIT row 1 (this ferry §3.2, literal): EUCLIDEOUS · MAIN OUT A B C D · ON · close — RESET moved
-    /// OUT to row 2 (it was here in the prior ferry; this one explicitly re-homes it).
-    private func headerRow1() -> some View {
-        HStack(spacing: sp4) {
-            headerTitle()
-            headerUndoRedoGroup()
-            Spacer(minLength: sp4)
-            headerMainOutGroup()
-            headerOnChip()
-            headerPresetButton()
-            headerCloseButton()
+    /// The whole header: four groups placed by the pure layout, every group centred on the 44pt row's own midline (31pt
+    /// below the page top, the spec's centre line, because the page gives the block a 9pt top margin).
+    private func fourfoldHeader(_ layout: EuclideousHeaderLayout, containerW: CGFloat) -> some View {
+        let rowStep = HM.rowH + HM.sp4
+        return ZStack(alignment: .topLeading) {
+            headerBrand(layout).frame(width: layout.brand.width, height: HM.rowH, alignment: .leading)
+                .offset(x: layout.brand.x, y: CGFloat(layout.brand.row) * rowStep)
+            headerOutputs(layout).frame(width: layout.outputs.width, height: HM.rowH, alignment: .leading)
+                .offset(x: layout.outputs.x, y: CGFloat(layout.outputs.row) * rowStep)
+            headerNotes().frame(width: layout.notes.width, height: HM.rowH, alignment: .leading)
+                .offset(x: layout.notes.x, y: CGFloat(layout.notes.row) * rowStep)
+            headerUtilities(layout).frame(width: layout.utilities.width, height: HM.rowH, alignment: .trailing)
+                .offset(x: layout.utilities.x, y: CGFloat(layout.utilities.row) * rowStep)
         }
-    }
-    /// PORTRAIT row 2: KEY −/chip/+ · CHORDS — RESET was here (this ferry §3.2, literal: "RESET · KEY −/
-    /// chip/+ · CHORDS"), REMOVED entire by the 2026-10-14 sequencer-panel ferry §3 ("replacing the old
-    /// machine-wide header RESET control" with the per-lane `resetButton` on each lane's own RHYTHM tab).
-    private func headerRow2() -> some View {
-        HStack(spacing: sp4) {
-            headerSourceGroup()
-            headerChordsChip()
-            Spacer(minLength: sp4)
-        }
+        .frame(width: containerW, height: layout.height, alignment: .topLeading)
     }
 
-    // TYPE FLOOR (this ferry §6.1: "nothing meaningful is drawn smaller than 10pt. This includes the header
-    // labels (RESET, KEY, MAIN OUT)...") — every header label below was previously 7–9pt with a
-    // `.minimumScaleFactor` that could shrink it further still; both violate the floor, so EVERY size here
-    // is now a flat 10pt with NO scale factor (a renderable minimum below 10pt is exactly what's forbidden —
-    // if a real container is too narrow, text now clips via `.lineLimit(1)` instead of silently shrinking
-    // under the floor, an honest trade-off, not a silent violation).
-    private func headerTitle() -> some View {
-        Text("EUCLIDEOUS").font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(.white.opacity(0.9)).lineLimit(1)
-    }
-    /// §7.1, literal: "↶ and ↷ buttons... after the title in landscape and in row 1 in portrait; disabled
-    /// (40% opacity) when there is nothing to undo or redo."
-    private func headerUndoRedoGroup() -> some View {
-        HStack(spacing: sp4) {
-            Image(systemName: "arrow.uturn.backward").font(.system(size: 13, weight: .bold))
-                .foregroundColor(.white.opacity(canUndo ? 0.7 : 0.4))
-                .contentShape(Rectangle())
+    // MARK: BRAND — the mark, FOURFOLD, undo, redo
+    private func headerBrand(_ layout: EuclideousHeaderLayout) -> some View {
+        let compact = layout.compact
+        let target = compact ? HM.compactTarget : HM.target
+        return HStack(spacing: 0) {
+            FourfoldMark()
+            Color.clear.frame(width: HM.sp8, height: 1)
+            if !compact {
+                Text("FOURFOLD").font(.system(size: HM.wordmarkSize, weight: .heavy, design: .monospaced))
+                    .tracking(HM.wordmarkTracking * HM.wordmarkSize).foregroundColor(headerText).lineLimit(1)
+                    .frame(width: HM.wordmarkWidth, alignment: .leading)
+                Color.clear.frame(width: HM.sp16, height: 1)
+            }
+            // §3.3: undo/redo keep their glyphs and their 40%-disabled look, 18pt #AAB0BA, on adjacent targets.
+            Image(systemName: "arrow.uturn.backward").font(.system(size: 18, weight: .bold))
+                .foregroundColor(headerMuted.opacity(canUndo ? 1 : 0.4))
+                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture { if canUndo { onUndo() } }
                 .euclideousHelp("Undo the last change")
-            Image(systemName: "arrow.uturn.forward").font(.system(size: 13, weight: .bold))
-                .foregroundColor(.white.opacity(canRedo ? 0.7 : 0.4))
-                .contentShape(Rectangle())
+                .accessibilityLabel("Undo").accessibilityAddTraits(.isButton)
+            Image(systemName: "arrow.uturn.forward").font(.system(size: 18, weight: .bold))
+                .foregroundColor(headerMuted.opacity(canRedo ? 1 : 0.4))
+                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture { if canRedo { onRedo() } }
                 .euclideousHelp("Redo the last undone change")
+                .accessibilityLabel("Redo").accessibilityAddTraits(.isButton)
         }
-    }
-    // headerKeyGroup REMOVED (Paul 2026-10-12, second same-day ferry): "only its entry point moves" — the
-    // key picker (`keyPopupCard`, content unchanged) opened exclusively from the KEY tab beside the riff
-    // grid for a while (`riffSourceTabs`, since removed — see `headerSourceGroup` below); the old header
-    // chip's own +/− quick-step buttons, which had no described replacement at the time, never came back.
-    // The KEY entry point is now back in the header, just restyled (2026-10-14) — a full-circle move, not
-    // a reversal of this entry's own original reasoning.
-    // CHORDS (Paul 2026-10-08) — "next to [KEY] place a chords button that opens a pop-up to a chord grid
-    // with rate control."
-    private func headerChordsChip() -> some View {
-        Text("CHORDS").font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(.white.opacity(0.8)).lineLimit(1)
-            .padding(.horizontal, sp4).frame(height: headerBtnH)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
-            .contentShape(Rectangle())
-            .onTapGesture { chordsPopupOpen = true }
-    }
-    /// MIDI IN/CHORD/KEY SOURCE — MOVED here from the riff-grid panel's own vertical rotated side tabs
-    /// (Paul 2026-10-14: "move the midi in/chords/key control to the top header bar and restyle") —
-    /// restyled from `riffSourceTabs`' narrow 22×62pt rotated-text column into 3 plain horizontal header
-    /// chips, matching every OTHER header control's own convention (10pt heavy monospaced, `headerBtnH`,
-    /// `cornerRadius: 6`) instead of the riff panel's bespoke rotated-tab look. SAME tap behaviour as
-    /// before, byte-for-byte: tapping the already-selected KEY chip opens the key popup; tapping an
-    /// UNSELECTED chip switches the source; tapping an already-selected MIDI IN/CHORD chip does nothing.
-    /// The KEY chip still publishes its own on-screen frame via the SAME `EuclideousRiffTabFramePreferenceKey`
-    /// the popup's anchor already reads — moving the PUBLISHER automatically moves the anchor with it, no
-    /// change needed to the popup-positioning code itself.
-    private func headerSourceGroup() -> some View {
-        let current = noteSource
-        return HStack(spacing: sp4) {
-            ForEach([EuclideousLaneSource.midi, .chords, .key], id: \.self) { src in
-                let selected = current == src
-                let label = src == .midi ? "MIDI IN" : (src == .chords ? "CHORD" : "KEY")
-                let a11y = src == .midi ? "Source, MIDI in" : (src == .chords ? "Source, chord" : "Source, key, double-tap to choose key")
-                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).lineLimit(1)
-                    .padding(.horizontal, sp4).frame(height: headerBtnH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
-                    .background(
-                        GeometryReader { g in
-                            Color.clear.preference(key: EuclideousRiffTabFramePreferenceKey.self,
-                                                     value: src == .key ? g.frame(in: .named("euclideousXY")) : nil)
-                        }
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if src == .key, selected { keyPopupOpen = true }
-                        else if !selected { onSetNoteSource(src) }
-                        // already-selected MIDI IN/CHORD: literally nothing, matching the prior control's own rule.
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(a11y)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-            }
-        }
-    }
-    // The "MAIN OUT" text caption is DROPPED here (kept in the §5 spec's own wording as the group's
-    // NAME, not a literal required on-screen label) — each circle already shows its own letter (A/B/C/D).
-    private func headerMainOutGroup() -> some View {
-        HStack(spacing: sp4) {
-            ForEach(0..<4, id: \.self) { b in mainOutToggle(b) }
-        }
-    }
-    private func headerOnChip() -> some View {
-        Text(enabled ? "ON" : "OFF").font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(enabled ? .black : .white.opacity(0.6)).lineLimit(1)
-            .padding(.horizontal, sp4).frame(height: headerBtnH)
-            .background(RoundedRectangle(cornerRadius: 6).fill(enabled ? Color.green.opacity(0.85) : Color.white.opacity(0.08)))
-            .onTapGesture { onToggleEnabled() }
-    }
-    private func headerCloseButton() -> some View {
-        Image(systemName: "xmark.circle.fill").font(.system(size: 15))
-            .foregroundColor(.white.opacity(0.5))
-            .onTapGesture { onClose() }
-    }
-    /// PRESETS (Paul 2026-10-11): icon-only, matching headerCloseButton's own plain-glyph footprint rather than
-    /// a labelled chip — this header already has no spare width to give (every prior ferry on this page fought
-    /// the SAME narrow-panel fit problem). Same "folder.fill" glyph the main workbench's own PRESETS button uses
-    /// (ArrangementBar.swift), so it reads as the same action rather than a new one.
-    private func headerPresetButton() -> some View {
-        Image(systemName: "folder.fill").font(.system(size: 13))
-            .foregroundColor(.white.opacity(0.5))
-            .onTapGesture { onOpenPresets() }
     }
 
-    /// MAIN OUT (Paul 2026-10-07, §2.3): a GLOBAL master gate over every lane's own per-lane routing — fixed
-    /// at 36pt (ferry §3: "do not make... MAIN OUT any smaller than they are now") regardless of header scale.
-    private func mainOutToggle(_ b: Int) -> some View {
-        let on = (mainOutMask >> UInt8(b)) & 1 != 0
-        return Text(["A", "B", "C", "D"][b]).font(.system(size: 13, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.6))
-            .frame(width: mainOutSize, height: mainOutSize)
-            .background(Circle().fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
-            .overlay(Circle().stroke(Color.white.opacity(on ? 0 : 0.25), lineWidth: 2))
-            .contentShape(Circle())
-            .onTapGesture { onSetMainOutMask(mainOutMask ^ (1 << UInt8(b))) }
+    // MARK: OUTPUTS — "OUT" + the four output rings (MAIN OUT A–D)
+    private func headerOutputs(_ layout: EuclideousHeaderLayout) -> some View {
+        let compact = layout.compact
+        let pitch = compact ? HM.compactRingPitch : HM.ringPitch
+        return HStack(spacing: 0) {
+            if !compact {
+                Text("OUT").font(.system(size: HM.captionSize, weight: .bold, design: .monospaced))
+                    .tracking(HM.captionTracking * HM.captionSize).foregroundColor(headerDim).lineLimit(1)
+                    .frame(width: HM.captionWidth, alignment: .leading)
+                Color.clear.frame(width: HM.sp4, height: 1)
+            }
+            // One TimelineView for the four rings (never one per ring — the page's standing DSP rule): it only ticks while
+            // the transport runs, because the only thing animating here is a strike's flare.
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+                let beat = walkTagBeat(at: tl.date)
+                HStack(spacing: 0) {
+                    ForEach(0..<4, id: \.self) { b in outputRing(b, pitch: pitch, beat: beat) }
+                }
+            }
+        }
+        .onChange(of: ringTouching) { touching in
+            // Finger lifted (or the touch was cancelled): whatever the press left behind is cleared. After a normal
+            // `onEnded` everything is already reset, so this is a no-op then.
+            if !touching { ringHoldTask?.cancel(); ringHoldTask = nil; heldOutput = nil; ringPressOutput = nil; ringHoldFired = false; ringPressCancelled = false }
+        }
+    }
+
+    /// A quarter's flare: its lane routes to this output, the output is ON, the transport runs, and that lane's latest real
+    /// strike (the engine's own NOTE VIEW event, `strikeEvents`) is `age` lane-steps old — the same step unit and the same
+    /// afterglow/burst windows the comet bar uses (`euclideousRingFlare`). A strike whose onset is still in the future
+    /// (the engine renders ahead) reads 0 until its moment arrives.
+    private func ringFlare(_ b: Int, masks: [UInt8], beat: Double) -> [Double] {
+        guard clock.playing, (mainOutMask >> UInt8(b)) & 1 != 0 else { return [0, 0, 0, 0] }
+        return (0..<4).map { lane -> Double in
+            guard (masks[lane] >> UInt8(b)) & 1 != 0, lane < strikeEvents.count, lane < lines.count, let ev = strikeEvents[lane] else { return 0 }
+            let step = max(1e-6, (lines[lane].rate ?? .r1_16).beats)
+            return euclideousRingFlare(ageSteps: (beat - ev.onsetBeat) / step)
+        }
+    }
+
+    private func outputRing(_ b: Int, pitch: CGFloat, beat: Double) -> some View {
+        let masks = euclideousLaneMasks(lines)
+        let state = euclideousOutputRingState(output: b, laneMasks: masks, mainOutMask: mainOutMask)
+        let held = heldOutput == b
+        return EuclideousOutputRing(letter: ["A", "B", "C", "D"][b], state: state, laneColours: laneAccents, held: held,
+                                    flare: ringFlare(b, masks: masks, beat: beat), width: pitch, height: HM.rowH)
+            .opacity(heldOutput != nil && !held ? 0.42 : 1)        // §4.7: while one is held, the other three sit at 42%
+            .contentShape(Rectangle())
+            .gesture(ringGesture(b))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(ringAccessibilityLabel(b, state: state))
+            .accessibilityValue(state.mode == .off ? "off" : "on")
+            .accessibilityHint("Hold to show its lanes")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { toggleMainOut(b); pulseOutput(b) }
+            .accessibilityAction(named: "Show its lanes") { pulseOutput(b) }   // VoiceOver can't perform a hold
+    }
+    private func ringAccessibilityLabel(_ b: Int, state: EuclideousOutputRingState) -> String {
+        let fed = (0..<4).filter { state.lit[$0] }.map { $0 + 1 }
+        let lanes: String
+        switch fed.count {
+        case 0: lanes = "no lanes"
+        case 1: lanes = "lane \(fed[0])"
+        default: lanes = "lanes " + fed.dropLast().map(String.init).joined(separator: ", ") + " and \(fed[fed.count - 1])"
+        }
+        return "Main out \(["A", "B", "C", "D"][b]), \(state.mode == .off ? "off" : "on"), fed by \(lanes)"
+    }
+    private func toggleMainOut(_ b: Int) { onSetMainOutMask(mainOutMask ^ (1 << UInt8(b))) }   // unchanged action: no undo recorded
+    /// PULSE (§7.1): one ring per routed lane, then gone. Visual only — no state worth keeping, no undo.
+    private func pulseOutput(_ b: Int) {
+        let token = (outputPulse?.token ?? 0) + 1
+        outputPulse = EuclideousOutputPulse(output: b, token: token)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if outputPulse?.token == token { outputPulse = nil }
+        }
+    }
+    /// TAP vs HOLD (§4.6/§4.7): release within 300ms = tap (toggle, then pulse); 300ms or more = hold (trace until release —
+    /// a hold NEVER toggles). Dragging well off the ring before the hold fires cancels the press entirely.
+    private func ringGesture(_ b: Int) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($ringTouching) { _, touching, _ in touching = true }
+            .onChanged { g in
+                if ringPressOutput == nil {
+                    ringPressOutput = b; ringHoldFired = false; ringPressCancelled = false
+                    ringHoldTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        guard !Task.isCancelled, ringPressOutput == b, !ringPressCancelled else { return }
+                        ringHoldFired = true; heldOutput = b
+                    }
+                } else if !ringHoldFired, !ringPressCancelled, hypot(g.translation.width, g.translation.height) > 14 {
+                    ringPressCancelled = true; ringHoldTask?.cancel()
+                }
+            }
+            .onEnded { _ in
+                ringHoldTask?.cancel(); ringHoldTask = nil
+                if ringHoldFired { heldOutput = nil }
+                else if !ringPressCancelled, ringPressOutput == b { toggleMainOut(b); pulseOutput(b) }
+                ringPressOutput = nil; ringHoldFired = false; ringPressCancelled = false
+            }
+    }
+
+    // MARK: NOTES — the source control + the key pill
+    private func headerNotes() -> some View {
+        HStack(spacing: HM.sp8) {
+            headerSourceControl()
+            headerKeyPill()
+        }
+    }
+    /// MIDI IN · CHORDS · KEY as ONE segmented control (§5): a 32pt #2A2D34 container (radius 8), 24pt segments (radius 6)
+    /// of FIXED widths 66/70/40 so nothing moves when the selection changes. Tapping an unselected segment switches the
+    /// source; tapping the SELECTED CHORDS opens the chord grid (only that segment shows a chevron); tapping the selected
+    /// MIDI IN or KEY does nothing — KEY no longer opens the key pop-up (the pill does).
+    private func headerSourceControl() -> some View {
+        let current = noteSource
+        let items: [(src: EuclideousLaneSource, label: String, spoken: String)] = [(.midi, "MIDI IN", "MIDI in"), (.chords, "CHORDS", "Chords"), (.key, "KEY", "Key")]
+        return HStack(spacing: 0) {
+            ForEach(0..<3, id: \.self) { i in
+                headerSourceSegment(items[i].src, label: items[i].label, spoken: items[i].spoken, width: HM.segmentWidths[i], selected: current == items[i].src)
+            }
+        }
+        .padding(.horizontal, HM.segmentInset)
+        .frame(width: HM.segmentedWidth, height: 32)
+        .background(RoundedRectangle(cornerRadius: 8).fill(patternUnselectedFill))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Note source")
+    }
+    private func headerSourceSegment(_ src: EuclideousLaneSource, label: String, spoken: String, width: CGFloat, selected: Bool) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(selected ? Color(hex: 0xDFE3EA) : Color.clear).frame(height: 24)
+            HStack(spacing: HM.sp4) {
+                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
+                    .foregroundColor(selected ? headerInk : headerMuted).lineLimit(1)
+                if selected && src == .chords {
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundColor(headerInk)
+                }
+            }
+        }
+        .frame(width: width, height: 32)
+        .background(
+            GeometryReader { g in
+                Color.clear.preference(key: EuclideousChordsSegmentFramePreferenceKey.self,
+                                       value: src == .chords ? g.frame(in: .named("euclideousXY")) : nil)
+            }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !selected { onSetNoteSource(src) }
+            else if src == .chords { chordsPopupOpen = true }
+            // selected MIDI IN / KEY: literally nothing.
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint(selected && src == .chords ? "Double-tap to edit the chord grid" : "")
+    }
+    /// The key pill (§6): the current key in the receiver chip's own format, a chevron, tap → the existing key pop-up
+    /// anchored under it. Shown and active in every source mode. While the pop-up is open it inverts and the chevron flips.
+    private func headerKeyPill() -> some View {
+        let open = keyPopupOpen
+        return HStack(spacing: HM.sp8) {
+            Text(euclideousKeyLabel(root: keyRoot, type: keyType)).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
+                .foregroundColor(open ? headerInk : headerText).lineLimit(1).truncationMode(.tail)
+            Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundColor(open ? headerInk : headerMuted)
+                .rotationEffect(.degrees(open ? 180 : 0)).fixedSize()
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, HM.sp8)
+        .frame(width: HM.keyPillWidth, height: 32)
+        .background(RoundedRectangle(cornerRadius: 8).fill(open ? Color(hex: 0xDFE3EA) : patternUnselectedFill))
+        .background(
+            GeometryReader { g in
+                // The key pop-up's anchor — the publisher MOVED here from the old KEY chip (the pop-up reads it unchanged).
+                Color.clear.preference(key: EuclideousRiffTabFramePreferenceKey.self, value: g.frame(in: .named("euclideousXY")))
+            }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { keyPopupOpen = true }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Key, \(euclideousKeySpokenName(root: keyRoot, type: keyType))")
+        .accessibilityHint("Double-tap to change")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    // MARK: UTILITIES — presets, close (outline icons, one family with undo/redo)
+    private func headerUtilities(_ layout: EuclideousHeaderLayout) -> some View {
+        let target = layout.compact ? HM.compactTarget : HM.target
+        return HStack(spacing: 0) {
+            Image(systemName: "folder").font(.system(size: 18)).foregroundColor(headerDim)
+                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
+                .onTapGesture { onOpenPresets() }
+                .accessibilityLabel("Presets").accessibilityAddTraits(.isButton)
+            Image(systemName: "xmark").font(.system(size: 18)).foregroundColor(headerDim)
+                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
+                .onTapGesture { onClose() }
+                .accessibilityLabel("Close").accessibilityAddTraits(.isButton)
+        }
+    }
+
+    // MARK: LANE SIDE of the output rings (§7) — pulse (after a tap) and trace (while held)
+    /// What lane `lane` shows right now: nil when nothing is pulsing/held or this lane isn't involved.
+    private func outputCue(forLane lane: Int) -> EuclideousOutputCueInfo? {
+        let mode: EuclideousOutputCueMode, output: Int, token: Int
+        if let h = heldOutput { mode = .trace; output = h; token = 0 }
+        else if let p = outputPulse { mode = .pulse; output = p.output; token = p.token }
+        else { return nil }
+        let rhythm = (0..<4).map { ($0 < laneTab.count ? laneTab[$0] : .rhythm) == .rhythm }
+        let cue = euclideousOutputCues(output: output, laneMasks: euclideousLaneMasks(lines), laneShowsRhythm: rhythm, mode: mode)[lane]
+        return cue == .none ? nil : EuclideousOutputCueInfo(output: output, held: mode == .trace, token: token, cue: cue)
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -1512,6 +1673,9 @@ struct EuclideousPage: View {
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
         .clipped()
+        // FOURFOLD §7.2: while an output ring is HELD, every lane NOT routed to it sits at the existing OFF-dim 42% (no animation
+        // — release restores everything at once). Routed lanes get their ring in `laneTabRow` / `laneOutRow` instead.
+        .opacity(outputCue(forLane: idx)?.cue == .dim ? 0.42 : 1)
     }
 
     // THE COUNT BOX (2026-10-13 "lane card, exact dimensions" ferry, literal): "CHIP fill, 9pt radius,
@@ -1671,6 +1835,13 @@ struct EuclideousPage: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .center).frame(height: rowH)
                 .overlay(Rectangle().fill(sel ? lane100(accent) : patternUnselectedFill).frame(height: 2), alignment: .bottom)
+                .overlay {
+                    // FOURFOLD §7.1: a pulse/trace for an output this lane feeds, while the card is showing another tab —
+                    // the ring goes around the RHYTHM tab ("your OUT toggles are in here"). Visual only.
+                    if t == .rhythm, let c = outputCue(forLane: idx), c.cue == .ringRhythmTab {
+                        EuclideousOutputCueRing(kind: .tab, held: c.held, reduceMotion: reduceMotion).id(c.token)
+                    }
+                }
                 .contentShape(Rectangle())
                 .onTapGesture { if idx < laneTab.count { laneTab[idx] = t } }
             }
@@ -1767,7 +1938,7 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(editing ? Color.clear : lane100(accent), lineWidth: 1.5))
         .contentShape(Rectangle())
         .background(GeometryReader { geo in
-            // Matches `headerSourceGroup`'s own KEY-chip publisher exactly — the SAME named coordinate
+            // Same idiom as the header's key-pill publisher — the SAME named coordinate
             // space the surrounding ZStack declares (`.coordinateSpace(name: "euclideousXY")`), not
             // `.global`, since the popup's own `.position(x:y:)` positions within THAT local space.
             Color.clear.preference(key: EuclideousResetChipFramePreferenceKey.self,
@@ -1872,6 +2043,14 @@ struct EuclideousPage: View {
                         }
                     )
                     .frame(maxWidth: .infinity).frame(height: rowH)
+                    .overlay {
+                        // FOURFOLD §7.1: the ring around THIS OUT circle (2pt, inner edge sp4 outside it → diameter + 10)
+                        // when the output ring just tapped/held is this one and this lane is routed to it. Visual only.
+                        if let c = outputCue(forLane: idx), c.cue == .ringOutCircle, c.output == b {
+                            EuclideousOutputCueRing(kind: .circle, held: c.held, reduceMotion: reduceMotion)
+                                .frame(width: rowH + 10, height: rowH + 10).id(c.token)
+                        }
+                    }
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
                     .accessibilityLabel("Emitter \(names[b])\(style == .hollowDashed ? ", main output off" : "")")

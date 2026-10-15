@@ -1960,8 +1960,7 @@ struct Receiver: Codable, Equatable {
     /// receiver chip AND the MIDI-config tab bar so they can never disagree. (2026-08-31)
     var scaleLabel: String? {
         guard doorModeResolved == .scale else { return nil }
-        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-        return "\(names[scaleRootResolved]) \(scaleTypeResolved.label)"
+        return euclideousKeyLabel(root: scaleRootResolved, type: scaleTypeResolved)   // shared with the Euclideous header's key pill
     }
     var scaleOctavesResolved: Int { max(1, min(4, activePool.octaves)) }
     // THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-04): the door reuses the CHORDS PROCESSOR's config wholesale — each of
@@ -2430,7 +2429,10 @@ struct PluginState: Codable, Equatable {
     private static func migratedResetSteps(fromBars bars: Int) -> Int {
         switch bars { case 1, 2, 4, 8: return bars; case 16: return 8; default: return 0 }   // 0/anything else → OFF
     }
-    var euclideousEnabledResolved: Bool { euclideousEnabled ?? false }
+    /// ALWAYS TRUE (Fourfold header ferry 2026-10-15, §1: "the page always runs"): the ON chip is gone, so the stored field
+    /// is decode-only — a document or preset saved with the page OFF loads audible. The resolver wins; the data is never
+    /// rewritten (a stored `false` round-trips untouched).
+    var euclideousEnabledResolved: Bool { true }
     var euclideousReceiverResolved: Int { max(0, min(3, euclideousReceiver ?? 0)) }
     // EUCLIDEOUS RIFF (Paul 2026-10-06): the page's one shared riff pattern, independent of which/how-many lines
     // have opted in via EuclidLine.useRiff. nil ⇒ the struct's own plain defaults (16 steps, an ascending figure).

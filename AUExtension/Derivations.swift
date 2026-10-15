@@ -4539,3 +4539,180 @@ func euclideousTagDrawing(lane: Int, plan: EuclideousWalkTagPlan, cellW: CGFloat
     }
     return out
 }
+
+// MARK: - FOURFOLD HEADER (ferry "Fourfold header", approved by Paul 2026-10-15)
+//
+// Pure, Foundation-only support for the regrouped header: the key label, the output rings' state and the lane-side
+// pulse/trace cues, the A/B/C layout ladder (ONE formula shared by the header and the page body below it), and the
+// ring flare envelope. Nothing here knows about SwiftUI; `EuclideousPage` and `OutputRingPainter` only draw what these
+// return.
+
+/// The key as the RECEIVER chip prints it (`"<root> <ScaleType.label>"`, ASCII sharps): e.g. "C MINOR", "A MIXO",
+/// "D DORIAN". ONE function, used by the header's key pill AND `Receiver.scaleLabel`, so the two can never disagree.
+func euclideousKeyLabel(root: Int, type: ScaleType) -> String {
+    let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    return "\(names[((root % 12) + 12) % 12]) \(type.label)"
+}
+
+/// The key as VoiceOver should speak it ("Key, C minor"): the spoken root ("C sharp") and the scale spelled out (the chip
+/// label abbreviates — "MIXO", "HARM MIN").
+func euclideousKeySpokenName(root: Int, type: ScaleType) -> String {
+    let roots = ["C", "C sharp", "D", "D sharp", "E", "F", "F sharp", "G", "G sharp", "A", "A sharp", "B"]
+    let scale: String
+    switch type {
+    case .major: scale = "major"; case .naturalMinor: scale = "minor"; case .harmonicMinor: scale = "harmonic minor"
+    case .melodicMinor: scale = "melodic minor"; case .dorian: scale = "dorian"; case .mixolydian: scale = "mixolydian"
+    case .lydian: scale = "lydian"; case .phrygian: scale = "phrygian"; case .majorPentatonic: scale = "major pentatonic"
+    case .minorPentatonic: scale = "minor pentatonic"; case .blues: scale = "blues"; case .wholeTone: scale = "whole tone"
+    case .chromatic: scale = "chromatic"
+    }
+    return "\(roots[((root % 12) + 12) % 12]) \(scale)"
+}
+
+/// The four lanes' own emitter masks (the ones `laneOutRow` edits: nil = 0 = routed nowhere), padded/truncated to 4.
+func euclideousLaneMasks(_ lines: [EuclidLine]) -> [UInt8] {
+    (0..<4).map { $0 < lines.count ? (lines[$0].emitterMask ?? 0) : 0 }
+}
+
+// ── output rings ────────────────────────────────────────────────────────────────────────────────────
+
+/// An output ring's quarters are LANES by where the lanes sit on screen: lane 0 top-left, 1 top-right, 2 bottom-left,
+/// 3 bottom-right. Each arc is centred on these angles, measured CLOCKWISE FROM 12 O'CLOCK (so the 24° gaps sit at 12,
+/// 3, 6 and 9) — NOT in lane-index order. SwiftUI measures from 3 o'clock; the painter converts.
+let euclideousRingQuarterCentreDegrees: [Double] = [315, 45, 225, 135]
+let euclideousRingArcDegrees: Double = 66
+
+enum EuclideousOutputRingMode: Equatable {
+    case onRouted      // output on, at least one lane routed to it
+    case onUnrouted    // output on, no lane routed
+    case off           // MAIN OUT bit off (dashed quarters)
+}
+struct EuclideousOutputRingState: Equatable {
+    var mode: EuclideousOutputRingMode
+    var lit: [Bool]    // index = lane 0…3: this lane's own emitter mask contains this output
+    var dashed: Bool { mode == .off }
+}
+func euclideousOutputRingState(output: Int, laneMasks: [UInt8], mainOutMask: UInt8) -> EuclideousOutputRingState {
+    let lit = (0..<4).map { lane in lane < laneMasks.count && (laneMasks[lane] >> UInt8(output)) & 1 != 0 }
+    let on = (mainOutMask >> UInt8(output)) & 1 != 0
+    return EuclideousOutputRingState(mode: on ? (lit.contains(true) ? .onRouted : .onUnrouted) : .off, lit: lit)
+}
+
+enum EuclideousOutputCue: Equatable { case none, ringOutCircle, ringRhythmTab, dim }
+enum EuclideousOutputCueMode { case pulse, trace }
+/// What each lane shows for output `output`: PULSE (after a tap) rings every routed lane — around its OUT circle if the
+/// card is showing RHYTHM, else around its RHYTHM tab — and leaves the rest alone; TRACE (while held) does the same but
+/// dims every lane that is NOT routed (so with no routed lane all four dim). `laneShowsRhythm[i]` = lane i's tab is RHYTHM.
+func euclideousOutputCues(output: Int, laneMasks: [UInt8], laneShowsRhythm: [Bool], mode: EuclideousOutputCueMode) -> [EuclideousOutputCue] {
+    (0..<4).map { lane in
+        let routed = lane < laneMasks.count && (laneMasks[lane] >> UInt8(output)) & 1 != 0
+        if routed { return (lane < laneShowsRhythm.count && laneShowsRhythm[lane]) ? .ringOutCircle : .ringRhythmTab }
+        return mode == .trace ? .dim : .none
+    }
+}
+
+// ── ring flare ──────────────────────────────────────────────────────────────────────────────────────
+
+/// The comet bar's own flare windows, in LANE STEPS since the strike (one definition, used by `EuclidCometBar` and the
+/// output rings so they fade together): the lingering afterglow and the short sharp burst.
+let euclideousFlareAfterglowSteps: Double = 1.5
+let euclideousFlareBurstSteps: Double = 0.35
+/// 0…1 flare strength `ageSteps` after a strike: the burst's peak at the strike, settling onto 60% of the afterglow,
+/// then fading to 0 as the afterglow ends. Drives the ring quarter's 2.5 → 3.5pt thickening, its 7pt glow and the
+/// disc wash together.
+func euclideousRingFlare(ageSteps: Double) -> Double {
+    guard ageSteps >= 0 else { return 0 }
+    let recede = max(0, 1 - ageSteps / euclideousFlareAfterglowSteps)
+    let burst = max(0, 1 - ageSteps / euclideousFlareBurstSteps)
+    return max(burst, recede * 0.6)
+}
+
+// ── layout ladder ───────────────────────────────────────────────────────────────────────────────────
+
+enum EuclideousHeaderMetrics {
+    static let sp4: CGFloat = 4, sp8: CGFloat = 8, sp16: CGFloat = 16
+    static let rowH: CGFloat = 44
+    /// The spec's centre line, 31pt below the page top: a 44pt row centred on it puts the header block's top at 9pt.
+    static let centreLineY: CGFloat = 31
+    static var topMargin: CGFloat { centreLineY - rowH / 2 }
+    static let target: CGFloat = 44, compactTarget: CGFloat = 36
+    static let ringPitch: CGFloat = 44, compactRingPitch: CGFloat = 40
+    static let markSize: CGFloat = 13
+    static let monoAdvance: CGFloat = 0.6          // em — the page's monospaced advance estimate
+    static let wordmarkChars = 8, wordmarkSize: CGFloat = 11, wordmarkTracking: CGFloat = 0.16
+    static let captionChars = 3, captionSize: CGFloat = 9, captionTracking: CGFloat = 0.14
+    static let segmentWidths: [CGFloat] = [66, 70, 40]
+    static let segmentInset: CGFloat = 4
+    static var segmentedWidth: CGFloat { segmentWidths.reduce(0, +) + segmentInset * 2 }   // 184
+    static let keyPillWidth: CGFloat = 120
+    /// The two text runs whose widths the layout estimates — the views use these SAME numbers for their frames.
+    static var wordmarkWidth: CGFloat { CGFloat(wordmarkChars) * wordmarkSize * (monoAdvance + wordmarkTracking) }
+    static var captionWidth: CGFloat { CGFloat(captionChars) * captionSize * (monoAdvance + captionTracking) }
+}
+struct EuclideousHeaderGroupWidths: Equatable {
+    var brand: CGFloat, outputs: CGFloat, notes: CGFloat, utilities: CGFloat
+    var gap: CGFloat            // the space between row-1 groups: sp16 (A, B) or sp8 (C)
+}
+/// Each group's width, once, from the same constants the views draw with.
+func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
+    typealias M = EuclideousHeaderMetrics
+    let t = compact ? M.compactTarget : M.target
+    let wordmarkW = M.wordmarkWidth
+    let captionW = M.captionWidth
+    let brand = M.markSize + M.sp8 + (compact ? 0 : wordmarkW + M.sp16) + 2 * t
+    let outputs = (compact ? 0 : captionW + M.sp4) + 4 * (compact ? M.compactRingPitch : M.ringPitch)
+    return EuclideousHeaderGroupWidths(brand: brand, outputs: outputs, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth,
+                                       utilities: 2 * t, gap: compact ? M.sp8 : M.sp16)
+}
+
+/// The landscape page's column split — ONE definition for the body (`landscapeLayout`) and the header (which wants the
+/// riff panel's leading edge and the lane grid's centre). Container coordinates: 0 = the container's leading edge.
+struct EuclideousLandscapeColumns: Equatable {
+    var riffColW: CGFloat, laneColW: CGFloat, riffLeadingX: CGFloat, laneCentreX: CGFloat
+}
+func euclideousLandscapeColumns(containerW: CGFloat) -> EuclideousLandscapeColumns {
+    let riff = containerW * 0.36
+    let lane = containerW - riff - EuclideousHeaderMetrics.sp16
+    return EuclideousLandscapeColumns(riffColW: riff, laneColW: lane, riffLeadingX: lane + EuclideousHeaderMetrics.sp16, laneCentreX: lane / 2)
+}
+
+struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }
+struct EuclideousHeaderLayout: Equatable {
+    enum Kind: Equatable { case a, b, c }
+    var kind: Kind
+    var widths: EuclideousHeaderGroupWidths
+    var brand: EuclideousHeaderGroupFrame, outputs: EuclideousHeaderGroupFrame
+    var notes: EuclideousHeaderGroupFrame, utilities: EuclideousHeaderGroupFrame
+    var rowCount: Int { kind == .a ? 1 : 2 }
+    var compact: Bool { kind == .c }
+    var height: CGFloat { rowCount == 1 ? EuclideousHeaderMetrics.rowH : EuclideousHeaderMetrics.rowH * 2 + EuclideousHeaderMetrics.sp4 }
+}
+private func headerClamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo > hi ? lo : min(max(v, lo), hi) }
+
+/// The first layout that fits `containerW` (page width − sp16 × 2). `riffLeadingX` / `laneCentreX` are in container
+/// coordinates (see `euclideousLandscapeColumns`; portrait passes the container centre for `laneCentreX`). Portrait
+/// never uses A. Positions are solved with ONE clamp per group, so no combination of slides can leave two groups
+/// closer than their stated gap while the layout still "fits".
+func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX: CGFloat, laneCentreX: CGFloat) -> EuclideousHeaderLayout {
+    typealias M = EuclideousHeaderMetrics
+    let full = euclideousHeaderGroupWidths(compact: false)
+    let aNeeds = full.brand + full.outputs + full.notes + full.utilities + 3 * full.gap
+    let bNeeds = full.brand + full.outputs + full.utilities + 2 * full.gap
+    if isLandscape && containerW >= aNeeds {
+        let uX = containerW - full.utilities
+        // NOTES: on the riff panel's leading edge, slid left until it clears UTILITIES by sp16 — but never so far left
+        // that the rings (and BRAND) lose their own room.
+        let notesX = headerClamp(riffLeadingX, full.brand + full.outputs + 2 * full.gap, uX - full.gap - full.notes)
+        let ringsX = headerClamp(laneCentreX - full.outputs / 2, full.brand + full.gap, notesX - full.gap - full.outputs)
+        return EuclideousHeaderLayout(kind: .a, widths: full,
+                                      brand: .init(x: 0, width: full.brand, row: 0), outputs: .init(x: ringsX, width: full.outputs, row: 0),
+                                      notes: .init(x: notesX, width: full.notes, row: 0), utilities: .init(x: uX, width: full.utilities, row: 0))
+    }
+    let compact = containerW < bNeeds
+    let w = compact ? euclideousHeaderGroupWidths(compact: true) : full
+    let uX = containerW - w.utilities
+    let ringsX = headerClamp(laneCentreX - w.outputs / 2, w.brand + w.gap, uX - w.gap - w.outputs)
+    return EuclideousHeaderLayout(kind: compact ? .c : .b, widths: w,
+                                  brand: .init(x: 0, width: w.brand, row: 0), outputs: .init(x: ringsX, width: w.outputs, row: 0),
+                                  notes: .init(x: 0, width: w.notes, row: 1), utilities: .init(x: uX, width: w.utilities, row: 0))
+}

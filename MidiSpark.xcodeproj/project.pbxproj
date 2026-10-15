@@ -30,6 +30,7 @@
 		368706B54B23A18EAE705127 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9093C469F102E1F2CCC6DF7D /* MidiFile.swift */; };
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
 		37F89ABAB74E1492496863CC /* AcceptanceGeneratorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */; };
+		3B87266EA4A929D67995CA66 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */; };
 		3E9FF95A517649C43ED0D955 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */; };
 		4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
@@ -171,6 +172,7 @@
 		AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclidLaneUI.swift; sourceTree = "<group>"; };
 		B049851538F9CC0979176A1D /* MidiSparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidiSparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
+		B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputRingPainter.swift; sourceTree = "<group>"; };
 		B324D879C239B5A1451B258F /* WalkTagPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkTagPainter.swift; sourceTree = "<group>"; };
 		B3CD05B6D166BF878367A888 /* RoomsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsPage.swift; sourceTree = "<group>"; };
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
@@ -309,6 +311,7 @@
 				9093C469F102E1F2CCC6DF7D /* MidiFile.swift */,
 				3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */,
 				A7CF2D5A9C7DD040BAE1C80F /* Models.swift */,
+				B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */,
 				1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */,
 				6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */,
 				8624A489A951D42AFB805E16 /* RackMatrix.swift */,
@@ -494,6 +497,7 @@
 				368706B54B23A18EAE705127 /* MidiFile.swift in Sources */,
 				1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */,
 				34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */,
+				3B87266EA4A929D67995CA66 /* OutputRingPainter.swift in Sources */,
 				C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */,
 				1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */,
 				700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */,

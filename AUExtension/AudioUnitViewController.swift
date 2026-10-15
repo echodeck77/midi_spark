@@ -207,10 +207,10 @@ struct DiagView: View {
     // tracks which pad is momentarily touched via its own purely-local, ephemeral @State instead.)
     @State var showEuclideous = false
     @State var euclideousLines: [EuclidLine] = Array(repeating: EuclidLine(noteSel: .all), count: 4)   // pulses:1/steps:8 (the struct's own "fresh lane" default) — NOT silent; overwritten by refreshFromDocument() the instant the real doc loads
-    @State var euclideousEnabled = false
+    @State var euclideousEnabled = true   // ALWAYS true (Fourfold header ferry §1: the ON chip is gone; `euclideousEnabledResolved` is always true) — the mirror is kept only because BuildPage's composeScene + free-run still read it
     // EUCLIDEOUS UNDO/REDO (usability ferry §7, 2026-10-11): a SEPARATE stack from the AU's own whole-document
     // `undoStack` (MidiSparkAudioUnit.swift) — reusing that one would also undo Euclideous's play/stop and MAIN
-    // OUT changes, since every `editDocument` call (including onToggleEnabled/onSetMainOutMask above) already
+    // OUT changes, since every `editDocument` call (including onSetMainOutMask above, and the retired ON chip's own old onToggleEnabled) already
     // records onto it by default, directly contradicting §7.3 ("play/stop, main outputs... not undoable"). Plain
     // in-memory `@State`, so it's cleared on every fresh instance for free (§7.4) — nothing persists it. `cap`
     // defaults to 50 (`UndoStack`'s own default), matching §7.4's "at least 50 steps" exactly.
@@ -311,6 +311,10 @@ struct DiagView: View {
     // removed with that panel (2026-10-14 sequencer-panel ferry, which replaced it) — this one survives
     // unchanged, since it feeds the riff grid's own walk-arrow markers, a genuinely separate feature.
     @State var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
+    // FOURFOLD HEADER (ferry 2026-10-15 §4.8): the latest REAL strike per lane, of ANY kind — unlike `euclideousWipeEvent`
+    // (column ≥ 0 only: riff-note and FILL strikes), this also sees lit-notes-only hits, which carry no riff column. Fed from
+    // the SAME NOTE VIEW event poll below (no new polling, no engine change) and read only by the output rings' flare.
+    @State var euclideousStrikeEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]
     // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): the live hit-ordinal + DRUNK walk state
     // the main-thread cycle prediction needs as its own `startOrd`/`drunkLive` baseline — same live/
     // responsive, NOT-persisted-config class as `euclideousRiffPositions` above, polled on the same fast
@@ -1040,13 +1044,13 @@ struct DiagView: View {
                             onClose: { showSettings = false })
                 }
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
-                    EuclideousPage(lines: euclideousLines, enabled: euclideousEnabled,
+                    EuclideousPage(lines: euclideousLines,
                                    lineReady: euclideousLineReady,
                                    riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, playingRiffIndex: euclideousPlayingRiffIndex,
                                    riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                    lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq,
                                    lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
-                                   wipeEvents: euclideousWipeEvent,
+                                   wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
                                    noteSource: euclideousNoteSource,
                                    onSetNoteSource: { v in
@@ -1128,15 +1132,6 @@ struct DiagView: View {
                                        lines[lane].restartMask = mask
                                        euclideousLines = lines
                                        au?.editDocument { $0.euclideousLines = lines }
-                                       buildPublishScene()
-                                   },
-                                   onToggleEnabled: {
-                                       // §7.3 ("play/stop... not undoable"): the WHOLE-INSTRUMENT on/off chip —
-                                       // deliberately NOT recorded onto euclideousUndo, same reasoning as the
-                                       // per-lane/per-mask PLAY/STOP toggles (see EuclideousUndoSnapshot's own
-                                       // header comment).
-                                       euclideousEnabled.toggle()
-                                       au?.editDocument { $0.euclideousEnabled = euclideousEnabled }
                                        buildPublishScene()
                                    },
                                    onSetResetSpanBars: { v in
@@ -1268,13 +1263,20 @@ struct DiagView: View {
                 let nvEvents = au.pollEuclideousNoteViewEvents()
                 if nvEvents.count == 4 {
                     var newWipe = euclideousWipeEvent, changed = false
+                    var newStrike = euclideousStrikeEvent, strikeChanged = false
                     for lane in 0..<4 {
                         for ev in nvEvents[lane] where ev.column >= 0 {
                             newWipe[lane] = ev
                             changed = true
                         }
+                        // A strike = a hit (kind 0) or a tied hit (kind 3) that actually carries notes; kind 2 is the SKIP rest flash.
+                        for ev in nvEvents[lane] where (ev.kind == 0 || ev.kind == 3) && !ev.notes.isEmpty {
+                            newStrike[lane] = ev
+                            strikeChanged = true
+                        }
                     }
                     if changed { euclideousWipeEvent = newWipe }
+                    if strikeChanged { euclideousStrikeEvent = newStrike }
                 }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the

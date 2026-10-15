@@ -233,8 +233,13 @@ the same pipeline as any other row; it is not a special-cased render path.
 - **Source.** One page-level selector — MIDI IN / CHORDS (a self-contained degree-matrix+rate
   chord generator, no 8×8-grid receiver dependency) / KEY (a scale pool). No per-lane source, no
   dependency on the wider receiver/door graph.
-- **Header.** Title, RESET SPAN, KEY popup, CHORDS popup, MAIN OUT A–D, ON/OFF, undo/redo
-  (↶/↷, bounded 50-deep, scoped to Euclideous's own fields only).
+- **Header (Fourfold, 2026-10-15).** Four groups: BRAND (mark, FOURFOLD, undo/redo — ↶/↷ bounded 50-deep, scoped to
+  Euclideous's own fields only) · OUTPUTS (four output RINGS = MAIN OUT A–D: each quarter lights in the colour of a
+  lane routed to it, tap pulses those lanes, hold traces them, a quarter flares on a real strike) · NOTES (one
+  MIDI IN · CHORDS · KEY control + a key pill that opens the key pop-up) · UTILITIES (presets, close). There is NO ON
+  chip: the page always runs (`euclideousEnabledResolved` is always true; the stored field is decode-only). The A/B/C
+  fit ladder, group widths and positions all come from ONE pure `euclideousHeaderLayout` (Derivations.swift) that the
+  body layouts also read — change header metrics there, not in the views.
 - **Presets.** 20 Euclideous-only factory presets, reachable via a PRESETS button on the page
   itself — this REPLACED the old whole-plugin preset menu entirely (a confirmed, one-way
   decision; an old saved session loading the 8×8-State preset list will no longer find it there).

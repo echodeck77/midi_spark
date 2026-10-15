@@ -3983,4 +3983,179 @@ final class DerivationsTests: XCTestCase {
         XCTAssertTrue(plan.seatIsRest)
         XCTAssertEqual(plan.seatRank, 4, "the previous hit played step 1 (row 4); step 4's row-7 note was never struck, so it can't set the height")
     }
+
+    // ── FOURFOLD HEADER (ferry, approved 2026-10-15) ─────────────────────────────────────────────────────
+    // §10.5 — the key label is the receiver chip's own format, for every root and scale type.
+    func testFourfoldKeyLabelMatchesTheReceiverChipFormatForEveryRootAndScale() {
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        for root in 0..<12 {
+            for t in ScaleType.allCases {
+                XCTAssertEqual(euclideousKeyLabel(root: root, type: t), "\(names[root]) \(t.label)")
+                var r = Receiver(); r.doorMode = .scale
+                r.scalePools = [ScalePool(root: root, type: t, baseOct: 3, octaves: 2)]; r.activeScale = 0
+                XCTAssertEqual(r.scaleLabel, euclideousKeyLabel(root: root, type: t), "the receiver chip and the pill can never disagree")
+            }
+        }
+        XCTAssertEqual(euclideousKeyLabel(root: 0, type: .naturalMinor), "C MINOR", "a fresh session's default key")
+        XCTAssertEqual(euclideousKeyLabel(root: 2, type: .dorian), "D DORIAN")
+        XCTAssertEqual(euclideousKeyLabel(root: -1, type: .major), "B MAJOR", "a negative root wraps")
+        XCTAssertLessThanOrEqual(ScaleType.allCases.map { euclideousKeyLabel(root: 1, type: $0).count }.max() ?? 0, 13, "the 120pt pill fits 13 characters")
+    }
+
+    // §10.1 — ring state, for each output and all 16 lane-mask combinations.
+    func testFourfoldRingStateFollowsLanesAcrossAllSixteenCombinations() {
+        for output in 0..<4 {
+            for combo in 0..<16 {
+                // bit i of `combo` = lane i routed to THIS output; the OTHER outputs' bits are noise that must not matter.
+                let noise: UInt8 = 0b1111 & ~(1 << UInt8(output))
+                let masks: [UInt8] = (0..<4).map { lane in
+                    let routed = (combo >> lane) & 1 != 0
+                    return (routed ? (1 << UInt8(output)) : 0) | (lane % 2 == 0 ? noise : 0)
+                }
+                let on = euclideousOutputRingState(output: output, laneMasks: masks, mainOutMask: 0b1111)
+                XCTAssertEqual(on.lit, (0..<4).map { (combo >> $0) & 1 != 0 }, "output \(output) combo \(combo): quarters = lanes 0 TL, 1 TR, 2 BL, 3 BR")
+                XCTAssertEqual(on.mode, combo == 0 ? .onUnrouted : .onRouted, "output \(output) combo \(combo)")
+                XCTAssertFalse(on.dashed)
+                let off = euclideousOutputRingState(output: output, laneMasks: masks, mainOutMask: 0b1111 & ~(1 << UInt8(output)))
+                XCTAssertEqual(off.mode, .off, "output \(output) combo \(combo): the output's own main bit off → dashed for every combination")
+                XCTAssertTrue(off.dashed)
+                XCTAssertEqual(off.lit, on.lit, "…and lit quarters keep their lane colour")
+                // another output's main bit must not affect this ring
+                let other = euclideousOutputRingState(output: output, laneMasks: masks, mainOutMask: 1 << UInt8(output))
+                XCTAssertEqual(other.mode, on.mode)
+            }
+        }
+        XCTAssertEqual(euclideousRingQuarterCentreDegrees, [315, 45, 225, 135], "lane 0 TL … lane 3 BR, clockwise from 12 o'clock")
+        XCTAssertEqual(euclideousRingArcDegrees, 66)
+    }
+    func testFourfoldRingAcceptanceExampleLane3ToBLanes1And4ToA() {
+        // §11: lane 3 → B, lanes 1 and 4 → A. Lane indices are 0-based here.
+        let masks: [UInt8] = [0b0001, 0, 0b0010, 0b0001]
+        let a = euclideousOutputRingState(output: 0, laneMasks: masks, mainOutMask: 0b1111)
+        XCTAssertEqual(a.lit, [true, false, false, true], "A: top-left (lane 1) and bottom-right (lane 4)")
+        let b = euclideousOutputRingState(output: 1, laneMasks: masks, mainOutMask: 0b1111)
+        XCTAssertEqual(b.lit, [false, false, true, false], "B: bottom-left (lane 3)")
+        for o in 2..<4 { XCTAssertEqual(euclideousOutputRingState(output: o, laneMasks: masks, mainOutMask: 0b1111).mode, .onUnrouted) }
+    }
+
+    // §10.2 — pulse / trace targets.
+    func testFourfoldCuesPulseRingsRoutedLanesAndTraceDimsTheRest() {
+        let masks: [UInt8] = [0b0001, 0b0010, 0b0010, 0b0001]   // lanes 0,3 → A; lanes 1,2 → B
+        let rhythm = [true, true, false, false]                  // lanes 2,3 are showing another tab
+        XCTAssertEqual(euclideousOutputCues(output: 0, laneMasks: masks, laneShowsRhythm: rhythm, mode: .pulse),
+                       [.ringOutCircle, .none, .none, .ringRhythmTab], "tap A: lane 1 on its A circle, lane 4 on its RHYTHM tab, nobody dims")
+        XCTAssertEqual(euclideousOutputCues(output: 0, laneMasks: masks, laneShowsRhythm: rhythm, mode: .trace),
+                       [.ringOutCircle, .dim, .dim, .ringRhythmTab], "hold A: lanes 2 and 3 drop to 42%, lanes 1 and 4 hold their rings")
+        XCTAssertEqual(euclideousOutputCues(output: 2, laneMasks: masks, laneShowsRhythm: rhythm, mode: .trace),
+                       [.dim, .dim, .dim, .dim], "no lane routed to C: all four dim")
+        XCTAssertEqual(euclideousOutputCues(output: 2, laneMasks: masks, laneShowsRhythm: rhythm, mode: .pulse),
+                       [.none, .none, .none, .none], "…and a tap pulses nothing")
+        let all: [UInt8] = [0b1000, 0b1000, 0b1000, 0b1000]
+        XCTAssertFalse(euclideousOutputCues(output: 3, laneMasks: all, laneShowsRhythm: rhythm, mode: .trace).contains(.dim), "every lane routed: none dim")
+    }
+
+    // §10.3 — the layout ladder.
+    private typealias HM = EuclideousHeaderMetrics
+    private func hdrLayout(_ containerW: CGFloat, landscape: Bool) -> EuclideousHeaderLayout {
+        if landscape {
+            let c = euclideousLandscapeColumns(containerW: containerW)
+            return euclideousHeaderLayout(containerW: containerW, isLandscape: true, riffLeadingX: c.riffLeadingX, laneCentreX: c.laneCentreX)
+        }
+        return euclideousHeaderLayout(containerW: containerW, isLandscape: false, riffLeadingX: 0, laneCentreX: containerW / 2)
+    }
+    /// no two groups on a row closer than the layout's gap; nothing past either container edge.
+    private func assertHeaderInvariants(_ l: EuclideousHeaderLayout, _ containerW: CGFloat, _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
+        let frames = [l.brand, l.outputs, l.notes, l.utilities]
+        for f in frames {
+            XCTAssertGreaterThanOrEqual(f.x, -1e-9, "\(msg): nothing before the leading edge", file: file, line: line)
+            XCTAssertLessThanOrEqual(f.x + f.width, containerW + 1e-9, "\(msg): nothing past the trailing edge", file: file, line: line)
+        }
+        for row in 0..<l.rowCount {
+            let r = frames.filter { $0.row == row }.sorted { $0.x < $1.x }
+            for i in 1..<max(1, r.count) {
+                XCTAssertGreaterThanOrEqual(r[i].x - (r[i - 1].x + r[i - 1].width), l.widths.gap - 1e-9, "\(msg): row \(row) groups \(i - 1)/\(i) closer than the gap", file: file, line: line)
+            }
+        }
+    }
+    func testFourfoldGroupWidthsComeFromTheSameConstantsTheViewsDrawWith() {
+        let f = euclideousHeaderGroupWidths(compact: false)
+        let wordmark: CGFloat = 8 * 11 * 0.76          // 8 chars × 11pt × (0.6 advance + 0.16 tracking)
+        let caption: CGFloat = 3 * 9 * 0.74            // "OUT": 3 chars × 9pt × (0.6 + 0.14)
+        XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88, accuracy: 1e-9)
+        XCTAssertEqual(f.brand, 192, accuracy: 0.2)
+        XCTAssertEqual(f.outputs, caption + 4 + 176, accuracy: 1e-9)
+        XCTAssertEqual(f.notes, 312); XCTAssertEqual(f.utilities, 88)
+        XCTAssertEqual(HM.segmentedWidth, 184)
+        let c = euclideousHeaderGroupWidths(compact: true)
+        XCTAssertEqual(c.brand, 93); XCTAssertEqual(c.outputs, 160); XCTAssertEqual(c.utilities, 72)
+        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 341, "layout C's row 1 — the spec's ≈341, which only reconciles with an sp8 mark→undo gap")
+        XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
+    }
+    func testFourfoldLayoutAAt1158PutsNotesOnTheRiffPanelAndRingsOnTheLaneGutter() {
+        let l = hdrLayout(1158, landscape: true)
+        XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
+        let cols = euclideousLandscapeColumns(containerW: 1158)
+        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1158, accuracy: 1e-9)
+        XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
+        XCTAssertEqual(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, accuracy: 1e-9, "rings centred on the lane grid's centre (the 2×2's vertical gutter)")
+        assertHeaderInvariants(l, 1158, "A@1158")
+    }
+    func testFourfoldLayoutASlidesNotesAndRingsAt868() {
+        let l = hdrLayout(868, landscape: true)
+        let cols = euclideousLandscapeColumns(containerW: 868)
+        XCTAssertEqual(l.kind, .a)
+        XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
+        XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), 16, accuracy: 1e-9)
+        XCTAssertGreaterThan(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, "rings slid right to clear BRAND")
+        XCTAssertEqual(l.outputs.x - (l.brand.x + l.brand.width), 16, accuracy: 1e-9)
+        assertHeaderInvariants(l, 868, "A@868")
+    }
+    func testFourfoldLayoutBAt600AndCAt343() {
+        let b = hdrLayout(600, landscape: false)
+        XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.rowCount, 2); XCTAssertEqual(b.height, 44 + 4 + 44)
+        XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES on row 2's leading edge")
+        XCTAssertEqual([b.brand.row, b.outputs.row, b.utilities.row], [0, 0, 0])
+        assertHeaderInvariants(b, 600, "B@600")
+        let c = hdrLayout(343, landscape: false)
+        XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
+        XCTAssertEqual(c.widths.gap, 8)
+        assertHeaderInvariants(c, 343, "C@343")
+        // C's floor: the narrowest container it fits is its own row-1 need (341) → page width 373.
+        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 373)
+        // a landscape page too narrow for A falls to B, never A.
+        XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
+        // portrait never uses A, however wide.
+        XCTAssertEqual(hdrLayout(1200, landscape: false).kind, .b)
+    }
+    func testFourfoldLayoutAFitsExactlyAtItsOwnNeedWithEveryGroupPacked() {
+        let w = euclideousHeaderGroupWidths(compact: false)
+        let need = w.brand + w.outputs + w.notes + w.utilities + 3 * w.gap
+        let l = hdrLayout(need, landscape: true)
+        XCTAssertEqual(l.kind, .a)
+        assertHeaderInvariants(l, need, "A at its exact need")
+        XCTAssertEqual(hdrLayout(need - 1, landscape: true).kind, .b, "one point narrower falls to B")
+        for cw in stride(from: need, through: need + 400, by: 7) { assertHeaderInvariants(hdrLayout(cw, landscape: true), cw, "A@\(cw)") }
+    }
+
+    // §4.8 — the flare envelope.
+    func testFourfoldRingFlareEnvelopeIsPeakAtTheStrikeAndGoneByTheAfterglow() {
+        XCTAssertEqual(euclideousRingFlare(ageSteps: 0), 1, accuracy: 1e-12)
+        XCTAssertEqual(euclideousRingFlare(ageSteps: -0.5), 0, "a strike that hasn't happened yet")
+        XCTAssertEqual(euclideousRingFlare(ageSteps: euclideousFlareAfterglowSteps), 0, accuracy: 1e-12)
+        XCTAssertEqual(euclideousRingFlare(ageSteps: 3), 0)
+        var last = 2.0
+        for i in 0...60 { let v = euclideousRingFlare(ageSteps: Double(i) * 0.03); XCTAssertLessThanOrEqual(v, last + 1e-12); last = v }
+        XCTAssertEqual(euclideousFlareAfterglowSteps, 1.5); XCTAssertEqual(euclideousFlareBurstSteps, 0.35)
+    }
+    func testFourfoldLaneMasksReadTheSameFieldLaneOutRowEdits() {
+        var a = EuclidLine(); a.emitterMask = 0b0101
+        var b = EuclidLine(); b.emitterMask = nil
+        XCTAssertEqual(euclideousLaneMasks([a, b]), [0b0101, 0, 0, 0], "nil = routed nowhere (as laneOutRow reads it); padded to 4")
+    }
+    func testFourfoldKeySpokenNameSpellsOutEveryScale() {
+        XCTAssertEqual(euclideousKeySpokenName(root: 0, type: .naturalMinor), "C minor")
+        XCTAssertEqual(euclideousKeySpokenName(root: 6, type: .mixolydian), "F sharp mixolydian")
+        for t in ScaleType.allCases { XCTAssertFalse(euclideousKeySpokenName(root: 3, type: t).hasSuffix("MIXO"), "\(t)") }
+        XCTAssertEqual(HM.wordmarkWidth, 8 * 11 * 0.76, accuracy: 1e-9); XCTAssertEqual(HM.captionWidth, 3 * 9 * 0.74, accuracy: 1e-9)
+    }
 }
