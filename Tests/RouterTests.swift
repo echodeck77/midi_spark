@@ -94,13 +94,13 @@ final class RouterTests: XCTestCase {
     /// test cell keeps ticking as real time advances past its own grid column's natural real-time span.
     private func runKeepingRouter(_ box: SnapshotBox, _ pool: NotePool, beats: Double, into emitter: RecordingEmitter,
                                    forceColumn: Int = -1,
-                                   tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) -> Router {
+                                   tempo: Double = 120, beatsPerBar: Double = 4.0, sr: Double = 48_000, frames: UInt32 = 2048) -> Router {
         let router = Router()
         var diag = KernelDiag()
         let windowBeats = Double(frames) * tempo / 60.0 / sr
         var beat = 0.0, ts = 0.0
         while beat < beats {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: beatsPerBar,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: forceColumn,
                            out: emitter, diag: &diag)
             beat += windowBeats; ts += Double(frames)
@@ -11637,6 +11637,41 @@ final class RouterTests: XCTestCase {
             for (i, b) in engineBeats.prefix(predicted.count).enumerated() {
                 XCTAssertEqual(b, predicted[i], accuracy: 0.002, "swing \(swing): hit \(i) — engine note-on vs predicted arrival (beats)")
             }
+        }
+    }
+
+    // THE MIRROR MUST MEASURE THE SEQUENCER STEP IN REAL BARS (14 Oct sequencer-step-length fix): with per-lane RESET on, a
+    // wrong bar length mis-dates every restart. 3/4 (3 beats/bar) and a 1/16 grid (so grid-geometry `cyc` = 2 beats, NOT a bar)
+    // are exactly the combinations where `cyc` and the host's bar disagree.
+    func testWalkTagMirrorUsesTheHostsRealBarLengthForPerLaneReset() {
+        for (bpb, stepRate) in [(3.0, StepRate.r1_8), (4.0, StepRate.r1_4), (6.0, StepRate.r1_2)] {
+            var line = EuclidLine(target: 0, pulses: 5, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi, riffLength: 8, resetSteps: 1)
+            line.riffDir = .pendulum
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [line]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var s = SceneState.empty()
+                                     s.stepRate = stepRate
+                                     s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                     return s }()])
+            st.euclideousLanesSeqRate = .oneBar
+            let cyc = stepRate.beats * Double(Snap.cols)
+            XCTAssertNotEqual(cyc, bpb, "this case is only meaningful where grid-cycle ≠ the host's bar")
+            var diverged = false
+            for beats in [7.3, 13.9, 19.1] {
+                let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0, beatsPerBar: bpb)
+                let right = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: cyc, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, beatsPerBar: bpb)!
+                let wrong = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: cyc, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, beatsPerBar: cyc)!
+                let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, end = (beats / windowBeats).rounded(.up) * windowBeats
+                guard let last = euclideousWalkScanHits(right, beat: end - 1e-9, back: 1, ahead: 0).prev.first else { XCTFail("no hit"); continue }
+                let t = euclideousWalkTick(right, tick: last)
+                XCTAssertEqual(router.euclideousRiffPositions()[0], t.playedStep, "bpb \(bpb) @\(beats): step")
+                XCTAssertEqual(router.euclideousRiffWalkState()[0], t.advOrd, "bpb \(bpb) @\(beats): ordinal")
+                if let lw = euclideousWalkScanHits(wrong, beat: end - 1e-9, back: 1, ahead: 0).prev.first,
+                   euclideousWalkTick(wrong, tick: lw).advOrd != t.advOrd { diverged = true }
+            }
+            XCTAssertTrue(diverged, "bpb \(bpb): using `cyc` as the bar WOULD have given a different ordinal somewhere — the test can tell the two apart")
         }
     }
 }

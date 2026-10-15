@@ -68,16 +68,24 @@ project has been building this whole stretch.
   engine renders the hit, the tag arrives on the UI clock. (c) WITH/GAPS filter ticks the engine skips but the mirror
   (like the footer) counts as hits, so those lanes mostly show static tags. (d) the old glyph's stride cue (extra
   arrowheads / a number) is gone — the ferry removes the chip and triangle and names nothing in its place; stride now
-  shows only as thread length. (e) I could NOT find the text of item 2 of the 14 Oct ferry anywhere in this machine's
-  session transcripts; I treated the prerequisite as "tag and thumbnail read the same polled step with no retained/
-  debounced state", which is what I built. **DISCLOSED JUDGMENT CALLS:** wrap flight = two half-moves, each eased (exit
+  shows only as thread length. (e) ITEM 2 OF THE 14 OCT FERRY (the prerequisite) was fixed on `main` by
+  another worktree (`4764aae`) WHILE this was being built: it kept `riffMarker` and swapped the 20Hz timer for `.onChange`
+  on `riffPositions`/`wipeEvents`/`playingRiffIndex`/`activeRiff`. This work supersedes that — a tag holds no retained
+  state at all — so on the rebase I kept my side of the page conflicts and `updateRiffMarkers` is gone; main's pure
+  `euclideousRiffMarkerStep` (+ its tests) stays in Derivations but is now UNUSED by the page. (f) REBASE-DRIVEN FIX: item 3
+  of that same commit moved the LANES/RIFFS step (and so per-lane RESET) from grid-geometry `cyc` to the host's real bar
+  (`Router.beatsPerBar`). The UI never knew the host's bar length, so the mirror would have mis-dated every per-lane RESET:
+  `beatsPerBar` is now carried Kernel → `KernelDiag` → `meters.beatsPerBar` → `EuclidLiveClock`, and the mirror uses it for
+  the sequencer step while the machine-wide reset span still uses `cyc` (as the engine does).
+  `testWalkTagMirrorUsesTheHostsRealBarLengthForPerLaneReset` runs 3/4 on a 1/8 grid, 4/4 on 1/4 and 6 beats on 1/2 and also
+  asserts that using `cyc` as the bar WOULD have given a different ordinal. **DISCLOSED JUDGMENT CALLS:** wrap flight = two half-moves, each eased (exit
   fades out by 50%, entry fades back in); the turn flip is linear in scaleX; "walk direction" is measured in walk space
   (pre-NUDGE) and a wrap is decided in display space; the hollow-dot ring geometry (r 1.5–3.0 lane, 3.0–4.0 INK) is my
-  reading of "6pt, 1.5pt ring, 1pt INK outside". **TESTS (+30 Derivations, +3 Router):** the ferry's §6 tables (rects,
+  reading of "6pt, 1.5pt ring, 1pt INK outside". **TESTS (+30 Derivations, +4 Router):** the ferry's §6 tables (rects,
   FWD/REV/PEND/PING facing, thread/rest/wrap/LEN-5/zero-length/stopped, timing 0.25s→depart H−0.080 / 0.10s→H−0.050), plus
   rest height, empty riff, poll disagreement, swing onset, wrap fade, turn flip (+ through a flight), footer agreement,
-  played-note height; Router: mirror vs engine over 12 walk configurations × 4 end-beats, the FOLLOW lane, and engine
-  note-on samples vs predicted arrivals. **DEVICE-OWED:** the whole look at real cell size; ARRIVE vs HIT within 17ms on a
+  played-note height; Router: mirror vs engine over 12 walk configurations × 4 end-beats, the FOLLOW lane, engine
+  note-on samples vs predicted arrivals, and the host-bar-length case. **DEVICE-OWED:** the whole look at real cell size; ARRIVE vs HIT within 17ms on a
   running lane (swing 50 and swung — expect to need the calibration in risk (a)); that WITH/GAPS/SHADOW lanes read
   acceptably as static tags; CPU of the 60fps overlay.
 - **▶ EUCLIDEOUS — "FERRY: riff icon redesign," the bar-chart outline replaced with a literal mini riff grid

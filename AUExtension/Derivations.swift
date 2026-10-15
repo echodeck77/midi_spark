@@ -4125,7 +4125,8 @@ struct EuclideousWalkLaneConfig {
 
 func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, resetSpanBars: Int,
                               lanesSeqRate: EuclideousSeqRate, lanesSeqLen: Int,
-                              defaultRateBeats: Double = 0.25, swingPercent: Double = 50, stepBeats: Double = 0.5) -> EuclideousWalkLaneConfig? {
+                              defaultRateBeats: Double = 0.25, swingPercent: Double = 50, stepBeats: Double = 0.5,
+                              beatsPerBar: Double = 4) -> EuclideousWalkLaneConfig? {
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
     let followIdx = L.listenRhythmPartnerResolved
@@ -4144,7 +4145,9 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
         buf = b.buf; n = b.n
         sub = L.rate?.beats ?? defaultRateBeats
     }
-    let lanesStepBeats = lanesSeqRate.barsFraction * cyc
+    // The LANES sequencer's step (and so the per-lane RESET, counted in those steps) is measured in the host's REAL bars
+    // (`beatsPerBar`, 2026-10-14 sequencer-step-length fix); only the machine-wide reset span still counts grid-geometry `cyc`s.
+    let lanesStepBeats = lanesSeqRate.barsFraction * beatsPerBar
     let resetSteps = L.resetStepsResolved
     let spanBeats = resetSteps > 0 ? Double(resetSteps) * lanesStepBeats : (resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0)
     return EuclideousWalkLaneConfig(buf: buf, n: n, dir: L.directionResolved, sub: sub, spanBeats: spanBeats,

@@ -3611,7 +3611,7 @@ struct EuclideousPage: View {
             guard !suppress, walkTagShows(i) else { return nil }
             return euclideousWalkLaneConfig(lane: i, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
                                             lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len,
-                                            swingPercent: clock.swing, stepBeats: clock.stepBeats)
+                                            swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar)
         }
     }
     /// The UI clock's beat at `date` — the same `anchor + elapsed × tempo` extrapolation every other live view on

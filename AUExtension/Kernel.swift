@@ -855,7 +855,7 @@ final class Kernel {
                 if tsNum > 0, tsDen > 0 { beatsPerBar = tsNum * 4.0 / Double(tsDen) }
             }
         }
-        diag.playing = playing; diag.beat = beatPos; diag.tempo = tempo
+        diag.playing = playing; diag.beat = beatPos; diag.tempo = tempo; diag.beatsPerBar = beatsPerBar
 
         // REPLAY (config-sheets stage 3): the beat mapping handleIncoming uses to timestamp ring recordings, + the
         // per-render phase updateLatchedPools reads. Set BEFORE the events walk (recording) and updateLatchedPools.

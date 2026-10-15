@@ -14,6 +14,7 @@ struct KernelDiag {
     var effectivePlaying = false      // host OR free-run actually advancing the beat — the UI's "is anything really playing" tell (Paul 2026-09-04)
     var beat: Double = 0
     var tempo: Double = 0
+    var beatsPerBar: Double = 4       // the host's real bar length in quarter-note beats (Kernel reads tsNum/tsDen) — the page's walk tags need it to date the LANES-sequencer step / per-lane RESET
     var poolCount = 0
     var snapshotGen: UInt64 = 0
     var paramEventCount: UInt64 = 0

@@ -104,6 +104,7 @@ final class LiveTelemetry {
     var beatAnchorAt = Date()
     var beat = 0.0
     var tempo = 120.0
+    var beatsPerBar = 4.0         // the host's real bar length (quarter notes), re-read every 4 Hz poll — see `Router.beatsPerBar`
     var wasPlaying = false        // dejitter: transport-edge detector for syncBeat
     var lastTempo = 120.0         // dejitter: tempo-change detector for syncBeat
     func emitter(_ i: Int, peak: Double) { guard i >= 0, i < 4 else { return }; emitPeak[i] = peak; emitPeakAt[i] = Date() }
@@ -1070,7 +1071,7 @@ struct DiagView: View {
                                        au?.editDocument(coalesceKey: "euclideousChords") { $0.euclideousChords = c }
                                        buildPublishScene()
                                    },
-                                   clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying, swing: Double(swing)),
+                                   clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying, swing: Double(swing), beatsPerBar: meters.beatsPerBar),
                                    onEdit: { mutate in
                                        euclideousRecordUndo(coalesceKey: "euclideous")
                                        var lines = euclideousLines
@@ -1374,6 +1375,7 @@ struct DiagView: View {
             // why this went unnoticed until a low-motion-tolerant view — the new PART ROW ROLL — made it obvious).
             // `nd.beat` is ALREADY the effective (host-or-free-run) beat (Kernel.swift: "EFFECTIVE beat... UI beat-driven
             // playheads work while the host is stopped") — only this BOOLEAN was mismatched to the wrong field.
+            meters.beatsPerBar = nd.beatsPerBar
             meters.syncBeat(nd.beat, tempo: nd.tempo, playing: nd.effectivePlaying, at: Date())   // BEAT clock (4 Hz) → the telemetry; playheads extrapolate at 30 fps. DEJITTER: re-anchors only on a discontinuity, else free-runs (see syncBeat) → no 4 Hz stutter
             buildTickFerryOneShot(nd.beat)                                // PLAY-FERRY LAUNCH (Phase 2b): stop a ONE-SHOT ferry one part-length after its launch (≤ one poll of the pass end)
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
