@@ -3373,7 +3373,11 @@ func euclideousRiffLapBaseline(hitSteps: [EuclidHitStep], lapSteps: Int, locked:
                                 liveOrd: Int64, dir: EuclidDir = .fwd)
     -> (startOrd: Int64, currentHitIndex: Int) {
     guard !hitSteps.isEmpty, lapSteps > 0 else { return (0, 0) }
-    if locked { return (0, 0) }   // LOCK hard-resets the ordinal to 0 at every lap's first hit — the live hit is always index 0
+    // LOCK re-anchors every lap, so no live ordinal is needed. HIT mode feeds the walk the hit's own index (0, 1, 2…, so the
+    // lap starts at 0). ADV STEP feeds it the LAP-LOCAL TICK itself (`raw` in `runEuclidLine`) — the leading rests count — so
+    // the lap's first hit sits at ordinal `firstTick`, not 0 (`euclideousRiffCyclePrediction` subtracts `firstTick`, which
+    // this baseline puts back). With the first hit on tick 0 the two are the same, which is why this went unnoticed.
+    if locked { return (advanceStep ? Int64(hitSteps[0].tick) : 0, 0) }
     let firstTick = hitSteps[0].tick
     if advanceStep {
         // DIRECTION FIX (2026-10-13 adversarial review): previously reduced `liveOrd` mod the plain buffer
@@ -4205,10 +4209,14 @@ struct EuclideousWalkLaneConfig {
     var n: Int
     var dir: EuclidDir
     var sub: Double                 // beats per tick (the lane's rate, × the FOLLOW multiplier)
-    var spanBeats: Double = 0       // RESET span in beats; 0 = free-run
-    var resetSteps: Int = 0         // per-lane sequencer RESET (steps); >0 selects the looped origin
+    var spanBeats: Double = 0       // machine-wide RESET span in beats (used only when there is no per-lane mask); 0 = free-run
+    /// The lane's per-step RESTART mask (`EuclidLine.restartMaskResolved`, the 2026-10-15 ferry — the engine's own input).
+    /// Non-zero selects the masked origin, exactly like `Router.runEuclidLine`; 0 = no per-lane restart.
+    var restartMask: UInt8 = 0
     var loopStepBeats: Double = 0
     var loopSteps: Int = 8
+    /// LISTEN WITH / GAPS: when set, a raw pattern hit only STRIKES if it passes the partner coincidence test. nil = no filter.
+    var listen: EuclideousWalkListenFilter? = nil
     var riffDir: RiffDir = .forward
     var stride: Int = 1
     var length: Int = 8
@@ -4222,10 +4230,23 @@ struct EuclideousWalkLaneConfig {
     var swingStepBeats: Double = 0.5
 }
 
+/// What `Router.runEuclidLine`'s `passesListenRhythmFilter` reads for a WITH / GAPS lane, captured once: the PARTNER's own
+/// finished pattern, direction and rate, the span the engine re-anchors the coincidence lookup on, and its tolerance.
+/// WITH strikes only when the partner has a hit at that tick; GAPS only when it has none.
+struct EuclideousWalkListenFilter {
+    var requireCoincide: Bool       // true = WITH, false = GAPS
+    var buf: [Bool]
+    var n: Int
+    var dir: EuclidDir
+    var rateBeats: Double
+    var spanBeats: Double           // the engine's `spanBeats` for this lane (NOT the mirror's own reset origin)
+    var epsilonBeats: Double        // 1ms in beats at the host tempo
+}
+
 func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, resetSpanBars: Int,
                               lanesSeqRate: EuclideousSeqRate, lanesSeqLen: Int,
                               defaultRateBeats: Double = 0.25, swingPercent: Double = 50, stepBeats: Double = 0.5,
-                              beatsPerBar: Double = 4) -> EuclideousWalkLaneConfig? {
+                              beatsPerBar: Double = 4, tempo: Double = 120) -> EuclideousWalkLaneConfig? {
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
     let followIdx = L.listenRhythmPartnerResolved
@@ -4247,10 +4268,23 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
     // The LANES sequencer's step (and so the per-lane RESET, counted in those steps) is measured in the host's REAL bars
     // (`beatsPerBar`, 2026-10-14 sequencer-step-length fix); only the machine-wide reset span still counts grid-geometry `cyc`s.
     let lanesStepBeats = lanesSeqRate.barsFraction * beatsPerBar
-    let resetSteps = L.resetStepsResolved
-    let spanBeats = resetSteps > 0 ? Double(resetSteps) * lanesStepBeats : (resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0)
+    // The engine resets from the lane's 8-bit RESTART MASK (`restartMaskResolved`); a hand-placed mask has no "every N" form,
+    // so the mirror must read the mask itself. With no mask it falls back to the machine-wide bars span, as the engine does.
+    let restartMask = L.restartMaskResolved
+    let spanBeats = restartMask != 0 ? 0 : (resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0)
+    // LISTEN WITH / GAPS: the engine's coincidence lookup uses ITS `spanBeats` — one full LANES lap when a mask is set,
+    // else the bars span — which differs from the mirror's own reset origin above, so it is captured separately.
+    var listen: EuclideousWalkListenFilter? = nil
+    if let mode = L.listenRhythmMode, mode != .follow, followIdx >= 0, followIdx < lines.count {
+        let partner = lines[followIdx]
+        let pb = euclideousBuildPattern(partner)
+        let engineSpan = restartMask != 0 ? Double(lanesSeqLen) * lanesStepBeats : (resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0)
+        listen = EuclideousWalkListenFilter(requireCoincide: mode == .with, buf: pb.buf, n: pb.n, dir: partner.directionResolved,
+                                            rateBeats: partner.rate?.beats ?? defaultRateBeats, spanBeats: engineSpan,
+                                            epsilonBeats: 0.001 * (max(1, tempo) / 60.0))
+    }
     return EuclideousWalkLaneConfig(buf: buf, n: n, dir: L.directionResolved, sub: sub, spanBeats: spanBeats,
-                                    resetSteps: resetSteps, loopStepBeats: lanesStepBeats, loopSteps: lanesSeqLen,
+                                    restartMask: restartMask, loopStepBeats: lanesStepBeats, loopSteps: lanesSeqLen, listen: listen,
                                     riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: L.riffLengthResolved,
                                     rotate: L.riffRotateResolved, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved,
                                     seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)),
@@ -4263,7 +4297,8 @@ func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Doubl
 }
 
 struct EuclideousWalkTick: Equatable {
-    var isHit: Bool
+    var isHit: Bool          // the lane's OWN pattern has a hit on this tick (what the walk's ordinal arithmetic counts)
+    var strikes: Bool        // it actually SOUNDS: a hit that also passes the LISTEN WITH / GAPS filter (== isHit with no filter)
     var advOrd: Int64        // the ordinal fed to the walk (`euclideousRiffLastOrd` on the render side)
     var playedStep: Int      // 0-based riff step (`euclideousRiffStep` on the render side)
 }
@@ -4278,20 +4313,29 @@ func euclideousWalkTick(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Euclideou
     let effHits = Int64(max(1, cycleHits))
     let tickBeat = Double(tick) * c.sub
     let phaseBeat: Double
-    if c.resetSteps > 0 {
-        phaseBeat = tickBeat - euclideousLoopedResetOrigin(beat: tickBeat, stepBeats: c.loopStepBeats, resetSteps: c.resetSteps, loopSteps: c.loopSteps)
+    if c.restartMask != 0 {
+        phaseBeat = tickBeat - euclideousMaskedResetOrigin(beat: tickBeat, stepBeats: c.loopStepBeats, mask: c.restartMask, loopSteps: c.loopSteps)
     } else {
         phaseBeat = c.spanBeats > 0 ? (tickBeat - columnStart(tickBeat, c.spanBeats)) : tickBeat
     }
     let localT = Int64((phaseBeat / c.sub).rounded(.down))
     let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
     let isHit = c.buf[euclidReadIndex(raw, n: n, dir: c.dir)]
+    // WITH / GAPS: the engine folds the partner check into the STRIKE decision only — `hitsUpTo` / `ord` below still count
+    // every raw hit of the lane's own pattern ("the lane keeps its own rhythm"), so a filtered tick advances the ordinal
+    // silently and the next strike lands further along the walk.
+    var strikes = isHit
+    if isHit, let f = c.listen {
+        let coincides = euclideousListenPartnerHasHitAt(buf: f.buf, n: f.n, dir: f.dir, rateBeats: f.rateBeats, spanBeats: f.spanBeats,
+                                                         atBeat: tickBeat, epsilonBeats: f.epsilonBeats)
+        strikes = f.requireCoincide ? coincides : !coincides
+    }
     let cy = (localT - Int64(raw)) / Int64(cycleLen)
     var hitsUpTo = 0
     for s in 0...raw where c.buf[euclidReadIndex(s, n: n, dir: c.dir)] { hitsUpTo += 1 }
     let ord = cy * effHits + Int64(hitsUpTo - 1)
     let adv: Int64 = c.advanceStep ? (c.locked ? Int64(raw) : localT) : (c.locked ? Int64(hitsUpTo - 1) : ord)
-    return EuclideousWalkTick(isHit: isHit, advOrd: adv, playedStep: euclideousWalkStep(c, ord: adv))
+    return EuclideousWalkTick(isHit: isHit, strikes: strikes, advOrd: adv, playedStep: euclideousWalkStep(c, ord: adv))
 }
 /// The riff step (0-based, post-NUDGE) the walk lands on at ordinal `ord`.
 func euclideousWalkStep(_ c: EuclideousWalkLaneConfig, ord: Int64) -> Int {
@@ -4302,7 +4346,7 @@ private func euclideousWalkPos(_ c: EuclideousWalkLaneConfig, ord: Int64) -> Int
     riffStepAt(c.riffDir, raw: Int(ord) * c.stride, steps: max(1, c.length), seed: c.seed)
 }
 
-/// Hit ticks around `beat`: `prev` is newest-first (the first is the latest hit at or before `beat`), `next` is
+/// STRIKING ticks (a raw hit that also passes any WITH / GAPS filter) around `beat`: `prev` is newest-first (the first is the latest hit at or before `beat`), `next` is
 /// oldest-first (the first is the next hit strictly after it). Bounded, so an all-rest pattern returns empty.
 func euclideousWalkScanHits(_ c: EuclideousWalkLaneConfig, beat: Double, back: Int, ahead: Int) -> (prev: [Int64], next: [Int64]) {
     guard c.sub > 0, c.n > 0 else { return ([], []) }
@@ -4314,12 +4358,12 @@ func euclideousWalkScanHits(_ c: EuclideousWalkLaneConfig, beat: Double, back: I
     var prev: [Int64] = [], next: [Int64] = []
     var k = k0, scanned: Int64 = 0
     while prev.count < back && scanned < cap {
-        if euclideousWalkTick(c, tick: k).isHit { prev.append(k) }
+        if euclideousWalkTick(c, tick: k).strikes { prev.append(k) }
         k -= 1; scanned += 1
     }
     k = k0 + 1; scanned = 0
     while next.count < ahead && scanned < cap {
-        if euclideousWalkTick(c, tick: k).isHit { next.append(k) }
+        if euclideousWalkTick(c, tick: k).strikes { next.append(k) }
         k += 1; scanned += 1
     }
     return (prev, next)

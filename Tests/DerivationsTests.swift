@@ -4286,4 +4286,105 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousSettingsSheetWidth(containerW: 1158), 448, "wide container: capped at 448")
         XCTAssertEqual(euclideousSettingsSheetWidth(containerW: 343), 343, "narrow container: spans it")
     }
+
+    // MARK: - Walk tags follow-ups (2026-10-15): GAPS / WITH threads, the footer under LOCK + ADV STEP
+
+    private func listenLines(_ mode: EuclideousRhythmMode, laneRate: ArpRate = .r1_8, partnerRate: ArpRate = .r1_8) -> [EuclidLine] {
+        var partner = EuclidLine(target: 0, pulses: 3, steps: 8, rate: partnerRate, useRiff: false, sourceMode: .midi)
+        partner.restartMask = 0
+        var lane = EuclidLine(target: 0, pulses: 5, steps: 8, rate: laneRate, useRiff: true, sourceMode: .midi)
+        lane.restartMask = 0; lane.listenRhythmMode = mode; lane.listenRhythmPartner = 0
+        return [partner, lane]
+    }
+    private func listenCfg(_ mode: EuclideousRhythmMode, laneRate: ArpRate = .r1_8, partnerRate: ArpRate = .r1_8) -> EuclideousWalkLaneConfig {
+        euclideousWalkLaneConfig(lane: 1, lines: listenLines(mode, laneRate: laneRate, partnerRate: partnerRate), cyc: 4, resetSpanBars: 0,
+                                 lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+    }
+    // WITH and GAPS are exact complements on the lane's own raw hits, and neither changes the walk's ordinal (the engine counts
+    // every raw hit — "the lane keeps its own rhythm" — and only gates whether a tick STRIKES).
+    func testWalkTagWithAndGapsSplitTheLanesRawHitsAndLeaveTheOrdinalAlone() {
+        for (laneRate, partnerRate) in [(ArpRate.r1_8, ArpRate.r1_8), (.r1_16, .r1_8), (.r1_8, .r1_16)] {
+            let w = listenCfg(.with, laneRate: laneRate, partnerRate: partnerRate), g = listenCfg(.gaps, laneRate: laneRate, partnerRate: partnerRate)
+            XCTAssertNotNil(w.listen); XCTAssertNotNil(g.listen)
+            var withStrikes = 0, gapsStrikes = 0, raw = 0
+            for tick in Int64(0)..<128 {
+                let tw = euclideousWalkTick(w, tick: tick), tg = euclideousWalkTick(g, tick: tick)
+                XCTAssertEqual(tw.isHit, tg.isHit, "the raw pattern is the lane's own either way")
+                XCTAssertEqual(tw.advOrd, tg.advOrd, "tick \(tick): the filter never changes the walk ordinal")
+                XCTAssertEqual(tw.playedStep, tg.playedStep)
+                if tw.isHit {
+                    raw += 1
+                    XCTAssertNotEqual(tw.strikes, tg.strikes, "tick \(tick) (\(laneRate)/\(partnerRate)): exactly one of WITH / GAPS strikes a raw hit")
+                    if tw.strikes { withStrikes += 1 } else { gapsStrikes += 1 }
+                } else {
+                    XCTAssertFalse(tw.strikes); XCTAssertFalse(tg.strikes)
+                }
+            }
+            XCTAssertGreaterThan(withStrikes, 0, "\(laneRate)/\(partnerRate): WITH strikes somewhere (not vacuous)")
+            XCTAssertGreaterThan(gapsStrikes, 0, "\(laneRate)/\(partnerRate): GAPS strikes somewhere (not vacuous)")
+            XCTAssertEqual(withStrikes + gapsStrikes, raw)
+        }
+        // no filter: strikes == isHit
+        let plain = euclideousWalkLaneConfig(lane: 0, lines: listenLines(.gaps), cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        XCTAssertNil(plain.listen, "a lane with no WITH / GAPS mode has no filter")
+        for tick in Int64(0)..<64 { let t = euclideousWalkTick(plain, tick: tick); XCTAssertEqual(t.strikes, t.isHit) }
+    }
+    // THE FEATURE: a GAPS lane gets its thread to the next tick that will actually SOUND, not to a raw hit the filter will silence.
+    func testWalkTagGapsLaneThreadsToItsNextStrikeNotToASilencedHit() {
+        let cfg = listenCfg(.gaps)
+        var unfiltered = cfg; unfiltered.listen = nil
+        let ranks = [1, 2, 3, 4, 5, 6, 7, 8]
+        // two consecutive STRIKES with a silenced raw hit between them
+        var pair: (a: Int64, b: Int64)? = nil
+        var lastStrike: Int64? = nil, silencedSince = false
+        for tick in Int64(0)..<128 {
+            let t = euclideousWalkTick(cfg, tick: tick)
+            if t.isHit && !t.strikes { silencedSince = true }
+            if t.strikes {
+                if let a = lastStrike, silencedSince { pair = (a, tick); break }
+                lastStrike = tick; silencedSince = false
+            }
+        }
+        guard let (a, b) = pair else { return XCTFail("the scenario needs a strike, a silenced hit, then a strike") }
+        let beat = euclideousWalkRealBeat(cfg, tick: a) + 0.01
+        let spb = 0.5
+        let plan = euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb,
+                                         polledStep: euclideousWalkTick(cfg, tick: a).playedStep, running: true)
+        guard let plan, let dest = plan.dest, let next = plan.nextSeconds else { return XCTFail("a GAPS lane should get a thread (a destination + a scheduled arrival)") }
+        XCTAssertEqual(dest.step, euclideousWalkTick(cfg, tick: b).playedStep, "the thread ends at the step the next STRIKE lands on")
+        XCTAssertEqual(next, (euclideousWalkRealBeat(cfg, tick: b) - beat) * spb, accuracy: 1e-9, "…and arrives at that strike's onset")
+        // Ignoring the filter (the pre-fix behaviour) would have aimed at the silenced hit, sooner and at a different step.
+        let old = euclideousWalkTagPlan(cfg: unfiltered, ranks: ranks, beat: beat, secondsPerBeat: spb,
+                                        polledStep: euclideousWalkTick(cfg, tick: a).playedStep, running: true)
+        XCTAssertLessThan(old?.nextSeconds ?? .infinity, next, "the unfiltered scan would arrive earlier — at a note the engine never plays")
+    }
+    // The footer must predict what the engine's walk plays under LOCK + ADV STEP even when the lap's first hit is NOT on
+    // tick 0 (the engine feeds the walk the lap-local tick, leading rests included).
+    func testFooterAgreesWithTheEngineMirrorUnderLockAndAdvStepWhenTheFirstHitIsOffTickZero() {
+        var offZero = 0
+        for rot in 0..<8 {
+            for stride in [1, 2] {
+                var line = EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi)
+                line.rotate = rot; line.restartMask = 0
+                line.riffLock = true; line.riffAdvanceStep = true; line.riffStride = stride; line.riffLength = 5
+                let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: rot, tilt: 0, patternMiss: false, customHits: nil, dir: .fwd)
+                guard let first = hits.first else { return XCTFail("no hits") }
+                if first.tick > 0 { offZero += 1 }
+                let base = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: true, advanceStep: true, liveOrd: 99)
+                let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: true, dir: .forward, stride: stride, length: 5,
+                                                              rotate: 0, seed: 0, startOrd: base.startOrd)
+                let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+                for (k, h) in hits.enumerated() {
+                    let t = euclideousWalkTick(cfg, tick: Int64(h.tick))
+                    XCTAssertTrue(t.isHit)
+                    XCTAssertEqual(predicted[k], t.playedStep + 1, "rotate \(rot) stride \(stride) hit \(k) (tick \(h.tick)): footer vs the engine's own walk")
+                }
+            }
+        }
+        XCTAssertGreaterThan(offZero, 6, "the sweep genuinely includes first hits that are not on tick 0")
+        // …and the other LOCK / FREE combinations keep their baselines.
+        let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 1, tilt: 0, patternMiss: false, customHits: nil, dir: .fwd)
+        XCTAssertEqual(euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: true, advanceStep: false, liveOrd: 5).startOrd, 0, "LOCK + HIT mode feeds the hit index")
+    }
+
 }

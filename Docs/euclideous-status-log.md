@@ -12,6 +12,39 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — WALK-TAG FOLLOW-UPS (2026-10-15): Paul answered the five parked questions — GAPS lanes get threads, the lane
+  footer is fixed, the rest are accepted as built (on `feature/walk-tag-gaps-footer`; iOS builds clean; macOS suite green,
+  +5 tests; visuals device-owed).** DECISIONS: (1) the ARRIVE/HIT timing log and (2) the ≤80ms tag-vs-thumbnail lag — "not
+  problems for me", so NOT pursued and no calibration constant added (the UI-clock-vs-audible-time offset stays an accepted,
+  unmeasured risk); (3) stride cue — thread length alone is enough, nothing added; (4) GAPS lanes get their own threads —
+  DONE, and WITH lanes with them (see below); (5) the footer's LOCK + ADV STEP prediction — FIXED. **(4) WITH/GAPS THREADS:**
+  the engine folds the partner check into the STRIKE decision only (`passesListenRhythmFilter` → `isHit`), while the walk
+  ordinal (`hitsUpTo`/`ord`) still counts EVERY raw hit of the lane's own pattern. The mirror now matches that split:
+  `EuclideousWalkTick` gains `strikes` (a raw hit that also passes the filter; == `isHit` with no filter) and
+  `EuclideousWalkLaneConfig` gains `listen: EuclideousWalkListenFilter?` (WITH/GAPS, the partner's finished pattern, direction
+  and rate, the engine's own coincidence span, and its 1ms tolerance in beats — so the config builder now takes `tempo`, which
+  the page passes from the clock). `euclideousWalkScanHits` walks `strikes`, so the "next hit" a thread aims at is the next
+  tick that will SOUND, not a raw hit the filter will silence (which previously made the poll disagree and the tag fall back
+  to a static one). The ordinal is untouched, so a filtered tick advances the walk silently and the next strike lands
+  further along — exactly what the engine does. **FOUND WHILE IN THERE, FIXED:** the mirror still reset from the old
+  `resetSteps` ("every N") field, but the engine resets from the lane's 8-bit RESTART MASK (2026-10-15 ferry), so a
+  HAND-PLACED mask mispredicted (tags degrade to static there, never wrong). The config now carries `restartMask` and uses
+  `euclideousMaskedResetOrigin`, as the engine does. **(5) FOOTER:** with LOCK + ADV STEP the engine feeds the walk the
+  lap-local TICK (`raw`, leading rests included), but the footer's prediction subtracts the lap's first-hit tick from a
+  baseline of 0 — so whenever the first hit isn't on tick 0 (any rotated pattern) the footer named the wrong steps.
+  `euclideousRiffLapBaseline` now returns `firstTick` for locked + ADV STEP (HIT mode keeps 0; FREE modes unchanged).
+  **TESTS (+5):** `testWalkTagWithAndGapsSplitTheLanesRawHitsAndLeaveTheOrdinalAlone` (WITH/GAPS are exact complements on
+  the raw hits at three rate pairs; the ordinal never changes), `testWalkTagGapsLaneThreadsToItsNextStrikeNotToASilencedHit`
+  (the plan's destination and arrival are the next strike's; the unfiltered scan would arrive sooner),
+  `testFooterAgreesWithTheEngineMirrorUnderLockAndAdvStepWhenTheFirstHitIsOffTickZero` (every rotation × stride; confirmed to
+  FAIL against the old baseline), and in `RouterTests` `testWalkTagMirrorMatchesAHandPlacedRestartMask` (4 masks; each also
+  proves ignoring the mask would have mispredicted) and `testWalkTagMirrorMatchesWithAndGapsLanesInTheEngine` (polled step +
+  ordinal and predicted note-on samples vs the real router, WITH and GAPS, equal and unequal rates, swing 50/62).
+  **NOT CHANGED, OBSERVED:** the lane footer builds its predicted steps from the lane's OWN pulses/steps, but a FOLLOW lane
+  plays its PARTNER's pattern, so a FOLLOW lane's footer likely shows the wrong hits (the tags follow the engine and are
+  right) — the same shape of bug as (5), not asked for, left for Paul. **LIMITS:** the mirror ignores the machine-wide
+  `euclidSpanN` ladder (Euclideous never exposes it); a WITH lane whose partner rarely coincides can have its next strike
+  beyond the scan's bound, in which case it shows a static tag (correct, just no thread).
 - **▶ EUCLIDEOUS — "FERRY: Fourfold settings (a gear, one sheet, three tabs)" (2026-10-15, on
   `feat/fourfold-settings-sheet`; iOS builds clean, macOS 1511 tests green incl. +12 new;
   EuclideousSettingsSheet.swift is UI-only, no macOS test-target reach). Replaces the header's × with a

@@ -11764,6 +11764,93 @@ final class RouterTests: XCTestCase {
         }
     }
 
+    // A HAND-PLACED per-step RESTART mask has no "every N" form, so the mirror must read the mask itself (the engine does).
+    func testWalkTagMirrorMatchesAHandPlacedRestartMask() {
+        for mask: UInt8 in [0b0010_0101, 0b1000_0001, 0b0100_0000, 0b0001_0100] {
+            var diverged = false
+            for beats in [5.3, 9.7, 13.1, 17.9] {
+                var line = EuclidLine(target: 0, pulses: 5, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi)
+                line.riffDir = .pendulum; line.restartMask = mask
+                var c = Machine(machineID: "gold", type: .euclid)
+                c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+                c.paramsA.euclidLines = [line]
+                var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                     scenes: [{ var s = SceneState.empty()
+                                         s.stepRate = .r1_8
+                                         s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                         return s }()])
+                st.euclideousLanesSeqRate = .quarterBar   // a sequencer step = 1 beat, so a 8-step lap = 8 beats and the marks all get visited
+                let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0)
+                let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .quarterBar, lanesSeqLen: 8)!
+                XCTAssertEqual(cfg.restartMask, mask)
+                let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, end = (beats / windowBeats).rounded(.up) * windowBeats
+                guard let last = euclideousWalkScanHits(cfg, beat: end - 1e-9, back: 1, ahead: 0).prev.first else { XCTFail("no hit"); continue }
+                let t = euclideousWalkTick(cfg, tick: last)
+                XCTAssertEqual(router.euclideousRiffPositions()[0], t.playedStep, "mask \(String(mask, radix: 2)) @\(beats): step")
+                XCTAssertEqual(router.euclideousRiffWalkState()[0], t.advOrd, "mask \(String(mask, radix: 2)) @\(beats): ordinal")
+                var noMask = cfg; noMask.restartMask = 0   // what the mirror did before it learned about masks
+                if let lw = euclideousWalkScanHits(noMask, beat: end - 1e-9, back: 1, ahead: 0).prev.first,
+                   euclideousWalkTick(noMask, tick: lw).advOrd != t.advOrd { diverged = true }
+            }
+            XCTAssertTrue(diverged, "mask \(String(mask, radix: 2)): ignoring the mask WOULD have mispredicted somewhere — the test can tell the two apart")
+        }
+    }
+
+    // WITH / GAPS lanes: the mirror must predict WHICH raw hits sound (the partner coincidence check), keep counting every raw
+    // hit in the walk ordinal, and still put every predicted onset on the engine's own note-on sample.
+    func testWalkTagMirrorMatchesWithAndGapsLanesInTheEngine() {
+        for (mode, laneRate, partnerRate) in [(EuclideousRhythmMode.gaps, ArpRate.r1_8, ArpRate.r1_8), (.with, .r1_8, .r1_8),
+                                              (.gaps, .r1_16, .r1_8), (.with, .r1_16, .r1_8)] {
+            var partner = EuclidLine(target: 0, pulses: 3, steps: 8, rate: partnerRate, useRiff: false, sourceMode: .midi)
+            partner.emitterMask = 0b0100   // the partner sounds on C so cable 1 (A) carries ONLY the listening lane
+            var lane = EuclidLine(target: 0, pulses: 5, steps: 8, rate: laneRate, useRiff: true, sourceMode: .midi)
+            lane.listenRhythmMode = mode; lane.listenRhythmPartner = 0; lane.riffDir = .pendulum
+            lane.noteSel = .low
+            let lines = [partner, lane]
+            for swing in [50, 62] {
+                var c = Machine(machineID: "gold", type: .euclid)
+                c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+                c.paramsA.euclidLines = lines
+                func box() -> SnapshotBox {
+                    var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                         scenes: [{ var s = SceneState.empty()
+                                             s.stepRate = .r1_8; s.swing = swing
+                                             s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                             return s }()])
+                    st.euclideousLanesSeqRate = .oneBar
+                    st.euclideousNoteSource = .midi
+                    return SnapshotBuilder.build(from: st)
+                }
+                let held = chord([48, 50, 52, 53, 55, 57, 59, 60])   // 8 notes: every riff rank resolves to a real pitch
+                let cfg = euclideousWalkLaneConfig(lane: 1, lines: lines, cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8,
+                                                   swingPercent: Double(swing), stepBeats: 0.5)!
+                // 1) polled step + walk ordinal of the engine's last STRIKE
+                for beats in [3.3, 7.7, 11.1] {
+                    let router = runKeepingRouter(box(), held, beats: beats, into: RecordingEmitter(), forceColumn: 0)
+                    let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, end = (beats / windowBeats).rounded(.up) * windowBeats
+                    guard let last = euclideousWalkScanHits(cfg, beat: end - 1e-9, back: 1, ahead: 0).prev.first else { continue }
+                    let t = euclideousWalkTick(cfg, tick: last)
+                    XCTAssertEqual(router.euclideousRiffPositions()[1], t.playedStep, "\(mode) \(laneRate)/\(partnerRate) sw\(swing) @\(beats): step")
+                    XCTAssertEqual(router.euclideousRiffWalkState()[1], t.advOrd, "\(mode) \(laneRate)/\(partnerRate) sw\(swing) @\(beats): ordinal (raw hits still counted)")
+                }
+                // 2) predicted strike onsets == the engine's emitted note-on samples (one per strike)
+                let e = RecordingEmitter()
+                run(box(), held, beats: 15.9, into: e, forceColumn: 0)
+                var engineBeats: [Double] = []
+                for b in e.ons.filter({ $0.cable == 1 }).map({ Double($0.sample) / 48_000 * 120 / 60 }).sorted() where engineBeats.last.map({ b - $0 > 0.01 }) ?? true { engineBeats.append(b) }
+                let ticks = (0..<160).map { Int64($0) }
+                let predicted = ticks.filter { euclideousWalkTick(cfg, tick: $0).strikes }.map { euclideousWalkRealBeat(cfg, tick: $0) }.filter { $0 < 15.5 }
+                let silenced = ticks.filter { let t = euclideousWalkTick(cfg, tick: $0); return t.isHit && !t.strikes && euclideousWalkRealBeat(cfg, tick: $0) < 15.5 }
+                XCTAssertGreaterThan(silenced.count, 0, "\(mode): the filter genuinely silences some raw hits here (not vacuous)")
+                XCTAssertGreaterThan(engineBeats.count, 2, "\(mode): the engine played notes")
+                XCTAssertGreaterThanOrEqual(engineBeats.count, predicted.count, "\(mode) \(laneRate)/\(partnerRate) sw\(swing): engine plays at least every predicted strike")
+                for (i, b) in engineBeats.prefix(predicted.count).enumerated() {
+                    XCTAssertEqual(b, predicted[i], accuracy: 0.002, "\(mode) \(laneRate)/\(partnerRate) sw\(swing): strike \(i) — engine note-on vs predicted arrival (beats)")
+                }
+            }
+        }
+    }
+
     // MARK: - FERRY (2026-10-15, "Fourfold settings — a gear, one sheet, three tabs") §10 tests 2-4
 
     private func fourfoldSingleLaneBox(mask: UInt16 = 0xFFFF, source: EuclideousLaneSource = .midi,

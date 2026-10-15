@@ -30,6 +30,14 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - OFF and "no mark on step 1" cases audibly run through the LANES lap boundary as expected (engine-proven
   off-device; wants an ear on the real instrument too).
 
+### Walk tags — GAPS/WITH threads and the footer fix (2026-10-15 follow-ups)
+- A GAPS lane (and a WITH lane) now shows a thread to its next SOUNDING hit and the tag departs early, like any other lane;
+  it should never fly to a step that then doesn't sound. Check with a partner whose hits overlap the lane's.
+- The lane footer under LOCK + ADV STEP on a ROTATED pattern (first hit not on step 1) names the same riff steps the lane
+  actually plays.
+- A hand-placed restart mask (LANES tab, hold a RESET box and tap steps): the tag still threads and departs early instead of
+  falling back to a static tag.
+
 ### Header (Fourfold: BRAND / OUTPUTS / NOTES / UTILITIES) — 2026-10-15 ferry
 - Header fit in AUM, full-screen and windowed, both orientations: A, B and C switch cleanly with nothing clipped;
   C (floor: page width 373) fits a 375pt-wide windowed panel.
