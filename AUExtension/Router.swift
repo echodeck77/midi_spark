@@ -2975,6 +2975,7 @@ final class Router {
                  velKillMask: UInt8 = 0,
                  masterKill: Bool = false,
                  panic: Bool = false,
+                 euclideousAllNotesOff: Bool = false,
                  sceneFlush: Bool = false,
                  sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
@@ -3130,6 +3131,26 @@ final class Router {
             clearEchoTails()                             // ECHO: panic drops every pending tail
             resetRecorderCapture(full: true)             // RECORDER: panic clears the loops too
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: reset the CC on panic
+        }
+        // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): a NARROWER flush than panic — only
+        // Euclideous's own row's sounding voices (the same `cellIndex % Snap.rows` row filter
+        // `closeExceptLegatoHolds`'s own `onlyRow` parameter already uses), each closed via the existing
+        // `closeVoice` (which always emits on the voice's OWN stored channel from note-on time, never a
+        // fresh `busChannels` re-lookup — satisfies §4.4's "a channel change must not strand notes" for
+        // free). Then CC 123 on each of the 4 outputs' CURRENT channels (cables 1–4 — "Emit A"–"Emit D";
+        // cable 0, "All", is not one of the four). "The lanes play on from their next hit. No transport,
+        // pattern position, undo or document change" — unlike panic/sceneFlush below, nothing else here
+        // resets column/echo/recorder/mod state.
+        if euclideousAllNotesOff {
+            for i in voices.indices where voices[i].active && Int(voices[i].cellIndex) % Snap.rows == Snap.euclideousRow {
+                closeVoice(i, atSample: renderSampleImmediate, out: out)
+            }
+            if let out {
+                for bus in 0..<4 {
+                    let ch = (busChannels[bus] &- 1) & 15
+                    out.emit(sampleTime: renderSampleImmediate, cable: UInt8(bus + 1), 0xB0 | ch, 123, 0)
+                }
+            }
         }
         // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
         // new snapshot generation) starts clean — a generation change alone doesn't flush. NOT hang-logged.
@@ -4362,12 +4383,15 @@ final class Router {
                     globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }
                 case .midi:
                     if p.globalSrcChanMaskSet {
-                        // LITERALLY LIVE, OMNI (Paul 2026-10-09, two rounds, now page-level not per-lane):
-                        // `pool` here is `emitGeneratorRow`'s own SHADOWED local (`effectivePool(for:live:)`) —
-                        // reading `livePool` (this function's own un-substituted parameter) instead avoids a
-                        // self-arming door's generated content leaking through; `globalSrcChanMask` is always
-                        // 0xFFFF when the global source is MIDI (SnapshotBuilder.swift) — "any live input, no
-                        // receiver dependency at all."
+                        // LITERALLY LIVE (Paul 2026-10-09, two rounds, now page-level not per-lane): `pool` here
+                        // is `emitGeneratorRow`'s own SHADOWED local (`effectivePool(for:live:)`) — reading
+                        // `livePool` (this function's own un-substituted parameter) instead avoids a self-arming
+                        // door's generated content leaking through; no receiver dependency at all. `globalSrcChanMask`
+                        // was always 0xFFFF (OMNI) here until the 2026-10-15 "Fourfold settings" ferry — it's now
+                        // the MIDI IN tab's own "LISTEN ON" channel mask (SnapshotBuilder.swift), filtering which
+                        // channels of `livePool` actually reach every lane AND the riff (both read this SAME
+                        // `fillGlobalSrcFromPool` output via `laneCount`/`laneNotes` below — one filtered pool,
+                        // shared, so the riff inherits lane 1's filtering for free, with no separate mask of its own).
                         fillGlobalSrcFromPool(livePool, chanMask: p.globalSrcChanMask)
                     } else {
                         globalSrcUsesLegacy = true

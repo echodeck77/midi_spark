@@ -11763,4 +11763,154 @@ final class RouterTests: XCTestCase {
             XCTAssertTrue(diverged, "bpb \(bpb): using `cyc` as the bar WOULD have given a different ordinal somewhere — the test can tell the two apart")
         }
     }
+
+    // MARK: - FERRY (2026-10-15, "Fourfold settings — a gear, one sheet, three tabs") §10 tests 2-4
+
+    private func fourfoldSingleLaneBox(mask: UInt16 = 0xFFFF, source: EuclideousLaneSource = .midi,
+                                        busChannels: [Int] = [1, 2, 3, 4], line: EuclidLine? = nil) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [line ?? EuclidLine(target: 0, pulses: 1, steps: 1, rate: .r1_4)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.stepRate = .r1_8
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                  return s }()])
+        st.euclideousNoteSource = source
+        st.euclideousMidiInChannelMask = mask
+        st.busChannels = busChannels
+        return SnapshotBuilder.build(from: st)
+    }
+    // §3.5/§10 test 2: a mask narrowed to channel 1 only filters a MIDI-mode lane's own held pool.
+    func testFourfoldMidiInChannelMaskFiltersAMidiModeLaneByChannel() {
+        let p = NotePool()
+        p.noteOn(60, velocity: 100, channel: 0)   // channel 1 (0-based wire 0) — survives the filter
+        p.noteOn(64, velocity: 100, channel: 1)   // channel 2 — filtered out
+        let e = RecordingEmitter()
+        run(fourfoldSingleLaneBox(mask: 1 << 0), p, beats: 7.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertTrue(notes.contains(60), "channel 1's note must still play")
+        XCTAssertFalse(notes.contains(64), "channel 2's note must be filtered out")
+    }
+    // §10 test 2: KEY and CHORDS lanes read nothing from `globalSrcChanMask` at all (confirmed by reading
+    // Router.swift's `.key`/`.chords` branches before writing this) — a narrow MIDI mask must have zero
+    // effect on either.
+    func testFourfoldMidiInChannelMaskDoesNotAffectKeyOrChordsMode() {
+        for source in [EuclideousLaneSource.key, .chords] {
+            let e = RecordingEmitter()
+            run(fourfoldSingleLaneBox(mask: 1 << 0, source: source), chord([60]), beats: 7.9, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            XCTAssertFalse(e.ons.filter { $0.cable == 1 }.isEmpty, "\(source): still sounds, unaffected by the MIDI-only channel mask")
+        }
+    }
+    // §3.5: "the riff, which follows lane 1, gets it as well" — a riff-mode lane must never reach a
+    // channel the mask has filtered out of the shared pool.
+    func testFourfoldMidiInChannelMaskFiltersTheRiffToo() {
+        var line = EuclidLine(target: 0, pulses: 1, steps: 1, rate: .r1_4, useRiff: true, riffOn: true, sourceMode: .midi, riffLength: 2)
+        line.riffLock = true
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 2])
+        c.paramsA.euclidLines = [line]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty()
+                                  s.stepRate = .r1_8
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                  return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousMidiInChannelMask = 1 << 0   // channel 1 only
+        let p = NotePool()
+        p.noteOn(60, velocity: 100, channel: 0)    // channel 1 — rank 1, survives
+        p.noteOn(64, velocity: 100, channel: 1)    // channel 2 — filtered out of the shared pool entirely
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), p, beats: 7.9, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        XCTAssertFalse(e.ons.filter { $0.cable == 1 }.map { $0.note }.contains(64), "the riff must never reach channel 2's note once it's filtered out of the shared pool")
+    }
+    // §10 test 2: narrowing the mask while a note is held (the controller never released it) must still
+    // close cleanly — no stuck note left on the old, now-filtered-out channel.
+    func testFourfoldMidiInChannelMaskNarrowingMidHoldLeavesNoStuckNotes() {
+        let wideBox = fourfoldSingleLaneBox(mask: 0xFFFF)
+        let narrowBox = fourfoldSingleLaneBox(mask: 1 << 0)
+        let p = NotePool()
+        p.noteOn(60, velocity: 100, channel: 0)
+        p.noteOn(64, velocity: 100, channel: 1)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < 3.9 {
+            router.process(box: wideBox, pool: p, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                            timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        while beat < 7.9 {
+            router.process(box: narrowBox, pool: p, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                            timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: narrowBox, pool: p, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                        timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.contains { $0.note == 60 })
+    }
+    // §4.4/§10 test 3: a bus channel change mid-note must not strand the sounding note — its note-off must
+    // land on the channel its note-on actually used, not the new live channel. `.r1_1` (ArpRate, 4 beats/
+    // tick) + the default ~0.9 gate keeps the hit sounding for ~3.6 beats, well past the switch at beat 2.
+    func testFourfoldBusChannelChangeMidNoteClosesOnTheOriginalChannel() {
+        let line = EuclidLine(target: 0, pulses: 1, steps: 1, rate: .r1_1)
+        let boxCh5 = fourfoldSingleLaneBox(busChannels: [5, 2, 3, 4], line: line)
+        let boxCh9 = fourfoldSingleLaneBox(busChannels: [9, 2, 3, 4], line: line)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < 1.9 {   // well within the ~3.6-beat gate
+            router.process(box: boxCh5, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                            timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        while beat < 5.9 {   // crosses the gate's natural close under the NEW channel
+            router.process(box: boxCh9, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                            timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: boxCh9, pool: chord([60]), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                        timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.contains { $0.chan == 4 }, "channel 5 (1-based) = wire nibble 4")
+        XCTAssertTrue(e.offs.filter { $0.cable == 1 }.contains { $0.chan == 4 }, "the note that opened on channel 5 must close on channel 5, not the live channel 9 at close time")
+    }
+    // §4.6/§10 test 4: every sounding Euclideous voice gets its own note-off on its own channel, CC 123 goes
+    // out on all 4 outputs' CURRENT channels, and the lane keeps playing afterward.
+    func testFourfoldAllNotesOffClosesEuclideousVoicesCC123sAllFourOutputsAndTheLaneContinues() {
+        // pulses:2,steps:2 (not 1,1): the pattern builder clamps its step count to a minimum of 2
+        // (`n = max(2, min(16, nIn))`), so a literal `steps:1` silently becomes a 2-element [hit,rest]
+        // alternation, not a genuine always-hit single step — 2-of-2 is the real "every tick is a hit."
+        let line = EuclidLine(target: 0, pulses: 2, steps: 2, rate: .r1_1)
+        let box = fourfoldSingleLaneBox(busChannels: [5, 6, 7, 8], line: line)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < 1.9 {
+            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                            timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                        timestampSample: ts, frameCount: frames, forceColumn: 0, euclideousAllNotesOff: true, out: e, diag: &diag)
+        beat += windowBeats; ts += Double(frames)
+        while beat < 7.9 {   // the lane's own next hit — "no transport/pattern/undo/document change"
+            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                            timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: box, pool: chord([60]), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                        timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        XCTAssertTrue(e.offs.filter { $0.cable == 1 }.contains { $0.note == 60 && $0.chan == 4 }, "the sounding voice's own note-off, on its own channel (5 → wire 4)")
+        let cc123Chans = Set(e.events.filter { $0.status == 0xB0 && $0.note == 123 && $0.cable >= 1 && $0.cable <= 4 }.map { $0.chan })
+        XCTAssertEqual(cc123Chans, Set([4, 5, 6, 7]), "CC123 on all 4 outputs' current channels (5,6,7,8 → wire 4,5,6,7)")
+        XCTAssertGreaterThanOrEqual(e.ons.filter { $0.cable == 1 }.count, 2, "the lane keeps playing after the flush")
+    }
 }

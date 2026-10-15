@@ -49,6 +49,18 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - A FRESH instance now plays immediately (no ON chip; free-run is always on; default lanes 1–2 use the KEY source,
   which needs no input) — is that acceptable, or should defaults ship with lanes stopped?
 
+### Settings sheet (gear, MIDI IN / MAIN OUT / CLOCK tabs) — 2026-10-15 ferry, "Fourfold settings"
+- Sheet fit and position in AUM, full-screen and windowed, both orientations, including a window short
+  enough that only the tab content scrolls.
+- 32pt channel buttons (MIDI IN) and stepper chevrons (MAIN OUT) are comfortable to hit.
+- The 42% dim on the page below the sheet reads as "still playing behind," not "off."
+- The 32pt mini output rings (0.8 scale of the header ring) read as the same objects as the header's own.
+- A real MIDI controller on one channel, filtered by LISTEN ON; a multitimbral synth fed per-output channels.
+- ALL NOTES OFF against a genuinely stuck synth note.
+- KEEP PLAYING vs STOP against AUM's own transport, including the disclosed edge case where an 8×8-
+  workbench free-run reason (ddSolo/staging/play) is active at the same moment STOP is selected.
+- The footer's WORKBENCH link.
+
 ## Subsystem headings to file new items under
 
 - Sequencer panel (LANES/RIFFS tabs, step grid, restart markers)
@@ -57,5 +69,6 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - Rhythm sliders / gestures
 - Layout (portrait/landscape sizing, real panel width)
 - Header (Fourfold: BRAND/OUTPUTS/NOTES/UTILITIES)
+- Settings sheet (gear, MIDI IN/MAIN OUT/CLOCK tabs)
 - Presets
 - Engine/audio (anything that passed its tests but needs an ear, not an eye)

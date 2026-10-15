@@ -152,6 +152,8 @@ enum KillStepMode: String, Codable, CaseIterable { case on = "ON", mute = "MUTE"
 /// this enum's own cases don't carry; there's no picker for WHICH chord door, by design (no receiver-picking
 /// UI returns to this page) — an unconfigured CHORDS lane is honestly silent, not a guessed fallback.
 enum EuclideousLaneSource: String, Codable, CaseIterable { case midi, key, chords }
+// FOURFOLD SETTINGS, CLOCK tab (2026-10-15 ferry, "Fourfold settings" §5.1).
+enum EuclideousHostStopBehavior: String, Codable, CaseIterable { case keepPlaying, stop }
 
 /// MELODY TAB (Paul 2026-10-13 ferry, "Behaviour" rule 1): "note and riff are mutually exclusive, and the
 /// selection IS the mode — there's no separate switch." Replaces reading `useRiff` directly as the mode flag
@@ -2520,6 +2522,23 @@ struct PluginState: Codable, Equatable {
         }
         return legacy[0]
     }
+    // FOURFOLD SETTINGS — MIDI IN "LISTEN ON" (2026-10-15 ferry, "Fourfold settings"): which channels MIDI IN
+    // hears, a 16-bit mask (bit c = channel c+1, matching `Receiver.channelMask`'s own documented convention —
+    // SnapshotBuilder already forces a literal 0xFFFF into `SnapParams.globalSrcChanMask` for every MIDI-mode
+    // Euclideous lane; this field replaces that literal). DELIBERATELY DIVERGES from `Receiver.channelMask`'s
+    // own 0-fallback (there, 0 ⇒ "hears nothing"): here nil OR a stored 0 both resolve to 0xFFFF ("today's
+    // OMNI... a stored 0 resolves to every channel too," §3.5, literal) — zero channels would silence MIDI IN
+    // with nothing on screen saying why, which is exactly the failure mode §3.3's own ALL-relights-itself rule
+    // exists to prevent at the UI layer; this resolver backstops it at the model layer too.
+    var euclideousMidiInChannelMask: UInt16? = nil
+    var euclideousMidiInChannelMaskResolved: UInt16 {
+        let m = euclideousMidiInChannelMask ?? 0xFFFF
+        return m == 0 ? 0xFFFF : m
+    }
+    // FOURFOLD SETTINGS — CLOCK "WHEN THE HOST STOPS" (same ferry, §5): nil ⇒ KEEP PLAYING, today's free-run
+    // behaviour, byte-identical for every existing document (§5.2, literal).
+    var euclideousHostStopBehavior: EuclideousHostStopBehavior? = nil
+    var euclideousHostStopBehaviorResolved: EuclideousHostStopBehavior { euclideousHostStopBehavior ?? .keepPlaying }
     // EUCLIDEOUS CHORDS (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a
     // chord grid with rate control... base this on the existing chord grid used on the chord door." Stored
     // as a plain MachineParams — the EXACT same storage shape the chord door's own `Receiver.chordSeqs:

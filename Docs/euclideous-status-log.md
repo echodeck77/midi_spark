@@ -12,6 +12,53 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: Fourfold settings (a gear, one sheet, three tabs)" (2026-10-15, on
+  `feat/fourfold-settings-sheet`; iOS builds clean, macOS 1511 tests green incl. +12 new;
+  EuclideousSettingsSheet.swift is UI-only, no macOS test-target reach). Replaces the header's × with a
+  gearshape (same 2-icon UTILITIES width, header ladder untouched) opening a 3-tab settings sheet — MIDI IN
+  (LISTEN ON channel mask + ALL-NOTES-OFF ignore/obey) · MAIN OUT (per-output A–D channel stepper + ALL
+  NOTES OFF) · CLOCK (KEEP PLAYING/STOP) — presented the same non-modal way as the key pop-up, inside
+  EuclideousPage's own ZStack (NOT CogPage's AudioUnitViewController-level nesting — confirmed by reading
+  both before building). **PLAN-MODE FIRST, per the ferry's own instruction**: 4 parallel research forks
+  mapped every prerequisite named in "How to work" before any edit; findings reported as asked
+  (`busChannels` is 1-based, defaults [1,2,3,4] for A–D, and Euclideous's own strikes already share the one
+  stamping path via `emitArtic` — confirmed, no second path to add; the real MIDI output names are "All"/
+  "Emit A"–"Emit D" (AUM prefixes its own plugin name on top), NOT "FOURFOLD ALL"/"FOURFOLD A–D" as the
+  ferry assumed — shown as-is per §4.3's own fallback instruction, renaming out of scope; the page
+  genuinely plays while the host is stopped, confirmed via `Kernel`'s `freeRunEnabled` lying to Router about
+  `playing:true` — so §5's CLOCK tab is built, its own "leave it out" escape clause not triggered) plus one
+  "where source disagrees" substitution (the ferry's named `laneSrcChanMasks`/`riffSrcChanMask` don't exist;
+  the real mechanism is `SnapParams.globalSrcChanMask`/`globalSrcChanMaskSet`, already ONE shared pool all 4
+  lanes AND the riff read through — "the riff gets it as well" needed no new wiring, already true by
+  construction). **MODEL:** `PluginState.euclideousMidiInChannelMask: UInt16?` (nil/0 ⇒ 0xFFFF, deliberately
+  diverging from `Receiver.channelMask`'s own opposite 0-fallback — disclosed in-code) and
+  `euclideousHostStopBehavior: EuclideousHostStopBehavior?` (nil ⇒ `.keepPlaying`); `ignoreAllNotesOff`/
+  `busChannels` reused as-is, new UI only. **ENGINE:** SnapshotBuilder's old literal `0xFFFF` now reads the
+  resolved mask; `BuildPage.swift`'s `setFreeRunEnabled` OR-expression gates ONLY the `euclideousEnabled`
+  disjunct on `hostStopBehaviorResolved == .keepPlaying` (exactly where §5.3 points) — ddSolo/staging/play's
+  own free-run reasons untouched; a NEW one-shot ALL-NOTES-OFF request modelled on `Kernel.panic()`'s
+  existing set-from-main-thread/consume-once-in-process() shape, but scoped to only Euclideous's own row's
+  voices (`cellIndex % Snap.rows == Snap.euclideousRow`, the same filter `closeExceptLegatoHolds`'s own
+  `onlyRow` already uses) plus CC123 on the 4 outputs' current channels — confirmed `closeVoice` already
+  emits on each voice's OWN stored note-on channel, never a fresh `busChannels` re-lookup, so §4.4's
+  "a channel change must not strand notes" held for free, no extra fix needed. **PRESETS:** both
+  `applyFactoryDocument` AND `applyPresetDocument` (a disclosed scope widening — §6.2's literal text names
+  only "a factory preset," but the same reasoning applies to either source) capture/reapply all 4 settings
+  around their existing wholesale-replace, inside the same undo-free edit. **DISCLOSED EDGE CASE:** STOP
+  mode doesn't fully isolate Euclideous from a SIMULTANEOUSLY-active 8×8-workbench free-run reason, since
+  Router's one process() call shares a single `playing`/`beatPos` across every row — a true per-row
+  override would mean redesigning that shared clock, out of this ferry's scope (8×8 State is on hold).
+  **TESTS (+12):** the LISTEN ON tap-rule table (every rule in §3.3) + value-label text, a MIDI-mode-lane
+  channel filter test + KEY/CHORDS-unaffected + riff-follows-lane-1 + narrowing-mid-hold leaves no stuck
+  notes, a bus-channel-survives-a-mid-note-change test, the ALL-NOTES-OFF note-off/CC123/lane-continues
+  shape, decode/round-trip for both new fields, and the sheet width formula (height is measured live, not a
+  hand-rolled formula — disclosed choice, see `EuclideousSettingsSheet.swift`'s own comment on why). §10
+  test 5 (host-stop) and test 7 (preset-load preservation) ride on pre-existing, already-tested engine
+  behaviour and UI/AU-layer code with zero macOS test-target reach respectively — flagged, not silently
+  skipped or fabricated. One real pattern-builder gotcha hit while writing the tests: `pulses:1,steps:1`
+  does NOT give a genuine always-hit pattern (the builder clamps its step count to a minimum of 2, so it's
+  silently a 2-element [hit,rest] alternation) — `pulses:2,steps:2` is the real "every tick is a hit";
+  caught by a failing count assertion, not assumed.**
 - **▶ EUCLIDEOUS — "FERRY: Fourfold header (key pill, no ON, outputs that point at the lanes)" (2026-10-15, on
   `feature/fourfold-header`; iOS builds clean, macOS 1501 tests green incl. the new pure-layer tests; the page/painter
   visuals are UI-only and DEVICE-owed). Planned first (Plan Mode, audited against the raw ferry text and the code on

@@ -4158,4 +4158,51 @@ final class DerivationsTests: XCTestCase {
         for t in ScaleType.allCases { XCTAssertFalse(euclideousKeySpokenName(root: 3, type: t).hasSuffix("MIXO"), "\(t)") }
         XCTAssertEqual(HM.wordmarkWidth, 8 * 11 * 0.76, accuracy: 1e-9); XCTAssertEqual(HM.captionWidth, 3 * 9 * 0.74, accuracy: 1e-9)
     }
+
+    // MARK: - FERRY (2026-10-15, "Fourfold settings — a gear, one sheet, three tabs") §10 test 1
+
+    func testFourfoldListenOnChannelTapFollowsEveryRuleIn3Point3() {
+        // "ALL lit means every channel, and the 16 buttons show unlit."
+        XCTAssertTrue(euclideousListenOnAllIsLit(0xFFFF))
+        for ch in 1...16 { XCTAssertFalse(euclideousListenOnChannelIsLit(mask: 0xFFFF, channel1based: ch), "ch \(ch)") }
+        // "Tapping a channel while ALL is lit picks only that channel."
+        let afterTap1 = euclideousListenOnAfterChannelTap(mask: 0xFFFF, channel1based: 1)
+        XCTAssertEqual(afterTap1, 1 << 0)
+        XCTAssertTrue(euclideousListenOnChannelIsLit(mask: afterTap1, channel1based: 1))
+        XCTAssertFalse(euclideousListenOnAllIsLit(afterTap1))
+        // "After that, taps toggle channels."
+        let afterTap1And10 = euclideousListenOnAfterChannelTap(mask: afterTap1, channel1based: 10)
+        XCTAssertEqual(afterTap1And10, (1 << 0) | (1 << 9))
+        let backOff10 = euclideousListenOnAfterChannelTap(mask: afterTap1And10, channel1based: 10)
+        XCTAssertEqual(backOff10, 1 << 0, "toggling 10 back off leaves only 1")
+        // "Turning off the last picked channel lights ALL again."
+        let turnedOffLast = euclideousListenOnAfterChannelTap(mask: backOff10, channel1based: 1)
+        XCTAssertEqual(turnedOffLast, 0xFFFF)
+        XCTAssertTrue(euclideousListenOnAllIsLit(turnedOffLast))
+        // "Tapping ALL goes back to every channel" — unconditional, even from a narrowed mask.
+        XCTAssertEqual(euclideousListenOnAfterAllTap(), 0xFFFF)
+        // "Picking all sixteen by hand reads as ALL" — falls out of the representation, no special case:
+        // starting from ALL, tapping channels 1...16 in turn narrows to 1, then toggles each of 2...16 ON
+        // in its own previously-off position, ending back at every bit set.
+        var mask: UInt16 = 0xFFFF
+        for ch in 1...16 { mask = euclideousListenOnAfterChannelTap(mask: mask, channel1based: ch) }
+        XCTAssertEqual(mask, 0xFFFF, "every one of the 16 toggled on in turn reads as ALL, same as the all-channels value")
+    }
+    func testFourfoldListenOnValueLabelMatchesEveryWorkedCount() {
+        XCTAssertEqual(euclideousListenOnValueLabel(mask: 0xFFFF), "ALL CHANNELS")
+        XCTAssertEqual(euclideousListenOnValueLabel(mask: 1 << 0), "CH 1")
+        XCTAssertEqual(euclideousListenOnValueLabel(mask: (1 << 0) | (1 << 9)), "CH 1 · 10")
+        let five: UInt16 = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4)
+        XCTAssertEqual(euclideousListenOnValueLabel(mask: five), "5 CHANNELS")
+        let fifteen: UInt16 = 0xFFFF & ~(UInt16(1) << 15)   // every channel but 16
+        XCTAssertEqual(euclideousListenOnValueLabel(mask: fifteen), "15 CHANNELS")
+    }
+
+    // MARK: - FERRY §10 test 8 (the width half — see EuclideousSettingsSheet's own doc comment for the
+    // disclosed height-measurement choice)
+
+    func testFourfoldSettingsSheetWidthCapsAt448() {
+        XCTAssertEqual(euclideousSettingsSheetWidth(containerW: 1158), 448, "wide container: capped at 448")
+        XCTAssertEqual(euclideousSettingsSheetWidth(containerW: 343), 343, "narrow container: spans it")
+    }
 }

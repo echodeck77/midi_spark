@@ -236,10 +236,27 @@ the same pipeline as any other row; it is not a special-cased render path.
 - **Header (Fourfold, 2026-10-15).** Four groups: BRAND (mark, FOURFOLD, undo/redo — ↶/↷ bounded 50-deep, scoped to
   Euclideous's own fields only) · OUTPUTS (four output RINGS = MAIN OUT A–D: each quarter lights in the colour of a
   lane routed to it, tap pulses those lanes, hold traces them, a quarter flares on a real strike) · NOTES (one
-  MIDI IN · CHORDS · KEY control + a key pill that opens the key pop-up) · UTILITIES (presets, close). There is NO ON
-  chip: the page always runs (`euclideousEnabledResolved` is always true; the stored field is decode-only). The A/B/C
-  fit ladder, group widths and positions all come from ONE pure `euclideousHeaderLayout` (Derivations.swift) that the
-  body layouts also read — change header metrics there, not in the views.
+  MIDI IN · CHORDS · KEY control + a key pill that opens the key pop-up) · UTILITIES (presets, settings — a gear,
+  not ×; see below). There is NO ON chip: the page always runs (`euclideousEnabledResolved` is always true; the
+  stored field is decode-only). The A/B/C fit ladder, group widths and positions all come from ONE pure
+  `euclideousHeaderLayout` (Derivations.swift) that the body layouts also read — change header metrics there, not
+  in the views.
+- **Settings sheet (Fourfold, 2026-10-15).** The gear (replacing ×) opens a 3-tab sheet overlay —
+  MIDI IN (LISTEN ON channel mask, ALL-NOTES-OFF ignore/obey) · MAIN OUT (per-output A–D channel
+  stepper, ALL NOTES OFF) · CLOCK (KEEP PLAYING/STOP when the host transport stops) — presented the
+  same non-modal way as the key pop-up (engine never stops), one overlay at a time with the other
+  page pop-ups. ×'s old "back to the 8×8 workbench" job moved to the sheet footer's WORKBENCH link
+  (`EuclideousSettingsSheet.swift`). New document fields: `euclideousMidiInChannelMask` (16-bit, nil/0
+  ⇒ every channel — SnapshotBuilder feeds it into the Euclideous row's existing `globalSrcChanMask`,
+  which all 4 lanes AND the riff already shared one pool through) and `euclideousHostStopBehavior`
+  (nil ⇒ KEEP PLAYING, today's free-run-while-stopped default). MAIN OUT's per-output channel reuses
+  the existing, already-shared `busChannels` stamp (1-based; Router's `emitArtic` converts to the
+  0-based wire nibble at emission — the SAME path Euclideous's own strikes already went through).
+  ALL NOTES OFF is a one-shot render-thread-consumed request (`Router.process`'s own
+  `euclideousAllNotesOff` parameter), modelled on `Kernel.panic()` but scoped to only Euclideous's
+  own row's sounding voices, never the whole plugin. Loading a factory OR user preset preserves all
+  4 settings (captured/reapplied around the wholesale document replace); a session restore restores
+  them normally.
 - **Presets.** 20 Euclideous-only factory presets, reachable via a PRESETS button on the page
   itself — this REPLACED the old whole-plugin preset menu entirely (a confirmed, one-way
   decision; an old saved session loading the 8×8-State preset list will no longer find it there).

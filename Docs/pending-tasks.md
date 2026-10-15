@@ -5,6 +5,18 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — "Fourfold settings (a gear, one sheet, three tabs)" — SHIPPED (2026-10-15; LANDED on
+`feat/fourfold-settings-sheet`, macOS 1511 green incl. +12, iOS builds clean) — × replaced by a gear opening a
+3-tab settings sheet (MIDI IN channel filter · MAIN OUT per-output channel + ALL NOTES OFF · CLOCK KEEP
+PLAYING/STOP); × 's old job moved to the sheet footer's WORKBENCH link. Plan-mode-first per the ferry's own
+ask — 4 research forks mapped every prerequisite before any edit. Full story in the status log.
+- [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "Settings sheet" section (7 items) — KEEP
+      PLAYING/STOP against AUM's real transport and ALL NOTES OFF against a genuinely stuck note are the two
+      with the most riding on them.
+- [ ] DISCLOSED, not decided: STOP mode doesn't fully isolate Euclideous from a simultaneously-active 8×8-
+      workbench free-run reason (ddSolo/staging/play) — Router's one process() call shares a single playing/
+      beatPos across every row. Flagged as out of this ferry's scope (8×8 State on hold), not fixed.
+
 ## ★ EUCLIDEOUS — "Fourfold header (key pill, no ON, outputs that point at the lanes)" — SHIPPED (2026-10-15;
 LANDED on `feature/fourfold-header`, macOS green, iOS builds clean) — ON chip gone (page always runs), one MIDI IN ·
 CHORDS · KEY control + a key pill, MAIN OUT turned into output rings (tap pulses / hold traces / quarters flare on real

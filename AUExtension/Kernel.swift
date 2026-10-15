@@ -124,6 +124,11 @@ final class Kernel {
     func setMasterVelOverride(_ value: Int?) { masterVelOverride = UInt8(value.map { max(1, min(127, $0)) } ?? 0) }
     private var panicRequested = false
     func panic() { panicRequested = true }
+    // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): a one-shot request the render thread consumes,
+    // same shape as panic above — set from the main thread, read+cleared by this render's own process() call.
+    // Narrower than panic: only Euclideous's own row's sounding voices (see Router.process's own consumption).
+    private var euclideousAllNotesOffRequested = false
+    func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).
     private var flushRequested = false
@@ -1049,6 +1054,7 @@ final class Kernel {
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputSemitone: inputSemitone, inputVelOverride: inputVelOverride,
                         emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
                         velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
+                        euclideousAllNotesOff: euclideousAllNotesOffRequested,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewMachineIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
@@ -1059,6 +1065,7 @@ final class Kernel {
         }
         diag.reelState = reelStateValue()
         panicRequested = false          // master panel PANIC is a one-shot — consumed by this render's flush
+        euclideousAllNotesOffRequested = false   // one-shot — consumed by this render's flush
         flushRequested = false          // MULTI-SCENE scene-switch flush is a one-shot too
         restartRequested = false        // MULTI-SCENE S2b restart-the-pass is a one-shot too
 

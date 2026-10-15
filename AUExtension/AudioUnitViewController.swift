@@ -336,6 +336,9 @@ struct DiagView: View {
     @State var euclideousRiffSourceMidi: Bool = true            // MIDI is the default (preserves pre-rework behaviour)
     @State var euclideousLanesSourceMidi: Bool = true
     @State var euclideousMainOutMask: UInt8 = 0b1111            // all 4 buses open by default
+    // FOURFOLD SETTINGS (2026-10-15 ferry): same live-mirror treatment as every field above.
+    @State var euclideousMidiInChannelMask: UInt16 = 0xFFFF
+    @State var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying
     // CHORDS BUTTON (Paul 2026-10-08): the page's own self-contained chord grid — same live-mirror treatment
     // as the fields above (loaded in refreshFromDocument, written back via au?.editDocument on every edit,
     // resynced on the slow timer below).
@@ -609,6 +612,11 @@ struct DiagView: View {
     var editingCell: Cell? { editArmed ? scene.cellAt(selCol, selRow) : nil }   // bounds-safe: a stale anchor never traps
     static let editHue = UI.editHue   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State var busChannels: [Int] = [1, 2, 3, 4]
+    // FOURFOLD SETTINGS, MIDI IN tab (2026-10-15 ferry §3.6): a LIVE mirror of the existing document field —
+    // CogPage reads `au?.uiIgnoreAllNotesOff()` fresh each time it's presented (a one-shot overlay), but
+    // EuclideousPage is long-lived, so this needs the SAME live-mirror/resync treatment every other field on
+    // this page already gets (same reasoning as `busChannels` just above).
+    @State var ignoreAllNotesOff: Bool = true
     @State var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State var claimMask: UInt8 = 0                           // delta §6a CLAIM v2: the multi-claim mask (bits A–D)
     @State var claimLeak: [Int] = [0, 0, 0, 0]                // delta §6a CLAIM v2: per-claimant LEAK % (0…100)
@@ -813,6 +821,9 @@ struct DiagView: View {
         euclideousRiffSourceMidi = au.uiEuclideousRiffSourceMidi()
         euclideousLanesSourceMidi = au.uiEuclideousLanesSourceMidi()
         euclideousMainOutMask = au.uiEuclideousMainOutMask()
+        euclideousMidiInChannelMask = au.uiEuclideousMidiInChannelMask()
+        euclideousHostStopBehavior = au.uiEuclideousHostStopBehavior()
+        ignoreAllNotesOff = au.uiIgnoreAllNotesOff()
         euclideousChords = au.uiEuclideousChords()
         euclideousRiffs = au.uiEuclideousRiffs()
         euclideousActiveRiff = au.uiEuclideousActiveRiff()
@@ -1158,6 +1169,43 @@ struct DiagView: View {
                                        au?.editDocument { $0.euclideousMainOutMask = v }
                                        buildPublishScene()
                                    },
+                                   // FOURFOLD SETTINGS (2026-10-15 ferry) — §6.3/§6.4: "no undo steps... changes
+                                   // apply at once," same as onSetMainOutMask/onToggleEnabled/onSetMainOutMask
+                                   // above — none of these 4 record onto euclideousUndo.
+                                   midiInChannelMask: euclideousMidiInChannelMask,
+                                   onSetMidiInChannelMask: { v in
+                                       euclideousMidiInChannelMask = v
+                                       au?.editDocument { $0.euclideousMidiInChannelMask = v }
+                                       buildPublishScene()
+                                   },
+                                   ignoreAllNotesOff: ignoreAllNotesOff,
+                                   onSetIgnoreAllNotesOff: { v in
+                                       ignoreAllNotesOff = v
+                                       au?.setIgnoreAllNotesOff(v)   // the SAME setter the cog page's INPUT toggle uses (§3.6, literal)
+                                   },
+                                   busChannels: busChannels,
+                                   // §4.3 finding: the plugin's real MIDI output names are "All"/"Emit A"–"Emit D"
+                                   // (MidiSparkAudioUnit.swift's own `midiOutputNames`), NOT "FOURFOLD ALL"/
+                                   // "FOURFOLD A"–"D" — renaming the outputs is explicitly out of this ferry's
+                                   // scope, so the sheet shows the real names and its own description text is
+                                   // built from them, not a hardcoded assumption.
+                                   outputNames: ["Emit A", "Emit B", "Emit C", "Emit D"],
+                                   allOutputName: "All",
+                                   onSetBusChannel: { bus, ch in
+                                       guard bus >= 0, bus < busChannels.count else { return }
+                                       var bc = busChannels
+                                       bc[bus] = max(1, min(16, ch))
+                                       busChannels = bc
+                                       au?.editDocument { $0.busChannels = bc }
+                                       buildPublishScene()
+                                   },
+                                   onAllNotesOff: { au?.euclideousAllNotesOff() },
+                                   hostStopBehavior: euclideousHostStopBehavior,
+                                   onSetHostStopBehavior: { v in
+                                       euclideousHostStopBehavior = v
+                                       au?.editDocument { $0.euclideousHostStopBehavior = v }
+                                       buildPublishScene()
+                                   },
                                    onOpenPresets: openPresets,
                                    canUndo: euclideousUndo.canUndo, canRedo: euclideousUndo.canRedo,
                                    onUndo: euclideousUndoAction, onRedo: euclideousRedoAction,
@@ -1357,6 +1405,8 @@ struct DiagView: View {
             let erfm = au.uiEuclideousRiffSourceMidi(); if erfm != euclideousRiffSourceMidi { euclideousRiffSourceMidi = erfm; euclideousResynced = true }
             let elsm = au.uiEuclideousLanesSourceMidi(); if elsm != euclideousLanesSourceMidi { euclideousLanesSourceMidi = elsm; euclideousResynced = true }
             let emom = au.uiEuclideousMainOutMask(); if emom != euclideousMainOutMask { euclideousMainOutMask = emom; euclideousResynced = true }
+            let emicm = au.uiEuclideousMidiInChannelMask(); if emicm != euclideousMidiInChannelMask { euclideousMidiInChannelMask = emicm; euclideousResynced = true }
+            let ehsb = au.uiEuclideousHostStopBehavior(); if ehsb != euclideousHostStopBehavior { euclideousHostStopBehavior = ehsb; euclideousResynced = true }
             let echd = au.uiEuclideousChords(); if echd != euclideousChords { euclideousChords = echd; euclideousResynced = true }
             let ens = au.uiEuclideousNoteSource(); if ens != euclideousNoteSource { euclideousNoteSource = ens; euclideousResynced = true }
             // SEQUENCER PANEL (2026-10-14 ferry) — same checklist discipline as the 6 lines just above.
@@ -1428,6 +1478,7 @@ struct DiagView: View {
             }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
+            let ian = au.uiIgnoreAllNotesOff(); if ian != ignoreAllNotesOff { ignoreAllNotesOff = ian }   // FOURFOLD SETTINGS §3.6: shared/global field, same resync shape as busChannels just above (not euclideous-prefixed)
             let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // THE REEL-TO-REEL glyph state
             if reelShowPopup {                                                    // THE PASS BROWSER: refresh the ring + selected roll while open
                 let pn = au.reelPassNumbers();     if pn != reelPassNumbers { reelPassNumbers = pn }

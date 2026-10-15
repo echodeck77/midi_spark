@@ -4627,6 +4627,45 @@ func euclideousRingFlare(ageSteps: Double) -> Double {
     return max(burst, recede * 0.6)
 }
 
+// ── Fourfold settings, MIDI IN "LISTEN ON" (2026-10-15 ferry §3) ───────────────────────────────────────
+
+/// §3.1, literal: the value text under the LISTEN ON label. `mask` is already resolved (0xFFFF ⇒ every
+/// channel — `EuclidLine`'s own "today's OMNI").
+func euclideousListenOnValueLabel(mask: UInt16) -> String {
+    if mask == 0xFFFF { return "ALL CHANNELS" }
+    let picked = (0..<16).filter { (mask & (1 << $0)) != 0 }.map { $0 + 1 }
+    if picked.isEmpty { return "ALL CHANNELS" }   // the model never actually resolves to empty (§3.5) — never silently say nothing
+    if picked.count <= 4 { return "CH " + picked.map { "\($0)" }.joined(separator: " · ") }
+    return "\(picked.count) CHANNELS"
+}
+/// §3.3, literal, tapping a numbered channel button (`channel1based` 1...16): "tapping a channel while ALL
+/// is lit picks only that channel. After that, taps toggle channels. Turning off the last picked channel
+/// lights ALL again." "Picking all sixteen by hand reads as ALL" falls out for free — toggling the 16th bit
+/// on makes the mask equal 0xFFFF by construction, no separate case.
+func euclideousListenOnAfterChannelTap(mask: UInt16, channel1based: Int) -> UInt16 {
+    guard channel1based >= 1, channel1based <= 16 else { return mask }
+    let bit: UInt16 = 1 << (channel1based - 1)
+    if mask == 0xFFFF { return bit }
+    let toggled = mask ^ bit
+    return toggled == 0 ? 0xFFFF : toggled
+}
+/// §3.3: "tapping ALL goes back to every channel" — unconditional, regardless of the mask beforehand.
+func euclideousListenOnAfterAllTap() -> UInt16 { 0xFFFF }
+/// Display-only: "ALL lit means every channel, and the 16 buttons show unlit" — so a channel button never
+/// reads lit while the mask is the all-channels value, even though every one of its bits is technically set.
+func euclideousListenOnChannelIsLit(mask: UInt16, channel1based: Int) -> Bool {
+    guard channel1based >= 1, channel1based <= 16, mask != 0xFFFF else { return false }
+    return (mask & (1 << (channel1based - 1))) != 0
+}
+func euclideousListenOnAllIsLit(_ mask: UInt16) -> Bool { mask == 0xFFFF }
+
+// ── Fourfold settings sheet geometry (2026-10-15 ferry §2.3) ───────────────────────────────────────────
+/// "width = min(448, containerW)." The height half of §2.3 ("the tallest tab's natural height... one
+/// formula, like the header ladder") is measured live instead (see `EuclideousSettingsSheet`'s own doc
+/// comment on `FFSHeightKey` for why) — a disclosed departure from "one formula," since these rows include
+/// wrapped prose a hand-rolled constant-based formula could only approximate, not reproduce exactly.
+func euclideousSettingsSheetWidth(containerW: CGFloat) -> CGFloat { min(448, containerW) }
+
 // ── layout ladder ───────────────────────────────────────────────────────────────────────────────────
 
 enum EuclideousHeaderMetrics {

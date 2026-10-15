@@ -3590,7 +3590,15 @@ extension DiagView {
         // even while the host transport is stopped. HOST TRANSPORT SYNC (Paul 2026-09-02): a host-transport STOP does NOT
         // de-arm — it sets buildHostHalted, gating free-run OFF (halt/silence) while the cells stay armed; the host START
         // edge clears it so the armed voices RESUME in sync. An explicit BUILD play also clears it (audition while stopped).
-        au?.setFreeRunEnabled((ddSolo || buildStagingPlaying || buildPlayPlaying || euclideousEnabled) && !buildHostHalted)   // halted (host stopped after playing) → NO free-run, the voices resume when the host does; EUCLIDEOUS (Paul 2026-10-05): "a playable instrument" must keep running even with the host transport stopped
+        // FOURFOLD SETTINGS, CLOCK tab (2026-10-15 ferry §5.3): STOP mode gates ONLY Euclideous's own
+        // disjunct here — the exact point §5.3 names ("where free-run reads the resolved euclideousEnabled,
+        // for the Euclideous row only") — leaving ddSolo/buildStagingPlaying/buildPlayPlaying's own free-run
+        // reasons completely untouched. DISCLOSED EDGE CASE: if one of those 3 is ALSO true at the same
+        // moment, `freeRunEnabled` stays true from THAT term, and Router's one shared `playing`/`beatPos` for
+        // the whole process() call means Euclideous's row still ticks even with STOP selected — a true per-
+        // row playing override would mean redesigning that single shared clock, out of this ferry's scope.
+        let euclideousFreeRunWanted = euclideousEnabled && euclideousHostStopBehavior == .keepPlaying
+        au?.setFreeRunEnabled((ddSolo || buildStagingPlaying || buildPlayPlaying || euclideousFreeRunWanted) && !buildHostHalted)   // halted (host stopped after playing) → NO free-run, the voices resume when the host does; EUCLIDEOUS (Paul 2026-10-05): "a playable instrument" must keep running even with the host transport stopped, UNLESS CLOCK is set to STOP
     }
     // buildStopAllOnTransportStop RETIRED (Paul 2026-09-12): the OLD "host stop de-arms everything" handler. SUPERSEDED by
     // buildTransportEdge (wired at the poll) — which HALTS play but KEEPS cells armed so START resumes in sync (Paul

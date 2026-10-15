@@ -136,7 +136,11 @@ enum SnapshotBuilder {
                 // note there for why it was previously silent).
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
                     sc.procs[0].euclideousNoteSourceResolved = doc.euclideousNoteSourceResolved
-                    sc.procs[0].globalSrcChanMask = doc.euclideousNoteSourceResolved == .midi ? 0xFFFF : 0
+                    // FOURFOLD SETTINGS, MIDI IN tab (2026-10-15 ferry §3.5): "LISTEN ON" replaces the literal
+                    // 0xFFFF this used to force in unconditionally for a MIDI-mode row — CHORDS/KEY still get a
+                    // flat 0 here, unread by either branch (Router.swift's `.chords`/`.key` cases never consult
+                    // `globalSrcChanMask` at all), so narrowing MIDI's own mask can't leak into them.
+                    sc.procs[0].globalSrcChanMask = doc.euclideousNoteSourceResolved == .midi ? doc.euclideousMidiInChannelMaskResolved : 0
                     sc.procs[0].globalSrcChanMaskSet = true
                 }
                 // RESET SPAN (Paul 2026-10-08, §2.2): a SEPARATE, independent guard from the block above — this

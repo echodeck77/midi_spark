@@ -77,6 +77,7 @@
 		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
 		D65F68826CE914624ED051EF /* DragDropPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CFDBBF6EDAEF5051E4DD83 /* DragDropPage.swift */; };
 		D767C243D5F256253014F295 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0FF4898E2B013BF63E6CE0 /* EuclideousPage.swift */; };
+		D8E56D6903D836F0B80F29A0 /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */; };
 		D9216BAE1234A4B5C0B908FC /* AcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C3BD2C1AC32230B747C194 /* AcceptanceTests.swift */; };
 		DC948A6C41FBACF023BDC377 /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
 		DFCB6B6D89E818DFDD3FEF71 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */; };
@@ -165,6 +166,7 @@
 		98149EBE4B9E76352A457113 /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
 		99B22785F1E8193ABD24B932 /* BuildSceneLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSceneLogicTests.swift; sourceTree = "<group>"; };
 		99D181AD808BD18E8D2F085F /* FuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzTests.swift; sourceTree = "<group>"; };
+		9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousSettingsSheet.swift; sourceTree = "<group>"; };
 		A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildGridSelector.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTestMetaTests.swift; sourceTree = "<group>"; };
@@ -302,6 +304,7 @@
 				2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */,
 				3A0FF4898E2B013BF63E6CE0 /* EuclideousPage.swift */,
 				CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */,
+				9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */,
 				AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */,
 				4CBF035AD049143522CAD057 /* GridSkin.swift */,
 				F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */,
@@ -489,6 +492,7 @@
 				DFCB6B6D89E818DFDD3FEF71 /* EuclidLaneUI.swift in Sources */,
 				D767C243D5F256253014F295 /* EuclideousPage.swift in Sources */,
 				180727125096C44442B220D3 /* EuclideousPresets.swift in Sources */,
+				D8E56D6903D836F0B80F29A0 /* EuclideousSettingsSheet.swift in Sources */,
 				9E72B64FD55D3542492F0113 /* GridSkin.swift in Sources */,
 				D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */,
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,

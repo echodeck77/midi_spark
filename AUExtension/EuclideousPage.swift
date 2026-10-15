@@ -608,6 +608,21 @@ struct EuclideousPage: View {
     let onSetKeyRoot: (Int) -> Void
     let onSetKeyType: (ScaleType) -> Void
     let onSetMainOutMask: (UInt8) -> Void
+    // FOURFOLD SETTINGS (2026-10-15 ferry) — the sheet's own 4 document fields, threaded in the same plain
+    // live-mirror/onSet shape as every field above. `ignoreAllNotesOff`/`busChannels`/`outputNames`/
+    // `allOutputName` are the EXISTING, already-live fields/constants this ferry's MIDI IN/MAIN OUT tabs give
+    // a SECOND UI surface to (§3.6/§4.3) — not new model, new UI only.
+    let midiInChannelMask: UInt16
+    let onSetMidiInChannelMask: (UInt16) -> Void
+    let ignoreAllNotesOff: Bool
+    let onSetIgnoreAllNotesOff: (Bool) -> Void
+    let busChannels: [Int]
+    let outputNames: [String]
+    let allOutputName: String
+    let onSetBusChannel: (Int, Int) -> Void
+    let onAllNotesOff: () -> Void
+    let hostStopBehavior: EuclideousHostStopBehavior
+    let onSetHostStopBehavior: (EuclideousHostStopBehavior) -> Void
     let onOpenPresets: () -> Void   // (Paul 2026-10-11: "add a preset button on the euclidius page" — presets
                                      // were only reachable by leaving this page; opens the SAME browser overlay
                                      // the main header already uses, which the VC renders as a sibling z-above
@@ -667,6 +682,11 @@ struct EuclideousPage: View {
     // SOURCE `EuclidLine.resetStepsResolved` reads, per Models.swift's own doc comment there).
     @State private var resetPopupLane: Int? = nil
     @State private var resetChipFrames: [Int: CGRect] = [:]
+    // FOURFOLD SETTINGS (2026-10-15 ferry): `settingsTab` is explicitly NOT saved ("the sheet reopens on the
+    // tab it was left on, in memory, MIDI IN the first time," §2.6) — plain ephemeral @State, same convention
+    // as `laneTab` above.
+    @State private var settingsOpen = false
+    @State private var settingsTab = 0
     // PER-STEP RESTART MARKS (2026-10-15 ferry, "per-step restart points on the LANES tab" §4): which lanes
     // currently have their RESET box held — a Set, not a single Int, because §4.3 explicitly allows "two
     // RESET boxes held → both lanes in edit mode" simultaneously. The matching touch-down timestamp + the
@@ -896,6 +916,29 @@ struct EuclideousPage: View {
                 // THE XY PAD VALUE BUBBLE is RETIRED along with the pads themselves (usability ferry,
                 // 2026-10-12) — each of the six new sliders shows its own value permanently, in place, so
                 // there's no floating readout left to anchor anywhere.
+                // FOURFOLD SETTINGS (2026-10-15 ferry §2): "a plain overlay on the page, the way CogPage and
+                // the key pop-up are: the engine never stops" — rendered at the SAME nesting level as the key
+                // pop-up above (NOT CogPage's own AudioUnitViewController-level overlay — the gear lives
+                // inside this page). `headerH`/`containerW` recomputed via the SAME `headerLayout` call the
+                // two layout functions already use (one formula, not a parallel derivation).
+                if settingsOpen {
+                    let containerW = geo.size.width - sp16 * 2
+                    let hdr = headerLayout(containerW: containerW, isLandscape: isLandscape)
+                    EuclideousSettingsSheet(
+                        tab: $settingsTab, containerW: containerW, containerH: geo.size.height,
+                        headerBottomY: HM.topMargin + hdr.height,
+                        onCloseSheet: { settingsOpen = false },
+                        onWorkbench: { onClose() },
+                        midiInMask: midiInChannelMask, onSetMidiInMask: onSetMidiInChannelMask,
+                        ignoreAllNotesOff: ignoreAllNotesOff, onSetIgnoreAllNotesOff: onSetIgnoreAllNotesOff,
+                        laneMasks: euclideousLaneMasks(lines), mainOutMask: mainOutMask, busChannels: busChannels,
+                        outputNames: outputNames, allOutputName: allOutputName, onSetBusChannel: onSetBusChannel,
+                        onAllNotesOff: onAllNotesOff,
+                        hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior
+                    )
+                    .padding(.horizontal, sp16)
+                    .zIndex(5)
+                }
             }
             .coordinateSpace(name: "euclideousXY")
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
@@ -1279,7 +1322,7 @@ struct EuclideousPage: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if !selected { onSetNoteSource(src) }
-            else if src == .chords { chordsPopupOpen = true }
+            else if src == .chords { settingsOpen = false; chordsPopupOpen = true }   // §2.1: opening it closes the sheet first
             // selected MIDI IN / KEY: literally nothing.
         }
         .accessibilityElement(children: .ignore)
@@ -1308,7 +1351,7 @@ struct EuclideousPage: View {
             }
         )
         .contentShape(Rectangle())
-        .onTapGesture { keyPopupOpen = true }
+        .onTapGesture { settingsOpen = false; keyPopupOpen = true }   // §2.1: opening it closes the sheet first
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Key, \(euclideousKeySpokenName(root: keyRoot, type: keyType))")
         .accessibilityHint("Double-tap to change")
@@ -1321,13 +1364,30 @@ struct EuclideousPage: View {
         return HStack(spacing: 0) {
             Image(systemName: "folder").font(.system(size: 18)).foregroundColor(headerDim)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
-                .onTapGesture { onOpenPresets() }
+                .onTapGesture { settingsOpen = false; onOpenPresets() }   // §2.1: opening it closes the sheet first
                 .accessibilityLabel("Presets").accessibilityAddTraits(.isButton)
-            Image(systemName: "xmark").font(.system(size: 18)).foregroundColor(headerDim)
+            // FOURFOLD SETTINGS (2026-10-15 ferry §1): the × (xmark) LEAVES the header — its old job (back to
+            // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES keeps its exact
+            // widths (still 2 icons, `target` unchanged) so the header ladder holds as written (§1.1, §9).
+            Image(systemName: "gearshape").font(.system(size: 18)).foregroundColor(settingsOpen ? Color(hex: 0x0D0F14) : headerDim)
+                .frame(width: 32, height: 32)
+                .background(RoundedRectangle(cornerRadius: 8).fill(settingsOpen ? Color(hex: 0xDFE3EA) : Color.clear))
+                .animation(.easeInOut(duration: 0.15), value: settingsOpen)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
-                .onTapGesture { onClose() }
-                .accessibilityLabel("Close").accessibilityAddTraits(.isButton)
+                .onTapGesture {
+                    if !settingsOpen { closeAllOtherOverlays() }
+                    settingsOpen.toggle()
+                }
+                .accessibilityLabel("Settings").accessibilityAddTraits(.isButton).accessibilityAddTraits(settingsOpen ? .isSelected : [])
         }
+    }
+    /// §2.1: "one overlay at a time: opening the key pill, the chord grid or presets closes the sheet first,
+    /// and opening the sheet closes them" — this half of that rule (closing the OTHER three before the sheet
+    /// opens); the sibling trigger points (key pill, chords segment, the folder/presets icon) each call this
+    /// too before opening their own overlay. No existing "one overlay at a time" coordination to extend —
+    /// every pop-up on this page toggles fully independently today, confirmed by reading each one first.
+    private func closeAllOtherOverlays() {
+        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; riffTabMenuLane = nil
     }
 
     // MARK: LANE SIDE of the output rings (§7) — pulse (after a tap) and trace (while held)

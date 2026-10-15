@@ -1030,4 +1030,34 @@ final class EffectiveParamsTests: XCTestCase {
         var on = doc(); on.euclideousEnabled = true
         XCTAssertEqual(try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(on)).euclideousEnabled, true)
     }
+
+    // MARK: - FERRY (2026-10-15, "Fourfold settings") §10 test 6
+
+    // A document missing both new keys (every pre-ferry doc, including every factory preset) decodes
+    // without throwing and resolves to the ferry's own stated defaults — every channel (OMNI) and KEEP
+    // PLAYING — relying ENTIRELY on PluginState's synthesized Decodable (no custom init(from:) exists on
+    // this struct — confirmed by reading before writing this — so every Optional field, these two included,
+    // already decodes tolerantly for free).
+    func testFourfoldSettingsFieldsDecodeAbsentAsDefaultsAndRoundTrip() throws {
+        // A fresh `doc()`, encoded: both new fields are nil, and Codable's synthesized encode(to:) omits a
+        // nil Optional entirely (no key written) — this simulates a real pre-ferry document without needing
+        // to hand-write a full PluginState JSON literal (whose many OTHER non-Optional fields would make a
+        // hand-rolled minimal literal fail to decode for unrelated reasons).
+        let decoded = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(doc()))
+        XCTAssertNil(decoded.euclideousMidiInChannelMask)
+        XCTAssertEqual(decoded.euclideousMidiInChannelMaskResolved, 0xFFFF)
+        XCTAssertNil(decoded.euclideousHostStopBehavior)
+        XCTAssertEqual(decoded.euclideousHostStopBehaviorResolved, .keepPlaying)
+
+        var st = doc()
+        st.euclideousMidiInChannelMask = (1 << 0) | (1 << 9)
+        st.euclideousHostStopBehavior = .stop
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(st))
+        XCTAssertEqual(back.euclideousMidiInChannelMask, (1 << 0) | (1 << 9))
+        XCTAssertEqual(back.euclideousHostStopBehaviorResolved, .stop)
+
+        // §3.5, literal: "a stored 0 resolves to every channel too."
+        var zero = doc(); zero.euclideousMidiInChannelMask = 0
+        XCTAssertEqual(zero.euclideousMidiInChannelMaskResolved, 0xFFFF)
+    }
 }

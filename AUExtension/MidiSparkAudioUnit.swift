@@ -556,6 +556,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiEuclideousRiffSourceMidi() -> Bool { document.euclideousRiffSourceMidiResolved }
     func uiEuclideousLanesSourceMidi() -> Bool { document.euclideousLanesSourceMidiResolved }
     func uiEuclideousMainOutMask() -> UInt8 { document.euclideousMainOutMaskResolved }
+    // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
+    func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }
+    func setEuclideousMidiInChannelMask(_ mask: UInt16) { editDocument { $0.euclideousMidiInChannelMask = mask } }
+    func uiEuclideousHostStopBehavior() -> EuclideousHostStopBehavior { document.euclideousHostStopBehaviorResolved }
+    func setEuclideousHostStopBehavior(_ v: EuclideousHostStopBehavior) { editDocument { $0.euclideousHostStopBehavior = v } }
     // CHORDS BUTTON (Paul 2026-10-08): the page's own self-contained chord grid.
     func uiEuclideousChords() -> MachineParams { document.euclideousChordsResolved }
     /// Each of Euclideous's 4 lanes' own live riff-advance step index, polled on the SAME fast ~30fps cadence as
@@ -836,6 +841,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
     func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
     func masterPanic() { kernel.panic() }
+    // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): same request/consume shape as masterPanic,
+    // narrower scope (Euclideous's own row only — see Router.process's own consumption of the flag).
+    func euclideousAllNotesOff() { kernel.euclideousAllNotesOffRequest() }
 
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
@@ -1108,7 +1116,25 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private func applyFactoryDocument(named name: String) {
         guard let fp = Self.factoryPresetBuilders.first(where: { $0.name == name }) else { return }
         kernel.flushVoices()
-        editDocument { $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded() }   // migrate is a no-op for v4 builders
+        // FOURFOLD SETTINGS (2026-10-15 ferry §6.2): "loading a factory preset keeps the current LISTEN ON,
+        // ALL-NOTES-OFF, CHANNELS and WHEN THE HOST STOPS: they describe the user's rig, not the music."
+        // Captured from the OUTGOING document before the wholesale replace, reapplied after — inside the SAME
+        // editDocument call, so this stays "one undoable step" exactly like the replace already was (§6.3:
+        // no undo steps for these 4 either way). DISCLOSED SCOPE CALL: §6.2's literal text names only "a
+        // factory preset" — `applyPresetDocument` below (user presets) gets the identical treatment too,
+        // since the stated reason ("they describe the user's rig, not the music") applies equally to either
+        // source, and nothing in the ferry suggests the asymmetry is deliberate.
+        let keepMidiInMask = document.euclideousMidiInChannelMask
+        let keepIgnoreAllNotesOff = document.ignoreAllNotesOff
+        let keepBusChannels = document.busChannels
+        let keepHostStop = document.euclideousHostStopBehavior
+        editDocument {
+            $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded()   // migrate is a no-op for v4 builders
+            $0.euclideousMidiInChannelMask = keepMidiInMask
+            $0.ignoreAllNotesOff = keepIgnoreAllNotesOff
+            $0.busChannels = keepBusChannels
+            $0.euclideousHostStopBehavior = keepHostStop
+        }
         clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
         seedLatchArm()                                       // restore the persisted door-arm intent
@@ -1159,7 +1185,19 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private func applyPresetDocument(named name: String) {
         guard let doc = PresetStore.load(name) else { return }
         kernel.flushVoices()                 // a session act — no arm ceremony
-        editDocument { $0 = doc }            // one undoable step
+        // FOURFOLD SETTINGS (2026-10-15 ferry §6.2) — same 4-field preservation as applyFactoryDocument above
+        // (its own comment explains the disclosed scope call extending this to user presets too).
+        let keepMidiInMask = document.euclideousMidiInChannelMask
+        let keepIgnoreAllNotesOff = document.ignoreAllNotesOff
+        let keepBusChannels = document.busChannels
+        let keepHostStop = document.euclideousHostStopBehavior
+        editDocument {                       // one undoable step
+            $0 = doc
+            $0.euclideousMidiInChannelMask = keepMidiInMask
+            $0.ignoreAllNotesOff = keepIgnoreAllNotesOff
+            $0.busChannels = keepBusChannels
+            $0.euclideousHostStopBehavior = keepHostStop
+        }
         clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)
         seedLatchArm()                                       // restore the persisted door-arm intent
