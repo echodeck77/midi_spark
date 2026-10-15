@@ -4387,4 +4387,63 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: true, advanceStep: false, liveOrd: 5).startOrd, 0, "LOCK + HIT mode feeds the hit index")
     }
 
+
+    // MARK: - FOLLOW lanes: bar + footer come from the pattern that actually plays (2026-10-15)
+
+    private func followLines(partnerSteps: Int = 7, partnerRotate: Int = 1, ownRotate: Int = 2, ownInvert: Bool = false, dir: EuclidDir = .fwd) -> [EuclidLine] {
+        var partner = EuclidLine(target: 0, pulses: 3, steps: partnerSteps, rate: .r1_8, useRiff: true, sourceMode: .midi)
+        partner.rotate = partnerRotate; partner.restartMask = 0
+        var follower = EuclidLine(target: 0, pulses: 2, steps: 8, rate: .r1_16, useRiff: true, sourceMode: .midi)   // its OWN 2-of-8 is irrelevant while following
+        follower.listenRhythmMode = .follow; follower.listenRhythmPartner = 0
+        follower.rotate = ownRotate; follower.restartMask = 0; follower.direction = dir
+        if ownInvert { follower.patternMiss = true }
+        return [partner, follower]
+    }
+    func testEffectivePatternOfAFollowLaneIsThePartnersWithItsOwnOffsetAndInvert() {
+        let lines = followLines(ownInvert: true)
+        guard let eff = euclideousEffectivePattern(lane: 1, lines: lines) else { return XCTFail("no pattern") }
+        XCTAssertTrue(eff.followsPartner)
+        XCTAssertEqual(eff.n, 7, "the follower takes the partner's step count, not its own 8")
+        // by hand: the partner's finished pattern, then THIS lane's OFFSET, then its INV
+        let partner = euclideousBuildPattern(lines[0])
+        var expected = partner.buf
+        euclidRotateBuffer(&expected, steps: partner.n, rotation: 2)
+        for i in 0..<partner.n { expected[i].toggle() }
+        XCTAssertEqual(Array(eff.buf.prefix(eff.n)), Array(expected.prefix(partner.n)))
+        // …and it is NOT the follower's own 2-of-8
+        let own = euclideousBuildPattern(lines[1])
+        XCTAssertNotEqual(own.n, eff.n)
+        // a lane that is not following, or whose partner doesn't exist, plays its OWN pattern
+        let plain = euclideousEffectivePattern(lane: 0, lines: lines)!
+        XCTAssertFalse(plain.followsPartner); XCTAssertEqual(plain.buf, euclideousBuildPattern(lines[0]).buf); XCTAssertEqual(plain.n, 7)
+        var dangling = lines; dangling[1].listenRhythmPartner = 9
+        XCTAssertFalse(euclideousEffectivePattern(lane: 1, lines: dangling)!.followsPartner)
+        XCTAssertNil(euclideousEffectivePattern(lane: 4, lines: lines))
+    }
+    // The footer's hit ticks (what the bar's cells and bands are built from) == the engine mirror's hit ticks, for every direction.
+    func testFollowLanesFooterHitsAreTheTicksTheEngineActuallyPlays() {
+        for dir in [EuclidDir.fwd, .bkw, .pingpong] {
+            for partnerSteps in [7, 8, 5] {
+                let lines = followLines(partnerSteps: partnerSteps, ownRotate: 3, ownInvert: partnerSteps == 8, dir: dir)
+                let eff = euclideousEffectivePattern(lane: 1, lines: lines)!
+                let hits = euclideousLapHitSteps(buf: Array(eff.buf.prefix(eff.n)), dir: dir)
+                let cfg = euclideousWalkLaneConfig(lane: 1, lines: lines, cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+                let cycleLen = euclidCycleLen(dir, n: eff.n)
+                let engineTicks = (0..<cycleLen).filter { euclideousWalkTick(cfg, tick: Int64($0)).isHit }
+                XCTAssertEqual(hits.map { $0.tick }, engineTicks, "\(dir) partner \(partnerSteps): footer hit ticks vs the engine's own")
+                XCTAssertFalse(hits.isEmpty)
+                // the bar has one cell per PARTNER step, so the footer must have exactly that many bands (the old code made 8)
+                let states = euclideousFooterStates(hitSteps: hits, lapSteps: eff.n, prediction: nil, riffRanksResolved: [], anyLit: true)
+                XCTAssertEqual(states.count, eff.n)
+                for i in 0..<eff.n { XCTAssertEqual(states[i] != .miss, hits.contains { $0.bufIdx == i }, "cell \(i)") }
+            }
+        }
+        // the buffer-based walk is the pulses-based walk for an ordinary lane (the refactor changed nothing there)
+        for dir in [EuclidDir.fwd, .bkw, .pingpong] {
+            let viaPulses = euclideousLapHitSteps(pulses: 5, steps: 8, rotate: 2, tilt: 0.3, patternMiss: false, customHits: nil, dir: dir)
+            let viaBuf = euclideousLapHitSteps(buf: euclideousNoteViewPattern(pulses: 5, steps: 8, rotate: 2, tilt: 0.3), dir: dir)
+            XCTAssertEqual(viaPulses.map { [$0.tick, $0.bufIdx] }, viaBuf.map { [$0.tick, $0.bufIdx] })
+        }
+    }
+
 }

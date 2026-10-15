@@ -12,6 +12,28 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — FOLLOW LANES' STEP BAR + FOOTER NOW SHOW THE PATTERN THAT ACTUALLY PLAYS (2026-10-15, Paul approved; on
+  `feature/follow-footer`; iOS builds clean; macOS suite green, +2 tests; visuals device-owed).** WHAT WAS WRONG: a lane in
+  LISTEN → FOLLOW plays its PARTNER's finished pattern and step count (with its own OFFSET + INV on top), but the lane card
+  drew its step bar's CELLS from the lane's OWN pulses/steps (under the partner-colour wash, with the partner's step count
+  in the badge) and built the FOOTER from the same own fields — so the footer was wrong, and, because the footer is drawn
+  inside the bar's cells and indexed by cell, it could not be fixed without the cells. (The walk TAGS were already right —
+  they follow the engine.) THE FIX: ONE pure function, `euclideousEffectivePattern(lane:lines:)` (Derivations.swift) — the
+  pattern the engine really plays, plus `followsPartner` — now feeds the walk-tag mirror (the same logic, moved, not changed:
+  the FOLLOW mirror tests still pass against the real router), the lane footer (`laneFooterStates`, via a new buffer-based
+  `euclideousLapHitSteps(buf:dir:)`), and the step bar: `EuclidLaneBox` gained an optional `patternOverride` (the finished
+  buffer), which `EuclidCometBar` receives through its existing hand-edited-pattern path (`customHits`, rotate 0, no tilt, no
+  invert — everything is already baked in). Lanes that are NOT following take exactly the code path they took before; only a
+  lane with a valid FOLLOW partner changes. **TESTS (+2):** the effective pattern of a follower is the partner's, rotated by
+  its own OFFSET and inverted by its own INV, with the partner's step count (and a dangling/absent partner or a non-follower
+  plays its own); the footer's hit ticks equal the engine mirror's hit ticks for FWD/BKW/PING-PONG at three partner step
+  counts, and the footer has exactly one band per PARTNER step (the old code made one per OWN step). **OBSERVED, NOT
+  CHANGED:** the comet's SWEEP on a FOLLOW lane still runs at the lane's own rate (`line.rate ?? 1/16`), whereas the engine
+  runs the partner's rate × the multiplier — so the moving comet and the (now correct) cells can disagree about speed on a
+  FOLLOW lane; the bar takes an `ArpRate`, and the engine's rate isn't always exactly one, so this is a bigger change than
+  this one. The bar's drag hints ("N HITS OUT OF M", "OFFSET BY k") still read the lane's own fields. FLAGGED: this changes
+  what a FOLLOW lane's step bar looks like (it now shows the inherited hits, not the lane's own idle 2-of-8) — the LISTEN
+  ferry §8 asked for the partner's colour on the lit cells, which implies the inherited cells.
 - **▶ EUCLIDEOUS — WALK-TAG FOLLOW-UPS (2026-10-15): Paul answered the five parked questions — GAPS lanes get threads, the lane
   footer is fixed, the rest are accepted as built (on `feature/walk-tag-gaps-footer`; iOS builds clean; macOS suite green,
   +5 tests; visuals device-owed).** DECISIONS: (1) the ARRIVE/HIT timing log and (2) the ≤80ms tag-vs-thumbnail lag — "not

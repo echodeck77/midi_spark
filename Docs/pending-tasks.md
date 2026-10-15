@@ -29,8 +29,9 @@ Full story in `Docs/euclideous-status-log.md`.
 - [x] RESOLVED 2026-10-15 (Paul): the five riff-grid walk-tag questions — timing log + tag/thumbnail lag accepted as built,
       stride cue = thread length only, GAPS (and WITH) lanes now get threads, footer fixed under LOCK + ADV STEP. See the
       status log ("WALK-TAG FOLLOW-UPS").
-- [ ] DECIDE (Paul): a FOLLOW lane's footer builds from the lane's OWN pattern but the engine plays its PARTNER's — fix it
-      the same way (use the partner's finished pattern)? Not asked for, so not done.
+- [x] DONE 2026-10-15 (Paul approved): a FOLLOW lane's step bar + footer now draw the PARTNER's inherited pattern.
+- [ ] OPEN: a FOLLOW lane's comet SWEEP still runs at the lane's own rate; the engine runs the partner's rate × the multiplier
+      (the bar takes an `ArpRate`, which the engine's rate isn't always exactly) — fix it, or leave it?
 ## ★ EUCLIDEOUS — "per-step restart points on the LANES tab" — SHIPPED (2026-10-15; LANDED on
 `feat/euclid-per-step-restart-marks`, macOS 1454 green incl. +14, iOS builds clean) — replaces the old
 OFF/1/2/4/8 per-lane RESET with an 8-bit per-step restart mask, editable by holding a lane's RESET box and

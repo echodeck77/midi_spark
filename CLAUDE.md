@@ -272,8 +272,9 @@ the same pipeline as any other row; it is not a special-cased render path.
   FOLLOW, the WITH/GAPS strike filter, swing), change the mirror too — `RouterTests.testWalkTag*` compare the two against
   the real router and will fail if they drift. WITH/GAPS silence a tick only at the strike decision (the ordinal still counts
   every raw hit), which is why the mirror has both `isHit` and `strikes`. The UI-clock-vs-audible-time offset is an accepted,
-  unmeasured risk (Paul, 2026-10-15); the lane footer now agrees with the engine under LOCK + ADV STEP, but a FOLLOW lane's
-  footer still builds from its own pattern, not its partner's (see the status log entry).
+  unmeasured risk (Paul, 2026-10-15); the lane footer agrees with the engine under LOCK + ADV STEP, and a FOLLOW lane's step
+  bar + footer draw the PARTNER's inherited pattern via `euclideousEffectivePattern` (one function shared with the mirror).
+  A FOLLOW lane's comet SWEEP still runs at the lane's own rate, not the partner's × multiplier (see the status log).
 - **Recurring bug class, worth knowing before touching playhead/indicator code:** a UI
   indicator reading a DIFFERENT clock/formula than the one the engine actually uses to decide
   what sounds — hit repeatedly across RATCHET, DEST, the per-lane mask step bar, the ARP-rate

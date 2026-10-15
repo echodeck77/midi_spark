@@ -189,6 +189,10 @@ struct EuclidLaneBox: View {
     // to its partner," just not pixel-identical to the spec's own per-cell wording.
     var listenFollowTint: Color? = nil   // FOLLOW: a wash over the whole comet bar in the partner's colour
     var listenShadowTint: Color? = nil   // SHADOW: a footer-height band at the bottom, no text
+    /// The FINISHED pattern to draw (count = the step count) when this lane's own pulses/steps are NOT what plays — a FOLLOW
+    /// lane plays its partner's pattern, so its cells (and the footer drawn inside them) must come from that, not from
+    /// `line`. nil (every other lane, every other caller) ⇒ the bar draws from `line` exactly as before.
+    var patternOverride: [Bool]? = nil
     // FERRY (2026-10-14 §5) — passthrough to `EuclidCometBar`'s own `riffOnRest`; `.skip` (every other
     // caller) ⇒ inert, same reasoning as `footerStates` above.
     var riffOnRest: EuclidRiffOnRest = .skip
@@ -206,9 +210,15 @@ struct EuclidLaneBox: View {
             let gap: CGFloat = compact ? 6 : 8
             let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth)
             let leadReserve: CGFloat = compact ? 50 : 64
-            EuclidCometBar(pulses: line.pulses, steps: line.steps, rotate: line.rotate, invert: line.invert, dir: line.directionResolved,
-                           rate: rate, spanN: spanN, tilt: line.tiltResolved, missStyle: line.patternMissResolved,
-                           customHits: line.customHitsResolved(max(2, min(16, line.steps))),
+            // `patternOverride` is already FINISHED (partner's pattern, this lane's own OFFSET + INV baked in), so it goes in as a
+            // hand-edited pattern with nothing left to rotate, tilt or invert — the bar's own customHits path replaces generation.
+            EuclidCometBar(pulses: patternOverride.map { $0.filter { $0 }.count } ?? line.pulses,
+                           steps: patternOverride?.count ?? line.steps,
+                           rotate: patternOverride != nil ? 0 : line.rotate,
+                           invert: patternOverride != nil ? false : line.invert, dir: line.directionResolved,
+                           rate: rate, spanN: spanN, tilt: patternOverride != nil ? 0 : line.tiltResolved,
+                           missStyle: patternOverride != nil ? false : line.patternMissResolved,
+                           customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            footerStates: footerStates, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,

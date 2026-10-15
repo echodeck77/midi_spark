@@ -1593,10 +1593,14 @@ struct EuclideousPage: View {
     /// SwiftUI only re-evaluates it when one of `line`/`riff`/`riffWalkState` actually changes, which is
     /// exactly "recompute... whenever settings... change" (Prediction rule 1) without a hand-rolled cache.
     private func laneFooterStates(_ idx: Int, _ line: EuclidLine) -> [EuclidFooterState] {
-        let steps = max(2, min(16, line.steps))
-        let hitSteps = euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
-                                              tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
-                                              customHits: line.customHitsResolved(steps), dir: line.directionResolved)
+        // A FOLLOW lane plays its PARTNER's pattern (and step count), so its footer is predicted from THAT — the same
+        // finished buffer the engine and the step bar use (`euclideousEffectivePattern`). Every other lane is unchanged.
+        let follow = euclideousEffectivePattern(lane: idx, lines: lines).flatMap { $0.followsPartner ? $0 : nil }
+        let steps = follow?.n ?? max(2, min(16, line.steps))
+        let hitSteps = follow.map { euclideousLapHitSteps(buf: Array($0.buf.prefix($0.n)), dir: line.directionResolved) }
+            ?? euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
+                                      tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
+                                      customHits: line.customHitsResolved(steps), dir: line.directionResolved)
         var prediction: [Int]? = nil
         if line.riffOnResolved {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
@@ -1683,6 +1687,9 @@ struct EuclideousPage: View {
                           // (§5, `maskStepBar`) opts in separately, and the regular BUILD-page EUCLID
                           // editor (GridUI.swift) is untouched, per `grouped`'s own false default.
                           grouped: true, listenFollowTint: listenFollowTint, listenShadowTint: listenShadowTint,
+                          // FOLLOW: the bar's cells must be the pattern that actually plays (the partner's), or the footer drawn
+                          // inside them — and the cells themselves — disagree with the engine.
+                          patternOverride: euclideousEffectivePattern(lane: idx, lines: lines).flatMap { $0.followsPartner ? Array($0.buf.prefix($0.n)) : nil },
                           // FERRY (2026-10-14 §5): the one piece the footer prediction itself doesn't carry —
                           // whether landing on a riff rest actually sounds (FILL) or not (SKIP/TIE).
                           riffOnRest: line.riffOnRestResolved)

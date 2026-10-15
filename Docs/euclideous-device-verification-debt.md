@@ -37,6 +37,10 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
   actually plays.
 - A hand-placed restart mask (LANES tab, hold a RESET box and tap steps): the tag still threads and departs early instead of
   falling back to a static tag.
+- A FOLLOW lane's step bar now shows the PARTNER's hits (not the lane's own idle pattern) under the colour wash, with one cell
+  per partner step (check a partner whose step count differs from the follower's own), the footer bands sit inside the right
+  cells, and the lit cells line up with what you hear. The comet's speed on a FOLLOW lane is still the lane's own rate, so
+  expect it to look wrong against a partner at a different rate (known, see the status log).
 
 ### Header (Fourfold: BRAND / OUTPUTS / NOTES / UTILITIES) — 2026-10-15 ferry
 - Header fit in AUM, full-screen and windowed, both orientations: A, B and C switch cleanly with nothing clipped;
