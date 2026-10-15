@@ -4247,25 +4247,43 @@ struct EuclideousWalkListenFilter {
     var epsilonBeats: Double        // 1ms in beats at the host tempo
 }
 
+/// The partner lane index lane `lane` is FOLLOWing, or nil: only RHYTHM → FOLLOW with a partner that exists counts (WITH and
+/// GAPS keep the lane's own rhythm, so they are NOT following). The ONE definition the engine mirror, the lane card's look
+/// and its gestures all share.
+func euclideousFollowPartner(lane: Int, lines: [EuclidLine]) -> Int? {
+    guard lane >= 0, lane < lines.count, lines[lane].listenRhythmMode == .follow else { return nil }
+    let p = lines[lane].listenRhythmPartnerResolved
+    return p >= 0 && p < lines.count ? p : nil
+}
+/// The lane whose RHYTHM the lane's own bar gestures (drag up/down = HITS, left/right = OFFSET, pinch = STEPS) should edit: the
+/// partner it follows, else itself. A follower plays its partner's pattern, so the gesture edits what it is following.
+func euclideousRhythmGestureTarget(lane: Int, lines: [EuclidLine]) -> Int {
+    euclideousFollowPartner(lane: lane, lines: lines) ?? lane
+}
+/// How faded a FOLLOW lane's lit cells are drawn (1 = full strength): the cells are the PARTNER's hits in the partner's colour,
+/// a little softer than a lane's own so they still read as "borrowed".
+let euclideousListenCellFade: Double = 0.75
+
 /// The pattern lane `lane` ACTUALLY plays, exactly as `Router.runEuclidLine` builds it: its own HITS/TILT/hand-edits/OFFSET/INV
 /// — or, when it is FOLLOWing a valid partner, the PARTNER's finished pattern and step count with THIS lane's own OFFSET and INV
 /// applied on top. `followsPartner` tells the UI whether the lane's own pulses/steps are the pattern at all: when they are not,
-/// anything drawn from them (the step bar's cells, its footer) would disagree with what sounds.
+/// anything drawn from them (the step bar's cells, its footer) would disagree with what sounds. `rateBeats` is the step length
+/// the engine ticks at — the lane's own rate, or the partner's × the FOLLOW multiplier — so the comet's sweep can match it
+/// (`defaultRateBeats` stands in for a lane whose rate is unset, as everywhere in the UI's mirror).
 /// ONE function for the walk-tag mirror and the lane card, so neither can drift from the engine on its own.
-func euclideousEffectivePattern(lane: Int, lines: [EuclidLine]) -> (buf: [Bool], n: Int, followsPartner: Bool)? {
+func euclideousEffectivePattern(lane: Int, lines: [EuclidLine], defaultRateBeats: Double = 0.25) -> (buf: [Bool], n: Int, followsPartner: Bool, rateBeats: Double)? {
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
-    let followIdx = L.listenRhythmPartnerResolved
-    if L.listenRhythmMode == .follow && followIdx >= 0 && followIdx < lines.count {
+    if let followIdx = euclideousFollowPartner(lane: lane, lines: lines) {
         // Mirrors Router: the partner's finished pattern + step count, then THIS lane's own OFFSET / INV on top.
         let pb = euclideousBuildPattern(lines[followIdx])
         var buf = pb.buf
         euclidRotateBuffer(&buf, steps: pb.n, rotation: L.rotate)
         if L.patternMissResolved { for i in 0..<pb.n { buf[i].toggle() } }
-        return (buf, pb.n, true)
+        return (buf, pb.n, true, (lines[followIdx].rate?.beats ?? defaultRateBeats) * L.listenFollowRatioResolved)
     }
     let b = euclideousBuildPattern(L)
-    return (b.buf, b.n, false)
+    return (b.buf, b.n, false, L.rate?.beats ?? defaultRateBeats)
 }
 
 func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, resetSpanBars: Int,
@@ -4274,12 +4292,10 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                               beatsPerBar: Double = 4, tempo: Double = 120) -> EuclideousWalkLaneConfig? {
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
-    let followIdx = L.listenRhythmPartnerResolved
-    let follow = L.listenRhythmMode == .follow && followIdx >= 0 && followIdx < lines.count
-    guard let eff = euclideousEffectivePattern(lane: lane, lines: lines) else { return nil }
+    let followIdx = L.listenRhythmPartnerResolved   // the rhythm partner of ANY listen mode (WITH/GAPS use it below)
+    guard let eff = euclideousEffectivePattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
     let buf = eff.buf, n = eff.n
-    let sub: Double = follow ? (lines[followIdx].rate?.beats ?? defaultRateBeats) * L.listenFollowRatioResolved
-                             : (L.rate?.beats ?? defaultRateBeats)
+    let sub = eff.rateBeats
     // The LANES sequencer's step (and so the per-lane RESET, counted in those steps) is measured in the host's REAL bars
     // (`beatsPerBar`, 2026-10-14 sequencer-step-length fix); only the machine-wide reset span still counts grid-geometry `cyc`s.
     let lanesStepBeats = lanesSeqRate.barsFraction * beatsPerBar

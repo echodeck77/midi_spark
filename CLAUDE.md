@@ -274,7 +274,8 @@ the same pipeline as any other row; it is not a special-cased render path.
   every raw hit), which is why the mirror has both `isHit` and `strikes`. The UI-clock-vs-audible-time offset is an accepted,
   unmeasured risk (Paul, 2026-10-15); the lane footer agrees with the engine under LOCK + ADV STEP, and a FOLLOW lane's step
   bar + footer draw the PARTNER's inherited pattern via `euclideousEffectivePattern` (one function shared with the mirror).
-  A FOLLOW lane's comet SWEEP still runs at the lane's own rate, not the partner's × multiplier (see the status log).
+  A FOLLOW lane is drawn as what it follows: partner's cells in the partner's colour (faded), comet at the partner's rate ×
+  multiplier, and its bar gestures edit the PARTNER (`euclideousFollowPartner` is the one definition of "following").
 - **Recurring bug class, worth knowing before touching playhead/indicator code:** a UI
   indicator reading a DIFFERENT clock/formula than the one the engine actually uses to decide
   what sounds — hit repeatedly across RATCHET, DEST, the per-lane mask step bar, the ARP-rate

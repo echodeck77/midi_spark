@@ -30,6 +30,15 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - OFF and "no mark on step 1" cases audibly run through the LANES lap boundary as expected (engine-proven
   off-device; wants an ear on the real instrument too).
 
+### FOLLOW lanes look and feel like their partner (2026-10-16)
+- The follower's lit cells are the PARTNER's colour at 75% — faded enough to read as "borrowed", not so faded they look off;
+  the comet head is still the follower's own colour; a strike's flash still reads against the faded fill.
+- The comet's speed matches what you hear for a follower at ×1/×2/÷2 and against a partner at a different rate; the 4-vs-3
+  step grouping follows the partner's feel.
+- Dragging a follower's bar moves the PARTNER (hits up/down, offset left/right, pinch for steps), the readout says
+  "LANE n · FOLLOWED", and both lanes' bars update together. A two-finger ALL-lanes OFFSET drag moves every lane once.
+- The follower's OFFSET *slider* still shifts only the follower (a shifted copy of the partner) — confirm that split feels right.
+
 ### Walk tags — GAPS/WITH threads and the footer fix (2026-10-15 follow-ups)
 - A GAPS lane (and a WITH lane) now shows a thread to its next SOUNDING hit and the tag departs early, like any other lane;
   it should never fly to a step that then doesn't sound. Check with a partner whose hits overlap the lane's.

@@ -30,8 +30,15 @@ Full story in `Docs/euclideous-status-log.md`.
       stride cue = thread length only, GAPS (and WITH) lanes now get threads, footer fixed under LOCK + ADV STEP. See the
       status log ("WALK-TAG FOLLOW-UPS").
 - [x] DONE 2026-10-15 (Paul approved): a FOLLOW lane's step bar + footer now draw the PARTNER's inherited pattern.
-- [ ] OPEN: a FOLLOW lane's comet SWEEP still runs at the lane's own rate; the engine runs the partner's rate × the multiplier
-      (the bar takes an `ArpRate`, which the engine's rate isn't always exactly) — fix it, or leave it?
+- [x] DONE 2026-10-16 (Paul): a FOLLOW lane's comet sweeps at the partner's rate × multiplier, its lit cells are the partner's
+      colour (faded), and its bar gestures edit the partner. See the status log ("A FOLLOW LANE LOOKS AND FEELS LIKE WHAT IT
+      FOLLOWS").
+- [ ] DECIDE (Paul) — "similar clarity" for the OTHER listen modes (proposals in the 2026-10-16 reply): (a) SHADOW's footer
+      still draws the lane's OWN riff step numbers although the engine ignores them (a bug, same class as the FOLLOW footer) —
+      show plain partner-colour bands instead? (b) WITH/GAPS: mark which of the lane's own hits sound vs are silenced, and the
+      partner's coinciding hits? (c) AVOID: flash a blocked hit as a partner-coloured outline? (d) DUCK/ACCENT: mark the
+      coinciding cells (partner-colour top edge + faded/brighter fill)? (e) one at-a-glance "listening to" dot per row (R/P/L)
+      beside the step-count badge?
 ## ★ EUCLIDEOUS — "per-step restart points on the LANES tab" — SHIPPED (2026-10-15; LANDED on
 `feat/euclid-per-step-restart-marks`, macOS 1454 green incl. +14, iOS builds clean) — replaces the old
 OFF/1/2/4/8 per-lane RESET with an 8-bit per-step restart mask, editable by holding a lane's RESET box and

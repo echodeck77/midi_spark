@@ -12,6 +12,27 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — A FOLLOW LANE LOOKS AND FEELS LIKE WHAT IT FOLLOWS (2026-10-16, Paul's direction; on `feature/follow-appearance`;
+  iOS builds clean; macOS suite green, +2 tests; ALL visuals/gesture feel device-owed).** PAUL'S WORDS: "When a euclid lane is
+  listening, I want the appearance of the lane itself to reflect what it's listening to — not what it has stored for itself …
+  the colour of the thing it's listening to on the hit cells, and a slightly faded appearance … its euclid gestures to control the
+  thing it's following." DONE for RHYTHM → FOLLOW: (1) **COMET SPEED** — the sweep now runs at the step length the engine ticks at,
+  the partner's rate × the FOLLOW multiplier (`euclideousEffectivePattern` returns `rateBeats`, the same number the walk-tag
+  mirror uses; `EuclidCometBar` gained `subBeatsOverride` because that product isn't always an `ArpRate`; `rate` is now the
+  partner's, which only decides the 4-vs-3 step grouping). (2) **CELL COLOUR + FADE** — the lit cells (fill, glow, flash,
+  shockwave) are drawn in the PARTNER's colour at `euclideousListenCellFade` = 0.75 of full strength (`cellTint`/`cellFade` on the
+  bar; the fade touches the cell FILL only, so a strike's flash still reads); the comet head stays the lane's OWN colour; the old
+  whole-bar wash (the disclosed LISTEN-ferry simplification) is REMOVED, and the badge keeps its partner-colour dot and the
+  partner's step count. (3) **GESTURES** — drag up/down (HITS), left/right (OFFSET) and pinch (STEPS) on a follower's bar now
+  edit the PARTNER (`euclideousRhythmGestureTarget`), and the drag readout says "LANE n · FOLLOWED" with the partner's numbers.
+  The two-finger ALL-lanes OFFSET gesture no longer shifts a follower's own offset (it applies ON TOP of the partner's, which
+  the gesture already moves, so it would have shifted the follower twice). `euclideousFollowPartner` is the single definition of
+  "following" (FOLLOW only; WITH/GAPS keep the lane's own rhythm and are not following). **CHANGES A LITTLE OF THE LISTEN
+  FERRY:** §5 left OFFSET live on the follower; the bar's OFFSET drag now moves the partner instead (the RHYTHM tab's OFFSET
+  slider still edits the follower's own offset, so a shifted-copy is still reachable). HITS/STEPS/TILT sliders stay locked at 42%
+  as before. **TESTS (+2):** who counts as following and the gesture target (FOLLOW only; WITH/GAPS/dangling/out-of-range are
+  not); the effective sweep rate for every multiplier −3…+2 equals the engine mirror's step length, and differs from the lane's
+  own stored rate. The bar's drawing and the gesture routing are UI-only (no test reach) — device-check them.
 - **▶ EUCLIDEOUS — FOLLOW LANES' STEP BAR + FOOTER NOW SHOW THE PATTERN THAT ACTUALLY PLAYS (2026-10-15, Paul approved; on
   `feature/follow-footer`; iOS builds clean; macOS suite green, +2 tests; visuals device-owed).** WHAT WAS WRONG: a lane in
   LISTEN → FOLLOW plays its PARTNER's finished pattern and step count (with its own OFFSET + INV on top), but the lane card

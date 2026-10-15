@@ -4446,4 +4446,47 @@ final class DerivationsTests: XCTestCase {
         }
     }
 
+
+    // MARK: - FOLLOW lanes: who is following, where their gestures go, how fast they sweep (2026-10-16)
+
+    func testOnlyAValidFollowCountsAsFollowingAndItsGesturesGoToThePartner() {
+        var lines = followLines()
+        XCTAssertEqual(euclideousFollowPartner(lane: 1, lines: lines), 0)
+        XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 0, "a follower's bar gestures edit the lane it follows")
+        XCTAssertNil(euclideousFollowPartner(lane: 0, lines: lines), "the partner itself is not following anyone")
+        XCTAssertEqual(euclideousRhythmGestureTarget(lane: 0, lines: lines), 0)
+        // WITH / GAPS keep the lane's OWN rhythm (they only gate it), so they are NOT following and edit themselves
+        for mode in [EuclideousRhythmMode.with, .gaps] {
+            lines[1].listenRhythmMode = mode
+            XCTAssertNil(euclideousFollowPartner(lane: 1, lines: lines), "\(mode)")
+            XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 1)
+        }
+        lines[1].listenRhythmMode = nil
+        XCTAssertNil(euclideousFollowPartner(lane: 1, lines: lines))
+        // out of range
+        XCTAssertNil(euclideousFollowPartner(lane: 9, lines: lines))
+        XCTAssertEqual(euclideousRhythmGestureTarget(lane: 9, lines: lines), 9)
+    }
+    func testFollowLaneSweepsAtThePartnersRateTimesItsMultiplierExactlyAsTheEngineMirrorDoes() {
+        for exp in -3...2 {
+            var lines = followLines()
+            lines[1].listenFollowMult = exp
+            let eff = euclideousEffectivePattern(lane: 1, lines: lines)!
+            XCTAssertEqual(eff.rateBeats, ArpRate.r1_8.beats * pow(2.0, Double(-exp)), accuracy: 1e-12, "×2^\(exp)")
+            let cfg = euclideousWalkLaneConfig(lane: 1, lines: lines, cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+            XCTAssertEqual(cfg.sub, eff.rateBeats, accuracy: 1e-12, "the comet and the engine mirror use ONE step length")
+        }
+        // at ×1 the follower sweeps at the PARTNER's 1/8 — not the 1/16 it has stored for itself
+        let plain = followLines()
+        XCTAssertEqual(euclideousEffectivePattern(lane: 1, lines: plain)!.rateBeats, ArpRate.r1_8.beats)
+        XCTAssertEqual(plain[1].rate?.beats, ArpRate.r1_16.beats, "(its own stored rate is different, so this is not just reading the lane's own field)")
+        // not following: the lane's own rate; an unset rate takes the default
+        var lines = followLines()
+        XCTAssertEqual(euclideousEffectivePattern(lane: 0, lines: lines)!.rateBeats, ArpRate.r1_8.beats)
+        lines[0].rate = nil
+        XCTAssertEqual(euclideousEffectivePattern(lane: 0, lines: lines, defaultRateBeats: 0.375)!.rateBeats, 0.375)
+        XCTAssertEqual(euclideousEffectivePattern(lane: 1, lines: lines, defaultRateBeats: 0.375)!.rateBeats, 0.375, "a follower whose partner has no rate takes the default × its multiplier")
+        XCTAssertTrue(euclideousListenCellFade > 0.5 && euclideousListenCellFade < 1, "slightly faded, still clearly lit")
+    }
+
 }

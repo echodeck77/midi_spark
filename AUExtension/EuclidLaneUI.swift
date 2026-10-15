@@ -180,19 +180,22 @@ struct EuclidLaneBox: View {
     // STEP GROUPS (2026-10-14 ferry) — passthrough to `EuclidCometBar`'s own `grouped`; `false` (every
     // other caller, incl. the regular BUILD-page EUCLID editor) ⇒ byte-identical to before this ferry.
     var grouped: Bool = false
-    // LISTEN TAB (ferry 2026-10-14 §8) — both nil (every existing caller) ⇒ byte-identical. A SIMPLIFIED,
-    // disclosed approximation of the ferry's own literal per-cell description (flagged in the reply, not
-    // silently shipped as if exact): §8 asks for the partner's colour to replace the fill of individual
-    // LIT cells specifically; reaching into `EuclidCometBar`'s own Canvas drawing to recolour per-cell
-    // would need deeper surgery than this ferry's remaining budget allows, so both read as a translucent
-    // wash over the WHOLE bar instead — still unambiguously signals "this lane's rhythm/pitch now traces
-    // to its partner," just not pixel-identical to the spec's own per-cell wording.
-    var listenFollowTint: Color? = nil   // FOLLOW: a wash over the whole comet bar in the partner's colour
+    // LISTEN TAB (ferry 2026-10-14 §8) — nil/defaults (every existing caller) ⇒ byte-identical. FOLLOW used to be a translucent
+    // wash over the whole bar (a disclosed simplification of the ferry's "partner's colour on the lit cells"); it is now the
+    // real thing: the lit cells are drawn in the PARTNER's colour (`cellTint`), faded by `cellFade`, and the comet sweeps at the
+    // rate the engine really ticks (`rateBeatsOverride`). The comet itself stays the lane's own colour.
     var listenShadowTint: Color? = nil   // SHADOW: a footer-height band at the bottom, no text
     /// The FINISHED pattern to draw (count = the step count) when this lane's own pulses/steps are NOT what plays — a FOLLOW
     /// lane plays its partner's pattern, so its cells (and the footer drawn inside them) must come from that, not from
     /// `line`. nil (every other lane, every other caller) ⇒ the bar draws from `line` exactly as before.
     var patternOverride: [Bool]? = nil
+    /// The partner's colour for the LIT cells (and their flash/glow); nil ⇒ the lane's own `accent`.
+    var cellTint: Color? = nil
+    /// 1 = full strength; < 1 fades the lit cells' fill (FOLLOW: `euclideousListenCellFade`).
+    var cellFade: Double = 1
+    /// The step length (beats) the comet sweeps at when it is NOT `rate.beats` — a FOLLOW lane ticks at the partner's rate ×
+    /// the multiplier, which is not always an `ArpRate`. `rate` still decides the step GROUPING (4, or 3 under triplet feel).
+    var rateBeatsOverride: Double? = nil
     // FERRY (2026-10-14 §5) — passthrough to `EuclidCometBar`'s own `riffOnRest`; `.skip` (every other
     // caller) ⇒ inert, same reasoning as `footerStates` above.
     var riffOnRest: EuclidRiffOnRest = .skip
@@ -220,6 +223,7 @@ struct EuclidLaneBox: View {
                            missStyle: patternOverride != nil ? false : line.patternMissResolved,
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            footerStates: footerStates, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
+                           subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
@@ -227,7 +231,6 @@ struct EuclidLaneBox: View {
                 // bar gets the FULL `height` directly; non-compact keeps its original 6pt top+bottom padding
                 // derivation (56−12=44, unchanged for the regular BUILD-page editor).
                 .frame(height: compact ? max(20, height) : max(20, height - 12))
-                .overlay { if let t = listenFollowTint { RoundedRectangle(cornerRadius: 6).fill(t.opacity(0.44)).allowsHitTesting(false) } }
                 .overlay(alignment: .bottom) { if let t = listenShadowTint { Rectangle().fill(t).frame(height: 14).allowsHitTesting(false) } }
             if let stepCountBadge { stepCountBadge }
         }
@@ -341,6 +344,14 @@ struct EuclidCometBar: View {
     // `euclideousHitFlashStyle` only ever sees it when `footerStates` is ALSO non-nil, so this default is
     // inert for both.
     var riffOnRest: EuclidRiffOnRest = .skip
+    // LISTEN/FOLLOW (2026-10-16): a FOLLOW lane plays its partner's pattern at the partner's rate, in the partner's colour.
+    // `subBeatsOverride` replaces `rate.beats` as the comet's step length (`rate` still decides the step grouping);
+    // `cellTint` colours the LIT cells (and their flash/glow/outlines — the comet head stays `tint`, the lane's own colour);
+    // `cellFade` (< 1) softens the lit cells' FILL only, so a strike's flash still reads. nil/nil/1 (every other caller) ⇒
+    // byte-identical.
+    var subBeatsOverride: Double? = nil
+    var cellTint: Color? = nil
+    var cellFade: Double = 1
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -359,7 +370,7 @@ struct EuclidCometBar: View {
     var body: some View {
         let k = pulses
         let n = max(2, min(16, steps))
-        let sub = max(0.03125, rate.beats)
+        let sub = max(0.03125, subBeatsOverride ?? rate.beats)
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: clock.stepBeats, row: Double(clock.cols) * clock.stepBeats) : 0
         // PER-LANE PLAY/STOP: a SECOND, independent gate alongside `clock.playing` (the HOST transport). `running`
         // is true only when BOTH the transport is playing AND this specific lane's own PLAY/STOP is engaged; a
@@ -397,6 +408,7 @@ struct EuclidCometBar: View {
             let nD = Double(n)
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
+                let cellColour = cellTint ?? tint   // the LIT cells' colour (the comet head below keeps `tint`)
                 // HAND-EDITED PATTERN (found 2026-10-12) — mirrors Router.swift's own `runEuclidLine`
                 // exactly: a non-nil `customHits` replaces generation entirely (TILT never consulted);
                 // ROTATE still applies on top regardless, matching the engine's own unconditional call.
@@ -500,8 +512,8 @@ struct EuclidCometBar: View {
                                 // bottom gives each box a glassy, lit-from-above quality, brightening further on its
                                 // own burst.
                                 ctx.drawLayer { layer in
-                                    layer.addFilter(.shadow(color: tint.opacity(min(1, 0.55 + burst)), radius: 5 + 14 * burst + 4 * recede))
-                                    layer.fill(box, with: .linearGradient(Gradient(colors: [tint.opacity(min(1, 0.95 + 0.3 * burst)), tint.opacity(0.55 + 0.25 * recede)]),
+                                    layer.addFilter(.shadow(color: cellColour.opacity(min(1, 0.55 + burst)), radius: 5 + 14 * burst + 4 * recede))
+                                    layer.fill(box, with: .linearGradient(Gradient(colors: [cellColour.opacity(min(1, 0.95 + 0.3 * burst) * cellFade), cellColour.opacity((0.55 + 0.25 * recede) * cellFade)]),
                                                                            startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
                                 }
                                 ctx.stroke(box, with: .color(.white.opacity(0.18 + 0.5 * burst)), lineWidth: 1)
@@ -515,33 +527,33 @@ struct EuclidCometBar: View {
                                 if burst > 0.06 {   // the shockwave — an expanding box outline, reads as an impact not just a flash
                                     let grow = 11 * (1 - burst)
                                     let ring = Path(roundedRect: rect.insetBy(dx: -grow, dy: -grow), cornerRadius: corner + grow * 0.4)
-                                    ctx.stroke(ring, with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
+                                    ctx.stroke(ring, with: .color(cellColour.opacity(0.4 * burst)), lineWidth: 1.5)
                                 }
                             } else {
                                 // OUTLINE FLASH (§5 fix): "the same flash shape... as a 1.5pt outline in the flash
                                 // colour, no fill, same fade" — the identical recede/burst curve, no gradient fill,
                                 // no white hot core; the shockwave ring survives (it was never a fill either).
-                                ctx.stroke(box, with: .color(tint.opacity(min(1, 0.35 + 0.5 * recede + 0.4 * burst))), lineWidth: 1.5)
+                                ctx.stroke(box, with: .color(cellColour.opacity(min(1, 0.35 + 0.5 * recede + 0.4 * burst))), lineWidth: 1.5)
                                 if burst > 0.06 {
                                     let grow = 11 * (1 - burst)
                                     let ring = Path(roundedRect: rect.insetBy(dx: -grow, dy: -grow), cornerRadius: corner + grow * 0.4)
-                                    ctx.stroke(ring, with: .color(tint.opacity(0.4 * burst)), lineWidth: 1.5)
+                                    ctx.stroke(ring, with: .color(cellColour.opacity(0.4 * burst)), lineWidth: 1.5)
                                 }
                             }
                         } else if exactStyle {
                             // 2026-10-13 ferry, literal: "Hits are LANE-100" — the resting (stopped) hit cell,
                             // flat and full-strength, no dimming/border (the running case above, with its own
                             // gradient/burst/flash/shockwave, is untouched — nothing in this ferry addresses it).
-                            ctx.fill(box, with: .color(tint))
+                            ctx.fill(box, with: .color(cellColour.opacity(cellFade)))
                         } else {
-                            ctx.fill(box, with: .color(tint.opacity(0.55)))
+                            ctx.fill(box, with: .color(cellColour.opacity(0.55 * cellFade)))
                             ctx.stroke(box, with: .color(.white.opacity(0.2)), lineWidth: 1)
                         }
                     } else if missStyle {
                         // MISS STYLE (ferry §3.2): this box is one of the ORIGINAL Euclid hits, now silent — a
                         // 1.5pt lane-coloured outline with NO fill at all, so the original pattern stays legible
                         // as outlines while the filled (sounding) cells above show what actually plays.
-                        ctx.stroke(box, with: .color(tint), lineWidth: 1.5)
+                        ctx.stroke(box, with: .color(cellColour), lineWidth: 1.5)
                     } else if exactStyle {
                         // 2026-10-13 ferry, literal: "misses are #2c2f36" — a flat fill, no border.
                         ctx.fill(box, with: .color(Color(hex: 0x2C2F36)))

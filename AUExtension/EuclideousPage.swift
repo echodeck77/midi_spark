@@ -1640,16 +1640,20 @@ struct EuclideousPage: View {
         let contentAreaH = max(1, height - cometRowH - tabRowH - outerVPad - rowGaps)
         let steps = max(2, min(16, line.steps))
         VStack(alignment: .leading, spacing: cardRowGap) {
-            // LISTEN TAB (ferry 2026-10-14 §8) — see `EuclidLaneBox`'s own doc comment on the two tints for
-            // the disclosed simplification (a whole-bar wash/band, not a per-cell recolour).
-            let listenFollowTint: Color? = line.listenRhythmMode == .follow ? laneAccents[line.listenRhythmPartnerResolved % laneAccents.count] : nil
+            // LISTEN TAB: a FOLLOW lane PLAYS its partner's pattern, at the partner's rate — so its bar shows THAT (lit cells in the
+            // partner's colour, faded; the comet sweeping at the partner's pace) and its bar gestures edit the PARTNER, the thing it
+            // is following (2026-10-16). SHADOW keeps its footer-height partner-colour band (see `EuclidLaneBox`).
+            let followIdx = euclideousFollowPartner(lane: idx, lines: lines)
+            let gestureLane = euclideousRhythmGestureTarget(lane: idx, lines: lines)
+            let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: lines) : nil
+            let listenFollowTint: Color? = followIdx.map { laneAccents[$0 % laneAccents.count] }   // the partner's colour: the lit cells + the badge dot
             let listenShadowTint: Color? = line.listenPitchMode == .shadow ? laneAccents[line.listenPitchPartnerResolved % laneAccents.count] : nil
             EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                           // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                           // border/fill around just this row (the step-bar area) — always `false` now; the
                           // selection indicator moved to a single outline around the ENTIRE card below.
                           selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
-                          clock: clock, rate: line.rate ?? .r1_16, spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
+                          clock: clock, rate: followIdx.map { lines[$0].rate ?? .r1_16 } ?? (line.rate ?? .r1_16), spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
                           // RHYTHM GESTURE CONTROLS (Paul 2026-10-14, re-enabled — mirrors MASK's own
                           // identical wiring, `maskStepBar` below, just targeting this lane's REAL
                           // pulses/rotate instead of its mask's): up adds hits, down removes, left/right
@@ -1657,12 +1661,13 @@ struct EuclideousPage: View {
                           // own HITS/OFFSET sliders use, so an edited (hand-drawn) pattern rebuilds/round-
                           // trips identically whichever control you drag, and OFFSET can't disagree with
                           // the slider's own just-fixed drag-direction mirror.
-                          onRotateDelta: { d in euclideousApplyRhythmX(idx, d) },
-                          onHitsDelta: { d in euclideousApplyRhythmY(idx, d) },
-                          onStepsDelta: { d in edit(idx) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
+                          // A FOLLOWing lane's gestures edit the lane it follows (`gestureLane` = idx for every other lane).
+                          onRotateDelta: { d in euclideousApplyRhythmX(gestureLane, d) },
+                          onHitsDelta: { d in euclideousApplyRhythmY(gestureLane, d) },
+                          onStepsDelta: { d in edit(gestureLane) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
                           onAllRotateDelta: { d in euclideousApplyAllRhythmX(d) },
                           onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
-                          onDragState: { point, allRows in euclideousRhythmDragState(idx, point, allRows) },
+                          onDragState: { point, allRows in euclideousRhythmDragState(gestureLane, via: idx, point, allRows) },
                           // WHOLE-CARD SELECTION HIGHLIGHT REMOVED (Paul: "remove the highlight that
                           // sometimes appears around the euclid lane boxes") — `onSelect` has no remaining
                           // effect anywhere on this page (confirmed by grep before removing the state it
@@ -1675,7 +1680,7 @@ struct EuclideousPage: View {
                           // own cell rect now, so there's no separate row height/gap to budget here at all.
                           footerStates: laneFooterStates(idx, line),
                           stepCountBadge: AnyView(stepCountBadge(
-                              listenFollowTint != nil ? euclideousBuildPattern(lines[min(3, max(0, line.listenRhythmPartnerResolved))]).n : steps,
+                              followEff?.n ?? steps,
                               dotTint: listenFollowTint)),
                           stepCountBadgeWidth: stepCountBadgeTotalWidth,
                           // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
@@ -1686,10 +1691,13 @@ struct EuclideousPage: View {
                           // site this ferry's own §1-4 target ("a lane's step row"); the MASK step bar
                           // (§5, `maskStepBar`) opts in separately, and the regular BUILD-page EUCLID
                           // editor (GridUI.swift) is untouched, per `grouped`'s own false default.
-                          grouped: true, listenFollowTint: listenFollowTint, listenShadowTint: listenShadowTint,
+                          grouped: true, listenShadowTint: listenShadowTint,
                           // FOLLOW: the bar's cells must be the pattern that actually plays (the partner's), or the footer drawn
-                          // inside them — and the cells themselves — disagree with the engine.
-                          patternOverride: euclideousEffectivePattern(lane: idx, lines: lines).flatMap { $0.followsPartner ? Array($0.buf.prefix($0.n)) : nil },
+                          // inside them — and the cells themselves — disagree with the engine. They are drawn in the partner's
+                          // colour, faded, and the comet sweeps at the partner's rate × the multiplier.
+                          patternOverride: followEff.map { Array($0.buf.prefix($0.n)) },
+                          cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
+                          rateBeatsOverride: followEff?.rateBeats,
                           // FERRY (2026-10-14 §5): the one piece the footer prediction itself doesn't carry —
                           // whether landing on a riff rest actually sounds (FILL) or not (SKIP/TIE).
                           riffOnRest: line.riffOnRestResolved)
@@ -3143,8 +3151,10 @@ struct EuclideousPage: View {
     // keeps its OLD customHits shape, padded/truncated against the new pulse count by the existing render-
     // side `customHitsResolved` bounds-check rather than cleanly rebuilt — matching how every OTHER bulk/
     // all-lanes gesture on this page already treats `customHits` (none of them are rebuild-aware either).
+    // A FOLLOWing lane's own OFFSET applies ON TOP of its partner's pattern, and the partner is in this "all lanes" set too — so
+    // shifting both would shift the follower TWICE. A follower inherits the move through its partner instead.
     private func euclideousApplyAllRhythmX(_ d: Int) {
-        onEdit { lines in for i in lines.indices { let n = max(2, min(16, lines[i].steps)); lines[i].rotate = ((lines[i].rotate - d) % n + n) % n } }
+        onEdit { lines in for i in lines.indices where euclideousFollowPartner(lane: i, lines: lines) == nil { let n = max(2, min(16, lines[i].steps)); lines[i].rotate = ((lines[i].rotate - d) % n + n) % n } }
     }
     private func euclideousApplyAllRhythmY(_ d: Int) {
         onEdit { lines in for i in lines.indices { let n = max(2, min(16, lines[i].steps)); lines[i].pulses = max(0, min(n, lines[i].pulses + d)) } }
@@ -3153,7 +3163,9 @@ struct EuclideousPage: View {
     /// reports a non-nil point on every `.changed` tick, so a naive "always capture" would silently re-
     /// freeze the snapshot every tick, breaking the round-trip-to-start guarantee `euclideousSliderCommit`'s
     /// own HITS rebuild depends on) and clears all gesture state at gesture-end (nil point).
-    private func euclideousRhythmDragState(_ idx: Int, _ point: CGPoint?, _ allRows: Bool) {
+    /// `idx` is the lane being EDITED; `via` is the lane the finger is on when that is a FOLLOWer redirecting to its partner (the
+    /// readout then says so, so it is clear whose numbers these are).
+    private func euclideousRhythmDragState(_ idx: Int, via: Int? = nil, _ point: CGPoint?, _ allRows: Bool) {
         guard let point else {
             dragHUDInfo = nil
             rhythmGestureSnapshot[idx] = nil
@@ -3167,7 +3179,8 @@ struct EuclideousPage: View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let n = max(2, min(16, line.steps))
         let displayedOffset = Int(euclideousSliderRange(.offset, line).value)
-        dragHUDInfo = EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
+        let redirected = via != nil && via != idx
+        dragHUDInfo = EuclidDragHUDInfo(label: allRows ? "ALL LANES" : (redirected ? "LANE \(idx + 1) · FOLLOWED" : "LANE \(idx + 1)"),
                                          primary: "\(line.pulses) OF \(n)", secondary: "OFFSET \(displayedOffset)", point: point)
     }
 
