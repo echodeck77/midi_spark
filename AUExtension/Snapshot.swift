@@ -210,6 +210,13 @@ struct SnapParams {
     var euclideousRiffsSeqRate: EuclideousSeqRate = .oneBar
     var euclideousRiffsSeqLen: Int = 8
     var euclideousRiffsSeqCells: [Int] = [Int](repeating: 0, count: 8)   // which riff (0...3) plays each step
+    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — SAME `MachineParams`-
+    // routed path as `euclideousRiffs`/`activeRiff` above (not the page-level-only RIFFS-seq fields right
+    // above those): BuildPage's publish line builds these fresh from live @State every time, and the
+    // engine's own render-thread state (Router.swift) reads them per render, gated to `Snap.euclideousRow`.
+    var euclideousLiveGrid: EuclideousRiff = EuclideousRiff()
+    var euclideousLoopSlots: [EuclideousLoopSlot] = [EuclideousLoopSlot](repeating: .empty, count: 4)
+    var euclideousManualSlot: Int = -1   // −1 = none (render-facing convention: no Optional)
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
     var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns
     var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)

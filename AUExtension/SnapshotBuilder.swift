@@ -801,6 +801,18 @@ enum SnapshotBuilder {
             return rr
         }
         out.activeRiff = max(0, min(3, p.activeRiff ?? 0))
+        // LOOP SLOTS (FERRY "loop slots replace the riff tabs") — mirrors `euclideousRiffs`/`activeRiff`'s
+        // own fallback exactly: `BuildPage.swift`'s publish line populates `p.euclideousLiveGrid`/
+        // `euclideousLoopSlots` from already-fully-migrated live @State every time (so this `??` branch is
+        // a defensive fallback, same as `euclideousRiffsMigrated` above is for `p.riffs`/`activeRiff` —
+        // load-bearing only for a MachineParams built directly, e.g. a RouterTests fixture, not for a real
+        // session/preset load, which resolves through `PluginState.euclideousLoopSlotsResolved` — WITH the
+        // real RIFFS-seq-cell carve-out — long before it ever reaches here). `riffsSeqCells: []` here
+        // deliberately omits that carve-out (an empty set never matches); the real path above never does.
+        let fallbackMigration = { euclideousLoopSlotsMigrated(riffs: p.riffs, activeRiff: p.activeRiff, legacySingular: out.euclideousRiff, riffsSeqCells: []) }
+        out.euclideousLiveGrid = p.euclideousLiveGrid ?? fallbackMigration().liveGrid
+        out.euclideousLoopSlots = p.euclideousLoopSlots ?? fallbackMigration().slots
+        out.euclideousManualSlot = p.euclideousManualSlot ?? -1
         out.mainOutMask = (p.mainOutMask ?? 0b1111) & 0x0F   // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07); nil ⇒ all-open, byte-identical for every other chain
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)

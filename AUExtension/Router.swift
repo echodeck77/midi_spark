@@ -574,6 +574,190 @@ final class Router {
     // reset alongside it on a fresh play — now UNCONDITIONALLY, in both note and riff mode (Paul 2026-10-13
     // ferry, "Behaviour" rule 3: the walk keeps advancing silently in note mode).
     private var euclideousRiffLastOrd = [Int64](repeating: 0, count: 4)
+    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — sanctioned accumulated-
+    // state, same class as RECORDER (`recCaptured`/`recBufN` family, above) and THE TAIL (`echoTails`,
+    // below): fixed-capacity, no render-path allocation, reset at well-defined edges.
+    //
+    // THE RUN (§9.5): a counter + the beat it started on. Reset at the SAME "fresh play" site
+    // `euclideousRiffStep` resets at (below), plus a backward jump — the site that already decides "this is
+    // a fresh take," not a separate mechanism.
+    private var euclideousRunID = 0
+    private var euclideousRunStartBeat: Double = 0
+    // THE CHANGELOG (§9.6): a fixed ring of "the effective grid's rank on this column just changed to this,
+    // at this beat" — ONE global buffer (not per-slot), capacity `loopChangelogCap`. `euclideousChangelogLastRank`
+    // (8, one per column) is scratch to detect a GENUINE change each render, so an unchanged column never
+    // floods the ring. Read backward (from "now" to a window start) to reconstruct a pending keep's content
+    // — never read forward; nothing here is Codable or main-thread-visible directly (the main thread only
+    // ever sees a LANDED commit's own small fixed result, below).
+    private static let loopChangelogCap = 512
+    private var euclideousChangelogBeat = [Double](repeating: -.infinity, count: Router.loopChangelogCap)
+    private var euclideousChangelogColumn = [Int8](repeating: -1, count: Router.loopChangelogCap)
+    private var euclideousChangelogRank = [Int8](repeating: 0, count: Router.loopChangelogCap)
+    private var euclideousChangelogHead = 0            // next ring-write position
+    private var euclideousChangelogFilled = 0          // how many of the ring's slots are valid (saturates at cap)
+    private var euclideousChangelogLastRank = [Int8](repeating: -1, count: 8)   // -1 = "never written" (forces the first write through)
+    // PENDING KEEP (§3/§9.7): at most one keep/overdub in flight PER SLOT (4) — tapping ● twice on the same
+    // slot before it lands just moves the window/land beat (§3.4 cancels instead; the UI side handles that).
+    // `windowStartBeat` is already fully in the past by construction at tap time (plan Decision, verified:
+    // landing is at most one bar away and the window is N bars before landing, N >= 1); the changelog above
+    // already covers it, so there is no separate "capture scratch" to append into while pending. ARMING
+    // happens on the render thread (needs `fBeatPos`'s own sample-accurate bar-line math, §4) — the render
+    // thread ALSO performs the one audible-timing-sensitive part of landing (starting/continuing playback,
+    // via `euclideousManualSlotLive` below) the instant `fBeatPos` crosses `landBeat`, allocation-free.
+    // CONVERSION into the persisted `[EuclideousLoopEvent]` (an allocation) is deliberately NOT done here —
+    // `euclideousPendingKeepLandedSeq` just bumps a counter; the MAIN THREAD's own poll notices the bump,
+    // scans the (still fully populated, read-only from this side) changelog above, and builds the real
+    // `EuclideousLoopSlot` off the render thread entirely (§9.6's "recording happens on the main thread
+    // only," now read literally: the render thread tracks WHEN and WHETHER, the main thread builds WHAT).
+    private var euclideousPendingKeepActive = [Bool](repeating: false, count: 4)
+    private var euclideousPendingKeepWindowStart = [Double](repeating: 0, count: 4)
+    private var euclideousPendingKeepLandBeat = [Double](repeating: 0, count: 4)
+    private var euclideousPendingKeepIsOverdub = [Bool](repeating: false, count: 4)
+    private var euclideousPendingKeepLandedSeq = [Int](repeating: 0, count: 4)
+    private var euclideousLastLandedWindowStart = [Double](repeating: 0, count: 4)
+    private var euclideousLastLandedLandBeat = [Double](repeating: 0, count: 4)
+    private var euclideousLastLandedIsOverdub = [Bool](repeating: false, count: 4)
+    // STOP RESULT (§2.3 "the grid stays exactly as shown... becomes the live grid"): a tiny fixed 8-rank
+    // mailbox — always exactly 8 values, so (unlike a keep's open-ended event list) this needs no main-
+    // thread conversion step; the render thread writes it directly, allocation-free.
+    private var euclideousStopResultRanksLive = [Int8](repeating: 0, count: 8)
+    private var euclideousStopResultSeqLive = 0
+    // JAMS (§6/§9.4): one fixed slot PER COLUMN (8) — "whichever comes first" (a loop top, or a slot
+    // switch) is enforced by clearing these explicitly at both those edges, never by precomputing an end
+    // beat a later action could invalidate.
+    private var euclideousJamActive = [Bool](repeating: false, count: 8)
+    private var euclideousJamRank = [Int8](repeating: 0, count: 8)
+    // QUEUE + MANUAL SLOT (§2/§9.2): the render thread's own live copy of what the UI last asked for.
+    // `manualSlot < 0` ⇒ none (the live grid plays, unless RIFFS is on). `manualRunID` lets
+    // `euclideousActiveSource` apply §9.5's "an anchor from an earlier run is ignored."
+    private var euclideousManualSlotLive = -1
+    private var euclideousManualAnchorBeat: Double = 0
+    private var euclideousManualRunID = -1
+    private var euclideousQueuedSlotLive = -1
+    private var euclideousQueuedLandBeatLive: Double = 0
+    // Mirrors of this render's own `process()` parameters — `emitGeneratorRow` (the per-row function the
+    // consumption block actually lives in) doesn't receive them directly; see the assignment at the top
+    // of `process()` beside `self.beatsPerBar = beatsPerBar`.
+    private var euclideousSceneResetThisRender = false
+    private var euclideousPlayTapSlotThisRender = -1
+    private var euclideousKeepTapSlotThisRender = -1
+    private var euclideousJamRequestRankThisRender = [Int](repeating: Int.min, count: 8)
+    private var euclideousRiffsSeqWasOn = false          // edge-detect for §5.5's ON→OFF hand-over
+    private var euclideousPlayingSlotLiveValue = -1       // this window's resolved source, for polling (−1 = live grid)
+    private var euclideousActiveAnchorBeatLive: Double = 0   // the anchor `euclideousPlayingSlotLiveValue` resolved against THIS window — the per-hit strike path (Router's own runEuclidLine) reads both together to rebuild the SAME `EuclideousRankSource`, never re-resolving §9.2 per hit
+
+    /// LOOP SLOTS reset, mirroring `resetRecorderCapture(full:)`'s own two-tier dichotomy: `full` (panic/
+    /// scene-switch) is a hard flush of PERFORMANCE state back to the live grid — never a CLEAR of the
+    /// document's own slot content, which only §8's explicit CLEAR touches. Non-full (transport start/
+    /// stop, latch) discards jams and any in-flight pending keep ("discard any partial capture," same as
+    /// RECORDER) but leaves the manual slot/queue shape alone.
+    private func euclideousResetLoopSlotsTransient(full: Bool) {
+        for i in euclideousJamActive.indices { euclideousJamActive[i] = false }
+        for i in euclideousPendingKeepActive.indices { euclideousPendingKeepActive[i] = false }
+        euclideousQueuedSlotLive = -1
+        if full { euclideousManualSlotLive = -1 }
+    }
+    /// §2: consume a ▶ tap on `slot`, against this window's already-resolved `source`.
+    private func euclideousConsumePlayTap(_ slot: Int, beat: Double, barBeats: Double,
+                                           source: EuclideousRankSource, liveGrid: [Int], slots: [EuclideousLoopSlot]) {
+        if case .slot(let playingIdx, _) = source, playingIdx == slot {
+            // §2.3: stop at once — the grid stays exactly as shown (jams included), becoming the live grid.
+            for col in 0..<8 {
+                let jam: Int? = euclideousJamActive[col] ? Int(euclideousJamRank[col]) : nil
+                let rank = euclideousEffectiveRank(column: col, beat: beat, liveGrid: liveGrid, slots: slots, source: source, beatsPerBar: barBeats, jamRank: jam)
+                euclideousStopResultRanksLive[col] = Int8(clamping: rank)
+            }
+            euclideousStopResultSeqLive += 1
+            euclideousManualSlotLive = -1; euclideousQueuedSlotLive = -1
+            for i in euclideousJamActive.indices { euclideousJamActive[i] = false }   // their content is already baked into the snapshot above
+            return
+        }
+        if euclideousQueuedSlotLive == slot { euclideousQueuedSlotLive = -1; return }   // §2.2: tapping the queued slot cancels it
+        guard slot >= 0, slot < slots.count, slots[slot].isFilled else { return }        // §2.4: an empty slot does nothing
+        euclideousQueuedSlotLive = slot
+        euclideousQueuedLandBeatLive = euclideousNextLandingBeat(from: beat, barBeats: barBeats)
+    }
+    /// §3: consume a ● tap on `slot`, against this window's already-resolved `source`. Whether this is a
+    /// fresh keep (§3.1) or an overdub (§3.2) is read straight off `source` — not a separate UI flag.
+    private func euclideousConsumeKeepTap(_ slot: Int, beat: Double, barBeats: Double,
+                                           source: EuclideousRankSource, slots: [EuclideousLoopSlot]) {
+        guard slot >= 0, slot < 4 else { return }
+        if euclideousPendingKeepActive[slot] { euclideousPendingKeepActive[slot] = false; return }   // §3.4: cancel a pending keep on this slot
+        let lengthBars = slots[slot].length.bars
+        let landBeat: Double, windowStart: Double, isOverdub: Bool
+        if case .slot(let playingIdx, let anchor) = source, playingIdx == slot {
+            landBeat = euclideousNextLoopTopBeat(from: beat, anchorBeat: anchor, barBeats: barBeats, lengthBars: lengthBars)
+            isOverdub = true
+        } else {
+            landBeat = euclideousNextLandingBeat(from: beat, barBeats: barBeats)
+            isOverdub = false
+        }
+        windowStart = landBeat - lengthBars * barBeats
+        euclideousPendingKeepActive[slot] = true
+        euclideousPendingKeepWindowStart[slot] = windowStart
+        euclideousPendingKeepLandBeat[slot] = landBeat
+        euclideousPendingKeepIsOverdub[slot] = isOverdub
+    }
+    // MAIN-THREAD POLLERS (benign torn reads of plain scalars/fixed arrays — the same tolerance this file
+    // already sanctions for riffDrunkPosAt/euclideousRiffPositions/etc.)
+    func euclideousPlayingSlotLive() -> Int? { euclideousPlayingSlotLiveValue >= 0 ? euclideousPlayingSlotLiveValue : nil }
+    func euclideousQueuedSlotLivePoll() -> Int? { euclideousQueuedSlotLive >= 0 ? euclideousQueuedSlotLive : nil }
+    func euclideousPendingKeepSlotPoll() -> Int? { euclideousPendingKeepActive.firstIndex(of: true) }
+    /// §6.2/§11.2: the UI draws a jammed cell at 42% — needs to know WHICH columns are jammed and to WHAT
+    /// rank, polled live (same benign-torn-read tolerance as everything else here).
+    func euclideousJamStatePoll() -> [(active: Bool, rank: Int)] { (0..<8).map { (euclideousJamActive[$0], Int(euclideousJamRank[$0])) } }
+    func euclideousStopResultSeq() -> Int { euclideousStopResultSeqLive }
+    func euclideousStopResultRanks() -> [Int] { euclideousStopResultRanksLive.map { Int($0) } }
+    /// The slot-row ring's own progress (§10.4/§10.7) — ONE pure read shared with the engine's own anchor
+    /// math, never re-derived by the UI. `nil`-safe: a non-playing slot just reports position 0.
+    func euclideousLoopRingProgress(_ slot: Int) -> (position: Double, lengthBars: Double) {
+        guard slot == euclideousPlayingSlotLiveValue, slot >= 0, slot < 4 else { return (0, 0) }
+        return (lastLoopPositionBars, lastLoopLengthBars)
+    }
+    private var lastLoopPositionBars: Double = 0
+    private var lastLoopLengthBars: Double = 0
+    /// §9.6/§9.7, the main-thread half: if slot `slot`'s pending keep has landed since the last call (the
+    /// render thread only bumps `euclideousPendingKeepLandedSeq`; it never builds the Codable result
+    /// itself), scan the changelog (read-only from here — a benign torn read of a fixed array, same
+    /// tolerance as every other cross-thread poll in this file) and build the slot's new content. Called
+    /// from the MAIN THREAD only (allocation here is fine); returns nil if nothing landed since `ackSeq`.
+    func euclideousBuildLandedKeep(slot: Int, ackSeq: Int) -> (result: EuclideousLoopSlot, seq: Int)? {
+        guard slot >= 0, slot < 4, euclideousPendingKeepLandedSeq[slot] != ackSeq else { return nil }
+        let windowStart = euclideousLastLandedWindowStart[slot]
+        let landBeat = euclideousLastLandedLandBeat[slot]
+        let barBeats = max(0.0001, beatsPerBar)
+        let lengthBars = (landBeat - windowStart) / barBeats
+        var startRanks = [Int](repeating: 0, count: 8)
+        for col in 0..<8 { startRanks[col] = euclideousChangelogRankAt(beat: windowStart, column: col) }
+        var events: [EuclideousLoopEvent] = []
+        let coalesceWindowBars = (1.0 / 96.0) / barBeats
+        // Scan the ring in TIME order (oldest valid entry first) so `euclideousAppendLoopEvent`'s own
+        // "last write wins"/512-cap rules see events in the order they actually happened.
+        let n = euclideousChangelogFilled
+        let startIdx = (euclideousChangelogHead - n + Router.loopChangelogCap) % Router.loopChangelogCap
+        for k in 0..<n {
+            let i = (startIdx + k) % Router.loopChangelogCap
+            let b = euclideousChangelogBeat[i]
+            guard b > windowStart, b <= landBeat else { continue }
+            let col = Int(euclideousChangelogColumn[i]); guard col >= 0 else { continue }
+            let offsetBars = (b - windowStart) / barBeats
+            events = euclideousAppendLoopEvent(events, column: col, rank: Int(euclideousChangelogRank[i]), offsetBars: offsetBars, coalesceWindowBars: coalesceWindowBars)
+        }
+        let lengthEnum: EuclideousLoopBars = lengthBars >= 6 ? .eightBars : (lengthBars >= 3 ? .fourBars : (lengthBars >= 1.5 ? .twoBars : .oneBar))
+        let result = EuclideousLoopSlot(length: lengthEnum, startRanks: startRanks, events: events)
+        return (result, euclideousPendingKeepLandedSeq[slot])
+    }
+    /// The changelog's own rank for `column` at or before `beat` (reconstructing "what was effectively
+    /// playing then") — scans backward from "now," the ring's natural read direction (§9.6).
+    private func euclideousChangelogRankAt(beat: Double, column: Int) -> Int {
+        let n = euclideousChangelogFilled
+        for k in 0..<n {
+            let i = (euclideousChangelogHead - 1 - k + Router.loopChangelogCap * 2) % Router.loopChangelogCap
+            guard euclideousChangelogBeat[i] <= beat else { continue }
+            if Int(euclideousChangelogColumn[i]) == column { return Int(euclideousChangelogRank[i]) }
+        }
+        return 0   // nothing recorded that far back (changelog doesn't cover it) — honestly silent, not a guess
+    }
     // NOTE VIEW (Paul 2026-10-10 ferry): a per-lane EVENT QUEUE — "the audio thread posts note and step
     // events... through a lock-free queue; the UI reads them." Mirrors `focusNotePitch`/`focusNoteHead`/
     // `focusNoteNew`'s exact ring-buffer shape (below, this file), just 4-wide (one ring PER LANE) instead
@@ -2976,6 +3160,9 @@ final class Router {
                  masterKill: Bool = false,
                  panic: Bool = false,
                  euclideousAllNotesOff: Bool = false,
+                 euclideousPlayTapSlot: Int = -1,       // LOOP SLOTS: one-shot ▶ tap (§2), −1 = none
+                 euclideousKeepTapSlot: Int = -1,       // LOOP SLOTS: one-shot ● tap (§3), −1 = none — overdub vs fresh keep is derived from engine state, not a flag
+                 euclideousJamRequestRank: [Int] = [Int](repeating: Int.min, count: 8),   // LOOP SLOTS: per-column jam request (§6), Int.min = none, −1 = clear
                  sceneFlush: Bool = false,
                  sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
@@ -2987,6 +3174,14 @@ final class Router {
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
         tickRamps(atSample: Int64(timestampSample))   // §7: advance any in-flight .parameterRamp before this window's over() reads
         self.beatsPerBar = beatsPerBar              // FERRY §3: this render's real bar length, in this engine's own beat unit (quarter notes)
+        // LOOP SLOTS (FERRY "loop slots replace the riff tabs") — the per-cell consumption block lives in
+        // `emitGeneratorRow` (called per row, not inline in `process()`), which doesn't receive this
+        // function's own parameters — stored as ivars, same convention `beatsPerBar` above already uses,
+        // so that block can read them without a signature change rippling through every call site.
+        euclideousSceneResetThisRender = sceneFlush || panic
+        euclideousPlayTapSlotThisRender = euclideousPlayTapSlot
+        euclideousKeepTapSlotThisRender = euclideousKeepTapSlot
+        euclideousJamRequestRankThisRender = euclideousJamRequestRank
         self.soloEmitterMask = soloEmitterMask     // emitter strip: additive foot SOLO set (bits A–D)
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
@@ -3120,6 +3315,8 @@ final class Router {
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
             resetRecorderCapture(full: false)            // RECORDER: keep the committed loop across a stop→start; discard any partial capture
+            euclideousResetLoopSlotsTransient(full: false)   // LOOP SLOTS §9.5: a fresh take — bump the run so a manual slot (and RIFFS-anchored slots) replay from their first bar
+            euclideousRunID += 1; euclideousRunStartBeat = beatPos
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: reset the CC on transport edges
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
@@ -3130,6 +3327,7 @@ final class Router {
             diag.panics &+= 1
             clearEchoTails()                             // ECHO: panic drops every pending tail
             resetRecorderCapture(full: true)             // RECORDER: panic clears the loops too
+            euclideousResetLoopSlotsTransient(full: true)   // LOOP SLOTS: a hard flush of performance state — back to the live grid, never a CLEAR of the document's own slot content
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: reset the CC on panic
         }
         // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): a NARROWER flush than panic — only
@@ -3159,6 +3357,7 @@ final class Router {
             prevEffColumn = -1
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
             resetRecorderCapture(full: true)             // RECORDER: the old scene's loops die on the switch
+            euclideousResetLoopSlotsTransient(full: true)   // LOOP SLOTS: the old scene's performance state dies on the switch too
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: the old scene's CC state resets on the switch
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
@@ -3169,6 +3368,7 @@ final class Router {
             prevLatchMask = latchMask
             clearEchoTails()                             // ECHO: the pool swapped — drop tails from the old chord
             resetRecorderCapture(full: false)            // RECORDER: keep the loop across a latch edge; discard partial capture
+            euclideousResetLoopSlotsTransient(full: false)   // LOOP SLOTS: keep the manual slot/queue shape across a latch edge; discard any partial keep
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
         }
 
@@ -5007,10 +5207,27 @@ final class Router {
                             // NOT re-resolved; the riff selected at the CURRENT hit is used for the whole
                             // lookahead, simplest-correct in the common case (a RATE-1-bar-or-slower RIFFS
                             // sequencer vs. a short TIE window), wrong only in a narrow edge case.
-                            let playingRiffIdx = p.euclideousRiffsSeqOn
-                                ? p.euclideousRiffsSeqCells[euclideousSeqStepIndex(beat: mTickBeat, stepBeats: p.euclideousRiffsSeqRate.barsFraction * beatsPerBar, len: p.euclideousRiffsSeqLen)]
-                                : p.activeRiff
-                            let ranks = p.euclideousRiffs[playingRiffIdx].ranks ?? []
+                            // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) —
+                            // SUPERSEDES the old per-riff lookup above (`playingRiffIdx`/`p.euclideousRiffs`
+                            // decode-only now, migrated away from in SnapshotBuilder). §9.1: the ONE pure
+                            // `euclideousEffectiveRank` decides a column's rank — called here once per
+                            // column to rebuild the SAME `ranks`-shaped local every other line in this hit
+                            // already reads by that name (the LISTEN/SHADOW partner-note lookup below, and
+                            // `riffTieExtensionBeats`'s own forward scan). `euclideousPlayingSlotLiveValue`/
+                            // `euclideousActiveAnchorBeatLive` are this RENDER WINDOW's own already-resolved
+                            // §9.2 source (set once, above, not re-resolved per hit — same grain the OLD
+                            // `playingRiffIdx` lookup used via `mTickBeat`, since a column's CONTENT can
+                            // still vary within the window by `beat` even though WHICH source plays doesn't).
+                            let euclideousSourceForHit: EuclideousRankSource = euclideousPlayingSlotLiveValue >= 0
+                                ? .slot(index: euclideousPlayingSlotLiveValue, anchorBeat: euclideousActiveAnchorBeatLive) : .liveGrid
+                            let euclideousLiveGridRanksForHit = p.euclideousLiveGrid.ranksResolved
+                            var ranks = [Int](repeating: 0, count: 8)
+                            for col in 0..<8 {
+                                let jam: Int? = euclideousJamActive[col] ? Int(euclideousJamRank[col]) : nil
+                                ranks[col] = euclideousEffectiveRank(column: col, beat: mTickBeat, liveGrid: euclideousLiveGridRanksForHit,
+                                                                      slots: p.euclideousLoopSlots, source: euclideousSourceForHit,
+                                                                      beatsPerBar: beatsPerBar, jamRank: jam)
+                            }
                             // RIFF/NOTES SPLIT (2026-10-13 ferry): a lit note's per-rank octave shift, read
                             // RAW+inline — NOT `noteOctShiftsResolved` (which pads/clamps to 8 entries, an
                             // allocation this render-thread function must never make, matching this SAME
@@ -5126,7 +5343,18 @@ final class Router {
                                             : (locked ? Int64(fHitsUpTo - 1) : (fCy * effHits + Int64(fHitsUpTo - 1)))
                                         let fStepIdx = riffStepAt(riffDir, raw: Int(fOrd) * riffStride, steps: riffLength, seed: seed)
                                         let fRotIdx = riffRotateStep(fStepIdx, by: riffRotate, steps: riffLength)
-                                        let fRank = fRotIdx < ranks.count ? ranks[fRotIdx] : 0
+                                        // §9.10: the source is FROZEN at the triggering hit (`euclideousSourceForHit`,
+                                        // already resolved above, never re-resolved per scanned step — a future
+                                        // slot switch/RIFFS step is invisible to this scan, a disclosed gap the
+                                        // ferry itself accepts) — but its CONTENT is read at the future step's OWN
+                                        // beat, since a loop slot's rank on one column can genuinely vary over time
+                                        // (a static `ranks` snapshot, as this used before, cannot see that). Jams
+                                        // are excluded (`jamRank: nil`) — "jams made after the triggering hit are
+                                        // invisible to it," per the same section.
+                                        let fBeat = mTickBeat + Double(t - localT) * sub
+                                        let fRank = euclideousEffectiveRank(column: fRotIdx, beat: fBeat, liveGrid: euclideousLiveGridRanksForHit,
+                                                                             slots: p.euclideousLoopSlots, source: euclideousSourceForHit,
+                                                                             beatsPerBar: beatsPerBar, jamRank: nil)
                                         guard fRank < 1 else { break }
                                         lastConsumedT = t
                                     }
@@ -6078,6 +6306,91 @@ final class Router {
                 let currentRiffsStep = euclideousSeqStepIndex(beat: fBeatPos, stepBeats: riffsSeqStepBeats, len: p.euclideousRiffsSeqLen)
                 euclideousRiffsSeqStepLive = currentRiffsStep
                 euclideousPlayingRiffIndexLive = p.euclideousRiffsSeqOn ? p.euclideousRiffsSeqCells[currentRiffsStep] : p.activeRiff
+                // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — one
+                // consumption pass per render window, same once-per-window granularity as the step clocks
+                // just above. Order matters: resync (a fresh scene/document) → RIFFS ON→OFF hand-over
+                // (§5.5) → resolve §9.2's source → consume this window's taps against THAT source → let a
+                // just-landed queue/keep take over → resolve the FINAL source once more → record the
+                // changelog + poll values against the final source, never the pre-tap one.
+                if euclideousSceneResetThisRender {   // a fresh document/scene load — resync from what it says is playing
+                    euclideousManualSlotLive = p.euclideousManualSlot
+                    euclideousManualAnchorBeat = euclideousRunStartBeat; euclideousManualRunID = euclideousRunID
+                }
+                let liveGridRanks = p.euclideousLiveGrid.ranksResolved
+                let loopSlotsNow = p.euclideousLoopSlots
+                let riffsSeqSlotNow: Int? = p.euclideousRiffsSeqOn ? p.euclideousRiffsSeqCells[currentRiffsStep] : nil
+                if euclideousRiffsSeqWasOn && !p.euclideousRiffsSeqOn {   // §5.5: the slot it was playing becomes the manual slot, anchored to the run — no jump
+                    let lastPick = p.euclideousRiffsSeqCells[max(0, min(p.euclideousRiffsSeqCells.count - 1, currentRiffsStep))]
+                    euclideousManualSlotLive = lastPick; euclideousManualAnchorBeat = euclideousRunStartBeat; euclideousManualRunID = euclideousRunID
+                    euclideousQueuedSlotLive = -1
+                }
+                euclideousRiffsSeqWasOn = p.euclideousRiffsSeqOn
+                // §9.2, resolved TWICE this window (allocation-free — a plain function call, no closure
+                // capture): once before this window's taps (`preTapSource`, needed by the taps themselves
+                // — a STOP/overdub must see what was playing a moment ago), once after (`finalSource`,
+                // below — what the changelog/UI-poll/per-hit strike path actually read for this window).
+                let preTapSource = euclideousActiveSource(beat: fBeatPos, riffsSeqOn: p.euclideousRiffsSeqOn, riffsSeqSlot: riffsSeqSlotNow,
+                                                            manualSlot: euclideousManualSlotLive >= 0 ? euclideousManualSlotLive : nil,
+                                                            manualAnchorBeat: euclideousManualAnchorBeat, manualRunID: euclideousManualRunID,
+                                                            queuedSlot: euclideousQueuedSlotLive >= 0 ? euclideousQueuedSlotLive : nil,
+                                                            queuedLandBeat: euclideousQueuedSlotLive >= 0 ? euclideousQueuedLandBeatLive : nil,
+                                                            runID: euclideousRunID, runStartBeat: euclideousRunStartBeat)
+                if euclideousJamRequestRankThisRender.contains(where: { $0 != Int.min }) {
+                    for col in 0..<8 {
+                        let req = euclideousJamRequestRankThisRender[col]
+                        if req == -1 { euclideousJamActive[col] = false }
+                        else if req >= 0 { euclideousJamActive[col] = true; euclideousJamRank[col] = Int8(clamping: req) }
+                    }
+                }
+                if euclideousPlayTapSlotThisRender >= 0 && euclideousPlayTapSlotThisRender < 4 {
+                    euclideousConsumePlayTap(euclideousPlayTapSlotThisRender, beat: fBeatPos, barBeats: beatsPerBar, source: preTapSource, liveGrid: liveGridRanks, slots: loopSlotsNow)
+                }
+                if euclideousKeepTapSlotThisRender >= 0 && euclideousKeepTapSlotThisRender < 4 {
+                    euclideousConsumeKeepTap(euclideousKeepTapSlotThisRender, beat: fBeatPos, barBeats: beatsPerBar, source: preTapSource, slots: loopSlotsNow)
+                }
+                if euclideousQueuedSlotLive >= 0, fBeatPos >= euclideousQueuedLandBeatLive {   // the queue just landed
+                    euclideousManualSlotLive = euclideousQueuedSlotLive; euclideousManualAnchorBeat = euclideousQueuedLandBeatLive; euclideousManualRunID = euclideousRunID
+                    euclideousQueuedSlotLive = -1
+                }
+                for slot in 0..<4 where euclideousPendingKeepActive[slot] && fBeatPos >= euclideousPendingKeepLandBeat[slot] {   // §3/§9.7
+                    euclideousLastLandedWindowStart[slot] = euclideousPendingKeepWindowStart[slot]
+                    euclideousLastLandedLandBeat[slot] = euclideousPendingKeepLandBeat[slot]
+                    euclideousLastLandedIsOverdub[slot] = euclideousPendingKeepIsOverdub[slot]
+                    euclideousPendingKeepLandedSeq[slot] += 1
+                    if !euclideousPendingKeepIsOverdub[slot], euclideousManualSlotLive < 0, euclideousQueuedSlotLive < 0, !p.euclideousRiffsSeqOn {
+                        euclideousManualSlotLive = slot; euclideousManualAnchorBeat = euclideousPendingKeepLandBeat[slot]; euclideousManualRunID = euclideousRunID   // §3.1: starts playing at T, no gap
+                    }
+                    euclideousPendingKeepActive[slot] = false
+                }
+                let finalSource = euclideousActiveSource(beat: fBeatPos, riffsSeqOn: p.euclideousRiffsSeqOn, riffsSeqSlot: riffsSeqSlotNow,
+                                                           manualSlot: euclideousManualSlotLive >= 0 ? euclideousManualSlotLive : nil,
+                                                           manualAnchorBeat: euclideousManualAnchorBeat, manualRunID: euclideousManualRunID,
+                                                           queuedSlot: euclideousQueuedSlotLive >= 0 ? euclideousQueuedSlotLive : nil,
+                                                           queuedLandBeat: euclideousQueuedSlotLive >= 0 ? euclideousQueuedLandBeatLive : nil,
+                                                           runID: euclideousRunID, runStartBeat: euclideousRunStartBeat)
+                switch finalSource {
+                case .liveGrid:
+                    euclideousPlayingSlotLiveValue = -1; euclideousActiveAnchorBeatLive = 0
+                    lastLoopPositionBars = 0; lastLoopLengthBars = 0
+                case .slot(let idx, let anchor):
+                    euclideousPlayingSlotLiveValue = idx; euclideousActiveAnchorBeatLive = anchor
+                    let len = idx < loopSlotsNow.count ? loopSlotsNow[idx].length.bars : 4
+                    lastLoopPositionBars = euclideousLoopPositionBars(beat: fBeatPos, anchorBeat: anchor, beatsPerBar: beatsPerBar, lengthBars: len)
+                    lastLoopLengthBars = len
+                }
+                for col in 0..<8 {   // §9.6: the changelog, against the FINAL (post-tap) source only
+                    let jam: Int? = euclideousJamActive[col] ? Int(euclideousJamRank[col]) : nil
+                    let rank = euclideousEffectiveRank(column: col, beat: fBeatPos, liveGrid: liveGridRanks, slots: loopSlotsNow, source: finalSource, beatsPerBar: beatsPerBar, jamRank: jam)
+                    let rI8 = Int8(clamping: rank)
+                    if rI8 != euclideousChangelogLastRank[col] {
+                        euclideousChangelogLastRank[col] = rI8
+                        euclideousChangelogBeat[euclideousChangelogHead] = fBeatPos
+                        euclideousChangelogColumn[euclideousChangelogHead] = Int8(col)
+                        euclideousChangelogRank[euclideousChangelogHead] = rI8
+                        euclideousChangelogHead = (euclideousChangelogHead + 1) % Router.loopChangelogCap
+                        euclideousChangelogFilled = min(Router.loopChangelogCap, euclideousChangelogFilled + 1)
+                    }
+                }
             }
             // LANES SEQUENCER MUTE EDGE-DETECT (ferry §5: "when a lane switches off at a step boundary, send
             // note-offs for its sounding notes at that boundary") — same per-lane legato walk-and-close as the

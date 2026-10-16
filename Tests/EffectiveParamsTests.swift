@@ -445,6 +445,59 @@ final class EffectiveParamsTests: XCTestCase {
         st.activeRiff = -4
         XCTAssertEqual(st.activeRiffResolved, 0)
     }
+    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16, §12.3/§12.4) — migration
+    // mirrors `testRiffsResolvedMigratesSingularRiffIntoSlotZeroOthersEmpty` above exactly: no data
+    // rewrite, `riffs`/`activeRiff` stay decodable and drive the derived live grid + 4 slots on every read.
+    func testLoopSlotsMigratedFromRiffsNoRiffsSeqPicks() {
+        var st = doc()
+        st.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])   // migrates into riff slot 0 first, same as the riffs-migration test above
+        let liveGrid = st.euclideousLiveGridResolved
+        let slots = st.euclideousLoopSlotsResolved
+        XCTAssertEqual(liveGrid.ranksResolved, [1, 2, 3, 4, 5, 6, 7, 8], "live grid = riffs[activeRiffResolved] (0, the migrated singular riff)")
+        XCTAssertEqual(slots.count, 4)
+        XCTAssertTrue(slots[0].isFilled); XCTAssertEqual(slots[0].length, .oneBar); XCTAssertEqual(slots[0].startRanksResolved, [1, 2, 3, 4, 5, 6, 7, 8])
+        for i in 1...3 { XCTAssertFalse(slots[i].isFilled, "an all-rest riff with no RIFFS pick migrates to an EMPTY slot, not a 1-bar loop of rests") }
+    }
+    func testLoopSlotsMigratedKeepsAnAllRestSlotFilledWhenARiffsCellPicksIt() {
+        var st = doc()
+        st.euclideousRiffsSeqCells = [1, 1, 1, 1, 1, 1, 1, 1]   // every step picks (old) riff 1 — currently all-rest
+        let slots = st.euclideousLoopSlotsResolved
+        XCTAssertTrue(slots[1].isFilled, "§12.3's literal carve-out: a RIFFS-picked all-rest riff stays a 1-bar loop of rests, not empty")
+        XCTAssertEqual(slots[1].startRanksResolved, [Int](repeating: 0, count: 8))
+        XCTAssertFalse(slots[2].isFilled, "an unpicked all-rest riff is still empty")
+    }
+    func testLoopSlotsAndLiveGridExplicitFieldsOverrideMigrationOnceSet() {
+        var st = doc()
+        st.euclideousLiveGrid = EuclideousRiff(steps: 8, ranks: [8, 7, 6, 5, 4, 3, 2, 1])
+        st.euclideousLoopSlots = [EuclideousLoopSlot(length: .twoBars, startRanks: [1, 0, 0, 0, 0, 0, 0, 0], events: nil), .empty, .empty, .empty]
+        XCTAssertEqual(st.euclideousLiveGridResolved.ranksResolved, [8, 7, 6, 5, 4, 3, 2, 1])
+        XCTAssertEqual(st.euclideousLoopSlotsResolved[0].length, .twoBars)
+    }
+    // CODABLE ROUND-TRIP (§13 test 13) — a pre-ferry document (no loop-slot keys at all) decodes with NO
+    // factory reset, matching every other additive-Optional field's own decode-tolerance convention.
+    func testLoopSlotFieldsRoundTripThroughCodable() throws {
+        var st = doc()
+        st.euclideousLoopSlots = [EuclideousLoopSlot(length: .fourBars, startRanks: [1, 2, 3, 4, 5, 6, 7, 8],
+                                                       events: [EuclideousLoopEvent(offsetBars: 1.5, column: 2, rank: 5)]),
+                                   .empty, .empty, .empty]
+        st.euclideousManualSlot = 0
+        let data = try JSONEncoder().encode(st)
+        let back = try JSONDecoder().decode(PluginState.self, from: data)
+        XCTAssertEqual(back.euclideousLoopSlots?[0].startRanksResolved, [1, 2, 3, 4, 5, 6, 7, 8])
+        XCTAssertEqual(back.euclideousLoopSlots?[0].eventsResolved, [EuclideousLoopEvent(offsetBars: 1.5, column: 2, rank: 5)])
+        XCTAssertEqual(back.euclideousManualSlot, 0)
+    }
+    func testPreFerryDocumentWithoutLoopSlotKeysDecodesThroughMigrationNoFactoryReset() throws {
+        // A literal pre-ferry JSON snippet (the shape `PluginState`'s own decode-tolerant pattern expects):
+        // no `euclideousLiveGrid`/`euclideousLoopSlots`/`euclideousManualSlot` keys at all, only the old
+        // singular riff. Decoding must not throw and must migrate on first read, same as a real old session.
+        var st = doc()
+        st.euclideousRiff = EuclideousRiff(steps: 8, ranks: [2, 2, 2, 2, 2, 2, 2, 2])
+        let data = try JSONEncoder().encode(st)   // this document never had the new fields set, so they encode as absent/null, exactly like a genuinely old file
+        let back = try JSONDecoder().decode(PluginState.self, from: data)
+        XCTAssertNil(back.euclideousLiveGrid); XCTAssertNil(back.euclideousLoopSlots); XCTAssertNil(back.euclideousManualSlot)
+        XCTAssertEqual(back.euclideousLiveGridResolved.ranksResolved, [2, 2, 2, 2, 2, 2, 2, 2], "migrates on read — no factory reset")
+    }
     // LANES/RIFFS SEQUENCERS (ferry §4/§9) — both default OFF, 1 BAR, LEN 8, with cells defaulting to
     // "everything lit"/"everything plays riff 0" so a never-touched document is byte-identical to the
     // feature not existing at all.

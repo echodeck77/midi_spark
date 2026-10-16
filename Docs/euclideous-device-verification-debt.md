@@ -17,6 +17,16 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Loop slots replace the riff tabs (2026-10-16 ferry, §15)
+- Tiles and foot read as one slot and sit over their two grid columns, landscape and portrait, down to the 24pt cell floor.
+- The ring's per-bar arcs at 28pt and at its smallest size.
+- ● to loop start feels on time with no gap; the first-beat grace catches late taps without grabbing early ones.
+- Jams at 42% read as temporary.
+- Overdub at the loop top in AUM at several buffer sizes.
+- HOLD NOTES TO PLAY floating over the grid reads as a message, not clutter.
+- The RIFFS sequencer's takeover from a ▶ tap feels right in performance.
+- The disclosed one-poll-tick lag between a keep landing and its content catching up isn't audible as a glitch.
+
 ### Sequencer panel (LANES/RIFFS tabs, step grid, restart markers)
 - Two-finger hold + tap (hold a lane's RESET box, tap that lane's steps with another finger) registers on
   the real panel inside AUM — 2026-10-15 ferry, "per-step restart points."

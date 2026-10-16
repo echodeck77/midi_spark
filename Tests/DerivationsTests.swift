@@ -4592,4 +4592,105 @@ final class DerivationsTests: XCTestCase {
         var out = lines; if let updated { out[lane] = updated }; return out
     }
 
+    // MARK: - LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16, §13)
+
+    /// §13 test 2: start ranks, then an event with offset ≤ position wins; a 2-bar loop wraps.
+    func testEffectiveRankStartRanksThenEventsWithWrap() {
+        let slot = EuclideousLoopSlot(length: .twoBars, startRanks: [1, 0, 0, 0, 0, 0, 0, 0],
+                                       events: [EuclideousLoopEvent(offsetBars: 1.0, column: 0, rank: 5)])
+        let slots = [slot, .empty, .empty, .empty]
+        let source = EuclideousRankSource.slot(index: 0, anchorBeat: 0)
+        // bar 0 (position 0..<1): the start rank.
+        XCTAssertEqual(euclideousEffectiveRank(column: 0, beat: 0.5, liveGrid: [], slots: slots, source: source, beatsPerBar: 4, jamRank: nil), 1)
+        // bar 1 (position 1..<2): the event fires.
+        XCTAssertEqual(euclideousEffectiveRank(column: 0, beat: 4.5, liveGrid: [], slots: slots, source: source, beatsPerBar: 4, jamRank: nil), 5)
+        // bar 2 — the loop WRAPS (length 2 bars): back to the start rank, not a continuation.
+        XCTAssertEqual(euclideousEffectiveRank(column: 0, beat: 8.5, liveGrid: [], slots: slots, source: source, beatsPerBar: 4, jamRank: nil), 1)
+        // a jam always overrides, regardless of source.
+        XCTAssertEqual(euclideousEffectiveRank(column: 0, beat: 4.5, liveGrid: [], slots: slots, source: source, beatsPerBar: 4, jamRank: 7), 7)
+    }
+    /// §13 test 2 (bars, not beats): a stored offset in BARS survives a meter change — 4/4 → 3/4 mid-loop.
+    func testEffectiveRankOffsetBarsSurviveAMeterChange() {
+        let slot = EuclideousLoopSlot(length: .fourBars, startRanks: [1, 1, 1, 1, 1, 1, 1, 1],
+                                       events: [EuclideousLoopEvent(offsetBars: 1.0, column: 3, rank: 6)])
+        let slots = [slot, .empty, .empty, .empty]
+        let source = EuclideousRankSource.slot(index: 0, anchorBeat: 0)
+        // At 4/4 (4 beats/bar), bar 1 starts at beat 4.
+        XCTAssertEqual(euclideousEffectiveRank(column: 3, beat: 4.1, liveGrid: [], slots: slots, source: source, beatsPerBar: 4, jamRank: nil), 6)
+        // At 3/4 (3 beats/bar), bar 1 starts at beat 3 — the SAME bar-offset event, a different real beat.
+        XCTAssertEqual(euclideousEffectiveRank(column: 3, beat: 3.1, liveGrid: [], slots: slots, source: source, beatsPerBar: 3, jamRank: nil), 6)
+        XCTAssertEqual(euclideousEffectiveRank(column: 3, beat: 2.9, liveGrid: [], slots: slots, source: source, beatsPerBar: 3, jamRank: nil), 1, "still bar 0 at 3/4 just before the bar line")
+    }
+    /// §13 test 3: a ▶/● tapped mid-bar lands at the NEXT bar line; one tapped in the bar's first beat
+    /// anchors at that bar's start and joins in progress (§4.1).
+    func testLandingBeatRetroactiveWithinFirstBeatElseNextBarLine() {
+        XCTAssertEqual(euclideousNextLandingBeat(from: 0.5, barBeats: 4), 0, "within the first beat — retroactive to this bar's own start")
+        XCTAssertEqual(euclideousNextLandingBeat(from: 3.9, barBeats: 4), 4, "late in the bar — the NEXT bar line")
+        XCTAssertEqual(euclideousNextLandingBeat(from: 4.0, barBeats: 4), 4, "exactly on a bar line — that line, at once")
+        XCTAssertEqual(euclideousNextLandingBeat(from: 8.9, barBeats: 4), 8, "8.9 is within the first beat of the bar starting at 8 ([8,9)) — retroactive to 8, not the bar after")
+        XCTAssertEqual(euclideousNextLandingBeat(from: 9.1, barBeats: 4), 12, "9.1 is past the first-beat grace of the bar starting at 8 — the NEXT bar line")
+    }
+    /// §13 test 3 (overdub variant, §3.2 "reading 'loop top' for 'bar line'"): the SAME grace, but against
+    /// the slot's own loop-top boundaries, not bar lines.
+    func testLoopTopBeatUsesTheSlotsOwnCycleNotBarLines() {
+        // anchor 2, length 2 bars @ 4 beats/bar ⇒ cycle = 8 beats; loop tops at 2, 10, 18...
+        XCTAssertEqual(euclideousNextLoopTopBeat(from: 2.5, anchorBeat: 2, barBeats: 4, lengthBars: 2), 2, "within the first beat of this loop top — retroactive")
+        XCTAssertEqual(euclideousNextLoopTopBeat(from: 9.0, anchorBeat: 2, barBeats: 4, lengthBars: 2), 10, "late in the cycle — the NEXT loop top")
+    }
+    /// §13 test 9 (the run): an anchor from an earlier run is ignored, falling back to the current run's
+    /// own start — "a manual slot plays from its first bar when the transport starts."
+    func testActiveSourceIgnoresAManualAnchorFromAnEarlierRun() {
+        let current = euclideousActiveSource(beat: 10, riffsSeqOn: false, riffsSeqSlot: nil,
+                                               manualSlot: 1, manualAnchorBeat: 6, manualRunID: 1,   // SAME run (1) — anchor honoured
+                                               queuedSlot: nil, queuedLandBeat: nil, runID: 1, runStartBeat: 8)
+        XCTAssertEqual(current, .slot(index: 1, anchorBeat: 6))
+        let stale = euclideousActiveSource(beat: 10, riffsSeqOn: false, riffsSeqSlot: nil,
+                                            manualSlot: 1, manualAnchorBeat: 6, manualRunID: 1,   // run 1 is OLDER than the current run 2
+                                            queuedSlot: nil, queuedLandBeat: nil, runID: 2, runStartBeat: 8)
+        XCTAssertEqual(stale, .slot(index: 1, anchorBeat: 8), "the stale anchor is ignored — falls back to THIS run's own start")
+    }
+    /// §13 test 9 (RIFFS-on anchoring, §5.3): every RIFFS-picked slot is anchored to the RUN start, not a
+    /// per-switch anchor — "slots run in step with each other."
+    func testActiveSourceRiffsOnAnchorsToTheRunStartNotAManualAnchor() {
+        let source = euclideousActiveSource(beat: 10, riffsSeqOn: true, riffsSeqSlot: 2,
+                                             manualSlot: 0, manualAnchorBeat: 9, manualRunID: 5,
+                                             queuedSlot: 3, queuedLandBeat: 9.5, runID: 5, runStartBeat: 4)
+        XCTAssertEqual(source, .slot(index: 2, anchorBeat: 4), "RIFFS always wins, anchored to the run — manual/queue are irrelevant while it's on")
+    }
+    /// §13 test 8 (a queued switch landing): before its land beat the OLD source still plays; at/after, the new one does.
+    func testActiveSourceQueuedSwitchTakesOverOnlyAtOrAfterItsLandBeat() {
+        let before = euclideousActiveSource(beat: 7.9, riffsSeqOn: false, riffsSeqSlot: nil,
+                                             manualSlot: 0, manualAnchorBeat: 0, manualRunID: 1,
+                                             queuedSlot: 2, queuedLandBeat: 8, runID: 1, runStartBeat: 0)
+        XCTAssertEqual(before, .slot(index: 0, anchorBeat: 0))
+        let after = euclideousActiveSource(beat: 8.0, riffsSeqOn: false, riffsSeqSlot: nil,
+                                            manualSlot: 0, manualAnchorBeat: 0, manualRunID: 1,
+                                            queuedSlot: 2, queuedLandBeat: 8, runID: 1, runStartBeat: 0)
+        XCTAssertEqual(after, .slot(index: 2, anchorBeat: 8))
+    }
+    /// §13 test 11: events on the same column within 1/96 beat coalesce (the last write wins); the 512 cap
+    /// keeps the first 512 in time order.
+    func testAppendLoopEventCoalescesWithinWindowAndCapsAt512() {
+        var events: [EuclideousLoopEvent] = []
+        let window = (1.0 / 96.0) / 4.0   // 1/96 beat, expressed in bars at 4 beats/bar
+        events = euclideousAppendLoopEvent(events, column: 2, rank: 3, offsetBars: 1.0, coalesceWindowBars: window)
+        events = euclideousAppendLoopEvent(events, column: 2, rank: 5, offsetBars: 1.0 + window / 2, coalesceWindowBars: window)
+        XCTAssertEqual(events.count, 1, "within the window — the second write replaces the first, not append")
+        XCTAssertEqual(events.first?.rank, 5)
+        events = euclideousAppendLoopEvent(events, column: 2, rank: 9, offsetBars: 1.0 + window * 10, coalesceWindowBars: window)
+        XCTAssertEqual(events.count, 2, "well outside the window — a genuinely new event")
+        var full: [EuclideousLoopEvent] = []
+        for i in 0..<520 { full = euclideousAppendLoopEvent(full, column: i % 8, rank: 1, offsetBars: Double(i) * 10, coalesceWindowBars: window, cap: 512) }
+        XCTAssertEqual(full.count, 512, "capped — the first 512 in time order, the rest simply dropped")
+        XCTAssertEqual(full.first?.offsetBars, 0, "the FIRST event survives the cap, not the most recent")
+    }
+    /// §13 test 12 analogue — `euclideousSlotRankAtPosition` is the SAME lookup `euclideousEffectiveRank`
+    /// delegates to (§9.1), exercised directly against a precomputed position the slot-row ring already
+    /// polls, with no raw anchor beat needed.
+    func testSlotRankAtPositionMatchesEffectiveRankForTheSameSlot() {
+        let slot = EuclideousLoopSlot(length: .oneBar, startRanks: [3, 3, 3, 3, 3, 3, 3, 3], events: [EuclideousLoopEvent(offsetBars: 0.5, column: 4, rank: 7)])
+        XCTAssertEqual(euclideousSlotRankAtPosition(slot, column: 4, positionBars: 0.2), 3)
+        XCTAssertEqual(euclideousSlotRankAtPosition(slot, column: 4, positionBars: 0.6), 7)
+        XCTAssertNil(euclideousSlotRankAtPosition(.empty, column: 0, positionBars: 0), "an empty slot has no rank to report — the caller's live-grid fallback applies")
+    }
 }

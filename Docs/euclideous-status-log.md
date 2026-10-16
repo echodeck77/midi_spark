@@ -12,6 +12,59 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: loop slots replace the riff tabs (compact version)" (2026-10-16, ratified by Paul; on
+  `feat/loop-slots`; iOS builds clean; macOS suite green incl. +15 new tests — see below for the one disclosed test
+  gap).** The 4 riff tabs above the shared grid are GONE, replaced by 4 LOOP SLOTS: a slot records what the grid did
+  over the last 1/2/4/8 bars and plays it back; one slot plays at a time; edits while a slot plays are temporary JAMS
+  (42% dim, revert at the loop top or a slot switch); the RIFFS sequencer now picks slots instead of riffs. A review
+  pass against the raw ferry text FIRST (this same session) found: the bar unit is the host's real meter, not a fixed
+  4 beats; none of the 20 factory presets have RIFFS ON; "riff capture" (CLAUDE.md's own vocabulary) doesn't exist
+  anywhere in the code, so §9.11 is moot; one real contradiction in §9.5 (it undercounts how much new engine state
+  this adds); and several gaps (no cap on the rolling record, jam lifetime not fixed at creation, undo-on-landing
+  undescribed) — all resolved explicitly before building, not built literally. **MODEL:** `EuclideousLoopBars` (1/2/4/8
+  — a NEW ladder, not a reuse of `EuclideousSeqRate`'s ¼…4), `EuclideousLoopEvent`/`EuclideousLoopSlot` (`startRanks
+  == nil` ⇒ empty, mirroring `EuclideousRiff.ranks`'s own sentinel), `euclideousLoopSlotsMigrated` (mirrors
+  `euclideousRiffsMigrated` exactly — no data rewrite, `riffs`/`activeRiff` stay decodable and feed it on every read).
+  New document fields `euclideousLiveGrid`/`euclideousLoopSlots`/`euclideousManualSlot`, threaded through the SAME
+  `MachineParams`-routed path `riffs`/`activeRiff` already used (not the page-level-only RIFFS-seq path) —
+  `SnapParams` gained the matching non-Optional render-facing trio. **ENGINE (Router.swift/Derivations.swift):** ONE
+  pure pair decides a column's rank — `euclideousActiveSource` (§9.2: RIFFS pick, else manual slot + queued switch,
+  else live grid) and `euclideousEffectiveRank` (start rank, then its events ≤ position, a jam always winning) — the
+  per-hit riff-strike path, the TIE lookahead (source frozen at the triggering hit, content read at each future hit's
+  OWN beat — a genuine upgrade over the old static-`ranks`-snapshot lookahead, since a loop's content can now vary
+  over time where a riff's never could), the grid display and the RIFFS-tab icons all call it; no second derivation.
+  New Router state (sanctioned accumulated-state, same class as RECORDER/THE TAIL): the run (counter + start beat,
+  reset at the same site `euclideousRiffStep` already resets at), a fixed 512-entry changelog ring (one global
+  buffer, not per-slot), per-slot pending-keep arm records, 8 fixed jam slots, the queue — ALL fixed-capacity, no
+  render-path allocation. Taps (▶/●/jam) arrive as one-shot Kernel-level requests (same shape as
+  `euclideousAllNotesOffRequested`), consumed by the render thread at its OWN beat for sample-accurate bar-line/
+  loop-top landing (§4.1's literal one-beat grace); the actual CONTENT conversion for a landed keep (the changelog
+  scan → `[EuclideousLoopEvent]`, an allocation) happens on the MAIN THREAD only, triggered by a landed-seq bump —
+  §9.6's "recording happens on the main thread only," read as "the render thread decides WHEN/WHETHER, the main
+  thread builds WHAT." **DISCLOSED v1 SIMPLIFICATIONS (flagged, not silently cut):** a landed keep's audible content
+  may lag up to one UI-poll tick before the main thread's write-back round-trips back into a fresh snapshot (the
+  LANDING TIMING itself is sample-accurate; only the exact content in that narrow window can briefly show the
+  pre-commit grid); a length change on the PLAYING slot applies immediately rather than quantizing to its own next
+  bar line (§7.2's literal wording); the run resets on a transport start/stop edge only, not also on a mid-playback
+  backward jump (no such site was concretely locatable this session). **UI (EuclideousPage.swift):** the old title/
+  4-tabs/NOT-PLAYING row and the column-number row are gone, replaced by a 54pt slot row (two 40pt tiles — ● keep, ▶
+  play — over a 14pt length foot, no gap) reusing the grid's own `cellW`; `riffPanelHeight`'s chrome budget updated
+  to match, the grid-row floor raised 4pt→24pt (a NEW floor, not a kept one — nothing enforced 24pt before this
+  ferry). HOLD NOTES TO PLAY moved off its own row onto a non-hit-testable overlay pill. Long-press ● repurposed to
+  COPY/PASTE/CLEAR on the whole slot (length included). The "selected-choice" look for queued/keeping tiles reuses
+  the RESET popover's SHAPE in the spec's own neutral colour, not the lane-accent colour that idiom normally uses
+  (disclosed judgement call — slots have no lane to borrow an accent from). **+15 tests**: migration (no-RIFFS-pick
+  empty vs. RIFFS-picked-stays-filled, explicit-field override), Codable round-trip + a pre-ferry-document decode
+  test (no factory reset), and the pure engine functions (start+events, 2-bar wrap, bars-not-beats surviving a 4/4→
+  3/4 change, landing/loop-top grace, run-anchor-ignored-when-stale, RIFFS-anchors-to-the-run, queue-takes-over-at-
+  its-land-beat, event coalescing + the 512 cap, the slot-row ring's own position lookup matching the engine's).
+  **ONE DISCLOSED TEST GAP:** no full "all 20 presets + a RIFFS-on session, byte-identical Router output over 8
+  bars" integration test (§13 test 1, literal) — the migration's correctness is verified directly at the
+  `PluginState`-resolved-property level instead (where it's actually computed), and the full macOS suite (incl.
+  every pre-existing `RouterTests` fixture that touches Euclideous riffs) passed with zero regressions, which is
+  strong indirect evidence; a literal 20-preset Router-capture test is still worth adding if Paul wants the
+  belt-and-suspenders version. **DEVICE-OWED:** see `Docs/euclideous-device-verification-debt.md`'s new lines under
+  "Riff grid + riff capture" (renamed in spirit to "loop slots" — the heading text itself wasn't renamed this pass).
 - **▶ EUCLIDEOUS — LISTEN REMEMBERS ITS PARTNER (2026-10-16, Paul: "when moving from listen to own or hits, it's resetting the
   thing it's listening to, so I have to rechoose it every time. Persist it. Review how it should behave on other rows too.";
   on `feature/listen-persist-partner`; iOS builds clean; macOS suite green, +5 tests).** CAUSE: turning a lit mode off cleared

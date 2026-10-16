@@ -219,8 +219,8 @@ struct DiagView: View {
         EuclideousUndoSnapshot(lines: euclideousLines, riff: euclideousRiff, resetSpanBars: euclideousResetSpanBars,
                                 keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords,
                                 noteSource: euclideousNoteSource,
-                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
-                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq)
+                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq,
+                                liveGrid: euclideousLiveGrid, loopSlots: euclideousLoopSlots, manualSlot: euclideousManualSlot)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -245,19 +245,20 @@ struct DiagView: View {
         euclideousKeyType = s.keyType
         euclideousChords = s.chords
         euclideousNoteSource = s.noteSource
-        euclideousRiffs = s.riffs
-        euclideousActiveRiff = s.activeRiff
         euclideousLanesSeq = s.lanesSeq
         euclideousRiffsSeq = s.riffsSeq
+        euclideousLiveGrid = s.liveGrid
+        euclideousLoopSlots = s.loopSlots
+        euclideousManualSlot = s.manualSlot
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
             $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType; $0.euclideousChords = s.chords
             $0.euclideousNoteSource = s.noteSource
-            $0.riffs = s.riffs; $0.activeRiff = s.activeRiff
             $0.euclideousLanesSeqOn = s.lanesSeq.on; $0.euclideousLanesSeqRate = s.lanesSeq.rate
             $0.euclideousLanesSeqLen = s.lanesSeq.len; $0.euclideousLanesSeqCells = s.lanesSeq.cells
             $0.euclideousRiffsSeqOn = s.riffsSeq.on; $0.euclideousRiffsSeqRate = s.riffsSeq.rate
             $0.euclideousRiffsSeqLen = s.riffsSeq.len; $0.euclideousRiffsSeqCells = s.riffsSeq.cells
+            $0.euclideousLiveGrid = s.liveGrid; $0.euclideousLoopSlots = s.loopSlots; $0.euclideousManualSlot = s.manualSlot
         }
         buildPublishScene()
     }
@@ -287,6 +288,15 @@ struct DiagView: View {
     @State var euclideousRiffs: [EuclideousRiff] = [EuclideousRiff(), EuclideousRiff.empty,
                                                      EuclideousRiff.empty, EuclideousRiff.empty]
     @State var euclideousActiveRiff: Int = 0
+    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — `euclideousRiffs`/
+    // `euclideousActiveRiff` above stay in place, UNREACHABLE from any UI now (decode-safety mirror of the
+    // persisted document's own decode-only `riffs`/`activeRiff` — `refreshFromDocument`/the resynced
+    // checklist below no longer write them from a fresh load; nothing reads them either). These three are
+    // the real, live CONFIG mirrors now, same persisted/slow-resync treatment `euclideousRiffs` used to be
+    // the sole owner of.
+    @State var euclideousLiveGrid: EuclideousRiff = EuclideousRiff()
+    @State var euclideousLoopSlots: [EuclideousLoopSlot] = [EuclideousLoopSlot](repeating: .empty, count: 4)
+    @State var euclideousManualSlot: Int? = nil
     @State var euclideousLanesSeq = EuclideousLanesSeq()
     @State var euclideousRiffsSeq = EuclideousRiffsSeq()
     @State var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
@@ -304,6 +314,20 @@ struct DiagView: View {
     @State var euclideousLanesSeqStep: Int = -1
     @State var euclideousRiffsSeqStep: Int = -1
     @State var euclideousPlayingRiffIndex: Int = 0
+    // LOOP SLOTS (FERRY "loop slots replace the riff tabs") — polled at the same fast cadence as the riff
+    // state above.
+    @State var euclideousPlayingSlot: Int? = nil
+    @State var euclideousQueuedSlot: Int? = nil
+    @State var euclideousPendingKeepSlot: Int? = nil
+    @State var euclideousJamState: [(active: Bool, rank: Int)] = [(Bool, Int)](repeating: (false, 0), count: 8)
+    @State var euclideousPlayingSlotProgress: (position: Double, lengthBars: Double) = (0, 4)   // §10.4/§10.7: the ring's own progress, polled — ONE source, shared with euclideousEffectiveRank via euclideousSlotRankAtPosition
+    // The main-thread half of a landed keep (§9.6/§9.7, Decision 4): `euclideousKeepPreTapSnapshot[slot]`
+    // holds the undo snapshot captured at the TAP (before anything changes); `euclideousLoopAckSeq[slot]`
+    // is the last landed-keep seq this side has already consumed (so a re-poll of an unchanged landing is
+    // a no-op). Neither persists — purely in-memory bookkeeping for the hand-off.
+    @State var euclideousKeepPreTapSnapshot: [Int: EuclideousUndoSnapshot] = [:]
+    @State var euclideousLoopAckSeq: [Int] = [Int](repeating: 0, count: 4)
+    @State var euclideousStopAckSeq: Int = 0
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards") — each lane's
     // latest wipe-ELIGIBLE event (column/rank >= 0), built from draining the fast-poll event queue (see the
     // `showEuclideous` block below). The SIBLING reconciled slots this queue used to ALSO feed
@@ -1057,7 +1081,9 @@ struct DiagView: View {
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
                     EuclideousPage(lines: euclideousLines,
                                    lineReady: euclideousLineReady,
-                                   riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, playingRiffIndex: euclideousPlayingRiffIndex,
+                                   liveGrid: euclideousLiveGrid, loopSlots: euclideousLoopSlots,
+                                   playingSlot: euclideousPlayingSlot, queuedSlot: euclideousQueuedSlot, pendingKeepSlot: euclideousPendingKeepSlot,
+                                   jamState: euclideousJamState, playingSlotProgress: euclideousPlayingSlotProgress,
                                    riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                    lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq,
                                    lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
@@ -1095,19 +1121,36 @@ struct DiagView: View {
                                        au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
                                        buildPublishScene()
                                    },
-                                   onEditRiffs: { mutate in
-                                       euclideousRecordUndo(coalesceKey: "euclideousRiffs")
-                                       var riffs = euclideousRiffs
-                                       mutate(&riffs)
-                                       euclideousRiffs = riffs
-                                       au?.editDocument(coalesceKey: "euclideousRiffs") { $0.riffs = riffs }
+                                   onEditLiveGrid: { mutate in
+                                       euclideousRecordUndo(coalesceKey: "euclideousLiveGrid")
+                                       var g = euclideousLiveGrid
+                                       mutate(&g)
+                                       euclideousLiveGrid = g
+                                       au?.editDocument(coalesceKey: "euclideousLiveGrid") { $0.euclideousLiveGrid = g }
                                        buildPublishScene()
                                    },
-                                   onSetActiveRiff: { v in
+                                   onEditLoopSlots: { mutate in
+                                       // §12.1: length change/paste/clear — each its OWN undo step, never
+                                       // coalesced with an unrelated edit (same `coalesceKey: nil` idiom as
+                                       // onSetActiveRiff used to use).
                                        euclideousRecordUndo(coalesceKey: nil)
-                                       euclideousActiveRiff = v
-                                       au?.editDocument { $0.activeRiff = v }
+                                       var slots = euclideousLoopSlots
+                                       mutate(&slots)
+                                       euclideousLoopSlots = slots
+                                       au?.editDocument { $0.euclideousLoopSlots = slots }
                                        buildPublishScene()
+                                   },
+                                   onPlayTap: { slot in
+                                       au?.euclideousRequestPlayTap(slot)   // §12.1: ▶ is explicitly not an undo step
+                                   },
+                                   onKeepTap: { slot in
+                                       // Held until the landed-keep poll (Decision 4) consumes it and
+                                       // records undo at LANDING time, not at the tap.
+                                       if slot >= 0, slot < 4 { euclideousKeepPreTapSnapshot[slot] = euclideousSnapshot() }
+                                       au?.euclideousRequestKeepTap(slot)
+                                   },
+                                   onJam: { column, rank in
+                                       au?.euclideousRequestJam(column: column, rank: rank)   // §12.1: a jam is explicitly not an undo step
                                    },
                                    onEditLanesSeq: { mutate in
                                        euclideousRecordUndo(coalesceKey: "euclideousLanesSeq")
@@ -1301,6 +1344,43 @@ struct DiagView: View {
                 if rss != euclideousRiffsSeqStep { euclideousRiffsSeqStep = rss }
                 let pri = au.pollEuclideousPlayingRiffIndex()
                 if pri != euclideousPlayingRiffIndex { euclideousPlayingRiffIndex = pri }
+                // LOOP SLOTS (FERRY "loop slots replace the riff tabs") — same fast-poll cadence.
+                let eps = au.euclideousPlayingSlot(); if eps != euclideousPlayingSlot { euclideousPlayingSlot = eps }
+                let eqs = au.euclideousQueuedSlot(); if eqs != euclideousQueuedSlot { euclideousQueuedSlot = eqs }
+                let epks = au.euclideousPendingKeepSlot(); if epks != euclideousPendingKeepSlot { euclideousPendingKeepSlot = epks }
+                let ejs = au.euclideousJamStatePoll()
+                if !ejs.elementsEqual(euclideousJamState, by: { $0.active == $1.active && $0.rank == $1.rank }) { euclideousJamState = ejs }
+                if let ps = eps {
+                    let prog = au.euclideousLoopRingProgress(ps)
+                    if prog.position != euclideousPlayingSlotProgress.position || prog.lengthBars != euclideousPlayingSlotProgress.lengthBars { euclideousPlayingSlotProgress = prog }
+                } else if euclideousPlayingSlotProgress.position != 0 { euclideousPlayingSlotProgress.position = 0 }
+                // §9.6/§9.7 Decision 4: a keep/overdub landed since we last checked — pull the render
+                // thread's own fixed-scratch result, record undo (the snapshot captured at the TAP, held
+                // since), apply it, and ack. `euclideousKeepPreTapSnapshot[slot]` may be missing (the tap
+                // somehow never recorded one) — still apply the result, just skip the undo step rather
+                // than drop the landed content on the floor.
+                for slot in 0..<4 {
+                    guard let landed = au.euclideousBuildLandedKeep(slot: slot, ackSeq: euclideousLoopAckSeq[slot]) else { continue }
+                    if let pre = euclideousKeepPreTapSnapshot[slot] { euclideousUndo.record(pre, coalesceKey: nil); euclideousKeepPreTapSnapshot[slot] = nil }
+                    var newSlots = euclideousLoopSlots
+                    if slot < newSlots.count { newSlots[slot] = landed.result }
+                    euclideousLoopSlots = newSlots
+                    au.editDocument { $0.euclideousLoopSlots = newSlots }
+                    euclideousLoopAckSeq[slot] = landed.seq
+                    buildPublishScene()
+                }
+                // §2.3: a ▶ stop landed — the grid (jams included) becomes the new live grid.
+                let stopSeq = au.euclideousStopResultSeq()
+                if stopSeq != euclideousStopAckSeq {
+                    let stopRanks = au.euclideousStopResultRanks()
+                    // §12.1: stop is explicitly NOT an undo step.
+                    var g = EuclideousRiff(); g.steps = 8; g.ranks = stopRanks
+                    euclideousLiveGrid = g
+                    euclideousManualSlot = nil
+                    au.editDocument { $0.euclideousLiveGrid = g; $0.euclideousManualSlot = nil }
+                    euclideousStopAckSeq = stopSeq
+                    buildPublishScene()
+                }
                 // RIFF-CELL WIPES (Paul 2026-10-10 ferry): drain the per-lane event queue and fold it into
                 // ONE reconciled slot — the NOTE VIEW panel this queue originally also fed (euclideousNV
                 // LastEvent/RestFlash) was RETIRED by the 2026-10-14 sequencer-panel ferry (superseded by
@@ -1414,6 +1494,9 @@ struct DiagView: View {
             let ear = au.uiEuclideousActiveRiff(); if ear != euclideousActiveRiff { euclideousActiveRiff = ear; euclideousResynced = true }
             let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
             let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
+            let elg = au.uiEuclideousLiveGrid(); if elg != euclideousLiveGrid { euclideousLiveGrid = elg; euclideousResynced = true }
+            let els2 = au.uiEuclideousLoopSlots(); if els2 != euclideousLoopSlots { euclideousLoopSlots = els2; euclideousResynced = true }
+            let ems = au.uiEuclideousManualSlot(); if ems != euclideousManualSlot { euclideousManualSlot = ems; euclideousResynced = true }
             if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)

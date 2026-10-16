@@ -3533,6 +3533,7 @@ extension DiagView {
             input.euclideousMachineID = "euclideous"
             var p = MachineParams(); p.euclidLines = euclideousLines; p.euclideousRiff = euclideousRiff
             p.riffs = euclideousRiffs; p.activeRiff = euclideousActiveRiff   // FOUR RIFFS (2026-10-14 ferry §7) — same MachineParams-routed path as the singular field just above
+            p.euclideousLiveGrid = euclideousLiveGrid; p.euclideousLoopSlots = euclideousLoopSlots; p.euclideousManualSlot = euclideousManualSlot   // LOOP SLOTS (ferry "loop slots replace the riff tabs") — same path, superseding the two fields just above
             p.mainOutMask = euclideousMainOutMask   // EUCLIDEOUS PAGE REWORK (2026-10-07): the global MAIN OUT gate
             let chain = [ProcessorSlot(type: .euclid, params: p)]
             // NOTE: the registered machine's OWN stored params are irrelevant at render time — Router.swift's
