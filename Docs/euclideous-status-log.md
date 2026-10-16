@@ -12,9 +12,61 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: looper tabs replace the riff tabs" (2026-10-16, ratified by Paul, same day as — and
+  superseding — "loop slots" below; on `feat/looper-tabs`; iOS builds clean; macOS suite green incl. +9 new tests +
+  1 pre-existing test corrected for the retirement below).** Paul changed direction before the loop-slots ferry ever
+  reached a device: there is ONE riff (the 8-column grid), and the 4 tabs above it become 4 LOOPER buttons — 2/4/8/16
+  PASSES — that arm/record/replay a SINGLE, never-saved loop, not 4 independent saved slots. The four-riff model and
+  the RIFFS sequencer are retired (hidden, not deleted). **REPORT (per the ferry's own mandated questions):** (1) one
+  pass = one bar, confirmed — `beatsPerBar` (Router.swift) is the host's real, stable bar length, the SAME unit
+  LANES/RIFFS' own RATE already counts in; a lane's own EUCLID-walk speed across the SAME 8 stored columns is an
+  unrelated clock, not a conflict. (2) zero of the 20 factory presets have RIFFS ON — nothing to list. (3) no
+  riff-capture path exists on this page (unchanged from the loop-slots ferry's own finding). (4) HOLD NOTES TO PLAY
+  — already an overlay pill from the loop-slots ferry, kept as-is, exactly matching this ferry's own §7.6. (5)
+  `riffTabMenuCard`/`riffTabMenuLane`/`riffClipboard` were used ONLY by the old riff tabs' long-press (confirmed by
+  grepping the pre-loop-slots commit) — nothing else depended on them, and "clear riff" lived ONLY inside that card;
+  all of it was already removed by loop-slots and stays removed. **A REAL SELF-CAUGHT BUG, flagged honestly:** the
+  first draft of this ferry's own `euclideousNextLandingBeat` carried over loop-slots' "a tap in the first beat
+  lands retroactively" rule — but THIS spec's §2.2 says the literal opposite ("a tap in a bar's first beat STILL
+  arms for the next bar line. There is no grace."), caught on a re-read before landing, fixed, and the test written
+  against the corrected behaviour (not the copied-over one). **ARCHITECTURE, deliberately much simpler than loop-
+  slots:** §3.5/§7.5 explicitly tolerate "up to one poll interval of jitter" and rule out "no new polling path" —
+  so unlike loop-slots' Kernel one-shot requests + Router-side run/changelog/pending-keep state, the WHOLE state
+  machine (Off/Armed/Recording/Replaying, B, N, the recorded events) lives as plain `@State` on
+  `AudioUnitViewController`, advanced on the existing fast-poll tick; the loop's content publishes into
+  `MachineParams`/`SnapParams` through the SAME path `euclideousLiveGrid` already used. Router gained ONE pure
+  function (`euclideousLooperEffectiveRank`, Derivations.swift) + a handful of flat `SnapParams` fields it reads —
+  ZERO new Router ivars, ZERO Kernel request plumbing. A transport edge needed its OWN pure function
+  (`euclideousRunFirstBarLine`) distinct from arming's `euclideousNextLandingBeat` — the edge itself "counts as a
+  bar line" (§2.7) and FLOORS to it, the opposite of arming's always-advance rule. **MODEL:** reused
+  `EuclideousLoopEvent` as-is (already the right per-column-tagged shape); new `EuclideousLooperPasses` (2/4/8/16,
+  a fresh ladder); `EuclideousLooperModeKind` (top-level, not nested, since `EuclideousPage` needs it for the loop
+  row's own look/VoiceOver); retired `EuclideousLoopSlot`/`EuclideousLoopBars` and `PluginState`/`MachineParams`'s
+  `euclideousLoopSlots`/`euclideousManualSlot` to decode-only (no session is known to have saved them — the whole
+  window they were live never reached a device). **UI:** the loop-slots ferry's slot row (4 keep/play tiles + feet)
+  is gone, replaced by 4 plain length buttons (§7.2-7.4, number over a segment strip — the strip's own geometry
+  formula is a pure, tested function per §7.3's literal "drop the gap to 1 below 2pt"); no jams (overdubs are
+  PERMANENT once made, §3.2/§3.3, not the temporary 42%-dim loop-slots had); no copy/paste/clear/length-picker (one
+  ephemeral loop has nothing to copy between). The RIFFS tab is hidden — `sequencerTabRow`'s own `ForEach` just
+  drops the second item, producing a one-tab-wide LANES strip exactly as the ferry's own "do not redesign it; report
+  it" instructed (confirmed oddly spacious, not fixed). **ONE PRE-EXISTING TEST CORRECTED, not a regression:**
+  `RouterTests.testEuclideousRiffsSeqSwitchesThePlayingRiffAtTheStepBoundary` asserted the OLD "RIFFS sequencer
+  switches which riff plays" behaviour this ferry's own §8.2 explicitly retires — renamed to
+  `testEuclideousRiffsSeqIsIgnoredRiffRanksNeverDependOnIt` and rewritten to assert the new, required reality (both
+  bars play riff 0 regardless of the sequencer's own bar-2 pick). **+9 tests** (effective rank incl. the N=8 worked
+  example literally — pass 9 == pass 1, an overdub in pass 9 recurring in pass 17 — arming's no-grace rule, the
+  transport-edge floor, a late snapshot joining in progress, event coalescing + the 128-per-column cap, the segment-
+  geometry formula). **DISCLOSED, same class of gap as loop-slots' own:** the state-machine transitions, the undo-
+  on-stop wiring and the button-look colour table all live in `EuclideousPage.swift`/`AudioUnitViewController.swift`
+  — ZERO macOS test-target reach, same established split as every other Euclideous UI surface; verified by code
+  inspection here, device-owed for feel. **DEVICE-OWED:** `Docs/euclideous-device-verification-debt.md`'s new
+  "Looper tabs" heading (the loop-slots heading's own lines pruned — that feature no longer exists to verify).
 - **▶ EUCLIDEOUS — "FERRY: loop slots replace the riff tabs (compact version)" (2026-10-16, ratified by Paul; on
   `feat/loop-slots`; iOS builds clean; macOS suite green incl. +15 new tests — see below for the one disclosed test
-  gap).** The 4 riff tabs above the shared grid are GONE, replaced by 4 LOOP SLOTS: a slot records what the grid did
+  gap).** **SUPERSEDED same day by "FERRY: looper tabs replace the riff tabs" (the entry above this one) — Paul
+  changed direction before any device verification happened. Left here unrevised, history not revised, per this
+  file's own standing convention; `euclideousLiveGrid` (the "one riff" field) is the one piece of this ferry's own
+  work that survived into its successor.** The 4 riff tabs above the shared grid are GONE, replaced by 4 LOOP SLOTS: a slot records what the grid did
   over the last 1/2/4/8 bars and plays it back; one slot plays at a time; edits while a slot plays are temporary JAMS
   (42% dim, revert at the loop top or a slot switch); the RIFFS sequencer now picks slots instead of riffs. A review
   pass against the raw ferry text FIRST (this same session) found: the bar unit is the host's real meter, not a fixed

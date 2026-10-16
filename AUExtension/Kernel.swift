@@ -129,22 +129,6 @@ final class Kernel {
     // Narrower than panic: only Euclideous's own row's sounding voices (see Router.process's own consumption).
     private var euclideousAllNotesOffRequested = false
     func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
-    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — one-shot requests, same
-    // shape as panic/euclideousAllNotesOffRequested above: set from the main thread on a tap, read+cleared
-    // by this render's own process() call. §4's bar-line landing math needs the REAL beat Router is
-    // currently processing, not an estimate taken on the main thread — so these carry only WHICH slot/
-    // column, never a beat; Router decides timing entirely from its own clock at consumption time.
-    private var euclideousPlayTapSlotRequested = -1
-    func euclideousRequestPlayTap(_ slot: Int) { euclideousPlayTapSlotRequested = slot }
-    // Whether a tap is a fresh keep or an overdub is ENTIRELY determined by engine state (is this slot
-    // the one currently playing) — no separate flag needed from the UI (§3.1 vs §3.2).
-    private var euclideousKeepTapSlotRequested = -1
-    func euclideousRequestKeepTap(_ slot: Int) { euclideousKeepTapSlotRequested = slot }
-    // One pending jam request per column (8) — `Int.min` = no request, `-1` = clear this column's jam,
-    // `0...8` = set it. A fixed array, not a queue: a second request for the same column before the next
-    // render overwrites the first (last-wins, same convention as the engine's own event coalescing).
-    private var euclideousJamRequestRank = [Int](repeating: Int.min, count: 8)
-    func euclideousRequestJam(column: Int, rank: Int?) { guard column >= 0, column < 8 else { return }; euclideousJamRequestRank[column] = rank ?? -1 }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).
     private var flushRequested = false
@@ -507,16 +491,6 @@ final class Kernel {
     func euclideousLanesSeqStep() -> Int { router.euclideousLanesSeqStep() }   // the LANES sequencer's current step, polled (2026-10-14 sequencer panel ferry)
     func euclideousRiffsSeqStep() -> Int { router.euclideousRiffsSeqStep() }   // the RIFFS sequencer's current step, polled (2026-10-14)
     func euclideousPlayingRiffIndex() -> Int { router.euclideousPlayingRiffIndex() }   // which of the 4 riffs is currently sounding, polled (2026-10-14)
-    // LOOP SLOTS (ferry "loop slots replace the riff tabs") — polled at the same fast cadence as the riff
-    // state above. `nil` ⇒ the live grid plays (no slot playing/queued).
-    func euclideousPlayingSlot() -> Int? { router.euclideousPlayingSlotLive() }
-    func euclideousQueuedSlot() -> Int? { router.euclideousQueuedSlotLivePoll() }
-    func euclideousPendingKeepSlot() -> Int? { router.euclideousPendingKeepSlotPoll() }
-    func euclideousBuildLandedKeep(slot: Int, ackSeq: Int) -> (result: EuclideousLoopSlot, seq: Int)? { router.euclideousBuildLandedKeep(slot: slot, ackSeq: ackSeq) }
-    func euclideousStopResultSeq() -> Int { router.euclideousStopResultSeq() }
-    func euclideousStopResultRanks() -> [Int] { router.euclideousStopResultRanks() }
-    func euclideousLoopRingProgress(_ slot: Int) -> (position: Double, lengthBars: Double) { router.euclideousLoopRingProgress(slot) }
-    func euclideousJamStatePoll() -> [(active: Bool, rank: Int)] { router.euclideousJamStatePoll() }
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
@@ -1081,9 +1055,6 @@ final class Kernel {
                         emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
                         velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
                         euclideousAllNotesOff: euclideousAllNotesOffRequested,
-                        euclideousPlayTapSlot: euclideousPlayTapSlotRequested,
-                        euclideousKeepTapSlot: euclideousKeepTapSlotRequested,
-                        euclideousJamRequestRank: euclideousJamRequestRank,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewMachineIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
@@ -1095,9 +1066,6 @@ final class Kernel {
         diag.reelState = reelStateValue()
         panicRequested = false          // master panel PANIC is a one-shot — consumed by this render's flush
         euclideousAllNotesOffRequested = false   // one-shot — consumed by this render's flush
-        euclideousPlayTapSlotRequested = -1        // LOOP SLOTS: one-shot taps, consumed by this render
-        euclideousKeepTapSlotRequested = -1
-        if euclideousJamRequestRank.contains(where: { $0 != Int.min }) { euclideousJamRequestRank = [Int](repeating: Int.min, count: 8) }
         flushRequested = false          // MULTI-SCENE scene-switch flush is a one-shot too
         restartRequested = false        // MULTI-SCENE S2b restart-the-pass is a one-shot too
 

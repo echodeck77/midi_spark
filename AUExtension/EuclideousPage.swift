@@ -530,25 +530,20 @@ enum EuclideousLaneTab: Int, CaseIterable {
 struct EuclideousPage: View {
     let lines: [EuclidLine]
     let lineReady: UInt8
-    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — SUPERSEDES the old
-    // "four riffs, picked by tabs" model (`riffs`/`activeRiff`/`playingRiffIndex`) entirely. `liveGrid` is
-    // the grid's own ranks when no slot plays (§1.2, replaces "the active riff" — one editable surface,
-    // not four, edited directly or via jams — see `onEditLiveGrid`/`onJam` below). `playingSlot` is which
-    // of the 4 slots is ACTUALLY SOUNDING right now (nil ⇒ the live grid plays) — every lane-local "what
-    // will this lane really play" surface (the per-lane mini-grid thumbnail, the step-row footer
-    // prediction, the silence-reason check) reads the EFFECTIVE grid (`effectiveGridRanks`, computed from
-    // this), not a stale per-tab snapshot. `queuedSlot` is a ▶ waiting for its landing bar line,
-    // `pendingKeepSlot` is a ● waiting for ITS landing — all three polled live. `riffPositions` is
-    // unchanged — each lane's own live step-cursor into the shared pattern (index 0...7, -1 = not
-    // started/off), independent of any of the above.
+    // LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16) — SUPERSEDES the
+    // loop-slots ferry's "four slots" model entirely. `liveGrid` is the one riff (§1.2/§8.1, replacing
+    // the old "four riffs, picked by tabs" model) — the grid's own ranks when no loop is active, edited
+    // directly via `onLooperEdit` below. `looperMode`/`looperPasses`/`looperStartBeat`/`looperStartRanks`/
+    // `looperEvents` mirror `AudioUnitViewController`'s own looper state machine exactly (§2) — this page
+    // computes its OWN "passes done"/"progress" from these + its existing live clock (§7.5: no new
+    // polling path), never a separate derivation. `riffPositions` is unchanged — each lane's own live
+    // step-cursor into the shared pattern (index 0...7, -1 = not started/off), independent of the looper.
     let liveGrid: EuclideousRiff
-    let loopSlots: [EuclideousLoopSlot]
-    let playingSlot: Int?
-    let queuedSlot: Int?
-    let pendingKeepSlot: Int?
-    // §6/§11.2: which of the 8 columns is currently jammed, and to what rank — polled live.
-    let jamState: [(active: Bool, rank: Int)]
-    let playingSlotProgress: (position: Double, lengthBars: Double)
+    let looperMode: EuclideousLooperModeKind
+    let looperPasses: EuclideousLooperPasses
+    let looperStartBeat: Double
+    let looperStartRanks: [Int]
+    let looperEvents: [EuclideousLoopEvent]
     let riffPositions: [Int]
     // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): each lane's live hit-ordinal + DRUNK walk
     // state — the main-thread cycle prediction's own `startOrd`/`drunkLive` baseline, same live-poll class as
@@ -598,16 +593,14 @@ struct EuclideousPage: View {
     let onEditChords: (@escaping (inout MachineParams) -> Void) -> Void
     let clock: EuclidLiveClock
     let onEdit: (@escaping (inout [EuclidLine]) -> Void) -> Void
-    // LOOP SLOTS — `onEditLiveGrid`/`onEditLoopSlots` are ordinary document edits (live-grid drawing,
-    // paste/clear/length-change — §12.1's undo-step list); `onPlayTap`/`onKeepTap` are the ▶/● taps
-    // themselves (§2/§3 — NOT ordinary edits, routed to the render thread's own bar-line-accurate timing,
-    // never through `onEdit`'s document-mutate funnel); `onJam` is a live grid edit WHILE a slot plays
-    // (§6 — rank `nil` clears that column's jam).
-    let onEditLiveGrid: (@escaping (inout EuclideousRiff) -> Void) -> Void
-    let onEditLoopSlots: (@escaping (inout [EuclideousLoopSlot]) -> Void) -> Void
-    let onPlayTap: (Int) -> Void
-    let onKeepTap: (Int) -> Void
-    let onJam: (Int, Int?) -> Void
+    // LOOPER TABS — `onLooperEdit` is the ONE write path for every grid edit (a tap, each cell a drag-
+    // paint crosses): `AudioUnitViewController` itself decides whether that lands as an ordinary
+    // undoable live-grid edit (Off/Armed, §3.6) or a loop event (Recording/Replaying, §3.1-3.4) — this
+    // page never makes that call itself (§6.2's "no second derivation" applies to WRITES too, not just
+    // reads). `onLooperTabTap` is §2's whole tab state machine (arm/retarget/cancel/stop), not an
+    // ordinary document edit.
+    let onLooperEdit: (Int, Int) -> Void
+    let onLooperTabTap: (EuclideousLooperPasses) -> Void
     let onEditLanesSeq: (@escaping (inout EuclideousLanesSeq) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
@@ -649,17 +642,18 @@ struct EuclideousPage: View {
     let onRedo: () -> Void
     let onClose: () -> Void
 
-    // LOOP SLOTS §1.2/§11.1: "the grid shows the effective grid at the current beat" — the live grid when
-    // nothing plays, else the playing slot's own content at its live ring position, a jam always winning
-    // on its own column. ONE pure read (§9.1) — `euclideousSlotRankAtPosition` (Derivations.swift, the
-    // SAME function the engine's own `euclideousEffectiveRank` delegates to), never a second derivation.
-    private func jamRank(_ col: Int) -> Int? { col >= 0 && col < jamState.count && jamState[col].active ? jamState[col].rank : nil }
+    // LOOPER §1.5/§6.2: "the grid shows the effective grid at the current beat" — the live grid when no
+    // loop is active, else the loop's own content at the page's own live-clock beat. ONE pure read —
+    // `euclideousLooperEffectiveRank` (Derivations.swift), the SAME function the engine itself calls —
+    // never a second derivation.
     var effectiveGridRanks: [Int] {
         let liveRanks = liveGrid.ranksResolved
-        func liveOrJam(_ col: Int) -> Int { jamRank(col) ?? (col < liveRanks.count ? liveRanks[col] : 0) }
-        guard let slot = playingSlot, slot >= 0, slot < loopSlots.count else { return (0..<8).map(liveOrJam) }
+        let active = looperMode == .recording || looperMode == .replaying
+        let beat = walkTagBeat(at: Date())
         return (0..<8).map { col in
-            jamRank(col) ?? euclideousSlotRankAtPosition(loopSlots[slot], column: col, positionBars: playingSlotProgress.position) ?? (col < liveRanks.count ? liveRanks[col] : 0)
+            euclideousLooperEffectiveRank(column: col, beat: beat, liveGrid: liveRanks, active: active,
+                                           startBeat: looperStartBeat, passes: looperPasses.passes,
+                                           startRanks: looperStartRanks, events: looperEvents, beatsPerBar: clock.beatsPerBar)
         }
     }
 
@@ -724,7 +718,6 @@ struct EuclideousPage: View {
     // the scrim+centred-card family this page already uses 4 times (RESET/MASK MODE/CHORDS/KEY), not an
     // anchored popover like the per-lane RESET above, matching the plan's own "small 3-row scrim+card
     // popup" reading, not the anchored one.
-    @State private var riffTabMenuLane: Int? = nil
     @State private var keyPopupOpen = false
     // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry): the KEY tab's own captured
     // on-screen frame (via EuclideousRiffTabFramePreferenceKey above), letting the picker open as a
@@ -887,17 +880,6 @@ struct EuclideousPage: View {
                     let anchorY = frame.map { $0.maxY + 70 } ?? geo.size.height / 2
                     resetPopupCard(lane).position(x: min(anchorX, geo.size.width - 110), y: min(max(90, anchorY), geo.size.height - 90)).zIndex(4)
                 }
-                if let lane = riffTabMenuLane {
-                    Color.black.opacity(0.55).ignoresSafeArea()
-                        .onTapGesture { riffTabMenuLane = nil }
-                        .zIndex(3)
-                    riffTabMenuCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
-                }
-                // LOOP SLOTS §10.6: the length picker, non-dimming (same idiom as the RESET box's own
-                // anchored popover) — tapping anywhere else closes it via the existing outside-tap sweep.
-                if let lane = slotLengthPopoverLane {
-                    slotLengthPopoverCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
-                }
                 if keyPopupOpen {
                     // ANCHORED POPOVER, now UNDER THE KEY PILL (Fourfold header ferry §6.2): a non-dimming full-screen
                     // tap-catcher, and the card's TOP edge sp4 below the pill, its leading edge on the pill's (clamped
@@ -976,18 +958,19 @@ struct EuclideousPage: View {
     // Left and right margins must be equal within 1pt." Applied on all four sides for symmetry.
     //
     /// The riff panel's total height at a given MATRIX row height: top+bottom padding (sp8 each) + the
-    /// LOOP SLOTS slot row (54pt — §10.1/§10.3: two 40pt tiles + a 14pt foot, no gap) + a gap + 8 matrix
-    /// rows with 7 gaps between them. SUPERSEDES the old title-row/column-number-row budget (36pt total)
-    /// the slot row replaced. `riffRowHForPanelHeight` solves the SAME formula backward from an outer
-    /// height — one pair, so the panel's claimed height and its internal row height can never silently
-    /// disagree. The grid-row floor rises from 4pt to 24pt (§10.1, a NEW floor this ferry introduces, not
-    /// a kept one — nothing in this formula enforced 24pt before).
-    private let riffSlotRowH: CGFloat = 54
+    /// LOOPER's 40pt loop row (§7.1) + a gap + 8 matrix rows with 7 gaps between them. SUPERSEDES the old
+    /// title-row/column-number-row budget (36pt total, then the loop-slots ferry's 54pt slot row) this
+    /// replaces. `riffRowHForPanelHeight` solves the SAME formula backward from an outer height — one
+    /// pair, so the panel's claimed height and its internal row height can never silently disagree
+    /// (fixing a real bug found while editing this: the previous ferry's own inverse omitted the single
+    /// `sp4` gap `riffPanelHeight` adds, so the two had already drifted out of agreement). The grid-row
+    /// floor stays 24pt (§7.1 "keeping the 24 pt floor" — unchanged by this ferry).
+    private let riffLoopRowH: CGFloat = 40
     private func riffPanelHeight(rowH: CGFloat) -> CGFloat {
-        sp8 * 2 + riffSlotRowH + sp4 + rowH * 8 + sp4 * 7
+        sp8 * 2 + riffLoopRowH + sp4 + rowH * 8 + sp4 * 7
     }
     private func riffRowHForPanelHeight(_ panelH: CGFloat) -> CGFloat {
-        max(24, (panelH - sp8 * 2 - riffSlotRowH - sp4 * 7) / 8)
+        max(24, (panelH - sp8 * 2 - riffLoopRowH - sp4 - sp4 * 7) / 8)
     }
 
     // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`),
@@ -1384,7 +1367,7 @@ struct EuclideousPage: View {
     /// too before opening their own overlay. No existing "one overlay at a time" coordination to extend —
     /// every pop-up on this page toggles fully independently today, confirmed by reading each one first.
     private func closeAllOtherOverlays() {
-        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; riffTabMenuLane = nil; slotLengthPopoverLane = nil
+        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil
     }
 
     // MARK: LANE SIDE of the output rings (§7) — pulse (after a tap) and trace (while held)
@@ -3721,7 +3704,6 @@ struct EuclideousPage: View {
     // columns, so the matrix's real rendered width can never exceed its stated budget the way the old
     // gutter's did.
     private let riffLabelColW: CGFloat = 30
-    // (safe-subscript extension declared file-private at the bottom of this file — see `Array.subscript(safe:)`)
     /// The riff matrix's own cell width — ONE formula, shared by `riffGridView` and `slotRow` (§10.2:
     /// "the same cellW the grid draws with"), so the slot row's two tiles can never drift out of alignment
     /// with the 8-column grid underneath.
@@ -3730,176 +3712,112 @@ struct EuclideousPage: View {
         let gridW = max(1, maxWidth - (riffLabelColW + sp4))
         return max(1, (gridW - sp8 * 2 - sp4 * CGFloat(n - 1)) / CGFloat(n))
     }
-    /// LOOP SLOTS §10: one pure function of a slot's state → its tile/ring/foot colours (§10.5) — the tile
-    /// views below and any future state-dependent rendering share this, never re-deriving "what does an
-    /// empty/ready/playing/queued/keeping slot look like."
-    enum EuclideousSlotLook { case empty, ready, playing, queued, keeping }
-    private func slotLook(_ i: Int) -> EuclideousSlotLook {
-        if pendingKeepSlot == i { return .keeping }
-        if queuedSlot == i { return .queued }
-        if playingSlot == i { return .playing }
-        return (i < loopSlots.count && loopSlots[i].isFilled) ? .ready : .empty
+    /// §7.4: one pure function of the looper's OWN state → a button's look. A button not matching the
+    /// armed/running length always reads Off, regardless of global mode.
+    enum EuclideousLooperButtonLook { case off, armed, recording, replaying }
+    private func looperButtonLook(_ passes: EuclideousLooperPasses) -> EuclideousLooperButtonLook {
+        guard passes == looperPasses, looperMode != .off else { return .off }
+        switch looperMode {
+        case .off: return .off
+        case .armed: return .armed
+        case .recording: return .recording
+        case .replaying: return .replaying
+        }
     }
-    /// §10: the slot row — two tiles (keep ●, play ▶) over a length foot, per slot, aligned to the grid
-    /// columns below (§10.2). Long-press ● opens COPY/PASTE/CLEAR (§8); tapping the foot opens the length
-    /// picker (§10.6).
-    private func slotRow(maxWidth: CGFloat) -> some View {
+    /// §1.4/§7.4-7.5: this button's own position in bars since B, modulo N — the SAME pure function the
+    /// engine itself calls (`euclideousLoopPositionBars`), never a second derivation. Works unmodified for
+    /// BOTH Recording (bounded `[0, N)` by construction, since B hasn't been reached again yet) and
+    /// Replaying (genuinely wraps) — one formula, no mode-specific branching.
+    private func looperPositionNow(_ beat: Double) -> Double {
+        euclideousLoopPositionBars(beat: beat, startBeat: looperStartBeat, beatsPerBar: clock.beatsPerBar, passes: Double(looperPasses.passes))
+    }
+    /// §7: the loop row — 4 length buttons, replacing the loop-slots ferry's slot row entirely (no
+    /// copy/paste/clear, no length picker — the button tapped IS the length choice, §2).
+    private func loopRow(maxWidth: CGFloat) -> some View {
         let cellW = riffCellW(maxWidth: maxWidth)
-        let slotW = cellW * 2 + sp4
-        let ring: Color = Color(hex: 0xDFE3EA)
-        let dim: Color = Color(hex: 0x4A4E57)
-        let tileBG: Color = Color(hex: 0x2A2D34)
+        let buttonW = cellW * 2 + sp4
+        let beat = walkTagBeat(at: Date())
+        let pos = looperPositionNow(beat)
+        let passesDone = max(0, min(looperPasses.passes - 1, Int(pos.rounded(.down))))
+        let progress = pos - pos.rounded(.down)
         return HStack(spacing: sp4) {
             Color.clear.frame(width: riffLabelColW)
-            ForEach(0..<4, id: \.self) { i in
-                let look = slotLook(i)
-                let selected = look == .queued || look == .keeping   // §10.5: the selected-choice look, neutral variant (Decision 5)
-                VStack(spacing: 0) {
-                    HStack(spacing: sp4) {
-                        // KEEP tile
-                        ZStack {
-                            Circle().fill(selected && look == .keeping ? ring.opacity(0.2) : Color.clear)
-                                .overlay(Circle().stroke(look == .keeping ? ring : Color.clear, lineWidth: 1))
-                            Circle().strokeBorder(look == .empty ? dim : Color.clear, style: StrokeStyle(lineWidth: 1, dash: [2.5, 2.5]))
-                            Circle().fill(look == .empty ? Color.clear : (look == .keeping ? ring.opacity(0.4) : ring)).frame(width: 11, height: 11)
-                        }
-                        .frame(width: cellW, height: 40)
-                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tileBG))
-                        .clipShape(.rect(topLeadingRadius: 6, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 0))
-                        .contentShape(Rectangle())
-                        .onTapGesture { onKeepTap(i) }
-                        .onLongPressGesture(minimumDuration: 0.5) { riffTabMenuLane = i }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Keep last \(Int(loopSlots[safe: i]?.length.bars ?? 4)) bars in slot \(i + 1)")
-                        .accessibilityHint("Long-press for copy, paste and clear")
-                        // PLAY tile
-                        ZStack {
-                            euclideousSlotRing(look: look, slot: i, size: min(28, cellW - 6), ringColor: ring, dim: dim)
-                            EuclidPlayTriangle()
-                                .fill(look == .empty ? dim : ring)
-                                .frame(width: 9, height: 10)
-                                .offset(x: 1)
-                        }
-                        .frame(width: cellW, height: 40)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tileBG)
-                                .overlay(look == .queued ? RoundedRectangle(cornerRadius: 6).fill(ring.opacity(0.2)).overlay(RoundedRectangle(cornerRadius: 6).stroke(ring, lineWidth: 1)) : nil)
-                        )
-                        .clipShape(.rect(topLeadingRadius: 0, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 6))
-                        .contentShape(Rectangle())
-                        .onTapGesture { onPlayTap(i) }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(look == .empty ? "Slot \(i + 1), empty" : (look == .playing ? "Stop slot \(i + 1)" : (look == .queued ? "Slot \(i + 1) starts next bar" : "Play slot \(i + 1)")))
-                    }
-                    // FOOT
-                    Text(euclideousSlotLengthLabel(i))
-                        .font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.06 * 9)
-                        .frame(maxWidth: .infinity).frame(height: 14)
-                        .foregroundColor(look == .empty ? Color(hex: 0x6A7079) : (look == .playing ? Color(hex: 0x0D0F14) : Color(hex: 0xDFE3EA)))
-                        .background(
-                            Group {
-                                if look == .empty { RoundedRectangle(cornerRadius: 0).strokeBorder(dim, style: StrokeStyle(lineWidth: 1, dash: [2.5, 2.5])) }
-                                else { RoundedRectangle(cornerRadius: 0).fill(look == .playing ? ring : Color(hex: 0x3A3E47)) }
-                            }
-                        )
-                        .clipShape(.rect(bottomLeadingRadius: 6, bottomTrailingRadius: 6))
-                        .contentShape(Rectangle())
-                        .onTapGesture { slotLengthPopoverLane = slotLengthPopoverLane == i ? nil : i }
-                        .accessibilityLabel("Slot \(i + 1) length, \(Int(loopSlots[safe: i]?.length.bars ?? 4)) bars")
+            ForEach([EuclideousLooperPasses.twoPasses, .fourPasses, .eightPasses, .sixteenPasses], id: \.self) { passes in
+                loopButton(passes: passes, look: looperButtonLook(passes), width: buttonW, passesDone: passesDone, progress: progress)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onLooperTabTap(passes) }
+            }
+        }
+    }
+    /// §7.2-7.4, literal: number (14pt heavy) over a segment strip (4pt tall, 6pt above the bottom edge,
+    /// inset 6pt each side), one pure look per state.
+    @ViewBuilder private func loopButton(passes: EuclideousLooperPasses, look: EuclideousLooperButtonLook, width: CGFloat, passesDone: Int, progress: Double) -> some View {
+        let fill: Color = {
+            switch look {
+            case .off: return Color(hex: 0x2A2D34)
+            case .armed, .recording: return Color(hex: 0xDFE3EA).opacity(0.2)
+            case .replaying: return Color(hex: 0xDFE3EA)
+            }
+        }()
+        let numberColor: Color = {
+            switch look {
+            case .off: return Color(hex: 0xAAB0BA)
+            case .armed, .recording: return Color(hex: 0xDFE3EA)
+            case .replaying: return Color(hex: 0x0D0F14)
+            }
+        }()
+        let (segOn, segOff): (Color, Color) = {
+            switch look {
+            case .off: return (Color(hex: 0x3A3E47), Color(hex: 0x3A3E47))
+            case .armed: return (Color(hex: 0x4A4E57), Color(hex: 0x4A4E57))
+            case .recording: return (Color(hex: 0xDFE3EA), Color(hex: 0x4A4E57))
+            case .replaying: return (Color(hex: 0x0D0F14), Color(hex: 0xAAB0BA))
+            }
+        }()
+        VStack(spacing: 0) {
+            Text(passes.rawValue).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(numberColor)
+                .frame(height: 30)
+            loopSegmentStrip(n: passes.passes, width: width, onColor: segOn, offColor: segOff,
+                              passesDone: look == .armed || look == .off ? -1 : passesDone, progress: progress)
+                .frame(height: 4)
+                .padding(.bottom, 6)
+        }
+        .frame(width: width, height: 40)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(fill)
+            .overlay(look == .recording ? RoundedRectangle(cornerRadius: 6).stroke(Color(hex: 0xDFE3EA), lineWidth: 1) : nil))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(looperAccessibleLabel(passes: passes, look: look, passesDone: passesDone))
+        .accessibilityHint(look == .recording || look == .replaying ? "Stops the loop and keeps the grid as it is"
+                            : (look == .off ? "Starts recording on the next pass" : ""))
+    }
+    /// §7.3, literal: segment width = (button width − 12 − gaps) ÷ N; gap 2 (N ≤ 8) or 1 (N = 16); if the
+    /// resulting width falls below 2pt, drop the gap to 1. `passesDone < 0` ⇒ uniform (Off/Armed, no
+    /// progress to show); each segment's own fill fraction is 1 (done), `progress` (the current pass), or
+    /// 0 (not yet reached) — one formula covers every state, no mode-specific branching per segment.
+    @ViewBuilder private func loopSegmentStrip(n: Int, width: CGFloat, onColor: Color, offColor: Color, passesDone: Int, progress: Double) -> some View {
+        let (segW, gap) = euclideousLooperSegmentGeometry(n: n, buttonWidth: width)
+        HStack(spacing: gap) {
+            ForEach(0..<n, id: \.self) { i in
+                let fillFraction: Double = passesDone < 0 ? 0 : (i < passesDone ? 1 : (i == passesDone ? max(0, min(1, progress)) : 0))
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 1).fill(offColor)
+                    RoundedRectangle(cornerRadius: 1).fill(onColor).frame(width: segW * fillFraction)
                 }
-                .frame(width: slotW)
+                .frame(width: segW)
             }
+        }
+        .padding(.horizontal, 6)   // §7.3: "inset 6 each side"
+    }
+    /// §7.7, literal four cases.
+    private func looperAccessibleLabel(passes: EuclideousLooperPasses, look: EuclideousLooperButtonLook, passesDone: Int) -> String {
+        let n = passes.passes
+        switch look {
+        case .off: return "Loop \(n) passes, off"
+        case .armed: return "Loop \(n) passes, armed, starts next pass"
+        case .recording: return "Loop \(n) passes, recording pass \(passesDone + 1) of \(n)"
+        case .replaying: return "Loop \(n) passes, playing pass \(passesDone + 1) of \(n), edits overdub"
         }
     }
-    @ViewBuilder private func euclideousSlotRing(look: EuclideousSlotLook, slot: Int, size: CGFloat, ringColor: Color, dim: Color) -> some View {
-        let lengthBars = max(1, Int(loopSlots[safe: slot]?.length.bars ?? 4))
-        if look == .empty {
-            Circle().strokeBorder(dim, style: StrokeStyle(lineWidth: 3, dash: [2.5, 2.5])).frame(width: size, height: size)
-        } else {
-            let progress = look == .playing ? playingSlotProgress.position / max(1, playingSlotProgress.lengthBars) : 0
-            Canvas { ctx, sz in
-                let rect = CGRect(origin: .zero, size: sz).insetBy(dx: 1.5, dy: 1.5)
-                for bar in 0..<lengthBars {
-                    let gap: Double = 12
-                    let barStart = Double(bar) / Double(lengthBars) * 360 - 90 + gap / 2
-                    let barEnd = Double(bar + 1) / Double(lengthBars) * 360 - 90 - gap / 2
-                    let played = progress * Double(lengthBars) >= Double(bar + 1)
-                    let partial = !played && progress * Double(lengthBars) > Double(bar)
-                    let end = partial ? (barStart + (barEnd - barStart) * (progress * Double(lengthBars) - Double(bar))) : barEnd
-                    var p = Path(); p.addArc(center: CGPoint(x: sz.width / 2, y: sz.height / 2), radius: rect.width / 2, startAngle: .degrees(barStart), endAngle: .degrees(played || partial ? end : barStart), clockwise: false)
-                    ctx.stroke(p, with: .color(dim), style: StrokeStyle(lineWidth: 3, lineCap: .butt))
-                    if played || partial {
-                        var p2 = Path(); p2.addArc(center: CGPoint(x: sz.width / 2, y: sz.height / 2), radius: rect.width / 2, startAngle: .degrees(barStart), endAngle: .degrees(end), clockwise: false)
-                        ctx.stroke(p2, with: .color(ringColor), style: StrokeStyle(lineWidth: 3, lineCap: .butt))
-                    }
-                }
-            }
-            .frame(width: size, height: size)
-        }
-    }
-    private func euclideousSlotLengthLabel(_ i: Int) -> String {
-        switch loopSlots[safe: i]?.length ?? .fourBars {
-        case .oneBar: return "1 BAR"; case .twoBars: return "2 BARS"; case .fourBars: return "4 BARS"; case .eightBars: return "8 BARS"
-        }
-    }
-    @State private var slotLengthPopoverLane: Int? = nil
-    private func slotLengthPopoverCard(_ idx: Int) -> some View {
-        let current = loopSlots[safe: idx]?.length ?? .fourBars
-        return VStack(spacing: 8) {
-            Text("BARS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.06 * 9).foregroundColor(Color(hex: 0xAAB0BA))
-            HStack(spacing: sp4) {
-                ForEach([EuclideousLoopBars.oneBar, .twoBars, .fourBars, .eightBars], id: \.self) { b in
-                    let sel = b == current
-                    Text("\(Int(b.bars))").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundColor(sel ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
-                        .frame(width: 26, height: 26)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            onEditLoopSlots { s in guard idx < s.count else { return }; s[idx].length = b }
-                            slotLengthPopoverLane = nil
-                        }
-                }
-            }
-        }
-        .padding(sp8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
-    }
-    /// LOOP SLOTS §8: long-press ● opens COPY/PASTE/CLEAR on the WHOLE slot (length included).
-    private func riffTabMenuCard(_ idx: Int) -> some View {
-        func row(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
-            Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                .foregroundColor(enabled ? .white.opacity(0.85) : .white.opacity(0.3))
-                .frame(maxWidth: .infinity).frame(height: 36)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
-                .contentShape(Rectangle())
-                .onTapGesture { if enabled { action() } }
-        }
-        return VStack(spacing: 8) {
-            Text("SLOT \(idx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-            row("COPY", enabled: idx < loopSlots.count && loopSlots[idx].isFilled) {
-                loopSlotClipboard = idx < loopSlots.count ? loopSlots[idx] : nil
-                riffTabMenuLane = nil
-            }
-            row("PASTE", enabled: loopSlotClipboard != nil) {
-                guard let c = loopSlotClipboard else { return }
-                onEditLoopSlots { s in guard idx < s.count else { return }; s[idx] = c }
-                if playingSlot == idx { onPlayTap(idx); onPlayTap(idx) }   // §8.2: pasted into the PLAYING slot restarts it from its first bar at the next bar line (stop then re-queue)
-                riffTabMenuLane = nil
-            }
-            row("CLEAR", enabled: idx < loopSlots.count && loopSlots[idx].isFilled) {
-                if playingSlot == idx { onPlayTap(idx) }   // §8.2: clearing the playing slot stops it
-                onEditLoopSlots { s in guard idx < s.count else { return }; s[idx] = .empty }
-                riffTabMenuLane = nil
-            }
-        }
-        .padding(16).frame(width: 180)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-    }
-    @State private var loopSlotClipboard: EuclideousLoopSlot? = nil
     private func riffGridView(maxWidth: CGFloat, rowH: CGFloat) -> some View {
         let n = 8
         let ranks = effectiveGridRanks
@@ -3923,9 +3841,9 @@ struct EuclideousPage: View {
             tagPlansNow[i].map { WalkTagSeat(lane: i, col: $0.seatStep, rank: $0.seatRank, facingRight: $0.facingRight) }
         }
         return VStack(alignment: .leading, spacing: sp4) {
-            // LOOP SLOTS §10.1: the old title/4-tabs/NOT-PLAYING row and the column-number row are GONE —
-            // replaced by the 54pt slot row (two tiles + a foot per slot, §10.3).
-            slotRow(maxWidth: maxWidth)
+            // LOOPER §7.1: the old title/4-tabs/NOT-PLAYING row and the column-number row are GONE —
+            // replaced by the 40pt loop row (4 length buttons, §7.2-7.4).
+            loopRow(maxWidth: maxWidth)
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(pool: pool, source: source, cellH: cellH)
                 // DRAGGABLE (see `riffDragLastCell`'s own doc comment above): the matrix VStack carries no
@@ -3939,7 +3857,7 @@ struct EuclideousPage: View {
                         ForEach((1...8).reversed(), id: \.self) { rank in
                             HStack(spacing: sp4) {
                                 ForEach(0..<n, id: \.self) { col in
-                                    riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, seats: tagSeats, jammed: jamRank(col) != nil)
+                                    riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, seats: tagSeats)
                                 }
                             }
                         }
@@ -4018,18 +3936,12 @@ struct EuclideousPage: View {
     /// rest; `toggle: false` (every later cell in the same drag) always sets, so painting across the grid
     /// never accidentally clears a column it merely passes back over.
     private func riffSetRank(col: Int, rank: Int, n: Int, toggle: Bool) {
-        // LOOP SLOTS §2.5/§6.2: with nothing playing, edits change the live grid and stick; while a slot
-        // plays, the SAME gesture makes a JAM instead (temporary, never written to the slot itself).
-        guard playingSlot == nil else {
-            let newRank = (toggle && jamRank(col) == rank) ? 0 : rank
-            onJam(col, newRank)
-            return
-        }
-        onEditLiveGrid { r in
-            var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
-            if col < rr.count { rr[col] = (toggle && rr[col] == rank) ? 0 : rank }
-            r.ranks = rr; r.steps = n
-        }
+        // LOOPER §3.1/§6.2: every edit routes through ONE write path — `AudioUnitViewController` decides
+        // whether this lands on the live grid or as a loop event, this page never re-derives that itself.
+        guard col >= 0, col < n else { return }
+        let current = effectiveGridRanks
+        let newRank = (toggle && col < current.count && current[col] == rank) ? 0 : rank
+        onLooperEdit(col, newRank)
     }
 
     // MARK: - WALK TAGS WITH THREADS (ferry 2026-10-15)
@@ -4151,14 +4063,12 @@ struct EuclideousPage: View {
     /// One riff-grid matrix cell: the plain on/off fill and ambient border, plus the VoiceOver label for any lane
     /// whose tag currently sits here. The tags themselves are NOT drawn per cell any more — they travel between
     /// cells, so they live in `riffWalkTagOverlay`.
-    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, seats: [WalkTagSeat] = [], jammed: Bool = false) -> some View {
+    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, seats: [WalkTagSeat] = []) -> some View {
         let on = col < ranks.count && ranks[col] == rank
         let here = seats.filter { $0.col == col && $0.rank == rank }
-        // §6.2/§11.2: a jammed cell's lit fill draws at 42% — the existing OFF-dim value — so it reads as
-        // temporary; a column jammed to rest already shows a plain rest (on == false), no change needed.
         return ZStack {
             RoundedRectangle(cornerRadius: 3)
-                .fill(on ? Color.white.opacity(jammed ? 0.42 : 0.85) : Color.white.opacity(0.08))
+                .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
                 // rule 5: "keeps its light selection border" — an ambient 1pt light border on every cell,
                 // unconditionally.
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.12), lineWidth: 1))
@@ -4234,7 +4144,11 @@ struct EuclideousPage: View {
         // several are held").
         let heldLane = restartEditLanes.min()
         return HStack(spacing: sp4) {
-            ForEach(0..<2, id: \.self) { i in
+            // §8.2: the RIFFS tab is HIDDEN (its code/fields/`sequencerRiffsGrid` all stay — just
+            // unreachable from here); `sequencerTab` can now only ever be 0. Literally: just don't
+            // render the second tab item — the resulting one-tab-wide strip is reported as-is, per the
+            // ferry's own "do not redesign it; report it."
+            ForEach(0..<1, id: \.self) { i in
                 let sel = sequencerTab == i
                 let on = i == 0 ? lanesSeq.on : riffsSeq.on
                 HStack(spacing: 6) {
@@ -4462,12 +4376,10 @@ struct EuclideousPage: View {
                             VStack(spacing: 3) {
                                 Text("\(riffIdx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
                                     .foregroundColor(Color(hex: 0xDFE3EA))
-                                // §5.6: the slot playing now shows its CURRENT (effective) ranks; the
-                                // others show their start ranks; an empty slot shows the icon with no
-                                // marks at 42% (the pervasive OFF-dim value).
-                                riffMiniIcon(ranks: riffIdx == playingSlot ? effectiveGridRanks : (loopSlots[safe: riffIdx]?.startRanksResolved ?? []),
-                                             noteColor: Color(hex: 0xDFE3EA), dotColor: Color(hex: 0x3A3E47))
-                                    .opacity((loopSlots[safe: riffIdx]?.isFilled == true || riffIdx == playingSlot) ? 1 : 0.42)
+                                // §8.2: the RIFFS tab is HIDDEN (unreachable from the tab strip below),
+                                // not deleted — there is only ONE riff now, so every row's icon is the
+                                // same effective grid (dead code kept compiling, never actually shown).
+                                riffMiniIcon(ranks: effectiveGridRanks, noteColor: Color(hex: 0xDFE3EA), dotColor: Color(hex: 0x3A3E47))
                             }
                             .frame(width: riffLabelColW, height: cellH)
                             ForEach(0..<n, id: \.self) { step in
@@ -4606,9 +4518,4 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.22), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
     }
-}
-// LOOP SLOTS (FERRY "loop slots replace the riff tabs") — file-private, mirrors the identical (also
-// file-private, so no conflict) extension in MacroAuthoring.swift.
-private extension Array {
-    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }

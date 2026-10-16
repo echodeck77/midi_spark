@@ -865,9 +865,39 @@ struct EuclideousRiffsSeq: Equatable {
     var len: Int = 8
     var cells: [Int] = [Int](repeating: 0, count: 8)
 }
-// LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — a DEDICATED ladder, not a
-// reuse of `EuclideousSeqRate` (¼…4 BAR, a sequencer STEP rate — no 8 case, a different concept from a
-// loop's own LENGTH).
+// LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16) — SUPERSEDES the loop-
+// slots ferry's 4-independent-slot model entirely, retired below (decode-only, see `EuclideousLoopSlot`'s
+// own updated doc comment). A fresh ladder, not a reuse of `EuclideousSeqRate` (¼…4 BAR, a sequencer STEP
+// rate) or the retired `EuclideousLoopBars` (1/2/4/8, the slots' own length) — this one is 2/4/8/16 PASSES.
+/// §2.1's four states — UI-only (never persisted, purely in-memory on `AudioUnitViewController`), but
+/// a top-level type (not nested) since `EuclideousPage` needs to read it too, for the loop row's own
+/// look/VoiceOver (§7.4/§7.7).
+enum EuclideousLooperModeKind: Equatable { case off, armed, recording, replaying }
+enum EuclideousLooperPasses: String, Codable, CaseIterable {
+    case twoPasses = "2", fourPasses = "4", eightPasses = "8", sixteenPasses = "16"
+    var passes: Int {
+        switch self {
+        case .twoPasses: return 2; case .fourPasses: return 4; case .eightPasses: return 8; case .sixteenPasses: return 16
+        }
+    }
+}
+/// One recorded change within the (single, never-saved) loop: `offsetBars` (not beats) so a meter change
+/// mid-loop keeps the loop's shape (§6.3). `rank` 0 = rest, 1...8 = pool rank, same convention as
+/// `EuclideousRiff.ranks` — reused as-is from the loop-slots ferry (the shape was already right; only the
+/// SLOT concept it used to live inside is retired). `column` is redundant when these are already bucketed
+/// per-column (§6.4's "fixed-capacity per-column sorted buffers"), but keeping it lets the whole loop
+/// thread through `MachineParams`/`SnapParams` as ONE flat array instead of 8 nested ones — simpler
+/// plumbing, identical behaviour (the engine still treats it as 8 independent per-column timelines).
+struct EuclideousLoopEvent: Codable, Equatable {
+    var offsetBars: Double
+    var column: Int
+    var rank: Int
+}
+// RETIRED (loop-slots ferry, 2026-10-16, superseded same-day) — decode-only: `PluginState`/`MachineParams`
+// kept these fields declared for a session saved in the brief window loop-slots was live (none is known to
+// exist — it never reached a device), same "decode-safety for an old doc, unreachable from any UI" pattern
+// as `euclideousReceiver`/`riffDirBias` elsewhere in this file. Never written again; `SnapParams` never
+// decodes from disk, so its own mirrors were removed outright rather than kept decode-only.
 enum EuclideousLoopBars: String, Codable, CaseIterable {
     case oneBar = "1 BAR", twoBars = "2 BARS", fourBars = "4 BARS", eightBars = "8 BARS"
     var bars: Double {
@@ -876,44 +906,12 @@ enum EuclideousLoopBars: String, Codable, CaseIterable {
         }
     }
 }
-/// One recorded change within a loop slot: `offsetBars` (not beats) so a meter change mid-loop keeps the
-/// loop's shape (ferry §9.3). `rank` 0 = rest, 1...8 = pool rank — same convention as `EuclideousRiff.ranks`.
-struct EuclideousLoopEvent: Codable, Equatable {
-    var offsetBars: Double
-    var column: Int
-    var rank: Int
-}
-/// A loop slot: `startRanks == nil` ⇒ EMPTY (mirrors `EuclideousRiff.ranks`'s own nil-sentinel
-/// convention) — distinct from a FILLED slot whose ranks happen to be all rests (ferry §12.3's migrated-
-/// all-rest-but-RIFFS-picked case). `events` capped at 512 by whoever writes it (ferry §9.8); not enforced
-/// here since this type has no write-time hook of its own.
 struct EuclideousLoopSlot: Codable, Equatable {
     var length: EuclideousLoopBars = .fourBars
     var startRanks: [Int]? = nil
     var events: [EuclideousLoopEvent]? = nil
     var isFilled: Bool { startRanks != nil }
-    var startRanksResolved: [Int] { let r = startRanks ?? []; return r.count == 8 ? r : (0..<8).map { $0 < r.count ? r[$0] : 0 } }
-    var eventsResolved: [EuclideousLoopEvent] { events ?? [] }
     static var empty: EuclideousLoopSlot { EuclideousLoopSlot() }
-}
-// MIGRATION (ferry §12.3): no data rewrite — `riffs`/`activeRiff` stay decodable (PluginState keeps
-// writing nothing new to them), this function derives the live grid + 4 slots from them on load. Slot k:
-// riff k AS A 1-BAR LOOP, no events. An all-rest riff becomes an EMPTY slot UNLESS a RIFFS cell picks it
-// (then it stays a 1-bar loop of rests, §12.3's literal carve-out) — so this can't be a pure per-riff map;
-// it also needs the RIFFS cells array.
-func euclideousLoopSlotsMigrated(riffs: [EuclideousRiff]?, activeRiff: Int?, legacySingular: EuclideousRiff,
-                                  riffsSeqCells: [Int]) -> (liveGrid: EuclideousRiff, slots: [EuclideousLoopSlot]) {
-    let rs = euclideousRiffsMigrated(riffs, legacySingular: legacySingular)
-    let activeIdx = max(0, min(3, activeRiff ?? 0))
-    let liveGrid = rs[activeIdx]
-    let pickedIndices = Set(riffsSeqCells)
-    let slots = (0..<4).map { k -> EuclideousLoopSlot in
-        let ranks = rs[k].ranksResolved
-        let allRest = ranks.allSatisfy { $0 < 1 }
-        if allRest && !pickedIndices.contains(k) { return .empty }
-        return EuclideousLoopSlot(length: .oneBar, startRanks: Array(ranks.prefix(8)), events: nil)
-    }
-    return (liveGrid, slots)
 }
 // EUCLID DIRECTION (Paul 2026-10-01): a DEDICATED enum, not a reuse of RIFF's own `RiffDir` — EUCLID needs only
 // 3 of RiffDir's 6 cases (no RANDOM/DRUNK) and RiffDir's own PENDULUM/PING-PONG naming history (the persisted
@@ -1153,11 +1151,22 @@ struct MachineParams: Codable, Equatable {
     // new plural one needs the identical treatment); `PluginState`'s own copy is the persisted document's.
     var riffs: [EuclideousRiff]? = nil
     var activeRiff: Int? = nil
-    // LOOP SLOTS (ferry "loop slots replace the riff tabs") — mirrors `PluginState`'s own copy exactly (same
-    // names, same migration): this is what `BuildPage.swift`'s publish line feeds the render engine.
+    // THE RIFF (ferry "looper tabs replace the riff tabs") — mirrors `PluginState`'s own copy exactly
+    // (same name, same migration): this is what `BuildPage.swift`'s publish line feeds the render engine.
     var euclideousLiveGrid: EuclideousRiff? = nil
+    // RETIRED (loop-slots, superseded same-day) — decode-only, never written again; see this file's own
+    // `EuclideousLoopSlot` doc comment.
     var euclideousLoopSlots: [EuclideousLoopSlot]? = nil
     var euclideousManualSlot: Int? = nil
+    // THE LOOPER (§6/§8.5) — NEVER saved (no `PluginState` field at all): purely a live, ephemeral mirror
+    // of `AudioUnitViewController`'s own @State, republished on every edit exactly like every other live
+    // Euclideous control. `active == true` is the only thing that matters to the render engine — Off/
+    // Armed are UI-only concepts (§2) that never produce a loop for the engine to read at all.
+    var euclideousLooperActive: Bool? = nil
+    var euclideousLooperStartBeat: Double? = nil      // B
+    var euclideousLooperPasses: EuclideousLooperPasses? = nil   // N
+    var euclideousLooperStartRanks: [Int]? = nil      // 8, frozen at B
+    var euclideousLooperEvents: [EuclideousLoopEvent]? = nil    // capped 128/column at the write site (§3.4)
     var mainOutMask: UInt8? = nil // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07) — only meaningful for Euclideous's cell; nil ⇒ 0b1111 (all open, byte-identical for every other chain)
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
@@ -2512,21 +2521,15 @@ struct PluginState: Codable, Equatable {
     var activeRiff: Int? = nil
     var riffsResolved: [EuclideousRiff] { euclideousRiffsMigrated(riffs, legacySingular: euclideousRiffResolved) }
     var activeRiffResolved: Int { max(0, min(3, activeRiff ?? 0)) }
-    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — SUPERSEDES `riffs`/
-    // `activeRiff` above, which stay in place decode-only (no new writes) feeding the migration below; a
-    // pre-ferry document (both nil) migrates through `euclideousLoopSlotsMigrated` on every read, so there
-    // is no on-disk rewrite and no factory reset. `euclideousManualSlot`: nil ⇒ the live grid plays (or
-    // nothing, while the RIFFS sequencer drives); non-nil ⇒ that slot is the manual target (its anchor/
-    // queue/run live only in the render engine, never persisted — ferry §12.2).
+    // THE RIFF (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16, §8.1) — SUPERSEDES
+    // `riffs`/`activeRiff` above, which stay in place decode-only (no new writes); a pre-ferry document
+    // (nil) migrates with no data rewrite: the riff = riffs[activeRiffResolved]. No slots detour (the
+    // loop-slots ferry's own 4-slot migration is retired along with the type it fed).
     var euclideousLiveGrid: EuclideousRiff? = nil
+    var euclideousLiveGridResolved: EuclideousRiff { euclideousLiveGrid ?? riffsResolved[activeRiffResolved] }
+    // RETIRED (loop-slots, superseded same-day) — decode-only.
     var euclideousLoopSlots: [EuclideousLoopSlot]? = nil
     var euclideousManualSlot: Int? = nil
-    private var loopSlotsMigratedResolved: (liveGrid: EuclideousRiff, slots: [EuclideousLoopSlot]) {
-        euclideousLoopSlotsMigrated(riffs: riffs, activeRiff: activeRiff, legacySingular: euclideousRiffResolved,
-                                     riffsSeqCells: euclideousRiffsSeqCellsResolved)
-    }
-    var euclideousLiveGridResolved: EuclideousRiff { euclideousLiveGrid ?? loopSlotsMigratedResolved.liveGrid }
-    var euclideousLoopSlotsResolved: [EuclideousLoopSlot] { euclideousLoopSlots ?? loopSlotsMigratedResolved.slots }
     // EUCLIDEOUS PAGE REWORK (Paul/design-channel, 2026-10-07, ratified — Docs/SPEC-euclideous-rework.md):
     // global controls. `euclideousReceiver`/`euclideousReceiverResolved` above are now UNREACHABLE from any
     // UI (the single IN A/B/C/D selector was removed) but left in place inert, matching how `riffDirBias`
@@ -3343,15 +3346,14 @@ struct EuclideousUndoSnapshot: Equatable {
     // any of these.
     var lanesSeq: EuclideousLanesSeq
     var riffsSeq: EuclideousRiffsSeq
-    // LOOP SLOTS (ferry "loop slots replace the riff tabs") — SUPERSEDES the old `riffs: [EuclideousRiff]`/
+    // THE RIFF (ferry "looper tabs replace the riff tabs") — SUPERSEDES the old `riffs: [EuclideousRiff]`/
     // `activeRiff: Int` pair this struct used to carry: this snapshot is purely in-memory (never decoded
     // from disk — `UndoStack` is plain `@State`, cleared on every fresh instance), so there's no decode-
-    // safety reason to keep the old fields here the way the persisted document keeps them. Keep/overdub
-    // landing, length change, paste and clear are undo steps (§12.1); play/stop/queue/jams are explicitly
-    // not, so they never call `euclideousRecordUndo` at all.
+    // safety reason to keep the old fields here the way the persisted document keeps them. §8.6: edits
+    // while Off/Armed are undo steps as today; stop is ONE step (§4.2, before = the loop's own start
+    // ranks, after = the frozen/current ranks — both representable as `liveGrid` snapshots, no extra
+    // field needed); nothing recorded DURING a loop is an undo step.
     var liveGrid: EuclideousRiff
-    var loopSlots: [EuclideousLoopSlot]
-    var manualSlot: Int?
 }
 
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack

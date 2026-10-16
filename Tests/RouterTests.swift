@@ -6227,16 +6227,19 @@ final class RouterTests: XCTestCase {
     // off; when on, which of the four riffs plays switches per-step. Proven with two maximally-distinguishable
     // riffs (a constant-low vs. a constant-high rank) so the switch's effect is unambiguous in the struck
     // pool index — bar 1 must read ONLY the lowest pool note, bar 2 ONLY the highest.
-    func testEuclideousRiffsSeqSwitchesThePlayingRiffAtTheStepBoundary() {
+    // LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16, §8.2) — SUPERSEDES this
+    // test's own old assertion entirely: "the engine ignores [the RIFFS sequencer's] picks, so riff ranks
+    // never depend on it" is now the REQUIRED behaviour, not a regression — confirms the retirement, not a
+    // leftover expectation of the old switching behaviour.
+    func testEuclideousRiffsSeqIsIgnoredRiffRanksNeverDependOnIt() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
                                              useRiff: false, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)]
         let constLow = EuclideousRiff(steps: 8, ranks: [Int](repeating: 1, count: 8))
         let constHigh = EuclideousRiff(steps: 8, ranks: [Int](repeating: 8, count: 8))
-        // FOUR RIFFS live on MachineParams (`c.paramsA`), mirroring `euclideousRiff` itself — confirmed the
-        // only path the real render/publish pipeline actually reaches (`BuildPage.swift`'s own publish
-        // feeds `MachineParams.riffs`, never a PluginState-level field directly).
+        // Still threaded through `MachineParams` decode-only (§8.1) — `riffs[0]` migrates into
+        // `euclideousLiveGrid` since `activeRiff` is unset (defaults to 0).
         c.paramsA.riffs = [constLow, constHigh, EuclideousRiff.empty, EuclideousRiff.empty]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
@@ -6244,28 +6247,18 @@ final class RouterTests: XCTestCase {
                                   s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                   return s }()])
         st.euclideousNoteSource = .midi
+        // RIFFS sequencer configured exactly as the OLD switching test did — ON, set up to (under the
+        // retired behaviour) switch from riff 0 to riff 1 at the bar-2 boundary. §8.2: none of this may
+        // change what sounds any more.
         st.euclideousRiffsSeqOn = true
         st.euclideousRiffsSeqRate = .oneBar
         st.euclideousRiffsSeqLen = 2
-        // `euclideousRiffsSeqCellsResolved` requires the FULL canonical 8-entry array regardless of `len` —
-        // a short array fails its own `c.count == 8` guard and falls back to the all-riff-0 default entire,
-        // caught by this exact test's own first run (cells silently read as `[0,0,…]`, not `[0,1]`, so bar 2
-        // never switched at all). Only indices 0/1 are actually consulted at len=2; the rest are padding.
-        st.euclideousRiffsSeqCells = [0, 1, 0, 0, 0, 0, 0, 0]   // bar 1 (step 0) plays riff 0 (constLow), bar 2 (step 1) plays riff 1 (constHigh)
+        st.euclideousRiffsSeqCells = [0, 1, 0, 0, 0, 0, 0, 0]
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: 7.9, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let picks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         XCTAssertFalse(picks.isEmpty)
-        // Isolate bar 1 alone (RATE 1 BAR means step 0 covers all of bar 1) to find exactly where it ends
-        // within the combined 2-bar `picks` sequence above, so bar 2's own suffix can be checked separately.
-        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: 3.9, into: e1, forceColumn: 0)
-        assertNothingLeftSounding(e1)
-        let bar1Picks = e1.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
-        XCTAssertFalse(bar1Picks.isEmpty)
-        XCTAssertTrue(bar1Picks.allSatisfy { $0 == 0 }, "bar 1 (riff 0, constant-low) must strike only the lowest pool note")
-        let bar2Picks = Array(picks.suffix(picks.count - bar1Picks.count))
-        XCTAssertFalse(bar2Picks.isEmpty)
-        XCTAssertTrue(bar2Picks.allSatisfy { $0 == 7 }, "bar 2 (riff 1, constant-high) must strike only the highest pool note — the switch genuinely took effect at the bar boundary")
+        XCTAssertTrue(picks.allSatisfy { $0 == 0 }, "both bars strike only the lowest pool note (riff 0 / constant-low, via euclideousLiveGrid) — the RIFFS sequencer's own bar-2 pick is ignored entirely, confirming §8.2's retirement")
     }
     func testEuclideousRiffsSeqOffFollowsTheActiveRiffTab() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]

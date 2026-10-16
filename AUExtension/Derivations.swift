@@ -161,100 +161,84 @@ func euclideousSeqStepIndex(beat: Double, stepBeats: Double, len: Int) -> Int {
     return ((absStep % n) + n) % n
 }
 
-// MARK: - LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16)
+// MARK: - LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16)
 //
-// §9.1: ONE pure pair decides a column's rank at any beat — `euclideousActiveSource` (which of the 4
-// slots, or the live grid, sounds right now) and `euclideousEffectiveRank` (what that source plays on one
-// column). Every reader shares them: the Router's per-hit riff read, the TIE lookahead's frozen-source
-// scan, the riff grid's own display, the walk-tag mirror, the RIFFS-tab row icons, VoiceOver. No reader
-// re-derives "what's the rank here" on its own — the exact bug class this codebase has hit repeatedly
-// (RATCHET/DEST/the mask step bar/the ARP LFO/CLOCK's glide), named in CLAUDE.md as the recurring one.
+// §6.1: ONE pure function decides a column's rank at any beat — from the live grid and, if one is
+// running, the single loop. Every reader shares it (§6.2): the Router's per-hit riff read, the TIE
+// lookahead's frozen snapshot, the grid display, the riff-grid markers, lane prediction, DRUNK,
+// VoiceOver. No reader re-derives "what's the rank here" on its own — the exact bug class this codebase
+// has hit repeatedly (RATCHET/DEST/the mask step bar/the ARP LFO/CLOCK's glide), named in CLAUDE.md as
+// the recurring one. SUPERSEDES the loop-slots ferry's `euclideousActiveSource`/`euclideousEffectiveRank`/
+// `euclideousSlotRankAtPosition` pair entirely — there is only one riff and at most one loop now, so
+// there is no "which of several sources" question left to resolve.
 
-/// Which source is live at `beat` (§9.2). `riffsSeqSlot`, if non-nil, is THIS hit's RIFFS-sequencer pick —
-/// the caller resolves it exactly as the old per-riff lookup did (`euclideousSeqStepIndex` + `cells[step]`);
-/// it always wins over a manual slot or a pending queue (§9.2, §5.4's "turning RIFFS off" is a STATE
-/// TRANSITION the caller performs at the toggle edge, not something this per-beat read needs to know about).
-/// A queued switch takes over once `beat` reaches its land beat (§2.1/§4). `manualRunID`/`runID`: an anchor
-/// from an earlier run is ignored, falling back to the current run's own start (§9.5) — e.g. a transport
-/// restart always starts a manual slot from its first bar.
-enum EuclideousRankSource: Equatable { case liveGrid; case slot(index: Int, anchorBeat: Double) }
-func euclideousActiveSource(beat: Double, riffsSeqOn: Bool, riffsSeqSlot: Int?,
-                             manualSlot: Int?, manualAnchorBeat: Double, manualRunID: Int,
-                             queuedSlot: Int?, queuedLandBeat: Double?,
-                             runID: Int, runStartBeat: Double) -> EuclideousRankSource {
-    if riffsSeqOn, let s = riffsSeqSlot { return .slot(index: s, anchorBeat: runStartBeat) }   // §5.3: anchored to the RUN, not a per-switch anchor — makes slots "run in step"
-    if let qs = queuedSlot, let land = queuedLandBeat, beat >= land { return .slot(index: qs, anchorBeat: land) }
-    if let ms = manualSlot {
-        let anchor = (manualRunID == runID) ? manualAnchorBeat : runStartBeat
-        return .slot(index: ms, anchorBeat: anchor)
-    }
-    return .liveGrid
-}
-/// A slot's own position within its loop, in bars, always in `[0, lengthBars)` (§9.2's "bars since its
-/// anchor, modulo its length"). Exposed separately (not just inlined into `euclideousEffectiveRank`) because
-/// the slot-row ring (§10.4/§10.7) needs this SAME number to draw "bars already played this cycle" — it
-/// must never re-derive its own version.
-func euclideousLoopPositionBars(beat: Double, anchorBeat: Double, beatsPerBar: Double, lengthBars: Double) -> Double {
+/// A loop's own position within it, in bars, always in `[0, passes)` (§1.4: "bars since B, modulo N").
+/// Exposed separately (not just inlined below) because the loop row's own segment-fill display (§7.4)
+/// needs this SAME number — it must never re-derive its own version.
+func euclideousLoopPositionBars(beat: Double, startBeat: Double, beatsPerBar: Double, passes: Double) -> Double {
     let barBeats = max(0.0001, beatsPerBar)
-    let n = max(1, lengthBars)
-    let raw = (beat - anchorBeat) / barBeats
+    let n = max(1, passes)
+    let raw = (beat - startBeat) / barBeats
     return raw - n * (raw / n).rounded(.down)
 }
-/// The rank `source` plays on `column` at `beat` (§9.1/§9.3). `jamRank`, if non-nil, OVERRIDES the column
-/// outright (§6.1: a jam always beats the loop/live grid on its own column while it holds). A slot with no
-/// filled content (shouldn't be selectable by `euclideousActiveSource` in practice, but defensive) falls
-/// back to the live grid, never a crash.
-func euclideousEffectiveRank(column: Int, beat: Double, liveGrid: [Int], slots: [EuclideousLoopSlot],
-                              source: EuclideousRankSource, beatsPerBar: Double, jamRank: Int?) -> Int {
-    if let jamRank { return jamRank }
+/// §6.1, literal: no loop, or `beat` before B, → the live grid. Otherwise: position p = bars since B
+/// modulo N; the loop's start rank, then its events on this column with offset ≤ p, in order, last one
+/// wins (§3.2/§3.3's "replay is faithful... events apply in order"). `events` is one flat, per-column-
+/// tagged array (§6.4's "fixed-capacity per-column buffers," threaded here as one array for simpler
+/// plumbing — behaviourally identical, since this scan only ever looks at `ev.column == column` entries).
+func euclideousLooperEffectiveRank(column: Int, beat: Double, liveGrid: [Int],
+                                    active: Bool, startBeat: Double, passes: Int, startRanks: [Int],
+                                    events: [EuclideousLoopEvent], beatsPerBar: Double) -> Int {
     guard column >= 0, column < 8 else { return 0 }
     let liveGridRank = column < liveGrid.count ? liveGrid[column] : 0
-    switch source {
-    case .liveGrid: return liveGridRank
-    case .slot(let index, let anchorBeat):
-        guard index >= 0, index < slots.count else { return liveGridRank }
-        let posBars = euclideousLoopPositionBars(beat: beat, anchorBeat: anchorBeat, beatsPerBar: beatsPerBar, lengthBars: slots[index].length.bars)
-        return euclideousSlotRankAtPosition(slots[index], column: column, positionBars: posBars) ?? liveGridRank
-    }
-}
-/// The §9.3 "start rank, then its events with offset ≤ p" lookup, factored out so a caller that already
-/// has the loop's own POSITION (the slot-row ring's own poll, §10.4/§10.7 — no raw anchor beat needed) can
-/// share the identical logic `euclideousEffectiveRank` uses, rather than re-deriving it (§9.1). `nil` ⇒ the
-/// slot isn't filled (caller's own live-grid fallback applies).
-func euclideousSlotRankAtPosition(_ slot: EuclideousLoopSlot, column: Int, positionBars: Double) -> Int? {
-    guard slot.isFilled, column >= 0, column < 8 else { return nil }
+    guard active, beat >= startBeat else { return liveGridRank }
+    let p = euclideousLoopPositionBars(beat: beat, startBeat: startBeat, beatsPerBar: beatsPerBar, passes: Double(max(1, passes)))
     var best: EuclideousLoopEvent? = nil
-    for ev in slot.eventsResolved where ev.column == column && ev.offsetBars <= positionBars + 1e-9 {
+    for ev in events where ev.column == column && ev.offsetBars <= p + 1e-9 {
         if best == nil || ev.offsetBars > best!.offsetBars { best = ev }
     }
-    return best?.rank ?? slot.startRanksResolved[column]
+    let startRank = column < startRanks.count ? startRanks[column] : 0
+    return best?.rank ?? startRank
 }
-/// §4.1, literal: a tap within the first beat of a bar lands AT that bar's start (retroactive, joins in
-/// progress); a later tap lands at the NEXT bar line. The grace window is one real beat wide (always,
-/// regardless of the bar's own length) — "people are always a little late," not "a bar gives
-/// proportionally more grace." Kept here (not a Router private) so it stays off-device testable.
+/// §2.2, literal: "Recording starts at B, the NEXT bar line after the tap... a tap in a bar's first beat
+/// STILL arms for the next bar line. There is no grace." — unlike the LANDED-overdub timing this ferry's
+/// predecessor (loop-slots) used, arming NEVER retroactively anchors to the bar already in progress, even
+/// when the tap lands in its first beat; it always targets the FOLLOWING line. Also used for §2.7's "a
+/// transport start counts as a bar line" (pass `beat` = the run's own first beat) and §5.2's post-edge
+/// re-arming. Kept here (not UI-private) so it stays off-device testable (§9.3).
 func euclideousNextLandingBeat(from beat: Double, barBeats: Double) -> Double {
     guard barBeats > 0 else { return beat }
-    let barStart = (beat / barBeats).rounded(.down) * barBeats
-    return (beat - barStart) < 1.0 ? barStart : barStart + barBeats
+    return ((beat / barBeats).rounded(.down) + 1) * barBeats
 }
-/// §3.2: "lands at that slot's next loop top... reading 'loop top' for 'bar line'" — same grace as
-/// `euclideousNextLandingBeat` above, but the boundaries are the SLOT's own loop tops (its anchor plus
-/// whole multiples of its length), not bar lines.
-func euclideousNextLoopTopBeat(from beat: Double, anchorBeat: Double, barBeats: Double, lengthBars: Double) -> Double {
-    let cycleBeats = max(0.0001, lengthBars) * max(0.0001, barBeats)
-    let sinceAnchor = beat - anchorBeat
-    let topStart = anchorBeat + (sinceAnchor / cycleBeats).rounded(.down) * cycleBeats
-    return (beat - topStart) < 1.0 ? topStart : topStart + cycleBeats
+/// §2.7/§5.2: a transport edge (host start, backward jump, the free-run↔host hand-over) ITSELF "counts as
+/// a bar line" — unlike an ordinary tap (§2.2's always-the-NEXT-line, no-grace arming rule, above), the
+/// run's own first bar line is the one the edge landed AT or just past (the poll notices a beat or so
+/// later than the true edge, per §3.5's accepted jitter), not one further ahead. Floors `beat` down to its
+/// enclosing bar line. Used for §5.2's "Armed: B is the first bar line after the edge" and "Replaying:
+/// restarts from pass 1 at the run's first bar line."
+func euclideousRunFirstBarLine(at beat: Double, barBeats: Double) -> Double {
+    guard barBeats > 0 else { return beat }
+    return (beat / barBeats).rounded(.down) * barBeats
 }
-/// §9.8: coalesce same-column events within 1/96 beat (converted to bars by the caller, since events are
-/// bar-offset) — the LAST write wins. Cap 512; past that, keep the first 512 in time order (the newest
-/// write past the cap is simply dropped, not inserted — a slot this busy has hit a deliberate ceiling, not
-/// a bug). Pure; called from the main thread only when converting a landed commit's fixed render-thread
-/// scratch into the persisted `[EuclideousLoopEvent]` (§9.6's "recording happens on the main thread only" —
-/// the render thread writes fixed scratch, never this growable array).
-func euclideousAppendLoopEvent(_ events: [EuclideousLoopEvent], column: Int, rank: Int, offsetBars: Double,
-                                coalesceWindowBars: Double, cap: Int = 512) -> [EuclideousLoopEvent] {
+/// §3.4: coalesce same-column events within 1/96 beat (converted to bars by the caller, since events are
+/// bar-offset) — the LAST write wins. Cap 128 PER COLUMN; past the cap "an edit still sounds but isn't
+/// recorded" — it's simply not appended (not inserted-and-evict-oldest), exactly per the literal text.
+/// Pure; called from the MAIN THREAD only (§6.4 — the render thread never records), once per edit.
+/// §7.3, literal: "segment width = (button width − 12 − gaps) ÷ N; gap 2 (N ≤ 8) or 1 (N = 16); if that
+/// falls below 2, drop the gaps to 1." Pure (no SwiftUI dependency) so the loop row's own geometry stays
+/// off-device testable, same convention `euclideousRestartStepHitTest` already established in this file.
+func euclideousLooperSegmentGeometry(n: Int, buttonWidth: CGFloat) -> (segmentWidth: CGFloat, gap: CGFloat) {
+    let inset: CGFloat = 6
+    let available = max(0, buttonWidth - inset * 2)
+    let nD = CGFloat(max(1, n))
+    let initialGap: CGFloat = n <= 8 ? 2 : 1
+    let rawSegW = (available - initialGap * CGFloat(max(0, n - 1))) / nD
+    let gap: CGFloat = rawSegW < 2 && initialGap > 1 ? 1 : initialGap
+    let segW = max(0, (available - gap * CGFloat(max(0, n - 1))) / nD)
+    return (segW, gap)
+}
+func euclideousAppendLooperEvent(_ events: [EuclideousLoopEvent], column: Int, rank: Int, offsetBars: Double,
+                                  coalesceWindowBars: Double, cap: Int = 128) -> [EuclideousLoopEvent] {
     var out = events
     for i in out.indices.reversed() where out[i].column == column {
         if abs(out[i].offsetBars - offsetBars) <= coalesceWindowBars {
@@ -263,7 +247,8 @@ func euclideousAppendLoopEvent(_ events: [EuclideousLoopEvent], column: Int, ran
         }
         break   // same-column events are appended in time order — the most recent one is the only coalesce candidate
     }
-    guard out.count < cap else { return out }   // §9.8: past the cap, keep the first 512, drop the rest
+    let columnCount = out.reduce(0) { $0 + ($1.column == column ? 1 : 0) }
+    guard columnCount < cap else { return out }   // §3.4: past the cap, the edit still sounds live but isn't recorded
     out.append(EuclideousLoopEvent(offsetBars: offsetBars, column: column, rank: rank))
     return out
 }

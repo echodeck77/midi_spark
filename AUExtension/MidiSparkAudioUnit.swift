@@ -540,12 +540,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // slot 0 the instant it's read, so nothing downstream of THIS forwarder ever needs the old field again.
     func uiEuclideousRiffs() -> [EuclideousRiff] { document.riffsResolved }
     func uiEuclideousActiveRiff() -> Int { document.activeRiffResolved }
-    // LOOP SLOTS (ferry "loop slots replace the riff tabs") — `riffsResolved`/`activeRiffResolved` above
-    // stay in place, decode-only (feed the migration inside `euclideousLoopSlotsResolved` the instant a
-    // pre-ferry document is read); nothing downstream of THESE forwarders ever needs them again.
+    // THE RIFF (ferry "looper tabs replace the riff tabs", §8.1) — `riffsResolved`/`activeRiffResolved`
+    // above stay in place, decode-only (feed the migration inside `euclideousLiveGridResolved` the
+    // instant a pre-ferry document is read); nothing downstream of THIS forwarder ever needs them again.
     func uiEuclideousLiveGrid() -> EuclideousRiff { document.euclideousLiveGridResolved }
-    func uiEuclideousLoopSlots() -> [EuclideousLoopSlot] { document.euclideousLoopSlotsResolved }
-    func uiEuclideousManualSlot() -> Int? { document.euclideousManualSlot.map { max(0, min(3, $0)) } }
     func uiEuclideousLanesSeq() -> EuclideousLanesSeq {
         EuclideousLanesSeq(on: document.euclideousLanesSeqOnResolved, rate: document.euclideousLanesSeqRateResolved,
                             len: document.euclideousLanesSeqLenResolved, cells: document.euclideousLanesSeqCellsResolved)
@@ -850,19 +848,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): same request/consume shape as masterPanic,
     // narrower scope (Euclideous's own row only — see Router.process's own consumption of the flag).
     func euclideousAllNotesOff() { kernel.euclideousAllNotesOffRequest() }
-    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — same request/consume
-    // shape as euclideousAllNotesOff above.
-    func euclideousRequestPlayTap(_ slot: Int) { kernel.euclideousRequestPlayTap(slot) }
-    func euclideousRequestKeepTap(_ slot: Int) { kernel.euclideousRequestKeepTap(slot) }
-    func euclideousRequestJam(column: Int, rank: Int?) { kernel.euclideousRequestJam(column: column, rank: rank) }
-    func euclideousPlayingSlot() -> Int? { kernel.euclideousPlayingSlot() }
-    func euclideousQueuedSlot() -> Int? { kernel.euclideousQueuedSlot() }
-    func euclideousPendingKeepSlot() -> Int? { kernel.euclideousPendingKeepSlot() }
-    func euclideousStopResultSeq() -> Int { kernel.euclideousStopResultSeq() }
-    func euclideousStopResultRanks() -> [Int] { kernel.euclideousStopResultRanks() }
-    func euclideousLoopRingProgress(_ slot: Int) -> (position: Double, lengthBars: Double) { kernel.euclideousLoopRingProgress(slot) }
-    func euclideousBuildLandedKeep(slot: Int, ackSeq: Int) -> (result: EuclideousLoopSlot, seq: Int)? { kernel.euclideousBuildLandedKeep(slot: slot, ackSeq: ackSeq) }
-    func euclideousJamStatePoll() -> [(active: Bool, rank: Int)] { kernel.euclideousJamStatePoll() }
 
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
