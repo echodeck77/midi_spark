@@ -24,6 +24,9 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - Overdub in AUM at several buffer sizes.
 - A replaying loop through a host stop and start feels right in performance.
 - HOLD NOTES TO PLAY over the grid reads as a message, not clutter.
+- Long press (and swipe-then-hold) on a grid cell fixes the touched column(s) at their current value and takes
+  them out of the loop — the 0.5s threshold feels right, and a long press doesn't fight the existing tap/drag
+  edit gesture on the same cell.
 
 ### Sequencer panel (LANES/RIFFS tabs, step grid, restart markers)
 - Two-finger hold + tap (hold a lane's RESET box, tap that lane's steps with another finger) registers on

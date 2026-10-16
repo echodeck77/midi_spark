@@ -601,6 +601,12 @@ struct EuclideousPage: View {
     // ordinary document edit.
     let onLooperEdit: (Int, Int) -> Void
     let onLooperTabTap: (EuclideousLooperPasses) -> Void
+    // LONG-PRESS TO FIX (2026-10-16): a long press (plain, or ending a swipe) takes every column it
+    // touched out of the loop for good, pinned at the value `onLooperEdit` already set for it — a no-op
+    // while Off/Armed (nothing to take OUT of). This page only reports WHICH columns; the pin logic
+    // itself (read the current effective rank, clear that column's events, bake it into the start ranks)
+    // lives on `AudioUnitViewController`, same "no second derivation" rule as every other write path here.
+    let onLooperFixColumns: ([Int]) -> Void
     let onEditLanesSeq: (@escaping (inout EuclideousLanesSeq) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
@@ -763,6 +769,17 @@ struct EuclideousPage: View {
     // that is a plain PAINT (always sets, never toggles) — the natural way to draw a melodic shape across
     // the 8 columns without each new column accidentally re-clearing whatever the finger started on.
     @State private var riffDragLastCell: (col: Int, row: Int)? = nil
+    // LONG-PRESS TO FIX (Paul 2026-10-16): a long press on a grid cell takes that step out of the loop
+    // (across all passes) and fixes it at the value just set — including when the press follows a swipe
+    // (every column the swipe touched gets fixed) and when it's a tap-to-remove (the column fixes at
+    // rest). Implemented as a RETROACTIVE upgrade, not a different edit path: the ordinary per-cell edit
+    // (`riffSetRank`, below) still fires in real time exactly as before for live visual feedback; only at
+    // gesture-end, if the whole touch was held past the long-press threshold, do the columns touched this
+    // gesture get fixed. `riffGestureStartDate`/`riffGestureTouchedColumns` are this ONE gesture's own
+    // memory, reset alongside `riffDragLastCell` at the start/end of every touch.
+    @State private var riffGestureStartDate: Date? = nil
+    @State private var riffGestureTouchedColumns: Set<Int> = []
+    private let riffLongPressThreshold: TimeInterval = 0.5   // matches this page's other long-press idiom (the retired riff-tab menu used the same 0.5s)
     // RIFF-CELL WIPES / RESET PROGRESS (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane
     // cards" §5) — the first use of Reduce Motion anywhere in this codebase (grepped, zero prior
     // precedent). When on: the riff-cell wipe collapses to a single 150ms flash (no directional sweep, no
@@ -3874,10 +3891,21 @@ struct EuclideousPage: View {
                             let col = max(0, min(n - 1, Int(g.location.x / max(1, cellW + sp4))))
                             let rankRow = max(0, min(7, Int(g.location.y / max(1, cellH + sp4))))
                             let rank = 8 - rankRow
+                            if riffDragLastCell == nil { riffGestureStartDate = Date(); riffGestureTouchedColumns = [] }
                             guard (col, rank) != (riffDragLastCell?.col ?? -1, riffDragLastCell?.row ?? -1) else { return }
                             riffSetRank(col: col, rank: rank, n: n, toggle: riffDragLastCell == nil)
+                            riffGestureTouchedColumns.insert(col)
                             riffDragLastCell = (col, rank)
-                        }.onEnded { _ in riffDragLastCell = nil })
+                        }.onEnded { _ in
+                            // Long press, possibly following a swipe: fix every column this gesture
+                            // touched at its just-set value, out of the loop for good.
+                            if let start = riffGestureStartDate, Date().timeIntervalSince(start) >= riffLongPressThreshold, !riffGestureTouchedColumns.isEmpty {
+                                onLooperFixColumns(Array(riffGestureTouchedColumns))
+                            }
+                            riffDragLastCell = nil
+                            riffGestureStartDate = nil
+                            riffGestureTouchedColumns = []
+                        })
                     // §11.3: HOLD NOTES TO PLAY no longer takes its own row — it floats over the grid,
                     // non-hit-testable (the cells beneath still edit).
                     if midiEmpty {

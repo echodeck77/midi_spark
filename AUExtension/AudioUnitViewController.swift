@@ -381,6 +381,31 @@ struct DiagView: View {
         euclideousLooperEvents = euclideousAppendLooperEvent(euclideousLooperEvents, column: column, rank: rank, offsetBars: p, coalesceWindowBars: coalesceWindow, cap: 128)
         buildPublishScene()
     }
+    /// Long-press (or a swipe-then-hold) on the riff grid, Paul 2026-10-16: "take that step out of the
+    /// loop (across all passes) and fix it at the current selected value" — including the tap-to-remove
+    /// (rest) case, since that's just a rank-0 value like any other. No-op while Off/Armed (nothing to
+    /// "take out of" yet — there's no loop running for a column to be exempted from). For each touched
+    /// column: read its CURRENT effective rank (whatever pass/position is live right now), bake that into
+    /// `startRanks`, then drop every recorded event for that column so no future pass can override it
+    /// again. NOT an undo step — matches §8.6's "nothing recorded during a loop is an undo step," since
+    /// this is just another shape of in-loop recording, not a stored-riff edit.
+    func euclideousLooperFixColumns(_ columns: [Int]) {
+        guard euclideousLooperMode == .recording || euclideousLooperMode == .replaying else { return }
+        let beat = euclideousLooperBeatNow()
+        var startRanks = euclideousLooperStartRanks
+        var events = euclideousLooperEvents
+        for col in columns {
+            guard col >= 0, col < 8 else { continue }
+            let currentRank = euclideousLooperEffectiveRank(column: col, beat: beat, liveGrid: euclideousLiveGrid.ranksResolved,
+                                                              active: true, startBeat: euclideousLooperStartBeat, passes: euclideousLooperPasses.passes,
+                                                              startRanks: euclideousLooperStartRanks, events: euclideousLooperEvents, beatsPerBar: meters.beatsPerBar)
+            startRanks[col] = currentRank
+            events.removeAll { $0.column == col }
+        }
+        euclideousLooperStartRanks = startRanks
+        euclideousLooperEvents = events
+        buildPublishScene()
+    }
     /// Advanced once per fast-poll tick (same cadence as every other live Euclideous readout). Order:
     /// detect a transport edge FIRST (§5), else advance Armed→Recording / Recording→Replaying (§2.4/§2.5).
     func euclideousLooperPollTick() {
@@ -1232,6 +1257,9 @@ struct DiagView: View {
                                    },
                                    onLooperTabTap: { passes in
                                        euclideousLooperTabTap(passes)
+                                   },
+                                   onLooperFixColumns: { columns in
+                                       euclideousLooperFixColumns(columns)
                                    },
                                    onEditLanesSeq: { mutate in
                                        euclideousRecordUndo(coalesceKey: "euclideousLanesSeq")

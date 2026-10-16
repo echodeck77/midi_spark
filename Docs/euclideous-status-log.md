@@ -12,6 +12,29 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "long press to fix a step" (2026-10-16, same day, on top of looper tabs; `feat/looper-tabs`;
+  iOS builds clean; macOS suite green, 1541/1541, no new tests — pure UI-layer change, zero macOS test-target reach).**
+  Paul: a long press on a riff-grid cell (or a swipe that ends in a hold) permanently fixes the touched column(s) at
+  their CURRENT value, taking them out of the loop across all passes — explicitly including the tap-to-remove (rest)
+  case, since that's just rank 0 like any other value. **IMPLEMENTATION:** real-time edits are unchanged (every tap/
+  drag cell still routes through `onLooperEdit`→`euclideousLooperRecordEdit` exactly as before); the NEW behaviour is
+  entirely gesture-duration-based, layered on top at `.onEnded` of the grid's existing `DragGesture(minimumDistance:
+  0)` (`EuclideousPage.swift`, `riffGridView`). Two new `@State` (`riffGestureStartDate`, `riffGestureTouchedColumns`)
+  track one continuous gesture's start time and which columns it touched; at `.onEnded`, if the elapsed time is ≥0.5s
+  (`riffLongPressThreshold`, matching the retired riff-tab menu's own long-press duration) and at least one column was
+  touched, `onLooperFixColumns` fires with the touched-column list. New `AudioUnitViewController.euclideousLooperFix
+  Columns(_:)`: a no-op while Off/Armed (nothing to "take out of" — no loop is running yet); otherwise, for each
+  touched column, reads its CURRENT effective rank via the existing `euclideousLooperEffectiveRank` pure function at
+  "now," bakes that into `euclideousLooperStartRanks[col]`, and drops every recorded `euclideousLooperEvents` entry
+  for that column — so no future pass can ever override it again. **NOT an undo step** — matches §8.6's established
+  "nothing recorded during a loop is an undo step" precedent (this is just another shape of in-loop recording, not a
+  stored-riff edit). Used `.onEnded`'s elapsed-time check specifically rather than depending on `DragGesture.onChanged`
+  firing during a motionless hold (that behaviour isn't guaranteed by SwiftUI). **FLAGGED JUDGMENT CALLS, device/
+  Paul-owed:** the 0.5s threshold (borrowed from a retired feature's similar gesture, not newly specified); whether a
+  long hold feels right alongside the EXISTING tap/drag edit behaviour on the same gesture (a long press still writes
+  ordinary edit events for every column it crosses on the way, same as a quick drag — only the FINAL touched-column
+  set gets fixed); no visual feedback yet distinguishes a "fixed" column from an ordinary one on the grid itself.
+  **DEVICE-OWED:** `Docs/euclideous-device-verification-debt.md`'s "Looper tabs" heading, new line.
 - **▶ EUCLIDEOUS — "FERRY: looper tabs replace the riff tabs" (2026-10-16, ratified by Paul, same day as — and
   superseding — "loop slots" below; on `feat/looper-tabs`; iOS builds clean; macOS suite green incl. +9 new tests +
   1 pre-existing test corrected for the retirement below).** Paul changed direction before the loop-slots ferry ever
