@@ -12,6 +12,35 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "swing control on the header" (2026-10-17; `feat/looper-tabs`; iOS builds clean; macOS suite
+  green, 1541/1541, incl. updating 9 pre-existing header-layout assertions — see below).** Traced a recorded clip's
+  "8 hits on 8 steps" showing oddly-periodic (not evenly-swung) timing to the global SWING parameter (`SceneState.
+  swing`, AUParameter 1, 50 straight … 75): `sampleOf`/`realOf` (Router.swift) warp every row's ticks — Euclideous's
+  own row included — using the GRID's generic step rate (`S`), not a lane's own RHYTHM rate, so a lane whose rate
+  doesn't share a clean ratio with the grid's step rate gets a multi-step-period wobble instead of a plain long-
+  short swing feel whenever swing is off its 50 default. Paul's response: give swing its own control ON this page
+  (previously editable only from the main 8×8 workbench's own `ArrangementBar` slider, or by host automation —
+  invisible from inside Euclideous entirely) and confirm its default stays at the minimum of its range (50, already
+  true at the model level — `SceneState.swing: Int = 50` was never touched). **IMPLEMENTATION:** no new model/
+  engine code — `MidiSparkAudioUnit.uiSwing()`/`.setSwing(_:)` already existed (ArrangementBar's own control used
+  them), so this is a second UI surface onto the SAME value, wired through `AudioUnitViewController` exactly like
+  `ArrangementBar`'s own `onSwing` (`au?.setSwing($0); refreshTiming()`). UTILITIES (the gear/presets group) grows
+  from 2 icons to 3: a new "metronome" icon, tinted only when swing ≠ 50 so a non-default value stays visible with
+  the popover closed, opens a small anchored popover (`swingPopupCard`, reusing the per-lane RESET popup's exact
+  compact chrome) with a `Slider(50...75)` + a readout that names 50 "STRAIGHT" rather than showing a bare number —
+  matching Paul's own "minimum available angle" phrasing. Wired into the page's existing "one overlay at a time"
+  rule (`closeAllOtherOverlays()` + the ad hoc `settingsOpen = false` sites each got a matching `swingPopupOpen =
+  false`). `euclideousHeaderGroupWidths` (Derivations.swift) is the ONE formula every header view/the A/B/C fit-
+  ladder reads — `utilities: 2 * t` → `3 * t` there is the WHOLE layout change; no other file hand-computes a
+  utilities width. **9 PRE-EXISTING TEST FAILURES, not a regression:** `DerivationsTests`' own Fourfold-header tests
+  hardcode specific containerW literals (868, 1158, 343, 520) chosen to sit at exact old boundaries/floors of the
+  2-icon formula — widening UTILITIES by one `t` (44/36pt) shifted every one of those boundaries outward, so each
+  literal now lands in a DIFFERENT regime than the test was written to demonstrate (868 now resolves to kind B, not
+  the "A but slid" case; 343 now genuinely overflows the row; 520 now falls on the C side of the B/C line). Fixed by
+  recomputing each literal against the new formula (verified with a standalone Python port of the real function
+  before touching Swift, not by hand-arithmetic): 1158→1300, 868→900, 343→380 (floor 341→377, page-width 373→409),
+  520→560 (B/C line ≈512→≈556) — same regime each test originally demonstrated, just at the new boundary. **DEVICE-
+  OWED:** `Docs/euclideous-device-verification-debt.md`'s header-group lines.
 - **▶ EUCLIDEOUS — "long press to fix a step" (2026-10-16, same day, on top of looper tabs; `feat/looper-tabs`;
   iOS builds clean; macOS suite green, 1541/1541, no new tests — pure UI-layer change, zero macOS test-target reach).**
   Paul: a long press on a riff-grid cell (or a swipe that ends in a hold) permanently fixes the touched column(s) at

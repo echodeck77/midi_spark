@@ -4991,8 +4991,9 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     let brand = M.markSize + M.sp8 + (compact ? 0 : wordmarkW + M.sp16) + 2 * t
     let lead = compact ? 0 : captionW + M.sp4
     let outputs = lead + 4 * (compact ? M.compactRingPitch : M.ringPitch)
+    // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings), one `t`-wide touch target each.
     return EuclideousHeaderGroupWidths(brand: brand, outputs: outputs, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth,
-                                       utilities: 2 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
+                                       utilities: 3 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
 }
 
 /// The landscape page's column split — ONE definition for the body (`landscapeLayout`) and the header (which wants the

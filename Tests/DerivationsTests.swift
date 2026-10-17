@@ -4088,33 +4088,39 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(f.outputs, caption + 4 + 176, accuracy: 1e-9)
         XCTAssertEqual(f.outputsLead, caption + 4, accuracy: 1e-9, "the caption + sp4 before the first ring's target")
         XCTAssertEqual(f.ringsSpan, 176, accuracy: 1e-9)
-        XCTAssertEqual(f.notes, 312); XCTAssertEqual(f.utilities, 88)
+        // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings): 2×t / 3×t before/after.
+        XCTAssertEqual(f.notes, 312); XCTAssertEqual(f.utilities, 132)
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
-        XCTAssertEqual(c.brand, 93); XCTAssertEqual(c.outputs, 160); XCTAssertEqual(c.utilities, 72)
+        XCTAssertEqual(c.brand, 93); XCTAssertEqual(c.outputs, 160); XCTAssertEqual(c.utilities, 108)
         XCTAssertEqual(c.outputsLead, 0, "layout C hides the caption: the group IS the rings")
-        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 341, "layout C's row 1 — the spec's ≈341, which only reconciles with an sp8 mark→undo gap")
+        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 377, "layout C's row 1 — was ≈341 at 2 UTILITIES icons, 377 now that SWING made it 3")
         XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
     }
-    func testFourfoldLayoutAAt1158PutsNotesOnTheRiffPanelAndRingsOnTheLaneGutter() {
-        let l = hdrLayout(1158, landscape: true)
+    // WIDENED from 1158 → 1300 (2026-10-17, UTILITIES grew from 2 to 3 icons — the SWING icon — so the
+    // fully-unclamped "comfortable A" case now needs a wider container; 1158 now lands in the SLID case
+    // the sibling test below covers).
+    func testFourfoldLayoutAAt1300PutsNotesOnTheRiffPanelAndRingsOnTheLaneGutter() {
+        let l = hdrLayout(1300, landscape: true)
         XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
-        let cols = euclideousLandscapeColumns(containerW: 1158)
-        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1158, accuracy: 1e-9)
+        let cols = euclideousLandscapeColumns(containerW: 1300)
+        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1300, accuracy: 1e-9)
         XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
         XCTAssertEqual(ringsCentre(l), cols.laneCentreX, accuracy: 1e-9, "the RINGS (not the caption-inclusive group) centred on the lane grid's centre (the 2×2's vertical gutter)")
         XCTAssertNotEqual(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, "…so the caption-inclusive group is NOT what's centred")
-        assertHeaderInvariants(l, 1158, "A@1158")
+        assertHeaderInvariants(l, 1300, "A@1300")
     }
-    func testFourfoldLayoutASlidesNotesAndRingsAt868() {
-        let l = hdrLayout(868, landscape: true)
-        let cols = euclideousLandscapeColumns(containerW: 868)
+    // WIDENED from 868 → 900 for the same reason as the test above — 900 is where the 3-icon UTILITIES
+    // formula now reproduces the same "A, but both groups had to slide" case 868 used to demonstrate.
+    func testFourfoldLayoutASlidesNotesAndRingsAt900() {
+        let l = hdrLayout(900, landscape: true)
+        let cols = euclideousLandscapeColumns(containerW: 900)
         XCTAssertEqual(l.kind, .a)
         XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
         XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), 16, accuracy: 1e-9)
         XCTAssertGreaterThan(ringsCentre(l), cols.laneCentreX, "rings slid right to clear BRAND")
         XCTAssertEqual(l.outputs.x - (l.brand.x + l.brand.width), 16, accuracy: 1e-9)
-        assertHeaderInvariants(l, 868, "A@868")
+        assertHeaderInvariants(l, 900, "A@900")
     }
     func testFourfoldLayoutBAt600AndCAt343() {
         let b = hdrLayout(600, landscape: false)
@@ -4122,12 +4128,14 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES on row 2's leading edge")
         XCTAssertEqual([b.brand.row, b.outputs.row, b.utilities.row], [0, 0, 0])
         assertHeaderInvariants(b, 600, "B@600")
-        let c = hdrLayout(343, landscape: false)
+        // WIDENED from 343 → 380 (2026-10-17): UTILITIES' 3rd icon (SWING) raised row-1's real floor from
+        // 341 to 377 — 343 no longer fits at all (would overflow its own trailing edge).
+        let c = hdrLayout(380, landscape: false)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)
-        assertHeaderInvariants(c, 343, "C@343")
-        // C's floor: the narrowest container it fits is its own row-1 need (341) → page width 373.
-        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 373)
+        assertHeaderInvariants(c, 380, "C@380")
+        // C's floor: the narrowest container it fits is its own row-1 need (377, was 341 at 2 icons) → page width 409.
+        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 409)
         // a landscape page too narrow for A falls to B, never A.
         XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
         // portrait never uses A, however wide.
@@ -4146,8 +4154,10 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(ringsCentre(lb), max(cols.laneCentreX, lb.widths.brand + lb.widths.gap + lb.widths.outputsLead + lb.widths.ringsSpan / 2), accuracy: 1e-9)
         assertHeaderInvariants(lb, 760, "B@760 landscape")
         // C has no caption, so its group and its rings share one centre.
-        let c = hdrLayout(520, landscape: false)
-        XCTAssertEqual(c.kind, .b) // 520 ≥ 512: still B
+        // WIDENED from 520 → 560 (2026-10-17): UTILITIES' 3rd icon raised the B/C threshold from ≈512 to
+        // ≈556 — 520 now falls on the C side instead of demonstrating "just above the line, still B".
+        let c = hdrLayout(560, landscape: false)
+        XCTAssertEqual(c.kind, .b) // 560 ≥ 556: still B
         let c2 = hdrLayout(500, landscape: false)
         XCTAssertEqual(c2.kind, .c)
         XCTAssertEqual(ringsCentre(c2), c2.outputs.x + c2.outputs.width / 2, accuracy: 1e-9)

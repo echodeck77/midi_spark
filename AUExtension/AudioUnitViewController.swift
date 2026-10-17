@@ -1220,6 +1220,11 @@ struct DiagView: View {
                                    lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                    wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
+                                   // SWING (2026-10-17): the SAME global setter/readback ArrangementBar's own header
+                                   // slider already uses — a second UI surface onto one shared value, not new state
+                                   // (`refreshTiming` re-polls `swing` right after, matching ArrangementBar's own
+                                   // `onSwing` call site exactly).
+                                   swing: swing, onSetSwing: { au?.setSwing($0); refreshTiming() },
                                    noteSource: euclideousNoteSource,
                                    onSetNoteSource: { v in
                                        euclideousRecordUndo(coalesceKey: nil)

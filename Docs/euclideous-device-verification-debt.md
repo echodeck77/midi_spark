@@ -70,6 +70,10 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
   expect it to look wrong against a partner at a different rate (known, see the status log).
 
 ### Header (Fourfold: BRAND / OUTPUTS / NOTES / UTILITIES) — 2026-10-15 ferry
+- SWING icon (2026-10-17, UTILITIES' 3rd icon): the popover anchors correctly under the metronome icon in all three
+  layouts (A/B/C), at both the smallest and largest panel widths; the tint change at swing≠50 reads clearly at 18pt;
+  dragging the slider to 50 reads as "STRAIGHT" not a bare "50"; the wider UTILITIES group didn't visibly crowd NOTES
+  or the output rings on a real device at the layouts this ferry only checked by formula.
 - Header fit in AUM, full-screen and windowed, both orientations: A, B and C switch cleanly with nothing clipped;
   C (floor: page width 373) fits a 375pt-wide windowed panel.
 - The header rows are now 44 tall with a 9pt top margin (keeps the spec's 31pt centre line): the lane cards below

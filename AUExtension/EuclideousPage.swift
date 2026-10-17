@@ -578,6 +578,14 @@ struct EuclideousPage: View {
     let resetSpanBars: Int
     let keyRoot: Int
     let keyType: ScaleType
+    // SWING (2026-10-17, "put the swing control onto the header"): the SAME scene-wide `SceneState.swing`
+    // (AUParameter 1, 50 straight … 75) the main workbench's own ArrangementBar slider already edits — this
+    // is a second UI surface onto EXISTING live model, not new document state. Default stays 50 (the
+    // minimum of its range, i.e. straight/no-warp) — this page doesn't touch that default, it just gives it
+    // somewhere to be seen/changed without leaving Euclideous (diagnosed 2026-10-17: swing warps every row,
+    // including Euclideous's, via the row's own `S`/`a`, not this lane's own RHYTHM rate — see the status log).
+    let swing: Int
+    let onSetSwing: (Int) -> Void
     // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — SUPERSEDES the per-lane
     // sourceMode entirely (the 2026-10-08 comment this replaces described per-lane I/O as the live model;
     // it no longer is). One page-level choice, same live-mirror/onSet convention as resetSpanBars/keyRoot
@@ -709,6 +717,10 @@ struct EuclideousPage: View {
     // as `laneTab` above.
     @State private var settingsOpen = false
     @State private var settingsTab = 0
+    // SWING (2026-10-17): the global, scene-wide SWING control (AUParameter 1 — shared with the rest of the
+    // 8×8 grid, not Euclideous-specific data) gets its own anchored popover off a third UTILITIES icon, the
+    // same "one overlay at a time" family as `settingsOpen`/`keyPopupOpen`/`chordsPopupOpen` below.
+    @State private var swingPopupOpen = false
     // PER-STEP RESTART MARKS (2026-10-15 ferry, "per-step restart points on the LANES tab" §4): which lanes
     // currently have their RESET box held — a Set, not a single Int, because §4.3 explicitly allows "two
     // RESET boxes held → both lanes in edit mode" simultaneously. The matching touch-down timestamp + the
@@ -938,6 +950,23 @@ struct EuclideousPage: View {
                 // pop-up above (NOT CogPage's own AudioUnitViewController-level overlay — the gear lives
                 // inside this page). `headerH`/`containerW` recomputed via the SAME `headerLayout` call the
                 // two layout functions already use (one formula, not a parallel derivation).
+                // SWING POPOVER (2026-10-17): anchored under the metronome icon — the UTILITIES group's
+                // middle (index 1 of 3) touch target. No frame-preference tracker needed (unlike the KEY
+                // pill, which can land in several places): UTILITIES' own x and the icons' shared `target`
+                // width are already the ONE formula every other header view draws from.
+                if swingPopupOpen {
+                    Color.clear.contentShape(Rectangle()).onTapGesture { swingPopupOpen = false }
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .zIndex(3)
+                    let containerW = geo.size.width - sp16 * 2
+                    let hdr = headerLayout(containerW: containerW, isLandscape: isLandscape)
+                    let target = hdr.compact ? HM.compactTarget : HM.target
+                    let anchorX = sp16 + hdr.utilities.x + target
+                    let anchorY = HM.topMargin + hdr.height
+                    swingPopupCard
+                        .offset(x: min(max(anchorX, sp8), max(sp8, geo.size.width - 200 - sp8)), y: anchorY + sp4)
+                        .zIndex(4)
+                }
                 if settingsOpen {
                     let containerW = geo.size.width - sp16 * 2
                     let hdr = headerLayout(containerW: containerW, isLandscape: isLandscape)
@@ -1319,7 +1348,7 @@ struct EuclideousPage: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if !selected { onSetNoteSource(src) }
-            else if src == .chords { settingsOpen = false; chordsPopupOpen = true }   // §2.1: opening it closes the sheet first
+            else if src == .chords { settingsOpen = false; swingPopupOpen = false; chordsPopupOpen = true }   // §2.1: opening it closes the sheet first
             // selected MIDI IN / KEY: literally nothing.
         }
         .accessibilityElement(children: .ignore)
@@ -1348,35 +1377,77 @@ struct EuclideousPage: View {
             }
         )
         .contentShape(Rectangle())
-        .onTapGesture { settingsOpen = false; keyPopupOpen = true }   // §2.1: opening it closes the sheet first
+        .onTapGesture { settingsOpen = false; swingPopupOpen = false; keyPopupOpen = true }   // §2.1: opening it closes the sheet first
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Key, \(euclideousKeySpokenName(root: keyRoot, type: keyType))")
         .accessibilityHint("Double-tap to change")
         .accessibilityAddTraits(.isButton)
     }
 
-    // MARK: UTILITIES — presets, close (outline icons, one family with undo/redo)
+    // MARK: UTILITIES — presets, swing, close (outline icons, one family with undo/redo)
     private func headerUtilities(_ layout: EuclideousHeaderLayout) -> some View {
         let target = layout.compact ? HM.compactTarget : HM.target
         return HStack(spacing: 0) {
             Image(systemName: "folder").font(.system(size: 18)).foregroundColor(headerDim)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
-                .onTapGesture { settingsOpen = false; onOpenPresets() }   // §2.1: opening it closes the sheet first
+                .onTapGesture { settingsOpen = false; swingPopupOpen = false; onOpenPresets() }   // §2.1: opening it closes the other overlays first
                 .accessibilityLabel("Presets").accessibilityAddTraits(.isButton)
+            // SWING (2026-10-17): a third icon, same selected-state styling as the gear just below. Tinted
+            // when swing is away from its 50 (straight) default, so a non-neutral value stays visible at a
+            // glance even with the popover closed — the whole point of putting this control where it's seen.
+            Image(systemName: "metronome")
+                .font(.system(size: 18))
+                .foregroundColor(swingPopupOpen ? Color(hex: 0x0D0F14) : (swing == 50 ? headerDim : Color(hex: 0x4FD1E8)))
+                .frame(width: 32, height: 32)
+                .background(RoundedRectangle(cornerRadius: 8).fill(swingPopupOpen ? Color(hex: 0xDFE3EA) : Color.clear))
+                .animation(.easeInOut(duration: 0.15), value: swingPopupOpen)
+                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
+                .onTapGesture {
+                    if !swingPopupOpen { closeAllOtherOverlays(); settingsOpen = false }
+                    swingPopupOpen.toggle()
+                }
+                .accessibilityLabel("Swing, \(swing == 50 ? "straight" : "\(swing)")").accessibilityAddTraits(.isButton).accessibilityAddTraits(swingPopupOpen ? .isSelected : [])
             // FOURFOLD SETTINGS (2026-10-15 ferry §1): the × (xmark) LEAVES the header — its old job (back to
-            // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES keeps its exact
-            // widths (still 2 icons, `target` unchanged) so the header ladder holds as written (§1.1, §9).
+            // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES is now 3 icons (the
+            // SWING icon above joined it 2026-10-17 — `euclideousHeaderGroupWidths` carries the real count).
             Image(systemName: "gearshape").font(.system(size: 18)).foregroundColor(settingsOpen ? Color(hex: 0x0D0F14) : headerDim)
                 .frame(width: 32, height: 32)
                 .background(RoundedRectangle(cornerRadius: 8).fill(settingsOpen ? Color(hex: 0xDFE3EA) : Color.clear))
                 .animation(.easeInOut(duration: 0.15), value: settingsOpen)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture {
-                    if !settingsOpen { closeAllOtherOverlays() }
+                    if !settingsOpen { closeAllOtherOverlays(); swingPopupOpen = false }
                     settingsOpen.toggle()
                 }
                 .accessibilityLabel("Settings").accessibilityAddTraits(.isButton).accessibilityAddTraits(settingsOpen ? .isSelected : [])
         }
+    }
+    /// SWING popover (2026-10-17): the SAME compact scrim-less anchored-card chrome as `resetPopupCard`
+    /// (reused, not reinvented). Range 50...75 matches `SceneState.swing` exactly (§4 v2.3) — dragging to
+    /// the slider's own minimum IS "straight," so the readout names it rather than showing a bare "50".
+    private var swingPopupCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("SWING").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .tracking(0.04).foregroundColor(Color(hex: 0xAAB0BA))
+                Spacer()
+                Text(swing == 50 ? "STRAIGHT" : "\(swing)")
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xF2F4F7))
+            }
+            .frame(height: 14)
+            Slider(value: Binding(get: { Double(swing) }, set: { onSetSwing(Int($0.rounded())) }), in: 50...75)
+                .tint(Color(hex: 0x4FD1E8))
+            HStack {
+                Text("STRAIGHT").font(.system(size: 9, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Spacer()
+                Text("MAX").font(.system(size: 9, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            }
+        }
+        .padding(8).frame(width: 200)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
     /// §2.1: "one overlay at a time: opening the key pill, the chord grid or presets closes the sheet first,
     /// and opening the sheet closes them" — this half of that rule (closing the OTHER three before the sheet
@@ -1384,7 +1455,7 @@ struct EuclideousPage: View {
     /// too before opening their own overlay. No existing "one overlay at a time" coordination to extend —
     /// every pop-up on this page toggles fully independently today, confirmed by reading each one first.
     private func closeAllOtherOverlays() {
-        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil
+        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false
     }
 
     // MARK: LANE SIDE of the output rings (§7) — pulse (after a tap) and trace (while held)
