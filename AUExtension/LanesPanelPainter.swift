@@ -224,6 +224,7 @@ struct EuclideousLanesPanel: View {
     @State private var strokeLane: Int? = nil
     @State private var strokeValue = false
     @State private var lastApplied: EuclideousLanesHit? = nil
+    @State private var strokeStart: CGPoint? = nil   // a touch whose start differs from the stroke in flight is a NEW stroke (a cancelled gesture may never call onEnded)
 
     var body: some View {
         let restart = tab == .restart
@@ -281,12 +282,17 @@ struct EuclideousLanesPanel: View {
     // ── the stroke gesture (§5.2): touch-down sets the stroke value to the OPPOSITE of that cell; every cell the finger then passes in the
     //    lane it began in takes that value. One DragGesture over the whole content; the maths is the pure hit test. ──
     private func gestureLayer(restart: Bool) -> some View {
-        Color.clear
+        // The layer spans the whole content so its coordinates are the panel's own (what the pure hit test expects), but its HIT AREA is only the
+        // grid — the sub-tab chips and the rate boxes sit under/next to it and must keep their own taps.
+        let gridArea = CGRect(x: layout.gridX - 1, y: layout.laneTop(0), width: layout.gridW + 2,
+                              height: layout.laneTop(3) + layout.laneH - layout.laneTop(0))
+        return Color.clear
             .frame(width: layout.width, height: layout.height)
-            .contentShape(Rectangle())
+            .contentShape(Path(gridArea))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
+                        if strokeStart != v.startLocation { strokeLane = nil; lastApplied = nil; strokeStart = v.startLocation }
                         if strokeLane == nil {
                             guard let h = euclideousLanesHit(x: v.startLocation.x, y: v.startLocation.y, layout: layout, restart: restart) else { return }
                             strokeLane = h.lane; strokeValue = !cellValue(h); lastApplied = h
@@ -298,7 +304,7 @@ struct EuclideousLanesPanel: View {
                             onApply(h, strokeValue, false)
                         }
                     }
-                    .onEnded { _ in strokeLane = nil; lastApplied = nil }
+                    .onEnded { _ in strokeLane = nil; lastApplied = nil; strokeStart = nil }
             )
     }
 

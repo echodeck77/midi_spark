@@ -4525,14 +4525,6 @@ final class Router {
                                 // four new params are harmless no-ops for it regardless of what's passed.
                                 riffOn: Bool = false, litNotes: UInt8 = 0, topLit: Bool = false, top2Lit: Bool = false,
                                 notesOn: Bool = true, noteOctShifts: [Int]? = nil, notesVelocity: Int = 100, notesGate: Double = 0.9,
-                                // SEQUENCER PANEL (2026-10-14 ferry) — per-lane RESET (in SEQUENCER STEPS,
-                                // not bars) and the LANES tab's per-step mute decision, both pre-resolved at
-                                // the call site (the latter from the SAME `currentLanesStep` the note-off
-                                // edge-detect sweep, a few lines above this function's own call site, already
-                                // computed — one render-window-granularity step index shared by both, not a
-                                // per-tick recompute; `iterateTicks` can process several ticks per call, all
-                                // seeing the identical per-window decision, an accepted, disclosed coarseness
-                                // matching this codebase's own standing tolerance for this class of edge).
                                 // LANES GRID (2026-10-18): the per-lane restart / mute grid is resolved INSIDE this function (it needs the
                                 // lane's own step length and lap, known only after the pattern is built) from `p.euclidLines[lineIndex]` —
                                 // so nothing grid-related is passed in any more.
@@ -4613,35 +4605,10 @@ final class Router {
                 // once for the same line. `cyc` (this render's own "one bar" beat-length, already computed
                 // above) is multiplied directly by the literal bar count — not routed through `spanLadderBeats`'s
                 // own ladder, which tops out at 8 bars (its n=64 case) and has no slot for 16.
-                // PER-LANE RESET (2026-10-14 ferry §3/§9, generalised to an 8-bit mask by the 2026-10-15 ferry
-                // "per-step restart points on the LANES tab"): RESET is now set PER LANE, on the LANES tab, in
-                // SEQUENCER STEPS (not bars) — supersedes the machine-wide `euclideousResetSpanBars` header
-                // control for Euclideous's own row entirely (that field/its wiring stay in place, decode-only,
-                // consulted only by `migratedResetSteps` at migration time — see EuclidLine.resetStepsResolved's
-                // own doc comment in Models.swift). `restartMask` is resolved to 0 (OFF) for every row OTHER
-                // than Euclideous's (the call site only ever resolves a non-zero value when `isEuclideousRow`),
-                // so this branch is unreachable there and the ORIGINAL bars-based ladder below is unaffected.
-                // `spanBeats` here is now only a coarse "is a per-lane reset active at all" span, one full LANES
-                // lap long — it no longer encodes a single restart interval (an arbitrary mask has none), so it
-                // feeds ONLY the two callers that need a plain non-mask-aware span: the LISTEN/WITH coincidence
-                // check below (`euclideousListenPartnerHasHitAt`, unaffected by this ferry, out of scope) and
-                // the TIE lookahead's own non-masked fallback branch (never taken while `restartMask != 0`,
-                // since that branch now always has a real mask to use). The actual per-hit origin a few lines
-                // below reads `restartMask` directly through `euclideousMaskedResetOrigin`, never `spanBeats`.
-                // FERRY (2026-10-14 §3, "sequencer step length"): ROOT CAUSE — this used to read `cyc`
-                // ("the row's own real cycle," `cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S` — a GRID
-                // GEOMETRY quantity, 8 columns × the scene's own stepRate) as a stand-in for "one host bar."
-                // The two only coincide when the grid's stepRate happens to make 8 columns add up to exactly
-                // one real bar (e.g. 1/8-note columns in 4/4 — the ENTIRE pre-existing Euclideous test suite
-                // sets `stepRate = .r1_8` for exactly this reason, which is why this bug was invisible to
-                // every test ever written against it). At any other stepRate, or any non-4/4 time signature,
-                // "1 BAR" silently meant something else — confirmed to fully explain the reported symptom (a
-                // 2x undercount, "one move in three bar lines") AND to explain why it coincided with a
-                // DIFFERENT lane's own 2-bar riff wrap: both inherited the SAME wrong bar length, not one
-                // following the other. `beatsPerBar` is the host's REAL bar length (read from the musical
-                // context block's time signature — see `process()`'s own new parameter), independent of the
-                // grid entirely, per the ferry's own literal instruction. Per-lane RESET (just below, via
-                // `spanBeats`) consumes this SAME `lanesSeqStepBeats` and inherits the fix for free.
+                // RESTARTS (history: the 2026-10-14 per-lane RESET in sequencer steps, its 2026-10-15 8-bit mask, and the 2026-10-14 "sequencer
+                // step length" fix — a restart interval measured in the host's REAL bars (`beatsPerBar`), never the grid's `cyc`). All of that is now
+                // the lane's two 16-cell restart masks below; a pre-feature document's old reset migrates into them at use, against the same real
+                // bar (`euclideousLaneGridResolved`), so the bars-vs-grid-cycle bug cannot return through the migration.
                 // LANES GRID (2026-10-18 ferry): the lane's mute grid and its two restart masks, resolved from the lane's own fields (or, for a
                 // pre-feature document, migrated from the old sequencer + reset — `euclideousLaneGridResolved`) against THIS lane's own step
                 // length and lap. `cycleLen` is the Router's lap in ticks; the units are integer multiples of the lane's tick.

@@ -1706,7 +1706,7 @@ struct EuclideousPage: View {
             if let cfg = euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
                                                    lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells,
                                                    swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo),
-               let lapStart = euclideousLapStartOrdinal(cfg: cfg, beat: walkTagBeat(at: Date())) {
+               let lapStart = euclideousLapStartOrdinal(cfg: cfg, beat: lanesMusicalBeat(real: walkTagBeat(at: Date()))) {
                 baseline.startOrd = lapStart
             }
             prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.euclideousRiffDirResolved,
@@ -1809,7 +1809,7 @@ struct EuclideousPage: View {
                           // whether landing on a riff rest actually sounds (FILL) or not (SKIP/TIE).
                           riffOnRest: line.riffOnRestResolved,
                           restartGrid: cardRestartGrid.isActive ? cardRestartGrid : nil,
-                          mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: b, cells16: cardMuteCells, unitBeats: cardMuteUnit) })
+                          mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) })
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -4025,6 +4025,12 @@ struct EuclideousPage: View {
     private func walkTagBeat(at date: Date) -> Double {
         clock.playing ? clock.anchor + date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
     }
+    /// A REAL (swung) beat as the engine's MUSICAL beat — mute cells, restart cells and the roll are all in the engine's musical (un-swung) beats, so
+    /// the playheads, the window and the mute dimming read this instead of the raw UI clock (identity at 50% swing).
+    private func lanesMusicalBeat(real: Double) -> Double {
+        let a = min(75, max(50, clock.swing)) / 50.0
+        return a == 1 ? real : musicalOf(real, stepBeats: max(0.03125, clock.stepBeats), a: a)
+    }
     private func walkTagPlans(cfgs: [EuclideousWalkLaneConfig?], ranks: [Int], beat: Double) -> [EuclideousWalkTagPlan?] {
         let spb = 60.0 / max(1.0, clock.tempo)
         return (0..<4).map { i in
@@ -4032,7 +4038,7 @@ struct EuclideousPage: View {
             // LANES GRID: a lane the grid has muted at this beat is drawn as a STOPPED lane's tag — seated, no thread (and dimmed below).
             return euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i],
                                          running: clock.playing && lines[i].enabledResolved
-                                            && euclideousLaneAudible(beat: beat, cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats))
+                                            && euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats))
         }
     }
 
@@ -4050,7 +4056,7 @@ struct EuclideousPage: View {
                     plans[i].map { euclideousTagDrawing(lane: i, plan: $0, cellW: cellW, cellH: cellH, gap: sp4) }
                 }
                 // the lane card's own 42% for a lane the grid has muted at this beat (cells, riff marker, hit flashes — §2.8)
-                let dim: [Bool] = (0..<4).map { i in cfgs[i].map { !euclideousLaneAudible(beat: beat, cells16: $0.muteCells, unitBeats: $0.muteUnitBeats) } ?? false }
+                let dim: [Bool] = (0..<4).map { i in cfgs[i].map { !euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: $0.muteCells, unitBeats: $0.muteUnitBeats) } ?? false }
                 ctx.translateBy(x: pad, y: pad)
                 for i in 0..<4 { if let t = drawings[i]?.thread { drawWalkThread(&ctx, lane: i, t, dim: dim[i]) } }
                 for i in 0..<4 { if let d = drawings[i] { drawWalkTag(&ctx, lane: i, d, cellW: cellW, cellH: cellH, dim: dim[i]) } }
@@ -4232,8 +4238,8 @@ struct EuclideousPage: View {
     private func lanesTab(width: CGFloat, height: CGFloat) -> some View {
         let layout = euclideousLanesLayout(width: width, height: height)
         return TimelineView(.periodic(from: .now, by: 0.25)) { tl in
-            EuclideousLanesPanel(layout: layout, tab: lanesSubTab, lanes: lanesPanelLanes(beat: walkTagBeat(at: tl.date)), accents: laneAccents,
-                                 playing: clock.playing, beatAt: { walkTagBeat(at: $0) },
+            EuclideousLanesPanel(layout: layout, tab: lanesSubTab, lanes: lanesPanelLanes(beat: lanesMusicalBeat(real: walkTagBeat(at: tl.date))), accents: laneAccents,
+                                 playing: clock.playing, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) },
                                  onSelectTab: { lanesSubTab = $0 },
                                  onRateTap: { lane in lanesRateTap(lane) },
                                  cellValue: { hit in lanesCellValue(hit) },
@@ -4334,6 +4340,9 @@ struct EuclideousPage: View {
         .frame(width: grid.cellW, height: grid.padH + sp4 + EuclideousMixMetrics.stepperH, alignment: .top)
         .accessibilityElement(children: .contain)
     }
+    /// HIDDEN (LANES GRID ferry, 2026-10-18 — superseded by `lanesTab`; unreachable, kept compiled and its stored fields decodable, per "hide, don't
+    /// delete"). The old step grid with its ON/RATE/LEN row and per-lane RESET boxes (this function, `sequencerResetBox`, `resetPopupCard`, the hold
+    /// gesture state `restartEditLanes…`). Nothing renders or writes them any more.
     /// LANES grid (2026-10-14 ferry §1/§2 — REBUILT after a self-audit against the raw ferry text found 3
     /// real gaps in the first build): ALWAYS 8 fixed columns (not reflowed to LEN), so the column x-positions
     /// never shift and stay lined up under the main riff grid above — same leading-column/`cellW` formula
