@@ -5345,12 +5345,18 @@ func euclideousLaneMuteStart(fromBeat: Double, toBeat: Double, cells16: UInt16, 
 /// `euclideousMaskedResetOrigin`'s own, reused exactly (§2.3).
 private func euclideousMaskedResetPick(beat: Double, cellBeats: Double, mask: UInt16, cells: Int) -> (lapStartCell: Int, s: Int, carried: Bool, n: Int)? {
     guard cellBeats > 0, cells > 0 else { return nil }
+    return euclideousMaskedResetPick(absCell: Int((beat / cellBeats).rounded(.down)), mask: mask, cells: cells)
+}
+/// The same pick from an ABSOLUTE CELL INDEX — what the tick-based core feeds it (`floorDiv(tick, ticksPerCell)`, pure integers).
+private func euclideousMaskedResetPick(absCell: Int, mask: UInt16, cells: Int, floored: Bool = false) -> (lapStartCell: Int, s: Int, carried: Bool, n: Int)? {
+    guard cells > 0 else { return nil }
     let n = min(16, cells)
     let widthMask: UInt16 = n >= 16 ? 0xFFFF : UInt16((1 << n) - 1)
     let m = mask & widthMask
     guard m != 0 else { return nil }
-    let absCell = Int((beat / cellBeats).rounded(.down))
-    let lapStartCell = (absCell / n) * n
+    // `floored` (the tick-based core) extends the window grid backwards PERIODICALLY for cells before beat 0, so the schedule there is
+    // the previous window's mirror image; the legacy beat/8-bit forms keep Int's truncating division (their documented quirk).
+    let lapStartCell = floored ? Int(floorDiv(Int64(absCell), Int64(n))) * n : (absCell / n) * n
     let local = absCell - lapStartCell
     var bestAtOrBeforeLocal = -1, highestSet = -1, s = 0
     while s < n {
@@ -5432,4 +5438,222 @@ func euclideousLaneGridResolved(line: EuclidLine, lane: Int, legacyOn: Bool, leg
 func euclideousPinLaneGrid(_ line: inout EuclidLine, _ g: EuclideousLaneGrid) {
     line.muteCells16 = g.muteCells; line.muteUnit = g.muteUnit.rawValue
     line.restartRhythmMask16 = g.rhythmMask; line.restartMelodyMask16 = g.melodyMask; line.restartUnit = g.restartUnit.rawValue
+}
+
+// ── the per-tick core (§2.4 – §2.8) ──────────────────────────────────────────────────────────────────────────────────
+//
+// ONE function decides, for one tick of one lane, "where is this tick in the pattern, does a hit fire, and which riff ordinal does it
+// read". `Router.runEuclidLine` calls it per tick; the TIE lookahead, the next-hit gap, the roll feed and the walk-tag mirror call
+// it for the ticks they look at. Nothing re-derives any of it. All arithmetic is exact integers on the lane's own ticks (a tick `k`
+// sits at beat `k × sub`), so a restart cell is `ticksPerCell` ticks and the two origins are cell indices — there is no float
+// comparison between "the cell the beat is in" and "the tick the beat is" to disagree at a boundary.
+
+/// Floored integer division (rounds toward −∞), the semantics every tick/cell index here needs for ticks before beat 0.
+@inline(__always) func floorDiv(_ a: Int64, _ b: Int64) -> Int64 {
+    let q = a / b
+    return (a % b != 0 && ((a < 0) != (b < 0))) ? q - 1 : q
+}
+
+/// A lane's restart geometry in its own ticks — scalars only, so the render thread builds one per lane per window with no allocation.
+struct EuclideousLaneRestartGrid: Equatable {
+    var unitTicks: Int = 0          // ticks per restart cell (`EuclideousRestartUnit.ticks`); 0 = no grid
+    var rhythmMask: UInt16 = 0
+    var melodyMask: UInt16 = 0
+    static let off = EuclideousLaneRestartGrid()
+    /// The grid replaces the legacy origin only when it carries a mark (§2.3: an empty mask free-runs from beat 0, exactly the
+    /// no-restart behaviour — so a grid with no marks is the legacy path).
+    var isActive: Bool { unitTicks > 0 && (rhythmMask | melodyMask) != 0 }
+}
+func euclideousLaneRestartGrid(_ g: EuclideousLaneGrid, cycleLen: Int) -> EuclideousLaneRestartGrid {
+    EuclideousLaneRestartGrid(unitTicks: g.restartUnit.ticks(cycleLen: max(1, cycleLen)), rhythmMask: g.rhythmMask, melodyMask: g.melodyMask)
+}
+/// The origin CELL (absolute index) for an absolute cell, from a 16-cell mask. Nil when the mask is empty.
+func euclideousMaskedResetCell(absCell: Int, mask: UInt16, cells: Int = 16) -> Int? {
+    guard let p = euclideousMaskedResetPick(absCell: absCell, mask: mask, cells: cells, floored: true) else { return nil }
+    return p.lapStartCell + p.s - (p.carried ? p.n : 0)
+}
+
+/// Where a tick sits in the lane's pattern: the tick count since the RHYTHM origin (`localT`), its position in the cycle (`raw`), whether
+/// the pattern has a hit there, and — when the grid is in force — both origins' cell indices.
+struct EuclideousLanePhase: Equatable {
+    var localT: Int64
+    var raw: Int
+    var rawIsHit: Bool
+    var gridOn: Bool
+    var cellO: Int          // rhythm origin cell (0 when the rhythm mask is empty: it free-runs from beat 0)
+    var cellM: Int          // melody origin cell (0 when the melody mask is empty)
+}
+/// The cheap half of the core — enough to know whether a tick is a hit (the gap scan and the roll's first pass use only this).
+/// `legacySpanBeats` is the pre-grid re-anchor (the bar-ladder / machine-wide span) and applies only when the grid has no marks.
+func euclideousLanePhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                         grid: EuclideousLaneRestartGrid, legacySpanBeats: Double) -> EuclideousLanePhase {
+    var localT: Int64
+    var cellO = 0, cellM = 0
+    let gridOn = grid.isActive
+    if gridOn {
+        let u = Int64(grid.unitTicks)
+        let absCell = Int(floorDiv(tick, u))
+        if grid.rhythmMask != 0 { cellO = euclideousMaskedResetCell(absCell: absCell, mask: grid.rhythmMask) ?? 0 }
+        if grid.melodyMask != 0 { cellM = euclideousMaskedResetCell(absCell: absCell, mask: grid.melodyMask) ?? 0 }
+        localT = tick - Int64(cellO) * u
+    } else {
+        // The pre-grid arithmetic, verbatim (a tick's beat → the span re-anchor → the floored tick count).
+        let tickBeat = Double(tick) * sub
+        let phaseBeat = legacySpanBeats > 0 ? (tickBeat - columnStart(tickBeat, legacySpanBeats)) : tickBeat
+        localT = Int64((phaseBeat / sub).rounded(.down))
+    }
+    let cl = Int64(max(1, cycleLen))
+    let raw = Int(((localT % cl) + cl) % cl)
+    return EuclideousLanePhase(localT: localT, raw: raw, rawIsHit: buf[euclidReadIndex(raw, n: n, dir: dir)],
+                               gridOn: gridOn, cellO: cellO, cellM: cellM)
+}
+
+/// Hits in the first `m` ticks of the lane's cyclic pattern (any integer `m`; the pattern repeats every `cycleLen` ticks and extends
+/// backwards the same way). The building block of every ordinal below.
+private func euclideousPatternHits(_ m: Int64, buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, cycleHits: Int) -> Int64 {
+    let cl = Int64(cycleLen)
+    let q = floorDiv(m, cl)
+    let r = Int(m - q * cl)
+    var pre = 0
+    var s = 0
+    while s < r { if buf[euclidReadIndex(s, n: n, dir: dir)] { pre += 1 }; s += 1 }
+    return q * Int64(cycleHits) + Int64(pre)
+}
+/// Hits in ABSOLUTE ticks `[0, nTicks)` of the lane's real schedule — which follows the RHYTHM restarts, so each segment between two
+/// marks starts the pattern afresh. The schedule is periodic in the 16-cell window (every window has the same marks), so this is
+/// `windows × hitsPerWindow + the partial window`, the partial one a walk over at most 17 segments.
+private func euclideousScheduleHits(_ nTicks: Int64, rhythmMask: UInt16, unitTicks: Int, buf: [Bool], n: Int, dir: EuclidDir,
+                                    cycleLen: Int, cycleHits: Int) -> Int64 {
+    func pat(_ m: Int64) -> Int64 { euclideousPatternHits(m, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits) }
+    guard rhythmMask != 0 else { return pat(nTicks) }
+    let u = Int64(unitTicks)
+    let window = 16 * u
+    /// Hits in window-relative ticks [0, r), 0 ≤ r ≤ window.
+    func inWindow(_ r: Int64) -> Int64 {
+        guard r > 0 else { return 0 }
+        var highest = 0, first = -1
+        for s in 0..<16 where (rhythmMask >> UInt16(s)) & 1 != 0 { highest = s; if first < 0 { first = s } }
+        var total: Int64 = 0
+        // the segment carried over from the previous window: cells [0, first) running from the previous window's last mark
+        if first > 0 {
+            let origin = Int64(highest - 16) * u
+            let hi = min(Int64(first) * u, r)
+            if hi > 0 { total += pat(hi - origin) - pat(0 - origin) }
+        }
+        var s = first
+        while s >= 0 && s < 16 {
+            var next = s + 1
+            while next < 16 && (rhythmMask >> UInt16(next)) & 1 == 0 { next += 1 }
+            let lo = Int64(s) * u
+            if lo >= r { break }
+            let hi = min(Int64(next) * u, r)
+            let origin = lo
+            total += pat(hi - origin) - pat(lo - origin)
+            s = next
+        }
+        return total
+    }
+    let q = floorDiv(nTicks, window)
+    let rem = nTicks - q * window
+    return q * inWindow(window) + inWindow(rem)
+}
+
+/// What one tick of a lane IS, beyond where it sits: the cycle count and in-cycle hit rank (the legacy `cy` / `hitsUpTo`), and the
+/// ordinal the riff walk reads (`advOrd`) — counted from the MELODY origin on the lane's actual hit schedule (§2.5).
+struct EuclideousLaneTickInfo: Equatable {
+    var localT: Int64
+    var raw: Int
+    var rawIsHit: Bool
+    var cy: Int64
+    var hitsUpTo: Int
+    var advOrd: Int64
+}
+/// The per-tick core. `tick` is the lane's absolute tick (a tick sits at beat `tick × sub`); `cycleLen` is `euclidCycleLen(dir, n)`.
+/// Without a grid mark this is exactly the pre-grid arithmetic: `ord`/`advOrd` from the single (span) origin. With one, the rhythm
+/// origin phases the pattern and the melody origin sets where the riff ordinal counts from:
+///   · FREE — hits (HIT advance) or ticks (STEP advance) since the melody origin, on the schedule that really sounded;
+///   · LOCK — the same, but counted from the LATER of the melody origin and the start of the current Euclid lap (which is anchored
+///     to the rhythm origin), so a lap boundary still re-anchors the riff exactly as before.
+/// Both marks on the same cell reproduce the old single restart (the melody origin then equals the rhythm origin).
+func euclideousLaneTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                        grid: EuclideousLaneRestartGrid, legacySpanBeats: Double,
+                        locked: Bool, advanceStep: Bool) -> EuclideousLaneTickInfo {
+    let ph = euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats)
+    let cl = Int64(max(1, cycleLen))
+    let cy = (ph.localT - Int64(ph.raw)) / cl
+    var hitsUpTo = 0
+    var s = 0
+    while s <= ph.raw { if buf[euclidReadIndex(s, n: n, dir: dir)] { hitsUpTo += 1 }; s += 1 }
+    var cycleHits = 0
+    s = 0
+    while s < cycleLen { if buf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }; s += 1 }
+    let advOrd: Int64
+    if !ph.gridOn || ph.cellM == ph.cellO {
+        // one shared origin (no marks, or both origins on the same cell): exactly the pre-grid single-restart arithmetic
+        let ord = cy * Int64(max(1, cycleHits)) + Int64(hitsUpTo - 1)
+        advOrd = advanceStep ? (locked ? Int64(ph.raw) : ph.localT) : (locked ? Int64(hitsUpTo - 1) : ord)
+    } else {
+        let u = Int64(grid.unitTicks)
+        let jM = Int64(ph.cellM - ph.cellO) * u                 // the melody origin, in ticks relative to the rhythm origin
+        let ref = locked ? max(cy * cl, jM) : jM
+        if advanceStep {
+            advOrd = ph.localT - ref
+        } else {
+            let upTo = euclideousPatternHits(ph.localT + 1, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
+            if ref >= 0 {
+                advOrd = upTo - euclideousPatternHits(ref, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits) - 1
+            } else {
+                // the melody origin lies BEFORE the current rhythm segment: add the hits of the segments between the two origins
+                let scheduleAt = { (cell: Int) in
+                    euclideousScheduleHits(Int64(cell) * u, rhythmMask: grid.rhythmMask, unitTicks: grid.unitTicks, buf: buf, n: n, dir: dir,
+                                           cycleLen: cycleLen, cycleHits: cycleHits)
+                }
+                advOrd = upTo + (scheduleAt(ph.cellO) - scheduleAt(ph.cellM)) - 1
+            }
+        }
+    }
+    return EuclideousLaneTickInfo(localT: ph.localT, raw: ph.raw, rawIsHit: ph.rawIsHit, cy: cy, hitsUpTo: hitsUpTo, advOrd: advOrd)
+}
+
+/// The beat gap from `tick` (exclusive) to the lane's NEXT real pattern hit — the same core, so a restart (either kind of mark falls
+/// on the rhythm origin) between the two is honoured. Bounded at `cap` ticks; returns `cap × sub` when nothing is found.
+func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, cap: Int,
+                               grid: EuclideousLaneRestartGrid, legacySpanBeats: Double) -> Double {
+    guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
+    var k = 1
+    while k <= cap {
+        if euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick + Int64(k), grid: grid,
+                               legacySpanBeats: legacySpanBeats).rawIsHit { return Double(k) * sub }
+        k += 1
+    }
+    return Double(cap) * sub
+}
+
+/// ON REST = TIE (§3.1's "tie computation"): how many beats the note struck at `tick` is held over the riff RESTS that follow, walking
+/// the lane's future HITS through the core so the answer agrees with what the Router will read at each of them — across a rhythm
+/// restart, a melody restart, and a window boundary with no mark on cell 0. A LOCK reset (the first hit after the riff's reference
+/// point) always breaks the chain. `rankAt(step, beat)` is the effective rank at a riff column at that hit's own beat. Bounded,
+/// allocation-free: at most `length` hits and `cycleLen × 4` ticks.
+func euclideousRiffTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                                     grid: EuclideousLaneRestartGrid, legacySpanBeats: Double, locked: Bool, advanceStep: Bool,
+                                     riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64,
+                                     rankAt: (_ column: Int, _ beat: Double) -> Int) -> Double {
+    var hitsAhead = 0
+    var lastConsumed = 0
+    var j = 0
+    let cap = cycleLen * 4
+    while hitsAhead < length && j < cap {
+        j += 1
+        let t = tick + Int64(j)
+        let info = euclideousLaneTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, grid: grid,
+                                      legacySpanBeats: legacySpanBeats, locked: locked, advanceStep: advanceStep)
+        guard info.rawIsHit else { continue }
+        if locked && info.advOrd == 0 { break }                 // a locked lane's own reset always breaks the chain
+        hitsAhead += 1
+        let step = riffStepAt(riffDir, raw: Int(info.advOrd) * stride, steps: length, seed: seed)
+        let column = riffRotateStep(step, by: rotate, steps: length)
+        guard rankAt(column, Double(t) * sub) < 1 else { break }   // a real note breaks the chain
+        lastConsumed = j
+    }
+    return Double(lastConsumed) * sub
 }

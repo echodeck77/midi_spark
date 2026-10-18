@@ -293,4 +293,205 @@ final class LanesGridTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - the per-tick core (§2.4 – §2.6)
+
+    /// splitmix64 — a deterministic stream for the randomised comparisons below.
+    private struct Rng {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+        mutating func int(_ range: ClosedRange<Int>) -> Int { range.lowerBound + Int(next() % UInt64(range.count)) }
+        mutating func bool() -> Bool { next() & 1 == 1 }
+    }
+    private struct LaneCase {
+        var buf: [Bool]; var n: Int; var dir: EuclidDir; var cycleLen: Int; var sub: Double
+        var unit: Int; var rMask: UInt16; var mMask: UInt16; var locked: Bool; var adv: Bool
+        var grid: EuclideousLaneRestartGrid { EuclideousLaneRestartGrid(unitTicks: unit, rhythmMask: rMask, melodyMask: mMask) }
+        func core(_ t: Int64, span: Double = 0) -> EuclideousLaneTickInfo {
+            euclideousLaneTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, grid: grid, legacySpanBeats: span, locked: locked, advanceStep: adv)
+        }
+        // ── an independent, tick-by-tick restatement of §2.5 (no closed forms, origins from the BEAT-based function) ──
+        func originTick(_ t: Int64, _ mask: UInt16) -> Int64 {
+            if mask == 0 { return 0 }
+            // ticks before beat 0 are the previous window's mirror image (the schedule is periodic in the 16-cell window)
+            let window = Int64(16 * unit)
+            let shift = t < 0 ? ((-t + window - 1) / window) * window : 0
+            let b = t + shift
+            let o = euclideousMaskedResetOrigin(beat: Double(b) * sub, cellBeats: Double(unit) * sub, mask: mask, cells: 16)
+            return Int64((o / sub).rounded()) - shift
+        }
+        func localT(_ t: Int64) -> Int64 { t - originTick(t, rMask) }
+        func raw(_ t: Int64) -> Int { let c = Int64(cycleLen); return Int(((localT(t) % c) + c) % c) }
+        func hit(_ t: Int64) -> Bool { buf[euclidReadIndex(raw(t), n: n, dir: dir)] }
+        func advOrdBrute(_ t: Int64) -> Int64 {
+            let lt = localT(t), r = Int64(raw(t))
+            let cy = (lt - r) / Int64(cycleLen)
+            let lapStart = originTick(t, rMask) + cy * Int64(cycleLen)
+            let mAbs = originTick(t, mMask)
+            let ref = locked ? max(lapStart, mAbs) : mAbs
+            if adv { return t - ref }
+            var c: Int64 = 0
+            var k = ref
+            while k <= t { if hit(k) { c += 1 }; k += 1 }
+            return c - 1
+        }
+    }
+    private func randomCase(_ rng: inout Rng, rMask: UInt16? = nil, mMask: UInt16? = nil) -> LaneCase {
+        let n = rng.int(2...16)
+        var buf = [Bool](repeating: false, count: 16)
+        let k = rng.int(1...n)
+        var placed = 0
+        while placed < k { let i = rng.int(0...(n - 1)); if !buf[i] { buf[i] = true; placed += 1 } }
+        let dir: EuclidDir = [.fwd, .bkw, .pingpong][rng.int(0...2)]
+        let cycleLen = euclidCycleLen(dir, n: n)
+        let unit = [4, cycleLen, 2 * cycleLen, 4 * cycleLen][rng.int(0...3)]
+        func mask() -> UInt16 { let r = rng.int(0...3); return r == 0 ? 0 : UInt16(truncatingIfNeeded: rng.next()) & UInt16(truncatingIfNeeded: rng.next()) }
+        return LaneCase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: [0.25, 0.5][rng.int(0...1)], unit: unit,
+                        rMask: rMask ?? mask(), mMask: mMask ?? mask(), locked: rng.bool(), adv: rng.bool())
+    }
+
+    func testCoreWithoutAnyMarkIsTheLegacyArithmetic() {
+        var rng = Rng(state: 11)
+        for _ in 0..<60 {
+            var c = randomCase(&rng, rMask: 0, mMask: 0)
+            for span in [0.0, 6.0, 7.5] {
+                for t in stride(from: Int64(-30), through: 220, by: 7) {
+                    let got = c.core(t, span: span)
+                    // verbatim pre-grid arithmetic
+                    let tickBeat = Double(t) * c.sub
+                    let phaseBeat = span > 0 ? (tickBeat - columnStart(tickBeat, span)) : tickBeat
+                    let localT = Int64((phaseBeat / c.sub).rounded(.down))
+                    let cl = Int64(c.cycleLen)
+                    let raw = Int(((localT % cl) + cl) % cl)
+                    var hitsUpTo = 0; for s in 0...raw where c.buf[euclidReadIndex(s, n: c.n, dir: c.dir)] { hitsUpTo += 1 }
+                    var cycleHits = 0; for s in 0..<c.cycleLen where c.buf[euclidReadIndex(s, n: c.n, dir: c.dir)] { cycleHits += 1 }
+                    let cy = (localT - Int64(raw)) / cl
+                    let ord = cy * Int64(max(1, cycleHits)) + Int64(hitsUpTo - 1)
+                    for (locked, adv) in [(false, false), (true, false), (false, true), (true, true)] {
+                        c.locked = locked; c.adv = adv
+                        let g = c.core(t, span: span)
+                        let want: Int64 = adv ? (locked ? Int64(raw) : localT) : (locked ? Int64(hitsUpTo - 1) : ord)
+                        XCTAssertEqual(g.advOrd, want, "t \(t) span \(span) locked \(locked) adv \(adv)")
+                        XCTAssertEqual(g.localT, localT); XCTAssertEqual(g.raw, raw); XCTAssertEqual(g.hitsUpTo, hitsUpTo); XCTAssertEqual(g.cy, cy)
+                        XCTAssertEqual(g.rawIsHit, c.buf[euclidReadIndex(raw, n: c.n, dir: c.dir)])
+                    }
+                    _ = got
+                }
+            }
+        }
+    }
+    func testCoreMatchesTheTickByTickDefinitionForIndependentRhythmAndMelodyMarks() {
+        var rng = Rng(state: 42)
+        var checked = 0
+        for _ in 0..<160 {
+            let c = randomCase(&rng)
+            for _ in 0..<14 {
+                let t = Int64(rng.int(0...330))
+                let info = c.core(t)
+                XCTAssertEqual(info.localT, c.localT(t), "localT")
+                XCTAssertEqual(info.raw, c.raw(t), "raw")
+                XCTAssertEqual(info.rawIsHit, c.hit(t), "hit")
+                guard info.rawIsHit || c.adv else { continue }
+                XCTAssertEqual(info.advOrd, c.advOrdBrute(t), "advOrd tick \(t) rMask \(c.rMask) mMask \(c.mMask) unit \(c.unit) n \(c.n) dir \(c.dir) locked \(c.locked) adv \(c.adv)")
+                checked += 1
+            }
+        }
+        XCTAssertGreaterThan(checked, 1200, "the comparison must actually run")
+    }
+    func testBothMarksOnTheSameCellsReproduceTheOldSingleRestart() {
+        // The old engine: ONE origin (euclideousMaskedResetOrigin over the 8-bit mask) re-anchors the pattern AND the riff.
+        var rng = Rng(state: 7)
+        for _ in 0..<80 {
+            var c = randomCase(&rng)
+            let m = UInt16(truncatingIfNeeded: rng.next()) | 1
+            c.rMask = m; c.mMask = m
+            for t in stride(from: Int64(0), through: 260, by: 5) {   // ticks before beat 0 use the periodic extension, not the legacy truncating quirk
+                let origin = euclideousMaskedResetOrigin(beat: Double(t) * c.sub, cellBeats: Double(c.unit) * c.sub, mask: m, cells: 16)
+                let localT = Int64(((Double(t) * c.sub - origin) / c.sub).rounded(.down))
+                let cl = Int64(c.cycleLen)
+                let raw = Int(((localT % cl) + cl) % cl)
+                var hitsUpTo = 0; for s in 0...raw where c.buf[euclidReadIndex(s, n: c.n, dir: c.dir)] { hitsUpTo += 1 }
+                var cycleHits = 0; for s in 0..<c.cycleLen where c.buf[euclidReadIndex(s, n: c.n, dir: c.dir)] { cycleHits += 1 }
+                let ord = (localT - Int64(raw)) / cl * Int64(max(1, cycleHits)) + Int64(hitsUpTo - 1)
+                let want: Int64 = c.adv ? (c.locked ? Int64(raw) : localT) : (c.locked ? Int64(hitsUpTo - 1) : ord)
+                let g = c.core(t)
+                XCTAssertEqual(g.advOrd, want, "t \(t) mask \(m) locked \(c.locked) adv \(c.adv)")
+                XCTAssertEqual(g.localT, localT)
+            }
+        }
+    }
+
+    /// A fixed, easy lane for the scenario tests: 3 hits in 8 steps (x..x..x. — Euclid 3/8 is hits at 0, 3, 6), FWD, 1 tick = 0.5 beat.
+    private func scenario(rMask: UInt16, mMask: UInt16, unit: Int = 8, locked: Bool = false, adv: Bool = false) -> LaneCase {
+        var buf = [Bool](repeating: false, count: 16)
+        euclidPatternInto(&buf, pulses: 3, steps: 8, rotation: 0)
+        return LaneCase(buf: buf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, unit: unit, rMask: rMask, mMask: mMask, locked: locked, adv: adv)
+    }
+    private func hitTicks(_ c: LaneCase, _ range: ClosedRange<Int64>) -> [Int64] { range.filter { c.core($0).rawIsHit } }
+    private func ordinals(_ c: LaneCase, _ range: ClosedRange<Int64>) -> [Int64] { range.filter { c.core($0).rawIsHit }.map { c.core($0).advOrd } }
+
+    func testRhythmOnlyMarkRephasesTheHitsAndTheRiffKeepsCountingThroughIt() {
+        // restart cells are one 8-tick pass; a RHYTHM mark on cell 2 (tick 16). Pattern hits sit at 0,3,6 of each pass.
+        let base = scenario(rMask: 0, mMask: 0)
+        let marked = scenario(rMask: 1 << 2, mMask: 0)
+        // before the mark nothing differs; at the mark the pass restarts, so hits keep their positions here (16 is a pass boundary)…
+        XCTAssertEqual(hitTicks(base, 0...40), hitTicks(marked, 0...40))
+        // …now put the mark at cell 2 of a 6-tick cell so the restart lands MID-pass: the hits re-phase
+        let odd = scenario(rMask: 1 << 2, mMask: 0, unit: 6)
+        let h = hitTicks(odd, 0...40)
+        XCTAssertNotEqual(h, hitTicks(scenario(rMask: 0, mMask: 0, unit: 6), 0...40), "the rhythm mark re-phased the hits")
+        XCTAssertTrue(h.contains(12), "the mark itself is a restart: step 0 of the pattern (a hit) lands on tick 12")
+        // the riff ordinal counts straight through the re-phase: with no melody mark it is simply hit 0,1,2,3… in sounding order
+        XCTAssertEqual(ordinals(odd, 0...40), Array(0..<Int64(h.count)), "pitch sequence uninterrupted")
+    }
+    func testMelodyOnlyMarkLeavesEveryHitInPlaceAndSendsTheRiffBackToZero() {
+        for (locked, adv) in [(false, false), (true, false), (false, true), (true, true)] {
+            let base = scenario(rMask: 0, mMask: 0, unit: 6, locked: locked, adv: adv)
+            let marked = scenario(rMask: 0, mMask: 1 << 2, unit: 6, locked: locked, adv: adv)   // melody mark at tick 12
+            XCTAssertEqual(hitTicks(base, 0...60), hitTicks(marked, 0...60), "hit positions unchanged (locked \(locked) adv \(adv))")
+            // the first hit at or after tick 12 reads ordinal 0 on the marked lane (STEP advance: ticks since the mark, so ≥ 0 and 0 at 12 itself)
+            let after = hitTicks(marked, 12...60).first!
+            let o = marked.core(after).advOrd
+            if adv { XCTAssertEqual(o, after - 12) } else { XCTAssertEqual(o, 0, "the riff returned to its first position (locked \(locked))") }
+            // …and it was NOT zero without the mark (FREE counts on; LOCK is anchored at the lap, so skip that comparison there)
+            if !locked && !adv { XCTAssertNotEqual(base.core(after).advOrd, 0) }
+        }
+    }
+    func testMarkOnCellZeroOfTheWindowAndAMarkCarriedAcrossTheWindowBoundary() {
+        // melody mark on cell 5 only, 6-tick cells: window = 96 ticks. The riff restarts at tick 30, and again at 126 — NOT at 96.
+        let c = scenario(rMask: 0, mMask: 1 << 5, unit: 6)
+        let firstAfter30 = hitTicks(c, 30...60).first!
+        XCTAssertEqual(c.core(firstAfter30).advOrd, 0)
+        let across = hitTicks(c, 90...110)
+        XCTAssertFalse(across.isEmpty)
+        for t in across { XCTAssertEqual(c.core(t).advOrd, c.advOrdBrute(t)) }
+        XCTAssertNotEqual(c.core(across.first(where: { $0 >= 96 })!).advOrd, 0, "no restart at the window boundary: the riff keeps counting from the previous window's mark")
+        let firstAfter126 = hitTicks(c, 126...150).first!
+        XCTAssertEqual(c.core(firstAfter126).advOrd, 0)
+    }
+    func testNegativeOriginInTheFirstWindowIsDeterministic() {
+        let c = scenario(rMask: 1 << 5, mMask: 1 << 3, unit: 6)
+        for t in Int64(0)..<30 { XCTAssertEqual(c.core(t).advOrd, c.advOrdBrute(t), "tick \(t)") }
+        XCTAssertLessThan(c.core(0).localT - 0, 1000)
+        XCTAssertGreaterThan(c.core(0).localT, 0, "the first window runs from a NEGATIVE origin, so the phase is already advanced")
+    }
+    func testNextHitGapHonoursARestartBetweenTheTwoHits() {
+        // marks on cells 0 and 1 (ticks 0 and 6), 6-tick cells; the 3-of-8 pattern hits at 0,3,6 of each pass.
+        let c = scenario(rMask: 0b11, mMask: 0, unit: 6)
+        let plain = scenario(rMask: 0, mMask: 0, unit: 6)
+        // from the restart at tick 6 (a hit), the plain pattern's next hit is tick 8 (the next pass's step 0)…
+        let plainGap = euclideousNextHitGapBeats(buf: plain.buf, n: plain.n, dir: plain.dir, cycleLen: plain.cycleLen, sub: plain.sub, tick: 6, cap: 32, grid: plain.grid, legacySpanBeats: 0)
+        XCTAssertEqual(plainGap, 2 * c.sub)
+        // …but the pass restarted AT 6, so the next hit is step 3 of the new pass: tick 9
+        let gap = euclideousNextHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: 6, cap: 32, grid: c.grid, legacySpanBeats: 0)
+        XCTAssertEqual(gap, 3 * c.sub)
+        let truth = (7...40).first { c.hit(Int64($0)) }!
+        XCTAssertEqual(gap, Double(truth - 6) * c.sub, "the gap scan and the tick-by-tick definition agree")
+    }
 }
