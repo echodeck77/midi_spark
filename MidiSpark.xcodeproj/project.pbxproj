@@ -54,6 +54,7 @@
 		85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2C4528E7A184FABB7EF270 /* EditPage.swift */; };
 		86DBDA072FBE5381278BC901 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
+		8C0A79D7C15CDA8D43AC7760 /* LanesGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A732F956AC8A9961E6F346F /* LanesGridTests.swift */; };
 		8CC40A50AE903C00870E629A /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */; };
 		9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */; };
@@ -169,6 +170,7 @@
 		98149EBE4B9E76352A457113 /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
 		99B22785F1E8193ABD24B932 /* BuildSceneLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSceneLogicTests.swift; sourceTree = "<group>"; };
 		99D181AD808BD18E8D2F085F /* FuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzTests.swift; sourceTree = "<group>"; };
+		9A732F956AC8A9961E6F346F /* LanesGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesGridTests.swift; sourceTree = "<group>"; };
 		9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousSettingsSheet.swift; sourceTree = "<group>"; };
 		A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildGridSelector.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -240,6 +242,7 @@
 				61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */,
 				0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */,
 				99D181AD808BD18E8D2F085F /* FuzzTests.swift */,
+				9A732F956AC8A9961E6F346F /* LanesGridTests.swift */,
 				EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */,
 				F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */,
 				91BA15AAFC801CACFECA4085 /* MigrationTests.swift */,
@@ -557,6 +560,7 @@
 				11389DE07A052AF31C5B1535 /* Emission.swift in Sources */,
 				5CD10BE7CE98FDD633F57ACB /* EuclideousPresets.swift in Sources */,
 				5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */,
+				8C0A79D7C15CDA8D43AC7760 /* LanesGridTests.swift in Sources */,
 				E21AD093B1D437E674242AD2 /* MacroAuthoring.swift in Sources */,
 				D561647D508BA5A188B6D44B /* MacroAuthoringTests.swift in Sources */,
 				33085BD85D007CFA610CC934 /* MidiFile.swift in Sources */,
