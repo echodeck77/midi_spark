@@ -4333,6 +4333,12 @@ struct EuclideousWalkLaneConfig {
     var onRest: EuclidRiffOnRest = .skip
     var invert: Bool = false
     var transpose: Int = 0
+    // FX TAB (2026-10-18): what the roll needs to call the SAME per-hit function the Router calls — the page-level FX rows, this lane's index, whether the
+    // lane actually plays its riff (riff on and not SHADOWing), and the scene grid's `cyc` (the RATCH beat-width cap measures against it, as the mask's did).
+    var fx: EuclideousFX = EuclideousFX()
+    var lane: Int = 0
+    var playsRiff: Bool = true
+    var cyc: Double = 4
 }
 
 /// What `Router.runEuclidLine`'s `passesListenRhythmFilter` reads for a WITH / GAPS lane, captured once: the PARTNER's own
@@ -4389,6 +4395,7 @@ func euclideousEffectivePattern(lane: Int, lines: [EuclidLine], defaultRateBeats
 
 func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, resetSpanBars: Int,
                               lanesSeqRate: EuclideousSeqRate, lanesSeqLen: Int, lanesSeqOn: Bool = false, lanesSeqCells: [Bool]? = nil,
+                              fx: EuclideousFX = EuclideousFX(),
                               defaultRateBeats: Double = 0.25, swingPercent: Double = 50, stepBeats: Double = 0.5,
                               beatsPerBar: Double = 4, tempo: Double = 120) -> EuclideousWalkLaneConfig? {
     guard lane >= 0, lane < lines.count else { return nil }
@@ -4425,7 +4432,8 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                     seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)),
                                     swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats),
                                     riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
-                                    invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved)
+                                    invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved,
+                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc)
 }
 /// A tick's REAL onset beat — what the note-on is scheduled at (swing-warped), the time a tag must arrive.
 func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Double {
@@ -5632,6 +5640,7 @@ func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: In
 func euclideousRiffTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
                                      grid: EuclideousLaneRestartGrid, legacySpanBeats: Double, locked: Bool, advanceStep: Bool,
                                      riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64,
+                                     restTies: Bool = true, fxTie: ((_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool)? = nil,
                                      rankAt: (_ column: Int, _ beat: Double) -> Int) -> Double {
     var hitsAhead = 0
     var lastConsumed = 0
@@ -5647,7 +5656,16 @@ func euclideousRiffTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleL
         hitsAhead += 1
         let step = riffStepAt(riffDir, raw: Int(info.advOrd) * stride, steps: length, seed: seed)
         let column = riffRotateStep(step, by: rotate, steps: length)
-        guard rankAt(column, Double(t) * sub) < 1 else { break }   // a real note breaks the chain
+        // FX TAB (2026-10-18): a future hit CONTINUES the chain when it is a TIED hit — a rest while ON REST is TIE (`restTies`), or a real-rank hit
+        // an FX TIE cell applies to (`fxTie`, decided by the shared `euclideousFXApply` at that hit's own beat). Anything else is a real note and breaks it.
+        // `restTies`/`fxTie` default to "rests tie, no FX", the pre-FX behaviour.
+        let beatJ = Double(t) * sub
+        let writtenJ = rankAt(column, beatJ)
+        if writtenJ < 1 {
+            guard restTies else { break }
+        } else {
+            guard let fxTie, fxTie(column, beatJ, writtenJ) else { break }
+        }
         lastConsumed = j
     }
     return Double(lastConsumed) * sub
@@ -5852,6 +5870,11 @@ struct EuclideousRollHit: Equatable {
     var rank: Int
     var gateBeats: Double
     var audible: Bool
+    // FX TAB (2026-10-18): a ratcheted hit is drawn as its `strikes` strikes, `spacingBeats` apart, each `gateBeats` long (the last one `lastGateBeats` when a tie
+    // extends it; 0 = same as `gateBeats`). 1 / 0 / 0 for every ordinary hit.
+    var strikes: Int = 1
+    var spacingBeats: Double = 0
+    var lastGateBeats: Double = 0
 }
 /// §3.1 — the hits of one lane in `[windowStart, windowStart + windowBeats)`. Built ONLY from the shared pieces the Router calls per hit:
 /// the walk mirror (`euclideousWalkTick` = `euclideousLaneTick`), `rankAt` (the effective rank at a riff column and beat — the looper-aware
@@ -5863,31 +5886,57 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
                             rankAt: (_ column: Int, _ beat: Double) -> Int) -> [EuclideousRollHit] {
     guard c.sub > 0, c.n > 0, windowBeats > 0 else { return [] }
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
+    let laneHasNoteFX = c.fx.rowHasCells(4, lane: c.lane)
+    let laneHasTieFX = c.fx.rowHasCells(2, lane: c.lane)
+    let fxLive = c.playsRiff && c.riffOn && !c.fx.isInert
     var tick = Int64((windowStart / c.sub - 1e-9).rounded(.up))
     var out: [EuclideousRollHit] = []
     while true {
         let beat = Double(tick) * c.sub
         if beat >= windowStart + windowBeats - 1e-9 { break }
+        defer { tick += 1 }
         let w = euclideousWalkTick(c, tick: tick)
-        if w.strikes {
-            var rank = 0
-            if c.riffOn {
-                let raw = rankAt(w.playedStep, beat)
-                rank = euclideousRiffStepRanks(ranks: [raw], invert: c.invert, transpose: c.transpose)[0]
-            }
-            let gap = euclideousNextHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
-                                                grid: c.grid, legacySpanBeats: c.spanBeats)
-            var tie = 0.0
-            if rank >= 1, c.onRest == .tie {
-                tie = euclideousRiffTieExtensionBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid,
-                                                      legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep,
-                                                      riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed,
-                                                      rankAt: rankAt)
-            }
-            out.append(EuclideousRollHit(beat: beat, rank: max(0, rank), gateBeats: euclideousPitchGateBeats(gate: c.gate, nextHitGapBeats: gap, tieExt: tie, minGateBeats: minGateBeats),
-                                         audible: euclideousLaneAudible(beat: beat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)))
+        guard w.strikes else { continue }
+        // The SAME decision the Router makes per hit (§2.3): the column the walk reads, the written rank there, the pass index, then `euclideousFXApply`.
+        let written = c.riffOn ? rankAt(w.playedStep, beat) : 0
+        var fxHit = EuclideousFXHit()
+        if fxLive {
+            let pass = laneHasNoteFX ? euclideousFXPassIndex(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid,
+                                                              legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep,
+                                                              riffDir: c.riffDir, stride: c.stride, length: c.length) : 0
+            fxHit = euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: w.playedStep, writtenRank: written, pass: pass)
         }
-        tick += 1
+        if fxHit.tie { continue }                      // a tied hit does not strike: no bar of its own (the previous bar's length covers it)
+        var rank = 0
+        if c.riffOn {
+            rank = euclideousRiffStepRanks(ranks: [written], invert: c.invert, transpose: c.transpose)[0]
+            if fxHit.noteOffset != 0 && written >= 1 { rank = max(1, min(8, rank + fxHit.noteOffset)) }   // drawing only: NOTE's offset, clamped to the 1–8 rows
+        }
+        let g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
+        let gap = euclideousNextHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
+                                            grid: c.grid, legacySpanBeats: c.spanBeats)
+        var tie = 0.0
+        if rank >= 1, c.onRest == .tie || laneHasTieFX {
+            tie = euclideousRiffTieExtensionBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid,
+                                                  legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep,
+                                                  riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed,
+                                                  restTies: c.onRest == .tie,
+                                                  fxTie: laneHasTieFX ? { col, _, r in
+                                                      euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: col, writtenRank: r, pass: 0).tie
+                                                  } : nil,
+                                                  rankAt: rankAt)
+        }
+        let audible = euclideousLaneAudible(beat: beat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
+        let nStrikes = rank >= 1 && fxHit.ratch >= 2 ? euclideousFXRatchetCount(requested: fxHit.ratch, sub: c.sub, cyc: c.cyc) : 0
+        if nStrikes >= 2 {
+            let slot = c.sub / Double(nStrikes)
+            let per = max(minGateBeats, slot * g)
+            let last = tie > 0 ? max(per, (gap - Double(nStrikes - 1) * slot) + g * tie) : per
+            out.append(EuclideousRollHit(beat: beat, rank: max(0, rank), gateBeats: per, audible: audible, strikes: nStrikes, spacingBeats: slot, lastGateBeats: last))
+        } else {
+            out.append(EuclideousRollHit(beat: beat, rank: max(0, rank), gateBeats: euclideousPitchGateBeats(gate: g, nextHitGapBeats: gap, tieExt: tie, minGateBeats: minGateBeats),
+                                         audible: audible))
+        }
     }
     return out
 }
@@ -5929,4 +5978,173 @@ func euclideousLaneCometRaw(beat: Double, n: Int, dir: EuclidDir, sub: Double, g
     let raw = Double(ph.localT) + (ticks - Double(tick))
     let cl = Double(cycleLen)
     return raw - cl * (raw / cl).rounded(.down)
+}
+
+
+// MARK: - FX TAB engine (ferry 2026-10-18) — the one per-hit decision, the NOTE pass index, and their small helpers
+//
+// ONE function (`euclideousFXApply`) decides what the six rows do to a hit; the Router calls it per hit, the TIE lookahead calls it for each future hit,
+// the LANES roll calls it for every bar, the FX tab's firing flash and VoiceOver call it — nobody re-derives any of it (§2.3). Everything is pure,
+// allocation-free and a function of the beat, the origins and the snapshot (§9.2).
+
+enum EuclideousFXRow: Int, CaseIterable {
+    case ratch = 0, gate, tie, vel, note, cc
+    /// The row's cell value after a double-tap (§12.3), and its brush's starting value (§12.5).
+    var defaultValue: Int { switch self { case .ratch: return 2; case .gate: return 50; case .tie: return 1; case .vel: return 100; case .note: return 1; case .cc: return 64 } }
+}
+
+/// What the rows do to ONE hit that plays the riff. `appliedRows` has bit r set when row r's CELL had a value that applied (the firing flash reads it); a BASE
+/// send has no cell, so it sets no bit. A TIE hit short-circuits everything (`tie == true`, nothing else set — not even a CC).
+struct EuclideousFXHit: Equatable {
+    var tie = false
+    var ratch = 0              // 0 = none, else 2…4 strikes
+    var gatePct: Int? = nil    // 5…100 (100 = legato)
+    var vel: Int? = nil        // 1…127
+    var noteStep = 0           // s (−3…−1, +1…+3), 0 = no NOTE cell applied
+    var noteOffset = 0         // s × (pass mod PASSES) — what the riff rank moves by on this hit
+    var cc: Int? = nil         // the controller value to send (the cell's, else BASE), nil = send nothing
+    var appliedRows: UInt8 = 0
+}
+
+/// "The lane plays the riff": its riff layer is on and it isn't SHADOWing a partner (the shadow branch REPLACES the riff layer). The one definition the
+/// Router's gate, the roll and the walk tags share.
+func euclideousLanePlaysRiff(_ line: EuclidLine) -> Bool { line.riffOnResolved && line.listenPitchMode != .shadow }
+
+/// §2.2/§2.3 — what the rows do to a hit on `lane` that reads riff `column` (0…7) whose WRITTEN rank (before INVERT and before the NOTE offset) is
+/// `writtenRank`; `pass` is the hit's NOTE pass index (7.2; only read when a NOTE cell applies). Applies only when (a) the row has the lane on, (b) the
+/// lane plays the riff, (c) the written rank is not a rest, (d) the row's cell holds a value. TIE wins outright; the CC row also acts on BASE.
+func euclideousFXApply(_ fx: EuclideousFX, lane: Int, playsRiff: Bool, column: Int, writtenRank: Int, pass: Int) -> EuclideousFXHit {
+    var hit = EuclideousFXHit()
+    guard playsRiff, writtenRank >= 1, column >= 0, column < 8, lane >= 0, lane < 4 else { return hit }
+    if fx.laneOn(row: 2, lane: lane), fx.cell(row: 2, column: column) != nil { hit.tie = true; return hit }
+    if fx.laneOn(row: 0, lane: lane), let v = fx.cell(row: 0, column: column) { hit.ratch = max(2, min(4, v)); hit.appliedRows |= 1 << 0 }
+    if fx.laneOn(row: 1, lane: lane), let v = fx.cell(row: 1, column: column) { hit.gatePct = max(5, min(100, v)); hit.appliedRows |= 1 << 1 }
+    if fx.laneOn(row: 3, lane: lane), let v = fx.cell(row: 3, column: column) { hit.vel = max(1, min(127, v)); hit.appliedRows |= 1 << 3 }
+    if fx.laneOn(row: 4, lane: lane), let v = fx.cell(row: 4, column: column), v != 0 {
+        let passes = max(2, min(8, Int(fx.notePasses)))
+        hit.noteStep = v
+        hit.noteOffset = v * (((pass % passes) + passes) % passes)
+        hit.appliedRows |= 1 << 4
+    }
+    if fx.laneOn(row: 5, lane: lane) {
+        if let v = fx.cell(row: 5, column: column) { hit.cc = max(0, min(127, v)); hit.appliedRows |= 1 << 5 }
+        else if fx.ccBase >= 0 { hit.cc = max(0, min(127, Int(fx.ccBase))) }
+    }
+    return hit
+}
+
+/// The lit notes' velocity under an FX VEL `v`: v plus the NOTES VEL bar's displayed offset (`notesVelocity − VEL`, clamped ±64 exactly as the bar shows it),
+/// clamped to 1…127 (§6.1).
+func euclideousFXLitVelocity(fxVel v: Int, notesVelocity: Int, velocityAbsolute: Int) -> UInt8 {
+    let off = max(-64, min(64, notesVelocity - velocityAbsolute))
+    return UInt8(max(1, min(127, v + off)))
+}
+
+/// The RATCH beat-width cap — the mask RATCHET's own rule, factored out so both read ONE formula: no strike slot shorter than 1/128 of the scene grid's bar
+/// (`cyc` = stepRate × columns, NOT the host bar), never below 1.
+func euclideousRatchetCap(sub: Double, cyc: Double) -> Int { max(1, Int(sub * 128.0 / max(0.0001, cyc))) }
+/// FX RATCH's strike count: exactly the cell's n (no roll, no legal-size clamp), lowered only by the cap; fewer than 2 strikes is a plain hit (0).
+func euclideousFXRatchetCount(requested n: Int, sub: Double, cyc: Double) -> Int {
+    let c = min(n, euclideousRatchetCap(sub: sub, cyc: cyc))
+    return c >= 2 ? c : 0
+}
+
+/// riffResolve's fold, extended DOWNWARD for FX-moved ranks (§7.3). `riffResolve` returns nil (a rest) for any rank below 1 — correct for a written rest and
+/// left untouched — so a NOTE-moved rank that lands at 0 or below needs this: floor-division folds it into the octave below (with C3 E♭3 G3 held, rank 0 is G2,
+/// rank −2 is C2). Identical to `riffResolve(wrap: .fold)` for rank ≥ 1 (rank 9 = G5). Never traps; the caller's pitch-range handling decides what a huge result does.
+@inline(__always) func riffResolveExtended(rank: Int, oct: Int, n: Int, asc: (Int) -> Int) -> Int? {
+    guard n > 0 else { return nil }
+    let idx0 = rank - 1
+    var laps = idx0 / n
+    var over = idx0 - laps * n
+    if over < 0 { over += n; laps -= 1 }
+    return asc(over) + 12 * laps + 12 * oct
+}
+
+// ── the NOTE pass index (§7.2) ────────────────────────────────────────────────────────────────────────────────────────
+
+private func euclideousFXGcd(_ a: Int, _ b: Int) -> Int { var x = abs(a), y = abs(b); while y != 0 { (x, y) = (y, x % y) }; return max(1, x) }
+/// The riff walk's period in ORDINALS: `D / gcd(D, STRIDE)` where D is `riffStepAt`'s own modulus for the direction — FWD/REV `LENGTH`, PEND `2·LENGTH − 2`,
+/// PING `2·LENGTH`; 1 when LENGTH is 1. (RANDOM/DRUNK can't reach Euclideous — `euclideousRiffDirResolved` coerces them to FWD — and use FWD's period.)
+func euclideousFXWalkPeriod(dir: RiffDir, length: Int, stride: Int) -> Int {
+    let l = max(1, length)
+    if l == 1 { return 1 }
+    let d: Int
+    switch dir {
+    case .forward, .reverse, .random, .drunk: d = l
+    case .pendulum: d = 2 * l - 2
+    case .pingpong: d = 2 * l
+    }
+    return d / euclideousFXGcd(d, max(1, stride))
+}
+/// FREE: `p = floor(o / P)`, `o` the riff ordinal the Router feeds `riffStepAt` (counted from the melody origin).
+func euclideousFXFreePass(advOrd: Int64, period: Int) -> Int {
+    Int(floorDiv(advOrd, Int64(max(1, period))))
+}
+/// LOCK: `p` = the number of LOCK resets — Euclid lap starts — strictly AFTER the melody origin and at or before this tick. A lap starts at every multiple of
+/// `cycleLen` ticks from the RHYTHM origin, and a rhythm mark starts a fresh lap. In CLOSED FORM (never a loop over laps): the rhythm segments repeat every
+/// 16 restart cells, so `L(x)` (lap starts ≤ x) is whole windows × lap starts per window + a walk over at most 17 segments.
+func euclideousFXLockPass(tick: Int64, cycleLen: Int, grid: EuclideousLaneRestartGrid, localT: Int64) -> Int {
+    let cl = Int64(max(1, cycleLen))
+    guard grid.isActive else { return Int(floorDiv(localT, cl)) }          // one origin (the legacy span or beat 0): laps since it
+    let u = Int64(grid.unitTicks)
+    let absCell = Int(floorDiv(tick, u))
+    let cellM = grid.melodyMask != 0 ? (euclideousMaskedResetCell(absCell: absCell, mask: grid.melodyMask) ?? 0) : 0
+    let m = Int64(cellM) * u                                               // the melody origin, in absolute ticks
+    if grid.rhythmMask == 0 { return Int(floorDiv(tick, cl) - floorDiv(m, cl)) }   // the rhythm origin is beat 0: laps at multiples of cl
+    return Int(euclideousLapStartsUpTo(tick, rhythmMask: grid.rhythmMask, unitTicks: u, cycleLen: cl) - euclideousLapStartsUpTo(m, rhythmMask: grid.rhythmMask, unitTicks: u, cycleLen: cl))
+}
+/// L(x): lap starts at or before absolute tick `x`, relative to a consistent baseline (only DIFFERENCES are meaningful). Segments are the rhythm marks'
+/// own (the carried segment before the window's first mark runs from the previous window's last mark); a segment starting at `a` has lap starts at `a + k·cl`.
+private func euclideousLapStartsUpTo(_ x: Int64, rhythmMask: UInt16, unitTicks u: Int64, cycleLen cl: Int64) -> Int64 {
+    let window = 16 * u
+    var first = -1, last = -1
+    for c in 0..<16 where (rhythmMask >> UInt16(c)) & 1 != 0 { if first < 0 { first = c }; last = c }
+    guard first >= 0 else { return floorDiv(x, cl) }
+    /// lap starts at a + k·cl (k ≥ 0) inside [lo, hi], where the segment began at `a`
+    func inSegment(a: Int64, lo: Int64, hi: Int64) -> Int64 {
+        guard hi >= lo else { return 0 }
+        let jmax = floorDiv(hi - a, cl)
+        let jmin: Int64 = lo > a ? -floorDiv(a - lo, cl) : 0              // ceil((lo − a) / cl)
+        return max(0, jmax - jmin + 1)
+    }
+    /// lap starts per window and within window-relative ticks [0, r]
+    func perWindow(_ r: Int64) -> Int64 {
+        var total: Int64 = 0
+        let firstP = Int64(first) * u
+        total += inSegment(a: Int64(last - 16) * u, lo: 0, hi: min(r, firstP - 1))          // the carried segment
+        var c = first
+        while c >= 0 && c < 16 {
+            var next = c + 1
+            while next < 16 && (rhythmMask >> UInt16(next)) & 1 == 0 { next += 1 }
+            let a = Int64(c) * u
+            if a > r { break }
+            total += inSegment(a: a, lo: a, hi: min(r, Int64(next) * u - 1))
+            c = next
+        }
+        return total
+    }
+    let wn = floorDiv(x, window)
+    return wn * perWindow(window - 1) + perWindow(x - wn * window)
+}
+/// The hit's NOTE pass index from the lane's per-tick core inputs — the one function the Router (FREE: it already holds `advOrd`; LOCK: it holds `localT`), the
+/// roll and the tests all use. FREE reads the core's ordinal; LOCK counts resets in closed form.
+func euclideousFXPassIndex(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, grid: EuclideousLaneRestartGrid,
+                           legacySpanBeats: Double, locked: Bool, advanceStep: Bool, riffDir: RiffDir, stride: Int, length: Int) -> Int {
+    if locked {
+        let ph = euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats)
+        return euclideousFXLockPass(tick: tick, cycleLen: cycleLen, grid: grid, localT: ph.localT)
+    }
+    let info = euclideousLaneTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats,
+                                  locked: false, advanceStep: advanceStep)
+    return euclideousFXFreePass(advOrd: info.advOrd, period: euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
+}
+
+/// The riff grid's own cell width (§10.3: "call the riff grid's own function, don't re-derive it"): the FX tab's columns and the riff grid's are the SAME numbers
+/// because both read this. `maxWidth` is the panel's outer width (the riff column); the 30pt note-label column, the sp4 gap and the sp8 padding on both
+/// sides are the grid's own.
+func euclideousRiffCellW(maxWidth: CGFloat) -> CGFloat {
+    let n: CGFloat = 8, label: CGFloat = 30, sp4: CGFloat = 4, sp8: CGFloat = 8
+    let gridW = max(1, maxWidth - (label + sp4))
+    return max(1, (gridW - sp8 * 2 - sp4 * (n - 1)) / n)
 }

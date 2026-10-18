@@ -3794,11 +3794,7 @@ struct EuclideousPage: View {
     /// The riff matrix's own cell width — ONE formula, shared by `riffGridView` and `slotRow` (§10.2:
     /// "the same cellW the grid draws with"), so the slot row's two tiles can never drift out of alignment
     /// with the 8-column grid underneath.
-    private func riffCellW(maxWidth: CGFloat) -> CGFloat {
-        let n = 8
-        let gridW = max(1, maxWidth - (riffLabelColW + sp4))
-        return max(1, (gridW - sp8 * 2 - sp4 * CGFloat(n - 1)) / CGFloat(n))
-    }
+    private func riffCellW(maxWidth: CGFloat) -> CGFloat { euclideousRiffCellW(maxWidth: maxWidth) }   // ONE formula (Derivations.swift), shared with the FX tab's columns (FX ferry §10.3)
     /// FOUR RIFFS (2026-10-18 ferry, restoring the 2026-10-14 tab row): tapping a tab makes it the
     /// active riff — both EDITED (the grid below) and SOUNDING (every lane reads `riffs[activeRiff]`
     /// directly, "ONE GLOBAL RIFF" ferry) — there is no separate "editing vs. playing" distinction left

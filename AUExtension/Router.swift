@@ -558,7 +558,7 @@ final class Router {
         // spirit — it's just reseeded with one more, fixed-per-hit term, not a behaviour change for it.
         let roll2 = splitmix64Mix(UInt64(bitPattern: euclideousMaskOrd[lineIndex]) &+ UInt64(lineIndex) &* 0xBF58476D1CE4E5B9 &+ UInt64(rank) &* 0x9E3779B97F4A7C15 &+ 0x2545F4914F6CDD1D)
         var nRep = lo + Int(roll2 % UInt64(span))
-        let cap = max(1, Int(sub * 128.0 / max(0.0001, cyc)))
+        let cap = euclideousRatchetCap(sub: sub, cyc: cyc)   // the shared formula (FX RATCH reads the same one)
         nRep = min(nRep, cap)
         return nRep
     }
