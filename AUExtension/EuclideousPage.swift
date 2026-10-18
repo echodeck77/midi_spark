@@ -4249,7 +4249,7 @@ struct EuclideousPage: View {
         .frame(width: width, height: height, alignment: .topLeading)
     }
     /// The four lanes' data for the active sub-tab at `beat`. The roll feed is cached per lane and recomputed only when one of its inputs changes
-    /// (the lane's settings and its neighbours', the riff and looper, the unit, the window, the bar, the tempo) or the window wraps — never per frame.
+    /// (the lane's settings and its neighbours', the riff, the unit, the window, the bar, the tempo) or the window wraps — never per frame.
     private func lanesPanelLanes(beat: Double) -> [EuclideousLanesPanelLane] {
         let restart = lanesSubTab == .restart
         let ranks = effectiveGridRanks   // the riff that is playing — the SAME read the footer and the grid use
