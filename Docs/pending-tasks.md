@@ -5,6 +5,18 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — "MIX tab (gate, velocity and octave for every layer)" — SHIPPED (2026-10-18; LANDED on `feature/mix-tab`, macOS
+green, iOS builds clean) — the sequencer panel opens on MIX: eight XY pads (gate × velocity) + OCT steppers, per-pitch gate and per-layer
+legato in the engine, `notesGate`/`notesVelocity`, per-touch undo. Also fixed: a lane's VEL never survived a session save/load. Full story
+in `Docs/euclideous-status-log.md`.
+- [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "MIX tab" section (pad legibility, touch feel + two pads, 28pt OCT buttons,
+      grey off state, per-layer legato vs a real synth, the tab row without its readout, and the portrait panel's 66pt pads).
+- [ ] DECIDE (Paul): portrait pads are 66pt tall (the shared row is capped at 248pt) — below the ferry's 76pt floor in EVERY portrait layout.
+      Give the panel more height in portrait, or accept?
+- [ ] DECIDE (Paul): the "TAP = RESTART" hint (shown while a RESET box is held) left with the tab-row readout — redraw it inside the LANES body?
+- [ ] DECIDE (Paul): GATE's slider goes down to 1% but the engine clamps GATE to 5% (SnapshotBuilder, pre-existing) — lower the clamp to 1%
+      (and the notes gate with it)?
+
 ## ★ EUCLIDEOUS — "Fourfold settings (a gear, one sheet, three tabs)" — SHIPPED (2026-10-15; LANDED on
 `feat/fourfold-settings-sheet`, macOS 1511 green incl. +12, iOS builds clean) — × replaced by a gear opening a
 3-tab settings sheet (MIDI IN channel filter · MAIN OUT per-output channel + ALL NOTES OFF · CLOCK KEEP

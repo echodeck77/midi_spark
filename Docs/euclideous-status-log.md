@@ -12,6 +12,59 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: MIX tab (gate, velocity and octave for every layer)" (2026-10-18, Paul; on `feature/mix-tab`; iOS builds
+  clean; macOS suite green 1568/1568; ALL visuals/gesture feel DEVICE-OWED — the pad and stepper were rendered to PNG on macOS for a geometry
+  check only).** Planned first (Plan Mode, mapped against the raw text), approved, built. **WHAT SHIPPED.** The sequencer panel's FIRST
+  tab is now MIX (the page opens on it; LANES second; RIFFS stays hidden). The tab row is TABS ONLY (equal widths, 20 tall, 2pt bar, LANES
+  keeps its on/off dot); the old trailing readout is gone — both "STEP n OF LEN" AND, sharing its slot, the RESET-hold hint "TAP =
+  RESTART" (the RESET gesture/marks are unchanged; the hint just stopped showing — decision D1). LANES' OFF/RATE/LEN bar was PANEL CHROME
+  drawn under every tab; it now lives inside the LANES tab with LANES' exact geometry (so tab-row→content is sp4 on LANES, sp8 on MIX).
+  MIX = eight cells (lane pairs RIFF then NOTES, lanes 1,2 top / 3,4 below, matching the lane cards in both layouts), each an XY PAD
+  (X = gate, Y = velocity) over an OCT − / + stepper. ONE formula for the grid (`euclideousMixGrid`: cellW=(W−16)/4, rowH=(H−8)/2,
+  padH=rowH−32; reference 401×264 → 96.25/128/96) and ONE definition of pad geometry shared by drawing and touch
+  (`EuclideousMixPadGeometry`: puck, ticks, regions, and the §4.1 touch inverse). **MODEL.** Two new additive-Optional EuclidLine fields
+  appended last: `notesGate`, `notesVelocity` (resolvers `notesGateResolved` = GATE when nil; `notesVelocityResolved` = clamp(VEL +
+  offset) when nil — byte-identical to the old notes velocity). The layers PART at the first GATE/VEL edit (`euclideousPinNotesLayer`,
+  wired into `euclideousSliderCommit` and `euclideousSliderDoubleTapDefault`, only on a real change; a long-press `Revert` takes the pin
+  back — it is not an edit). The NOTES VEL bar keeps its look but is now a VIEW of notesVelocity relative to VEL
+  (`euclideousNotesVelBarValue/Write/DoubleTap`; nothing writes `notesVelOffset` any more, it stays decodable); its double tap stores
+  VEL into notesVelocity. One shared setter per octave layer (`euclideousSetRiffOctave`, `euclideousSetNotesOctave`) used by the RIFF/
+  NOTES tabs and the MIX stepper — so tapping a notes OCT button on an OFF layer switches it on, as the NOTES tab's octave always has.
+  **A REAL BUG FOUND AND FIXED:** `velocityAbsolute` was the ONLY stored `EuclidLine` field the hand-written decoder never read — it
+  encoded, so a lane's VEL was saved to disk and silently reset to 100 on every session/preset load. Now decoded; a reflection-guarded
+  all-fields round-trip test (it fails if a newly added field isn't populated in it, and was confirmed to fail without the fix) makes the
+  class impossible to repeat. Behaviour change: sessions that saved a VEL now restore it. **ENGINE (Router.runEuclidLine, Euclideous-only
+  merged pipeline).** Every sounding pitch carries its OWN gate: `pitchGate[9]` beside `pitchVel` (same first-insertion-wins, so the
+  riff's gate wins a collision); riff + SHADOW pitches get the lane's GATE, lit notes/TOP/TOP2 the notes gate; mask-added notes take the
+  gate of the pitch they come from (`euclideousExtraPitchGate`: riff pitch if the hit has one, else the notes layer). Note length per
+  pitch via the pure `euclideousPitchGateBeats` (gap × gate, 5 ms floor, TIE extension scaled by that pitch's gate); RATCHET
+  `(sub/nRep)×pitch gate`; the REPEAT cache gained `euclideousLastSoundedGates`. LEGATO is per LAYER: `reconcileEuclidLegato` takes
+  per-pitch gates, decides legato per pitch (`euclideousGateIsLegato`: exactly 100%, not a ratchet hit), tracks only legato pitches and
+  returns a bitmask of what it handled; callers strike the rest at their own lengths. Each pitch already had its own `strikeChord` call, so
+  no voice-table restructuring was needed (§7.6's stop condition did not apply). **PER-TOUCH UNDO (decision D3).** `onEdit`'s fixed coalesce
+  key `"euclideous"` plus `UndoStack`'s key-equality coalescing merges consecutive edits across DIFFERENT touches into one step (RHYTHM
+  sliders/NOTES VEL behave that way today), so §4.3's "one undo step per touch" was not free. Pads checkpoint explicitly: new
+  `onEditStep(newStep, mutate)` (VC: a `coalesceKey: nil` record only when `newStep`, else the same document + publish path, so two
+  simultaneous pads can't flood the stack); the pure `EuclideousPadUndoBurst` takes the checkpoint lazily at a touch's first value-changing
+  write (an empty touch adds none) and continues the burst when a touch begins ≤0.35 s after the last lifted, so a double tap's reset merges
+  with the first tap and ONE undo returns to before it. **TESTS.** Golden FIRST: the 20 factory presets' 8-bar note streams (every note-on/
+  off sample, note, velocity, cable) were hashed on the unchanged engine and pinned in `testEveryFactoryPresetRendersTheSameNoteStream…`
+  (it adds `EuclideousPresets.swift` to the test target) — bit-identical after the engine change. Pure: grid + origins, pad maths (the three
+  §3.5 points, §3.6 ticks, §4.1 inverse for every gate 1–100 × velocities 1/64/127, clamps), LEGATO label, resolvers, pinning/revert/double
+  tap, NOTES VEL view, octave, tabs, undo burst. Router: own gates per pitch, per-layer legato in both directions, collision, pinned
+  velocity, CHORD extras / RATCHET / REPEAT per-pitch gates (via the seam below), and two stuck-note stress runs (both gates across 100%, both
+  velocities, both layers on/off, the lit mask, MONO steal, transport restarts; the second through the mask modes). The per-layer tests
+  were confirmed to FAIL when the notes layer is reverted to the riff's gate. **TEST SEAM:** the Euclideous row force-disables its mask
+  (`Router.swift` call site, LISTEN ferry §1), which made CHORD/RATCHET/REPEAT unreachable end to end; `Router.euclideousMaskEnabledForTests`
+  (default false, one Bool read) lets tests drive them. While doing so I found the REPEAT TRIGGER branch cached only notes — never
+  velocities (stale/zero on a lane's first hit) — and now caches notes, velocities and gates (a pre-existing gap in a path that is dead in
+  the product today). **REPORTED, NOT SHRUNK (§2.8):** portrait panels are capped at 248pt tall (`riffPanelHeight(rowH:20)`), so padH ≤ 66
+  in EVERY portrait layout (< 76); landscape drops below cellW 84 below ~1054pt page width (1024×768 gives 81.3). At the 1190×725.5
+  reference the code's panel is 416.9×312.3 (cellW 96.2, padH 98.1) — 4pt taller than the ferry's 417×308, which gives exactly 96.25/128/96.
+  **NOT CHANGED, FLAGGED:** GATE's slider range is 1–100% but SnapshotBuilder clamps GATE to 5–100% (pre-existing); `notesGate` clamps
+  identically so the layers agree at the low end. SwiftUI has no tab trait, so tabs get button + selected; the lane tab had no VoiceOver
+  wording before, so LANES now reads "Lanes" + on/off. The puck glow uses SwiftUI radius 6 for the design's "≈12pt blur". Presets
+  and the 8×8 editor's `GridUI.swift:671` gate write are untouched.
 - **▶ EUCLIDEOUS — "odd timing" investigation: THE ENGINE IS EXONERATED (2026-10-18; `feat/looper-tabs`; macOS suite
   green 1542/1542 incl. +1 new test).** Paul reported audibly uneven timing from a lane set to 16 hits on 16 steps
   at 1/16 — which is a solid block of hits and therefore *cannot* be unevenly spaced. Recorded clips showed onsets

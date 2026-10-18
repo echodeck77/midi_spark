@@ -17,6 +17,17 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### MIX tab (2026-10-18 ferry — gate, velocity and octave for every layer)
+- Pad legibility at 96 × 96: the 8pt names, the 11pt values, the puck and lines. (The portrait panel's pads are only ~66 tall — check those too.)
+- Touch-to-value feel: the puck sits under the finger, no stray edits from a plain tap, and two pads dragged at once stay independent.
+- The 28pt OCT buttons are comfortable, and the end button dims at −2 / +2.
+- The grey off state reads as "off, still editable" (turn the riff card / NOTES off and drag its pad; tapping a notes OCT button on an off layer switches it on).
+- Per-layer gate and legato against a real synth: riff at 60% while notes sit at 100% (and the reverse) — held vs retriggered, no stuck notes.
+- The tab row without its readout: MIX / LANES split it evenly; holding a RESET box no longer shows "TAP = RESTART".
+- One undo per touch: drag a pad, lift, drag another, undo twice; double-tap a pad and undo once returns it to before the first tap.
+- The RHYTHM tab's GATE/VEL follow the riff pad; the NOTES VEL bar follows the notes pad's velocity; dragging a notes pad never moves its riff pad.
+- A lane's VEL now survives closing and reopening a session (it used to reset to 100).
+
 ### Looper tabs replace the riff tabs (2026-10-16 ferry, §11 — supersedes "loop slots," pruned below, same day before any device pass)
 - Recorded timing feels faithful against the live clock's jitter.
 - Four buttons sit over their grid columns, landscape and portrait, down to the 24pt cell floor.

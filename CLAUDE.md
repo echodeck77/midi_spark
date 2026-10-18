@@ -227,9 +227,11 @@ the same pipeline as any other row; it is not a special-cased render path.
   capture), NOTES (an additive lit-note layer independent of the riff — up to 8 ranks + TOP/TOP2,
   per-note octave shift, a bipolar velocity offset), and MASK (11 modes — MUTE/PAUSE/RATCHET/
   REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — gated by CHANCE).
-- **Sequencer panel** (replaced an earlier "NOTE VIEW" telemetry panel entirely): LANES tab
-  (which of the 4 lanes sounds each step) and RIFFS tab (which of the 4 riffs plays each step),
-  each with its own ON/RATE/LEN, sharing the riff grid's own column geometry.
+- **Sequencer panel** (replaced an earlier "NOTE VIEW" telemetry panel entirely): tabs are MIX (the default —
+  eight XY pads, gate × velocity, + an OCT stepper per layer: each lane's RIFF and NOTES; RIFF = the lane's GATE/VEL,
+  NOTES = its own `notesGate`/`notesVelocity`, which PART from GATE/VEL at the first edit), then LANES (which of the 4
+  lanes sounds each step, with its own ON/RATE/LEN bar — that bar belongs to the LANES tab, not the panel); RIFFS is
+  hidden. The tab row is tabs only. Every sounding pitch in a Euclideous hit carries its OWN gate and legato is per layer.
 - **Source.** One page-level selector — MIDI IN / CHORDS (a self-contained degree-matrix+rate
   chord generator, no 8×8-grid receiver dependency) / KEY (a scale pool). No per-lane source, no
   dependency on the wider receiver/door graph.
