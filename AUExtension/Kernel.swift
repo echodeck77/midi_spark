@@ -490,7 +490,8 @@ final class Kernel {
     func euclideousNoteViewEvents() -> [[Router.EuclideousNoteViewEventSnapshot]] { router.drainEuclideousNoteViewEvents() }   // NOTE VIEW's per-lane event queue, drained (Paul 2026-10-10)
     func euclideousLanesSeqStep() -> Int { router.euclideousLanesSeqStep() }   // the LANES sequencer's current step, polled (2026-10-14 sequencer panel ferry)
     func euclideousRiffsSeqStep() -> Int { router.euclideousRiffsSeqStep() }   // the RIFFS sequencer's current step, polled (2026-10-14)
-    func euclideousPlayingRiffIndex() -> Int { router.euclideousPlayingRiffIndex() }   // which of the 4 riffs is currently sounding, polled (2026-10-14)
+    // `euclideousPlayingRiffIndex()` forwarder deleted 2026-10-18 (adversarial review) — zero callers
+    // left once the ferry dropping the looper also dropped the editing-vs-playing distinction it served.
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.

@@ -92,10 +92,17 @@ project has been building this whole stretch.
   icon-redesign ferry — over `riffs[i].ranksResolved`; tap = `onSetActiveRiff`; long-press = COPY/PASTE/
   CLEAR via restored `riffTabMenuLane`/`riffClipboard` state) replaces the loop row at the top of the
   STANDALONE `riffGridView` panel (shown directly in the main page layout beside `sequencerPanel`, NOT
-  inside its own MIX/LANES/RIFFS tab strip — confirmed by reading the pre-looper layout code: RIFFS was
-  never reachable there even in "the previous committed version," since `sequencerPanel`'s own RIFFS tab
-  wires to a different, separately-already-dead per-step riff-ASSIGNMENT matrix, `sequencerRiffsGrid`,
-  left untouched). `effectiveGridRanks` now reads `riffs[activeRiff].ranksResolved` directly, no beat/clock
+  inside its own MIX/LANES/RIFFS tab strip — `riffTabRow()` never lived in that tab strip in ANY revision,
+  confirmed by reading the pre-looper layout code). **CORRECTION (same-day adversarial review):** this
+  entry originally also claimed the tab strip's own RIFFS tab "was never reachable there even in the
+  previous committed version" — that half was WRONG. Re-checked by git archaeology: immediately before the
+  loop/looper ferries (`0e9e6a0`/`8a4337e`, 2026-10-16), that tab strip's RIFFS tab WAS live/tappable,
+  showing `sequencerRiffsGrid` (a different, per-step riff-ASSIGNMENT matrix, not the four-riff-tabs
+  feature) — it only became unreachable LATER, when the MIX ferry (`a2da76a`) introduced the `visible`
+  list that hides it. This doesn't change what shipped (Paul's ask was fully met either way, and
+  `sequencerRiffsGrid` stays exactly as unreachable as it already was right before this ferry started) —
+  flagging only because the wrong claim was baked into the commit message and a code comment too (now
+  fixed in both). `effectiveGridRanks` now reads `riffs[activeRiff].ranksResolved` directly, no beat/clock
   involvement. The old `playingRiffIndex`/"editing vs. playing can disagree" distinction (needed only by
   the dead RIFFS-sequencer live-switching feature) is SIMPLIFIED AWAY — one riff is both edited and
   sounding now, matching the user's plain "switch between them" ask. **DELETED OUTRIGHT (not left dead):**

@@ -540,10 +540,15 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // slot 0 the instant it's read, so nothing downstream of THIS forwarder ever needs the old field again.
     func uiEuclideousRiffs() -> [EuclideousRiff] { document.riffsResolved }
     func uiEuclideousActiveRiff() -> Int { document.activeRiffResolved }
-    // THE RIFF (ferry "looper tabs replace the riff tabs", §8.1) — `riffsResolved`/`activeRiffResolved`
-    // above stay in place, decode-only (feed the migration inside `euclideousLiveGridResolved` the
-    // instant a pre-ferry document is read); nothing downstream of THIS forwarder ever needs them again.
-    func uiEuclideousLiveGrid() -> EuclideousRiff { document.euclideousLiveGridResolved }
+    // `uiEuclideousLiveGrid()` (a forwarder for the looper's decode-only `euclideousLiveGridResolved`)
+    // is DELETED here (2026-10-18 adversarial review found it orphaned — its one caller, `refreshFrom
+    // Document`'s resync block, was removed by the same ferry that dropped the looper, and this one
+    // slipped past that ferry's own "confirmed zero remaining callers" sweep). `PluginState.
+    // euclideousLiveGrid`/`euclideousLiveGridResolved` themselves stay on the document — pure decode-
+    // safety for an old saved session now (confirmed: nothing on the production side reads
+    // `euclideousLiveGridResolved` any more — `SnapshotBuilder.swift`'s own `p.euclideousLiveGrid` is the
+    // unrelated `MachineParams` field, not this one; only `EffectiveParamsTests.swift` still exercises
+    // this resolver directly, to prove the migration itself still works).
     func uiEuclideousLanesSeq() -> EuclideousLanesSeq {
         EuclideousLanesSeq(on: document.euclideousLanesSeqOnResolved, rate: document.euclideousLanesSeqRateResolved,
                             len: document.euclideousLanesSeqLenResolved, cells: document.euclideousLanesSeqCellsResolved)
@@ -592,7 +597,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// step-clock "always runs" (§4), so the lit cell must track it live, not on the slower config-resync poll.
     func pollEuclideousLanesSeqStep() -> Int { kernel.euclideousLanesSeqStep() }
     func pollEuclideousRiffsSeqStep() -> Int { kernel.euclideousRiffsSeqStep() }
-    func pollEuclideousPlayingRiffIndex() -> Int { kernel.euclideousPlayingRiffIndex() }
+    // `pollEuclideousPlayingRiffIndex()` forwarder deleted 2026-10-18 (adversarial review) — zero callers
+    // left once the ferry dropping the looper also dropped the editing-vs-playing distinction it served.
     func uiClaimLeak() -> [Int] { document.claimLeakResolved }
     func setClaim(_ bus: Int) {
         guard (0..<4).contains(bus) else { return }

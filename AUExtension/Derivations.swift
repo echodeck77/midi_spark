@@ -5220,10 +5220,15 @@ struct EuclideousPadUndoBurst: Equatable {
 
 // ── the sequencer panel's tabs (§1) ───────────────────────────────────────────────────────────────────────────────────
 
-/// MIX first (and the default), LANES second; RIFFS stays hidden — this was true even in the pre-looper
-/// "previous committed version" (its `sequencerRiffsGrid` is a DIFFERENT, already-dead per-step riff-
-/// ASSIGNMENT matrix, not the four-riff-tabs feature; that feature lives in the standalone `riffGridView`
-/// panel instead, shown directly in the page layout, restored 2026-10-18 — see `riffTabRow()`).
+/// MIX first (and the default), LANES second; RIFFS stays hidden. CORRECTION (2026-10-18 adversarial
+/// review): an earlier version of this comment claimed RIFFS was "never reachable there even in the
+/// pre-looper previous committed version" — WRONG, verified by git archaeology. Immediately before the
+/// loop/looper ferries (`0e9e6a0`/`8a4337e`, 2026-10-16), `sequencerPanel` had a live, tappable two-tab
+/// LANES/RIFFS strip showing `sequencerRiffsGrid` (a per-step riff-ASSIGNMENT matrix, a DIFFERENT feature
+/// from the four-riff-tabs one) — it only became unreachable LATER, when the MIX ferry (`a2da76a`)
+/// introduced this very `visible` list. What IS true: the four-riff-TABS feature (`riffTabRow()`) never
+/// lived inside this tab strip at all, in any revision — it lives in the standalone `riffGridView` panel,
+/// shown directly in the page layout, restored there 2026-10-18.
 enum EuclideousSeqTab: Int, CaseIterable {
     case mix = 0, lanes = 1, riffs = 2
     var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS" } }

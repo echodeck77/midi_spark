@@ -811,13 +811,12 @@ enum SnapshotBuilder {
             return rr
         }
         out.activeRiff = max(0, min(3, p.activeRiff ?? 0))
-        // THE RIFF (FERRY "looper tabs replace the riff tabs", §8.1) — mirrors `euclideousRiffs`/
-        // `activeRiff`'s own fallback exactly: `BuildPage.swift`'s publish line populates
-        // `p.euclideousLiveGrid` from already-fully-migrated live @State every time (so this `??` branch
-        // is a defensive fallback, same as `euclideousRiffsMigrated` above is for `p.riffs`/`activeRiff` —
-        // load-bearing only for a MachineParams built directly, e.g. a RouterTests fixture, not for a real
-        // session/preset load, which resolves through `PluginState.euclideousLiveGridResolved` long
-        // before it ever reaches here). No slots detour — the riff = riffs[activeRiff], directly.
+        // THE RIFF — `p.euclideousLiveGrid` (this `MachineParams` field, NOT `PluginState`'s own same-
+        // named decode-only field) is never set any more (2026-10-18, "drop the loop functionality" —
+        // `BuildPage.swift`'s publish line stopped populating it), so this `??` fallback fires
+        // UNCONDITIONALLY now: the riff = `riffs[activeRiff]`, directly, every time. It stays written
+        // this way (rather than simplified to a plain assignment) only so a `MachineParams` built
+        // directly — a `RouterTests` fixture, say — can still override it if a future test needs to.
         out.euclideousLiveGrid = p.euclideousLiveGrid ?? out.euclideousRiffs[out.activeRiff]
         // THE LOOPER (§6/§8.5) — NEVER saved; `BuildPage.swift` republishes these fresh from its own live
         // @State on every edit, same as every other live Euclideous control. `active == false` (the

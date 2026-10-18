@@ -315,7 +315,10 @@ struct DiagView: View {
     // the same fast cadence as the riff positions above (the step clock "always runs," per §4).
     @State var euclideousLanesSeqStep: Int = -1
     @State var euclideousRiffsSeqStep: Int = -1
-    @State var euclideousPlayingRiffIndex: Int = 0
+    // `euclideousPlayingRiffIndex` (the old "editing vs. playing can disagree" indicator) is DELETED here
+    // (2026-10-18 adversarial review) — the ferry that dropped the looper also dropped that whole
+    // distinction (one riff is now both edited and sounding), so this poll had already stopped being
+    // forwarded to `EuclideousPage` at all; confirmed zero remaining readers before deleting.
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane cards") — each lane's
     // latest wipe-ELIGIBLE event (column/rank >= 0), built from draining the fast-poll event queue (see the
     // `showEuclideous` block below). The SIBLING reconciled slots this queue used to ALSO feed
@@ -1327,8 +1330,6 @@ struct DiagView: View {
                 if lss != euclideousLanesSeqStep { euclideousLanesSeqStep = lss }
                 let rss = au.pollEuclideousRiffsSeqStep()
                 if rss != euclideousRiffsSeqStep { euclideousRiffsSeqStep = rss }
-                let pri = au.pollEuclideousPlayingRiffIndex()
-                if pri != euclideousPlayingRiffIndex { euclideousPlayingRiffIndex = pri }
                 // RIFF-CELL WIPES (Paul 2026-10-10 ferry): drain the per-lane event queue and fold it into
                 // ONE reconciled slot — the NOTE VIEW panel this queue originally also fed (euclideousNV
                 // LastEvent/RestFlash) was RETIRED by the 2026-10-14 sequencer-panel ferry (superseded by

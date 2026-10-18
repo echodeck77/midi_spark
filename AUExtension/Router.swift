@@ -1557,10 +1557,13 @@ final class Router {
     // used for this window's mute/switch decision. -1 = never rendered yet (no transport activity at all).
     private var euclideousLanesSeqStepLive = -1
     private var euclideousRiffsSeqStepLive = -1
-    private var euclideousPlayingRiffIndexLive = 0
     func euclideousLanesSeqStep() -> Int { euclideousLanesSeqStepLive }
     func euclideousRiffsSeqStep() -> Int { euclideousRiffsSeqStepLive }
-    func euclideousPlayingRiffIndex() -> Int { euclideousPlayingRiffIndexLive }
+    // `euclideousPlayingRiffIndexLive`/`euclideousPlayingRiffIndex()` (the old "editing vs. playing can
+    // disagree" indicator, tracking what the RIFFS sequencer would switch to) are DELETED here (2026-10-18
+    // adversarial review, following the ferry that dropped the looper and that whole distinction) —
+    // confirmed zero remaining callers at every layer (`Kernel`/`MidiSparkAudioUnit`'s own forwarders
+    // removed alongside this one).
 
     /// UI-poll read (Paul 2026-10-12 ferry): each lane's live walk-advance ordinal, for the main-thread
     /// cycle prediction (`euclideousRiffCyclePrediction`, Derivations.swift) — the ordinal this lane's walk
@@ -6049,7 +6052,6 @@ final class Router {
                 let riffsSeqStepBeats = p.euclideousRiffsSeqRate.barsFraction * beatsPerBar
                 let currentRiffsStep = euclideousSeqStepIndex(beat: fBeatPos, stepBeats: riffsSeqStepBeats, len: p.euclideousRiffsSeqLen)
                 euclideousRiffsSeqStepLive = currentRiffsStep
-                euclideousPlayingRiffIndexLive = p.euclideousRiffsSeqOn ? p.euclideousRiffsSeqCells[currentRiffsStep] : p.activeRiff
             }
             // LANES GRID MUTE EDGE-DETECT (ferry §2.2: "held notes close at the boundary, but the boundaries are now each lane's OWN cell
             // boundaries, not one global step boundary") — the same per-lane legato walk-and-close as the PLAY/STOP sweep above, keyed on
