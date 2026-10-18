@@ -2732,6 +2732,11 @@ final class Router {
                                windowStart: Int64, windowEnd: Int64, S: Double, a: Double,
                                out: MIDIEmitter?, diag: inout KernelDiag) {
         if !echoPrevMEnd.isNaN && abs(mStart - echoPrevMEnd) > S { clearEchoTails() }   // seek/loop/tempo jump → drop tails
+        // WINDOW CONTIGUITY (FX TAB ferry, 2026-10-18): the previous window's `mEnd` and this window's `mStart` are the same instant, but a host's `beatPos` for the
+        // next window is NOT bit-identical to `beatPos + frames × beatsPerSample`, so the half-open `[mStart, mEnd)` below could leave a one-ulp GAP between two windows —
+        // and a deferred strike landing exactly on that boundary (a ratchet's thirds on a 64-multiple sample) would fire in neither. Within a microbeat of the previous
+        // `mEnd`, start from it instead: windows tile exactly, so every strike fires once. Anything further apart (a real jump) is untouched.
+        let lo = (!echoPrevMEnd.isNaN && abs(mStart - echoPrevMEnd) < 1e-6) ? echoPrevMEnd : mStart
         echoPrevMEnd = mEnd
         for i in echoTails.indices where echoTails[i].active {
             let e = echoTails[i]
@@ -2750,7 +2755,7 @@ final class Router {
             var inKeyWalk = e.inKeyLast >= 0 ? Int(e.inKeyLast) : Int(e.note)
             for k in 1...e.repeats {
                 let tau = e.onset + (Double(k) + e.offset) * e.timeBeats     // OFFSET nudges each echo off the grid
-                if tau < mStart || tau >= mEnd { continue }                 // half-open: fires in exactly one window
+                if tau < lo || tau >= mEnd { continue }                     // half-open: fires in exactly one window (`lo`: windows tile exactly, see above)
                 // FEED DELAY = the first echo's send level · FEEDBACK = the per-echo decay ratio (tail length)
                 let v = Int((Double(e.vel) * e.feedDelay * pow(e.decay, Double(k - 1))).rounded())
                 if v < 1 { continue }                                       // level floor kills the tail
@@ -3637,19 +3642,22 @@ final class Router {
     }
     /// Emit a CC on every ENABLED bus in `busMask` — the per-bus cable (bus+1) + All(0), on the bus's stamp channel.
     /// Deduped per (cable,ch,cc): a repeat of the same value is dropped so a held shape doesn't flood the wire.
-    private func emitModCC(cc: Int, value: Int, busMask: UInt8, atSample: Int64, out: MIDIEmitter?) {
+    /// `force` (FX TAB, 2026-10-18): send even when the value equals the last one sent on that (cable, channel, controller) — MOD's dedup is right for a
+    /// continuously modulated controller, wrong for an FX CC that must arrive ONCE PER HIT. A forced send still records the value, so a MOD cell on the same
+    /// controller keeps deduping against what is really on the wire. The bus set, the cable pair (own + ALL) and the channel stamp are the notes' own.
+    private func emitModCC(cc: Int, value: Int, busMask: UInt8, atSample: Int64, out: MIDIEmitter?, force: Bool = false) {
         guard let out, cc >= 0 && cc <= 127, value >= 0 && value <= 127 else { return }
         for bus in 0..<4 where bit(busMask, bus) && bit(busEnabledMask, bus) {
             if soloEmitterMask != 0 && !previewMode && !bit(soloEmitterMask, bus) { continue }
             let ch = (busChannels[bus] &- 1) & 15
-            emitModCCWire(cable: UInt8(bus + 1), ch: ch, cc: cc, value: value, atSample: atSample, out: out)
-            emitModCCWire(cable: 0,               ch: ch, cc: cc, value: value, atSample: atSample, out: out)   // §7b ALL cable
+            emitModCCWire(cable: UInt8(bus + 1), ch: ch, cc: cc, value: value, atSample: atSample, out: out, force: force)
+            emitModCCWire(cable: 0,               ch: ch, cc: cc, value: value, atSample: atSample, out: out, force: force)   // §7b ALL cable
         }
     }
     @inline(__always)
-    private func emitModCCWire(cable: UInt8, ch: UInt8, cc: Int, value: Int, atSample: Int64, out: MIDIEmitter) {
+    private func emitModCCWire(cable: UInt8, ch: UInt8, cc: Int, value: Int, atSample: Int64, out: MIDIEmitter, force: Bool = false) {
         let key = Int(cable) * 2048 + Int(ch) * 128 + cc
-        if key >= 0 && key < modLastVal.count { if modLastVal[key] == Int16(value) { return }; modLastVal[key] = Int16(value) }
+        if key >= 0 && key < modLastVal.count { if !force && modLastVal[key] == Int16(value) { return }; modLastVal[key] = Int16(value) }
         out.emit(sampleTime: atSample, cable: cable, 0xB0 | ch, UInt8(cc), UInt8(value))
     }
 
@@ -4305,7 +4313,12 @@ final class Router {
                     for j in 0..<pitchCount where matchedOldIndexForNew[j] < 0 && isLegatoPitch(j) && pitches[j] == trackedPitch { heldAsJ = j; matchedOldIndexForNew[j] = i; break }
                 }
                 if heldAsJ < 0 && (ownValid || allValid) {
-                    let closeOff = sampleOf(musical: tau + overlapBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    // FX TAB §4.2: a pitch this hit STRIKES AGAIN (it isn't carried on — its new gate is below 100%, or the hit ratchets) closes at the hit's OWN sample,
+                    // just before its new note-on, so a pitch never overlaps itself and the new note is never cut by the old one's late off (which used to land 10 ms
+                    // AFTER the new on, in stream order OFF@+10ms then ON@hit). Pitches the hit does not strike still end `overlapBeats` after it.
+                    var restruck = false
+                    for j in 0..<pitchCount where pitches[j] == trackedPitch { restruck = true; break }
+                    let closeOff = sampleOf(musical: restruck ? tau : tau + overlapBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     if ownValid { voices[ownSlot].offSample = closeOff; if closeOff <= windowEnd { closeVoice(ownSlot, atSample: closeOff, out: out) } }
                     if allValid { voices[allSlot].offSample = closeOff; if closeOff <= windowEnd { closeVoice(allSlot, atSample: closeOff, out: out) } }
                 }
@@ -5067,6 +5080,17 @@ final class Router {
                             var riffRank = 0, riffNote = 0
                             var tieExt = 0.0
                             var wipeColumn: Int8 = -1, wipeRankOut: Int8 = -1
+                            // FX TAB (ferry 2026-10-18): the page-level FX rows (a fixed-size, read-only snapshot — nothing here allocates) and THIS hit's decision
+                            // from the one shared `euclideousFXApply`. `fx` stays empty (every row off) unless the lane plays its riff and a row has a cell for
+                            // this column — so with every cell empty and BASE none every line below behaves exactly as before.
+                            let fxAll = p.euclideousFX
+                            let fxLive = !fxAll.isInert
+                            let fxTieLane = fxLive && fxAll.rowHasCells(2, lane: lineIndex)
+                            var fx = EuclideousFXHit()
+                            func fxRiffVel() -> UInt8 { fx.vel.map { UInt8($0) } ?? UInt8(velocityAbsolute) }                       // VEL replaces the lane's VELOCITY for the riff note…
+                            func fxRiffGate() -> Double { fx.gatePct.map { Double($0) / 100 } ?? gate }                              // …GATE replaces the lane's GATE
+                            func fxLitVel() -> UInt8 { fx.vel.map { euclideousFXLitVelocity(fxVel: $0, notesVelocity: Int(notesVel), velocityAbsolute: velocityAbsolute) } ?? notesVel }   // lit notes: v + the NOTES VEL bar's offset
+                            func fxLitGate() -> Double { fx.gatePct.map { Double($0) / 100 } ?? notesGate }                          // one effective gate per hit (GATE overrides the notes layer's own too)
                             // LISTEN/SHADOW (§6): REPLACES the riff+lit-notes layers below entirely — "the
                             // lane's own riff and lit notes are ignored." Resolves the partner's own most
                             // recent real hit (sticky, matching the UI's own marker — "(My interpretation)"
@@ -5103,8 +5127,21 @@ final class Router {
                                     ? (((playedStep + mm.leapStepsResolved) % riffLength) + riffLength) % riffLength
                                     : playedStep
                                 let rawRank = leapStep < ranks.count ? ranks[leapStep] : 0
+                                // FX TAB §2.1/§2.2: `leapStep` IS the column this hit reads (riffStepAt, then SHIFT — the column the riff-grid marker shows) and `rawRank` its
+                                // WRITTEN rank (before INVERT, before the NOTE offset). The NOTE pass index comes from the core's own inputs: FREE the ordinal `advOrd`, LOCK the
+                                // closed-form count of lap starts since the melody origin.
+                                if fxLive {
+                                    let notePass: Int = fxAll.rowHasCells(4, lane: lineIndex)
+                                        ? (locked ? euclideousFXLockPass(tick: tick, cycleLen: cycleLen, grid: restartGrid, localT: localT)
+                                                  : euclideousFXFreePass(advOrd: advOrd, period: euclideousFXWalkPeriod(dir: riffDir, length: riffLength, stride: riffStride)))
+                                        : 0
+                                    fx = euclideousFXApply(fxAll, lane: lineIndex, playsRiff: true, column: leapStep, writtenRank: rawRank, pass: notePass)
+                                }
                                 let invRank = (riffInvert && rawRank >= 1) ? (9 - rawRank) : rawRank
-                                let transposedRank = invRank >= 1 ? invRank + melodyTranspose : invRank
+                                // NOTE (§7.3): the offset goes straight after INVERT and before TRANSPOSE and the mask's rank modes. A moved rank is always a pitch (the column's
+                                // WRITTEN rank is not a rest — `euclideousFXApply` required that), even at 0 or below; with no offset the existing arithmetic is untouched.
+                                let fxMoved = fx.noteOffset != 0
+                                let transposedRank = fxMoved ? invRank + fx.noteOffset + melodyTranspose : (invRank >= 1 ? invRank + melodyTranspose : invRank)
                                 var rank = transposedRank
                                 if maskedChancePassed && rank >= 1 {
                                     switch mm.modeResolved {
@@ -5128,11 +5165,15 @@ final class Router {
                                 // hit is evaluated with its own rhythm / melody origins, so the answer agrees with what the walk will really read there,
                                 // across a restart or a window boundary. The rank at a future hit is read at THAT hit's beat (the looper's snapshot).
                                 func riffTieExtensionBeats() -> Double {
-                                    guard riffOnRest == .tie else { return 0 }
+                                    // FX TAB: a TIE-row hit is a tied hit whatever the lane's own ON REST is, so the lookahead also runs for a lane with TIE cells; a REST
+                                    // ties only while ON REST is TIE (`restTies`), an FX-tied real-rank hit is decided by the shared `euclideousFXApply` at that hit's beat.
+                                    guard riffOnRest == .tie || fxTieLane else { return 0 }
                                     return euclideousRiffTieExtensionBeats(
                                         buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: restartGrid,
                                         legacySpanBeats: ladderSpanBeats, locked: locked, advanceStep: riffAdvanceStep,
                                         riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed,
+                                        restTies: riffOnRest == .tie,
+                                        fxTie: fxTieLane ? { col, _, r in euclideousFXApply(fxAll, lane: lineIndex, playsRiff: true, column: col, writtenRank: r, pass: 0).tie } : nil,
                                         rankAt: { column, beat in
                                             euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
                                                                            active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
@@ -5140,7 +5181,7 @@ final class Router {
                                                                            events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
                                         })
                                 }
-                                if rank < 1 {
+                                if !fxMoved && rank < 1 {
                                     // REST: three outcomes per the ferry's own "When a hit sounds" §1.
                                     switch riffOnRest {
                                     case .skip:
@@ -5170,11 +5211,13 @@ final class Router {
                                         // is unaffected — only the riff pitch itself is absent).
                                         tieExt = riffTieExtensionBeats()
                                     }
-                                } else if let note0 = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                } else if let note0 = fxMoved
+                                            ? riffResolveExtended(rank: rank, oct: riffOctave, n: thisLaneCount, asc: { notes[$0].note })   // a NOTE-moved rank folds both ways (rank 0 = the octave below)
+                                            : riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
                                     hadRiffNote = true
                                     riffRank = rank; riffNote = note0
                                     tieExt = riffTieExtensionBeats()
-                                    addPitch(note0, vel: UInt8(velocityAbsolute), gate: gate)   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
+                                    addPitch(note0, vel: fxRiffVel(), gate: fxRiffGate())   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
                                     // WIPE TELEMETRY (ferry "riff-cell wipes" §2.2): mirrors the retired fork's
                                     // own wipeRank computation exactly — MIRROR re-applied to `invRank` (the
                                     // pre-TRANSPOSE value), "after INVERT, MIRROR and LEAP but before
@@ -5197,15 +5240,15 @@ final class Router {
                             // step only; `litNotes`/`topLit`/`top2Lit` storage above is never touched by this.
                             if !shadowPartnerValid, notesOn, thisLaneCount > 0 {
                                 for rk in 1...8 where (litNotes & (1 << (rk - 1))) != 0 {
-                                    if let pch = riffResolve(rank: rk, oct: octave + noteOctShift(rk), n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel, gate: notesGate) }
+                                    if let pch = riffResolve(rank: rk, oct: octave + noteOctShift(rk), n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: fxLitVel(), gate: fxLitGate()) }
                                 }
                                 // TOP/TOP2 ignore the per-note shifts (ferry §3 NOTES behaviour #4): "they follow
                                 // the notes octave only" — plain `octave`, no `noteOctShift(...)` added.
-                                if topLit, let pch = riffResolve(rank: thisLaneCount, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel, gate: notesGate) }
+                                if topLit, let pch = riffResolve(rank: thisLaneCount, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: fxLitVel(), gate: fxLitGate()) }
                                 if top2Lit {
                                     let lo = max(1, thisLaneCount - 1)
                                     for rk in [lo, thisLaneCount] {
-                                        if let pch = riffResolve(rank: rk, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel, gate: notesGate) }
+                                        if let pch = riffResolve(rank: rk, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: fxLitVel(), gate: fxLitGate()) }
                                     }
                                 }
                             }
@@ -5365,10 +5408,10 @@ final class Router {
                             let maskOct = hadRiffNote ? riffOctave : octave
                             // RIFF/NOTES SPLIT: the representative's own base velocity, layer-aware — mirrors
                             // `maskOct` exactly, one line up.
-                            let repVelBase: UInt8 = hadRiffNote ? UInt8(velocityAbsolute) : notesVel
+                            let repVelBase: UInt8 = hadRiffNote ? fxRiffVel() : fxLitVel()
                             // MIX TAB: …and its gate (§7.4) — mask-added notes (CHORD intervals; ratchet repeats inherit per pitch) take the gate of the
                             // pitch they come from: the riff pitch when the hit has one, otherwise the notes layer (the `maskOct` rule again).
-                            let repGateBase = euclideousExtraPitchGate(hadRiffNote: hadRiffNote, gate: gate, notesGate: notesGate)
+                            let repGateBase = euclideousExtraPitchGate(hadRiffNote: hadRiffNote, gate: fxRiffGate(), notesGate: fxLitGate())
                             let resolveRank: (Int) -> Int? = { r in riffResolve(rank: r, oct: maskOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) }
                             let xf = maskTransform(rank: repRank, note: repNote, vel: repVelBase, lineIndex: lineIndex,
                                                    mm: mm, maskedChancePassed: maskedChancePassed, resolveRank: resolveRank)
@@ -5384,6 +5427,11 @@ final class Router {
                                                        tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
                                 return
                             }   // MUTE: "applies to the whole hit" — silent; the walk already advanced normally above
+                            // FX TAB §5: a hit a TIE cell applies to DOESN'T STRIKE — placed AFTER the mute check so a muted hit gets no FX (it still closes held notes there,
+                            // as always), and it returns BEFORE the legato reconcile, exactly like a tied REST (`case .tie: return` above): whatever the lane is sounding —
+                            // the riff note and the lit notes alike, legato-held or on a finite gate the previous hit's lookahead already extended — carries on through it.
+                            // The walk already advanced; no NOTE VIEW event is posted (the preceding hit's event covers it); no CC (§8.4).
+                            if fx.tie { return }
                             // OCT/ACCENT/SWELL (Q2: "on the whole hit") — the DELTA `maskTransform` applied to
                             // the one representative is applied identically to every OTHER pitch in the merged
                             // set, each independently clamped (a different starting pitch can clip differently
@@ -5438,7 +5486,18 @@ final class Router {
                             // passed accurately — ferry §3.2: "repeats are deliberate strikes, so they never
                             // merge, even at 100%" — a ratchet hit always reconciles (closing out whatever was
                             // previously legato-held) but is never itself tracked as held.
-                            let nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc)
+                            // FX CC (§8): ONE message per hit, at the hit's own sample, BEFORE any note-on at it (it goes out ahead of the reconcile and every strike below) and
+                            // before the first strike of a ratcheted hit — also on a hit whose pitches all carry on legato. It reaches the notes' own buses, own cable + the ALL
+                            // cable, on each bus's stamped channel (`emitModCC`, forced past MOD's dedup). Only hits that sound get here: tied, muted, rest and silent hits returned.
+                            if let ccv = fx.cc, emits, !(masterMute && !previewMode) {
+                                let ccBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
+                                let ccSample = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                                emitModCC(cc: max(0, min(119, Int(fxAll.ccNumber))), value: ccv, busMask: ccBusMask, atSample: ccSample, out: out, force: true)
+                            }
+                            // FX RATCH (§3): n exactly (never rolled, never legal-size clamped), lowered only by the beat-width cap; REPLACES a mask RATCHET on the same hit.
+                            let fxRatchN = fx.ratch >= 2 ? euclideousFXRatchetCount(requested: fx.ratch, sub: sub, cyc: cyc) : 0
+                            var nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc)
+                            if fxRatchN >= 2 { nRep = fxRatchN }
                             let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel, gates: pitchGate,
                                                                  tau: mTickBeat, isRatchetThisHit: nRep != nil, overlapBeats: overlapBeats10ms, busOverride: busOverride)
                             if let nRep {
@@ -5474,7 +5533,22 @@ final class Router {
                                 for j in 0..<pitchCount {
                                     let repGate = repSpacing * pitchGate[j]
                                     strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOverride)
-                                    if nRep > 1 {
+                                    // A pitch outside MIDI 0…127 is dropped by `strikeChord` (strike 0); its deferred strikes must be dropped too — `UInt8(clamping:)` would turn a
+                                    // very low pitch into note 0 and sound it (FX NOTE moves ranks far enough to reach this).
+                                    guard nRep > 1, finalPitch(pitches[j], oct: 0) != nil else { continue }
+                                    if fxRatchN >= 2 && tieExt > 0 {
+                                        // FX §5.4: a tie after a ratcheted hit extends the LAST strike; the earlier ones are unchanged. The last strike gets its own tail, held
+                                        // for the gap left to the next hit in full plus gate × the tie extension (§4.3, with the hit's effective gate).
+                                        if nRep > 2 {
+                                            pushEchoTail(onset: mTickBeat, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
+                                                         timeBeats: repSpacing, repeats: nRep - 2, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
+                                                         gateBeats: repGate, cellIdx: currentCellIndex)
+                                        }
+                                        let lastGate = max(repGate, (nextHitGapBeats - Double(nRep - 1) * repSpacing) + pitchGate[j] * tieExt)
+                                        pushEchoTail(onset: mTickBeat + Double(nRep - 2) * repSpacing, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
+                                                     timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
+                                                     gateBeats: lastGate, cellIdx: currentCellIndex)
+                                    } else {
                                         pushEchoTail(onset: mTickBeat, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
                                                      timeBeats: repSpacing, repeats: nRep - 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                      gateBeats: repGate, cellIdx: currentCellIndex)
