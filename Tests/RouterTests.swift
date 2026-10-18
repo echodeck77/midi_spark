@@ -6390,48 +6390,8 @@ final class RouterTests: XCTestCase {
     // columns add up to exactly one real bar — which is EXACTLY what `.r1_8` does in 4/4, the stepRate
     // every pre-existing Euclideous test in this file sets, which is why this was invisible until now.
     // `beatsPerBar` (new, from the host's own time-signature block) replaces `cyc` for this one purpose.
-    private func stepClockBox(stepRate: StepRate, lanesSeqLen: Int = 8, lanesRate: EuclideousSeqRate = .oneBar) -> SnapshotBox {
-        var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 8)]
-        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                              scenes: [{ var s = SceneState.empty()
-                                  s.stepRate = stepRate
-                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                  return s }()])
-        st.euclideousNoteSource = .midi
-        st.euclideousLanesSeqOn = true
-        st.euclideousLanesSeqRate = lanesRate
-        st.euclideousLanesSeqLen = lanesSeqLen
-        return SnapshotBuilder.build(from: st)
-    }
-    func testEuclideousLanesSeqStepIgnoresGridStepRateAndUsesTheHostsRealBarLength() {
-        // stepRate DELIBERATELY .r1_4, not .r1_8 — the old `cyc` (8 × 1 beat = 8 beats) would have made
-        // "1 BAR" silently mean TWO real 4/4 bars; the fix must ignore the grid entirely.
-        let box = stepClockBox(stepRate: .r1_4)
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        func stepAt(_ beat: Double) -> Int {
-            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: 120, beatsPerBar: 4.0,
-                            sampleRate: 48_000, timestampSample: 0, frameCount: 2048, forceColumn: 0, out: e, diag: &diag)
-            return router.euclideousLanesSeqStep()
-        }
-        XCTAssertEqual(stepAt(0), 0, "step 1")
-        XCTAssertEqual(stepAt(3.99), 0, "still step 1")
-        XCTAssertEqual(stepAt(4), 1, "step 2 — one real 4/4 bar later, NOT two")
-        XCTAssertEqual(stepAt(28), 7, "step 8")
-        XCTAssertEqual(stepAt(32), 0, "wraps back to step 1")
-    }
-    func testEuclideousLanesSeqStepRespectsTheHostsRealTimeSignature() {
-        let box = stepClockBox(stepRate: .r1_8)   // the grid stepRate is irrelevant now — confirm it stays that way
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        func stepAt(_ beat: Double, _ bpb: Double) -> Int {
-            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: 120, beatsPerBar: bpb,
-                            sampleRate: 48_000, timestampSample: 0, frameCount: 2048, forceColumn: 0, out: e, diag: &diag)
-            return router.euclideousLanesSeqStep()
-        }
-        XCTAssertEqual(stepAt(2, 4.0), 0, "4/4, 1 BAR: beat 2 is still within bar 1 (step 1, index 0)")
-        XCTAssertEqual(stepAt(2.99, 3.0), 0, "3/4: still bar 1 one hundredth of a beat before the boundary")
-        XCTAssertEqual(stepAt(3, 3.0), 1, "3/4, 1 BAR: beat 3 is the start of bar 2 — step 2 (index 1), the ferry's own literal case")
-    }
+    // (The LANES sequencer's single step index — and the two tests that polled it — went with the sequencer, 2026-10-18: the per-lane
+    // grid derives its cells from the beat directly. The host-bar fix lives on in the pre-feature MIGRATION, see LanesGridTests.)
     func testEuclideousRiffsSeqStepAlsoUsesTheHostsRealBarLength() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 8, useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8)]
@@ -6455,15 +6415,15 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(stepAt(0), 0)
         XCTAssertEqual(stepAt(4), 1, "one real bar later — NOT two, which is what the old grid-derived cyc would have given")
     }
-    /// "Per-lane reset counts these steps, so it inherits the fix" — confirmed architecturally (both read
-    /// the SAME `lanesSeqStepBeats`), and confirmed here on the wire: resetSteps=2 at LANES RATE 1 BAR must
-    /// restart every 2 REAL bars (8 beats at beatsPerBar=4), not every 2 GRID cycles (16 beats, what the old
-    /// `cyc`-based math would have given at this deliberately non-1/8 stepRate).
+    /// "Per-lane reset counts these steps, so it inherits the fix" — confirmed on the wire, now through the LANES GRID MIGRATION: a pre-feature
+    /// document whose lane has resetSteps=2 at LANES RATE 1 BAR must restart every 2 REAL bars (8 beats at beatsPerBar=4), not every 2 GRID
+    /// cycles (16 beats, what the old `cyc`-based math would have given at this deliberately non-1/8 stepRate). The lane is a 3-of-8 at 1/8
+    /// (a lap = exactly one bar), so the migrated restart unit (PASS) equals the old step exactly and the restart lands bit-for-bit.
     func testEuclideousPerLaneResetInheritsTheHostBeatsPerBarFix() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
                                              useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
                                              resetSteps: 2)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
@@ -6485,33 +6445,18 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Array(throughSecondPeriod.suffix(firstPeriod.count)), firstPeriod,
                        "resetSteps=2 at LANES RATE 1 BAR must restart at beat 8 (2 real bars), replaying the first period's exact picks")
     }
-    // MARK: - FERRY (2026-10-15, "per-step restart points on the LANES tab")
-    // §7 test 6 ("a mark on a muted step re-anchors the lane") is proven in TWO parts, not one fragile
-    // integration test spanning both:
-    //  1. Below: `euclideousMaskedResetOrigin` genuinely reshapes the Router's own hit timing end-to-end
-    //     (not just in the pure-function tests) — a mask with no mark on step 0 produces hits on BOTH step 1
-    //     and step 3 of every 4-beat lap, a markedly different cadence from the free-running, mask-off case.
-    //  2. That the restart fires EVEN ON a muted step is a claim about CODE STRUCTURE, verified by direct
-    //     inspection rather than a timing-sensitive integration test: the origin branch in `runEuclidLine`
-    //     (Router.swift, `if restartMask != 0 { let origin = euclideousMaskedResetOrigin(...) ... }`) reads
-    //     `restartMask`/`p.euclideousLanesSeqLen` only — it has NO reference to `lanesSeqMuted` anywhere in
-    //     its own computation, and `lanesSeqMuted` itself is applied several lines later, only at the actual
-    //     strike/emit decision (`if xf.muted || lanesSeqMuted { ... }`), strictly downstream of the origin
-    //     this test already proves is computed correctly. A hand-built Router test asserting an EXACT muted
-    //     beat was attempted and dropped: `currentLanesStep` (the mute lookup) is resolved once per render
-    //     WINDOW, not per tick (a pre-existing, disclosed coarseness this ferry didn't introduce — see its
-    //     own call-site comment, "an accepted, disclosed coarseness") — so a hit landing within a few
-    //     milliseconds of a mute-step boundary can read EITHER step's mute flag depending on arbitrary
-    //     window alignment, making a tight beat-exact mute assertion flaky by construction, not a genuine
-    //     regression risk of this feature.
+    // MARK: - FERRY (2026-10-15, "per-step restart points on the LANES tab") — carried onto the LANES GRID (2026-10-18)
+    // A restart mark must genuinely reshape the Router's own hit timing end to end (not just in the pure-function tests). A 1-of-3 pattern at
+    // 1/4 (one tick = one beat, a cycle = 3 beats) with a RHYTHM mark on EVERY 4-tick restart cell re-anchors the pattern every 4 beats, so
+    // its hits sit at 0, 3, 4, 7, 8, 11, 12, 15 — a markedly different cadence from the free-running 0, 3, 6, 9, 12, 15. That a restart on a MUTED cell
+    // still takes effect is structural (the origin never reads the mute) and is also asserted on the wire in LanesGridRouterTests below.
     func testEuclideousMaskedResetAppliesEndToEndThroughTheRouter() {
-        func hitBeats(mask: UInt8) -> [Int] {
-            // EuclidLine.rate is ArpRate (NOT StepRate) — ArpRate.r1_4.beats == 1 (a plain "1 beat per tick"
-            // clock). EuclideousSeqRate.quarterBar.barsFraction == 0.25, so at the default beatsPerBar(4)
-            // `lanesSeqStepBeats` = 0.25×4 = 1 beat/step too — the two clocks deliberately coincide at 1
-            // beat/tick so the hand-derived beat numbers below are exact integers.
-            var line = EuclidLine(target: 0, pulses: 1, steps: 2, rate: .r1_4, sourceMode: .midi)
-            line.restartMask = mask
+        func hitBeats(restart: Bool) -> [Int] {
+            var line = EuclidLine(target: 0, pulses: 1, steps: 3, rate: .r1_4, sourceMode: .midi)
+            if restart {
+                line.restartUnit = EuclideousRestartUnit.fourSteps.rawValue
+                line.restartRhythmMask16 = 0xFFFF; line.restartMelodyMask16 = 0xFFFF
+            }
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclidLines = [line]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
@@ -6520,51 +6465,39 @@ final class RouterTests: XCTestCase {
                                       s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                       return s }()])
             st.euclideousNoteSource = .midi
-            st.euclideousLanesSeqOn = true
-            st.euclideousLanesSeqRate = .quarterBar
-            st.euclideousLanesSeqLen = 4
             let e = RecordingEmitter()
             run(SnapshotBuilder.build(from: st), chord([60]), beats: 15.9, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             let sr = 48_000.0, tempo = 120.0
             return e.ons.filter { $0.cable == 1 }.map { Int((Double($0.sample) / sr * tempo / 60.0).rounded()) }
         }
-        // Mask = bit 1 (mark on step index 1 only, no mark on step 0): within each 4-beat lap the pattern's
-        // own (1-of-2) hit/rest cycle re-anchors at step 1, producing hits at BOTH local step 1 and step 3
-        // of every lap — a 4-beat-periodic cadence with TWO hits per lap, hand-verified against
-        // `euclideousMaskedResetOrigin` tick by tick.
-        XCTAssertEqual(hitBeats(mask: 1 << 1), [1, 3, 5, 7, 9, 11, 13, 15], "re-anchored at step 1 every lap — hits at local steps 1 AND 3")
-        // OFF: the native 2-beat cycle free-runs from absolute beat 0, unrelated to any 4-beat lap.
-        XCTAssertEqual(hitBeats(mask: 0), [0, 2, 4, 6, 8, 10, 12, 14], "no restart: the native 2-beat cycle, not the 4-beat lap")
+        XCTAssertEqual(hitBeats(restart: true), [0, 3, 4, 7, 8, 11, 12, 15], "re-anchored every 4-tick restart cell — each restart is a step-0 hit, then the pattern's own step 0 again 3 ticks later")
+        XCTAssertEqual(hitBeats(restart: false), [0, 3, 6, 9, 12, 15], "no restart: the native 3-beat cycle free-runs from beat 0")
     }
-
-    // §7 test 9: the TIE lookahead (`euclideousNextHitGapBeats`) must re-anchor against a CUSTOM mask the
-    // same way the Router's own per-hit origin does — including across a lap boundary with no mark on step
-    // 0 (where the origin stays the PREVIOUS lap's mark, not the new lap's start). A single-hit pattern
-    // (hit only at buffer index 0) makes the "next hit" land EXACTLY on the re-anchor point, so the gap this
-    // returns directly reveals which origin it used. Mask = bit 4 only (mark on step 5, no mark on step 0,
-    // loopSteps 8, stepBeats 1) — the EXACT fixture this ferry's own §7 test 3 already proved
-    // `euclideousMaskedResetOrigin` resolves to −4 on beats 0-3 and +4 on beats 4-11 (continuing unbroken
-    // across the beat-8 lap boundary, since there's no mark on step 0 to re-anchor it there).
-    // Before this ferry, this lookahead REVERSE-DERIVED a step count from `spanBeats/loopStepBeats`
-    // (`round(8/1) = 8`), which would have treated the mask as "restart only at step 0" — origin 0 on
-    // beats 0-7, giving a gap of 8 from beat 0 instead of the correct 4. Asserting the CORRECT value here
-    // is itself the regression guard against that reverse-derivation ever coming back.
-    func testEuclideousTieLookaheadReAnchorsAgainstTheCustomMaskAcrossALapBoundary() {
-        let mask: UInt8 = 1 << 4
-        let loopSteps = 8
-        let stepBeats = 1.0
-        var buf = [Bool](repeating: false, count: 8)
-        buf[0] = true
-        let gapFrom0 = euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: stepBeats, spanBeats: Double(loopSteps) * stepBeats,
-                                                  fromBeat: 0, cap: 64, mask: mask, loopStepBeats: stepBeats, loopSteps: loopSteps)
-        XCTAssertEqual(gapFrom0, 4, accuracy: 1e-9, "next hit lands at beat 4 — the mask's own origin for beats 4-11 — not beat 8 (what the old reverse-derived 'every 8' would have given)")
-        // From beat 4 itself (already sitting ON a hit): the NEXT one is a full lap later, beat 12 — origin
-        // jumps from 4 to 12 there (the next time step 5 comes round), still never re-anchoring at the
-        // beat-8 lap boundary in between.
-        let gapFrom4 = euclideousNextHitGapBeats(buf: buf, n: 8, dir: .fwd, sub: stepBeats, spanBeats: Double(loopSteps) * stepBeats,
-                                                  fromBeat: 4, cap: 64, mask: mask, loopStepBeats: stepBeats, loopSteps: loopSteps)
-        XCTAssertEqual(gapFrom4, 8, accuracy: 1e-9, "beat 4 to beat 12 — a full lap, crossing the beat-8 boundary with no re-anchor there")
+    // The TIE / next-hit lookahead must re-anchor against a custom mark exactly as the per-hit origin does — including across a WINDOW boundary
+    // with no mark on cell 0 (where the origin stays the PREVIOUS window's mark, not the new window's start). A single-hit 5-step pattern at one
+    // beat per tick, 4-tick restart cells, a RHYTHM mark on cell 5 only (tick 20). Window = 64 ticks. Before the mark the carried origin is
+    // (5 − 16) × 4 = −44, so hits fall on ticks ≡ 1 (mod 5); the mark at 20 restarts the pass (a hit AT 20); and because 64 ≢ 0 (mod 5) the
+    // window seam is observable: 60 is a hit (60 − 20 = 40), the next is 65 — NOT 64, which a (wrong) re-anchor at the new window would give.
+    func testEuclideousNextHitGapReAnchorsAgainstTheMarkAcrossAWindowBoundary() {
+        var buf = [Bool](repeating: false, count: 8); buf[0] = true
+        let grid = EuclideousLaneRestartGrid(unitTicks: 4, rhythmMask: 1 << 5, melodyMask: 0)
+        func gap(_ tick: Int64) -> Double {
+            euclideousNextHitGapBeats(buf: buf, n: 5, dir: .fwd, cycleLen: 5, sub: 1, tick: tick, cap: 64, grid: grid, legacySpanBeats: 0)
+        }
+        XCTAssertEqual(gap(0), 1, "tick 1 is the first hit of the carried (negative-origin) segment")
+        XCTAssertEqual(gap(16), 4, "the restart AT tick 20 is a step-0 hit — 4 ticks away, where the plain pattern would say 5")
+        XCTAssertEqual(gap(60), 5, "across the window seam at 64 with no mark on cell 0: the next hit is 65, not 64")
+        // and the same answers from the tick-by-tick definition
+        let pattern: (Int64) -> Bool = { t in
+            let o = euclideousMaskedResetCell(absCell: Int(floorDiv(t, 4)), mask: 1 << 5)! * 4
+            let local = t - Int64(o)
+            return ((local % 5) + 5) % 5 == 0
+        }
+        for t in [Int64(0), 16, 60] {
+            var k: Int64 = 1; while !pattern(t + k) { k += 1 }
+            XCTAssertEqual(gap(t), Double(k))
+        }
     }
     // testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary REMOVED (Paul 2026-10-13 ferry, "Remove":
     // "The DRUNK option") — DRUNK is no longer one of Euclideous's own WALK directions, so it no longer
@@ -11821,9 +11754,10 @@ final class RouterTests: XCTestCase {
         }
     }
 
-    // THE MIRROR MUST MEASURE THE SEQUENCER STEP IN REAL BARS (14 Oct sequencer-step-length fix): with per-lane RESET on, a
-    // wrong bar length mis-dates every restart. 3/4 (3 beats/bar) and a 1/16 grid (so grid-geometry `cyc` = 2 beats, NOT a bar)
-    // are exactly the combinations where `cyc` and the host's bar disagree.
+    // THE MIRROR MUST AGREE WITH THE ENGINE UNDER ANY HOST BAR (14 Oct sequencer-step-length fix, kept through the LANES GRID rebuild): a
+    // pre-feature document's old per-lane reset migrates against the host's REAL bar length (`S = rate × beatsPerBar`), so the mirror and the
+    // engine must be handed the same bar. 3/4 (3 beats/bar) and a 1/16 grid (so grid-geometry `cyc` = 2 beats, NOT a bar) are exactly the
+    // combinations where `cyc` and the host's bar disagree.
     func testWalkTagMirrorUsesTheHostsRealBarLengthForPerLaneReset() {
         for (bpb, stepRate) in [(3.0, StepRate.r1_8), (4.0, StepRate.r1_4), (6.0, StepRate.r1_2)] {
             var line = EuclidLine(target: 0, pulses: 5, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi, riffLength: 8, resetSteps: 1)
@@ -11839,20 +11773,15 @@ final class RouterTests: XCTestCase {
             st.euclideousLanesSeqRate = .oneBar
             let cyc = stepRate.beats * Double(Snap.cols)
             XCTAssertNotEqual(cyc, bpb, "this case is only meaningful where grid-cycle ≠ the host's bar")
-            var diverged = false
             for beats in [7.3, 13.9, 19.1] {
                 let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0, beatsPerBar: bpb)
                 let right = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: cyc, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, beatsPerBar: bpb)!
-                let wrong = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: cyc, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, beatsPerBar: cyc)!
                 let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, end = (beats / windowBeats).rounded(.up) * windowBeats
                 guard let last = euclideousWalkScanHits(right, beat: end - 1e-9, back: 1, ahead: 0).prev.first else { XCTFail("no hit"); continue }
                 let t = euclideousWalkTick(right, tick: last)
                 XCTAssertEqual(router.euclideousRiffPositions()[0], t.playedStep, "bpb \(bpb) @\(beats): step")
                 XCTAssertEqual(router.euclideousRiffWalkState()[0], t.advOrd, "bpb \(bpb) @\(beats): ordinal")
-                if let lw = euclideousWalkScanHits(wrong, beat: end - 1e-9, back: 1, ahead: 0).prev.first,
-                   euclideousWalkTick(wrong, tick: lw).advOrd != t.advOrd { diverged = true }
             }
-            XCTAssertTrue(diverged, "bpb \(bpb): using `cyc` as the bar WOULD have given a different ordinal somewhere — the test can tell the two apart")
         }
     }
 
@@ -11874,13 +11803,13 @@ final class RouterTests: XCTestCase {
                 st.euclideousLanesSeqRate = .quarterBar   // a sequencer step = 1 beat, so a 8-step lap = 8 beats and the marks all get visited
                 let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0)
                 let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .quarterBar, lanesSeqLen: 8)!
-                XCTAssertEqual(cfg.restartMask, mask)
+                XCTAssertTrue(cfg.grid.isActive, "the old mask migrates to an active restart grid")
                 let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, end = (beats / windowBeats).rounded(.up) * windowBeats
                 guard let last = euclideousWalkScanHits(cfg, beat: end - 1e-9, back: 1, ahead: 0).prev.first else { XCTFail("no hit"); continue }
                 let t = euclideousWalkTick(cfg, tick: last)
                 XCTAssertEqual(router.euclideousRiffPositions()[0], t.playedStep, "mask \(String(mask, radix: 2)) @\(beats): step")
                 XCTAssertEqual(router.euclideousRiffWalkState()[0], t.advOrd, "mask \(String(mask, radix: 2)) @\(beats): ordinal")
-                var noMask = cfg; noMask.restartMask = 0   // what the mirror did before it learned about masks
+                var noMask = cfg; noMask.grid = .off   // what the mirror did before it learned about restarts
                 if let lw = euclideousWalkScanHits(noMask, beat: end - 1e-9, back: 1, ahead: 0).prev.first,
                    euclideousWalkTick(noMask, tick: lw).advOrd != t.advOrd { diverged = true }
             }
@@ -12410,18 +12339,18 @@ final class RouterTests: XCTestCase {
     /// reset bit-for-bit. Each hash folds N ∈ {1,2,4,8} × LEN ∈ {1,3,4,8} × LOCK/FREE × HIT/STEP. CAPTURED ON THE ENGINE BEFORE THE
     /// LANES GRID (origin/main 11fde27, old per-lane reset, per-window mute).
     private let lanesOldGolden: [String: (UInt64, UInt64)] = [
-        "0/FWD": (11521033976096653421, 14042324194083174789),
-        "0/REV": (8634120185433063693, 10297212463718307397),
-        "0/PING-PONG": (4357418606541251253, 8496964916648326005),
-        "0/PONG": (13332039570205451725, 10528167145801376133),
-        "1/FWD": (2049334351417553541, 7922879293729535013),
-        "1/REV": (13021396075092701517, 7721737121856958869),
-        "1/PING-PONG": (14571060432471505949, 16863607114846820677),
-        "1/PONG": (16629896193030693045, 7073519070573852373),
+        "0/FWD": (11521033976096653421, 12856291899802091333),
+        "0/PING-PONG": (4357418606541251253, 17647227502269334373),
+        "0/PONG": (13332039570205451725, 13491859450970235765),
+        "0/REV": (8634120185433063693, 5758843939915682997),
+        "1/FWD": (2049334351417553541, 14188276989886311237),
+        "1/PING-PONG": (14571060432471505949, 7623108916407658821),
+        "1/PONG": (16629896193030693045, 5379060580400571477),
+        "1/REV": (13021396075092701517, 18179746394115966453),
         "2/FWD": (3082567594428127925, 17375436917988455789),
-        "2/REV": (14981592664394735029, 9690269835975383749),
         "2/PING-PONG": (17123664477517444149, 14762837615774768837),
         "2/PONG": (12638519335341283541, 14779867729352630517),
+        "2/REV": (14981592664394735029, 9690269835975383749),
     ]
     private let lanesGoldenProfiles: [(geo: Int, rate: EuclideousSeqRate)] = [(1, .quarterBar), (0, .halfBar), (0, .oneBar)]
     /// Runs the whole matrix through `stream` (old fields or explicit grid fields) and returns the folded hashes.
@@ -12433,7 +12362,7 @@ final class RouterTests: XCTestCase {
             var hDiv: UInt64 = 0xcbf29ce484222325, hPre: UInt64 = 0xcbf29ce484222325
             for n in [1, 2, 4, 8] { for len in [1, 3, 4, 8] { for lock in [false, true] { for adv in [false, true] {
                 let divides = 16 % len == 0
-                let beats = divides ? 40.0 : min(40.0, 16 * S - 0.5)
+                let beats = divides ? 40.0 : min(40.0, 16 * S - 2.0)   // the run's closing release window must stay inside the first 16-cell window too
                 let h = stream(prof.geo, prof.rate, n, len, dir, lock, adv, beats)
                 if divides { hDiv = (hDiv ^ h) &* 0x100000001b3 } else { hPre = (hPre ^ h) &* 0x100000001b3 }
             } } } }
@@ -12454,4 +12383,133 @@ final class RouterTests: XCTestCase {
         }
     }
 
+    // MARK: - LANES GRID engine tests (ferry 2026-10-18, §8) — the Router, end to end, on explicit grid fields
+
+    /// 3-of-8 at 1/8 (hits at ticks 0, 3, 6 of each 8-tick pass; a tick is half a beat, so a pass is 4 beats), the riff 1…8 ascending and the only
+    /// layer sounding. `mixBox`/`mixRun` give 120 BPM at 48 kHz: one beat = 24 000 samples; rank r reads the pool note [48,50,52,53,55,57,59,60][r-1].
+    private func gridLine(unit: EuclideousRestartUnit = .fourSteps, rhythm: UInt16 = 0, melody: UInt16 = 0, mute: UInt16 = 0xFFFF,
+                          muteUnit: EuclideousMuteUnit = .pass, locked: Bool = false, stepAdvance: Bool = false, dir: RiffDir = .forward) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)
+        l.restartUnit = unit.rawValue; l.restartRhythmMask16 = rhythm; l.restartMelodyMask16 = melody
+        l.muteCells16 = mute; l.muteUnit = muteUnit.rawValue
+        l.riffLock = locked; l.riffAdvanceStep = stepAdvance; l.riffDir = dir
+        return l
+    }
+    private let gridPool: [UInt8] = [48, 50, 52, 53, 55, 57, 59, 60]
+    /// Every cable-1 note-on, as (beat, pool index), in sounding order.
+    private func gridHits(_ line: EuclidLine, beats: Double) -> [(beat: Double, idx: Int)] {
+        let e = RecordingEmitter()
+        mixRun(mixBox(line, ranks: [1, 2, 3, 4, 5, 6, 7, 8]), beats: beats, into: e)
+        assertNothingLeftSounding(e)
+        // a note-on's sample is truncated, so a hit on beat 5.5 can land one sample early: round to the nearest 1/100 beat
+        return e.ons.filter { $0.cable == 1 }.compactMap { ev in gridPool.firstIndex(of: ev.note).map { ((Double(ev.sample) / 24_000 * 100).rounded() / 100, $0) } }
+    }
+    /// The hit ticks of the pattern x..x..x. with the pass restarted at each tick in `restarts` (ascending), up to `last`.
+    private func gridExpectedHitTicks(restarts: [Int], last: Int) -> [Int] {
+        (0...last).filter { t in
+            let origin = restarts.last(where: { $0 <= t }) ?? 0
+            return [0, 3, 6].contains((t - origin) % 8)
+        }
+    }
+
+    func testGridRhythmOnlyMarkRephasesTheHitsAndThePitchesKeepCountingStraightThrough() {
+        // RHYTHM marks on 4-tick cells 0 and 3 (ticks 0, 12 = beats 0, 6); no melody mark → the riff counts hits straight through the re-phase.
+        let got = gridHits(gridLine(rhythm: 0b1001), beats: 19.9)
+        let ticks = gridExpectedHitTicks(restarts: [0, 12], last: 39)
+        XCTAssertEqual(got.map { $0.beat }, ticks.map { Double($0) * 0.5 }, "hits re-phase at the rhythm mark (tick 12 restarts the pass: a hit at beat 6, then 7.5, 9, …)")
+        XCTAssertEqual(got.map { $0.idx }, (0..<ticks.count).map { $0 % 8 }, "the riff ordinal is NOT reset by a rhythm-only mark: pitches 1, 2, 3, … uninterrupted")
+    }
+    func testGridMelodyOnlyMarkLeavesEveryHitInPlaceAndTheRiffReturnsToItsStart() {
+        let base = gridHits(gridLine(), beats: 19.9)
+        for (locked, step) in [(false, false), (true, false), (false, true), (true, true)] {
+            let marked = gridHits(gridLine(melody: 1 << 3, locked: locked, stepAdvance: step), beats: 19.9)   // melody mark at tick 12 = beat 6
+            let free = gridHits(gridLine(locked: locked, stepAdvance: step), beats: 19.9)
+            XCTAssertEqual(marked.map { $0.beat }, base.map { $0.beat }, "hit positions unchanged (locked \(locked), step-advance \(step))")
+            // the first hit at/after beat 6 reads riff position 0 → pool index 0 in HIT mode; STEP counts ticks since the mark (hit at tick 14 → 2)
+            let first = marked.first { $0.beat >= 6 }!
+            XCTAssertEqual(first.idx, step ? (2 % 8) : 0, "locked \(locked) step \(step): the riff restarted at the mark")
+            // …and without the mark the same hit read something else (FREE-HIT continues; a LOCK lap restarts at beat 4, so that case differs only after)
+            if !locked && !step { XCTAssertNotEqual(free.first { $0.beat >= 6 }!.idx, 0) }
+            // (Before the mark the riff counts from the PREVIOUS window's mark — a negative origin, §2.3 — so the early pitches differ from the unmarked run's; that is the spec'd behaviour, covered by testGridFirstWindowRunsFromANegativeOriginDeterministically.)
+        }
+        // PENDULUM: the walk position at the first hit after the mark is the pendulum's own start (position 0)
+        let pend = gridHits(gridLine(melody: 1 << 3, dir: .pendulum), beats: 19.9)
+        XCTAssertEqual(pend.first { $0.beat >= 6 }!.idx, 0)
+    }
+    func testGridBothMarksOnTheSameCellBehaveExactlyLikeASingleRestart() {
+        // The old engine's single restart re-phased the pattern AND restarted the riff; both masks on one cell must do the same.
+        let both = gridHits(gridLine(rhythm: 0b1001, melody: 0b1001), beats: 19.9)
+        let ticks = gridExpectedHitTicks(restarts: [0, 12], last: 39)
+        XCTAssertEqual(both.map { $0.beat }, ticks.map { Double($0) * 0.5 })
+        var ord = 0
+        let expected: [Int] = ticks.map { t in if t == 12 { ord = 0 }; defer { ord += 1 }; return ord % 8 }
+        XCTAssertEqual(both.map { $0.idx }, expected, "the riff restarts at the shared mark (tick 12) and counts on from there")
+    }
+    func testGridAMarkOnAMutedCellStillRestartsAndTheNextAudibleHitIsAFreshRestart() {
+        // PASS-sized mute cells (4 beats); cell 1 (beats 4–8) is muted, and a rhythm+melody mark sits INSIDE it at tick 12 (beat 6).
+        let muted = gridHits(gridLine(rhythm: 0b1001, melody: 0b1001, mute: 0xFFFF & ~(1 << 1)), beats: 19.9)
+        let unmuted = gridHits(gridLine(rhythm: 0b1001, melody: 0b1001), beats: 19.9)
+        XCTAssertTrue(muted.allSatisfy { $0.beat < 3.99 || $0.beat >= 7.99 }, "nothing sounds in the muted cell")
+        XCTAssertEqual(muted.filter { $0.beat >= 7.99 }.map { $0.beat }, unmuted.filter { $0.beat >= 7.99 }.map { $0.beat }, "the restart inside the muted cell took effect: later hits are where a restart put them")
+        XCTAssertEqual(muted.filter { $0.beat >= 7.99 }.map { $0.idx }, unmuted.filter { $0.beat >= 7.99 }.map { $0.idx }, "…and the muted hits still advanced the walk, so the pitches match too")
+    }
+    func testGridMuteIsResolvedPerHitAndAMutedHitStillAdvancesTheWalk() {
+        // PASS cells of 4 beats; cell 1 muted. Hits sit at ticks 0,3,6,8,11,14,16… → beats 0,1.5,3,4,5.5,7,8,…  The hit at beat 4.0 is the FIRST tick of the
+        // muted cell: it must take the NEW cell's state (the old once-per-window decision let it sound).
+        let all = gridHits(gridLine(), beats: 11.9)
+        let m = gridHits(gridLine(mute: 0xFFFF & ~(1 << 1)), beats: 11.9)
+        XCTAssertFalse(m.contains { abs($0.beat - 4.0) < 1e-6 }, "a hit on the first tick of a muted cell is muted")
+        XCTAssertTrue(m.contains { abs($0.beat - 3.0) < 1e-6 }, "…the hit one tick before it (last of the audible cell) still sounds")
+        XCTAssertEqual(m.map { $0.beat }, all.filter { $0.beat < 3.99 || $0.beat >= 7.99 }.map { $0.beat })
+        XCTAssertEqual(m.map { $0.idx }, all.filter { $0.beat < 3.99 || $0.beat >= 7.99 }.map { $0.idx }, "muting never shifts the melody: the walk advanced through the muted hits")
+    }
+    func testGridMuteWindowIsNotReAnchoredByARestart() {
+        // The same mute cells, with and without a restart mark: the SAME beats are silent.
+        let a = gridHits(gridLine(mute: 0b1111_1111_1111_1101), beats: 19.9)
+        let b = gridHits(gridLine(rhythm: 0b1001, melody: 0b1001, mute: 0b1111_1111_1111_1101), beats: 19.9)
+        XCTAssertTrue(a.allSatisfy { $0.beat < 3.99 || $0.beat >= 7.99 }); XCTAssertTrue(b.allSatisfy { $0.beat < 3.99 || $0.beat >= 7.99 })
+    }
+    func testGridALaneThatGoesMutedClosesItsHeldLegatoNoteAtItsOwnCellBoundary() {
+        // GATE 100% = legato: every pitch is held across hits. With 2-beat (4STP) mute cells and cell 1 muted, the held note must close at beat 2.0
+        // (48 000 samples) — that lane's OWN boundary — not at some global step edge.
+        var l = gridLine(mute: 0xFFFF & ~(1 << 1), muteUnit: .fourSteps)
+        l.gate = 1.0
+        let e = RecordingEmitter(); mixRun(mixBox(l, ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 3.9, into: e)
+        assertNothingLeftSounding(e)
+        let off = e.offs.first { $0.cable == 1 && $0.note == 48 }
+        XCTAssertNotNil(off)
+        XCTAssertEqual(Double(off?.sample ?? 0), 48_000, accuracy: 2, "closed exactly on the lane's own mute-cell boundary (beat 2)")
+        // a different unit on the same lane moves the boundary with it
+        var l2 = gridLine(mute: 0xFFFF & ~(1 << 1), muteUnit: .pass); l2.gate = 1.0
+        let e2 = RecordingEmitter(); mixRun(mixBox(l2, ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 5.9, into: e2)
+        XCTAssertEqual(Double(e2.offs.first { $0.cable == 1 && $0.note == 48 }?.sample ?? 0), 96_000, accuracy: 2, "PASS cells: the boundary is beat 4")
+    }
+    func testGridTieLookaheadFollowsARhythmRestartThatMovesTheNextRealNote() {
+        // Riff ranks [1,0,0,0,0,0,0,2], ON REST = TIE: the first note (pitch 48) is held over the rests until the hit that reads rank 2 (pitch 50).
+        // A rhythm mark at tick 12 pulls that hit earlier (tick 18 instead of 19); the held note must end earlier too — the lookahead has to see the restart.
+        func firstNoteLength(rhythm: UInt16) -> Double {
+            var l = gridLine(rhythm: rhythm); l.riffOnRest = .tie
+            let e = RecordingEmitter(); mixRun(mixBox(l, ranks: [1, 0, 0, 0, 0, 0, 0, 2]), beats: 12.9, into: e)
+            let on = e.ons.first { $0.cable == 1 && $0.note == 48 }!
+            let off = e.offs.first { $0.cable == 1 && $0.note == 48 }!
+            return Double(off.sample - on.sample) / 24_000
+        }
+        let plain = firstNoteLength(rhythm: 0)
+        let marked = firstNoteLength(rhythm: 0b1001)
+        XCTAssertGreaterThan(plain - marked, 0.3, "the real note arrives about half a beat earlier after the restart, and the tie ends with it")
+        XCTAssertLessThan(plain - marked, 0.7)
+    }
+    func testGridFirstWindowRunsFromANegativeOriginDeterministically() {
+        // A rhythm mark on cell 5 only: no mark in cells 0–4, so window 0 runs from the previous window's mark (a negative origin).
+        let a = gridHits(gridLine(rhythm: 1 << 5, melody: 1 << 2), beats: 15.9)
+        let b = gridHits(gridLine(rhythm: 1 << 5, melody: 1 << 2), beats: 15.9)
+        XCTAssertEqual(a.map { $0.beat }, b.map { $0.beat }); XCTAssertEqual(a.map { $0.idx }, b.map { $0.idx })
+        XCTAssertFalse(a.isEmpty)
+        // carried origin: (5 − 16) cells × 4 ticks = −44 ticks ⇒ hits where (tick + 44) mod 8 ∈ {0,3,6} before the mark at tick 20
+        let expected = (0...31).filter { t in
+            let origin = t >= 20 ? 20 : -44
+            return [0, 3, 6].contains(((t - origin) % 8 + 8) % 8)
+        }
+        XCTAssertEqual(a.map { $0.beat }, expected.map { Double($0) * 0.5 })
+    }
 }
