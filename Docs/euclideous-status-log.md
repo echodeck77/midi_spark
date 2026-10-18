@@ -12,6 +12,37 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "odd timing" investigation: THE ENGINE IS EXONERATED (2026-10-18; `feat/looper-tabs`; macOS suite
+  green 1542/1542 incl. +1 new test).** Paul reported audibly uneven timing from a lane set to 16 hits on 16 steps
+  at 1/16 — which is a solid block of hits and therefore *cannot* be unevenly spaced. Recorded clips showed onsets
+  113 ticks apart with 151 every 5th, and note durations of exactly 75 or 113 instead of a flat 108 (=90% gate).
+  **THE KEY MEASUREMENT:** against his real settings (110 BPM, 48 kHz, 2048-frame buffer) one render block = 42.67 ms
+  = 37.55 MIDI ticks, and *every one of those four numbers is a whole number of render blocks* — 113=3, 151=4, 75=2,
+  603 (the limp period)=16, all within 0.5%. A 1/16 at 110 BPM is 3.196 blocks, so four steps snapping down to 3 and
+  the fifth absorbing the accumulated 0.196 reproduces the observed pattern exactly. **THE TEST:** `RouterTests.
+  testEuclideousOnsetsAreSampleAccurateNotQuantizedToTheRenderBlock` drives the REAL Router at those exact numbers
+  (the existing `runKeepingRouter` harness already defaults to 2048@48k) and asserts both onset spacing (6545.45
+  samples) and note-off placement (5890.9 samples, the 90% gate) to ±2 samples. **IT PASSES** — the engine places both
+  onsets AND gates sample-accurately; neither reported bug is in `Router`. **THEREFORE THE GATE BUG IS NOT A SEPARATE
+  BUG** and needs no separate investigation: a 2.876-block gate snapping to 3 blocks (113 ticks) or 2 (75) is the same
+  quantisation, which is also why notes looked perfectly legato (113 is both "3 blocks" and the inter-onset gap).
+  **WHAT'S RULED OUT, each by measurement not assumption:** swing (confirmed STRAIGHT in the UI, and structurally it
+  warps within 2-step pairs so it can only make a period-2 pattern, never period-5 — an earlier WRONG diagnosis of
+  mine, retracted); the Euclidean pattern (16-on-16 is a solid block); the per-lane RESET (4 bars ≈ 7680 ticks, not
+  603); ties/skips (46 notes over 45 expected tick slots — every tick fires); dropped events (HEALTH showed DROPPED 0);
+  and the column gate (2 beats ÷ 0.25 beats = exactly 8 ticks per column, no remainder for a boundary to absorb — also
+  an earlier wrong guess of mine). **WHY NO TEST EVER CAUGHT IT:** the suite drives `Router` in beat space; before this
+  one, nothing asserted a sample position against a real block size, so block-edge collapse was structurally invisible.
+  **REMAINING UNTESTED SEAM, disclosed:** the new test calls `Router.process` directly, so it does NOT cover
+  `Kernel.render`'s own context plumbing (it derives `windowStart` from the render timestamp and `beatPos` from the
+  musical-context block) — that can't be tested off-device, it's AudioToolbox. Noted while reading it:
+  `Kernel.render` reads `sampleOffsetToNextBeat` from the musical context and **discards it** (Kernel.swift ~856),
+  exactly the same read-then-throw-away shape as the `tsNum`/`tsDen` bug the 2026-10-14 ferry fixed — it's the host's
+  own cross-check on `beatPos` precision and we have no use of it. Not proven to matter (a bad `beatPos` would give
+  beat-granular, not block-granular, error) but it's the one real gap left on our side. **NEXT (device, Paul):** change
+  AUM's buffer size and re-record — the error granularity IS the block, so 1024 should predict 7,6,7,6,6 and 512 should
+  predict 13,13,13,13,12. If the limp shrinks in proportion, it is the host's MIDI delivery granularity and there is
+  nothing to fix in the plugin. If it does NOT change, the block hypothesis is wrong and this reopens.
 - **▶ EUCLIDEOUS — "swing control on the header" (2026-10-17; `feat/looper-tabs`; iOS builds clean; macOS suite
   green, 1541/1541, incl. updating 9 pre-existing header-layout assertions — see below).** Traced a recorded clip's
   "8 hits on 8 steps" showing oddly-periodic (not evenly-swung) timing to the global SWING parameter (`SceneState.

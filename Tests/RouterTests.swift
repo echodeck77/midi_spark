@@ -5524,6 +5524,61 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e2.ons.filter { $0.cable == 1 }.contains { Int($0.note) == 67 }, "a genuinely live note on receiver 4 must still sound through MIDI IN")
     }
 
+
+    // MARK: - SAMPLE-ACCURATE ONSETS (Paul 2026-10-18) — the "odd timing" investigation.
+    //
+    // A recorded clip of a 16-hits-on-16-steps lane at 1/16, 110 BPM, showed onsets spaced 113/151 MIDI
+    // ticks apart (long gap every 5th hit) instead of a flat 120, and note durations of exactly 75 or 113
+    // instead of a flat 108 — AUDIBLE on device, so not a recording artefact. Every one of those four
+    // numbers is an integer multiple of ONE RENDER BUFFER (2048 frames @ 48kHz = 42.67ms = 37.55 ticks:
+    // 3, 4, 2 and 3 buffers respectively), and a 1/16 at 110 BPM is 3.196 buffers — so four steps snapping
+    // DOWN to 3 buffers and the fifth absorbing the accumulated 0.196 reproduces the observed pattern
+    // exactly. This test pins the engine's half of that: whatever the host then does with the timestamps,
+    // Router must emit each onset at its own exact SAMPLE, never rounded to the block edge.
+    //
+    // Deliberately NOT a contract test (this file's header warns the others avoid "exact sample
+    // arithmetic"): exact sample arithmetic is the entire point here.
+    func testEuclideousOnsetsAreSampleAccurateNotQuantizedToTheRenderBlock() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        // Paul's lane 2, verbatim from the device screenshots: 16 hits on 16 steps, rate 1/16, gate 90%.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 16, steps: 16, noteSel: .low,
+                                            gate: 0.9, enabled: true, rate: .r1_16, sourceMode: .midi)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        // 110 BPM / 48kHz / 2048 frames — the device's own numbers, not the suite's 120 default.
+        _ = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e,
+                             forceColumn: 0, tempo: 110, sr: 48_000, frames: 2048)
+        // ONE cable only: §7b emits every note twice (its own cable + the ALL cable 0), so an unfiltered
+        // list has a zero-delta twin for every hit.
+        let onsets = e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
+        XCTAssertGreaterThan(onsets.count, 8, "expected a run of 1/16 hits to measure")
+        // A 1/16 at 110 BPM = 0.25 beat = 0.25 * 60/110 * 48000 = 6545.45 samples.
+        let expected = 0.25 * 60.0 / 110.0 * 48_000.0
+        let deltas = (1..<onsets.count).map { Double(onsets[$0] - onsets[$0 - 1]) }
+        for (i, d) in deltas.enumerated() {
+            XCTAssertEqual(d, expected, accuracy: 2.0,
+                           "onset \(i + 1) is \(d) samples after its predecessor, expected \(expected). "
+                           + "A delta that is a MULTIPLE OF 2048 (\(d / 2048) blocks) means the onset was "
+                           + "rounded to the render-block edge instead of placed at its own sample.")
+        }
+        // THE SAME CHECK FOR GATE (the clip's second reported symptom: durations of exactly 75 or 113 ticks
+        // = 2 or 3 render blocks, instead of a flat 108 = 90% of a 1/16). If note-OFFs are sample-accurate
+        // here too, the gate is not broken either — both symptoms are one downstream quantisation.
+        let offs = e.offs.filter { $0.cable == 1 }.map { $0.sample }.sorted()
+        let expectedGate = 0.9 * 0.25 * 60.0 / 110.0 * 48_000.0
+        for (i, on) in onsets.enumerated() where i < offs.count {
+            let dur = Double(offs[i] - on)
+            XCTAssertEqual(dur, expectedGate, accuracy: 2.0,
+                           "note \(i) lasts \(dur) samples, expected \(expectedGate) (GATE 90% of a 1/16). "
+                           + "A duration that is a MULTIPLE OF 2048 (\(dur / 2048) blocks) means the note-off "
+                           + "was rounded to the render-block edge.")
+        }
+    }
+
     // MARK: - NOTE VIEW (Paul 2026-10-10 ferry, "note view, phase 1") — the new per-lane event queue
     // `Router.drainEuclideousNoteViewEvents()` posts. All 10 tests here use `runKeepingRouter` (not `run`)
     // specifically to poll the drained queue afterward, same precedent as the EUCLID beacon's own tests.

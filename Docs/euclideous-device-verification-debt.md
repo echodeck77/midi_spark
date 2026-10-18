@@ -28,6 +28,16 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
   them out of the loop — the 0.5s threshold feels right, and a long press doesn't fight the existing tap/drag
   edit gesture on the same cell.
 
+### Timing — the "odd timing" / gate investigation (2026-10-18)
+- **The buffer-size test.** Set a lane to 16 hits on 16 steps at 1/16, record, then repeat at different AUM buffer
+  sizes. The engine is proven sample-accurate off-device (`RouterTests.testEuclideousOnsetsAreSampleAccurate…`), and
+  every displacement measured so far is a whole number of render blocks, so the limp should shrink in proportion to
+  the buffer: 2048 → 4,3,3,3,3 · 1024 → 7,6,7,6,6 · 512 → 13,13,13,13,12 · 256 → inaudible. If it shrinks, it is the
+  host's MIDI delivery granularity and nothing in the plugin can fix it. **If it does not change with buffer size,
+  the whole diagnosis is wrong and this reopens.**
+- Whether the same limp is audible when the plugin drives a synth INSIDE AUM vs routed to another app (different
+  MIDI paths, possibly different timestamp handling).
+
 ### Sequencer panel (LANES/RIFFS tabs, step grid, restart markers)
 - Two-finger hold + tap (hold a lane's RESET box, tap that lane's steps with another finger) registers on
   the real panel inside AUM — 2026-10-15 ferry, "per-step restart points."
