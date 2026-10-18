@@ -12,6 +12,66 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: LANES panel rebuilt as a per-lane mute grid with a live roll, plus separate rhythm and melody restart rows"
+  (2026-10-18, ratified by Paul; on `feature/lanes-grid`; iOS builds clean; macOS suite green; ALL visuals and touch feel device-owed).**
+  The LANES tab is four lane blocks of 16 cells, each lane on its OWN cell size, with two sub-tabs. **MUTE:** tap a cell to mute that
+  stretch of the lane, drag to paint; a roll of the lane's hits (bar height = riff rank, gate length incl. TIE) sits in the cells with a
+  playhead per lane; the lane's restart marks show read-only as top-half / bottom-half ticks. **RESTART:** two 24pt rows per lane on the same
+  16 cells — RHYTHM (the Euclid pattern starts again from its first step) over MELODY (the riff goes back to its first position) — with run
+  outlines, dashed "tap here" slots and the roll at low contrast. Gone: the ON switch, panel RATE and LEN, the per-lane RESET boxes (+ hold
+  gesture, presets popover, edit visuals), "STEP N OF LEN" / "TAP = RESTART", and the ring beside LANES. MIX, the header and the lane cards'
+  own tabs are untouched. **MODEL** (per lane, additive-Optional, decode-tolerant, appended after `notesVelocity`): `muteCells16`, `muteUnit`
+  (STEP/4STP/PASS/2PASS, default PASS), `restartRhythmMask16`, `restartMelodyMask16`, `restartUnit` (4STP/PASS/2PASS/4PASS, default PASS);
+  `*Resolved` helpers return the defaults (all cells sound, no restarts). Unit lengths come from the lane's OWN step (`sub`) and lap
+  (`cycleLen × sub`, the Router's lap — 2n ticks under PING-PONG). The old fields (`resetSteps`, `restartMask`, the document's LANES sequencer
+  ON/RATE/LEN/cells) stay decodable and are never written again.
+  **ONE FORMULA (spec §2.8).** Pure functions in Derivations.swift: `euclideousLaneAudible` / `euclideousLaneMuteCell` (mute, §2.1, not
+  re-anchored by restarts) · `euclideousMaskedResetOrigin(beat:cellBeats:mask:cells:)` (16 cells; the 8-bit form is now a wrapper) ·
+  **`euclideousLaneTick`** — the per-tick core: for a lane tick it gives the pattern phase from the RHYTHM origin and `advOrd`, the riff
+  ordinal counted from the MELODY origin on the lane's real hit schedule (FREE: since the melody origin; LOCK: since the later of the melody
+  origin and the start of the current Euclid lap). All arithmetic is exact integers on lane ticks (a restart cell is `unitTicks` ticks; origins
+  are cell indices); the melody count across earlier rhythm segments is a closed form over the 16-cell window's periodicity, checked
+  against a tick-by-tick simulator. `Router.runEuclidLine` calls the core per tick (and the two TIE lookaheads and the next-hit gap call it
+  for their future ticks — they now see restarts and window seams, which the old lookahead did not); `euclideousWalkTick` (the riff-grid tag
+  mirror) is the same call; the lane card's comet reads `euclideousLaneCometRaw`; the footer's lap baseline is `euclideousLapStartOrdinal`;
+  the roll is `euclideousLaneRollHits`. Mute is resolved PER HIT at `mTickBeat` (fixing the old "first tick of a new step took the old step's
+  mute"); a muted hit still advances the walk; the note-off edge detect now closes a lane's held legato notes at ITS OWN cell boundary (the
+  exact boundary sample, or the window start if it went quiet at the boundary). A mark on a muted cell still restarts. **MIGRATION (§6),
+  resolved at use** (`euclideousLaneGridResolved`: it needs the lane's live step/lap and the host bar): old OFF → all cells set, PASS; old ON
+  → the mute unit NEAREST to the old step S (ties longer), cell i = old cell (i mod LEN); the old per-lane reset (NOT gated by ON — it never
+  was) → the restart unit nearest to S, BOTH masks getting the old marks repeated (cell j = old bit j mod LEN). The first grid edit of a lane
+  pins all five fields, so it is stable afterwards. **PROOF OF "SOUNDS AS BEFORE":** a golden — the note streams of the OLD engine (captured
+  on origin/main 11fde27) over {3 lane/rate profiles whose restart unit equals the old step} × riff dir {FWD, REV, PENDULUM, PING-PONG} × N {1,2,4,8} ×
+  LEN {1,3,4,8} × LOCK/FREE × HIT/STEP — the new engine, fed the OLD fields, reproduces every stream bit for bit; plus a pure equivalence over
+  LEN 1–8 against the verbatim old arithmetic; the 20 factory presets' streams unchanged (none sets the old sequencer or a reset).
+  **FINDINGS REPORTED TO PAUL (spec §11):** (§0.1) (a) `resetSteps` — Models.swift:472-473, fresh-doc rule :2514, `euclideousLoopedResetOrigin`;
+  (b) the 8-bit mask — Models.swift:485-486, `euclideousMaskedResetOrigin`, hold-RESET gesture / popover / edit visuals
+  (`sequencerResetBox`, `resetPopupCard`, `restartEditLanes…`) in EuclideousPage.swift — HIDDEN (unreachable, still compiled), nothing deleted;
+  (c) the RIFFS sequencer tab — already unreachable; (d) the four-riff / loop-slot / looper features exist and are untouched. (§2.7) today's
+  single restart re-anchors the pattern's step phase AND, through the same `localT`, the riff ordinal in EVERY mode (FREE+HIT `cy·effHits +
+  hitsUpTo − 1`, LOCK+HIT `hitsUpTo − 1`, FREE+STEP `localT`, LOCK+STEP `raw`; Router.swift) — it matches §2.5/2.6 for "both marks on one cell";
+  the difference is that the ordinal was never an independent quantity, which is the new work. (Old RATE options: ¼ / ½ / 1 / 2 / 4 BAR,
+  step = fraction × host beats-per-bar; default 1 BAR, LEN 8.) **SPEC vs CODE — the contradictions, and what was decided:** (1) DRUNK does not
+  exist for Euclideous lanes (removed 2026-10-13; `euclideousRiffDirResolved` coerces it to FWD), so every DRUNK clause is N/A — modes built and
+  tested: FWD/REV/PENDULUM/PING-PONG × LOCK/FREE × HIT/STEP. (2) The lane-card dimming of a grid-muted lane did NOT exist today — built here
+  (comet and flashes stop, cells and the riff-grid tag dim to 42%; a muted hit pushes no NOTE VIEW event, so the header ring does not flare).
+  (3) A genuinely FRESH document used to restart every bar (`resetSteps = 1`); the spec's default is NO restarts (§1.3/§9.1) — followed, so a
+  never-edited instance's riff now counts straight through instead of restarting each bar until a mark is set (the 20 presets are
+  unaffected). (4) §6.3's "repeat the old marks mod LEN" is exact only when LEN divides 16 (1,2,4,8; default 8): LEN 3/5/6/7 gain one short
+  run at the 16-cell seam — proven equal over the first window. (5) The nearest restart/mute unit is only EXACT when a unit equals the old step:
+  a lane whose lap is not a bar (e.g. 3-of-5 @ 1/8, a 2.5-beat lap) migrates to the nearest unit, so its sound changes — the old Router
+  tests that used such a lane (and one that used resetSteps = 3, which was never a valid reset and so never restarted at all) were moved to
+  exactly-migrating lanes and said so. (6) Real panel frame: `riffColW × halfH` = ≈416.9 × 312.3 at the 1190 × 725.5 reference (not 410 × 303),
+  fill `white@3.5%`, radius 12, padding 8, tab row 20 — source wins; widths follow §4 exactly (rail 38, cells 20.125), the lane blocks take the
+  height the panel leaves (50pt at the reference, ≈37 on the 248pt-tall portrait panel — floor 34); no text is ever shrunk. (7) A plain
+  NOTE-mode CYCLE/RANDOM pick still counts from the RHYTHM origin (the spec only names the riff); (8) the roll draws the lane's OWN riff
+  column — SHADOW lanes, an AVOID-muted pick and a FILL hit cannot be shown on a rank axis and draw as rests; MASK effects are inert on this
+  row (the call site force-disables the mask), so the roll honours hit/advance fully. **TESTS:** LanesGridTests (units, mute, 16-cell origin,
+  migration, edits, layout, hit test, runs, the core vs a tick-by-tick simulator, the LEN 1–8 equivalence), RouterTests grid section (rhythm-
+  only / melody-only / both marks, mark on a muted cell, per-hit mute, boundary close, TIE across a restart, negative first-window origin, the
+  roll vs the Router, the lap baseline) and the golden. Mutation-checked: breaking the carried-origin cell, the LOCK rule, the per-hit mute,
+  the boundary close, the roll's audible flag and its tie extension each fails a test. Render-thread care: the migration's nearest-unit
+  pick builds no arrays (`allCases` allocates).
 - **▶ EUCLIDEOUS — "drop the loop functionality in favour of four riff tabs" (2026-10-18, Paul's direction,
   interrupting a large unbuilt LANES-rebuild ferry mid-paste; on `feat/restore-riff-tabs-drop-looper`; iOS
   builds clean; macOS suite build pending at time of writing — see the next log entry once it lands).**

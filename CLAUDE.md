@@ -146,8 +146,9 @@ Euclideous has no receiver/door graph, no cables beyond a flat A–D toggle, no 
 - **Mask** (per-lane) = a second K-of-N pattern gating a lane's own hits (mute/pause/ratchet/
   repeat/chord-stab/octave-shift/mirror/leap/climb/accent/swell), distinct from the standalone
   `EUCLID MASK` processor type that exists elsewhere in the 8×8 grid's processor roster.
-- **Sequencer panel** = the LANES/RIFFS two-tab step grid controlling which lane sounds, and which
-  riff plays, at each step of its own independent step-sequence (own ON/RATE/LEN).
+- **Sequencer panel** = the MIX / LANES tabs of the bottom-right panel (RIFFS is hidden). LANES is four lane blocks of
+  16 cells with MUTE and RESTART sub-tabs: each lane's own MUTE grid, and separate RHYTHM / MELODY restart rows, on the
+  lane's own cell size (STEP/4STP/PASS/2PASS to mute, 4STP/PASS/2PASS/4PASS to restart).
 - **Emitters A–D** here are a flat per-lane output toggle (`MAIN OUT`), not the full 8×8-State
   bus/cable/channel-stamp model above.
 
@@ -217,11 +218,12 @@ the same pipeline as any other row; it is not a special-cased render path.
   `composeSceneMeta` when `PluginState.euclideousEnabled` — a regular authored row through the
   ordinary Router/Kernel/SnapshotBox pipeline, not a separate render path.
 - **Four lanes** (`EuclidLine` × 4, `PluginState.euclideousLines`), each with RHYTHM (K-of-N
-  pattern, HITS/STEPS/OFFSET/TILT/GATE/VELOCITY sliders, FWD/BKW/PING-PONG direction, a per-lane
-  RESET — an 8-bit restart MASK, 2026-10-15 ferry, one bit per LANES step, editable by holding the
-  box and tapping steps, or via an EVERY-1/2/4/8/OFF presets popover — that re-anchors to the LANES
-  sequencer's own lap boundary rather than a raw bar count; `EuclidLine.restartMaskResolved`, engine
-  formula `euclideousMaskedResetOrigin`), RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
+  pattern, HITS/STEPS/OFFSET/TILT/GATE/VELOCITY sliders, FWD/BKW/PING-PONG direction; two 16-cell RESTART masks
+  on the LANES tab — RHYTHM (the pattern starts again) and MELODY (the riff goes back to its first position) —
+  and a 16-cell MUTE grid, LANES GRID ferry 2026-10-18: `muteCells16`/`muteUnit`/`restartRhythmMask16`/
+  `restartMelodyMask16`/`restartUnit`, resolved by `euclideousLaneGridResolved` (a pre-feature document migrates
+  from its old `resetSteps`/`restartMask`/sequencer fields at use); the old per-lane 8-bit reset is decode-only),
+  RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
   shared 8-step rank matrix; DRUNK/RANDOM were removed from this walk 2026-10-13 and now coerce to
   FWD; LOCK/FREE, INVERT, ON-REST SKIP/FILL/TIE, STRIDE/LENGTH/ADVANCE/TRANSPOSE, ±2 octave, riff
   capture), NOTES (an additive lit-note layer independent of the riff — it reads ON only while its switch is on AND a note is selected, `euclideousNotesLayerIsOn`; up to 8 ranks + TOP/TOP2,
@@ -229,9 +231,18 @@ the same pipeline as any other row; it is not a special-cased render path.
   REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — gated by CHANCE).
 - **Sequencer panel** (replaced an earlier "NOTE VIEW" telemetry panel entirely): tabs are MIX (the default —
   eight XY pads, gate × velocity, + an OCT stepper per layer: each lane's RIFF and NOTES; RIFF = the lane's GATE/VEL,
-  NOTES = its own `notesGate`/`notesVelocity`, which PART from GATE/VEL at the first edit), then LANES (which of the 4
-  lanes sounds each step, with its own ON/RATE/LEN bar — that bar belongs to the LANES tab, not the panel); RIFFS is
-  hidden. The tab row is tabs only. Every sounding pitch in a Euclideous hit carries its OWN gate and legato is per layer.
+  NOTES = its own `notesGate`/`notesVelocity`, which PART from GATE/VEL at the first edit), then LANES (2026-10-18,
+  `LanesPanelPainter.swift`: MUTE | RESTART sub-tabs, four 16-cell lane blocks each with a RATE box that edits that
+  lane's unit, a roll of the lane's hits behind the cells and a playhead per lane — no ON, panel RATE/LEN, RESET boxes
+  or ring any more; the grid is always live); RIFFS is hidden. The tab row is tabs only. Every sounding pitch in a
+  Euclideous hit carries its OWN gate and legato is per layer.
+- **ONE per-tick core (LANES GRID, 2026-10-18).** `euclideousLaneTick` (Derivations.swift) decides, for a lane tick, the pattern
+  phase from the RHYTHM origin and the riff ordinal (`advOrd`) counted from the MELODY origin on the lane's real hit schedule;
+  restarts are cell indices on exact integer lane ticks. Mute is `euclideousLaneAudible` at the hit's own beat (per hit, not per
+  window). The Router, the TIE lookahead (`euclideousRiffTieExtensionBeats`), the next-hit gap, the walk-tag mirror, the roll
+  (`euclideousLaneRollHits`), the comet (`euclideousLaneCometRaw`) and the footer baseline (`euclideousLapStartOrdinal`) all call
+  it — change the arithmetic THERE, nowhere else. A restart (either kind) on a muted cell still takes effect; a muted hit still
+  advances the walk. Render-thread care: nothing in the core or the migration may allocate (`allCases` allocates).
 - **Source.** One page-level selector — MIDI IN / CHORDS (a self-contained degree-matrix+rate
   chord generator, no 8×8-grid receiver dependency) / KEY (a scale pool). No per-lane source, no
   dependency on the wider receiver/door graph.
@@ -269,10 +280,10 @@ the same pipeline as any other row; it is not a special-cased render path.
 - **Riff-grid walk tags (2026-10-15).** Each riff-on lane's marker on the shared riff grid is a STATELESS
   tag + thread: every frame it is re-derived from the polled step (`riffPositions`, the same value the RIFF-tab
   thumbnail reads) and the live beat, via a pure mirror of `runEuclidLine`'s tick arithmetic
-  (`euclideousWalkTick`, Derivations.swift) — that mirror is what lets a tag depart BEFORE the hit. If you change
-  how the walk advances in `Router.runEuclidLine` (ordinal, LOCK, ADV STEP, RESET — the lane's 8-bit restart MASK —
-  FOLLOW, the WITH/GAPS strike filter, swing), change the mirror too — `RouterTests.testWalkTag*` compare the two against
-  the real router and will fail if they drift. WITH/GAPS silence a tick only at the strike decision (the ordinal still counts
+  (`euclideousWalkTick`, Derivations.swift — now a call of the one per-tick core) — that mirror is what lets a tag depart BEFORE the hit. If you change
+  how the walk advances (ordinal, LOCK, ADV STEP, the RHYTHM/MELODY restarts, FOLLOW, the WITH/GAPS strike filter, swing),
+  change `euclideousLaneTick` — `Router.runEuclidLine` and the mirror (`euclideousWalkTick`) both call it now, so they cannot
+  drift on the walk itself; `RouterTests.testWalkTag*` still compare them against the real router. WITH/GAPS silence a tick only at the strike decision (the ordinal still counts
   every raw hit), which is why the mirror has both `isHit` and `strikes`. The UI-clock-vs-audible-time offset is an accepted,
   unmeasured risk (Paul, 2026-10-15); the lane footer agrees with the engine under LOCK + ADV STEP, and a FOLLOW lane's step
   bar + footer draw the PARTNER's inherited pattern via `euclideousEffectivePattern` (one function shared with the mirror).

@@ -678,4 +678,84 @@ final class LanesGridTests: XCTestCase {
         XCTAssertEqual(euclideousLaneCometRaw(beat: 8.25, n: 5, dir: .fwd, sub: 1, grid: grid, legacySpanBeats: 0), 0.25, accuracy: 1e-9)
         XCTAssertEqual(euclideousLaneCometRaw(beat: 7.5, n: 5, dir: .fwd, sub: 1, grid: grid, legacySpanBeats: 0), 2.5, accuracy: 1e-9, "still running the pass begun at the previous mark (tick 0)… 7.5 mod 5")
     }
+
+    // MARK: - defaults, geometry agreement, and the equivalence with the pre-grid engine for LEN 1–8 (§1, §8, §9)
+
+    func testAFreshDocumentShowsSixteenSoundingCellsAndNoRestartsOnEveryLane() {
+        let fresh = PluginState(machines: [], scenes: [SceneState.empty()])
+        let lines = fresh.euclideousLinesResolved
+        for lane in 0..<4 {
+            let v = euclideousLaneGridView(lines: lines, lane: lane, legacy: EuclideousLanesSeq(on: fresh.euclideousLanesSeqOnResolved, rate: fresh.euclideousLanesSeqRateResolved, len: fresh.euclideousLanesSeqLenResolved, cells: fresh.euclideousLanesSeqCellsResolved), defaultRateBeats: 0.25, beatsPerBar: 4)
+            XCTAssertEqual(v.grid.muteCells, 0xFFFF, "lane \(lane + 1): 16 sounding cells")
+            XCTAssertEqual(v.grid.rhythmMask, 0); XCTAssertEqual(v.grid.melodyMask, 0)
+            XCTAssertEqual(v.grid.muteUnit, .pass); XCTAssertEqual(v.grid.restartUnit, .pass)
+            XCTAssertFalse(euclideousLaneRestartGrid(v.grid, cycleLen: v.cycleLen).isActive, "no restart: the engine's grid path is not in force")
+        }
+    }
+    func testStepGeometryIsWhatTheRoutersMirrorSees() {
+        // `euclideousLaneStepGeometry` (read by the render thread's mute sweep and the page) must agree with `euclideousEffectivePattern` (the mirror of
+        // `runEuclidLine`'s own n / rate), including a FOLLOWing lane that ticks at its partner's rate × the multiplier over the partner's step count.
+        var rng = Rng(state: 3)
+        for _ in 0..<80 {
+            var lines = (0..<4).map { _ -> EuclidLine in
+                var l = EuclidLine(pulses: rng.int(0...8), steps: rng.int(2...16))
+                l.rate = [ArpRate.r1_4, .r1_8, .r1_16, .r1_8t, .r1_16d][rng.int(0...4)]
+                l.direction = [EuclidDir.fwd, .bkw, .pingpong][rng.int(0...2)]
+                return l
+            }
+            let follower = rng.int(0...3)
+            if rng.bool() { lines[follower].listenRhythmMode = .follow; lines[follower].listenRhythmPartner = (follower + 1) % 4; lines[follower].listenFollowMult = rng.int(-3...2) }
+            for lane in 0..<4 {
+                let geo = euclideousLaneStepGeometry(lines: lines, lane: lane, defaultRateBeats: 0.25)
+                let eff = euclideousEffectivePattern(lane: lane, lines: lines)!
+                XCTAssertEqual(geo.n, eff.n); XCTAssertEqual(geo.sub, eff.rateBeats, accuracy: 1e-12)
+                XCTAssertEqual(geo.cycleLen, euclidCycleLen(lines[lane].directionResolved, n: eff.n))
+            }
+        }
+    }
+    /// The pre-grid engine's per-tick arithmetic, verbatim: ONE origin from the 8-bit mask over a LEN-step lap in sequencer steps of `stepBeats`.
+    private func oldEngineTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, mask: UInt8, len: Int, stepBeats: Double,
+                               locked: Bool, adv: Bool) -> (hit: Bool, advOrd: Int64) {
+        let tickBeat = Double(tick) * sub
+        let origin = euclideousMaskedResetOrigin(beat: tickBeat, stepBeats: stepBeats, mask: mask, loopSteps: len)
+        let localT = Int64(((tickBeat - origin) / sub).rounded(.down))
+        let cl = Int64(cycleLen)
+        let raw = Int(((localT % cl) + cl) % cl)
+        var hitsUpTo = 0; for s in 0...raw where buf[euclidReadIndex(s, n: n, dir: dir)] { hitsUpTo += 1 }
+        var cycleHits = 0; for s in 0..<cycleLen where buf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }
+        let ord = (localT - Int64(raw)) / cl * Int64(max(1, cycleHits)) + Int64(hitsUpTo - 1)
+        return (buf[euclidReadIndex(raw, n: n, dir: dir)], adv ? (locked ? Int64(raw) : localT) : (locked ? Int64(hitsUpTo - 1) : ord))
+    }
+    func testGridEquivalenceWithThePreGridEngineForEveryLenAndEveryRiffMode() {
+        // §8: both masks = stamp(N), the restart unit equal to the old step, N ∈ {1,2,4,8}, LEN 1…8, every riff mode — the hit beats and riff ordinals over
+        // three laps equal the pre-grid engine's. (A LEN that does not divide 16 can only be compared inside the first 16-cell window — §6.3's seam.)
+        var covered = 0
+        for geo in 0..<2 {                                    // 3-of-8 @ 1/8 (lap = 1 bar) and 5-of-16 @ 1/16 (lap = 1 bar)
+            var line = geo == 0 ? EuclidLine(pulses: 3, steps: 8) : EuclidLine(pulses: 5, steps: 16)
+            line.rate = geo == 0 ? .r1_8 : .r1_16
+            let eff = euclideousEffectivePattern(lane: 0, lines: [line])!
+            let cycleLen = euclidCycleLen(.fwd, n: eff.n)
+            let stepBeats = 4.0                               // the old sequencer at 1 BAR; the lane's PASS is exactly one bar
+            for n in [1, 2, 4, 8] { for len in 1...8 { for locked in [false, true] { for adv in [false, true] {
+                var l = line; l.restartMask = euclideousStampMask(n)
+                let g = euclideousLaneGridResolved(line: l, lane: 0, legacyOn: true, legacyRate: .oneBar, legacyLen: len,
+                                                   legacyCells: [Bool](repeating: true, count: 32), stepBeats: eff.rateBeats, passBeats: Double(cycleLen) * eff.rateBeats, beatsPerBar: 4)
+                XCTAssertEqual(g.restartUnit, .pass); XCTAssertEqual(g.rhythmMask, g.melodyMask)
+                let grid = euclideousLaneRestartGrid(g, cycleLen: cycleLen)
+                let laps = min(3 * len, 16)
+                let ticks = Int64(Double(laps) * stepBeats / eff.rateBeats)
+                for t in 0..<ticks {
+                    let want = oldEngineTick(buf: eff.buf, n: eff.n, dir: .fwd, cycleLen: cycleLen, sub: eff.rateBeats, tick: t, mask: euclideousStampMask(n), len: len,
+                                              stepBeats: stepBeats, locked: locked, adv: adv)
+                    let got = euclideousLaneTick(buf: eff.buf, n: eff.n, dir: .fwd, cycleLen: cycleLen, sub: eff.rateBeats, tick: t, grid: grid, legacySpanBeats: 0,
+                                                 locked: locked, advanceStep: adv)
+                    if got.rawIsHit != want.hit || (want.hit && got.advOrd != want.advOrd) {
+                        XCTFail("geo \(geo) N \(n) LEN \(len) locked \(locked) adv \(adv) tick \(t): hit \(got.rawIsHit)/\(want.hit) ord \(got.advOrd)/\(want.advOrd)"); return
+                    }
+                    covered += 1
+                }
+            } } } }
+        }
+        XCTAssertGreaterThan(covered, 30_000, "the equivalence must really run over the whole matrix")
+    }
 }

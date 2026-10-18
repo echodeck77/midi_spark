@@ -28,7 +28,7 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - The 28pt OCT buttons are comfortable, and the end button dims at −2 / +2.
 - The grey off state reads as "off, still editable" (turn the riff card / NOTES off and drag its pad; tapping a notes OCT button on an off layer switches it on).
 - Per-layer gate and legato against a real synth: riff at 60% while notes sit at 100% (and the reverse) — held vs retriggered, no stuck notes.
-- The tab row without its readout: MIX / LANES split it evenly; holding a RESET box no longer shows "TAP = RESTART".
+- The tab row without its readout or the ring beside LANES: MIX / LANES split it evenly and nothing else sits in it.
 - One undo per touch: drag a pad, lift, drag another, undo twice; double-tap a pad and undo once returns it to before the first tap.
 - The RHYTHM tab's GATE/VEL follow the riff pad; the NOTES VEL bar follows the notes pad's velocity; dragging a notes pad never moves its riff pad.
 - A lane's VEL now survives closing and reopening a session (it used to reset to 100).
@@ -51,18 +51,28 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - Whether the same limp is audible when the plugin drives a synth INSIDE AUM vs routed to another app (different
   MIDI paths, possibly different timestamp handling).
 
-### Sequencer panel (LANES/RIFFS tabs, step grid, restart markers)
-- Two-finger hold + tap (hold a lane's RESET box, tap that lane's steps with another finger) registers on
-  the real panel inside AUM — 2026-10-15 ferry, "per-step restart points."
-- The 300ms tap/hold threshold on the RESET box feels right; quick taps reliably open the presets popover
-  without ever registering as an edit.
-- One-thumb slide-and-lift (press RESET, slide along the row, lift over a step) accuracy near cell gaps.
-- Edit-mode legibility: bright restart bars vs dashed "tap here" slots, on both lane20-tinted sounding cells
-  and muted cells, across all four lane colours.
-- "TAP = RESTART" (replacing "STEP N OF LEN" while a RESET is held) fits without overlapping the RIFFS label
-  at the smallest supported panel width.
-- OFF and "no mark on step 1" cases audibly run through the LANES lap boundary as expected (engine-proven
-  off-device; wants an ear on the real instrument too).
+### LANES tab (2026-10-18 ferry — per-lane mute grid, live roll, rhythm + melody restart rows)
+_(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the presets popover, "TAP = RESTART" and the step grid are gone.)_
+- 20 × 24pt restart cells and 20 × 50pt mute cells are comfortable to tap and drag-paint on the real panel inside AUM (the stroke starts on the
+  cell you touch and paints its opposite; dragging down a column across both RESTART rows sets or clears the pair; a plain tap toggles).
+- The roll's legibility at 45% on the RESTART tab behind the marks, run outlines and dashed "tap here" slots, in all four lane colours; on MUTE the
+  bars (lane colour when audible, grey when muted) read over both sounding and muted cells.
+- Playhead speed and position agree with what is heard, for each unit (STEP / 4STP / PASS / 2PASS) and on all four lanes; tap a lane's RATE box
+  through the units and confirm the cells keep their pattern while the roll rescales and the playhead speeds up or slows down.
+- The 2pt gaps and the playhead's jump over them look right at real size.
+- The legend and the hint text fit without truncating at the smallest supported width (the hint is allowed to truncate; the two legend labels are not).
+- RHYTHM-only restart: set a mark on cell 8 of the top row — the hits re-phase there while the riff's pitches carry straight on. MELODY-only: every hit
+  stays put and the riff goes back to its first rank at the mark. Both on one cell: exactly the old single restart. (Engine-proven; wants an ear.)
+- A mark on a MUTED cell still restarts the lane; the next audible hit is a fresh restart there.
+- A lane going muted closes its held (100% gate) note at ITS OWN cell boundary, with two lanes on different cell sizes.
+- A muted lane's card dims at that beat (cells, comet and hit flashes stop, the riff-grid tag dims to 42%) and the header ring does not flare for it.
+- The comet and hit flashes on a lane card follow a RHYTHM restart (they used to ignore restarts); the lane footer's predicted riff steps stay right
+  after a MELODY restart (they cannot foresee a restart inside the lap — that is by design).
+- A pre-feature session (sequencer ON, a reset) loads with the same sound: its migrated cells/units/marks appear on the tab, and a lane whose lap is
+  not a bar sounds slightly different (nearest unit, see the status log). A NEW instance now has no restarts: the riff counts straight through.
+- VoiceOver reads "Lane 1 cell 5, sounding", "Lane 2 cell 3 rhythm restart, set", "Lane 3 cell size PASS" (action "Next size"), and the sub-tab chips announce
+  selected state.
+- Portrait panels: the lane blocks scale to the height the 248pt panel leaves (≈37pt); check the cells are still comfortable.
 
 ### LISTEN remembers its partner (2026-10-16)
 - On each LISTEN row (RHYTHM / PITCH / LEVEL): pick a partner, tap the lit mode off, tap a mode on again — the same partner is
@@ -85,8 +95,7 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
   it should never fly to a step that then doesn't sound. Check with a partner whose hits overlap the lane's.
 - The lane footer under LOCK + ADV STEP on a ROTATED pattern (first hit not on step 1) names the same riff steps the lane
   actually plays.
-- A hand-placed restart mask (LANES tab, hold a RESET box and tap steps): the tag still threads and departs early instead of
-  falling back to a static tag.
+- A hand-placed restart mark (LANES tab, RESTART sub-tab): the tag still threads and departs early instead of falling back to a static tag.
 - A FOLLOW lane's step bar now shows the PARTNER's hits (not the lane's own idle pattern) under the colour wash, with one cell
   per partner step (check a partner whose step count differs from the follower's own), the footer bands sit inside the right
   cells, and the lit cells line up with what you hear. The comet's speed on a FOLLOW lane is still the lane's own rate, so
@@ -139,7 +148,7 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Subsystem headings to file new items under
 
-- Sequencer panel (LANES/RIFFS tabs, step grid, restart markers)
+- Sequencer panel (MIX / LANES tabs; LANES = MUTE + RESTART sub-tabs)
 - Riff grid + riff capture
 - Per-lane mask
 - Rhythm sliders / gestures

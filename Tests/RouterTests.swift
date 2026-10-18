@@ -6259,7 +6259,9 @@ final class RouterTests: XCTestCase {
         func picksThroughBar(resetSteps: Int, lenSteps: Int, beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+            // 3-of-8 at 1/8 (a lap = one bar) so the pre-feature reset migrates EXACTLY under the LANES GRID (2026-10-18); the 3-of-5 lane this test used has
+            // a 2.5-beat lap, whose nearest restart unit is not the old 1-bar step (§6.2: reported, not papered over).
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
                                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
                                                  resetSteps: resetSteps)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
@@ -6274,11 +6276,14 @@ final class RouterTests: XCTestCase {
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         }
-        let bar1 = picksThroughBar(resetSteps: 3, lenSteps: 5, beats: 3.9)
-        let throughBar6 = picksThroughBar(resetSteps: 3, lenSteps: 5, beats: 23.9)
+        // NOTE (2026-10-18): this test used resetSteps=3, which is NOT a valid reset (`resetStepsResolved`'s domain is {0,1,2,4,8}; 3 resolves to OFF), so it
+        // never exercised a restart at all — it passed only because the old 3-of-5 lane happened to line up every 5 bars. resetSteps=2 over LEN=5 is the real
+        // case: marks at steps 1, 3, 5 of the lap (bits 0, 2, 4), then the next lap restarts fresh at its step 0.
+        let bar1 = picksThroughBar(resetSteps: 2, lenSteps: 5, beats: 3.9)
+        let throughBar6 = picksThroughBar(resetSteps: 2, lenSteps: 5, beats: 23.9)
         XCTAssertFalse(bar1.isEmpty)
         XCTAssertEqual(Array(throughBar6.suffix(bar1.count)), bar1,
-                       "LEN=5 doesn't divide resetSteps=3 — bar 6 begins a new lap and must restart fresh at " +
+                       "LEN=5 doesn't divide resetSteps=2 — bar 6 begins a new lap and must restart fresh at " +
                        "local step 0, replaying bar 1's exact pick sequence, not continue the step-3-anchored " +
                        "cycle an unbounded (LEN-oblivious) formula would produce instead")
     }

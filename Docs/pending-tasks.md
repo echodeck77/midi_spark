@@ -5,6 +5,24 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — "LANES panel rebuilt as a per-lane mute grid with a live roll, plus separate rhythm and melody restart rows" — SHIPPED
+(2026-10-18; LANDED on `feature/lanes-grid`, macOS green, iOS builds clean) — the LANES tab is four lane blocks of 16 cells, each on its own cell
+size, with MUTE and RESTART sub-tabs, a roll of the lane's hits, a playhead per lane, and separate RHYTHM / MELODY restart marks. The old ON /
+RATE / LEN, per-lane RESET boxes and the ring beside LANES are gone (hidden, not deleted; old fields stay decodable and are never written). One
+per-tick core drives the Router, the TIE/gap lookahead, the walk-tag mirror, the comet, the footer baseline and the roll. Full story in
+`Docs/euclideous-status-log.md`.
+- [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "LANES tab" section (tap/paint feel at 20 × 24 / 20 × 50, roll legibility,
+      playhead vs sound, the 2pt-gap jump, legend fit, restart independence by ear, boundary close, the muted lane's card, VoiceOver).
+- [ ] DECIDE (Paul): a NEW instance now has NO restarts (spec §1.3/§9.1) — it used to restart the riff every bar (`resetSteps = 1` for a fresh
+      document). Right? (A never-edited saved session changes the same way; the 20 presets don't.)
+- [ ] DECIDE (Paul): the migration picks the NEAREST unit to the old step, which is only exact when a lane's lap is a bar fraction; a lane with an odd
+      lap (e.g. 3-of-5 @ 1/8) migrates to the nearest unit and sounds different. Fine, or hand-fix those in a one-off pass?
+- [ ] DECIDE (Paul): a plain NOTE-mode CYCLE/RANDOM pick still counts from the RHYTHM origin — should a MELODY restart reset it too?
+- [ ] DECIDE (Paul): portrait panels are 248pt tall, so the lane blocks shrink to ≈37pt (the spec's budget is 50pt) — give portrait more height, or accept?
+- [ ] DECIDE (Paul): the roll cannot draw SHADOW lanes (pitch from the partner), an AVOID-muted pick or a FILL hit on a rank axis — they draw as rests. OK?
+- [ ] (LEN ∤ 16 seam) a pre-feature LEN of 3/5/6/7 gets one short run at the 16-cell seam — accepted as inherent to a 16-cell window.
+- (The "TAP = RESTART" hint DECIDE below is moot: the hold-RESET gesture it belonged to is gone.)
+
 ## ★ EUCLIDEOUS — "MIX tab (gate, velocity and octave for every layer)" — SHIPPED (2026-10-18; LANDED on `feature/mix-tab`, macOS
 green, iOS builds clean) — the sequencer panel opens on MIX: eight XY pads (gate × velocity) + OCT steppers, per-pitch gate and per-layer
 legato in the engine, `notesGate`/`notesVelocity`, per-touch undo. Also fixed: a lane's VEL never survived a session save/load. Full story
