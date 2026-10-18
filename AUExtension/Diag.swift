@@ -15,6 +15,22 @@ struct KernelDiag {
     var beat: Double = 0
     var tempo: Double = 0
     var beatsPerBar: Double = 4       // the host's real bar length in quarter-note beats (Kernel reads tsNum/tsDen) — the page's walk tags need it to date the LANES-sequencer step / per-lane RESET
+    // HOST BEAT-REFERENCE CROSS-CHECK (2026-10-18, the "odd timing" investigation). The musical-context
+    // block hands us `currentBeatPosition` AND `sampleOffsetToNextBeat`; the second is the host's own
+    // statement of how many samples remain until the next whole beat, so it independently verifies the
+    // first. If `beat`'s fractional part is honest, the two must agree:
+    //     expected offset = (1 − frac(beat)) × samplesPerBeat
+    // `beatRefErrorSamples` is (reported − expected), i.e. how wrong the host's beat position is in
+    // samples; `beatRefFrames` is the block size that error should be compared against. A value that is
+    // small (a few samples) means `beat` is trustworthy and every onset computed from it is correctly
+    // placed. A value near ±one block would mean `beat` is itself block-quantised, which would put the
+    // timing fault INSIDE the plugin rather than downstream of it. Read-only arithmetic over values the
+    // render already fetches — no extra host calls, no render-thread logging (see the 2026-09 os_log
+    // hazard). Exposed because `Kernel.render`'s context plumbing is the one seam `RouterTests` cannot
+    // reach off-device (it is AudioToolbox), so this is the only way to inspect it on a release build.
+    var beatRefErrorSamples: Double = 0
+    var beatRefFrames: Int = 0
+    var beatRefValid = false          // false ⇒ the host supplied no usable sampleOffsetToNextBeat, so the check says nothing
     var poolCount = 0
     var snapshotGen: UInt64 = 0
     var paramEventCount: UInt64 = 0

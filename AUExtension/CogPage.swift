@@ -57,6 +57,7 @@ struct CogPage: View {
                         divider
                         section("HEALTH")
                         healthRow
+                        beatRefRow
                         replayRow
                         holdRow
                         Text(aboutLine).font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.3))
@@ -102,6 +103,26 @@ struct CogPage: View {
             healthStat("HELD", Int(d.poolCount))          // raw LIVE input pool
             healthStat("PANICS", Int(d.panics), alert: d.panics > 0)
             healthStat("DROPPED", d.floodDropped, alert: d.floodDropped > 0)   // FLOOD GOVERNOR tell (incident 2026-08-08)
+            Spacer()
+        }
+    }
+    // HOST BEAT REFERENCE (2026-10-18, the "odd timing" investigation) — see KernelDiag.beatRefErrorSamples.
+    // BEATREF is how many samples the host's own "samples to the next beat" disagrees with the beat position
+    // it reported in the same call; BLK is the current render block for comparison. A few samples = the beat
+    // position is honest, so every onset derived from it is placed correctly and the timing fault lies
+    // downstream of the plugin. Approaching ±BLK would mean the beat position is itself block-quantised,
+    // which would put the fault inside the plugin. "BEATREF n/a" = the host supplies no usable value, so the
+    // check is silent rather than falsely reassuring.
+    @ViewBuilder private var beatRefRow: some View {
+        HStack(spacing: 12) {
+            if d.beatRefValid {
+                healthStat("BEATREF", Int(d.beatRefErrorSamples.rounded()),
+                           alert: abs(d.beatRefErrorSamples) > Double(max(1, d.beatRefFrames)) / 2)
+                healthStat("BLK", d.beatRefFrames)
+            } else {
+                Text("BEATREF n/a").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(ink.opacity(0.55))
+            }
             Spacer()
         }
     }

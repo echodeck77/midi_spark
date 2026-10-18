@@ -851,16 +851,34 @@ final class Kernel {
         // 3/4 → 3, 6/8 → 3). Defaults to 4.0 (common time) when the host doesn't report a usable signature,
         // matching every other "unexpected ⇒ benign" default in this file.
         var beatsPerBar = 4.0
+        // `sampleOffsetToNextBeat` was previously read and DISCARDED here — the same read-then-throw-away
+        // shape as the tsNum/tsDen bug the 2026-10-14 ferry fixed. It is now used (below) purely as a
+        // read-only cross-check on `beatPos`'s own precision; it does not alter any timing decision.
+        var beatRefOffsetToNextBeat = -1
         if let mc = musicalContext {
             var bpm = 0.0, beat = 0.0
             var tsNum = 0.0; var tsDen: Int = 0; var sampleOffset: Int = 0; var measureBeat = 0.0
             if mc(&bpm, &tsNum, &tsDen, &beat, &sampleOffset, &measureBeat) {
                 tempo = bpm > 0 ? bpm : 120
                 beatPos = beat
+                beatRefOffsetToNextBeat = sampleOffset
                 if tsNum > 0, tsDen > 0 { beatsPerBar = tsNum * 4.0 / Double(tsDen) }
             }
         }
         diag.playing = playing; diag.beat = beatPos; diag.tempo = tempo; diag.beatsPerBar = beatsPerBar
+        // See KernelDiag.beatRefErrorSamples: does the host's own "samples to the next beat" agree with the
+        // fractional part of the beat position it handed us in the same call?
+        diag.beatRefFrames = Int(frameCount)
+        if beatRefOffsetToNextBeat >= 0, tempo > 0, sampleRate > 0 {
+            let samplesPerBeat = sampleRate * 60.0 / tempo
+            let fracIntoBeat = beatPos - beatPos.rounded(.down)
+            let expectedToNextBeat = (1.0 - fracIntoBeat) * samplesPerBeat
+            diag.beatRefErrorSamples = Double(beatRefOffsetToNextBeat) - expectedToNextBeat
+            diag.beatRefValid = true
+        } else {
+            diag.beatRefErrorSamples = 0
+            diag.beatRefValid = false
+        }
 
         // REPLAY (config-sheets stage 3): the beat mapping handleIncoming uses to timestamp ring recordings, + the
         // per-render phase updateLatchedPools reads. Set BEFORE the events walk (recording) and updateLatchedPools.

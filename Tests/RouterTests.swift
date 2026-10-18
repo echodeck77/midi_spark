@@ -5579,6 +5579,50 @@ final class RouterTests: XCTestCase {
         }
     }
 
+
+    /// HARDENING SWEEP for the test above (Paul 2026-10-18, "anything to firm things up?"). The single-case
+    /// test proves sample accuracy at ONE configuration and with `forceColumn: 0`, which BYPASSES the
+    /// column-lap gate entirely — so on its own it says nothing about block sizes where a step spans a
+    /// different number of blocks, nor about the gate path that a real cell actually goes through. This
+    /// sweeps buffer × tempo × rate, and runs the column gate BOTH ways. 4096 frames is deliberately
+    /// included: at 110 BPM one 4096-frame block is 0.156 beat, LONGER than a 1/32 step, so it exercises the
+    /// `firstTick...lastT` loop finding several ticks in one block — a different path from the usual
+    /// at-most-one.
+    func testEuclideousOnsetSampleAccuracyHoldsAcrossBuffersTemposAndRates() {
+        for frames in [UInt32(256), 512, 1024, 2048, 4096] {
+            for tempo in [100.0, 110.0, 120.0, 128.5] {
+                for (rate, rateBeats) in [(ArpRate.r1_8, 0.5), (.r1_16, 0.25), (.r1_32, 0.125)] {
+                    for forced in [0, -1] {
+                        var c = Machine(machineID: "gold", type: .euclid)
+                        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 16, steps: 16, noteSel: .low,
+                                                            gate: 0.9, enabled: true, rate: rate, sourceMode: .midi)]
+                        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                             scenes: [{ var s = SceneState.empty()
+                                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                                 return s }()])
+                        st.euclideousNoteSource = .midi
+                        let e = RecordingEmitter()
+                        _ = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e,
+                                             forceColumn: forced, tempo: tempo, sr: 48_000, frames: frames)
+                        let onsets = e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
+                        guard onsets.count > 2 else { continue }   // a gated column can yield too few to measure
+                        let expected = rateBeats * 60.0 / tempo * 48_000.0
+                        let label = "\(frames)fr @ \(tempo)BPM, rate \(rate.rawValue), forceColumn \(forced)"
+                        for i in 1..<onsets.count {
+                            let d = Double(onsets[i] - onsets[i - 1])
+                            // A gated run can legitimately show ONE long gap where the cell's column comes
+                            // back round; only consecutive-within-a-column spacing is asserted.
+                            guard d < expected * 1.5 else { continue }
+                            XCTAssertEqual(d, expected, accuracy: 2.0,
+                                           "\(label): onset \(i) sits \(d) samples after its predecessor, "
+                                           + "expected \(expected) — \(d / Double(frames)) blocks.")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - NOTE VIEW (Paul 2026-10-10 ferry, "note view, phase 1") — the new per-lane event queue
     // `Router.drainEuclideousNoteViewEvents()` posts. All 10 tests here use `runKeepingRouter` (not `run`)
     // specifically to poll the drained queue afterward, same precedent as the EUCLID beacon's own tests.
