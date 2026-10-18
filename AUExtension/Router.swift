@@ -4533,7 +4533,9 @@ final class Router {
                                 // per-tick recompute; `iterateTicks` can process several ticks per call, all
                                 // seeing the identical per-window decision, an accepted, disclosed coarseness
                                 // matching this codebase's own standing tolerance for this class of edge).
-                                restartMask: UInt8 = 0, lanesSeqMuted: Bool = false,
+                                // LANES GRID (2026-10-18): the per-lane restart / mute grid is resolved INSIDE this function (it needs the
+                                // lane's own step length and lap, known only after the pattern is built) from `p.euclidLines[lineIndex]` —
+                                // so nothing grid-related is passed in any more.
                                 // LISTEN TAB (ferry 2026-10-14) — all additive, defaulted to "off," so this
                                 // function's one existing call site is the only one that needs to change.
                                 // Partner indices are plain Ints (-1 = none/not applicable) rather than a
@@ -4640,14 +4642,31 @@ final class Router {
                 // context block's time signature — see `process()`'s own new parameter), independent of the
                 // grid entirely, per the ferry's own literal instruction. Per-lane RESET (just below, via
                 // `spanBeats`) consumes this SAME `lanesSeqStepBeats` and inherits the fix for free.
-                let lanesSeqStepBeats = p.euclideousLanesSeqRate.barsFraction * beatsPerBar
-                let spanBeats = restartMask != 0 ? Double(p.euclideousLanesSeqLen) * lanesSeqStepBeats
-                    : (p.euclideousResetSpanBars > 0 ? Double(p.euclideousResetSpanBars) * cyc
-                        : (p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0))
+                // LANES GRID (2026-10-18 ferry): the lane's mute grid and its two restart masks, resolved from the lane's own fields (or, for a
+                // pre-feature document, migrated from the old sequencer + reset — `euclideousLaneGridResolved`) against THIS lane's own step
+                // length and lap. `cycleLen` is the Router's lap in ticks; the units are integer multiples of the lane's tick.
+                let cycleLen = euclidCycleLen(dir, n: n)
+                var restartGrid = EuclideousLaneRestartGrid.off
+                var muteCells: UInt16 = 0xFFFF
+                var muteUnitBeats = 0.0
+                if isEuclideousRow, lineIndex < p.euclidLines.count {
+                    let g = euclideousLaneGridResolved(line: p.euclidLines[lineIndex], lane: lineIndex, legacyOn: p.euclideousLanesSeqOn,
+                                                       legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
+                                                       legacyCells: p.euclideousLanesSeqCells, stepBeats: sub, passBeats: Double(cycleLen) * sub,
+                                                       beatsPerBar: beatsPerBar)
+                    restartGrid = euclideousLaneRestartGrid(g, cycleLen: cycleLen)
+                    muteCells = g.muteCells
+                    muteUnitBeats = g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub)
+                }
+                // The pre-grid re-anchor (machine-wide bars span / bar ladder) applies only while the grid carries no restart mark.
+                let ladderSpanBeats = p.euclideousResetSpanBars > 0 ? Double(p.euclideousResetSpanBars) * cyc
+                    : (p.euclidSpanN > 0 ? spanLadderBeats(p.euclidSpanN, S: S, row: cyc) : 0)
+                // `spanBeats` is also the LISTEN coincidence lookups' (out of this ferry's scope) coarse re-anchor: one full restart window while
+                // the grid is in force, else the ladder span — what it was before for a restart mask (a full LANES lap).
+                let spanBeats = restartGrid.isActive ? Double(16 * restartGrid.unitTicks) * sub : ladderSpanBeats
                 // cycleLen (2n under PING-PONG, else n): looping the hit-count over the FULL cycle naturally
                 // double-counts a ping-pong's repeated endpoints the same way the real read-sequence does — no
                 // ×2 special-case needed (every buffer position 0..<n is visited exactly twice per 2n-tick lap).
-                let cycleLen = euclidCycleLen(dir, n: n)
                 // factored once (Paul 2026-10-02, hit/miss split) — the SAME "is step s a hit" test the original
                 // cycleHits/hitsUpTo loops already repeated inline; the new MISS path below needs a third copy,
                 // so this is a pure de-duplication, not a behaviour change.
@@ -4658,7 +4677,7 @@ final class Router {
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                              beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
                              clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc,
-                             lineIndex: lineIndex) { _, mTickBeat, _, _ in
+                             lineIndex: lineIndex) { tick, mTickBeat, _, _ in
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
                     // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a
@@ -4670,17 +4689,15 @@ final class Router {
                     // plain `columnStart` from absolute beat 0 — the two formulas only coincidentally agreed
                     // at the default LEN=8 every-N presets (every one of 1/2/4/8 divides it evenly); any other
                     // LEN, or any hand-placed mask, would silently diverge from the on-screen restart marks.
-                    let phaseBeat: Double
-                    if restartMask != 0 {
-                        let origin = euclideousMaskedResetOrigin(beat: mTickBeat, stepBeats: lanesSeqStepBeats, mask: restartMask, loopSteps: p.euclideousLanesSeqLen)
-                        phaseBeat = mTickBeat - origin
-                    } else {
-                        phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
-                    }
-                    let localT = Int64((phaseBeat / sub).rounded(.down))
-                    let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
-                    let ri = euclidReadIndex(raw, n: n, dir: dir)
-                    let rawIsHit = euclidBuf[ri]
+                    // LANES GRID (2026-10-18): where this tick sits in the pattern — the tick count since the RHYTHM origin — comes from the
+                    // one per-tick core (`euclideousLanePhase`), the same call the next-hit gap, the TIE lookahead, the roll and the walk-tag
+                    // mirror make. A tick is `tick × sub` beats; `mTickBeat` below is that same value.
+                    let ph = euclideousLanePhase(buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick,
+                                                 grid: restartGrid, legacySpanBeats: ladderSpanBeats)
+                    let localT = ph.localT
+                    let raw = ph.raw
+                    let rawIsHit = ph.rawIsHit
+                    let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle since the rhythm origin (localT = cy·cycleLen + raw) — the MISS ordinal below reads it
                     // LISTEN/WITH/GAPS (§5): "coincide" is checked at THIS exact tick's absolute beat
                     // against the PARTNER's own step pattern (not its sounding riff note — "whether or
                     // not it sounded... riff rests, mutes and the LANES grid don't change it," the
@@ -4703,7 +4720,6 @@ final class Router {
                         return mode == .with ? coincides : !coincides
                     }()
                     let isHit = rawIsHit && passesListenRhythmFilter
-                    let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle within the span (localT = cy·cycleLen + raw) — shared by both the HIT and MISS ordinals below
                     // NOTE VIEW (Paul 2026-10-10 ferry) — two small helpers shared by all 4 push sites below.
                     // `finalPitch` replicates (not reuses — `strikeChord`'s `strikeOne` is a widely-shared
                     // closure, not Euclideous-specific, so threading a side-channel through it would be the
@@ -4753,8 +4769,8 @@ final class Router {
                     // `minGateBeats5ms` convert the ferry's literal 10ms/5ms into beats via the live tempo
                     // (closure-captured from `emitGeneratorRow`'s own new `tempo` parameter).
                     let nextHitGapBeats = isEuclideousRow
-                        ? euclideousNextHitGapBeats(buf: euclidBuf, n: n, dir: dir, sub: sub, spanBeats: spanBeats, fromBeat: mTickBeat, cap: cycleLen * 4,
-                                                     mask: restartMask, loopStepBeats: restartMask != 0 ? lanesSeqStepBeats : 0, loopSteps: restartMask != 0 ? p.euclideousLanesSeqLen : 0)
+                        ? euclideousNextHitGapBeats(buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, cap: cycleLen * 4,
+                                                     grid: restartGrid, legacySpanBeats: ladderSpanBeats)
                         : sub
                     let overlapBeats10ms = 0.010 * (tempo / 60.0)
                     let minGateBeats5ms = 0.005 * (tempo / 60.0)
@@ -4769,6 +4785,10 @@ final class Router {
                     func gateBeatsWithTie(_ g: Double, _ tieExt: Double) -> Double {
                         euclideousPitchGateBeats(gate: g, nextHitGapBeats: nextHitGapBeats, tieExt: tieExt, minGateBeats: minGateBeats5ms)
                     }
+                    // LANES GRID §2.1/§2.2: the lane's MUTE is resolved PER HIT, at the hit's own beat — a hit on the first tick of a new cell takes
+                    // the NEW cell's state (the old once-per-render-window decision took the previous step's). A muted hit still advances the walk
+                    // (the existing "mute but keep walking" rule below), so muting never shifts the melody or the rhythm.
+                    let lanesSeqMuted = !euclideousLaneAudible(beat: mTickBeat, cells16: muteCells, unitBeats: muteUnitBeats)
                     if isHit {
                         // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively
                         // off with zero velocity") — confirmed by testing, not assumed: strikeChord's own
@@ -4842,8 +4862,12 @@ final class Router {
                         // hit number is this" — cycle count × this line's own hit density + the within-cycle hit
                         // rank. Hoisted above the pick switch (was computed only inside .cycle/.random) since
                         // .riff/.arp consume it too.
-                        var hitsUpTo = 0; for s in 0...raw where isHitAt(s) { hitsUpTo += 1 }
-                        let ord = cy * effHits + Int64(hitsUpTo - 1)
+                        // LANES GRID: the per-tick core gives the pre-grid `hitsUpTo` / `ord` (counted from the RHYTHM origin — a plain NOTE-mode
+                        // pick keeps following the rhythm) AND `advOrd`, the riff walk's ordinal, counted from the MELODY origin (§2.5).
+                        let tickInfo = euclideousLaneTick(buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: restartGrid,
+                                                          legacySpanBeats: ladderSpanBeats, locked: riffLock, advanceStep: riffAdvanceStep)
+                        let hitsUpTo = tickInfo.hitsUpTo
+                        let ord = tickInfo.ord
                         // EUCLID MASK (Paul 2026-10-10 ferry) — §2.1: "advances one step per SOUNDING step of
                         // its lane, i.e. after the lane's HIT/MISS invert is applied." `isHit` above is already
                         // POST-invert (ferry C's own `patternMiss` toggle happens before `cycleHits`/`isHitAt`
@@ -4952,9 +4976,7 @@ final class Router {
                         // state required. Both still only ever get EVALUATED at an actual hit (nothing
                         // strikes on a miss unless the separate MISS-side settings fire) — STEP changes
                         // WHICH ordinal value is fed in, not WHEN the walk position gets computed.
-                        let advOrd: Int64 = riffAdvanceStep
-                            ? (locked ? Int64(raw) : localT)
-                            : (locked ? Int64(hitsUpTo - 1) : ord)
+                        let advOrd: Int64 = tickInfo.advOrd
                         // RESET SPAN (Paul 2026-10-08): "the global reset span still applies on top of
                         // both modes" — the Euclid PATTERN's own phase is still re-anchored upstream
                         // (unchanged, computed earlier for `ord`/`hitsUpTo` themselves); the riff WALK's own
@@ -5132,43 +5154,21 @@ final class Router {
                                     default: break
                                     }
                                 }
+                                // TIE (ON REST): the held length comes from the shared core's lookahead (`euclideousRiffTieExtensionBeats`) — each future
+                                // hit is evaluated with its own rhythm / melody origins, so the answer agrees with what the walk will really read there,
+                                // across a restart or a window boundary. The rank at a future hit is read at THAT hit's beat (the looper's snapshot).
                                 func riffTieExtensionBeats() -> Double {
                                     guard riffOnRest == .tie else { return 0 }
-                                    var hitsAhead = 0
-                                    var lastConsumedT = localT
-                                    var t = localT
-                                    var stepsScanned = 0
-                                    let stepScanCap = cycleLen * 4
-                                    while hitsAhead < riffLength && stepsScanned < stepScanCap {
-                                        t += 1; stepsScanned += 1
-                                        let fRaw = Int(((t % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
-                                        guard isHitAt(fRaw) else { continue }
-                                        var fHitsUpTo = 0; for s in 0...fRaw where isHitAt(s) { fHitsUpTo += 1 }
-                                        if locked && (riffAdvanceStep ? fRaw == 0 : fHitsUpTo == 1) { break }
-                                        hitsAhead += 1
-                                        let fCy = (t - Int64(fRaw)) / Int64(cycleLen)
-                                        let fOrd: Int64 = riffAdvanceStep
-                                            ? (locked ? Int64(fRaw) : t)
-                                            : (locked ? Int64(fHitsUpTo - 1) : (fCy * effHits + Int64(fHitsUpTo - 1)))
-                                        let fStepIdx = riffStepAt(riffDir, raw: Int(fOrd) * riffStride, steps: riffLength, seed: seed)
-                                        let fRotIdx = riffRotateStep(fStepIdx, by: riffRotate, steps: riffLength)
-                                        // §6.6: "keeps the triggering hit's snapshot and reads the effective
-                                        // ranks from it at each future hit's own beat" — `p.euclideousLooper*`
-                                        // is already this render's own frozen snapshot (no second read, no
-                                        // re-arming mid-scan); only the BEAT advances per scanned step, since
-                                        // a loop's rank on one column can genuinely vary over time (a static
-                                        // `ranks` array, as this used before loop content existed, couldn't).
-                                        // "Edits made after the trigger are invisible to it" falls out for
-                                        // free — this scan never re-reads anything newer than `p` itself.
-                                        let fBeat = mTickBeat + Double(t - localT) * sub
-                                        let fRank = euclideousLooperEffectiveRank(column: fRotIdx, beat: fBeat, liveGrid: euclideousLiveGridRanksForHit,
-                                                                                   active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
-                                                                                   passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
-                                                                                   events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
-                                        guard fRank < 1 else { break }
-                                        lastConsumedT = t
-                                    }
-                                    return Double(lastConsumedT - localT) * sub
+                                    return euclideousRiffTieExtensionBeats(
+                                        buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: restartGrid,
+                                        legacySpanBeats: ladderSpanBeats, locked: locked, advanceStep: riffAdvanceStep,
+                                        riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed,
+                                        rankAt: { column, beat in
+                                            euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
+                                                                           active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
+                                                                           passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
+                                                                           events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
+                                        })
                                 }
                                 if rank < 1 {
                                     // REST: three outcomes per the ferry's own "When a hit sounds" §1.
@@ -5631,44 +5631,11 @@ final class Router {
                             // practice.
                             func riffTieExtensionBeats() -> Double {
                                 guard riffOnRest == .tie else { return 0 }
-                                var hitsAhead = 0
-                                var lastConsumedT = localT
-                                var t = localT
-                                var stepsScanned = 0
-                                let stepScanCap = cycleLen * 4
-                                // LENGTH (§3.2): scanning `riffLength` future hits (not the shared pattern's
-                                // own, possibly larger, `riffN`) is sufficient — the lane's own walk only
-                                // ever cycles through `riffLength` distinct positions, so this many hits
-                                // already covers at least one full lap of its own reachable rank sequence.
-                                while hitsAhead < riffLength && stepsScanned < stepScanCap {
-                                    t += 1; stepsScanned += 1
-                                    let fRaw = Int(((t % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
-                                    guard isHitAt(fRaw) else { continue }
-                                    var fHitsUpTo = 0; for s in 0...fRaw where isHitAt(s) { fHitsUpTo += 1 }
-                                    // ADVANCE (§3.5): the LOCK cycle-reset test mirrors the live walk's own
-                                    // `cycleReset` condition exactly (raw==0 for STEP, hitsUpTo==1 for HIT) —
-                                    // both are only ever evaluated at a genuine hit (same as the live path,
-                                    // which only ever calls the walk functions when a hit actually occurs),
-                                    // so this stays self-consistent with how LOCK actually resets live.
-                                    if locked && (riffAdvanceStep ? fRaw == 0 : fHitsUpTo == 1) { break }   // a locked lane's own cycle restart always breaks the chain
-                                    hitsAhead += 1
-                                    let fCy = (t - Int64(fRaw)) / Int64(cycleLen)
-                                    // ADVANCE: STEP's lookahead ordinal is step-based (fRaw/t), matching the
-                                    // live path's own `advOrd` formula exactly — must stay in lockstep, or
-                                    // TIE would silently disagree with what the live walk actually does
-                                    // under ADVANCE=STEP (the exact RATCHET/DEST class of bug this codebase's
-                                    // history warns against).
-                                    let fOrd: Int64 = riffAdvanceStep
-                                        ? (locked ? Int64(fRaw) : t)
-                                        : (locked ? Int64(fHitsUpTo - 1) : (fCy * effHits + Int64(fHitsUpTo - 1)))
-                                    // STRIDE/LENGTH mirror the live walk's own formula exactly.
-                                    let fStepIdx = riffStepAt(riffDir, raw: Int(fOrd) * riffStride, steps: riffLength, seed: seed)
-                                    let fRotIdx = riffRotateStep(fStepIdx, by: riffRotate, steps: riffLength)
-                                    let fRank = fRotIdx < ranks.count ? ranks[fRotIdx] : 0
-                                    guard fRank < 1 else { break }   // a real note breaks the chain
-                                    lastConsumedT = t
-                                }
-                                return Double(lastConsumedT - localT) * sub
+                                return euclideousRiffTieExtensionBeats(
+                                    buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: restartGrid,
+                                    legacySpanBeats: ladderSpanBeats, locked: locked, advanceStep: riffAdvanceStep,
+                                    riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed,
+                                    rankAt: { column, _ in column < ranks.count ? ranks[column] : 0 })
                             }
 
                             // ON REST (Paul 2026-10-09 ferry): a rank of 0 is a rest, in both the shared
@@ -6108,46 +6075,60 @@ final class Router {
                     euclideousLineWasEnabled[i] = isEnabled
                 }
             }
-            // STEP CLOCKS (2026-10-14 ferry §4: "the step clock always runs") — computed unconditionally,
-            // same as every other per-render `cyc`-derived quantity in this function; only consumed where
-            // `isEuclideousRow`. `fBeatPos` (this render window's own start beat) is the right granularity
-            // for a once-per-window check, matching the existing `euclideousLineWasEnabled` sweep's own.
-            let lanesSeqStepBeats = p.euclideousLanesSeqRate.barsFraction * beatsPerBar
-            let currentLanesStep = euclideousSeqStepIndex(beat: fBeatPos, stepBeats: lanesSeqStepBeats, len: p.euclideousLanesSeqLen)
-            let lanesSeqCells = p.euclideousLanesSeqCells
-            // UI POLL (§4/§6, this entry's own doc comment above) — written here, once per render window,
-            // regardless of `isEuclideousRow`-gating elsewhere: harmless for a non-Euclideous cell (these
-            // same defaulted SnapParams fields just resolve to step 0 / riff 0 there, never read by any UI).
+            // UI POLL (§4/§6) — written here, once per render window, regardless of `isEuclideousRow`-gating elsewhere: harmless for a
+            // non-Euclideous cell (these same defaulted SnapParams fields just resolve to riff 0 there, never read by any UI). The LANES
+            // sequencer's single step index is gone with the sequencer (2026-10-18): `euclideousLanesSeqStepLive` stays -1.
             if isEuclideousRow {
-                euclideousLanesSeqStepLive = currentLanesStep
                 let riffsSeqStepBeats = p.euclideousRiffsSeqRate.barsFraction * beatsPerBar
                 let currentRiffsStep = euclideousSeqStepIndex(beat: fBeatPos, stepBeats: riffsSeqStepBeats, len: p.euclideousRiffsSeqLen)
                 euclideousRiffsSeqStepLive = currentRiffsStep
                 euclideousPlayingRiffIndexLive = p.euclideousRiffsSeqOn ? p.euclideousRiffsSeqCells[currentRiffsStep] : p.activeRiff
             }
-            // LANES SEQUENCER MUTE EDGE-DETECT (ferry §5: "when a lane switches off at a step boundary, send
-            // note-offs for its sounding notes at that boundary") — same per-lane legato walk-and-close as the
-            // sweep above, keyed on a DIFFERENT axis: "is this lane audible THIS STEP" (PLAY/STOP AND, only
-            // when the LANES sequencer is ON, this step's own lit/unlit cell) rather than PLAY/STOP alone.
-            // Runs AFTER the PLAY/STOP sweep above (order matters only for correctness-by-construction, not
-            // by accident: if PLAY/STOP already closed this lane's tracked voices this same render,
-            // `euclideousLegatoCount[i]` is already 0 here, so this loop is simply a 0-iteration no-op — no
-            // double-close risk from the two sweeps overlapping).
+            // LANES GRID MUTE EDGE-DETECT (ferry §2.2: "held notes close at the boundary, but the boundaries are now each lane's OWN cell
+            // boundaries, not one global step boundary") — the same per-lane legato walk-and-close as the PLAY/STOP sweep above, keyed on
+            // "is this lane audible": enabled AND its own mute cell at that beat is set. A lane that went quiet exactly at (or before) this
+            // window closes at the window start; one whose next cell boundary falls INSIDE the window closes at that boundary's sample.
+            // Runs AFTER the PLAY/STOP sweep (if that already closed this lane's tracked voices this render, `euclideousLegatoCount[i]` is 0
+            // and this is a no-op — no double-close).
             if isEuclideousRow {
+                let windowEndBeat = fBeatPos + windowBeats
                 for i in 0..<4 {
                     let enabled = i < p.euclidLines.count ? p.euclidLines[i].enabledResolved : true
-                    let lit = !p.euclideousLanesSeqOn || lanesSeqCells[currentLanesStep * 4 + i]
-                    let isAudible = enabled && lit
-                    if euclideousLaneWasAudibleThisStep[i] && !isAudible {
+                    var closeAt: Int64? = nil
+                    var audibleAtEnd = false
+                    if enabled {
+                        var cells: UInt16 = 0xFFFF
+                        var unit = 0.0
+                        if i < p.euclidLines.count {
+                            let geo = euclideousLaneStepGeometry(lines: p.euclidLines, lane: i, defaultRateBeats: p.euclidRateBeats)
+                            let g = euclideousLaneGridResolved(line: p.euclidLines[i], lane: i, legacyOn: p.euclideousLanesSeqOn,
+                                                               legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
+                                                               legacyCells: p.euclideousLanesSeqCells, stepBeats: geo.sub,
+                                                               passBeats: Double(geo.cycleLen) * geo.sub, beatsPerBar: beatsPerBar)
+                            cells = g.muteCells
+                            unit = g.muteUnit.beats(stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub)
+                        }
+                        let audibleAtStart = euclideousLaneAudible(beat: fBeatPos, cells16: cells, unitBeats: unit)
+                        if euclideousLaneWasAudibleThisStep[i] && !audibleAtStart {
+                            closeAt = windowStart
+                        } else if audibleAtStart,
+                                  let b = euclideousLaneMuteStart(fromBeat: fBeatPos, toBeat: windowEndBeat, cells16: cells, unitBeats: unit) {
+                            closeAt = windowStart + Int64(max(0, (b - fBeatPos) / beatsPerSample))
+                        }
+                        audibleAtEnd = euclideousLaneAudible(beat: windowEndBeat - 1e-9, cells16: cells, unitBeats: unit)
+                    } else if euclideousLaneWasAudibleThisStep[i] {
+                        closeAt = windowStart
+                    }
+                    if let closeSample = closeAt {
                         let base = i * 9
                         for k in 0..<euclideousLegatoCount[i] {
                             let ownSlot = Int(euclideousLegatoOwnSlot[base + k]), allSlot = Int(euclideousLegatoAllSlot[base + k])
-                            if ownSlot >= 0 && ownSlot < voices.count && voices[ownSlot].active { closeVoice(ownSlot, atSample: windowStart, out: out) }
-                            if allSlot >= 0 && allSlot < voices.count && voices[allSlot].active { closeVoice(allSlot, atSample: windowStart, out: out) }
+                            if ownSlot >= 0 && ownSlot < voices.count && voices[ownSlot].active { closeVoice(ownSlot, atSample: closeSample, out: out) }
+                            if allSlot >= 0 && allSlot < voices.count && voices[allSlot].active { closeVoice(allSlot, atSample: closeSample, out: out) }
                         }
                         euclideousLegatoCount[i] = 0
                     }
-                    euclideousLaneWasAudibleThisStep[i] = isAudible
+                    euclideousLaneWasAudibleThisStep[i] = enabled && audibleAtEnd
                 }
             }
             // LISTEN (ferry 2026-10-14 §9): "a partner is processed before any lane that listens to it" —
@@ -6170,14 +6151,6 @@ final class Router {
                 // reading `GridUI.swift`'s `-3...3` control before deciding this) — the tighter range is applied
                 // right here instead, gated on the SAME `isEuclideousRow` this per-row loop already computed.
                 let euclideousOct = isEuclideousRow ? max(-2, min(2, L.octaveResolved)) : L.octaveResolved
-                // LANES SEQUENCER MUTE (2026-10-14 ferry §5): "a lane sounds only when its PLAY is on and
-                // its cell for the current step is lit... LANES OFF: lanes follow PLAY only." Computed once
-                // per lane here (the SAME `currentLanesStep`/`lanesSeqCells` the edge-detect sweep above
-                // just used — can't drift apart) and threaded into `runEuclidLine` as a plain mute flag; the
-                // walk/riff-cursor advance it gates is INSIDE that function, after everything else has
-                // already run, per the ferry's own "keeps running silently" rule — see the widened `xf.muted`
-                // check there.
-                let lanesSeqMuted = isEuclideousRow && p.euclideousLanesSeqOn && !lanesSeqCells[currentLanesStep * 4 + lineIndex]
                 runEuclidLine(lineIndex: lineIndex, pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: euclideousOct, velocity: L.velocityResolved,
                               velocityAbsolute: L.velocityAbsoluteResolved,
@@ -6231,7 +6204,6 @@ final class Router {
                               // closure built inside runEuclidLine bounds-checks the raw optional directly,
                               // mirroring customHits' own identical raw-passthrough just above.
                               notesOn: L.notesOnResolved, noteOctShifts: L.noteOctShifts, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
-                              restartMask: isEuclideousRow ? L.restartMaskResolved : 0, lanesSeqMuted: lanesSeqMuted,
                               // LISTEN (ferry 2026-10-14) — only Euclideous's own row ever has a non-nil
                               // mode here (every other `.euclid` cell's `EuclidLine` never sets these
                               // fields, so they resolve to the byte-identical "off" defaults below).

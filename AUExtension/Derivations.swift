@@ -5566,7 +5566,8 @@ struct EuclideousLaneTickInfo: Equatable {
     var rawIsHit: Bool
     var cy: Int64
     var hitsUpTo: Int
-    var advOrd: Int64
+    var ord: Int64          // hits since the RHYTHM origin (the pre-grid `ord`) — what a plain NOTE-mode pick (CYCLE / RANDOM) walks
+    var advOrd: Int64       // the ordinal fed to the riff walk (counted from the MELODY origin)
 }
 /// The per-tick core. `tick` is the lane's absolute tick (a tick sits at beat `tick × sub`); `cycleLen` is `euclidCycleLen(dir, n)`.
 /// Without a grid mark this is exactly the pre-grid arithmetic: `ord`/`advOrd` from the single (span) origin. With one, the rhythm
@@ -5588,9 +5589,9 @@ func euclideousLaneTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub:
     s = 0
     while s < cycleLen { if buf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }; s += 1 }
     let advOrd: Int64
+    let ord = cy * Int64(max(1, cycleHits)) + Int64(hitsUpTo - 1)
     if !ph.gridOn || ph.cellM == ph.cellO {
         // one shared origin (no marks, or both origins on the same cell): exactly the pre-grid single-restart arithmetic
-        let ord = cy * Int64(max(1, cycleHits)) + Int64(hitsUpTo - 1)
         advOrd = advanceStep ? (locked ? Int64(ph.raw) : ph.localT) : (locked ? Int64(hitsUpTo - 1) : ord)
     } else {
         let u = Int64(grid.unitTicks)
@@ -5612,7 +5613,7 @@ func euclideousLaneTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub:
             }
         }
     }
-    return EuclideousLaneTickInfo(localT: ph.localT, raw: ph.raw, rawIsHit: ph.rawIsHit, cy: cy, hitsUpTo: hitsUpTo, advOrd: advOrd)
+    return EuclideousLaneTickInfo(localT: ph.localT, raw: ph.raw, rawIsHit: ph.rawIsHit, cy: cy, hitsUpTo: hitsUpTo, ord: ord, advOrd: advOrd)
 }
 
 /// The beat gap from `tick` (exclusive) to the lane's NEXT real pattern hit — the same core, so a restart (either kind of mark falls
@@ -5656,4 +5657,21 @@ func euclideousRiffTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleL
         lastConsumed = j
     }
     return Double(lastConsumed) * sub
+}
+
+/// A Euclideous lane's step length, step count and lap length exactly as `Router.runEuclidLine` derives them — a FOLLOWing lane ticks at
+/// its partner's rate × the FOLLOW multiplier over the partner's step count. Reads fields only (no pattern is built), so the render
+/// thread's mute edge-detect sweep can use it before any lane runs. `defaultRateBeats` stands in for a lane with no rate of its own.
+func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats: Double) -> (sub: Double, n: Int, cycleLen: Int) {
+    guard lane >= 0, lane < lines.count else { return (defaultRateBeats, 8, 8) }
+    let L = lines[lane]
+    let n: Int, sub: Double
+    if let partner = euclideousFollowPartner(lane: lane, lines: lines) {
+        n = max(2, min(16, lines[partner].steps))
+        sub = (lines[partner].rate?.beats ?? defaultRateBeats) * L.listenFollowRatioResolved
+    } else {
+        n = max(2, min(16, L.steps))
+        sub = L.rate?.beats ?? defaultRateBeats
+    }
+    return (sub, n, euclidCycleLen(L.directionResolved, n: n))
 }
