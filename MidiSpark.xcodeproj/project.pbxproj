@@ -38,6 +38,7 @@
 		5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D181AD808BD18E8D2F085F /* FuzzTests.swift */; };
 		5B182C150ACB6B3B81425BB0 /* SceneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D364D224C3D245B4D5AE548 /* SceneFactory.swift */; };
 		5C648CAB6448DD80453069B0 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
+		5CD10BE7CE98FDD633F57ACB /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
 		60B13494D15905651204BE24 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		61FD41E8AAFF6443AFC70C85 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDCE8A830228B93BE51322A /* SnapshotStore.swift */; };
 		676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688828AD8E02A3FA163D3656 /* RouterTests.swift */; };
@@ -550,6 +551,7 @@
 				D2A032B560DA0D402529CB97 /* DiceTests.swift in Sources */,
 				D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */,
 				11389DE07A052AF31C5B1535 /* Emission.swift in Sources */,
+				5CD10BE7CE98FDD633F57ACB /* EuclideousPresets.swift in Sources */,
 				5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */,
 				E21AD093B1D437E674242AD2 /* MacroAuthoring.swift in Sources */,
 				D561647D508BA5A188B6D44B /* MacroAuthoringTests.swift in Sources */,

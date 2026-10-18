@@ -12092,4 +12092,67 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(cc123Chans, Set([4, 5, 6, 7]), "CC123 on all 4 outputs' current channels (5,6,7,8 → wire 4,5,6,7)")
         XCTAssertGreaterThanOrEqual(e.ons.filter { $0.cable == 1 }.count, 2, "the lane keeps playing after the flush")
     }
+
+    // MARK: - MIX TAB (ferry 2026-10-18) — the 20 factory presets must sound EXACTLY as before the per-pitch-gate engine change.
+
+    /// Renders one factory preset the way the page does (its lanes + riff on a Euclideous-row machine, its page-level note source /
+    /// key / chords from the preset document) over `bars` bars and returns an FNV-1a hash of the entire note wire stream
+    /// (sample, cable, status, channel, note, velocity) plus the note-on count.
+    private func mixPresetStreamHash(_ s0: PluginState, bars: Double = 8) -> (hash: UInt64, ons: Int, events: Int) {
+        var s = s0
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = s.euclideousLinesResolved
+        c.paramsA.euclideousRiff = s.euclideousRiffResolved
+        c.paramsA.riffs = s.riffsResolved
+        c.paramsA.activeRiff = s.activeRiffResolved
+        c.paramsA.euclideousLiveGrid = s.euclideousLiveGridResolved
+        s.machines = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
+        s.scenes = [{ var sc = SceneState.empty()
+            var cell = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); cell.inputReceiver = 3
+            sc.cells[0][Snap.euclideousRow] = cell
+            return sc }()]
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: s), chord([48, 50, 52, 53, 55, 57, 59, 60]), beats: bars * 4, into: e, forceColumn: 0)
+        var h: UInt64 = 0xcbf29ce484222325
+        func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
+            mix(UInt64(bitPattern: ev.sample)); mix(UInt64(ev.cable)); mix(UInt64(ev.status)); mix(UInt64(ev.chan)); mix(UInt64(ev.note)); mix(UInt64(ev.vel))
+        }
+        return (h, e.ons.count, e.events.count)
+    }
+    /// GOLDEN — captured on the engine BEFORE the MIX ferry's per-pitch-gate change (origin/main 16c634c): preset name → (stream hash,
+    /// note-on count) over 8 bars. With `notesGate`/`notesVelocity` unset every layer resolves to GATE / VEL + offset, so every
+    /// preset must render the identical note-ons, note-offs and velocities (ferry §9.8).
+    private let mixPresetGolden: [String: (UInt64, Int)] = [
+        "STRIDE WALK": (15158537513244454245, 600),
+        "MIRROR WALK": (14602258971500086829, 784),
+        "PENDULUM": (16553319164548356549, 528),
+        "PING-PONG LEAD": (1749720456999276605, 800),
+        "DRUNKEN WALK": (6298240852141731197, 592),
+        "RANDOM GARDEN": (2134285747163594173, 920),
+        "OCTAVE COLUMN": (374866415379030501, 1312),
+        "KOTEKAN": (4950508307049700157, 1032),
+        "FIVE AGAINST EIGHT": (14264613458961964333, 640),
+        "MIRRORED PITCH": (13040720679594914645, 464),
+        "FIFTH ABOVE": (1304043531156515901, 656),
+        "HELD BREATH": (7294625709145352757, 56),
+        "STUTTER FILL": (7961789708151856301, 1816),
+        "CALL AND HOLD": (15395334754731690733, 432),
+        "LONG TAIL": (9801365217848589509, 168),
+        "GAPPED GROOVE": (6558745496196285037, 520),
+        "EARLY BLOOM": (8167914719946807021, 280),
+        "SCALE WALK": (57570067221704893, 656),
+        "ARPEGGIO LADDER": (4270012540596340973, 2064),
+        "BACKWARDS GLANCE": (645646754865243525, 648)
+    ]
+    func testEveryFactoryPresetRendersTheSameNoteStreamAsBeforeThePerPitchGateEngine() {
+        XCTAssertEqual(EuclideousPresets.all.count, 20)
+        for (name, make) in EuclideousPresets.all {
+            guard let want = mixPresetGolden[name] else { XCTFail("no golden for \(name)"); continue }
+            let got = mixPresetStreamHash(make())
+            XCTAssertEqual(got.ons, want.1, "\(name): note-on count")
+            XCTAssertEqual(got.hash, want.0, "\(name): the note-on/off/velocity stream over 8 bars must be bit-identical to before this change")
+        }
+    }
+
 }

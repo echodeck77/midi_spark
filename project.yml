@@ -91,6 +91,7 @@ targets:
       - path: AUExtension/Router.swift      # the render engine — now Foundation-only, unit-testable
       - path: AUExtension/PresetStore.swift  # PRESETS v1 — name sanitize + document round-trip (pure surface)
       - path: AUExtension/Dice.swift         # THE DICE — chain generation + offline (Router-based) evaluation
+      - path: AUExtension/EuclideousPresets.swift   # the 20 factory presets (Foundation-only) — the MIX ferry's preset-stream regression test renders them
       - path: AUExtension/BuildSelfTest.swift # in-app MIDI-output self-tests — validated off-device by the meta-test
       - path: AUExtension/BuildSceneLogic.swift # pure BUILD scene composition + staging reconcile — unit-tested
       - path: AUExtension/BuildModel.swift    # BuildPart + BuildUnassignedData — the persisted workshop types
