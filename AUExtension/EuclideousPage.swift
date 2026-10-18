@@ -4252,25 +4252,21 @@ struct EuclideousPage: View {
     /// (the lane's settings and its neighbours', the riff and looper, the unit, the window, the bar, the tempo) or the window wraps — never per frame.
     private func lanesPanelLanes(beat: Double) -> [EuclideousLanesPanelLane] {
         let restart = lanesSubTab == .restart
-        let liveRanks = liveGrid.ranksResolved
-        let looperActive = looperMode == .recording || looperMode == .replaying
+        let ranks = effectiveGridRanks   // the riff that is playing — the SAME read the footer and the grid use
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
         return (0..<4).map { lane in
             let v = euclideousLaneGridView(lines: lines, lane: lane, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
             let unit = restart ? v.restartUnitBeats : v.muteUnitBeats
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
-            let key = EuclideousLanesRollCache.Key(lines: lines, lanesSeq: lanesSeq, liveRanks: liveRanks, looperActive: looperActive,
-                                                    looperStartBeat: looperStartBeat, looperStartRanks: looperStartRanks, looperEventCount: looperEvents.count,
-                                                    looperPasses: looperPasses.passes, windowStart: win.start, unit: unit, restartTab: restart,
-                                                    beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
+            let key = EuclideousLanesRollCache.Key(lines: lines, lanesSeq: lanesSeq, ranks: ranks, windowStart: win.start, unit: unit, restartTab: restart,
+                                                    beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, swing: clock.swing)
             let roll = lanesRollCache.roll(lane: lane, key: key) {
                 guard let cfg = euclideousWalkLaneConfig(lane: lane, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
                                                           lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells,
                                                           swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar,
                                                           tempo: clock.tempo) else { return [] }
-                return euclideousLaneRollHits(cfg: cfg, windowStart: win.start, windowBeats: win.length, minGateBeats: 0.005 * clock.tempo / 60.0) { column, b in
-                    euclideousLooperEffectiveRank(column: column, beat: b, liveGrid: liveRanks, active: looperActive, startBeat: looperStartBeat,
-                                                   passes: looperPasses.passes, startRanks: looperStartRanks, events: looperEvents, beatsPerBar: clock.beatsPerBar)
+                return euclideousLaneRollHits(cfg: cfg, windowStart: win.start, windowBeats: win.length, minGateBeats: 0.005 * clock.tempo / 60.0) { column, _ in
+                    column >= 0 && column < ranks.count ? ranks[column] : 0
                 }
             }
             var rhythmMarks: [Double] = [], melodyMarks: [Double] = []
@@ -4681,17 +4677,13 @@ final class EuclideousLanesRollCache {
     struct Key: Equatable {
         var lines: [EuclidLine]
         var lanesSeq: EuclideousLanesSeq
-        var liveRanks: [Int]
-        var looperActive: Bool
-        var looperStartBeat: Double
-        var looperStartRanks: [Int]
-        var looperEventCount: Int
-        var looperPasses: Int
+        var ranks: [Int]
         var windowStart: Double
         var unit: Double
         var restartTab: Bool
         var beatsPerBar: Double
         var tempo: Double
+        var swing: Double
     }
     private var store: [Int: (key: Key, roll: [EuclideousRollHit])] = [:]
     func roll(lane: Int, key: Key, make: () -> [EuclideousRollHit]) -> [EuclideousRollHit] {
