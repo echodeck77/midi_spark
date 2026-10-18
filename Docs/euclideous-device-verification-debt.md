@@ -17,6 +17,20 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### FX tab (2026-10-18 ferry — six fixed effect rows on the riff's steps)
+- 29pt rows and 24pt strip controls are comfortable to tap, paint and drag inside AUM.
+- The 8pt axis lock separates painting from value drags reliably, and the step sizes (RATCH 18, GATE 5, VEL 2, NOTE 14, CC 2 pt/step) feel right.
+- The 320 ms double-tap window doesn't misfire on quick taps (it runs lift → touch-down), and a double-tap undoes as ONE step.
+- FX columns sit under the riff grid's columns in landscape (portrait has no FX tab: its panel sits beside the grid and is 248pt tall).
+- RATCH, GATE 100 and TIE sound as described at fast and slow lane rates (incl. RATCH after a GATE-100 hit, a TIE after a ratchet, TIE as the first hit after a start).
+- NOTE passes on a FREE 3-hit lane and on a LOCK lane sound as the strip's preview says (C4 › E♭4 › G4 › C5 with a C minor triad), and a melody restart sends them back.
+- CCs arrive at their notes' sample, ahead of the note-ons, on the right channel, on a hardware synth and in AUM's MIDI monitor (and FOURFOLD ALL's cable 0).
+- The firing flash keeps up at fast rates and reads in all four lane colours (TIE cells never flash; two hits in one poll flash only the later).
+- The four strip descriptions and the hint row fit at the smallest supported width; the NOTE preview truncates by design and still reads when cut.
+- RATCH ticks (2.5 × 12, 4pt gaps), the GATE/VEL/CC bar, the tie arc and the bubble with its notch read at real size; a rest column and a lane-less row dim to 42%.
+- The legato re-strike now closes at the hit's own sample: a lane at 80% with GATE 100 on one hit, then a different pitch, then the same pitch, never overlaps a pitch with itself.
+- VoiceOver reads the rails, cells, lane buttons and steppers as §14 says (the tab is read "FX").
+
 ### MIX tab (2026-10-18 ferry — gate, velocity and octave for every layer)
 - NOTES layer on/off follows the selection: a fresh lane's NOTES strip is grey, its card dot is hollow and its MIX notes pad/stepper are grey;
   select one key (or TOP / TOP 2) and all three come on together; de-select the last one and all three go grey again. With the switch itself

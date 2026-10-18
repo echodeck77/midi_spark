@@ -5,6 +5,28 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — "FX tab (six fixed effect rows on the riff's steps)" — SHIPPED (2026-10-18; LANDED on `feature/fx-tab`, macOS 1693 green, iOS builds clean)
+— a third tab FX after MIX and LANES: RATCH · GATE · TIE · VEL · NOTE · CC over the riff's eight columns, per-row lane sets, one decision function
+(`euclideousFXApply`) that the Router, the TIE lookahead, the LANES roll, the flash and VoiceOver all call. Every cell starts empty, so old sessions and
+all 20 presets sound as before. LANDSCAPE ONLY. Full story in `Docs/euclideous-status-log.md`.
+- [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "FX tab" section (touch feel, axis lock, double-tap window, column alignment, RATCH / GATE 100
+      / TIE / NOTE / CC by ear and on a MIDI monitor, flash, strip text fit, VoiceOver).
+- [ ] DECIDE (Paul): PORTRAIT FX is NOT built — the spec's own stop condition: the portrait sequencer panel sits BESIDE the riff grid (so its columns can't
+      line up under it) and is 248pt tall (< 273). The tab is hidden there. Give portrait a stacked layout + more height, or accept landscape-only?
+- [ ] DECIDE (Paul): today's legato reconcile closed a held pitch that the NEXT hit re-struck at hit+10 ms — after the new note-on in stream order. I changed it
+      to close at the hit's own sample (spec §4.2). Reachable today only with mixed per-layer gates or a gate edit mid-play; the 20-preset golden is unmoved. OK?
+- [ ] DECIDE (Paul): FX GATE sets the effective gate of EVERY pitch in the hit (riff, lit notes, CHORD extras), and FX VEL sets the riff note to v and each lit
+      note to v + (NOTES VEL − VEL) — the spec speaks of one lane GATE/VELOCITY, while the MIX ferry gave each layer its own. This is my reading; say if the lit
+      notes should keep their own gate / ignore VEL.
+- [ ] DECIDE (Paul): `drainEchoTails` could drop a deferred strike that landed exactly on a render-window boundary (the mask RATCHET and ECHO share it). Fixed by
+      making the windows tile exactly — shared engine code, so it also changes 8×8 State's ECHO in that rare case (only ever to play a strike that was dropped).
+- [ ] (accepted) the beat-width cap on RATCH uses the SCENE GRID's `cyc` (stepRate × columns), not the lane or the host bar — it only lowers n at slow grid rates.
+- [ ] (accepted) `sampleOf` truncates, so an event exactly on a sample boundary can land one sample either side depending on its window (pre-existing, engine-wide).
+- [ ] (accepted) an FX edit made between a TIE's triggering hit and the tied hit is invisible to the lookahead (spec §5.6): one extra strike or gap at that moment.
+- [ ] (accepted) the flash draws only the later of two hits in one poll (`strikeEvents` keeps the latest per lane); TIE cells and BASE sends never flash.
+- [ ] (small) RATCH ticks use a 4pt GAP between 2.5pt ticks ("4 apart" read as a gap), "RIFF" is right-aligned over the note-label column, and the double-tap
+      window runs lift → touch-down. Say if any should differ.
+
 ## ★ EUCLIDEOUS — "LANES panel rebuilt as a per-lane mute grid with a live roll, plus separate rhythm and melody restart rows" — SHIPPED
 (2026-10-18; LANDED on `feature/lanes-grid`, macOS green, iOS builds clean) — the LANES tab is four lane blocks of 16 cells, each on its own cell
 size, with MUTE and RESTART sub-tabs, a roll of the lane's hits, a playhead per lane, and separate RHYTHM / MELODY restart marks. The old ON /

@@ -12,6 +12,75 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: FX tab (six fixed effect rows on the riff's steps)" (2026-10-18, ratified by Paul; on `feature/fx-tab`; iOS builds
+  clean; macOS suite 1693 green; ALL visuals, touch feel and every sound check are device-owed).**
+  A third tab, FX, after MIX and LANES in the bottom-right panel (LANDSCAPE ONLY — see the portrait stop below). Six fixed, page-level rows —
+  RATCH · GATE · TIE · VEL · NOTE · CC — over the riff's eight columns. A cell holds a value or nothing; each row has a lane set (default all four)
+  and acts only on those lanes, only on a hit that PLAYS THE RIFF, only through the riff column that hit reads, and never on a written rest.
+  Values: RATCH 2/3/4 · GATE 5–100 in 5s (100 = legato) · TIE (on) · VEL 1–127 · NOTE ±1…±3 (never 0) · CC 0–127. Settings: NOTE PASSES 2–8
+  (default 4), CC controller 0–119 (default 74), CC BASE none or 0–127. Every cell starts empty, so every old session and all 20 factory presets
+  sound exactly as before (the preset note-for-note golden, the LANES migration golden and a pre-feature-document decode test all pass).
+  **MODEL.** `EuclideousFX` (Models.swift; `lanes[6]`, `cells[48]` with `Int8.min` = empty, `notePasses`, `ccNumber`, `ccBase`), ONE additive-Optional
+  document field `PluginState.euclideousFX` + `euclideousFXResolved`, a hand-written clamping Codable (a stray 300 can never fail a session load),
+  `SnapParams.euclideousFX` (fixed-size arrays — nothing allocates on the render path), `EuclideousUndoSnapshot.fx`, and the same travel as the LANES
+  sequencer (AU getter → VC @State/refresh/slow-timer resync → page edit closure `onEditFX` → `SnapshotBuilder`'s Euclideous-row block → Router).
+  Deliberate deviation from "mirror the riff": FX is page-level, so no `MachineParams` hop.
+  **ONE DECISION FUNCTION (spec §2.3).** `euclideousFXApply(fx, lane, playsRiff, column, writtenRank, pass)` (Derivations.swift) returns TIE / RATCH
+  count / GATE / VEL / NOTE step+offset / CC value (or BASE) and an `appliedRows` mask. The Router (per hit), the TIE lookahead (per future hit), the
+  LANES roll, the FX tab's firing flash and VoiceOver all call it — nobody re-derives it. TIE wins outright (nothing else applies, not even a CC).
+  **NOTE'S PASS INDEX** (`euclideousFXPassIndex`): a pure function of the beat, never accumulated. FREE: `floor(advOrd / P)`; LOCK: the number of lap
+  starts after the melody origin, in CLOSED FORM over the 16-cell rhythm-segment window (10,000 laps cost the same as one; property-tested against a
+  tick-by-tick simulator over random mark sets, including the negative first window); `P = D / gcd(D, STRIDE)` with D = LENGTH (FWD/REV), 2·LENGTH−2
+  (PEND), 2·LENGTH (PING) — PEND at LENGTH 8 is 14, PING 16, STRIDE 2 at LENGTH 8 is 4. A melody restart sends p back to 0; muted hits advance it as they
+  advance the walk. The NOTE offset (`s × (p mod PASSES)`) is added right after INVERT and before TRANSPOSE, and is folded through
+  `riffResolveExtended` (floor-division, both directions): rank 0 is G2 with C3 E♭3 G3 held, never a rest.
+  **ROUTER (`runEuclidLine`).** Order: existing decisions (rhythm, LANES mute, mask) → TIE (`return` before the legato reconcile, exactly a tied rest) →
+  NOTE → pitches resolve → VEL / GATE / RATCH → CC just before any note-on. RATCH is the mask RATCHET's own deferred-strike engine (`pushEchoTail`,
+  decay 1.0, strikes `sub/n` apart, each lasting `(sub/n) × effective gate`), n exact (no roll, no legal-size clamp), lowered only by the beat-width cap
+  (`euclideousRatchetCap`, now one shared formula); a ratcheted hit is never legato and closes held notes; the LAST strike carries a following TIE
+  extension. GATE sets the effective gate of every pitch in the hit; 100 = legato by the existing `reconcileEuclidLegato`. VEL sets the riff note to v
+  and each lit note to `v + (notesVelocity − VEL)` (the NOTES VEL bar's displayed offset), clamped 1–127. CC goes through `emitModCC` (every enabled
+  bus in the hit's own `chopMask & mainOutMask`, cable bus+1 AND cable 0, channel `(busChannels − 1) & 15` — the SAME stamp the notes use) with a new
+  `force:` flag so a repeated value is not deduped away (one message per hit); it checks master mute; once per hit, before the first strike; also on
+  a hit whose pitches all carry on legato.
+  **TIE LOOKAHEAD.** `euclideousRiffTieExtensionBeats` no longer depends on ON REST: it runs when ON REST is TIE OR the lane has a TIE-row bit, and a
+  future hit continues the chain if (rest ∧ ON REST TIE) ∨ (FX TIE applies, decided by the shared function at that hit's beat). It keeps its rule of
+  freezing the triggering hit's snapshot (an FX edit between the trigger and the tied hit is invisible to it).
+  **UI** (`FXPanelPainter.swift`, SwiftUI-only; every number from `euclideousFX*` in Derivations.swift). Layout from the content origin (the strip's
+  top): strip 24 · header 14 (y 28) · six rows 29 tall 4 apart from y 46 (last ends 240) · hint row at y 244, 16 tall; band 4 wider than the content on
+  each side, 2 taller above and below the row. Columns come from `euclideousRiffCellW(maxWidth:)` — the riff grid's OWN function (extracted from
+  `riffCellW`; the page now calls it) — so each FX column's left and right edges equal its riff-grid column's by construction (a test pins it: label
+  30, gap 4, `cellW = (panelW − 78)/8`, column gap 4, last column ending at the content's right edge). A shorter panel gives each row an equal share of
+  the missing height down to 24. Gestures (§12): tap applies at once, double-tap (320 ms, lift→touch-down) writes the row default into the FIRST tap's
+  undo step, 8pt axis lock (vertical if its component is larger, else horizontal; any drag on TIE paints), paint stroke = opposite of the first
+  cell's state, value drags 18/5/2/14/2 pt per step with the bubble, brush = the last dragged value; lane buttons, PASSES/CC/BASE steppers (never wrap,
+  chevron 40% at an end, drag + double-tap on the value). One undo step per tap / double-tap pair / stroke / value drag / lane toggle / stepper tap or
+  drag (`fxEdit` only records a step when something actually changed). The firing flash is computed from the engine's own hit events
+  (`euclideousFXFlashCells`: `EuclideousNoteViewEventSnapshot.column` is the column the hit actually read, still filled; the rows that applied come
+  from the shared function; the flare is `euclideousRingFlare`, the comet bar's own). The LANES roll feed calls the same function (GATE lengths,
+  ties, NOTE contours clamped 1–8 for drawing, ratcheted hits drawn as n strikes) and every FX edit recomputes it (`fx` is in the roll cache key).
+  **FOUND ALONG THE WAY — three existing behaviours, all reported:** (1) `riffResolve` does NOT fold downward (rank ≤ 0 is a rest), so NOTE uses a new
+  `riffResolveExtended`; `riffResolve` itself is untouched. (2) Today's legato reconcile closed a held pitch that the new hit re-struck at hit+10 ms,
+  i.e. AFTER the new note-on in stream order; now it closes at the hit's own sample (spec §4.2; a PROBE test first recorded today's wire; reachable
+  today only with mixed per-layer gates or a gate edit mid-play; the goldens pass). (3) `drainEchoTails` could drop a deferred strike landing exactly
+  on a render-window boundary (a 1-ulp gap between one window's `mEnd` and the next's `mStart`); windows now tile exactly (snap the start to the
+  previous end within a microbeat). That is a PRE-EXISTING hazard in the mask ratchet / ECHO — the FX determinism test (buffer 64/256/1024 + a
+  transport restart) exposed it. Also noted, NOT changed: `sampleOf` truncates, so an event exactly on a sample boundary can land one sample either
+  side depending on the window it is computed in.
+  **STOPPED, per the spec (§10.4): PORTRAIT is NOT built.** In `portraitLayout` the sequencer panel sits BESIDE the riff grid (`halfW` each), not
+  under it, and the shared row is capped at `riffPanelHeight(rowH: 20)` = 248pt, under the 273 the spec asks for. The FX tab is hidden in portrait
+  (`EuclideousSeqTab.visible(fxAvailable:)`), and a page left on FX when it turns portrait shows MIX (the stored selection is untouched).
+  **MEASURED (§18).** Landscape panel ≈ 416.9 × 312.3 at the 1190 × 725.5 reference (the spec says 410 × 303); padding 8, three equal tabs ≈ 131pt
+  each in the 400.9 content (they fit). The FX stack starts under the tab row at the same origin LANES uses (the strip at y ≈ 32 from the panel's top,
+  not 35), so every spec y is applied from that origin; the leftover ≈ 12pt sits below the hint row.
+  **Judgment calls (flagged):** RATCH ticks are drawn with a 4pt GAP between 2.5pt ticks (the spec says "4 apart"); "RIFF" in the header is
+  right-aligned over the note-label column; the double-tap window runs from the first tap's lift to the second tap's touch-down; the flash reads NOTE
+  as applied whenever a NOTE cell applies (it doesn't depend on the pass); two hits in one poll flash only the later (`strikeEvents` keeps the latest
+  per lane); the mask is FORCE-DISABLED on the Euclideous row in production, so the spec's "the mask's X, if applied" clauses are moot there (the order
+  is still honoured for the test seam); the looper and loop slots are gone from main, so those clauses don't apply (the rank read is `riffs[activeRiff]`).
+  Tests: `Tests/FXTabTests.swift` (38) + the FX section of `RouterTests` (wire-level: NOTE/RATCH/GATE/TIE/VEL/CC rows, riff-off lane, determinism at 64 /
+  256 / 1024 + a transport restart, a stress run with restarts, the re-strike probe). Mutation-checked: pass-index LOCK count, TIE `return` placement,
+  CC order, ratchet last-strike tie, the same-sample close, the extended fold.
 - **▶ EUCLIDEOUS — "FERRY: LANES panel rebuilt as a per-lane mute grid with a live roll, plus separate rhythm and melody restart rows"
   (2026-10-18, ratified by Paul; on `feature/lanes-grid`; iOS builds clean; macOS suite green; ALL visuals and touch feel device-owed).**
   The LANES tab is four lane blocks of 16 cells, each lane on its OWN cell size, with two sub-tabs. **MUTE:** tap a cell to mute that

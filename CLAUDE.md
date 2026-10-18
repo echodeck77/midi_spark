@@ -146,9 +146,11 @@ Euclideous has no receiver/door graph, no cables beyond a flat A–D toggle, no 
 - **Mask** (per-lane) = a second K-of-N pattern gating a lane's own hits (mute/pause/ratchet/
   repeat/chord-stab/octave-shift/mirror/leap/climb/accent/swell), distinct from the standalone
   `EUCLID MASK` processor type that exists elsewhere in the 8×8 grid's processor roster.
-- **Sequencer panel** = the MIX / LANES tabs of the bottom-right panel (RIFFS is hidden). LANES is four lane blocks of
+- **Sequencer panel** = the MIX / LANES / FX tabs of the bottom-right panel (RIFFS is hidden; FX is landscape only). LANES is four lane blocks of
   16 cells with MUTE and RESTART sub-tabs: each lane's own MUTE grid, and separate RHYTHM / MELODY restart rows, on the
   lane's own cell size (STEP/4STP/PASS/2PASS to mute, 4STP/PASS/2PASS/4PASS to restart).
+- **FX** = the sequencer panel's third tab: six fixed page-level rows (RATCH, GATE, TIE, VEL, NOTE, CC) over the riff's eight columns, each with its
+  own lane set; a cell holds a value or nothing and acts only on a hit that plays the riff, through the column it reads, never on a written rest.
 - **Emitters A–D** here are a flat per-lane output toggle (`MAIN OUT`), not the full 8×8-State
   bus/cable/channel-stamp model above.
 
@@ -236,6 +238,13 @@ the same pipeline as any other row; it is not a special-cased render path.
   lane's unit, a roll of the lane's hits behind the cells and a playhead per lane — no ON, panel RATE/LEN, RESET boxes
   or ring any more; the grid is always live); RIFFS is hidden. The tab row is tabs only. Every sounding pitch in a
   Euclideous hit carries its OWN gate and legato is per layer.
+- **FX tab (2026-10-18).** Third tab of the sequencer panel (landscape only — portrait's panel sits beside the riff grid and is 248pt tall, so the spec's
+  own stop applies; the tab is hidden there). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
+  `SnapParams.euclideousFX` → Router. **ONE decision function** `euclideousFXApply` (Derivations.swift) decides what the rows do to a hit; the Router, the TIE
+  lookahead, the LANES roll, the flash and VoiceOver all call it — change the rule THERE. The NOTE pass index is `euclideousFXPassIndex` (a pure function of
+  the beat; LOCK in closed form). RATCH reuses the mask RATCHET's deferred-strike engine (`pushEchoTail`) with n exact; CC goes through `emitModCC(force:)`
+  with the notes' own channel stamp. The tab's columns come from `euclideousRiffCellW` — the riff grid's own function — and every UI number is a pure
+  `euclideousFX*` function; `FXPanelPainter.swift` only paints them. A moved NOTE rank folds through `riffResolveExtended` (rank 0 is never a rest).
 - **ONE per-tick core (LANES GRID, 2026-10-18).** `euclideousLaneTick` (Derivations.swift) decides, for a lane tick, the pattern
   phase from the RHYTHM origin and the riff ordinal (`advOrd`) counted from the MELODY origin on the lane's real hit schedule;
   restarts are cell indices on exact integer lane ticks. Mute is `euclideousLaneAudible` at the hit's own beat (per hit, not per
