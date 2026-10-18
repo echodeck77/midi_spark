@@ -202,6 +202,8 @@ struct SnapParams {
     // like `euclideousResetSpanBars` above — inert (all-default) for every other `.euclid` cell in the grid.
     var euclideousRiffs: [EuclideousRiff] = [EuclideousRiff(), EuclideousRiff(), EuclideousRiff(), EuclideousRiff()]
     var activeRiff: Int = 0   // which riff plays when RIFFS seq is off (and which tab the editor shows)
+    // FX TAB (2026-10-18): the page-level FX rows, resolved/clamped by `PluginState.euclideousFXResolved`, gated to `Snap.euclideousRow` — fixed-size flat arrays, only ever READ on the render thread.
+    var euclideousFX: EuclideousFX = EuclideousFX()
     var euclideousLanesSeqOn: Bool = false
     var euclideousLanesSeqRate: EuclideousSeqRate = .oneBar
     var euclideousLanesSeqLen: Int = 8

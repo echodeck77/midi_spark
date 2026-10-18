@@ -220,7 +220,7 @@ struct DiagView: View {
                                 keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords,
                                 noteSource: euclideousNoteSource,
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
-                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq)
+                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -249,6 +249,7 @@ struct DiagView: View {
         euclideousActiveRiff = s.activeRiff
         euclideousLanesSeq = s.lanesSeq
         euclideousRiffsSeq = s.riffsSeq
+        euclideousFX = s.fx
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
             $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType; $0.euclideousChords = s.chords
@@ -258,6 +259,7 @@ struct DiagView: View {
             $0.euclideousLanesSeqLen = s.lanesSeq.len; $0.euclideousLanesSeqCells = s.lanesSeq.cells
             $0.euclideousRiffsSeqOn = s.riffsSeq.on; $0.euclideousRiffsSeqRate = s.riffsSeq.rate
             $0.euclideousRiffsSeqLen = s.riffsSeq.len; $0.euclideousRiffsSeqCells = s.riffsSeq.cells
+            $0.euclideousFX = s.fx
         }
         buildPublishScene()
     }
@@ -300,6 +302,7 @@ struct DiagView: View {
     // pass-through to the real riff rank, the exact "bypassable layer" the investigation before this ferry
     // confirmed it always was.
     @State var euclideousLanesSeq = EuclideousLanesSeq()
+    @State var euclideousFX = EuclideousFX()   // FX TAB (2026-10-18): the page-level FX rows (cells, lane sets, PASSES, CC number, BASE)
     @State var euclideousRiffsSeq = EuclideousRiffsSeq()
     @State var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
     // EUCLID MASK — LIVE POSITION (Paul 2026-10-11 bugfix: "Euclid mask was moving at the main rate, and
@@ -843,6 +846,7 @@ struct DiagView: View {
         euclideousRiffs = au.uiEuclideousRiffs()
         euclideousActiveRiff = au.uiEuclideousActiveRiff()
         euclideousLanesSeq = au.uiEuclideousLanesSeq()
+        euclideousFX = au.uiEuclideousFX()
         euclideousRiffsSeq = au.uiEuclideousRiffsSeq()
     }
 
@@ -1443,6 +1447,7 @@ struct DiagView: View {
             let ear = au.uiEuclideousActiveRiff(); if ear != euclideousActiveRiff { euclideousActiveRiff = ear; euclideousResynced = true }
             let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
             let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
+            let efx = au.uiEuclideousFX(); if efx != euclideousFX { euclideousFX = efx; euclideousResynced = true }
             if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)

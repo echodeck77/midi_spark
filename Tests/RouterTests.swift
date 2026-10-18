@@ -12592,4 +12592,18 @@ final class RouterTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - FX TAB (ferry 2026-10-18) — probes + engine tests
+
+    /// A held-legato pitch that the NEXT hit strikes again NON-legato, reachable WITHOUT any FX via the MIX ferry's per-layer gates: the lit note (rank 1,
+    /// notes gate 100%) is held legato by hit 0; hit 1's riff pitch (rank 1, riff gate 60%) is the SAME pitch and wins the collision, so it is struck at 60%.
+    private func fxRestrikeLine() -> EuclidLine {
+        EuclidLine(target: 0, pulses: 4, steps: 4, gate: 0.6, velocityAbsolute: 90, rate: .r1_4, useRiff: true, litNotes: 0b0000_0001, riffOn: true,
+                   sourceMode: .midi, riffLength: 2, notesOn: true, notesGate: 1.0)
+    }
+    func testZZProbeRestrikeOfAHeldLegatoPitch() {
+        let e = RecordingEmitter()
+        mixRun(mixBox(fxRestrikeLine(), ranks: [2, 1, 0, 0, 0, 0, 0, 0]), beats: 3.5, into: e)
+        for ev in e.events where ev.cable == 1 && ev.note == 48 { print("PROBE", ev.status == 0x90 ? "ON " : "OFF", ev.sample, Double(ev.sample) / 24_000) }
+    }
 }

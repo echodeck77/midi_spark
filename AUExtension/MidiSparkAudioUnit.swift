@@ -549,6 +549,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // `euclideousLiveGridResolved` any more — `SnapshotBuilder.swift`'s own `p.euclideousLiveGrid` is the
     // unrelated `MachineParams` field, not this one; only `EffectiveParamsTests.swift` still exercises
     // this resolver directly, to prove the migration itself still works).
+    func uiEuclideousFX() -> EuclideousFX { document.euclideousFXResolved }   // FX TAB (2026-10-18)
     func uiEuclideousLanesSeq() -> EuclideousLanesSeq {
         EuclideousLanesSeq(on: document.euclideousLanesSeqOnResolved, rate: document.euclideousLanesSeqRateResolved,
                             len: document.euclideousLanesSeqLenResolved, cells: document.euclideousLanesSeqCellsResolved)

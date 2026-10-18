@@ -901,6 +901,97 @@ enum EuclideousSeqRate: String, Codable, CaseIterable {
 // rather than four separate setters apiece. NOT persisted directly — `AudioUnitViewController` mirrors these
 // from (and writes them back onto) the four separate `PluginState.euclideousLanesSeq*`/`euclideousRiffsSeq*`
 // fields; the bundle exists purely to keep the UI's edit-callback surface small.
+// FX TAB (ferry 2026-10-18) — six fixed effect rows (RATCH, GATE, TIE, VEL, NOTE, CC) on the riff's eight steps. PAGE-level (one set for the
+// whole page, shared by all four lanes), stored as ONE additive-Optional document field (`PluginState.euclideousFX`). Row order is fixed and is
+// the storage order: row r, riff column c lives at `cells[r * 8 + c]`. A cell is EMPTY (the sentinel `emptyCell`) or holds that row's legal value:
+// RATCH 2/3/4 · GATE 5…100 in 5s (100 = legato) · TIE 1 (on) · VEL 1…127 · NOTE −3…−1/+1…+3 (never 0) · CC 0…127. Each row also has a lane set
+// (bit n−1 = lane n, default all four). The whole struct is fixed-size flat arrays (6 + 48 + 3 settings) so the render thread only ever READS it.
+// Defaults (every cell empty, BASE none) make every existing session and all 20 factory presets sound exactly as before.
+struct EuclideousFX: Equatable {
+    static let rows = 6, columns = 8
+    static let emptyCell: Int8 = Int8.min
+    static let allLanes: UInt8 = 0b1111
+    var lanes: [UInt8] = [UInt8](repeating: EuclideousFX.allLanes, count: 6)
+    var cells: [Int8] = [Int8](repeating: EuclideousFX.emptyCell, count: 48)
+    var notePasses: UInt8 = 4        // NOTE row: PASSES, 2…8
+    var ccNumber: UInt8 = 74         // CC row: controller 0…119 (120–127 are channel-mode messages, never sent)
+    var ccBase: Int16 = -1           // CC row: BASE, −1 = none, else 0…127
+
+    /// A row's legal cell value for a raw integer, or nil for "empty / unreadable". GATE rounds to the nearest 5 within 5…100; the ranged rows clamp;
+    /// NOTE 0 is not a value; TIE has no value (any non-sentinel is "on").
+    static func legalCell(row: Int, raw: Int) -> Int8? {
+        if raw == Int(emptyCell) { return nil }
+        switch row {
+        case 0: return Int8(max(2, min(4, raw)))
+        case 1: return Int8(max(5, min(100, Int((Double(raw) / 5).rounded()) * 5)))
+        case 2: return 1
+        case 3: return Int8(max(1, min(127, raw)))
+        case 4: return raw == 0 ? nil : Int8(max(-3, min(3, raw)))
+        case 5: return Int8(max(0, min(127, raw)))
+        default: return nil
+        }
+    }
+    /// The row's cell at `column` (0…7), nil when empty (or out of range).
+    func cell(row: Int, column: Int) -> Int? {
+        guard row >= 0, row < 6, column >= 0, column < 8 else { return nil }
+        let v = cells[row * 8 + column]
+        return v == EuclideousFX.emptyCell ? nil : Int(v)
+    }
+    func laneOn(row: Int, lane: Int) -> Bool {
+        guard row >= 0, row < 6, lane >= 0, lane < 4 else { return false }
+        return (lanes[row] >> UInt8(lane)) & 1 != 0
+    }
+    /// True when no cell holds a value and BASE is none — the engine's "FX does nothing" state.
+    var isInert: Bool { ccBase < 0 && !cells.contains { $0 != EuclideousFX.emptyCell } }
+    /// Does ANY lane-enabled cell exist in `row` for `lane`? (Cheap gate so the render path skips per-hit work for an untouched row.)
+    func rowHasCells(_ row: Int, lane: Int) -> Bool {
+        guard row >= 0, row < 6, laneOn(row: row, lane: lane) else { return false }
+        for c in 0..<8 where cells[row * 8 + c] != EuclideousFX.emptyCell { return true }
+        return false
+    }
+    /// Every field clamped to its legal domain and every array forced to its fixed length — what the engine and the UI read (`PluginState.euclideousFXResolved`).
+    func normalized() -> EuclideousFX {
+        var out = EuclideousFX()
+        for r in 0..<6 {
+            out.lanes[r] = (r < lanes.count ? lanes[r] : EuclideousFX.allLanes) & EuclideousFX.allLanes
+            for c in 0..<8 {
+                let i = r * 8 + c
+                let raw = i < cells.count ? Int(cells[i]) : Int(EuclideousFX.emptyCell)
+                out.cells[i] = EuclideousFX.legalCell(row: r, raw: raw) ?? EuclideousFX.emptyCell
+            }
+        }
+        out.notePasses = UInt8(max(2, min(8, Int(notePasses))))
+        out.ccNumber = UInt8(max(0, min(119, Int(ccNumber))))
+        out.ccBase = ccBase < 0 ? -1 : Int16(min(127, Int(ccBase)))
+        return out
+    }
+}
+// Hand-written Codable: the wire form is plain `Int` arrays and Ints so a hand-edited or future document with an out-of-range number can never throw
+// (decoding straight into `[Int8]` would fail the WHOLE session load on a stray 300). Everything is clamped on the way in (`normalized`).
+extension EuclideousFX: Codable {
+    enum CodingKeys: String, CodingKey { case lanes, cells, notePasses, ccNumber, ccBase }
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let rawLanes = (try? c.decodeIfPresent([Int].self, forKey: .lanes)) ?? nil
+        let rawCells = (try? c.decodeIfPresent([Int].self, forKey: .cells)) ?? nil
+        var raw = EuclideousFX()
+        if let l = rawLanes { for r in 0..<6 where r < l.count { raw.lanes[r] = UInt8(truncatingIfNeeded: l[r]) } }
+        if let cs = rawCells { for i in 0..<48 where i < cs.count { raw.cells[i] = Int8(max(Int(Int8.min), min(Int(Int8.max), cs[i]))) } }
+        if let n = (try? c.decodeIfPresent(Int.self, forKey: .notePasses)) ?? nil { raw.notePasses = UInt8(max(0, min(255, n))) }
+        if let n = (try? c.decodeIfPresent(Int.self, forKey: .ccNumber)) ?? nil { raw.ccNumber = UInt8(max(0, min(255, n))) }
+        if let n = (try? c.decodeIfPresent(Int.self, forKey: .ccBase)) ?? nil { raw.ccBase = Int16(max(-1, min(255, n))) }
+        self = raw.normalized()
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(lanes.map { Int($0) }, forKey: .lanes)
+        try c.encode(cells.map { Int($0) }, forKey: .cells)
+        try c.encode(Int(notePasses), forKey: .notePasses)
+        try c.encode(Int(ccNumber), forKey: .ccNumber)
+        try c.encode(Int(ccBase), forKey: .ccBase)
+    }
+}
 struct EuclideousLanesSeq: Equatable {
     var on: Bool = false
     var rate: EuclideousSeqRate = .oneBar
@@ -2625,6 +2716,10 @@ struct PluginState: Codable, Equatable {
         guard let c = euclideousRiffsSeqCells, c.count == 8 else { return [Int](repeating: 0, count: 8) }
         return c.map { max(0, min(3, $0)) }
     }
+    // FX TAB (ferry 2026-10-18): the whole tab as ONE additive-Optional field; nil ⇒ every cell empty and the §1.3/§1.4 defaults, so every pre-feature
+    // document and all 20 factory presets sound exactly as before. `Resolved` clamps everything (the render path and the UI only ever read this).
+    var euclideousFX: EuclideousFX? = nil
+    var euclideousFXResolved: EuclideousFX { (euclideousFX ?? EuclideousFX()).normalized() }
     // KEY + SCALE: a page-level root+type pair, reusing the existing `ScaleType` enum purely as storage —
     // does NOT pre-wire the SCALE-door/KEY±/FOUNT machinery §4.3 explicitly leaves open (a genuinely
     // independent new field, not a reference to any door's own scale pool).
@@ -3401,6 +3496,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var activeRiff: Int
     var lanesSeq: EuclideousLanesSeq
     var riffsSeq: EuclideousRiffsSeq
+    var fx: EuclideousFX = EuclideousFX()   // FX TAB (2026-10-18): cells, lane sets, PASSES, CC number, BASE — undoable page-level state (selection/brush/bubble are not)
 }
 
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack
