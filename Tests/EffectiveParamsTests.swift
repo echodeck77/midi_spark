@@ -1097,4 +1097,49 @@ final class EffectiveParamsTests: XCTestCase {
         var zero = doc(); zero.euclideousMidiInChannelMask = 0
         XCTAssertEqual(zero.euclideousMidiInChannelMaskResolved, 0xFFFF)
     }
+
+    // MIX TAB (ferry 2026-10-18) §9.5 — notesGate/notesVelocity decode tolerant, round-trip without loss, and the one field the
+    // decoder used to skip (velocityAbsolute) now survives a save/load.
+    func testEuclidLineDecodesWithoutTheMixKeysAndResolvesToTheLanesOwnValues() throws {
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"gate":0.6,"notesVelOffset":-10}"#.utf8)
+        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertNil(line.notesGate); XCTAssertNil(line.notesVelocity)
+        XCTAssertEqual(line.notesGateResolved, 0.6, "nil reads the lane's GATE"); XCTAssertEqual(line.notesVelocityResolved, 90, "nil reads VEL (100) + offset (−10)")
+    }
+    func testVelocityAbsoluteAndTheMixFieldsRoundTripThroughCodable() throws {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.velocityAbsolute = 55; line.notesGate = 0.35; line.notesVelocity = 88
+        let back = try JSONDecoder().decode(EuclidLine.self, from: JSONEncoder().encode(line))
+        XCTAssertEqual(back.velocityAbsolute, 55, "REGRESSION: the lane's VEL was encoded but never decoded, so it reset to 100 on every load")
+        XCTAssertEqual(back.velocityAbsoluteResolved, 55)
+        XCTAssertEqual(back.notesGate, 0.35); XCTAssertEqual(back.notesVelocity, 88)
+        XCTAssertEqual(back, line)
+        // a saved document written by an older build (VEL on disk under its key) loads its VEL
+        let old = Data(#"{"target":0,"pulses":3,"steps":8,"rotate":0,"invert":false,"velocityAbsolute":72}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(EuclidLine.self, from: old).velocityAbsoluteResolved, 72)
+    }
+    /// The bug CLASS: a stored field the hand-written decoder forgets. Every stored field is set to a non-default value, round-tripped,
+    /// and compared — and a reflection check fails the test if a newly added field isn't populated here, so the next field can't be skipped.
+    func testEveryStoredEuclidLineFieldSurvivesAnEncodeDecodeRoundTrip() throws {
+        var l = EuclidLine(target: 3, pulses: 7, steps: 11, rotate: 4, invert: true)
+        l.pick = .cycle; l.die = 3; l.noteSel = .n3; l.reverse = true; l.gate = 0.61; l.octave = 2; l.direction = .bkw; l.enabled = false
+        l.velocity = 1.5; l.velocityAbsolute = 73; l.missNoteSel = .high; l.missGate = 0.4; l.missOctave = -1; l.missVelocity = 0.5
+        l.patternMiss = true; l.rate = .r1_8; l.emitterMask = 0b0110; l.useRiff = true; l.melodyMode = .riff; l.litNotes = 0b0101_0101
+        l.topLit = true; l.top2Lit = true; l.riffOn = false; l.riffRotate = 2; l.riffOctave = -2; l.riffDir = .pendulum; l.riffDirSeed = 9
+        l.riffDirBias = 0.25; l.mask = EuclidLineMask(); l.sourceMode = .midi; l.tilt = -0.3; l.riffLock = true; l.riffInvert = true
+        l.riffOnRest = .fill; l.riffStride = 3; l.riffLength = 5; l.riffAdvanceStep = true; l.melodyTranspose = -2
+        l.customHits = [true, false, true]; l.notesOn = false; l.noteOctShifts = [1, -1, 0, 0, 0, 0, 0, 1]; l.notesVelOffset = -20
+        l.resetSteps = 4; l.restartMask = 0b0000_0101; l.listenRhythmMode = .gaps; l.listenRhythmPartner = 2; l.listenFollowMult = -1
+        l.listenPitchMode = .avoid; l.listenPitchPartner = 1; l.listenPitchPartnerAny = true; l.listenShadowInterval = 3; l.listenShadowOctave = -1
+        l.listenAvoidAction = .move; l.listenLevelMode = .accent; l.listenLevelPartner = 3; l.listenLevelAmount = 0.65
+        l.notesGate = 0.45; l.notesVelocity = 66
+        // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
+        for child in Mirror(reflecting: l).children {
+            let m = Mirror(reflecting: child.value)
+            if m.displayStyle == .optional { XCTAssertFalse(m.children.isEmpty, "field `\(child.label ?? "?")` is not populated in this round-trip test — add it") }
+        }
+        let back = try JSONDecoder().decode(EuclidLine.self, from: JSONEncoder().encode(l))
+        XCTAssertEqual(back, l, "a stored field was encoded but not decoded (or vice versa)")
+    }
+
 }

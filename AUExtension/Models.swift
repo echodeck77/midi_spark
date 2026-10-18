@@ -510,6 +510,13 @@ struct EuclidLine: Codable, Equatable {
     var listenLevelPartner: Int? = nil
     // AMOUNT (§7): 0...1 in 0.05 steps, default 0.4 (40%) — shared by DUCK and ACCENT, per lane.
     var listenLevelAmount: Double? = nil
+    // MIX TAB (ferry 2026-10-18): the NOTES layer's OWN gate and velocity — lit notes, TOP and TOP2 — so the two layers are
+    // independent per lane. APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. nil ⇒ today's behaviour:
+    // `notesGate` nil reads the lane's GATE; `notesVelocity` nil reads clamp(VEL + notesVelOffset). The layers PART at the first
+    // edit of GATE/VEL (`euclideousPinNotesLayer`, Derivations.swift §6.3), so an old session sounds the same until edited.
+    // The RIFF layer's gate/velocity are the lane's existing `gate`/`velocityAbsolute` (what the RHYTHM tab shows).
+    var notesGate: Double? = nil
+    var notesVelocity: Int? = nil
     var listenRhythmPartnerResolved: Int { max(0, min(3, listenRhythmPartner ?? 0)) }
     var listenPitchPartnerResolved: Int { max(0, min(3, listenPitchPartner ?? 0)) }
     /// ANY is only meaningful for AVOID. The stored flag is REMEMBERED while the row is off or on SHADOW (so switching modes and
@@ -601,6 +608,14 @@ struct EuclidLine: Codable, Equatable {
         return r.map { max(-1, min(1, $0)) }
     }
     var notesVelOffsetResolved: Int { max(-64, min(64, notesVelOffset ?? 0)) }
+    /// The NOTES layer's gate: its own once stored, else the lane's GATE. Same 1%…100% domain the GATE slider uses.
+    var notesGateResolved: Double { max(0.01, min(1, notesGate ?? gateResolved)) }
+    /// The NOTES layer's velocity: its own once stored (1…127), else VEL + the legacy offset — exactly today's notes velocity
+    /// (`notesVelOffsetResolved` is already ±64-clamped, so this is byte-identical to the engine's old `velocityAbsolute + offset`).
+    var notesVelocityResolved: Int {
+        if let v = notesVelocity { return max(1, min(127, v)) }
+        return max(1, min(127, velocityAbsoluteResolved + notesVelOffsetResolved))
+    }
 }
 // DECODE-TOLERANT (CR-8 class, code-review finding 2026-10-04): every field EuclidLine has gained SINCE day one
 // was correctly added as Optional, but the five ORIGINAL fields (target/pulses/steps/rotate/invert) are plain
@@ -671,6 +686,12 @@ extension EuclidLine {
         listenLevelMode = try c.decodeIfPresent(EuclideousLevelMode.self, forKey: .listenLevelMode)
         listenLevelPartner = try c.decodeIfPresent(Int.self, forKey: .listenLevelPartner)
         listenLevelAmount = try c.decodeIfPresent(Double.self, forKey: .listenLevelAmount)
+        // `velocityAbsolute` was the ONE stored field this decoder never read (it encoded, so a saved VEL was written to disk and
+        // then silently reset to 100 on every load). Found by the MIX ferry's audit; decoding it is what makes a lane's VEL — and
+        // the notes velocity pinned from it — survive a session or preset round trip.
+        velocityAbsolute = try c.decodeIfPresent(Int.self, forKey: .velocityAbsolute)
+        notesGate = try c.decodeIfPresent(Double.self, forKey: .notesGate)
+        notesVelocity = try c.decodeIfPresent(Int.self, forKey: .notesVelocity)
     }
 }
 // LISTEN TAB enums (ferry 2026-10-14) — String-raw, matching every sibling enum on this struct.

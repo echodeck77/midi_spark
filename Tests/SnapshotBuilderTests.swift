@@ -1020,4 +1020,26 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertNil(s.ladderActiveRow(1), "empty column → nothing")
     }
 
+
+    // MIX TAB (ferry 2026-10-18) §9.5 — notesGate/notesVelocity must survive the fresh-literal reconstruction (and clamp), like every field above.
+    func testEuclidLineNotesGateAndVelocitySurviveSnapshotBuildAndClamp() {
+        let a = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, notesGate: 0.35, notesVelocity: 88)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(a.euclidLines[0].notesGate, 0.35, "notesGate must survive the resolve, not silently reset")
+        XCTAssertEqual(a.euclidLines[0].notesVelocity, 88, "notesVelocity must survive the resolve")
+        let untouched = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
+        }) { _ in }.machines[0].a
+        XCTAssertNil(untouched.euclidLines[0].notesGate, "nil stays nil — the lane's own GATE keeps ruling"); XCTAssertNil(untouched.euclidLines[0].notesVelocity)
+        let clamped = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, notesGate: 7.0, notesVelocity: 900)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(clamped.euclidLines[0].notesGate, 1.0); XCTAssertEqual(clamped.euclidLines[0].notesVelocity, 127)
+        let low = box(machines(customizing: 0) {
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, notesGate: 0.0, notesVelocity: 0)]
+        }) { _ in }.machines[0].a
+        XCTAssertEqual(low.euclidLines[0].notesGate, 0.05, "clamped like GATE itself (the builder's 5% floor), so the layers agree at the low end"); XCTAssertEqual(low.euclidLines[0].notesVelocity, 1)
+    }
+
 }

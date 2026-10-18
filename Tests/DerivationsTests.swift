@@ -4697,4 +4697,199 @@ final class DerivationsTests: XCTestCase {
         let narrow = euclideousLooperSegmentGeometry(n: 8, buttonWidth: 20)
         XCTAssertEqual(narrow.gap, 1, "segment width fell below 2pt at gap 2 — dropped to 1")
     }
+
+    // MARK: - MIX TAB (ferry 2026-10-18) §9 tests 1–4 (pure)
+
+    // §9.1 — the grid: a 401 × 264 grid area gives cellW 96.25, rowH 128, padH 96 and the §2.7 origins.
+    func testMixGridAtTheReferenceSizeAndItsCellOrigins() {
+        let g = euclideousMixGrid(width: 401, height: 264)
+        XCTAssertEqual(g.cellW, 96.25, accuracy: 1e-9); XCTAssertEqual(g.rowH, 128, accuracy: 1e-9); XCTAssertEqual(g.padH, 96, accuracy: 1e-9)
+        XCTAssertFalse(g.belowFloors)
+        let xs: [CGFloat] = [0, 100.25, 204.5, 304.75], ys: [CGFloat] = [0, 136]
+        var want: [CGPoint] = []
+        for row in 0..<2 { for col in 0..<2 { for notes in [false, true] { want.append(CGPoint(x: xs[col * 2 + (notes ? 1 : 0)], y: ys[row])) } } }
+        var got: [CGPoint] = []
+        for lane in 0..<4 { for notes in [false, true] { got.append(g.origin(lane: lane, notes: notes)) } }
+        // order: lane 1 riff, lane 1 notes, lane 2 riff, lane 2 notes, then lanes 3 and 4
+        for (i, (a, b)) in zip(got, want).enumerated() { XCTAssertEqual(a.x, b.x, accuracy: 1e-9, "cell \(i) x"); XCTAssertEqual(a.y, b.y, accuracy: 1e-9, "cell \(i) y") }
+        // the 8 cells exactly tile the area: last cell's trailing edge = W, last row's bottom = H
+        XCTAssertEqual(got[7].x + g.cellW, 401, accuracy: 1e-9); XCTAssertEqual(got[7].y + g.padH + 4 + 28, 264, accuracy: 1e-9)
+        // the panel → grid area: the ferry's 417 × 308 panel is 401 × 264 inside its padding, tab row and gap
+        let area = euclideousMixGridArea(panelWidth: 417, panelHeight: 308)
+        XCTAssertEqual(area.width, 401); XCTAssertEqual(area.height, 264)
+    }
+    // §2.8 — the floors are REPORTED (never shrunk): portrait panels are always short, narrow landscape panels are narrow.
+    func testMixGridFlagsPanelsBelowTheLegibilityFloors() {
+        let portrait = euclideousMixGrid(width: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).width, height: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).height)
+        XCTAssertEqual(portrait.padH, 66, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 66 < 76")
+        let narrow = euclideousMixGridArea(panelWidth: 357.12, panelHeight: 333.5)
+        XCTAssertTrue(euclideousMixGrid(width: narrow.width, height: narrow.height).belowFloors, "1024-wide landscape: cellW 81.3 < 84")
+        let ok = euclideousMixGridArea(panelWidth: 416.88, panelHeight: 312.25)
+        XCTAssertFalse(euclideousMixGrid(width: ok.width, height: ok.height).belowFloors)
+    }
+    // §9.2 — the pad maths: the three §3.5 points, the §3.6 ticks, and §4.1 inverting §3.5.
+    func testMixPadPuckTicksAndTheTouchInverse() {
+        let pad = EuclideousMixPadGeometry(cellW: 96.25, padH: 96)
+        XCTAssertEqual(pad.plotW, 72.25, accuracy: 1e-9); XCTAssertEqual(pad.plotH, 82, accuracy: 1e-9)
+        func near(_ p: CGPoint, _ x: Double, _ y: Double, _ msg: String) { XCTAssertEqual(Double(p.x), x, accuracy: 0.01, msg); XCTAssertEqual(Double(p.y), y, accuracy: 0.01, msg) }
+        near(pad.puck(gate: 0.60, velocity: 104), 65.95, 19.31, "gate 60 / vel 104")
+        near(pad.puck(gate: 1.00, velocity: 127), 89.25, 7, "100 / 127")
+        near(pad.puck(gate: 0.01, velocity: 1), 31.58, 74.46, "1 / 1")
+        XCTAssertEqual(pad.tickXs.map { Double($0) }.map { ($0 * 100).rounded() / 100 }, [45.56, 60.13, 74.69])
+        XCTAssertEqual(pad.tickYs.map { Double($0) }, [58, 41, 24])
+        // regions and axes (§3.3/§3.4)
+        XCTAssertEqual(pad.velStrip, CGRect(x: 0, y: 0, width: 24, height: 82)); XCTAssertEqual(pad.gateStrip, CGRect(x: 24, y: 82, width: 72.25, height: 14))
+        XCTAssertEqual(pad.plot, CGRect(x: 24, y: 0, width: 72.25, height: 82))
+        XCTAssertEqual(pad.yAxis, CGRect(x: 24, y: 0, width: 1, height: 82)); XCTAssertEqual(pad.xAxis, CGRect(x: 24, y: 82, width: 72.25, height: 1))
+        // §4.1 inverts §3.5 for EVERY gate 1…100 at velocities 1, 64 and 127
+        for g in 1...100 { for v in [1, 64, 127] {
+            let back = pad.values(at: pad.puck(gate: Double(g) / 100, velocity: v))
+            XCTAssertEqual(Int((back.gate * 100).rounded()), g, "gate \(g) @ vel \(v)"); XCTAssertEqual(back.velocity, v, "vel \(v) @ gate \(g)")
+        } }
+        // …and points outside the plot clamp to each field's range
+        XCTAssertEqual(pad.values(at: CGPoint(x: -50, y: 500)).gate, 0.01); XCTAssertEqual(pad.values(at: CGPoint(x: -50, y: 500)).velocity, 1)
+        XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).gate, 1.0); XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).velocity, 127)
+        XCTAssertEqual(pad.values(at: CGPoint(x: 10, y: 40)).gate, 0.01, "a touch on the VEL strip still sets both values; its x clamps the gate to 1%")
+    }
+    // §9.3 — LEGATO at exactly 100% for BOTH layers, GATE otherwise; the strip texts and the spoken value.
+    func testMixGateLabelIsLegatoAtExactly100ForBothLayers() {
+        XCTAssertEqual(euclideousMixGateName(gate: 1.0), "LEGATO"); XCTAssertEqual(euclideousMixGateName(gate: 0.99), "GATE"); XCTAssertEqual(euclideousMixGateName(gate: 0.9), "GATE")
+        XCTAssertEqual(euclideousMixGateName(gate: 0.996), "LEGATO", "rounds to a whole percent like the RHYTHM tab's rule")
+        var l = EuclidLine(); l.gate = 1.0
+        XCTAssertEqual(euclideousSliderLabelText(.gate, l), "LEGATO", "the RHYTHM tab (the riff layer)")
+        l.gate = 0.7; l.notesGate = 1.0
+        XCTAssertEqual(euclideousSliderLabelText(.gate, l), "GATE"); XCTAssertEqual(euclideousMixGateName(gate: l.notesGateResolved), "LEGATO", "the notes layer")
+        XCTAssertTrue(euclideousGateIsLegato(1.0)); XCTAssertFalse(euclideousGateIsLegato(0.99))
+        XCTAssertEqual(euclideousMixGateValueText(gate: 0.6), "60%"); XCTAssertEqual(euclideousMixGateValueText(gate: 1.0), "100%")
+        XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 0.6, velocity: 104), "gate 60 percent, velocity 104")
+        XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 1.0, velocity: 127), "gate 100 percent, legato, velocity 127")
+        XCTAssertEqual(euclideousMixPadAccessibilityLabel(lane: 0, notes: false, off: false), "Lane 1 riff")
+        XCTAssertEqual(euclideousMixPadAccessibilityLabel(lane: 3, notes: true, off: true), "Lane 4 notes, off")
+        XCTAssertEqual(euclideousMixOctaveAccessibilityLabel(lane: 1, notes: true), "Lane 2 notes octave")
+        XCTAssertEqual(euclideousMixVelocityStep(126, up: true), 127); XCTAssertEqual(euclideousMixVelocityStep(100, up: true), 104); XCTAssertEqual(euclideousMixVelocityStep(2, up: false), 1)
+        XCTAssertEqual(euclideousMixGateStep(0.6, longer: true), 0.65, accuracy: 1e-12); XCTAssertEqual(euclideousMixGateStep(0.98, longer: true), 1.0, accuracy: 1e-12)
+        XCTAssertEqual(euclideousMixGateStep(0.03, longer: false), 0.01, accuracy: 1e-12)
+    }
+    // §9.4 — resolvers: notesGate nil reads GATE; notesVelocity nil reads VEL + offset (clamped).
+    func testNotesGateAndVelocityResolversFollowTheLaneUntilStored() {
+        var l = EuclidLine()
+        XCTAssertEqual(l.notesGateResolved, 0.9); XCTAssertEqual(l.notesVelocityResolved, 100)
+        l.gate = 0.55; l.velocityAbsolute = 80
+        XCTAssertEqual(l.notesGateResolved, 0.55, "nil reads GATE"); XCTAssertEqual(l.notesVelocityResolved, 80, "nil reads VEL (+ no offset)")
+        l.notesVelOffset = 20
+        XCTAssertEqual(l.notesVelocityResolved, 100, "VEL + offset — today's notes velocity")
+        l.velocityAbsolute = 120; XCTAssertEqual(l.notesVelocityResolved, 127, "clamped high")
+        l.velocityAbsolute = 10; l.notesVelOffset = -64; XCTAssertEqual(l.notesVelocityResolved, 1, "clamped low")
+        l.notesVelOffset = 500; l.velocityAbsolute = 100; XCTAssertEqual(l.notesVelocityResolved, 127, "the stored offset is itself ±64-clamped, then the sum is")
+        l.notesGate = 0.3; l.notesVelocity = 33
+        XCTAssertEqual(l.notesGateResolved, 0.3); XCTAssertEqual(l.notesVelocityResolved, 33, "stored values win over the lane's")
+        l.notesVelocity = 900; XCTAssertEqual(l.notesVelocityResolved, 127); l.notesVelocity = -4; XCTAssertEqual(l.notesVelocityResolved, 1)
+    }
+    // §9.4 — §6.3's pinning: the layers part at the first GATE / VEL edit, inside that edit.
+    func testLayersPartAtTheFirstGateOrVelocityEdit() {
+        var l = EuclidLine(); l.gate = 0.8; l.velocityAbsolute = 90; l.notesVelOffset = -10
+        let snap = l
+        euclideousSliderCommit(.gate, &l, snapshot: snap, newValue: 0.5)
+        XCTAssertEqual(l.gate, 0.5); XCTAssertEqual(l.notesGate, 0.8, "pinned to the GATE it had BEFORE the edit")
+        XCTAssertNil(l.notesVelocity, "a GATE edit doesn't part the velocities")
+        euclideousSliderCommit(.gate, &l, snapshot: snap, newValue: 0.2)
+        XCTAssertEqual(l.notesGate, 0.8, "already parted: later GATE edits leave the notes alone")
+        euclideousSliderCommit(.velocity, &l, snapshot: snap, newValue: 60)
+        XCTAssertEqual(l.velocityAbsolute, 60); XCTAssertEqual(l.notesVelocity, 80, "pinned to VEL + offset (90 − 10) before VEL changed")
+        euclideousSliderCommit(.velocity, &l, snapshot: snap, newValue: 127)
+        XCTAssertEqual(l.notesVelocity, 80, "once pinned, notes velocity ignores a VEL change"); XCTAssertEqual(l.notesVelocityResolved, 80)
+        // a no-op commit (same value) never parts the layers
+        var m = EuclidLine(); m.gate = 0.7; m.velocityAbsolute = 64
+        euclideousSliderCommit(.gate, &m, snapshot: m, newValue: 0.7); euclideousSliderCommit(.velocity, &m, snapshot: m, newValue: 64)
+        XCTAssertNil(m.notesGate); XCTAssertNil(m.notesVelocity)
+        // the sliders' double-tap goes through the same helper
+        var d = EuclidLine(); d.gate = 0.4; d.velocityAbsolute = 50
+        euclideousSliderDoubleTapDefault(.gate, &d); euclideousSliderDoubleTapDefault(.velocity, &d)
+        XCTAssertEqual(d.gate, 0.9); XCTAssertEqual(d.velocityAbsolute, 100); XCTAssertEqual(d.notesGate, 0.4); XCTAssertEqual(d.notesVelocity, 50)
+        // …and a fresh lane double-tapped at the defaults parts nothing
+        var f = EuclidLine(); euclideousSliderDoubleTapDefault(.gate, &f); euclideousSliderDoubleTapDefault(.velocity, &f)
+        XCTAssertNil(f.notesGate); XCTAssertNil(f.notesVelocity)
+        // a long-press REVERT is not an edit: it takes the pin back (only the pin)
+        var r = EuclidLine(); r.gate = 0.8; r.velocityAbsolute = 90
+        let rs = r
+        euclideousSliderCommit(.gate, &r, snapshot: rs, newValue: 0.3); euclideousSliderCommit(.velocity, &r, snapshot: rs, newValue: 20)
+        euclideousSliderRevert(.gate, &r, snapshot: rs); euclideousSliderRevert(.velocity, &r, snapshot: rs)
+        XCTAssertEqual(r, rs, "a stray press leaves the line exactly as it was, layers still tied")
+        var keep = rs; euclideousSliderCommit(.gate, &keep, snapshot: rs, newValue: 0.3); keep.notesGate = 0.55   // a notes-pad edit made meanwhile
+        euclideousSliderRevert(.gate, &keep, snapshot: rs)
+        XCTAssertEqual(keep.notesGate, 0.55, "a genuinely different notes value is not clobbered by the revert")
+    }
+    // §9.4 — §6.4: the NOTES VEL bar as a view of notesVelocity relative to VEL.
+    func testNotesVelBarIsARelativeViewOfNotesVelocity() {
+        var l = EuclidLine(); l.velocityAbsolute = 100
+        XCTAssertEqual(euclideousNotesVelBarValue(l), 0)
+        l.notesVelOffset = 20; XCTAssertEqual(euclideousNotesVelBarValue(l), 20, "an old session's offset reads through unchanged")
+        l.notesVelocity = 10; XCTAssertEqual(euclideousNotesVelBarValue(l), -64, "clamp(10 − 100, −64, 64)")
+        l.velocityAbsolute = 20; l.notesVelocity = 127; XCTAssertEqual(euclideousNotesVelBarValue(l), 64, "clamped high")
+        l.velocityAbsolute = 100
+        euclideousNotesVelBarWrite(&l, offset: -30); XCTAssertEqual(l.notesVelocity, 70)
+        euclideousNotesVelBarWrite(&l, offset: 64); XCTAssertEqual(l.notesVelocity, 127, "clamp(100 + 64, 1, 127)")
+        euclideousNotesVelBarWrite(&l, offset: 500); XCTAssertEqual(l.notesVelocity, 127, "the offset itself clamps to ±64")
+        l.velocityAbsolute = 10; euclideousNotesVelBarWrite(&l, offset: -64); XCTAssertEqual(l.notesVelocity, 1, "clamp(10 − 64, 1, 127)")
+        var w = EuclidLine(); w.notesVelOffset = 7
+        euclideousNotesVelBarWrite(&w, offset: 15); euclideousNotesVelBarDoubleTap(&w)
+        XCTAssertEqual(w.notesVelOffset, 7, "nothing writes notesVelOffset any more"); XCTAssertEqual(w.notesVelocity, 100, "double tap stores VEL")
+        XCTAssertEqual(euclideousNotesVelBarValue(w), 0)
+    }
+    // The pad write paths: RIFF through the RHYTHM sliders' setters (so GATE/VEL agree and the pin happens), NOTES into its own fields.
+    func testMixPadWritesRiffThroughTheSlidersAndNotesIntoItsOwnLayer() {
+        var l = EuclidLine(); l.gate = 0.9; l.velocityAbsolute = 100
+        euclideousMixPadWrite(&l, notes: false, gate: 0.6, velocity: 104)
+        XCTAssertEqual(l.gate, 0.6); XCTAssertEqual(l.velocityAbsolute, 104)
+        XCTAssertEqual(euclideousSliderRange(.gate, l).value, 0.6, "the RHYTHM slider reads what the riff pad wrote")
+        XCTAssertEqual(l.notesGate, 0.9, "the notes layer was parted at its old values, not moved"); XCTAssertEqual(l.notesVelocity, 100)
+        euclideousMixPadWrite(&l, notes: true, gate: 0.3, velocity: 20)
+        XCTAssertEqual(l.notesGate, 0.3); XCTAssertEqual(l.notesVelocity, 20); XCTAssertEqual(l.gate, 0.6, "dragging a notes pad never moves the riff pad"); XCTAssertEqual(l.velocityAbsolute, 104)
+        euclideousMixPadWrite(&l, notes: false, gate: 0.2, velocity: 50)
+        XCTAssertEqual(l.notesGate, 0.3, "…and the reverse"); XCTAssertEqual(l.notesVelocity, 20)
+        let (g, v) = euclideousMixPadValues(of: l, notes: true); XCTAssertEqual(g, 0.3); XCTAssertEqual(v, 20)
+        euclideousMixPadReset(&l, notes: true); XCTAssertEqual(l.notesGate, 0.9); XCTAssertEqual(l.notesVelocity, 100)
+        euclideousMixPadReset(&l, notes: false); XCTAssertEqual(l.gate, 0.9); XCTAssertEqual(l.velocityAbsolute, 100)
+        XCTAssertTrue(euclideousMixLayerIsOff(EuclidLine(riffOn: false), notes: false)); XCTAssertFalse(euclideousMixLayerIsOff(EuclidLine(), notes: false))
+        var n = EuclidLine(); n.notesOn = false
+        XCTAssertTrue(euclideousMixLayerIsOff(n, notes: true)); XCTAssertFalse(euclideousMixLayerIsOff(EuclidLine(), notes: true))
+    }
+    // The OCT stepper: one setter per layer shared with the RIFF/NOTES tabs; range −2…+2, no wrap.
+    func testMixOctaveStepperSettersRangeAndText() {
+        var l = EuclidLine()
+        euclideousSetRiffOctave(&l, 2); XCTAssertEqual(l.riffOctave, 2); XCTAssertEqual(euclideousMixOctave(of: l, notes: false), 2)
+        l.notesOn = false
+        euclideousSetNotesOctave(&l, -1)
+        XCTAssertEqual(l.octave, -1); XCTAssertEqual(l.notesOn, true, "the NOTES tab's own setter switches the layer on — the MIX stepper shares it")
+        l.octave = 3; XCTAssertEqual(euclideousMixOctave(of: l, notes: true), 2, "a stored ±3 (the 8×8 editor's range) reads as the engine's ±2")
+        XCTAssertEqual(euclideousMixOctaveNext(2, up: true), nil); XCTAssertEqual(euclideousMixOctaveNext(-2, up: false), nil)
+        XCTAssertEqual(euclideousMixOctaveNext(0, up: true), 1); XCTAssertEqual(euclideousMixOctaveNext(0, up: false), -1)
+        XCTAssertEqual((-2...2).map(euclideousMixOctaveText), ["\u{2212}2", "\u{2212}1", "0", "+1", "+2"])
+        XCTAssertEqual((-2...2).map(euclideousMixOctaveSpoken), ["minus 2", "minus 1", "0", "plus 1", "plus 2"])
+    }
+    // §1 — tabs: MIX then LANES, RIFFS hidden, MIX the default, equal widths.
+    func testSequencerTabsAreMixThenLanesWithEqualWidths() {
+        XCTAssertEqual(EuclideousSeqTab.visible, [.mix, .lanes]); XCTAssertEqual(EuclideousSeqTab.default, .mix)
+        XCTAssertEqual(EuclideousSeqTab.visible.map { $0.label }, ["MIX", "LANES"])
+        XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, accuracy: 1e-9, "two tabs at the reference panel")
+        XCTAssertEqual(euclideousSeqTabWidth(count: 1, contentWidth: 401), 401)
+    }
+    // §4.3/§4.4 — one undo step per touch; a double tap is one step.
+    func testPadUndoBurstTakesOneStepPerTouchAndMergesADoubleTap() {
+        var b = EuclideousPadUndoBurst()
+        b.touchDown(at: 0.0)
+        XCTAssertTrue(b.nextWriteNeedsNewStep(), "the first write of a touch checkpoints"); XCTAssertFalse(b.nextWriteNeedsNewStep()); XCTAssertFalse(b.nextWriteNeedsNewStep())
+        b.touchEnd(at: 0.4)
+        b.touchDown(at: 2.0)    // a separate touch, long after
+        XCTAssertTrue(b.nextWriteNeedsNewStep(), "a later, separate touch is its own undo step")
+        b.touchEnd(at: 2.5)
+        // a double tap: tap, lift, tap again within 0.35s, then the reset write — all ONE step
+        b.touchDown(at: 5.0); XCTAssertTrue(b.nextWriteNeedsNewStep()); b.touchEnd(at: 5.05)
+        b.touchDown(at: 5.2); XCTAssertFalse(b.nextWriteNeedsNewStep(), "the second tap continues the same step — one undo returns to before the first tap"); b.touchEnd(at: 5.25)
+        // an EMPTY touch (no write) opens no step; the next one still gets its checkpoint
+        b.touchDown(at: 9.0); b.touchEnd(at: 9.1)
+        b.touchDown(at: 9.2)
+        XCTAssertTrue(b.nextWriteNeedsNewStep(), "nothing was checkpointed by the empty touch, so a double-tap reset after it is still undoable")
+    }
+
 }

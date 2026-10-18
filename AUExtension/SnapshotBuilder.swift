@@ -780,7 +780,12 @@ enum SnapshotBuilder {
                                                                       listenShadowOctave: $0.listenShadowOctave.map { clamp($0, -2, 2) },
                                                                       listenAvoidAction: $0.listenAvoidAction,
                                                                       listenLevelMode: $0.listenLevelMode, listenLevelPartner: $0.listenLevelPartner.map { clamp($0, 0, 3) },
-                                                                      listenLevelAmount: $0.listenLevelAmount.map { clamp($0, 0, 1) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
+                                                                      listenLevelAmount: $0.listenLevelAmount.map { clamp($0, 0, 1) },
+                                                                      // MIX TAB (2026-10-18): the notes layer's own gate/velocity — threaded here for the
+                                                                      // same reason as every field above (a fresh literal silently resets anything missing).
+                                                                      // notesGate clamps EXACTLY like `gate` (5%…100%) so the two layers agree at the low end.
+                                                                      notesGate: $0.notesGate.map { clamp($0, 0.05, 1.0) },
+                                                                      notesVelocity: $0.notesVelocity.map { clamp($0, 1, 127) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
         // LISTEN TAB preset-load safety (§4's own "(My interpretation.)"): "if a loaded preset contains a
         // loop, switch off the row that closes it." Applied ONCE here, after every lane's own fields have
         // been resolved above, so a hand-edited or legacy doc can never reach the render path (or the UI,

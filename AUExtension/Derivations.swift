@@ -2961,9 +2961,15 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
         guard line.customHits == nil else { return }   // disabled on an edited pattern — defensive; the UI never drags this
         line.tilt = max(-1, min(1, newValue))
     case .gate:
-        line.gate = max(0.01, min(1, newValue))   // matches euclideousSliderRange's own lowered floor — see its comment
+        let target = max(0.01, min(1, newValue))   // matches euclideousSliderRange's own lowered floor — see its comment
+        // MIX ferry §6.3: the layers PART at the first edit — pin the notes layer to the CURRENT gate before it changes (only on a
+        // genuine change, so a no-op commit never parts them). Same undo step: this runs inside the caller's one `edit`.
+        if target != line.gateResolved { euclideousPinNotesLayer(&line, gate: true, velocity: false) }
+        line.gate = target
     case .velocity:
-        line.velocityAbsolute = max(1, min(127, Int(newValue.rounded())))
+        let target = max(1, min(127, Int(newValue.rounded())))
+        if target != line.velocityAbsoluteResolved { euclideousPinNotesLayer(&line, gate: false, velocity: true) }
+        line.velocityAbsolute = target
     }
 }
 
@@ -2979,8 +2985,15 @@ func euclideousSliderRevert(_ field: EuclideousSliderField, _ line: inout Euclid
     case .steps: line.steps = snapshot.steps; line.customHits = snapshot.customHits
     case .offset: line.rotate = snapshot.rotate
     case .tilt: line.tilt = snapshot.tilt
-    case .gate: line.gate = snapshot.gate
-    case .velocity: line.velocityAbsolute = snapshot.velocityAbsolute
+    case .gate:
+        line.gate = snapshot.gate
+        // A long-press revert is NOT an edit: if the touch-down commit parted the layers (pinned `notesGate` to the old GATE), put
+        // that back too, or a stray press would leave later GATE edits moving only the riff. Only the pin is undone — a notes-pad
+        // value that differs from the snapshot GATE is left alone.
+        if snapshot.notesGate == nil, line.notesGate == snapshot.gateResolved { line.notesGate = nil }
+    case .velocity:
+        line.velocityAbsolute = snapshot.velocityAbsolute
+        if snapshot.notesVelocity == nil, line.notesVelocity == snapshot.notesVelocityResolved { line.notesVelocity = nil }
     }
 }
 
@@ -2993,8 +3006,12 @@ func euclideousSliderDoubleTapDefault(_ field: EuclideousSliderField, _ line: in
     case .hits, .steps: break
     case .offset: line.rotate = 0
     case .tilt: line.tilt = 0
-    case .gate: line.gate = 0.9
-    case .velocity: line.velocityAbsolute = 100
+    case .gate:
+        if line.gateResolved != 0.9 { euclideousPinNotesLayer(&line, gate: true, velocity: false) }
+        line.gate = 0.9
+    case .velocity:
+        if line.velocityAbsoluteResolved != 100 { euclideousPinNotesLayer(&line, gate: false, velocity: true) }
+        line.velocityAbsolute = 100
     }
 }
 
@@ -3039,7 +3056,7 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
 /// threshold, not a near-100% approximation).
 func euclideousSliderAccessibilityValueText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
     let base = euclideousSliderValueText(field, line)
-    guard field == .gate, Int((line.gateResolved * 100).rounded()) >= 100 else { return base }
+    guard field == .gate, euclideousGateIsLegato(line.gateResolved) else { return base }
     return "\(base), legato"
 }
 /// Paul, on-device (2026-10-14): "The label GATE should read as LEGATO when at 100%" — a SECOND, now VISIBLE
@@ -3051,7 +3068,7 @@ func euclideousSliderAccessibilityValueText(_ field: EuclideousSliderField, _ li
 /// announces legato via the spoken VALUE; changing both would read as "Legato, 100 percent, legato" to
 /// VoiceOver, a redundant double-announcement this file's own `EuclideousSlider` body doesn't need.
 func euclideousSliderLabelText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
-    guard field == .gate, Int((line.gateResolved * 100).rounded()) >= 100 else { return field.name }
+    guard field == .gate, euclideousGateIsLegato(line.gateResolved) else { return field.name }
     return "LEGATO"
 }
 
@@ -5047,4 +5064,218 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
     return EuclideousHeaderLayout(kind: compact ? .c : .b, widths: w,
                                   brand: .init(x: 0, width: w.brand, row: 0), outputs: .init(x: ringsX, width: w.outputs, row: 0),
                                   notes: .init(x: 0, width: w.notes, row: 1), utilities: .init(x: uX, width: w.utilities, row: 0))
+}
+
+// MARK: - MIX TAB (ferry 2026-10-18): gate, velocity and octave for every layer
+//
+// Pure, Foundation-only support for the sequencer panel's MIX tab and the per-layer gate/velocity model: the legato predicate
+// the engine and every label share, the §6.3 "layers part at the first edit" helper, the NOTES VEL bar's relative view, the
+// pad's geometry and touch maths (one definition for drawing AND touch), labels/accessibility text, octave setters shared with
+// the RIFF/NOTES tabs, the tab model, and the per-touch undo state machine. `EuclideousPage`/`MixPadPainter` only draw/route.
+
+/// Exactly 100% (rounded to a whole percent) is LEGATO — the ONE predicate behind the engine's per-layer legato, the RHYTHM
+/// tab's "LEGATO" label, the pad's strip name and the spoken value, so they can never disagree.
+func euclideousGateIsLegato(_ g: Double) -> Bool { Int((g * 100).rounded()) >= 100 }
+
+/// §6.3: the layers part at the FIRST edit. Before GATE changes, if `notesGate` is nil store the current GATE in it; before VEL
+/// changes, if `notesVelocity` is nil store its current resolved value. ONE helper every GATE/VEL setter calls (inside the
+/// caller's own undo step), so an old session sounds the same until edited and from the first edit the two layers are independent.
+func euclideousPinNotesLayer(_ line: inout EuclidLine, gate: Bool, velocity: Bool) {
+    if gate, line.notesGate == nil { line.notesGate = line.gateResolved }
+    if velocity, line.notesVelocity == nil { line.notesVelocity = line.notesVelocityResolved }
+}
+
+/// One pitch's note length in beats (RIFF/NOTES pitches each carry their OWN gate): the gap to the lane's next real hit × that
+/// pitch's gate, floored at `minGateBeats` (the engine's 5 ms), plus — when a TIE extends the hit — the full gap up to the tied
+/// hit and only the extension scaled by the gate (the ferry's §3.1 TIE rule, unchanged, just per pitch).
+func euclideousPitchGateBeats(gate: Double, nextHitGapBeats: Double, tieExt: Double, minGateBeats: Double) -> Double {
+    tieExt > 0 ? max(minGateBeats, nextHitGapBeats + gate * tieExt) : max(minGateBeats, gate * nextHitGapBeats)
+}
+/// A mask-added note (CHORD interval) takes the gate — and, via `repVelBase`, the velocity — of the pitch it comes from: the
+/// riff pitch when the hit has one, otherwise the notes layer (the same layer rule as the mask's octave, `maskOct`).
+func euclideousExtraPitchGate(hadRiffNote: Bool, gate: Double, notesGate: Double) -> Double { hadRiffNote ? gate : notesGate }
+
+// ── the NOTES VEL bar becomes a view of `notesVelocity` relative to VEL (§6.4) ────────────────────────────────────────
+
+/// What the bar shows: clamp(notesVelocity − VEL, −64, 64).
+func euclideousNotesVelBarValue(_ line: EuclidLine) -> Int { max(-64, min(64, line.notesVelocityResolved - line.velocityAbsoluteResolved)) }
+/// Writing an offset `o` stores notesVelocity = clamp(VEL + o, 1, 127). Nothing writes `notesVelOffset` any more (it stays decodable).
+func euclideousNotesVelBarWrite(_ line: inout EuclidLine, offset o: Int) {
+    line.notesVelocity = max(1, min(127, line.velocityAbsoluteResolved + max(-64, min(64, o))))
+}
+/// The bar's double tap stores VEL into notesVelocity (offset 0).
+func euclideousNotesVelBarDoubleTap(_ line: inout EuclidLine) { line.notesVelocity = line.velocityAbsoluteResolved }
+
+// ── octave: ONE setter per layer, shared by the RIFF/NOTES tabs and the MIX stepper ──────────────────────────────────
+
+/// RIFF layer octave (the RIFF tab's OCT row).
+func euclideousSetRiffOctave(_ line: inout EuclidLine, _ v: Int) { line.riffOctave = v }
+/// NOTES layer octave (the NOTES tab's octave trough): writing it also switches the notes layer ON, as that control always has.
+func euclideousSetNotesOctave(_ line: inout EuclidLine, _ v: Int) {
+    if !line.notesOnResolved { line.notesOn = true }
+    line.octave = v
+}
+/// The layer's octave as the stepper shows it: −2…+2 (the engine clamps `octave` to ±2 for this row).
+func euclideousMixOctave(of line: EuclidLine, notes: Bool) -> Int { max(-2, min(2, notes ? line.octaveResolved : line.riffOctaveResolved)) }
+/// 0, +1, +2, −1, −2 with a true minus (U+2212).
+func euclideousMixOctaveText(_ v: Int) -> String { v > 0 ? "+\(v)" : (v < 0 ? "\u{2212}\(-v)" : "0") }
+/// VoiceOver: "0", "plus 1", "minus 2".
+func euclideousMixOctaveSpoken(_ v: Int) -> String { v > 0 ? "plus \(v)" : (v < 0 ? "minus \(-v)" : "0") }
+/// The octave one step up/down, or nil at the end of −2…+2 (no wrap — that button is disabled).
+func euclideousMixOctaveNext(_ v: Int, up: Bool) -> Int? { let n = v + (up ? 1 : -1); return (-2...2).contains(n) ? n : nil }
+
+// ── the layer-off look (§3.15) and VoiceOver wording ─────────────────────────────────────────────────────────────────
+
+/// A layer is OFF exactly when its dot on the lane card's tab is hollow: the riff card switched off, or `notesOn` false.
+func euclideousMixLayerIsOff(_ line: EuclidLine, notes: Bool) -> Bool { notes ? !line.notesOnResolved : !line.riffOnResolved }
+func euclideousMixPadAccessibilityLabel(lane: Int, notes: Bool, off: Bool) -> String { "Lane \(lane + 1) \(notes ? "notes" : "riff")" + (off ? ", off" : "") }
+func euclideousMixOctaveAccessibilityLabel(lane: Int, notes: Bool) -> String { "Lane \(lane + 1) \(notes ? "notes" : "riff") octave" }
+
+// ── gate / velocity text (both layers share the RHYTHM tab's rules) ───────────────────────────────────────────────────
+
+private func euclideousGateProbe(_ gate: Double) -> EuclidLine { var l = EuclidLine(); l.gate = gate; return l }
+/// The strip's name: LEGATO at exactly 100% (`euclideousSliderLabelText`'s own rule), else GATE.
+func euclideousMixGateName(gate: Double) -> String { euclideousSliderLabelText(.gate, euclideousGateProbe(gate)) }
+/// The strip's value: "<n>%".
+func euclideousMixGateValueText(gate: Double) -> String { euclideousSliderValueText(.gate, euclideousGateProbe(gate)) }
+/// "gate 60 percent, velocity 104" — the gate part from `euclideousSliderAccessibilityValueText` (so 100% reads "100 percent, legato").
+func euclideousMixPadAccessibilityValue(gate: Double, velocity: Int) -> String {
+    let g = euclideousSliderAccessibilityValueText(.gate, euclideousGateProbe(gate)).replacingOccurrences(of: "%", with: " percent")
+    return "gate \(g), velocity \(velocity)"
+}
+/// VoiceOver swipe up/down steps velocity by 4 (clamped 1…127).
+func euclideousMixVelocityStep(_ v: Int, up: Bool) -> Int { max(1, min(127, v + (up ? 4 : -4))) }
+/// "Longer gate" / "Shorter gate": 5 percentage points each (clamped 1…100%).
+func euclideousMixGateStep(_ g: Double, longer: Bool) -> Double {
+    let pct = Int((g * 100).rounded()) + (longer ? 5 : -5)
+    return Double(max(1, min(100, pct))) / 100
+}
+
+// ── the grid (§2): one formula for the whole MIX area ────────────────────────────────────────────────────────────────
+
+enum EuclideousMixMetrics {
+    static let sp4: CGFloat = 4, sp8: CGFloat = 8
+    static let tabRowH: CGFloat = 20
+    static let stepperH: CGFloat = 28
+    static let velStripW: CGFloat = 24
+    static let gateStripH: CGFloat = 14
+    static let puckInset: CGFloat = 7
+    /// §2.8: below either, REPORT with the panel size — never shrink anything.
+    static let minCellW: CGFloat = 84, minPadH: CGFloat = 76
+}
+/// The grid area (inside the panel's sp8 padding, below the 20pt tab row + sp8) for a panel of this size.
+func euclideousMixGridArea(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
+    CGSize(width: panelWidth - EuclideousMixMetrics.sp8 * 2,
+           height: panelHeight - EuclideousMixMetrics.sp8 * 2 - EuclideousMixMetrics.tabRowH - EuclideousMixMetrics.sp8)
+}
+struct EuclideousMixGrid: Equatable {
+    var cellW: CGFloat, rowH: CGFloat, padH: CGFloat
+    /// §2.8: this panel is too small for the ferry's legibility floors (reported, not shrunk).
+    var belowFloors: Bool { cellW < EuclideousMixMetrics.minCellW || padH < EuclideousMixMetrics.minPadH }
+    /// A cell's origin from the grid area's top-leading corner: lane blocks sit 2×2 (lanes 1,2 on the top row, 3,4 below), each
+    /// block is RIFF then NOTES, sp4 apart; sp8 between blocks and between the rows.
+    func origin(lane: Int, notes: Bool) -> CGPoint {
+        let sp4 = EuclideousMixMetrics.sp4, sp8 = EuclideousMixMetrics.sp8
+        let col = lane % 2, row = (lane / 2) % 2
+        let blockX = CGFloat(col) * (cellW * 2 + sp4 + sp8)
+        return CGPoint(x: blockX + (notes ? cellW + sp4 : 0), y: CGFloat(row) * (rowH + sp8))
+    }
+}
+/// cellW = (W − 16) / 4, rowH = (H − 8) / 2, padH = rowH − 32 (the OCT stepper's 28 + sp4 sit under the pad).
+func euclideousMixGrid(width: CGFloat, height: CGFloat) -> EuclideousMixGrid {
+    let rowH = (height - EuclideousMixMetrics.sp8) / 2
+    return EuclideousMixGrid(cellW: (width - 16) / 4, rowH: rowH, padH: rowH - (EuclideousMixMetrics.stepperH + EuclideousMixMetrics.sp4))
+}
+
+// ── the pad (§3/§4): drawing geometry and touch-to-value are ONE definition ────────────────────────────────────────────
+
+struct EuclideousMixPadGeometry: Equatable {
+    let cellW: CGFloat, padH: CGFloat
+    var plotW: CGFloat { cellW - EuclideousMixMetrics.velStripW }
+    var plotH: CGFloat { padH - EuclideousMixMetrics.gateStripH }
+    var track: CGRect { CGRect(x: 0, y: 0, width: cellW, height: padH) }
+    var velStrip: CGRect { CGRect(x: 0, y: 0, width: EuclideousMixMetrics.velStripW, height: plotH) }
+    var gateStrip: CGRect { CGRect(x: EuclideousMixMetrics.velStripW, y: plotH, width: plotW, height: EuclideousMixMetrics.gateStripH) }
+    var plot: CGRect { CGRect(x: EuclideousMixMetrics.velStripW, y: 0, width: plotW, height: plotH) }
+    var yAxis: CGRect { CGRect(x: EuclideousMixMetrics.velStripW, y: 0, width: 1, height: plotH) }
+    var xAxis: CGRect { CGRect(x: EuclideousMixMetrics.velStripW, y: plotH, width: plotW, height: 1) }
+    /// Puck travel is inset 7 at both ends of each axis.
+    private var travelX: CGFloat { plotW - EuclideousMixMetrics.puckInset * 2 }
+    private var travelY: CGFloat { plotH - EuclideousMixMetrics.puckInset * 2 }
+    private var originX: CGFloat { EuclideousMixMetrics.velStripW + EuclideousMixMetrics.puckInset }   // 24 + 7 = 31 — the puck's leftmost centre
+    /// The puck centre for a gate fraction (0.01…1 = 1…100%) and a velocity (1…127).
+    func puck(gate: Double, velocity: Int) -> CGPoint {
+        CGPoint(x: originX + CGFloat(gate) * travelX, y: plotH - EuclideousMixMetrics.puckInset - CGFloat(velocity) / 127 * travelY)
+    }
+    /// Tick centres at q = 25, 50, 75% of each axis's travel.
+    var tickXs: [CGFloat] { [0.25, 0.5, 0.75].map { originX + CGFloat($0) * travelX } }
+    var tickYs: [CGFloat] { [0.25, 0.5, 0.75].map { plotH - EuclideousMixMetrics.puckInset - CGFloat($0) * travelY } }
+    /// Touch-to-value (§4.1): a touch ANYWHERE on the pad (strips included) sets both values from that point —
+    /// gate% = round((x − 31) / (plotW − 14) × 100), velocity = round((plotH − 7 − y) / (plotH − 14) × 127) — each clamped to its
+    /// field's range (gate 1…100%, velocity 1…127). Returns the gate as a fraction.
+    func values(at p: CGPoint) -> (gate: Double, velocity: Int) {
+        let g = Int((Double((p.x - originX) / travelX) * 100).rounded())
+        let v = Int((Double((plotH - EuclideousMixMetrics.puckInset - p.y) / travelY) * 127).rounded())
+        return (Double(max(1, min(100, g))) / 100, max(1, min(127, v)))
+    }
+}
+
+/// Writes a pad's values into a line. RIFF: through the SAME setters the RHYTHM sliders use (so GATE/VEL always agree and the §6.3
+/// pin happens); NOTES: straight into the notes layer's own fields.
+func euclideousMixPadWrite(_ line: inout EuclidLine, notes: Bool, gate: Double, velocity: Int) {
+    if notes {
+        line.notesGate = max(0.01, min(1, gate)); line.notesVelocity = max(1, min(127, velocity))
+    } else {
+        let snap = line
+        euclideousSliderCommit(.gate, &line, snapshot: snap, newValue: gate)
+        euclideousSliderCommit(.velocity, &line, snapshot: snap, newValue: Double(velocity))
+    }
+}
+/// Double tap (§4.4): both values return to what a new lane starts with (GATE 90%, VEL 100) — RIFF via the sliders' own double-tap
+/// default (pin included), NOTES by storing those values in the notes layer.
+func euclideousMixPadReset(_ line: inout EuclidLine, notes: Bool) {
+    if notes { line.notesGate = 0.9; line.notesVelocity = 100 }
+    else { euclideousSliderDoubleTapDefault(.gate, &line); euclideousSliderDoubleTapDefault(.velocity, &line) }
+}
+/// What a pad currently shows: the layer's gate (fraction) and velocity.
+func euclideousMixPadValues(of line: EuclidLine, notes: Bool) -> (gate: Double, velocity: Int) {
+    notes ? (line.notesGateResolved, line.notesVelocityResolved) : (line.gateResolved, line.velocityAbsoluteResolved)
+}
+
+// ── one undo step per TOUCH (§4.3/§4.4) ───────────────────────────────────────────────────────────────────────────
+
+/// The page's `edit()` funnel records with one fixed coalesce key, and `UndoStack` coalesces on key equality alone — so consecutive
+/// edits across DIFFERENT touches merge into one step. A pad wants one step per touch, so it checkpoints explicitly: the first
+/// value-changing write of a burst asks for a new step (`nextWriteNeedsNewStep` — true once), every later write in the burst just
+/// mutates. A touch that begins within `continueWithin` of the previous touch lifting CONTINUES the burst, so a double tap's reset
+/// merges with the first tap and one undo returns to before it. An empty touch (no write) adds no step.
+struct EuclideousPadUndoBurst: Equatable {
+    static let continueWithin: Double = 0.35
+    private(set) var stepOpen = false
+    private var lastUp: Double? = nil
+    mutating func touchDown(at t: Double) {
+        if let up = lastUp, t - up <= Self.continueWithin, stepOpen { /* a second tap — same burst */ } else { stepOpen = false }
+        lastUp = nil
+    }
+    mutating func nextWriteNeedsNewStep() -> Bool {
+        if stepOpen { return false }
+        stepOpen = true
+        return true
+    }
+    mutating func touchEnd(at t: Double) { lastUp = t }
+}
+
+// ── the sequencer panel's tabs (§1) ───────────────────────────────────────────────────────────────────────────────────
+
+/// MIX first (and the default), LANES second; RIFFS stays hidden (its code/fields stay, unreachable).
+enum EuclideousSeqTab: Int, CaseIterable {
+    case mix = 0, lanes = 1, riffs = 2
+    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS" } }
+    static let visible: [EuclideousSeqTab] = [.mix, .lanes]
+    static let `default`: EuclideousSeqTab = .mix
+}
+/// Tabs only: equal widths across the full content width, sp4 apart (two tabs at the 401pt reference = 198.5 each).
+func euclideousSeqTabWidth(count: Int, contentWidth: CGFloat) -> CGFloat {
+    guard count > 0 else { return contentWidth }
+    return (contentWidth - EuclideousMixMetrics.sp4 * CGFloat(count - 1)) / CGFloat(count)
 }
