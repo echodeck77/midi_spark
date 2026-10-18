@@ -374,11 +374,12 @@ final class EffectiveParamsTests: XCTestCase {
             }
         }
     }
-    func testEuclideousLinesResolvedFreshDocumentDefaultsResetStepsToOneIgnoringLegacyBars() {
+    // LANES GRID (2026-10-18, §1.3 / §9.1): the fresh-document default is now NO restarts (it was "every 1 step"); a stale legacy bars-count is still ignored.
+    func testEuclideousLinesResolvedFreshDocumentDefaultsToNoRestartsIgnoringLegacyBars() {
         var st = doc()
         st.euclideousResetSpanBars = 8   // must be IGNORED — euclideousLines is nil (genuinely fresh), not migrated
         for l in st.euclideousLinesResolved {
-            XCTAssertEqual(l.resetStepsResolved, 1, "a genuinely fresh document's lanes default to 1 step, never consulting a legacy bars-count that was never actually authored")
+            XCTAssertEqual(l.resetStepsResolved, 0, "a genuinely fresh document's lanes carry no restart, never consulting a legacy bars-count that was never actually authored")
         }
     }
 
@@ -398,11 +399,11 @@ final class EffectiveParamsTests: XCTestCase {
                 XCTAssertEqual(l.restartMaskResolved, euclideousStampMask(expectedSteps), "bars=\(bars)")
             }
         }
-        // Fresh document: no euclideousLines at all → migrates to 1 step → stamp(1) = every bit set.
+        // Fresh document: no euclideousLines at all → no restart (LANES GRID, 2026-10-18) → stamp(0) = no bit set.
         var fresh = doc()
         fresh.euclideousResetSpanBars = 8   // must still be ignored, exactly like the resetSteps-only test above
         for l in fresh.euclideousLinesResolved {
-            XCTAssertEqual(l.restartMaskResolved, euclideousStampMask(1))
+            XCTAssertEqual(l.restartMaskResolved, 0)
         }
     }
     // A pre-feature line (only the old `resetSteps` key, `restartMask` never written) decodes without
@@ -1133,6 +1134,7 @@ final class EffectiveParamsTests: XCTestCase {
         l.listenPitchMode = .avoid; l.listenPitchPartner = 1; l.listenPitchPartnerAny = true; l.listenShadowInterval = 3; l.listenShadowOctave = -1
         l.listenAvoidAction = .move; l.listenLevelMode = .accent; l.listenLevelPartner = 3; l.listenLevelAmount = 0.65
         l.notesGate = 0.45; l.notesVelocity = 66
+        l.muteCells16 = 0x0F3C; l.muteUnit = 3; l.restartRhythmMask16 = 0x0121; l.restartMelodyMask16 = 0x8040; l.restartUnit = 4   // LANES GRID
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {
             let m = Mirror(reflecting: child.value)

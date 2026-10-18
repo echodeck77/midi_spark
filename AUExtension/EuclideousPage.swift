@@ -659,6 +659,10 @@ struct EuclideousPage: View {
     // SEQUENCER PANEL (2026-10-14 ferry §1; MIX ferry 2026-10-18 §1.5): which tab is showing — MIX first and the DEFAULT, LANES second,
     // RIFFS hidden — purely ephemeral, never persisted (so a fresh page always opens on MIX).
     @State private var sequencerTab: EuclideousSeqTab = .default
+    // LANES GRID (2026-10-18): which sub-tab of LANES is showing (MUTE first, ephemeral like the tab above — switching never changes data), and
+    // the per-lane cache of the roll feed (recomputed only when its inputs or its window change, never per frame).
+    @State private var lanesSubTab: EuclideousLanesSubTab = .mute
+    @State private var lanesRollCache = EuclideousLanesRollCache()
     // §3.2's FIRST-RUN PAD HINT (the old XY pads' own animated ↕/↔ affordance) is RETIRED along with the
     // pads themselves (usability ferry, 2026-10-12) — not ported to the new sliders. Each slider's own
     // visible fill/track already reads as "drag me" far more directly than a flat 2D pad ever did (a
@@ -1693,8 +1697,18 @@ struct EuclideousPage: View {
         if line.riffOnResolved {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
             let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
-            let baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
+            var baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
                                                        liveOrd: ws, dir: line.directionResolved)
+            // LANES GRID §2.8: the footer's lap baseline takes BOTH origins — it is the riff ordinal the CURRENT lap's first hit reads, from the engine's
+            // own per-tick core (`euclideousLapStartOrdinal`), not reverse-derived from the polled ordinal (which a melody restart would break). A restart
+            // that falls INSIDE the lap stays unforeseen, so the prediction remains oblivious to it, as before.
+            let cyc = clock.stepBeats * Double(max(1, clock.cols))
+            if let cfg = euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
+                                                   lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells,
+                                                   swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo),
+               let lapStart = euclideousLapStartOrdinal(cfg: cfg, beat: walkTagBeat(at: Date())) {
+                baseline.startOrd = lapStart
+            }
             prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.euclideousRiffDirResolved,
                                                          stride: line.riffStrideResolved, length: line.riffLengthResolved,
                                                          rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
@@ -1736,6 +1750,11 @@ struct EuclideousPage: View {
             let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: lines) : nil
             let listenFollowTint: Color? = followIdx.map { laneAccents[$0 % laneAccents.count] }   // the partner's colour: the lit cells + the badge dot
             let listenShadowTint: Color? = line.listenPitchMode == .shadow ? laneAccents[line.listenPitchPartnerResolved % laneAccents.count] : nil
+            // LANES GRID: the lane's own grid, resolved exactly as the engine resolves it, so the card's comet / flashes follow the rhythm origin and a
+            // lane the grid has muted dims. Both stay nil for a lane with no restart marks / no mute, leaving its card byte-identical.
+            let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
+            let cardRestartGrid = euclideousLaneRestartGrid(gridView.grid, cycleLen: gridView.cycleLen)
+            let cardMuteCells = gridView.grid.muteCells, cardMuteUnit = gridView.muteUnitBeats
             EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                           // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                           // border/fill around just this row (the step-bar area) — always `false` now; the
@@ -1788,7 +1807,9 @@ struct EuclideousPage: View {
                           rateBeatsOverride: followEff?.rateBeats,
                           // FERRY (2026-10-14 §5): the one piece the footer prediction itself doesn't carry —
                           // whether landing on a riff rest actually sounds (FILL) or not (SKIP/TIE).
-                          riffOnRest: line.riffOnRestResolved)
+                          riffOnRest: line.riffOnRestResolved,
+                          restartGrid: cardRestartGrid.isActive ? cardRestartGrid : nil,
+                          mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: b, cells16: cardMuteCells, unitBeats: cardMuteUnit) })
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -3995,7 +4016,7 @@ struct EuclideousPage: View {
         return (0..<4).map { i in
             guard !suppress, walkTagShows(i) else { return nil }
             return euclideousWalkLaneConfig(lane: i, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
-                                            lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len,
+                                            lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells,
                                             swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
         }
     }
@@ -4008,8 +4029,10 @@ struct EuclideousPage: View {
         let spb = 60.0 / max(1.0, clock.tempo)
         return (0..<4).map { i in
             guard let cfg = cfgs[i], i < riffPositions.count, i < lines.count else { return nil }
+            // LANES GRID: a lane the grid has muted at this beat is drawn as a STOPPED lane's tag — seated, no thread (and dimmed below).
             return euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i],
-                                         running: clock.playing && lines[i].enabledResolved)
+                                         running: clock.playing && lines[i].enabledResolved
+                                            && euclideousLaneAudible(beat: beat, cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats))
         }
     }
 
@@ -4026,9 +4049,11 @@ struct EuclideousPage: View {
                 let drawings: [EuclideousTagDrawing?] = (0..<4).map { i in
                     plans[i].map { euclideousTagDrawing(lane: i, plan: $0, cellW: cellW, cellH: cellH, gap: sp4) }
                 }
+                // the lane card's own 42% for a lane the grid has muted at this beat (cells, riff marker, hit flashes — §2.8)
+                let dim: [Bool] = (0..<4).map { i in cfgs[i].map { !euclideousLaneAudible(beat: beat, cells16: $0.muteCells, unitBeats: $0.muteUnitBeats) } ?? false }
                 ctx.translateBy(x: pad, y: pad)
-                for i in 0..<4 { if let t = drawings[i]?.thread { drawWalkThread(&ctx, lane: i, t) } }
-                for i in 0..<4 { if let d = drawings[i] { drawWalkTag(&ctx, lane: i, d, cellW: cellW, cellH: cellH) } }
+                for i in 0..<4 { if let t = drawings[i]?.thread { drawWalkThread(&ctx, lane: i, t, dim: dim[i]) } }
+                for i in 0..<4 { if let d = drawings[i] { drawWalkTag(&ctx, lane: i, d, cellW: cellW, cellH: cellH, dim: dim[i]) } }
                 #if DEBUG
                 logWalkTagArrivals(plans)
                 #endif
@@ -4039,11 +4064,13 @@ struct EuclideousPage: View {
         .offset(x: -pad, y: -pad)
         .allowsHitTesting(false)
     }
-    private func drawWalkThread(_ ctx: inout GraphicsContext, lane: Int, _ g: EuclideousThreadGeometry) {
-        EuclideousWalkTagPainter.drawThread(&ctx, accent: laneAccents[lane % laneAccents.count], g)
+    private func drawWalkThread(_ ctx: inout GraphicsContext, lane: Int, _ g: EuclideousThreadGeometry, dim: Bool = false) {
+        let accent = laneAccents[lane % laneAccents.count]
+        EuclideousWalkTagPainter.drawThread(&ctx, accent: dim ? accent.opacity(0.42) : accent, g)
     }
-    private func drawWalkTag(_ ctx: inout GraphicsContext, lane: Int, _ d: EuclideousTagDrawing, cellW: CGFloat, cellH: CGFloat) {
-        EuclideousWalkTagPainter.drawTag(&ctx, lane: lane, accent: laneAccents[lane % laneAccents.count], d, cellW: cellW, cellH: cellH)
+    private func drawWalkTag(_ ctx: inout GraphicsContext, lane: Int, _ d: EuclideousTagDrawing, cellW: CGFloat, cellH: CGFloat, dim: Bool = false) {
+        let accent = laneAccents[lane % laneAccents.count]
+        EuclideousWalkTagPainter.drawTag(&ctx, lane: lane, accent: dim ? accent.opacity(0.42) : accent, d, cellW: cellW, cellH: cellH)
     }
 
     #if DEBUG
@@ -4151,10 +4178,7 @@ struct EuclideousPage: View {
             case .mix:
                 mixGrid(width: innerW, height: mixH)
             case .lanes:
-                VStack(spacing: sp4) {
-                    sequencerLanesGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
-                    sequencerControlsRow(width: innerW, height: controlsRowH)
-                }
+                lanesTab(width: innerW, height: max(1, innerH - tabRowH - sp4))   // LANES GRID (2026-10-18): replaces the old step grid + ON/RATE/LEN row
             case .riffs:   // hidden (unreachable from the tab row) — kept so its code stays compiled
                 VStack(spacing: sp4) {
                     sequencerRiffsGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
@@ -4177,16 +4201,11 @@ struct EuclideousPage: View {
         return HStack(spacing: sp4) {
             ForEach(tabs, id: \.rawValue) { tab in
                 let sel = sequencerTab == tab
-                let hasDot = tab == .lanes
-                let on = lanesSeq.on
+                // The on/off ring beside LANES is gone with the ON switch (LANES GRID, 2026-10-18): the grid is always live.
                 ZStack(alignment: .bottom) {
                     HStack(spacing: 6) {
                         Text(tab.label).font(.system(size: 12, weight: .heavy, design: .monospaced))
                             .foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)).lineLimit(1)
-                        if hasDot {
-                            Circle().fill(on ? Color(hex: 0xF2F4F7) : Color.clear).frame(width: 7, height: 7)
-                                .overlay(Circle().stroke(Color(hex: 0xAAB0BA), lineWidth: on ? 0 : 1.5))
-                        }
                     }
                     .frame(width: tabW, height: height - 4, alignment: .center)   // centred in the top 16pt
                     .frame(width: tabW, height: height, alignment: .top)
@@ -4200,12 +4219,84 @@ struct EuclideousPage: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(tab.label.capitalized)
-                .accessibilityValue(hasDot ? (on ? "on" : "off") : "")
                 .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)   // SwiftUI has no tab trait; button + selected, like the lane tabs
             }
         }
         .frame(width: width, height: height)
     }
+    // MARK: - THE LANES TAB (LANES GRID ferry, 2026-10-18)
+    /// MUTE | RESTART, four lane blocks of 16 cells, a roll behind them and a playhead per lane — all painted by `EuclideousLanesPanel`
+    /// (LanesPanelPainter.swift) from the pure layer in Derivations.swift. This page supplies the data (each lane's grid resolved exactly as the
+    /// engine resolves it, the cached roll feed) and the edits (one undo step per stroke or rate-box tap). A `TimelineView` at 4 Hz only
+    /// re-evaluates the window the roll covers; the playheads animate in their own layer.
+    private func lanesTab(width: CGFloat, height: CGFloat) -> some View {
+        let layout = euclideousLanesLayout(width: width, height: height)
+        return TimelineView(.periodic(from: .now, by: 0.25)) { tl in
+            EuclideousLanesPanel(layout: layout, tab: lanesSubTab, lanes: lanesPanelLanes(beat: walkTagBeat(at: tl.date)), accents: laneAccents,
+                                 playing: clock.playing, beatAt: { walkTagBeat(at: $0) },
+                                 onSelectTab: { lanesSubTab = $0 },
+                                 onRateTap: { lane in lanesRateTap(lane) },
+                                 cellValue: { hit in lanesCellValue(hit) },
+                                 onApply: { hit, value, first in lanesApply(hit, value, first: first) },
+                                 onToggle: { hit in lanesApply(hit, !lanesCellValue(hit), first: true) })
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+    }
+    /// The four lanes' data for the active sub-tab at `beat`. The roll feed is cached per lane and recomputed only when one of its inputs changes
+    /// (the lane's settings and its neighbours', the riff and looper, the unit, the window, the bar, the tempo) or the window wraps — never per frame.
+    private func lanesPanelLanes(beat: Double) -> [EuclideousLanesPanelLane] {
+        let restart = lanesSubTab == .restart
+        let liveRanks = liveGrid.ranksResolved
+        let looperActive = looperMode == .recording || looperMode == .replaying
+        let cyc = clock.stepBeats * Double(max(1, clock.cols))
+        return (0..<4).map { lane in
+            let v = euclideousLaneGridView(lines: lines, lane: lane, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
+            let unit = restart ? v.restartUnitBeats : v.muteUnitBeats
+            let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
+            let key = EuclideousLanesRollCache.Key(lines: lines, lanesSeq: lanesSeq, liveRanks: liveRanks, looperActive: looperActive,
+                                                    looperStartBeat: looperStartBeat, looperStartRanks: looperStartRanks, looperEventCount: looperEvents.count,
+                                                    looperPasses: looperPasses.passes, windowStart: win.start, unit: unit, restartTab: restart,
+                                                    beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
+            let roll = lanesRollCache.roll(lane: lane, key: key) {
+                guard let cfg = euclideousWalkLaneConfig(lane: lane, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
+                                                          lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells,
+                                                          swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar,
+                                                          tempo: clock.tempo) else { return [] }
+                return euclideousLaneRollHits(cfg: cfg, windowStart: win.start, windowBeats: win.length, minGateBeats: 0.005 * clock.tempo / 60.0) { column, b in
+                    euclideousLooperEffectiveRank(column: column, beat: b, liveGrid: liveRanks, active: looperActive, startBeat: looperStartBeat,
+                                                   passes: looperPasses.passes, startRanks: looperStartRanks, events: looperEvents, beatsPerBar: clock.beatsPerBar)
+                }
+            }
+            var rhythmMarks: [Double] = [], melodyMarks: [Double] = []
+            if !restart {
+                rhythmMarks = euclideousLanesMarkBeats(mask: v.grid.rhythmMask, restartUnitBeats: v.restartUnitBeats, windowStart: win.start, windowBeats: win.length)
+                melodyMarks = euclideousLanesMarkBeats(mask: v.grid.melodyMask, restartUnitBeats: v.restartUnitBeats, windowStart: win.start, windowBeats: win.length)
+            }
+            let audible = restart ? (0..<16).map { euclideousLaneAudible(beat: win.start + Double($0) * unit, cells16: v.grid.muteCells, unitBeats: v.muteUnitBeats) } : []
+            return EuclideousLanesPanelLane(grid: v.grid, unitLabel: restart ? v.grid.restartUnit.label : v.grid.muteUnit.label, unitBeats: unit,
+                                            windowStart: win.start, roll: roll, rhythmMarkBeats: rhythmMarks, melodyMarkBeats: melodyMarks, cellAudible: audible)
+        }
+    }
+    private func lanesGridView(_ lane: Int) -> EuclideousLaneGridView {
+        euclideousLaneGridView(lines: lines, lane: lane, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
+    }
+    private func lanesCellValue(_ hit: EuclideousLanesHit) -> Bool {
+        euclideousLaneGridCellValue(lanesGridView(hit.lane).grid, restart: lanesSubTab == .restart, melody: hit.row == 1, cell: hit.cell)
+    }
+    /// One cell edit. `first` opens the stroke's single undo step (`editStep`'s `newStep`); the lane's resolved grid is read at touch-down and the
+    /// first write pins all five fields from it, so a pre-feature lane's migrated values become its stored values.
+    private func lanesApply(_ hit: EuclideousLanesHit, _ value: Bool, first: Bool) {
+        let resolved = lanesGridView(hit.lane).grid
+        let op: EuclideousLaneGridOp = lanesSubTab == .restart ? .restart(melody: hit.row == 1, cell: hit.cell, on: value) : .mute(cell: hit.cell, on: value)
+        editStep(hit.lane, first) { euclideousApplyLaneGridOp(&$0, resolved: resolved, op) }
+    }
+    /// The rate box: tap cycles the unit (STEP → 4STP → PASS → 2PASS on MUTE; 4STP → PASS → 2PASS → 4PASS on RESTART); cells are kept.
+    private func lanesRateTap(_ lane: Int) {
+        let resolved = lanesGridView(lane).grid
+        let op: EuclideousLaneGridOp = lanesSubTab == .restart ? .nextRestartUnit : .nextMuteUnit
+        editStep(lane, true) { euclideousApplyLaneGridOp(&$0, resolved: resolved, op) }
+    }
+
     /// THE MIX TAB (ferry 2026-10-18 §2): eight cells in two rows of two lane blocks — each lane's pair (RIFF leading, NOTES trailing) sits
     /// where that lane's CARD sits (lanes 1,2 on the top row, 3,4 below; both layouts arrange the cards that way). ONE formula
     /// (`euclideousMixGrid`): cellW = (W−16)/4, rowH = (H−8)/2, padH = rowH−32. If a panel is too small for the legibility floors
@@ -4571,5 +4662,33 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.92)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.22), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+    }
+}
+
+/// The roll feed's per-lane cache (LANES GRID §3.2): "recompute when any mute cell, mark, unit, lane step length, STEPS, hits, offset, rate or riff
+/// changes, and when the window wraps; cache between those; never per frame." The key is everything the feed reads, so a hit is exactly a repeat
+/// of the same question. A plain reference type: the page keeps one in `@State`, and filling it never invalidates the view.
+final class EuclideousLanesRollCache {
+    struct Key: Equatable {
+        var lines: [EuclidLine]
+        var lanesSeq: EuclideousLanesSeq
+        var liveRanks: [Int]
+        var looperActive: Bool
+        var looperStartBeat: Double
+        var looperStartRanks: [Int]
+        var looperEventCount: Int
+        var looperPasses: Int
+        var windowStart: Double
+        var unit: Double
+        var restartTab: Bool
+        var beatsPerBar: Double
+        var tempo: Double
+    }
+    private var store: [Int: (key: Key, roll: [EuclideousRollHit])] = [:]
+    func roll(lane: Int, key: Key, make: () -> [EuclideousRollHit]) -> [EuclideousRollHit] {
+        if let hit = store[lane], hit.key == key { return hit.roll }
+        let r = make()
+        store[lane] = (key, r)
+        return r
     }
 }

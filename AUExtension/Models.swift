@@ -2521,8 +2521,9 @@ struct PluginState: Codable, Equatable {
         }
         return x
     }
-    /// PER-LANE RESET MIGRATION (2026-10-14 ferry): a line's own `resetSteps` stays nil (⇒ 1 step, its bare
-    /// default) for a GENUINELY FRESH document (`euclideousLines == nil` — the whole feature untouched) but
+    /// PER-LANE RESET MIGRATION (2026-10-14 ferry; the fresh-document default CHANGED 2026-10-18 by the LANES GRID ferry): a line's own
+    /// `resetSteps` stays nil (⇒ OFF — the grid's own default is "no restarts", §1.3/§9.1; it used to be 1 step) for a GENUINELY FRESH
+    /// document (`euclideousLines == nil` — the whole feature untouched) but
     /// migrates from the OLD machine-wide `euclideousResetSpanBarsResolved` for a PRE-EXISTING one (any
     /// document that has ever set `euclideousLines` at all, including every one of the 20 shipped presets,
     /// none of which ever set `euclideousResetSpanBars` — so this migration leaves every preset's 4 lanes at
@@ -2539,7 +2540,9 @@ struct PluginState: Codable, Equatable {
                 // (that accessor's nil-default is OFF, deliberately — see its own doc comment) — a
                 // genuinely fresh document's lane gets 1 explicitly, here; a pre-existing one migrates from
                 // whatever the old machine-wide bars-count was.
-                line.resetSteps = isGenuinelyFresh ? 1 : Self.migratedResetSteps(fromBars: euclideousResetSpanBarsResolved)
+                // LANES GRID §1.3 / §9.1: a fresh document's lanes carry NO restart marks (it used to default to "every 1 step"). Reported as a
+                // difference: a never-edited document used to restart the riff every bar; it now counts straight through, until a mark is set.
+                line.resetSteps = isGenuinelyFresh ? 0 : Self.migratedResetSteps(fromBars: euclideousResetSpanBarsResolved)
             }
             return line
         }

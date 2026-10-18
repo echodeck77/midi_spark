@@ -494,4 +494,188 @@ final class LanesGridTests: XCTestCase {
         let truth = (7...40).first { c.hit(Int64($0)) }!
         XCTAssertEqual(gap, Double(truth - 6) * c.sub, "the gap scan and the tick-by-tick definition agree")
     }
+
+    // MARK: - layout, position map, hit test, runs, mark beats (§4, §5)
+
+    func testLayoutAtTheReferenceMatchesTheSpecNumbers() {
+        let L = euclideousLanesLayout(width: 394, height: 260)          // the spec's 410×303 panel less 8pt padding and the tab strip
+        XCTAssertEqual(L.gridX, 42); XCTAssertEqual(L.gridW, 352)
+        XCTAssertEqual(L.cellW, 20.125, accuracy: 1e-9)
+        XCTAssertEqual(L.pitch, 22.125, accuracy: 1e-9)
+        XCTAssertEqual(L.cellLeft(15), 331.875, accuracy: 1e-9)
+        XCTAssertEqual(L.laneH, 50)
+        XCTAssertEqual(L.laneTop(0), 28); XCTAssertEqual(L.laneTop(3), 190)       // y = 63 and 225 less the sub-tab row's own 35 origin
+        XCTAssertEqual(L.legendTop, 244)                                         // y = 279 − 35
+        XCTAssertEqual(L.rowH, 24)                                               // two 24pt restart rows with a 2pt gap
+    }
+    func testLayoutScalesTheLaneBlocksWithTheRealHeightAndNeverBelowTheFloor() {
+        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 272).laneH, 53)
+        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 208).laneH, 37)
+        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 100).laneH, 34, "a floor, so the cells stay tappable")
+        let tall = euclideousLanesLayout(width: 394, height: 400)
+        XCTAssertEqual(tall.legendTop + EuclideousLanesLayout.legendH, 60 + 4 * tall.laneH, accuracy: 1e-9, "the stack fills the height")
+        XCTAssertEqual(euclideousLanesLayout(width: 320, height: 260).cellW, (320 - 42 - 30) / 16, accuracy: 1e-9)
+    }
+    func testPositionMapJumpsTheGapsAndWrapsTheWindow() {
+        let L = euclideousLanesLayout(width: 394, height: 260)
+        let p0 = euclideousLanesPosition(beat: 0, unitBeats: 1, layout: L)
+        XCTAssertEqual(p0.cell, 0); XCTAssertEqual(p0.x, 0, accuracy: 1e-9)
+        let half = euclideousLanesPosition(beat: 0.5, unitBeats: 1, layout: L)
+        XCTAssertEqual(half.x, 0.5 * L.cellW, accuracy: 1e-9)
+        let before = euclideousLanesPosition(beat: 0.999999, unitBeats: 1, layout: L), after = euclideousLanesPosition(beat: 1, unitBeats: 1, layout: L)
+        XCTAssertEqual(before.cell, 0); XCTAssertEqual(after.cell, 1)
+        XCTAssertEqual(after.x - before.x, 2, accuracy: 0.001, "the playhead jumps the 2pt gap")
+        XCTAssertEqual(euclideousLanesPosition(beat: 15.5, unitBeats: 1, layout: L).cell, 15)
+        XCTAssertEqual(euclideousLanesPosition(beat: 16, unitBeats: 1, layout: L).cell, 0, "the window wraps")
+        XCTAssertEqual(euclideousLanesPosition(beat: -0.5, unitBeats: 1, layout: L).cell, 15, "before beat 0 wraps backwards")
+        XCTAssertEqual(euclideousLanesPosition(beat: 7.5, unitBeats: 0.5, layout: L).cell, 15)
+        XCTAssertEqual(euclideousLanesPosition(beat: 5, unitBeats: 0, layout: L).cell, 0)
+    }
+    func testWindowStartsAtTheFlooredWindow() {
+        let w = euclideousLanesWindow(beat: 37, unitBeats: 2)          // window 32
+        XCTAssertEqual(w.start, 32); XCTAssertEqual(w.length, 32)
+        XCTAssertEqual(euclideousLanesWindow(beat: 31.99, unitBeats: 2).start, 0)
+        XCTAssertEqual(euclideousLanesWindow(beat: -1, unitBeats: 2).start, -32)
+    }
+    func testHitTestClaimsTheGapsAndTheRowBoundary() {
+        let L = euclideousLanesLayout(width: 394, height: 260)
+        let gx = L.gridX
+        func hit(_ x: CGFloat, _ y: CGFloat, restart: Bool = false) -> EuclideousLanesHit? { euclideousLanesHit(x: x, y: y, layout: L, restart: restart) }
+        XCTAssertEqual(hit(gx + 5, 40), EuclideousLanesHit(lane: 0, cell: 0, row: 0))
+        XCTAssertEqual(hit(gx + 20.5, 40)?.cell, 0, "the first pt of the gap belongs to the cell on its left")
+        XCTAssertEqual(hit(gx + 21.2, 40)?.cell, 1, "…the second to the cell on its right (1pt slop each side)")
+        XCTAssertEqual(hit(gx - 0.9, 40)?.cell, 0)
+        XCTAssertNil(hit(gx - 1.1, 40)); XCTAssertNil(hit(L.gridX - 20, 40), "the rail is not a cell")
+        XCTAssertEqual(hit(gx + L.gridW + 0.5, 40)?.cell, 15)
+        XCTAssertNil(hit(gx + L.gridW + 1.1, 40))
+        // lanes and the gaps between them
+        XCTAssertEqual(hit(gx + 5, L.laneTop(2) + 10)?.lane, 2)
+        XCTAssertNil(hit(gx + 5, L.laneTop(0) + L.laneH + 2), "the 4pt gap between blocks is nothing")
+        XCTAssertNil(hit(gx + 5, 10), "the sub-tab row is not a lane")
+        // RESTART rows: rhythm above, melody below, the 2pt gap split 1pt each
+        let t = L.laneTop(1)
+        XCTAssertEqual(hit(gx + 5, t + 5, restart: true)?.row, 0)
+        XCTAssertEqual(hit(gx + 5, t + L.rowH + 0.5, restart: true)?.row, 0)
+        XCTAssertEqual(hit(gx + 5, t + L.rowH + 1.5, restart: true)?.row, 1)
+        XCTAssertEqual(hit(gx + 5, t + L.laneH - 1, restart: true)?.row, 1)
+        XCTAssertEqual(hit(gx + 5, t + L.laneH - 1, restart: false)?.row, 0, "MUTE has one row")
+    }
+    func testAStrokeStaysInItsLaneAndClampsToTheGridAndRows() {
+        let L = euclideousLanesLayout(width: 394, height: 260)
+        // finger drifts below the lane and past the right edge: still lane 1, last cell, melody row
+        let h = euclideousLanesStrokeHit(x: 9999, y: L.laneTop(1) + L.laneH + 30, lane: 1, layout: L, restart: true)
+        XCTAssertEqual(h, EuclideousLanesHit(lane: 1, cell: 15, row: 1))
+        let h2 = euclideousLanesStrokeHit(x: -50, y: L.laneTop(1) - 30, lane: 1, layout: L, restart: true)
+        XCTAssertEqual(h2, EuclideousLanesHit(lane: 1, cell: 0, row: 0))
+    }
+    func testRunOutlinesForTheSpecsFiveMarkSets() {
+        func r(_ cells: [Int]) -> [EuclideousLanesRun] { euclideousLanesRuns(mask: cells.reduce(0) { $0 | (1 << UInt16($1)) }) }
+        XCTAssertEqual(r([]), [EuclideousLanesRun(start: 0, end: 16, dashed: true)], "no marks: one dashed outline around all 16 cells")
+        XCTAssertEqual(r([0]), [EuclideousLanesRun(start: 0, end: 16, dashed: false)])
+        XCTAssertEqual(r([5]), [EuclideousLanesRun(start: 0, end: 5, dashed: true), EuclideousLanesRun(start: 5, end: 16, dashed: false)],
+                       "a carried-over run from cell 0 to the first mark is dashed")
+        XCTAssertEqual(r([0, 8]), [EuclideousLanesRun(start: 0, end: 8, dashed: false), EuclideousLanesRun(start: 8, end: 16, dashed: false)])
+        XCTAssertEqual(r([3, 12]), [EuclideousLanesRun(start: 0, end: 3, dashed: true), EuclideousLanesRun(start: 3, end: 12, dashed: false),
+                                    EuclideousLanesRun(start: 12, end: 16, dashed: false)])
+    }
+    func testRestartMarksRepeatEveryRestartPeriodInsideTheMuteWindow() {
+        // restart unit 0.5 beat → period 8; marks on cells 0 and 3 → beats 0, 1.5, 8, 9.5 in a 16-beat mute window
+        let mask: UInt16 = (1 << 0) | (1 << 3)
+        XCTAssertEqual(euclideousLanesMarkBeats(mask: mask, restartUnitBeats: 0.5, windowStart: 0, windowBeats: 16), [0, 1.5, 8, 9.5])
+        XCTAssertEqual(euclideousLanesMarkBeats(mask: mask, restartUnitBeats: 0.5, windowStart: 16, windowBeats: 16), [16, 17.5, 24, 25.5])
+        // restart unit 2 → period 32: only one pass of marks per two mute windows of 16
+        XCTAssertEqual(euclideousLanesMarkBeats(mask: 1 << 8, restartUnitBeats: 2, windowStart: 0, windowBeats: 16), [])
+        XCTAssertEqual(euclideousLanesMarkBeats(mask: 1 << 8, restartUnitBeats: 2, windowStart: 16, windowBeats: 16), [16])
+        XCTAssertEqual(euclideousLanesMarkBeats(mask: 0, restartUnitBeats: 2, windowStart: 0, windowBeats: 16), [])
+    }
+
+    // MARK: - edits (§5)
+
+    private func gridOf(_ l: EuclidLine) -> EuclideousLaneGrid { resolve(l) }
+    func testATapTogglesOneCellAndPinsAllFiveFields() {
+        var l = EuclidLine()
+        XCTAssertFalse(l.usesLaneGrid)
+        euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .mute(cell: 3, on: false))
+        XCTAssertTrue(l.usesLaneGrid, "the first edit pins every field")
+        XCTAssertEqual(l.muteCells16, 0xFFFF & ~(1 << 3)); XCTAssertEqual(l.muteUnit, EuclideousMuteUnit.pass.rawValue)
+        XCTAssertEqual(l.restartRhythmMask16, 0); XCTAssertEqual(l.restartMelodyMask16, 0); XCTAssertEqual(l.restartUnit, EuclideousRestartUnit.pass.rawValue)
+        euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .mute(cell: 3, on: true))
+        XCTAssertEqual(l.muteCells16, 0xFFFF)
+    }
+    func testAStrokeOfManyEditsAgainstOneStaleSnapshotKeepsEveryPaintedCell() {
+        var l = EuclidLine()
+        let snapshot = gridOf(l)                                   // taken at touch-down; the lane then changes under it
+        for cell in 4..<12 { euclideousApplyLaneGridOp(&l, resolved: snapshot, .mute(cell: cell, on: false)) }
+        XCTAssertEqual(l.muteCells16, 0xFFFF & ~0x0FF0, "all eight painted cells survive — the stale snapshot never re-pins over them")
+    }
+    func testRestartTapsWriteTheRightRowAndLeaveTheOtherAlone() {
+        var l = EuclidLine()
+        euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .restart(melody: false, cell: 8, on: true))
+        XCTAssertEqual(l.restartRhythmMask16, 1 << 8); XCTAssertEqual(l.restartMelodyMask16, 0)
+        euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .restart(melody: true, cell: 8, on: true))
+        XCTAssertEqual(l.restartMelodyMask16, 1 << 8)
+        euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .restart(melody: false, cell: 8, on: false))
+        XCTAssertEqual(l.restartRhythmMask16, 0); XCTAssertEqual(l.restartMelodyMask16, 1 << 8)
+        XCTAssertEqual(l.muteCells16, 0xFFFF, "restart edits never touch the mute cells")
+    }
+    func testRateBoxTapsCycleTheUnitAndKeepEveryCell() {
+        var l = EuclidLine()
+        euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .mute(cell: 2, on: false))
+        euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .restart(melody: false, cell: 5, on: true))
+        let cellsBefore = (l.muteCells16, l.restartRhythmMask16)
+        var seen: [EuclideousMuteUnit] = []
+        for _ in 0..<4 { euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .nextMuteUnit); seen.append(l.muteUnitResolved) }
+        XCTAssertEqual(seen, [.twoPass, .step, .fourSteps, .pass], "PASS → 2PASS → STEP → 4STP → PASS")
+        var seenR: [EuclideousRestartUnit] = []
+        for _ in 0..<4 { euclideousApplyLaneGridOp(&l, resolved: gridOf(l), .nextRestartUnit); seenR.append(l.restartUnitResolved) }
+        XCTAssertEqual(seenR, [.twoPass, .fourPass, .fourSteps, .pass])
+        XCTAssertEqual(l.muteCells16, cellsBefore.0); XCTAssertEqual(l.restartRhythmMask16, cellsBefore.1, "cell contents are kept; only their meaning in time changes")
+    }
+    func testStrokeValueIsTheOppositeOfTheCellItStartedOn() {
+        let g = EuclideousLaneGrid(muteCells: 0b101, muteUnit: .pass, rhythmMask: 0b10, melodyMask: 0, restartUnit: .pass)
+        XCTAssertTrue(euclideousLaneGridCellValue(g, restart: false, melody: false, cell: 0))
+        XCTAssertFalse(euclideousLaneGridCellValue(g, restart: false, melody: false, cell: 1))
+        XCTAssertTrue(euclideousLaneGridCellValue(g, restart: true, melody: false, cell: 1))
+        XCTAssertFalse(euclideousLaneGridCellValue(g, restart: true, melody: true, cell: 1))
+    }
+    func testAMigratedLanePinsItsMigratedValuesOnTheFirstEdit() {
+        // an old lane: every-2 reset on a sequencer at 1 BAR with the lane's pass = 1 bar
+        let old = line { $0.restartMask = euclideousStampMask(2) }
+        let before = resolve(old, rate: .oneBar)
+        var l = old
+        euclideousApplyLaneGridOp(&l, resolved: before, .mute(cell: 0, on: false))
+        XCTAssertEqual(l.restartRhythmMask16, before.rhythmMask, "the migrated marks became the stored marks")
+        XCTAssertEqual(l.restartMelodyMask16, before.melodyMask); XCTAssertEqual(l.restartUnit, before.restartUnit.rawValue)
+        XCTAssertEqual(l.muteCells16, 0xFFFE)
+    }
+
+    // MARK: - accessibility words (§7)
+    func testAccessibilityLabelsAreTheSpecsWords() {
+        XCTAssertEqual(euclideousLanesMuteCellLabel(lane: 0, cell: 4, sounding: true), "Lane 1 cell 5, sounding")
+        XCTAssertEqual(euclideousLanesMuteCellLabel(lane: 3, cell: 0, sounding: false), "Lane 4 cell 1, muted")
+        XCTAssertEqual(euclideousLanesRestartCellLabel(lane: 1, cell: 2, melody: false, set: true), "Lane 2 cell 3 rhythm restart, set")
+        XCTAssertEqual(euclideousLanesRestartCellLabel(lane: 1, cell: 2, melody: true, set: false), "Lane 2 cell 3 melody restart, not set")
+        XCTAssertEqual(euclideousLanesRateBoxLabel(lane: 2, unit: "PASS"), "Lane 3 cell size PASS")
+        XCTAssertEqual(euclideousLanesRestartHint, "TOP ROW = RHYTHM RESTART. BOTTOM ROW = MELODY RESTART.")
+    }
+
+    // MARK: - roll geometry + comet phase + lap baseline (§3, §4.6, §2.5)
+    func testRollBarRowsFollowTheRankAxis() {
+        XCTAssertEqual(euclideousRollBarY(rank: 1, laneH: 50), 4 + 7 * 5)       // lowest rank, lowest row
+        XCTAssertEqual(euclideousRollBarY(rank: 8, laneH: 50), 4)
+        XCTAssertEqual(euclideousRollBarY(rank: 0, laneH: 50), 22, "a rest sits on the middle line")
+        XCTAssertEqual(euclideousRollBarY(rank: 8, laneH: 37), 4 * 0.74, accuracy: 1e-9, "scaled with the real lane height")
+    }
+    func testCometPhaseWithNoMarksIsTheLegacyAndWithMarksFollowsTheRhythmOrigin() {
+        for n in [3, 5, 8] { for dir in [EuclidDir.fwd, .bkw, .pingpong] {
+            for beat in stride(from: 0.0, through: 30.0, by: 0.37) {
+                XCTAssertEqual(euclideousLaneCometRaw(beat: beat, n: n, dir: dir, sub: 0.5, grid: .off, legacySpanBeats: 0),
+                               euclidCometRaw(mTickBeat: beat, sub: 0.5, spanBeats: 0, n: n, dir: dir), accuracy: 1e-9)
+            }
+        } }
+        // a rhythm mark restarts the comet at the cell: n = 5, sub 1, 4-tick cells, mark on cell 2 (tick 8) → at beat 8.25 the comet is 0.25 into the pass
+        let grid = EuclideousLaneRestartGrid(unitTicks: 4, rhythmMask: (1 << 0) | (1 << 2), melodyMask: 0)
+        XCTAssertEqual(euclideousLaneCometRaw(beat: 8.25, n: 5, dir: .fwd, sub: 1, grid: grid, legacySpanBeats: 0), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(euclideousLaneCometRaw(beat: 7.5, n: 5, dir: .fwd, sub: 1, grid: grid, legacySpanBeats: 0), 2.5, accuracy: 1e-9, "still running the pass begun at the previous mark (tick 0)… 7.5 mod 5")
+    }
 }

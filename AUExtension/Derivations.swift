@@ -4326,6 +4326,13 @@ struct EuclideousWalkLaneConfig {
     /// (`a` = swing% / 50, `swingStepBeats` = the scene's step beats). `a == 1` (50%) is the identity.
     var swingA: Double = 1
     var swingStepBeats: Double = 0.5
+    /// The roll (LANES GRID §3) draws the lane's riff contour and gate lengths, so the config also carries what the roll reads beyond the
+    /// walk itself: whether the riff is on, the riff layer's GATE, ON REST, and the rank transforms the Router applies (INVERT, TRANSPOSE).
+    var riffOn: Bool = true
+    var gate: Double = 0.9
+    var onRest: EuclidRiffOnRest = .skip
+    var invert: Bool = false
+    var transpose: Int = 0
 }
 
 /// What `Router.runEuclidLine`'s `passesListenRhythmFilter` reads for a WITH / GAPS lane, captured once: the PARTNER's own
@@ -4416,7 +4423,9 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                     riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: L.riffLengthResolved,
                                     rotate: L.riffRotateResolved, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved,
                                     seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)),
-                                    swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats))
+                                    swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats),
+                                    riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
+                                    invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved)
 }
 /// A tick's REAL onset beat — what the note-on is scheduled at (swing-warped), the time a tag must arrive.
 func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Double {
@@ -5357,14 +5366,25 @@ func euclideousMaskedResetCell(beat: Double, cellBeats: Double, mask: UInt16, ce
     return p.lapStartCell + p.s - (p.carried ? p.n : 0)
 }
 
-/// §6 — nearest unit to the old step length `s` (ties go to the LONGER). `units` are (beats, tag) in ASCENDING length.
-private func euclideousNearestUnit<U>(_ s: Double, _ units: [(beats: Double, unit: U)]) -> U {
-    var best = units[0], bestD = abs(units[0].beats - s)
-    for u in units.dropFirst() {
-        let d = abs(u.beats - s)
-        if d <= bestD + 1e-9 { best = u; bestD = d }
+/// §6 — the mute unit whose length is nearest to the old step length `s` (ties go to the LONGER). No array is built: the render thread calls
+/// this through `euclideousLaneGridResolved` for a pre-feature lane, every window.
+private func euclideousNearestMuteUnit(_ s: Double, stepBeats: Double, passBeats: Double) -> EuclideousMuteUnit {
+    var best = EuclideousMuteUnit.step, bestBeats = stepBeats, bestD = abs(stepBeats - s)
+    for raw in 1...3 {
+        let u = EuclideousMuteUnit(rawValue: UInt8(raw)) ?? .pass
+        let b = u.beats(stepBeats: stepBeats, passBeats: passBeats), d = abs(b - s)
+        if d < bestD - 1e-9 || (abs(d - bestD) <= 1e-9 && b > bestBeats) { best = u; bestBeats = b; bestD = d }
     }
-    return best.unit
+    return best
+}
+private func euclideousNearestRestartUnit(_ s: Double, stepBeats: Double, passBeats: Double) -> EuclideousRestartUnit {
+    var best = EuclideousRestartUnit.fourSteps, bestBeats = best.beats(stepBeats: stepBeats, passBeats: passBeats), bestD = abs(bestBeats - s)
+    for raw in 2...4 {
+        let u = EuclideousRestartUnit(rawValue: UInt8(raw)) ?? .pass
+        let b = u.beats(stepBeats: stepBeats, passBeats: passBeats), d = abs(b - s)
+        if d < bestD - 1e-9 || (abs(d - bestD) <= 1e-9 && b > bestBeats) { best = u; bestBeats = b; bestD = d }
+    }
+    return best
 }
 /// §6 — a lane's grid fields as the engine, the roll and the panel must all read them. A lane that has been edited on the grid
 /// (`usesLaneGrid`) reads its five new fields (unset ones at the §1 defaults). A pre-feature lane migrates from the old data:
@@ -5385,8 +5405,7 @@ func euclideousLaneGridResolved(line: EuclidLine, lane: Int, legacyOn: Bool, leg
     let len = max(1, min(8, legacyLen))
     let s = legacyRate.barsFraction * beatsPerBar
     if legacyOn {
-        g.muteUnit = euclideousNearestUnit(s, EuclideousMuteUnit.allCases
-            .map { (beats: $0.beats(stepBeats: stepBeats, passBeats: passBeats), unit: $0) }.sorted { $0.beats < $1.beats })
+        g.muteUnit = euclideousNearestMuteUnit(s, stepBeats: stepBeats, passBeats: passBeats)
         if legacyCells.count == 32, lane >= 0, lane < 4 {
             var cells: UInt16 = 0
             for i in 0..<16 where legacyCells[(i % len) * 4 + lane] { cells |= (1 << UInt16(i)) }
@@ -5396,8 +5415,7 @@ func euclideousLaneGridResolved(line: EuclidLine, lane: Int, legacyOn: Bool, leg
     let old = line.restartMaskResolved
     let widthMask: UInt8 = len >= 8 ? 0xFF : UInt8((1 << len) - 1)
     if old & widthMask != 0 {
-        g.restartUnit = euclideousNearestUnit(s, EuclideousRestartUnit.allCases
-            .map { (beats: $0.beats(stepBeats: stepBeats, passBeats: passBeats), unit: $0) }.sorted { $0.beats < $1.beats })
+        g.restartUnit = euclideousNearestRestartUnit(s, stepBeats: stepBeats, passBeats: passBeats)
         var mask: UInt16 = 0
         for j in 0..<16 where (old & widthMask) & (1 << UInt8(j % len)) != 0 { mask |= (1 << UInt16(j)) }
         g.rhythmMask = mask; g.melodyMask = mask
@@ -5576,7 +5594,7 @@ func euclideousLaneTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub:
                 advOrd = upTo - euclideousPatternHits(ref, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits) - 1
             } else {
                 // the melody origin lies BEFORE the current rhythm segment: add the hits of the segments between the two origins
-                let scheduleAt = { (cell: Int) in
+                func scheduleAt(_ cell: Int) -> Int64 {
                     euclideousScheduleHits(Int64(cell) * u, rhythmMask: grid.rhythmMask, unitTicks: grid.unitTicks, buf: buf, n: n, dir: dir,
                                            cycleLen: cycleLen, cycleHits: cycleHits)
                 }
@@ -5645,4 +5663,265 @@ func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats
         sub = L.rate?.beats ?? defaultRateBeats
     }
     return (sub, n, euclidCycleLen(L.directionResolved, n: n))
+}
+
+
+// ── the LANES panel's pure maths (LANES GRID §3, §4, §5, §7) ─────────────────────────────────────────────────────────
+//
+// Everything the panel draws or hit-tests comes from here, so `LanesPanelPainter`/`EuclideousPage` only paint and route: the layout
+// numbers, the position of a beat inside a lane's 16-cell window, which cell/row a touch lands on, the run outlines, the restart-mark
+// beats shown on the MUTE tab, the edits a tap / stroke / rate-box tap make, the roll's feed, and the accessibility words.
+
+enum EuclideousLanesSubTab: Int, CaseIterable { case mute = 0, restart = 1 }
+
+/// §4: the panel's own geometry from the content area under the MIX | LANES tab strip. Horizontal sizes follow the spec's formula exactly
+/// (rail 38, gap 4, then 16 cells with 2pt gaps across the rest — 20.125pt cells at the 394pt reference content width); the vertical
+/// budget is the spec's (sub-tab row 24, gap 4, four lane blocks with 4 between, gap 4, legend 16) with the lane blocks taking whatever
+/// height the real panel leaves — 50 at the reference, less on a short portrait panel (floor 34), more on a tall one. Nothing is a font size.
+struct EuclideousLanesLayout: Equatable {
+    static let railW: CGFloat = 38, railGap: CGFloat = 4, cellGap: CGFloat = 2
+    static let subTabH: CGFloat = 24, subTabGap: CGFloat = 4, laneGap: CGFloat = 4, legendGap: CGFloat = 4, legendH: CGFloat = 16
+    static let restartRowGap: CGFloat = 2
+    static let minLaneH: CGFloat = 34
+    let width: CGFloat
+    let height: CGFloat
+    let laneH: CGFloat
+    var gridX: CGFloat { Self.railW + Self.railGap }
+    var gridW: CGFloat { max(0, width - gridX) }
+    var cellW: CGFloat { max(0.5, (gridW - Self.cellGap * 15) / 16) }
+    var pitch: CGFloat { cellW + Self.cellGap }
+    var rowH: CGFloat { (laneH - Self.restartRowGap) / 2 }
+    /// The left edge of cell `i` measured from the GRID's own left edge (`cellLeft(i) = i × 22.125` at the reference).
+    func cellLeft(_ i: Int) -> CGFloat { CGFloat(i) * pitch }
+    func laneTop(_ lane: Int) -> CGFloat { Self.subTabH + Self.subTabGap + CGFloat(lane) * (laneH + Self.laneGap) }
+    var legendTop: CGFloat { laneTop(3) + laneH + Self.legendGap }
+}
+func euclideousLanesLayout(width: CGFloat, height: CGFloat) -> EuclideousLanesLayout {
+    let fixed = EuclideousLanesLayout.subTabH + EuclideousLanesLayout.subTabGap + EuclideousLanesLayout.laneGap * 3
+        + EuclideousLanesLayout.legendGap + EuclideousLanesLayout.legendH
+    return EuclideousLanesLayout(width: width, height: height, laneH: max(EuclideousLanesLayout.minLaneH, (height - fixed) / 4))
+}
+
+/// §4.4/§2.9 — where a beat sits inside a lane's 16-unit window: `u = (beat mod window) / unit`, `i = min(15, floor(u))`,
+/// `x = cellLeft(i) + (u − i) × cellW` (so the playhead jumps the 2pt gaps — intended). Derived from the transport beat, never a timer.
+struct EuclideousLanesPosition: Equatable { var cell: Int; var u: Double; var x: CGFloat }
+func euclideousLanesPosition(beat: Double, unitBeats: Double, layout: EuclideousLanesLayout) -> EuclideousLanesPosition {
+    guard unitBeats > 0 else { return EuclideousLanesPosition(cell: 0, u: 0, x: 0) }
+    let units = beat / unitBeats
+    let u = units - 16 * (units / 16).rounded(.down)
+    let i = min(15, max(0, Int(u.rounded(.down))))
+    return EuclideousLanesPosition(cell: i, u: u, x: layout.cellLeft(i) + CGFloat(u - Double(i)) * layout.cellW)
+}
+/// The window a roll covers on the active sub-tab (§3.2): `16 × unit`, starting at `floor(beat / window) × window`.
+func euclideousLanesWindow(beat: Double, unitBeats: Double) -> (start: Double, length: Double) {
+    guard unitBeats > 0 else { return (0, 0) }
+    let window = 16 * unitBeats
+    return ((beat / window).rounded(.down) * window, window)
+}
+
+/// What a touch is over. `row` is 0 on MUTE (the whole block) and 0 = RHYTHM / 1 = MELODY on RESTART.
+struct EuclideousLanesHit: Equatable { var lane: Int; var cell: Int; var row: Int }
+/// §5.3 — the hit test, with the same cell-width and gap formula the grid draws with. Each cell's area extends 1pt into the gaps on each
+/// side (so the 2pt gaps are fully claimed), and on RESTART the rhythm row extends 1pt into the 2pt gap between the rows (the melody row
+/// takes the other 1pt). (x, y) are in the panel content's own coordinates. Nil outside any lane block or the grid.
+func euclideousLanesHit(x: CGFloat, y: CGFloat, layout: EuclideousLanesLayout, restart: Bool) -> EuclideousLanesHit? {
+    for lane in 0..<4 {
+        let top = layout.laneTop(lane)
+        guard y >= top, y <= top + layout.laneH else { continue }
+        guard let cell = euclideousLanesCellAt(x: x, layout: layout) else { return nil }
+        let row = restart ? (y - top < layout.rowH + 1 ? 0 : 1) : 0
+        return EuclideousLanesHit(lane: lane, cell: cell, row: row)
+    }
+    return nil
+}
+/// The cell a given x is over (cells claim 1pt of the gap on each side); nil left of the grid or right of the last cell.
+func euclideousLanesCellAt(x: CGFloat, layout: EuclideousLanesLayout) -> Int? {
+    let gx = x - layout.gridX
+    guard gx >= -1, gx < layout.gridW + 1, layout.pitch > 0 else { return nil }
+    return min(15, max(0, Int(((gx + 1) / layout.pitch).rounded(.down))))
+}
+/// A stroke continuing inside the lane it began in (§5.2): the finger's x gives the cell (clamped to the grid ends), its y — clamped to the
+/// lane block — gives the row on RESTART. Nil only if the grid has no width.
+func euclideousLanesStrokeHit(x: CGFloat, y: CGFloat, lane: Int, layout: EuclideousLanesLayout, restart: Bool) -> EuclideousLanesHit? {
+    guard lane >= 0, lane < 4, layout.pitch > 0 else { return nil }
+    let top = layout.laneTop(lane)
+    let ly = min(max(y, top), top + layout.laneH)
+    let cell = euclideousLanesCellAt(x: min(max(x, layout.gridX), layout.gridX + layout.gridW - 0.001), layout: layout) ?? 0
+    return EuclideousLanesHit(lane: lane, cell: cell, row: restart ? (ly - top < layout.rowH + 1 ? 0 : 1) : 0)
+}
+
+/// §4.9 — one restart-to-restart run on a row, as cells `[start, end)`. SOLID runs start on a mark; a run that begins at cell 0 WITHOUT a
+/// mark there (carried over from the previous window, §2.3) is DASHED up to the first mark; a row with no marks is ONE dashed run around
+/// all 16 cells.
+struct EuclideousLanesRun: Equatable { var start: Int; var end: Int; var dashed: Bool }
+func euclideousLanesRuns(mask: UInt16) -> [EuclideousLanesRun] {
+    let marks = (0..<16).filter { (mask >> UInt16($0)) & 1 != 0 }
+    guard let first = marks.first else { return [EuclideousLanesRun(start: 0, end: 16, dashed: true)] }
+    var runs: [EuclideousLanesRun] = []
+    if first > 0 { runs.append(EuclideousLanesRun(start: 0, end: first, dashed: true)) }
+    for (k, m) in marks.enumerated() { runs.append(EuclideousLanesRun(start: m, end: k + 1 < marks.count ? marks[k + 1] : 16, dashed: false)) }
+    return runs
+}
+/// §4.8 — the beats at which a lane's restart marks fall inside `[windowStart, windowStart + windowBeats)`: each mark repeats every restart
+/// period (16 restart units), so the MUTE tab (whose window is 16 MUTE units) shows them wherever they land.
+func euclideousLanesMarkBeats(mask: UInt16, restartUnitBeats: Double, windowStart: Double, windowBeats: Double) -> [Double] {
+    guard mask != 0, restartUnitBeats > 0, windowBeats > 0 else { return [] }
+    let period = 16 * restartUnitBeats
+    var out: [Double] = []
+    var k = Int((windowStart / period).rounded(.down))
+    while Double(k) * period < windowStart + windowBeats {
+        for c in 0..<16 where (mask >> UInt16(c)) & 1 != 0 {
+            let b = Double(k) * period + Double(c) * restartUnitBeats
+            if b >= windowStart - 1e-9 && b < windowStart + windowBeats - 1e-9 { out.append(b) }
+        }
+        k += 1
+    }
+    return out
+}
+
+/// §5 — every edit the panel makes to a lane, as one value. Applying one FIRST pins all five grid fields from the lane's resolved view
+/// (so a pre-feature lane's migrated values become its stored values, whatever the old fields hold later), then writes.
+enum EuclideousLaneGridOp: Equatable {
+    case mute(cell: Int, on: Bool)
+    case restart(melody: Bool, cell: Int, on: Bool)
+    case nextMuteUnit
+    case nextRestartUnit
+}
+func euclideousApplyLaneGridOp(_ line: inout EuclidLine, resolved: EuclideousLaneGrid, _ op: EuclideousLaneGridOp) {
+    // Pin ONCE: a stroke applies many ops against one `resolved` snapshot taken at touch-down — after the first, the lane's own stored
+    // fields are the truth, and re-pinning the stale snapshot would overwrite the cells the stroke just painted.
+    if !line.usesLaneGrid { euclideousPinLaneGrid(&line, resolved) }
+    func set(_ bits: UInt16?, _ cell: Int, _ on: Bool) -> UInt16 {
+        let b = UInt16(1) << UInt16(max(0, min(15, cell)))
+        return on ? ((bits ?? 0) | b) : ((bits ?? 0) & ~b)
+    }
+    switch op {
+    case .mute(let cell, let on): line.muteCells16 = set(line.muteCells16, cell, on)
+    case .restart(let melody, let cell, let on):
+        if melody { line.restartMelodyMask16 = set(line.restartMelodyMask16, cell, on) }
+        else { line.restartRhythmMask16 = set(line.restartRhythmMask16, cell, on) }
+    case .nextMuteUnit: line.muteUnit = resolved.muteUnit.next.rawValue
+    case .nextRestartUnit: line.restartUnit = resolved.restartUnit.next.rawValue
+    }
+}
+/// The current value of the cell a stroke starts on (the stroke then paints the OPPOSITE, §5.2).
+func euclideousLaneGridCellValue(_ g: EuclideousLaneGrid, restart: Bool, melody: Bool, cell: Int) -> Bool {
+    let bit = UInt16(1) << UInt16(max(0, min(15, cell)))
+    if !restart { return g.muteCells & bit != 0 }
+    return (melody ? g.melodyMask : g.rhythmMask) & bit != 0
+}
+
+/// A lane's grid as the page must read it: resolved against the lane's own live step / lap, the host bar and the pre-feature sequencer
+/// fields — the same call the Router and the mirror make, so the panel, the roll and the engine can never disagree about a lane.
+struct EuclideousLaneGridView: Equatable {
+    var grid: EuclideousLaneGrid
+    var sub: Double
+    var cycleLen: Int
+    var muteUnitBeats: Double
+    var restartUnitBeats: Double
+}
+func euclideousLaneGridView(lines: [EuclidLine], lane: Int, legacy: EuclideousLanesSeq, defaultRateBeats: Double, beatsPerBar: Double) -> EuclideousLaneGridView {
+    let geo = euclideousLaneStepGeometry(lines: lines, lane: lane, defaultRateBeats: defaultRateBeats)
+    let pass = Double(geo.cycleLen) * geo.sub
+    let line = lane >= 0 && lane < lines.count ? lines[lane] : EuclidLine()
+    let g = euclideousLaneGridResolved(line: line, lane: lane, legacyOn: legacy.on, legacyRate: legacy.rate, legacyLen: legacy.len,
+                                       legacyCells: legacy.cells, stepBeats: geo.sub, passBeats: pass, beatsPerBar: beatsPerBar)
+    return EuclideousLaneGridView(grid: g, sub: geo.sub, cycleLen: geo.cycleLen,
+                                  muteUnitBeats: g.muteUnit.beats(stepBeats: geo.sub, passBeats: pass),
+                                  restartUnitBeats: g.restartUnit.beats(stepBeats: geo.sub, passBeats: pass))
+}
+
+// ── accessibility + legend words (§7, §4.10) ───────────────────────────────────────────────────────────────────────────
+func euclideousLanesMuteCellLabel(lane: Int, cell: Int, sounding: Bool) -> String { "Lane \(lane + 1) cell \(cell + 1), \(sounding ? "sounding" : "muted")" }
+func euclideousLanesRestartCellLabel(lane: Int, cell: Int, melody: Bool, set: Bool) -> String {
+    "Lane \(lane + 1) cell \(cell + 1) \(melody ? "melody" : "rhythm") restart, \(set ? "set" : "not set")"
+}
+func euclideousLanesRateBoxLabel(lane: Int, unit: String) -> String { "Lane \(lane + 1) cell size \(unit)" }
+let euclideousLanesRestartHint = "TOP ROW = RHYTHM RESTART. BOTTOM ROW = MELODY RESTART."
+
+// ── the roll (§3) ──────────────────────────────────────────────────────────────────────────────────────────────────────
+/// One hit of the picture behind the cells: where it falls, which riff rank it reads (0 = it sounds nothing from the riff — a rest, or the
+/// riff is off), how long it is held (the tie extension included), and whether the lane is audible at that beat.
+struct EuclideousRollHit: Equatable {
+    var beat: Double
+    var rank: Int
+    var gateBeats: Double
+    var audible: Bool
+}
+/// §3.1 — the hits of one lane in `[windowStart, windowStart + windowBeats)`. Built ONLY from the shared pieces the Router calls per hit:
+/// the walk mirror (`euclideousWalkTick` = `euclideousLaneTick`), `rankAt` (the effective rank at a riff column and beat — the looper-aware
+/// read), `euclideousNextHitGapBeats`, `euclideousRiffTieExtensionBeats`, `euclideousPitchGateBeats` and `euclideousLaneAudible`. Pure and
+/// side-effect free; the page caches the result per (lane inputs, window) and never recomputes per frame. A lane that cannot be honoured
+/// exactly: SHADOW lanes (their pitch comes from the partner, so the roll shows the lane's OWN riff column), an AVOID-muted pick, and a
+/// FILL hit (it strikes the lane's own NOTE pick, which the rank axis cannot show) — those draw as rests (rank 0).
+func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double, windowBeats: Double, minGateBeats: Double,
+                            rankAt: (_ column: Int, _ beat: Double) -> Int) -> [EuclideousRollHit] {
+    guard c.sub > 0, c.n > 0, windowBeats > 0 else { return [] }
+    let cycleLen = euclidCycleLen(c.dir, n: c.n)
+    var tick = Int64((windowStart / c.sub - 1e-9).rounded(.up))
+    var out: [EuclideousRollHit] = []
+    while true {
+        let beat = Double(tick) * c.sub
+        if beat >= windowStart + windowBeats - 1e-9 { break }
+        let w = euclideousWalkTick(c, tick: tick)
+        if w.strikes {
+            var rank = 0
+            if c.riffOn {
+                let raw = rankAt(w.playedStep, beat)
+                rank = euclideousRiffStepRanks(ranks: [raw], invert: c.invert, transpose: c.transpose)[0]
+            }
+            let gap = euclideousNextHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
+                                                grid: c.grid, legacySpanBeats: c.spanBeats)
+            var tie = 0.0
+            if rank >= 1, c.onRest == .tie {
+                tie = euclideousRiffTieExtensionBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid,
+                                                      legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep,
+                                                      riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed,
+                                                      rankAt: rankAt)
+            }
+            out.append(EuclideousRollHit(beat: beat, rank: max(0, rank), gateBeats: euclideousPitchGateBeats(gate: c.gate, nextHitGapBeats: gap, tieExt: tie, minGateBeats: minGateBeats),
+                                         audible: euclideousLaneAudible(beat: beat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)))
+        }
+        tick += 1
+    }
+    return out
+}
+/// §4.6 — a roll bar's vertical position: `y = 4 + (8 − rank) × 5` from the lane block's top (rank 1 lowest, 8 highest). A rest / no-rank
+/// hit sits on the middle line (`22pt`, §3.3). The block scales with the real lane height; the 3pt bar height does not.
+func euclideousRollBarY(rank: Int, laneH: CGFloat) -> CGFloat {
+    let scale = laneH / 50
+    if rank < 1 { return 22 * scale }
+    return (4 + CGFloat(8 - min(8, rank)) * 5) * scale
+}
+
+// ── the footer's lap baseline and the comet's phase, from the same core (§2.5, §2.8) ──────────────────────────────────
+/// The riff ordinal the CURRENT rhythm lap's first hit reads — the footer's baseline, taken from the core with BOTH origins instead of
+/// being reverse-derived from the polled ordinal (which a melody restart would break). The lap is the one containing the latest tick at or
+/// before `beat`; nil if the pattern has no hit. Restarts that fall INSIDE the lap are not foreseen (the prediction stays oblivious to
+/// them, §2.8), exactly as before.
+func euclideousLapStartOrdinal(cfg c: EuclideousWalkLaneConfig, beat: Double) -> Int64? {
+    guard c.sub > 0, c.n > 0 else { return nil }
+    let cycleLen = euclidCycleLen(c.dir, n: c.n)
+    let tick = Int64((beat / c.sub).rounded(.down))
+    let now = euclideousLaneTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid, legacySpanBeats: c.spanBeats,
+                                 locked: c.locked, advanceStep: c.advanceStep)
+    let lapStart = tick - Int64(now.raw)
+    for r in 0..<cycleLen where c.buf[euclidReadIndex(r, n: c.n, dir: c.dir)] {
+        return euclideousLaneTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: lapStart + Int64(r), grid: c.grid,
+                                  legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep).advOrd
+    }
+    return nil
+}
+/// The comet's continuous position in its cycle at `beat`, measured from the RHYTHM origin — the lane card's comet and hit flashes read this
+/// (instead of the legacy span re-anchor), so they agree with the pattern the engine is really playing across a restart.
+func euclideousLaneCometRaw(beat: Double, n: Int, dir: EuclidDir, sub: Double, grid: EuclideousLaneRestartGrid, legacySpanBeats: Double) -> Double {
+    guard sub > 0, n > 0 else { return 0 }
+    let cycleLen = euclidCycleLen(dir, n: n)
+    let ticks = beat / sub
+    let tick = Int64(ticks.rounded(.down))
+    let buf = [Bool](repeating: false, count: max(1, n))
+    let ph = euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats)
+    let raw = Double(ph.localT) + (ticks - Double(tick))
+    let cl = Double(cycleLen)
+    return raw - cl * (raw / cl).rounded(.down)
 }

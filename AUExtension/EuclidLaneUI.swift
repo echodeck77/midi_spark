@@ -199,6 +199,11 @@ struct EuclidLaneBox: View {
     // FERRY (2026-10-14 §5) — passthrough to `EuclidCometBar`'s own `riffOnRest`; `.skip` (every other
     // caller) ⇒ inert, same reasoning as `footerStates` above.
     var riffOnRest: EuclidRiffOnRest = .skip
+    // LANES GRID (2026-10-18): the lane's RHYTHM restart grid, so the comet and hit flashes follow the origin the engine really phases the
+    // pattern from (nil = no restart marks ⇒ byte-identical), and the grid's mute predicate (true = muted at that beat), so a lane the grid
+    // has muted dims and stops its comet / flashes at that point (nil = never muted ⇒ byte-identical).
+    var restartGrid: EuclideousLaneRestartGrid? = nil
+    var mutedAt: ((Double) -> Bool)? = nil
 
     var body: some View {
         let on = line.enabledResolved
@@ -224,6 +229,7 @@ struct EuclidLaneBox: View {
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            footerStates: footerStates, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
+                           restartGrid: restartGrid, mutedAt: mutedAt,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
@@ -352,6 +358,9 @@ struct EuclidCometBar: View {
     var subBeatsOverride: Double? = nil
     var cellTint: Color? = nil
     var cellFade: Double = 1
+    // LANES GRID (2026-10-18) — see `EuclidLaneBox`. nil/nil (every other caller) ⇒ byte-identical.
+    var restartGrid: EuclideousLaneRestartGrid? = nil
+    var mutedAt: ((Double) -> Bool)? = nil
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -403,7 +412,13 @@ struct EuclidCometBar: View {
             // 2n under PING-PONG); `cometPos` is its continuous screen position, reversing/bouncing per
             // `euclidCometPos`'s own doc comment. The per-box HIT/REST content (`euclidReadIndex` below) is
             // untouched — only the comet's own visual sweep motion varies by direction.
-            let cometRaw = euclidCometRaw(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
+            // LANES GRID: with restart marks the comet measures from the RHYTHM origin (`euclideousLaneCometRaw` — the engine's own core), so
+            // it and every flash below agree with the pattern across a restart; without marks it is the legacy span formula, unchanged.
+            let cometRaw = restartGrid.map { euclideousLaneCometRaw(beat: liveBeat, n: n, dir: dir, sub: sub, grid: $0, legacySpanBeats: spanBeats) }
+                ?? euclidCometRaw(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
+            // A lane the grid has MUTED at this beat reads as stopped: no comet, no flashes, the cells dimmed to the page's 42%.
+            let mutedNow = mutedAt?(liveBeat) ?? false
+            let runningNow = running && !mutedNow
             let cometPos = euclidCometPos(cometRaw, n: n, dir: dir)
             let nD = Double(n)
             Canvas { ctx, size in
@@ -476,7 +491,7 @@ struct EuclidCometBar: View {
                         // playback stopped, not a meaningful "time since the comet passed." Drawing the age/
                         // recede/burst flare off a frozen age would leave some hit box stuck mid-flash forever. A
                         // stopped lane shows every hit at one steady, unflared brightness instead.
-                        if running {
+                        if runningNow {
                             // steps since the comet passed this node (0 = just now), wrapped positive every lap —
                             // direction-aware: FWD unchanged; BKW mirrors it (the comet visits box i when
                             // cometRaw = n−i); PING-PONG visits box i TWICE per lap (ascending at cometRaw=i,
@@ -617,7 +632,7 @@ struct EuclidCometBar: View {
                 // `movingRight`, which flips for BKW and switches mid-lap for PING-PONG. STOPPED: not drawn at
                 // all — a paused TimelineView freezes `cometPos`, so without this guard the comet would sit
                 // motionless at its last live position instead of disappearing.
-                if running {
+                if runningNow {
                     let hx = xFor(cometPos)
                     let movingRight: Bool
                     switch dir {
@@ -640,6 +655,7 @@ struct EuclidCometBar: View {
                     }
                 }
             }
+            .opacity(mutedNow ? 0.42 : 1)   // LANES GRID: a muted lane dims to the page's 42%
             .allowsHitTesting(false)
         }
         // GESTURES: 1-finger drag left/right = Δrotate, up/down = Δhits (this lane); 2-finger drag does the same

@@ -6123,12 +6123,14 @@ final class RouterTests: XCTestCase {
     // restarts at (1-based) bars 1 and 5 of an 8-bar loop; resetSteps=2 restarts at bars 1/3/5/7. Proven by
     // the SAME equivalence technique as `testEuclideousResetSpanOneBarReAnchorsThePatternEveryBar` directly
     // above (comparing bar N's struck pool-rank sequence against bar 1's, via the riff walk's own `ord`).
+    // LANES GRID (2026-10-18): the lane is a 3-of-8 at 1/8 — a lap is exactly one bar — so the pre-feature reset MIGRATES exactly (restart unit PASS = the
+    // old step), and this pre-feature document must still restart on the old schedule.
     func testEuclideousPerLaneResetStepsReanchorsAtTheConfiguredPeriod() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         func picksStruck(resetSteps: Int, beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
                                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
                                                  resetSteps: resetSteps)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
@@ -6291,7 +6293,8 @@ final class RouterTests: XCTestCase {
         func picks(lanesSeqOn: Bool, muteLaneZeroAtStep1: Bool, beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8,
+            // 3-of-8 at 1/8: a lap is one bar, so the pre-feature sequencer (1 BAR steps) migrates to PASS-sized mute cells exactly (LANES GRID, 2026-10-18).
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
                                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
@@ -12511,5 +12514,77 @@ final class RouterTests: XCTestCase {
             return [0, 3, 6].contains(((t - origin) % 8 + 8) % 8)
         }
         XCTAssertEqual(a.map { $0.beat }, expected.map { Double($0) * 0.5 })
+    }
+
+    // §3 / §8 ROLL FEED vs the Router: for a lane with a known pattern and riff, the roll's hits equal the beats, ranks and lengths the Router
+    // really produces over the same window, with and without marks, muted and audible flagged correctly, and a TIE extension included.
+    func testGridRollFeedEqualsWhatTheRouterActuallyPlays() {
+        struct Case { var name: String; var line: EuclidLine; var ranks: [Int] }
+        var tie = gridLine(rhythm: 0b1001); tie.riffOnRest = .tie; tie.gate = 0.5
+        var plain = gridLine(); plain.gate = 0.5
+        var marked = gridLine(rhythm: 0b1001, melody: 1 << 5); marked.gate = 0.5
+        var muted = gridLine(rhythm: 1 << 2, mute: 0xFFFF & ~((1 << 1) | (1 << 3)), muteUnit: .fourSteps); muted.gate = 0.5
+        var inverted = gridLine(melody: 1 << 3); inverted.riffInvert = true; inverted.melodyTranspose = 1; inverted.gate = 0.5
+        let up = [1, 2, 3, 4, 5, 6, 7, 8]
+        let cases = [Case(name: "plain", line: plain, ranks: up), Case(name: "marked", line: marked, ranks: up), Case(name: "muted", line: muted, ranks: up),
+                     Case(name: "tie", line: tie, ranks: [1, 0, 0, 0, 0, 0, 0, 2]), Case(name: "invert+transpose", line: inverted, ranks: up),
+                     Case(name: "rests", line: plain, ranks: [3, 0, 5, 0, 7, 0, 1, 0])]
+        var compared = 0
+        for c in cases {
+            let e = RecordingEmitter()
+            mixRun(mixBox(c.line, ranks: c.ranks), beats: 15.9, into: e)
+            assertNothingLeftSounding(e)
+            let ons = e.ons.filter { $0.cable == 1 }
+            // a note still sounding when the run ends is closed by the stop-edge flush (a sentinel sample), so it has no comparable length
+            func length(of on: RecordingEmitter.Ev) -> Double? {
+                guard let off = e.offs.first(where: { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }) else { return nil }
+                return Double(off.sample - on.sample) / 24_000
+            }
+            guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [c.line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { XCTFail(c.name); continue }
+            let roll = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 15.9, minGateBeats: 0.005 * 120 / 60) { col, _ in c.ranks[col] }
+            let sounding = roll.filter { $0.audible && $0.rank >= 1 }
+            XCTAssertEqual(sounding.count, ons.count, "\(c.name): the roll's audible hits are exactly the Router's note-ons")
+            for (r, on) in zip(sounding, ons) {
+                XCTAssertEqual(r.beat, Double(on.sample) / 24_000, accuracy: 0.01, "\(c.name): hit beat")
+                if let len = length(of: on) {
+                    XCTAssertEqual(r.gateBeats, len, accuracy: 0.02, "\(c.name): gate length at beat \(r.beat)")
+                    compared += 1
+                }
+            }
+            // every roll hit that is NOT a Router note-on is either muted (audible == false) or a rest (rank < 1) — never silently dropped
+            let soundingBeats = Set(ons.map { (Double($0.sample) / 24_000 * 100).rounded() })
+            for r in roll where !soundingBeats.contains((r.beat * 100).rounded()) {
+                XCTAssertTrue(!r.audible || r.rank < 1, "\(c.name): a non-sounding roll hit at beat \(r.beat) must be flagged muted or a rest")
+            }
+            if c.name == "muted" { XCTAssertTrue(roll.contains { !$0.audible }, "the muted case really has muted hits"); XCTAssertTrue(roll.contains { $0.audible }) }
+            if c.name == "rests" { XCTAssertTrue(roll.contains { $0.rank < 1 }) }
+        }
+        XCTAssertGreaterThan(compared, 40, "the comparison must actually run")
+        // the rank the roll plots is the rank the Router reads: with INVERT the contour flips (9 − r) and TRANSPOSE shifts it
+        let invCfg = euclideousWalkLaneConfig(lane: 0, lines: [inverted], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        let invRoll = euclideousLaneRollHits(cfg: invCfg, windowStart: 0, windowBeats: 4, minGateBeats: 0.01) { col, _ in up[col] }
+        XCTAssertFalse(invRoll.isEmpty)
+        XCTAssertTrue(invRoll.allSatisfy { $0.rank >= 1 && $0.rank <= 9 })
+    }
+
+    // §2.8 — the page's FOOTER baseline comes from the core: the ordinal the current lap's first hit reads, across a melody restart too.
+    func testGridLapStartOrdinalIsWhatTheEngineReadsAtTheLapsFirstHit() {
+        for (rhythm, melody) in [(UInt16(0), UInt16(0)), (0b1001, 0), (0, 1 << 3), (0b1001, 0b1001), (1 << 5, 1 << 2)] {
+            for locked in [false, true] {
+                let line = gridLine(rhythm: rhythm, melody: melody, locked: locked)
+                guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { XCTFail(); continue }
+                for beat in stride(from: 0.2, through: 40.0, by: 1.7) {
+                    let tick = Int64((beat / cfg.sub).rounded(.down))
+                    let cycleLen = euclidCycleLen(cfg.dir, n: cfg.n)
+                    let now = euclideousLaneTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: tick, grid: cfg.grid,
+                                                 legacySpanBeats: cfg.spanBeats, locked: cfg.locked, advanceStep: cfg.advanceStep)
+                    let lapStart = tick - Int64(now.raw)
+                    let firstHit = (0..<cycleLen).first { cfg.buf[euclidReadIndex($0, n: cfg.n, dir: cfg.dir)] }!
+                    let want = euclideousLaneTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: lapStart + Int64(firstHit), grid: cfg.grid,
+                                                  legacySpanBeats: cfg.spanBeats, locked: cfg.locked, advanceStep: cfg.advanceStep).advOrd
+                    XCTAssertEqual(euclideousLapStartOrdinal(cfg: cfg, beat: beat), want, "rhythm \(rhythm) melody \(melody) locked \(locked) beat \(beat)")
+                }
+            }
+        }
     }
 }
