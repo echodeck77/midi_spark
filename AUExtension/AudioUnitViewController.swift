@@ -1257,6 +1257,17 @@ struct DiagView: View {
                                        au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
                                        buildPublishScene()
                                    },
+                                   // MIX TAB (2026-10-18 §4.3): one undo step per TOUCH. `onEdit`'s fixed key merges consecutive edits across
+                                   // different touches, so a pad takes an explicit `coalesceKey: nil` checkpoint at the first value-changing write
+                                   // of a touch (`newStep`) and none for the rest — the write itself is the SAME document + publish path.
+                                   onEditStep: { newStep, mutate in
+                                       if newStep { euclideousRecordUndo(coalesceKey: nil) }
+                                       var lines = euclideousLines
+                                       mutate(&lines)
+                                       euclideousLines = lines
+                                       au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
+                                       buildPublishScene()
+                                   },
                                    onLooperEdit: { column, rank in
                                        euclideousLooperRecordEdit(column: column, rank: rank)
                                    },

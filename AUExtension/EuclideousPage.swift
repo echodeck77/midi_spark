@@ -601,6 +601,10 @@ struct EuclideousPage: View {
     let onEditChords: (@escaping (inout MachineParams) -> Void) -> Void
     let clock: EuclidLiveClock
     let onEdit: (@escaping (inout [EuclidLine]) -> Void) -> Void
+    // MIX TAB (2026-10-18 §4.3): a lane edit that records ONE undo step per TOUCH. `onEdit`'s fixed coalesce key merges consecutive edits
+    // across different touches into one step; a pad instead passes `newStep: true` on the first value-changing write of a touch (the VC
+    // takes a `coalesceKey: nil` checkpoint) and `false` for the rest, so dragging is one step and two pads never flood the stack.
+    let onEditStep: (Bool, @escaping (inout [EuclidLine]) -> Void) -> Void
     // LOOPER TABS — `onLooperEdit` is the ONE write path for every grid edit (a tap, each cell a drag-
     // paint crosses): `AudioUnitViewController` itself decides whether that lands as an ordinary
     // undoable live-grid edit (Off/Armed, §3.6) or a loop event (Recording/Replaying, §3.1-3.4) — this
@@ -671,9 +675,9 @@ struct EuclideousPage: View {
         }
     }
 
-    // SEQUENCER PANEL (2026-10-14 ferry §1): which of the two tabs (LANES=0, RIFFS=1) is showing — purely
-    // ephemeral, never persisted.
-    @State private var sequencerTab: Int = 0
+    // SEQUENCER PANEL (2026-10-14 ferry §1; MIX ferry 2026-10-18 §1.5): which tab is showing — MIX first and the DEFAULT, LANES second,
+    // RIFFS hidden — purely ephemeral, never persisted (so a fresh page always opens on MIX).
+    @State private var sequencerTab: EuclideousSeqTab = .default
     // §3.2's FIRST-RUN PAD HINT (the old XY pads' own animated ↕/↔ affordance) is RETIRED along with the
     // pads themselves (usability ferry, 2026-10-12) — not ported to the new sliders. Each slider's own
     // visible fill/track already reads as "drag me" far more directly than a flat 2D pad ever did (a
@@ -831,6 +835,10 @@ struct EuclideousPage: View {
     /// Edits ONE line by index — the shared mutation path every per-lane control below goes through.
     private func edit(_ idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) {
         onEdit { lines in guard idx >= 0, idx < lines.count else { return }; mutate(&lines[idx]) }
+    }
+    /// `edit`, but with the MIX pad's explicit per-touch undo checkpoint (`newStep`).
+    private func editStep(_ idx: Int, _ newStep: Bool, _ mutate: @escaping (inout EuclidLine) -> Void) {
+        onEditStep(newStep) { lines in guard idx >= 0, idx < lines.count else { return }; mutate(&lines[idx]) }
     }
     /// Edits ONE line's MASK by index — mirrors `edit` above, materializing a fresh `EuclidLineMask` the
     /// first time a lane's mask is ever touched (its own plain struct default, matching every other
@@ -2728,7 +2736,7 @@ struct EuclideousPage: View {
             riffCard(idx, line, accent, size: height)
             VStack(spacing: 6) {
                 euclideousOctaveTrough(value: line.riffOctaveResolved, accent: accent, label: "OCT", radius: 10) { v in
-                    edit(idx) { $0.riffOctave = v }
+                    edit(idx) { euclideousSetRiffOctave(&$0, v) }   // the ONE riff-octave setter — the MIX tab's stepper uses it too
                 }
                 .frame(height: 40)
                 riffDirectionRow(idx, line, accent)
@@ -2977,10 +2985,7 @@ struct EuclideousPage: View {
     private func notesOctaveTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         HStack(spacing: sp4) {
             euclideousOctaveTrough(value: line.octaveResolved, accent: accent) { v in
-                edit(idx) { l in
-                    if !l.notesOnResolved { l.notesOn = true }
-                    l.octave = v
-                }
+                edit(idx) { euclideousSetNotesOctave(&$0, v) }   // the ONE notes-octave setter (also switches the layer on) — shared with the MIX stepper
             }
             melodyButton("TOP 2", on: line.top2LitResolved, accent: accent, help: "Play the second-highest note of the source on every hit, following chord changes.") {
                 edit(idx) { l in
@@ -3007,7 +3012,7 @@ struct EuclideousPage: View {
     /// onto an already-complex shared component for one visually-divergent control isn't worth it. Added to
     /// (never scales) the lit notes' own base velocity, clamped 1...127 at resolve (Router.swift).
     private func notesVelBar(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
-        let value = line.notesVelOffsetResolved
+        let value = euclideousNotesVelBarValue(line)   // MIX ferry §6.4: a VIEW of notesVelocity relative to VEL
         let lo = -64.0, hi = 64.0
         return GeometryReader { geo in
             let size = geo.size
@@ -3055,19 +3060,19 @@ struct EuclideousPage: View {
                         // already establishes for EuclideousSlider's own TILT case.
                         if abs(clamped - center) < travel * 0.06 { f = 0.5 }
                         let v = Int((lo + f * (hi - lo)).rounded())
-                        edit(idx) { $0.notesVelOffset = max(-64, min(64, v)) }
+                        edit(idx) { euclideousNotesVelBarWrite(&$0, offset: v) }   // stores notesVelocity = clamp(VEL + o, 1, 127); nothing writes notesVelOffset any more
                     }
             )
-            .onTapGesture(count: 2) { edit(idx) { $0.notesVelOffset = 0 } }
+            .onTapGesture(count: 2) { edit(idx) { euclideousNotesVelBarDoubleTap(&$0) } }   // stores VEL (offset 0)
         }
         .frame(height: 34)
         .euclideousHelp("Make the lit notes louder or quieter than the riff.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Notes velocity, \(euclideousSigned(value))")
         .accessibilityAdjustableAction { direction in
-            let cur = line.notesVelOffsetResolved
+            let cur = euclideousNotesVelBarValue(line)
             let target = direction == .increment ? min(64, cur + 4) : max(-64, cur - 4)
-            edit(idx) { $0.notesVelOffset = target }
+            edit(idx) { euclideousNotesVelBarWrite(&$0, offset: target) }
         }
     }
     /// The whole NOTES tab — the strip (full height, left) beside keys+chips (120pt) · octave/TOP/TOP2
@@ -4212,81 +4217,112 @@ struct EuclideousPage: View {
     private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
-        let tabRowH: CGFloat = 20
+        let tabRowH = EuclideousMixMetrics.tabRowH
+        // LANES' own bottom bar (OFF/RATE/LEN) was PANEL CHROME drawn under every tab; it now belongs to the LANES tab alone (MIX ferry §2.2),
+        // so MIX gets the whole grid area. LANES keeps its exact geometry: tab row, sp4, grid, sp4, controls row.
         // Controls row was ~33pt against the ferry's own 44 (2026-10-14 fixes-after-build ferry §1) — the
         // ratio to the reference panel (307 total) is roughly 44/307 ≈ 0.143; applied proportionally here
         // rather than a literal 44, same convention as every other size on this page.
         let controlsRowH: CGFloat = max(1, innerH * 44 / 307)
         let gridH = max(1, innerH - tabRowH - controlsRowH - sp4 * 2)
-        return VStack(spacing: sp4) {
+        let mixH = max(1, innerH - tabRowH - sp8)
+        return VStack(spacing: sequencerTab == .mix ? sp8 : sp4) {
             sequencerTabRow(width: innerW, height: tabRowH)
-            Group {
-                if sequencerTab == 0 { sequencerLanesGrid(width: innerW, height: gridH) }
-                else { sequencerRiffsGrid(width: innerW, height: gridH) }
+            switch sequencerTab {
+            case .mix:
+                mixGrid(width: innerW, height: mixH)
+            case .lanes:
+                VStack(spacing: sp4) {
+                    sequencerLanesGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
+                    sequencerControlsRow(width: innerW, height: controlsRowH)
+                }
+            case .riffs:   // hidden (unreachable from the tab row) — kept so its code stays compiled
+                VStack(spacing: sp4) {
+                    sequencerRiffsGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
+                    sequencerControlsRow(width: innerW, height: controlsRowH)
+                }
             }
-            .frame(width: innerW, height: gridH)
-            sequencerControlsRow(width: innerW, height: controlsRowH)
         }
         .padding(sp8)
         .frame(width: maxWidth, height: maxHeight)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
     }
-    /// Tab row (2026-10-14 ferry §1, corrected after a self-audit against the raw ferry text — the first
-    /// build dropped the per-tab ON/OFF dot and the "STEP N OF LEN" status entirely): each tab shows its own
-    /// name beside a dot (filled when that tab's sequencer is ON, hollow when OFF); a trailing status reads
-    /// the CURRENTLY SELECTED tab's own live step/len (so it always describes whichever grid is on screen).
+    /// Tab row — TABS ONLY (MIX ferry 2026-10-18 §1): MIX, then LANES (RIFFS stays hidden), equal widths across the content width sp4 apart
+    /// (198.5 each at the reference panel). Each tab is 20 tall: a 12pt heavy label centred in the top 16, a 2pt bar along the bottom edge
+    /// (#FFFFFF selected, #2A2D34 not), label #F2F4F7 selected / #AAB0BA not. LANES keeps its on/off dot (filled when its sequencer is ON,
+    /// hollow when OFF); MIX has none. The old trailing readout is GONE — "STEP n OF LEN" (the LANES grid's lit column and bold step number
+    /// already show the step) and, sharing its slot, the RESET-hold hint "TAP = RESTART" (RESET's gesture and restart marks are unchanged).
     private func sequencerTabRow(width: CGFloat, height: CGFloat) -> some View {
-        let len = sequencerTab == 0 ? lanesSeq.len : riffsSeq.len
-        let step = sequencerTab == 0 ? lanesSeqStep : riffsSeqStep
-        // "TAP = RESTART" (2026-10-15 ferry §5): while any lane's RESET is held, this slot's own live step
-        // readout is replaced by the hold's own status line, in the lowest-numbered held lane's colour ("if
-        // several are held").
-        let heldLane = restartEditLanes.min()
+        let tabs = EuclideousSeqTab.visible
+        let tabW = euclideousSeqTabWidth(count: tabs.count, contentWidth: width)
         return HStack(spacing: sp4) {
-            // §8.2: the RIFFS tab is HIDDEN (its code/fields/`sequencerRiffsGrid` all stay — just
-            // unreachable from here); `sequencerTab` can now only ever be 0. Literally: just don't
-            // render the second tab item — the resulting one-tab-wide strip is reported as-is, per the
-            // ferry's own "do not redesign it; report it."
-            ForEach(0..<1, id: \.self) { i in
-                let sel = sequencerTab == i
-                let on = i == 0 ? lanesSeq.on : riffsSeq.on
-                HStack(spacing: 6) {
-                    Text(i == 0 ? "LANES" : "RIFFS")
-                        .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .tracking(0.8)
-                        .foregroundColor(sel ? .white : Color(hex: 0xAAB0BA))
-                    Circle()
-                        .fill(on ? Color(hex: 0xF2F4F7) : Color.clear)
-                        .frame(width: 7, height: 7)
-                        .overlay(Circle().stroke(Color(hex: 0xAAB0BA), lineWidth: on ? 0 : 1.5))
+            ForEach(tabs, id: \.rawValue) { tab in
+                let sel = sequencerTab == tab
+                let hasDot = tab == .lanes
+                let on = lanesSeq.on
+                ZStack(alignment: .bottom) {
+                    HStack(spacing: 6) {
+                        Text(tab.label).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                            .foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)).lineLimit(1)
+                        if hasDot {
+                            Circle().fill(on ? Color(hex: 0xF2F4F7) : Color.clear).frame(width: 7, height: 7)
+                                .overlay(Circle().stroke(Color(hex: 0xAAB0BA), lineWidth: on ? 0 : 1.5))
+                        }
+                    }
+                    .frame(width: tabW, height: height - 4, alignment: .center)   // centred in the top 16pt
+                    .frame(width: tabW, height: height, alignment: .top)
+                    Rectangle().fill(sel ? Color(hex: 0xFFFFFF) : Color(hex: 0x2A2D34)).frame(width: tabW, height: 2)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .bottom) {
-                    if sel { Rectangle().fill(Color.white).frame(height: 2) }
-                }
+                .frame(width: tabW, height: height)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    sequencerTab = i
+                    sequencerTab = tab
                     resetPopupLane = nil   // §6: "switching tabs closes it"
                 }
-            }
-            if let heldLane {
-                Text("TAP = RESTART")
-                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(lane100(laneAccents[heldLane % laneAccents.count]))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            } else {
-                Text("STEP \(max(1, step + 1)) OF \(max(1, len))")
-                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(Color(hex: 0x8A909A))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(tab.label.capitalized)
+                .accessibilityValue(hasDot ? (on ? "on" : "off") : "")
+                .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)   // SwiftUI has no tab trait; button + selected, like the lane tabs
             }
         }
         .frame(width: width, height: height)
+    }
+    /// THE MIX TAB (ferry 2026-10-18 §2): eight cells in two rows of two lane blocks — each lane's pair (RIFF leading, NOTES trailing) sits
+    /// where that lane's CARD sits (lanes 1,2 on the top row, 3,4 below; both layouts arrange the cards that way). ONE formula
+    /// (`euclideousMixGrid`): cellW = (W−16)/4, rowH = (H−8)/2, padH = rowH−32. If a panel is too small for the legibility floors
+    /// (cellW < 84, padH < 76 — every portrait layout is) nothing is shrunk: it is built to the formula and reported.
+    private func mixGrid(width: CGFloat, height: CGFloat) -> some View {
+        let grid = euclideousMixGrid(width: width, height: height)
+        return ZStack(alignment: .topLeading) {
+            if grid.cellW >= 20, grid.padH >= 20 {   // a collapsed shared row (a very short window) has no room for MIX at all
+                ForEach(0..<8, id: \.self) { cell in
+                    let o = grid.origin(lane: cell / 2, notes: cell % 2 == 1)
+                    mixCell(lane: cell / 2, notes: cell % 2 == 1, grid: grid)
+                        .offset(x: o.x, y: o.y)
+                        .accessibilitySortPriority(Double(8 - cell))   // VoiceOver: cell by cell, lanes 1–4, riff before notes, each pad before its stepper
+                }
+            }
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+    }
+    /// One cell: the pad (cellW × padH), sp4, the OCT stepper (cellW × 28). RIFF writes the lane's GATE/VEL through the RHYTHM sliders'
+    /// own setters and `riffOctave` through the RIFF tab's OCT setter; NOTES writes `notesGate`/`notesVelocity` and `octave` through the
+    /// NOTES tab's octave setter. A layer that's off draws grey and still edits.
+    @ViewBuilder private func mixCell(lane: Int, notes: Bool, grid: EuclideousMixGrid) -> some View {
+        let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        let accent = laneAccents[lane % laneAccents.count]
+        let off = euclideousMixLayerIsOff(line, notes: notes)
+        let v = euclideousMixPadValues(of: line, notes: notes)
+        VStack(spacing: sp4) {
+            EuclideousMixPad(cellW: grid.cellW, padH: grid.padH, gate: v.gate, velocity: v.velocity, accent: accent, off: off, notes: notes,
+                             accessibilityLabelText: euclideousMixPadAccessibilityLabel(lane: lane, notes: notes, off: off),
+                             onEditStep: { newStep, mutate in editStep(lane, newStep, mutate) })
+            EuclideousMixOctaveStepper(cellW: grid.cellW, octave: euclideousMixOctave(of: line, notes: notes), accent: accent, off: off,
+                                       accessibilityLabelText: euclideousMixOctaveAccessibilityLabel(lane: lane, notes: notes),
+                                       onSet: { o in edit(lane) { l in if notes { euclideousSetNotesOctave(&l, o) } else { euclideousSetRiffOctave(&l, o) } } })
+        }
+        .frame(width: grid.cellW, height: grid.padH + sp4 + EuclideousMixMetrics.stepperH, alignment: .top)
+        .accessibilityElement(children: .contain)
     }
     /// LANES grid (2026-10-14 ferry §1/§2 — REBUILT after a self-audit against the raw ferry text found 3
     /// real gaps in the first build): ALWAYS 8 fixed columns (not reflowed to LEN), so the column x-positions
@@ -4511,7 +4547,7 @@ struct EuclideousPage: View {
     /// elsewhere) — found missing by a self-audit: the first build gave both the SAME fixed 69.5pt, which
     /// risks truncating RATE's own longer values ("¼ BAR", "4 BARS") against LEN's bare single digit.
     private func sequencerControlsRow(width: CGFloat, height: CGFloat) -> some View {
-        let isLanes = sequencerTab == 0
+        let isLanes = sequencerTab != .riffs
         let on = isLanes ? lanesSeq.on : riffsSeq.on
         let rate = isLanes ? lanesSeq.rate : riffsSeq.rate
         let len = isLanes ? lanesSeq.len : riffsSeq.len
