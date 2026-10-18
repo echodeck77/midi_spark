@@ -1078,7 +1078,7 @@ struct DiagView: View {
                                    lineReady: euclideousLineReady,
                                    riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                    riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
-                                   lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq,
+                                   lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
                                    lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                    wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
@@ -1153,6 +1153,17 @@ struct DiagView: View {
                                            $0.euclideousLanesSeqOn = s.on; $0.euclideousLanesSeqRate = s.rate
                                            $0.euclideousLanesSeqLen = s.len; $0.euclideousLanesSeqCells = s.cells
                                        }
+                                       buildPublishScene()
+                                   },
+                                   // FX TAB (2026-10-18): one document write + one republish per edit; `newStep` takes a `coalesceKey: nil` undo checkpoint (a tap, a
+                                   // stroke's first change, a value drag's first change, a lane toggle, a stepper tap) and the rest of that gesture writes into it.
+                                   onEditFX: { newStep, mutate in
+                                       if newStep { euclideousRecordUndo(coalesceKey: nil) }
+                                       var f = euclideousFX
+                                       mutate(&f)
+                                       f = f.normalized()
+                                       euclideousFX = f
+                                       au?.editDocument(coalesceKey: "euclideousFX") { $0.euclideousFX = f }
                                        buildPublishScene()
                                    },
                                    onEditRiffsSeq: { mutate in

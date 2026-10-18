@@ -5238,9 +5238,12 @@ struct EuclideousPadUndoBurst: Equatable {
 /// lived inside this tab strip at all, in any revision — it lives in the standalone `riffGridView` panel,
 /// shown directly in the page layout, restored there 2026-10-18.
 enum EuclideousSeqTab: Int, CaseIterable {
-    case mix = 0, lanes = 1, riffs = 2
-    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS" } }
+    case mix = 0, lanes = 1, riffs = 2, fx = 3
+    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS"; case .fx: return "FX" } }
+    /// The tabs a layout without FX shows (portrait: the FX ferry's §10.4 stop — the panel isn't under the riff grid there and is shorter than 273pt).
     static let visible: [EuclideousSeqTab] = [.mix, .lanes]
+    /// FX is the third tab after MIX and LANES, offered only where its columns can line up with the riff grid's (landscape).
+    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.mix, .lanes, .fx] : visible }
     static let `default`: EuclideousSeqTab = .mix
 }
 /// Tabs only: equal widths across the full content width, sp4 apart (two tabs at the 401pt reference = 198.5 each).
@@ -6147,4 +6150,403 @@ func euclideousRiffCellW(maxWidth: CGFloat) -> CGFloat {
     let n: CGFloat = 8, label: CGFloat = 30, sp4: CGFloat = 4, sp8: CGFloat = 8
     let gridW = max(1, maxWidth - (label + sp4))
     return max(1, (gridW - sp8 * 2 - sp4 * (n - 1)) / n)
+}
+
+
+// MARK: - FX TAB — UI maths (ferry 2026-10-18 §10–§14): layout, cell marks, bubble, gestures, steppers, strings, flash
+//
+// Everything the FX tab draws or interprets is a number or a string from here, so the painter (FXPanelPainter.swift) only paints what these return and the
+// tests can reach every claim. The columns come from `euclideousRiffCellW` — the riff grid's own function — so the FX columns and the riff grid's columns are the
+// same numbers by construction (§10.3).
+
+extension EuclideousFXRow {
+    static let railNames = ["RATCH", "GATE", "TIE", "VEL", "NOTE"]
+    /// The rail's name (§11.3): the CC row reads "CC" plus its controller number with no space (CC74).
+    func railName(ccNumber: Int) -> String { self == .cc ? "CC\(ccNumber)" : Self.railNames[rawValue] }
+    /// VoiceOver's name for the row (§14.1).
+    func spokenName(ccNumber: Int) -> String {
+        switch self {
+        case .ratch: return "ratchet"
+        case .gate: return "gate"
+        case .tie: return "tie"
+        case .vel: return "velocity"
+        case .note: return "note step"
+        case .cc: return "controller \(ccNumber)"
+        }
+    }
+    /// The strip's one-line description (§11.9); NOTE and CC show steppers instead.
+    var stripDescription: String? {
+        switch self {
+        case .ratch: return "PLAYS THE NOTE 2–4 TIMES IN ITS STEP"
+        case .gate: return "REPLACES THE LANE\u{2019}S GATE · 100 = LEGATO"
+        case .tie: return "THE NOTE BEFORE CARRIES ON THROUGH"
+        case .vel: return "REPLACES THE LANE\u{2019}S VELOCITY"
+        case .note, .cc: return nil
+        }
+    }
+    /// Does a vertical drag on a cell edit a value? (TIE has none: any drag there paints.)
+    var hasValueDrag: Bool { self != .tie }
+}
+let euclideousFXHintText = "TAP: ON/OFF · DRAG ALONG: PAINT · DRAG UP/DOWN: VALUE · DOUBLE-TAP: RESET"
+
+/// §10: positions inside the panel's CONTENT (the panel's own 8pt padding already taken off; y 0 = the top of the strip, which sits under the tab row).
+/// Strip 24 · 4 · header 14 · 4 · six rows 29 tall 4 apart · 4 · hint 16 = 260 at the reference. A shorter panel gives every row an equal share of the missing
+/// height down to 24pt (§10.4's floor); nothing below that is shrunk.
+struct EuclideousFXLayout: Equatable {
+    static let labelW: CGFloat = 30, gap: CGFloat = 4, colGap: CGFloat = 4
+    static let stripH: CGFloat = 24, headerH: CGFloat = 14, hintH: CGFloat = 16, rowGap: CGFloat = 4
+    static let fullRowH: CGFloat = 29, minRowH: CGFloat = 24, bandPad: CGFloat = 2
+    static let fullHeight: CGFloat = 260
+    let width: CGFloat
+    let height: CGFloat
+    let cellW: CGFloat
+    let rowH: CGFloat
+    var firstColX: CGFloat { Self.labelW + Self.gap }
+    func colLeft(_ c: Int) -> CGFloat { firstColX + CGFloat(c) * (cellW + Self.colGap) }
+    var headerTop: CGFloat { Self.stripH + Self.rowGap }
+    var rowsTop: CGFloat { headerTop + Self.headerH + Self.rowGap }
+    func rowTop(_ r: Int) -> CGFloat { rowsTop + CGFloat(r) * (rowH + Self.rowGap) }
+    var hintTop: CGFloat { rowTop(5) + rowH + Self.rowGap }
+    func cellRect(row: Int, col: Int) -> CGRect { CGRect(x: colLeft(col), y: rowTop(row), width: cellW, height: rowH) }
+    func railRect(row: Int) -> CGRect { CGRect(x: 0, y: rowTop(row), width: Self.labelW, height: rowH) }
+    /// The selected row's band (§11.4): 4pt wider than the content on each side (it starts at the panel's x 4), 2pt taller above and below the row.
+    func bandRect(row: Int) -> CGRect {
+        CGRect(x: -4, y: rowTop(row) - Self.bandPad, width: width + 8, height: rowH + Self.bandPad * 2)
+    }
+    /// The whole panel (padding included) in content coordinates — what the bubble is kept 6pt inside of.
+    var panelBounds: CGRect { CGRect(x: -8, y: -(8 + 20 + 4), width: width + 16, height: height + 8 + 20 + 4 + 8) }
+}
+/// `width` is the panel CONTENT width (the panel's width − 16); the riff grid's `maxWidth` is that plus the grid's own 8pt padding on each side.
+func euclideousFXLayout(width: CGFloat, height: CGFloat) -> EuclideousFXLayout {
+    let missing = max(0, EuclideousFXLayout.fullHeight - height)
+    let rowH = min(EuclideousFXLayout.fullRowH, max(EuclideousFXLayout.minRowH, EuclideousFXLayout.fullRowH - missing / 6))
+    return EuclideousFXLayout(width: width, height: height, cellW: euclideousRiffCellW(maxWidth: width + 16), rowH: rowH)
+}
+
+enum EuclideousFXTarget: Equatable { case rail(row: Int), cell(row: Int, col: Int) }
+/// §12.4: hit-test with the cellW and gap the grid draws with, each cell's area reaching 2pt into the gaps on every side (the gaps are 4: fully claimed).
+/// The rail takes the label column plus 2pt of the gap. Nil outside every row.
+func euclideousFXHit(x: CGFloat, y: CGFloat, layout: EuclideousFXLayout) -> EuclideousFXTarget? {
+    for r in 0..<6 {
+        let top = layout.rowTop(r) - 2, bottom = layout.rowTop(r) + layout.rowH + 2
+        guard y >= top, y < bottom else { continue }
+        if x >= 0, x < EuclideousFXLayout.labelW + 2 { return .rail(row: r) }
+        if let c = euclideousFXColumn(x: x, layout: layout, clamped: false) { return .cell(row: r, col: c) }
+        return nil
+    }
+    return nil
+}
+/// The column under `x` (cells claim 2pt into their gaps). `clamped` pins an x beyond either end to the first / last column — a paint stroke keeps painting the
+/// edge cell while the finger drifts past the grid.
+func euclideousFXColumn(x: CGFloat, layout: EuclideousFXLayout, clamped: Bool) -> Int? {
+    let pitch = layout.cellW + EuclideousFXLayout.colGap
+    let u = (x - (layout.firstColX - 2)) / pitch
+    if u < 0 { return clamped ? 0 : nil }
+    let c = Int(u.rounded(.down))
+    if c > 7 { return clamped ? 7 : (x < layout.colLeft(7) + layout.cellW + 2 ? 7 : nil) }
+    return c
+}
+
+/// §11.5: what a cell with a value draws, in ink on the light fill. Widths are the spec's: ticks 2.5 × 12 (r 1) 4 apart; the bar is min(28, cellW − 8) wide and 3 tall
+/// with an ink-18% track; the tie arc is drawn in a 30 × 10 box scaled down to min(30, cellW − 6) wide in a narrow cell.
+enum EuclideousFXMark: Equatable {
+    case ticks(count: Int)
+    case gate(label: String, barW: CGFloat, fillW: CGFloat)
+    case tie(arcW: CGFloat)
+    case bar(label: String, barW: CGFloat, fillW: CGFloat)
+    case step(label: String)
+}
+func euclideousFXSignedLabel(_ v: Int) -> String { v < 0 ? "\u{2212}\(-v)" : "+\(v)" }
+func euclideousFXMark(row: Int, value: Int, cellW: CGFloat) -> EuclideousFXMark {
+    let barW = max(2, min(28, cellW - 8))
+    func fill(_ num: Double, _ den: Double) -> CGFloat { min(barW, max(2, barW * CGFloat(num / den))) }
+    switch row {
+    case 0: return .ticks(count: max(2, min(4, value)))
+    case 1: return .gate(label: value >= 100 ? "LEG" : "\(value)", barW: barW, fillW: fill(Double(value), 100))
+    case 2: return .tie(arcW: max(2, min(30, cellW - 6)))
+    case 3, 5: return .bar(label: "\(value)", barW: barW, fillW: fill(Double(value), 127))
+    default: return .step(label: euclideousFXSignedLabel(value))
+    }
+}
+
+/// §11.11: the value bubble's text.
+func euclideousFXBubbleText(row: Int, value: Int, ccNumber: Int) -> String {
+    switch row {
+    case 0: return "RATCH \u{00D7}\(value)"
+    case 1: return value >= 100 ? "GATE LEGATO" : "GATE \(value)%"
+    case 3: return "VEL \(value)"
+    case 4: return "NOTE \(euclideousFXSignedLabel(value)) A PASS"
+    case 5: return "CC\(ccNumber) = \(value)"
+    default: return ""
+    }
+}
+struct EuclideousFXBubble: Equatable { var rect: CGRect; var notchX: CGFloat }
+/// 24 tall, as wide as its text plus 18, centred over the cell with its bottom 7pt above the cell's top, kept 6pt inside the panel; the 9pt notch stays on the
+/// cell's centre (pulled in to stay on the bubble's bottom edge). Heavy monospaced 11pt text is 0.6 em a character.
+func euclideousFXBubble(text: String, cell: CGRect, bounds: CGRect) -> EuclideousFXBubble {
+    let w = (CGFloat(text.count) * 11 * 0.6).rounded(.up) + 18, h: CGFloat = 24
+    let x = max(bounds.minX + 6, min(bounds.maxX - 6 - w, cell.midX - w / 2))
+    let y = max(bounds.minY + 6, cell.minY - 7 - h)
+    let rect = CGRect(x: x, y: y, width: w, height: h)
+    return EuclideousFXBubble(rect: rect, notchX: max(rect.minX + 9, min(rect.maxX - 9, cell.midX)))
+}
+
+// ── value drags (§12.4) and the steppers (§12.7) ─────────────────────────────────────────────────────────────────────
+
+private let euclideousFXRatchValues = [2, 3, 4]
+private let euclideousFXNoteValues = [-3, -2, -1, 1, 2, 3]
+/// The legal values of a row, in order, when it has a short list (RATCH, NOTE); nil for the ranged rows.
+func euclideousFXValueList(row: Int) -> [Int]? { row == 0 ? euclideousFXRatchValues : (row == 4 ? euclideousFXNoteValues : nil) }
+/// Points of finger travel per value step: RATCH 18, GATE 5 (per 5%), VEL 2, NOTE 14, CC 2.
+func euclideousFXPointsPerStep(row: Int) -> CGFloat { [18, 5, 0, 2, 14, 2][max(0, min(5, row))] }
+/// The value after `travelUp` points of upward finger travel from the lock point, rounded to the nearest step and clamped at the ends.
+func euclideousFXDragValue(row: Int, start: Int, travelUp: CGFloat) -> Int {
+    let pps = euclideousFXPointsPerStep(row: row)
+    guard pps > 0 else { return start }
+    let steps = Int((travelUp / pps).rounded())
+    if let list = euclideousFXValueList(row: row) {
+        let i0 = list.firstIndex(of: start) ?? (list.enumerated().min { abs($0.element - start) < abs($1.element - start) }?.offset ?? 0)
+        return list[max(0, min(list.count - 1, i0 + steps))]
+    }
+    switch row {
+    case 1: return max(5, min(100, start + 5 * steps))
+    case 3: return max(1, min(127, start + steps))
+    default: return max(0, min(127, start + steps))
+    }
+}
+/// One step of VoiceOver's increment / decrement (§14.2): one value step; NOTE skips 0; an empty cell turns on at the brush when incremented. Nil = no change.
+func euclideousFXAdjust(row: Int, current: Int?, brush: Int, up: Bool) -> Int? {
+    guard row != 2 else { return nil }
+    guard let cur = current else { return up ? brush : nil }
+    let next: Int
+    if let list = euclideousFXValueList(row: row) {
+        guard let i = list.firstIndex(of: cur) else { return nil }
+        let j = i + (up ? 1 : -1)
+        guard j >= 0, j < list.count else { return nil }
+        next = list[j]
+    } else {
+        next = euclideousFXDragValue(row: row, start: cur, travelUp: (up ? 1 : -1) * euclideousFXPointsPerStep(row: row))
+    }
+    return next == cur ? nil : next
+}
+
+enum EuclideousFXStepper: Equatable { case passes, ccNumber, base }
+let euclideousFXBaseStops = [-1, 0, 32, 64, 96, 127]
+/// `‹` / `›`: PASSES and CC step by one, BASE through –, 0, 32, 64, 96, 127 (from a value in between, `›` goes to the next listed value up and `‹` to the next
+/// down). Nil at an end — the chevron is disabled and draws at 40% (§12.7: steppers never wrap).
+func euclideousFXStepperStep(_ s: EuclideousFXStepper, current: Int, up: Bool) -> Int? {
+    switch s {
+    case .passes: let n = current + (up ? 1 : -1); return (2...8).contains(n) ? n : nil
+    case .ccNumber: let n = current + (up ? 1 : -1); return (0...119).contains(n) ? n : nil
+    case .base:
+        return up ? euclideousFXBaseStops.first { $0 > current } : euclideousFXBaseStops.last { $0 < current }
+    }
+}
+/// Dragging a stepper's value: PASSES 12pt per step, CC and BASE 2pt (BASE's – is one step below 0).
+func euclideousFXStepperDrag(_ s: EuclideousFXStepper, start: Int, travelUp: CGFloat) -> Int {
+    let steps = Int((travelUp / (s == .passes ? 12 : 2)).rounded())
+    switch s {
+    case .passes: return max(2, min(8, start + steps))
+    case .ccNumber: return max(0, min(119, start + steps))
+    case .base: return max(-1, min(127, start + steps))
+    }
+}
+/// The double-tap on a stepper's value: PASSES 4, CC 74, BASE –.
+func euclideousFXStepperDefault(_ s: EuclideousFXStepper) -> Int { s == .passes ? 4 : (s == .ccNumber ? 74 : -1) }
+func euclideousFXStepperKey(_ s: EuclideousFXStepper) -> String { s == .passes ? "PASSES" : (s == .ccNumber ? "CC" : "BASE") }
+func euclideousFXStepperValueText(_ s: EuclideousFXStepper, value: Int) -> String { s == .base && value < 0 ? "–" : "\(value)" }
+func euclideousFXStepperWidth(_ s: EuclideousFXStepper) -> CGFloat { s == .passes ? 100 : (s == .ccNumber ? 84 : 90) }
+func euclideousFXStepperSpoken(_ s: EuclideousFXStepper, value: Int) -> String {
+    switch s {
+    case .passes: return "Passes \(value)"
+    case .ccNumber: return "Controller number \(value)"
+    case .base: return "Base value \(value < 0 ? "none" : "\(value)")"
+    }
+}
+func euclideousFXStepperValue(_ s: EuclideousFXStepper, fx: EuclideousFX) -> Int {
+    switch s { case .passes: return Int(fx.notePasses); case .ccNumber: return Int(fx.ccNumber); case .base: return Int(fx.ccBase) }
+}
+func euclideousFXSetStepper(_ fx: inout EuclideousFX, _ s: EuclideousFXStepper, value: Int) {
+    switch s {
+    case .passes: fx.notePasses = UInt8(max(2, min(8, value)))
+    case .ccNumber: fx.ccNumber = UInt8(max(0, min(119, value)))
+    case .base: fx.ccBase = value < 0 ? -1 : Int16(min(127, value))
+    }
+}
+
+// ── cell edits (the model side of §12) ───────────────────────────────────────────────────────────────────────────────
+
+/// Set (or, with nil, empty) one cell, clamped to the row's legal domain.
+func euclideousFXSetCell(_ fx: inout EuclideousFX, row: Int, col: Int, value: Int?) {
+    guard row >= 0, row < 6, col >= 0, col < 8 else { return }
+    fx.cells[row * 8 + col] = value.flatMap { EuclideousFX.legalCell(row: row, raw: $0) } ?? EuclideousFX.emptyCell
+}
+/// §12.2: a tap on an empty cell takes the brush; a tap on a cell with a value empties it.
+func euclideousFXTapCell(_ fx: inout EuclideousFX, row: Int, col: Int, brush: Int) {
+    euclideousFXSetCell(&fx, row: row, col: col, value: fx.cell(row: row, column: col) == nil ? brush : nil)
+}
+/// §12.6: a lane button flips that lane's bit on the row.
+func euclideousFXToggleLane(_ fx: inout EuclideousFX, row: Int, lane: Int) {
+    guard row >= 0, row < 6, lane >= 0, lane < 4 else { return }
+    fx.lanes[row] ^= UInt8(1) << UInt8(lane)
+}
+/// §12.3: a second tap on the same cell within 320 ms.
+let euclideousFXDoubleTapWindow: Double = 0.32
+func euclideousFXIsDoubleTap(previous: (row: Int, col: Int, time: Double)?, row: Int, col: Int, time: Double) -> Bool {
+    guard let p = previous else { return false }
+    return p.row == row && p.col == col && time - p.time >= 0 && time - p.time <= euclideousFXDoubleTapWindow
+}
+
+// ── the touch reducer (§12.2–§12.4) ──────────────────────────────────────────────────────────────────────────────────
+
+enum EuclideousFXTouchEvent: Equatable {
+    case paint(row: Int, col: Int, on: Bool)        // `on`: the cell takes the row's brush; otherwise it empties
+    case value(row: Int, col: Int, value: Int)      // a value drag's current value (an empty cell takes it)
+    case tap(row: Int, col: Int)
+}
+/// One finger on one cell. Below 8pt of travel nothing happens (a tap on lift); the touch locks to an axis as soon as either component reaches 8pt — vertical if
+/// the vertical one is larger, otherwise horizontal — and on the TIE row any drag paints. A paint stroke's value is the opposite of the first cell's state at
+/// touch-down and every cell of the touched row the finger crosses takes it; a value drag measures travel from the lock point.
+struct EuclideousFXTouch {
+    enum Phase { case pending, paint, value }
+    static let lockDistance: CGFloat = 8
+    private(set) var phase: Phase = .pending
+    let start: CGPoint
+    let row: Int
+    let startCol: Int
+    private let startHadValue: Bool
+    private let startValue: Int
+    private var lockY: CGFloat = 0
+    private var lastCol: Int
+    private var paintOn = false
+    private var lastValue: Int
+    /// The value being dragged (for the bubble), nil outside a value drag.
+    var draggedValue: Int? { phase == .value ? lastValue : nil }
+    init(point: CGPoint, row: Int, col: Int, cellValue: Int?, brush: Int) {
+        start = point; self.row = row; startCol = col; lastCol = col
+        startHadValue = cellValue != nil; startValue = cellValue ?? brush; lastValue = cellValue ?? brush
+    }
+    mutating func moved(to p: CGPoint, layout: EuclideousFXLayout) -> [EuclideousFXTouchEvent] {
+        switch phase {
+        case .pending:
+            let dx = p.x - start.x, dy = p.y - start.y
+            guard max(abs(dx), abs(dy)) >= Self.lockDistance else { return [] }
+            if abs(dy) > abs(dx), EuclideousFXRow(rawValue: row)?.hasValueDrag == true {
+                phase = .value; lockY = p.y
+                return [.value(row: row, col: startCol, value: startValue)]
+            }
+            phase = .paint; paintOn = !startHadValue
+            let col = euclideousFXColumn(x: p.x, layout: layout, clamped: true) ?? startCol
+            var out: [EuclideousFXTouchEvent] = [.paint(row: row, col: startCol, on: paintOn)]
+            out += cross(from: startCol, to: col)
+            lastCol = col
+            return out
+        case .paint:
+            let col = euclideousFXColumn(x: p.x, layout: layout, clamped: true) ?? lastCol
+            guard col != lastCol else { return [] }
+            let out = cross(from: lastCol, to: col)
+            lastCol = col
+            return out
+        case .value:
+            let v = euclideousFXDragValue(row: row, start: startValue, travelUp: lockY - p.y)
+            guard v != lastValue else { return [] }
+            lastValue = v
+            return [.value(row: row, col: startCol, value: v)]
+        }
+    }
+    func ended() -> [EuclideousFXTouchEvent] { phase == .pending ? [.tap(row: row, col: startCol)] : [] }
+    private func cross(from a: Int, to b: Int) -> [EuclideousFXTouchEvent] {
+        guard a != b else { return [] }
+        let step = b > a ? 1 : -1
+        return stride(from: a + step, through: b, by: step).map { .paint(row: row, col: $0, on: paintOn) }
+    }
+}
+
+// ── labels, the preview and VoiceOver (§11.2, §11.9, §14) ───────────────────────────────────────────────────────────
+
+/// §11.2: the header over a column — the written rank the riff plays there, named exactly as the riff grid's note-label column names that rank
+/// (`euclideousGlobalPoolExtended` + the page's naming). A rest shows "–" (dim); with nothing held the rank number shows.
+func euclideousFXHeaderLabel(rank: Int, pool: [Int], name: (Int) -> String) -> (text: String, rest: Bool) {
+    guard rank >= 1 else { return ("–", true) }
+    guard !pool.isEmpty else { return ("\(rank)", false) }
+    let ext = euclideousGlobalPoolExtended(sortedRaw: pool)
+    return rank <= ext.count ? (name(ext[rank - 1]), false) : ("–", false)
+}
+/// §11.9: the cell the NOTE preview reads — the NOTE cell touched last, else the leftmost NOTE cell on a non-rest column; nil when there is none.
+func euclideousFXPreviewColumn(touched: Int?, fx: EuclideousFX, ranks: [Int]) -> Int? {
+    func ok(_ c: Int) -> Bool { fx.cell(row: 4, column: c) != nil && c < ranks.count && ranks[c] >= 1 }
+    if let t = touched, ok(t) { return t }
+    return (0..<8).first(where: ok)
+}
+/// §11.9: the notes the previewed cell plays on passes 1…N joined by " › ", each moved rank resolved through the engine's fold on the current pool (INVERT,
+/// TRANSPOSE, octave and mask ignored); with nothing held the moved ranks themselves (4 › 5 › 6 › 7, or 1 › 0 › −1). `pool` is the held notes ascending.
+func euclideousFXNotePreviewText(fx: EuclideousFX, touched: Int?, ranks: [Int], pool: [Int], name: (Int) -> String) -> String {
+    guard let c = euclideousFXPreviewColumn(touched: touched, fx: fx, ranks: ranks), let s = fx.cell(row: 4, column: c) else { return "NO STEPS YET" }
+    let passes = max(2, min(8, Int(fx.notePasses)))
+    return (0..<passes).map { k -> String in
+        let rank = ranks[c] + s * k
+        guard !pool.isEmpty else { return rank < 0 ? "\u{2212}\(-rank)" : "\(rank)" }
+        guard let pitch = riffResolveExtended(rank: rank, oct: 0, n: pool.count, asc: { pool[$0] }), pitch >= 0, pitch <= 127 else { return "–" }
+        return name(pitch)
+    }.joined(separator: " › ")
+}
+func euclideousFXLanesPhrase(mask: UInt8) -> String {
+    let lanes = (0..<4).filter { (mask >> UInt8($0)) & 1 != 0 }.map { $0 + 1 }
+    switch lanes.count {
+    case 0: return "no lanes"
+    case 4: return "all lanes"
+    case 1: return "lane \(lanes[0])"
+    default: return "lanes " + lanes.dropLast().map(String.init).joined(separator: ", ") + " and \(lanes.last!)"
+    }
+}
+func euclideousFXRailLabel(row: Int, ccNumber: Int, mask: UInt8, selected: Bool) -> String {
+    let name = EuclideousFXRow(rawValue: row)?.spokenName(ccNumber: ccNumber) ?? ""
+    return "FX row, \(name), \(euclideousFXLanesPhrase(mask: mask))" + (selected ? ", selected" : "")
+}
+func euclideousFXLaneGroupLabel(row: Int, ccNumber: Int) -> String {
+    "Lanes that play the \(EuclideousFXRow(rawValue: row)?.spokenName(ccNumber: ccNumber) ?? "") row"
+}
+func euclideousFXLaneButtonLabel(lane: Int, on: Bool) -> String { "Lane \(lane + 1), " + (on ? "plays this row" : "ignores this row") }
+/// §14.2: "Note n, <name or rest>, <value>" — an empty cell ends with the row's name and "off".
+func euclideousFXCellLabel(row: Int, ccNumber: Int, column: Int, noteName: String?, value: Int?) -> String {
+    let rowName = EuclideousFXRow(rawValue: row)?.spokenName(ccNumber: ccNumber) ?? ""
+    var tail = "\(rowName) off"
+    if let v = value {
+        switch row {
+        case 0: tail = "ratchet \(v)"
+        case 1: tail = v >= 100 ? "gate legato" : "gate \(v) percent"
+        case 2: tail = "tie on"
+        case 3: tail = "velocity \(v)"
+        case 4: tail = "note step \(v < 0 ? "minus" : "plus") \(abs(v)) per pass"
+        default: tail = "controller \(ccNumber) value \(v)"
+        }
+    }
+    return "Note \(column + 1), \(noteName ?? "rest"), \(tail)"
+}
+/// §11.6: a rest column's cells, and a row with no lanes, draw at 42% — and the two multiply.
+func euclideousFXCellOpacity(restColumn: Bool, rowHasLanes: Bool) -> Double { (restColumn ? 0.42 : 1) * (rowHasLanes ? 1 : 0.42) }
+
+// ── the firing flash (§11.8) ─────────────────────────────────────────────────────────────────────────────────────────
+
+struct EuclideousFXFlash: Equatable { var lane: Int; var intensity: Double }
+/// Which cells are firing at `beat`: for each lane's latest real strike (the engine's own hit event — its `column` is the riff column the hit actually read),
+/// the rows `euclideousFXApply` says applied to it flash in that lane's colour with the comet bar's own flare (`euclideousRingFlare`) over the lane's own
+/// step. A later hit on the same cell takes the cell over. 48 entries, row-major. TIE hits post no event, and BASE sends have no cell.
+func euclideousFXFlashCells(fx: EuclideousFX, lines: [EuclidLine], events: [Router.EuclideousNoteViewEventSnapshot?], ranks: [Int], beat: Double) -> [EuclideousFXFlash?] {
+    var out = [EuclideousFXFlash?](repeating: nil, count: 48)
+    var onsets = [Double](repeating: -Double.infinity, count: 48)
+    for lane in 0..<min(4, min(lines.count, events.count)) {
+        guard let ev = events[lane], ev.column >= 0, Int(ev.column) < 8 else { continue }
+        let col = Int(ev.column)
+        let hit = euclideousFXApply(fx, lane: lane, playsRiff: euclideousLanePlaysRiff(lines[lane]), column: col, writtenRank: col < ranks.count ? ranks[col] : 0, pass: 0)
+        guard hit.appliedRows != 0 else { continue }
+        let step = max(1e-6, (lines[lane].rate ?? .r1_16).beats)
+        let intensity = euclideousRingFlare(ageSteps: (beat - ev.onsetBeat) / step)
+        guard intensity > 0 else { continue }
+        for r in 0..<6 where (hit.appliedRows >> UInt8(r)) & 1 != 0 {
+            let i = r * 8 + col
+            if ev.onsetBeat >= onsets[i] { onsets[i] = ev.onsetBeat; out[i] = EuclideousFXFlash(lane: lane, intensity: intensity) }
+        }
+    }
+    return out
 }

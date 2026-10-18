@@ -123,13 +123,6 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
 
         // ── the roll (above the cell fills so muted cells still show their dim bars; lower contrast on RESTART) ──
         for hit in data.roll where data.unitBeats > 0 {
-            let u0 = (hit.beat - data.windowStart) / data.unitBeats
-            guard u0 >= 0, u0 < 16 else { continue }
-            let u1 = u0 + hit.gateBeats / data.unitBeats
-            let x0 = xOf(u0), x1 = xOf(u1)
-            let w = max(2.5, x1 - x0)
-            let y = top + euclideousRollBarY(rank: hit.rank, laneH: laneH) - (hit.rank < 1 ? 1.5 : 0)
-            let rect = CGRect(x: x0, y: y, width: w, height: 3)
             let color: Color
             if hit.rank < 1 {
                 color = EuclideousLanesPalette.mutedBar.opacity(0.35)   // a rest / no riff rank: the middle line, dim, never blank (§3.3)
@@ -138,7 +131,16 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
             } else {
                 color = EuclideousLanesPalette.mutedBar.opacity(restart ? 0.25 : 0.5)
             }
-            ctx.fill(RoundedRectangle(cornerRadius: 1.5).path(in: rect), with: .color(color))
+            let y = top + euclideousRollBarY(rank: hit.rank, laneH: laneH) - (hit.rank < 1 ? 1.5 : 0)
+            // FX RATCH (§13.4): a ratcheted hit is drawn as its n strikes, one slot apart; every other hit is one bar (strikes == 1)
+            for k in 0..<max(1, hit.strikes) {
+                let b0 = hit.beat + Double(k) * hit.spacingBeats
+                let u0 = (b0 - data.windowStart) / data.unitBeats
+                guard u0 >= 0, u0 < 16 else { continue }
+                let len = (k == hit.strikes - 1 && hit.lastGateBeats > 0) ? hit.lastGateBeats : hit.gateBeats
+                let x0 = xOf(u0), x1 = xOf(u0 + len / data.unitBeats)
+                ctx.fill(RoundedRectangle(cornerRadius: 1.5).path(in: CGRect(x: x0, y: y, width: max(2.5, x1 - x0), height: 3)), with: .color(color))
+            }
         }
 
         // ── restart marks ──

@@ -561,6 +561,9 @@ struct EuclideousPage: View {
     // polled regardless of either sequencer's own ON state, same class as `riffPositions` above).
     let lanesSeq: EuclideousLanesSeq
     let riffsSeq: EuclideousRiffsSeq
+    // FX TAB (2026-10-18 ferry): the page-level FX rows (six rows × the riff's eight columns, per-row lane sets, PASSES / CC / BASE). Read-only here; every
+    // edit goes through `onEditFX`, which the VC turns into one document write + one republish.
+    let fx: EuclideousFX
     let lanesSeqStep: Int
     let riffsSeqStep: Int
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0).
@@ -609,6 +612,9 @@ struct EuclideousPage: View {
     let onEditRiffs: (@escaping (inout [EuclideousRiff]) -> Void) -> Void
     let onSetActiveRiff: (Int) -> Void
     let onEditLanesSeq: (@escaping (inout EuclideousLanesSeq) -> Void) -> Void
+    /// FX TAB: like `onEditStep` — `newStep: true` takes a `coalesceKey: nil` undo checkpoint (the first value-changing write of a tap / stroke / drag / toggle),
+    /// `false` writes into the step already open (the rest of the stroke, a double-tap's second tap).
+    let onEditFX: (Bool, @escaping (inout EuclideousFX) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
     // `onSetActiveRiff`/`onSetKeyRoot` below, not a continuous gesture. Routing a preset pick through the
@@ -663,6 +669,13 @@ struct EuclideousPage: View {
     // the per-lane cache of the roll feed (recomputed only when its inputs or its window change, never per frame).
     @State private var lanesSubTab: EuclideousLanesSubTab = .mute
     @State private var lanesRollCache = EuclideousLanesRollCache()
+    // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
+    // opens, changed only by value drags), the NOTE cell touched last (the strip's preview), the double-tap memory, and whether this touch has opened its undo step.
+    @State private var fxSelectedRow = 0
+    @State private var fxBrushes: [Int] = EuclideousFXRow.allCases.map { $0.defaultValue }
+    @State private var fxNotePreviewCol: Int? = nil
+    @State private var fxLastTap: (row: Int, col: Int, time: Double)? = nil
+    @State private var fxStepOpen = false
     // §3.2's FIRST-RUN PAD HINT (the old XY pads' own animated ↕/↔ affordance) is RETIRED along with the
     // pads themselves (usability ferry, 2026-10-12) — not ported to the new sliders. Each slider's own
     // visible fill/track already reads as "drag me" far more directly than a flat 2D pad ever did (a
@@ -1136,7 +1149,7 @@ struct EuclideousPage: View {
                 .frame(width: laneColW)
                 VStack(spacing: sp16) {
                     riffGridView(maxWidth: riffColW, rowH: riffRowH).frame(width: riffColW, height: halfH)
-                    sequencerPanel(maxWidth: riffColW, maxHeight: halfH)
+                    sequencerPanel(maxWidth: riffColW, maxHeight: halfH, fxAvailable: true)
                 }
                 .frame(width: riffColW)
             }
@@ -1704,7 +1717,7 @@ struct EuclideousPage: View {
             // that falls INSIDE the lap stays unforeseen, so the prediction remains oblivious to it, as before.
             let cyc = clock.stepBeats * Double(max(1, clock.cols))
             if let cfg = euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
-                                                   lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells,
+                                                   lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
                                                    swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo),
                let lapStart = euclideousLapStartOrdinal(cfg: cfg, beat: lanesMusicalBeat(real: walkTagBeat(at: Date()))) {
                 baseline.startOrd = lapStart
@@ -4012,7 +4025,7 @@ struct EuclideousPage: View {
         return (0..<4).map { i in
             guard !suppress, walkTagShows(i) else { return nil }
             return euclideousWalkLaneConfig(lane: i, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
-                                            lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells,
+                                            lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
                                             swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
         }
     }
@@ -4162,7 +4175,10 @@ struct EuclideousPage: View {
     // panel this feature retired was the only surface that ever called `euclideousSilenceReason`
     // (Derivations.swift) — that pure function and its own tests are UNTOUCHED, just orphaned (zero UI call
     // sites now), ready to be wired into wherever §10 lands once it's answered. Not reused here as a guess.
-    private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
+    private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false) -> some View {
+        // FX TAB (§10.4): landscape only — portrait puts this panel BESIDE the riff grid and shorter than 273pt, so its columns can't line up; a document left on FX
+        // when the page turns portrait shows MIX (the stored selection is untouched).
+        let tab: EuclideousSeqTab = (sequencerTab == .fx && !fxAvailable) ? .mix : sequencerTab
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
         let tabRowH = EuclideousMixMetrics.tabRowH
@@ -4174,13 +4190,15 @@ struct EuclideousPage: View {
         let controlsRowH: CGFloat = max(1, innerH * 44 / 307)
         let gridH = max(1, innerH - tabRowH - controlsRowH - sp4 * 2)
         let mixH = max(1, innerH - tabRowH - sp8)
-        return VStack(spacing: sequencerTab == .mix ? sp8 : sp4) {
-            sequencerTabRow(width: innerW, height: tabRowH)
-            switch sequencerTab {
+        return VStack(spacing: tab == .mix ? sp8 : sp4) {
+            sequencerTabRow(width: innerW, height: tabRowH, fxAvailable: fxAvailable, selected: tab)
+            switch tab {
             case .mix:
                 mixGrid(width: innerW, height: mixH)
             case .lanes:
                 lanesTab(width: innerW, height: max(1, innerH - tabRowH - sp4))   // LANES GRID (2026-10-18): replaces the old step grid + ON/RATE/LEN row
+            case .fx:
+                fxTab(width: innerW, height: max(1, innerH - tabRowH - sp4))
             case .riffs:   // hidden (unreachable from the tab row) — kept so its code stays compiled
                 VStack(spacing: sp4) {
                     sequencerRiffsGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
@@ -4197,12 +4215,12 @@ struct EuclideousPage: View {
     /// (#FFFFFF selected, #2A2D34 not), label #F2F4F7 selected / #AAB0BA not. LANES keeps its on/off dot (filled when its sequencer is ON,
     /// hollow when OFF); MIX has none. The old trailing readout is GONE — "STEP n OF LEN" (the LANES grid's lit column and bold step number
     /// already show the step) and, sharing its slot, the RESET-hold hint "TAP = RESTART" (RESET's gesture and restart marks are unchanged).
-    private func sequencerTabRow(width: CGFloat, height: CGFloat) -> some View {
-        let tabs = EuclideousSeqTab.visible
+    private func sequencerTabRow(width: CGFloat, height: CGFloat, fxAvailable: Bool, selected: EuclideousSeqTab) -> some View {
+        let tabs = EuclideousSeqTab.visible(fxAvailable: fxAvailable)
         let tabW = euclideousSeqTabWidth(count: tabs.count, contentWidth: width)
         return HStack(spacing: sp4) {
             ForEach(tabs, id: \.rawValue) { tab in
-                let sel = sequencerTab == tab
+                let sel = selected == tab
                 // The on/off ring beside LANES is gone with the ON switch (LANES GRID, 2026-10-18): the grid is always live.
                 ZStack(alignment: .bottom) {
                     HStack(spacing: 6) {
@@ -4220,7 +4238,7 @@ struct EuclideousPage: View {
                     resetPopupLane = nil   // §6: "switching tabs closes it"
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(tab.label.capitalized)
+                .accessibilityLabel(tab == .fx ? "FX" : tab.label.capitalized)   // §14.1: the tab is read "FX", not "Fx"
                 .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)   // SwiftUI has no tab trait; button + selected, like the lane tabs
             }
         }
@@ -4255,10 +4273,10 @@ struct EuclideousPage: View {
             let unit = restart ? v.restartUnitBeats : v.muteUnitBeats
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
             let key = EuclideousLanesRollCache.Key(lines: lines, lanesSeq: lanesSeq, ranks: ranks, windowStart: win.start, unit: unit, restartTab: restart,
-                                                    beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, swing: clock.swing)
+                                                    beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, swing: clock.swing, fx: fx)
             let roll = lanesRollCache.roll(lane: lane, key: key) {
                 guard let cfg = euclideousWalkLaneConfig(lane: lane, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
-                                                          lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells,
+                                                          lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
                                                           swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar,
                                                           tempo: clock.tempo) else { return [] }
                 return euclideousLaneRollHits(cfg: cfg, windowStart: win.start, windowBeats: win.length, minGateBeats: 0.005 * clock.tempo / 60.0) { column, _ in
@@ -4293,6 +4311,95 @@ struct EuclideousPage: View {
         let resolved = lanesGridView(lane).grid
         let op: EuclideousLaneGridOp = lanesSubTab == .restart ? .nextRestartUnit : .nextMuteUnit
         editStep(lane, true) { euclideousApplyLaneGridOp(&$0, resolved: resolved, op) }
+    }
+
+    // MARK: - THE FX TAB (FX ferry, 2026-10-18)
+    /// Six fixed rows (RATCH, GATE, TIE, VEL, NOTE, CC) × the riff's eight columns, painted by `EuclideousFXPanel` (FXPanelPainter.swift) from the pure layer in
+    /// Derivations.swift. The columns are the riff grid's own (`euclideousRiffCellW`). This page supplies the data (the document's FX, the written ranks named exactly
+    /// as the riff grid's label column names them, the NOTE preview, the flash from the engine's hit events) and the edits — each tap / double-tap pair / stroke /
+    /// value drag / lane toggle / stepper tap or drag is ONE undo step (`fxEdit`).
+    private func fxTab(width: CGFloat, height: CGFloat) -> some View {
+        let layout = euclideousFXLayout(width: width, height: height)
+        let ranks = effectiveGridRanks
+        let pool = riffLivePool.map { Int($0) }
+        func name(_ n: Int) -> String {
+            euclideousDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType)
+        }
+        let headers = (0..<8).map { c -> EuclideousFXHeaderLabel in
+            let h = euclideousFXHeaderLabel(rank: c < ranks.count ? ranks[c] : 0, pool: pool, name: name)
+            return EuclideousFXHeaderLabel(text: h.text, rest: h.rest)
+        }
+        let ext = euclideousGlobalPoolExtended(sortedRaw: pool)
+        let noteNames: [String?] = (0..<8).map { c in
+            let r = c < ranks.count ? ranks[c] : 0
+            guard r >= 1 else { return nil }
+            guard !ext.isEmpty, r <= ext.count else { return "rank \(r)" }
+            return euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, ext[r - 1]))), source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType)
+        }
+        let previewCol = euclideousFXPreviewColumn(touched: fxNotePreviewCol, fx: fx, ranks: ranks)
+        return EuclideousFXPanel(layout: layout, fx: fx, selectedRow: fxSelectedRow, headers: headers, noteNames: noteNames, accents: laneAccents,
+                                 previewText: euclideousFXNotePreviewText(fx: fx, touched: fxNotePreviewCol, ranks: ranks, pool: pool, name: name),
+                                 previewColumn: previewCol, brushes: fxBrushes, playing: clock.playing,
+                                 flashAt: { date in euclideousFXFlashCells(fx: fx, lines: lines, events: strikeEvents, ranks: ranks, beat: walkTagBeat(at: date)) },
+                                 onSelectRow: { fxSelectedRow = $0 },
+                                 onTouchBegan: { row, col in
+                                     fxSelectedRow = row; fxStepOpen = false
+                                     if row == 4 { fxNotePreviewCol = col }
+                                 },
+                                 onEvent: { fxHandle($0) },
+                                 onTouchEnded: { fxStepOpen = false },
+                                 onToggleLane: { lane in
+                                     let row = fxSelectedRow
+                                     fxEdit(newStep: true) { euclideousFXToggleLane(&$0, row: row, lane: lane) }
+                                 },
+                                 onStepper: { kind, value, newStep in fxEdit(newStep: newStep) { euclideousFXSetStepper(&$0, kind, value: value) } },
+                                 onAdjust: { row, col, up in
+                                     if let v = euclideousFXAdjust(row: row, current: fx.cell(row: row, column: col), brush: fxBrushes[row], up: up) {
+                                         fxEdit(newStep: true) { euclideousFXSetCell(&$0, row: row, col: col, value: v) }
+                                         if row == 4 { fxNotePreviewCol = col }
+                                     }
+                                 },
+                                 onToggleCell: { row, col in
+                                     fxEdit(newStep: true) { euclideousFXTapCell(&$0, row: row, col: col, brush: fxBrushes[row]) }
+                                     if row == 4 { fxNotePreviewCol = col }
+                                 })
+            .frame(width: width, height: height, alignment: .topLeading)
+    }
+    /// Apply an FX edit — only when it changes something (so a stroke across already-set cells records no empty undo step). `newStep` asks for a fresh undo
+    /// checkpoint; the page still decides, so a touch never opens a second one.
+    @discardableResult private func fxEdit(newStep: Bool, _ mutate: @escaping (inout EuclideousFX) -> Void) -> Bool {
+        var probe = fx
+        mutate(&probe)
+        guard probe != fx else { return false }
+        onEditFX(newStep, mutate)
+        return true
+    }
+    /// One touch event. Taps apply at once (§12.2); the second tap of a double-tap (§12.3) writes the row's default into the FIRST tap's undo step; paint and
+    /// value drags share one step per touch (`fxStepOpen`).
+    private func fxHandle(_ e: EuclideousFXTouchEvent) {
+        let now = Date().timeIntervalSinceReferenceDate
+        switch e {
+        case .tap(let row, let col):
+            if euclideousFXIsDoubleTap(previous: fxLastTap, row: row, col: col, time: now) {
+                let def = EuclideousFXRow(rawValue: row)?.defaultValue ?? 1
+                fxLastTap = nil
+                fxEdit(newStep: false) { euclideousFXSetCell(&$0, row: row, col: col, value: def) }
+            } else {
+                let brush = fxBrushes[row]
+                fxLastTap = (row, col, now)
+                fxEdit(newStep: true) { euclideousFXTapCell(&$0, row: row, col: col, brush: brush) }
+            }
+        case .paint(let row, let col, let on):
+            fxLastTap = nil
+            let brush = fxBrushes[row]
+            let had = fx.cell(row: row, column: col) != nil
+            guard on != had else { return }                                    // a cell already in the stroke's state is left as it is (a lit cell keeps its own value)
+            if fxEdit(newStep: !fxStepOpen, { euclideousFXSetCell(&$0, row: row, col: col, value: on ? brush : nil) }) { fxStepOpen = true }
+        case .value(let row, let col, let v):
+            fxLastTap = nil
+            fxBrushes[row] = v                                                 // the row's brush becomes the dragged value (§12.4)
+            if fxEdit(newStep: !fxStepOpen, { euclideousFXSetCell(&$0, row: row, col: col, value: v) }) { fxStepOpen = true }
+        }
     }
 
     /// THE MIX TAB (ferry 2026-10-18 §2): eight cells in two rows of two lane blocks — each lane's pair (RIFF leading, NOTES trailing) sits
@@ -4680,6 +4787,7 @@ final class EuclideousLanesRollCache {
         var beatsPerBar: Double
         var tempo: Double
         var swing: Double
+        var fx: EuclideousFX   // every FX edit (cells, lane bits, PASSES, …) recomputes the roll (FX ferry §13.4)
     }
     private var store: [Int: (key: Key, roll: [EuclideousRollHit])] = [:]
     func roll(lane: Int, key: Key, make: () -> [EuclideousRollHit]) -> [EuclideousRollHit] {

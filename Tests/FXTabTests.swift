@@ -367,4 +367,243 @@ final class FXTabTests: XCTestCase {
                                                                   riffDir: .forward, stride: 1, length: 8) }.reversed()
         XCTAssertEqual(v1, Array(v2))
     }
+
+    // MARK: - UI maths (§15 "UI functions": cell marks, bubble text, preview strings, layout)
+
+    func testLayoutRowsAndColumnsAreTheSpecsAndTheRiffGridsOwn() {
+        let panelW: CGFloat = 416.9, w = panelW - 16
+        let l = euclideousFXLayout(width: w, height: 272.3)
+        XCTAssertEqual(l.rowH, 29)
+        XCTAssertEqual(l.headerTop, 28); XCTAssertEqual(l.rowTop(0), 46); XCTAssertEqual(l.rowTop(5), 46 + 33 * 5); XCTAssertEqual(l.rowTop(5) + l.rowH, 240)
+        XCTAssertEqual(l.hintTop, 244); XCTAssertEqual(l.hintTop + EuclideousFXLayout.hintH, 260, "the reference stack is 260 tall")
+        // the columns are the riff grid's: ONE function, label 30 + gap 4, then cellW with a 4pt column gap, ending at the content's right edge
+        XCTAssertEqual(l.cellW, euclideousRiffCellW(maxWidth: panelW))
+        for c in 0..<8 { XCTAssertEqual(l.colLeft(c), 34 + CGFloat(c) * (l.cellW + 4), accuracy: 1e-9) }
+        XCTAssertEqual(l.colLeft(7) + l.cellW, w, accuracy: 1e-9)
+        XCTAssertEqual(l.bandRect(row: 2), CGRect(x: -4, y: l.rowTop(2) - 2, width: w + 8, height: 33))
+        // a shorter panel shares the missing height across the rows down to 24, then stops shrinking
+        XCTAssertEqual(euclideousFXLayout(width: w, height: 230).rowH, 24, accuracy: 1e-9)
+        XCTAssertEqual(euclideousFXLayout(width: w, height: 245).rowH, 29 - 15.0 / 6, accuracy: 1e-9)
+        XCTAssertEqual(euclideousFXLayout(width: w, height: 100).rowH, 24)
+        // the spec's reference panel (410 wide): the strip stack is the same, cellW = (410 − 78) / 8
+        XCTAssertEqual(euclideousFXLayout(width: 394, height: 280).cellW, (410 - 78) / 8.0, accuracy: 1e-9)
+    }
+    func testHitTestClaimsTheGapsAndTheRails() {
+        let l = euclideousFXLayout(width: 400, height: 280)
+        for r in 0..<6 { for c in 0..<8 {
+            let rect = l.cellRect(row: r, col: c)
+            XCTAssertEqual(euclideousFXHit(x: rect.midX, y: rect.midY, layout: l), .cell(row: r, col: c))
+            XCTAssertEqual(euclideousFXHit(x: rect.minX - 1.9, y: rect.minY - 1.9, layout: l), .cell(row: r, col: c), "2pt into the gaps on every side")
+            XCTAssertEqual(euclideousFXHit(x: rect.maxX + 1.9, y: rect.maxY + 1.9, layout: l), .cell(row: r, col: c))
+        }
+            XCTAssertEqual(euclideousFXHit(x: 10, y: l.railRect(row: r).midY, layout: l), .rail(row: r))
+        }
+        XCTAssertNil(euclideousFXHit(x: 100, y: l.headerTop + 2, layout: l), "the header is not a target")
+        XCTAssertNil(euclideousFXHit(x: l.colLeft(7) + l.cellW + 2.5, y: l.rowTop(0) + 5, layout: l))
+        // a stroke past either end keeps painting the edge cell
+        XCTAssertEqual(euclideousFXColumn(x: -50, layout: l, clamped: true), 0); XCTAssertEqual(euclideousFXColumn(x: 5000, layout: l, clamped: true), 7)
+    }
+    func testCellMarksForEveryValueIncludingANarrowCell() {
+        XCTAssertEqual(euclideousFXMark(row: 0, value: 3, cellW: 42), .ticks(count: 3))
+        XCTAssertEqual(euclideousFXMark(row: 1, value: 50, cellW: 42), .gate(label: "50", barW: 28, fillW: 14))
+        XCTAssertEqual(euclideousFXMark(row: 1, value: 100, cellW: 42), .gate(label: "LEG", barW: 28, fillW: 28))
+        XCTAssertEqual(euclideousFXMark(row: 1, value: 5, cellW: 42), .gate(label: "5", barW: 28, fillW: 2), "the fill never drops under 2pt")
+        XCTAssertEqual(euclideousFXMark(row: 2, value: 1, cellW: 42), .tie(arcW: 30))
+        XCTAssertEqual(euclideousFXMark(row: 3, value: 127, cellW: 42), .bar(label: "127", barW: 28, fillW: 28))
+        XCTAssertEqual(euclideousFXMark(row: 5, value: 0, cellW: 42), .bar(label: "0", barW: 28, fillW: 2))
+        XCTAssertEqual(euclideousFXMark(row: 5, value: 20, cellW: 42), .bar(label: "20", barW: 28, fillW: 28 * 20 / 127))
+        XCTAssertEqual(euclideousFXMark(row: 4, value: 1, cellW: 42), .step(label: "+1"))
+        XCTAssertEqual(euclideousFXMark(row: 4, value: -2, cellW: 42), .step(label: "\u{2212}2"))
+        // a narrow cell: the bar is min(28, cellW − 8), the arc min(30, cellW − 6)
+        XCTAssertEqual(euclideousFXMark(row: 1, value: 50, cellW: 30), .gate(label: "50", barW: 22, fillW: 11))
+        XCTAssertEqual(euclideousFXMark(row: 2, value: 1, cellW: 30), .tie(arcW: 24))
+    }
+    func testBubbleTextAndPlacement() {
+        XCTAssertEqual(euclideousFXBubbleText(row: 0, value: 3, ccNumber: 74), "RATCH \u{00D7}3")
+        XCTAssertEqual(euclideousFXBubbleText(row: 1, value: 50, ccNumber: 74), "GATE 50%")
+        XCTAssertEqual(euclideousFXBubbleText(row: 1, value: 100, ccNumber: 74), "GATE LEGATO")
+        XCTAssertEqual(euclideousFXBubbleText(row: 3, value: 110, ccNumber: 74), "VEL 110")
+        XCTAssertEqual(euclideousFXBubbleText(row: 4, value: 1, ccNumber: 74), "NOTE +1 A PASS")
+        XCTAssertEqual(euclideousFXBubbleText(row: 4, value: -2, ccNumber: 74), "NOTE \u{2212}2 A PASS")
+        XCTAssertEqual(euclideousFXBubbleText(row: 5, value: 100, ccNumber: 74), "CC74 = 100")
+        let l = euclideousFXLayout(width: 400, height: 280)
+        let cell = l.cellRect(row: 3, col: 3)
+        let b = euclideousFXBubble(text: "VEL 110", cell: cell, bounds: l.panelBounds)
+        XCTAssertEqual(b.rect.height, 24); XCTAssertEqual(b.rect.width, (7 * 6.6).rounded(.up) + 18)
+        XCTAssertEqual(b.rect.maxY, cell.minY - 7, accuracy: 1e-9, "bottom 7pt above the cell")
+        XCTAssertEqual(b.rect.midX, cell.midX, accuracy: 1e-9); XCTAssertEqual(b.notchX, cell.midX, accuracy: 1e-9)
+        // kept 6pt inside the panel at the edges, the notch staying on the cell
+        let edge = euclideousFXBubble(text: "CC74 = 100", cell: l.cellRect(row: 5, col: 0), bounds: l.panelBounds)
+        XCTAssertGreaterThanOrEqual(edge.rect.minX, l.panelBounds.minX + 6)
+        XCTAssertGreaterThanOrEqual(edge.notchX, edge.rect.minX + 9); XCTAssertLessThanOrEqual(edge.notchX, edge.rect.maxX - 9)
+        let far = euclideousFXBubble(text: "CC74 = 100", cell: l.cellRect(row: 5, col: 7), bounds: l.panelBounds)
+        XCTAssertLessThanOrEqual(far.rect.maxX, l.panelBounds.maxX - 6)
+    }
+    func testValueDragStepsAndClamps() {
+        // RATCH 18pt/step through 2–4
+        XCTAssertEqual(euclideousFXDragValue(row: 0, start: 2, travelUp: 18), 3); XCTAssertEqual(euclideousFXDragValue(row: 0, start: 2, travelUp: 36), 4)
+        XCTAssertEqual(euclideousFXDragValue(row: 0, start: 2, travelUp: 500), 4); XCTAssertEqual(euclideousFXDragValue(row: 0, start: 4, travelUp: -500), 2)
+        XCTAssertEqual(euclideousFXDragValue(row: 0, start: 2, travelUp: 8), 2, "under half a step rounds back"); XCTAssertEqual(euclideousFXDragValue(row: 0, start: 2, travelUp: 10), 3)
+        // GATE 5pt per 5%, 5–100
+        XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: 5), 55); XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: -45), 5)
+        XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: 1000), 100); XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: -1000), 5)
+        // VEL / CC 2pt per 1
+        XCTAssertEqual(euclideousFXDragValue(row: 3, start: 100, travelUp: 20), 110); XCTAssertEqual(euclideousFXDragValue(row: 3, start: 100, travelUp: -1000), 1)
+        XCTAssertEqual(euclideousFXDragValue(row: 5, start: 64, travelUp: -200), 0); XCTAssertEqual(euclideousFXDragValue(row: 5, start: 64, travelUp: 1000), 127)
+        // NOTE 14pt per step through −3 −2 −1 +1 +2 +3 (never 0)
+        XCTAssertEqual(euclideousFXDragValue(row: 4, start: 1, travelUp: -14), -1); XCTAssertEqual(euclideousFXDragValue(row: 4, start: -1, travelUp: 14), 1)
+        XCTAssertEqual(euclideousFXDragValue(row: 4, start: 1, travelUp: 28), 3); XCTAssertEqual(euclideousFXDragValue(row: 4, start: 1, travelUp: 700), 3); XCTAssertEqual(euclideousFXDragValue(row: 4, start: 1, travelUp: -700), -3)
+        // VoiceOver's one-step adjust
+        XCTAssertEqual(euclideousFXAdjust(row: 4, current: -1, brush: 1, up: true), 1, "NOTE skips 0")
+        XCTAssertEqual(euclideousFXAdjust(row: 0, current: nil, brush: 2, up: true), 2, "incrementing an empty cell turns it on at the brush")
+        XCTAssertNil(euclideousFXAdjust(row: 0, current: nil, brush: 2, up: false)); XCTAssertNil(euclideousFXAdjust(row: 2, current: 1, brush: 1, up: true), "TIE isn't adjustable")
+        XCTAssertEqual(euclideousFXAdjust(row: 1, current: 50, brush: 50, up: false), 45); XCTAssertNil(euclideousFXAdjust(row: 1, current: 100, brush: 50, up: true))
+        XCTAssertEqual(euclideousFXAdjust(row: 3, current: 100, brush: 100, up: true), 101)
+    }
+    func testSteppersNeverWrapAndBaseStepsThroughItsStops() {
+        XCTAssertEqual(euclideousFXStepperStep(.passes, current: 4, up: true), 5); XCTAssertNil(euclideousFXStepperStep(.passes, current: 8, up: true)); XCTAssertNil(euclideousFXStepperStep(.passes, current: 2, up: false))
+        XCTAssertEqual(euclideousFXStepperStep(.ccNumber, current: 74, up: false), 73); XCTAssertNil(euclideousFXStepperStep(.ccNumber, current: 119, up: true)); XCTAssertNil(euclideousFXStepperStep(.ccNumber, current: 0, up: false))
+        XCTAssertEqual(euclideousFXStepperStep(.base, current: -1, up: true), 0); XCTAssertEqual(euclideousFXStepperStep(.base, current: 0, up: true), 32)
+        XCTAssertEqual(euclideousFXStepperStep(.base, current: 50, up: true), 64, "from in between › goes to the next listed value up"); XCTAssertEqual(euclideousFXStepperStep(.base, current: 50, up: false), 32)
+        XCTAssertEqual(euclideousFXStepperStep(.base, current: 127, up: false), 96); XCTAssertNil(euclideousFXStepperStep(.base, current: 127, up: true)); XCTAssertNil(euclideousFXStepperStep(.base, current: -1, up: false))
+        // drags: PASSES 12pt a step, CC and BASE 2pt (BASE's – is one below 0)
+        XCTAssertEqual(euclideousFXStepperDrag(.passes, start: 4, travelUp: 24), 6); XCTAssertEqual(euclideousFXStepperDrag(.passes, start: 4, travelUp: -1000), 2)
+        XCTAssertEqual(euclideousFXStepperDrag(.ccNumber, start: 74, travelUp: 10), 79); XCTAssertEqual(euclideousFXStepperDrag(.ccNumber, start: 74, travelUp: 1000), 119)
+        XCTAssertEqual(euclideousFXStepperDrag(.base, start: 0, travelUp: -2), -1); XCTAssertEqual(euclideousFXStepperDrag(.base, start: 0, travelUp: -100), -1); XCTAssertEqual(euclideousFXStepperDrag(.base, start: 126, travelUp: 100), 127)
+        XCTAssertEqual([EuclideousFXStepper.passes, .ccNumber, .base].map { euclideousFXStepperDefault($0) }, [4, 74, -1])
+        XCTAssertEqual(euclideousFXStepperValueText(.base, value: -1), "–"); XCTAssertEqual(euclideousFXStepperValueText(.base, value: 64), "64")
+        var fx = EuclideousFX()
+        euclideousFXSetStepper(&fx, .passes, value: 99); euclideousFXSetStepper(&fx, .ccNumber, value: 300); euclideousFXSetStepper(&fx, .base, value: 500)
+        XCTAssertEqual([fx.notePasses, fx.ccNumber], [8, 119]); XCTAssertEqual(fx.ccBase, 127)
+        euclideousFXSetStepper(&fx, .base, value: -1); XCTAssertEqual(fx.ccBase, -1)
+    }
+    func testCellEditsTapLaneToggleAndDoubleTapWindow() {
+        var fx = EuclideousFX()
+        euclideousFXTapCell(&fx, row: 0, col: 3, brush: 2); XCTAssertEqual(fx.cell(row: 0, column: 3), 2)
+        euclideousFXTapCell(&fx, row: 0, col: 3, brush: 2); XCTAssertNil(fx.cell(row: 0, column: 3))
+        euclideousFXSetCell(&fx, row: 1, col: 0, value: 52); XCTAssertEqual(fx.cell(row: 1, column: 0), 50, "clamped to the row's legal domain")
+        euclideousFXSetCell(&fx, row: 4, col: 0, value: 0); XCTAssertNil(fx.cell(row: 4, column: 0), "NOTE 0 is empty")
+        euclideousFXToggleLane(&fx, row: 2, lane: 1); XCTAssertFalse(fx.laneOn(row: 2, lane: 1)); XCTAssertEqual(fx.lanes[2], 0b1101)
+        euclideousFXToggleLane(&fx, row: 2, lane: 1); XCTAssertEqual(fx.lanes[2], 0b1111)
+        XCTAssertTrue(euclideousFXIsDoubleTap(previous: (0, 3, 10.0), row: 0, col: 3, time: 10.31))
+        XCTAssertFalse(euclideousFXIsDoubleTap(previous: (0, 3, 10.0), row: 0, col: 3, time: 10.33), "past 320 ms")
+        XCTAssertFalse(euclideousFXIsDoubleTap(previous: (0, 3, 10.0), row: 0, col: 4, time: 10.1), "a different cell")
+        XCTAssertFalse(euclideousFXIsDoubleTap(previous: nil, row: 0, col: 3, time: 10.1))
+    }
+    func testTouchReducerTapPaintAndValueDragWithTheEightPointAxisLock() {
+        let l = euclideousFXLayout(width: 400, height: 280)
+        func touch(_ row: Int, _ col: Int, value: Int?, brush: Int) -> (EuclideousFXTouch, CGPoint) {
+            let r = l.cellRect(row: row, col: col); let p = CGPoint(x: r.midX, y: r.midY)
+            return (EuclideousFXTouch(point: p, row: row, col: col, cellValue: value, brush: brush), p)
+        }
+        // under 8pt of travel is a tap
+        var (t, p) = touch(0, 3, value: nil, brush: 2)
+        XCTAssertTrue(t.moved(to: CGPoint(x: p.x + 7.9, y: p.y), layout: l).isEmpty); XCTAssertTrue(t.moved(to: CGPoint(x: p.x, y: p.y - 7.9), layout: l).isEmpty)
+        XCTAssertEqual(t.ended(), [.tap(row: 0, col: 3)])
+        // horizontal: paint — the stroke's value is the OPPOSITE of the first cell (empty ⇒ on); every cell crossed takes it, in order, even a fast finger's skipped ones
+        (t, p) = touch(0, 3, value: nil, brush: 2)
+        var ev = t.moved(to: CGPoint(x: l.cellRect(row: 0, col: 5).midX, y: p.y), layout: l)
+        XCTAssertEqual(ev, [.paint(row: 0, col: 3, on: true), .paint(row: 0, col: 4, on: true), .paint(row: 0, col: 5, on: true)])
+        ev = t.moved(to: CGPoint(x: l.cellRect(row: 0, col: 4).midX, y: p.y + 30), layout: l)
+        XCTAssertEqual(ev, [.paint(row: 0, col: 4, on: true)], "back over a cell paints it again; drifting vertically stays in the touched row")
+        XCTAssertTrue(t.ended().isEmpty)
+        // a stroke from a lit cell clears
+        (t, p) = touch(1, 6, value: 50, brush: 50)
+        ev = t.moved(to: CGPoint(x: p.x - 60, y: p.y), layout: l)
+        XCTAssertEqual(ev.first, .paint(row: 1, col: 6, on: false)); XCTAssertTrue(ev.allSatisfy { if case .paint(_, _, let on) = $0 { return !on } else { return false } })
+        // vertical on a value row locks to a value drag; travel counts from the LOCK point; an empty cell starts at the brush
+        (t, p) = touch(3, 2, value: nil, brush: 100)
+        ev = t.moved(to: CGPoint(x: p.x + 1, y: p.y - 8), layout: l)
+        XCTAssertEqual(ev, [.value(row: 3, col: 2, value: 100)]); XCTAssertEqual(t.draggedValue, 100)
+        ev = t.moved(to: CGPoint(x: p.x + 1, y: p.y - 8 - 20), layout: l)
+        XCTAssertEqual(ev, [.value(row: 3, col: 2, value: 110)], "20pt past the lock = +10 at 2pt per step"); XCTAssertEqual(t.draggedValue, 110)
+        XCTAssertTrue(t.moved(to: CGPoint(x: p.x + 1, y: p.y - 8 - 20), layout: l).isEmpty, "no change, no event")
+        XCTAssertTrue(t.ended().isEmpty)
+        // the lock goes to whichever component is larger; a tie goes horizontal; TIE paints even when the drag is vertical
+        (t, p) = touch(4, 2, value: 1, brush: 1)
+        XCTAssertEqual(t.moved(to: CGPoint(x: p.x + 8, y: p.y - 8), layout: l).first, .paint(row: 4, col: 2, on: false), "equal components ⇒ horizontal")
+        (t, p) = touch(2, 2, value: nil, brush: 1)
+        XCTAssertEqual(t.moved(to: CGPoint(x: p.x, y: p.y - 30), layout: l), [.paint(row: 2, col: 2, on: true)], "TIE has no value drag")
+    }
+    func testNotePreviewNamesTheMovedRanksThroughTheFold() {
+        var fx = EuclideousFX()
+        fx.cells[4 * 8 + 3] = 1                                                          // NOTE +1 on column 4 (index 3), PASSES 4
+        let ranks = [1, 1, 1, 4, 1, 1, 1, 1]
+        let triad = [48, 51, 55]
+        XCTAssertEqual(euclideousFXNotePreviewText(fx: fx, touched: nil, ranks: ranks, pool: triad, name: { "\($0)" }), "60 › 63 › 67 › 72", "C4 › E♭4 › G4 › C5")
+        // nothing held: the moved rank numbers
+        XCTAssertEqual(euclideousFXNotePreviewText(fx: fx, touched: nil, ranks: ranks, pool: [], name: { "\($0)" }), "4 › 5 › 6 › 7")
+        fx.cells[4 * 8 + 0] = -1; fx.notePasses = 3
+        XCTAssertEqual(euclideousFXNotePreviewText(fx: fx, touched: 0, ranks: ranks, pool: [], name: { "\($0)" }), "1 › 0 › \u{2212}1")
+        XCTAssertEqual(euclideousFXNotePreviewText(fx: fx, touched: 0, ranks: ranks, pool: triad, name: { "\($0)" }), "48 › 43 › 39", "rank 0 is G2 and rank −1 is E♭2: never a rest")
+        // the touched cell wins; an empty or rest cell falls back to the leftmost NOTE cell on a non-rest column
+        XCTAssertEqual(euclideousFXPreviewColumn(touched: 3, fx: fx, ranks: ranks), 3)
+        XCTAssertEqual(euclideousFXPreviewColumn(touched: 5, fx: fx, ranks: ranks), 0)
+        XCTAssertEqual(euclideousFXPreviewColumn(touched: 0, fx: fx, ranks: [0, 1, 1, 4, 1, 1, 1, 1]), 3, "a rest column is skipped")
+        XCTAssertNil(euclideousFXPreviewColumn(touched: nil, fx: EuclideousFX(), ranks: ranks))
+        XCTAssertEqual(euclideousFXNotePreviewText(fx: EuclideousFX(), touched: nil, ranks: ranks, pool: triad, name: { "\($0)" }), "NO STEPS YET")
+    }
+    func testHeaderLabelsNameTheRankLikeTheRiffGridsLabelColumn() {
+        let name: (Int) -> String = { "n\($0)" }
+        XCTAssertEqual(euclideousFXHeaderLabel(rank: 0, pool: [48, 51, 55], name: name).text, "–"); XCTAssertTrue(euclideousFXHeaderLabel(rank: 0, pool: [48], name: name).rest)
+        XCTAssertEqual(euclideousFXHeaderLabel(rank: 2, pool: [48, 51, 55], name: name).text, "n51")
+        XCTAssertEqual(euclideousFXHeaderLabel(rank: 4, pool: [48, 51, 55], name: name).text, "n60", "the octave-extended note, exactly as the label column shows rank 4")
+        XCTAssertEqual(euclideousFXHeaderLabel(rank: 4, pool: [], name: name).text, "4", "nothing held ⇒ rank numbers"); XCTAssertFalse(euclideousFXHeaderLabel(rank: 4, pool: [], name: name).rest)
+    }
+    func testVoiceOverStrings() {
+        XCTAssertEqual(euclideousFXLanesPhrase(mask: 0b1111), "all lanes"); XCTAssertEqual(euclideousFXLanesPhrase(mask: 0), "no lanes")
+        XCTAssertEqual(euclideousFXLanesPhrase(mask: 0b0100), "lane 3"); XCTAssertEqual(euclideousFXLanesPhrase(mask: 0b0011), "lanes 1 and 2")
+        XCTAssertEqual(euclideousFXLanesPhrase(mask: 0b0111), "lanes 1, 2 and 3"); XCTAssertEqual(euclideousFXLanesPhrase(mask: 0b1010), "lanes 2 and 4")
+        XCTAssertEqual(euclideousFXRailLabel(row: 0, ccNumber: 74, mask: 0b0011, selected: true), "FX row, ratchet, lanes 1 and 2, selected")
+        XCTAssertEqual(euclideousFXRailLabel(row: 5, ccNumber: 74, mask: 0b1111, selected: false), "FX row, controller 74, all lanes")
+        XCTAssertEqual(euclideousFXRailLabel(row: 4, ccNumber: 74, mask: 0, selected: false), "FX row, note step, no lanes")
+        XCTAssertEqual(euclideousFXLaneGroupLabel(row: 0, ccNumber: 74), "Lanes that play the ratchet row")
+        XCTAssertEqual(euclideousFXLaneGroupLabel(row: 5, ccNumber: 74), "Lanes that play the controller 74 row")
+        XCTAssertEqual(euclideousFXLaneButtonLabel(lane: 0, on: true), "Lane 1, plays this row"); XCTAssertEqual(euclideousFXLaneButtonLabel(lane: 3, on: false), "Lane 4, ignores this row")
+        XCTAssertEqual(euclideousFXCellLabel(row: 1, ccNumber: 74, column: 5, noteName: nil, value: nil), "Note 6, rest, gate off")
+        XCTAssertEqual(euclideousFXCellLabel(row: 0, ccNumber: 74, column: 0, noteName: "C3", value: 2), "Note 1, C3, ratchet 2")
+        XCTAssertEqual(euclideousFXCellLabel(row: 1, ccNumber: 74, column: 0, noteName: "C3", value: 25), "Note 1, C3, gate 25 percent")
+        XCTAssertEqual(euclideousFXCellLabel(row: 1, ccNumber: 74, column: 0, noteName: "C3", value: 100), "Note 1, C3, gate legato")
+        XCTAssertEqual(euclideousFXCellLabel(row: 2, ccNumber: 74, column: 0, noteName: "C3", value: 1), "Note 1, C3, tie on")
+        XCTAssertEqual(euclideousFXCellLabel(row: 3, ccNumber: 74, column: 0, noteName: "C3", value: 110), "Note 1, C3, velocity 110")
+        XCTAssertEqual(euclideousFXCellLabel(row: 4, ccNumber: 74, column: 0, noteName: "C3", value: 1), "Note 1, C3, note step plus 1 per pass")
+        XCTAssertEqual(euclideousFXCellLabel(row: 4, ccNumber: 74, column: 0, noteName: "C3", value: -2), "Note 1, C3, note step minus 2 per pass")
+        XCTAssertEqual(euclideousFXCellLabel(row: 5, ccNumber: 74, column: 0, noteName: "C3", value: 20), "Note 1, C3, controller 74 value 20")
+        XCTAssertEqual(euclideousFXCellLabel(row: 5, ccNumber: 74, column: 0, noteName: "C3", value: nil), "Note 1, C3, controller 74 off")
+        XCTAssertEqual(euclideousFXStepperSpoken(.passes, value: 4), "Passes 4"); XCTAssertEqual(euclideousFXStepperSpoken(.ccNumber, value: 74), "Controller number 74")
+        XCTAssertEqual(euclideousFXStepperSpoken(.base, value: -1), "Base value none"); XCTAssertEqual(euclideousFXStepperSpoken(.base, value: 64), "Base value 64")
+    }
+    func testDimmingAndStripTexts() {
+        XCTAssertEqual(euclideousFXCellOpacity(restColumn: false, rowHasLanes: true), 1); XCTAssertEqual(euclideousFXCellOpacity(restColumn: true, rowHasLanes: true), 0.42)
+        XCTAssertEqual(euclideousFXCellOpacity(restColumn: true, rowHasLanes: false), 0.42 * 0.42, accuracy: 1e-12, "the two dims multiply")
+        XCTAssertEqual(EuclideousFXRow.cc.railName(ccNumber: 74), "CC74"); XCTAssertEqual(EuclideousFXRow.ratch.railName(ccNumber: 74), "RATCH")
+        XCTAssertEqual(EuclideousFXRow.gate.stripDescription, "REPLACES THE LANE\u{2019}S GATE · 100 = LEGATO"); XCTAssertNil(EuclideousFXRow.note.stripDescription); XCTAssertNil(EuclideousFXRow.cc.stripDescription)
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.mix, .lanes, .fx]); XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: false), [.mix, .lanes])
+        XCTAssertEqual(EuclideousSeqTab.fx.label, "FX")
+    }
+    func testFiringFlashFollowsTheHitEventsColumnAndTheRowsThatApplied() {
+        var fx = EuclideousFX()
+        fx.cells[0 * 8 + 3] = 3; fx.cells[3 * 8 + 3] = 110; fx.cells[2 * 8 + 5] = 1            // RATCH + VEL on column 4; a TIE on column 6
+        fx.lanes[3] = 0b0001                                                                  // VEL only for lane 1
+        let lines = (0..<4).map { _ in EuclidLine(pulses: 3, steps: 8, riffOn: true) }
+        func ev(_ col: Int8, onset: Double) -> Router.EuclideousNoteViewEventSnapshot {
+            var e = Router.EuclideousNoteViewEventSnapshot(onsetBeat: onset, durationBeat: 0.25, kind: 1, notes: [60]); e.column = col; return e
+        }
+        let ranks = [1, 2, 3, 4, 5, 6, 7, 8]
+        let step = (lines[0].rate ?? .r1_16).beats
+        let cells = euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), ev(3, onset: 10.02), nil, ev(5, onset: 10)], ranks: ranks, beat: 10 + step * 0.1)
+        XCTAssertEqual(cells[0 * 8 + 3]?.lane, 1, "RATCH is on for lanes 1 and 2; lane 2's hit is the later one and takes the cell over")
+        XCTAssertEqual(cells[3 * 8 + 3]?.lane, 0, "VEL only applies to lane 1")
+        XCTAssertNil(cells[2 * 8 + 5], "TIE never flashes (a tied hit posts no event, and the function says TIE hits apply nothing else)")
+        XCTAssertNil(cells[1 * 8 + 3]); XCTAssertEqual(cells.compactMap { $0 }.count, 2)
+        // the flare is the comet bar's: bright at the strike, gone after the afterglow
+        XCTAssertEqual(cells[3 * 8 + 3]?.intensity ?? 0, euclideousRingFlare(ageSteps: 0.1), accuracy: 1e-9)
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), nil, nil, nil], ranks: ranks, beat: 10 + step * 2).allSatisfy { $0 == nil })
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), nil, nil, nil], ranks: ranks, beat: 9.9).allSatisfy { $0 == nil }, "a strike still in the future reads nothing")
+        // a lane with its riff off, a rest column, and a no-column event flash nothing
+        var off = lines; off[0].riffOn = false
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: off, events: [ev(3, onset: 10), nil, nil, nil], ranks: ranks, beat: 10 + step * 0.1).allSatisfy { $0 == nil })
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), nil, nil, nil], ranks: [1, 2, 3, 0, 5, 6, 7, 8], beat: 10 + step * 0.1).allSatisfy { $0 == nil })
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(-1, onset: 10), nil, nil, nil], ranks: ranks, beat: 10 + step * 0.1).allSatisfy { $0 == nil })
+    }
 }

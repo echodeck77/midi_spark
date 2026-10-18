@@ -32,6 +32,7 @@
 		37F89ABAB74E1492496863CC /* AcceptanceGeneratorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */; };
 		3B87266EA4A929D67995CA66 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */; };
 		3E9FF95A517649C43ED0D955 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */; };
+		47C29EACF7E0D356CD7DADDF /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */; };
 		4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		5533EBEF2E9CE4295C52B55C /* manual-skeleton.md in Resources */ = {isa = PBXBuildFile; fileRef = 688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */; };
@@ -206,6 +207,7 @@
 		F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFileTests.swift; sourceTree = "<group>"; };
 		F760F9EC70B6E5E30769292C /* AutoPilot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPilot.swift; sourceTree = "<group>"; };
 		FB579E7A98D1755158B6B0DE /* ManualView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualView.swift; sourceTree = "<group>"; };
+		FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXPanelPainter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -317,6 +319,7 @@
 				CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */,
 				9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */,
 				AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */,
+				FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */,
 				4CBF035AD049143522CAD057 /* GridSkin.swift */,
 				F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */,
 				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
@@ -506,6 +509,7 @@
 				D767C243D5F256253014F295 /* EuclideousPage.swift in Sources */,
 				180727125096C44442B220D3 /* EuclideousPresets.swift in Sources */,
 				D8E56D6903D836F0B80F29A0 /* EuclideousSettingsSheet.swift in Sources */,
+				47C29EACF7E0D356CD7DADDF /* FXPanelPainter.swift in Sources */,
 				9E72B64FD55D3542492F0113 /* GridSkin.swift in Sources */,
 				D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */,
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
