@@ -12,6 +12,28 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — NOTES LAYER IS OFF WHEN NO NOTE IS SELECTED; the MIX velocity label reads "VELOCITY" (2026-10-18, Paul's direction; on
+  `feature/notes-off-and-velocity-label`; iOS builds clean; macOS suite green; visuals device-owed).** PAUL'S WORDS: "If no notes are
+  selected in the notes tab then it should be considered off. If it's in an off state and one note is selected then it should be
+  enabled. When off, the mix tab should show it as off. … change the vel label on the mix tab's xy controls to 'velocity'." **ONE
+  DEFINITION OF "ON":** `euclideousNotesLayerIsOn(line)` = the layer's switch is on AND a note is selected
+  (`euclideousNotesHaveSelection`: a lit key 1–8, TOP or TOP 2). Every surface that shows the layer's state now reads it: the MIX tab's
+  pad and stepper (`euclideousMixLayerIsOff`), the lane card's NOTES tab dot (it already used the same condition inline), the footer's
+  "anyLit", and the NOTES tab's own strip (which used to show ON for a switch that was on even with nothing selected — so a fresh lane's
+  strip said on while its layer played nothing). The strip's tap now flips what it SHOWS (`notesOn = !isOn`). This also RESOLVES the
+  adversarial-review finding that a fresh lane's MIX notes pad was coloured while its card dot was hollow. The engine is untouched
+  (with nothing selected it never had a pitch). **ENABLING:** selecting a note already switched an off layer on in the same tap; the three
+  inline closures (key, TOP, TOP 2) are now the pure, tested `euclideousToggleNotesKey/Top/Top2`, so "off + one note selected ⇒ on" is
+  asserted, not just read from the UI. De-selecting the last note does not touch the switch — the layer just reads off with nothing
+  selected, and the remembered switch state is preserved. **LABEL:** the rotated name on each pad's VEL strip is "VELOCITY" (upper-case,
+  like GATE/LEGATO/OCT — Paul wrote it lower-case, so say if he wants the literal case). It is truncated, never shrunk, to the room
+  under the velocity number (`euclideousMixVelocityNameLength(plotH:)`): whole at the reference pad (59pt room vs ≈43.5pt needed),
+  "VELO…" on the 66pt portrait pad. **JUDGMENT CALLS, FLAGGED:** the NOTES tab's BODY (keys, octave, TOP, velocity bar) still dims to
+  42% only when the switch itself is off, NOT when nothing is selected — dimming the keys you must press to select a note would hide
+  the very controls that turn the layer on; and the strip is grey while the body is full-strength in that case. **TESTS (+3, 1
+  updated):** the predicate for key/TOP/TOP 2 with the switch on and off; each way an off layer is enabled by selecting one note
+  (incl. remembered notes, out-of-range ranks, de-selecting the last note); the label and its truncation room at reference vs
+  portrait. The old assertion that a fresh lane's notes layer is on was updated to the new rule.
 - **▶ EUCLIDEOUS — "FERRY: MIX tab (gate, velocity and octave for every layer)" (2026-10-18, Paul; on `feature/mix-tab`; iOS builds
   clean; macOS suite green 1568/1568; ALL visuals/gesture feel DEVICE-OWED — the pad and stepper were rendered to PNG on macOS for a geometry
   check only).** Planned first (Plan Mode, mapped against the raw text), approved, built. **WHAT SHIPPED.** The sequencer panel's FIRST

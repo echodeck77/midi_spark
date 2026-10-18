@@ -224,7 +224,7 @@ the same pipeline as any other row; it is not a special-cased render path.
   formula `euclideousMaskedResetOrigin`), RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
   shared 8-step rank matrix; DRUNK/RANDOM were removed from this walk 2026-10-13 and now coerce to
   FWD; LOCK/FREE, INVERT, ON-REST SKIP/FILL/TIE, STRIDE/LENGTH/ADVANCE/TRANSPOSE, ±2 octave, riff
-  capture), NOTES (an additive lit-note layer independent of the riff — up to 8 ranks + TOP/TOP2,
+  capture), NOTES (an additive lit-note layer independent of the riff — it reads ON only while its switch is on AND a note is selected, `euclideousNotesLayerIsOn`; up to 8 ranks + TOP/TOP2,
   per-note octave shift, a bipolar velocity offset), and MASK (11 modes — MUTE/PAUSE/RATCHET/
   REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — gated by CHANCE).
 - **Sequencer panel** (replaced an earlier "NOTE VIEW" telemetry panel entirely): tabs are MIX (the default —

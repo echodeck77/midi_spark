@@ -4852,7 +4852,10 @@ final class DerivationsTests: XCTestCase {
         euclideousMixPadReset(&l, notes: false); XCTAssertEqual(l.gate, 0.9); XCTAssertEqual(l.velocityAbsolute, 100)
         XCTAssertTrue(euclideousMixLayerIsOff(EuclidLine(riffOn: false), notes: false)); XCTAssertFalse(euclideousMixLayerIsOff(EuclidLine(), notes: false))
         var n = EuclidLine(); n.notesOn = false
-        XCTAssertTrue(euclideousMixLayerIsOff(n, notes: true)); XCTAssertFalse(euclideousMixLayerIsOff(EuclidLine(), notes: true))
+        XCTAssertTrue(euclideousMixLayerIsOff(n, notes: true), "switch off ⇒ off")
+        XCTAssertTrue(euclideousMixLayerIsOff(EuclidLine(), notes: true), "a fresh lane has NO notes selected, so its notes layer is OFF (Paul 2026-10-18)")
+        var lit = EuclidLine(); lit.litNotes = 0b1
+        XCTAssertFalse(euclideousMixLayerIsOff(lit, notes: true), "…and ON once a note is selected")
     }
     // The OCT stepper: one setter per layer shared with the RIFF/NOTES tabs; range −2…+2, no wrap.
     func testMixOctaveStepperSettersRangeAndText() {
@@ -4890,6 +4893,73 @@ final class DerivationsTests: XCTestCase {
         b.touchDown(at: 9.0); b.touchEnd(at: 9.1)
         b.touchDown(at: 9.2)
         XCTAssertTrue(b.nextWriteNeedsNewStep(), "nothing was checkpointed by the empty touch, so a double-tap reset after it is still undoable")
+    }
+
+
+    // MARK: - NOTES layer on/off follows the selection (Paul 2026-10-18) + the VELOCITY strip label
+
+    private func laneWithNoNotesSelected() -> EuclidLine { var l = EuclidLine(); l.litNotes = 0; l.topLit = false; l.top2Lit = false; return l }
+
+    // "If no notes are selected in the notes tab then it should be considered off."
+    func testNotesLayerIsOffWhenNoNoteIsSelectedAndOnWhenOneIs() {
+        let none = laneWithNoNotesSelected()
+        XCTAssertTrue(none.notesOnResolved, "its switch reads on …")
+        XCTAssertFalse(euclideousNotesHaveSelection(none)); XCTAssertFalse(euclideousNotesLayerIsOn(none), "… but with nothing selected the layer is OFF")
+        XCTAssertFalse(euclideousNotesLayerIsOn(EuclidLine()), "a brand-new lane (nothing lit by default) is off")
+        for (name, mutate) in [("a key", { (l: inout EuclidLine) in l.litNotes = 0b0001_0000 }), ("TOP", { $0.topLit = true }), ("TOP 2", { $0.top2Lit = true })] as [(String, (inout EuclidLine) -> Void)] {
+            var l = none; mutate(&l)
+            XCTAssertTrue(euclideousNotesHaveSelection(l), name); XCTAssertTrue(euclideousNotesLayerIsOn(l), "\(name) selected ⇒ on")
+            l.notesOn = false
+            XCTAssertFalse(euclideousNotesLayerIsOn(l), "\(name) selected but the switch is off ⇒ still off (the lit notes are remembered)")
+        }
+        // every surface that shows the layer's state reads the same answer
+        var l = none; l.litNotes = 0b1
+        XCTAssertEqual(euclideousMixLayerIsOff(l, notes: true), !euclideousNotesLayerIsOn(l))
+        XCTAssertEqual(euclideousMixLayerIsOff(none, notes: true), !euclideousNotesLayerIsOn(none))
+        // the riff layer's own off state is unchanged and independent of the notes selection
+        var r = l; r.riffOn = false
+        XCTAssertTrue(euclideousMixLayerIsOff(r, notes: false)); XCTAssertFalse(euclideousMixLayerIsOff(r, notes: true))
+    }
+    // "If it's in an off state and one note is selected then it should be enabled."
+    func testSelectingOneNoteEnablesAnOffLayer() {
+        // off because NOTHING is selected (the switch itself on)
+        for (name, act) in [("key 3", { (l: inout EuclidLine) in euclideousToggleNotesKey(&l, rank: 3) }), ("TOP", { euclideousToggleNotesTop(&$0) }), ("TOP 2", { euclideousToggleNotesTop2(&$0) })] as [(String, (inout EuclidLine) -> Void)] {
+            var l = laneWithNoNotesSelected(); XCTAssertFalse(euclideousNotesLayerIsOn(l))
+            act(&l)
+            XCTAssertTrue(euclideousNotesLayerIsOn(l), "from nothing selected, selecting \(name) turns the layer on")
+        }
+        // off because the SWITCH is off (nothing remembered): the same tap enables it
+        var sw = laneWithNoNotesSelected(); sw.notesOn = false
+        euclideousToggleNotesKey(&sw, rank: 1)
+        XCTAssertEqual(sw.notesOn, true); XCTAssertEqual(sw.litNotes, 0b1); XCTAssertTrue(euclideousNotesLayerIsOn(sw))
+        var sw2 = laneWithNoNotesSelected(); sw2.notesOn = false
+        euclideousToggleNotesTop(&sw2); XCTAssertTrue(euclideousNotesLayerIsOn(sw2))
+        var sw3 = laneWithNoNotesSelected(); sw3.notesOn = false
+        euclideousToggleNotesTop2(&sw3); XCTAssertTrue(euclideousNotesLayerIsOn(sw3))
+        // off with a remembered selection: selecting ANOTHER note enables it and keeps the remembered ones
+        var mem = laneWithNoNotesSelected(); mem.litNotes = 0b0000_0010; mem.notesOn = false
+        euclideousToggleNotesKey(&mem, rank: 5)
+        XCTAssertTrue(euclideousNotesLayerIsOn(mem)); XCTAssertEqual(mem.litNotes, 0b0001_0010)
+        // an out-of-range rank selects nothing and changes nothing
+        var bad = laneWithNoNotesSelected(); let before = bad
+        euclideousToggleNotesKey(&bad, rank: 0); euclideousToggleNotesKey(&bad, rank: 9)
+        XCTAssertEqual(bad, before)
+        // de-selecting the LAST note turns the layer off (it reads off with nothing selected); a second note keeps it on
+        var one = laneWithNoNotesSelected(); euclideousToggleNotesKey(&one, rank: 4); XCTAssertTrue(euclideousNotesLayerIsOn(one))
+        euclideousToggleNotesKey(&one, rank: 4)
+        XCTAssertEqual(one.litNotes, 0); XCTAssertTrue(one.notesOnResolved, "the switch itself is untouched (still reads on)"); XCTAssertFalse(euclideousNotesLayerIsOn(one), "…but with nothing selected the layer is off")
+        var two = laneWithNoNotesSelected(); euclideousToggleNotesKey(&two, rank: 2); euclideousToggleNotesKey(&two, rank: 6)
+        euclideousToggleNotesKey(&two, rank: 2); XCTAssertTrue(euclideousNotesLayerIsOn(two), "one note still selected ⇒ still on")
+    }
+    // "change the vel label on the mix tab's xy controls to 'velocity'" — and it truncates, never runs into the number.
+    func testMixVelocityStripNameIsVelocityAndTruncatesToTheRoomItHas() {
+        XCTAssertEqual(euclideousMixVelocityName, "VELOCITY")
+        let natural = CGFloat(euclideousMixVelocityName.count) * (0.6 * 8 + 0.08 * 8)   // 8pt heavy mono + 0.08em tracking
+        let reference = EuclideousMixPadGeometry(cellW: 96.25, padH: 96), portrait = EuclideousMixPadGeometry(cellW: 90.25, padH: 66)
+        XCTAssertEqual(euclideousMixVelocityNameLength(plotH: reference.plotH), 82 - 4 - 19, accuracy: 1e-9)
+        XCTAssertGreaterThanOrEqual(euclideousMixVelocityNameLength(plotH: reference.plotH), natural, "at the reference pad the whole word fits under the number")
+        XCTAssertLessThan(euclideousMixVelocityNameLength(plotH: portrait.plotH), natural, "on a short portrait pad it is truncated, not shrunk or overlapped")
+        XCTAssertEqual(euclideousMixVelocityNameLength(plotH: 10), 0, "never negative")
     }
 
 }

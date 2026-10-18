@@ -5127,7 +5127,44 @@ func euclideousMixOctaveNext(_ v: Int, up: Bool) -> Int? { let n = v + (up ? 1 :
 // ── the layer-off look (§3.15) and VoiceOver wording ─────────────────────────────────────────────────────────────────
 
 /// A layer is OFF exactly when its dot on the lane card's tab is hollow: the riff card switched off, or `notesOn` false.
-func euclideousMixLayerIsOff(_ line: EuclidLine, notes: Bool) -> Bool { notes ? !line.notesOnResolved : !line.riffOnResolved }
+func euclideousMixLayerIsOff(_ line: EuclidLine, notes: Bool) -> Bool { notes ? !euclideousNotesLayerIsOn(line) : !line.riffOnResolved }
+
+// ── when is the NOTES layer ON? (Paul 2026-10-18) ──────────────────────────────────────────────────────────────────────
+
+/// True when at least one note is SELECTED in the NOTES tab: a lit key (rank 1…8), TOP, or TOP 2.
+func euclideousNotesHaveSelection(_ line: EuclidLine) -> Bool {
+    line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved
+}
+/// THE one definition of "the notes layer is on": its switch is on AND a note is selected. With no notes selected the layer is
+/// OFF — even if its switch says on, because there is nothing for it to play. Everything that shows the layer's state reads this
+/// (the lane card's NOTES dot, the NOTES strip, the MIX tab's pad and stepper), so they can never disagree. The engine is
+/// untouched: with nothing selected it never had a pitch to sound.
+func euclideousNotesLayerIsOn(_ line: EuclidLine) -> Bool { line.notesOnResolved && euclideousNotesHaveSelection(line) }
+
+/// Selecting a note ENABLES an off layer in the same tap ("one tap does both"): each toggle turns the layer's switch on if it was
+/// off, then flips that one selection. Starting from any off state (switch off, or nothing selected), selecting one note leaves the
+/// layer on. De-selecting a note never turns anything off by itself — the layer just reads off once the last one goes.
+func euclideousToggleNotesKey(_ line: inout EuclidLine, rank: Int) {
+    guard (1...8).contains(rank) else { return }
+    if !line.notesOnResolved { line.notesOn = true }
+    line.litNotes = line.litNotesResolved ^ (1 << UInt8(rank - 1))
+}
+func euclideousToggleNotesTop(_ line: inout EuclidLine) {
+    if !line.notesOnResolved { line.notesOn = true }
+    line.topLit = !line.topLitResolved
+}
+func euclideousToggleNotesTop2(_ line: inout EuclidLine) {
+    if !line.notesOnResolved { line.notesOn = true }
+    line.top2Lit = !line.top2LitResolved
+}
+
+// ── the VELOCITY strip label (Paul 2026-10-18: "VEL" → "velocity") ─────────────────────────────────────────────────────
+
+/// The name turned along the pad's VEL strip. Upper-case like every other label on the page (GATE, LEGATO, OCT).
+let euclideousMixVelocityName = "VELOCITY"
+/// The vertical room the turned name has: from 4pt above the strip's bottom up to just under the velocity value's 14pt line box
+/// (y 3…17, plus a 2pt gap). The name is truncated to this — never shrunk (house rule) — so on a short pad it can't run into the number.
+func euclideousMixVelocityNameLength(plotH: CGFloat) -> CGFloat { max(0, plotH - 4 - 19) }
 func euclideousMixPadAccessibilityLabel(lane: Int, notes: Bool, off: Bool) -> String { "Lane \(lane + 1) \(notes ? "notes" : "riff")" + (off ? ", off" : "") }
 func euclideousMixOctaveAccessibilityLabel(lane: Int, notes: Bool) -> String { "Lane \(lane + 1) \(notes ? "notes" : "riff") octave" }
 

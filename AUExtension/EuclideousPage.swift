@@ -1723,7 +1723,7 @@ struct EuclideousPage: View {
         // lit → `.miss` everywhere, "because nothing will sound."
         // RIFF/NOTES SPLIT (third same-day ferry): the notes layer's own master switch gates this too —
         // nothing can be "lit" in the sense that matters here if the whole layer is off.
-        let anyLit = line.notesOnResolved && (line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved)
+        let anyLit = euclideousNotesLayerIsOn(line)
         return euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: effectiveGridRanks, anyLit: anyLit)
     }
 
@@ -1961,7 +1961,7 @@ struct EuclideousPage: View {
                     switch t {
                     case .rhythm: return nil
                     case .riff: return line.riffOnResolved
-                    case .notes: return line.notesOnResolved && (line.litNotesResolved != 0 || line.topLitResolved || line.top2LitResolved)
+                    case .notes: return euclideousNotesLayerIsOn(line)   // on only while its switch is on AND a note is selected (shared with the NOTES strip and the MIX tab)
                     // LISTEN (§1): "filled... when ANY row has a lit button, hollow otherwise."
                     case .listen: return line.listenRhythmMode != nil || line.listenPitchMode != nil || line.listenLevelMode != nil
                     }
@@ -2899,10 +2899,7 @@ struct EuclideousPage: View {
             .onTapGesture {
                 // RIFF/NOTES SPLIT: tapping a key while the notes layer is off turns it on AND applies the
                 // tap in one gesture — the same one-tap-does-both idiom the RIFF direction row already uses.
-                edit(idx) { l in
-                    if !l.notesOnResolved { l.notesOn = true }
-                    l.litNotes = l.litNotesResolved ^ (1 << (rank - 1))
-                }
+                edit(idx) { euclideousToggleNotesKey(&$0, rank: rank) }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Note \(rank), \(pitchName), \(lit ? "on" : "off")\(marked ? ", in riff" : "")")
@@ -2951,7 +2948,7 @@ struct EuclideousPage: View {
     /// bottom, matching the keys row's own left-to-right rank order read top-down) so the strip itself
     /// shows WHICH notes are lit without needing to glance across the whole row.
     private func notesStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        let isOn = line.notesOnResolved
+        let isOn = euclideousNotesLayerIsOn(line)   // off whenever no note is selected, even if the switch itself is on (Paul 2026-10-18)
         let litMask = line.litNotesResolved
         let litCount = (0..<8).filter { (litMask & (1 << $0)) != 0 }.count + (line.topLitResolved ? 1 : 0) + (line.top2LitResolved ? 2 : 0)
         return VStack(spacing: 8) {
@@ -2971,7 +2968,7 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(isOn ? lane100(accent) : Color(hex: 0x2A2D34)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(isOn ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
         .contentShape(Rectangle())
-        .onTapGesture { edit(idx) { $0.notesOn = !($0.notesOnResolved) } }
+        .onTapGesture { edit(idx) { $0.notesOn = !euclideousNotesLayerIsOn($0) } }   // flips what the strip SHOWS (on → off, off → on)
         .euclideousHelp("Turn the notes layer on or off. Lit notes are remembered.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Notes layer, \(isOn ? "on" : "off"), \(litCount) notes lit")
@@ -2988,17 +2985,11 @@ struct EuclideousPage: View {
                 edit(idx) { euclideousSetNotesOctave(&$0, v) }   // the ONE notes-octave setter (also switches the layer on) — shared with the MIX stepper
             }
             melodyButton("TOP 2", on: line.top2LitResolved, accent: accent, help: "Play the second-highest note of the source on every hit, following chord changes.") {
-                edit(idx) { l in
-                    if !l.notesOnResolved { l.notesOn = true }
-                    l.top2Lit = !(l.top2LitResolved)
-                }
+                edit(idx) { euclideousToggleNotesTop2(&$0) }
             }
             .frame(width: 46)
             melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest note of the source on every hit, following chord changes.") {
-                edit(idx) { l in
-                    if !l.notesOnResolved { l.notesOn = true }
-                    l.topLit = !(l.topLitResolved)
-                }
+                edit(idx) { euclideousToggleNotesTop(&$0) }
             }
             .frame(width: 42)
         }

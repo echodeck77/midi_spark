@@ -18,6 +18,11 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 ## Open items
 
 ### MIX tab (2026-10-18 ferry — gate, velocity and octave for every layer)
+- NOTES layer on/off follows the selection: a fresh lane's NOTES strip is grey, its card dot is hollow and its MIX notes pad/stepper are grey;
+  select one key (or TOP / TOP 2) and all three come on together; de-select the last one and all three go grey again. With the switch itself
+  off but notes remembered, selecting a note switches it back on.
+- The MIX pads' turned label reads "VELOCITY" and doesn't touch the velocity number at the reference size; on a short (portrait) pad it
+  truncates to "VELO…". Say if you want it lower-case.
 - Pad legibility at 96 × 96: the 8pt names, the 11pt values, the puck and lines. (The portrait panel's pads are only ~66 tall — check those too.)
 - Touch-to-value feel: the puck sits under the finger, no stray edits from a plain tap, and two pads dragged at once stay independent.
 - The 28pt OCT buttons are comfortable, and the end button dims at −2 / +2.

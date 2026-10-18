@@ -86,9 +86,14 @@ struct EuclideousMixPad: View {
             // VEL strip text: the value (11pt, 14pt line box at y 3…17) and the name turned to read bottom-to-top
             Text("\(velocity)").font(heavyMono(11)).monospacedDigit().foregroundColor(valueColour).lineLimit(1)
                 .frame(width: EuclideousMixMetrics.velStripW, height: 14).offset(x: 0, y: 3)
-            Text("VEL").font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(nameColour).lineLimit(1).fixedSize()
+            // The name (Paul 2026-10-18: "velocity"): turned to read bottom-to-top, its bottom end at plotH − 4, truncated (never shrunk) to the
+            // room under the velocity number — so on a short pad it can't run into it. Leading-aligned in its frame, so it hugs the bottom end.
+            let nameLen = euclideousMixVelocityNameLength(plotH: g.plotH)
+            Text(euclideousMixVelocityName).font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(nameColour)
+                .lineLimit(1).truncationMode(.tail)
+                .frame(width: nameLen, alignment: .leading)
                 .rotationEffect(.degrees(-90))
-                .position(x: EuclideousMixMetrics.velStripW / 2, y: g.plotH - 4 - (3 * 8 * (0.6 + 0.08)) / 2)
+                .position(x: EuclideousMixMetrics.velStripW / 2, y: g.plotH - 4 - nameLen / 2)
             // GATE strip text: name (truncates) from x 27, value (never truncates) ending 4pt from the trailing edge
             HStack(spacing: 0) {   // no extra gap: the name only truncates if it would actually TOUCH the value (LEGATO fits at the reference width)
                 Text(euclideousMixGateName(gate: gate)).font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(nameColour)
