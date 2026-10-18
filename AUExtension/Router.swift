@@ -405,6 +405,13 @@ final class Router {
     // transport edge, same as `euclideousLastSoundedNotes` itself — both are safely gated by
     // `euclideousLastSoundedCount[i] = 0`, so nothing ever reads a stale slot.
     private var euclideousLastSoundedVels = [UInt8](repeating: 0, count: 4 * 9)
+    // MIX TAB (2026-10-18): the per-pitch GATE sibling to `euclideousLastSoundedVels` — each cached pitch replays at its OWN layer's
+    // gate (riff pitch = GATE, lit notes/TOP/TOP2 = the notes gate), gated by `euclideousLastSoundedCount[i]` like its siblings.
+    private var euclideousLastSoundedGates = [Double](repeating: 0, count: 4 * 9)
+    /// TEST-ONLY seam (default false, one Bool read at the `runEuclidLine` call site, no allocation): the Euclideous row force-
+    /// disables its EUCLID MASK (LISTEN ferry §1), which makes the mask-driven paths — CHORD extras, RATCHET, REPEAT — unreachable end to
+    /// end. Tests set this to drive them so their per-pitch gate rules can actually be asserted.
+    var euclideousMaskEnabledForTests = false
     private var euclideousLastSoundedCount = [Int](repeating: 0, count: 4)
     // GATE FOLLOWS THE RHYTHM (Paul 2026-10-13 ferry): per-lane LEGATO continuity for GATE=100%. Flat
     // 4 lanes × 9 slots (matches `euclideousLastSoundedNotes`'s own ceiling — `noteViewMaxNotes`, the real
@@ -4257,31 +4264,30 @@ final class Router {
                 strikeOne(sn.note, sn.vel)
             }
         }
-        // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry) — the shared legato reconcile. Called once per REAL
-        // processed Euclideous hit (including a silent/MUTE'd/empty one) with that hit's FINAL merged
-        // pitch set (`pitches[0..<pitchCount]`). A sibling nested function to `strikeChord` (not defined
-        // inside the per-tick closure below), so it takes `tau`/`busOverride` explicitly, same convention.
+        // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry) — the shared legato reconcile, made PER PITCH by the MIX ferry (2026-10-18). Called
+        // once per REAL processed Euclideous hit (including a silent/MUTE'd/empty one) with that hit's FINAL merged pitch set
+        // (`pitches[0..<pitchCount]`) and each pitch's OWN gate (`gates`) — the riff pitch carries the lane's GATE, lit notes / TOP /
+        // TOP2 the notes layer's gate, so legato is per LAYER (§7.3). A sibling nested function to `strikeChord` (not defined inside
+        // the per-tick closure below), so it takes `tau`/`busOverride` explicitly, same convention.
         //
-        // At GATE=100% (and not a ratchet hit): a pitch already tracked AND whose voice is still
-        // genuinely valid (`.active` AND still the same note — the MONO-steal `forgetEuclideousLegato-
-        // SlotAt` hook nils a stolen slot, so a stolen-then-reused held pitch correctly falls through to
-        // a fresh re-strike here, not a silent no-op forever) is HELD — carried forward untouched, no
-        // note-off/note-on, immortal already. Anything tracked but NOT matched (old-only, or matched by
-        // pitch but no longer genuinely valid, or this is a non-legato/ratchet/silent hit) gets a real,
-        // finite close "this hit's time + overlap" — decided ONLY now, event-driven, never pre-scheduled
-        // (ferry §2.5.5). Anything in the new set not matched to a held entry is genuinely NEW — struck
-        // with `gateBeats: .infinity` (immortal, `strikeChord`'s own sentinel), its own/all-cable
-        // `voices[]` slot captured via `onVoiceOpened` and tracked — mirrors `GlideVoice.slot`'s own
-        // proven "store an index, close later by that index" shape.
+        // A pitch is LEGATO iff its own gate is exactly 100% (`euclideousGateIsLegato`) and this isn't a ratchet hit. A legato pitch
+        // already tracked AND whose voice is still genuinely valid (`.active` AND still the same note — the MONO-steal `forgetEuclideous-
+        // LegatoSlotAt` hook nils a stolen slot, so a stolen-then-reused held pitch correctly falls through to a fresh re-strike here, not
+        // a silent no-op forever) is HELD — carried forward untouched, no note-off/note-on, immortal already. Anything tracked but NOT
+        // matched (old-only, or matched by pitch but no longer genuinely valid, or the new pitch isn't legato — its layer's gate moved
+        // below 100%, or a collision handed it the other layer's gate — or this is a ratchet/silent hit) gets a real, finite close "this
+        // hit's time + overlap" — decided ONLY now, event-driven, never pre-scheduled (ferry §2.5.5). Every LEGATO pitch in the new set not
+        // matched to a held entry is genuinely NEW — struck with `gateBeats: .infinity` (immortal, `strikeChord`'s own sentinel), its
+        // own/all-cable `voices[]` slot captured via `onVoiceOpened` and tracked — mirrors `GlideVoice.slot`'s own proven "store an
+        // index, close later by that index" shape. Only legato pitches are tracked.
         //
-        // Below 100% (or a ratchet hit): just clears this lane's own tracking — the caller strikes
-        // normally with its own (now gap-based) gate formula; any previously-open legato voice's own
-        // already-scheduled finite close (set the moment IT was last reconciled) fires on its own
-        // schedule with no further action needed here.
+        // RETURNS a bitmask (bit j = `pitches[j]` was handled here as legato). The caller strikes every OTHER pitch normally, each at
+        // its own finite gate-based length — a non-legato pitch just has its tracking absent and any previously-open legato voice's own
+        // already-scheduled finite close fires on its own schedule.
         @discardableResult
-        func reconcileEuclidLegato(lineIndex: Int, pitches: [Int], pitchCount: Int, vels: [UInt8], tau: Double,
-                                    isRatchetThisHit: Bool, overlapBeats: Double, gatePct: Double, busOverride: UInt8?) -> Bool {
-            let isLegato = Int((gatePct * 100).rounded()) >= 100 && !isRatchetThisHit
+        func reconcileEuclidLegato(lineIndex: Int, pitches: [Int], pitchCount: Int, vels: [UInt8], gates: [Double], tau: Double,
+                                    isRatchetThisHit: Bool, overlapBeats: Double, busOverride: UInt8?) -> UInt16 {
+            func isLegatoPitch(_ j: Int) -> Bool { !isRatchetThisHit && j < gates.count && euclideousGateIsLegato(gates[j]) }
             let base = lineIndex * 9
             let oldCount = euclideousLegatoCount[lineIndex]
             var matchedOldIndexForNew = [Int](repeating: -1, count: 9)   // new-set index j → which OLD tracked index i (or -1)
@@ -4292,8 +4298,8 @@ final class Router {
                 let ownValid = ownSlot >= 0 && ownSlot < voices.count && voices[ownSlot].active && Int(voices[ownSlot].note) == trackedPitch
                 let allValid = allSlot >= 0 && allSlot < voices.count && voices[allSlot].active && Int(voices[allSlot].note) == trackedPitch
                 var heldAsJ = -1
-                if isLegato && (ownValid || allValid) {
-                    for j in 0..<pitchCount where matchedOldIndexForNew[j] < 0 && pitches[j] == trackedPitch { heldAsJ = j; matchedOldIndexForNew[j] = i; break }
+                if ownValid || allValid {
+                    for j in 0..<pitchCount where matchedOldIndexForNew[j] < 0 && isLegatoPitch(j) && pitches[j] == trackedPitch { heldAsJ = j; matchedOldIndexForNew[j] = i; break }
                 }
                 if heldAsJ < 0 && (ownValid || allValid) {
                     let closeOff = sampleOf(musical: tau + overlapBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
@@ -4302,26 +4308,26 @@ final class Router {
                 }
             }
 
-            if isLegato {
-                var newPitch = [Int8](repeating: -1, count: 9), newOwn = [Int16](repeating: -1, count: 9), newAll = [Int16](repeating: -1, count: 9)
-                for j in 0..<pitchCount {
-                    newPitch[j] = Int8(clamping: pitches[j])
-                    if matchedOldIndexForNew[j] >= 0 {
-                        let i = matchedOldIndexForNew[j]
-                        newOwn[j] = euclideousLegatoOwnSlot[base + i]; newAll[j] = euclideousLegatoAllSlot[base + i]
-                    } else {
-                        var ownCap = -1, allCap = -1
-                        strikeChord(tau: tau, velScale: 1.0, gateBeats: .infinity, octave: 0, explicitNote: pitches[j], explicitVel: vels[j], busOverride: busOverride,
-                                    onVoiceOpened: { slot in if ownCap < 0 { ownCap = slot } else { allCap = slot } }, euclideousLegato: true)
-                        newOwn[j] = Int16(ownCap); newAll[j] = Int16(allCap)
-                    }
+            var legatoMask: UInt16 = 0
+            var newPitch = [Int8](repeating: -1, count: 9), newOwn = [Int16](repeating: -1, count: 9), newAll = [Int16](repeating: -1, count: 9)
+            var tracked = 0
+            for j in 0..<pitchCount where isLegatoPitch(j) {
+                legatoMask |= UInt16(1) << UInt16(j)
+                newPitch[tracked] = Int8(clamping: pitches[j])
+                if matchedOldIndexForNew[j] >= 0 {
+                    let i = matchedOldIndexForNew[j]
+                    newOwn[tracked] = euclideousLegatoOwnSlot[base + i]; newAll[tracked] = euclideousLegatoAllSlot[base + i]
+                } else {
+                    var ownCap = -1, allCap = -1
+                    strikeChord(tau: tau, velScale: 1.0, gateBeats: .infinity, octave: 0, explicitNote: pitches[j], explicitVel: vels[j], busOverride: busOverride,
+                                onVoiceOpened: { slot in if ownCap < 0 { ownCap = slot } else { allCap = slot } }, euclideousLegato: true)
+                    newOwn[tracked] = Int16(ownCap); newAll[tracked] = Int16(allCap)
                 }
-                for j in 0..<pitchCount { euclideousLegatoPitch[base + j] = newPitch[j]; euclideousLegatoOwnSlot[base + j] = newOwn[j]; euclideousLegatoAllSlot[base + j] = newAll[j] }
-                euclideousLegatoCount[lineIndex] = pitchCount
-            } else {
-                euclideousLegatoCount[lineIndex] = 0
+                tracked += 1
             }
-            return isLegato
+            for k in 0..<tracked { euclideousLegatoPitch[base + k] = newPitch[k]; euclideousLegatoOwnSlot[base + k] = newOwn[k]; euclideousLegatoAllSlot[base + k] = newAll[k] }
+            euclideousLegatoCount[lineIndex] = tracked
+            return legatoMask
         }
         // A window-scan generator's FIRST window in each column scans from colStart (not mWinStart) so the DOWNBEAT
         // strike — and any pulse in [colStart, mWinStart), emit-late/clamped to the block start — fires once, instead
@@ -4518,7 +4524,7 @@ final class Router {
                                 // row keeps the existing `useRiff`-driven fork completely unchanged, so these
                                 // four new params are harmless no-ops for it regardless of what's passed.
                                 riffOn: Bool = false, litNotes: UInt8 = 0, topLit: Bool = false, top2Lit: Bool = false,
-                                notesOn: Bool = true, noteOctShifts: [Int]? = nil, notesVelOffset: Int = 0,
+                                notesOn: Bool = true, noteOctShifts: [Int]? = nil, notesVelocity: Int = 100, notesGate: Double = 0.9,
                                 // SEQUENCER PANEL (2026-10-14 ferry) — per-lane RESET (in SEQUENCER STEPS,
                                 // not bars) and the LANES tab's per-step mute decision, both pre-resolved at
                                 // the call site (the latter from the SAME `currentLanesStep` the note-off
@@ -4758,8 +4764,10 @@ final class Router {
                     // hasn't reached a real gate decision yet at that point. Caught by writing the
                     // acceptance test for this exact case, not assumed: the naive `gate * nextHitGapBeats +
                     // tieExt` (scaling BOTH segments together) would wrongly shrink the first segment too.
-                    func gateBeatsWithTie(_ tieExt: Double) -> Double {
-                        tieExt > 0 ? max(minGateBeats5ms, nextHitGapBeats + gate * tieExt) : max(minGateBeats5ms, gate * nextHitGapBeats)
+                    // MIX TAB (2026-10-18): per PITCH — each sounding pitch's length reads ITS OWN gate `g` (the riff pitch the lane's GATE, lit
+                    // notes/TOP/TOP2 the notes gate), through the one pure `euclideousPitchGateBeats`; the 5 ms floor is unchanged.
+                    func gateBeatsWithTie(_ g: Double, _ tieExt: Double) -> Double {
+                        euclideousPitchGateBeats(gate: g, nextHitGapBeats: nextHitGapBeats, tieExt: tieExt, minGateBeats: minGateBeats5ms)
                     }
                     if isHit {
                         // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively
@@ -4786,23 +4794,25 @@ final class Router {
                             if isEuclideousRow {
                                 let n = euclideousLastSoundedCount[lineIndex]
                                 if n > 0 {
-                                    let gb = max(minGateBeats5ms, gate * nextHitGapBeats)
                                     var cachedPitches = [Int](repeating: 0, count: n)
                                     var cachedVels = [UInt8](repeating: 0, count: n)
+                                    var cachedGates = [Double](repeating: 0, count: n)
                                     for i in 0..<n {
                                         cachedPitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i])
                                         cachedVels[i] = euclideousLastSoundedVels[lineIndex * 9 + i]
+                                        cachedGates[i] = euclideousLastSoundedGates[lineIndex * 9 + i]
                                     }
+                                    let gb = max(minGateBeats5ms, cachedGates[0] * nextHitGapBeats)   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     // GATE/legato: a REPEAT-hold's cached set IS, by definition, exactly what's
                                     // already tracked — reconcile naturally resolves every one of them as HELD
                                     // (no re-strike) at 100%, correctly continuing to extend rather than
                                     // restriking each tick; below 100% it clears tracking and this falls
                                     // through to the OLD per-tick restrike loop, now on the new gap-based gate.
-                                    let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: cachedPitches, pitchCount: n, vels: cachedVels,
-                                                                         tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
-                                                                         gatePct: gate, busOverride: busOverride)
-                                    if !handled {
-                                        for i in 0..<n { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: cachedPitches[i], explicitVel: cachedVels[i], busOverride: busOverride) }
+                                    let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: cachedPitches, pitchCount: n, vels: cachedVels, gates: cachedGates,
+                                                                         tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
+                                    for i in 0..<n where handled & (UInt16(1) << UInt16(i)) == 0 {
+                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: max(minGateBeats5ms, cachedGates[i] * nextHitGapBeats), octave: 0,
+                                                    explicitNote: cachedPitches[i], explicitVel: cachedVels[i], busOverride: busOverride)
                                     }
                                     if nvSent {
                                         var nc = 0
@@ -5034,7 +5044,7 @@ final class Router {
                                 guard let s = noteOctShifts, rk - 1 >= 0, rk - 1 < s.count else { return 0 }
                                 return max(-1, min(1, s[rk - 1]))
                             }
-                            let notesVel = UInt8(max(1, min(127, velocityAbsolute + notesVelOffset)))
+                            let notesVel = UInt8(max(1, min(127, notesVelocity)))   // MIX TAB: the notes layer's OWN velocity (resolved — nil ⇒ VEL + the legacy offset — at the call site)
                             // MERGED, DEDUPED STRIKE SET (Engine rule 2: "at most nine distinct pitches per
                             // hit... fixed-size buffers, no allocation or locking on the audio thread") — a
                             // plain stack local, not a stored ivar: its lifetime is exactly one hit, the same
@@ -5044,11 +5054,14 @@ final class Router {
                             // collision" for free — the riff layer's own `addPitch` call always runs first.
                             var pitches = [Int](repeating: 0, count: 9)
                             var pitchVel = [UInt8](repeating: 0, count: 9)
+                            // MIX TAB (2026-10-18): `pitchGate` is the per-pitch GATE sibling to `pitchVel` — same fixed 9-slot storage, same
+                            // first-insertion-wins (so on a collision the RIFF pitch's gate wins, exactly as its velocity already does).
+                            var pitchGate = [Double](repeating: 0, count: 9)
                             var pitchCount = 0
-                            func addPitch(_ v: Int, vel: UInt8) {
+                            func addPitch(_ v: Int, vel: UInt8, gate g: Double) {
                                 guard pitchCount < 9 else { return }
                                 for j in 0..<pitchCount where pitches[j] == v { return }
-                                pitches[pitchCount] = v; pitchVel[pitchCount] = vel; pitchCount += 1
+                                pitches[pitchCount] = v; pitchVel[pitchCount] = vel; pitchGate[pitchCount] = g; pitchCount += 1
                             }
                             // RIFF LAYER — unchanged mechanics (walk→rank→LEAP→INVERT→TRANSPOSE→MIRROR/CLIMB→
                             // riffResolve, identical to the retired fork below), but now contributes a SINGLE
@@ -5090,7 +5103,7 @@ final class Router {
                                                                       n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
                                         hadRiffNote = true
                                         riffRank = hit.rank; riffNote = shadowNote
-                                        addPitch(shadowNote, vel: UInt8(velocityAbsolute))
+                                        addPitch(shadowNote, vel: UInt8(velocityAbsolute), gate: gate)
                                     }
                                 }
                             } else if riffOn, thisLaneCount > 0 {
@@ -5166,9 +5179,8 @@ final class Router {
                                         // GATE/legato §2.4: "the notes still end at that hit plus the
                                         // overlap... legato never runs through a silence" — reconcile with
                                         // an EMPTY set so any currently-held legato pitch closes here.
-                                        reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [],
-                                                               tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
-                                                               gatePct: gate, busOverride: busOverride)
+                                        reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                               tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
                                         if nvSent {
                                             let (onset, duration) = nvTiming(sub)
                                             pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, noteCount: 0)
@@ -5192,7 +5204,7 @@ final class Router {
                                     hadRiffNote = true
                                     riffRank = rank; riffNote = note0
                                     tieExt = riffTieExtensionBeats()
-                                    addPitch(note0, vel: UInt8(velocityAbsolute))   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
+                                    addPitch(note0, vel: UInt8(velocityAbsolute), gate: gate)   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
                                     // WIPE TELEMETRY (ferry "riff-cell wipes" §2.2): mirrors the retired fork's
                                     // own wipeRank computation exactly — MIRROR re-applied to `invRank` (the
                                     // pre-TRANSPOSE value), "after INVERT, MIRROR and LEAP but before
@@ -5215,15 +5227,15 @@ final class Router {
                             // step only; `litNotes`/`topLit`/`top2Lit` storage above is never touched by this.
                             if !shadowPartnerValid, notesOn, thisLaneCount > 0 {
                                 for rk in 1...8 where (litNotes & (1 << (rk - 1))) != 0 {
-                                    if let pch = riffResolve(rank: rk, oct: octave + noteOctShift(rk), n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel) }
+                                    if let pch = riffResolve(rank: rk, oct: octave + noteOctShift(rk), n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel, gate: notesGate) }
                                 }
                                 // TOP/TOP2 ignore the per-note shifts (ferry §3 NOTES behaviour #4): "they follow
                                 // the notes octave only" — plain `octave`, no `noteOctShift(...)` added.
-                                if topLit, let pch = riffResolve(rank: thisLaneCount, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel) }
+                                if topLit, let pch = riffResolve(rank: thisLaneCount, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel, gate: notesGate) }
                                 if top2Lit {
                                     let lo = max(1, thisLaneCount - 1)
                                     for rk in [lo, thisLaneCount] {
-                                        if let pch = riffResolve(rank: rk, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel) }
+                                        if let pch = riffResolve(rank: rk, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) { addPitch(pch, vel: notesVel, gate: notesGate) }
                                     }
                                 }
                             }
@@ -5231,9 +5243,8 @@ final class Router {
                             // produced nothing AND nothing is lit (riff on, FILL/SKIP-degraded or empty pool).
                             guard pitchCount > 0 else {
                                 // GATE/legato §2.4: a genuinely silent hit still closes any held legato note here.
-                                reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [],
-                                                       tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
-                                                       gatePct: gate, busOverride: busOverride)
+                                reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                       tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
                                 return
                             }
                             // LISTEN/AVOID (§6): checks EACH already-resolved pitch for a coincident collision
@@ -5276,16 +5287,15 @@ final class Router {
                                             }
                                         }
                                         if moved { i += 1; continue }
-                                        pitches[i] = pitches[pitchCount - 1]; pitchVel[i] = pitchVel[pitchCount - 1]
+                                        pitches[i] = pitches[pitchCount - 1]; pitchVel[i] = pitchVel[pitchCount - 1]; pitchGate[i] = pitchGate[pitchCount - 1]
                                         pitchCount -= 1
                                     } else {
                                         i += 1
                                     }
                                 }
                                 guard pitchCount > 0 else {
-                                    reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [],
-                                                           tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
-                                                           gatePct: gate, busOverride: busOverride)
+                                    reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                           tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
                                     return
                                 }
                             }
@@ -5323,18 +5333,26 @@ final class Router {
                                     for i in 0..<pitchCount {
                                         pitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i])
                                         pitchVel[i] = euclideousLastSoundedVels[lineIndex * 9 + i]
+                                        pitchGate[i] = euclideousLastSoundedGates[lineIndex * 9 + i]
                                     }
                                 }
                                 euclideousMaskRepeatRemaining[lineIndex] = mm.repeatCountResolved - 1
-                                let repGb = gateBeatsWithTie(tieExt)
-                                let repHandled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel,
-                                                                        tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
-                                                                        gatePct: gate, busOverride: busOverride)
-                                if !repHandled {
-                                    for j in 0..<pitchCount { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGb, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOverride) }
+                                let repGb = gateBeatsWithTie(pitchGate[0], tieExt)   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
+                                let repHandled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel, gates: pitchGate,
+                                                                        tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
+                                for j in 0..<pitchCount where repHandled & (UInt16(1) << UInt16(j)) == 0 {
+                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsWithTie(pitchGate[j], tieExt), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOverride)
                                 }
                                 euclideousLastSoundedCount[lineIndex] = pitchCount
-                                for i in 0..<pitchCount { euclideousLastSoundedNotes[lineIndex * 9 + i] = Int8(clamping: pitches[i]) }
+                                // The trigger caches the WHOLE set — notes, velocities AND (MIX ferry) gates. It used to write only the notes, so a REPEAT
+                                // that triggered on the lane's very first hit (nothing cached yet) replayed stale/zero velocities; with per-pitch gates
+                                // a zero cached gate would floor every replay to the 5 ms minimum. When the set came FROM the cache these writes are
+                                // idempotent.
+                                for i in 0..<pitchCount {
+                                    euclideousLastSoundedNotes[lineIndex * 9 + i] = Int8(clamping: pitches[i])
+                                    euclideousLastSoundedVels[lineIndex * 9 + i] = pitchVel[i]
+                                    euclideousLastSoundedGates[lineIndex * 9 + i] = pitchGate[i]
+                                }
                                 if nvSent {
                                     var nc = 0
                                     for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nc += 1 } }
@@ -5378,6 +5396,9 @@ final class Router {
                             // RIFF/NOTES SPLIT: the representative's own base velocity, layer-aware — mirrors
                             // `maskOct` exactly, one line up.
                             let repVelBase: UInt8 = hadRiffNote ? UInt8(velocityAbsolute) : notesVel
+                            // MIX TAB: …and its gate (§7.4) — mask-added notes (CHORD intervals; ratchet repeats inherit per pitch) take the gate of the
+                            // pitch they come from: the riff pitch when the hit has one, otherwise the notes layer (the `maskOct` rule again).
+                            let repGateBase = euclideousExtraPitchGate(hadRiffNote: hadRiffNote, gate: gate, notesGate: notesGate)
                             let resolveRank: (Int) -> Int? = { r in riffResolve(rank: r, oct: maskOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) }
                             let xf = maskTransform(rank: repRank, note: repNote, vel: repVelBase, lineIndex: lineIndex,
                                                    mm: mm, maskedChancePassed: maskedChancePassed, resolveRank: resolveRank)
@@ -5389,9 +5410,8 @@ final class Router {
                             if xf.muted || lanesSeqMuted {
                                 // GATE/legato §2.4: MUTE is a mask-level silence of the whole hit — the notes
                                 // still end here, at this hit's time + overlap, not later.
-                                reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [],
-                                                       tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms,
-                                                       gatePct: gate, busOverride: busOverride)
+                                reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                       tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
                                 return
                             }   // MUTE: "applies to the whole hit" — silent; the walk already advanced normally above
                             // OCT/ACCENT/SWELL (Q2: "on the whole hit") — the DELTA `maskTransform` applied to
@@ -5407,7 +5427,7 @@ final class Router {
                             // resolved note, never `xf.note` directly) so the uniform loop below lands them at
                             // exactly `xf.vel`, not double-counted.
                             let velDelta = Int(xf.vel) - Int(repVelBase)
-                            for extra in xf.extra { addPitch(extra, vel: repVelBase) }   // CHORD's own stab notes, deduped against everything already in the set
+                            for extra in xf.extra { addPitch(extra, vel: repVelBase, gate: repGateBase) }   // CHORD's own stab notes, deduped against everything already in the set
                             for i in 0..<pitchCount {
                                 let shifted = pitches[i] + noteDelta
                                 if shifted >= 0 && shifted <= 127 { pitches[i] = shifted }
@@ -5423,7 +5443,7 @@ final class Router {
                             // exactly at gate=1.0 (the legato case, handled by reconcile below, never reaches
                             // this formula at all), so a below-100% note can never overlap into the next hit
                             // by construction (§1.4's "no overlaps" falls out for free).
-                            let gb = gateBeatsWithTie(tieExt)
+                            // (MIX TAB: no single per-hit length any more — every pitch below takes `gateBeatsWithTie(pitchGate[j], tieExt)`.)
                             func cacheWholeSet() {
                                 // REPEAT's own widened cache target (this ferry) — the WHOLE merged set, so a
                                 // FUTURE hold correctly replays every pitch from THIS genuine strike. Written
@@ -5435,6 +5455,7 @@ final class Router {
                                 for i in 0..<n {
                                     euclideousLastSoundedNotes[lineIndex * 9 + i] = Int8(clamping: pitches[i])
                                     euclideousLastSoundedVels[lineIndex * 9 + i] = pitchVel[i]
+                                    euclideousLastSoundedGates[lineIndex * 9 + i] = pitchGate[i]
                                 }
                                 euclideousLastSoundedVel[lineIndex] = vel   // UNCHANGED — stays shared with the legacy non-Euclideous `.repeatNote` path; never widened/removed
                             }
@@ -5448,9 +5469,8 @@ final class Router {
                             // merge, even at 100%" — a ratchet hit always reconciles (closing out whatever was
                             // previously legato-held) but is never itself tracked as held.
                             let nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc)
-                            let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel,
-                                                                 tau: mTickBeat, isRatchetThisHit: nRep != nil, overlapBeats: overlapBeats10ms,
-                                                                 gatePct: gate, busOverride: busOverride)
+                            let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel, gates: pitchGate,
+                                                                 tau: mTickBeat, isRatchetThisHit: nRep != nil, overlapBeats: overlapBeats10ms, busOverride: busOverride)
                             if let nRep {
                                 // AUDIBLE RATCHET, take 3 — THE REAL ROOT CAUSE (2026-10-13, Paul: first
                                 // "still not working in any perceptible way," then, after take 2 (every
@@ -5478,10 +5498,11 @@ final class Router {
                                 // now applies PER-REPEAT too, replacing the hardcoded `*0.5` with `*gate`, so
                                 // at 100% a repeat fills its own full subdivision width (ending right where
                                 // the next one begins) instead of always sitting at a fixed half-width snap.
-                                let repGate = (sub / Double(nRep)) * gate
+                                // MIX TAB: each pitch's repeats use ITS OWN gate — `(sub / nRep) × pitchGate[j]`.
                                 let repSpacing = sub / Double(nRep)
                                 let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
                                 for j in 0..<pitchCount {
+                                    let repGate = repSpacing * pitchGate[j]
                                     strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOverride)
                                     if nRep > 1 {
                                         pushEchoTail(onset: mTickBeat, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
@@ -5496,7 +5517,7 @@ final class Router {
                                     var nc = 0
                                     for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nc += 1 } }
                                     if nc > 0 {
-                                        let (onset, duration) = nvTiming(repGate)
+                                        let (onset, duration) = nvTiming(repSpacing * pitchGate[0])   // NOTE VIEW's one duration: pitch 0's
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc,
                                                            column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote)
                                     }
@@ -5504,15 +5525,15 @@ final class Router {
                                 cacheWholeSet()
                                 return
                             }
-                            if !handled {
-                                for j in 0..<pitchCount { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gb, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOverride) }
+                            for j in 0..<pitchCount where handled & (UInt16(1) << UInt16(j)) == 0 {
+                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsWithTie(pitchGate[j], tieExt), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOverride)
                             }
                             cacheWholeSet()
                             if nvSent {
                                 var nc = 0
                                 for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nc += 1 } }
                                 if nc > 0 {
-                                    let (onset, duration) = nvTiming(gb)
+                                    let (onset, duration) = nvTiming(gateBeatsWithTie(pitchGate[0], tieExt))   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieExt > 0 ? 3 : 0, noteCount: nc,
                                                        column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote)
                                 }
@@ -6184,7 +6205,7 @@ final class Router {
                               // mask's code and saved data for now"), just never fed a genuinely-enabled
                               // mask here. The non-Euclideous call path (none exists today, but kept
                               // symmetric for any future caller) still passes the real resolved mask.
-                              melodyTranspose: L.melodyTransposeResolved, mask: isEuclideousRow ? EuclidLineMask() : L.maskResolved,
+                              melodyTranspose: L.melodyTransposeResolved, mask: (isEuclideousRow && !euclideousMaskEnabledForTests) ? EuclidLineMask() : L.maskResolved,
                               // RENDER-THREAD ALLOCATION FIX (2026-10-13 adversarial review): `customHitsResolved`
                               // can allocate (padding/truncating to a target length) whenever the stored array's
                               // own length disagrees with the target — a latent, currently-unreachable risk since
@@ -6209,7 +6230,7 @@ final class Router {
                               // array (fine on the main thread, not here) and this is the render path; the
                               // closure built inside runEuclidLine bounds-checks the raw optional directly,
                               // mirroring customHits' own identical raw-passthrough just above.
-                              notesOn: L.notesOnResolved, noteOctShifts: L.noteOctShifts, notesVelOffset: L.notesVelOffsetResolved,
+                              notesOn: L.notesOnResolved, noteOctShifts: L.noteOctShifts, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
                               restartMask: isEuclideousRow ? L.restartMaskResolved : 0, lanesSeqMuted: lanesSeqMuted,
                               // LISTEN (ferry 2026-10-14) — only Euclideous's own row ever has a non-nil
                               // mode here (every other `.euclid` cell's `EuclidLine` never sets these

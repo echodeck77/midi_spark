@@ -12155,4 +12155,222 @@ final class RouterTests: XCTestCase {
         }
     }
 
+
+    // MARK: - MIX TAB (ferry 2026-10-18) §9.6/§9.7 — every pitch carries its OWN gate; legato is per LAYER
+
+    private func mixBox(_ line: EuclidLine, ranks: [Int] = [5, 0, 0, 0, 0, 0, 0, 0], monoOnA: Bool = false) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: ranks)
+        c.paramsA.euclidLines = [line]
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+        if monoOnA { sc.cells[0][0] = Cell(machineID: "orange", buses: [.a]) }
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        if monoOnA { st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0] }
+        st.euclideousNoteSource = .midi
+        return SnapshotBuilder.build(from: st)
+    }
+    /// `run()` with the test-only mask seam. 120 BPM, 48 kHz: one beat = 24 000 samples.
+    private func mixRun(_ box: SnapshotBox, beats: Double, into e: RecordingEmitter, maskOn: Bool = false) {
+        let pool = chord([48, 50, 52, 53, 55, 57, 59, 60])   // rank 1 = 48 … rank 5 = 55 … rank 8 = 60
+        let router = Router(); router.euclideousMaskEnabledForTests = maskOn
+        var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < beats {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+    }
+    /// Every sounding of `note` on cable 1: its note-on sample and the sample of the note-off that closes it.
+    private func mixNotes(_ e: RecordingEmitter, _ note: UInt8) -> [(on: Int64, off: Int64?)] {
+        var out: [(on: Int64, off: Int64?)] = []
+        for ev in e.events where ev.cable == 1 && ev.note == note {
+            if ev.status == 0x90 { out.append((ev.sample, nil)) }
+            else if ev.status == 0x80, let i = out.lastIndex(where: { $0.off == nil }) { out[i].off = ev.sample }
+        }
+        return out
+    }
+    private func mixLength(_ e: RecordingEmitter, _ note: UInt8, _ nth: Int = 0) -> Int64? {
+        let n = mixNotes(e, note); guard nth < n.count, let off = n[nth].off else { return nil }
+        return off - n[nth].on
+    }
+    /// One lane: `pulses`-of-4 hits at 1/4 rate (one step = one beat), the riff always reading rank 5 (55), the lit mask on rank 1 (48).
+    private func mixLine(pulses: Int, gate: Double, notesGate: Double?, vel: Int = 90, notesVelocity: Int? = nil, litNotes: UInt8 = 0b0000_0001,
+                         riffOn: Bool = true, notesOn: Bool = true, mask: EuclidLineMask? = nil) -> EuclidLine {
+        EuclidLine(target: 0, pulses: pulses, steps: 4, gate: gate, velocityAbsolute: vel, rate: .r1_4, useRiff: true, litNotes: litNotes, riffOn: riffOn,
+                   mask: mask, sourceMode: .midi, riffLength: 1, notesOn: notesOn, notesGate: notesGate, notesVelocity: notesVelocity)
+    }
+
+    // §9.6 — on one hit the riff pitch and the lit notes end at their OWN gates (gap to the next hit = 4 beats = 96 000 samples).
+    func testMixRiffPitchAndLitNotesEndAtTheirOwnGates() {
+        let e = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 1, gate: 0.5, notesGate: 0.25)), beats: 5, into: e)
+        XCTAssertEqual(Double(mixLength(e, 55) ?? 0), 0.5 * 96_000, accuracy: 6, "the riff pitch ends at GATE (50% of the gap)")
+        XCTAssertEqual(Double(mixLength(e, 48) ?? 0), 0.25 * 96_000, accuracy: 6, "the lit note ends at ITS gate (25%)")
+        assertNothingLeftSounding(e)
+        // not parted (notesGate nil): both layers still read the lane's GATE — exactly the old behaviour
+        let old = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 1, gate: 0.5, notesGate: nil)), beats: 5, into: old)
+        XCTAssertEqual(Double(mixLength(old, 55) ?? 0), 0.5 * 96_000, accuracy: 6); XCTAssertEqual(Double(mixLength(old, 48) ?? 0), 0.5 * 96_000, accuracy: 6, "nil ⇒ the lit note follows GATE")
+        // TOP and TOP2 are notes-layer pitches too
+        let top = RecordingEmitter()
+        var tl = mixLine(pulses: 1, gate: 0.5, notesGate: 0.25, litNotes: 0); tl.topLit = true
+        mixRun(mixBox(tl), beats: 5, into: top)
+        XCTAssertEqual(Double(mixLength(top, 60) ?? 0), 0.25 * 96_000, accuracy: 6, "TOP (60) takes the notes gate")
+    }
+    // §9.6 — per-layer LEGATO: a notes gate of exactly 100% holds the lit notes while the riff retriggers at 60%, and the reverse.
+    func testMixLegatoIsPerLayerInBothDirections() {
+        func ons(_ g: Double, _ ng: Double) -> (riff: Int, lit: Int) {
+            let e = RecordingEmitter(); mixRun(mixBox(mixLine(pulses: 4, gate: g, notesGate: ng)), beats: 4.5, into: e)
+            assertNothingLeftSounding(e)
+            return (mixNotes(e, 55).count, mixNotes(e, 48).count)
+        }
+        let a = ons(0.6, 1.0); XCTAssertEqual(a.lit, 1, "notes gate 100%: the lit note is struck once and HELD across every hit"); XCTAssertGreaterThanOrEqual(a.riff, 4, "…while the riff retriggers at 60%")
+        let b = ons(1.0, 0.6); XCTAssertEqual(b.riff, 1, "riff gate 100%: the riff note is held"); XCTAssertGreaterThanOrEqual(b.lit, 4, "…while the lit note retriggers")
+        let c = ons(1.0, 1.0); XCTAssertEqual(c.riff, 1); XCTAssertEqual(c.lit, 1)
+        let d = ons(0.6, 0.6); XCTAssertGreaterThanOrEqual(d.riff, 4); XCTAssertGreaterThanOrEqual(d.lit, 4)
+        let e99 = ons(0.99, 0.99); XCTAssertGreaterThanOrEqual(e99.riff, 4, "99% is not legato"); XCTAssertGreaterThanOrEqual(e99.lit, 4)
+    }
+    // §9.6 — a collision (riff and a lit note on the SAME pitch) sounds once, at the riff's gate and velocity.
+    func testMixCollisionSoundsOnceAtTheRiffsGateAndVelocity() {
+        let e = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 1, gate: 0.5, notesGate: 0.25, vel: 90, notesVelocity: 40, litNotes: 0b0001_0000)), beats: 5, into: e)   // lit rank 5 = 55 = the riff pitch
+        let ons = e.ons.filter { $0.cable == 1 }
+        XCTAssertEqual(ons.count, 2, "one pitch per hit (hits at beats 0 and 4), not two"); XCTAssertTrue(ons.allSatisfy { $0.note == 55 && $0.vel == 90 }, "the riff's velocity wins")
+        XCTAssertEqual(Double(mixLength(e, 55) ?? 0), 0.5 * 96_000, accuracy: 6, "the riff's gate wins")
+        assertNothingLeftSounding(e)
+    }
+    // §9.6 — once pinned, the notes velocity ignores a VEL change; unpinned it still reads VEL + the legacy offset.
+    func testMixNotesVelocityIgnoresAVelChangeOncePinned() {
+        func vels(_ line: EuclidLine) -> (riff: UInt8, lit: UInt8) {
+            let e = RecordingEmitter(); mixRun(mixBox(line), beats: 1, into: e)
+            return (e.ons.first { $0.note == 55 }?.vel ?? 0, e.ons.first { $0.note == 48 }?.vel ?? 0)
+        }
+        let a = vels(mixLine(pulses: 1, gate: 0.5, notesGate: nil, vel: 90, notesVelocity: 70)); XCTAssertEqual(a.riff, 90); XCTAssertEqual(a.lit, 70)
+        let b = vels(mixLine(pulses: 1, gate: 0.5, notesGate: nil, vel: 120, notesVelocity: 70)); XCTAssertEqual(b.riff, 120); XCTAssertEqual(b.lit, 70, "VEL moved, the pinned notes velocity did not")
+        var old = mixLine(pulses: 1, gate: 0.5, notesGate: nil, vel: 100); old.notesVelOffset = -10
+        let c = vels(old); XCTAssertEqual(c.riff, 100); XCTAssertEqual(c.lit, 90, "an unedited old session: VEL + offset, exactly as before")
+        old.velocityAbsolute = 60; let d = vels(old); XCTAssertEqual(d.lit, 50, "…and until it is edited the notes still follow VEL")
+    }
+    // §9.6 (seam) — mask-added notes follow their SOURCE pitch's gate: the riff pitch when the hit has one, otherwise the notes layer.
+    func testMixMaskAddedChordNotesTakeTheirSourceLayersGate() {
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 2; m.steps = 2; m.chance = 1; m.mode = .chord; m.chordA = 2; m.chordB = 4
+        let withRiff = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 1, gate: 0.5, notesGate: 0.25, litNotes: 0b0000_0001, mask: m)), beats: 5, into: withRiff, maskOn: true)
+        let extrasA = Set(withRiff.ons.filter { $0.cable == 1 }.map { $0.note }).subtracting([55, 48])
+        XCTAssertFalse(extrasA.isEmpty, "the CHORD mask added notes")
+        for n in extrasA { XCTAssertEqual(Double(mixLength(withRiff, n) ?? 0), 0.5 * 96_000, accuracy: 6, "extra \(n): the riff pitch it comes from sets its gate") }
+        XCTAssertEqual(Double(mixLength(withRiff, 48) ?? 0), 0.25 * 96_000, accuracy: 6, "the lit note keeps the notes gate")
+        assertNothingLeftSounding(withRiff)
+        let litOnly = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 1, gate: 0.5, notesGate: 0.25, litNotes: 0b0000_0001, riffOn: false, mask: m)), beats: 5, into: litOnly, maskOn: true)
+        let extrasB = Set(litOnly.ons.filter { $0.cable == 1 }.map { $0.note }).subtracting([48])
+        XCTAssertFalse(extrasB.isEmpty)
+        for n in extrasB { XCTAssertEqual(Double(mixLength(litOnly, n) ?? 0), 0.25 * 96_000, accuracy: 6, "extra \(n): no riff pitch on this hit, so the notes layer's gate") }
+        assertNothingLeftSounding(litOnly)
+    }
+    // §9.6 (seam) — RATCHET repeats each pitch at (sub / nRep) × ITS OWN gate.
+    func testMixRatchetRepeatsEachPitchAtItsOwnGate() {
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 2; m.steps = 2; m.chance = 1; m.mode = .ratchet; m.ratchetMin = 2; m.ratchetMax = 2
+        let e = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 1, gate: 0.5, notesGate: 0.25, mask: m)), beats: 5, into: e, maskOn: true)
+        XCTAssertEqual(Double(mixLength(e, 55) ?? 0), (1.0 / 2) * 0.5 * 24_000, accuracy: 6, "riff repeat: (1/2 beat) × 50%")
+        XCTAssertEqual(Double(mixLength(e, 48) ?? 0), (1.0 / 2) * 0.25 * 24_000, accuracy: 6, "lit repeat: (1/2 beat) × 25%")
+        XCTAssertGreaterThanOrEqual(mixNotes(e, 55).count, 2, "the ratchet really repeated"); assertNothingLeftSounding(e)
+    }
+    // §9.6 (seam) — the REPEAT hold replays the cached set at each pitch's OWN cached gate (and legato per layer).
+    func testMixRepeatReplaysEachPitchAtItsOwnCachedGate() {
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 2; m.steps = 2; m.chance = 1; m.mode = .repeatNote; m.repeatCount = 2
+        let e = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 4, gate: 0.5, notesGate: 0.25, mask: m)), beats: 3.5, into: e, maskOn: true)   // hits every beat; hit 0 strikes, hit 1 is the REPEAT hold
+        for nth in 0...1 {
+            XCTAssertEqual(Double(mixLength(e, 55, nth) ?? 0), 0.5 * 24_000, accuracy: 6, "riff pitch, sounding \(nth)")
+            XCTAssertEqual(Double(mixLength(e, 48, nth) ?? 0), 0.25 * 24_000, accuracy: 6, "lit pitch, sounding \(nth): the REPLAY used the notes gate, not the lane's GATE")
+        }
+        assertNothingLeftSounding(e)
+    }
+    // §9.7 — stuck-note stress: both gates (across 100%), both velocities, both layers on and off, the lit mask, MONO steal and transport restarts.
+    func testMixPerLayerGateVelocityStuckNoteStress() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        func lineFor(_ tick: Int) -> EuclidLine {
+            let gates: [Double] = [1.0, 0.99, 0.6, 1.0, 0.3]
+            var l = EuclidLine(target: 0, pulses: 5, steps: 8, gate: gates[tick % 5], velocityAbsolute: 40 + (tick * 7) % 80, rate: .r1_32, useRiff: true,
+                               litNotes: UInt8(1 << (tick % 8)), riffOn: (tick / 5) % 2 == 0, sourceMode: .midi, riffLength: 8,
+                               notesOn: (tick / 7) % 2 == 0, notesGate: gates[(tick + 2) % 5], notesVelocity: 20 + (tick * 11) % 100)
+            if tick % 9 == 4 { l.notesGate = nil; l.notesVelocity = nil }   // an unparted layer mid-stream
+            return l
+        }
+        func sceneFor(_ line: EuclidLine, monoOnA: Bool) -> PluginState {
+            var gold = Machine(machineID: "gold", type: .euclid)
+            gold.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8]); gold.paramsA.euclidLines = [line]
+            var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+            if monoOnA { s.cells[0][0] = Cell(machineID: "orange", buses: [.a]) }
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }, scenes: [s])
+            if monoOnA { st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0] }
+            st.euclideousNoteSource = .midi
+            return st
+        }
+        let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        let router = runKeepingRouter(SnapshotBuilder.build(from: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
+        var diag = KernelDiag()
+        var beat = 0.2, ts = 0.2 / tempo * 60.0 * sr
+        for tick in 1...90 {
+            let monoOnA = (15...24).contains(tick) || (45...50).contains(tick) || (70...76).contains(tick)
+            let box1 = SnapshotBuilder.build(from: sceneFor(lineFor(tick), monoOnA: monoOnA))
+            if tick == 12 || tick == 30 || tick == 52 || tick == 80 {   // transport restarts mid-stream
+                router.process(box: box1, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            router.process(box: box1, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: SnapshotBuilder.build(from: sceneFor(lineFor(90), monoOnA: false)), pool: chord(pool), playing: false, beatPos: beat, tempo: tempo,
+                       sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        XCTAssertGreaterThan(e.ons.count, 30, "the stress run actually played")
+        XCTAssertGreaterThan(Set(e.ons.map { $0.note }).count, 3, "…across several pitches (both layers, the lit mask moving)")
+        assertNothingLeftSounding(e)
+    }
+    // §9.7 (seam) — the same churn through the mask-driven paths (CHORD extras, RATCHET, REPEAT) that carry per-pitch gates.
+    func testMixPerLayerGateStuckNoteStressThroughTheMaskModes() {
+        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        let modes: [MaskMode] = [.chord, .ratchet, .repeatNote, .chord, .mute, .oct]
+        func lineFor(_ tick: Int) -> EuclidLine {
+            var m = EuclidLineMask(); m.enabled = true; m.pulses = 3; m.steps = 4; m.chance = 0.8; m.mode = modes[tick % modes.count]; m.repeatCount = 2 + tick % 2
+            let gates: [Double] = [1.0, 0.99, 0.6, 1.0, 0.3]
+            return EuclidLine(target: 0, pulses: 5, steps: 8, gate: gates[tick % 5], velocityAbsolute: 90, rate: .r1_32, useRiff: true,
+                              litNotes: UInt8(1 << (tick % 8)), riffOn: true, mask: m, sourceMode: .midi, riffLength: 8,
+                              notesGate: gates[(tick + 3) % 5], notesVelocity: 60)
+        }
+        let e = RecordingEmitter()
+        let router = Router(); router.euclideousMaskEnabledForTests = true
+        var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for tick in 0..<90 {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8]); c.paramsA.euclidLines = [lineFor(tick)]
+            var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc]); st.euclideousNoteSource = .midi
+            let box1 = SnapshotBuilder.build(from: st)
+            if tick == 20 || tick == 55 {
+                router.process(box: box1, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            router.process(box: box1, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: SnapshotBuilder.build(from: { var c = Machine(machineID: "gold", type: .euclid); c.paramsA.euclidLines = [lineFor(0)]
+            var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+            return PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc]) }()),
+                       pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        XCTAssertGreaterThan(e.ons.count, 30, "the mask-mode stress run actually played")
+        assertNothingLeftSounding(e)
+    }
+
 }
