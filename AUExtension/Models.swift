@@ -886,14 +886,15 @@ struct EuclideousRiffsSeq: Equatable {
     var len: Int = 8
     var cells: [Int] = [Int](repeating: 0, count: 8)
 }
-// LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16) — SUPERSEDES the loop-
-// slots ferry's 4-independent-slot model entirely, retired below (decode-only, see `EuclideousLoopSlot`'s
-// own updated doc comment). A fresh ladder, not a reuse of `EuclideousSeqRate` (¼…4 BAR, a sequencer STEP
-// rate) or the retired `EuclideousLoopBars` (1/2/4/8, the slots' own length) — this one is 2/4/8/16 PASSES.
-/// §2.1's four states — UI-only (never persisted, purely in-memory on `AudioUnitViewController`), but
-/// a top-level type (not nested) since `EuclideousPage` needs to read it too, for the loop row's own
-/// look/VoiceOver (§7.4/§7.7).
-enum EuclideousLooperModeKind: Equatable { case off, armed, recording, replaying }
+// LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16, DROPPED 2026-10-18) —
+// SUPERSEDED the loop-slots ferry's 4-independent-slot model entirely, retired below (decode-only, see
+// `EuclideousLoopSlot`'s own updated doc comment). A fresh ladder, not a reuse of `EuclideousSeqRate`
+// (¼…4 BAR, a sequencer STEP rate) or the retired `EuclideousLoopBars` (1/2/4/8, the slots' own length) —
+// this one is 2/4/8/16 PASSES. `EuclideousLooperModeKind` (the UI-only, never-persisted Off/Armed/
+// Recording/Replaying state) is DELETED outright along with the looper's own `AudioUnitViewController`
+// state machine — confirmed zero remaining callers, and nothing ever persisted it (unlike this enum's
+// `EuclideousLooperPasses`/`EuclideousLoopEvent` neighbours below, which back real `PluginState` fields
+// and stay decode-only for an old saved session).
 enum EuclideousLooperPasses: String, Codable, CaseIterable {
     case twoPasses = "2", fourPasses = "4", eightPasses = "8", sixteenPasses = "16"
     var passes: Int {
@@ -3364,17 +3365,12 @@ struct EuclideousUndoSnapshot: Equatable {
     var noteSource: EuclideousLaneSource
     // SEQUENCER PANEL (2026-10-14 ferry): four riffs + which one's active + both step clocks — undoable
     // page-level settings, same bucket as `riff`/`resetSpanBars` above, no §7.3-style exclusion named for
-    // any of these.
+    // any of these. (Restored 2026-10-18 — the looper's own `liveGrid` single-pattern snapshot that
+    // briefly replaced this pair is gone along with the looper itself.)
+    var riffs: [EuclideousRiff]
+    var activeRiff: Int
     var lanesSeq: EuclideousLanesSeq
     var riffsSeq: EuclideousRiffsSeq
-    // THE RIFF (ferry "looper tabs replace the riff tabs") — SUPERSEDES the old `riffs: [EuclideousRiff]`/
-    // `activeRiff: Int` pair this struct used to carry: this snapshot is purely in-memory (never decoded
-    // from disk — `UndoStack` is plain `@State`, cleared on every fresh instance), so there's no decode-
-    // safety reason to keep the old fields here the way the persisted document keeps them. §8.6: edits
-    // while Off/Armed are undo steps as today; stop is ONE step (§4.2, before = the loop's own start
-    // ranks, after = the frozen/current ranks — both representable as `liveGrid` snapshots, no extra
-    // field needed); nothing recorded DURING a loop is an undo step.
-    var liveGrid: EuclideousRiff
 }
 
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack

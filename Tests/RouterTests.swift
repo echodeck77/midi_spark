@@ -6326,10 +6326,10 @@ final class RouterTests: XCTestCase {
     // off; when on, which of the four riffs plays switches per-step. Proven with two maximally-distinguishable
     // riffs (a constant-low vs. a constant-high rank) so the switch's effect is unambiguous in the struck
     // pool index — bar 1 must read ONLY the lowest pool note, bar 2 ONLY the highest.
-    // LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16, §8.2) — SUPERSEDES this
-    // test's own old assertion entirely: "the engine ignores [the RIFFS sequencer's] picks, so riff ranks
-    // never depend on it" is now the REQUIRED behaviour, not a regression — confirms the retirement, not a
-    // leftover expectation of the old switching behaviour.
+    // Confirms the RIFFS sequencer's per-step picks never affect what sounds — the engine always plays
+    // `riffs[activeRiff]` directly (true since the 2026-10-16 "loop slots"/"looper tabs" ferries retired
+    // the sequencer's live-switching behaviour, and unaffected by the looper itself being dropped entirely
+    // on 2026-10-18 — this test never touched the looper's own fields).
     func testEuclideousRiffsSeqIsIgnoredRiffRanksNeverDependOnIt() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         var c = Machine(machineID: "gold", type: .euclid)
@@ -12105,7 +12105,10 @@ final class RouterTests: XCTestCase {
         c.paramsA.euclideousRiff = s.euclideousRiffResolved
         c.paramsA.riffs = s.riffsResolved
         c.paramsA.activeRiff = s.activeRiffResolved
-        c.paramsA.euclideousLiveGrid = s.euclideousLiveGridResolved
+        // `c.paramsA.euclideousLiveGrid` is deliberately left unset (2026-10-18, "drop the loop
+        // functionality") — matches `BuildPage.swift`'s own real wiring exactly now that it no longer
+        // populates this field, so `SnapshotBuilder`'s `?? riffs[activeRiff]` fallback is what every
+        // factory preset actually plays through in the real app.
         s.machines = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
         s.scenes = [{ var sc = SceneState.empty()
             var cell = Cell(machineID: "gold", buses: [.a, .b, .c, .d]); cell.inputReceiver = 3

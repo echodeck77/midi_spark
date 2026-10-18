@@ -33,16 +33,13 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - The RHYTHM tab's GATE/VEL follow the riff pad; the NOTES VEL bar follows the notes pad's velocity; dragging a notes pad never moves its riff pad.
 - A lane's VEL now survives closing and reopening a session (it used to reset to 100).
 
-### Looper tabs replace the riff tabs (2026-10-16 ferry, §11 — supersedes "loop slots," pruned below, same day before any device pass)
-- Recorded timing feels faithful against the live clock's jitter.
-- Four buttons sit over their grid columns, landscape and portrait, down to the 24pt cell floor.
-- The 16-segment strip is legible at its smallest width.
-- Overdub in AUM at several buffer sizes.
-- A replaying loop through a host stop and start feels right in performance.
-- HOLD NOTES TO PLAY over the grid reads as a message, not clutter.
-- Long press (and swipe-then-hold) on a grid cell fixes the touched column(s) at their current value and takes
-  them out of the loop — the 0.5s threshold feels right, and a long press doesn't fight the existing tap/drag
-  edit gesture on the same cell.
+### Four riff tabs restored, loop dropped (2026-10-18 ferry — DROPS the looper tabs entry below entirely; its own device checks never happened before the feature was retired)
+- The 4 riff tabs (over the shared grid, in the standalone riff panel) read clearly at real size: the
+  selected tab's flat fill, each tab's `riffMiniIcon` glyph legible across all 4 lane colours.
+- Tap a tab switches which riff is both edited and sounding, audibly, with no gap.
+- Long-press a tab opens COPY/PASTE/CLEAR; the card is readable and doesn't block unrelated page gestures.
+- HOLD NOTES TO PLAY over the grid still reads as a message, not clutter (unchanged, but re-check with the
+  loop row gone from above it).
 
 ### Timing — the "odd timing" / gate investigation (2026-10-18)
 - **The buffer-size test.** Set a lane to 16 hits on 16 steps at 1/16, record, then repeat at different AUM buffer

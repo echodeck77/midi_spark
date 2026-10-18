@@ -219,8 +219,8 @@ struct DiagView: View {
         EuclideousUndoSnapshot(lines: euclideousLines, riff: euclideousRiff, resetSpanBars: euclideousResetSpanBars,
                                 keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords,
                                 noteSource: euclideousNoteSource,
-                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq,
-                                liveGrid: euclideousLiveGrid)
+                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
+                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -245,18 +245,19 @@ struct DiagView: View {
         euclideousKeyType = s.keyType
         euclideousChords = s.chords
         euclideousNoteSource = s.noteSource
+        euclideousRiffs = s.riffs
+        euclideousActiveRiff = s.activeRiff
         euclideousLanesSeq = s.lanesSeq
         euclideousRiffsSeq = s.riffsSeq
-        euclideousLiveGrid = s.liveGrid
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
             $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType; $0.euclideousChords = s.chords
             $0.euclideousNoteSource = s.noteSource
+            $0.riffs = s.riffs; $0.activeRiff = s.activeRiff
             $0.euclideousLanesSeqOn = s.lanesSeq.on; $0.euclideousLanesSeqRate = s.lanesSeq.rate
             $0.euclideousLanesSeqLen = s.lanesSeq.len; $0.euclideousLanesSeqCells = s.lanesSeq.cells
             $0.euclideousRiffsSeqOn = s.riffsSeq.on; $0.euclideousRiffsSeqRate = s.riffsSeq.rate
             $0.euclideousRiffsSeqLen = s.riffsSeq.len; $0.euclideousRiffsSeqCells = s.riffsSeq.cells
-            $0.euclideousLiveGrid = s.liveGrid
         }
         buildPublishScene()
     }
@@ -286,161 +287,18 @@ struct DiagView: View {
     @State var euclideousRiffs: [EuclideousRiff] = [EuclideousRiff(), EuclideousRiff.empty,
                                                      EuclideousRiff.empty, EuclideousRiff.empty]
     @State var euclideousActiveRiff: Int = 0
-    // LOOP SLOTS (FERRY "loop slots replace the riff tabs", ratified 2026-10-16) — `euclideousRiffs`/
-    // `euclideousActiveRiff` above stay in place, UNREACHABLE from any UI now (decode-safety mirror of the
-    // persisted document's own decode-only `riffs`/`activeRiff` — `refreshFromDocument`/the resynced
-    // checklist below no longer write them from a fresh load; nothing reads them either). These three are
-    // the real, live CONFIG mirrors now, same persisted/slow-resync treatment `euclideousRiffs` used to be
-    // the sole owner of.
-    @State var euclideousLiveGrid: EuclideousRiff = EuclideousRiff()
-    // THE LOOPER (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16) — purely in-memory,
-    // §8.5 "the looper is never saved": no PluginState field backs any of this. `euclideousLooperMode`
-    // is UI-display-only (Off/Armed/Recording/Replaying, §2.1) — the ENGINE only ever sees `active`
-    // (derived below), since Recording vs Replaying makes no difference to what sounds (§2.5: position
-    // simply wraps modulo N, no state change needed). Advanced each fast-poll tick
-    // (`euclideousLooperPollTick`, below) by comparing the live clock to `euclideousLooperStartBeat` (B).
-    @State var euclideousLooperMode: EuclideousLooperModeKind = .off
-    @State var euclideousLooperPasses: EuclideousLooperPasses = .fourPasses   // N — mutable while Armed (§2.3 retarget), frozen once Recording starts
-    @State var euclideousLooperStartBeat: Double = 0   // B — the TARGET bar line while Armed; the real one once Recording/Replaying
-    @State var euclideousLooperStartRanks: [Int] = [Int](repeating: 0, count: 8)   // frozen at B (§2.4)
-    @State var euclideousLooperEvents: [EuclideousLoopEvent] = []
-    var euclideousLooperActive: Bool { euclideousLooperMode == .recording || euclideousLooperMode == .replaying }
-    // §4.2's undo "before" value — captured the INSTANT recording starts (at B), so its `liveGrid` is
-    // exactly the loop's own start ranks, literally "the grid as it was when the loop began."
-    @State var euclideousLooperPreArmSnapshot: EuclideousUndoSnapshot? = nil
-    // §5's transport-edge detection: the UI's own view of "is the host playing," plus the last polled
-    // beat so a BACKWARD JUMP (still playing, but beat went backward) can be told apart from ordinary
-    // forward progress — `clock.playing` toggling alone only catches start/stop, not a jump.
-    @State var euclideousLooperWasPlaying: Bool = false
-    @State var euclideousLooperLastPolledBeat: Double = 0
-    /// The live clock's own current beat — the SAME extrapolation `EuclidLiveClock`/`walkTagBeat`
-    /// construct elsewhere on this page, computed directly here since the looper's state machine needs
-    /// it outside a SwiftUI view body. §3.5 explicitly accepts "up to one poll interval of jitter."
-    func euclideousLooperBeatNow() -> Double {
-        d.effectivePlaying ? meters.beatAnchor + Date().timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0 : meters.beatAnchor
-    }
-    /// §2: the whole tab state machine, in one place. `passes` is which of the 4 buttons was tapped.
-    func euclideousLooperTabTap(_ passes: EuclideousLooperPasses) {
-        let beat = euclideousLooperBeatNow()
-        switch euclideousLooperMode {
-        case .off:
-            euclideousLooperMode = .armed
-            euclideousLooperPasses = passes
-            euclideousLooperStartBeat = euclideousNextLandingBeat(from: beat, barBeats: meters.beatsPerBar)
-        case .armed:
-            if passes == euclideousLooperPasses { euclideousLooperMode = .off }   // §2.3: same tab again — cancel, no undo step
-            else { euclideousLooperPasses = passes }                              // §2.3: another tab — retarget N, same B
-        case .recording, .replaying:
-            if passes == euclideousLooperPasses {
-                euclideousLooperStop()   // §2.6: same tab — stop
-            } else {
-                euclideousLooperStop()   // §2.6: another tab — stop, then arm that length, in one action
-                euclideousLooperMode = .armed
-                euclideousLooperPasses = passes
-                euclideousLooperStartBeat = euclideousNextLandingBeat(from: beat, barBeats: meters.beatsPerBar)
-            }
-        }
-    }
-    /// §4: stop never waits. The live grid becomes the effective grid at this instant (all 8 columns);
-    /// the loop is discarded; ONE undo step (before = `euclideousLooperPreArmSnapshot`, captured at B).
-    func euclideousLooperStop() {
-        guard euclideousLooperMode == .recording || euclideousLooperMode == .replaying else { return }
-        let beat = euclideousLooperBeatNow()
-        var g = EuclideousRiff(); g.steps = 8
-        g.ranks = (0..<8).map { col in
-            euclideousLooperEffectiveRank(column: col, beat: beat, liveGrid: euclideousLiveGrid.ranksResolved,
-                                           active: true, startBeat: euclideousLooperStartBeat, passes: euclideousLooperPasses.passes,
-                                           startRanks: euclideousLooperStartRanks, events: euclideousLooperEvents, beatsPerBar: meters.beatsPerBar)
-        }
-        if let pre = euclideousLooperPreArmSnapshot { euclideousUndo.record(pre, coalesceKey: nil) }
-        euclideousLiveGrid = g
-        au?.editDocument { $0.euclideousLiveGrid = g }
-        euclideousLooperMode = .off
-        euclideousLooperEvents = []
-        euclideousLooperPreArmSnapshot = nil
-        buildPublishScene()
-    }
-    /// §3: every grid edit while this page is open routes through here. Before B (§3.6, Off/Armed, or a
-    /// retroactive tap's own sliver before its landed beat): an ordinary, undoable live-grid edit. At or
-    /// after B: a loop event — NOT undoable, the stored riff untouched (§3.6/§8.6).
-    func euclideousLooperRecordEdit(column: Int, rank: Int) {
-        let beat = euclideousLooperBeatNow()
-        guard euclideousLooperMode != .off, beat >= euclideousLooperStartBeat else {
-            euclideousRecordUndo(coalesceKey: "euclideousLiveGrid")
-            var g = euclideousLiveGrid
-            var rr = g.ranksResolved
-            if column >= 0, column < rr.count { rr[column] = rank }
-            g.ranks = rr; g.steps = 8
-            euclideousLiveGrid = g
-            au?.editDocument(coalesceKey: "euclideousLiveGrid") { $0.euclideousLiveGrid = g }
-            buildPublishScene()
-            return
-        }
-        let p = euclideousLoopPositionBars(beat: beat, startBeat: euclideousLooperStartBeat, beatsPerBar: meters.beatsPerBar, passes: Double(euclideousLooperPasses.passes))
-        let coalesceWindow = meters.beatsPerBar > 0 ? (1.0 / 96.0) / meters.beatsPerBar : 0
-        euclideousLooperEvents = euclideousAppendLooperEvent(euclideousLooperEvents, column: column, rank: rank, offsetBars: p, coalesceWindowBars: coalesceWindow, cap: 128)
-        buildPublishScene()
-    }
-    /// Long-press (or a swipe-then-hold) on the riff grid, Paul 2026-10-16: "take that step out of the
-    /// loop (across all passes) and fix it at the current selected value" — including the tap-to-remove
-    /// (rest) case, since that's just a rank-0 value like any other. No-op while Off/Armed (nothing to
-    /// "take out of" yet — there's no loop running for a column to be exempted from). For each touched
-    /// column: read its CURRENT effective rank (whatever pass/position is live right now), bake that into
-    /// `startRanks`, then drop every recorded event for that column so no future pass can override it
-    /// again. NOT an undo step — matches §8.6's "nothing recorded during a loop is an undo step," since
-    /// this is just another shape of in-loop recording, not a stored-riff edit.
-    func euclideousLooperFixColumns(_ columns: [Int]) {
-        guard euclideousLooperMode == .recording || euclideousLooperMode == .replaying else { return }
-        let beat = euclideousLooperBeatNow()
-        var startRanks = euclideousLooperStartRanks
-        var events = euclideousLooperEvents
-        for col in columns {
-            guard col >= 0, col < 8 else { continue }
-            let currentRank = euclideousLooperEffectiveRank(column: col, beat: beat, liveGrid: euclideousLiveGrid.ranksResolved,
-                                                              active: true, startBeat: euclideousLooperStartBeat, passes: euclideousLooperPasses.passes,
-                                                              startRanks: euclideousLooperStartRanks, events: euclideousLooperEvents, beatsPerBar: meters.beatsPerBar)
-            startRanks[col] = currentRank
-            events.removeAll { $0.column == col }
-        }
-        euclideousLooperStartRanks = startRanks
-        euclideousLooperEvents = events
-        buildPublishScene()
-    }
-    /// Advanced once per fast-poll tick (same cadence as every other live Euclideous readout). Order:
-    /// detect a transport edge FIRST (§5), else advance Armed→Recording / Recording→Replaying (§2.4/§2.5).
-    func euclideousLooperPollTick() {
-        let playing = d.effectivePlaying
-        let beat = euclideousLooperBeatNow()
-        let backwardJump = playing && euclideousLooperWasPlaying && beat < euclideousLooperLastPolledBeat - 0.01
-        let edge = (playing != euclideousLooperWasPlaying) || backwardJump
-        euclideousLooperWasPlaying = playing
-        euclideousLooperLastPolledBeat = beat
-        if edge {
-            switch euclideousLooperMode {
-            case .off: break   // §5.2: nothing
-            case .armed:
-                euclideousLooperStartBeat = euclideousRunFirstBarLine(at: beat, barBeats: meters.beatsPerBar)   // §5.2/§2.7: the edge ITSELF counts as a bar line — floor, not the next-line arming rule
-            case .recording:
-                euclideousLooperStop()   // §5.2: Recording stops as §4
-            case .replaying:
-                euclideousLooperStartBeat = euclideousRunFirstBarLine(at: beat, barBeats: meters.beatsPerBar)   // §5.2: kept, re-anchored to the run's first bar — pass 1 again, no gap (startRanks/events untouched)
-                buildPublishScene()
-            }
-            return
-        }
-        switch euclideousLooperMode {
-        case .armed:
-            guard beat >= euclideousLooperStartBeat else { return }
-            euclideousLooperStartRanks = euclideousLiveGrid.ranksResolved   // §2.4: frozen at B
-            euclideousLooperPreArmSnapshot = euclideousSnapshot()           // §4.2's "before" — liveGrid here IS the just-frozen ranks
-            euclideousLooperMode = .recording
-            buildPublishScene()
-        case .recording:
-            let endBeat = euclideousLooperStartBeat + Double(euclideousLooperPasses.passes) * meters.beatsPerBar
-            if beat >= endBeat { euclideousLooperMode = .replaying }   // §2.5: display-only transition, the engine's own math already wraps
-        case .off, .replaying: break
-        }
-    }
+    // THE LOOPER (ferry "looper tabs replace the riff tabs", ratified 2026-10-16, DROPPED 2026-10-18 —
+    // "drop the loop functionality in favour of four riff tabs") — its whole in-memory state machine
+    // (`euclideousLiveGrid`/`looperMode`/`looperPasses`/`looperStartBeat`/`looperStartRanks`/`looperEvents`/
+    // `looperPreArmSnapshot`/`looperWasPlaying`/`looperLastPolledBeat` + the tab-tap/stop/record-edit/fix-
+    // columns/poll-tick functions) is DELETED outright, not left dead — it was purely in-memory (§8.5 "the
+    // looper is never saved," confirmed zero PluginState field ever backed it), so there is no decode-
+    // safety reason to keep it, unlike the PERSISTED `euclideousLiveGrid`/`euclideousLooperEvents` etc.
+    // document fields (Models.swift), which stay decode-only for an old saved session. The engine's own
+    // `euclideousLooperEffectiveRank` (Derivations.swift) stays too — Router.swift still calls it on every
+    // hit, now permanently with `active: false` (nothing sets it true anymore), so it's a harmless no-op
+    // pass-through to the real riff rank, the exact "bypassable layer" the investigation before this ferry
+    // confirmed it always was.
     @State var euclideousLanesSeq = EuclideousLanesSeq()
     @State var euclideousRiffsSeq = EuclideousRiffsSeq()
     @State var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
@@ -1211,10 +1069,7 @@ struct DiagView: View {
                 if showEuclideous {                     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument — reuses CogPage's PRESENTATION mechanism (a plain overlay, engine never stops) but NOT its small-card sizing; "four Euclid lanes in the centre of the screen... a playable, grabbable instrument" needs real screen space, not a settings-dialog-sized card
                     EuclideousPage(lines: euclideousLines,
                                    lineReady: euclideousLineReady,
-                                   liveGrid: euclideousLiveGrid,
-                                   looperMode: euclideousLooperMode, looperPasses: euclideousLooperPasses,
-                                   looperStartBeat: euclideousLooperStartBeat, looperStartRanks: euclideousLooperStartRanks,
-                                   looperEvents: euclideousLooperEvents,
+                                   riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                    riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                    lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq,
                                    lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
@@ -1268,14 +1123,19 @@ struct DiagView: View {
                                        au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
                                        buildPublishScene()
                                    },
-                                   onLooperEdit: { column, rank in
-                                       euclideousLooperRecordEdit(column: column, rank: rank)
+                                   onEditRiffs: { mutate in
+                                       euclideousRecordUndo(coalesceKey: "euclideousRiffs")
+                                       var riffs = euclideousRiffs
+                                       mutate(&riffs)
+                                       euclideousRiffs = riffs
+                                       au?.editDocument(coalesceKey: "euclideousRiffs") { $0.riffs = riffs }
+                                       buildPublishScene()
                                    },
-                                   onLooperTabTap: { passes in
-                                       euclideousLooperTabTap(passes)
-                                   },
-                                   onLooperFixColumns: { columns in
-                                       euclideousLooperFixColumns(columns)
+                                   onSetActiveRiff: { v in
+                                       euclideousRecordUndo(coalesceKey: nil)
+                                       euclideousActiveRiff = v
+                                       au?.editDocument { $0.activeRiff = v }
+                                       buildPublishScene()
                                    },
                                    onEditLanesSeq: { mutate in
                                        euclideousRecordUndo(coalesceKey: "euclideousLanesSeq")
@@ -1469,10 +1329,6 @@ struct DiagView: View {
                 if rss != euclideousRiffsSeqStep { euclideousRiffsSeqStep = rss }
                 let pri = au.pollEuclideousPlayingRiffIndex()
                 if pri != euclideousPlayingRiffIndex { euclideousPlayingRiffIndex = pri }
-                // THE LOOPER (FERRY "looper tabs replace the riff tabs") — the whole state machine is
-                // UI-side (§3.5/§7.5's explicit tolerance for poll jitter, no render-thread involvement
-                // at all); this is its one advance-tick, same fast-poll cadence as everything above.
-                euclideousLooperPollTick()
                 // RIFF-CELL WIPES (Paul 2026-10-10 ferry): drain the per-lane event queue and fold it into
                 // ONE reconciled slot — the NOTE VIEW panel this queue originally also fed (euclideousNV
                 // LastEvent/RestFlash) was RETIRED by the 2026-10-14 sequencer-panel ferry (superseded by
@@ -1586,14 +1442,6 @@ struct DiagView: View {
             let ear = au.uiEuclideousActiveRiff(); if ear != euclideousActiveRiff { euclideousActiveRiff = ear; euclideousResynced = true }
             let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
             let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
-            let elg = au.uiEuclideousLiveGrid()
-            if elg != euclideousLiveGrid {
-                euclideousLiveGrid = elg; euclideousResynced = true
-                // §4.3: a preset/session load (or an undo/redo that touches the riff) resets the looper
-                // to Off with no undo step — the document changed out from under it, so whatever it was
-                // mid-building no longer corresponds to anything real.
-                euclideousLooperMode = .off; euclideousLooperEvents = []; euclideousLooperPreArmSnapshot = nil
-            }
             if euclideousResynced { buildPublishScene() }   // the engine only reads these @State vars via buildPublishScene's own Input fold — a resync that never republishes would sit silently unapplied
             // PART ROLL: while the PART audition is on screen + playing, capture the true live output for the piano roll.
             au.setPartRoll(active: false, cycleBeats: 1)   // the LIVE capture is retired — the part roll is now the OFFLINE feed (recomputed below, after recvHeldNotes updates)

@@ -4632,35 +4632,25 @@ final class DerivationsTests: XCTestCase {
     }
     /// §9 test 2, the worked example literally: armed in pass 0, recording passes 1-8 (N=8), and pass 9
     /// plays pass 1 exactly as recorded. An overdub made during pass 9 plays again in pass 17.
+    // DROPPED (2026-10-18 ferry, "drop the loop functionality in favour of four riff tabs"):
+    // `euclideousAppendLooperEvent`/`euclideousNextLandingBeat`/`euclideousRunFirstBarLine`/
+    // `euclideousLooperSegmentGeometry` are deleted along with the looper's own
+    // `AudioUnitViewController` state machine and `EuclideousPage` loop-row UI they served — their
+    // tests (§9 tests 3, 7's pure half, 9, 10) are removed with them. `euclideousLooperEffectiveRank`
+    // stays live (Router.swift still calls it, permanently with `active: false`), so its own coverage
+    // (just above, and `testALateSnapshotJoinsInProgressAnchoredAtB` below) stays — this one test is
+    // rewritten to build its event list by hand instead of via the deleted coalescing helper.
     func testLooperTimelineN8PassNinePlaysPassOneOverdubCarriesToPassSeventeen() {
-        var events: [EuclideousLoopEvent] = []
         let startRanks = [0, 0, 0, 0, 0, 0, 0, 0]
-        let window = (1.0 / 96.0) / 4.0
         // Recorded during pass 1 (beats 0..<4): rank 5 on column 2 at beat 1 (offset 0.25 bars).
-        events = euclideousAppendLooperEvent(events, column: 2, rank: 5, offsetBars: 0.25, coalesceWindowBars: window)
+        var events: [EuclideousLoopEvent] = [EuclideousLoopEvent(offsetBars: 0.25, column: 2, rank: 5)]
         let pass1 = euclideousLooperEffectiveRank(column: 2, beat: 1, liveGrid: [], active: true, startBeat: 0, passes: 8, startRanks: startRanks, events: events, beatsPerBar: 4)
         let pass9 = euclideousLooperEffectiveRank(column: 2, beat: 33, liveGrid: [], active: true, startBeat: 0, passes: 8, startRanks: startRanks, events: events, beatsPerBar: 4)
         XCTAssertEqual(pass1, 5); XCTAssertEqual(pass9, 5, "pass 9 (beat 33) plays pass 1 (beat 1) exactly as recorded")
         // Overdub during pass 9: column 6, rank 7, at relative offset 0.5 bars (beat 34).
-        events = euclideousAppendLooperEvent(events, column: 6, rank: 7, offsetBars: 0.5, coalesceWindowBars: window)
+        events.append(EuclideousLoopEvent(offsetBars: 0.5, column: 6, rank: 7))
         let pass17 = euclideousLooperEffectiveRank(column: 6, beat: 66, liveGrid: [], active: true, startBeat: 0, passes: 8, startRanks: startRanks, events: events, beatsPerBar: 4)
         XCTAssertEqual(pass17, 7, "the pass-9 overdub recurs in pass 17 (and every future cycle) — it IS the loop now")
-    }
-    /// §9 test 3, literal: "a tap mid-bar arms for the next bar line; a tap in a bar's first beat arms for
-    /// the next bar line AFTER it" — §2.2's "there is no grace," unlike this ferry's predecessor
-    /// (loop-slots), which DID retroactively anchor a first-beat tap. Confirmed by the raw spec text, not
-    /// carried over from the superseded ferry.
-    func testArmingNeverRetroactiveEvenInTheFirstBeat() {
-        XCTAssertEqual(euclideousNextLandingBeat(from: 0.5, barBeats: 4), 4, "within the first beat — STILL the next line, no grace")
-        XCTAssertEqual(euclideousNextLandingBeat(from: 3.9, barBeats: 4), 4, "late in the bar — the next line")
-        XCTAssertEqual(euclideousNextLandingBeat(from: 8.1, barBeats: 4), 12, "first beat of the bar at 8 — still 12, not 8 itself")
-    }
-    /// §9 test 7 (the pure half): a transport edge itself "counts as a bar line" (§2.7) — floors to the
-    /// ENCLOSING bar line, the opposite of arming's always-the-next-line rule (tested above), since the
-    /// poll notices the edge a beat or so after it actually happened (§3.5's accepted jitter).
-    func testRunFirstBarLineFloorsRatherThanAdvances() {
-        XCTAssertEqual(euclideousRunFirstBarLine(at: 0.1, barBeats: 4), 0, "a host start noticed just after beat 0 — the run's own first bar is 0, not 4")
-        XCTAssertEqual(euclideousRunFirstBarLine(at: 13.7, barBeats: 4), 12, "a backward jump into bar 3 (beats 12..<16) — the run's first bar is 12")
     }
     /// §9 test 8: a late-arriving snapshot joins in progress anchored at B — no special "catching up"
     /// logic exists or is needed; the pure function only ever compares `beat` to `startBeat`.
@@ -4668,34 +4658,6 @@ final class DerivationsTests: XCTestCase {
         let startRanks = [2, 2, 2, 2, 2, 2, 2, 2]
         let rank = euclideousLooperEffectiveRank(column: 0, beat: 20, liveGrid: [], active: true, startBeat: 0, passes: 4, startRanks: startRanks, events: [], beatsPerBar: 4)
         XCTAssertEqual(rank, 2, "beat (20) vs startBeat (0) alone decides — being read 'late' changes nothing")
-    }
-    /// §9 test 9: events on the same column within 1/96 beat coalesce (the last write wins); the cap is
-    /// 128 PER COLUMN — a different column's own events are unaffected by another column's cap.
-    func testAppendLooperEventCoalescesWithinWindowAndCapsAt128PerColumn() {
-        var events: [EuclideousLoopEvent] = []
-        let window = (1.0 / 96.0) / 4.0
-        events = euclideousAppendLooperEvent(events, column: 2, rank: 3, offsetBars: 1.0, coalesceWindowBars: window)
-        events = euclideousAppendLooperEvent(events, column: 2, rank: 5, offsetBars: 1.0 + window / 2, coalesceWindowBars: window)
-        XCTAssertEqual(events.count, 1, "within the window — the second write replaces the first, not append")
-        XCTAssertEqual(events.first?.rank, 5)
-        events = euclideousAppendLooperEvent(events, column: 2, rank: 9, offsetBars: 1.0 + window * 10, coalesceWindowBars: window)
-        XCTAssertEqual(events.count, 2, "well outside the window — a genuinely new event")
-        var many: [EuclideousLoopEvent] = []
-        for i in 0..<130 { many = euclideousAppendLooperEvent(many, column: 0, rank: 1, offsetBars: Double(i) * 10, coalesceWindowBars: window, cap: 128) }
-        XCTAssertEqual(many.filter { $0.column == 0 }.count, 128, "past the cap the edit still sounds live but isn't recorded")
-        many = euclideousAppendLooperEvent(many, column: 1, rank: 2, offsetBars: 5, coalesceWindowBars: window, cap: 128)
-        XCTAssertEqual(many.filter { $0.column == 1 }.count, 1, "a different column's own cap is independent — not shared")
-    }
-    /// §9 test 10 (the geometry half only — the colour/state mapping lives in `EuclideousPage.swift`,
-    /// untestable off-device): §7.3's literal segment-width formula, including the 16-segment minimum.
-    func testLooperSegmentGeometryDropsGapToOneBelowTwoPointsIncluding16Segments() {
-        let wide = euclideousLooperSegmentGeometry(n: 4, buttonWidth: 100)
-        XCTAssertEqual(wide.gap, 2, "plenty of room — keeps the N≤8 default gap")
-        let sixteen = euclideousLooperSegmentGeometry(n: 16, buttonWidth: 90)
-        XCTAssertEqual(sixteen.gap, 1, "N=16 always starts at gap 1")
-        XCTAssertGreaterThan(sixteen.segmentWidth, 0)
-        let narrow = euclideousLooperSegmentGeometry(n: 8, buttonWidth: 20)
-        XCTAssertEqual(narrow.gap, 1, "segment width fell below 2pt at gap 2 — dropped to 1")
     }
 
     // MARK: - MIX TAB (ferry 2026-10-18) §9 tests 1–4 (pure)

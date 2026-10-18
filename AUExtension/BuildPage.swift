@@ -3532,16 +3532,12 @@ extension DiagView {
         if euclideousEnabled {
             input.euclideousMachineID = "euclideous"
             var p = MachineParams(); p.euclidLines = euclideousLines; p.euclideousRiff = euclideousRiff
-            p.riffs = euclideousRiffs; p.activeRiff = euclideousActiveRiff   // FOUR RIFFS (2026-10-14 ferry §7) — same MachineParams-routed path as the singular field just above
-            p.euclideousLiveGrid = euclideousLiveGrid   // THE RIFF (ferry "looper tabs replace the riff tabs") — same path, superseding the two fields just above
-            // THE LOOPER (§6/§8.5) — never saved; republished fresh from live @State on every edit, same
-            // as every other live Euclideous control (`AudioUnitViewController`'s own looper state
-            // machine owns these — see its own doc comment).
-            p.euclideousLooperActive = euclideousLooperActive
-            p.euclideousLooperStartBeat = euclideousLooperStartBeat
-            p.euclideousLooperPasses = euclideousLooperPasses
-            p.euclideousLooperStartRanks = euclideousLooperStartRanks
-            p.euclideousLooperEvents = euclideousLooperEvents
+            p.riffs = euclideousRiffs; p.activeRiff = euclideousActiveRiff   // FOUR RIFFS (2026-10-14 ferry §7, restored 2026-10-18) — same MachineParams-routed path as the singular field just above
+            // THE LOOPER — DROPPED (2026-10-18 ferry): `p.euclideousLiveGrid`/`Looper*` are no longer set
+            // here, so `SnapshotBuilder.swift` falls through to its own `?? out.euclideousRiffs[out.
+            // activeRiff]`/`?? false` defaults every time — the engine now plays `riffs[activeRiff]`
+            // directly, unconditionally. `MachineParams.euclideousLiveGrid`/`Looper*` fields themselves
+            // stay in place (decode-safety for a `RouterTests` fixture or similar built directly).
             p.mainOutMask = euclideousMainOutMask   // EUCLIDEOUS PAGE REWORK (2026-10-07): the global MAIN OUT gate
             let chain = [ProcessorSlot(type: .euclid, params: p)]
             // NOTE: the registered machine's OWN stored params are irrelevant at render time — Router.swift's

@@ -530,20 +530,16 @@ enum EuclideousLaneTab: Int, CaseIterable {
 struct EuclideousPage: View {
     let lines: [EuclidLine]
     let lineReady: UInt8
-    // LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16) — SUPERSEDES the
-    // loop-slots ferry's "four slots" model entirely. `liveGrid` is the one riff (§1.2/§8.1, replacing
-    // the old "four riffs, picked by tabs" model) — the grid's own ranks when no loop is active, edited
-    // directly via `onLooperEdit` below. `looperMode`/`looperPasses`/`looperStartBeat`/`looperStartRanks`/
-    // `looperEvents` mirror `AudioUnitViewController`'s own looper state machine exactly (§2) — this page
-    // computes its OWN "passes done"/"progress" from these + its existing live clock (§7.5: no new
-    // polling path), never a separate derivation. `riffPositions` is unchanged — each lane's own live
-    // step-cursor into the shared pattern (index 0...7, -1 = not started/off), independent of the looper.
-    let liveGrid: EuclideousRiff
-    let looperMode: EuclideousLooperModeKind
-    let looperPasses: EuclideousLooperPasses
-    let looperStartBeat: Double
-    let looperStartRanks: [Int]
-    let looperEvents: [EuclideousLoopEvent]
+    // FOUR RIFFS (2026-10-18 ferry, "drop the loop functionality in favour of four riff tabs... with a
+    // glyph of the grid showing how it's populated... setup multiple riffs and switch between them") —
+    // RESTORES the pre-looper "four riffs, picked by tabs" model (2026-10-14 sequencer-panel ferry),
+    // REPLACING the looper's own single `liveGrid`/mode/passes/events entirely. `riffs` is all four
+    // stored patterns; `activeRiff` is which one is both EDITED (this grid) and SOUNDING (every lane
+    // reads the same shared pattern — "ONE GLOBAL RIFF" ferry, 2026-10-12). The looper's own model
+    // fields (`PluginState.euclideousLiveGrid`, `euclideousLooperEvents`) stay decode-only — this page
+    // simply never reads or writes them again, matching this project's own "hide, don't delete" rule.
+    let riffs: [EuclideousRiff]
+    let activeRiff: Int
     let riffPositions: [Int]
     // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): each lane's live hit-ordinal + DRUNK walk
     // state — the main-thread cycle prediction's own `startOrd`/`drunkLive` baseline, same live-poll class as
@@ -605,20 +601,13 @@ struct EuclideousPage: View {
     // across different touches into one step; a pad instead passes `newStep: true` on the first value-changing write of a touch (the VC
     // takes a `coalesceKey: nil` checkpoint) and `false` for the rest, so dragging is one step and two pads never flood the stack.
     let onEditStep: (Bool, @escaping (inout [EuclidLine]) -> Void) -> Void
-    // LOOPER TABS — `onLooperEdit` is the ONE write path for every grid edit (a tap, each cell a drag-
-    // paint crosses): `AudioUnitViewController` itself decides whether that lands as an ordinary
-    // undoable live-grid edit (Off/Armed, §3.6) or a loop event (Recording/Replaying, §3.1-3.4) — this
-    // page never makes that call itself (§6.2's "no second derivation" applies to WRITES too, not just
-    // reads). `onLooperTabTap` is §2's whole tab state machine (arm/retarget/cancel/stop), not an
-    // ordinary document edit.
-    let onLooperEdit: (Int, Int) -> Void
-    let onLooperTabTap: (EuclideousLooperPasses) -> Void
-    // LONG-PRESS TO FIX (2026-10-16): a long press (plain, or ending a swipe) takes every column it
-    // touched out of the loop for good, pinned at the value `onLooperEdit` already set for it — a no-op
-    // while Off/Armed (nothing to take OUT of). This page only reports WHICH columns; the pin logic
-    // itself (read the current effective rank, clear that column's events, bake it into the start ranks)
-    // lives on `AudioUnitViewController`, same "no second derivation" rule as every other write path here.
-    let onLooperFixColumns: ([Int]) -> Void
+    // FOUR RIFFS (2026-10-18 ferry) — `onEditRiffs` is the ONE write path for every grid edit (a tap,
+    // each cell a drag-paint crosses) AND for the tab row's COPY/PASTE/CLEAR menu: a closure over the
+    // whole `[EuclideousRiff]` array, one undo step per edit. `onSetActiveRiff` switches which of the
+    // four is both edited and sounding (a discrete action, its own undo step — not routed through the
+    // generic per-lane `onEdit` funnel, same reasoning as `onSetKeyRoot`).
+    let onEditRiffs: (@escaping (inout [EuclideousRiff]) -> Void) -> Void
+    let onSetActiveRiff: (Int) -> Void
     let onEditLanesSeq: (@escaping (inout EuclideousLanesSeq) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
@@ -660,19 +649,11 @@ struct EuclideousPage: View {
     let onRedo: () -> Void
     let onClose: () -> Void
 
-    // LOOPER §1.5/§6.2: "the grid shows the effective grid at the current beat" — the live grid when no
-    // loop is active, else the loop's own content at the page's own live-clock beat. ONE pure read —
-    // `euclideousLooperEffectiveRank` (Derivations.swift), the SAME function the engine itself calls —
-    // never a second derivation.
+    // FOUR RIFFS (2026-10-18 ferry): the grid shows `riffs[activeRiff]` directly — no looper, no
+    // beat-dependent derivation. Every lane reads this SAME array via `activeRiff`, so editing the
+    // grid here is editing exactly what's sounding ("ONE GLOBAL RIFF" ferry, 2026-10-12).
     var effectiveGridRanks: [Int] {
-        let liveRanks = liveGrid.ranksResolved
-        let active = looperMode == .recording || looperMode == .replaying
-        let beat = walkTagBeat(at: Date())
-        return (0..<8).map { col in
-            euclideousLooperEffectiveRank(column: col, beat: beat, liveGrid: liveRanks, active: active,
-                                           startBeat: looperStartBeat, passes: looperPasses.passes,
-                                           startRanks: looperStartRanks, events: looperEvents, beatsPerBar: clock.beatsPerBar)
-        }
+        riffs[max(0, min(3, activeRiff))].ranksResolved
     }
 
     // SEQUENCER PANEL (2026-10-14 ferry §1; MIX ferry 2026-10-18 §1.5): which tab is showing — MIX first and the DEFAULT, LANES second,
@@ -716,6 +697,10 @@ struct EuclideousPage: View {
     // SOURCE `EuclidLine.resetStepsResolved` reads, per Models.swift's own doc comment there).
     @State private var resetPopupLane: Int? = nil
     @State private var resetChipFrames: [Int: CGRect] = [:]
+    // FOUR RIFFS (restored 2026-10-18): a long press on a riff tab opens COPY/PASTE/CLEAR for that tab;
+    // `riffClipboard` is the one-slot clipboard it shares across all four tabs.
+    @State private var riffTabMenuLane: Int? = nil
+    @State private var riffClipboard: EuclideousRiff? = nil
     // FOURFOLD SETTINGS (2026-10-15 ferry): `settingsTab` is explicitly NOT saved ("the sheet reopens on the
     // tab it was left on, in memory, MIDI IN the first time," §2.6) — plain ephemeral @State, same convention
     // as `laneTab` above.
@@ -785,17 +770,6 @@ struct EuclideousPage: View {
     // that is a plain PAINT (always sets, never toggles) — the natural way to draw a melodic shape across
     // the 8 columns without each new column accidentally re-clearing whatever the finger started on.
     @State private var riffDragLastCell: (col: Int, row: Int)? = nil
-    // LONG-PRESS TO FIX (Paul 2026-10-16): a long press on a grid cell takes that step out of the loop
-    // (across all passes) and fixes it at the value just set — including when the press follows a swipe
-    // (every column the swipe touched gets fixed) and when it's a tap-to-remove (the column fixes at
-    // rest). Implemented as a RETROACTIVE upgrade, not a different edit path: the ordinary per-cell edit
-    // (`riffSetRank`, below) still fires in real time exactly as before for live visual feedback; only at
-    // gesture-end, if the whole touch was held past the long-press threshold, do the columns touched this
-    // gesture get fixed. `riffGestureStartDate`/`riffGestureTouchedColumns` are this ONE gesture's own
-    // memory, reset alongside `riffDragLastCell` at the start/end of every touch.
-    @State private var riffGestureStartDate: Date? = nil
-    @State private var riffGestureTouchedColumns: Set<Int> = []
-    private let riffLongPressThreshold: TimeInterval = 0.5   // matches this page's other long-press idiom (the retired riff-tab menu used the same 0.5s)
     // RIFF-CELL WIPES / RESET PROGRESS (Paul 2026-10-10 ferry "riff-cell wipes, reset progress on lane
     // cards" §5) — the first use of Reduce Motion anywhere in this codebase (grepped, zero prior
     // precedent). When on: the riff-cell wipe collapses to a single 150ms flash (no directional sweep, no
@@ -916,6 +890,14 @@ struct EuclideousPage: View {
                     let anchorX = frame.map { max(110, $0.midX) } ?? geo.size.width / 2
                     let anchorY = frame.map { $0.maxY + 70 } ?? geo.size.height / 2
                     resetPopupCard(lane).position(x: min(anchorX, geo.size.width - 110), y: min(max(90, anchorY), geo.size.height - 90)).zIndex(4)
+                }
+                // FOUR RIFFS (restored 2026-10-18): long-press a riff tab opens COPY/PASTE/CLEAR, same
+                // dimming scrim+centred-card shape as the old riff-tab menu it's restoring.
+                if let lane = riffTabMenuLane {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { riffTabMenuLane = nil }
+                        .zIndex(3)
+                    riffTabMenuCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
                 if keyPopupOpen {
                     // ANCHORED POPOVER, now UNDER THE KEY PILL (Fourfold header ferry §6.2): a non-dimming full-screen
@@ -1463,7 +1445,7 @@ struct EuclideousPage: View {
     /// too before opening their own overlay. No existing "one overlay at a time" coordination to extend —
     /// every pop-up on this page toggles fully independently today, confirmed by reading each one first.
     private func closeAllOtherOverlays() {
-        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false
+        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false; riffTabMenuLane = nil
     }
 
     // MARK: LANE SIDE of the output rings (§7) — pulse (after a tap) and trace (while held)
@@ -3796,111 +3778,63 @@ struct EuclideousPage: View {
         let gridW = max(1, maxWidth - (riffLabelColW + sp4))
         return max(1, (gridW - sp8 * 2 - sp4 * CGFloat(n - 1)) / CGFloat(n))
     }
-    /// §7.4: one pure function of the looper's OWN state → a button's look. A button not matching the
-    /// armed/running length always reads Off, regardless of global mode.
-    enum EuclideousLooperButtonLook { case off, armed, recording, replaying }
-    private func looperButtonLook(_ passes: EuclideousLooperPasses) -> EuclideousLooperButtonLook {
-        guard passes == looperPasses, looperMode != .off else { return .off }
-        switch looperMode {
-        case .off: return .off
-        case .armed: return .armed
-        case .recording: return .recording
-        case .replaying: return .replaying
-        }
-    }
-    /// §1.4/§7.4-7.5: this button's own position in bars since B, modulo N — the SAME pure function the
-    /// engine itself calls (`euclideousLoopPositionBars`), never a second derivation. Works unmodified for
-    /// BOTH Recording (bounded `[0, N)` by construction, since B hasn't been reached again yet) and
-    /// Replaying (genuinely wraps) — one formula, no mode-specific branching.
-    private func looperPositionNow(_ beat: Double) -> Double {
-        euclideousLoopPositionBars(beat: beat, startBeat: looperStartBeat, beatsPerBar: clock.beatsPerBar, passes: Double(looperPasses.passes))
-    }
-    /// §7: the loop row — 4 length buttons, replacing the loop-slots ferry's slot row entirely (no
-    /// copy/paste/clear, no length picker — the button tapped IS the length choice, §2).
-    private func loopRow(maxWidth: CGFloat) -> some View {
-        let cellW = riffCellW(maxWidth: maxWidth)
-        let buttonW = cellW * 2 + sp4
-        let beat = walkTagBeat(at: Date())
-        let pos = looperPositionNow(beat)
-        let passesDone = max(0, min(looperPasses.passes - 1, Int(pos.rounded(.down))))
-        let progress = pos - pos.rounded(.down)
-        return HStack(spacing: sp4) {
-            Color.clear.frame(width: riffLabelColW)
-            ForEach([EuclideousLooperPasses.twoPasses, .fourPasses, .eightPasses, .sixteenPasses], id: \.self) { passes in
-                loopButton(passes: passes, look: looperButtonLook(passes), width: buttonW, passesDone: passesDone, progress: progress)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onLooperTabTap(passes) }
-            }
-        }
-    }
-    /// §7.2-7.4, literal: number (14pt heavy) over a segment strip (4pt tall, 6pt above the bottom edge,
-    /// inset 6pt each side), one pure look per state.
-    @ViewBuilder private func loopButton(passes: EuclideousLooperPasses, look: EuclideousLooperButtonLook, width: CGFloat, passesDone: Int, progress: Double) -> some View {
-        let fill: Color = {
-            switch look {
-            case .off: return Color(hex: 0x2A2D34)
-            case .armed, .recording: return Color(hex: 0xDFE3EA).opacity(0.2)
-            case .replaying: return Color(hex: 0xDFE3EA)
-            }
-        }()
-        let numberColor: Color = {
-            switch look {
-            case .off: return Color(hex: 0xAAB0BA)
-            case .armed, .recording: return Color(hex: 0xDFE3EA)
-            case .replaying: return Color(hex: 0x0D0F14)
-            }
-        }()
-        let (segOn, segOff): (Color, Color) = {
-            switch look {
-            case .off: return (Color(hex: 0x3A3E47), Color(hex: 0x3A3E47))
-            case .armed: return (Color(hex: 0x4A4E57), Color(hex: 0x4A4E57))
-            case .recording: return (Color(hex: 0xDFE3EA), Color(hex: 0x4A4E57))
-            case .replaying: return (Color(hex: 0x0D0F14), Color(hex: 0xAAB0BA))
-            }
-        }()
-        VStack(spacing: 0) {
-            Text(passes.rawValue).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(numberColor)
-                .frame(height: 30)
-            loopSegmentStrip(n: passes.passes, width: width, onColor: segOn, offColor: segOff,
-                              passesDone: look == .armed || look == .off ? -1 : passesDone, progress: progress)
-                .frame(height: 4)
-                .padding(.bottom, 6)
-        }
-        .frame(width: width, height: 40)
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(fill)
-            .overlay(look == .recording ? RoundedRectangle(cornerRadius: 6).stroke(Color(hex: 0xDFE3EA), lineWidth: 1) : nil))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(looperAccessibleLabel(passes: passes, look: look, passesDone: passesDone))
-        .accessibilityHint(look == .recording || look == .replaying ? "Stops the loop and keeps the grid as it is"
-                            : (look == .off ? "Starts recording on the next pass" : ""))
-    }
-    /// §7.3, literal: segment width = (button width − 12 − gaps) ÷ N; gap 2 (N ≤ 8) or 1 (N = 16); if the
-    /// resulting width falls below 2pt, drop the gap to 1. `passesDone < 0` ⇒ uniform (Off/Armed, no
-    /// progress to show); each segment's own fill fraction is 1 (done), `progress` (the current pass), or
-    /// 0 (not yet reached) — one formula covers every state, no mode-specific branching per segment.
-    @ViewBuilder private func loopSegmentStrip(n: Int, width: CGFloat, onColor: Color, offColor: Color, passesDone: Int, progress: Double) -> some View {
-        let (segW, gap) = euclideousLooperSegmentGeometry(n: n, buttonWidth: width)
-        HStack(spacing: gap) {
-            ForEach(0..<n, id: \.self) { i in
-                let fillFraction: Double = passesDone < 0 ? 0 : (i < passesDone ? 1 : (i == passesDone ? max(0, min(1, progress)) : 0))
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 1).fill(offColor)
-                    RoundedRectangle(cornerRadius: 1).fill(onColor).frame(width: segW * fillFraction)
+    /// FOUR RIFFS (2026-10-18 ferry, restoring the 2026-10-14 tab row): tapping a tab makes it the
+    /// active riff — both EDITED (the grid below) and SOUNDING (every lane reads `riffs[activeRiff]`
+    /// directly, "ONE GLOBAL RIFF" ferry) — there is no separate "editing vs. playing" distinction left
+    /// to track, since nothing switches riffs live underneath the page anymore. Long-press opens
+    /// COPY/PASTE/CLEAR. The glyph is `riffMiniIcon`, unchanged since the 2026-10-14 icon-redesign ferry.
+    private func riffTabRow() -> some View {
+        HStack(spacing: sp4) {
+            ForEach(0..<4, id: \.self) { i in
+                let sel = i == max(0, min(3, activeRiff))
+                let ink = Color(hex: 0x0D0F14)
+                HStack(spacing: 8) {
+                    Text("\(i + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
+                    riffMiniIcon(ranks: i < riffs.count ? riffs[i].ranksResolved : [],
+                                 noteColor: sel ? ink : Color(hex: 0xDFE3EA),
+                                 dotColor: sel ? ink.opacity(0.3) : Color(hex: 0x4A4E57))
                 }
-                .frame(width: segW)
+                .padding(.horizontal, 4).padding(.vertical, 3)
+                .frame(maxWidth: .infinity, minHeight: 28)
+                .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+                .contentShape(Rectangle())
+                .onTapGesture { onSetActiveRiff(i) }
+                .onLongPressGesture(minimumDuration: 0.5) { riffTabMenuLane = i }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Riff \(i + 1)\(sel ? ", editing" : "")")
             }
         }
-        .padding(.horizontal, 6)   // §7.3: "inset 6 each side"
     }
-    /// §7.7, literal four cases.
-    private func looperAccessibleLabel(passes: EuclideousLooperPasses, look: EuclideousLooperButtonLook, passesDone: Int) -> String {
-        let n = passes.passes
-        switch look {
-        case .off: return "Loop \(n) passes, off"
-        case .armed: return "Loop \(n) passes, armed, starts next pass"
-        case .recording: return "Loop \(n) passes, recording pass \(passesDone + 1) of \(n)"
-        case .replaying: return "Loop \(n) passes, playing pass \(passesDone + 1) of \(n), edits overdub"
+    private func riffTabMenuCard(_ idx: Int) -> some View {
+        func row(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+            Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundColor(enabled ? .white.opacity(0.85) : .white.opacity(0.3))
+                .frame(maxWidth: .infinity).frame(height: 36)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
+                .onTapGesture { if enabled { action() } }
         }
+        return VStack(spacing: 8) {
+            Text("RIFF \(idx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            row("COPY") {
+                riffClipboard = idx < riffs.count ? riffs[idx] : nil
+                riffTabMenuLane = nil
+            }
+            row("PASTE", enabled: riffClipboard != nil) {
+                guard let c = riffClipboard else { return }
+                onEditRiffs { r in guard idx < r.count else { return }; r[idx] = c }
+                riffTabMenuLane = nil
+            }
+            row("CLEAR") {
+                onEditRiffs { r in guard idx < r.count else { return }; r[idx] = .empty }
+                riffTabMenuLane = nil
+            }
+        }
+        .padding(16).frame(width: 180)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
     private func riffGridView(maxWidth: CGFloat, rowH: CGFloat) -> some View {
         let n = 8
@@ -3925,9 +3859,7 @@ struct EuclideousPage: View {
             tagPlansNow[i].map { WalkTagSeat(lane: i, col: $0.seatStep, rank: $0.seatRank, facingRight: $0.facingRight) }
         }
         return VStack(alignment: .leading, spacing: sp4) {
-            // LOOPER §7.1: the old title/4-tabs/NOT-PLAYING row and the column-number row are GONE —
-            // replaced by the 40pt loop row (4 length buttons, §7.2-7.4).
-            loopRow(maxWidth: maxWidth)
+            riffTabRow()
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(pool: pool, source: source, cellH: cellH)
                 // DRAGGABLE (see `riffDragLastCell`'s own doc comment above): the matrix VStack carries no
@@ -3958,20 +3890,11 @@ struct EuclideousPage: View {
                             let col = max(0, min(n - 1, Int(g.location.x / max(1, cellW + sp4))))
                             let rankRow = max(0, min(7, Int(g.location.y / max(1, cellH + sp4))))
                             let rank = 8 - rankRow
-                            if riffDragLastCell == nil { riffGestureStartDate = Date(); riffGestureTouchedColumns = [] }
                             guard (col, rank) != (riffDragLastCell?.col ?? -1, riffDragLastCell?.row ?? -1) else { return }
                             riffSetRank(col: col, rank: rank, n: n, toggle: riffDragLastCell == nil)
-                            riffGestureTouchedColumns.insert(col)
                             riffDragLastCell = (col, rank)
                         }.onEnded { _ in
-                            // Long press, possibly following a swipe: fix every column this gesture
-                            // touched at its just-set value, out of the loop for good.
-                            if let start = riffGestureStartDate, Date().timeIntervalSince(start) >= riffLongPressThreshold, !riffGestureTouchedColumns.isEmpty {
-                                onLooperFixColumns(Array(riffGestureTouchedColumns))
-                            }
                             riffDragLastCell = nil
-                            riffGestureStartDate = nil
-                            riffGestureTouchedColumns = []
                         })
                     // §11.3: HOLD NOTES TO PLAY no longer takes its own row — it floats over the grid,
                     // non-hit-testable (the cells beneath still edit).
@@ -4031,12 +3954,17 @@ struct EuclideousPage: View {
     /// rest; `toggle: false` (every later cell in the same drag) always sets, so painting across the grid
     /// never accidentally clears a column it merely passes back over.
     private func riffSetRank(col: Int, rank: Int, n: Int, toggle: Bool) {
-        // LOOPER §3.1/§6.2: every edit routes through ONE write path — `AudioUnitViewController` decides
-        // whether this lands on the live grid or as a loop event, this page never re-derives that itself.
-        guard col >= 0, col < n else { return }
-        let current = effectiveGridRanks
-        let newRank = (toggle && col < current.count && current[col] == rank) ? 0 : rank
-        onLooperEdit(col, newRank)
+        // FOUR RIFFS (2026-10-14 ferry §7): the grid always edits WHICHEVER tab is active — mutate
+        // exactly that one slot of the 4-element array, leaving the other 3 riffs untouched.
+        let idx = max(0, min(3, activeRiff))
+        onEditRiffs { riffs in
+            guard idx < riffs.count else { return }
+            var r = riffs[idx]
+            var rr = (0..<n).map { k -> Int in let rv = r.ranksResolved; return k < rv.count ? rv[k] : 0 }
+            if col < rr.count { rr[col] = (toggle && rr[col] == rank) ? 0 : rank }
+            r.ranks = rr; r.steps = n
+            riffs[idx] = r
+        }
     }
 
     // MARK: - WALK TAGS WITH THREADS (ferry 2026-10-15)

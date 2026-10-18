@@ -12,6 +12,62 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "drop the loop functionality in favour of four riff tabs" (2026-10-18, Paul's direction,
+  interrupting a large unbuilt LANES-rebuild ferry mid-paste; on `feat/restore-riff-tabs-drop-looper`; iOS
+  builds clean; macOS suite build pending at time of writing — see the next log entry once it lands).**
+  PAUL'S WORDS, verbatim: "We're going to drop the loop functionality in favour of four riff tabs. Use the
+  previous committed version with a glyph of the grid showing how it's populated. The user can use this
+  feature to setup multiple riffs and switch between them." **INVESTIGATION FIRST (git archaeology, not a
+  guess):** the looper (`0e9e6a0`→`8a4337e`→`be6291c`, 2026-10-16) replaced an EARLIER four-riff-tabs
+  feature (`547bd19`/`0e25506`, 2026-10-14) that this ferry restores. Crucially, the looper followed this
+  project's own "hide, don't delete" convention at the MODEL layer throughout its ~2-day life:
+  `PluginState.riffs`/`activeRiff` were never deleted, `euclideousLiveGridResolved` already fell back to
+  `riffs[activeRiff]` whenever untouched, and `euclideousLooperEffectiveRank` returns the plain live-grid
+  rank directly whenever `active == false` — so this was a bounded "restore UI + stop feeding the looper
+  layer" job, not an engine rewrite. **ENGINE SWAP:** `BuildPage.swift`'s publish step no longer sets
+  `MachineParams.euclideousLiveGrid`/`Looper*` at all, so `SnapshotBuilder.swift`'s own pre-existing `??
+  out.euclideousRiffs[out.activeRiff]` / `?? false` fallbacks now ALWAYS fire — the engine plays
+  `riffs[activeRiff]` directly and unconditionally. Zero SnapshotBuilder.swift edit needed. **UI:**
+  `riffTabRow()`/`riffTabMenuCard()` (4 tabs, each showing `riffMiniIcon` — unchanged since the 2026-10-14
+  icon-redesign ferry — over `riffs[i].ranksResolved`; tap = `onSetActiveRiff`; long-press = COPY/PASTE/
+  CLEAR via restored `riffTabMenuLane`/`riffClipboard` state) replaces the loop row at the top of the
+  STANDALONE `riffGridView` panel (shown directly in the main page layout beside `sequencerPanel`, NOT
+  inside its own MIX/LANES/RIFFS tab strip — confirmed by reading the pre-looper layout code: RIFFS was
+  never reachable there even in "the previous committed version," since `sequencerPanel`'s own RIFFS tab
+  wires to a different, separately-already-dead per-step riff-ASSIGNMENT matrix, `sequencerRiffsGrid`,
+  left untouched). `effectiveGridRanks` now reads `riffs[activeRiff].ranksResolved` directly, no beat/clock
+  involvement. The old `playingRiffIndex`/"editing vs. playing can disagree" distinction (needed only by
+  the dead RIFFS-sequencer live-switching feature) is SIMPLIFIED AWAY — one riff is both edited and
+  sounding now, matching the user's plain "switch between them" ask. **DELETED OUTRIGHT (not left dead):**
+  the looper's whole `AudioUnitViewController` state machine (`euclideousLiveGrid`/`looperMode`/
+  `looperPasses`/`looperStartBeat`/`looperStartRanks`/`looperEvents`/`looperPreArmSnapshot`/
+  `looperWasPlaying`/`looperLastPolledBeat` + tab-tap/stop/record-edit/fix-columns/poll-tick) and
+  `EuclideousPage`'s whole loop-row UI (`EuclideousLooperButtonLook`, `looperButtonLook`,
+  `looperPositionNow`, `loopRow`, `loopButton`, `loopSegmentStrip`, `looperAccessibleLabel`) — confirmed
+  zero remaining callers before deleting, same precedent as this file's own prior "MELODY POP-UP RETIRED
+  ENTIRE" entry. Reasoning: this state was PURELY in-memory (§8.5 of the looper's own ferry: "the looper is
+  never saved" — no PluginState field ever backed it), unlike genuinely PERSISTED fields, which stay
+  decode-only as usual (`PluginState.euclideousLiveGrid`/`euclideousLooperEvents`/`euclideousLooperPasses`/
+  etc., `EuclideousLooperPasses`/`EuclideousLoopEvent` types). `EuclideousLooperModeKind` (UI-only, never
+  persisted) is deleted outright for the same reason. Four Derivations.swift helpers with zero remaining
+  production callers after this cleanup (`euclideousNextLandingBeat`, `euclideousRunFirstBarLine`,
+  `euclideousAppendLooperEvent`, `euclideousLooperSegmentGeometry`) are deleted along with their tests;
+  `euclideousLoopPositionBars`/`euclideousLooperEffectiveRank` stay — Router.swift's per-hit read still
+  calls the latter, now permanently with `active: false`, the harmless bypass the pre-ferry investigation
+  predicted. **TESTS:** `RouterTests.testEuclideousRiffsSeqOffFollowsTheActiveRiffTab` already existed and
+  already proves the engine plays `riffs[activeRiff]` directly (untouched, still passes — it never touched
+  the looper's own fields); its sibling test's stale "via euclideousLiveGrid"-framed comment was corrected
+  to describe current reality instead of a now-retired ferry. `testLooperTimelineN8PassNinePlaysPassOne…`
+  was rewritten to build its event list by hand (the coalescing helper it used is deleted) rather than
+  removed, since it's genuinely useful coverage of the still-live `euclideousLooperEffectiveRank`. The
+  `EffectiveParamsTests.swift` looper-decode/migration tests are untouched — they test the PERSISTED
+  `PluginState` field's decode-only behaviour, unaffected by this ferry. **JUDGMENT CALL, FLAGGED:** Paul's
+  text didn't describe an "editing vs. playing can disagree" distinction, so `playingRiffIndex` was
+  dropped entirely rather than restored — flag if a live per-step riff-switch (the old RIFFS-sequencer
+  behaviour) was actually wanted back too; nothing in this ferry restores that, only the four-riff-TAB
+  switching. **DEVICE-OWED:** the restored tab row's tap-to-select / long-press COPY-PASTE-CLEAR on the
+  real panel; the glyph legible at real size across all 4 lane colours (see
+  `Docs/euclideous-device-verification-debt.md`).
 - **▶ EUCLIDEOUS — NOTES LAYER IS OFF WHEN NO NOTE IS SELECTED; the MIX velocity label reads "VELOCITY" (2026-10-18, Paul's direction; on
   `feature/notes-off-and-velocity-label`; iOS builds clean; macOS suite green; visuals device-owed).** PAUL'S WORDS: "If no notes are
   selected in the notes tab then it should be considered off. If it's in an off state and one note is selected then it should be

@@ -200,58 +200,12 @@ func euclideousLooperEffectiveRank(column: Int, beat: Double, liveGrid: [Int],
     let startRank = column < startRanks.count ? startRanks[column] : 0
     return best?.rank ?? startRank
 }
-/// §2.2, literal: "Recording starts at B, the NEXT bar line after the tap... a tap in a bar's first beat
-/// STILL arms for the next bar line. There is no grace." — unlike the LANDED-overdub timing this ferry's
-/// predecessor (loop-slots) used, arming NEVER retroactively anchors to the bar already in progress, even
-/// when the tap lands in its first beat; it always targets the FOLLOWING line. Also used for §2.7's "a
-/// transport start counts as a bar line" (pass `beat` = the run's own first beat) and §5.2's post-edge
-/// re-arming. Kept here (not UI-private) so it stays off-device testable (§9.3).
-func euclideousNextLandingBeat(from beat: Double, barBeats: Double) -> Double {
-    guard barBeats > 0 else { return beat }
-    return ((beat / barBeats).rounded(.down) + 1) * barBeats
-}
-/// §2.7/§5.2: a transport edge (host start, backward jump, the free-run↔host hand-over) ITSELF "counts as
-/// a bar line" — unlike an ordinary tap (§2.2's always-the-NEXT-line, no-grace arming rule, above), the
-/// run's own first bar line is the one the edge landed AT or just past (the poll notices a beat or so
-/// later than the true edge, per §3.5's accepted jitter), not one further ahead. Floors `beat` down to its
-/// enclosing bar line. Used for §5.2's "Armed: B is the first bar line after the edge" and "Replaying:
-/// restarts from pass 1 at the run's first bar line."
-func euclideousRunFirstBarLine(at beat: Double, barBeats: Double) -> Double {
-    guard barBeats > 0 else { return beat }
-    return (beat / barBeats).rounded(.down) * barBeats
-}
-/// §3.4: coalesce same-column events within 1/96 beat (converted to bars by the caller, since events are
-/// bar-offset) — the LAST write wins. Cap 128 PER COLUMN; past the cap "an edit still sounds but isn't
-/// recorded" — it's simply not appended (not inserted-and-evict-oldest), exactly per the literal text.
-/// Pure; called from the MAIN THREAD only (§6.4 — the render thread never records), once per edit.
-/// §7.3, literal: "segment width = (button width − 12 − gaps) ÷ N; gap 2 (N ≤ 8) or 1 (N = 16); if that
-/// falls below 2, drop the gaps to 1." Pure (no SwiftUI dependency) so the loop row's own geometry stays
-/// off-device testable, same convention `euclideousRestartStepHitTest` already established in this file.
-func euclideousLooperSegmentGeometry(n: Int, buttonWidth: CGFloat) -> (segmentWidth: CGFloat, gap: CGFloat) {
-    let inset: CGFloat = 6
-    let available = max(0, buttonWidth - inset * 2)
-    let nD = CGFloat(max(1, n))
-    let initialGap: CGFloat = n <= 8 ? 2 : 1
-    let rawSegW = (available - initialGap * CGFloat(max(0, n - 1))) / nD
-    let gap: CGFloat = rawSegW < 2 && initialGap > 1 ? 1 : initialGap
-    let segW = max(0, (available - gap * CGFloat(max(0, n - 1))) / nD)
-    return (segW, gap)
-}
-func euclideousAppendLooperEvent(_ events: [EuclideousLoopEvent], column: Int, rank: Int, offsetBars: Double,
-                                  coalesceWindowBars: Double, cap: Int = 128) -> [EuclideousLoopEvent] {
-    var out = events
-    for i in out.indices.reversed() where out[i].column == column {
-        if abs(out[i].offsetBars - offsetBars) <= coalesceWindowBars {
-            out[i] = EuclideousLoopEvent(offsetBars: offsetBars, column: column, rank: rank)
-            return out
-        }
-        break   // same-column events are appended in time order — the most recent one is the only coalesce candidate
-    }
-    let columnCount = out.reduce(0) { $0 + ($1.column == column ? 1 : 0) }
-    guard columnCount < cap else { return out }   // §3.4: past the cap, the edit still sounds live but isn't recorded
-    out.append(EuclideousLoopEvent(offsetBars: offsetBars, column: column, rank: rank))
-    return out
-}
+// §2.2/§2.7/§3.4/§7.3's own `euclideousNextLandingBeat`/`euclideousRunFirstBarLine`/
+// `euclideousAppendLooperEvent`/`euclideousLooperSegmentGeometry` are DELETED (2026-10-18 ferry, "drop
+// the loop functionality") — each had zero remaining callers once `AudioUnitViewController`'s looper
+// state machine and `EuclideousPage`'s loop-row UI were removed; confirmed by grep before deleting.
+// `euclideousLoopPositionBars`/`euclideousLooperEffectiveRank` above stay — Router.swift's per-hit read
+// still calls `euclideousLooperEffectiveRank`, now permanently with `active: false`.
 
 // THE SPAN LADDER (Paul 2026-08-22 §3): CELL|ROW generalises to a dial — 1·2·3·4·6·8 columns, then ×2·×4 bars
 // (stored as 16/32). The pattern anchors at the row origin and repeats every N columns → polymeter at processor grain
@@ -5304,7 +5258,10 @@ struct EuclideousPadUndoBurst: Equatable {
 
 // ── the sequencer panel's tabs (§1) ───────────────────────────────────────────────────────────────────────────────────
 
-/// MIX first (and the default), LANES second; RIFFS stays hidden (its code/fields stay, unreachable).
+/// MIX first (and the default), LANES second; RIFFS stays hidden — this was true even in the pre-looper
+/// "previous committed version" (its `sequencerRiffsGrid` is a DIFFERENT, already-dead per-step riff-
+/// ASSIGNMENT matrix, not the four-riff-tabs feature; that feature lives in the standalone `riffGridView`
+/// panel instead, shown directly in the page layout, restored 2026-10-18 — see `riffTabRow()`).
 enum EuclideousSeqTab: Int, CaseIterable {
     case mix = 0, lanes = 1, riffs = 2
     var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS" } }
