@@ -517,6 +517,28 @@ struct EuclidLine: Codable, Equatable {
     // The RIFF layer's gate/velocity are the lane's existing `gate`/`velocityAbsolute` (what the RHYTHM tab shows).
     var notesGate: Double? = nil
     var notesVelocity: Int? = nil
+    // LANES GRID (ferry 2026-10-18, §1): each lane gets a 16-cell MUTE grid and two 16-cell RESTART masks (rhythm = the Euclid
+    // pattern starts again from its first step, melody = the riff goes back to its first position), each on the lane's OWN cell
+    // size. APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. Bit i of a mask is cell i. nil ⇒ the §1
+    // defaults (all cells sound, no restarts, PASS-sized cells) — or, for a pre-feature document, the §6 migration, which needs the
+    // lane's live step/lap lengths and the host bar and so is resolved at use (`euclideousLaneGridResolved`, Derivations.swift),
+    // not here. Every write goes to these fields; the old ones (`resetSteps`, `restartMask`, the document's LANES sequencer
+    // ON/RATE/LEN/cells) stay decodable and are never written again.
+    var muteCells16: UInt16? = nil
+    var muteUnit: UInt8? = nil
+    var restartRhythmMask16: UInt16? = nil
+    var restartMelodyMask16: UInt16? = nil
+    var restartUnit: UInt8? = nil
+    var muteCells16Resolved: UInt16 { muteCells16 ?? 0xFFFF }
+    var muteUnitResolved: EuclideousMuteUnit { muteUnit.flatMap { EuclideousMuteUnit(rawValue: $0) } ?? .pass }
+    var restartRhythmMask16Resolved: UInt16 { restartRhythmMask16 ?? 0 }
+    var restartMelodyMask16Resolved: UInt16 { restartMelodyMask16 ?? 0 }
+    var restartUnitResolved: EuclideousRestartUnit { restartUnit.flatMap { EuclideousRestartUnit(rawValue: $0) } ?? .pass }
+    /// True once any of the five grid fields has been written — the lane is then on the NEW model and the old fields no longer
+    /// feed it (§6: a lane migrates until its first grid edit, which writes all five).
+    var usesLaneGrid: Bool {
+        muteCells16 != nil || muteUnit != nil || restartRhythmMask16 != nil || restartMelodyMask16 != nil || restartUnit != nil
+    }
     var listenRhythmPartnerResolved: Int { max(0, min(3, listenRhythmPartner ?? 0)) }
     var listenPitchPartnerResolved: Int { max(0, min(3, listenPitchPartner ?? 0)) }
     /// ANY is only meaningful for AVOID. The stored flag is REMEMBERED while the row is off or on SHADOW (so switching modes and
@@ -692,6 +714,11 @@ extension EuclidLine {
         velocityAbsolute = try c.decodeIfPresent(Int.self, forKey: .velocityAbsolute)
         notesGate = try c.decodeIfPresent(Double.self, forKey: .notesGate)
         notesVelocity = try c.decodeIfPresent(Int.self, forKey: .notesVelocity)
+        muteCells16 = try c.decodeIfPresent(UInt16.self, forKey: .muteCells16)
+        muteUnit = try c.decodeIfPresent(UInt8.self, forKey: .muteUnit)
+        restartRhythmMask16 = try c.decodeIfPresent(UInt16.self, forKey: .restartRhythmMask16)
+        restartMelodyMask16 = try c.decodeIfPresent(UInt16.self, forKey: .restartMelodyMask16)
+        restartUnit = try c.decodeIfPresent(UInt8.self, forKey: .restartUnit)
     }
 }
 // LISTEN TAB enums (ferry 2026-10-14) — String-raw, matching every sibling enum on this struct.

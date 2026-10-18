@@ -77,28 +77,10 @@ func euclideousStampMask(_ n: Int) -> UInt8 {
 /// `euclideousLoopedResetOrigin` above, reused here on purpose, §2.1's "reuse the existing flooring exactly"),
 /// and `0...local` with a negative `local` is a Swift trap, not a quiet no-op.
 func euclideousMaskedResetOrigin(beat: Double, stepBeats: Double, mask: UInt8, loopSteps: Int) -> Double {
+    // LANES GRID (2026-10-18): the 8-bit form is now a wrapper over the 16-cell `euclideousMaskedResetOrigin(beat:cellBeats:mask:cells:)`
+    // below (same flooring, same arithmetic) — kept for the old per-step restart mask and its tests.
     guard stepBeats > 0, loopSteps > 0 else { return 0 }
-    let n = min(8, loopSteps)
-    let widthMask: UInt8 = n >= 8 ? 0xFF : UInt8((1 << n) - 1)
-    let m = mask & widthMask
-    guard m != 0 else { return 0 }
-    let absStep = Int((beat / stepBeats).rounded(.down))
-    let lapStartStep = (absStep / n) * n
-    let lapStart = Double(lapStartStep) * stepBeats
-    let local = absStep - lapStartStep
-    var bestAtOrBeforeLocal = -1
-    var highestSet = -1
-    var s = 0
-    while s < n {
-        if (m & (1 << s)) != 0 {
-            highestSet = s
-            if s <= local { bestAtOrBeforeLocal = s }
-        }
-        s += 1
-    }
-    if bestAtOrBeforeLocal >= 0 { return lapStart + Double(bestAtOrBeforeLocal) * stepBeats }
-    let lapBeats = Double(n) * stepBeats
-    return lapStart - lapBeats + Double(highestSet) * stepBeats
+    return euclideousMaskedResetOrigin(beat: beat, cellBeats: stepBeats, mask: UInt16(mask), cells: min(8, loopSteps))
 }
 
 /// Which step index (0..<columns) a finger sliding off the RESET box lands on, given an X offset measured
@@ -5272,4 +5254,182 @@ enum EuclideousSeqTab: Int, CaseIterable {
 func euclideousSeqTabWidth(count: Int, contentWidth: CGFloat) -> CGFloat {
     guard count > 0 else { return contentWidth }
     return (contentWidth - EuclideousMixMetrics.sp4 * CGFloat(count - 1)) / CGFloat(count)
+}
+
+// MARK: - LANES GRID (ferry 2026-10-18) — per-lane mute grid + separate rhythm / melody restart rows
+//
+// Every lane owns a 16-cell MUTE grid (a cell sounds or is muted) and two 16-cell RESTART masks (RHYTHM: the Euclid pattern starts
+// again from its first step; MELODY: the riff goes back to its first position), each on the lane's OWN cell size. Everything that
+// needs these values — the Router per hit, the TIE / gap lookahead, the roll, the walk-tag mirror, the lane-card dimming, the
+// playheads — calls the functions below with the same resolved fields (§2.8: one formula, no second derivation).
+
+/// One mute cell's length (§1.2). Raw values are STORED (`EuclidLine.muteUnit`) — never renumber.
+enum EuclideousMuteUnit: UInt8, CaseIterable {
+    case step = 0, fourSteps = 1, pass = 2, twoPass = 3
+    var label: String {
+        switch self { case .step: return "STEP"; case .fourSteps: return "4STP"; case .pass: return "PASS"; case .twoPass: return "2PASS" }
+    }
+    /// The rate box's tap order on MUTE (§5.1): STEP → 4STP → PASS → 2PASS → STEP.
+    var next: EuclideousMuteUnit {
+        switch self { case .step: return .fourSteps; case .fourSteps: return .pass; case .pass: return .twoPass; case .twoPass: return .step }
+    }
+    /// How many of the lane's own ticks one cell lasts; `cycleLen` is the Router's lap length in ticks (`euclidCycleLen`).
+    func ticks(cycleLen: Int) -> Int {
+        switch self { case .step: return 1; case .fourSteps: return 4; case .pass: return cycleLen; case .twoPass: return 2 * cycleLen }
+    }
+    func beats(stepBeats: Double, passBeats: Double) -> Double {
+        switch self { case .step: return stepBeats; case .fourSteps: return 4 * stepBeats; case .pass: return passBeats; case .twoPass: return 2 * passBeats }
+    }
+}
+/// One restart cell's length (§1.4). Raw values are STORED (`EuclidLine.restartUnit`) — never renumber.
+enum EuclideousRestartUnit: UInt8, CaseIterable {
+    case fourSteps = 1, pass = 2, twoPass = 3, fourPass = 4
+    var label: String {
+        switch self { case .fourSteps: return "4STP"; case .pass: return "PASS"; case .twoPass: return "2PASS"; case .fourPass: return "4PASS" }
+    }
+    /// The rate box's tap order on RESTART (§5.1): 4STP → PASS → 2PASS → 4PASS → 4STP.
+    var next: EuclideousRestartUnit {
+        switch self { case .fourSteps: return .pass; case .pass: return .twoPass; case .twoPass: return .fourPass; case .fourPass: return .fourSteps }
+    }
+    func ticks(cycleLen: Int) -> Int {
+        switch self { case .fourSteps: return 4; case .pass: return cycleLen; case .twoPass: return 2 * cycleLen; case .fourPass: return 4 * cycleLen }
+    }
+    func beats(stepBeats: Double, passBeats: Double) -> Double {
+        switch self { case .fourSteps: return 4 * stepBeats; case .pass: return passBeats; case .twoPass: return 2 * passBeats; case .fourPass: return 4 * passBeats }
+    }
+}
+
+/// A lane's grid fields, resolved (§1.6): the new fields when the lane has been edited on the grid, otherwise the §6 migration.
+struct EuclideousLaneGrid: Equatable {
+    var muteCells: UInt16 = 0xFFFF
+    var muteUnit: EuclideousMuteUnit = .pass
+    var rhythmMask: UInt16 = 0
+    var melodyMask: UInt16 = 0
+    var restartUnit: EuclideousRestartUnit = .pass
+    static let defaults = EuclideousLaneGrid()
+}
+
+/// §2.1 — the mute cell (0…15) a beat falls in: `floor((beat mod window) / unit)` with window = 16 × unit, spelt as the floored
+/// absolute cell count mod 16 (the same quotient `euclideousMaskedResetOrigin` floors). `beat` is the absolute host beat, the same
+/// zero the old step clock used. The mute window is NOT re-anchored by a restart.
+func euclideousLaneMuteCell(beat: Double, unitBeats: Double) -> Int {
+    guard unitBeats > 0 else { return 0 }
+    return posMod(Int((beat / unitBeats).rounded(.down)), 16)
+}
+/// §2.1 — is the lane audible at `beat`? Pure; the Router calls it per hit at the hit's own beat (§2.2), the roll for every bar, the
+/// lane card for its dimming, the panel for the cell fills.
+func euclideousLaneAudible(beat: Double, cells16: UInt16, unitBeats: Double) -> Bool {
+    if cells16 == 0xFFFF { return true }
+    return (cells16 >> UInt16(euclideousLaneMuteCell(beat: beat, unitBeats: unitBeats))) & 1 != 0
+}
+/// §2.2 — the first beat in `(fromBeat, toBeat]` at which a SET cell is followed by a CLEAR one (the lane stops being audible), or nil.
+/// The Router closes a lane's held legato notes there, at the lane's OWN cell boundary rather than one global step boundary.
+func euclideousLaneMuteStart(fromBeat: Double, toBeat: Double, cells16: UInt16, unitBeats: Double) -> Double? {
+    guard unitBeats > 0, cells16 != 0xFFFF, toBeat > fromBeat else { return nil }
+    var cell = Int((fromBeat / unitBeats).rounded(.down))
+    var guardCount = 0
+    while guardCount < 64 {
+        let boundary = Double(cell + 1) * unitBeats
+        if boundary > toBeat { return nil }
+        let before = (cells16 >> UInt16(posMod(cell, 16))) & 1 != 0
+        let after = (cells16 >> UInt16(posMod(cell + 1, 16))) & 1 != 0
+        if boundary > fromBeat, before, !after { return boundary }
+        cell += 1; guardCount += 1
+    }
+    return nil
+}
+
+/// The cell pick shared by the origin's beat form and cell form, so the two can never disagree: with cells 0…n-1 per window, the
+/// highest SET cell at or before the beat's own cell in this window, else (no mark yet this window) the window's LAST mark carried
+/// over from the window before. Nil when the (width-masked) mask is empty. Flooring and integer division are the legacy
+/// `euclideousMaskedResetOrigin`'s own, reused exactly (§2.3).
+private func euclideousMaskedResetPick(beat: Double, cellBeats: Double, mask: UInt16, cells: Int) -> (lapStartCell: Int, s: Int, carried: Bool, n: Int)? {
+    guard cellBeats > 0, cells > 0 else { return nil }
+    let n = min(16, cells)
+    let widthMask: UInt16 = n >= 16 ? 0xFFFF : UInt16((1 << n) - 1)
+    let m = mask & widthMask
+    guard m != 0 else { return nil }
+    let absCell = Int((beat / cellBeats).rounded(.down))
+    let lapStartCell = (absCell / n) * n
+    let local = absCell - lapStartCell
+    var bestAtOrBeforeLocal = -1, highestSet = -1, s = 0
+    while s < n {
+        if (m & (1 << UInt16(s))) != 0 {
+            highestSet = s
+            if s <= local { bestAtOrBeforeLocal = s }
+        }
+        s += 1
+    }
+    if bestAtOrBeforeLocal >= 0 { return (lapStartCell, bestAtOrBeforeLocal, false, n) }
+    return (lapStartCell, highestSet, true, n)
+}
+/// §2.3 — the restart ORIGIN (beat) for a 16-cell (or `cells`-cell) mask. Empty mask → 0 (free-runs from beat 0). A set bit `s` at
+/// or before the beat's cell → that window's start + s × cellBeats; no mark yet this window → the PREVIOUS window's last mark (a
+/// NEGATIVE origin in the first window — plain arithmetic, every caller handles it like any other beat-0-relative origin).
+func euclideousMaskedResetOrigin(beat: Double, cellBeats: Double, mask: UInt16, cells: Int) -> Double {
+    guard let p = euclideousMaskedResetPick(beat: beat, cellBeats: cellBeats, mask: mask, cells: cells) else { return 0 }
+    let lapStart = Double(p.lapStartCell) * cellBeats
+    if !p.carried { return lapStart + Double(p.s) * cellBeats }
+    let lapBeats = Double(p.n) * cellBeats
+    return lapStart - lapBeats + Double(p.s) * cellBeats
+}
+/// The same origin as an ABSOLUTE CELL INDEX (nil when the mask is empty) — what the melody-ordinal arithmetic subtracts, in exact
+/// integers, to place one origin relative to the other.
+func euclideousMaskedResetCell(beat: Double, cellBeats: Double, mask: UInt16, cells: Int) -> Int? {
+    guard let p = euclideousMaskedResetPick(beat: beat, cellBeats: cellBeats, mask: mask, cells: cells) else { return nil }
+    return p.lapStartCell + p.s - (p.carried ? p.n : 0)
+}
+
+/// §6 — nearest unit to the old step length `s` (ties go to the LONGER). `units` are (beats, tag) in ASCENDING length.
+private func euclideousNearestUnit<U>(_ s: Double, _ units: [(beats: Double, unit: U)]) -> U {
+    var best = units[0], bestD = abs(units[0].beats - s)
+    for u in units.dropFirst() {
+        let d = abs(u.beats - s)
+        if d <= bestD + 1e-9 { best = u; bestD = d }
+    }
+    return best.unit
+}
+/// §6 — a lane's grid fields as the engine, the roll and the panel must all read them. A lane that has been edited on the grid
+/// (`usesLaneGrid`) reads its five new fields (unset ones at the §1 defaults). A pre-feature lane migrates from the old data:
+///   · sequencer OFF  → every cell sounds, PASS-sized (§6.1);
+///   · sequencer ON   → the mute unit nearest to the old step length S (ties longer), cell i = the old cell (i mod LEN) (§6.2);
+///   · the old per-lane restart (resetSteps / the 8-bit mask — NOT gated by the sequencer's ON, so it migrates either way) → the
+///     restart unit nearest to S, BOTH masks getting the old marks repeated: cell j = old bit (j mod LEN) (§6.3).
+/// Resolved at use because S, the lane's step / lap lengths and the host bar are only known to the render and the page, not to the
+/// decoder. Pure; the render thread calls it per lane per window (no allocation: the old cells are read in place).
+func euclideousLaneGridResolved(line: EuclidLine, lane: Int, legacyOn: Bool, legacyRate: EuclideousSeqRate, legacyLen: Int,
+                                legacyCells: [Bool], stepBeats: Double, passBeats: Double, beatsPerBar: Double) -> EuclideousLaneGrid {
+    if line.usesLaneGrid {
+        return EuclideousLaneGrid(muteCells: line.muteCells16Resolved, muteUnit: line.muteUnitResolved,
+                                  rhythmMask: line.restartRhythmMask16Resolved, melodyMask: line.restartMelodyMask16Resolved,
+                                  restartUnit: line.restartUnitResolved)
+    }
+    var g = EuclideousLaneGrid.defaults
+    let len = max(1, min(8, legacyLen))
+    let s = legacyRate.barsFraction * beatsPerBar
+    if legacyOn {
+        g.muteUnit = euclideousNearestUnit(s, EuclideousMuteUnit.allCases
+            .map { (beats: $0.beats(stepBeats: stepBeats, passBeats: passBeats), unit: $0) }.sorted { $0.beats < $1.beats })
+        if legacyCells.count == 32, lane >= 0, lane < 4 {
+            var cells: UInt16 = 0
+            for i in 0..<16 where legacyCells[(i % len) * 4 + lane] { cells |= (1 << UInt16(i)) }
+            g.muteCells = cells
+        }
+    }
+    let old = line.restartMaskResolved
+    let widthMask: UInt8 = len >= 8 ? 0xFF : UInt8((1 << len) - 1)
+    if old & widthMask != 0 {
+        g.restartUnit = euclideousNearestUnit(s, EuclideousRestartUnit.allCases
+            .map { (beats: $0.beats(stepBeats: stepBeats, passBeats: passBeats), unit: $0) }.sorted { $0.beats < $1.beats })
+        var mask: UInt16 = 0
+        for j in 0..<16 where (old & widthMask) & (1 << UInt8(j % len)) != 0 { mask |= (1 << UInt16(j)) }
+        g.rhythmMask = mask; g.melodyMask = mask
+    }
+    return g
+}
+/// The first edit of a lane on the grid writes ALL FIVE fields from the resolved view (like the MIX pin), so the lane is then
+/// stable on the new model whatever the old fields still hold.
+func euclideousPinLaneGrid(_ line: inout EuclidLine, _ g: EuclideousLaneGrid) {
+    line.muteCells16 = g.muteCells; line.muteUnit = g.muteUnit.rawValue
+    line.restartRhythmMask16 = g.rhythmMask; line.restartMelodyMask16 = g.melodyMask; line.restartUnit = g.restartUnit.rawValue
 }

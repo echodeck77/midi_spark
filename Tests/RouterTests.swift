@@ -12376,4 +12376,82 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+
+    // MARK: - LANES GRID (ferry 2026-10-18) — the OLD sequencer-reset engine's note streams, captured BEFORE the rebuild
+
+    /// One lane (geometry A = 3-of-8 @ 1/8, lap 4 beats; B = 5-of-16 @ 1/16, lap 4 beats), the old LANES sequencer at `rate`/`len` with
+    /// the per-lane reset `resetSteps`, a riff 1…8 walked in `dir` / `lock` / `adv`. Hashes the whole note wire stream (FNV-1a).
+    private func lanesOldStreamHash(geo: Int, rate: EuclideousSeqRate, resetSteps: Int, len: Int,
+                                    dir: RiffDir, lock: Bool, adv: Bool, beats: Double) -> UInt64 {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        var l = geo == 0
+            ? EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8, useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: resetSteps)
+            : EuclidLine(target: 0, pulses: 5, steps: 16, rate: .r1_16, useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: resetSteps)
+        l.riffDir = dir; l.riffLock = lock; l.riffAdvanceStep = adv
+        c.paramsA.euclidLines = [l]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.stepRate = .r1_8
+                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousLanesSeqOn = true; st.euclideousLanesSeqRate = rate; st.euclideousLanesSeqLen = len
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: beats, into: e, forceColumn: 0, frames: 8192)
+        var h: UInt64 = 0xcbf29ce484222325
+        func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
+            mix(UInt64(bitPattern: ev.sample)); mix(UInt64(ev.cable)); mix(UInt64(ev.status)); mix(UInt64(ev.chan)); mix(UInt64(ev.note)); mix(UInt64(ev.vel))
+        }
+        return h
+    }
+    /// (profile, riff direction) → (hash over the LENs that divide 16, hash over the LENs that do not — their first 16-cell window only).
+    /// Profiles: 0 = 5-of-16 @ 1/16 with the old sequencer at ¼ BAR · 1 = 3-of-8 @ 1/8 at ½ BAR · 2 = 3-of-8 @ 1/8 at 1 BAR — each picked
+    /// so the lane has a restart unit EXACTLY as long as the old step (4STP, 4STP, PASS), which is what makes the grid reproduce the old
+    /// reset bit-for-bit. Each hash folds N ∈ {1,2,4,8} × LEN ∈ {1,3,4,8} × LOCK/FREE × HIT/STEP. CAPTURED ON THE ENGINE BEFORE THE
+    /// LANES GRID (origin/main 11fde27, old per-lane reset, per-window mute).
+    private let lanesOldGolden: [String: (UInt64, UInt64)] = [
+        "0/FWD": (11521033976096653421, 14042324194083174789),
+        "0/REV": (8634120185433063693, 10297212463718307397),
+        "0/PING-PONG": (4357418606541251253, 8496964916648326005),
+        "0/PONG": (13332039570205451725, 10528167145801376133),
+        "1/FWD": (2049334351417553541, 7922879293729535013),
+        "1/REV": (13021396075092701517, 7721737121856958869),
+        "1/PING-PONG": (14571060432471505949, 16863607114846820677),
+        "1/PONG": (16629896193030693045, 7073519070573852373),
+        "2/FWD": (3082567594428127925, 17375436917988455789),
+        "2/REV": (14981592664394735029, 9690269835975383749),
+        "2/PING-PONG": (17123664477517444149, 14762837615774768837),
+        "2/PONG": (12638519335341283541, 14779867729352630517),
+    ]
+    private let lanesGoldenProfiles: [(geo: Int, rate: EuclideousSeqRate)] = [(1, .quarterBar), (0, .halfBar), (0, .oneBar)]
+    /// Runs the whole matrix through `stream` (old fields or explicit grid fields) and returns the folded hashes.
+    private func lanesGoldenMatrix(_ stream: (_ geo: Int, _ rate: EuclideousSeqRate, _ n: Int, _ len: Int, _ dir: RiffDir, _ lock: Bool, _ adv: Bool, _ beats: Double) -> UInt64)
+        -> [String: (UInt64, UInt64)] {
+        var out: [String: (UInt64, UInt64)] = [:]
+        for (pi, prof) in lanesGoldenProfiles.enumerated() { for dir in [RiffDir.forward, .reverse, .pendulum, .pingpong] {
+            let S = prof.rate.barsFraction * 4
+            var hDiv: UInt64 = 0xcbf29ce484222325, hPre: UInt64 = 0xcbf29ce484222325
+            for n in [1, 2, 4, 8] { for len in [1, 3, 4, 8] { for lock in [false, true] { for adv in [false, true] {
+                let divides = 16 % len == 0
+                let beats = divides ? 40.0 : min(40.0, 16 * S - 0.5)
+                let h = stream(prof.geo, prof.rate, n, len, dir, lock, adv, beats)
+                if divides { hDiv = (hDiv ^ h) &* 0x100000001b3 } else { hPre = (hPre ^ h) &* 0x100000001b3 }
+            } } } }
+            out["\(pi)/\(dir.rawValue)"] = (hDiv, hPre)
+        } }
+        return out
+    }
+    /// MIGRATION EQUIVALENCE (§6.5 / §8): a pre-feature document — old sequencer ON / RATE / LEN and the old per-lane reset — must
+    /// sound bit-for-bit as the old engine did, now that the engine reads the lane grid (the old fields migrate at use).
+    func testLanesGridOldSequencerResetDocumentsRenderTheSameStreamAsBeforeTheGrid() {
+        let got = lanesGoldenMatrix { geo, rate, n, len, dir, lock, adv, beats in
+            self.lanesOldStreamHash(geo: geo, rate: rate, resetSteps: n, len: len, dir: dir, lock: lock, adv: adv, beats: beats)
+        }
+        XCTAssertEqual(got.count, lanesOldGolden.count)
+        for (k, want) in lanesOldGolden {
+            XCTAssertEqual(got[k]?.0, want.0, "\(k): LENs 1/4/8 (divide 16) — the full run")
+            XCTAssertEqual(got[k]?.1, want.1, "\(k): LEN 3 (does not divide 16) — the first 16-cell window")
+        }
+    }
+
 }
