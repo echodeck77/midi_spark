@@ -2874,15 +2874,22 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
             line.customHits = euclidRebuildPattern(snap, targetCount: target)
         }
         line.pulses = target   // kept in sync regardless, so every OTHER reader of `pulses` needs no changes
+        line.hitsRequested = target   // RESTART CHAINS ferry §2.5: what was actually asked for, surviving a later shorter STEPS
     case .steps:
         let target = max(2, min(16, Int(newValue.rounded())))
         if target != line.steps {
             // STEPS genuinely CHANGING reverts an edited pattern to pure Euclid (ferry §8, ratified) — the
             // caller only invokes this commit when the mapped value actually differs from the pre-touch
             // one (rule 6, "no change, no commit"), so landing back on the SAME band never reaches here.
+            // §2.5 (2026-10-19 ferry): pin whatever HITS/OFFSET were last actually asked for — resolved from
+            // the CURRENT pulses/rotate if nothing was requested yet — before this change can clamp them
+            // away, so growing STEPS back later restores the exact pattern left behind (§2.5's own example).
+            if line.hitsRequested == nil { line.hitsRequested = line.pulses }
+            if line.offsetRequested == nil { line.offsetRequested = line.offsetRequestedResolved }
             line.customHits = nil
             line.steps = target
-            if line.pulses > target { line.pulses = target }
+            line.pulses = max(0, min(target, line.hitsRequestedResolved))
+            line.rotate = (target - min(line.offsetRequestedResolved, target - 1)) % target
         }
     case .offset:
         // Inverse of euclideousSliderRange's own mirror (see its comment) — `newValue` is the DISPLAYED
@@ -2891,8 +2898,10 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
         // undoes it exactly).
         let n = max(2, min(16, line.steps))
         let v = Int(newValue.rounded())
-        let mirrored = (n - ((v % n) + n) % n) % n
+        let displayed = ((v % n) + n) % n
+        let mirrored = (n - displayed) % n
         line.rotate = mirrored
+        line.offsetRequested = displayed   // RESTART CHAINS ferry §2.5: what was actually asked for, surviving a later shorter STEPS
     case .tilt:
         guard line.customHits == nil else { return }   // disabled on an edited pattern — defensive; the UI never drags this
         line.tilt = max(-1, min(1, newValue))
@@ -3909,6 +3918,69 @@ func euclideousBuildPattern(_ L: EuclidLine) -> (buf: [Bool], n: Int) {
     var buf = [Bool](repeating: false, count: 16)
     let n = euclideousBuildPatternInto(L, buf: &buf)
     return (buf, n)
+}
+/// §5.6/§6.2 — "a rhythm chain 'changes nothing' when it isn't FREE and every restart lands on a lap start
+/// of the free-running lane: every running total × barBeats, and C × barBeats, is a whole multiple of
+/// lapBeats (within the epsilon)." Drives the restart editor's amber hint line, nowhere in the engine
+/// itself (§5.6: "the engine doesn't special-case it").
+func euclideousRhythmChainChangesNothing(_ chain: EuclideousRestartChain, barBeats: Double, lapBeats: Double) -> Bool {
+    guard !chain.isFree, lapBeats > 0 else { return false }
+    let eps = 1e-6
+    func isWholeMultiple(_ beats: Double) -> Bool { let q = beats / lapBeats; return abs(q.rounded() - q) < eps }
+    guard isWholeMultiple(Double(chain.total) * barBeats) else { return false }
+    for i in 0..<chain.count where !isWholeMultiple(Double(chain.runningTotal(i)) * barBeats) { return false }
+    return true
+}
+/// §6.1/§6.2 — a chain's own display text ("2·1·1" or "FREE"), the ONE formatting both the tile and the
+/// editor read, so they can't drift. U+00B7 MIDDLE DOT joins links.
+func euclideousRestartChainText(_ chain: EuclideousRestartChain) -> String {
+    chain.isFree ? "FREE" : chain.links.map { String($0) }.joined(separator: "\u{B7}")
+}
+/// §13.4 — a restart tile's VoiceOver label.
+func euclideousRestartTileAccessibleLabel(name: String, chain: EuclideousRestartChain, unitSingular: String, unitPlural: String) -> String {
+    let cap = name.capitalized
+    if chain.isFree { return "\(cap) restarts, free" }
+    if chain.isSingleLink1 { return "\(cap) restarts every \(unitSingular)" }
+    if chain.count == 1 { return "\(cap) restarts every \(chain.link(0)) \(unitPlural)" }
+    let parts = chain.links.map { "\($0)" }
+    let joined = "\(parts[0]) \(unitPlural), then " + parts.dropFirst().joined(separator: ", then ")
+    return "\(cap) restarts after \(joined), repeating"
+}
+/// §6.2 — the restart editor's 16-cell timeline for one chain, from `windowStartUnit` (a bar or pass number,
+/// whichever this chain counts in). Cell i is a mark (a restart falls there) and which of the two shades it
+/// draws (true = 26%, alternating at each mark after the window's own first cell, which always starts high).
+func euclideousRestartTimelineCells(chain: EuclideousRestartChain, windowStartUnit: Int) -> [(isMark: Bool, shadeHigh: Bool)] {
+    guard !chain.isFree else { return Array(repeating: (false, true), count: 16) }
+    let total = max(1, chain.total)
+    var out: [(isMark: Bool, shadeHigh: Bool)] = []
+    var shadeHigh = true
+    for i in 0..<16 {
+        let u = windowStartUnit + i
+        let r = ((u % total) + total) % total
+        let isMark = (0..<chain.count).contains { chain.runningTotal($0) == r }
+        if isMark, i > 0 { shadeHigh.toggle() }
+        out.append((isMark, shadeHigh))
+    }
+    return out
+}
+/// RESTART CHAINS ferry §3.2 — the STEPS picker's preview pattern for hypothetical length `n`: pure Euclid
+/// at `min(hitsRequested, n)` hits, the lane's own TILT, offset `min(offsetRequested, n-1)` and INV, built
+/// with the SAME functions the engine uses (`euclidPatternInto` at rotation 0, `euclidTiltPattern`,
+/// `euclidRotateBuffer`, then INV). Never reads `customHits` — only the CURRENT length's own cell shows the
+/// hand-edited pattern (§3.2's own distinction); every other length's preview is always pure Euclid.
+func euclideousStepsPickerPreview(_ line: EuclidLine, length n: Int) -> [Bool] {
+    let steps = max(2, min(16, n))
+    let hits = max(0, min(steps, line.hitsRequestedResolved))
+    let offset = max(0, min(steps - 1, line.offsetRequestedResolved))
+    var buf = [Bool](repeating: false, count: steps)
+    euclidPatternInto(&buf, pulses: hits, steps: steps, rotation: 0)
+    if line.tiltResolved != 0 { euclidTiltPattern(&buf, pulses: hits, steps: steps, tilt: line.tiltResolved) }
+    // OFFSET's own stored convention is `rotate = (n - offset) mod n` (`euclideousSliderRange`/`Commit`'s
+    // mirror) — applying it the same way here keeps the preview consistent with the real slider's own drag.
+    let rotate = (steps - offset) % steps
+    euclidRotateBuffer(&buf, steps: steps, rotation: rotate)
+    if line.patternMissResolved { for i in 0..<steps { buf[i].toggle() } }
+    return buf
 }
 /// §5's own "coincide" test for WITH/GAPS: does the PARTNER's step pattern (not its sounding riff note —
 /// "whether or not it sounded... riff rests, mutes and the LANES grid don't change it," the ferry's own

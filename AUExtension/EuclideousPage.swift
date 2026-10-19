@@ -218,6 +218,14 @@ struct EuclideousSlider: View {
     // caller — there are none, but the principle holds) is byte-identical.
     var displayOverrideLine: EuclidLine? = nil
     var listenFollowLocked: Bool = false
+    // RESTART CHAINS ferry §2.3: "the label-and-value row sits with its top 9 pt below the tile's top
+    // instead of centred" — the component can only centre that row today (see `body`'s horizontal branch),
+    // so this is the backward-compatible parameter the ferry's own text anticipates: default false keeps
+    // every pre-existing call site byte-identical; only the RHYTHM tab's new OFFSET/TILT frames pass true.
+    var topAlignLabelRow: Bool = false
+    // §2.4: TILT's new EARLY/LATE end labels, drawn only when non-nil (every other field/call site stays
+    // byte-identical). (leading, trailing) — RHYTHM tab passes ("EARLY", "LATE"); nothing else does.
+    var endLabels: (String, String)? = nil
 
     @State private var snapshot: EuclidLine? = nil
     @State private var lastCommitted: Double? = nil
@@ -321,7 +329,7 @@ struct EuclideousSlider: View {
                 // centred, matching the NOTES VEL bar's own established convention exactly — name left,
                 // value right, nothing in the middle of the bar. Replaces the vertical sliders' own
                 // stacked value-over-label layout, which crossed the TILT zero line when used here.
-                HStack {
+                let labelRow = HStack {
                     backed(
                         Text(euclideousSliderLabelText(field, effectiveLine))
                             .font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(0.8)
@@ -341,11 +349,35 @@ struct EuclideousSlider: View {
                         backed(
                             Text(euclideousSliderValueText(field, effectiveLine))
                                 .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                                .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                                .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §1.8: truncate, never shrink — no .minimumScaleFactor anywhere
                         )
                     }
                 }
                 .padding(.horizontal, 10)
+                // §2.3: RHYTHM's new OFFSET/TILT frames pin this row 9pt below the tile's top instead of centring it.
+                if topAlignLabelRow {
+                    VStack(spacing: 0) { labelRow.padding(.top, 9); Spacer(minLength: 0) }
+                } else {
+                    labelRow
+                }
+                // §2.4: TILT's EARLY/LATE end labels — each on the tile's own opaque backing, 8pt in from the
+                // tile's side, bottom 5pt above the tile's bottom edge. Visual only: never intercepts touches.
+                if let (early, late) = endLabels {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        HStack {
+                            Text(early).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
+                                .foregroundColor(Color(hex: 0x8A909A))
+                                .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x22252C)))
+                            Spacer()
+                            Text(late).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
+                                .foregroundColor(Color(hex: 0x8A909A))
+                                .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x22252C)))
+                        }
+                        .padding(.horizontal, 8).padding(.bottom, 5)
+                    }
+                    .allowsHitTesting(false)
+                }
             } else {
                 VStack(spacing: 0) {
                     // Exact-dimensions ferry (2026-10-13): value text 14pt heavy TEXT, 6pt from the
@@ -365,7 +397,7 @@ struct EuclideousSlider: View {
                         backed(
                             Text(euclideousSliderValueText(field, effectiveLine))
                                 .font(.system(size: 14, weight: .heavy, design: .monospaced))
-                                .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                                .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §1.8: truncate, never shrink — no .minimumScaleFactor anywhere
                         )
                         .padding(.top, 6)
                     }
@@ -493,6 +525,96 @@ struct EuclideousSlider: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
     }
     private func cancelHelpCheck() { helpWorkItem?.cancel(); helpWorkItem = nil }
+}
+
+/// RESTART CHAINS ferry §2.2 — the STEPS +/− stepper replacing the old STEPS slider. The value box opens
+/// the picker on a plain tap and changes STEPS live (1 per 12pt of vertical travel) on a drag; every write
+/// (a +/− tap, a drag tick, a picker choice) goes through `euclideousSliderCommit(.steps, ...)` — §2.5's
+/// "one setter" — via `onCommit`, which mirrors `editStep`'s own (newStep, mutate) shape so a whole drag
+/// coalesces into ONE undo step (`newStep: true` on its first value-changing write only).
+struct EuclideousStepsStepper: View {
+    let line: EuclidLine
+    let accent: Color
+    let width: CGFloat
+    let height: CGFloat
+    let onCommit: (_ newStep: Bool, _ mutate: @escaping (inout EuclidLine) -> Void) -> Void
+    let onToggleValueBoxTap: () -> Void
+
+    @State private var dragStartLocation: CGPoint? = nil
+    @State private var dragStartSteps: Int? = nil
+    @State private var isDragging = false
+    @State private var firstWriteDone = false
+
+    private func commitSteps(_ target: Int) {
+        guard target != line.steps else { return }
+        onCommit(!firstWriteDone) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(target)) }
+        firstWriteDone = true
+    }
+
+    var body: some View {
+        let plusEnabled = line.steps < 16
+        let minusEnabled = line.steps > 2
+        // §1.3: + at top (36 tall), the value box filling the rest, − at bottom (36 tall), sp4 apart.
+        let btnH: CGFloat = 36, gap: CGFloat = 4
+        let valueBoxH = max(1, height - btnH * 2 - gap * 2)
+        VStack(spacing: gap) {
+            Button(action: { commitSteps(line.steps < 2 ? 2 : min(16, line.steps + 1)) }) {
+                Image(systemName: "plus").font(.system(size: 14, weight: .heavy))
+                    .foregroundColor(plusEnabled ? Color(hex: 0xAAB0BA) : Color(hex: 0x4A4E57))
+                    .frame(width: width, height: btnH)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+            }
+            .disabled(!plusEnabled)
+            .accessibilityLabel("More steps, now \(line.steps)")
+            VStack(spacing: 2) {
+                Text("\(line.steps)").font(.system(size: 18, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text("STEPS").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.85)
+                        .foregroundColor(Color(hex: 0x8A909A))
+                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy))
+                        .foregroundColor(Color(hex: 0x8A909A))
+                }
+            }
+            .frame(width: width, height: valueBoxH)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        if dragStartLocation == nil {
+                            dragStartLocation = g.location
+                            dragStartSteps = line.steps
+                            firstWriteDone = false
+                        }
+                        let dy = g.location.y - (dragStartLocation?.y ?? g.location.y)
+                        if abs(dy) > 4 { isDragging = true }
+                        guard isDragging, let base = dragStartSteps else { return }
+                        let delta = Int((-dy / 12).rounded())   // §2.2: up = more, 1 per 12pt
+                        commitSteps(max(2, min(16, base + delta)))
+                    }
+                    .onEnded { _ in
+                        // §2.2: "a touch that became a drag never opens the picker" — only a plain tap (never exceeded 4pt) does.
+                        if !isDragging { onToggleValueBoxTap() }
+                        dragStartLocation = nil; dragStartSteps = nil; isDragging = false; firstWriteDone = false
+                    }
+            )
+            .accessibilityLabel("Steps, \(line.steps)")
+            .accessibilityHint("Double-tap to pick a length")
+            .accessibilityAdjustableAction { direction in
+                commitSteps(direction == .increment ? min(16, line.steps + 1) : max(2, line.steps - 1))
+            }
+            Button(action: { commitSteps(line.steps > 16 ? 16 : max(2, line.steps - 1)) }) {
+                Image(systemName: "minus").font(.system(size: 14, weight: .heavy))
+                    .foregroundColor(minusEnabled ? Color(hex: 0xAAB0BA) : Color(hex: 0x4A4E57))
+                    .frame(width: width, height: btnH)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+            }
+            .disabled(!minusEnabled)
+            .accessibilityLabel("Fewer steps, now \(line.steps)")
+        }
+        .frame(width: width, height: height)
+    }
 }
 
 /// PER-LANE TABS (Paul 2026-10-07): PATTERN/RIFF/MASK, switching independently per lane — replaces
@@ -738,6 +860,11 @@ struct EuclideousPage: View {
     @State private var restartEditLanes: Set<Int> = []
     @State private var restartEditTouchDown: [Int: Date] = [:]
     @State private var restartEditOriginalMask: [Int: UInt8] = [:]
+    // RESTART CHAINS (ferry 2026-10-19 §1.6): "Which is open is UI state: not saved, not undoable" — exactly
+    // one of the STEPS picker (§3) and the restart editor (§6.2) open at a time, per lane; opening either
+    // closes the other on that SAME lane (both close on a tab switch too, handled where `laneTab` is set).
+    @State private var stepsPickerLane: Int? = nil
+    @State private var restartEditorLane: Int? = nil
     // FOUR RIFFS — the tab row's own long-press COPY/PASTE/CLEAR menu (2026-10-14 ferry §7). No precedent
     // for a long-press CONTEXT MENU anywhere in this codebase (grepped first) — built as a 5th instance of
     // the scrim+centred-card family this page already uses 4 times (RESET/MASK MODE/CHORDS/KEY), not an
@@ -1801,7 +1928,8 @@ struct EuclideousPage: View {
                           // A FOLLOWing lane's gestures edit the lane it follows (`gestureLane` = idx for every other lane).
                           onRotateDelta: { d in euclideousApplyRhythmX(gestureLane, d) },
                           onHitsDelta: { d in euclideousApplyRhythmY(gestureLane, d) },
-                          onStepsDelta: { d in edit(gestureLane) { let v = max(2, min(16, $0.steps + d)); $0.steps = v; if $0.pulses > v { $0.pulses = v } } },   // PINCH — the one thing explicitly kept on the comet bar itself
+                          // §2.5: PINCH goes through the one STEPS setter too, so HITS/OFFSET memory survives it.
+                          onStepsDelta: { d in edit(gestureLane) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
                           onAllRotateDelta: { d in euclideousApplyAllRhythmX(d) },
                           onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
                           onDragState: { point, allRows in euclideousRhythmDragState(gestureLane, via: idx, point, allRows) },
@@ -1933,48 +2061,61 @@ struct EuclideousPage: View {
     // retiring this two-column design; that flattening is reverted here per direct instruction, back to
     // the original two-column split (left column vertical, right column horizontal) `EuclideousSlider`
     // was always built to support either way (its own `travelPos`/`frac` are fully orientation-agnostic).
-    private func sliderRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, rowHeight: CGFloat) -> some View {
-        let leftFields: [EuclideousSliderField] = [.hits, .steps, .velocity]
-        let rightFields: [EuclideousSliderField] = [.offset, .tilt, .gate]
+    /// RESTART CHAINS ferry §1.3 — the RHYTHM tab's upper zone: two equal halves. Left half: two equal
+    /// columns (the HITS fader, full height; the STEPS stepper, §2.2). Right half: two equal rows (OFFSET,
+    /// TILT), each a full-width horizontal slider with its label row pinned to the top (§2.3/§2.4) — VEL and
+    /// GATE are gone from this tab (MIX's riff pad already edits them, §1.2); STEPS is no longer a slider.
+    private func rhythmUpperZone(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, rowHeight: CGFloat) -> some View {
         let halfW = max(1, (fullWidth - sp4) / 2)
-        let leftSliderW = max(1, (halfW - sp4 * 2) / 3)
-        let rightRowH = max(1, (rowHeight - sp4 * 2) / 3)
-        // LISTEN/FOLLOW (§5, adversarial-review fix): "HITS, STEPS and TILT show the partner's values at
-        // 42% opacity and can't be dragged... VEL, GATE, direction and outputs stay the follower's own."
-        // The exact 3-field set this row owns that's affected — OFFSET (this row's own `.offset` field)
-        // is explicitly excluded even though it's drawn here, matching "OFFSET stays live" literally.
+        let leftColW = max(1, (halfW - sp4) / 2)
+        let rightRowH = max(1, (rowHeight - sp4) / 2)
+        // LISTEN/FOLLOW (§5 of an earlier ferry, carried over): HITS and TILT show the partner's values at
+        // 42% opacity and can't be dragged while following; OFFSET stays live, matching "OFFSET stays live"
+        // literally. STEPS (no longer a slider) isn't part of this set either — the stepper has no FOLLOW
+        // treatment of its own today (device-owed, §16, not silently assumed).
         let followPartner: EuclidLine? = {
             guard line.listenRhythmMode == .follow else { return nil }
             let p = line.listenRhythmPartnerResolved
             return p >= 0 && p < lines.count ? lines[p] : nil
         }()
-        let lockedFields: Set<EuclideousSliderField> = followPartner != nil ? [.hits, .steps, .tilt] : []
-
-        func verticalSlider(_ field: EuclideousSliderField) -> some View {
-            EuclideousSlider(
-                field: field, line: line, accent: accent, width: leftSliderW, height: rowHeight, horizontal: false,
-                onCommit: { mutate in edit(idx, mutate) },
-                onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
-                onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
-                displayOverrideLine: lockedFields.contains(field) ? followPartner : nil,
-                listenFollowLocked: lockedFields.contains(field))
-        }
-        func horizontalSlider(_ field: EuclideousSliderField) -> some View {
-            EuclideousSlider(
-                field: field, line: line, accent: accent, width: halfW, height: rightRowH, horizontal: true,
-                touchPad: 2,   // 2026-10-14 ferry Fix 3: 2pt into each neighbouring sp4(4pt) gap, no dead strip
-                onCommit: { mutate in edit(idx, mutate) },
-                onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(field, &$0) } },
-                onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
-                displayOverrideLine: lockedFields.contains(field) ? followPartner : nil,
-                listenFollowLocked: lockedFields.contains(field))
-        }
-
+        let lockedFields: Set<EuclideousSliderField> = followPartner != nil ? [.hits, .tilt] : []
         return HStack(spacing: sp4) {
-            HStack(spacing: sp4) { ForEach(leftFields, id: \.rawValue) { field in verticalSlider(field) } }
-                .frame(width: halfW, height: rowHeight)
-            VStack(spacing: sp4) { ForEach(rightFields, id: \.rawValue) { field in horizontalSlider(field) } }
-                .frame(width: halfW, height: rowHeight)
+            HStack(spacing: sp4) {
+                EuclideousSlider(
+                    field: .hits, line: line, accent: accent, width: leftColW, height: rowHeight, horizontal: false,
+                    onCommit: { mutate in edit(idx, mutate) },
+                    onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.hits, &$0) } },
+                    onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+                    displayOverrideLine: lockedFields.contains(.hits) ? followPartner : nil,
+                    listenFollowLocked: lockedFields.contains(.hits))
+                EuclideousStepsStepper(
+                    line: line, accent: accent, width: leftColW, height: rowHeight,
+                    onCommit: { newStep, mutate in editStep(idx, newStep, mutate) },
+                    onToggleValueBoxTap: {
+                        if stepsPickerLane == idx { stepsPickerLane = nil }
+                        else { stepsPickerLane = idx; restartEditorLane = nil }
+                    })
+            }
+            .frame(width: halfW, height: rowHeight)
+            VStack(spacing: sp4) {
+                EuclideousSlider(
+                    field: .offset, line: line, accent: accent, width: halfW, height: rightRowH, horizontal: true,
+                    touchPad: 2,
+                    onCommit: { mutate in edit(idx, mutate) },
+                    onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.offset, &$0) } },
+                    onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+                    topAlignLabelRow: true)
+                EuclideousSlider(
+                    field: .tilt, line: line, accent: accent, width: halfW, height: rightRowH, horizontal: true,
+                    touchPad: 2,
+                    onCommit: { mutate in edit(idx, mutate) },
+                    onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.tilt, &$0) } },
+                    onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+                    displayOverrideLine: lockedFields.contains(.tilt) ? followPartner : nil,
+                    listenFollowLocked: lockedFields.contains(.tilt),
+                    topAlignLabelRow: true, endLabels: ("EARLY", "LATE"))
+            }
+            .frame(width: halfW, height: rowHeight)
         }
         .frame(width: fullWidth, height: rowHeight)
     }
@@ -2027,7 +2168,12 @@ struct EuclideousPage: View {
                     }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { if idx < laneTab.count { laneTab[idx] = t } }
+                .onTapGesture {
+                    if idx < laneTab.count { laneTab[idx] = t }
+                    // §1.6: the STEPS picker and the restart editor both close when the card switches tab.
+                    if stepsPickerLane == idx { stepsPickerLane = nil }
+                    if restartEditorLane == idx { restartEditorLane = nil }
+                }
                 // A ringed cell is raised above its siblings so the ring (which grows past the cell) is never painted over.
                 .zIndex(t == .rhythm && outputCue(forLane: idx)?.cue == .ringRhythmTab ? 1 : 0)
             }
@@ -2043,14 +2189,30 @@ struct EuclideousPage: View {
     @ViewBuilder private func tabContent(_ idx: Int, _ line: EuclidLine, _ tab: EuclideousLaneTab, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         switch tab {
         case .rhythm:
-            // Exact-dimensions ferry (2026-10-13): the control block is 80pt (two 38pt rows + 4pt
-            // gap), not 84 — sliders now get the full 118pt the spec's own table gives them (at
-            // contentAreaH=202: 202−80−4=118, matching the table exactly).
+            // RESTART CHAINS ferry §1.1/§1.3: the control block stays 80pt (two 38pt rows + 4pt gap); the
+            // upper zone gets whatever's left (124pt at the reference contentAreaH=202).
             let patternBlockH: CGFloat = 80
-            let sliderH = max(1, contentAreaH - patternBlockH - sp4)
-            VStack(spacing: sp4) {
-                sliderRow(idx, line, accent, fullWidth: fullWidth, rowHeight: sliderH)
-                patternControlBlock(idx, line, accent, fullWidth: fullWidth)
+            let upperH = max(1, contentAreaH - patternBlockH - sp4)
+            let pickerEditorH = upperH + sp4 + patternBlockH
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: sp4) {
+                    rhythmUpperZone(idx, line, accent, fullWidth: fullWidth, rowHeight: upperH)
+                    patternControlBlock(idx, line, accent, fullWidth: fullWidth)
+                }
+                // §1.5/§1.7: the picker and the restart editor cover both zones, full content width, from
+                // the top of the upper zone — only one of the two open at a time (§1.6), and only built when
+                // the two zones together reach the spec's own 192pt floor (a too-short layout reports, builds
+                // neither — device/layout-size reporting is out of this code path's reach, so this silently
+                // just doesn't render rather than crashing; report any layout that hits it).
+                if pickerEditorH >= 192 {
+                    if stepsPickerLane == idx {
+                        stepsPicker(idx, line, accent, width: fullWidth, height: pickerEditorH)
+                    } else if restartEditorLane == idx {
+                        let geo = euclideousLaneStepGeometry(lines: lines, lane: idx, defaultRateBeats: 0.25)
+                        let lapBeats = Double(geo.cycleLen) * geo.sub
+                        restartEditor(idx, line, accent, width: fullWidth, height: pickerEditorH, lapBeats: lapBeats)
+                    }
+                }
             }
         case .riff:
             riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
@@ -2187,6 +2349,304 @@ struct EuclideousPage: View {
             .onTapGesture { edit(idx) { $0.patternMiss = !on } }
             .euclideousHelp("Play on the empty steps instead of the hits")
             .accessibilityLabel("Invert")
+    }
+
+    // MARK: - RESTART CHAINS (ferry 2026-10-19) — §6 tiles + editor, §3 STEPS picker
+
+    /// §6.1 — the two restart tiles (RHYTHM, MELODY), replacing the OUT A–D circles in the RHYTHM tab's
+    /// lower-right row (§9 moves OUT to MIX). Each opens the shared restart editor (§6.2, holds both chains).
+    private func restartTilesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat, fullWidth: CGFloat) -> some View {
+        let tileW = max(1, (fullWidth - sp4) / 2)
+        let rhythm = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
+        let melody = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
+        return HStack(spacing: sp4) {
+            restartTile(idx, chain: rhythm, name: "RHYTHM", unitSingular: "BAR", unitPlural: "bars", accent: accent, width: tileW, height: rowH)
+            restartTile(idx, chain: melody, name: "MELODY", unitSingular: "PASS", unitPlural: "passes", accent: accent, width: tileW, height: rowH)
+        }
+    }
+    private func restartTile(_ idx: Int, chain: EuclideousRestartChain, name: String, unitSingular: String, unitPlural: String, accent: Color, width: CGFloat, height: CGFloat) -> some View {
+        let text = euclideousRestartChainText(chain)
+        let showUnit = !chain.isFree && chain.count <= 3
+        return VStack(spacing: 3) {
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy))
+                Text(name).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
+            }
+            .foregroundColor(Color(hex: 0x8A909A))
+            HStack(alignment: .lastTextBaseline, spacing: 3) {
+                Text(text).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    .foregroundColor(chain.isFree ? Color(hex: 0xAAB0BA) : Color(hex: 0xF2F4F7))
+                if showUnit {
+                    Text(unitSingular.lowercased() == "bar" ? "BAR" : "PASS")
+                        .font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64)
+                        .foregroundColor(Color(hex: 0x8A909A))
+                }
+            }
+        }
+        .frame(width: width, height: height)
+        .background(RoundedRectangle(cornerRadius: 8).fill(chain.isFree ? Color(hex: 0x2A2D34) : lane20(accent)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(chain.isFree ? Color.clear : lane100(accent), lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            restartEditorLane = idx
+            stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
+        }
+        .accessibilityLabel(euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitSingular.lowercased(), unitPlural: unitPlural))
+        .accessibilityHint("Double-tap to edit")
+    }
+
+    /// §6.2 — the restart editor: both chains, each a FREE + 4-link row, a read-only 16-cell timeline and a hint line.
+    private func restartEditor(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat, lapBeats: Double) -> some View {
+        let rhythmChain = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
+        let melodyChain = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
+        let contentW = max(1, width - sp8 * 2)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                (Text("RESTARTS").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48).foregroundColor(Color(hex: 0xAAB0BA))
+                 + Text(" · TAP + TO ADD · TAP A LINK TO CHANGE IT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)))
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 4)
+                Button(action: { restartEditorLane = nil }) {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .heavy))
+                        .foregroundColor(Color(hex: 0xAAB0BA))
+                        .frame(width: 28, height: 20)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                }
+                .accessibilityLabel("Close the restart editor")
+            }
+            .frame(height: 20)
+            .padding(.leading, 4)
+            Spacer(minLength: sp4)
+            restartChainSection(idx, name: "RHYTHM", unitWord: "bar", chain: rhythmChain, rhythmChain: rhythmChain, accent: accent, isMelody: false, width: contentW, lapBeats: lapBeats)
+            Spacer(minLength: sp8)
+            restartChainSection(idx, name: "MELODY", unitWord: "pass", chain: melodyChain, rhythmChain: rhythmChain, accent: accent, isMelody: true, width: contentW, lapBeats: lapBeats)
+            Spacer(minLength: 0)
+        }
+        .padding(sp8)
+        .frame(width: width, height: height, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
+        .shadow(color: Color.black.opacity(0.5), radius: 8, x: 0, y: 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Restarts for lane \(idx + 1)")
+    }
+    private func euclideousRestartEditorSetChain(_ idx: Int, melody: Bool, links: [UInt8]) {
+        edit(idx) { l in if melody { l.restartMelodyPasses = links } else { l.restartRhythmBars = links } }
+    }
+    private func restartChainSection(_ idx: Int, name: String, unitWord: String, chain: EuclideousRestartChain, rhythmChain: EuclideousRestartChain, accent: Color, isMelody: Bool, width: CGFloat, lapBeats: Double) -> some View {
+        let labelW: CGFloat = 56
+        let btnGap: CGFloat = sp4
+        let btnsW = max(1, width - labelW - btnGap)
+        let btnW = max(1, (btnsW - btnGap * 4) / 5)
+        let rowH: CGFloat = 38
+        let isFree = chain.isFree
+        return VStack(alignment: .leading, spacing: sp4) {
+            HStack(spacing: btnGap) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(name).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.9).foregroundColor(Color(hex: 0xF2F4F7))
+                    Text("IN \(unitWord.uppercased())\(unitWord == "pass" ? "ES" : "S")").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
+                }
+                .padding(.leading, 4)
+                .frame(width: labelW, height: rowH, alignment: .leading)
+                Text("FREE").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
+                    .foregroundColor(isFree ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                    .frame(width: btnW, height: rowH)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(isFree ? lane20(accent) : Color(hex: 0x2A2D34)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(isFree ? lane100(accent) : Color.clear, lineWidth: 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !isFree { euclideousRestartEditorSetChain(idx, melody: isMelody, links: []) } }
+                    .accessibilityLabel("\(name.capitalized) restarts free")
+                ForEach(0..<4, id: \.self) { slot in
+                    restartLinkSlot(idx, isMelody: isMelody, chain: chain, slot: slot, unitWord: unitWord, accent: accent, width: btnW, height: rowH)
+                }
+            }
+            restartTimeline(chain: chain, rhythmChain: isMelody ? rhythmChain : chain, accent: accent, isMelody: isMelody, unitWord: unitWord, labelW: labelW, width: width, barBeats: clock.beatsPerBar, lapBeats: lapBeats)
+            restartHint(name: name, chain: chain, isMelody: isMelody, labelW: labelW, barBeats: clock.beatsPerBar, lapBeats: lapBeats)
+        }
+    }
+    private func restartLinkSlot(_ idx: Int, isMelody: Bool, chain: EuclideousRestartChain, slot: Int, unitWord: String, accent: Color, width: CGFloat, height: CGFloat) -> some View {
+        let count = chain.count
+        return Group {
+            if slot < count {
+                let v = Int(chain.link(slot))
+                Text("\(v)").font(.system(size: 15, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xF2F4F7))
+                    .frame(width: width, height: height)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(lane20(accent)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), lineWidth: 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        let ladder = [1, 2, 3, 4, 6, 8]
+                        var links = chain.links
+                        if let i = ladder.firstIndex(of: v), i + 1 < ladder.count {
+                            links[slot] = UInt8(ladder[i + 1])
+                        } else {
+                            links.remove(at: slot)
+                        }
+                        euclideousRestartEditorSetChain(idx, melody: isMelody, links: links)
+                    }
+                    .accessibilityLabel("\(isMelody ? "Melody" : "Rhythm") link \(slot + 1), \(v) \(unitWord)\(v == 1 ? "" : (unitWord == "pass" ? "es" : "s"))")
+                    .accessibilityHint("Double-tap for the next length")
+            } else if slot == count {
+                Text("+").font(.system(size: 15, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xAAB0BA))
+                    .frame(width: width, height: height)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        var links = chain.links
+                        links.append(1)
+                        euclideousRestartEditorSetChain(idx, melody: isMelody, links: links)
+                    }
+                    .accessibilityLabel("Add a \(isMelody ? "melody" : "rhythm") link")
+            } else {
+                RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+                    .frame(width: width, height: height)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+    /// §6.2 — the read-only 16-cell timeline. `unitWord` ("bar"/"pass") picks which clock (host bars vs this
+    /// lane's own passes) names the current unit; the MELODY timeline's pass index is read through the same
+    /// `euclideousPassIndex` the engine uses, so a non-FREE rhythm chain's own re-phasing is reflected here too.
+    private func restartTimeline(chain: EuclideousRestartChain, rhythmChain: EuclideousRestartChain, accent: Color, isMelody: Bool, unitWord: String, labelW: CGFloat, width: CGFloat, barBeats rawBarBeats: Double, lapBeats rawLapBeats: Double) -> some View {
+        let liveBeat = clock.anchor + Date().timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
+        let barBeats = max(0.0001, rawBarBeats)
+        let lapBeats = max(0.0001, rawLapBeats)
+        let currentUnit: Int = {
+            if isMelody { return Int(euclideousPassIndex(beat: liveBeat, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)) }
+            return Int((liveBeat / barBeats).rounded(.down))
+        }()
+        let windowStart = (currentUnit / 16) * 16
+        let cells = euclideousRestartTimelineCells(chain: chain, windowStartUnit: windowStart)
+        let cellsW = max(1, width - labelW - sp4)
+        let cellW = max(1, (cellsW - 2 * 15) / 16)
+        return HStack(spacing: sp4) {
+            Text("\(unitWord.uppercased()) \(windowStart + 1)\u{2013}\(windowStart + 16)")
+                .font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(0.42)
+                .foregroundColor(Color(hex: 0x5C626C)).lineLimit(1).truncationMode(.tail)
+                .padding(.leading, 4)
+                .frame(width: labelW, height: 14, alignment: .leading)
+            HStack(spacing: 2) {
+                ForEach(0..<16, id: \.self) { i in
+                    let c = cells[i]
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 3).fill(chain.isFree ? Color(hex: 0x2A2D34) : accent.opacity(c.shadeHigh ? 0.26 : 0.12))
+                        if c.isMark {
+                            RoundedRectangle(cornerRadius: 1).fill(accent).frame(width: 2.5, height: 10).padding(.leading, 1.5).padding(.top, 2)
+                        }
+                        if windowStart + i == currentUnit {
+                            RoundedRectangle(cornerRadius: 3).stroke(Color(hex: 0xF2F4F7), lineWidth: 1)
+                        }
+                    }
+                    .frame(width: cellW, height: 14)
+                }
+            }
+        }
+        .accessibilityHidden(true)   // §13.5: the timeline is announced as one static text element by the hint/axis label together, not cell by cell
+    }
+    /// §6.2 — the hint line, one of six fixed messages depending on FREE / exactly-1 / other / "changes nothing".
+    private func restartHint(name: String, chain: EuclideousRestartChain, isMelody: Bool, labelW: CGFloat, barBeats: Double, lapBeats: Double) -> some View {
+        let text: String
+        let color: Color
+        if chain.isFree {
+            text = isMelody ? "FREE: THE RIFF RUNS ON ACROSS PASSES" : "FREE: THE PATTERN NEVER STARTS OVER EARLY"
+            color = Color(hex: 0x8A909A)
+        } else if isMelody {
+            text = chain.isSingleLink1 ? "EVERY PASS: WHAT LOCK USED TO DO" : "BACK TO THE RIFF\u{2019}S FIRST NOTE AT EACH MARK"
+            color = Color(hex: 0x8A909A)
+        } else if euclideousRhythmChainChangesNothing(chain, barBeats: barBeats, lapBeats: lapBeats) {
+            text = "NO CHANGE: EVERY MARK LANDS ON STEP 1 ANYWAY"
+            color = Color(hex: 0xFFB454)
+        } else {
+            text = "BACK TO STEP 1 AT EACH MARK, CUTTING LAPS SHORT"
+            color = Color(hex: 0x8A909A)
+        }
+        return Text(text).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48)
+            .foregroundColor(color).lineLimit(1).truncationMode(.tail)
+            .padding(.leading, labelW + sp4)
+    }
+
+    /// §3 — the STEPS picker: 15 cells (lengths 2–16), each previewing this lane's rhythm.
+    private func stepsPicker(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
+        let contentW = max(1, width - sp8 * 2)
+        let contentH = max(1, height - sp8 * 2)
+        let headerH: CGFloat = 20
+        let gridH = max(1, contentH - headerH - sp4)
+        let cellGap: CGFloat = sp4
+        let cellW = max(1, (contentW - cellGap * 4) / 5)
+        let cellH = max(1, (gridH - cellGap * 2) / 3)
+        let lengths = Array(2...16)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                (Text("STEPS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.9).foregroundColor(Color(hex: 0xAAB0BA))
+                 + Text(" · TAP A LENGTH").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Button(action: { stepsPickerLane = nil }) {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .heavy))
+                        .foregroundColor(Color(hex: 0xAAB0BA))
+                        .frame(width: 28, height: 20)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                }
+                .accessibilityLabel("Close the steps picker")
+            }
+            .frame(height: headerH)
+            .padding(.leading, 4)
+            Spacer(minLength: sp4)
+            VStack(spacing: cellGap) {
+                ForEach(0..<3, id: \.self) { row in
+                    HStack(spacing: cellGap) {
+                        ForEach(0..<5, id: \.self) { col in
+                            let length = lengths[row * 5 + col]
+                            stepsPickerCell(idx, line, accent, length: length, width: cellW, height: cellH)
+                        }
+                    }
+                }
+            }
+            .frame(height: gridH)
+        }
+        .padding(sp8)
+        .frame(width: width, height: height)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
+        .shadow(color: Color.black.opacity(0.5), radius: 8, x: 0, y: 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Choose how many steps")
+    }
+    private func stepsPickerCell(_ idx: Int, _ line: EuclidLine, _ accent: Color, length: Int, width: CGFloat, height: CGFloat) -> some View {
+        let isCurrent = length == line.steps
+        let pattern: [Bool] = isCurrent
+            ? (line.customHitsResolved(length) ?? euclideousStepsPickerPreview(line, length: length))
+            : euclideousStepsPickerPreview(line, length: length)
+        let hits = pattern.filter { $0 }.count
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 6).fill(isCurrent ? lane20(accent) : Color(hex: 0x2A2D34))
+            if isCurrent { RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), lineWidth: 1) }
+            Text("\(length)").font(.system(size: 15, weight: .heavy, design: .monospaced))
+                .foregroundColor(isCurrent ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                .frame(height: 18)
+                .padding(.leading, 7).padding(.top, 6)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(stride(from: 0, to: pattern.count, by: 8)), id: \.self) { rowStart in
+                    HStack(spacing: 1.5) {
+                        ForEach(rowStart..<min(rowStart + 8, pattern.count), id: \.self) { i in
+                            RoundedRectangle(cornerRadius: 1).fill(pattern[i] ? lane100(accent) : Color(hex: 0x4A4E57))
+                                .frame(width: 4.6, height: 6)
+                        }
+                    }
+                }
+            }
+            .padding(.leading, 7).padding(.bottom, 7)
+            .frame(width: width, height: height, alignment: .bottomLeading)
+        }
+        .frame(width: width, height: height)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            edit(idx) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(length)) }
+            stepsPickerLane = nil
+        }
+        .accessibilityLabel("\(length) steps, \(hits) hits\(isCurrent ? ", current length" : "")")
     }
 
     /// EMITTER TOGGLES A–D, equal width (ferry §5/§6/§7). A SIMPLIFICATION from the old `laneOutRow`'s
@@ -2412,7 +2872,9 @@ struct EuclideousPage: View {
                 // judgment call that didn't survive a direct re-check against the ferry's own text; DIRECTION
                 // absorbs the freed width via its existing `.frame(maxWidth: .infinity)`.
             }
-            laneOutRow(idx, line, accent, rowH: rowH)
+            // RESTART CHAINS ferry §1.4/§6.1: replaces the OUT A–D circles (moved to MIX, §9) with the two
+            // restart tiles.
+            restartTilesRow(idx, line, accent, rowH: rowH, fullWidth: halfW)
         }
         .frame(width: halfW, height: blockH)
 
@@ -3281,10 +3743,18 @@ struct EuclideousPage: View {
     // A FOLLOWing lane's own OFFSET applies ON TOP of its partner's pattern, and the partner is in this "all lanes" set too — so
     // shifting both would shift the follower TWICE. A follower inherits the move through its partner instead.
     private func euclideousApplyAllRhythmX(_ d: Int) {
-        onEdit { lines in for i in lines.indices where euclideousFollowPartner(lane: i, lines: lines) == nil { let n = max(2, min(16, lines[i].steps)); lines[i].rotate = ((lines[i].rotate - d) % n + n) % n } }
+        // §2.5: the all-lanes drag is also an OFFSET writer — stores the displayed (mirrored) offset too.
+        onEdit { lines in for i in lines.indices where euclideousFollowPartner(lane: i, lines: lines) == nil {
+            let n = max(2, min(16, lines[i].steps)); lines[i].rotate = ((lines[i].rotate - d) % n + n) % n
+            let r = ((lines[i].rotate % n) + n) % n; lines[i].offsetRequested = (n - r) % n
+        } }
     }
     private func euclideousApplyAllRhythmY(_ d: Int) {
-        onEdit { lines in for i in lines.indices { let n = max(2, min(16, lines[i].steps)); lines[i].pulses = max(0, min(n, lines[i].pulses + d)) } }
+        // §2.5: the all-lanes drag is also a HITS writer — stores what was actually asked for too.
+        onEdit { lines in for i in lines.indices {
+            let n = max(2, min(16, lines[i].steps)); lines[i].pulses = max(0, min(n, lines[i].pulses + d))
+            lines[i].hitsRequested = lines[i].pulses
+        } }
     }
     /// Captures the gesture-start snapshot ONCE (the first non-nil point of a NEW gesture — `onDragState`
     /// reports a non-nil point on every `.changed` tick, so a naive "always capture" would silently re-
