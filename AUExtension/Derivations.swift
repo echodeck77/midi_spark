@@ -5105,8 +5105,7 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
                                        utilities: 3 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
 }
 
-/// The landscape page's column split — ONE definition for the body (`landscapeLayout`) and the header (which wants the
-/// riff panel's leading edge and the lane grid's centre). Container coordinates: 0 = the container's leading edge.
+// TEMPORARY (removed by the next commit, when the views move to the page layout): the old landscape column split.
 struct EuclideousLandscapeColumns: Equatable {
     var riffColW: CGFloat, laneColW: CGFloat, riffLeadingX: CGFloat, laneCentreX: CGFloat
 }
@@ -5129,17 +5128,27 @@ struct EuclideousHeaderLayout: Equatable {
 }
 private func headerClamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo > hi ? lo : min(max(v, lo), hi) }
 
+/// The header's layout A / B / C for a container width — the ladder's ONE decision (A: landscape and wide enough for all four groups on one
+/// row; B: two rows; C: two compact rows when even B won't fit). It depends only on the width and the orientation, never on where the gutter
+/// or the riff panel sit, so the page layout can take the kind as an input and the header can then take its positions from the page layout.
+func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool) -> EuclideousHeaderLayout.Kind {
+    let full = euclideousHeaderGroupWidths(compact: false)
+    let aNeeds = full.brand + full.outputs + full.notes + full.utilities + 3 * full.gap
+    let bNeeds = full.brand + full.outputs + full.utilities + 2 * full.gap
+    if isLandscape && containerW >= aNeeds { return .a }
+    return containerW < bNeeds ? .c : .b
+}
+
 /// The first layout that fits `containerW` (page width − sp16 × 2). `riffLeadingX` / `laneCentreX` are in container
-/// coordinates (see `euclideousLandscapeColumns`; portrait passes the container centre for `laneCentreX`). Portrait
+/// coordinates (the page layout's `riffLeadingX` / `laneCentreX`, which are the riff panel's x and the lane gutter's x less the page margin). Portrait
 /// never uses A. Positions are solved with ONE clamp per group, so no combination of slides can leave two groups
 /// closer than their stated gap while the layout still "fits". The RINGS (not the OUTPUTS group with its caption) are what
 /// centre on `laneCentreX` (spec §2.3), so the group's x is `laneCentreX − outputsLead − ringsSpan/2`, then clamped.
 func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX: CGFloat, laneCentreX: CGFloat) -> EuclideousHeaderLayout {
     typealias M = EuclideousHeaderMetrics
     let full = euclideousHeaderGroupWidths(compact: false)
-    let aNeeds = full.brand + full.outputs + full.notes + full.utilities + 3 * full.gap
-    let bNeeds = full.brand + full.outputs + full.utilities + 2 * full.gap
-    if isLandscape && containerW >= aNeeds {
+    let kind = euclideousHeaderKind(containerW: containerW, isLandscape: isLandscape)
+    if kind == .a {
         let uX = containerW - full.utilities
         // NOTES: on the riff panel's leading edge, slid left until it clears UTILITIES by sp16 — but never so far left
         // that the rings (and BRAND) lose their own room.
@@ -5149,13 +5158,141 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
                                       brand: .init(x: 0, width: full.brand, row: 0), outputs: .init(x: ringsX, width: full.outputs, row: 0),
                                       notes: .init(x: notesX, width: full.notes, row: 0), utilities: .init(x: uX, width: full.utilities, row: 0))
     }
-    let compact = containerW < bNeeds
+    let compact = kind == .c
     let w = compact ? euclideousHeaderGroupWidths(compact: true) : full
     let uX = containerW - w.utilities
     let ringsX = headerClamp(laneCentreX - w.outputsLead - w.ringsSpan / 2, w.brand + w.gap, uX - w.gap - w.outputs)
     return EuclideousHeaderLayout(kind: compact ? .c : .b, widths: w,
                                   brand: .init(x: 0, width: w.brand, row: 0), outputs: .init(x: ringsX, width: w.outputs, row: 0),
                                   notes: .init(x: 0, width: w.notes, row: 1), utilities: .init(x: uX, width: w.utilities, row: 0))
+}
+
+// MARK: - PAGE LAYOUT (ferry "Page layout: six equal boxes in both orientations", ratified 2026-10-19)
+//
+// ONE pure function takes the view's size (as the view reports it — never the screen, the window, a reference width or a minimum) and the
+// header's layout kind and returns the six boxes: lane cards 1–4, the riff panel and the MIX | LANES | FX panel. All six are the same size.
+// Landscape is three columns by two rows (lane 1 · lane 2 · riff / lane 3 · lane 4 · panel); portrait is two columns by three (lane 1 · lane 2 /
+// lane 3 · lane 4 / riff · panel). Everything that places or sizes a box reads this; every formula that depends on a box (the lane card's zones,
+// the riff grid's rows and columns, MIX's grid, FX's rows, LANES' blocks) takes its size from the box — nothing measured from content changes a
+// box's size. No ScrollView, nothing clipped, no minimumScaleFactor (house rules): a size under a floor is drawn at the formula's values and
+// REPORTED (`floors`), never shrunk.
+
+enum EuclideousPageMetrics {
+    /// Left, right and bottom margins; the gap between boxes, both ways.
+    static let margin: CGFloat = 16
+    static let gap: CGFloat = 8
+    /// The boxes' top edge: sp16 below the header's controls (32pt, centred in the 44pt rows). Layout A (one row): the controls end at y 47 → 63,
+    /// rounded to the 8pt grid = 64. Layouts B and C: row 2's controls end at y 95 → 111 (row 2's controls sit at y 63–95 in source).
+    static let topOneRowHeader: CGFloat = 64
+    static let topTwoRowHeader: CGFloat = 111
+    static func top(_ kind: EuclideousHeaderLayout.Kind) -> CGFloat { kind == .a ? topOneRowHeader : topTwoRowHeader }
+}
+
+/// A lane card's fixed rows, hoisted out of the view so the page's floor list and the card draw from the same numbers: the comet row (44), the
+/// tab row (28), the 10pt inset on every side and two 6pt gaps leave `contentAreaH = card height − 104` for the lane tab (RHYTHM: lower zone 80,
+/// upper zone the rest = card height − 188).
+enum EuclideousLaneCardMetrics {
+    static let inset: CGFloat = 10, rowGap: CGFloat = 6, cometRowH: CGFloat = 44, tabRowH: CGFloat = 28
+    /// RHYTHM's picker / restart editor covers both zones and is built only when they reach this (`tabContent`).
+    static let rhythmZonesFloor: CGFloat = 192
+    static var chromeH: CGFloat { cometRowH + tabRowH + inset * 2 + rowGap * 2 }
+    static func innerWidth(cardWidth: CGFloat) -> CGFloat { max(1, cardWidth - inset * 2) }
+    static func contentAreaH(cardHeight: CGFloat) -> CGFloat { max(1, cardHeight - chromeH) }
+}
+
+/// The riff panel's chrome: sp8 padding all round, the riff tab row (29 tall — the 23pt mini icon + 3pt above and below), sp4, then eight rows
+/// with 4pt between. The grid's rows take what's left of the box.
+enum EuclideousRiffPanelMetrics {
+    static let padding: CGFloat = 8, tabRowH: CGFloat = 29, tabGap: CGFloat = 4, rowGap: CGFloat = 4
+    /// The row-height floor the page REPORTS under (it is never enforced when drawing).
+    static let minRowH: CGFloat = 24
+    /// Everything but the eight rows' own height: 16 + 29 + 4 + 7 × 4.
+    static var chromeH: CGFloat { padding * 2 + tabRowH + tabGap + rowGap * 7 }
+}
+/// The riff panel's height for a given grid row height, and its inverse — ONE pair, so the panel's frame and its rows can never disagree.
+func euclideousRiffPanelHeight(rowH: CGFloat) -> CGFloat { EuclideousRiffPanelMetrics.chromeH + rowH * 8 }
+func euclideousRiffRowH(panelHeight: CGFloat) -> CGFloat { (panelHeight - EuclideousRiffPanelMetrics.chromeH) / 8 }
+
+/// The bottom-right panel's tab body (what LANES and FX are laid out in): the panel less sp8 padding all round, the 20pt tab row and the sp4 gap.
+func euclideousSeqTabBodySize(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
+    let pad = EuclideousMixMetrics.sp8 * 2
+    return CGSize(width: max(1, panelWidth - pad), height: max(1, panelHeight - pad - EuclideousMixMetrics.tabRowH - EuclideousMixMetrics.sp4))
+}
+
+/// A floor some box's contents fall under (§5.2). A flag, never a clamp.
+enum EuclideousPageFloor: Equatable, Hashable {
+    case rhythmZones                 // card tab content < 192 (RHYTHM's two zones)
+    case riffRowA, riffDirectionRow, riffLowerRows, riffDirectionButtons   // the RIFF tab ferry's floors: 82 · 32 · 32 · 40 wide
+    case mixCellW, mixPadH, mixPadHStop   // MIX: cellW < 84 · padH < 76 · padH < 60
+    case riffRows                    // riff grid rows < 24
+    case fxRows                      // FX rows < 24
+}
+
+/// Which floors a box of this size falls under. Every flagged item is still drawn at the formula's values.
+func euclideousPageFloors(box: CGSize) -> [EuclideousPageFloor] {
+    var out: [EuclideousPageFloor] = []
+    let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: box.height)
+    if contentH < EuclideousLaneCardMetrics.rhythmZonesFloor { out.append(.rhythmZones) }
+    let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: box.width))
+    if r.rowAHeight < 82 { out.append(.riffRowA) }
+    if r.directionRowHeight < 32 { out.append(.riffDirectionRow) }
+    if r.lowerRowHeight < 32 { out.append(.riffLowerRows) }
+    if r.directionButtonWidth < 40 { out.append(.riffDirectionButtons) }
+    let area = euclideousMixGridArea(panelWidth: box.width, panelHeight: box.height)
+    let g = euclideousMixGrid(width: area.width, height: area.height)
+    if g.cellW < EuclideousMixMetrics.minCellW { out.append(.mixCellW) }
+    if g.padH < EuclideousMixMetrics.minPadH { out.append(.mixPadH) }
+    if g.padH < EuclideousMixMetrics.floorPadH { out.append(.mixPadHStop) }
+    if euclideousRiffRowH(panelHeight: box.height) < EuclideousRiffPanelMetrics.minRowH { out.append(.riffRows) }
+    let body = euclideousSeqTabBodySize(panelWidth: box.width, panelHeight: box.height)
+    if euclideousFXRowH(contentHeight: body.height) < EuclideousFXLayout.minRowH { out.append(.fxRows) }
+    return out
+}
+
+struct EuclideousPageLayout: Equatable {
+    var isLandscape: Bool
+    var headerKind: EuclideousHeaderLayout.Kind
+    /// The one box size (all six frames have it).
+    var box: CGSize
+    /// Lane cards 1–4, the riff panel and the MIX | LANES | FX panel, in page coordinates (0,0 = the view's top-left).
+    var lanes: [CGRect]
+    var riff: CGRect
+    var seq: CGRect
+    /// The lane gutter's centre x — the output rings centre on it (§1.6).
+    var gutterX: CGFloat
+    var floors: [EuclideousPageFloor]
+    /// The same two numbers in the header's CONTAINER coordinates (0 = the page margin), which is what `euclideousHeaderLayout` takes.
+    var riffLeadingX: CGFloat { riff.minX - EuclideousPageMetrics.margin }
+    var laneCentreX: CGFloat { gutterX - EuclideousPageMetrics.margin }
+}
+
+/// The page's six boxes for a view of `size` and a header of `headerKind`. Orientation is the view's own: strictly wider than tall is landscape.
+func euclideousPageLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind) -> EuclideousPageLayout {
+    typealias P = EuclideousPageMetrics
+    let landscape = size.width > size.height
+    let top = P.top(headerKind)
+    let cw: CGFloat, rh: CGFloat
+    if landscape {
+        cw = max(1, (size.width - P.margin * 2 - P.gap * 2) / 3)
+        rh = max(1, (size.height - top - P.margin - P.gap) / 2)
+    } else {
+        cw = max(1, (size.width - P.margin * 2 - P.gap) / 2)
+        rh = max(1, (size.height - top - P.margin - P.gap * 2) / 3)
+    }
+    func frame(_ col: Int, _ row: Int) -> CGRect {
+        CGRect(x: P.margin + CGFloat(col) * (cw + P.gap), y: top + CGFloat(row) * (rh + P.gap), width: cw, height: rh)
+    }
+    let lanes = [frame(0, 0), frame(1, 0), frame(0, 1), frame(1, 1)]
+    let riff = landscape ? frame(2, 0) : frame(0, 2)
+    let seq = landscape ? frame(2, 1) : frame(1, 2)
+    let box = CGSize(width: cw, height: rh)
+    return EuclideousPageLayout(isLandscape: landscape, headerKind: headerKind, box: box, lanes: lanes, riff: riff, seq: seq,
+                                gutterX: P.margin + cw + P.gap / 2, floors: euclideousPageFloors(box: box))
+}
+/// `euclideousPageLayout` with the header kind taken from the header's own ladder for this view width — what the page itself calls.
+func euclideousPageLayout(size: CGSize) -> EuclideousPageLayout {
+    let kind = euclideousHeaderKind(containerW: size.width - EuclideousPageMetrics.margin * 2, isLandscape: size.width > size.height)
+    return euclideousPageLayout(size: size, headerKind: kind)
 }
 
 // MARK: - MIX TAB (ferry 2026-10-18): gate, velocity and octave for every layer
@@ -5338,7 +5475,8 @@ enum EuclideousMixMetrics {
     static let velStripW: CGFloat = 24
     static let gateStripH: CGFloat = 14
     static let puckInset: CGFloat = 7
-    /// §9.3: below either, REPORT with the panel size — never shrink anything (never build below padH 60).
+    /// §9.3: below either, REPORT with the panel size — never shrink anything. PAGE LAYOUT ferry (2026-10-19) retired §9.3's STOP: below padH 60 MIX
+    /// is still drawn, at the formula's values (never an empty panel); `floorPadH` is now only a flag the page's floor list raises.
     static let minCellW: CGFloat = 84, minPadH: CGFloat = 76, floorPadH: CGFloat = 60
 }
 /// The grid area (inside the panel's sp8 padding, below the 20pt tab row + sp8) for a panel of this size.
@@ -7110,13 +7248,15 @@ extension EuclideousFXRow {
 let euclideousFXHintText = "TAP: ON/OFF · DRAG ALONG: PAINT · DRAG UP/DOWN: VALUE · DOUBLE-TAP: RESET"
 
 /// §10: positions inside the panel's CONTENT (the panel's own 8pt padding already taken off; y 0 = the top of the strip, which sits under the tab row).
-/// Strip 24 · 4 · header 14 · 4 · six rows 29 tall 4 apart · 4 · hint 16 = 260 at the reference. A shorter panel gives every row an equal share of the missing
-/// height down to 24pt (§10.4's floor); nothing below that is shrunk.
+/// Strip 24 · 4 · header 14 · 4 · six rows 4 apart · 4 · hint 16. PAGE LAYOUT ferry (2026-10-19): the rows no longer have a fixed 29pt — they SHARE the
+/// panel's height, `rowH = (content height − 86) / 6`, so the hint always ends sp8 above the panel's bottom (29 at a 260-tall content area, as before);
+/// never below 24 (§10.4's floor — a shorter panel is drawn at 24 and REPORTED by the page's floor list, nothing is shrunk). There is no upper cap.
 struct EuclideousFXLayout: Equatable {
     static let labelW: CGFloat = 30, gap: CGFloat = 4, colGap: CGFloat = 4
     static let stripH: CGFloat = 24, headerH: CGFloat = 14, hintH: CGFloat = 16, rowGap: CGFloat = 4
-    static let fullRowH: CGFloat = 29, minRowH: CGFloat = 24, bandPad: CGFloat = 2
-    static let fullHeight: CGFloat = 260
+    static let minRowH: CGFloat = 24, bandPad: CGFloat = 2
+    /// Everything but the six rows' own height: strip, 4, header, 4, five 4pt row gaps, 4, hint = 86.
+    static let fixedHeight: CGFloat = stripH + rowGap + headerH + rowGap + rowGap * 5 + rowGap + hintH
     let width: CGFloat
     let height: CGFloat
     let cellW: CGFloat
@@ -7138,10 +7278,11 @@ struct EuclideousFXLayout: Equatable {
 }
 /// `width` is the panel CONTENT width (the panel's width − 16); the riff grid's `maxWidth` is that plus the grid's own 8pt padding on each side.
 func euclideousFXLayout(width: CGFloat, height: CGFloat) -> EuclideousFXLayout {
-    let missing = max(0, EuclideousFXLayout.fullHeight - height)
-    let rowH = min(EuclideousFXLayout.fullRowH, max(EuclideousFXLayout.minRowH, EuclideousFXLayout.fullRowH - missing / 6))
+    let rowH = max(EuclideousFXLayout.minRowH, euclideousFXRowH(contentHeight: height))
     return EuclideousFXLayout(width: width, height: height, cellW: euclideousRiffCellW(maxWidth: width + 16), rowH: rowH)
 }
+/// The six rows' shared height for a content area of `contentHeight`, BEFORE the 24pt floor — what the page's floor list compares against 24.
+func euclideousFXRowH(contentHeight: CGFloat) -> CGFloat { (contentHeight - EuclideousFXLayout.fixedHeight) / 6 }
 
 enum EuclideousFXTarget: Equatable { case rail(row: Int), cell(row: Int, col: Int) }
 /// §12.4: hit-test with the cellW and gap the grid draws with, each cell's area reaching 2pt into the gaps on every side (the gaps are 4: fully claimed).

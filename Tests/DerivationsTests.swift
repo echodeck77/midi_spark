@@ -4079,12 +4079,15 @@ final class DerivationsTests: XCTestCase {
 
     // §10.3 — the layout ladder.
     private typealias HM = EuclideousHeaderMetrics
+    /// PAGE LAYOUT ferry (2026-10-19): the header's two positional inputs come from the PAGE layout (the riff panel's x and the lane gutter's centre,
+    /// less the page margin) — the old 36% landscape column split is gone. `pageFor` builds the page a header of this container width sits over (the
+    /// height is synthetic: any value that keeps the orientation).
+    private func pageFor(_ containerW: CGFloat, landscape: Bool) -> EuclideousPageLayout {
+        euclideousPageLayout(size: CGSize(width: containerW + 32, height: landscape ? 600 : containerW + 432))
+    }
     private func hdrLayout(_ containerW: CGFloat, landscape: Bool) -> EuclideousHeaderLayout {
-        if landscape {
-            let c = euclideousLandscapeColumns(containerW: containerW)
-            return euclideousHeaderLayout(containerW: containerW, isLandscape: true, riffLeadingX: c.riffLeadingX, laneCentreX: c.laneCentreX)
-        }
-        return euclideousHeaderLayout(containerW: containerW, isLandscape: false, riffLeadingX: 0, laneCentreX: containerW / 2)
+        let p = pageFor(containerW, landscape: landscape)
+        return euclideousHeaderLayout(containerW: containerW, isLandscape: landscape, riffLeadingX: p.riffLeadingX, laneCentreX: p.laneCentreX)
     }
     /// no two groups on a row closer than the layout's gap; nothing past either container edge.
     private func assertHeaderInvariants(_ l: EuclideousHeaderLayout, _ containerW: CGFloat, _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
@@ -4123,21 +4126,23 @@ final class DerivationsTests: XCTestCase {
     // WIDENED from 1158 → 1300 (2026-10-17, UTILITIES grew from 2 to 3 icons — the SWING icon — so the
     // fully-unclamped "comfortable A" case now needs a wider container; 1158 now lands in the SLID case
     // the sibling test below covers).
-    func testFourfoldLayoutAAt1300PutsNotesOnTheRiffPanelAndRingsOnTheLaneGutter() {
-        let l = hdrLayout(1300, landscape: true)
+    // WIDENED again 1300 → 1500 (PAGE LAYOUT ferry, 2026-10-19): the riff panel is now the THIRD of three equal columns (it started 36% in), so NOTES only
+    // sits unclamped on its leading edge once the container is wide enough that the three utility icons don't push it left.
+    func testFourfoldLayoutAAt1500PutsNotesOnTheRiffPanelAndRingsOnTheLaneGutter() {
+        let l = hdrLayout(1500, landscape: true)
         XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
-        let cols = euclideousLandscapeColumns(containerW: 1300)
-        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1300, accuracy: 1e-9)
+        let cols = pageFor(1500, landscape: true)
+        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1500, accuracy: 1e-9)
         XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
-        XCTAssertEqual(ringsCentre(l), cols.laneCentreX, accuracy: 1e-9, "the RINGS (not the caption-inclusive group) centred on the lane grid's centre (the 2×2's vertical gutter)")
+        XCTAssertEqual(ringsCentre(l), cols.laneCentreX, accuracy: 1e-9, "the RINGS (not the caption-inclusive group) centred on the lane gutter (between lane columns 1 and 2)")
         XCTAssertNotEqual(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, "…so the caption-inclusive group is NOT what's centred")
-        assertHeaderInvariants(l, 1300, "A@1300")
+        assertHeaderInvariants(l, 1500, "A@1500")
     }
     // WIDENED from 868 → 900 for the same reason as the test above — 900 is where the 3-icon UTILITIES
     // formula now reproduces the same "A, but both groups had to slide" case 868 used to demonstrate.
     func testFourfoldLayoutASlidesNotesAndRingsAt900() {
         let l = hdrLayout(900, landscape: true)
-        let cols = euclideousLandscapeColumns(containerW: 900)
+        let cols = pageFor(900, landscape: true)
         XCTAssertEqual(l.kind, .a)
         XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
         XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), 16, accuracy: 1e-9)
@@ -4172,7 +4177,7 @@ final class DerivationsTests: XCTestCase {
         assertHeaderInvariants(b, 900, "B@900")
         // A landscape window too narrow for A: B uses the LANE column's gutter, not the container's centre.
         let lb = hdrLayout(760, landscape: true)
-        let cols = euclideousLandscapeColumns(containerW: 760)
+        let cols = pageFor(760, landscape: true)
         XCTAssertEqual(lb.kind, .b)
         XCTAssertEqual(ringsCentre(lb), max(cols.laneCentreX, lb.widths.brand + lb.widths.gap + lb.widths.outputsLead + lb.widths.ringsSpan / 2), accuracy: 1e-9)
         assertHeaderInvariants(lb, 760, "B@760 landscape")
@@ -4708,12 +4713,12 @@ final class DerivationsTests: XCTestCase {
         let area = euclideousMixGridArea(panelWidth: 417, panelHeight: 308)
         XCTAssertEqual(area.width, 401); XCTAssertEqual(area.height, 264)
     }
-    // §9.3 — the floors are REPORTED (never shrunk): portrait panels are always short, narrow landscape panels are narrow;
-    // below padH 60, MIX isn't built for that layout at all (§9.3, new — replaces the old "never shrunk" rule's own floor-less reporting).
+    // §9.3 — the floors are REPORTED (never shrunk). PAGE LAYOUT ferry (2026-10-19) retired §9.3's STOP: below padH 60 MIX is still DRAWN at the
+    // formula's values (the old 393 × 248 portrait panel, padH 46, is what used to draw nothing); the flags below are what the page's floor list raises.
     func testMixGridFlagsPanelsBelowTheLegibilityFloors() {
         let portrait = euclideousMixGrid(width: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).width, height: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).height)
         XCTAssertEqual(portrait.padH, 46, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 46 < 76")
-        XCTAssertLessThan(portrait.padH, EuclideousMixMetrics.floorPadH, "…and below the §9.3 60pt build floor too")
+        XCTAssertLessThan(portrait.padH, EuclideousMixMetrics.floorPadH, "…and below the 60pt flag too (no longer a stop)")
         let narrow = euclideousMixGridArea(panelWidth: 357.12, panelHeight: 333.5)
         XCTAssertTrue(euclideousMixGrid(width: narrow.width, height: narrow.height).belowFloors, "1024-wide landscape: cellW 81.3 < 84")
         let ok = euclideousMixGridArea(panelWidth: 416.88, panelHeight: 312.25)

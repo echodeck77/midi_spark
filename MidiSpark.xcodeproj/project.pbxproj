@@ -18,6 +18,7 @@
 		180727125096C44442B220D3 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
 		1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */; };
 		1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */; };
+		1CD11205DFE28DBF0E1C4396 /* PageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF035CA65CFDFF5CAA7ED84D /* PageLayoutTests.swift */; };
 		1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */; };
 		282189AB3D697A6FA80FB740 /* AcceptanceTuttiLengthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */; };
 		2862323D03259AC99DF87345 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
@@ -180,6 +181,7 @@
 		A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildGridSelector.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTestMetaTests.swift; sourceTree = "<group>"; };
+		AF035CA65CFDFF5CAA7ED84D /* PageLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLayoutTests.swift; sourceTree = "<group>"; };
 		AF2C4528E7A184FABB7EF270 /* EditPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPage.swift; sourceTree = "<group>"; };
 		AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclidLaneUI.swift; sourceTree = "<group>"; };
 		B049851538F9CC0979176A1D /* MidiSparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidiSparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -255,6 +257,7 @@
 				EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */,
 				F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */,
 				91BA15AAFC801CACFECA4085 /* MigrationTests.swift */,
+				AF035CA65CFDFF5CAA7ED84D /* PageLayoutTests.swift */,
 				72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */,
 				EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */,
 				CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */,
@@ -582,6 +585,7 @@
 				3E9FF95A517649C43ED0D955 /* MidiFileTests.swift in Sources */,
 				7EA1C8DA4E957BD8D6316445 /* MigrationTests.swift in Sources */,
 				B6CE33CA239BE671207C2E10 /* Models.swift in Sources */,
+				1CD11205DFE28DBF0E1C4396 /* PageLayoutTests.swift in Sources */,
 				E4A4FB320ACDA110C13DC8B5 /* PresetStore.swift in Sources */,
 				9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */,
 				EBAECBA5B3E3F98B83E42E48 /* ReelDeckTests.swift in Sources */,

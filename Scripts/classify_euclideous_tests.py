@@ -31,6 +31,7 @@ EXCLUSIVE_FILES = {
     "FXTabTests.swift",
     "LanesGridTests.swift",
     "RestartChainsTests.swift",
+    "PageLayoutTests.swift",
 }
 
 # Mixed files worth scanning function-by-function: the shared engine (Router/Derivations) plus
