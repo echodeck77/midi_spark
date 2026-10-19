@@ -241,7 +241,7 @@ the same pipeline as any other row; it is not a special-cased render path.
 - **FX tab (2026-10-18).** Third tab of the sequencer panel (landscape only — portrait's panel sits beside the riff grid and is 248pt tall, so the spec's
   own stop applies; the tab is hidden there). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
   `SnapParams.euclideousFX` → Router. **ONE decision function** `euclideousFXApply` (Derivations.swift) decides what the rows do to a hit; the Router, the TIE
-  lookahead, the LANES roll, the flash and VoiceOver all call it — change the rule THERE. The NOTE pass index is `euclideousFXPassIndex` (a pure function of
+  lookahead, the LANES roll and the flash all call it (VoiceOver reads the cells' values directly — there is no per-hit decision for it to make) — change the rule THERE. The NOTE pass index is `euclideousFXPassIndex` (a pure function of
   the beat; LOCK in closed form). RATCH reuses the mask RATCHET's deferred-strike engine (`pushEchoTail`) with n exact; CC goes through `emitModCC(force:)`
   with the notes' own channel stamp. The tab's columns come from `euclideousRiffCellW` — the riff grid's own function — and every UI number is a pure
   `euclideousFX*` function; `FXPanelPainter.swift` only paints them. A moved NOTE rank folds through `riffResolveExtended` (rank 0 is never a rest).

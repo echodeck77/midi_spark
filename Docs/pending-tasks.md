@@ -5,9 +5,9 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
-## ★ EUCLIDEOUS — "FX tab (six fixed effect rows on the riff's steps)" — SHIPPED (2026-10-18; LANDED on `feature/fx-tab`, macOS 1693 green, iOS builds clean)
+## ★ EUCLIDEOUS — "FX tab (six fixed effect rows on the riff's steps)" — SHIPPED (2026-10-18; LANDED on `feature/fx-tab`, macOS 1701 green, iOS builds clean)
 — a third tab FX after MIX and LANES: RATCH · GATE · TIE · VEL · NOTE · CC over the riff's eight columns, per-row lane sets, one decision function
-(`euclideousFXApply`) that the Router, the TIE lookahead, the LANES roll, the flash and VoiceOver all call. Every cell starts empty, so old sessions and
+(`euclideousFXApply`) that the Router, the TIE lookahead, the LANES roll and the flash all call. Every cell starts empty, so old sessions and
 all 20 presets sound as before. LANDSCAPE ONLY. Full story in `Docs/euclideous-status-log.md`.
 - [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "FX tab" section (touch feel, axis lock, double-tap window, column alignment, RATCH / GATE 100
       / TIE / NOTE / CC by ear and on a MIDI monitor, flash, strip text fit, VoiceOver).
@@ -24,6 +24,9 @@ all 20 presets sound as before. LANDSCAPE ONLY. Full story in `Docs/euclideous-s
 - [ ] (accepted) `sampleOf` truncates, so an event exactly on a sample boundary can land one sample either side depending on its window (pre-existing, engine-wide).
 - [ ] (accepted) an FX edit made between a TIE's triggering hit and the tied hit is invisible to the lookahead (spec §5.6): one extra strike or gap at that moment.
 - [ ] (accepted) the flash draws only the later of two hits in one poll (`strikeEvents` keeps the latest per lane); TIE cells and BASE sends never flash.
+- [ ] (accepted) the §15 determinism test (buffer 64 / 256 / 1024 + a transport restart) compares event-for-event within ONE SAMPLE, not bit-identical: `sampleOf` truncates a
+      beat-derived sample, so an event exactly on a sample boundary can land one sample either side depending on its window — engine-wide, not FX. Rounding there would move every golden.
+- [ ] (accepted) the flash's outer glow is a 10pt shadow cast from the 2pt ring; the spec's "2pt spread" has no SwiftUI equivalent — judge it on device.
 - [ ] (small) RATCH ticks use a 4pt GAP between 2.5pt ticks ("4 apart" read as a gap), "RIFF" is right-aligned over the note-label column, and the double-tap
       window runs lift → touch-down. Say if any should differ.
 

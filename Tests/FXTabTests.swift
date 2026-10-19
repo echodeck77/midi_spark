@@ -606,4 +606,44 @@ final class FXTabTests: XCTestCase {
         XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), nil, nil, nil], ranks: [1, 2, 3, 0, 5, 6, 7, 8], beat: 10 + step * 0.1).allSatisfy { $0 == nil })
         XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(-1, onset: 10), nil, nil, nil], ranks: ranks, beat: 10 + step * 0.1).allSatisfy { $0 == nil })
     }
+
+    // MARK: - ADVERSARIAL REVIEW (2026-10-19)
+
+    func testOneUnreadableElementIsOneEmptyCellNotALostArray() {
+        // a string, a null and a fractional number among good values: only the bad elements are affected (§1.6 "any value that can't be read is empty")
+        let json = #"{"lanes":[15,"x",3,null,15,15],"cells":[2,"bad",null,3,52.5,4,1],"notePasses":"many","ccNumber":300,"ccBase":"none"}"#
+        let fx = try! JSONDecoder().decode(EuclideousFX.self, from: Data(json.utf8))
+        XCTAssertEqual(fx.cell(row: 0, column: 0), 2, "the readable value before the bad ones survives")
+        XCTAssertNil(fx.cell(row: 0, column: 1)); XCTAssertNil(fx.cell(row: 0, column: 2))
+        XCTAssertEqual(fx.cell(row: 0, column: 3), 3, "…and the readable one after them")
+        XCTAssertEqual(fx.cell(row: 0, column: 4), 4, "52.5 reads as 53 and RATCH clamps to 4"); XCTAssertEqual(fx.cell(row: 0, column: 5), 4)
+        XCTAssertEqual(fx.cell(row: 0, column: 6), 2, "RATCH 1 clamps up to 2")
+        XCTAssertEqual(fx.lanes[0], 15); XCTAssertEqual(fx.lanes[1], 15, "an unreadable lane set keeps its default, all four on"); XCTAssertEqual(fx.lanes[2], 3)
+        XCTAssertEqual(fx.lanes[3], 15)
+        XCTAssertEqual(fx.notePasses, 4, "an unreadable setting keeps its default"); XCTAssertEqual(fx.ccNumber, 119, "300 clamps to 119"); XCTAssertEqual(fx.ccBase, -1)
+        // not an array at all: the whole field falls back to its defaults, and the document still loads
+        let broken = try! JSONDecoder().decode(EuclideousFX.self, from: Data(#"{"cells":"nope","lanes":7}"#.utf8))
+        XCTAssertEqual(broken, EuclideousFX())
+    }
+    func testAFooterHitOnAnFXTiedColumnReadsAsAHitOnATiedRest() {
+        let hitSteps = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 0, tilt: 0, patternMiss: false, customHits: nil, dir: .fwd)
+        let ranks = [1, 2, 3, 4, 5, 6, 7, 8]
+        let prediction = [0, 1, 2]                                   // the walk reads columns 0, 1, 2 this lap → riff steps 1, 2, 3
+        let plain = euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: prediction, riffRanksResolved: ranks)
+        XCTAssertTrue(plain.contains { if case .hit = $0 { return true } else { return false } })
+        var fx = EuclideousFX(); fx.cells[2 * 8 + 1] = 1             // TIE on column 2 (index 1)
+        var line = EuclidLine(pulses: 3, steps: 8); line.riffOn = true
+        let tied = euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: prediction.map { $0 + 1 }, riffRanksResolved: ranks, fxTieColumns: euclideousFXTieColumns(fx, line: line, lane: 0))
+        XCTAssertEqual(tied.filter { if case .hitTied = $0 { return true } else { return false } }.count, 1, "exactly the hit that reads column 2")
+        XCTAssertTrue(tied.contains(.hitTied(riffStep: 2)))
+        // a rest column stays a plain hit-on-rest; a lane with the riff off, a lane off the TIE row, and an SHADOW lane show nothing tied
+        XCTAssertEqual(euclideousFXTieColumns(fx, line: { var l = line; l.riffOn = false; return l }(), lane: 0), 0)
+        var off = fx; off.lanes[2] = 0b1110; XCTAssertEqual(euclideousFXTieColumns(off, line: line, lane: 0), 0); XCTAssertEqual(euclideousFXTieColumns(off, line: line, lane: 1), 0b10)
+        XCTAssertEqual(euclideousFXTieColumns(fx, line: { var l = line; l.listenPitchMode = .shadow; return l }(), lane: 0), 0)
+        let restRanks = [1, 0, 3, 4, 5, 6, 7, 8]
+        XCTAssertTrue(euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: prediction.map { $0 + 1 }, riffRanksResolved: restRanks, fxTieColumns: 0b10).contains(.hitOnRest(riffStep: 2)))
+        // the comet flash for a tied hit is the OUTLINE (a hit that plays nothing new), even on a lane whose ON REST is FILL
+        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitTied(riffStep: 2), onRest: .fill), .outline)
+        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitOnRest(riffStep: 2), onRest: .fill), .solid, "a FILL rest still strikes")
+    }
 }

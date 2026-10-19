@@ -3265,6 +3265,7 @@ func euclideousHitFlashStyle(footerState: EuclidFooterState?, onRest: EuclidRiff
     switch footerState {
     case .hit: return .solid
     case .hitOnRest: return onRest == .fill ? .solid : .outline
+    case .hitTied: return .outline                    // a tied hit never strikes, whatever the lane's ON REST is
     case .miss: return .outline
     }
 }
@@ -3483,8 +3484,9 @@ func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool,
 /// "riff off with notes lit: grey footers, no number" (still `.hit(riffStep: nil)`, just drawn grey at the
 /// `laneFooter` call site, keyed off `riffStep == nil`) vs. "riff off with nothing lit: the miss footer,
 /// because nothing will sound" (every step, hit or miss alike, becomes `.miss`).
-enum EuclidFooterState: Equatable { case hit(riffStep: Int?), hitOnRest(riffStep: Int), miss }
-func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int], anyLit: Bool = true) -> [EuclidFooterState] {
+/// `hitTied` (FX TAB §13.2): a hit an FX TIE cell applies to — drawn exactly as a hit on a tied rest (`hitOnRest`), but it can never be a FILL strike.
+enum EuclidFooterState: Equatable { case hit(riffStep: Int?), hitOnRest(riffStep: Int), hitTied(riffStep: Int), miss }
+func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int], anyLit: Bool = true, fxTieColumns: UInt8 = 0) -> [EuclidFooterState] {
     var out = [EuclidFooterState](repeating: .miss, count: max(0, lapSteps))
     guard prediction != nil || anyLit else { return out }   // riff off, nothing lit: every step is .miss
     // `.bufIdx` is the screen-box position (the footer row sits directly under the step boxes, which never
@@ -3496,7 +3498,8 @@ func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction
         guard let prediction, i < prediction.count else { out[hs.bufIdx] = .hit(riffStep: nil); continue }
         let riffStep = prediction[i]
         let isRest = riffStep >= 1 && riffStep <= riffRanksResolved.count && riffRanksResolved[riffStep - 1] == 0
-        out[hs.bufIdx] = isRest ? .hitOnRest(riffStep: riffStep) : .hit(riffStep: riffStep)
+        let fxTied = !isRest && riffStep >= 1 && riffStep <= 8 && (fxTieColumns >> UInt8(riffStep - 1)) & 1 != 0   // `riffStep` is the 1-based column the walk reads (after SHIFT)
+        out[hs.bufIdx] = isRest ? .hitOnRest(riffStep: riffStep) : (fxTied ? .hitTied(riffStep: riffStep) : .hit(riffStep: riffStep))
     }
     return out
 }
@@ -5643,7 +5646,7 @@ func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: In
 func euclideousRiffTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
                                      grid: EuclideousLaneRestartGrid, legacySpanBeats: Double, locked: Bool, advanceStep: Bool,
                                      riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64,
-                                     restTies: Bool = true, fxTie: ((_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool)? = nil,
+                                     restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
                                      rankAt: (_ column: Int, _ beat: Double) -> Int) -> Double {
     var hitsAhead = 0
     var lastConsumed = 0
@@ -5661,13 +5664,14 @@ func euclideousRiffTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleL
         let column = riffRotateStep(step, by: rotate, steps: length)
         // FX TAB (2026-10-18): a future hit CONTINUES the chain when it is a TIED hit — a rest while ON REST is TIE (`restTies`), or a real-rank hit
         // an FX TIE cell applies to (`fxTie`, decided by the shared `euclideousFXApply` at that hit's own beat). Anything else is a real note and breaks it.
-        // `restTies`/`fxTie` default to "rests tie, no FX", the pre-FX behaviour.
+        // `restTies`/`fxTie` default to "rests tie, no FX", the pre-FX behaviour. `fxTie` is deliberately a NON-optional, non-escaping closure: an Optional closure
+        // parameter is implicitly escaping, which made the Router heap-allocate a context for it on every hit of a lane with TIE cells (render-thread allocation).
         let beatJ = Double(t) * sub
         let writtenJ = rankAt(column, beatJ)
         if writtenJ < 1 {
             guard restTies else { break }
         } else {
-            guard let fxTie, fxTie(column, beatJ, writtenJ) else { break }
+            guard fxTie(column, beatJ, writtenJ) else { break }
         }
         lastConsumed = j
     }
@@ -5924,9 +5928,9 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
                                                   legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep,
                                                   riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed,
                                                   restTies: c.onRest == .tie,
-                                                  fxTie: laneHasTieFX ? { col, _, r in
-                                                      euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: col, writtenRank: r, pass: 0).tie
-                                                  } : nil,
+                                                  fxTie: { col, _, r in
+                                                      laneHasTieFX && euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: col, writtenRank: r, pass: 0).tie
+                                                  },
                                                   rankAt: rankAt)
         }
         let audible = euclideousLaneAudible(beat: beat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
@@ -6009,6 +6013,14 @@ struct EuclideousFXHit: Equatable {
     var appliedRows: UInt8 = 0
 }
 
+/// Which riff columns (bit c = column c, 0-based) an FX TIE cell turns into a tied hit for `lane` — what the lane footer and comet bar need to draw those hits as
+/// hits on a tied rest (§13.2). Zero for a lane that doesn't play the riff or isn't on the TIE row. TIE doesn't depend on the pass, so this is static.
+func euclideousFXTieColumns(_ fx: EuclideousFX, line: EuclidLine, lane: Int) -> UInt8 {
+    guard euclideousLanePlaysRiff(line), fx.laneOn(row: 2, lane: lane) else { return 0 }
+    var m: UInt8 = 0
+    for c in 0..<8 where fx.cell(row: 2, column: c) != nil { m |= UInt8(1) << UInt8(c) }
+    return m
+}
 /// "The lane plays the riff": its riff layer is on and it isn't SHADOWing a partner (the shadow branch REPLACES the riff layer). The one definition the
 /// Router's gate, the roll and the walk tags share.
 func euclideousLanePlaysRiff(_ line: EuclidLine) -> Bool { line.riffOnResolved && line.listenPitchMode != .shadow }

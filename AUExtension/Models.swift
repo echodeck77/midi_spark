@@ -968,19 +968,32 @@ struct EuclideousFX: Equatable {
 }
 // Hand-written Codable: the wire form is plain `Int` arrays and Ints so a hand-edited or future document with an out-of-range number can never throw
 // (decoding straight into `[Int8]` would fail the WHOLE session load on a stray 300). Everything is clamped on the way in (`normalized`).
+/// One number off the wire, read leniently: an integer, or a float that is rounded (a hand-edited `52.5`); anything else (a string, null, a nested value) reads as
+/// nil — "a value that can't be read" — WITHOUT throwing, so one bad element is one empty cell, never a lost array (§1.6).
+private struct EuclideousFXLossyInt: Decodable {
+    let value: Int?
+    init(from decoder: Decoder) throws {
+        guard let c = try? decoder.singleValueContainer() else { value = nil; return }
+        if let i = try? c.decode(Int.self) { value = i }
+        else if let d = try? c.decode(Double.self), d.isFinite, abs(d) < 1e9 { value = Int(d.rounded()) }
+        else { value = nil }
+    }
+}
 extension EuclideousFX: Codable {
     enum CodingKeys: String, CodingKey { case lanes, cells, notePasses, ccNumber, ccBase }
     init(from decoder: Decoder) throws {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let rawLanes = (try? c.decodeIfPresent([Int].self, forKey: .lanes)) ?? nil
-        let rawCells = (try? c.decodeIfPresent([Int].self, forKey: .cells)) ?? nil
+        let rawLanes = (try? c.decodeIfPresent([EuclideousFXLossyInt].self, forKey: .lanes)) ?? nil
+        let rawCells = (try? c.decodeIfPresent([EuclideousFXLossyInt].self, forKey: .cells)) ?? nil
+        func scalar(_ k: CodingKeys) -> Int? { ((try? c.decodeIfPresent(EuclideousFXLossyInt.self, forKey: k)) ?? nil)?.value }
         var raw = EuclideousFX()
-        if let l = rawLanes { for r in 0..<6 where r < l.count { raw.lanes[r] = UInt8(truncatingIfNeeded: l[r]) } }
-        if let cs = rawCells { for i in 0..<48 where i < cs.count { raw.cells[i] = Int8(max(Int(Int8.min), min(Int(Int8.max), cs[i]))) } }
-        if let n = (try? c.decodeIfPresent(Int.self, forKey: .notePasses)) ?? nil { raw.notePasses = UInt8(max(0, min(255, n))) }
-        if let n = (try? c.decodeIfPresent(Int.self, forKey: .ccNumber)) ?? nil { raw.ccNumber = UInt8(max(0, min(255, n))) }
-        if let n = (try? c.decodeIfPresent(Int.self, forKey: .ccBase)) ?? nil { raw.ccBase = Int16(max(-1, min(255, n))) }
+        // an unreadable lane set keeps its default (all four on); an unreadable cell is empty
+        if let l = rawLanes { for r in 0..<6 where r < l.count { if let v = l[r].value { raw.lanes[r] = UInt8(truncatingIfNeeded: v) } } }
+        if let cs = rawCells { for i in 0..<48 where i < cs.count { if let v = cs[i].value { raw.cells[i] = Int8(max(Int(Int8.min), min(Int(Int8.max), v))) } } }
+        if let n = scalar(.notePasses) { raw.notePasses = UInt8(max(0, min(255, n))) }
+        if let n = scalar(.ccNumber) { raw.ccNumber = UInt8(max(0, min(255, n))) }
+        if let n = scalar(.ccBase) { raw.ccBase = Int16(max(-1, min(255, n))) }
         self = raw.normalized()
     }
     func encode(to encoder: Encoder) throws {

@@ -611,7 +611,7 @@ struct EuclidCometBar: View {
                                     let txt = Text("\(riffStep)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
                                     layer.draw(layer.resolve(txt), at: CGPoint(x: band.midX, y: band.midY))
                                 }
-                            case .hitOnRest(let riffStep):
+                            case .hitOnRest(let riffStep), .hitTied(let riffStep):   // an FX-tied hit draws exactly as a hit on a tied rest (§13.2)
                                 layer.fill(Path(band), with: .color(Color(hex: 0x15171C)))
                                 var topEdge = Path()
                                 topEdge.move(to: CGPoint(x: band.minX, y: band.minY))
@@ -678,6 +678,7 @@ struct EuclidCometBar: View {
                         switch state {
                         case .miss: return "Miss"
                         case .hitOnRest: return "Hit, lands on rest"
+                        case .hitTied: return "Hit, tied"
                         case .hit(let riffStep):
                             if let riffStep { return "Hit, plays riff step \(riffStep)" }
                             return "Hit"

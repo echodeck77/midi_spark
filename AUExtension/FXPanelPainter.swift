@@ -40,14 +40,7 @@ private struct EuclideousFXStaticLayer: View, Equatable {
             let P = EuclideousFXPalette.self
             // ── selected-row band (§11.4), behind the row ──
             ctx.fill(RoundedRectangle(cornerRadius: 8).path(in: layout.bandRect(row: selectedRow)), with: .color(Color.white.opacity(0.06)))
-            // ── header (§11.2) ──
-            ctx.draw(ctx.resolve(Text("RIFF").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(P.dim)),
-                     at: CGPoint(x: EuclideousFXLayout.labelW, y: layout.headerTop + EuclideousFXLayout.headerH / 2), anchor: .trailing)
-            for c in 0..<8 where c < headers.count {
-                let h = headers[c]
-                ctx.draw(ctx.resolve(Text(h.text).font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(h.rest ? P.dim : P.caption)),
-                         at: CGPoint(x: layout.colLeft(c) + layout.cellW / 2, y: layout.headerTop + EuclideousFXLayout.headerH / 2), anchor: .center)
-            }
+            // (the header — §11.2 — is real Text in `EuclideousFXPanel.header`, not Canvas, so VoiceOver can read it: §14.4 calls it static text)
             // ── cells (§11.5/§11.6) ──
             for r in 0..<6 {
                 let rowDim = fx.lanes[r] & EuclideousFX.allLanes != 0
@@ -168,6 +161,7 @@ struct EuclideousFXPanel: View {
         ZStack(alignment: .topLeading) {
             EuclideousFXStaticLayer(layout: layout, fx: fx, selectedRow: selectedRow, headers: headers, previewColumn: previewColumn).equatable()
             EuclideousFXFlashLayer(layout: layout, accents: accents, playing: playing, flashAt: flashAt)
+            header
             ForEach(0..<6, id: \.self) { r in rail(r) }
             strip
             hint
@@ -176,6 +170,24 @@ struct EuclideousFXPanel: View {
             bubbleView
         }
         .frame(width: layout.width, height: layout.height, alignment: .topLeading)
+    }
+
+    // ── header (§11.2): "RIFF" over the note-label column and each column's written rank by name ("–" on a rest). Static text, not focusable controls. ──
+    private var header: some View {
+        let P = EuclideousFXPalette.self
+        return ZStack(alignment: .topLeading) {
+            Text("RIFF").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(P.dim).lineLimit(1)
+                .frame(width: EuclideousFXLayout.labelW, height: EuclideousFXLayout.headerH, alignment: .trailing)
+                .offset(x: 0, y: layout.headerTop)
+            ForEach(0..<8, id: \.self) { c in
+                let h = c < headers.count ? headers[c] : EuclideousFXHeaderLabel(text: "–", rest: true)
+                Text(h.text).font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(h.rest ? P.dim : P.caption).lineLimit(1)
+                    .frame(width: layout.cellW, height: EuclideousFXLayout.headerH, alignment: .center)
+                    .offset(x: layout.colLeft(c), y: layout.headerTop)
+            }
+        }
+        .frame(width: layout.width, height: layout.height, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
 
     // ── rails (§11.3): real buttons, so they keep their own taps (§12.10) ──
@@ -357,7 +369,7 @@ struct EuclideousFXPanel: View {
             ForEach(0..<8, id: \.self) { c in
                 let v = fx.cell(row: r, column: c)
                 let rect = layout.cellRect(row: r, col: c)
-                Color.clear
+                let base = Color.clear
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
                     .allowsHitTesting(false)
@@ -366,7 +378,8 @@ struct EuclideousFXPanel: View {
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction(named: "Toggle") { onToggleCell(r, c) }
                     .accessibilityAction { onToggleCell(r, c) }
-                    .accessibilityAdjustableAction { dir in if r != 2 { onAdjust(r, c, dir == .increment) } }
+                // §14.2: every row but TIE is adjustable (TIE has no value to step)
+                if r == 2 { base } else { base.accessibilityAdjustableAction { dir in onAdjust(r, c, dir == .increment) } }
             }
         }
     }

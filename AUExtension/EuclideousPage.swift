@@ -676,6 +676,7 @@ struct EuclideousPage: View {
     @State private var fxNotePreviewCol: Int? = nil
     @State private var fxLastTap: (row: Int, col: Int, time: Double)? = nil
     @State private var fxStepOpen = false
+    @State private var fxTouchDownTime = 0.0   // when the touch in flight began — a double-tap's second tap is measured from the first tap's LIFT to this touch-DOWN (§12.3)
     // §3.2's FIRST-RUN PAD HINT (the old XY pads' own animated ↕/↔ affordance) is RETIRED along with the
     // pads themselves (usability ferry, 2026-10-12) — not ported to the new sliders. Each slider's own
     // visible fill/track already reads as "drag me" far more directly than a flat 2D pad ever did (a
@@ -1733,7 +1734,8 @@ struct EuclideousPage: View {
         // RIFF/NOTES SPLIT (third same-day ferry): the notes layer's own master switch gates this too —
         // nothing can be "lit" in the sense that matters here if the whole layer is off.
         let anyLit = euclideousNotesLayerIsOn(line)
-        return euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: effectiveGridRanks, anyLit: anyLit)
+        return euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: effectiveGridRanks, anyLit: anyLit,
+                                      fxTieColumns: euclideousFXTieColumns(fx, line: line, lane: idx))   // FX §13.2: a TIE cell's hit reads as a hit on a tied rest
     }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
@@ -4343,7 +4345,7 @@ struct EuclideousPage: View {
                                  flashAt: { date in euclideousFXFlashCells(fx: fx, lines: lines, events: strikeEvents, ranks: ranks, beat: walkTagBeat(at: date)) },
                                  onSelectRow: { fxSelectedRow = $0 },
                                  onTouchBegan: { row, col in
-                                     fxSelectedRow = row; fxStepOpen = false
+                                     fxSelectedRow = row; fxStepOpen = false; fxTouchDownTime = Date().timeIntervalSinceReferenceDate
                                      if row == 4 { fxNotePreviewCol = col }
                                  },
                                  onEvent: { fxHandle($0) },
@@ -4380,7 +4382,7 @@ struct EuclideousPage: View {
         let now = Date().timeIntervalSinceReferenceDate
         switch e {
         case .tap(let row, let col):
-            if euclideousFXIsDoubleTap(previous: fxLastTap, row: row, col: col, time: now) {
+            if euclideousFXIsDoubleTap(previous: fxLastTap, row: row, col: col, time: fxTouchDownTime) {
                 let def = EuclideousFXRow(rawValue: row)?.defaultValue ?? 1
                 fxLastTap = nil
                 fxEdit(newStep: false) { euclideousFXSetCell(&$0, row: row, col: col, value: def) }

@@ -5173,7 +5173,7 @@ final class Router {
                                         legacySpanBeats: ladderSpanBeats, locked: locked, advanceStep: riffAdvanceStep,
                                         riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed,
                                         restTies: riffOnRest == .tie,
-                                        fxTie: fxTieLane ? { col, _, r in euclideousFXApply(fxAll, lane: lineIndex, playsRiff: true, column: col, writtenRank: r, pass: 0).tie } : nil,
+                                        fxTie: { col, _, r in fxTieLane && euclideousFXApply(fxAll, lane: lineIndex, playsRiff: true, column: col, writtenRank: r, pass: 0).tie },   // non-escaping: no heap context
                                         rankAt: { column, beat in
                                             euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
                                                                            active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
@@ -5489,7 +5489,11 @@ final class Router {
                             // FX CC (§8): ONE message per hit, at the hit's own sample, BEFORE any note-on at it (it goes out ahead of the reconcile and every strike below) and
                             // before the first strike of a ratcheted hit — also on a hit whose pitches all carry on legato. It reaches the notes' own buses, own cable + the ALL
                             // cable, on each bus's stamped channel (`emitModCC`, forced past MOD's dedup). Only hits that sound get here: tied, muted, rest and silent hits returned.
-                            if let ccv = fx.cc, emits, !(masterMute && !previewMode) {
+                            // §8.4: only a hit that SOUNDS sends a CC — a pitch pushed outside MIDI 0…127 (a far NOTE move plus TRANSPOSE) is dropped by `strikeChord`, so a hit whose
+                            // every pitch is dropped is silent and sends nothing.
+                            var fxAnySounds = false
+                            for j in 0..<pitchCount where finalPitch(pitches[j], oct: 0) != nil { fxAnySounds = true; break }
+                            if let ccv = fx.cc, emits, fxAnySounds, !(masterMute && !previewMode) {
                                 let ccBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
                                 let ccSample = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                                 emitModCC(cc: max(0, min(119, Int(fxAll.ccNumber))), value: ccv, busMask: ccBusMask, atSample: ccSample, out: out, force: true)

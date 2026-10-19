@@ -12923,6 +12923,7 @@ final class RouterTests: XCTestCase {
             let evs = e.events.filter { $0.cable == cable && abs(Double($0.sample) / 24_000 - 1) < 0.01 }
             let ccIdx = evs.firstIndex { $0.status == 0xB0 }!, onIdx = evs.firstIndex { $0.status == 0x90 }!
             XCTAssertLessThan(ccIdx, onIdx, "cable \(cable): CC before the note-on")
+            XCTAssertEqual(evs[ccIdx].sample, evs[onIdx].sample, "cable \(cable): the CC carries the note-on's OWN sample, not one beside it")
         }
         // the channel is the bus's stamp — the SAME one its notes use (here channel 1 → wire 0)
         XCTAssertEqual(e.ons.first { $0.cable == 1 }?.chan, cc.first?.chan)
@@ -13018,4 +13019,123 @@ final class RouterTests: XCTestCase {
         }
     }
 
+    // ── ADVERSARIAL REVIEW (2026-10-19): NOTE's pass index END TO END through the real Router. The §15 pass-index tests run the pure function against its own simulator;
+    //    these pin the WIRING (which ordinal, tick, grid and localT the Router hands it) with a small independent model of the expected pitches.
+    private func fxSparseLane(dir: RiffDir = .forward, lock: Bool = false, advStep: Bool = false, stride: Int? = nil, melodyMask: UInt16 = 0, rhythmMask: UInt16 = 0) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: 3, steps: 8)
+        l.gate = 0.5; l.velocityAbsolute = 90; l.rate = .r1_8; l.useRiff = true; l.litNotes = 0; l.riffOn = true; l.sourceMode = .midi
+        l.riffLength = 8; l.notesOn = true; l.riffOnRest = .skip
+        l.riffDir = dir; l.riffLock = lock; l.riffAdvanceStep = advStep
+        if let stride { l.riffStride = stride }
+        if melodyMask != 0 || rhythmMask != 0 {
+            l.restartMelodyMask16 = melodyMask; l.restartRhythmMask16 = rhythmMask; l.restartUnit = EuclideousRestartUnit.pass.rawValue
+        }
+        return l
+    }
+    /// The 3-of-8 lane's hit ticks (steps of 1/8 = 0.5 beat): 0, 3, 6 of every lap of 8.
+    private func fxHitTicks(upToBeat b: Double) -> [Int] { (0..<Int(b / 0.5) + 1).filter { [0, 3, 6].contains($0 % 8) && Double($0) * 0.5 < b } }
+    private let fxTriad: [Int] = [48, 51, 55]
+    private func fxTriadPitch(_ rank: Int) -> Int { let i = rank - 1; return fxTriad[((i % 3) + 3) % 3] + 12 * Int((Double(i) / 3).rounded(.down)) }
+    /// column read at ordinal `o` for a FWD walk of LENGTH 8, STRIDE 1; PEND (period 14) and PING (period 16) as `riffStepAt` documents
+    private func fxColumn(dir: RiffDir, ord o: Int) -> Int {
+        switch dir {
+        case .pendulum: let k = o % 14; return k < 8 ? k : 14 - k
+        case .pingpong: let k = o % 16; return k < 8 ? k : 15 - k
+        default: return o % 8
+        }
+    }
+    private func fxNoteWire(_ l: EuclidLine, cells: [(row: Int, col: Int, v: Int)], beats: Double) -> [(beat: Double, note: Int)] {
+        let ranks = [4, 2, 3, 1, 5, 6, 7, 8]
+        let e = fxRun(fxBox([l], ranks: ranks, fx: fxCells(cells, passes: 4)), beats: beats, pool: fxTriad.map { UInt8($0) })
+        return fxOns(e).map { ($0.beat, Int($0.note)) }
+    }
+
+    func testFXNoteLockOnASparseLaneClimbsOneStepPerLapAndRereadsTheSameOffsetWithinALap() {
+        // LOCK: the riff goes back to its first position at every lap start, so hit j of lap L reads column j. A NOTE cell on column 0 is read once per lap — p = the lap.
+        let got = fxNoteWire(fxSparseLane(lock: true), cells: [(4, 0, 1)], beats: 4 * 6 + 1)
+        let col0 = got.filter { abs($0.beat.truncatingRemainder(dividingBy: 4)) < 0.01 || abs($0.beat.truncatingRemainder(dividingBy: 4) - 4) < 0.01 }.map { $0.note }
+        XCTAssertEqual(Array(col0.prefix(6)), (0..<6).map { fxTriadPitch(4 + ($0 % 4)) }, "laps 0…5: C4 E♭4 G4 C5 C4 E♭4")
+        // a NOTE cell on column 1 (hit 2 of the lap) climbs on the same per-lap clock, not per hit
+        let got1 = fxNoteWire(fxSparseLane(lock: true), cells: [(4, 1, 2)], beats: 4 * 5 + 2)
+        let col1 = got1.filter { abs($0.beat.truncatingRemainder(dividingBy: 4) - 1.5) < 0.01 }.map { $0.note }
+        XCTAssertEqual(Array(col1.prefix(5)), (0..<5).map { fxTriadPitch(2 + 2 * ($0 % 4)) })
+    }
+    func testFXNoteFreeAdvStepOnASparseLaneCountsStepsNotHits() {
+        // ADV STEP: the riff ordinal is the STEP count, so column 3 is read at the lane's step 3 of every 8 — and p = floor(step / 8) = the lap
+        let got = fxNoteWire(fxSparseLane(advStep: true), cells: [(4, 3, 1)], beats: 4 * 5 + 2)
+        let at = got.filter { abs($0.beat.truncatingRemainder(dividingBy: 4) - 1.5) < 0.01 }.map { $0.note }       // step 3 = beat 1.5 of each lap
+        XCTAssertEqual(Array(at.prefix(5)), (0..<5).map { fxTriadPitch(1 + ($0 % 4)) }, "column 3 is written rank 1 here: laps climb C3 E♭3 G3 C4 C3")
+        // and the hit-counted lane (ADV HIT) is a different clock: column 3 is the 4th HIT, read every 8 hits (= 8/3 laps), p = floor(hit / 8)
+        let hit = fxNoteWire(fxSparseLane(), cells: [(4, 3, 1)], beats: 4 * 14)
+        let ticks = fxHitTicks(upToBeat: 4 * 14)
+        var expected: [Int] = []
+        for (o, _) in ticks.enumerated() where o % 8 == 3 { expected.append(fxTriadPitch(1 + (o / 8) % 4)) }
+        let plays = zip(ticks.enumerated(), hit).filter { $0.0.offset % 8 == 3 }.map { $0.1.note }
+        XCTAssertEqual(plays, expected, "ADV HIT counts hits")
+    }
+    func testFXNoteOnAThreeHitLaneAdvHitIsTheSpecsFourFiveSixSevenFourExample() {
+        // §15 / §7.4: a 3-hit lane, FREE, FWD, STRIDE 1, LENGTH 8, ADV HIT; NOTE +1, PASSES 4 on a column written rank 4 → ranks 4,5,6,7,4 on its first five plays
+        var l = fxSparseLane()
+        let ranks = [1, 1, 1, 4, 1, 1, 1, 1]
+        let e = fxRun(fxBox([l], ranks: ranks, fx: fxCells([(4, 3, 1)], passes: 4)), beats: 4 * 13, pool: fxTriad.map { UInt8($0) })
+        let ticks = fxHitTicks(upToBeat: 4 * 13)
+        let ons = fxOns(e)
+        let col3 = ons.enumerated().filter { $0.offset % 8 == 3 }.map { Int($0.element.note) }
+        XCTAssertEqual(Array(col3.prefix(5)), [4, 5, 6, 7, 4].map { fxTriadPitch($0) })
+        XCTAssertGreaterThanOrEqual(ons.count, ticks.count)
+        l.riffOn = false
+    }
+    func testFXNotePendAndPingUseTheirFullPeriodsThroughTheRouter() {
+        for (dir, period) in [(RiffDir.pendulum, 14), (RiffDir.pingpong, 16)] {
+            let got = fxNoteWire(fxSparseLane(dir: dir), cells: (0..<8).map { (4, $0, 1) }, beats: 4 * 40)   // every column carries NOTE +1
+            let ranks = [4, 2, 3, 1, 5, 6, 7, 8]
+            for (o, hit) in got.enumerated() {
+                let col = fxColumn(dir: dir, ord: o)
+                XCTAssertEqual(hit.note, fxTriadPitch(ranks[col] + (o / period) % 4), "\(dir) ordinal \(o) column \(col)")
+                if hit.note != fxTriadPitch(ranks[col] + (o / period) % 4) { break }
+            }
+        }
+    }
+    func testFXNoteAMelodyRestartSendsThePassBackToZeroAndTheFirstWindowsNegativeOriginIsStable() {
+        // melody mark on cell 3 of each 16-cell window (unit PASS = one 4-beat lap): a restart at beat 12, 76, … ; before the first mark the carried origin is cell 3 of the PREVIOUS
+        // window (beat −52): the ordinal there is a whole number of laps behind, so the first window's passes must come out the same every run
+        for lock in [false, true] {
+            let l = fxSparseLane(lock: lock, melodyMask: 1 << 3)
+            let a = fxNoteWire(l, cells: (0..<8).map { (4, $0, 1) }, beats: 4 * 18)
+            let b = fxNoteWire(l, cells: (0..<8).map { (4, $0, 1) }, beats: 4 * 18)
+            XCTAssertEqual(a.map { $0.note }, b.map { $0.note }, "deterministic (negative origin)")
+            let ranks = [4, 2, 3, 1, 5, 6, 7, 8]
+            let ticks = fxHitTicks(upToBeat: 4 * 18)
+            func hitsBefore(_ t: Int) -> Int { 3 * Int((Double(t) / 8).rounded(.down)) + [0, 3, 6].filter { $0 < ((t % 8) + 8) % 8 }.count }
+            var expected: [Int] = []
+            for t in ticks {
+                let beat = Double(t) * 0.5
+                let originBeat = (((beat - 12) / 64).rounded(.down)) * 64 + 12                    // the latest mark at or before this hit
+                let originTick = Int(originBeat / 0.5)
+                let o = hitsBefore(t) - hitsBefore(originTick)
+                let lap = Int((Double(t - originTick) / 8).rounded(.down))                          // LOCK: laps since the origin
+                let lapStart = ((t % 8) + 8) % 8
+                _ = lapStart
+                let col: Int, p: Int
+                if lock { col = hitsBefore(t) - hitsBefore(t - (((t % 8) + 8) % 8)); p = lap } else { col = fxColumn(dir: .forward, ord: o); p = o / 8 }
+                expected.append(fxTriadPitch(ranks[col] + p % 4))
+            }
+            XCTAssertEqual(Array(a.prefix(expected.count)).map { $0.note }, expected, "lock=\(lock): the pass restarts at beat 12")   // (the last window may run one hit past the span)
+            // the restart itself: the hit AT beat 12 reads pass 0 again
+            XCTAssertEqual(a.first { abs($0.beat - 12) < 0.01 }?.note, fxTriadPitch(ranks[0]), "lock=\(lock)")
+        }
+    }
+
+    func testFXCCIsNotSentForAHitWhoseEveryPitchIsDroppedOutsideMidiRange() {
+        // one note held (C4), rank 1 on every column, a NOTE +3 on every column, PASSES 8: passes 0 and 1 sound (60, 96); from pass 2 the rank (7, 10, …) is beyond MIDI 127 and
+        // `strikeChord` drops it — a hit that sounds nothing sends no CC (§8.4)
+        let l = fxLine()
+        let cells: [(row: Int, col: Int, v: Int)] = (0..<8).flatMap { [(4, $0, 3), (5, $0, 20)] }
+        let e = fxRun(fxBox([l], ranks: [1, 1, 1, 1, 1, 1, 1, 1], fx: fxCells(cells, passes: 8)), beats: 130, pool: [60])
+        let ons = e.ons.filter { $0.cable == 1 }.count
+        let ccs = e.events.filter { $0.status == 0xB0 && $0.cable == 1 }.count
+        XCTAssertGreaterThan(ons, 8); XCTAssertLessThan(ons, 130, "some hits really were dropped (the test would pass vacuously otherwise)")
+        XCTAssertEqual(ccs, ons, "one CC per hit that sounds, none for a dropped one")
+        assertNothingLeftSounding(e)
+    }
 }

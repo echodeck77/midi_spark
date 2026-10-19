@@ -13,7 +13,7 @@ project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
 - **▶ EUCLIDEOUS — "FERRY: FX tab (six fixed effect rows on the riff's steps)" (2026-10-18, ratified by Paul; on `feature/fx-tab`; iOS builds
-  clean; macOS suite 1693 green; ALL visuals, touch feel and every sound check are device-owed).**
+  clean; macOS suite 1701 green; ALL visuals, touch feel and every sound check are device-owed).**
   A third tab, FX, after MIX and LANES in the bottom-right panel (LANDSCAPE ONLY — see the portrait stop below). Six fixed, page-level rows —
   RATCH · GATE · TIE · VEL · NOTE · CC — over the riff's eight columns. A cell holds a value or nothing; each row has a lane set (default all four)
   and acts only on those lanes, only on a hit that PLAYS THE RIFF, only through the riff column that hit reads, and never on a written rest.
@@ -27,7 +27,7 @@ project has been building this whole stretch.
   Deliberate deviation from "mirror the riff": FX is page-level, so no `MachineParams` hop.
   **ONE DECISION FUNCTION (spec §2.3).** `euclideousFXApply(fx, lane, playsRiff, column, writtenRank, pass)` (Derivations.swift) returns TIE / RATCH
   count / GATE / VEL / NOTE step+offset / CC value (or BASE) and an `appliedRows` mask. The Router (per hit), the TIE lookahead (per future hit), the
-  LANES roll, the FX tab's firing flash and VoiceOver all call it — nobody re-derives it. TIE wins outright (nothing else applies, not even a CC).
+  LANES roll and the FX tab's firing flash all call it (VoiceOver reads the cells' values directly) — nobody re-derives it. TIE wins outright (nothing else applies, not even a CC).
   **NOTE'S PASS INDEX** (`euclideousFXPassIndex`): a pure function of the beat, never accumulated. FREE: `floor(advOrd / P)`; LOCK: the number of lap
   starts after the melody origin, in CLOSED FORM over the 16-cell rhythm-segment window (10,000 laps cost the same as one; property-tested against a
   tick-by-tick simulator over random mark sets, including the negative first window); `P = D / gcd(D, STRIDE)` with D = LENGTH (FWD/REV), 2·LENGTH−2
@@ -78,7 +78,27 @@ project has been building this whole stretch.
   as applied whenever a NOTE cell applies (it doesn't depend on the pass); two hits in one poll flash only the later (`strikeEvents` keeps the latest
   per lane); the mask is FORCE-DISABLED on the Euclideous row in production, so the spec's "the mask's X, if applied" clauses are moot there (the order
   is still honoured for the test seam); the looper and loop slots are gone from main, so those clauses don't apply (the rank read is `riffs[activeRiff]`).
-  Tests: `Tests/FXTabTests.swift` (38) + the FX section of `RouterTests` (wire-level: NOTE/RATCH/GATE/TIE/VEL/CC rows, riff-off lane, determinism at 64 /
+  **ADVERSARIAL REVIEW (2026-10-19, against the raw ferry text) — found and fixed:** (1) a heap-allocated closure on the render thread: `fxTie` was an Optional
+  (so implicitly escaping) closure parameter and the Router built it on every hit of a lane with TIE cells — confirmed in the optimized SIL (a non-`on_stack`
+  `partial_apply` capturing the `EuclideousFX`); now a non-escaping parameter. (2) §13.2/§13.3 were not met: an FX-tied hit drew as an ordinary solid hit in the lane
+  footer and flashed solid on the comet bar, where a hit on a tied rest draws as `hitOnRest` (dim, dashed top) and flashes as an outline — new
+  `EuclidFooterState.hitTied` (drawn like `hitOnRest`, flash always outline, VoiceOver "Hit, tied"), fed by `euclideousFXTieColumns`. (3) §8.4: a hit whose every pitch
+  `strikeChord` drops (outside MIDI 0–127) still sent its CC. (4) §1.6: one unreadable element made the whole `cells` / `lanes` array decode as empty (all 48 cells lost);
+  now per value (a string/null is one empty cell, `52.5` rounds, an unreadable lane set keeps all-on). (5) §14.4: the header was Canvas-drawn, so VoiceOver could not
+  read it — now real `Text`; TIE cells no longer advertise an adjustable action. (6) §12.3: the double-tap window was measured lift → LIFT (the tap event fires on lift),
+  which shortens it by the second press; it is now lift → touch-down as documented. (7) Docs said VoiceOver "calls" `euclideousFXApply` — it doesn't (it reads the cell
+  values; there is no per-hit decision for it); corrected. Tests added: NOTE's pass index END TO END through the Router (LOCK, ADV STEP on a sparse lane, the spec's 3-hit ADV
+  HIT example, PEND 14 / PING 16, a melody restart incl. the negative-origin first window) — before this only the pure function was tested against its own simulator;
+  the footer/flash treatment; lossy decode; CC-on-a-dropped-hit; and the CC test now requires the note-on's EXACT sample. **Mutation pass (12 mutants, all now
+  caught):** LOCK count, TIE return, CC sample, ratchet-tie last strike, same-sample re-strike close, extended fold, echo-window tiling, CC on silent hits, FREE pass period,
+  lit-note VEL offset, TIE lookahead, footer tie. (The first pass of this had let the CC-sample mutant SURVIVE — the earlier claim that CC order was mutation-checked was
+  wrong until the CC test was tightened.)
+  **§5.3, answered (it had not been):** today a rhythm or melody restart does nothing to a held note by itself — the TIE lookahead (`euclideousRiffTieExtensionBeats`) walks
+  the lane's FUTURE hits through the same core with each one's own rhythm/melody origins, so a restart between the triggering hit and a later hit is honoured (that hit is
+  read where the restart puts it, and the chain continues only if THAT hit is also tied); a LOCK lap reset (`advOrd == 0`) always breaks the chain. FX TIE rides exactly that.
+  A tied REST `return`s at once — before the lit-notes layer and before the mute check — so lit notes are never struck and ride the preceding hit's shared `tieExt`; an FX TIE
+  returns AFTER the mute check (§2.4: a muted hit gets no FX, and still closes held notes as a muted hit does).
+  Tests: `Tests/FXTabTests.swift` (40) + the FX section of `RouterTests` (wire-level: NOTE/RATCH/GATE/TIE/VEL/CC rows, riff-off lane, determinism at 64 /
   256 / 1024 + a transport restart, a stress run with restarts, the re-strike probe). Mutation-checked: pass-index LOCK count, TIE `return` placement,
   CC order, ratchet last-strike tie, the same-sample close, the extended fold.
 - **▶ EUCLIDEOUS — "FERRY: LANES panel rebuilt as a per-lane mute grid with a live roll, plus separate rhythm and melody restart rows"
