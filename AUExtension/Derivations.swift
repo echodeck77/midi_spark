@@ -6520,6 +6520,50 @@ func euclideousRiffReadoutText(_ r: EuclideousRiffReadout?, overBudget: Bool) ->
     return "\(lines) · \(r.neverPlay.count) NEVER PLAY"
 }
 
+/// RIFF WALK ferry §1.5: every RIFF-tab frame, from the content width and the two zones' heights — the ONE
+/// pure function §1.3/§1.4/§1.6 describe. Reuses RHYTHM's own `patternBlockH`(80)/`upperH` split (§1.1: "the
+/// RIFF tab now fills them exactly") rather than the ferry's own literal 124/208 reference figures, which
+/// don't match the real `contentAreaH` formula — reported in the final write-up, not silently reconciled.
+struct EuclideousRiffTabLayout: Equatable {
+    var rowAHeight: CGFloat
+    var rowBHeight: CGFloat
+    var lowerRowHeight: CGFloat
+    var rightColumnWidth: CGFloat
+    var walkStripHeight: CGFloat
+    var directionRowHeight: CGFloat
+    var directionButtonWidth: CGFloat
+    var labelColumnWidth: CGFloat
+    var everyStepperWidth: CGFloat
+    var hitStepButtonWidth: CGFloat
+    var onRestButtonWidth: CGFloat
+    var valueStepperWidth: CGFloat
+    var underFloor: Bool   // §1.6's own floors: row A 82, direction row 32 tall, lower rows 32 tall, direction buttons 40 wide
+}
+func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGFloat = 4) -> EuclideousRiffTabLayout {
+    let patternBlockH: CGFloat = 80   // the SAME fixed constant RHYTHM's own lower block uses
+    let upperH = max(1, contentAreaH - patternBlockH - sp4)
+    let rowBHeight: CGFloat = 38
+    let rowAHeight = max(1, upperH - sp4 - rowBHeight)
+    let lowerRowHeight = max(1, (patternBlockH - sp4) / 2)
+    let cardWidth: CGFloat = 90
+    let rightColumnWidth = max(1, fullWidth - cardWidth - sp4)
+    let walkStripHeight: CGFloat = 38
+    let directionRowHeight = max(1, rowAHeight - sp4 - walkStripHeight)
+    let directionButtonWidth = max(1, (rightColumnWidth - 4 * sp4) / 5)
+    let labelColumnWidth: CGFloat = 60
+    let everyStepperWidth: CGFloat = 76
+    let hitStepButtonWidth = max(1, (fullWidth - labelColumnWidth - everyStepperWidth - 3 * sp4) / 2)
+    let onRestButtonWidth = max(1, (fullWidth - labelColumnWidth - 4 * sp4) / 4)
+    let valueStepperWidth = max(1, (fullWidth - 3 * sp4) / 4)
+    let underFloor = rowAHeight < 82 || directionRowHeight < 32 || lowerRowHeight < 32 || directionButtonWidth < 40
+    return EuclideousRiffTabLayout(rowAHeight: rowAHeight, rowBHeight: rowBHeight, lowerRowHeight: lowerRowHeight,
+                                   rightColumnWidth: rightColumnWidth, walkStripHeight: walkStripHeight,
+                                   directionRowHeight: directionRowHeight, directionButtonWidth: directionButtonWidth,
+                                   labelColumnWidth: labelColumnWidth, everyStepperWidth: everyStepperWidth,
+                                   hitStepButtonWidth: hitStepButtonWidth, onRestButtonWidth: onRestButtonWidth,
+                                   valueStepperWidth: valueStepperWidth, underFloor: underFloor)
+}
+
 /// A Euclideous lane's step length, step count and lap length exactly as `Router.runEuclidLine` derives them — a FOLLOWing lane ticks at
 /// its partner's rate × the FOLLOW multiplier over the partner's step count. Reads fields only (no pattern is built), so the render
 /// thread's mute edge-detect sweep can use it before any lane runs. `defaultRateBeats` stands in for a lane with no rate of its own.

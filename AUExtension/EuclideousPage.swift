@@ -3062,15 +3062,15 @@ struct EuclideousPage: View {
     /// 69.5pt chips inside a wider tab) — now spans the tab's own full width, each chip sized from it
     /// (`(fullWidth − 3 inter-chip 3pt gaps) / 4` — at the 326pt reference this is exactly 79.25, matching
     /// the ferry's own literal table).
-    private func melodyValuesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat) -> some View {
+    private func melodyValuesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, stepperWidth: CGFloat? = nil) -> some View {
         let n = line.riffLengthResolved
-        let nudge = ((line.riffRotateResolved % n) + n) % n
-        let w = max(1, (fullWidth - 3 * 3) / 4)
-        return HStack(spacing: 3) {
+        let shift = ((line.riffRotateResolved % n) + n) % n
+        let w = stepperWidth ?? max(1, (fullWidth - 3 * sp4) / 4)
+        return HStack(spacing: sp4) {
             melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many steps the riff walk loops over") { v in
                 edit(idx) { euclideousSetRiffLength(&$0, v) }   // RIFF WALK ferry §4.3: the ONE LEN setter — pins SHIFT memory first
             }
-            melodyStepper("NUDGE", value: nudge, range: 0...(n - 1), width: w, help: "Start the riff walk further along the pattern") { v in
+            melodyStepper("SHIFT", value: shift, range: 0...(n - 1), width: w, help: "Where the walk starts") { v in
                 edit(idx) { euclideousSetRiffShift(&$0, v) }   // RIFF WALK ferry §4.3: the ONE SHIFT setter — stores into riffRotate + riffShiftRequested
             }
             melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: w, help: "How many riff steps to move per note") { v in
@@ -3122,6 +3122,7 @@ struct EuclideousPage: View {
         let len = line.riffLengthResolved
         let curStep = idx < riffPositions.count ? riffPositions[idx] : -1
         let isRiff = line.riffOnResolved
+        let neverPlay = riffReadout(idx)?.neverPlay ?? []   // RIFF WALK ferry §2.1/§7.6
         let cell = max(1, (size - 7) / 8)   // 8 cells + 7 gaps of 1pt
         return VStack(spacing: 1) {
             ForEach((1...8).reversed(), id: \.self) { rank in
@@ -3132,47 +3133,52 @@ struct EuclideousPage: View {
                         let inWindow = col < len
                         let isCur = col == curStep
                         RoundedRectangle(cornerRadius: 1.5)
-                            .fill(riffMiniGridFill(isRiff: isRiff, isHit: isHit, inWindow: inWindow, isCur: isCur))
+                            .fill(riffMiniGridFill(isRiff: isRiff, isHit: isHit, isCur: isCur))
                             .frame(width: cell, height: cell)
+                            .opacity((!inWindow || neverPlay.contains(col)) ? 0.32 : 1.0)
                     }
                 }
             }
         }
         .frame(width: size, height: size)
     }
-    /// Fix 1's own exact fill table — riff ON (card = lane colour, label INK): a note inside the LEN window
-    /// is solid INK; outside the window, INK at 35%; an empty cell is INK at 14%; the CURRENT step's note (if
-    /// it has one) is `#f2f4f7`, one cell only. Riff OFF keeps the SAME palette already shipped ("the riff-
-    /// OFF thumbnail is correct, keep it" — the ferry's own words) with one addition: a current-step note now
-    /// gets its own `#aab0ba` fill too, replacing the old universal stroke ring this fix removes.
-    private func riffMiniGridFill(isRiff: Bool, isHit: Bool, inWindow: Bool, isCur: Bool) -> Color {
+    /// Fix 1's own exact fill table — riff ON (card = lane colour, label INK): a note is solid INK; an empty
+    /// cell is INK at 14%; the CURRENT step's note (if it has one) is `#f2f4f7`, one cell only. Riff OFF
+    /// keeps the SAME palette already shipped, with the current-step note's own `#aab0ba` fill. RIFF WALK
+    /// ferry §2.1: a past-LEN or never-played column's own 32% dim is now ONE uniform opacity layer the
+    /// caller applies on top (lit or empty alike) — this function no longer bakes its own separate "outside
+    /// the window" reduction into the fill colour, which would have double-dimmed those cells.
+    private func riffMiniGridFill(isRiff: Bool, isHit: Bool, isCur: Bool) -> Color {
         if isRiff {
             if isHit && isCur { return Color(hex: 0xF2F4F7) }
-            if isHit { return Color(hex: 0x0D0F14).opacity(inWindow ? 1.0 : 0.35) }
+            if isHit { return Color(hex: 0x0D0F14) }
             return Color(hex: 0x0D0F14).opacity(0.14)
         } else {
             if isHit && isCur { return Color(hex: 0xAAB0BA) }
-            if isHit { return Color.white.opacity(inWindow ? 0.55 : 0.22) }
+            if isHit { return Color.white.opacity(0.55) }
             return Color.white.opacity(0.06)
         }
     }
-    /// The riff card itself — a 90×90 thumbnail that ALSO serves as this lane's on/off switch for the whole
-    /// riff layer (ferry §2: "the whole card toggles the riff on and off; turning it on restores the
-    /// remembered direction" — `riffDir` is already persisted independent of `riffOn`, so nothing extra is
-    /// needed to "remember" it; this is the same one-tap-restores idiom the direction buttons below already
-    /// use). The card itself never dims regardless of riff state — its own colour already shows on/off.
-    /// Geometry per the 2026-10-14 ferry (confirmed already correct, "keep it"): radius 10, padding 6, a
-    /// fixed 12pt-tall label line box with 2pt letter-spacing, a 3pt gap, then the 63×63 grid — 6+12+3+63+6=90.
-    private func riffCard(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat) -> some View {
+    /// The riff card itself — a 90×82 thumbnail (RIFF WALK ferry §2.1, 8pt shorter than before: OCT's row
+    /// is gone) that ALSO serves as this lane's on/off switch for the whole riff layer (ferry §2: "the whole
+    /// card toggles the riff on and off; turning it on restores the remembered direction" — `riffDir` is
+    /// already persisted independent of `riffOn`, so nothing extra is needed to "remember" it). The card
+    /// itself never dims regardless of riff state — its own colour already shows on/off. Geometry per §2.1:
+    /// an 11pt label line 8pt below the card's top, the 55.3×55.3 grid (8 cells of 5.6pt, 1.5pt apart)
+    /// starting 23pt below the card's top — the grid's OWN size is fixed (cell/gap are literal), not scaled
+    /// to fill whatever's left; any remaining height at the bottom is empty.
+    private func riffCard(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
         let isRiff = line.riffOnResolved
-        return VStack(spacing: 3) {
+        return VStack(spacing: 0) {
             Text("RIFF").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(2)
                 .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
-                .frame(height: 12)
-            riffMiniGrid(idx, line, accent, size: 63)
+                .frame(height: 11)
+                .padding(.top, 8)
+            Spacer(minLength: 0).frame(height: 4)
+            riffMiniGrid(idx, line, accent, size: 55.3)
+            Spacer(minLength: 0)
         }
-        .padding(.top, 6).padding(.bottom, 6)
-        .frame(width: size, height: size)
+        .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 10).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
         .contentShape(Rectangle())
@@ -3224,34 +3230,135 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: radius).stroke(Color(hex: 0x262930), lineWidth: 1))
         .euclideousHelp("Move this layer up or down by octaves.")
     }
-    /// The RIFF tab's top row — the card (left) + a right-hand column holding the OCT trough (top, its own
-    /// "OCT" label now built INSIDE it) stacked above the direction row (bottom). FIX 2 (2026-10-14 ferry):
-    /// SUPERSEDES the prior session's own judgment call of folding DIRECTION into the modes row as a 4th
-    /// group — the ferry's own literal row budget never had room for a 13-button modes row without
-    /// truncating labels ("PE…, PI…, ST…, SK…, FI…."), and moves DIRECTION here instead, full-width with
-    /// full labels. `riffDir` is already persisted independent of `riffOn`, so nothing extra is needed to
-    /// "remember" it on turning the riff back on. The card never dims; the right-hand column dims to 42%
-    /// while the riff is off, matching every other riff-only control on this tab.
-    private func riffTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        let isRiff = line.riffOnResolved
-        return HStack(spacing: 6) {
-            riffCard(idx, line, accent, size: height)
-            VStack(spacing: 6) {
-                euclideousOctaveTrough(value: line.riffOctaveResolved, accent: accent, label: "OCT", radius: 10) { v in
-                    edit(idx) { euclideousSetRiffOctave(&$0, v) }   // the ONE riff-octave setter — the MIX tab's stepper uses it too
+    /// RIFF WALK ferry §3 — the WALK strip: display only, not interactive. A header line ("WALK" + the
+    /// readout, §7.5) over a row of up to 16 cells, one per walk step 0..<P, each showing the column it
+    /// reads (or a rest dash), the current step ringed, EVERY pips under the number when EVERY >= 2, and a
+    /// column/step this lane never plays dimmed to 42% (§7.6).
+    private func riffWalkStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
+        let cfg = riffWalkConfig(idx)
+        let readout = riffReadout(idx)
+        let stepRanks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
+        let len = line.riffLengthResolved
+        let every = line.riffAdvanceEveryResolved
+        let P = euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)
+        let readoutText = euclideousRiffReadoutText(readout, overBudget: readout == nil)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text("WALK").font(.system(size: 8, weight: .heavy, design: .monospaced)).kerning(0.8).foregroundColor(Color(hex: 0xAAB0BA))
+                Spacer(minLength: 2)
+                euclideousWalkReadoutText(readoutText)
+            }
+            .padding(.horizontal, 2)
+            // §3.4: the ring shows only while the transport runs, the lane plays and the riff is on — one
+            // TimelineView for the whole row (never one per cell), paused while stopped, matching this
+            // page's own established idiom (`riffWalkTagOverlay`).
+            let ringEligible = clock.playing && line.enabledResolved && line.riffOnResolved
+            TimelineView(.animation(minimumInterval: 1.0 / 15, paused: !ringEligible)) { tl in
+                let current: Int? = (ringEligible ? cfg : nil).flatMap { riffWalkCurrentStep($0, beat: walkTagBeat(at: tl.date), P: P) }
+                HStack(spacing: 1.5) {
+                    ForEach(0..<16, id: \.self) { i in
+                        if i < P, let cfg {
+                            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed)
+                            let rank = col < stepRanks.count ? stepRanks[col] : 0
+                            let isRest = rank < 1
+                            let neverPlays = readout?.neverPlayWalkSteps.contains(i) ?? false
+                            riffWalkStripCell(col: col, isRest: isRest, every: every, isCurrent: i == current, accent: accent, dim: neverPlays)
+                        } else {
+                            RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x181A1F)).frame(maxWidth: .infinity)
+                        }
+                    }
                 }
-                .frame(height: 40)
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .padding(4)
+        .frame(width: width, height: height, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x262930), lineWidth: 1))
+        .euclideousHelp("The columns this lane's walk reads, in order. " + euclideousWalkVoiceOverValue(cfg: cfg, len: len, every: every, P: P, stepRanks: stepRanks, readoutText: readoutText))
+    }
+    /// One WALK-strip cell: the column number or a rest dash, EVERY pips underneath when EVERY >= 2, lane20
+    /// fill + a lane100 inner ring on the current step (§3.3).
+    private func riffWalkStripCell(col: Int, isRest: Bool, every: Int, isCurrent: Bool, accent: Color, dim: Bool) -> some View {
+        VStack(spacing: 1.5) {
+            Text(isRest ? "\u{2013}" : "\(col + 1)")
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(isRest ? Color(hex: 0x5C626C) : Color(hex: 0xF2F4F7))
+                .frame(height: 11)
+            if every >= 2 {
+                HStack(spacing: 1) {
+                    ForEach(0..<every, id: \.self) { j in
+                        Circle().fill(isCurrent ? lane100(accent) : (isRest ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A))).frame(width: 2, height: 2)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 3).fill(isCurrent ? lane20(accent) : (isRest ? Color(hex: 0x1F2228) : Color(hex: 0x2A2D34))))
+        .overlay(RoundedRectangle(cornerRadius: 3).stroke(isCurrent ? lane100(accent) : Color.clear, lineWidth: 1))
+        .opacity(dim ? 0.42 : 1.0)
+    }
+    /// §3.4: the current walk step = floor(o ÷ EVERY) mod P — ADV HIT reads the latest hit at or before
+    /// `beat` (nil until the lane's first hit since the melody origin); ADV STEP reads the step playing now.
+    private func riffWalkCurrentStep(_ cfg: EuclideousWalkLaneConfig, beat: Double, P: Int) -> Int? {
+        guard cfg.sub > 0, P > 0 else { return nil }
+        let advOrd: Int64
+        if cfg.advanceStep {
+            let tick = Int64((beat / cfg.sub).rounded(.down))
+            advOrd = euclideousWalkTick(cfg, tick: tick).advOrd
+        } else {
+            let scan = euclideousWalkScanHits(cfg, beat: beat, back: 2, ahead: 0)
+            guard let t = scan.prev.first else { return nil }
+            advOrd = euclideousWalkTick(cfg, tick: t).advOrd
+        }
+        let w = euclideousRiffWalkStep(ordinal: advOrd, every: cfg.every)
+        return Int(((w % Int64(P)) + Int64(P)) % Int64(P))
+    }
+    /// §3.2's readout text, the amber "N NEVER PLAY" part split out into its own colour.
+    private func euclideousWalkReadoutText(_ text: String) -> some View {
+        let parts = text.components(separatedBy: " · ")
+        return HStack(spacing: 0) {
+            Text(parts[0]).foregroundColor(Color(hex: 0x8A909A))
+            if parts.count > 1 { Text(" · " + parts[1]).foregroundColor(Color(hex: 0xFFB454)) }
+        }
+        .font(.system(size: 8, weight: .heavy, design: .monospaced)).kerning(0.32).lineLimit(1)
+    }
+    /// §9.2's VoiceOver value text for the WALK strip.
+    private func euclideousWalkVoiceOverValue(cfg: EuclideousWalkLaneConfig?, len: Int, every: Int, P: Int, stepRanks: [Int], readoutText: String) -> String {
+        guard let cfg else { return "No hits to play." }
+        if readoutText == "CYCLE TOO LONG TO COUNT" { return "The cycle is too long to count." }
+        if readoutText == "NO HITS TO PLAY" { return "No hits to play." }
+        var cols: [String] = []
+        for i in 0..<P {
+            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed)
+            let rank = col < stepRanks.count ? stepRanks[col] : 0
+            cols.append(rank < 1 ? "rest" : "\(col + 1)")
+        }
+        var s = cols.joined(separator: ", ") + ", then round again. " + readoutText.capitalized.replacingOccurrences(of: "·", with: ".")
+        if every >= 2 { s += ", each for \(every) \(every == 1 ? "hit" : "hits")" }
+        return s
+    }
+    /// RIFF WALK ferry §1.3 Row A — the card (left) + a right-hand column holding the WALK strip (top) and
+    /// the direction row with INV (bottom). Supersedes the OCT-trough layout entirely (§1.2): OCT's row is
+    /// gone (MIX's stepper is now riffOctave's only control). The card never dims; the right-hand column
+    /// dims to 42% while the riff is off, matching every other riff-only control on this tab.
+    private func riffTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
+        let isRiff = line.riffOnResolved
+        return HStack(spacing: sp4) {
+            riffCard(idx, line, accent, width: 90, height: layout.rowAHeight)
+            VStack(spacing: sp4) {
+                riffWalkStrip(idx, line, accent, width: layout.rightColumnWidth, height: layout.walkStripHeight)
                 riffDirectionRow(idx, line, accent)
-                    .frame(height: 44)
+                    .frame(height: layout.directionRowHeight)
             }
             .opacity(isRiff ? 1.0 : 0.42)
         }
-        .frame(height: height)
+        .frame(height: layout.rowAHeight)
     }
-    /// The riff direction row — FWD·REV·PEND·PING, 4 equal full-label buttons (moved out of the modes row by
-    /// the 2026-10-14 ferry Fix 2, which found no room for it there without truncating labels). Tapping the
+    /// The riff direction row — FWD·REV·PEND·PING·INV, five equal full-label buttons (§2.3: INV moves in
+    /// here as the fifth, in the SAME style, replacing its old spot in the retired modes row). Tapping the
     /// lit direction turns the riff off (remembering it); tapping any other turns the riff on with that
-    /// direction — unchanged from the prior shared-row version.
+    /// direction; INV is a plain toggle, independent of on/off, unchanged from its old behaviour.
     private func riffDirectionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
         let curDir = line.euclideousRiffDirResolved
@@ -3259,7 +3366,7 @@ struct EuclideousPage: View {
         return HStack(spacing: 3) {
             ForEach(dirs, id: \.self) { d in
                 let lit = curDir == d
-                melodyButton(riffDirShortLabel(d), on: lit, accent: accent, height: 44, fontSize: 12, cornerRadius: 7,
+                melodyButton(riffDirShortLabel(d), on: lit, accent: accent, height: 40, fontSize: 12, cornerRadius: 7,
                              help: "How the riff walks. Tap the lit one to turn the riff off.") {
                     edit(idx) { l in
                         if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
@@ -3269,60 +3376,69 @@ struct EuclideousPage: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
             }
+            melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 12, cornerRadius: 7,
+                         help: "Flip the riff upside down in pitch") { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
         }
     }
-    /// The modes row — now exactly 3 groups (DIRECTION moved to `riffTopRow`'s own right column, Fix 2):
-    /// ADV+HIT/STEP · REST+SKIP/FILL/TIE · INV alone (was INV+LOCK; LOCK retired, restart-chains ferry §7.1 —
-    /// INV keeps the group's own width/position and fills it). None of these turn the riff on or off (the
-    /// ferry's standing rule: "change their setting live... so you can set the riff up before bringing it
-    /// in"). Group widths are the ferry's own literal 326pt-reference numbers (ADV 93.82 · REST 134.59 · INV 81.6,
-    /// re-verified algebraically against every given x-coordinate before trusting them — e.g. ADV = label(13)
-    /// + gap(3) + 2 buttons of 37.41 + 1 internal gap(3) = 93.82, exactly reproducing "HIT x 16 · STEP x
-    /// 56.41"), scaled proportionally at any other width per the ferry's own "share the extra width across
-    /// the stretching items" rule — each group's OWN button area absorbs its share, labels/gaps stay fixed.
-    private func riffModesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat) -> some View {
+    /// RIFF WALK ferry §1.3 Row B — "ADVANCE" / "EVERY" label, the EVERY stepper (§8), then HIT/STEP (§2.4:
+    /// read "HIT"/"STEP" at EVERY 1, "HITS"/"STEPS" at 2-4, so the row reads "ADVANCE EVERY 2 STEPS").
+    private func riffAdvanceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         let isRiff = line.riffOnResolved
-        let avail = max(1, fullWidth - sp8 * 2)   // 2 inter-group 8pt gaps (3 groups now, was 3 gaps for 4)
-        let refAdv: CGFloat = 93.82, refRest: CGFloat = 134.59, refInv: CGFloat = 81.6
-        let refTotal = refAdv + refRest + refInv
-        let wAdv = avail * (refAdv / refTotal), wRest = avail * (refRest / refTotal), wInv = avail * (refInv / refTotal)
-        return HStack(spacing: sp8) {
-            HStack(spacing: 3) {
-                melodyVerticalLabel("ADV", size: 10, width: 13, kerning: 0.5)
-                melodyButton("HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: 40, fontSize: 11, cornerRadius: 7,
-                             help: "Move the riff only on sounding hits") { edit(idx) { $0.riffAdvanceStep = false } }
-                melodyButton("STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 40, fontSize: 11, cornerRadius: 7,
-                             help: "Move the riff on every step, not just hits") { edit(idx) { $0.riffAdvanceStep = true } }
+        let every = line.riffAdvanceEveryResolved
+        let plural = every >= 2
+        return HStack(spacing: sp4) {
+            riffRowLabel("ADVANCE", "EVERY").frame(width: layout.labelColumnWidth)
+            melodyStepper("EVERY", value: every, range: 1...4, width: layout.everyStepperWidth, showLabel: false,
+                         help: "The riff moves once every this many hits (or steps)") { v in
+                edit(idx) { $0.riffAdvanceEvery = v }
             }
-            .frame(width: wAdv)
-            HStack(spacing: 3) {
-                melodyVerticalLabel("REST", size: 10, width: 13, kerning: 0.5)
-                ForEach([EuclidRiffOnRest.skip, .fill, .tie], id: \.self) { r in
-                    melodyButton(r.rawValue, on: line.riffOnRestResolved == r, accent: accent, height: 40, fontSize: 11, cornerRadius: 7,
-                                 help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
-                }
-            }
-            .frame(width: wRest)
-            // RESTART CHAINS ferry §7.1: LOCK goes — a melody chain of [1] does the same (§4.7), set on the
-            // RHYTHM tab's restart editor. INV wasn't alone in this group, so per §7.1's FIRST branch the
-            // group keeps its overall width/position (81.6pt at the 326pt reference) and INV takes the whole
-            // of it via `melodyButton`'s own existing `.frame(maxWidth: .infinity)` stretch rule — unchanged.
-            melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 11, cornerRadius: 7,
-                         help: "Flip the riff upside down in pitch") { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
-                .frame(width: wInv)
+            melodyButton(plural ? "HITS" : "HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
+                         help: "Move the riff only on sounding hits") { edit(idx) { $0.riffAdvanceStep = false } }
+                .frame(width: layout.hitStepButtonWidth)
+            melodyButton(plural ? "STEPS" : "STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
+                         help: "Move the riff on every step, not just hits") { edit(idx) { $0.riffAdvanceStep = true } }
+                .frame(width: layout.hitStepButtonWidth)
         }
         .opacity(isRiff ? 1.0 : 0.42)
     }
-    /// The whole RIFF tab — top row (90pt: card + OCT trough + direction) · modes row (48pt, 3 groups) ·
-    /// values row (48pt, full width). 90+8+48+8+48=202, the ferry's own literal arithmetic (previously built
-    /// with 4pt row gaps, giving 194 — corrected to the ferry's explicit 8pt gaps here, since its own y-
-    /// coordinates for rows 2/3 — "at (0, 98)", "at (0, 154)" — only reconcile at 8pt: 90+8=98, 98+48+8=154).
+    /// RIFF WALK ferry §1.4 — the ON REST row: "ON REST" / "IN RIFF" label, then SKIP/FILL/TIE/REPEAT (§2.5,
+    /// §6 — REPEAT is new, same style as the other three).
+    private func riffOnRestRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
+        let isRiff = line.riffOnResolved
+        return HStack(spacing: sp4) {
+            riffRowLabel("ON REST", "IN RIFF").frame(width: layout.labelColumnWidth)
+            ForEach([EuclidRiffOnRest.skip, .fill, .tie, .repeatLast], id: \.self) { r in
+                melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: line.riffOnRestResolved == r, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
+                             help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
+                    .frame(width: layout.onRestButtonWidth)
+            }
+        }
+        .opacity(isRiff ? 1.0 : 0.42)
+    }
+    /// §2.6's label column: a name over a second line, 3pt below, centred vertically as a pair — replaces
+    /// the retired rotated `melodyVerticalLabel("ADV"/"REST", ...)` single-word labels.
+    private func riffRowLabel(_ top: String, _ bottom: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(top).font(.system(size: 9, weight: .heavy, design: .monospaced)).kerning(0.9).foregroundColor(Color(hex: 0xF2F4F7))
+            Text(bottom).font(.system(size: 8, weight: .heavy, design: .monospaced)).kerning(0.64).foregroundColor(Color(hex: 0x8A909A))
+        }
+        .padding(.leading, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    /// The whole RIFF tab, RIFF WALK ferry §1.1-§1.4: the RIFF tab now fills RHYTHM's own two zones exactly
+    /// (`euclideousRiffTabLayout`, §1.5 — reusing RHYTHM's real `patternBlockH`/`upperH` split, not the
+    /// ferry's own literal 124/208 reference figures, which don't match the real `contentAreaH` formula —
+    /// reported, not hand-fitted), so the header row and tab row stop moving between tabs. Upper zone: Row A
+    /// (card + WALK strip + direction row) + Row B (ADVANCE EVERY). Lower zone: ON REST row + values row.
     private func riffTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        ZStack {
-            VStack(spacing: sp8) {
-                riffTopRow(idx, line, accent, height: 90)
-                riffModesRow(idx, line, accent, fullWidth: fullWidth).frame(height: 48)
-                melodyValuesRow(idx, line, accent, fullWidth: fullWidth).frame(height: 48)
+        let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
+        return ZStack {
+            VStack(spacing: sp4) {
+                riffTopRow(idx, line, accent, layout: layout)
+                riffAdvanceRow(idx, line, accent, layout: layout).frame(height: layout.rowBHeight)
+                riffOnRestRow(idx, line, accent, layout: layout).frame(height: layout.lowerRowHeight)
+                melodyValuesRow(idx, line, accent, fullWidth: fullWidth, stepperWidth: layout.valueStepperWidth)
+                    .frame(height: layout.lowerRowHeight)
                     .opacity(line.riffOnResolved ? 1.0 : 0.42)
             }
             .opacity(line.listenPitchMode == .shadow ? 0.42 : 1)
@@ -4523,6 +4639,24 @@ struct EuclideousPage: View {
                                             lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
                                             swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
         }
+    }
+    /// RIFF WALK ferry §3/§7: one lane's walk config, unconditionally (the WALK strip and the mini-grid's
+    /// dim rule need it regardless of `walkTagShows` — they're drawn even while the riff is off, at 42%).
+    private func riffWalkConfig(_ idx: Int) -> EuclideousWalkLaneConfig? {
+        guard idx >= 0, idx < lines.count else { return nil }
+        let cyc = clock.stepBeats * Double(max(1, clock.cols))
+        return euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
+                                        lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
+                                        swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
+    }
+    /// The readout for lane `idx`'s current riff settings (§7), nil when over budget. Recomputed on each
+    /// body evaluation — not memoised (§7.2's own ask) given the time available to wire a cache; bounded by
+    /// §7.4's own J <= 4096 gate either way.
+    private func riffReadout(_ idx: Int) -> EuclideousRiffReadout? {
+        guard let c = riffWalkConfig(idx) else { return nil }
+        return euclideousRiffReadout(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, chains: c.chains,
+                                     legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep, riffDir: c.riffDir, stride: c.stride,
+                                     length: c.length, shift: c.rotate, every: c.every, seed: c.seed)
     }
     /// The UI clock's beat at `date` — the same `anchor + elapsed × tempo` extrapolation every other live view on
     /// this page uses (frozen at the anchor while the transport is stopped).

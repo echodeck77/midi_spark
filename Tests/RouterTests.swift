@@ -12435,6 +12435,33 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(lenFiveText, "LINES UP EVERY PASS")
     }
 
+    /// §11 test 18: the pure layout function at the reference (contentAreaH 202, fullWidth 338.5) and at a
+    /// narrower 300pt width with the same zones, per the ferry's own §1.6 worked numbers.
+    func testRiffTabLayoutAtReferenceAndNarrower() {
+        let ref = euclideousRiffTabLayout(contentAreaH: 202, fullWidth: 338.5)
+        // the real contentAreaH/patternBlockH split gives 118/80 (not the ferry's own screenshot-derived
+        // 124/80) — reported, not hand-fitted to match; everything below is this code's own real geometry.
+        XCTAssertEqual(ref.rowAHeight, 76, accuracy: 0.01)
+        XCTAssertEqual(ref.directionRowHeight, 34, accuracy: 0.01)
+        XCTAssertEqual(ref.rightColumnWidth, 244.5, accuracy: 0.01)
+        XCTAssertEqual(ref.directionButtonWidth, 45.7, accuracy: 0.01)
+        XCTAssertEqual(ref.onRestButtonWidth, 65.625, accuracy: 0.001)
+        XCTAssertEqual(ref.valueStepperWidth, 81.625, accuracy: 0.001)
+        XCTAssertEqual(ref.hitStepButtonWidth, 95.25, accuracy: 0.01, "label 60 + gap + EVERY 76 + gap + HIT + gap + STEP = fullWidth, 3 gaps total")
+        // §0.2's own discrepancy, confirmed numerically: the ferry's reference arithmetic assumes upperH
+        // 124 (giving row A 82, exactly its own floor); the REAL contentAreaH(202)/patternBlockH(80) split
+        // gives upperH 118, row A 76 — 6pt UNDER the 82 floor even at the reference. Reported, not silently
+        // reconciled by hand-fitting a different constant.
+        XCTAssertTrue(ref.underFloor, "the real formula puts row A at 76, under its own 82 floor, even at the reference — see §0.2's discrepancy")
+
+        let narrow = euclideousRiffTabLayout(contentAreaH: 202, fullWidth: 300)
+        XCTAssertEqual(narrow.directionButtonWidth, (300 - 90 - 4 - 16) / 5, accuracy: 0.01)
+        XCTAssertEqual(narrow.hitStepButtonWidth, 76, accuracy: 0.01)
+        XCTAssertEqual(narrow.onRestButtonWidth, 56, accuracy: 0.01)
+        XCTAssertEqual(narrow.valueStepperWidth, 72, accuracy: 0.01)
+        XCTAssertTrue(narrow.underFloor, "direction buttons fall under the 40pt floor at 300pt width")
+    }
+
     // MARK: - MIX TAB (ferry 2026-10-18) §9.6/§9.7 — every pitch carries its OWN gate; legato is per LAYER
 
     private func mixBox(_ line: EuclidLine, ranks: [Int] = [5, 0, 0, 0, 0, 0, 0, 0], monoOnA: Bool = false) -> SnapshotBox {
