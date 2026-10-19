@@ -208,7 +208,8 @@ final class RiffPanelTests: XCTestCase {
         near(left.labelRect.minX, 8.5); near(left.labelRect.width, 30.83 - 8.5)
         XCTAssertEqual(euclideousArrowSpec(cellW: 37.83, cellH: 25, members: [lane(0), lane(1), lane(2)], hollow: false)!.labelSize, 6.5)
         XCTAssertEqual(euclideousArrowSpec(cellW: 37.83, cellH: 25, members: [lane(0), lane(1), lane(2), lane(3)], hollow: false)!.labelSize, 6)
-        XCTAssertEqual(euclideousArrowSpec(cellW: 37.83, cellH: 25, members: [lane(0, .still)], hollow: false)!.outline, .capsule)
+        let cap = euclideousArrowSpec(cellW: 37.83, cellH: 25, members: [lane(0, .still)], hollow: false)!
+        XCTAssertEqual(cap.outline, .capsule); near(cap.labelRect.minX, 2); near(cap.labelRect.width, 30.83 - 4, "a capsule has no tip: the label centres on the whole shape")
         XCTAssertNil(euclideousArrowSpec(cellW: 37.83, cellH: 25, members: [], hollow: false))
     }
     func testOneLaneFillIsTheCometTilesAndTwoOrMoreBlend() {

@@ -7918,7 +7918,10 @@ func euclideousArrowSpec(cellW: CGFloat, cellH: CGFloat, members: [EuclideousArr
     // 4.6: one lane, or two in a one-way arrow → centred in the BODY (between the tail and the tip's base); double-headed, or three or more → the whole arrow, 2pt side insets.
     let bodyRule = n == 1 || (n == 2 && group.kind != .double)
     let labelRect: CGRect
-    if bodyRule {
+    if group.kind == .still {
+        // a capsule has no tip, so its "body" is the whole shape: centred on it, with the same 2pt side insets as the double-headed arrow
+        labelRect = CGRect(x: 2, y: 0, width: max(1, size.width - 4), height: size.height)
+    } else if bodyRule {
         labelRect = group.kind == .left ? CGRect(x: t, y: 0, width: size.width - t, height: size.height) : CGRect(x: 0, y: 0, width: size.width - t, height: size.height)
     } else {
         labelRect = CGRect(x: 2, y: 0, width: max(1, size.width - 4), height: size.height)

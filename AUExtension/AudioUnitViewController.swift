@@ -1268,6 +1268,7 @@ struct DiagView: View {
                     .ignoresSafeArea(.container, edges: .bottom)
                     #if DEBUG
                     .onChange(of: geo.size) { s in print("EUCLIDEOUS root view size \(s) safeAreaInsets \(geo.safeAreaInsets)") }   // device check: compare with the page's own "page size" line (EuclideousPage)
+                    .onAppear { print("EUCLIDEOUS root view size \(geo.size) safeAreaInsets \(geo.safeAreaInsets)") }
                     #endif
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)

@@ -13,7 +13,7 @@ project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
 - **▶ EUCLIDEOUS — RIFF PANEL ferry: "compact riff tabs, big arrows that blend, and lane rails under the grid" (2026-10-19, ratified by Paul from the "Fourfold layout" canvas, boards 10–12; on
-  `feature/riff-panel-arrows`; iOS builds clean; Euclideous subset 531 green incl. 21 new `RiffPanelTests`; ALL of it visual is device-owed — I rendered the painters off-device to a PNG with a scratch
+  `feature/riff-panel-arrows`; iOS builds clean; macOS suite 1781 green incl. 21 new `RiffPanelTests`; ALL of it visual is device-owed — I rendered the painters off-device to a PNG with a scratch
   macOS harness and checked the shapes, blends, hollow dashes, flare and rails by eye, which found and fixed one bug: the 10pt chevron inflated the current rail segment to ~13pt tall).** Display only: no model,
   engine or saved-data change. **MAPPING (§0.1, file:line as of `d903531`):** (a) the panel's top row was `riffTabRow` (EuclideousPage.swift:4410) and nothing else above the grid — NO column-number row, title or
   NOT PLAYING anywhere; HOLD NOTES TO PLAY already floated over the grid (:4615, a #15161A pill at 90%, radius 6, h-pad sp8, v-pad 6) since the 2026-10-14 §11.3 change, so there was no row to lose.

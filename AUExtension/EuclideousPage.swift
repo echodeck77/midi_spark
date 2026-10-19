@@ -1131,6 +1131,10 @@ struct EuclideousPage: View {
             }
             .coordinateSpace(name: "euclideousXY")
             #if DEBUG
+            .onAppear {
+                let pg = euclideousPageLayout(size: geo.size, bottomInset: pageBottomInset)
+                print("EUCLIDEOUS page size \(geo.size) bottomInset \(pageBottomInset) geo.safeAreaInsets \(geo.safeAreaInsets) → box \(pg.box) floors \(pg.floors)")
+            }
             .onChange(of: geo.size) { sz in
                 let pg = euclideousPageLayout(size: sz, bottomInset: pageBottomInset)
                 print("EUCLIDEOUS page size \(sz) bottomInset \(pageBottomInset) geo.safeAreaInsets \(geo.safeAreaInsets) → box \(pg.box) floors \(pg.floors)")
