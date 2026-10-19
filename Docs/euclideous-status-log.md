@@ -12,6 +12,20 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — FIX: a hit exactly on a chord change read the PREVIOUS chord (2026-10-19; from Paul's screen recording of the yellow lane staying silent on step 5;
+  on `feature/fx-tab`; macOS suite green; the sound is device-owed).** With the CHORDS source the shared pool was built ONCE PER RENDER WINDOW at the window's START beat
+  (`chordSeqNotes(beat: mWinStart …)`), so any hit that lands in the window where the chord changes — in practice every hit ON the change, e.g. a lane on the bar line under a
+  chord that changes on the bar line — read the old chord. **The video:** the yellow lane runs at 1/2 (about 1.09 s a step at 110 BPM: 4 hits in 8 steps = one per bar), ADV STEP,
+  riff `[1,1,1,5,1,6,4,1]`, riff GATE 100% (LEGATO); the chord changes every 2 bars, exactly on its step-1 and step-5 hits (measured from the footage: chord-label changes at
+  2.03 / 6.40 / 10.77 / 15.13 s vs lap wraps at 6.4 and 15.1 s). Step 5 read the OLD chord's rank 1 — the same pitch step 3 was still holding — and legato (a repeated pitch carries
+  on as one note) swallowed it, so the new chord's root never sounded; step 1 played the old chord's root; with GATE below 100 the same hits sounded the previous chord's note.
+  Reproduced in `RouterTests.testAHitExactlyOnAChordChangeReadsTheNewChordAtAnyBufferSize` (buffers 64–4096, GATE 50% and 100%; 35 assertion failures without the fix).
+  **FIX (Router.swift, `emitGeneratorRow`):** `fillChordPool(atBeat:)` builds the pool; `refreshChordPool(atBeat:)` runs at the start of EVERY tick with that tick's own beat
+  (+1e-9, so an inexact `tick × sub` a hair under a boundary still belongs to the new chord) and rebuilds only when that beat lies in a different chord step than the pool was built
+  for — so a hit before the change in the same window still reads the old chord and a hit at/after reads the new one, for every lane. Legato still (correctly) swallows a hit
+  whose pitch is the one already held — step 3 stays silent under GATE 100 because nothing changed. Factory presets don't use CHORDS, so none moved.
+  **Noted, NOT changed:** `chordSeqNotes` builds arrays, so the CHORDS pool allocates on the render thread every window (pre-existing; invariant 3) — the new refresh adds one
+  rebuild per chord change. A rest step in the chord pattern gives an empty pool, as before.
 - **▶ EUCLIDEOUS — "FERRY: RHYTHM tab rebuilt, outputs move to MIX, restart chains become the one restart
   model" (2026-10-19, ratified by Paul; on `feat/rhythm-tab-restart-chains`; iOS builds clean; macOS suite
   green throughout every phase; ALL visuals, touch feel and device-owed sound checks are device-owed).**
@@ -122,7 +136,7 @@ project has been building this whole stretch.
   FWD at the model layer, so that specific clause doesn't apply here, only to the generic chain RIFF
   processor's own unrelated DRUNK/RAND, untouched by this ferry).
 - **▶ EUCLIDEOUS — "FERRY: FX tab (six fixed effect rows on the riff's steps)" (2026-10-18, ratified by Paul; on `feature/fx-tab`; iOS builds
-  clean; macOS suite 1701 green; ALL visuals, touch feel and every sound check are device-owed).**
+  clean; macOS suite 1703 green; ALL visuals, touch feel and every sound check are device-owed).**
   A third tab, FX, after MIX and LANES in the bottom-right panel (LANDSCAPE ONLY — see the portrait stop below). Six fixed, page-level rows —
   RATCH · GATE · TIE · VEL · NOTE · CC — over the riff's eight columns. A cell holds a value or nothing; each row has a lane set (default all four)
   and acts only on those lanes, only on a hit that PLAYS THE RIFF, only through the riff column that hit reads, and never on a written rest.

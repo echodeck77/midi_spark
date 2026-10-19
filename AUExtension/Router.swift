@@ -4379,13 +4379,29 @@ final class Router {
             // the field's own `Bool` default (false), not a live concern.
             let isEuclideousRow = r == Snap.euclideousRow
             var globalSrcUsesLegacy = false
+            // CHORDS pool, resolved at the beat it is FOR. The pool used to be built once per render window at the window's START beat, so a hit that lands exactly on a chord
+            // change (a lane on the bar line under a chord that changes on the bar line — the usual case) read the PREVIOUS chord: on a legato lane that made it the pitch
+            // already held, so it merged silently, and otherwise it played the old chord's note on the new chord's downbeat. `refreshChordPool(atBeat:)` is called by each tick
+            // with that tick's own beat and rebuilds only when the beat falls in a different chord step than the pool was built for (a chord change — not per window).
+            var chordPoolStep = Int.min
+            let chordPoolRateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
+            func fillChordPool(atBeat m: Double) {
+                chordPoolStep = Int((m / chordPoolRateBeats).rounded(.down))
+                let chordNotes = chordSeqNotes(beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+                globalSrcCount = min(globalSrcBuf.count, chordNotes.count)
+                for k in 0..<globalSrcCount { globalSrcBuf[k] = (chordNotes[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
+                globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }
+            }
+            func refreshChordPool(atBeat m: Double) {
+                guard isEuclideousRow, p.euclideousNoteSourceResolved == .chords else { return }
+                let mm = m + 1e-9                                    // a tick beat a hair under a chord boundary (an inexact `tick × sub`) belongs to the new chord
+                guard Int((mm / chordPoolRateBeats).rounded(.down)) != chordPoolStep else { return }
+                fillChordPool(atBeat: mm)
+            }
             if isEuclideousRow {
                 switch p.euclideousNoteSourceResolved {
                 case .chords:
-                    let chordNotes = chordSeqNotes(beat: mWinStart, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
-                    globalSrcCount = min(globalSrcBuf.count, chordNotes.count)
-                    for k in 0..<globalSrcCount { globalSrcBuf[k] = (chordNotes[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
-                    globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }
+                    fillChordPool(atBeat: mWinStart)
                 case .key:
                     // KEY (Paul 2026-10-09 originally, re-scoped 2026-10-12): the key's own scale tones in ONE
                     // base octave — the generic "extend by octaves to 8" rule (the new ferry's own pool-and-
@@ -4692,6 +4708,7 @@ final class Router {
                              beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
                              clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc,
                              lineIndex: lineIndex) { tick, mTickBeat, _, _ in
+                    refreshChordPool(atBeat: mTickBeat)   // CHORDS: this tick reads the chord that is current at ITS beat, not at the window's start
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
                     // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a

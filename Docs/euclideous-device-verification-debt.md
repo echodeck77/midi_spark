@@ -17,6 +17,9 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### CHORDS source — hits on a chord change (2026-10-19 fix)
+- With the CHORDS source and a chord that changes on the bar line, a lane with a hit ON the bar line plays the NEW chord's note there (it used to play the old chord's, or — on a
+  GATE-100 lane — nothing). Re-check the yellow-lane video setup: step 5 should now sound the new chord's root; step 3 stays silent under GATE 100 (same pitch, held).
 ### RHYTHM tab rebuilt / restart chains (2026-10-19 ferry — §16)
 - The STEPS stepper: the 81 × 36 +/− buttons, and tap versus drag on the value box at 12pt per step.
 - The picker's 4.6 × 6 preview bars at real size, in all four lane colours.

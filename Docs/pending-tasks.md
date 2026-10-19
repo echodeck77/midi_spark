@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — FIX: a hit on a chord change read the previous chord (2026-10-19; found from Paul's video of the yellow lane's silent step 5)
+The CHORDS pool is now resolved at each tick's own beat, not once per window at its start (`Docs/euclideous-status-log.md`).
+- [ ] DEVICE: see the "CHORDS source" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul): under GATE 100 a hit whose pitch equals the held one still carries on as one note (by design — "legato"), so step 3 of that lane is silent while the chord is unchanged.
+      If you want a new HIT to re-trigger even on the same pitch, that is a different rule (a "retrigger on same pitch" option) — say if you want it.
+- [ ] (noted) `chordSeqNotes` allocates arrays on the render thread every window (pre-existing); worth a pass to make the CHORDS pool allocation-free.
 ## ★ EUCLIDEOUS — "RHYTHM tab rebuilt, outputs move to MIX, restart chains become the one restart model" — SHIPPED
 (2026-10-19; LANDED on `feat/rhythm-tab-restart-chains`, macOS suite green throughout, iOS builds clean) — two
 declarative restart chains per lane (RHYTHM in bars, MELODY in passes) replace the LANES GRID's masked model as

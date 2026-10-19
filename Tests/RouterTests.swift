@@ -13216,4 +13216,50 @@ final class RouterTests: XCTestCase {
             }
         }
     }
+
+    // ── VIDEO INVESTIGATION (2026-10-19): the yellow lane's 5th step stayed silent. Reproduction of its configuration: 4 hits in 8 steps at 1/2, ADV STEP, riff [1,1,1,5,1,6,4,1],
+    //    riff GATE 100% (legato), CHORDS source changing every 8 beats (2 bars) — so a chord change lands exactly on the lane's hits at steps 1 and 5.
+    private func chordsBox(gate: Double) -> (SnapshotBox, SnapParams) {
+        var l = EuclidLine(target: 0, pulses: 4, steps: 8)
+        l.gate = gate; l.velocityAbsolute = 100; l.rate = .r1_2; l.useRiff = true; l.litNotes = 0; l.riffOn = true; l.sourceMode = .chords
+        l.riffLength = 8; l.notesOn = true; l.riffOnRest = .skip; l.riffAdvanceStep = true
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 1, 1, 5, 1, 6, 4, 1])
+        c.paramsA.euclidLines = [l]
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.c])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .chords
+        var ch = MachineParams(); ch.chordsRate = .r2_1; ch.chordsSteps = 4; ch.chordsDegrees = [0, 5, 3, 4]
+        st.euclideousChords = ch
+        let box = SnapshotBuilder.build(from: st)
+        return (box, box.cells[Snap.euclideousRow].procs[0])
+    }
+
+    /// The pitch the riff rank has under the chord that is current AT `hitBeat` — the oracle (the chord function itself, asked at the hit's own beat).
+    private func chordsIdealNote(_ p: SnapParams, beat hitBeat: Double, rank: Int) -> Int {
+        let ch = chordSeqNotes(beat: hitBeat, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+        return ch[(rank - 1) % ch.count] + 12 * ((rank - 1) / ch.count)
+    }
+    func testAHitExactlyOnAChordChangeReadsTheNewChordAtAnyBufferSize() {
+        // Video investigation 2026-10-19: with the pool built once per window at its START, a hit landing exactly on a chord change read the PREVIOUS chord. Chord changes every
+        // 8 beats; a 1/2-note lane (hits at beats 0, 4, 8, 12 of a 16-beat lap) — the hits at 0 / 8 / 16 / 24 sit ON the change.
+        let ranks = [1, 1, 1, 5, 1, 6, 4, 1]
+        for gate in [0.5, 1.0] {
+            let (box, p) = chordsBox(gate: gate)
+            for frames: UInt32 in [64, 256, 1024, 2048, 4096] {
+                let e = fxRun(box, beats: 33, frames: frames, pool: [60])
+                for hitBeat in stride(from: 0.0, through: 28.0, by: 4.0) {
+                    let col = Int(hitBeat / 2) % 8
+                    let ideal = chordsIdealNote(p, beat: hitBeat, rank: ranks[col])
+                    let struck = fxOns(e, cable: 3).filter { abs($0.beat - hitBeat) < 0.02 }.map { Int($0.note) }
+                    // GATE 100 = legato: a hit whose pitch is the one ALREADY HELD carries on as one note (no new note-on) — beats 4 and 20, same chord, same rank
+                    let heldPitch = gate == 1.0 && (hitBeat == 4 || hitBeat == 20)
+                    if heldPitch { XCTAssertTrue(struck.isEmpty, "gate \(gate) buffer \(frames) beat \(hitBeat): same pitch under legato carries on") }
+                    else { XCTAssertEqual(struck, [ideal], "gate \(gate) buffer \(frames) beat \(hitBeat): the chord current AT the hit") }
+                }
+                assertNothingLeftSounding(e)
+            }
+        }
+    }
 }
