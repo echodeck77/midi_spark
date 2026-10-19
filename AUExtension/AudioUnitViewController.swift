@@ -1487,6 +1487,37 @@ struct DiagView: View {
             // `nd.beat` is ALREADY the effective (host-or-free-run) beat (Kernel.swift: "EFFECTIVE beat... UI beat-driven
             // playheads work while the host is stopped") — only this BOOLEAN was mismatched to the wrong field.
             meters.beatsPerBar = nd.beatsPerBar
+            // RESTART CHAINS (2026-10-19 ferry §12.2, render-thread safety): `migrateRestartChains` allocates
+            // and walks a bounded-but-real 128-bar window — NOT safe to call from `Router.runEuclidLine` (the
+            // audio render thread, invariant 3: no allocation on the render path). Migrated here instead, on
+            // this MAIN-THREAD 4Hz poll, where `meters.beatsPerBar`/`nd.beatsPerBar` are ALSO available (the
+            // same context the render path would have needed) — and PINNED immediately on first sight of a
+            // pre-feature lane, not deferred until the user happens to edit it: an un-pinned lane would
+            // otherwise render as FREE (Router's own safe fallback for `!usesRestartChains`) until this tick
+            // catches up, and pinning here closes that window to about one poll interval, matching this same
+            // loop's own "4 Hz is good enough" tolerance everywhere else on this page. Not an undo step (an
+            // invisible stabilisation of what the lane already sounded like, not a user-authored change) —
+            // mirrors how `euclideousApplyLaneGridOp`'s own first-touch pin works, just triggered by TIME
+            // rather than by a touch.
+            if nd.beatsPerBar > 0 {
+                var migratedAny = false
+                var lines = euclideousLines
+                for i in lines.indices where !lines[i].usesRestartChains {
+                    let line = lines[i]
+                    let n = max(2, min(16, line.steps))
+                    let sub = line.rate?.beats ?? 0.5   // 1/8 note — the same machine-wide fallback every other reader of a possibly-nil `rate` ultimately resolves to
+                    let migrated = migrateRestartChains(line: line, lane: i, legacyOn: euclideousLanesSeq.on, legacyRate: euclideousLanesSeq.rate,
+                                                        legacyLen: euclideousLanesSeq.len, legacyCells: euclideousLanesSeq.cells,
+                                                        sub: sub, n: n, dir: line.directionResolved, barBeats: nd.beatsPerBar)
+                    euclideousPinRestartChains(&lines[i], .from(migrated.rhythm), .from(migrated.melody))
+                    migratedAny = true
+                }
+                if migratedAny {
+                    euclideousLines = lines
+                    au.editDocument { $0.euclideousLines = lines }
+                    buildPublishScene()   // `euclideousResynced`'s own publish (above) already ran this tick — this block lands after it, so it republishes directly
+                }
+            }
             meters.syncBeat(nd.beat, tempo: nd.tempo, playing: nd.effectivePlaying, at: Date())   // BEAT clock (4 Hz) → the telemetry; playheads extrapolate at 30 fps. DEJITTER: re-anchors only on a discontinuity, else free-runs (see syncBeat) → no 4 Hz stutter
             buildTickFerryOneShot(nd.beat)                                // PLAY-FERRY LAUNCH (Phase 2b): stop a ONE-SHOT ferry one part-length after its launch (≤ one poll of the pass end)
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop

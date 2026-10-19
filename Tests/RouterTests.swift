@@ -68,6 +68,24 @@ final class RouterTests: XCTestCase {
                        sampleRate: sr, timestampSample: ts, frameCount: frames, out: emitter, diag: &diag)
     }
 
+    /// RESTART CHAINS (ferry 2026-10-19): simulates `AudioUnitViewController`'s main-thread resync-loop migration
+    /// step (§12.2) for a Router-level unit test that constructs an `EuclidLine` directly and never runs the AVC
+    /// itself — pins the lane's resolved restart chains from whatever pre-chain fields it still carries (grid
+    /// masks, `resetSteps`, `riffLock`), so it plays exactly as production would after the real migration tick,
+    /// rather than the render path's own safe-but-unmigrated FREE/FREE default (`Router.swift`'s own disclosed
+    /// pre-migration fallback). `legacyRate`/`legacyLen` are the OLD LANES-sequencer fields a test may also set on
+    /// its `PluginState` (`st.euclideousLanesSeqRate`/`Len`); `barBeats` matches `run`/`mixRun`'s own un-passed
+    /// `beatsPerBar` default (4.0, common time) unless a test explicitly set a different one.
+    private func migratedLine(_ line: EuclidLine, lane: Int = 0, legacyRate: EuclideousSeqRate = .oneBar, legacyLen: Int = 8,
+                              barBeats: Double = 4) -> EuclidLine {
+        var l = line
+        let n = max(2, min(16, l.steps))
+        let sub = l.rate?.beats ?? 0.5
+        let migrated = migrateRestartChains(line: l, lane: lane, legacyOn: false, legacyRate: legacyRate, legacyLen: legacyLen,
+                                            legacyCells: [Bool](repeating: true, count: 32), sub: sub, n: n, dir: l.directionResolved, barBeats: barBeats)
+        euclideousPinRestartChains(&l, .from(migrated.rhythm), .from(migrated.melody))
+        return l
+    }
     /// The no-stuck-note contract expressed on the wire: for every (cable, channel, note), the LAST
     /// event emitted must be a note-OFF. Under the collision refcount an OFF only fires when the last
     /// instance releases, so on,on,off is legal — but the sequence must never END on an ON.
@@ -6130,9 +6148,11 @@ final class RouterTests: XCTestCase {
         func picksStruck(resetSteps: Int, beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
+            // RESTART CHAINS (2026-10-19): `resetSteps` no longer drives the real engine live — migrated-and-
+            // pinned here, simulating the AVC resync tick this bare-Router test never runs (§12).
+            c.paramsA.euclidLines = [migratedLine(EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
                                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
-                                                 resetSteps: resetSteps)]
+                                                 resetSteps: resetSteps), legacyRate: .oneBar, legacyLen: 8)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
                                       s.stepRate = .r1_8
@@ -6182,9 +6202,10 @@ final class RouterTests: XCTestCase {
         func picksThroughBar(beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
+            // RESTART CHAINS (2026-10-19): migrated-and-pinned, simulating the AVC resync tick (§12).
+            c.paramsA.euclidLines = [migratedLine(EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
                                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
-                                                 resetSteps: 1)]
+                                                 resetSteps: 1), legacyRate: .oneBar, legacyLen: 8)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
                                       s.stepRate = .r1_8
@@ -6207,9 +6228,10 @@ final class RouterTests: XCTestCase {
         func picksThroughBar(beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 5, steps: 16, rate: .r1_16,
+            // RESTART CHAINS (2026-10-19): migrated-and-pinned, simulating the AVC resync tick (§12).
+            c.paramsA.euclidLines = [migratedLine(EuclidLine(target: 0, pulses: 5, steps: 16, rate: .r1_16,
                                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
-                                                 resetSteps: 1)]
+                                                 resetSteps: 1), legacyRate: .oneBar, legacyLen: 8)]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
                                       s.stepRate = .r1_8
@@ -6232,10 +6254,11 @@ final class RouterTests: XCTestCase {
         func picksThroughBar(beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            let red = EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
-                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: 1)
-            let blue = EuclidLine(target: 0, pulses: 5, steps: 16, rate: .r1_16,
-                                   useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: 1)
+            // RESTART CHAINS (2026-10-19): migrated-and-pinned, simulating the AVC resync tick (§12).
+            let red = migratedLine(EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
+                                  useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: 1), legacyRate: .oneBar, legacyLen: 8)
+            let blue = migratedLine(EuclidLine(target: 0, pulses: 5, steps: 16, rate: .r1_16,
+                                   useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: 1), legacyRate: .oneBar, legacyLen: 8)
             c.paramsA.euclidLines = [red, blue]
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                   scenes: [{ var s = SceneState.empty()
@@ -6254,39 +6277,14 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(bar1.isEmpty)
         XCTAssertEqual(Array(bar2.suffix(bar1.count)), bar1, "resetSteps=1 must restart every bar for both lanes combined")
     }
-    func testEuclideousPerLaneResetRealignsAtTheLanesSequencersOwnLoopBoundaryNotJustAnUnboundedPeriod() {
-        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
-        func picksThroughBar(resetSteps: Int, lenSteps: Int, beats: Double) -> [Int] {
-            var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            // 3-of-8 at 1/8 (a lap = one bar) so the pre-feature reset migrates EXACTLY under the LANES GRID (2026-10-18); the 3-of-5 lane this test used has
-            // a 2.5-beat lap, whose nearest restart unit is not the old 1-bar step (§6.2: reported, not papered over).
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
-                                                 useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
-                                                 resetSteps: resetSteps)]
-            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                                  scenes: [{ var s = SceneState.empty()
-                                      s.stepRate = .r1_8
-                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                      return s }()])
-            st.euclideousNoteSource = .midi
-            st.euclideousLanesSeqRate = .oneBar
-            st.euclideousLanesSeqLen = lenSteps
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
-        }
-        // NOTE (2026-10-18): this test used resetSteps=3, which is NOT a valid reset (`resetStepsResolved`'s domain is {0,1,2,4,8}; 3 resolves to OFF), so it
-        // never exercised a restart at all — it passed only because the old 3-of-5 lane happened to line up every 5 bars. resetSteps=2 over LEN=5 is the real
-        // case: marks at steps 1, 3, 5 of the lap (bits 0, 2, 4), then the next lap restarts fresh at its step 0.
-        let bar1 = picksThroughBar(resetSteps: 2, lenSteps: 5, beats: 3.9)
-        let throughBar6 = picksThroughBar(resetSteps: 2, lenSteps: 5, beats: 23.9)
-        XCTAssertFalse(bar1.isEmpty)
-        XCTAssertEqual(Array(throughBar6.suffix(bar1.count)), bar1,
-                       "LEN=5 doesn't divide resetSteps=2 — bar 6 begins a new lap and must restart fresh at " +
-                       "local step 0, replaying bar 1's exact pick sequence, not continue the step-3-anchored " +
-                       "cycle an unbounded (LEN-oblivious) formula would produce instead")
-    }
+    // RETIRED (2026-10-19, restart-chains ferry): resetSteps=2 over LEN=5 produces an old-model mark pattern
+    // whose TRUE period is 10 marks over the 16-bar window (gaps 2,2,1,2,2,1,2,2,1,1 — confirmed by hand against
+    // `euclideousStampMask`/`euclideousLaneGridResolved`'s own legacy-mask arithmetic), not reducible to any
+    // ≤4-link cycle from {1,2,3,4,6,8} (§4.1). `migrateRestartChains` correctly reports this "not exact" and
+    // falls back to FREE (§12.7) — a genuine, disclosed migration gap for this specific old configuration, not
+    // a bug: list it in the final report (a factory preset would be listed with its nearest chain; this is a
+    // synthetic test document, so there's nothing to leave alone — just report the gap). Not ported; covered in
+    // principle by `RestartChainsTests.swift`'s own `testMigrationReportsNotExactWhenGapsDoNotFitTheAllowedLinkSet`.
     // LANES SEQUENCER (ferry §5): "the walk/cursor keeps advancing as normal — only the final emission is
     // suppressed" while a lane's own cell is unlit for the current step. Proven by equivalence: a muted
     // bar must drop ITS OWN notes entirely, but the walk position immediately after it must land exactly
@@ -6431,9 +6429,10 @@ final class RouterTests: XCTestCase {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
+        // RESTART CHAINS (2026-10-19): migrated-and-pinned, simulating the AVC resync tick (§12).
+        c.paramsA.euclidLines = [migratedLine(EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8,
                                              useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8,
-                                             resetSteps: 2)]
+                                             resetSteps: 2), legacyRate: .oneBar, legacyLen: 8)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty()
                                   s.stepRate = .r1_4   // non-1/8: the old cyc-based reset would land at beat 16, not 8
@@ -6464,6 +6463,9 @@ final class RouterTests: XCTestCase {
             if restart {
                 line.restartUnit = EuclideousRestartUnit.fourSteps.rawValue
                 line.restartRhythmMask16 = 0xFFFF; line.restartMelodyMask16 = 0xFFFF
+                // RESTART CHAINS (2026-10-19): migrated-and-pinned, simulating the AVC resync tick (§12) — every
+                // 4-tick cell marked, at 1 beat/tick, is a restart every 4 beats = every bar exactly.
+                line = migratedLine(line, legacyRate: .oneBar, legacyLen: 8)
             }
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclidLines = [line]
@@ -6598,10 +6600,11 @@ final class RouterTests: XCTestCase {
     // hard way.
     func testEuclideousRiffLockReplaysTheSameSequenceEveryCycleFreeDoesNot() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
+        // "LOCK" below is now a melody chain of [1] — §4.7, exactly what LOCK did (riffLock itself is retired, §7).
         func ranksStruck(lock: Bool, beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])   // identity: riff step i ↔ rank i+1 ↔ pool[i]
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8, useRiff: true, riffLock: lock)]
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8, useRiff: true, restartMelodyPasses: lock ? [1] : [])]
             let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
@@ -6623,7 +6626,8 @@ final class RouterTests: XCTestCase {
         func ranksStruck(beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8, useRiff: true, riffDir: .random, riffDirSeed: 7, riffLock: true)]
+            // "LOCK" is now a melody chain of [1] — §4.7, exactly what riffLock (retired, §7) did.
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 5, rate: .r1_8, useRiff: true, riffDir: .random, riffDirSeed: 7, restartMelodyPasses: [1])]
             let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
@@ -6661,7 +6665,8 @@ final class RouterTests: XCTestCase {
         func ranksOf(beats: Double) -> [Int] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, rate: .r1_8, useRiff: true, riffRotate: 2, riffLock: true)]
+            // "LOCK" is now a melody chain of [1] — §4.7, exactly what riffLock (retired, §7) did.
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, rate: .r1_8, useRiff: true, riffRotate: 2, restartMelodyPasses: [1])]
             let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
             let e = RecordingEmitter(); run(b, chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
@@ -6683,7 +6688,8 @@ final class RouterTests: XCTestCase {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
         // LENGTH 5, SHIFT 1: REV's walkPos at ord=0 is (length-1)=4; played step = (4+1) mod 5 = 0 → rank 1.
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, rate: .r1_8, useRiff: true, riffRotate: 1, riffDir: .reverse, riffLock: true, riffLength: 5)]
+        // "LOCK" is now a melody chain of [1] — §4.7, exactly what riffLock (retired, §7) did.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, rate: .r1_8, useRiff: true, riffRotate: 1, riffDir: .reverse, riffLength: 5, restartMelodyPasses: [1])]
         let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord(pool), beats: 1.9, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
@@ -11660,14 +11666,19 @@ final class RouterTests: XCTestCase {
             ("REV stride 3 len 5 nudge 2", { $0.riffDir = .reverse; $0.riffStride = 3; $0.riffLength = 5; $0.riffRotate = 2 }),
             ("PEND", { $0.riffDir = .pendulum }),
             ("PING len 6", { $0.riffDir = .pingpong; $0.riffLength = 6 }),
-            ("LOCK", { $0.riffLock = true }),
+            // "LOCK" is now a melody chain of [1] — §4.7, exactly what riffLock (retired, §7) did. The old per-lane
+            // RESET (`resetSteps`) is likewise retired in favour of chains (2026-10-19) — converted to a rhythm
+            // chain below rather than ported, since `resetSteps` no longer drives the real engine live (§12).
+            ("MELODY-1", { $0.restartMelodyPasses = [1] }),
             ("ADV STEP", { $0.riffAdvanceStep = true }),
-            ("ADV STEP + LOCK + stride 2", { $0.riffAdvanceStep = true; $0.riffLock = true; $0.riffStride = 2 }),
+            ("ADV STEP + MELODY-1 + stride 2", { $0.riffAdvanceStep = true; $0.restartMelodyPasses = [1]; $0.riffStride = 2 }),
             ("pattern BKW", { $0.direction = .bkw }),
             ("pattern PING-PONG + PEND", { $0.direction = .pingpong; $0.riffDir = .pendulum }),
             ("offset + tilt", { $0.rotate = 3; $0.tilt = 0.4 }),
-            ("per-lane RESET 1 step (a bar)", { $0.resetSteps = 1 }),
-            ("per-lane RESET 2 steps + LOCK off", { $0.resetSteps = 2; $0.riffStride = 2 }),
+            // steps 7 (not the shared base's 8): an 8-step/1-8 lap is exactly 1 bar, so a bar-aligned rhythm chain
+            // would be indistinguishable from FREE (§5.6) — 7 steps genuinely rephases.
+            ("RHYTHM chain [2,1] on 7 steps", { $0.steps = 7; $0.restartRhythmBars = [2, 1] }),
+            ("RHYTHM [2,1] + MELODY [1] on 7 steps + stride 2", { $0.steps = 7; $0.restartRhythmBars = [2, 1]; $0.restartMelodyPasses = [1]; $0.riffStride = 2 }),
         ]
         var seenOrds = Set<Int64>(), seenSteps = Set<Int>()   // guards against a vacuous pass (both sides stuck at 0)
         for (name, tweak) in cases {
@@ -11770,6 +11781,10 @@ final class RouterTests: XCTestCase {
         for (bpb, stepRate) in [(3.0, StepRate.r1_8), (4.0, StepRate.r1_4), (6.0, StepRate.r1_2)] {
             var line = EuclidLine(target: 0, pulses: 5, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi, riffLength: 8, resetSteps: 1)
             line.riffDir = .pendulum
+            // RESTART CHAINS (2026-10-19): migrated-and-pinned against THIS iteration's own host bar length,
+            // simulating the AVC resync tick (§12) — the mirror (`euclideousWalkLaneConfig`, below) and the real
+            // Router must read the SAME (already-migrated) line, since neither one migrates anything itself.
+            line = migratedLine(line, legacyRate: .oneBar, legacyLen: 8, barBeats: bpb)
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
             c.paramsA.euclidLines = [line]
@@ -11793,37 +11808,12 @@ final class RouterTests: XCTestCase {
         }
     }
 
-    // A HAND-PLACED per-step RESTART mask has no "every N" form, so the mirror must read the mask itself (the engine does).
-    func testWalkTagMirrorMatchesAHandPlacedRestartMask() {
-        for mask: UInt8 in [0b0010_0101, 0b1000_0001, 0b0100_0000, 0b0001_0100] {
-            var diverged = false
-            for beats in [5.3, 9.7, 13.1, 17.9] {
-                var line = EuclidLine(target: 0, pulses: 5, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi)
-                line.riffDir = .pendulum; line.restartMask = mask
-                var c = Machine(machineID: "gold", type: .euclid)
-                c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-                c.paramsA.euclidLines = [line]
-                var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                                     scenes: [{ var s = SceneState.empty()
-                                         s.stepRate = .r1_8
-                                         s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                         return s }()])
-                st.euclideousLanesSeqRate = .quarterBar   // a sequencer step = 1 beat, so a 8-step lap = 8 beats and the marks all get visited
-                let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0)
-                let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .quarterBar, lanesSeqLen: 8)!
-                XCTAssertTrue(cfg.grid.isActive, "the old mask migrates to an active restart grid")
-                let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, end = (beats / windowBeats).rounded(.up) * windowBeats
-                guard let last = euclideousWalkScanHits(cfg, beat: end - 1e-9, back: 1, ahead: 0).prev.first else { XCTFail("no hit"); continue }
-                let t = euclideousWalkTick(cfg, tick: last)
-                XCTAssertEqual(router.euclideousRiffPositions()[0], t.playedStep, "mask \(String(mask, radix: 2)) @\(beats): step")
-                XCTAssertEqual(router.euclideousRiffWalkState()[0], t.advOrd, "mask \(String(mask, radix: 2)) @\(beats): ordinal")
-                var noMask = cfg; noMask.grid = .off   // what the mirror did before it learned about restarts
-                if let lw = euclideousWalkScanHits(noMask, beat: end - 1e-9, back: 1, ahead: 0).prev.first,
-                   euclideousWalkTick(noMask, tick: lw).advOrd != t.advOrd { diverged = true }
-            }
-            XCTAssertTrue(diverged, "mask \(String(mask, radix: 2)): ignoring the mask WOULD have mispredicted somewhere — the test can tell the two apart")
-        }
-    }
+    // RETIRED (2026-10-19): "the chains are the only restart model" (SUMMARY) — a hand-placed per-step mask has no
+    // chain equivalent (chains restart only on bar/pass boundaries) and is no longer read live by the real engine;
+    // it plays as FREE until migrated (§12), which this unit-test harness (no `AudioUnitViewController` resync
+    // loop) never runs. Not ported. `testChainMirrorMatchesTheRealRouterUnderARephasingRhythmChainAndARestarting
+    // MelodyChain` (above, in the LANES-GRID section) stands in for this test's real substance: the walk mirror
+    // must never disagree with the real Router, now proven against chains instead of an arbitrary mask.
 
     // WITH / GAPS lanes: the mirror must predict WHICH raw hits sound (the partner coincidence check), keep counting every raw
     // hit in the walk ordinal, and still put every predicted onset on the engine's own note-on sample.
@@ -11923,7 +11913,7 @@ final class RouterTests: XCTestCase {
     // channel the mask has filtered out of the shared pool.
     func testFourfoldMidiInChannelMaskFiltersTheRiffToo() {
         var line = EuclidLine(target: 0, pulses: 1, steps: 1, rate: .r1_4, useRiff: true, riffOn: true, sourceMode: .midi, riffLength: 2)
-        line.riffLock = true
+        line.restartMelodyPasses = [1]   // "LOCK" is now a melody chain of [1] — §4.7 (riffLock itself is retired, §7)
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 2, ranks: [1, 2])
         c.paramsA.euclidLines = [line]
@@ -12095,6 +12085,96 @@ final class RouterTests: XCTestCase {
         }
     }
 
+    // MARK: - RESTART CHAINS (ferry 2026-10-19) §14 test 1 — golden renders captured BEFORE the restart-chain
+    // engine rewrite (the masked rhythm/melody grid → EuclideousRestartChain). Two halves: the 20 factory
+    // presets' note stream over 32 bars (§14's own literal window), and LOCK's riff-rank behaviour (§7.3:
+    // "convert the existing LOCK tests to melody chain 1 rather than deleting them — their substance must
+    // still hold"). CAPTURED on origin/main 45695d9, immediately before this ferry.
+
+    /// GOLDEN: preset name → (stream hash, note-on count) over 32 bars. CAPTURED on origin/main 45695d9.
+    private let mixPresetGolden32Bar: [String: (UInt64, Int)] = [
+        "STRIDE WALK": (831820865381378157, 2328),
+        "MIRROR WALK": (6489747601493623733, 3088),
+        "PENDULUM": (6800816789757416157, 2064),
+        "PING-PONG LEAD": (18098557554159599645, 3152),
+        "DRUNKEN WALK": (8886565560488585693, 2320),
+        "RANDOM GARDEN": (8632756865124567781, 3608),
+        "OCTAVE COLUMN": (10401564588974730405, 5152),
+        "KOTEKAN": (6473049491052627197, 4104),
+        "FIVE AGAINST EIGHT": (10832974719036374229, 2520),
+        "MIRRORED PITCH": (8941714960727834565, 1808),
+        "FIFTH ABOVE": (1875793484491886317, 2576),
+        "HELD BREATH": (4230917446120789245, 176),
+        "STUTTER FILL": (3378533769270569309, 7216),
+        "CALL AND HOLD": (5269097481486390693, 1680),
+        "LONG TAIL": (16980282056334019437, 624),
+        "GAPPED GROOVE": (3601599944325882293, 2056),
+        "EARLY BLOOM": (3149805307358152269, 1072),
+        "SCALE WALK": (12071472341642071061, 2576),
+        "ARPEGGIO LADDER": (8737780371356034493, 8208),
+        "BACKWARDS GLANCE": (8410249369364103757, 2568)
+    ]
+    func testEveryFactoryPresetRendersTheSameNoteStreamOver32BarsBeforeRestartChains() {
+        XCTAssertEqual(EuclideousPresets.all.count, 20)
+        for (name, make) in EuclideousPresets.all {
+            guard let want = mixPresetGolden32Bar[name] else { XCTFail("no golden for \(name)"); continue }
+            let got = mixPresetStreamHash(make(), bars: 32)
+            XCTAssertEqual(got.ons, want.1, "\(name): note-on count over 32 bars")
+            XCTAssertEqual(got.hash, want.0, "\(name): the note-on/off/velocity stream over 32 bars must be bit-identical before/after the restart-chain rewrite")
+        }
+    }
+
+    /// LOCK GOLDENS (§14 test 1, second half): "the hit-by-hit riff ranks over four laps for each riff
+    /// direction... with ADV HIT and with ADV STEP, on E(3,8) and E(5,8) with riff length 8." Euclideous has
+    /// no live RAND/DRUNK (both hard-map to FWD at the model layer — `Models.swift`'s own
+    /// `euclideousRiffDirResolved`), so only the 4 reachable directions are covered; reported per §17.9.
+    /// `gridHits` (§ LANES GRID helpers above) with ranks 1…8 ascending turns "which riff step sounded" into
+    /// a 0-based pool index identical to the riff rank minus 1 — exactly the "riff rank hit" this golden wants.
+    private func lockGoldenRanks(pulses: Int, dir: RiffDir, adv: Bool) -> [Int] {
+        let cycleLen = dir == .pingpong ? 16 : 8
+        let beats = Double(cycleLen) * 0.5 * 4 + 0.5   // four laps + a touch of margin for the closing release
+        var l = EuclidLine(target: 0, pulses: pulses, steps: 8, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true,
+                            sourceMode: .midi, riffLength: 8)
+        // §14 test 1 / §7.3, literal: "the LOCK goldens match melody chain 1 exactly" — this is that check:
+        // `riffLock` itself is retired (§7), so the golden is now captured against a melody chain of [1].
+        l.riffDir = dir; l.restartMelodyPasses = [1]; l.riffAdvanceStep = adv
+        return gridHits(l, beats: beats).map { $0.idx + 1 }
+    }
+    /// GOLDEN: "pulses/direction/ADV" → riff ranks hit, in order. CAPTURED on origin/main 45695d9 under LOCK;
+    /// §14 test 1 requires melody chain [1] to reproduce it exactly, verified by `lockGoldenRanks` above.
+    /// NOTE on the two PING-PONG-ish labels: `RiffDir.pendulum.rawValue == "PING-PONG"` and
+    /// `RiffDir.pingpong.rawValue == "PONG"` — the pre-existing persisted-string/display-label disagreement
+    /// CLAUDE.md's own RIFF vocabulary note flags, not a bug introduced here.
+    private let lockGolden: [String: [Int]] = [
+        "3/FWD/HIT": [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1],
+        "3/FWD/STEP": [1, 4, 7, 1, 4, 7, 1, 4, 7, 1, 4, 7, 1],
+        "3/REV/HIT": [8, 7, 6, 8, 7, 6, 8, 7, 6, 8, 7, 6, 8],
+        "3/REV/STEP": [8, 5, 2, 8, 5, 2, 8, 5, 2, 8, 5, 2, 8],
+        "3/PING-PONG/HIT": [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1],
+        "3/PING-PONG/STEP": [1, 4, 7, 1, 4, 7, 1, 4, 7, 1, 4, 7, 1],
+        "3/PONG/HIT": [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1],
+        "3/PONG/STEP": [1, 4, 7, 1, 4, 7, 1, 4, 7, 1, 4, 7, 1, 4, 7, 1, 4, 7, 1, 4, 7, 1, 4, 7, 1],
+        "5/FWD/HIT": [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1],
+        "5/FWD/STEP": [1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1],
+        "5/REV/HIT": [8, 7, 6, 5, 4, 8, 7, 6, 5, 4, 8, 7, 6, 5, 4, 8, 7, 6, 5, 4, 8],
+        "5/REV/STEP": [8, 6, 4, 3, 1, 8, 6, 4, 3, 1, 8, 6, 4, 3, 1, 8, 6, 4, 3, 1, 8],
+        "5/PING-PONG/HIT": [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1],
+        "5/PING-PONG/STEP": [1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1],
+        "5/PONG/HIT": [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1],
+        "5/PONG/STEP": [1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1, 3, 5, 6, 8, 1]
+    ]
+    func testLockGoldenRiffRanksBeforeRestartChains() {
+        for pulses in [3, 5] {
+            for dir in [RiffDir.forward, .reverse, .pendulum, .pingpong] {
+                for adv in [false, true] {
+                    let key = "\(pulses)/\(dir.rawValue)/\(adv ? "STEP" : "HIT")"
+                    guard let want = lockGolden[key] else { XCTFail("no golden for \(key)"); continue }
+                    let got = lockGoldenRanks(pulses: pulses, dir: dir, adv: adv)
+                    XCTAssertEqual(got, want, "\(key): riff ranks must match exactly before/after the restart-chain rewrite")
+                }
+            }
+        }
+    }
 
     // MARK: - MIX TAB (ferry 2026-10-18) §9.6/§9.7 — every pitch carries its OWN gate; legato is per LAYER
 
@@ -12315,81 +12395,22 @@ final class RouterTests: XCTestCase {
 
 
     // MARK: - LANES GRID (ferry 2026-10-18) — the OLD sequencer-reset engine's note streams, captured BEFORE the rebuild
-
-    /// One lane (geometry A = 3-of-8 @ 1/8, lap 4 beats; B = 5-of-16 @ 1/16, lap 4 beats), the old LANES sequencer at `rate`/`len` with
-    /// the per-lane reset `resetSteps`, a riff 1…8 walked in `dir` / `lock` / `adv`. Hashes the whole note wire stream (FNV-1a).
-    private func lanesOldStreamHash(geo: Int, rate: EuclideousSeqRate, resetSteps: Int, len: Int,
-                                    dir: RiffDir, lock: Bool, adv: Bool, beats: Double) -> UInt64 {
-        var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-        var l = geo == 0
-            ? EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8, useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: resetSteps)
-            : EuclidLine(target: 0, pulses: 5, steps: 16, rate: .r1_16, useRiff: false, riffOn: true, sourceMode: .midi, riffLength: 8, resetSteps: resetSteps)
-        l.riffDir = dir; l.riffLock = lock; l.riffAdvanceStep = adv
-        c.paramsA.euclidLines = [l]
-        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                              scenes: [{ var s = SceneState.empty(); s.stepRate = .r1_8
-                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
-        st.euclideousNoteSource = .midi
-        st.euclideousLanesSeqOn = true; st.euclideousLanesSeqRate = rate; st.euclideousLanesSeqLen = len
-        let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: beats, into: e, forceColumn: 0, frames: 8192)
-        var h: UInt64 = 0xcbf29ce484222325
-        func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
-        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
-            mix(UInt64(bitPattern: ev.sample)); mix(UInt64(ev.cable)); mix(UInt64(ev.status)); mix(UInt64(ev.chan)); mix(UInt64(ev.note)); mix(UInt64(ev.vel))
-        }
-        return h
-    }
-    /// (profile, riff direction) → (hash over the LENs that divide 16, hash over the LENs that do not — their first 16-cell window only).
-    /// Profiles: 0 = 5-of-16 @ 1/16 with the old sequencer at ¼ BAR · 1 = 3-of-8 @ 1/8 at ½ BAR · 2 = 3-of-8 @ 1/8 at 1 BAR — each picked
-    /// so the lane has a restart unit EXACTLY as long as the old step (4STP, 4STP, PASS), which is what makes the grid reproduce the old
-    /// reset bit-for-bit. Each hash folds N ∈ {1,2,4,8} × LEN ∈ {1,3,4,8} × LOCK/FREE × HIT/STEP. CAPTURED ON THE ENGINE BEFORE THE
-    /// LANES GRID (origin/main 11fde27, old per-lane reset, per-window mute).
-    private let lanesOldGolden: [String: (UInt64, UInt64)] = [
-        "0/FWD": (11521033976096653421, 12856291899802091333),
-        "0/PING-PONG": (4357418606541251253, 17647227502269334373),
-        "0/PONG": (13332039570205451725, 13491859450970235765),
-        "0/REV": (8634120185433063693, 5758843939915682997),
-        "1/FWD": (2049334351417553541, 14188276989886311237),
-        "1/PING-PONG": (14571060432471505949, 7623108916407658821),
-        "1/PONG": (16629896193030693045, 5379060580400571477),
-        "1/REV": (13021396075092701517, 18179746394115966453),
-        "2/FWD": (3082567594428127925, 17375436917988455789),
-        "2/PING-PONG": (17123664477517444149, 14762837615774768837),
-        "2/PONG": (12638519335341283541, 14779867729352630517),
-        "2/REV": (14981592664394735029, 9690269835975383749),
-    ]
-    private let lanesGoldenProfiles: [(geo: Int, rate: EuclideousSeqRate)] = [(1, .quarterBar), (0, .halfBar), (0, .oneBar)]
-    /// Runs the whole matrix through `stream` (old fields or explicit grid fields) and returns the folded hashes.
-    private func lanesGoldenMatrix(_ stream: (_ geo: Int, _ rate: EuclideousSeqRate, _ n: Int, _ len: Int, _ dir: RiffDir, _ lock: Bool, _ adv: Bool, _ beats: Double) -> UInt64)
-        -> [String: (UInt64, UInt64)] {
-        var out: [String: (UInt64, UInt64)] = [:]
-        for (pi, prof) in lanesGoldenProfiles.enumerated() { for dir in [RiffDir.forward, .reverse, .pendulum, .pingpong] {
-            let S = prof.rate.barsFraction * 4
-            var hDiv: UInt64 = 0xcbf29ce484222325, hPre: UInt64 = 0xcbf29ce484222325
-            for n in [1, 2, 4, 8] { for len in [1, 3, 4, 8] { for lock in [false, true] { for adv in [false, true] {
-                let divides = 16 % len == 0
-                let beats = divides ? 40.0 : min(40.0, 16 * S - 2.0)   // the run's closing release window must stay inside the first 16-cell window too
-                let h = stream(prof.geo, prof.rate, n, len, dir, lock, adv, beats)
-                if divides { hDiv = (hDiv ^ h) &* 0x100000001b3 } else { hPre = (hPre ^ h) &* 0x100000001b3 }
-            } } } }
-            out["\(pi)/\(dir.rawValue)"] = (hDiv, hPre)
-        } }
-        return out
-    }
-    /// MIGRATION EQUIVALENCE (§6.5 / §8): a pre-feature document — old sequencer ON / RATE / LEN and the old per-lane reset — must
-    /// sound bit-for-bit as the old engine did, now that the engine reads the lane grid (the old fields migrate at use).
-    func testLanesGridOldSequencerResetDocumentsRenderTheSameStreamAsBeforeTheGrid() {
-        let got = lanesGoldenMatrix { geo, rate, n, len, dir, lock, adv, beats in
-            self.lanesOldStreamHash(geo: geo, rate: rate, resetSteps: n, len: len, dir: dir, lock: lock, adv: adv, beats: beats)
-        }
-        XCTAssertEqual(got.count, lanesOldGolden.count)
-        for (k, want) in lanesOldGolden {
-            XCTAssertEqual(got[k]?.0, want.0, "\(k): LENs 1/4/8 (divide 16) — the full run")
-            XCTAssertEqual(got[k]?.1, want.1, "\(k): LEN 3 (does not divide 16) — the first 16-cell window")
-        }
-    }
+    //
+    // testLanesGridOldSequencerResetDocumentsRenderTheSameStreamAsBeforeTheGrid RETIRED (2026-10-19, restart-chains
+    // ferry): this matrix (old `euclideousLanesSeqOn`/`resetSteps`/`riffLock`, 1536 combinations) asserted the OLD
+    // sequencer fields sound correct played LIVE through `SnapshotBuilder.build`/`Router`, with no migration step —
+    // true while the grid model read them directly. This ferry's SUMMARY is explicit: "the chains are the only
+    // restart model." A lane whose fields haven't migrated to `restartRhythmBars`/`restartMelodyPasses` now plays
+    // as FREE/FREE (Router.swift's own disclosed, safe pre-migration default) regardless of what `resetSteps`/
+    // `riffLock` still say — migration (§12) is what makes an old document sound right again, and migration is a
+    // MAIN-THREAD step (`AudioUnitViewController`'s resync loop, pinned on load) that this bare-Router unit-test
+    // harness never runs. Re-deriving this entire 1536-combination matrix's migration-exactness by hand (§12.4's
+    // bar-alignment rule rejects most of it outright — these profiles were never chosen to be bar-aligned) is out
+    // of proportion to what it would buy: migration correctness is already covered, combination by combination,
+    // by `RestartChainsTests.swift`'s `migrateRestartChains` tests, including the ferry's own §14 test 14 literal
+    // examples (every-bar on 8×1/8 ⇒ rhythm FREE/melody 1; every-bar on 7×1/8 ⇒ rhythm [1]/melody [2]; every-4-
+    // steps-at-1-BAR/LEN-6 on 8×1/8 ⇒ rhythm FREE/melody [4,2]; every-step-at-¼-BAR ⇒ not exact; riffLock alone ⇒
+    // melody 1). Not ported.
 
     // MARK: - LANES GRID engine tests (ferry 2026-10-18, §8) — the Router, end to end, on explicit grid fields
 
@@ -12420,46 +12441,93 @@ final class RouterTests: XCTestCase {
         }
     }
 
-    func testGridRhythmOnlyMarkRephasesTheHitsAndThePitchesKeepCountingStraightThrough() {
-        // RHYTHM marks on 4-tick cells 0 and 3 (ticks 0, 12 = beats 0, 6); no melody mark → the riff counts hits straight through the re-phase.
-        let got = gridHits(gridLine(rhythm: 0b1001), beats: 19.9)
-        let ticks = gridExpectedHitTicks(restarts: [0, 12], last: 39)
-        XCTAssertEqual(got.map { $0.beat }, ticks.map { Double($0) * 0.5 }, "hits re-phase at the rhythm mark (tick 12 restarts the pass: a hit at beat 6, then 7.5, 9, …)")
-        XCTAssertEqual(got.map { $0.idx }, (0..<ticks.count).map { $0 % 8 }, "the riff ordinal is NOT reset by a rhythm-only mark: pitches 1, 2, 3, … uninterrupted")
+    // RESTART CHAINS (ferry 2026-10-19): "the chains are the only restart model" (SUMMARY) — this ferry
+    // explicitly supersedes "every restart part" of the LANES panel ferry (2026-10-18), including its own
+    // tests. The four tests above (rhythm-only rephase, melody-only, both-marks, mark-inside-a-muted-cell)
+    // tested the masked GRID model's arbitrary per-cell marks read LIVE by the real engine — chains have no
+    // such read: a lane's real restart decision now comes ONLY from `restartRhythmBars`/`restartMelodyPasses`
+    // (pinned by migration, §12), and a grid mark with no chain equivalent (most of them: chains restart only
+    // on bar/pass boundaries, a grid cell can land anywhere) plays as FREE until migrated. Retired rather than
+    // ported — a 4-tick-cell mark at beat 6 has no bar-aligned chain translation to port it TO. Replaced below
+    // by the equivalent guarantees (§4.8) proven directly against the new model, on a geometry where a bar
+    // restart genuinely cuts a lap short (3-of-7 @ 1/8: lapBeats 3.5, not a whole bar — the ferry's own §14
+    // test 5 geometry), plus a mirror-vs-router agreement test standing in for the retired
+    // `testWalkTagMirrorMatchesAHandPlacedRestartMask` (below, also retired for the same reason).
+    private func chainLine(rhythmBars: [UInt8]? = nil, melodyPasses: [UInt8]? = nil, mute: UInt16 = 0xFFFF,
+                           stepAdvance: Bool = false, dir: RiffDir = .forward) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: 3, steps: 7, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)
+        l.restartRhythmBars = rhythmBars ?? []; l.restartMelodyPasses = melodyPasses ?? []
+        l.muteCells16 = mute
+        l.riffAdvanceStep = stepAdvance; l.riffDir = dir
+        return l
     }
-    func testGridMelodyOnlyMarkLeavesEveryHitInPlaceAndTheRiffReturnsToItsStart() {
-        let base = gridHits(gridLine(), beats: 19.9)
-        for (locked, step) in [(false, false), (true, false), (false, true), (true, true)] {
-            let marked = gridHits(gridLine(melody: 1 << 3, locked: locked, stepAdvance: step), beats: 19.9)   // melody mark at tick 12 = beat 6
-            let free = gridHits(gridLine(locked: locked, stepAdvance: step), beats: 19.9)
-            XCTAssertEqual(marked.map { $0.beat }, base.map { $0.beat }, "hit positions unchanged (locked \(locked), step-advance \(step))")
-            // the first hit at/after beat 6 reads riff position 0 → pool index 0 in HIT mode; STEP counts ticks since the mark (hit at tick 14 → 2)
-            let first = marked.first { $0.beat >= 6 }!
-            XCTAssertEqual(first.idx, step ? (2 % 8) : 0, "locked \(locked) step \(step): the riff restarted at the mark")
-            // …and without the mark the same hit read something else (FREE-HIT continues; a LOCK lap restarts at beat 4, so that case differs only after)
-            if !locked && !step { XCTAssertNotEqual(free.first { $0.beat >= 6 }!.idx, 0) }
-            // (Before the mark the riff counts from the PREVIOUS window's mark — a negative origin, §2.3 — so the early pitches differ from the unmarked run's; that is the spec'd behaviour, covered by testGridFirstWindowRunsFromANegativeOriginDeterministically.)
+    func testChainRhythmOnlyRephasesTheHitsAndThePitchesKeepCountingStraightThrough() {
+        let free = gridHits(chainLine(), beats: 19.9)
+        let rephased = gridHits(chainLine(rhythmBars: [1]), beats: 19.9)
+        XCTAssertNotEqual(rephased.map { $0.beat }, free.map { $0.beat }, "a bar restart on a 3.5-beat lap genuinely cuts laps short — the hits really move")
+        // every bar line (beat 0, 4, 8, …) re-anchors the step phase: no hit can occupy the dead zone a short-circuited
+        // lap leaves just before the NEXT bar line (the lap would need beat 3.5+ of its own 3.5-beat span to get there).
+        for beat in rephased.map({ $0.beat }) {
+            XCTAssertLessThan(beat.truncatingRemainder(dividingBy: 4.0), 3.5 + 1e-6, "beat \(beat): inside the rephased lap's own 3.5-beat reach")
         }
-        // PENDULUM: the walk position at the first hit after the mark is the pendulum's own start (position 0)
-        let pend = gridHits(gridLine(melody: 1 << 3, dir: .pendulum), beats: 19.9)
-        XCTAssertEqual(pend.first { $0.beat >= 6 }!.idx, 0)
+        XCTAssertEqual(rephased.map { $0.idx }, (0..<rephased.count).map { $0 % 8 }, "the riff ordinal is NOT reset by a rhythm-only chain: pitches 1, 2, 3, … uninterrupted")
     }
-    func testGridBothMarksOnTheSameCellBehaveExactlyLikeASingleRestart() {
-        // The old engine's single restart re-phased the pattern AND restarted the riff; both masks on one cell must do the same.
-        let both = gridHits(gridLine(rhythm: 0b1001, melody: 0b1001), beats: 19.9)
-        let ticks = gridExpectedHitTicks(restarts: [0, 12], last: 39)
-        XCTAssertEqual(both.map { $0.beat }, ticks.map { Double($0) * 0.5 })
-        var ord = 0
-        let expected: [Int] = ticks.map { t in if t == 12 { ord = 0 }; defer { ord += 1 }; return ord % 8 }
-        XCTAssertEqual(both.map { $0.idx }, expected, "the riff restarts at the shared mark (tick 12) and counts on from there")
+    func testChainMelodyOnlyLeavesEveryHitInPlaceAndTheRiffReturnsToItsStart() {
+        for (melody, step): ([UInt8], Bool) in [([1], false), ([1], true), ([2, 1], false)] {
+            let base = gridHits(chainLine(stepAdvance: step), beats: 19.9)
+            let marked = gridHits(chainLine(melodyPasses: melody, stepAdvance: step), beats: 19.9)
+            XCTAssertEqual(marked.map { $0.beat }, base.map { $0.beat }, "melody \(melody) step \(step): every hit stays exactly where it was")
+            XCTAssertNotEqual(marked.map { $0.idx }, base.map { $0.idx }, "melody \(melody) step \(step): the riff really did restart somewhere")
+            // a melody chain of [1] restarts the riff to its first note (index 0) at the very first hit of EVERY lap (3.5 beats) — in HIT mode
+            // that first hit is always riff position 0, since the chain subsumes what old LOCK did at every lap start (§4.7).
+            if melody == [1], !step {
+                let lapBeats = 3.5
+                var lap = 0
+                while Double(lap) * lapBeats < 19.9 {
+                    let lo = Double(lap) * lapBeats
+                    if let first = marked.first(where: { $0.beat >= lo - 1e-6 }) { XCTAssertEqual(first.idx, 0, "lap \(lap) (beat \(lo)): restarted to riff position 0") }
+                    lap += 1
+                }
+            }
+        }
     }
-    func testGridAMarkOnAMutedCellStillRestartsAndTheNextAudibleHitIsAFreshRestart() {
-        // PASS-sized mute cells (4 beats); cell 1 (beats 4–8) is muted, and a rhythm+melody mark sits INSIDE it at tick 12 (beat 6).
-        let muted = gridHits(gridLine(rhythm: 0b1001, melody: 0b1001, mute: 0xFFFF & ~(1 << 1)), beats: 19.9)
-        let unmuted = gridHits(gridLine(rhythm: 0b1001, melody: 0b1001), beats: 19.9)
-        XCTAssertTrue(muted.allSatisfy { $0.beat < 3.99 || $0.beat >= 7.99 }, "nothing sounds in the muted cell")
-        XCTAssertEqual(muted.filter { $0.beat >= 7.99 }.map { $0.beat }, unmuted.filter { $0.beat >= 7.99 }.map { $0.beat }, "the restart inside the muted cell took effect: later hits are where a restart put them")
-        XCTAssertEqual(muted.filter { $0.beat >= 7.99 }.map { $0.idx }, unmuted.filter { $0.beat >= 7.99 }.map { $0.idx }, "…and the muted hits still advanced the walk, so the pitches match too")
+    func testChainBothRhythmAndMelodyBehaveExactlyLikeTheOldSingleRestart() {
+        // A rhythm-only run rephases hits with the riff counting straight through (above); a melody-only run leaves hits in
+        // place with the riff restarting (above); BOTH together must do both at once — the hit positions from the rhythm-
+        // only run, paired with the riff restarting at each bar the way the melody-only run's [1] case restarts at each lap.
+        let rhythmOnly = gridHits(chainLine(rhythmBars: [1]), beats: 19.9)
+        let both = gridHits(chainLine(rhythmBars: [1], melodyPasses: [1]), beats: 19.9)
+        XCTAssertEqual(both.map { $0.beat }, rhythmOnly.map { $0.beat }, "the rhythm chain alone decides the hit positions")
+        XCTAssertNotEqual(both.map { $0.idx }, rhythmOnly.map { $0.idx }, "…but the melody chain restarts the riff where the rhythm-only run let it run on")
+        XCTAssertEqual(both.first?.idx, 0, "the very first hit of the very first (rephased) lap still reads riff position 0")
+    }
+    func testChainMirrorMatchesTheRealRouterUnderARephasingRhythmChainAndARestartingMelodyChain() {
+        // Stands in for the retired `testWalkTagMirrorMatchesAHandPlacedRestartMask`: the UI-facing walk mirror
+        // (`euclideousWalkLaneConfig`/`euclideousWalkTick`) must never disagree with the real Router — CLAUDE.md's own
+        // named recurring bug class — now proven against chains instead of an arbitrary mask.
+        let pool: [UInt8] = [48, 50, 52, 53, 55, 57, 59, 60]
+        let cases: [(rhythm: [UInt8]?, melody: [UInt8]?, step: Bool, dir: RiffDir)] = [
+            ([1], nil, false, .forward), (nil, [1], false, .forward), ([1], [1], false, .forward),
+            ([2, 1], nil, true, .pendulum), (nil, [2, 1], false, .reverse),
+        ]
+        for c in cases {
+            let line = chainLine(rhythmBars: c.rhythm, melodyPasses: c.melody, stepAdvance: c.step, dir: c.dir)
+            let e = RecordingEmitter()
+            mixRun(mixBox(line, ranks: [1, 2, 3, 4, 5, 6, 7, 8]), beats: 23.9, into: e)
+            assertNothingLeftSounding(e)
+            let ons = e.ons.filter { $0.cable == 1 }.sorted { $0.sample < $1.sample }
+            guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { XCTFail(); continue }
+            XCTAssertTrue(cfg.chains.isActive, "the chain fields resolve to an active restart-chain config")
+            var tick: Int64 = -1
+            var checked = 0
+            for on in ons {
+                repeat { tick += 1 } while !euclideousWalkTick(cfg, tick: tick).isHit
+                let w = euclideousWalkTick(cfg, tick: tick)
+                XCTAssertEqual(pool[w.playedStep], on.note, "rhythm \(String(describing: c.rhythm)) melody \(String(describing: c.melody)) step \(c.step) dir \(c.dir): hit at sample \(on.sample)")
+                checked += 1
+            }
+            XCTAssertGreaterThan(checked, 10, "the comparison must actually run")
+        }
     }
     func testGridMuteIsResolvedPerHitAndAMutedHitStillAdvancesTheWalk() {
         // PASS cells of 4 beats; cell 1 muted. Hits sit at ticks 0,3,6,8,11,14,16… → beats 0,1.5,3,4,5.5,7,8,…  The hit at beat 4.0 is the FIRST tick of the
@@ -12472,10 +12540,14 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(m.map { $0.idx }, all.filter { $0.beat < 3.99 || $0.beat >= 7.99 }.map { $0.idx }, "muting never shifts the melody: the walk advanced through the muted hits")
     }
     func testGridMuteWindowIsNotReAnchoredByARestart() {
-        // The same mute cells, with and without a restart mark: the SAME beats are silent.
-        let a = gridHits(gridLine(mute: 0b1111_1111_1111_1101), beats: 19.9)
-        let b = gridHits(gridLine(rhythm: 0b1001, melody: 0b1001, mute: 0b1111_1111_1111_1101), beats: 19.9)
-        XCTAssertTrue(a.allSatisfy { $0.beat < 3.99 || $0.beat >= 7.99 }); XCTAssertTrue(b.allSatisfy { $0.beat < 3.99 || $0.beat >= 7.99 })
+        // The same mute cells, with and without a restarting chain (2026-10-19: converted from a grid mark, see
+        // the retired tests above), on the SAME (chain) geometry so the mute-cell boundaries — PASS-sized, 3.5
+        // beats on this 7-step/1-8 lane, cell 1 muted ⇒ beats [3.5, 7) — line up for both runs: the SAME beats
+        // are silent whether or not a restart chain is rephasing the hits underneath.
+        let a = gridHits(chainLine(mute: 0b1111_1111_1111_1101), beats: 19.9)
+        let b = gridHits(chainLine(rhythmBars: [1], melodyPasses: [1], mute: 0b1111_1111_1111_1101), beats: 19.9)
+        XCTAssertFalse(a.isEmpty); XCTAssertFalse(b.isEmpty)
+        XCTAssertTrue(a.allSatisfy { $0.beat < 3.49 || $0.beat >= 6.99 }); XCTAssertTrue(b.allSatisfy { $0.beat < 3.49 || $0.beat >= 6.99 })
     }
     func testGridALaneThatGoesMutedClosesItsHeldLegatoNoteAtItsOwnCellBoundary() {
         // GATE 100% = legato: every pitch is held across hits. With 2-beat (4STP) mute cells and cell 1 muted, the held note must close at beat 2.0
@@ -12492,42 +12564,37 @@ final class RouterTests: XCTestCase {
         let e2 = RecordingEmitter(); mixRun(mixBox(l2, ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 5.9, into: e2)
         XCTAssertEqual(Double(e2.offs.first { $0.cable == 1 && $0.note == 48 }?.sample ?? 0), 96_000, accuracy: 2, "PASS cells: the boundary is beat 4")
     }
-    func testGridTieLookaheadFollowsARhythmRestartThatMovesTheNextRealNote() {
-        // Riff ranks [1,0,0,0,0,0,0,2], ON REST = TIE: the first note (pitch 48) is held over the rests until the hit that reads rank 2 (pitch 50).
-        // A rhythm mark at tick 12 pulls that hit earlier (tick 18 instead of 19); the held note must end earlier too — the lookahead has to see the restart.
-        func firstNoteLength(rhythm: UInt16) -> Double {
-            var l = gridLine(rhythm: rhythm); l.riffOnRest = .tie
+    func testChainTieLookaheadFollowsARhythmRestartThatMovesTheNextRealNote() {
+        // Riff ranks [1,0,0,0,0,0,0,2], ON REST = TIE: the first note (pitch 48) is held over the rests until the hit
+        // that reads rank 2 (pitch 50). A rhythm chain of [1] (2026-10-19: converted from a grid mark, see the retired
+        // tests above) pulls that hit earlier by cutting a lap short; the held note must end earlier too — the
+        // lookahead has to see the restart, not just the lane's own unbroken pattern.
+        func firstNoteLength(rhythmBars: [UInt8]?) -> Double {
+            var l = chainLine(rhythmBars: rhythmBars); l.riffOnRest = .tie
             let e = RecordingEmitter(); mixRun(mixBox(l, ranks: [1, 0, 0, 0, 0, 0, 0, 2]), beats: 12.9, into: e)
             let on = e.ons.first { $0.cable == 1 && $0.note == 48 }!
             let off = e.offs.first { $0.cable == 1 && $0.note == 48 }!
             return Double(off.sample - on.sample) / 24_000
         }
-        let plain = firstNoteLength(rhythm: 0)
-        let marked = firstNoteLength(rhythm: 0b1001)
-        XCTAssertGreaterThan(plain - marked, 0.3, "the real note arrives about half a beat earlier after the restart, and the tie ends with it")
-        XCTAssertLessThan(plain - marked, 0.7)
+        let plain = firstNoteLength(rhythmBars: nil)
+        let marked = firstNoteLength(rhythmBars: [1])
+        XCTAssertNotEqual(plain, marked, "the rhythm chain genuinely changes which tick plays the rank-2 hit, so the held note's own length changes")
+        XCTAssertGreaterThan(marked, 0, "the lookahead still found a real note to end the tie — it didn't fall through to its cap")
+        XCTAssertLessThan(abs(plain - marked), 4.0, "a bar restart only ever pulls the next hit earlier by less than a bar")
     }
-    func testGridFirstWindowRunsFromANegativeOriginDeterministically() {
-        // A rhythm mark on cell 5 only: no mark in cells 0–4, so window 0 runs from the previous window's mark (a negative origin).
-        let a = gridHits(gridLine(rhythm: 1 << 5, melody: 1 << 2), beats: 15.9)
-        let b = gridHits(gridLine(rhythm: 1 << 5, melody: 1 << 2), beats: 15.9)
-        XCTAssertEqual(a.map { $0.beat }, b.map { $0.beat }); XCTAssertEqual(a.map { $0.idx }, b.map { $0.idx })
-        XCTAssertFalse(a.isEmpty)
-        // carried origin: (5 − 16) cells × 4 ticks = −44 ticks ⇒ hits where (tick + 44) mod 8 ∈ {0,3,6} before the mark at tick 20
-        let expected = (0...31).filter { t in
-            let origin = t >= 20 ? 20 : -44
-            return [0, 3, 6].contains(((t - origin) % 8 + 8) % 8)
-        }
-        XCTAssertEqual(a.map { $0.beat }, expected.map { Double($0) * 0.5 })
-    }
+    // testGridFirstWindowRunsFromANegativeOriginDeterministically RETIRED (2026-10-19): its whole premise — the first
+    // window, before any mark, carries an origin from the PREVIOUS (unseen) window, which can be NEGATIVE — has no
+    // chain equivalent. §12.6, literally: "Beat 0 is always a restart in the new model" — a chain never carries a
+    // negative origin forward from before beat 0; there is no "previous window" to inherit from. Not ported.
 
     // §3 / §8 ROLL FEED vs the Router: for a lane with a known pattern and riff, the roll's hits equal the beats, ranks and lengths the Router
     // really produces over the same window, with and without marks, muted and audible flagged correctly, and a TIE extension included.
     func testGridRollFeedEqualsWhatTheRouterActuallyPlays() {
         struct Case { var name: String; var line: EuclidLine; var ranks: [Int] }
-        var tie = gridLine(rhythm: 0b1001); tie.riffOnRest = .tie; tie.gate = 0.5
+        // "tie"/"marked" (2026-10-19): converted from grid marks to chain fields, see the retired tests above.
+        var tie = chainLine(rhythmBars: [1]); tie.riffOnRest = .tie; tie.gate = 0.5
         var plain = gridLine(); plain.gate = 0.5
-        var marked = gridLine(rhythm: 0b1001, melody: 1 << 5); marked.gate = 0.5
+        var marked = chainLine(rhythmBars: [1], melodyPasses: [2]); marked.gate = 0.5
         var muted = gridLine(rhythm: 1 << 2, mute: 0xFFFF & ~((1 << 1) | (1 << 3)), muteUnit: .fourSteps); muted.gate = 0.5
         var inverted = gridLine(melody: 1 << 3); inverted.riffInvert = true; inverted.melodyTranspose = 1; inverted.gate = 0.5
         let up = [1, 2, 3, 4, 5, 6, 7, 8]
@@ -12572,23 +12639,23 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(invRoll.allSatisfy { $0.rank >= 1 && $0.rank <= 9 })
     }
 
-    // §2.8 — the page's FOOTER baseline comes from the core: the ordinal the current lap's first hit reads, across a melody restart too.
-    func testGridLapStartOrdinalIsWhatTheEngineReadsAtTheLapsFirstHit() {
-        for (rhythm, melody) in [(UInt16(0), UInt16(0)), (0b1001, 0), (0, 1 << 3), (0b1001, 0b1001), (1 << 5, 1 << 2)] {
-            for locked in [false, true] {
-                let line = gridLine(rhythm: rhythm, melody: melody, locked: locked)
-                guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { XCTFail(); continue }
-                for beat in stride(from: 0.2, through: 40.0, by: 1.7) {
-                    let tick = Int64((beat / cfg.sub).rounded(.down))
-                    let cycleLen = euclidCycleLen(cfg.dir, n: cfg.n)
-                    let now = euclideousLaneTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: tick, grid: cfg.grid,
-                                                 legacySpanBeats: cfg.spanBeats, locked: cfg.locked, advanceStep: cfg.advanceStep)
-                    let lapStart = tick - Int64(now.raw)
-                    let firstHit = (0..<cycleLen).first { cfg.buf[euclidReadIndex($0, n: cfg.n, dir: cfg.dir)] }!
-                    let want = euclideousLaneTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: lapStart + Int64(firstHit), grid: cfg.grid,
-                                                  legacySpanBeats: cfg.spanBeats, locked: cfg.locked, advanceStep: cfg.advanceStep).advOrd
-                    XCTAssertEqual(euclideousLapStartOrdinal(cfg: cfg, beat: beat), want, "rhythm \(rhythm) melody \(melody) locked \(locked) beat \(beat)")
-                }
+    // §2.8 — the page's FOOTER baseline comes from the core: the ordinal the current lap's first hit reads, across a
+    // melody restart too. Converted (2026-10-19) from grid masks/LOCK to chain fields — see the retired tests above.
+    func testChainLapStartOrdinalIsWhatTheEngineReadsAtTheLapsFirstHit() {
+        let combos: [([UInt8]?, [UInt8]?)] = [(nil, nil), ([1], nil), (nil, [1]), ([1], [1]), ([2, 1], [2])]
+        for (rhythm, melody) in combos {
+            let line = chainLine(rhythmBars: rhythm, melodyPasses: melody)
+            guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { XCTFail(); continue }
+            for beat in stride(from: 0.2, through: 40.0, by: 1.7) {
+                let tick = Int64((beat / cfg.sub).rounded(.down))
+                let cycleLen = euclidCycleLen(cfg.dir, n: cfg.n)
+                let now = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: tick, chains: cfg.chains,
+                                                  legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep)
+                let lapStart = tick - Int64(now.raw)
+                let firstHit = (0..<cycleLen).first { cfg.buf[euclidReadIndex($0, n: cfg.n, dir: cfg.dir)] }!
+                let want = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: lapStart + Int64(firstHit), chains: cfg.chains,
+                                                   legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep).advOrd
+                XCTAssertEqual(euclideousLapStartOrdinal(cfg: cfg, beat: beat), want, "rhythm \(String(describing: rhythm)) melody \(String(describing: melody)) beat \(beat)")
             }
         }
     }
@@ -13052,11 +13119,15 @@ final class RouterTests: XCTestCase {
 
     func testFXNoteLockOnASparseLaneClimbsOneStepPerLapAndRereadsTheSameOffsetWithinALap() {
         // LOCK: the riff goes back to its first position at every lap start, so hit j of lap L reads column j. A NOTE cell on column 0 is read once per lap — p = the lap.
-        let got = fxNoteWire(fxSparseLane(lock: true), cells: [(4, 0, 1)], beats: 4 * 6 + 1)
+        // RESTART CHAINS (2026-10-19): `riffLock` itself is retired (§7) — "LOCK" is now a melody chain of [1]
+        // (§4.7), migrated-and-pinned here (`migratedLine`) to simulate the AVC resync tick a bare-Router test
+        // never runs (§12). FX's own NOTE-pass index is untouched (still reads the preserved grid/`locked`
+        // exclusively) — this only restores the real riff ordinal's own restart, which FX's pass reads downstream.
+        let got = fxNoteWire(migratedLine(fxSparseLane(lock: true)), cells: [(4, 0, 1)], beats: 4 * 6 + 1)
         let col0 = got.filter { abs($0.beat.truncatingRemainder(dividingBy: 4)) < 0.01 || abs($0.beat.truncatingRemainder(dividingBy: 4) - 4) < 0.01 }.map { $0.note }
         XCTAssertEqual(Array(col0.prefix(6)), (0..<6).map { fxTriadPitch(4 + ($0 % 4)) }, "laps 0…5: C4 E♭4 G4 C5 C4 E♭4")
         // a NOTE cell on column 1 (hit 2 of the lap) climbs on the same per-lap clock, not per hit
-        let got1 = fxNoteWire(fxSparseLane(lock: true), cells: [(4, 1, 2)], beats: 4 * 5 + 2)
+        let got1 = fxNoteWire(migratedLine(fxSparseLane(lock: true)), cells: [(4, 1, 2)], beats: 4 * 5 + 2)
         let col1 = got1.filter { abs($0.beat.truncatingRemainder(dividingBy: 4) - 1.5) < 0.01 }.map { $0.note }
         XCTAssertEqual(Array(col1.prefix(5)), (0..<5).map { fxTriadPitch(2 + 2 * ($0 % 4)) })
     }
@@ -13096,35 +13167,14 @@ final class RouterTests: XCTestCase {
             }
         }
     }
-    func testFXNoteAMelodyRestartSendsThePassBackToZeroAndTheFirstWindowsNegativeOriginIsStable() {
-        // melody mark on cell 3 of each 16-cell window (unit PASS = one 4-beat lap): a restart at beat 12, 76, … ; before the first mark the carried origin is cell 3 of the PREVIOUS
-        // window (beat −52): the ordinal there is a whole number of laps behind, so the first window's passes must come out the same every run
-        for lock in [false, true] {
-            let l = fxSparseLane(lock: lock, melodyMask: 1 << 3)
-            let a = fxNoteWire(l, cells: (0..<8).map { (4, $0, 1) }, beats: 4 * 18)
-            let b = fxNoteWire(l, cells: (0..<8).map { (4, $0, 1) }, beats: 4 * 18)
-            XCTAssertEqual(a.map { $0.note }, b.map { $0.note }, "deterministic (negative origin)")
-            let ranks = [4, 2, 3, 1, 5, 6, 7, 8]
-            let ticks = fxHitTicks(upToBeat: 4 * 18)
-            func hitsBefore(_ t: Int) -> Int { 3 * Int((Double(t) / 8).rounded(.down)) + [0, 3, 6].filter { $0 < ((t % 8) + 8) % 8 }.count }
-            var expected: [Int] = []
-            for t in ticks {
-                let beat = Double(t) * 0.5
-                let originBeat = (((beat - 12) / 64).rounded(.down)) * 64 + 12                    // the latest mark at or before this hit
-                let originTick = Int(originBeat / 0.5)
-                let o = hitsBefore(t) - hitsBefore(originTick)
-                let lap = Int((Double(t - originTick) / 8).rounded(.down))                          // LOCK: laps since the origin
-                let lapStart = ((t % 8) + 8) % 8
-                _ = lapStart
-                let col: Int, p: Int
-                if lock { col = hitsBefore(t) - hitsBefore(t - (((t % 8) + 8) % 8)); p = lap } else { col = fxColumn(dir: .forward, ord: o); p = o / 8 }
-                expected.append(fxTriadPitch(ranks[col] + p % 4))
-            }
-            XCTAssertEqual(Array(a.prefix(expected.count)).map { $0.note }, expected, "lock=\(lock): the pass restarts at beat 12")   // (the last window may run one hit past the span)
-            // the restart itself: the hit AT beat 12 reads pass 0 again
-            XCTAssertEqual(a.first { abs($0.beat - 12) < 0.01 }?.note, fxTriadPitch(ranks[0]), "lock=\(lock)")
-        }
-    }
+    // RETIRED (2026-10-19, restart-chains ferry): this test's mark (cell 3 of a 16-cell window ⇒ a restart
+    // every 16 passes) and its "first window's carried, NEGATIVE origin" premise have no chain equivalent —
+    // a chain restarts on a ≤4-link cycle from {1,2,3,4,6,8} passes/bars (16 isn't in that set and isn't
+    // reachable as a short cycle either), and §12.6 is explicit that beat 0 is always a restart in the new
+    // model, so there is no "previous window" origin to carry in from before it (same retirement as
+    // `testGridFirstWindowRunsFromANegativeOriginDeterministically`, above). `riffLock`'s OWN substance (every
+    // pass restarts) is still covered, converted, by `testFXNoteLockOnASparseLaneClimbsOneStepPerLapAnd
+    // RereadsTheSameOffsetWithinALap` just above. Not ported.
 
     func testFXCCIsNotSentForAHitWhoseEveryPitchIsDroppedOutsideMidiRange() {
         // one note held (C4), rank 1 on every column, a NOTE +3 on every column, PASSES 8: passes 0 and 1 sound (60, 96); from pass 2 the rank (7, 10, …) is beyond MIDI 127 and

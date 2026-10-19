@@ -1135,6 +1135,7 @@ final class EffectiveParamsTests: XCTestCase {
         l.listenAvoidAction = .move; l.listenLevelMode = .accent; l.listenLevelPartner = 3; l.listenLevelAmount = 0.65
         l.notesGate = 0.45; l.notesVelocity = 66
         l.muteCells16 = 0x0F3C; l.muteUnit = 3; l.restartRhythmMask16 = 0x0121; l.restartMelodyMask16 = 0x8040; l.restartUnit = 4   // LANES GRID
+        l.restartRhythmBars = [2, 1]; l.restartMelodyPasses = [1]; l.hitsRequested = 5; l.offsetRequested = 3   // RESTART CHAINS (2026-10-19)
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {
             let m = Mirror(reflecting: child.value)

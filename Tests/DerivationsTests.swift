@@ -1993,11 +1993,11 @@ final class DerivationsTests: XCTestCase {
     // `euclideousRiffDrunkStep`/the prediction's `drunkLive` parameter are both gone, so this test's whole
     // premise is gone. The generic chain RIFF processor's own, unrelated DRUNK mechanism (riffDrunkPeek/
     // riffDrunkDelta) is untouched and keeps its own separate test coverage elsewhere in this file.
-    func testEuclideousRiffLapBaselineLockAlwaysResetsRegardlessOfLiveState() {
+    func testEuclideousRiffLapBaselineRestartPassAlwaysResetsRegardlessOfLiveState() {
         let hits: [EuclidHitStep] = [0, 3, 6]
-        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: true, advanceStep: false, liveOrd: 47)
+        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, isMelodyRestartPass: true, advanceStep: false, liveOrd: 47)
         XCTAssertEqual(b.startOrd, 0)
-        XCTAssertEqual(b.currentHitIndex, 0, "LOCK: the live hit is always lap-relative index 0 — a fresh lap always starts there")
+        XCTAssertEqual(b.currentHitIndex, 0, "a melody restart pass: the live hit is always lap-relative index 0 — a fresh lap always starts there")
     }
     /// FREE + HIT mode: a live ordinal mid-lap (hit index 1 of 3) must recover the lap's OWN first-hit
     /// ordinal by simple subtraction — verified by feeding the recovered `startOrd` straight back into
@@ -2006,7 +2006,7 @@ final class DerivationsTests: XCTestCase {
     func testEuclideousRiffLapBaselineFreeHitModeRecoversTheLapsFirstHitOrdinal() {
         let hits: [EuclidHitStep] = [0, 3, 6]   // effHits = 3
         // live ordinal 7 ⇒ 7 % 3 == 1 ⇒ currently at hit-index 1 of the lap ⇒ lap started at ordinal 6
-        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: false, advanceStep: false, liveOrd: 7)
+        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, isMelodyRestartPass: false, advanceStep: false, liveOrd: 7)
         XCTAssertEqual(b.startOrd, 6)
         XCTAssertEqual(b.currentHitIndex, 1)
         let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: false, dir: .forward, stride: 1,
@@ -2024,7 +2024,7 @@ final class DerivationsTests: XCTestCase {
         // Under STEP mode the live ordinal IS the elapsed grid-step count, read via `buf[localT % lapSteps]`
         // — so a lap starting at ordinal 8 (self-consistent: 8 % 8 == hits[0] == 0) has its step-6 hit
         // (hits[2]) occur at ordinal 8 + (6 - 0) = 14 (checked: 14 % 8 == 6, the step itself).
-        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: false, advanceStep: true, liveOrd: 14)
+        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, isMelodyRestartPass: false, advanceStep: true, liveOrd: 14)
         XCTAssertEqual(b.startOrd, 8)
         XCTAssertEqual(b.currentHitIndex, 2, "the live hit landed on hits[2] (step 6) — array index 2")
     }
@@ -2040,7 +2040,7 @@ final class DerivationsTests: XCTestCase {
         // ticks 1, 4, 7 (buffer indices 6, 3, 0 respectively).
         let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 0, tilt: 0, patternMiss: false, customHits: nil, dir: .bkw)
         let liveOrd: Int64 = 12   // 12 % 8 == 4, matching hit index 1's own real TICK (4), not its buffer index (3)
-        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: false, advanceStep: true, liveOrd: liveOrd, dir: .bkw)
+        let b = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, isMelodyRestartPass: false, advanceStep: true, liveOrd: liveOrd, dir: .bkw)
         XCTAssertEqual(b.currentHitIndex, 1, "tick 4 matches hit index 1's own real tick — the pre-fix code compared against a buffer index directly and would have found no match at all")
         XCTAssertEqual(b.startOrd, 9)
         let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: true, dir: .forward, stride: 1, length: 8, rotate: 0, seed: 0, startOrd: b.startOrd)
@@ -3657,7 +3657,10 @@ final class DerivationsTests: XCTestCase {
     // ordinal k" directly. Ticks are taken well away from 0 so the scan's look-back never reaches a negative tick.
     private let wtW: CGFloat = 42.5, wtH: CGFloat = 29, wtGap: CGFloat = 4
     private func wtConfig(sub: Double = 0.25, dir: RiffDir = .forward, length: Int = 8, stride: Int = 1, rotate: Int = 0, locked: Bool = false, advanceStep: Bool = false) -> EuclideousWalkLaneConfig {
-        EuclideousWalkLaneConfig(buf: [Bool](repeating: true, count: 16), n: 8, dir: .fwd, sub: sub, riffDir: dir, stride: stride, length: length,
+        // RESTART CHAINS (2026-10-19): the mirror's real tick decision now reads `.chains`, not `.locked`/`.grid`
+        // (kept only for FX) — "LOCK" here is a melody chain of [1] (§4.7), lapBeats = this config's own 8-tick lap.
+        let chains = locked ? EuclideousLaneRestartChains(rhythm: .free, melody: .from([1]), barBeats: 4, lapBeats: 8 * sub) : .off
+        return EuclideousWalkLaneConfig(buf: [Bool](repeating: true, count: 16), n: 8, dir: .fwd, sub: sub, chains: chains, riffDir: dir, stride: stride, length: length,
                                  rotate: rotate, locked: locked, advanceStep: advanceStep)
     }
     /// The plan "just after" tick `k` landed (a quarter of a tick later), 120 BPM, polled step = what the engine
@@ -3941,22 +3944,28 @@ final class DerivationsTests: XCTestCase {
         let lapTicks = (lapStart..<(lapStart + 8)).filter { euclideousWalkTick(cfg, tick: $0).isHit }
         XCTAssertEqual(lapTicks.count, hitSteps.count, "\(name): same hits per lap", file: file, line: line)
         let live = euclideousWalkTick(cfg, tick: lapTicks[0]).advOrd
-        let base = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: 8, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved, liveOrd: live, dir: L.directionResolved)
+        let nowBeat = Double(lapStart) * cfg.sub
+        let isMelodyRestartPass = euclideousIsMelodyChainRestartPass(beat: nowBeat, lapBeats: cfg.chains.lapBeats, barBeats: cfg.chains.barBeats,
+                                                                      rhythmChain: cfg.chains.rhythm, melodyChain: cfg.chains.melody)
+        let base = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: 8, isMelodyRestartPass: isMelodyRestartPass, advanceStep: L.riffAdvanceStepResolved, liveOrd: live, dir: L.directionResolved)
         let footer = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: L.riffAdvanceStepResolved, dir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved,
                                                    length: L.riffLengthResolved, rotate: L.riffRotateResolved, seed: 0, startOrd: base.startOrd)
         for (i, t) in lapTicks.enumerated() {
             XCTAssertEqual(footer[i] - 1, euclideousWalkTick(cfg, tick: t).playedStep, "\(name): hit \(i)", file: file, line: line)
         }
     }
-    func testWalkTagDestinationsAgreeWithTheLaneFooterForFreeAndLockedHitAdvance() {
+    func testWalkTagDestinationsAgreeWithTheLaneFooterForFreeAndMelodyRestartHitAdvance() {
         wtFooterAgreement("FREE/HIT") { _ in }
         wtFooterAgreement("FREE/HIT pendulum stride 3 len 6") { $0.riffDir = .pendulum; $0.riffStride = 3; $0.riffLength = 6 }
-        wtFooterAgreement("LOCK/HIT") { $0.riffLock = true }
+        // RESTART CHAINS (2026-10-19): a melody chain of [1] restarts every pass — exactly old LOCK's own
+        // guarantee (§4.7) — so this sub-case now sets the chain field directly instead of the retired `riffLock`.
+        wtFooterAgreement("MELODY-1/HIT") { $0.restartMelodyPasses = [1] }
         wtFooterAgreement("FREE/STEP") { $0.riffAdvanceStep = true }
-        // NOT covered, on purpose: LOCK + ADV STEP. There the footer (`euclideousRiffLapBaseline` returns startOrd 0 for any
-        // locked lane) predicts steps that are off by the lap's first-hit tick, while the engine feeds the walk the lap-local
-        // tick itself — so the mirror (which matches the engine, see RouterTests) and the footer disagree. Pre-existing
-        // footer bug, outside this ferry's "footers stay as built"; reported to Paul.
+        // NOT covered, on purpose: a restarting melody chain + ADV STEP. There the footer (`euclideousRiffLapBaseline`
+        // returns startOrd 0 for any restart pass) predicts steps that are off by the lap's first-hit tick, while the
+        // engine feeds the walk the lap-local tick itself — so the mirror (which matches the engine, see RouterTests)
+        // and the footer disagree. Pre-existing footer bug (inherited unchanged from old LOCK), outside this ferry's
+        // "footers stay as built"; reported to Paul.
     }
 
     func testWalkTagTurnFlipCarriesThroughAFlightThatSetsOffBeforeItHasFinished() {
@@ -4368,19 +4377,21 @@ final class DerivationsTests: XCTestCase {
                                         polledStep: euclideousWalkTick(cfg, tick: a).playedStep, running: true)
         XCTAssertLessThan(old?.nextSeconds ?? .infinity, next, "the unfiltered scan would arrive earlier — at a note the engine never plays")
     }
-    // The footer must predict what the engine's walk plays under LOCK + ADV STEP even when the lap's first hit is NOT on
-    // tick 0 (the engine feeds the walk the lap-local tick, leading rests included).
-    func testFooterAgreesWithTheEngineMirrorUnderLockAndAdvStepWhenTheFirstHitIsOffTickZero() {
+    // The footer must predict what the engine's walk plays under a restarting MELODY chain + ADV STEP even when the lap's
+    // first hit is NOT on tick 0 (the engine feeds the walk the lap-local tick, leading rests included). A melody chain of
+    // [1] restarts every pass — exactly old LOCK's own guarantee (§4.7) — so this (2026-10-19) sets the chain field
+    // directly instead of the retired `riffLock`.
+    func testFooterAgreesWithTheEngineMirrorUnderARestartingMelodyChainAndAdvStepWhenTheFirstHitIsOffTickZero() {
         var offZero = 0
         for rot in 0..<8 {
             for stride in [1, 2] {
                 var line = EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi)
                 line.rotate = rot; line.restartMask = 0
-                line.riffLock = true; line.riffAdvanceStep = true; line.riffStride = stride; line.riffLength = 5
+                line.restartMelodyPasses = [1]; line.riffAdvanceStep = true; line.riffStride = stride; line.riffLength = 5
                 let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: rot, tilt: 0, patternMiss: false, customHits: nil, dir: .fwd)
                 guard let first = hits.first else { return XCTFail("no hits") }
                 if first.tick > 0 { offZero += 1 }
-                let base = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: true, advanceStep: true, liveOrd: 99)
+                let base = euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, isMelodyRestartPass: true, advanceStep: true, liveOrd: 99)
                 let predicted = euclideousRiffCyclePrediction(hitSteps: hits, advanceStep: true, dir: .forward, stride: stride, length: 5,
                                                               rotate: 0, seed: 0, startOrd: base.startOrd)
                 let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
@@ -4392,9 +4403,9 @@ final class DerivationsTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(offZero, 6, "the sweep genuinely includes first hits that are not on tick 0")
-        // …and the other LOCK / FREE combinations keep their baselines.
+        // …and the other restart / FREE combinations keep their baselines.
         let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 1, tilt: 0, patternMiss: false, customHits: nil, dir: .fwd)
-        XCTAssertEqual(euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, locked: true, advanceStep: false, liveOrd: 5).startOrd, 0, "LOCK + HIT mode feeds the hit index")
+        XCTAssertEqual(euclideousRiffLapBaseline(hitSteps: hits, lapSteps: 8, isMelodyRestartPass: true, advanceStep: false, liveOrd: 5).startOrd, 0, "a restarting melody chain + HIT mode feeds the hit index")
     }
 
 

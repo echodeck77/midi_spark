@@ -3412,22 +3412,28 @@ func euclideousLapHitSteps(buf: [Bool], dir: EuclidDir = .fwd) -> [EuclidHitStep
 /// Derives `euclideousRiffCyclePrediction`'s own `startOrd`/`drunkLive` inputs from the LIVE poll (the
 /// ordinal the walk's most recent hit advanced on, + DRUNK's own live position/ordinal) — the UI only ever
 /// polls "where is the walk right now," never "where did the current lap begin," so this reconstructs the
-/// latter exactly rather than approximating it. Under LOCK the walk re-anchors every lap by construction
-/// (`runEuclidLine`'s own `cycleReset` — hard resets to ordinal/position 0 at the lap's first hit), so the
-/// baseline is always exactly 0 regardless of where the live poll happens to be. Under FREE, the walk is
-/// one continuous, never-resetting sequence — `liveOrd % effHits` (HIT mode) or finding which `hitSteps`
-/// entry `liveOrd % lapSteps` matches (STEP mode, since under that mode the ordinal literally IS the
-/// elapsed grid-step count) both recover exactly which hit-index-within-the-lap the most recent hit was,
-/// letting the lap's own first-hit ordinal be recovered by simple subtraction.
-func euclideousRiffLapBaseline(hitSteps: [EuclidHitStep], lapSteps: Int, locked: Bool, advanceStep: Bool,
+/// latter exactly rather than approximating it. RESTART CHAINS (ferry 2026-10-19): when the CURRENT pass is
+/// itself one of the melody chain's own restart passes (`isMelodyRestartPass`, computed by the caller via
+/// `euclideousIsMelodyChainRestartPass` — a melody chain of exactly [1] is true for every pass, old LOCK's own
+/// guarantee, §4.7), the walk re-anchors at this lap's own start by construction, so the baseline is exactly 0
+/// regardless of where the live poll happens to be. Any OTHER pass (a longer chain's non-restart passes) walks
+/// on from an EARLIER lap's origin — this fallback cannot reconstruct which one from `hitSteps`/`liveOrd` alone,
+/// so it falls through to the FREE reconstruction below; the call site's own `euclideousLapStartOrdinal` (the
+/// engine's real per-tick core) overrides this with the exact answer whenever it can be computed, which is why
+/// this fallback only needs to be honest, not exact, in that case. Under FREE, the walk is one continuous,
+/// never-resetting sequence — `liveOrd % effHits` (HIT mode) or finding which `hitSteps` entry `liveOrd %
+/// lapSteps` matches (STEP mode, since under that mode the ordinal literally IS the elapsed grid-step count)
+/// both recover exactly which hit-index-within-the-lap the most recent hit was, letting the lap's own first-hit
+/// ordinal be recovered by simple subtraction.
+func euclideousRiffLapBaseline(hitSteps: [EuclidHitStep], lapSteps: Int, isMelodyRestartPass: Bool, advanceStep: Bool,
                                 liveOrd: Int64, dir: EuclidDir = .fwd)
     -> (startOrd: Int64, currentHitIndex: Int) {
     guard !hitSteps.isEmpty, lapSteps > 0 else { return (0, 0) }
-    // LOCK re-anchors every lap, so no live ordinal is needed. HIT mode feeds the walk the hit's own index (0, 1, 2…, so the
+    // A restart pass re-anchors, so no live ordinal is needed. HIT mode feeds the walk the hit's own index (0, 1, 2…, so the
     // lap starts at 0). ADV STEP feeds it the LAP-LOCAL TICK itself (`raw` in `runEuclidLine`) — the leading rests count — so
     // the lap's first hit sits at ordinal `firstTick`, not 0 (`euclideousRiffCyclePrediction` subtracts `firstTick`, which
     // this baseline puts back). With the first hit on tick 0 the two are the same, which is why this went unnoticed.
-    if locked { return (advanceStep ? Int64(hitSteps[0].tick) : 0, 0) }
+    if isMelodyRestartPass { return (advanceStep ? Int64(hitSteps[0].tick) : 0, 0) }
     let firstTick = hitSteps[0].tick
     if advanceStep {
         // DIRECTION FIX (2026-10-13 adversarial review): previously reduced `liveOrd` mod the plain buffer
@@ -4311,8 +4317,13 @@ struct EuclideousWalkLaneConfig {
     var dir: EuclidDir
     var sub: Double                 // beats per tick (the lane's rate, × the FOLLOW multiplier)
     var spanBeats: Double = 0       // machine-wide RESET span in beats (the pre-grid re-anchor, used only while the grid has no mark); 0 = free-run
-    /// The lane's restart grid in its own ticks (LANES GRID, 2026-10-18) — the engine's own input (`euclideousLaneRestartGrid`).
+    /// The lane's restart grid in its own ticks (LANES GRID, 2026-10-18) — kept ONLY for the FX tab's own closed-form
+    /// pass index (`euclideousFXPassIndex`, out of the restart-chains ferry's scope); every other reader below uses `chains`.
     var grid: EuclideousLaneRestartGrid = .off
+    /// RESTART CHAINS (ferry 2026-10-19): the lane's resolved rhythm/melody chains — what the walk mirror, the roll's
+    /// gap/tie lookahead and the lap-start baseline actually read now. `.off` (both FREE) is the safe pre-migration
+    /// default — the same one `Router.swift` falls back to during the brief pre-first-resync window.
+    var chains: EuclideousLaneRestartChains = .off
     /// The lane's mute grid (cells + cell length in beats), for the roll and the lane card. 0 length = always audible.
     var muteCells: UInt16 = 0xFFFF
     var muteUnitBeats: Double = 0
@@ -4416,6 +4427,14 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
     let grid = euclideousLaneRestartGrid(g, cycleLen: cycleLen)
     let ladderSpan = resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0
     let spanBeats = ladderSpan
+    // RESTART CHAINS (ferry 2026-10-19): `.off` (both FREE) during the brief pre-first-resync window before
+    // `AudioUnitViewController`'s main-thread migration pins real chains — the SAME safe default the Router falls
+    // back to, so the mirror and the engine never disagree even in that window.
+    let passBeats = Double(cycleLen) * sub
+    let chains: EuclideousLaneRestartChains = L.usesRestartChains
+        ? EuclideousLaneRestartChains(rhythm: .from(L.restartRhythmBars ?? []), melody: .from(L.restartMelodyPasses ?? []),
+                                      barBeats: beatsPerBar, lapBeats: passBeats)
+        : .off
     // LISTEN WITH / GAPS: the engine's coincidence lookup uses ITS `spanBeats` — one full LANES lap when a mask is set,
     // else the bars span — which differs from the mirror's own reset origin above, so it is captured separately.
     var listen: EuclideousWalkListenFilter? = nil
@@ -4428,7 +4447,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                             epsilonBeats: 0.001 * (max(1, tempo) / 60.0))
     }
     return EuclideousWalkLaneConfig(buf: buf, n: n, dir: L.directionResolved, sub: sub, spanBeats: spanBeats,
-                                    grid: grid, muteCells: g.muteCells,
+                                    grid: grid, chains: chains, muteCells: g.muteCells,
                                     muteUnitBeats: g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub), listen: listen,
                                     riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: L.riffLengthResolved,
                                     rotate: L.riffRotateResolved, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved,
@@ -4454,10 +4473,11 @@ struct EuclideousWalkTick: Equatable {
 /// floor/mod arithmetic, same `hitsUpTo`/`ord`/`advOrd` formulas) — so the predicted schedule cannot drift from
 /// the engine's by anything but the clock itself.
 func euclideousWalkTick(_ c: EuclideousWalkLaneConfig, tick: Int64) -> EuclideousWalkTick {
-    // The mirror IS the engine's per-tick core (LANES GRID, 2026-10-18) — the same call `Router.runEuclidLine` makes — so a tag, a
-    // prediction or a roll bar can no longer drift from what sounds by anything but the clock itself.
-    let info = euclideousLaneTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, tick: tick,
-                                  grid: c.grid, legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep)
+    // The mirror IS the engine's per-tick core (RESTART CHAINS, 2026-10-19) — the same call `Router.runEuclidLine` makes — so a tag, a
+    // prediction or a roll bar can no longer drift from what sounds by anything but the clock itself. No `locked:` — a melody
+    // chain of exactly [1] reproduces old LOCK's own re-anchoring with no special-casing (§4.7).
+    let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, tick: tick,
+                                       chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
     // WITH / GAPS: the engine folds the partner check into the STRIKE decision only — `advOrd` still counts every raw hit of the
     // lane's own pattern ("the lane keeps its own rhythm"), so a filtered tick advances the ordinal silently and the next strike
     // lands further along the walk.
@@ -5448,6 +5468,117 @@ func euclideousPinLaneGrid(_ line: inout EuclidLine, _ g: EuclideousLaneGrid) {
     line.restartRhythmMask16 = g.rhythmMask; line.restartMelodyMask16 = g.melodyMask; line.restartUnit = g.restartUnit.rawValue
 }
 
+// ── RESTART CHAIN MIGRATION (ferry 2026-10-19 §12) — pure, main-thread cost only; the caller
+// (Router.runEuclidLine) memoizes this, it is never called on the render path's hot loop. ──────────────
+
+/// §12.3-12.7 — given a lane's CURRENT resolved OLD restart data (via `euclideousLaneGridResolved`, NEVER
+/// re-derived — the exact ground truth every other reader of the old model already shares), what rhythm/
+/// melody chain reproduces its restart beats over a 128-bar window, or the disclosed fallback.
+struct EuclideousMigratedChains: Equatable {
+    var rhythm: [UInt8] = []
+    var melody: [UInt8] = []
+    var rhythmExact = true
+    var melodyExact = true
+    func chains(barBeats: Double, lapBeats: Double) -> EuclideousLaneRestartChains {
+        EuclideousLaneRestartChains(rhythm: .from(rhythm), melody: .from(melody), barBeats: barBeats, lapBeats: lapBeats)
+    }
+}
+/// The shortest repeating gap-cycle in `marks` (an ascending list of unit numbers — bars or passes), ≤ 4
+/// distinct gaps each from {1,2,3,4,6,8}. Empty input ⇒ FREE (exact). A first mark away from 0, or a
+/// single isolated mark with no repeating cycle a chain can express, ⇒ not exact (the fallback applies).
+private func euclideousFitRestartChain(_ marks: [Int]) -> (links: [UInt8], exact: Bool) {
+    guard !marks.isEmpty else { return ([], true) }
+    guard marks.first == 0 else { return ([], false) }
+    guard marks.count > 1 else { return ([], false) }
+    var gaps: [Int] = []
+    for i in 1..<marks.count { gaps.append(marks[i] - marks[i - 1]) }
+    var period = 0
+    for p in 1...min(4, gaps.count) where gaps.indices.allSatisfy({ gaps[$0] == gaps[$0 % p] }) { period = p; break }
+    guard period > 0 else { return ([], false) }
+    let links = Array(gaps.prefix(period))
+    guard links.allSatisfy({ [1, 2, 3, 4, 6, 8].contains($0) }) else { return ([], false) }
+    return (links.map(UInt8.init), true)
+}
+func migrateRestartChains(line: EuclidLine, lane: Int, legacyOn: Bool, legacyRate: EuclideousSeqRate, legacyLen: Int,
+                          legacyCells: [Bool], sub: Double, n: Int, dir: EuclidDir, barBeats: Double) -> EuclideousMigratedChains {
+    var result = EuclideousMigratedChains()
+    guard barBeats > 0, sub > 0 else { return result }
+    let cycleLen = euclidCycleLen(dir, n: n)
+    let passBeats = Double(cycleLen) * sub
+    let g = euclideousLaneGridResolved(line: line, lane: lane, legacyOn: legacyOn, legacyRate: legacyRate, legacyLen: legacyLen,
+                                       legacyCells: legacyCells, stepBeats: sub, passBeats: passBeats, beatsPerBar: barBeats)
+    let windowBeats = 128 * barBeats
+    /// Every old-model mark's own BEAT, in ascending order, within the window — walked cell by cell (the
+    /// finest granularity a mark can occur at), exactly as §12.3 asks: "evaluate today's origin function(s)
+    /// at every old cell... keep every beat where the origin changes."
+    func oldMarkBeats(_ mask: UInt16) -> [Double] {
+        guard mask != 0 else { return [] }
+        let cellBeats = g.restartUnit.beats(stepBeats: sub, passBeats: passBeats)
+        guard cellBeats > 0 else { return [] }
+        var out: [Double] = []
+        var cell = 0
+        while Double(cell) * cellBeats < windowBeats {
+            if euclideousMaskedResetCell(absCell: cell, mask: mask, cells: 16) == cell { out.append(Double(cell) * cellBeats) }
+            cell += 1
+        }
+        return out
+    }
+    func toUnits(_ beats: [Double], unitBeats: Double) -> [Int]? {
+        guard unitBeats > 0 else { return nil }
+        var out: [Int] = []
+        for b in beats {
+            let u = b / unitBeats
+            guard abs(u.rounded() - u) < 1e-6 else { return nil }   // doesn't land on a bar/pass boundary — can't convert
+            out.append(Int(u.rounded()))
+        }
+        return out
+    }
+    // RHYTHM (§12.4): independent of LOCK — a rhythm mark always restarts the pattern, chain-agnostic.
+    // "Drop any [mark] that lands on a lap start of the lane as it runs with the restarts before it,
+    // since they change nothing" (§5.6's own "changes nothing" condition) — when the lap length itself is
+    // a whole number of bars, a mark on one of those natural lap-start bars is redundant with the FREE
+    // cadence and never needed kept in the first place (dropping it can only ever reduce, never grow, the
+    // kept set, so there is no earlier-kept-restart to re-check against: a mark redundant with the plain
+    // FREE cadence stays redundant whatever ELSE was also marked).
+    if let bars = toUnits(oldMarkBeats(g.rhythmMask), unitBeats: barBeats) {
+        let lapBars = barBeats > 0 ? passBeats / barBeats : 0
+        let lapIsWholeBars = lapBars > 0 && abs(lapBars.rounded() - lapBars) < 1e-9
+        let kept = lapIsWholeBars ? bars.filter { $0 % Int(lapBars.rounded()) != 0 } : bars
+        let fit = euclideousFitRestartChain(kept)
+        result.rhythm = fit.links; result.rhythmExact = fit.exact
+    } else {
+        result.rhythm = []; result.rhythmExact = false
+    }
+    // MELODY (§12.5): "if riffLock is true, the melody chain is 1" — taken literally. The old per-tick core
+    // composed LOCK with a SIMULTANEOUSLY-set old melody mask as `max(lap start, mask position)`
+    // (`euclideousLaneTick`'s own `ref = locked ? max(cy*cl, jM) : jM`) — but `euclideousLaneGridResolved`'s
+    // OWN pre-grid migration (just above, confirmed by reading it) mirrors a single old restart into BOTH
+    // masks IDENTICALLY (`g.rhythmMask = mask; g.melodyMask = mask`), and a rhythm mark always itself forces
+    // a fresh lap start — so whenever `rhythmMask == melodyMask` (every lane migrated from the single-
+    // restart era, the overwhelmingly common case), `jM`'s own marks always coincide with a lap start LOCK
+    // already produces on its own, making the `max()` reduce to the lap start every time: melody chain [1]
+    // is then provably exact, not merely assumed. DISCLOSED LIMITATION, reported not silently absorbed: a
+    // melody mask genuinely DIFFERENT from the rhythm mask (only possible via the newer LANES GRID masks
+    // set independently, or a hand-built document) is NOT verified against the real `max()` composition —
+    // flagged `melodyExact = false` so §12.7 reports it rather than claiming an unchecked exact match.
+    if line.riffLockResolved {
+        result.melody = [1]
+        result.melodyExact = (g.melodyMask == g.rhythmMask)
+    } else if let passes = toUnits(oldMarkBeats(g.melodyMask), unitBeats: passBeats) {
+        let fit = euclideousFitRestartChain(passes)
+        result.melody = fit.links; result.melodyExact = fit.exact
+    } else {
+        result.melody = []; result.melodyExact = false
+    }
+    return result
+}
+/// §12.2 — the first edit of a lane's chain on the RHYTHM tab writes BOTH fields from the resolved view
+/// (mirrors `euclideousPinLaneGrid` immediately above), so the lane is stable on the new model from then on
+/// whatever the old fields still hold.
+func euclideousPinRestartChains(_ line: inout EuclidLine, _ rhythm: EuclideousRestartChain, _ melody: EuclideousRestartChain) {
+    line.restartRhythmBars = rhythm.links; line.restartMelodyPasses = melody.links
+}
+
 // ── the per-tick core (§2.4 – §2.8) ──────────────────────────────────────────────────────────────────────────────────
 //
 // ONE function decides, for one tick of one lane, "where is this tick in the pattern, does a hit fire, and which riff ordinal does it
@@ -5666,6 +5797,339 @@ func euclideousRiffTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleL
         // an FX TIE cell applies to (`fxTie`, decided by the shared `euclideousFXApply` at that hit's own beat). Anything else is a real note and breaks it.
         // `restTies`/`fxTie` default to "rests tie, no FX", the pre-FX behaviour. `fxTie` is deliberately a NON-optional, non-escaping closure: an Optional closure
         // parameter is implicitly escaping, which made the Router heap-allocate a context for it on every hit of a lane with TIE cells (render-thread allocation).
+        let beatJ = Double(t) * sub
+        let writtenJ = rankAt(column, beatJ)
+        if writtenJ < 1 {
+            guard restTies else { break }
+        } else {
+            guard fxTie(column, beatJ, writtenJ) else { break }
+        }
+        lastConsumed = j
+    }
+    return Double(lastConsumed) * sub
+}
+
+// ── RESTART CHAINS (ferry 2026-10-19) — REPLACES the masked rhythm/melody grid above as the engine's real
+// restart source. `EuclideousLaneRestartGrid`/`euclideousLanePhase`/`euclideousLaneTick`/
+// `euclideousNextHitGapBeats`/`euclideousRiffTieExtensionBeats` ABOVE are kept exactly as they were,
+// completely unused by the real restart decision from here on — they stay ONLY because the FX tab
+// (out of scope for this ferry, landed after it was planned) builds its own closed-form pass-index math
+// directly on top of them, with its own full test suite (`Tests/FXTabTests.swift`) constructing
+// `EuclideousLaneRestartGrid` values by hand. Touching that shared name/shape to redesign it for chains
+// would be exactly the FX-tab redesign this ferry's own "Out of scope" list rules out, so the two restart
+// cores now coexist under different names, matching this project's own established precedent: every prior
+// restart-model generation here (resetSteps → the 8-bit mask → the 16-cell LANES GRID masks) got its own
+// distinctly-named functions rather than overloading the previous generation's names. FX's own
+// restart-awareness is therefore FROZEN at whatever a lane's old restartRhythmMask16/restartMelodyMask16
+// happen to hold (decode-only from here — nothing ever pins them again) and will not reflect a lane's new
+// chains; flagged in this ferry's own report (§17.9), not silently absorbed.
+
+/// A restart chain (RHYTHM in bars, MELODY in passes — §4.1), packed as 4 bytes in one UInt32: byte i is
+/// link i+1, 0 = unused. FREE = 0 (every byte 0). Fixed-size, Equatable, no allocation — the render-path
+/// shape §4.11 asks for.
+struct EuclideousRestartChain: Equatable {
+    var packed: UInt32 = 0
+    static let free = EuclideousRestartChain()
+    var isFree: Bool { packed == 0 }
+    var count: Int {
+        for i in 0..<4 where (packed >> UInt32(8 * i)) & 0xFF == 0 { return i }
+        return 4
+    }
+    func link(_ i: Int) -> Int { Int((packed >> UInt32(8 * i)) & 0xFF) }
+    /// C — the chain's own cycle length, in its own unit (bars for rhythm, passes for melody). 0 ⇒ FREE.
+    var total: Int { var t = 0; var i = 0; while i < count { t += link(i); i += 1 }; return t }
+    /// o_i (o_0 = 0): the running total BEFORE link i.
+    func runningTotal(_ i: Int) -> Int { var t = 0; var s = 0; while s < i { t += link(s); s += 1 }; return t }
+    /// True exactly when this chain is a single link of 1 — "a melody chain of 1 is exactly what LOCK did" (§4.7).
+    var isSingleLink1: Bool { count == 1 && link(0) == 1 }
+    /// Builds a chain from a validated link array (§4.11: drop anything not in {1,2,3,4,6,8}, keep ≤ 4).
+    static func from(_ raw: [UInt8]) -> EuclideousRestartChain {
+        var p: UInt32 = 0; var i = 0
+        for v in raw where [1, 2, 3, 4, 6, 8].contains(Int(v)) {
+            guard i < 4 else { break }
+            p |= UInt32(v) << UInt32(8 * i); i += 1
+        }
+        return EuclideousRestartChain(packed: p)
+    }
+    /// The inverse of `.from` — the validated link list this chain holds, for storing back onto a lane (§12.2's pin).
+    var links: [UInt8] { (0..<count).map { UInt8(link($0)) } }
+}
+/// §5.1 — the RHYTHM origin, in BEATS. FREE ⇒ 0. Otherwise: cycle = C × barBeats, m = floor(beat/cycle), w = beat −
+/// m×cycle; the origin is m×cycle + barBeats × the largest running total o_i with o_i×barBeats ≤ w (o_0 = 0 always
+/// qualifies — a running-total chain always has a mark at its own cycle start). Bounded: ≤ 4 links.
+func euclideousRhythmChainOrigin(beat: Double, barBeats: Double, chain: EuclideousRestartChain) -> Double {
+    guard !chain.isFree, barBeats > 0 else { return 0 }
+    let cycle = Double(chain.total) * barBeats
+    guard cycle > 0 else { return 0 }
+    let m = (beat / cycle).rounded(.down)
+    let w = beat - m * cycle
+    var bestBeats = 0.0
+    var i = 0
+    while i < chain.count {
+        let oBeats = Double(chain.runningTotal(i)) * barBeats
+        if oBeats <= w + 1e-9 { bestBeats = oBeats } else { break }
+        i += 1
+    }
+    return m * cycle + bestBeats
+}
+/// §5.1, second half — the NEXT rhythm restart strictly after `beat`; nil when FREE.
+func euclideousNextRhythmRestart(after beat: Double, barBeats: Double, chain: EuclideousRestartChain) -> Double? {
+    guard !chain.isFree, barBeats > 0 else { return nil }
+    let cycle = Double(chain.total) * barBeats
+    guard cycle > 0 else { return nil }
+    let m = (beat / cycle).rounded(.down)
+    let w = beat - m * cycle
+    var i = 0
+    while i < chain.count {
+        let oBeats = Double(chain.runningTotal(i)) * barBeats
+        if oBeats > w + 1e-9 { return m * cycle + oBeats }
+        i += 1
+    }
+    return (m + 1) * cycle
+}
+/// §5.2 — the PASS index at `beat` (0-based). FREE ⇒ floor(beat/lapBeats). Otherwise: link i's segment holds
+/// passes_i = ceil(l_i×barBeats/lapBeats − ε) passes (ε so an exact multiple adds no empty pass), Q = Σ passes_i
+/// over one rhythm cycle, index = m×Q + Σ(passes_i before w's segment) + floor((w − that segment's own start)/lapBeats).
+/// Bounded: ≤ 4 segments.
+func euclideousPassIndex(beat: Double, lapBeats: Double, barBeats: Double, rhythmChain: EuclideousRestartChain) -> Int64 {
+    guard lapBeats > 0 else { return 0 }
+    guard !rhythmChain.isFree, barBeats > 0 else { return Int64((beat / lapBeats).rounded(.down)) }
+    let cycle = Double(rhythmChain.total) * barBeats
+    guard cycle > 0 else { return Int64((beat / lapBeats).rounded(.down)) }
+    let eps = 1e-9
+    func passesIn(_ linkBars: Int) -> Int64 { Int64((Double(linkBars) * barBeats / lapBeats - eps).rounded(.up)) }
+    let m = (beat / cycle).rounded(.down)
+    let w = beat - m * cycle
+    var Q: Int64 = 0
+    var i = 0
+    while i < rhythmChain.count { Q += passesIn(rhythmChain.link(i)); i += 1 }
+    var passesBefore: Int64 = 0
+    i = 0
+    while i < rhythmChain.count {
+        let segStart = Double(rhythmChain.runningTotal(i)) * barBeats
+        let segLen = Double(rhythmChain.link(i)) * barBeats
+        if w < segStart + segLen - eps || i == rhythmChain.count - 1 {
+            return Int64(m) * Q + passesBefore + Int64(((w - segStart) / lapBeats).rounded(.down))
+        }
+        passesBefore += passesIn(rhythmChain.link(i)); i += 1
+    }
+    return Int64(m) * Q + passesBefore
+}
+/// §5.2's inverse — the BEAT a given pass index starts at.
+func euclideousPassStart(_ q: Int64, lapBeats: Double, barBeats: Double, rhythmChain: EuclideousRestartChain) -> Double {
+    guard lapBeats > 0 else { return 0 }
+    guard !rhythmChain.isFree, barBeats > 0 else { return Double(q) * lapBeats }
+    let cycle = Double(rhythmChain.total) * barBeats
+    guard cycle > 0 else { return Double(q) * lapBeats }
+    let eps = 1e-9
+    func passesIn(_ linkBars: Int) -> Int64 { Int64((Double(linkBars) * barBeats / lapBeats - eps).rounded(.up)) }
+    var Q: Int64 = 0
+    var i = 0
+    while i < rhythmChain.count { Q += passesIn(rhythmChain.link(i)); i += 1 }
+    guard Q > 0 else { return 0 }
+    let m = floorDiv(q, Q)
+    var r = q - m * Q
+    i = 0
+    while i < rhythmChain.count {
+        let p = passesIn(rhythmChain.link(i))
+        if r < p { return Double(m) * cycle + Double(rhythmChain.runningTotal(i)) * barBeats + Double(r) * lapBeats }
+        r -= p; i += 1
+    }
+    return Double(m) * cycle   // defensive; unreachable given Q's own definition
+}
+/// §5.3 — the MELODY origin, in BEATS. FREE ⇒ 0. Otherwise: P = Σ melody links, q = passIndex(beat), r = q mod P,
+/// q0 = q − r + the largest running total p_i ≤ r (p_0 = 0 always qualifies); origin = passStart(q0).
+func euclideousMelodyChainOrigin(beat: Double, lapBeats: Double, barBeats: Double,
+                                  rhythmChain: EuclideousRestartChain, melodyChain: EuclideousRestartChain) -> Double {
+    guard !melodyChain.isFree else { return 0 }
+    let P = Int64(melodyChain.total)
+    guard P > 0 else { return 0 }
+    let q = euclideousPassIndex(beat: beat, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)
+    let r = ((q % P) + P) % P
+    var best: Int64 = 0
+    var i = 0
+    while i < melodyChain.count {
+        let p = Int64(melodyChain.runningTotal(i))
+        if p <= r { best = p } else { break }
+        i += 1
+    }
+    let q0 = q - r + best
+    return euclideousPassStart(q0, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)
+}
+/// Whether `beat`'s own pass is itself one of the melody chain's restart passes (§4.6: "sends the riff position
+/// back to its start AT THE START of a restarting pass") — the genuine replacement for old LOCK's unconditional
+/// "every lap restarts" (`euclideousRiffLapBaseline`'s own fallback, below): a melody chain of exactly [1]
+/// naturally answers true for every pass with no special-casing (P = 1, so `r` is always 0 = `best`) — old LOCK's
+/// own guarantee, §4.7. Any other chain answers true only on the passes `euclideousMelodyChainOrigin` itself
+/// would anchor AT (same `q`/`r`/`best` walk, ≤ 4 links). FREE is never a restart pass.
+func euclideousIsMelodyChainRestartPass(beat: Double, lapBeats: Double, barBeats: Double,
+                                        rhythmChain: EuclideousRestartChain, melodyChain: EuclideousRestartChain) -> Bool {
+    guard !melodyChain.isFree else { return false }
+    let P = Int64(melodyChain.total)
+    guard P > 0 else { return false }
+    let q = euclideousPassIndex(beat: beat, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)
+    let r = ((q % P) + P) % P
+    var best: Int64 = 0
+    var i = 0
+    while i < melodyChain.count {
+        let p = Int64(melodyChain.runningTotal(i))
+        if p <= r { best = p } else { break }
+        i += 1
+    }
+    return best == r
+}
+/// Floors a beat-domain origin to the lane's own tick grid — the ONE place a chain origin (bar- or pass-based)
+/// becomes the tick-domain anchor the per-tick core subtracts. Same flooring convention as the legacy
+/// re-anchor (`columnStart` + `.rounded(.down)`) above.
+@inline(__always) func euclideousOriginTick(_ originBeat: Double, sub: Double) -> Int64 {
+    guard sub > 0 else { return 0 }
+    return Int64((originBeat / sub).rounded(.down))
+}
+/// §5.4 — hits (pattern hits) from beat 0 up to ABSOLUTE TICK `m` (exclusive), on the lane's REAL schedule: each
+/// rhythm-chain segment restarts the pattern's own phase at its own start. FREE rhythm ⇒ the plain
+/// `euclideousPatternHits`. One formula — both the engine's HIT-mode ordinal and the §12 migration's own
+/// ground-truth walk read this, so a hit-ordinal can never drift from a second derivation (§5.7). Bounded: ≤ 4
+/// segments for the partial cycle.
+func euclideousChainHitsBefore(_ m: Int64, rhythm: EuclideousRestartChain, barBeats: Double, sub: Double,
+                               buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, cycleHits: Int) -> Int64 {
+    func pat(_ x: Int64) -> Int64 { euclideousPatternHits(x, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits) }
+    guard !rhythm.isFree, sub > 0, barBeats > 0 else { return pat(m) }
+    let cycleBeats = Double(rhythm.total) * barBeats
+    let cycleTicks = euclideousOriginTick(cycleBeats, sub: sub)
+    guard cycleTicks > 0 else { return pat(m) }
+    func inCycle(_ r: Int64) -> Int64 {
+        guard r > 0 else { return 0 }
+        var total: Int64 = 0
+        var i = 0
+        while i < rhythm.count {
+            let segStartTick = euclideousOriginTick(Double(rhythm.runningTotal(i)) * barBeats, sub: sub)
+            if segStartTick >= r { break }
+            let segEndBeat = i + 1 < rhythm.count ? Double(rhythm.runningTotal(i + 1)) * barBeats : cycleBeats
+            let hi = min(euclideousOriginTick(segEndBeat, sub: sub), r)
+            total += pat(hi - segStartTick)
+            i += 1
+        }
+        return total
+    }
+    let q = floorDiv(m, cycleTicks)
+    return q * inCycle(cycleTicks) + inCycle(m - q * cycleTicks)
+}
+/// A lane's restart geometry in BEATS — the chain-era replacement for `EuclideousLaneRestartGrid`. `barBeats`/
+/// `lapBeats` are the context §5.1-§5.3 need, resolved once per lane per render.
+struct EuclideousLaneRestartChains: Equatable {
+    var rhythm: EuclideousRestartChain = .free
+    var melody: EuclideousRestartChain = .free
+    var barBeats: Double = 4
+    var lapBeats: Double = 0
+    static let off = EuclideousLaneRestartChains()
+    var isActive: Bool { !rhythm.isFree || !melody.isFree }
+}
+/// Where a tick sits in the lane's pattern, chain-era: the tick count since the RHYTHM origin (`localT`), its
+/// position in the cycle (`raw`), whether the pattern has a hit there, and — when a chain is in force — both
+/// origins as ABSOLUTE TICKS (already fully resolved; no further unit scaling anywhere downstream, unlike the
+/// old grid's cell indices).
+struct EuclideousLaneChainPhase: Equatable {
+    var localT: Int64
+    var raw: Int
+    var rawIsHit: Bool
+    var gridOn: Bool
+    var originTickO: Int64
+    var originTickM: Int64
+}
+/// The chain-era counterpart of `euclideousLanePhase` — same shape, origins from §5.1/§5.3 instead of a masked
+/// cell lookup.
+func euclideousLaneChainPhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                              chains: EuclideousLaneRestartChains, legacySpanBeats: Double) -> EuclideousLaneChainPhase {
+    var localT: Int64
+    var originTickO: Int64 = 0, originTickM: Int64 = 0
+    let gridOn = chains.isActive
+    if gridOn, sub > 0 {
+        let beat = Double(tick) * sub
+        if !chains.rhythm.isFree {
+            originTickO = euclideousOriginTick(euclideousRhythmChainOrigin(beat: beat, barBeats: chains.barBeats, chain: chains.rhythm), sub: sub)
+        }
+        if !chains.melody.isFree {
+            let originBeat = euclideousMelodyChainOrigin(beat: beat, lapBeats: chains.lapBeats, barBeats: chains.barBeats,
+                                                          rhythmChain: chains.rhythm, melodyChain: chains.melody)
+            originTickM = euclideousOriginTick(originBeat, sub: sub)
+        }
+        localT = tick - originTickO
+    } else {
+        let tickBeat = Double(tick) * sub
+        let phaseBeat = legacySpanBeats > 0 ? (tickBeat - columnStart(tickBeat, legacySpanBeats)) : tickBeat
+        localT = Int64((phaseBeat / sub).rounded(.down))
+    }
+    let cl = Int64(max(1, cycleLen))
+    let raw = Int(((localT % cl) + cl) % cl)
+    return EuclideousLaneChainPhase(localT: localT, raw: raw, rawIsHit: buf[euclidReadIndex(raw, n: n, dir: dir)],
+                                    gridOn: gridOn, originTickO: originTickO, originTickM: originTickM)
+}
+/// The chain-era counterpart of `euclideousLaneTick` — same `EuclideousLaneTickInfo` result shape (it carries no
+/// restart-model-specific fields). §4.7: a melody chain of exactly `[1]` reproduces old LOCK's own re-anchoring
+/// with no special-casing (every pass boundary is itself a melody restart, so the melody origin is always the
+/// current pass's own start) — there is no `locked:` parameter here at all.
+func euclideousLaneChainTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                             chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool) -> EuclideousLaneTickInfo {
+    let ph = euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats)
+    let cl = Int64(max(1, cycleLen))
+    let cy = (ph.localT - Int64(ph.raw)) / cl
+    var hitsUpTo = 0
+    var s = 0
+    while s <= ph.raw { if buf[euclidReadIndex(s, n: n, dir: dir)] { hitsUpTo += 1 }; s += 1 }
+    var cycleHits = 0
+    s = 0
+    while s < cycleLen { if buf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }; s += 1 }
+    let ord = cy * Int64(max(1, cycleHits)) + Int64(hitsUpTo - 1)
+    let advOrd: Int64
+    if !ph.gridOn || ph.originTickM == ph.originTickO {
+        advOrd = advanceStep ? ph.localT : ord
+    } else if advanceStep {
+        advOrd = tick - ph.originTickM
+    } else {
+        let upTo = euclideousChainHitsBefore(tick + 1, rhythm: chains.rhythm, barBeats: chains.barBeats, sub: sub,
+                                             buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
+        let before = euclideousChainHitsBefore(ph.originTickM, rhythm: chains.rhythm, barBeats: chains.barBeats, sub: sub,
+                                               buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
+        advOrd = upTo - before - 1
+    }
+    return EuclideousLaneTickInfo(localT: ph.localT, raw: ph.raw, rawIsHit: ph.rawIsHit, cy: cy, hitsUpTo: hitsUpTo, ord: ord, advOrd: advOrd)
+}
+/// The chain-era counterpart of `euclideousNextHitGapBeats`.
+func euclideousNextChainHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, cap: Int,
+                                    chains: EuclideousLaneRestartChains, legacySpanBeats: Double) -> Double {
+    guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
+    var k = 1
+    while k <= cap {
+        if euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick + Int64(k), chains: chains,
+                                    legacySpanBeats: legacySpanBeats).rawIsHit { return Double(k) * sub }
+        k += 1
+    }
+    return Double(cap) * sub
+}
+/// The chain-era counterpart of `euclideousRiffTieExtensionBeats`. §4.6: a melody restart ends a TIE run (no hit
+/// moves) — `info.advOrd == 0` at a restarting pass's own first hit is exactly that, with no `locked:` special case.
+func euclideousChainTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                                      chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                                      riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64,
+                                      restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
+                                      rankAt: (_ column: Int, _ beat: Double) -> Int) -> Double {
+    var hitsAhead = 0
+    var lastConsumed = 0
+    var j = 0
+    let cap = cycleLen * 4
+    while hitsAhead < length && j < cap {
+        j += 1
+        let t = tick + Int64(j)
+        let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains,
+                                           legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
+        guard info.rawIsHit else { continue }
+        // a melody restart always breaks the chain (§4.6: "no hit moves") — mirrors the old `locked &&`
+        // guard exactly: only a non-FREE melody chain actually restarts periodically, so only then does
+        // advOrd==0 mean "a restart just happened" rather than merely "the very first hit since beat 0."
+        if !chains.melody.isFree, info.advOrd == 0 { break }
+        hitsAhead += 1
+        let step = riffStepAt(riffDir, raw: Int(info.advOrd) * stride, steps: length, seed: seed)
+        let column = riffRotateStep(step, by: rotate, steps: length)
         let beatJ = Double(t) * sub
         let writtenJ = rankAt(column, beatJ)
         if writtenJ < 1 {
@@ -5920,12 +6384,12 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
             if fxHit.noteOffset != 0 && written >= 1 { rank = max(1, min(8, rank + fxHit.noteOffset)) }   // drawing only: NOTE's offset, clamped to the 1–8 rows
         }
         let g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
-        let gap = euclideousNextHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
-                                            grid: c.grid, legacySpanBeats: c.spanBeats)
+        let gap = euclideousNextChainHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
+                                                  chains: c.chains, legacySpanBeats: c.spanBeats)
         var tie = 0.0
         if rank >= 1, c.onRest == .tie || laneHasTieFX {
-            tie = euclideousRiffTieExtensionBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid,
-                                                  legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep,
+            tie = euclideousChainTieExtensionBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains,
+                                                  legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep,
                                                   riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed,
                                                   restTies: c.onRest == .tie,
                                                   fxTie: { col, _, r in
@@ -5964,12 +6428,12 @@ func euclideousLapStartOrdinal(cfg c: EuclideousWalkLaneConfig, beat: Double) ->
     guard c.sub > 0, c.n > 0 else { return nil }
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
     let tick = Int64((beat / c.sub).rounded(.down))
-    let now = euclideousLaneTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid, legacySpanBeats: c.spanBeats,
-                                 locked: c.locked, advanceStep: c.advanceStep)
+    let now = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains,
+                                      legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
     let lapStart = tick - Int64(now.raw)
     for r in 0..<cycleLen where c.buf[euclidReadIndex(r, n: c.n, dir: c.dir)] {
-        return euclideousLaneTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: lapStart + Int64(r), grid: c.grid,
-                                  legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep).advOrd
+        return euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: lapStart + Int64(r), chains: c.chains,
+                                       legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep).advOrd
     }
     return nil
 }
@@ -5982,6 +6446,20 @@ func euclideousLaneCometRaw(beat: Double, n: Int, dir: EuclidDir, sub: Double, g
     let tick = Int64(ticks.rounded(.down))
     let buf = [Bool](repeating: false, count: max(1, n))
     let ph = euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats)
+    let raw = Double(ph.localT) + (ticks - Double(tick))
+    let cl = Double(cycleLen)
+    return raw - cl * (raw / cl).rounded(.down)
+}
+/// RESTART CHAINS (ferry 2026-10-19): the chain-era counterpart of `euclideousLaneCometRaw` above — the ONLY real call
+/// site (the lane card's comet sweep, `EuclidLaneUI.swift`) now reads this instead; the old grid-based function stays
+/// untouched for `LanesGridTests.swift`'s own byte-identical coverage of the grid model.
+func euclideousLaneCometChainRaw(beat: Double, n: Int, dir: EuclidDir, sub: Double, chains: EuclideousLaneRestartChains, legacySpanBeats: Double) -> Double {
+    guard sub > 0, n > 0 else { return 0 }
+    let cycleLen = euclidCycleLen(dir, n: n)
+    let ticks = beat / sub
+    let tick = Int64(ticks.rounded(.down))
+    let buf = [Bool](repeating: false, count: max(1, n))
+    let ph = euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats)
     let raw = Double(ph.localT) + (ticks - Double(tick))
     let cl = Double(cycleLen)
     return raw - cl * (raw / cl).rounded(.down)

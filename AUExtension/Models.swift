@@ -539,6 +539,33 @@ struct EuclidLine: Codable, Equatable {
     var usesLaneGrid: Bool {
         muteCells16 != nil || muteUnit != nil || restartRhythmMask16 != nil || restartMelodyMask16 != nil || restartUnit != nil
     }
+    // RESTART CHAINS (ferry 2026-10-19, REPLACES restartRhythmMask16/restartMelodyMask16/restartUnit —
+    // those three stay decodable, never written again, same "hide, don't delete" treatment the LANES
+    // GRID ferry itself gave resetSteps/restartMask before it). RHYTHM counts in bars, MELODY in passes.
+    // nil ⇒ "pre-feature: resolve via the §12 migration" (NOT the same as FREE — an empty array IS FREE).
+    // On decode, drop any link not in {1,2,3,4,6,8} and keep at most the first four (EuclideousRestartChain
+    // enforces this; see Derivations.swift).
+    var restartRhythmBars: [UInt8]? = nil
+    var restartMelodyPasses: [UInt8]? = nil
+    var usesRestartChains: Bool { restartRhythmBars != nil || restartMelodyPasses != nil }
+    // HITS/OFFSET MEMORY (ferry 2026-10-19 §2.5): what HITS/OFFSET were last explicitly asked for, so
+    // shrinking STEPS and growing it back restores the exact pattern you left (not just whatever HITS/
+    // OFFSET got clamped to along the way). nil ⇒ "take the current pulses/rotate-derived value" — see
+    // euclideousSliderCommit's STEPS case (Derivations.swift) for where these are read and written.
+    var hitsRequested: Int? = nil
+    var offsetRequested: Int? = nil
+    var hitsRequestedResolved: Int { hitsRequested ?? pulses }
+    /// The same mirrored-OFFSET quantity `euclideousSliderRange(.offset)` displays (Derivations.swift) —
+    /// `(steps − rotate mod steps) mod steps` — so a fresh/unrequested lane's "remembered" OFFSET is exactly
+    /// what its current `rotate` already shows, byte-identical to not having HITS/OFFSET memory at all.
+    var offsetRequestedResolved: Int {
+        guard let v = offsetRequested else {
+            let n = max(2, min(16, steps))
+            let r = ((rotate % n) + n) % n
+            return (n - r) % n
+        }
+        return v
+    }
     var listenRhythmPartnerResolved: Int { max(0, min(3, listenRhythmPartner ?? 0)) }
     var listenPitchPartnerResolved: Int { max(0, min(3, listenPitchPartner ?? 0)) }
     /// ANY is only meaningful for AVOID. The stored flag is REMEMBERED while the row is off or on SHADOW (so switching modes and
@@ -719,6 +746,10 @@ extension EuclidLine {
         restartRhythmMask16 = try c.decodeIfPresent(UInt16.self, forKey: .restartRhythmMask16)
         restartMelodyMask16 = try c.decodeIfPresent(UInt16.self, forKey: .restartMelodyMask16)
         restartUnit = try c.decodeIfPresent(UInt8.self, forKey: .restartUnit)
+        restartRhythmBars = try c.decodeIfPresent([UInt8].self, forKey: .restartRhythmBars)
+        restartMelodyPasses = try c.decodeIfPresent([UInt8].self, forKey: .restartMelodyPasses)
+        hitsRequested = try c.decodeIfPresent(Int.self, forKey: .hitsRequested)
+        offsetRequested = try c.decodeIfPresent(Int.self, forKey: .offsetRequested)
     }
 }
 // LISTEN TAB enums (ferry 2026-10-14) — String-raw, matching every sibling enum on this struct.

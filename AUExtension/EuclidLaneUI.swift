@@ -199,10 +199,11 @@ struct EuclidLaneBox: View {
     // FERRY (2026-10-14 §5) — passthrough to `EuclidCometBar`'s own `riffOnRest`; `.skip` (every other
     // caller) ⇒ inert, same reasoning as `footerStates` above.
     var riffOnRest: EuclidRiffOnRest = .skip
-    // LANES GRID (2026-10-18): the lane's RHYTHM restart grid, so the comet and hit flashes follow the origin the engine really phases the
-    // pattern from (nil = no restart marks ⇒ byte-identical), and the grid's mute predicate (true = muted at that beat), so a lane the grid
-    // has muted dims and stops its comet / flashes at that point (nil = never muted ⇒ byte-identical).
-    var restartGrid: EuclideousLaneRestartGrid? = nil
+    // RESTART CHAINS (ferry 2026-10-19, was the LANES GRID's `restartGrid`): the lane's resolved restart chains, so the comet and hit
+    // flashes follow the rhythm origin the engine really phases the pattern from (nil = both chains FREE ⇒ byte-identical), and the mute
+    // predicate (true = muted at that beat), so a lane the grid has muted dims and stops its comet / flashes at that point (nil = never
+    // muted ⇒ byte-identical).
+    var restartChains: EuclideousLaneRestartChains? = nil
     var mutedAt: ((Double) -> Bool)? = nil
 
     var body: some View {
@@ -229,7 +230,7 @@ struct EuclidLaneBox: View {
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            footerStates: footerStates, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
-                           restartGrid: restartGrid, mutedAt: mutedAt,
+                           restartChains: restartChains, mutedAt: mutedAt,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
@@ -358,8 +359,8 @@ struct EuclidCometBar: View {
     var subBeatsOverride: Double? = nil
     var cellTint: Color? = nil
     var cellFade: Double = 1
-    // LANES GRID (2026-10-18) — see `EuclidLaneBox`. nil/nil (every other caller) ⇒ byte-identical.
-    var restartGrid: EuclideousLaneRestartGrid? = nil
+    // RESTART CHAINS (ferry 2026-10-19) — see `EuclidLaneBox`. nil/nil (every other caller) ⇒ byte-identical.
+    var restartChains: EuclideousLaneRestartChains? = nil
     var mutedAt: ((Double) -> Bool)? = nil
     let tint: Color
     let lanePlaying: Bool
@@ -412,9 +413,10 @@ struct EuclidCometBar: View {
             // 2n under PING-PONG); `cometPos` is its continuous screen position, reversing/bouncing per
             // `euclidCometPos`'s own doc comment. The per-box HIT/REST content (`euclidReadIndex` below) is
             // untouched — only the comet's own visual sweep motion varies by direction.
-            // LANES GRID: with restart marks the comet measures from the RHYTHM origin (`euclideousLaneCometRaw` — the engine's own core), so
-            // it and every flash below agree with the pattern across a restart; without marks it is the legacy span formula, unchanged.
-            let cometRaw = restartGrid.map { euclideousLaneCometRaw(beat: liveBeat, n: n, dir: dir, sub: sub, grid: $0, legacySpanBeats: spanBeats) }
+            // RESTART CHAINS: with an active chain the comet measures from the RHYTHM origin (`euclideousLaneCometChainRaw` — the engine's
+            // own core), so it and every flash below agree with the pattern across a restart; with both chains FREE it is the legacy span
+            // formula, unchanged.
+            let cometRaw = restartChains.map { euclideousLaneCometChainRaw(beat: liveBeat, n: n, dir: dir, sub: sub, chains: $0, legacySpanBeats: spanBeats) }
                 ?? euclidCometRaw(mTickBeat: liveBeat, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
             // A lane the grid has MUTED at this beat reads as stopped: no comet, no flashes, the cells dimmed to the page's 42%.
             let mutedNow = mutedAt?(liveBeat) ?? false

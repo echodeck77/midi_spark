@@ -1710,17 +1710,26 @@ struct EuclideousPage: View {
         var prediction: [Int]? = nil
         if line.riffOnResolved {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
-            let locked = line.riffLockResolved, advanceStep = line.riffAdvanceStepResolved
-            var baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, locked: locked, advanceStep: advanceStep,
-                                                       liveOrd: ws, dir: line.directionResolved)
+            let advanceStep = line.riffAdvanceStepResolved
+            // RESTART CHAINS (ferry 2026-10-19): `cfg` (built first now) carries this lane's resolved chains, so
+            // the fallback baseline below can ask "is the CURRENT pass itself a melody restart" (§4.6) instead of
+            // reading the retired `riffLock` boolean — a melody chain of [1] answers true for every pass, old
+            // LOCK's own guarantee (§4.7), with no special-casing needed.
+            let cyc = clock.stepBeats * Double(max(1, clock.cols))
+            let cfg = euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
+                                               lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
+                                               swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
+            let nowBeat = lanesMusicalBeat(real: walkTagBeat(at: Date()))
+            let isMelodyRestartPass = cfg.map {
+                euclideousIsMelodyChainRestartPass(beat: nowBeat, lapBeats: $0.chains.lapBeats, barBeats: $0.chains.barBeats,
+                                                   rhythmChain: $0.chains.rhythm, melodyChain: $0.chains.melody)
+            } ?? false
+            var baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, isMelodyRestartPass: isMelodyRestartPass,
+                                                       advanceStep: advanceStep, liveOrd: ws, dir: line.directionResolved)
             // LANES GRID §2.8: the footer's lap baseline takes BOTH origins — it is the riff ordinal the CURRENT lap's first hit reads, from the engine's
             // own per-tick core (`euclideousLapStartOrdinal`), not reverse-derived from the polled ordinal (which a melody restart would break). A restart
             // that falls INSIDE the lap stays unforeseen, so the prediction remains oblivious to it, as before.
-            let cyc = clock.stepBeats * Double(max(1, clock.cols))
-            if let cfg = euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
-                                                   lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
-                                                   swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo),
-               let lapStart = euclideousLapStartOrdinal(cfg: cfg, beat: lanesMusicalBeat(real: walkTagBeat(at: Date()))) {
+            if let cfg, let lapStart = euclideousLapStartOrdinal(cfg: cfg, beat: nowBeat) {
                 baseline.startOrd = lapStart
             }
             prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.euclideousRiffDirResolved,
@@ -1768,8 +1777,14 @@ struct EuclideousPage: View {
             // LANES GRID: the lane's own grid, resolved exactly as the engine resolves it, so the card's comet / flashes follow the rhythm origin and a
             // lane the grid has muted dims. Both stay nil for a lane with no restart marks / no mute, leaving its card byte-identical.
             let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
-            let cardRestartGrid = euclideousLaneRestartGrid(gridView.grid, cycleLen: gridView.cycleLen)
             let cardMuteCells = gridView.grid.muteCells, cardMuteUnit = gridView.muteUnitBeats
+            // RESTART CHAINS (ferry 2026-10-19): `.off` (both FREE) during the brief pre-first-resync window,
+            // the same safe default the Router and the walk mirror fall back to — this lane's OWN chains
+            // regardless of FOLLOW (mirrors the old grid's lookup, which also read `line` not the partner).
+            let cardChains: EuclideousLaneRestartChains = line.usesRestartChains
+                ? EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []), melody: .from(line.restartMelodyPasses ?? []),
+                                              barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)
+                : .off
             EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                           // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                           // border/fill around just this row (the step-bar area) — always `false` now; the
@@ -1823,7 +1838,7 @@ struct EuclideousPage: View {
                           // FERRY (2026-10-14 §5): the one piece the footer prediction itself doesn't carry —
                           // whether landing on a riff rest actually sounds (FILL) or not (SKIP/TIE).
                           riffOnRest: line.riffOnRestResolved,
-                          restartGrid: cardRestartGrid.isActive ? cardRestartGrid : nil,
+                          restartChains: cardChains.isActive ? cardChains : nil,
                           mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) })
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,

@@ -45,6 +45,7 @@
 		66E87FCC147957D2D5BE9931 /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */; };
 		676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688828AD8E02A3FA163D3656 /* RouterTests.swift */; };
 		67A54484318BE306142EB54F /* BuildPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */; };
+		6F18BF8AB71ADFDCB76024E4 /* RestartChainsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */; };
 		6F2E027AB498AA1556A6A690 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE84D11C4695B381242AD6D /* DesignKit.swift */; };
 		700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8624A489A951D42AFB805E16 /* RackMatrix.swift */; };
 		76200A32A504EA152B5EE00C /* FXTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */; };
@@ -189,6 +190,7 @@
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
 		BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTuttiLengthTests.swift; sourceTree = "<group>"; };
 		CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPresets.swift; sourceTree = "<group>"; };
+		CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartChainsTests.swift; sourceTree = "<group>"; };
 		CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Row8Tests.swift; sourceTree = "<group>"; };
 		CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesPanelPainter.swift; sourceTree = "<group>"; };
 		D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CogPage.swift; sourceTree = "<group>"; };
@@ -255,6 +257,7 @@
 				91BA15AAFC801CACFECA4085 /* MigrationTests.swift */,
 				72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */,
 				EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */,
+				CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */,
 				E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */,
 				688828AD8E02A3FA163D3656 /* RouterTests.swift */,
 				CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */,
@@ -582,6 +585,7 @@
 				E4A4FB320ACDA110C13DC8B5 /* PresetStore.swift in Sources */,
 				9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */,
 				EBAECBA5B3E3F98B83E42E48 /* ReelDeckTests.swift in Sources */,
+				6F18BF8AB71ADFDCB76024E4 /* RestartChainsTests.swift in Sources */,
 				D45C1A821793F49D844B14A5 /* RoomsLatticeTests.swift in Sources */,
 				2862323D03259AC99DF87345 /* Router.swift in Sources */,
 				676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */,
