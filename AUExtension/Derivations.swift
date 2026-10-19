@@ -6386,6 +6386,135 @@ func euclideousRiffRepeatLookback(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
     }
 }
 
+// MARK: - RIFF WALK ferry §7: the walk, the readout and what never plays (main-thread only, memoised on
+// their inputs by the caller — these are NOT render-thread functions, unlike §5/§6 above).
+
+@inline(__always) private func euclideousGcd64(_ a: Int64, _ b: Int64) -> Int64 { var x = abs(a), y = abs(b); while y != 0 { (x, y) = (y, x % y) }; return max(1, x) }
+@inline(__always) private func euclideousLcm64(_ a: Int64, _ b: Int64) -> Int64 { abs(a / euclideousGcd64(a, b) * b) }
+
+/// §7.3's own Q: "the number of passes in one rhythm cycle (1, one lap, with the rhythm chain FREE)" —
+/// the same Q `euclideousPassIndex`/`euclideousPassStart` compute internally, factored out so §7 doesn't
+/// re-derive it. Bounded: ≤ 4 rhythm-chain links.
+func euclideousRhythmCycleQ(lapBeats: Double, barBeats: Double, rhythmChain: EuclideousRestartChain) -> Int64 {
+    guard lapBeats > 0 else { return 1 }
+    guard !rhythmChain.isFree, barBeats > 0 else { return 1 }
+    let eps = 1e-9
+    var Q: Int64 = 0
+    var i = 0
+    while i < rhythmChain.count { Q += Int64((Double(rhythmChain.link(i)) * barBeats / lapBeats - eps).rounded(.up)); i += 1 }
+    return max(1, Q)
+}
+
+/// §7.2: pass `q`'s own footer list — (pattern step, riff column) for each of ITS hits, in time order,
+/// from the Router's own per-hit functions (pass start/`euclideousPassStart`, the lane's hit steps, the
+/// riff ordinal from the melody origin via `euclideousLaneChainTick`, and §5.2's `euclideousRiffColumn`).
+/// Bounded by the NEXT pass's own start (not a fixed `cycleLen`-tick window), so a rhythm restart that
+/// cuts THIS pass short is reflected automatically, with no separate "cut short" branch (§14 test 5).
+func euclideousRiffFooterList(pass q: Int64, buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double,
+                              chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                              riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64) -> [(step: Int, column: Int)] {
+    guard sub > 0 else { return [] }
+    let lapBeats = Double(cycleLen) * sub
+    let passStartTick = euclideousOriginTick(euclideousPassStart(q, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
+    let nextPassStartTick = euclideousOriginTick(euclideousPassStart(q + 1, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
+    var out: [(step: Int, column: Int)] = []
+    var tick = passStartTick
+    while tick < nextPassStartTick {
+        let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
+        if info.rawIsHit {
+            let col = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: length, stride: stride, shift: shift, seed: seed)
+            out.append((info.raw, col))
+        }
+        tick += 1
+    }
+    return out
+}
+
+/// §7.3-§7.6: H (hits per rhythm cycle), J (the footer-repeat search bound) and d (the readout's own
+/// number — "lines up every d passes") — nil when over budget (§7.4: J > 4096). `nil` H==0 is its own
+/// case ("no hits to play"), reported by the caller, not folded into this return.
+struct EuclideousRiffReadout {
+    var hitsPerCycle: Int
+    var period: Int64         // d
+    var neverPlay: Set<Int>   // 0-based columns 0..<LEN no hit ever reads over the J passes examined
+    var neverPlayWalkSteps: Set<Int>   // 0-based walk steps (mod P) no hit ever reads
+}
+func euclideousRiffReadout(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double,
+                           chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                           riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64) -> EuclideousRiffReadout? {
+    guard sub > 0 else { return nil }
+    let lapBeats = Double(cycleLen) * sub
+    let P = Int64(euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
+    let len = max(1, length)
+    let Q = euclideousRhythmCycleQ(lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm)
+    let cycleBeats = chains.rhythm.isFree ? lapBeats : Double(chains.rhythm.total) * chains.barBeats
+    let cycleTicks = euclideousOriginTick(cycleBeats, sub: sub)
+    var cycleHits = 0
+    var s = 0
+    while s < cycleLen { if buf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }; s += 1 }
+    let H = Int(euclideousChainHitsBefore(cycleTicks, rhythm: chains.rhythm, barBeats: chains.barBeats, sub: sub, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits))
+    guard H > 0 else { return EuclideousRiffReadout(hitsPerCycle: 0, period: 0, neverPlay: [], neverPlayWalkSteps: []) }
+    let A: Int64 = advanceStep ? cycleTicks : Int64(H)
+    let M = P * Int64(max(1, every))
+    let J: Int64 = chains.melody.isFree ? (Q * M / euclideousGcd64(M, A)) : euclideousLcm64(Q, Int64(chains.melody.total))
+    guard J > 0, J <= 4096 else { return nil }   // §7.4: over budget
+    var F: [[Int]] = []
+    F.reserveCapacity(Int(J))
+    var playedColumns = Set<Int>()
+    var playedWalkSteps = Set<Int>()
+    for q in 0..<J {
+        let list = euclideousRiffFooterList(pass: q, buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, chains: chains,
+                                            legacySpanBeats: legacySpanBeats, advanceStep: advanceStep, riffDir: riffDir,
+                                            stride: stride, length: len, shift: shift, every: every, seed: seed)
+        F.append(list.map { $0.column })
+        for (_, col) in list { playedColumns.insert(col) }
+    }
+    // never-play: §7.6 — columns 1...LEN (1-based) no hit reads over the J passes examined.
+    var neverPlay = Set<Int>()
+    for c in 0..<len where !playedColumns.contains(c) { neverPlay.insert(c) }
+    // the strip's own never-play set is in WALK-STEP space (w mod P), not column space — recompute the
+    // walk steps actually visited by replaying each pass's own hit ordinals through euclideousRiffWalkStep.
+    for q in 0..<J {
+        let passStartTick = euclideousOriginTick(euclideousPassStart(q, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
+        let nextPassStartTick = euclideousOriginTick(euclideousPassStart(q + 1, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
+        var tick = passStartTick
+        while tick < nextPassStartTick {
+            let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
+            if info.rawIsHit {
+                let w = Int(((euclideousRiffWalkStep(ordinal: info.advOrd, every: every) % P) + P) % P)
+                playedWalkSteps.insert(w)
+            }
+            tick += 1
+        }
+    }
+    var neverPlayWalkSteps = Set<Int>()
+    for w in 0..<Int(P) where !playedWalkSteps.contains(w) { neverPlayWalkSteps.insert(w) }
+    // d: the smallest d >= 1 with F(q+d) == F(q) for every q — a divisor of J. Brute force over J's own
+    // divisors (J <= 4096, so at most a few dozen divisors) rather than a KMP prefix function: simpler,
+    // correct, and this only runs on a settings change, never per frame.
+    var d = J
+    var cand: Int64 = 1
+    while cand < J {
+        if J % cand == 0 {
+            var ok = true
+            var q: Int64 = 0
+            while q < J - cand { if F[Int(q)] != F[Int(q + cand)] { ok = false; break }; q += 1 }
+            if ok { d = cand; break }
+        }
+        cand += 1
+    }
+    return EuclideousRiffReadout(hitsPerCycle: H, period: d, neverPlay: neverPlay, neverPlayWalkSteps: neverPlayWalkSteps)
+}
+/// §7.5: the readout's own text. `overBudget` is true when `euclideousRiffReadout` itself returned nil.
+func euclideousRiffReadoutText(_ r: EuclideousRiffReadout?, overBudget: Bool) -> String {
+    if overBudget { return "CYCLE TOO LONG TO COUNT" }
+    guard let r else { return "CYCLE TOO LONG TO COUNT" }
+    if r.hitsPerCycle == 0 { return "NO HITS TO PLAY" }
+    let lines = r.period == 1 ? "LINES UP EVERY PASS" : "LINES UP EVERY \(r.period) PASSES"
+    guard r.neverPlay.count >= 1 else { return lines }
+    return "\(lines) · \(r.neverPlay.count) NEVER PLAY"
+}
+
 /// A Euclideous lane's step length, step count and lap length exactly as `Router.runEuclidLine` derives them — a FOLLOWing lane ticks at
 /// its partner's rate × the FOLLOW multiplier over the partner's step count. Reads fields only (no pattern is built), so the render
 /// thread's mute edge-detect sweep can use it before any lane runs. `defaultRateBeats` stands in for a lane with no rate of its own.

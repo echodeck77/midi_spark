@@ -12412,6 +12412,29 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(onsRank5.count, 1, "one held note, not three separate note-ons")
     }
 
+    /// §11 test 14 (a slice): the readout and never-play set, pure (`euclideousRiffReadout`/
+    /// `euclideousRiffReadoutText`), against two of §7.8's own worked examples on the harness lane
+    /// (hits 1, 3, 5, 6, 8), both chains FREE, ADV HIT.
+    func testRiffReadoutMatchesTwoOfTheFerrysWorkedExamples() {
+        let harnessBuf = [true, false, true, false, true, true, false, true]   // hits 1, 3, 5, 6, 8
+        func readout(riffDir: RiffDir, length: Int, stride: Int) -> (EuclideousRiffReadout?, String) {
+            let r = euclideousRiffReadout(buf: harnessBuf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, chains: .off,
+                                          legacySpanBeats: 0, advanceStep: false, riffDir: riffDir, stride: stride,
+                                          length: length, shift: 0, every: 1, seed: 0)
+            return (r, euclideousRiffReadoutText(r, overBudget: r == nil))
+        }
+        // "FWD, STRIDE 2, ADV HIT: 1 3 5 7; LINES UP EVERY 4 PASSES · 4 NEVER PLAY (2, 4, 6, 8)."
+        let (strideTwo, strideTwoText) = readout(riffDir: .forward, length: 8, stride: 2)
+        XCTAssertEqual(strideTwo?.period, 4)
+        XCTAssertEqual(strideTwo?.neverPlay, [1, 3, 5, 7], "0-based columns for 1-based 2, 4, 6, 8")
+        XCTAssertEqual(strideTwoText, "LINES UP EVERY 4 PASSES · 4 NEVER PLAY")
+        // "FWD, LEN 5, STRIDE 3, ADV HIT: 1 4 2 5 3; LINES UP EVERY PASS."
+        let (lenFive, lenFiveText) = readout(riffDir: .forward, length: 5, stride: 3)
+        XCTAssertEqual(lenFive?.period, 1)
+        XCTAssertEqual(lenFive?.neverPlay, [], "LEN 5 STRIDE 3 visits every one of its own 5 columns")
+        XCTAssertEqual(lenFiveText, "LINES UP EVERY PASS")
+    }
+
     // MARK: - MIX TAB (ferry 2026-10-18) §9.6/§9.7 — every pitch carries its OWN gate; legato is per LAYER
 
     private func mixBox(_ line: EuclidLine, ranks: [Int] = [5, 0, 0, 0, 0, 0, 0, 0], monoOnA: Bool = false) -> SnapshotBox {
