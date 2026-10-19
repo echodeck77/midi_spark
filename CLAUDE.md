@@ -147,7 +147,7 @@ Euclideous has no receiver/door graph, no cables beyond a flat A–D toggle, no 
 - **Mask** (per-lane) = a second K-of-N pattern gating a lane's own hits (mute/pause/ratchet/
   repeat/chord-stab/octave-shift/mirror/leap/climb/accent/swell), distinct from the standalone
   `EUCLID MASK` processor type that exists elsewhere in the 8×8 grid's processor roster.
-- **Sequencer panel** = the MIX / LANES / FX tabs of the bottom-right panel (RIFFS is hidden; FX is landscape only). LANES is four lane blocks of
+- **Sequencer panel** = the MIX / LANES / FX tabs of the bottom-right panel (RIFFS is hidden; FX shows in both orientations since the PAGE LAYOUT ferry). LANES is four lane blocks of
   16 cells, mute-only (restart-chains ferry, 2026-10-19 — the old MUTE/RESTART sub-tabs and their RESTART view are gone;
   restarts are set on each lane's own RHYTHM tab instead, §6 below), each lane's own MUTE grid on its own cell size
   (STEP/4STP/PASS/2PASS), with read-only rhythm/melody restart marks drawn from that lane's resolved chains.
@@ -263,8 +263,8 @@ the same pipeline as any other row; it is not a special-cased render path.
   of the retired masks); RIFFS is hidden. The tab row is tabs only. Every sounding pitch in a
   Euclideous hit carries its OWN gate. A lane's RIFF/NOTES gate tops out at 99% (`euclideousLaneGateMax`; 2026-10-19 — the XY pad no longer offers LEGATO, and a stored 100% loads as 99%);
   the engine's per-pitch legato is unchanged and now comes only from the FX tab's GATE row (100 = LEGATO).
-- **FX tab (2026-10-18).** Third tab of the sequencer panel (landscape only — portrait's panel sits beside the riff grid and is 248pt tall, so the spec's
-  own stop applies; the tab is hidden there). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
+- **FX tab (2026-10-18).** Third tab of the sequencer panel (both orientations since the PAGE LAYOUT ferry, 2026-10-19 — in portrait the panel sits beside the riff
+  panel at the same width, so its columns match the riff grid's; its six rows now SHARE the panel's height, `euclideousFXRowH`). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
   `SnapParams.euclideousFX` → Router. **ONE decision function** `euclideousFXApply` (Derivations.swift) decides what the rows do to a hit; the Router, the TIE
   lookahead, the LANES roll and the flash all call it (VoiceOver reads the cells' values directly — there is no per-hit decision for it to make) — change the rule THERE. The NOTE pass index is `euclideousFXPassIndex` (a pure function of
   the beat; LOCK in closed form). RATCH reuses the mask RATCHET's deferred-strike engine (`pushEchoTail`) with n exact; CC goes through `emitModCC(force:)`
@@ -321,10 +321,16 @@ the same pipeline as any other row; it is not a special-cased render path.
 - **Presets.** 20 Euclideous-only factory presets, reachable via a PRESETS button on the page
   itself — this REPLACED the old whole-plugin preset menu entirely (a confirmed, one-way
   decision; an old saved session loading the 8×8-State preset list will no longer find it there).
-- **Layout.** A six-equal-box portrait/landscape grid (4 lane cards + the riff grid + one
-  reserved placeholder box), proportionally sized — no literal pixel formula survives from any
-  mockup; every size claim in the log is reasoned-from-the-layout-model, not measured against a
-  real screen, unless explicitly marked device-confirmed.
+- **Layout (PAGE LAYOUT ferry 2026-10-19).** SIX EQUAL BOXES from ONE pure function: `euclideousPageLayout(size:headerKind:)` (Derivations.swift) takes the
+  view's size and the header's kind (A/B/C, `euclideousHeaderKind`) and returns the four lane cards, the riff panel and the MIX | LANES | FX panel — landscape 3
+  columns × 2 rows (lane 1 · lane 2 · riff / lane 3 · lane 4 · panel), portrait 2 × 3 (lane 1 · lane 2 / lane 3 · lane 4 / riff · panel) — sp16 margins, sp8 gaps,
+  top edge 64 (header A) or 111 (B/C), plus the lane gutter's x (the rings centre on it) and a floor list (`euclideousPageFloors`: a box under some panel's floor is
+  DRAWN at the formula's values and listed, never shrunk or left empty). `pageBody` (EuclideousPage.swift) is the only arrangement; `pageGeometry` is the one place
+  that derives (container width, header layout, page layout) — body, swing popover and settings sheet all call it. Every panel lays itself out in its box from
+  its own formulas (lane card `EuclideousLaneCardMetrics`, riff panel `euclideousRiffRowH`, MIX `euclideousMixGrid`, FX `euclideousFXRowH`, LANES
+  `euclideousLanesLayout`); nothing measured from content sizes a box. **Do not frame the page from a screen/window/minimum**: the page shares DiagView's root ZStack
+  with the 8×8 workbench, which is WIDER than a portrait view — an unframed page's GeometryReader is offered the workbench's width (the old "laid out ≈885 in an 814
+  view" bug), so `AudioUnitViewController` frames the page to the root `geo`. Sizes are device-owed.
 - **RIFF tab (RIFF WALK ferry 2026-10-19).** Fills the RHYTHM tab's own two zones exactly, via the
   same `patternBlockH`(80)/derived-`upperH` split (`euclideousRiffTabLayout`, ONE pure function),
   so the header/tab rows sit at the same y whichever tab is showing. Upper zone: the riff card +

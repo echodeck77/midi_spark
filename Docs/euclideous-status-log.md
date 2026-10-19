@@ -12,6 +12,37 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — PAGE LAYOUT ferry: "six equal boxes in both orientations, portrait fits the view, MIX fills in portrait" (2026-10-19, ratified by Paul from the "Fourfold layout" canvas; on
+  `feature/page-layout-six-boxes`; iOS builds clean; Euclideous subset 509 green incl. 13 new `PageLayoutTests`; ALL of it visual is device-owed).** **ROOT CAUSE of "portrait laid out ≈885 wide in an 814 view"
+  (§0.2a), found by reading + one scratch macOS check:** the page is an overlay child of DiagView's root `ZStack` (AudioUnitViewController.swift) whose other child is the 8×8 workbench (`mainContent`: a header HStack of
+  fixed-size items that will not compress below ≈861 + 24pt padding). A ZStack is as wide as its WIDEST child and lays every flexible sibling out at that width, so the page's own `GeometryReader` read the
+  workbench's width, not the view's (`containerW 853`, cards (853−8)/2 = 422.5, riff/seq (853−16)/2 = 418.5 — every §0.1 measurement reproduces to the half-point). The page now carries `.frame(width: geo.size.width, height:
+  geo.size.height)` at its call site. A scratch ImageRenderer script confirmed the mechanism (root 814 → unframed sibling GeometryReader 885 → framed 814); whether the DEVICE'S root `geo` is itself 814 is the one thing
+  only the iPad can say — DEBUG prints `EUCLIDEOUS root view size` (AUVC) and `EUCLIDEOUS page size … box … floors` (page) so a run in AUM settles it. The same mechanism explains the 2026-10-09 §1 and 2026-10-13 "portrait
+  header ran off the edge" fixes, which treated it as a content/floor problem. **Also measured, unexplained by source:** Paul's screenshots leave 25pt below the boxes, not 16, in BOTH orientations — the page's `geo.height` is
+  9pt less than the view (landscape cards 312 = (632−8)/2 ⇒ H 717; portrait laneGridH 696 ⇒ H 1093); likely a 9pt bottom safe-area inset; the page function takes H as reported (so boxes may end 9pt higher than §2/§3's 710 / 1086
+  — each box ≈4.5pt / 3pt shorter), flagged for the device. **BUILT:** `euclideousPageLayout(size:headerKind:)` + `EuclideousPageMetrics` (margin 16, gap 8, top 64 for header A / 111 for B, C — row 2's controls ARE at y 63–95 in
+  source) + `euclideousHeaderKind` (extracted from the header ladder, so the page takes the kind as an input and the header takes its positions from the page: riffLeadingX = riff x − 16, laneCentreX = gutter − 16) + the floor list
+  (`euclideousPageFloors`: RHYTHM contentAreaH < 192; RIFF row A 82 / direction row 32 / lower rows 32 / direction buttons 40; MIX cellW 84 / padH 76 / padH 60; riff rows 24; FX rows 24). The chooser is the old one (`W > H`).
+  **At the references:** 1190 × 726 (header A): box 380.67 × 319; lanes (16,64) (404.67,64) (16,391) (404.67,391), riff (793.33,64), panel (793.33,391); gutter 400.67 (was 378.5); ring centres 334.67/378.67/422.67/466.67; NOTES
+  x 698 (unchanged). 814 × 1102 (B): box 387 × 319.67; lanes (16,111) (411,111) (16,438.67) (411,438.67), riff (16,766.33), panel (411,766.33); gutter 407 (was 442.5); rings 341/385/429/473; the gear ends at x 798.
+  **Inside the boxes (landscape / portrait):** lane card zones upper 131 / 131.67 (card − 188), lower 80; RIFF row A 89 / 89.67 (floor 82), right column 266.67 / 273, direction buttons 50.13 / 51.4, HIT·STEP 106.33 / 109.5, ON REST
+  71.17 / 72.75, steppers 87.17 / 88.75. Riff grid cells 37.83 × 30.25 / 38.63 × 30.33 (tab row 29 — the looper's 40pt row was never built; the spec's looper numbers 28.38 / 28.46 do not reproduce from the formula, 28.875 / 28.96).
+  MIX grid area 364.67 × 275 / 371 × 275.67 ⇒ cellW 87.17 / 88.75, rowH 133.5 / 133.83, padH 81.5 / 81.83, OUT buttons 41.58 / 42.38 wide, the VEL strip reads VEL (§9.5: 42.5 / 42.8 available < 44.8). FX rows 32.17 / 32.28.
+  LANES cells 18.29 / 18.69 wide, blocks 54.75 / 54.92 tall. **SOURCE WON over the spec (reported):** (1) FX's strip and LANES' blocks sit at panel y 32 / 60 in source (8 pad + 20 tab row + sp4), not the spec's 35 / 63 ("stay
+  where they are"), so with the hint at h − 24 the rows are (h − 126) / 6 and the blocks (h − 100) / 4 — 0.5pt / 0.75pt more than the spec's 31.67 / 31.78 and 54 / 54.17 (at the old 303 frame 29.5 / 50.75, not 29 / 50). (2) The FX
+  rows lose their 29pt cap and grow with the panel (floor 24). (3) The riff panel drew 297 inside a 308 frame today because `riffRowHForPanelHeight` budgeted the unbuilt looper's 40pt row against the real 29pt tab row
+  (the spec's "417 × 297" is the DRAWN panel; its frame was 308 at the page's real H, 312.5 at a full 726). **MIX under its floors:** it used to draw NOTHING below padH 60 (§9.3's stop; portrait's 248pt
+  panel ⇒ grid area 204 ⇒ padH 46 ⇒ an empty ZStack under a live tab strip); it now always draws at the formula's values (one geometric guard: cellW > 24 and padH > 14, so a pad has a plot). FX is offered in portrait.
+  **DELETED:** `landscapeLayout`, `portraitLayout`, `riffRowHTarget`, `riffLoopRowH`, `riffPanelHeight`, `riffRowHForPanelHeight`, `laneCardFixedOverhead`, `tabContentH` (the portrait heights that came from CONTENT: the riff
+  panel's 248 target and the lane cards' 306 fixed-overhead floor), `EuclideousLandscapeColumns` / `euclideousLandscapeColumns` (the 36% split) and their four tests (header tests re-based on `pageFor`; the "NOTES on the riff
+  panel" case widened 1300 → 1500 because the riff panel is now the third column), `EuclideousFXLayout.fullRowH` / `fullHeight`. **Nothing was fixed to old widths in LANES / the header's ladder** — both were formula-driven already.
+  Lane-card rows moved to `EuclideousLaneCardMetrics`; the riff tab row is an explicit 29pt. **FLOORS (pure, from the page function; computed views, not necessarily real):** 1113 × 636 (iPad mini landscape guess): box 355 × 274 ⇒
+  MIX cellW 80.75 / padH 59 (cellW, padH 76, padH 60 all flagged), riff rows 24.62 (clear), FX 24.67 (clear), RIFF row A 44 (row A and direction row flagged), RHYTHM zones 170 < 192 flagged. 900 × 600 (header B): box 284 × 232.5 —
+  everything flagged (MIX cellW 63 / padH 38, riff rows 19.44, FX 17.75, RIFF row A 2.5, direction buttons). 600 × 900: box 280 × 252.33 — same set (MIX 62 / 48, riff 21.92, FX 21.06). 1024 × 768: mixCellW 73.3 and RIFF
+  direction buttons only. 1133 × 744 / 744 × 1133 (mini): mixCellW only (82.4 / 80). 1180 × 820, 820 × 1180, 1366 × 1024, 1024 × 1366: nothing. **UNCHANGED:** the cells and gestures, the header ladder, the walk-tag markers
+  (their scale rule `min(1, cellW/42.5, cellH/29)` makes the glyph ≈0.89× at 37.83 wide — "as today"), the lane tabs' designs, VoiceOver labels and order, the engine and the document. **Latent, out of scope:** every other
+  overlay in that root ZStack (cog page, presets, …) can be widened the same way on a narrow view — not touched (8×8 side, on hold).
 - **▶ EUCLIDEOUS — LEGATO REMOVED FROM THE XY PAD / A LANE'S GATE (2026-10-19, Paul: "remove the legato from the xy box — it's a bit confusing in retrospect"; on
   `feature/fx-tab`; macOS suite 1743 green after merging with the RIFF WALK ferry; the feel is device-owed).** Background: a lane at GATE 100% was LEGATO — a repeated pitch carried on as one note and the repeat sounded
   nothing — which twice read as "hits failing to produce MIDI" (the red lane's 10-hit cycle F F F F F F E E F F made 2 note-ons; the yellow lane's step 3). **Now:**

@@ -17,6 +17,17 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Page layout — six equal boxes (2026-10-19 ferry)
+- Both orientations in AUM on the 11-inch iPad Pro: six equal boxes (landscape 3 × 2, portrait 2 × 3), 8pt apart, 16pt margins, nothing clipped, the header's gear visible in portrait, MIX | LANES | FX all showing.
+- THE 885 CHECK: run a DEBUG build from Xcode in portrait and read the console — `EUCLIDEOUS root view size` (AUVC) and `EUCLIDEOUS page size … box …` (page) should both say ≈814 wide. If the root says 885 the cause is above DiagView (AUM's container), not the ZStack — say so and the fix moves.
+- THE 9PT BOTTOM: the boxes should end 16pt above the bottom edge. If you see 25 (as in the old screenshots) the page's height is 9pt short of the view (a bottom safe-area inset?) — the boxes are then ≈4.5pt (landscape) / 3pt (portrait) shorter than the ferry's 319 / 319.67; decide whether the page should extend into that inset.
+- MIX in portrait: all eight pads, the OCT steppers and the four OUT rows; pads ≈ 87 × 82 (landscape) and 89 × 82 (portrait), OUT buttons ≈ 42 wide, comfortable to use; the VEL strip reads "VEL".
+- Riff cells ≈ 38 × 30 comfortable to tap and paint, with the walk-tag markers still legible (their glyph scales to ≈0.89× at this width).
+- LANES cells ≈ 18 wide comfortable to tap and drag-paint; blocks ≈ 55 tall.
+- FX in portrait: columns sit exactly under the riff grid's (same width, same offset); the strip's descriptions and the hint row truncate (a few letters) but stay readable; rows ≈ 32 tall.
+- Rotate the iPad / resize AUM's plugin window: the page re-lays at once, nothing clipped.
+- Any other size you can try (an iPad mini, a windowed AUM panel): note which floors the DEBUG `page size` line lists.
+
 ### Legato removed from a lane's gate (2026-10-19)
 - The MIX pad's gate axis stops at 99% (far right) and its strip never says LEGATO; every hit re-strikes, including a repeated pitch. A session saved with a lane at 100% loads at 99%.
 - Nothing else about the pad changed: puck, ticks, double-tap reset (90%), the VoiceOver "longer gate" step (now stops at 99%).

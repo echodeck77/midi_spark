@@ -130,6 +130,8 @@ final class PageLayoutTests: XCTestCase {
             XCTAssertEqual(g.cellW, cellW, accuracy: 0.01); XCTAssertEqual(g.rowH, rowH, accuracy: 0.01); XCTAssertEqual(g.padH, padH, accuracy: 0.01)
             XCTAssertFalse(g.belowFloors); XCTAssertGreaterThanOrEqual(g.padH, EuclideousMixMetrics.floorPadH)
             XCTAssertEqual((g.cellW * 2 + 4 - 4 * 3) / 4, outW, accuracy: 0.01, "OUT buttons: four across a RIFF + NOTES pair, 4 apart")
+            // §9.5's fit rule: the VEL strip reads VEL (available 42.5 / 42.8 against the 44.8 "VELOCITY" needs)
+            XCTAssertEqual(euclideousMixVelocityDisplayName(plotH: g.padH - EuclideousMixMetrics.gateStripH), "VEL")
         }
         // the old portrait panel (393 × 248) is what drew nothing: padH 46 (< the 60 stop that no longer exists)
         let old = euclideousMixGridArea(panelWidth: 393, panelHeight: 248)
