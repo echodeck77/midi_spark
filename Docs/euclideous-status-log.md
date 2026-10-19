@@ -136,7 +136,7 @@ project has been building this whole stretch.
   FWD at the model layer, so that specific clause doesn't apply here, only to the generic chain RIFF
   processor's own unrelated DRUNK/RAND, untouched by this ferry).
 - **▶ EUCLIDEOUS — "FERRY: FX tab (six fixed effect rows on the riff's steps)" (2026-10-18, ratified by Paul; on `feature/fx-tab`; iOS builds
-  clean; macOS suite 1703 green; ALL visuals, touch feel and every sound check are device-owed).**
+  clean; macOS suite 1725 green (merged with the restart-chains ferry); ALL visuals, touch feel and every sound check are device-owed).**
   A third tab, FX, after MIX and LANES in the bottom-right panel (LANDSCAPE ONLY — see the portrait stop below). Six fixed, page-level rows —
   RATCH · GATE · TIE · VEL · NOTE · CC — over the riff's eight columns. A cell holds a value or nothing; each row has a lane set (default all four)
   and acts only on those lanes, only on a hit that PLAYS THE RIFF, only through the riff column that hit reads, and never on a written rest.
