@@ -2697,6 +2697,10 @@ struct PluginState: Codable, Equatable {
         let isGenuinelyFresh = (L == nil)
         return (0..<4).map { i in
             var line = i < (L ?? []).count ? L![i] : Self.euclideousDefaultLine(i)
+            // LEGATO REMOVED FROM A LANE'S GATE (2026-10-19): a stored 100% (an older session, or one set before this) loads as 99% — the UI and the engine (which are fed from
+            // this) agree, and a repeated pitch re-strikes. The FX tab's GATE row keeps its own 100 = LEGATO.
+            if let g = line.gate, g > euclideousLaneGateMax { line.gate = euclideousLaneGateMax }
+            if let g = line.notesGate, g > euclideousLaneGateMax { line.notesGate = euclideousLaneGateMax }
             if line.resetSteps == nil {
                 // §9: "new pages: 1 step" is a MIGRATION rule, not `resetStepsResolved`'s own raw default
                 // (that accessor's nil-default is OFF, deliberately — see its own doc comment) — a

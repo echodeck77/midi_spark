@@ -17,6 +17,10 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Legato removed from a lane's gate (2026-10-19)
+- The MIX pad's gate axis stops at 99% (far right) and its strip never says LEGATO; every hit re-strikes, including a repeated pitch. A session saved with a lane at 100% loads at 99%.
+- Nothing else about the pad changed: puck, ticks, double-tap reset (90%), the VoiceOver "longer gate" step (now stops at 99%).
+
 ### CHORDS source — hits on a chord change (2026-10-19 fix)
 - With the CHORDS source and a chord that changes on the bar line, a lane with a hit ON the bar line plays the NEW chord's note there (it used to play the old chord's, or — on a
   GATE-100 lane — nothing). Re-check the yellow-lane video setup: step 5 should now sound the new chord's root; step 3 stays silent under GATE 100 (same pitch, held).

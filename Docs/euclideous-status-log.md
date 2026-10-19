@@ -12,6 +12,16 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — LEGATO REMOVED FROM THE XY PAD / A LANE'S GATE (2026-10-19, Paul: "remove the legato from the xy box — it's a bit confusing in retrospect"; on
+  `feature/fx-tab`; macOS suite 1727 green; the feel is device-owed).** Background: a lane at GATE 100% was LEGATO — a repeated pitch carried on as one note and the repeat sounded
+  nothing — which twice read as "hits failing to produce MIDI" (the red lane's 10-hit cycle F F F F F F E E F F made 2 note-ons; the yellow lane's step 3). **Now:**
+  `euclideousLaneGateMax = 0.99`. The MIX pad's gate axis ends at 99% (touch maths `values(at:)`, the VoiceOver "longer gate" step, `euclideousMixPadWrite` for both layers); the
+  pad's strip name is always GATE and its spoken value has no "legato"; the RHYTHM gate slider's commit stops at 99%; and `PluginState.euclideousLinesResolved` loads a stored
+  100% (either layer) as 99%, so the UI and the engine (both fed from it) agree for an older session — a repeated pitch now re-strikes. **Untouched:** the engine's per-pitch
+  legato and `euclideousGateIsLegato` (the FX tab's GATE row still has 100 = LEGATO, per the ratified spec §4); the shared slider-label function (it can still say LEGATO for a raw
+  1.0 but nothing can set one); the 8×8 workbench's own EUCLID editor (`GridUI.swift`, on hold); every engine test (they build lines directly with gate 1.0 to test legato).
+  The 20 factory presets are all ≤ 98%, so none moves (a test pins it). Tests: pad touch/step/label/speech updated; `testNoLaneGateSetterCanReachLegato`,
+  `testAStoredLaneGateOf100LoadsAs99ButEverythingBelowIsUntouched` (3 clamp mutants all caught).
 - **▶ EUCLIDEOUS — FIX: a hit exactly on a chord change read the PREVIOUS chord (2026-10-19; from Paul's screen recording of the yellow lane staying silent on step 5;
   on `feature/fx-tab`; macOS suite green; the sound is device-owed).** With the CHORDS source the shared pool was built ONCE PER RENDER WINDOW at the window's START beat
   (`chordSeqNotes(beat: mWinStart …)`), so any hit that lands in the window where the chord changes — in practice every hit ON the change, e.g. a lane on the bar line under a

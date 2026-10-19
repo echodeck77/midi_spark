@@ -2925,7 +2925,7 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
         guard line.customHits == nil else { return }   // disabled on an edited pattern — defensive; the UI never drags this
         line.tilt = max(-1, min(1, newValue))
     case .gate:
-        let target = max(0.01, min(1, newValue))   // matches euclideousSliderRange's own lowered floor — see its comment
+        let target = max(0.01, min(euclideousLaneGateMax, newValue))   // floor matches euclideousSliderRange's own lowered floor; the ceiling is 99% — a lane's gate is never legato (`euclideousLaneGateMax`)
         // MIX ferry §6.3: the layers PART at the first edit — pin the notes layer to the CURRENT gate before it changes (only on a
         // genuine change, so a no-op commit never parts them). Same undo step: this runs inside the caller's one `edit`.
         if target != line.gateResolved { euclideousPinNotesLayer(&line, gate: true, velocity: false) }
@@ -5169,6 +5169,12 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
 /// tab's "LEGATO" label, the pad's strip name and the spoken value, so they can never disagree.
 func euclideousGateIsLegato(_ g: Double) -> Bool { Int((g * 100).rounded()) >= 100 }
 
+/// The highest GATE a lane's RIFF or NOTES layer can be SET to (Paul 2026-10-19: "remove the legato from the xy box — it's a bit confusing in retrospect"). 100% used to
+/// be LEGATO — a repeated pitch carried on as one note and the repeat sounded nothing — which read as hits failing to produce MIDI. The pad, the VoiceOver step, the
+/// RHYTHM slider and a document's stored lane gates (`PluginState.euclideousLinesResolved`) all stop at this, so a lane's own gate can no longer be legato. The
+/// ENGINE's legato (`euclideousGateIsLegato`) is untouched: the FX tab's GATE row still has 100 = LEGATO.
+let euclideousLaneGateMax = 0.99
+
 /// §6.3: the layers part at the FIRST edit. Before GATE changes, if `notesGate` is nil store the current GATE in it; before VEL
 /// changes, if `notesVelocity` is nil store its current resolved value. ONE helper every GATE/VEL setter calls (inside the
 /// caller's own undo step), so an old session sounds the same until edited and from the first edit the two layers are independent.
@@ -5304,21 +5310,21 @@ func euclideousMixOctaveAccessibilityLabel(lane: Int, notes: Bool) -> String { "
 // ── gate / velocity text (both layers share the RHYTHM tab's rules) ───────────────────────────────────────────────────
 
 private func euclideousGateProbe(_ gate: Double) -> EuclidLine { var l = EuclidLine(); l.gate = gate; return l }
-/// The strip's name: LEGATO at exactly 100% (`euclideousSliderLabelText`'s own rule), else GATE.
-func euclideousMixGateName(gate: Double) -> String { euclideousSliderLabelText(.gate, euclideousGateProbe(gate)) }
+/// The strip's name: always GATE — the pad no longer offers legato (see `euclideousLaneGateMax`), so it never says LEGATO.
+func euclideousMixGateName(gate: Double) -> String { EuclideousSliderField.gate.name }
 /// The strip's value: "<n>%".
 func euclideousMixGateValueText(gate: Double) -> String { euclideousSliderValueText(.gate, euclideousGateProbe(gate)) }
-/// "gate 60 percent, velocity 104" — the gate part from `euclideousSliderAccessibilityValueText` (so 100% reads "100 percent, legato").
+/// "gate 60 percent, velocity 104" — plain percent, no "legato" (the pad can't set it).
 func euclideousMixPadAccessibilityValue(gate: Double, velocity: Int) -> String {
-    let g = euclideousSliderAccessibilityValueText(.gate, euclideousGateProbe(gate)).replacingOccurrences(of: "%", with: " percent")
+    let g = euclideousSliderValueText(.gate, euclideousGateProbe(gate)).replacingOccurrences(of: "%", with: " percent")
     return "gate \(g), velocity \(velocity)"
 }
 /// VoiceOver swipe up/down steps velocity by 4 (clamped 1…127).
 func euclideousMixVelocityStep(_ v: Int, up: Bool) -> Int { max(1, min(127, v + (up ? 4 : -4))) }
-/// "Longer gate" / "Shorter gate": 5 percentage points each (clamped 1…100%).
+/// "Longer gate" / "Shorter gate": 5 percentage points each (clamped 1…99%).
 func euclideousMixGateStep(_ g: Double, longer: Bool) -> Double {
     let pct = Int((g * 100).rounded()) + (longer ? 5 : -5)
-    return Double(max(1, min(100, pct))) / 100
+    return Double(max(1, min(Int(euclideousLaneGateMax * 100), pct))) / 100
 }
 
 // ── the grid (§2): one formula for the whole MIX area ────────────────────────────────────────────────────────────────
@@ -5386,11 +5392,11 @@ struct EuclideousMixPadGeometry: Equatable {
     var tickYs: [CGFloat] { [0.25, 0.5, 0.75].map { plotH - EuclideousMixMetrics.puckInset - CGFloat($0) * travelY } }
     /// Touch-to-value (§4.1): a touch ANYWHERE on the pad (strips included) sets both values from that point —
     /// gate% = round((x − 31) / (plotW − 14) × 100), velocity = round((plotH − 7 − y) / (plotH − 14) × 127) — each clamped to its
-    /// field's range (gate 1…100%, velocity 1…127). Returns the gate as a fraction.
+    /// field's range (gate 1…99%, velocity 1…127). Returns the gate as a fraction.
     func values(at p: CGPoint) -> (gate: Double, velocity: Int) {
         let g = Int((Double((p.x - originX) / travelX) * 100).rounded())
         let v = Int((Double((plotH - EuclideousMixMetrics.puckInset - p.y) / travelY) * 127).rounded())
-        return (Double(max(1, min(100, g))) / 100, max(1, min(127, v)))
+        return (Double(max(1, min(Int(euclideousLaneGateMax * 100), g))) / 100, max(1, min(127, v)))   // gate 1…99% — the far right edge is 99%, not legato
     }
 }
 
@@ -5398,7 +5404,7 @@ struct EuclideousMixPadGeometry: Equatable {
 /// pin happens); NOTES: straight into the notes layer's own fields.
 func euclideousMixPadWrite(_ line: inout EuclidLine, notes: Bool, gate: Double, velocity: Int) {
     if notes {
-        line.notesGate = max(0.01, min(1, gate)); line.notesVelocity = max(1, min(127, velocity))
+        line.notesGate = max(0.01, min(euclideousLaneGateMax, gate)); line.notesVelocity = max(1, min(127, velocity))
     } else {
         let snap = line
         euclideousSliderCommit(.gate, &line, snapshot: snap, newValue: gate)

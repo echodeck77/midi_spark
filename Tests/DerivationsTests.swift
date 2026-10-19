@@ -4733,14 +4733,15 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(pad.velStrip, CGRect(x: 0, y: 0, width: 24, height: 82)); XCTAssertEqual(pad.gateStrip, CGRect(x: 24, y: 82, width: 72.25, height: 14))
         XCTAssertEqual(pad.plot, CGRect(x: 24, y: 0, width: 72.25, height: 82))
         XCTAssertEqual(pad.yAxis, CGRect(x: 24, y: 0, width: 1, height: 82)); XCTAssertEqual(pad.xAxis, CGRect(x: 24, y: 82, width: 72.25, height: 1))
-        // §4.1 inverts §3.5 for EVERY gate 1…100 at velocities 1, 64 and 127
-        for g in 1...100 { for v in [1, 64, 127] {
+        // §4.1 inverts §3.5 for EVERY gate 1…99 at velocities 1, 64 and 127 (100% — legato — is no longer offered; the far edge is 99%)
+        for g in 1...99 { for v in [1, 64, 127] {
             let back = pad.values(at: pad.puck(gate: Double(g) / 100, velocity: v))
             XCTAssertEqual(Int((back.gate * 100).rounded()), g, "gate \(g) @ vel \(v)"); XCTAssertEqual(back.velocity, v, "vel \(v) @ gate \(g)")
         } }
         // …and points outside the plot clamp to each field's range
         XCTAssertEqual(pad.values(at: CGPoint(x: -50, y: 500)).gate, 0.01); XCTAssertEqual(pad.values(at: CGPoint(x: -50, y: 500)).velocity, 1)
-        XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).gate, 1.0); XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).velocity, 127)
+        XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).gate, 0.99, "the far right edge is 99%, never legato"); XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).velocity, 127)
+        XCTAssertEqual(pad.values(at: pad.puck(gate: 1.0, velocity: 64)).gate, 0.99, "even a puck drawn at 100% reads back as 99%")
         XCTAssertEqual(pad.values(at: CGPoint(x: 10, y: 40)).gate, 0.01, "a touch on the VEL strip still sets both values; its x clamps the gate to 1%")
     }
     // RESTART CHAINS ferry §9.4/§16, literal: at padH 76 (the new grid-derived reference, OUT moved into
@@ -4755,23 +4756,22 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(pad.tickXs.map { Double($0) }.map { ($0 * 100).rounded() / 100 }, [45.56, 60.13, 74.69], "bottom-axis ticks unchanged")
         XCTAssertEqual(pad.tickYs.map { Double($0) }, [43, 31, 19])
     }
-    // §9.3 — LEGATO at exactly 100% for BOTH layers, GATE otherwise; the strip texts and the spoken value.
-    func testMixGateLabelIsLegatoAtExactly100ForBothLayers() {
-        XCTAssertEqual(euclideousMixGateName(gate: 1.0), "LEGATO"); XCTAssertEqual(euclideousMixGateName(gate: 0.99), "GATE"); XCTAssertEqual(euclideousMixGateName(gate: 0.9), "GATE")
-        XCTAssertEqual(euclideousMixGateName(gate: 0.996), "LEGATO", "rounds to a whole percent like the RHYTHM tab's rule")
+    // The pad's strip is always GATE and its spoken value plain — legato was removed from the XY box (2026-10-19). The RHYTHM slider's own label function is unchanged
+    // (a raw 1.0 would still read LEGATO there) but nothing can set a lane's gate that high any more.
+    func testMixGateNameIsAlwaysGateAndTheSpokenValueNeverSaysLegato() {
+        for g in [1.0, 0.996, 0.99, 0.9, 0.5] { XCTAssertEqual(euclideousMixGateName(gate: g), "GATE", "gate \(g)") }
         var l = EuclidLine(); l.gate = 1.0
-        XCTAssertEqual(euclideousSliderLabelText(.gate, l), "LEGATO", "the RHYTHM tab (the riff layer)")
-        l.gate = 0.7; l.notesGate = 1.0
-        XCTAssertEqual(euclideousSliderLabelText(.gate, l), "GATE"); XCTAssertEqual(euclideousMixGateName(gate: l.notesGateResolved), "LEGATO", "the notes layer")
-        XCTAssertTrue(euclideousGateIsLegato(1.0)); XCTAssertFalse(euclideousGateIsLegato(0.99))
-        XCTAssertEqual(euclideousMixGateValueText(gate: 0.6), "60%"); XCTAssertEqual(euclideousMixGateValueText(gate: 1.0), "100%")
+        XCTAssertEqual(euclideousSliderLabelText(.gate, l), "LEGATO", "the slider's own pure label function is untouched")
+        XCTAssertTrue(euclideousGateIsLegato(1.0)); XCTAssertFalse(euclideousGateIsLegato(0.99), "the engine's legato predicate is untouched (the FX GATE row uses it)")
+        XCTAssertEqual(euclideousMixGateValueText(gate: 0.6), "60%"); XCTAssertEqual(euclideousMixGateValueText(gate: 0.99), "99%")
         XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 0.6, velocity: 104), "gate 60 percent, velocity 104")
-        XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 1.0, velocity: 127), "gate 100 percent, legato, velocity 127")
+        XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 0.99, velocity: 127), "gate 99 percent, velocity 127")
+        XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 1.0, velocity: 127), "gate 100 percent, velocity 127", "no \"legato\" suffix, even for a raw 1.0")
         XCTAssertEqual(euclideousMixPadAccessibilityLabel(lane: 0, notes: false, off: false), "Lane 1 riff")
         XCTAssertEqual(euclideousMixPadAccessibilityLabel(lane: 3, notes: true, off: true), "Lane 4 notes, off")
         XCTAssertEqual(euclideousMixOctaveAccessibilityLabel(lane: 1, notes: true), "Lane 2 notes octave")
         XCTAssertEqual(euclideousMixVelocityStep(126, up: true), 127); XCTAssertEqual(euclideousMixVelocityStep(100, up: true), 104); XCTAssertEqual(euclideousMixVelocityStep(2, up: false), 1)
-        XCTAssertEqual(euclideousMixGateStep(0.6, longer: true), 0.65, accuracy: 1e-12); XCTAssertEqual(euclideousMixGateStep(0.98, longer: true), 1.0, accuracy: 1e-12)
+        XCTAssertEqual(euclideousMixGateStep(0.6, longer: true), 0.65, accuracy: 1e-12); XCTAssertEqual(euclideousMixGateStep(0.98, longer: true), 0.99, accuracy: 1e-12); XCTAssertEqual(euclideousMixGateStep(0.99, longer: true), 0.99, accuracy: 1e-12)
         XCTAssertEqual(euclideousMixGateStep(0.03, longer: false), 0.01, accuracy: 1e-12)
     }
     // §9.4 — resolvers: notesGate nil reads GATE; notesVelocity nil reads VEL + offset (clamped).
@@ -4968,4 +4968,36 @@ final class DerivationsTests: XCTestCase {
         XCTAssertFalse(euclideousMixVelocityNameFits(plotH: 10), "a tiny pad never fits the long word")
     }
 
+    // ── LEGATO REMOVED FROM A LANE'S GATE (2026-10-19) ──────────────────────────────────────────────────────────────────
+    func testNoLaneGateSetterCanReachLegato() {
+        XCTAssertEqual(euclideousLaneGateMax, 0.99)
+        var l = EuclidLine()
+        euclideousMixPadWrite(&l, notes: false, gate: 1.0, velocity: 90); XCTAssertEqual(l.gateResolved, 0.99, "the riff layer, through the pad")
+        euclideousMixPadWrite(&l, notes: true, gate: 1.0, velocity: 90); XCTAssertEqual(l.notesGateResolved, 0.99, "the notes layer, through the pad")
+        var s = EuclidLine(); euclideousSliderCommit(.gate, &s, snapshot: s, newValue: 1.0); XCTAssertEqual(s.gateResolved, 0.99, "the RHYTHM slider")
+        euclideousSliderCommit(.gate, &s, snapshot: s, newValue: 0.5); XCTAssertEqual(s.gateResolved, 0.5, "everything below is untouched")
+        XCTAssertFalse(euclideousGateIsLegato(l.gateResolved)); XCTAssertFalse(euclideousGateIsLegato(l.notesGateResolved)); XCTAssertFalse(euclideousGateIsLegato(s.gateResolved))
+    }
+    func testAStoredLaneGateOf100LoadsAs99ButEverythingBelowIsUntouched() {
+        var doc = PluginState(machines: [], scenes: [SceneState.empty()])
+        var lines = (0..<4).map { _ in EuclidLine() }
+        lines[0].gate = 1.0; lines[0].notesGate = 1.0       // an older session's legato lane, both layers
+        lines[1].gate = 0.98; lines[1].notesGate = 0.4      // ordinary values
+        lines[2].gate = 1.0                                  // notes layer unset: follows the (clamped) riff gate
+        doc.euclideousLines = lines
+        let r = doc.euclideousLinesResolved
+        XCTAssertEqual(r[0].gateResolved, 0.99); XCTAssertEqual(r[0].notesGateResolved, 0.99)
+        XCTAssertEqual(r[1].gateResolved, 0.98); XCTAssertEqual(r[1].notesGateResolved, 0.4)
+        XCTAssertEqual(r[2].gateResolved, 0.99); XCTAssertEqual(r[2].notesGateResolved, 0.99)
+        XCTAssertNil(r[3].gate, "an untouched gate stays nil (its own 90% default)")
+        XCTAssertTrue(r.allSatisfy { !euclideousGateIsLegato($0.gateResolved) && !euclideousGateIsLegato($0.notesGateResolved) })
+        // the shipped presets are all 98% or less — none moves under the clamp
+        for preset in EuclideousPresets.all {
+            let d = preset.make()
+            for (i, line) in (d.euclideousLines ?? []).enumerated() {
+                XCTAssertLessThanOrEqual(line.gateResolved, 0.99, "\(preset.name) lane \(i + 1)")
+                XCTAssertEqual(d.euclideousLinesResolved[i].gateResolved, line.gateResolved, "\(preset.name) lane \(i + 1): the clamp didn't touch it")
+            }
+        }
+    }
 }

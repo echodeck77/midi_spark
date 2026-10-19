@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — LEGATO removed from the XY pad / a lane's gate (2026-10-19; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: the pad's far-right edge reads GATE 99% and every hit re-strikes (set the red/yellow lane to the far right: all hits sound); an older session that had a lane at 100% now loads at 99%.
+- [ ] DECIDE (Paul): the FX tab's GATE row still has 100 = LEGATO (the ratified spec). It is the same rule that read as "hits not producing MIDI" — remove it too (cap the row at 95, or turn
+      100 into "full length, re-strike")? I left it because you said "from the xy box".
+- [ ] (noted) the shared slider-label function and the engine's per-pitch legato code remain, now reachable only from the FX GATE row and from tests.
+
 ## ★ EUCLIDEOUS — FIX: a hit on a chord change read the previous chord (2026-10-19; found from Paul's video of the yellow lane's silent step 5)
 The CHORDS pool is now resolved at each tick's own beat, not once per window at its start (`Docs/euclideous-status-log.md`).
 - [ ] DEVICE: see the "CHORDS source" lines in `Docs/euclideous-device-verification-debt.md`.
