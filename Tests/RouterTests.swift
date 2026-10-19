@@ -13138,4 +13138,32 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ccs, ons, "one CC per hit that sounds, none for a dropped one")
         assertNothingLeftSounding(e)
     }
+
+    func testFXTieCarriesTheNoteStruckJustBeforeInPlayOrderWhateverWayTheMelodyOrTheLaneRuns() {
+        // "The note before" means in TIME: the hit that played just before the tied one, however the riff walks (FWD / REV / PENDULUM / PONG) and however the lane's pattern runs
+        // (FWD / BKW / PING-PONG). A: columns 2 and 5 written as RESTS with ON REST = TIE. B: the same columns real, with FX TIE cells and ON REST at its default.
+        for riffDir in [RiffDir.forward, .reverse, .pendulum, .pingpong] {
+            for laneDir in [EuclidDir.fwd, .bkw, .pingpong] {
+                func lane(_ onRest: EuclidRiffOnRest) -> EuclidLine {
+                    var l = fxLine(gate: 0.5, onRest: onRest); l.riffDir = riffDir; l.direction = laneDir; return l
+                }
+                let a = fxRun(fxBox([lane(.tie)], ranks: [1, 2, 0, 4, 5, 0, 7, 8]), beats: 40.5)
+                let b = fxRun(fxBox([lane(.skip)], ranks: [1, 2, 3, 4, 5, 6, 7, 8], fx: fxCells([(2, 2, 1), (2, 5, 1)])), beats: 40.5)
+                let tag = "riff \(riffDir.rawValue) / lane \(laneDir.rawValue)"
+                XCTAssertEqual(fxStream(a), fxStream(b), "\(tag): a tied hit and a tied rest are the same wire")
+                assertNothingLeftSounding(b)
+                // independent check on B: every hit beat with no note-on is a tied hit; the note struck most recently BEFORE it is still sounding through it
+                let ons = b.ons.filter { $0.cable == 1 }
+                let hitBeats = Array(0...40)
+                let silent = hitBeats.filter { beat in !ons.contains { abs(Double($0.sample) / 24_000 - Double(beat)) < 0.01 } }
+                XCTAssertFalse(silent.isEmpty, "\(tag): some hits were tied")
+                for t in silent {
+                    let tSample = Int64(t * 24_000)
+                    guard let prev = ons.last(where: { $0.sample < tSample - 100 }) else { continue }       // nothing before it ⇒ a first-hit tie, silent (tested elsewhere)
+                    let off = fxSoundings(b, prev.note).last(where: { $0.on == prev.sample })?.off ?? 0
+                    XCTAssertGreaterThan(off, tSample, "\(tag): the note struck before the tie at beat \(t) still sounds through it")
+                }
+            }
+        }
+    }
 }
