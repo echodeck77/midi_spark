@@ -7830,7 +7830,8 @@ enum EuclideousArrowStyle {
     static let shadowAlpha = 0.45, shadowRadius: CGFloat = 0.75, shadowY: CGFloat = 1
     static let hollowStrokeWidth: CGFloat = 1.5, hollowDash: [CGFloat] = [3, 2]
     static let mutedAlpha = 0.42
-    static let flareBlur: CGFloat = 6, flareAlpha = 0.85, flareScale: CGFloat = 1.06
+    /// 4.7: the glow is a 6pt BLUR (CSS terms); SwiftUI's shadow radius is half the CSS blur (this codebase's own rule — 1.5pt blur ⇒ radius 0.75), so 3.
+    static let flareBlur: CGFloat = 6, flareRadius: CGFloat = 3, flareAlpha = 0.85, flareScale: CGFloat = 1.06
     static let labelSizes: [CGFloat] = [10, 8.5, 6.5, 6]     // by lane count 1…4
     static let tipRadius: CGFloat = 0.9, tipSoftening: CGFloat = 1.3
     /// The width and height of the arrow centred in a cell: width cellW − 7, height min(18, cellH − 8).

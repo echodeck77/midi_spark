@@ -4486,15 +4486,21 @@ struct EuclideousPage: View {
         let cellH = layout.cellH
         let source = noteSource
         let pool = riffLivePool
-        // LIVE STATE (rule, "Live states" §1): MIDI IN with nothing held — no tags anywhere on the grid. An empty
-        // pool means NO rank can resolve a note at all, so the tags are suppressed outright below.
+        // LIVE STATE (rule, "Live states" §1): MIDI IN with nothing held — no arrows anywhere on the grid. An empty pool means NO rank can resolve a note at all,
+        // so the ARROWS are suppressed outright below; the RAILS keep drawing (RIFF PANEL ferry §6.4).
         let midiEmpty = source == .midi && pool.isEmpty
-        // WALK TAGS (ferry 2026-10-15): `tagCfgs` is built once per body; the overlay re-derives every tag from it
-        // each frame. `tagSeats` is the same plan evaluated now, used ONLY for the per-cell VoiceOver labels.
-        let tagCfgs = walkTagConfigs(suppress: midiEmpty)
-        let tagPlansNow = walkTagPlans(cfgs: tagCfgs, ranks: ranks, beat: walkTagBeat(at: Date()))
-        let tagSeats: [WalkTagSeat] = (0..<4).compactMap { i in
-            tagPlansNow[i].map { WalkTagSeat(lane: i, col: $0.seatStep, rank: $0.seatRank, facingRight: $0.facingRight) }
+        // RIFF PANEL ferry: the arrows and rails re-derive from the lanes' walk plans EVERY FRAME in `riffPanelOverlay`; this snapshot (taken at body evaluation) feeds only
+        // the static VoiceOver text — the cells' arrow phrases and each rail's label. The played sets come from the riff ferry's readout (what the mini-grid dims), once per body.
+        let beatNow = walkTagBeat(at: Date())
+        let frameNow = riffLaneFrames(ranks: ranks, beat: beatNow)
+        let arrowsNow: [EuclideousArrowCell] = midiEmpty ? [] : riffArrowCells(frameNow)
+        let playedNow: [Set<Int>] = (0..<4).map { i in
+            i < lines.count ? euclideousRailPlayedColumns(length: lines[i].riffLengthResolved, neverPlay: riffReadout(i)?.neverPlay ?? []) : []
+        }
+        let railLabels: [String] = (0..<4).map { i in
+            guard let f = frameNow.first(where: { $0.lane == i }) else { return "Lane \(i + 1): riff off" }
+            let w = riffRailInputs(f)
+            return euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted)
         }
         return VStack(alignment: .leading, spacing: 0) {
             riffTabRow()
@@ -4512,16 +4518,12 @@ struct EuclideousPage: View {
                         ForEach((1...8).reversed(), id: \.self) { rank in
                             HStack(spacing: sp4) {
                                 ForEach(0..<n, id: \.self) { col in
-                                    riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, seats: tagSeats)
+                                    riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, arrows: arrowsNow)
                                 }
                             }
                         }
                     }
-                    // Overlay (not a ZStack sibling): its frame is deliberately a few points larger than the grid so a
-                    // wrap thread's 2pt overshoot is never clipped, and an overlay's size can't change the layout.
-                    .overlay(alignment: .topLeading) {
-                        riffWalkTagOverlay(cfgs: tagCfgs, ranks: ranks, cellW: cellW, cellH: cellH, gridW: gridW, gridH: gridH)
-                    }
+                    // (The walk tags and their threads were drawn here as an overlay; the RIFF PANEL ferry replaced them with `riffPanelOverlay`'s arrows — see below.)
                     Color.clear
                         .frame(width: gridW, height: gridH)
                         .contentShape(Rectangle())
@@ -4548,10 +4550,101 @@ struct EuclideousPage: View {
                 }
             }
             Color.clear.frame(height: EuclideousRiffPanelMetrics.gridToRails)
-            Color.clear.frame(height: EuclideousRiffPanelMetrics.railsH)   // the four lane rails (RIFF PANEL ferry §6) draw here
+            // The four lane rails draw in `riffPanelOverlay`; here, in the rails' own place after the grid (VoiceOver §7.3: the tabs, the grid, then rails 1 to 4), each is ONE static
+            // element carrying its label.
+            VStack(spacing: EuclideousRiffPanelMetrics.railGap) {
+                ForEach(0..<4, id: \.self) { i in
+                    Color.clear.frame(height: EuclideousRiffPanelMetrics.railH)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(railLabels[i])
+                }
+            }
+            .frame(height: EuclideousRiffPanelMetrics.railsH)
         }
         .padding(sp8)
+        .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+        .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
+    }
+
+    // MARK: - RIFF PANEL ferry (2026-10-19): the blended ARROWS and the lane RAILS
+    //
+    // Each lane's walk TAG (a corner glyph plus a next-step thread) is replaced by ONE big arrow centred on the note it is playing; lanes on the same note share one arrow.
+    // Everything is derived EVERY FRAME from the lanes' walk plans — the same plans, polls and rules the tags used (`euclideousWalkTagPlan`, `riffPositions`,
+    // `riffWalkState`, the LANES-grid mute) — plus the per-lane strike feed (`strikeEvents`) for the flare, the comet bar's own afterglow timing. No new poll, no
+    // state kept: a pure function of the beat. The tag code (`riffWalkTagOverlay`, `drawWalkTag`, `drawWalkThread`, the painter and `euclideousTagDrawing`) stays,
+    // unused ("hide, don't delete").
+
+    /// One lane's inputs for one frame.
+    private struct RiffLaneFrame {
+        let lane: Int
+        let cfg: EuclideousWalkLaneConfig
+        let riffOn: Bool            // the riff is on and the lane isn't SHADOWing (a SHADOW lane's own riff is overridden entirely)
+        let running: Bool           // the transport runs and the lane isn't stopped
+        let muted: Bool             // the LANES grid has this lane muted at this beat
+        let flare: Double           // 0…1, the comet bar's burst + afterglow since the lane's latest real strike
+        let plan: EuclideousWalkTagPlan?
+    }
+    private func riffLaneFrames(ranks: [Int], beat: Double) -> [RiffLaneFrame] {
+        let spb = 60.0 / max(1.0, clock.tempo)
+        return (0..<4).compactMap { i in
+            guard i < lines.count, let cfg = riffWalkConfig(i) else { return nil }
+            let line = lines[i]
+            let riffOn = walkTagShows(i)
+            let running = clock.playing && line.enabledResolved
+            let muted = !euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats)
+            let ev = i < strikeEvents.count ? strikeEvents[i] : nil
+            let flare = clock.playing ? euclideousArrowFlare(onsetBeat: ev?.onsetBeat, beat: beat, stepBeats: (line.rate ?? .r1_16).beats) : 0
+            // `running` is NOT gated on the mute: a muted hit still advances the walk, and the arrow / rail stay on it (dimmed to 42%).
+            let plan = (riffOn && i < riffPositions.count)
+                ? euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i], running: running,
+                                        polledOrdinal: i < riffWalkState.count ? riffWalkState[i] : nil)
+                : nil
+            return RiffLaneFrame(lane: i, cfg: cfg, riffOn: riffOn, running: running, muted: muted, flare: flare, plan: plan)
+        }
+    }
+    /// The arrows' cells: each lane's seat (`euclideousLaneArrowState`), grouped by the cell they share.
+    private func riffArrowCells(_ frames: [RiffLaneFrame]) -> [EuclideousArrowCell] {
+        euclideousArrowCells(frames.compactMap { f in
+            f.plan.map { euclideousLaneArrowState(lane: f.lane, cfg: f.cfg, plan: $0, polledOrdinal: f.lane < riffWalkState.count ? riffWalkState[f.lane] : 0) }
+        })
+    }
+    /// A rail's current column, its trail and its heading — only while the lane runs and its latest hit is known (a stopped lane or transport, or a lane before its first hit,
+    /// has none).
+    private func riffRailInputs(_ f: RiffLaneFrame) -> (current: Int?, trail: [Int], heading: EuclideousArrowHeading) {
+        guard f.riffOn, f.running, let tick = f.plan?.landedTick else { return (nil, [], .still) }
+        let w = euclideousRailWalk(cfg: f.cfg, hitTick: tick)
+        return (w.current, w.trail, euclideousArrowHeading(riffDir: f.cfg.riffDir, length: f.cfg.length, stride: f.cfg.stride, every: f.cfg.every, ordinal: w.ordinal))
+    }
+    private func riffPanelOverlay(layout: EuclideousRiffPanelLayout, ranks: [Int], suppressArrows: Bool, played: [Set<Int>]) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !clock.playing)) { tl in
+            let beat = walkTagBeat(at: tl.date)
+            let frames = riffLaneFrames(ranks: ranks, beat: beat)
+            let cells = suppressArrows ? [] : riffArrowCells(frames)
+            ZStack(alignment: .topLeading) {
+                ForEach(cells.indices, id: \.self) { k in
+                    let cell = cells[k]
+                    let members = cell.members.map { m -> EuclideousArrowLane in
+                        let f = frames.first(where: { $0.lane == m.lane })
+                        return EuclideousArrowLane(lane: m.lane, heading: m.heading, muted: f?.muted ?? false, flare: f?.flare ?? 0)
+                    }
+                    if let spec = euclideousArrowSpec(cellW: layout.cellW, cellH: layout.cellH, members: members, hollow: cell.hollow) {
+                        let cf = layout.cellFrame(column: cell.column, rank: cell.rank)
+                        EuclideousArrowView(spec: spec)
+                            .offset(x: cf.midX - spec.size.width / 2, y: cf.midY - spec.size.height / 2)
+                    }
+                }
+                EuclideousRailsView(layout: layout, rails: (0..<4).map { i in
+                    let f = frames.first(where: { $0.lane == i })
+                    let w = f.map(riffRailInputs) ?? (nil, [], EuclideousArrowHeading.still)
+                    return euclideousRailSpec(lane: i, riffOn: f?.riffOn ?? false, running: f?.running ?? false, muted: f?.muted ?? false,
+                                              played: i < played.count ? played[i] : [], current: w.0, trail: w.1, heading: w.2, flare: f?.flare ?? 0)
+                })
+            }
+        }
+        .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)   // paint only: the arrows are spoken in their cells' labels and each rail by its own static element (§7)
     }
     /// Rule 2, literal: one label per rank row, right-aligned, 11pt bold `#dfe3ea`, rank 8 at top (matching
     /// the grid's own `(1...8).reversed()` order so a label never lands beside the wrong rank). An empty
@@ -4757,9 +4850,9 @@ struct EuclideousPage: View {
     /// One riff-grid matrix cell: the plain on/off fill and ambient border, plus the VoiceOver label for any lane
     /// whose tag currently sits here. The tags themselves are NOT drawn per cell any more — they travel between
     /// cells, so they live in `riffWalkTagOverlay`.
-    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, seats: [WalkTagSeat] = []) -> some View {
+    private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, arrows: [EuclideousArrowCell] = []) -> some View {
         let on = col < ranks.count && ranks[col] == rank
-        let here = seats.filter { $0.col == col && $0.rank == rank }
+        let here = arrows.first { $0.column == col && $0.rank == rank }
         return ZStack {
             RoundedRectangle(cornerRadius: 3)
                 .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
@@ -4774,10 +4867,12 @@ struct EuclideousPage: View {
         // it. Routed through the shared `euclideousDisplayNoteName` dispatcher (2026-10-14 ferry §1: one name per note
         // everywhere, honouring the actual note source).
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(here.isEmpty ? "" : {
+        .accessibilityLabel(here == nil ? "" : {
             let noteName = (rank >= 1 && rank <= riffLivePool.count) ? euclideousDisplayNoteName(riffLivePool[rank - 1], source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType) : nil
             let stepPart = noteName.map { "Step \(col + 1), \($0)" } ?? "Step \(col + 1)"
-            return here.map { "\(stepPart), lane \($0.lane + 1) here, \($0.facingRight ? "next up" : "next down")" }.joined(separator: "; ")
+            // RIFF PANEL ferry §7.1: after its label, the arrow's lanes and headings — ", lane 1 heading right" / ", lanes 2 and 3: 2 heading left, 3 heading right" /
+            // ", lane 1 heading right, on a rest". (This replaces the tag's "lane 1 here, next up".)
+            return stepPart + euclideousArrowCellPhrase(members: here!.members.map { EuclideousArrowMember(lane: $0.lane, heading: $0.heading) }, onRest: here!.hollow)
         }())
     }
 

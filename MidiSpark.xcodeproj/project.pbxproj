@@ -29,6 +29,7 @@
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		35CB6DD7FC7A5B6F80092961 /* BuildSelfTestMetaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */; };
 		368706B54B23A18EAE705127 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9093C469F102E1F2CCC6DF7D /* MidiFile.swift */; };
+		36AE872430F7852DAEE6C3E0 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */; };
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
 		37F89ABAB74E1492496863CC /* AcceptanceGeneratorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */; };
 		3B87266EA4A929D67995CA66 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */; };
@@ -156,6 +157,7 @@
 		507877300E0BD9FC880E2177 /* AcceptanceWeaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceWeaveTests.swift; sourceTree = "<group>"; };
 		61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceTests.swift; sourceTree = "<group>"; };
 		66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGeneratorsTests.swift; sourceTree = "<group>"; };
+		67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffArrowPainter.swift; sourceTree = "<group>"; };
 		688828AD8E02A3FA163D3656 /* RouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouterTests.swift; sourceTree = "<group>"; };
 		688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "manual-skeleton.md"; sourceTree = "<group>"; };
 		6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
@@ -343,6 +345,7 @@
 				1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */,
 				6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */,
 				8624A489A951D42AFB805E16 /* RackMatrix.swift */,
+				67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */,
 				B3CD05B6D166BF878367A888 /* RoomsPage.swift */,
 				80701821EB9AD6D1683D1DDD /* Router.swift */,
 				7D364D224C3D245B4D5AE548 /* SceneFactory.swift */,
@@ -533,6 +536,7 @@
 				C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */,
 				1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */,
 				700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */,
+				36AE872430F7852DAEE6C3E0 /* RiffArrowPainter.swift in Sources */,
 				A562F349805997D49225F58F /* RoomsPage.swift in Sources */,
 				515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */,
 				EE31C6028B5FF7F317CCF8EE /* SceneFactory.swift in Sources */,
