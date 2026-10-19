@@ -12176,6 +12176,100 @@ final class RouterTests: XCTestCase {
         }
     }
 
+    // MARK: - RIFF WALK (ferry 2026-10-19) §11 test 1 — golden renders captured BEFORE this ferry's engine
+    // change (ADVANCE EVERY, the longer TIE bound, REPEAT). The 20-preset 32-bar golden and the LOCK-ranks
+    // golden just above already cover "preset sound" and "the walk's basic column order" respectively (both
+    // use EVERY implicitly == 1 and no REPEAT, so they remain valid regression nets for this ferry too,
+    // unchanged). What's new here: the combo matrix (direction × ADV × STRIDE × LEN × SHIFT) the ferry's
+    // test 1 names, and ON REST's behaviour on an actual rest (SKIP/FILL/TIE), captured as FOLDED hashes
+    // (one meta-hash per lane across all 64 combos, not 64 separate literals) to keep this file's size sane
+    // — a regression here is re-run with per-combo output to isolate which combo changed.
+
+    /// One lane's full note-wire stream (on + off + velocity), hashed the same way `mixPresetStreamHash`
+    /// hashes a whole preset. Identity ranks (`[1...8]`) mean the stream alone already encodes which
+    /// column/rank sounded and for how long — no separate column capture needed.
+    private func riffWalkStreamHash(_ line: EuclidLine, beats: Double, ranks: [Int] = [1, 2, 3, 4, 5, 6, 7, 8]) -> (hash: UInt64, ons: Int) {
+        let e = RecordingEmitter()
+        mixRun(mixBox(line, ranks: ranks), beats: beats, into: e)
+        assertNothingLeftSounding(e)
+        var h: UInt64 = 0xcbf29ce484222325
+        func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
+        for ev in e.events where ev.cable == 1 {
+            mix(UInt64(bitPattern: ev.sample)); mix(UInt64(ev.status)); mix(UInt64(ev.note)); mix(UInt64(ev.vel))
+        }
+        return (h, e.ons.filter { $0.cable == 1 }.count)
+    }
+    /// The harness lane (§11 preamble): 8 steps of 1/8, hits on 1, 3, 5, 6, 8, GATE 50%, both chains FREE.
+    private func riffWalkHarnessLine(dir: RiffDir, adv: Bool, stride: Int, len: Int, shift: Int, onRest: EuclidRiffOnRest = .skip) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: 5, steps: 8, gate: 0.5, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: len)
+        l.customHits = [true, false, true, false, true, true, false, true]
+        l.riffDir = dir; l.riffAdvanceStep = adv; l.riffStride = stride; l.riffRotate = shift; l.riffOnRest = onRest
+        return l
+    }
+    /// The second lane (§11 test 1): 8 steps of 1/8, hits on 1, 4, 7 only, otherwise identical.
+    private func riffWalkSecondLine(dir: RiffDir, adv: Bool, stride: Int, len: Int, shift: Int, onRest: EuclidRiffOnRest = .skip) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: 3, steps: 8, gate: 0.5, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: len)
+        l.customHits = [true, false, false, true, false, false, true, false]
+        l.riffDir = dir; l.riffAdvanceStep = adv; l.riffStride = stride; l.riffRotate = shift; l.riffOnRest = onRest
+        return l
+    }
+    /// Folds every (dir, adv, stride, len, shift) combo's own stream hash into one meta-hash, over 8 passes
+    /// (lap = 8 steps × 0.5 beats/step = 4 beats; 8 passes + a touch of margin for the closing release).
+    private func riffWalkComboMetaHash(_ line: (RiffDir, Bool, Int, Int, Int) -> EuclidLine) -> (hash: UInt64, ons: Int) {
+        var h: UInt64 = 0xcbf29ce484222325
+        var totalOns = 0
+        func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
+        let beats = 8 * 4.0 + 0.5
+        for dir in [RiffDir.forward, .reverse, .pendulum, .pingpong] {
+            for adv in [false, true] {
+                for stride in [1, 3] {
+                    for len in [8, 5] {
+                        for shift in [0, 2] {
+                            let got = riffWalkStreamHash(line(dir, adv, stride, len, shift), beats: beats)
+                            mix(got.hash); mix(UInt64(got.ons)); totalOns += got.ons
+                        }
+                    }
+                }
+            }
+        }
+        return (h, totalOns)
+    }
+    /// GOLDEN: (meta-hash, total note-on count) across all 64 combos, one entry per lane. CAPTURED on
+    /// origin/main a49907b, immediately before this ferry's engine change.
+    private let riffWalkComboGolden: [String: (UInt64, Int)] = [
+        "harness": (233709503425253965, 2624),
+        "second": (2048466058459289501, 1600)
+    ]
+    func testRiffWalkComboMatrixBeforeAdvanceEvery() {
+        let harness = riffWalkComboMetaHash { riffWalkHarnessLine(dir: $0, adv: $1, stride: $2, len: $3, shift: $4) }
+        let second = riffWalkComboMetaHash { riffWalkSecondLine(dir: $0, adv: $1, stride: $2, len: $3, shift: $4) }
+        guard let wantHarness = riffWalkComboGolden["harness"], let wantSecond = riffWalkComboGolden["second"] else {
+            XCTFail("CAPTURE: harness=\(harness) second=\(second)"); return
+        }
+        XCTAssertEqual(harness.0, wantHarness.0); XCTAssertEqual(harness.1, wantHarness.1)
+        XCTAssertEqual(second.0, wantSecond.0); XCTAssertEqual(second.1, wantSecond.1)
+    }
+    /// GOLDEN: ON REST SKIP/FILL/TIE on a riff with real rests (ranks [5, 0, 3, 0, 0, 7, 0, 2]), harness
+    /// lane, FWD/ADV HIT/STRIDE 1/LEN 8/SHIFT 0, over 8 passes. CAPTURED on origin/main a49907b.
+    private let riffWalkOnRestGolden: [String: (UInt64, Int)] = [
+        "SKIP": (5198820605517400049, 21),
+        "FILL": (5198820605517400049, 21),   // identical to SKIP today — confirms FILL contributes no riff pitch of its own (MIX ferry Q1)
+        "TIE": (2358594927737065278, 21)
+    ]
+    func testRiffWalkOnRestBeforeAdvanceEveryAndRepeat() {
+        let beats = 8 * 4.0 + 0.5
+        let restRanks = [5, 0, 3, 0, 0, 7, 0, 2]
+        for onRest in [EuclidRiffOnRest.skip, .fill, .tie] {
+            let line = riffWalkHarnessLine(dir: .forward, adv: false, stride: 1, len: 8, shift: 0, onRest: onRest)
+            let got = riffWalkStreamHash(line, beats: beats, ranks: restRanks)
+            guard let want = riffWalkOnRestGolden[onRest.rawValue] else {
+                XCTFail("CAPTURE \(onRest.rawValue): \(got)"); continue
+            }
+            XCTAssertEqual(got.hash, want.0, "\(onRest.rawValue): stream must match before/after this ferry")
+            XCTAssertEqual(got.ons, want.1, "\(onRest.rawValue): note-on count must match before/after this ferry")
+        }
+    }
+
     // MARK: - MIX TAB (ferry 2026-10-18) §9.6/§9.7 — every pitch carries its OWN gate; legato is per LAYER
 
     private func mixBox(_ line: EuclidLine, ranks: [Int] = [5, 0, 0, 0, 0, 0, 0, 0], monoOnA: Bool = false) -> SnapshotBox {

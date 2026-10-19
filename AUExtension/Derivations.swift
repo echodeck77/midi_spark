@@ -2278,6 +2278,25 @@ func riffRotateStep(_ step: Int, by rotate: Int, steps: Int) -> Int {
     return ((step + rotate) % steps + steps) % steps
 }
 
+/// RIFF WALK ferry (2026-10-19) §5.2: the walk step w = floor(o ÷ EVERY) — the riff ordinal divided down so
+/// EVERY consecutive hits (ADV HIT) or steps (ADV STEP) of a group share the same walk position. EVERY 1
+/// (today's behaviour) makes this the identity. Floors towards −∞ (never reached in practice — o is never
+/// negative — but §5.2 asks for it, and `floorDiv` already does it for free).
+@inline(__always)
+func euclideousRiffWalkStep(ordinal o: Int64, every: Int) -> Int64 {
+    floorDiv(o, Int64(max(1, every)))
+}
+/// RIFF WALK ferry §5.2: the column a riff hit reads — today's `riffStepAt` → `riffRotateStep` pipeline, with
+/// the WALK STEP (not the raw ordinal) driving the walk. Every site that turns the riff ordinal into a column
+/// calls this and nothing else — no second derivation. `w * stride` stays far inside `Int`'s range in every
+/// real caller (w is bounded by the walk period, at most 16, and stride by 7).
+@inline(__always)
+func euclideousRiffColumn(ordinal o: Int64, every: Int, direction dir: RiffDir, length: Int, stride: Int, shift: Int, seed: UInt64 = 0) -> Int {
+    let w = euclideousRiffWalkStep(ordinal: o, every: every)
+    let step = riffStepAt(dir, raw: Int(w) * stride, steps: max(1, length), seed: seed)
+    return riffRotateStep(step, by: shift, steps: max(1, length))
+}
+
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
 
 /// Whether a step is TUTTI (the whole set passes) vs SOLO (one note). DETERMINISTIC per STEP — a pure hash of the
@@ -3273,7 +3292,7 @@ func euclideousHitFlashStyle(footerState: EuclidFooterState?, onRest: EuclidRiff
     guard let footerState else { return .solid }
     switch footerState {
     case .hit: return .solid
-    case .hitOnRest: return onRest == .fill ? .solid : .outline
+    case .hitOnRest: return (onRest == .fill || onRest == .repeatLast) ? .solid : .outline   // RIFF WALK ferry §6: REPEAT strikes a real note, flash it solid like FILL
     case .hitTied: return .outline                    // a tied hit never strikes, whatever the lane's ON REST is
     case .miss: return .outline
     }
@@ -5178,6 +5197,29 @@ func euclideousNotesVelBarDoubleTap(_ line: inout EuclidLine) { line.notesVeloci
 
 /// RIFF layer octave (the RIFF tab's OCT row).
 func euclideousSetRiffOctave(_ line: inout EuclidLine, _ v: Int) { line.riffOctave = v }
+
+// ── SHIFT memory (RIFF WALK ferry 2026-10-19 §4.3): the ONE LEN setter and the ONE SHIFT setter ─────────
+
+/// The ONE LEN setter — every LEN edit (the values-row stepper, keyboard, VoiceOver adjustment) calls
+/// this, never `riffLength` directly. Pins whatever SHIFT was last actually asked for (resolved from the
+/// CURRENT riffRotate if nothing was requested yet) BEFORE the length change can clamp it away, so growing
+/// LEN back later restores the exact SHIFT left behind (§4.3's own worked example: LEN 8 SHIFT 5 → LEN 4
+/// gives SHIFT 3 → LEN 8 again gives SHIFT 5).
+func euclideousSetRiffLength(_ line: inout EuclidLine, _ L: Int) {
+    if line.riffShiftRequested == nil { line.riffShiftRequested = line.riffShiftRequestedResolved }
+    line.riffLength = L
+    line.riffRotate = min(line.riffShiftRequestedResolved, max(0, L - 1))
+}
+/// The ONE SHIFT setter — every SHIFT edit stores the new value, reduced into 0...(LEN − 1), in BOTH
+/// `riffRotate` (what the engine and every other reader keep reading) and `riffShiftRequested` (what was
+/// actually asked for, surviving a later shorter LEN). A writer that sets `riffRotate` some other way (a
+/// future randomise, say) should set `riffShiftRequested` to nil instead of calling this.
+func euclideousSetRiffShift(_ line: inout EuclidLine, _ v: Int) {
+    let n = line.riffLengthResolved
+    let reduced = ((v % n) + n) % n
+    line.riffRotate = reduced
+    line.riffShiftRequested = reduced
+}
 /// NOTES layer octave (the NOTES tab's octave trough): writing it also switches the notes layer ON, as that control always has.
 func euclideousSetNotesOctave(_ line: inout EuclidLine, _ v: Int) {
     if !line.notesOnResolved { line.notesOn = true }
@@ -6253,14 +6295,20 @@ func euclideousNextChainHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLe
 /// moves) — `info.advOrd == 0` at a restarting pass's own first hit is exactly that, with no `locked:` special case.
 func euclideousChainTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
                                       chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
-                                      riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64,
+                                      riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64, every: Int = 1, bound: Int? = nil,
                                       restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
                                       rankAt: (_ column: Int, _ beat: Double) -> Int) -> Double {
     var hitsAhead = 0
     var lastConsumed = 0
     var j = 0
-    let cap = cycleLen * 4
-    while hitsAhead < length && j < cap {
+    // RIFF WALK ferry §5.5 (Euclideous row only — the retired/legacy fork passes no `bound`, keeping its
+    // own original `length`-based cap byte-identical): the lookahead must reach the end of any run of tied
+    // rests up to P × EVERY consecutive hits long (at most 64) — "scan as many laps as it takes to see
+    // that many hits," so the tick-scan cap scales with the hit bound too (a maximally sparse pattern
+    // needs up to one full cycle per hit).
+    let hitsBound = bound ?? length
+    let cap = cycleLen * hitsBound
+    while hitsAhead < hitsBound && j < cap {
         j += 1
         let t = tick + Int64(j)
         let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains,
@@ -6271,8 +6319,7 @@ func euclideousChainTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycle
         // advOrd==0 mean "a restart just happened" rather than merely "the very first hit since beat 0."
         if !chains.melody.isFree, info.advOrd == 0 { break }
         hitsAhead += 1
-        let step = riffStepAt(riffDir, raw: Int(info.advOrd) * stride, steps: length, seed: seed)
-        let column = riffRotateStep(step, by: rotate, steps: length)
+        let column = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: length, stride: stride, shift: rotate, seed: seed)
         let beatJ = Double(t) * sub
         let writtenJ = rankAt(column, beatJ)
         if writtenJ < 1 {
@@ -6283,6 +6330,60 @@ func euclideousChainTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycle
         lastConsumed = j
     }
     return Double(lastConsumed) * sub
+}
+
+/// RIFF WALK ferry (2026-10-19) §6.2: REPEAT's lookback — the column of the nearest EARLIER hit of this
+/// lane, since the melody origin, whose written rank (read at THIS hit's own beat, §6.3 — never a
+/// historical snapshot) isn't a rest. Pure, allocation-free, fixed-size work only; everything is derived
+/// from `tick` and the lane's own values, never accumulated state (not the mask REPEAT's own
+/// `euclideousLastSoundedNotes` cache — a different, pre-existing feature), so starting the transport at
+/// any beat gives the same notes (test 11). Returns nil when the riff has no note anywhere right now, or
+/// none is found within the bound (both cases play exactly as SKIP).
+func euclideousRiffRepeatLookback(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                                  chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                                  riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64, every: Int,
+                                  thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int) -> (column: Int, rank: Int)? {
+    let len = max(1, length)
+    // §6.2's own early exit: "if no column the walk reaches has a note, the hit is silent at once."
+    var anyNote = false
+    for c in 0..<len where rankAt(c, thisBeat) >= 1 { anyNote = true; break }
+    guard anyNote else { return nil }
+    let here = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
+                                       legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
+    if !advanceStep {
+        // ADV HIT: walk ordinals o−1, o−2, … at most EVERY × P of them (≤64) — covers the whole walk.
+        let bound = min(64, euclideousFXWalkPeriod(dir: riffDir, length: len, stride: stride) * max(1, every))
+        var j: Int64 = 1
+        while j <= Int64(bound) {
+            let o2 = here.advOrd - j
+            guard o2 >= 0 else { break }
+            let col = euclideousRiffColumn(ordinal: o2, every: every, direction: riffDir, length: len, stride: stride, shift: rotate, seed: seed)
+            let r = rankAt(col, thisBeat)
+            if r >= 1 { return (col, r) }
+            j += 1
+        }
+        return nil
+    } else {
+        // ADV STEP: walk this lane's own earlier HITS backward in real time order (the Router's own hit
+        // schedule — pass starts, rhythm restarts and muted hits all included via `euclideousLaneChainTick`
+        // itself, which is already restart-aware per tick), at most 1024 of them, stopping at the melody
+        // origin. Never assumes a regular lap across a restart (test 8f).
+        let originTickM = euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats).originTickM
+        var found = 0
+        var t = tick - 1
+        while t > originTickM, found < 1024 {
+            let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains,
+                                               legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
+            if info.rawIsHit {
+                found += 1
+                let col = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: len, stride: stride, shift: rotate, seed: seed)
+                let r = rankAt(col, thisBeat)
+                if r >= 1 { return (col, r) }
+            }
+            t -= 1
+        }
+        return nil
+    }
 }
 
 /// A Euclideous lane's step length, step count and lap length exactly as `Router.runEuclidLine` derives them — a FOLLOWing lane ticks at

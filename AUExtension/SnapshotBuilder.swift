@@ -741,6 +741,9 @@ enum SnapshotBuilder {
                                                                       // fields themselves, so neither the just-shipped MELODY tab nor this one
                                                                       // repeats it.
                                                                       riffRotate: $0.riffRotate,
+                                                                      // RIFF WALK ferry (2026-10-19): SHIFT memory, declared right after riffRotate
+                                                                      // in Models.swift — this memberwise literal's argument order must match.
+                                                                      riffShiftRequested: $0.riffShiftRequested.map { clamp($0, 0, 7) },
                                                                       riffOctave: $0.riffOctave.map { clamp($0, -2, 2) },   // narrowed from the old -3...3 (2026-10-13 adversarial review): Models.swift's riffOctaveResolved already clamps -2...2 unconditionally (riffOctave is Euclideous-exclusive), so this fresh-literal's own bound must match it, not silently disagree
                                                                       riffDir: $0.riffDir, riffDirSeed: $0.riffDirSeed,
                                                                       riffDirBias: $0.riffDirBias.map { clamp($0, -1, 1) },
@@ -750,6 +753,10 @@ enum SnapshotBuilder {
                                                                       riffStride: $0.riffStride.map { clamp($0, 1, 7) },
                                                                       riffLength: $0.riffLength.map { clamp($0, 1, 8) },
                                                                       riffAdvanceStep: $0.riffAdvanceStep,
+                                                                      // RIFF WALK ferry (2026-10-19): declared right after riffAdvanceStep in
+                                                                      // Models.swift — threaded here for the exact same reason every field on
+                                                                      // this call is: miss this spot and the field silently resets every render.
+                                                                      riffAdvanceEvery: $0.riffAdvanceEvery.map { clamp($0, 1, 4) },
                                                                       melodyTranspose: $0.melodyTranspose.map { clamp($0, -7, 7) },
                                                                       customHits: $0.customHits,
                                                                       // RIFF/NOTES SPLIT (Paul 2026-10-13 ferry): the NOTES-tab layer's own 3 new fields —

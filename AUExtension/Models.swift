@@ -333,6 +333,19 @@ struct EuclidLine: Codable, Equatable {
         litNotes == nil && topLit == nil && top2Lit == nil && riffOn == nil && litMigrated.warn
     }
     var riffRotate: Int? = nil
+    // SHIFT MEMORY (RIFF WALK ferry 2026-10-19 §4.3): what SHIFT was last actually asked for, so a shorter
+    // LEN followed by a longer one restores the exact SHIFT left behind — mirrors `offsetRequested`'s own
+    // idiom exactly (resolve from the current value when nothing was requested yet; pinned by the one LEN
+    // setter, `euclideousSetRiffLength`, before a shrink can clamp it away). nil ⇒ riffRotate reduced into
+    // 0...(riffLengthResolved − 1) exactly as `riffRotateStep` reduces it (13 at LEN 8 resolves to 5).
+    var riffShiftRequested: Int? = nil
+    var riffShiftRequestedResolved: Int {
+        guard let v = riffShiftRequested else {
+            let n = riffLengthResolved
+            return ((riffRotate ?? 0) % n + n) % n
+        }
+        return v
+    }
     var riffOctave: Int? = nil
     // RIFF DIRECTION, PER-LANE (Paul 2026-10-07: "the back/forward, drunk controls should be per lane, not on
     // the riff control" — supersedes the first-draft design, which put these on the SHARED EuclideousRiff struct
@@ -393,12 +406,12 @@ struct EuclidLine: Codable, Equatable {
     var riffInvert: Bool? = nil
     var riffInvertResolved: Bool { riffInvert ?? false }
     // ON REST (nil ⇒ .skip, today's behaviour): what this lane does when one of its hits lands on a riff
-    // REST. SKIP = silent (unchanged). FILL = strike this lane's own NOTE/OCT pick as if riff were off — see
-    // Router.swift's own note on the §6 OPEN QUESTION this answers ("use the last-set NOTE choice for now").
-    // TIE = no new strike; the PRECEDING real (or FILL) note's own gate is extended, via forward lookahead at
-    // the moment IT struck, to cover this rest too — mirrors the regular chain RIFF processor's own TIE
-    // mechanism (`emitRiffRow`'s `tieRun` loop) exactly, just walking HITS instead of fixed-rate ticks, since
-    // Euclideous's riff only advances on a hit of this lane's own pattern.
+    // REST. SKIP = silent. FILL = (MIX ferry 2026-10-18 Q1) contributes no riff pitch of its own — falls
+    // through to the lit-notes/TOP/TOP2/mask layer exactly as if the riff had produced nothing this hit,
+    // only extending a TIE lookahead if one is already running; no longer "strike the NOTE/OCT pick"
+    // (that behaviour retired with the old NOTE-mode fork). TIE = no new strike; the PRECEDING real note's
+    // own gate is extended, via forward lookahead at the moment IT struck, to cover this rest too. REPEAT
+    // (RIFF WALK ferry 2026-10-19 §4.2/§6) = plays the nearest earlier non-rest column's note again.
     var riffOnRest: EuclidRiffOnRest? = nil
     var riffOnRestResolved: EuclidRiffOnRest { riffOnRest ?? .skip }
     // MELODY POP-UP (Paul 2026-10-10 ferry) — four new per-lane riff-walk controls, all read only
@@ -424,6 +437,12 @@ struct EuclidLine: Codable, Equatable {
     // notes still only sound on hits (§3.5); ON REST still only fires when a hit lands on a rest.
     var riffAdvanceStep: Bool? = nil
     var riffAdvanceStepResolved: Bool { riffAdvanceStep ?? false }
+    // ADVANCE EVERY (RIFF WALK ferry 2026-10-19 §4.1, nil ⇒ 1, today's behaviour): the walk moves once
+    // every N hits (ADV HIT) or steps (ADV STEP) instead of every one — see `euclideousRiffWalkStep`
+    // (Derivations.swift) for the ordinal → walk-step formula every reader of the riff ordinal now goes
+    // through. Legal 1...4; clamp on decode.
+    var riffAdvanceEvery: Int? = nil
+    var riffAdvanceEveryResolved: Int { max(1, min(4, riffAdvanceEvery ?? 1)) }
     // TRANSPOSE (nil ⇒ 0, §2 default): a RANK-space shift (scale steps in KEY, chord/pool positions in
     // MIDI IN and CHORDS), applied AFTER INVERT and BEFORE resolving against the lane's source (§3.1,
     // §3.7) — wraps octave-up/down via the same `riffResolve(wrap: .fold)` every rank lookup already
@@ -703,6 +722,11 @@ extension EuclidLine {
         top2Lit = try c.decodeIfPresent(Bool.self, forKey: .top2Lit)
         riffOn = try c.decodeIfPresent(Bool.self, forKey: .riffOn)
         riffRotate = try c.decodeIfPresent(Int.self, forKey: .riffRotate)
+        // RIFF WALK ferry §4.1/§4.3: clamp AT DECODE (unlike hitsRequested/offsetRequested, which clamp
+        // only at the point of consumption) — test 20 requires a corrupt/out-of-range stored value to
+        // read back already clamped, not merely produce a clamped RESOLVED value.
+        riffAdvanceEvery = (try c.decodeIfPresent(Int.self, forKey: .riffAdvanceEvery)).map { max(1, min(4, $0)) }
+        riffShiftRequested = (try c.decodeIfPresent(Int.self, forKey: .riffShiftRequested)).map { max(0, min(7, $0)) }
         riffOctave = try c.decodeIfPresent(Int.self, forKey: .riffOctave)
         riffDir = try c.decodeIfPresent(RiffDir.self, forKey: .riffDir)
         riffDirSeed = try c.decodeIfPresent(Int.self, forKey: .riffDirSeed)
@@ -759,7 +783,10 @@ enum EuclideousLevelMode: String, Codable, CaseIterable { case duck = "DUCK", ac
 enum EuclideousAvoidAction: String, Codable, CaseIterable { case mute = "MUTE", move = "MOVE" }
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
 // persists by value, matching every other riff-adjacent enum's own convention (RiffDir, EuclidNoteSel, …).
-enum EuclidRiffOnRest: String, Codable, CaseIterable { case skip = "SKIP", fill = "FILL", tie = "TIE" }
+// REPEAT (RIFF WALK ferry 2026-10-19 §4.2): a hit on a rest plays the nearest earlier non-rest column's
+// note again (Derivations.swift's REPEAT lookback). Swift reserves `repeat`, hence `repeatLast`; the raw
+// value "REPEAT" is what persists. Old documents never hold it (only ever skip/fill/tie decode old).
+enum EuclidRiffOnRest: String, Codable, CaseIterable { case skip = "SKIP", fill = "FILL", tie = "TIE", repeatLast = "REPEAT" }
 // EUCLID MASK MODES (Paul 2026-10-10 ferry, "Euclid mask, modes and settings" — gives the per-lane mask
 // a real musical effect for the first time). 11 modes, grouped exactly as the MODE picker UI groups them
 // (§4: Thinning · Thickening · Pitch · Dynamics). String-raw, matching every sibling enum on this page.

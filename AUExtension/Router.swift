@@ -4549,7 +4549,7 @@ final class Router {
                                 useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0,
                                 riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0,
                                 riffLock: Bool = false, riffInvert: Bool = false, riffOnRest: EuclidRiffOnRest = .skip,
-                                riffStride: Int = 1, riffLength: Int = 8, riffAdvanceStep: Bool = false, melodyTranspose: Int = 0,
+                                riffStride: Int = 1, riffLength: Int = 8, riffAdvanceStep: Bool = false, riffAdvanceEvery: Int = 1, melodyTranspose: Int = 0,
                                 mask: EuclidLineMask = EuclidLineMask(), customHits: [Bool]? = nil,
                                 // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry) — read ONLY
                                 // inside the new `isEuclideousRow` branch below; every other (non-Euclideous)
@@ -5035,16 +5035,12 @@ final class Router {
                         // re-removed here, just never freshly reachable) so it keeps resolving exactly as
                         // it always has rather than silently changing behaviour for an old saved lane.
                         let seed = UInt64(bitPattern: Int64(riffDirSeed))
-                        let walkPos = riffStepAt(riffDir, raw: Int(advOrd) * riffStride, steps: riffLength, seed: seed)
-                        // SHIFT/NUDGE (§3.3, literal): "the played step = (walk position + NUDGE), wrapped
-                        // within LENGTH" — `riffRotateStep` itself is UNCHANGED, just given `riffLength`
-                        // instead of the old `riffN` modulus. LOCK's own "first played step is the NUDGE
-                        // step" (§3.3) follows for free for FWD/PENDULUM/PINGPONG, which all naturally
-                        // evaluate to walkPos=0 at advOrd=0 — REVERSE's own formula naturally starts at
-                        // `riffLength-1` instead (a narrow, deliberate, unforced edge case — this is a
-                        // direct, unmodified reuse of the existing `riffStepAt` formula, not a new
-                        // direction-dependent override).
-                        let playedStep = riffRotateStep(walkPos, by: riffRotate, steps: riffLength)
+                        // RIFF WALK ferry §5.2: the column a hit reads is now ONE call —
+                        // `euclideousRiffColumn` — built on the walk step w = floor(advOrd ÷ EVERY), not the
+                        // raw ordinal directly. EVERY 1 (riffAdvanceEvery's default) makes w == advOrd, so
+                        // this is byte-identical to the old two-line riffStepAt/riffRotateStep pipeline at
+                        // EVERY 1 (test 1/test 3).
+                        let playedStep = euclideousRiffColumn(ordinal: advOrd, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed)
                         if isEuclideousRow {
                             euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern — now true in BOTH modes
                             euclideousRiffLastOrd[lineIndex] = advOrd    // RIFF MARKERS/FOOTERS poll (2026-10-12): the ordinal this cursor just advanced on
@@ -5194,33 +5190,11 @@ final class Router {
                                         ? (locked ? euclideousFXLockPass(tick: tick, cycleLen: cycleLen, grid: restartGrid,
                                                                          localT: euclideousLanePhase(buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick,
                                                                                                      grid: restartGrid, legacySpanBeats: ladderSpanBeats).localT)
-                                                  : euclideousFXFreePass(advOrd: advOrd, period: euclideousFXWalkPeriod(dir: riffDir, length: riffLength, stride: riffStride)))
+                                                  // RIFF WALK ferry §5.2 test 7: the FREE path now counts the WALK STEP, not the raw
+                                                  // ordinal, so every EVERY hit of a group shares the same NOTE pass/offset.
+                                                  : euclideousFXFreePass(advOrd: euclideousRiffWalkStep(ordinal: advOrd, every: riffAdvanceEvery), period: euclideousFXWalkPeriod(dir: riffDir, length: riffLength, stride: riffStride)))
                                         : 0
                                     fx = euclideousFXApply(fxAll, lane: lineIndex, playsRiff: true, column: leapStep, writtenRank: rawRank, pass: notePass)
-                                }
-                                let invRank = (riffInvert && rawRank >= 1) ? (9 - rawRank) : rawRank
-                                // NOTE (§7.3): the offset goes straight after INVERT and before TRANSPOSE and the mask's rank modes. A moved rank is always a pitch (the column's
-                                // WRITTEN rank is not a rest — `euclideousFXApply` required that), even at 0 or below; with no offset the existing arithmetic is untouched.
-                                let fxMoved = fx.noteOffset != 0
-                                let transposedRank = fxMoved ? invRank + fx.noteOffset + melodyTranspose : (invRank >= 1 ? invRank + melodyTranspose : invRank)
-                                var rank = transposedRank
-                                if maskedChancePassed && rank >= 1 {
-                                    switch mm.modeResolved {
-                                    case .mirror:
-                                        rank = 9 - rank
-                                    case .climb:
-                                        let bound = max(1, thisLaneCount) * (mm.climbRangeResolved == .wrap2 || mm.climbRangeResolved == .bounce2 ? 2 : 1)
-                                        var off = euclideousMaskClimbOffset[lineIndex] + mm.climbStepResolved
-                                        switch mm.climbRangeResolved {
-                                        case .wrap1, .wrap2: if off >= bound || off <= -bound { off = 0 }
-                                        case .bounce1, .bounce2:
-                                            if off < -bound { off = -bound - (off + bound) }
-                                            else if off > bound { off = bound - (off - bound) }
-                                        }
-                                        euclideousMaskClimbOffset[lineIndex] = off
-                                        rank += off
-                                    default: break
-                                    }
                                 }
                                 // TIE (ON REST): the held length comes from the shared core's lookahead (`euclideousRiffTieExtensionBeats`) — each future
                                 // hit is evaluated with its own rhythm / melody origins, so the answer agrees with what the walk will really read there,
@@ -5232,7 +5206,8 @@ final class Router {
                                     return euclideousChainTieExtensionBeats(
                                         buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
                                         legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep,
-                                        riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed,
+                                        riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed, every: riffAdvanceEvery,
+                                        bound: min(64, euclideousFXWalkPeriod(dir: riffDir, length: riffLength, stride: riffStride) * max(1, riffAdvanceEvery)),
                                         restTies: riffOnRest == .tie,
                                         fxTie: { col, _, r in fxTieLane && euclideousFXApply(fxAll, lane: lineIndex, playsRiff: true, column: col, writtenRank: r, pass: 0).tie },   // non-escaping: no heap context
                                         rankAt: { column, beat in
@@ -5242,50 +5217,116 @@ final class Router {
                                                                            events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
                                         })
                                 }
-                                if !fxMoved && rank < 1 {
-                                    // REST: three outcomes per the ferry's own "When a hit sounds" §1.
-                                    switch riffOnRest {
-                                    case .skip:
-                                        // SILENCE outcome — "the whole hit is silent... lit notes do not
-                                        // sound" — return now, before the lit-notes layer below ever runs.
-                                        // GATE/legato §2.4: "the notes still end at that hit plus the
-                                        // overlap... legato never runs through a silence" — reconcile with
-                                        // an EMPTY set so any currently-held legato pitch closes here.
-                                        reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
-                                                               tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
-                                        if nvSent {
-                                            let (onset, duration) = nvTiming(sub)
-                                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, noteCount: 0)
+                                // RIFF WALK ferry §5-6: factored into a re-enterable function so REPEAT (§6) can feed a DIFFERENT
+                                // (borrowed) raw rank through the exact same invert/offset/transpose/mask-mode/riffResolve pipeline a
+                                // normal hit uses, "exactly as if it had read that column" (§6.3) — `leapStep` (the hit's OWN column,
+                                // for wipeColumn/mask LEAP) is never substituted, only the rank is. Bounded recursion: REPEAT's lookback
+                                // only ever returns a column whose own rank is >= 1, so the recursive call can itself recurse at most
+                                // zero further times (it never re-enters `.repeatLast`'s own rest branch).
+                                // Returns true when the WHOLE hit must abort here (SKIP/TIE/REPEAT-not-found) —
+                                // the lit-notes layer below must NOT run either (a `return` inside this nested
+                                // func only exits the func itself, so the caller must re-propagate the signal).
+                                @discardableResult
+                                func strikeRiffRawRank(_ rr: Int) -> Bool {
+                                    let invRank = (riffInvert && rr >= 1) ? (9 - rr) : rr
+                                    // NOTE (§7.3): the offset goes straight after INVERT and before TRANSPOSE and the mask's rank modes. A moved rank is always a pitch (the column's
+                                    // WRITTEN rank is not a rest — `euclideousFXApply` required that), even at 0 or below; with no offset the existing arithmetic is untouched.
+                                    let fxMoved = fx.noteOffset != 0
+                                    let transposedRank = fxMoved ? invRank + fx.noteOffset + melodyTranspose : (invRank >= 1 ? invRank + melodyTranspose : invRank)
+                                    var rank = transposedRank
+                                    if maskedChancePassed && rank >= 1 {
+                                        switch mm.modeResolved {
+                                        case .mirror:
+                                            rank = 9 - rank
+                                        case .climb:
+                                            let bound = max(1, thisLaneCount) * (mm.climbRangeResolved == .wrap2 || mm.climbRangeResolved == .bounce2 ? 2 : 1)
+                                            var off = euclideousMaskClimbOffset[lineIndex] + mm.climbStepResolved
+                                            switch mm.climbRangeResolved {
+                                            case .wrap1, .wrap2: if off >= bound || off <= -bound { off = 0 }
+                                            case .bounce1, .bounce2:
+                                                if off < -bound { off = -bound - (off + bound) }
+                                                else if off > bound { off = bound - (off - bound) }
+                                            }
+                                            euclideousMaskClimbOffset[lineIndex] = off
+                                            rank += off
+                                        default: break
                                         }
-                                        return
-                                    case .tie:
-                                        // HOLD outcome — "no new note-ons... held the same way TIE holds the
-                                        // riff note today" — the PRECEDING hit's own `tieExt` (shared across
-                                        // every pitch it struck, riff and lit alike) already covers this rest;
-                                        // nothing new strikes, from either layer.
-                                        return
-                                    case .fill:
-                                        // NOTE outcome per Q1's resolution: FILL contributes NO distinct riff
-                                        // pitch of its own anymore — fall through to the lit-notes layer below
-                                        // exactly as if riff had produced nothing this hit (still categorized
-                                        // as "note," not "silence," so the walk/footer/TIE-lookahead treatment
-                                        // is unaffected — only the riff pitch itself is absent).
-                                        tieExt = riffTieExtensionBeats()
                                     }
-                                } else if let note0 = fxMoved
-                                            ? riffResolveExtended(rank: rank, oct: riffOctave, n: thisLaneCount, asc: { notes[$0].note })   // a NOTE-moved rank folds both ways (rank 0 = the octave below)
-                                            : riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
-                                    hadRiffNote = true
-                                    riffRank = rank; riffNote = note0
-                                    tieExt = riffTieExtensionBeats()
-                                    addPitch(note0, vel: fxRiffVel(), gate: fxRiffGate())   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
-                                    // WIPE TELEMETRY (ferry "riff-cell wipes" §2.2): mirrors the retired fork's
-                                    // own wipeRank computation exactly — MIRROR re-applied to `invRank` (the
-                                    // pre-TRANSPOSE value), "after INVERT, MIRROR and LEAP but before
-                                    // TRANSPOSE and OCT."
-                                    let wr = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
-                                    if wr >= 1 && wr <= 8 { wipeColumn = Int8(leapStep); wipeRankOut = Int8(wr) }
+                                    if !fxMoved && rank < 1 {
+                                        // REST: four outcomes per the ferry's own "When a hit sounds" §1 + §6 (REPEAT).
+                                        switch riffOnRest {
+                                        case .skip:
+                                            // SILENCE outcome — "the whole hit is silent... lit notes do not
+                                            // sound" — return now, before the lit-notes layer below ever runs.
+                                            // GATE/legato §2.4: "the notes still end at that hit plus the
+                                            // overlap... legato never runs through a silence" — reconcile with
+                                            // an EMPTY set so any currently-held legato pitch closes here.
+                                            reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                                   tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
+                                            if nvSent {
+                                                let (onset, duration) = nvTiming(sub)
+                                                pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, noteCount: 0)
+                                            }
+                                            return true
+                                        case .tie:
+                                            // HOLD outcome — "no new note-ons... held the same way TIE holds the
+                                            // riff note today" — the PRECEDING hit's own `tieExt` (shared across
+                                            // every pitch it struck, riff and lit alike) already covers this rest;
+                                            // nothing new strikes, from either layer.
+                                            return true
+                                        case .fill:
+                                            // NOTE outcome per Q1's resolution: FILL contributes NO distinct riff
+                                            // pitch of its own anymore — fall through to the lit-notes layer below
+                                            // exactly as if riff had produced nothing this hit (still categorized
+                                            // as "note," not "silence," so the walk/footer/TIE-lookahead treatment
+                                            // is unaffected — only the riff pitch itself is absent).
+                                            tieExt = riffTieExtensionBeats()
+                                        case .repeatLast:
+                                            // RIFF WALK ferry §6: the nearest earlier non-rest column's note,
+                                            // again — found via the shared, allocation-free lookback, then fed
+                                            // back through THIS SAME function (§6.3's "exactly as if it had read
+                                            // that column"). `leapStep` stays the hit's own (rest) column — only
+                                            // `wipeRankOut`'s rank comes from the repeat, per §6.5.
+                                            guard let found = euclideousRiffRepeatLookback(
+                                                buf: euclidBuf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
+                                                legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep,
+                                                riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed, every: riffAdvanceEvery,
+                                                thisBeat: mTickBeat,
+                                                rankAt: { column, beat in
+                                                    euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
+                                                                                   active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
+                                                                                   passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
+                                                                                   events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
+                                                }) else {
+                                                // §6.2: "if none is found, the hit is silent, as under SKIP."
+                                                reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                                       tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
+                                                if nvSent {
+                                                    let (onset, duration) = nvTiming(sub)
+                                                    pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, noteCount: 0)
+                                                }
+                                                return true
+                                            }
+                                            return strikeRiffRawRank(found.rank)
+                                        }
+                                    } else if let note0 = fxMoved
+                                                ? riffResolveExtended(rank: rank, oct: riffOctave, n: thisLaneCount, asc: { notes[$0].note })   // a NOTE-moved rank folds both ways (rank 0 = the octave below)
+                                                : riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                        hadRiffNote = true
+                                        riffRank = rank; riffNote = note0
+                                        tieExt = riffTieExtensionBeats()
+                                        addPitch(note0, vel: fxRiffVel(), gate: fxRiffGate())   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
+                                        // WIPE TELEMETRY (ferry "riff-cell wipes" §2.2): mirrors the retired fork's
+                                        // own wipeRank computation exactly — MIRROR re-applied to `invRank` (the
+                                        // pre-TRANSPOSE value), "after INVERT, MIRROR and LEAP but before
+                                        // TRANSPOSE and OCT." RIFF WALK ferry §6.5: on a REPEAT hit this still
+                                        // posts the hit's OWN (rest) column, `leapStep` — never the repeated one.
+                                        let wr = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
+                                        if wr >= 1 && wr <= 8 { wipeColumn = Int8(leapStep); wipeRankOut = Int8(wr) }
+                                    }
+                                    return false
                                 }
+                                if strikeRiffRawRank(rawRank) { return }
                             }
 
                             // LIT-NOTES LAYER — independent of riffOn, resolved for every hit that reaches
@@ -5837,6 +5878,15 @@ final class Router {
                                         }
                                     }
                                     return
+                                case .repeatLast:
+                                    // RIFF WALK ferry (2026-10-19): REPEAT is Euclideous-row only (§6) — this
+                                    // retired, non-Euclideous fork has no UI path that can ever set it. Alias
+                                    // to SKIP's own silence rather than build real lookback logic for dead code.
+                                    if nvSent {
+                                        let (onset, duration) = nvTiming(sub)
+                                        pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 2, noteCount: 0)
+                                    }
+                                    return
                                 }
                             }
                             // ABSOLUTE VELOCITY (Paul 2026-10-09): the riff-sourced note's own inherited velocity
@@ -6277,6 +6327,7 @@ final class Router {
                               tilt: L.tiltResolved,
                               riffLock: L.riffLockResolved, riffInvert: L.riffInvertResolved, riffOnRest: L.riffOnRestResolved,
                               riffStride: L.riffStrideResolved, riffLength: L.riffLengthResolved, riffAdvanceStep: L.riffAdvanceStepResolved,
+                              riffAdvanceEvery: L.riffAdvanceEveryResolved,   // RIFF WALK ferry §5: EVERY 1 (today's behaviour) by default
                               // LISTEN (ferry 2026-10-14 §1): "stop the Euclid mask affecting output" —
                               // Euclideous's own row now ALWAYS passes a disabled (default) mask, ignoring
                               // whatever `L.mask` holds, so every MASK-driven branch inside `runEuclidLine`

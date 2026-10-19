@@ -2912,8 +2912,9 @@ struct EuclideousPage: View {
     private func riffOnRestHelpPhrase(_ r: EuclidRiffOnRest) -> String {
         switch r {
         case .skip: return "On a riff rest, play nothing"
-        case .fill: return "On a riff rest, play this lane's own note"
+        case .fill: return "On a riff rest, play nothing from the riff, but keep lit notes sounding"   // MIX ferry Q1: FILL no longer strikes its own pick
         case .tie: return "On a riff rest, hold the previous note"   // §3.3's own literal REST TIE example
+        case .repeatLast: return "On a riff rest, play the riff's previous note again"   // RIFF WALK ferry §9.5
         }
     }
 
@@ -3058,10 +3059,10 @@ struct EuclideousPage: View {
         let w = max(1, (fullWidth - 3 * 3) / 4)
         return HStack(spacing: 3) {
             melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many steps the riff walk loops over") { v in
-                edit(idx) { $0.riffLength = v }
+                edit(idx) { euclideousSetRiffLength(&$0, v) }   // RIFF WALK ferry §4.3: the ONE LEN setter — pins SHIFT memory first
             }
             melodyStepper("NUDGE", value: nudge, range: 0...(n - 1), width: w, help: "Start the riff walk further along the pattern") { v in
-                edit(idx) { $0.riffRotate = v }
+                edit(idx) { euclideousSetRiffShift(&$0, v) }   // RIFF WALK ferry §4.3: the ONE SHIFT setter — stores into riffRotate + riffShiftRequested
             }
             melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: w, help: "How many riff steps to move per note") { v in
                 edit(idx) { $0.riffStride = v }
