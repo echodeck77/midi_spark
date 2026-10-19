@@ -5,13 +5,18 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — RIFF PANEL: compact tabs, blended arrows, lane rails (2026-10-19; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "Riff panel" lines in `Docs/euclideous-device-verification-debt.md`, and the two DEBUG size lines (root `safeAreaInsets` / page `bottomInset`) — they settle whether the 9pt bottom gap was an inset.
+- [ ] DECIDE (Paul): the one-lane arrow fill is the comet tile's own (lane colour 95% → 55% alpha) because source differs from the mock; it reads paler at the bottom on the light cells. Switch to the mock's lane100 → × 0.86 (`EuclideousArrowStyle`)?
+- [ ] DECIDE (Paul): the tab number is 9pt (source) not 10pt; the playing triangle (not in today's row) is drawn on the active tab in ink. Say if either should change.
+- [ ] DECIDE (Paul): the arrow now JUMPS to the latest hit's cell (no flight, no PEND/PING flip). Say if you want the 80ms glide back.
+- [ ] (noted) ferry text §7.2's rail example contradicts its own "runs of three or more read as a range" — built the rule ("plays columns 1 and 3 to 8").
+- [ ] (noted) the riff tab row's accessibility labels are unchanged ("Riff 2, editing"); there is no spoken "playing".
+- [ ] (SHELVED, per Paul 2026-10-19) the LOOPER (2026-10-16) and LOOP SLOTS (2026-10-16): no looper is planned. Neither is built; `riffLoopRowH` and its budget are gone.
+
 ## ★ EUCLIDEOUS — PAGE LAYOUT: six equal boxes in both orientations (2026-10-19; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "Page layout" lines in `Docs/euclideous-device-verification-debt.md` — above all the portrait fit (the 885 check) and the 9pt bottom margin.
-- [ ] DECIDE (Paul): the bottom margin measured 25pt (not 16) in both orientations — the page's height is 9pt short of the view. If it is a bottom safe-area inset, should the page extend into it (`ignoresSafeArea(.bottom)`) so the boxes reach the ferry's 319 / 319.67?
-- [ ] DECIDE (Paul): the ferry text puts FX's strip / LANES' blocks at panel y 35 / 63; source has them at 32 / 60. I kept source (rows 0.5pt / blocks 0.75pt taller than the spec's numbers). If the 3pt is wanted, it is a 3pt shift of those two tabs' content.
 - [ ] (noted) the other overlays in DiagView's root ZStack (cog page, presets, …) can be widened by the 8×8 workbench the same way the page was — not touched (8×8 is on hold).
-- [ ] NEXT: the riff-panel ferry (compact tabs, big blended arrows, lane rails) was parked on this one; its box is now 380.67 × 319 / 387 × 319.67 as its text assumes. Its open rulings (on-rest rows, jump vs fly, 9pt vs 10pt tab number, VoiceOver wording) still stand.
-- [ ] (shelved, per Paul 2026-10-19) the looper and loop slots — no looper is planned; the dead `riffLoopRowH` budget is gone.
 
 ## ★ EUCLIDEOUS — LEGATO removed from the XY pad / a lane's gate (2026-10-19; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: the pad's far-right edge reads GATE 99% and every hit re-strikes (set the red/yellow lane to the far right: all hits sound); an older session that had a lane at 100% now loads at 99%.

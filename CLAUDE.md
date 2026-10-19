@@ -330,7 +330,8 @@ the same pipeline as any other row; it is not a special-cased render path.
   its own formulas (lane card `EuclideousLaneCardMetrics`, riff panel `euclideousRiffRowH`, MIX `euclideousMixGrid`, FX `euclideousFXRowH`, LANES
   `euclideousLanesLayout`); nothing measured from content sizes a box. **Do not frame the page from a screen/window/minimum**: the page shares DiagView's root ZStack
   with the 8×8 workbench, which is WIDER than a portrait view — an unframed page's GeometryReader is offered the workbench's width (the old "laid out ≈885 in an 814
-  view" bug), so `AudioUnitViewController` frames the page to the root `geo`. Sizes are device-owed.
+  view" bug), so `AudioUnitViewController` frames the page to the root `geo` (plus its bottom safe-area inset: the page is laid out on the view's FULL height with a bottom margin of
+  `max(16, inset)`, `EuclideousPageMetrics.bottomMargin`). Sizes are device-owed.
 - **RIFF tab (RIFF WALK ferry 2026-10-19).** Fills the RHYTHM tab's own two zones exactly, via the
   same `patternBlockH`(80)/derived-`upperH` split (`euclideousRiffTabLayout`, ONE pure function),
   so the header/tab rows sit at the same y whichever tab is showing. Upper zone: the riff card +
@@ -341,18 +342,21 @@ the same pipeline as any other row; it is not a special-cased render path.
   discrepancy vs the ferry's own reference arithmetic**: the real formula gives row A 76pt, not
   the ferry's assumed 82pt (6pt under its own stated floor even at the reference) — built against
   the real, derived formula throughout, not hand-fitted; see the status log's own §0.2 writeup.
-- **Riff-grid walk tags (2026-10-15).** Each riff-on lane's marker on the shared riff grid is a STATELESS
-  tag + thread: every frame it is re-derived from the polled step (`riffPositions`, the same value the RIFF-tab
-  thumbnail reads) and the live beat, via a pure mirror of `runEuclidLine`'s tick arithmetic
-  (`euclideousWalkTick`, Derivations.swift — now a call of the one per-tick core) — that mirror is what lets a tag depart BEFORE the hit. If you change
-  how the walk advances (ordinal, LOCK, ADV STEP, the RHYTHM/MELODY restarts, FOLLOW, the WITH/GAPS strike filter, swing),
-  change `euclideousLaneTick` — `Router.runEuclidLine` and the mirror (`euclideousWalkTick`) both call it now, so they cannot
-  drift on the walk itself; `RouterTests.testWalkTag*` still compare them against the real router. WITH/GAPS silence a tick only at the strike decision (the ordinal still counts
-  every raw hit), which is why the mirror has both `isHit` and `strikes`. The UI-clock-vs-audible-time offset is an accepted,
-  unmeasured risk (Paul, 2026-10-15); the lane footer agrees with the engine under LOCK + ADV STEP, and a FOLLOW lane's step
-  bar + footer draw the PARTNER's inherited pattern via `euclideousEffectivePattern` (one function shared with the mirror).
-  A FOLLOW lane is drawn as what it follows: partner's cells in the partner's colour (faded), comet at the partner's rate ×
-  multiplier, and its bar gestures edit the PARTNER (`euclideousFollowPartner` is the one definition of "following").
+- **Riff-grid arrows + lane rails (RIFF PANEL ferry 2026-10-19; replaced the 2026-10-15 walk tags).** The marker is now ONE big arrow per CELL (lanes on the same note
+  share it — `euclideousArrowCells`), numbered, pointing the way the walk heads (`euclideousArrowHeading`: FWD right, REV left, PEND/PING turn at the ends; still = capsule;
+  opposite heads = double-headed), filled with the lane's colour or the OKLCH blend of the lanes in it (`euclideousBlendStops`), hollow dashed on a rest, 42% when the LANES
+  grid mutes it, with a glow + 1.06 scale while a lane in it strikes (the per-lane strike feed `strikeEvents` through the comet bar's own `euclideousRingFlare` timing — a lane
+  whose cell is routed to no enabled MAIN OUT posts no events, so it never flares). Under each grid column sits a RAIL per lane (`euclideousRailSpec`): played columns (the riff
+  readout's never-play set, the same one the lane card's mini-grid dims), a 3-column trail and the current column with a heading chevron (`euclideousRailWalk`). All of it is STILL
+  stateless: every frame `riffPanelOverlay` (EuclideousPage.swift) re-derives it from `euclideousWalkTagPlan` (the walk plan the tags used — polled `riffPositions`/`riffWalkState` + the
+  UI beat, the pure mirror of `runEuclidLine`; TIE-on-rest stay-put and the shown hit's ordinal were added to it) — change the walk in `euclideousLaneTick`/the chain core, nowhere else.
+  The mirror is `euclideousWalkTick` (a call of the one per-tick core — `Router.runEuclidLine` and the mirror cannot drift on the walk; `RouterTests.testWalkTag*` compare them against the real
+  router): if you change how the walk advances (ordinal, LOCK, ADV STEP, the RHYTHM/MELODY restarts, FOLLOW, the WITH/GAPS strike filter, swing), change it THERE. WITH/GAPS silence a tick only at the
+  strike decision (the ordinal still counts every raw hit), which is why the mirror has both `isHit` and `strikes`. The UI-clock-vs-audible-time offset is an accepted, unmeasured risk (Paul, 2026-10-15);
+  a FOLLOW lane's step bar + footer draw the PARTNER's inherited pattern via `euclideousEffectivePattern` (one function shared with the mirror) — partner's cells in the partner's colour (faded), the
+  comet at the partner's rate × multiplier, its bar gestures editing the PARTNER (`euclideousFollowPartner` is the one definition of "following").
+  `RiffArrowPainter.swift` only paints the pure specs. The old tag/thread code (`riffWalkTagOverlay`, `drawWalkTag`, `drawWalkThread`, `WalkTagPainter.swift`, `euclideousTagDrawing`)
+  is kept, unused. The panel's inside is laid out by ONE pure function, `euclideousRiffPanelLayout(box:)`: 20pt riff tabs, grid from y 34, rows `(box height − 119) / 8`, four 8pt rails.
 - **Recurring bug class, worth knowing before touching playhead/indicator code:** a UI
   indicator reading a DIFFERENT clock/formula than the one the engine actually uses to decide
   what sounds — hit repeatedly across RATCHET, DEST, the per-lane mask step bar, the ARP-rate

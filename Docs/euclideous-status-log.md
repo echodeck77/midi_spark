@@ -12,6 +12,43 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — RIFF PANEL ferry: "compact riff tabs, big arrows that blend, and lane rails under the grid" (2026-10-19, ratified by Paul from the "Fourfold layout" canvas, boards 10–12; on
+  `feature/riff-panel-arrows`; iOS builds clean; Euclideous subset 531 green incl. 21 new `RiffPanelTests`; ALL of it visual is device-owed — I rendered the painters off-device to a PNG with a scratch
+  macOS harness and checked the shapes, blends, hollow dashes, flare and rails by eye, which found and fixed one bug: the 10pt chevron inflated the current rail segment to ~13pt tall).** Display only: no model,
+  engine or saved-data change. **MAPPING (§0.1, file:line as of `d903531`):** (a) the panel's top row was `riffTabRow` (EuclideousPage.swift:4410) and nothing else above the grid — NO column-number row, title or
+  NOT PLAYING anywhere; HOLD NOTES TO PLAY already floated over the grid (:4615, a #15161A pill at 90%, radius 6, h-pad sp8, v-pad 6) since the 2026-10-14 §11.3 change, so there was no row to lose.
+  (b) `riffMiniIcon` was a fixed 31 × 23 (pitch 4/3, marks 3 × 2 r0.5, dots 1 × 1) drawn at the riff TAB ROW (:4508 → now the 21.7 × 12.8 tab style) and the lane card's RIFF thumbnail (:5360, still 31 × 23).
+  (c) The markers were NOT the `riffMarker` / `updateRiffMarkers` / `riffMarkerNextStep` / `suppressMarkers` the ferry text names (removed 2026-10-15, :1140): they were stateless WALK TAGS + threads re-derived
+  every frame from polled `riffPositions` (Router.swift:1549 → Kernel → AU → AudioUnitViewController:1337) and `riffWalkState` plus the UI beat, via `euclideousWalkTagPlan` (Derivations.swift). (d) A hit on a
+  rest seated the tag in the REST'S OWN column at the HELD row (the last played note's), hollow, for SKIP, FILL and REPEAT alike — the tag plan never read ON REST, so there was NO TIE stay-put and NO FILL/REPEAT
+  row in the code (the older 2026-10-12 marker had them). (e) Direction was `moveFacing` (D:4770), FWD/RANDOM/DRUNK right, REV left, PEND/PING by the walk-position delta carried across zero moves; its only readers
+  were the tag's flip animation and the cell's VoiceOver. (f) Stopped transport / stopped lane → a static seat on the polled step; riff off or SHADOW → no tag; MIDI IN with nothing held → suppressed; muted → the old
+  tag dimmed 42% and drawn as a stopped lane's. (g) Always the WRITTEN rank (INV / TRANS never touched the row). (h) The cell's VoiceOver was "" except under a tag: "Step 3, E♭, lane 1 here, next up"; the phrase
+  "silent at this step" exists NOWHERE in the source. (i) The panel's inside was `riffGridView(maxWidth:rowH:)`; the layout ferry's pure height/rows pair is now gone (see below). The riff ferry's functions all exist.
+  **BUILT:** `euclideousRiffPanelLayout(box:)` (8.1; replaces `euclideousRiffPanelHeight`/`euclideousRiffRowH`, which the layout ferry had added as a pure stand-in for the deleted private pair — §1.3 says not to
+  bring that pair back): tab row y 8–28, grid from y 34, rows `(box − 119) / 8`, rails at 270 / 281 / 292 / 303 (landscape) — landscape rowH 25 / cellW 37.83, portrait 25.08 / 38.63; at the 9pt-short boxes
+  (314.5 / 316.67) 24.44 / 24.71, clearing the 24 floor (a box under 311 is flagged `.riffRows`). `euclideousArrowHeading` (5.1), `euclideousArrowGrouping` (5.3), `euclideousOKLCH` / `euclideousMixOKLCH` /
+  `euclideousBlendStops` (5.4 — all six published midpoints reproduce to ±1 with the real lane colours), `euclideousArrowSpec` / `euclideousArrowOutline` (§4: size `cellW − 7 × min(18, rowH − 8)`, the outline
+  commands, label sizes 10 / 8.5 / 6.5 / 6, label rect, fill, 42% muting, flare colour), `euclideousRailWalk` (6.3: current + trail, ADV HIT by ordinals, ADV STEP by the Router's own hit schedule, 64 hits checked),
+  `euclideousRailPlayedColumns` (6.2: exactly the mini-grid's set), `euclideousRailSpec` (6.2 / 6.4), `euclideousMiniIconGeometry` (2.3) and the VoiceOver words (§7). The walk-tag plan gained `seatOrdinal` and
+  `tieStay`. **SKIP / FILL / REPEAT hit on a rest now shows:** a HOLLOW DASHED arrow in the same cell today's tag used (the rest's column, the held row) — SKIP keeps today's rule for whether and where it shows;
+  **TIE** keeps the arrow ON THE TIED NOTE'S CELL, drawn as normal (the engine plays nothing there and the previous note's gate runs through), falling back to the plain hollow seat when nothing is sounding.
+  **MOTION:** the arrow SITS on the cell of the lane's latest landed hit and jumps at hit time (the tag's 80ms flight and its PEND/PING flip are gone with the thread — a mid-flight tag has no cell to share an arrow in);
+  a muted lane's arrow/rail now stay on the walk (dimmed to 42%) instead of falling back to a stopped seat. **STILL/RAILS:** a rail's current column is the latest hit's column even when TIE keeps the arrow
+  elsewhere. **SOURCE WON OVER THE SPEC (reported):** (1) ONE-LANE FILL — the comet bar's tile is the lane colour at 95% alpha at the top to 55% at the bottom (`EuclidCometBar`), not the mock's "lane100 → × 0.86", so the arrow
+  uses the tile's (`EuclideousArrowStyle.topAlpha` / `bottomAlpha`; one constant if the mock's darkening is wanted — the bottom reads paler on the light cells in my render); (2) NO "playing triangle" existed in today's
+  tab row (it went with the looper tabs, `8a4337e`, and was not restored with the four-riff tabs); in the one-riff model the ACTIVE riff is the only one that plays, so the 5 × 6 triangle is drawn on the active tab in the
+  pre-looper row's colour for it (ink); (3) the tab number stays 9pt heavy (the ferry says 10) and the number→icon gap is the spec's 6 (it was 8); (4) the HOLD NOTES pill's vertical padding is 6 (the ferry says sp8) — left,
+  since it already floated. **SPEC CONTRADICTION:** §7.2's example "plays columns 1, 3, 4, 5, 6, 7 and 8" contradicts its own rule "runs of three or more read as a range" — the rule is built ("1 and 3 to 8").
+  **FLARE:** driven by the existing per-lane strike feed (`strikeEvents`, the engine's NOTE VIEW events) through `euclideousRingFlare` — no new poll. The feed says WHICH lane struck and when, in time (a strike whose onset is
+  still ahead of the UI clock reads 0 until it lands, as the header rings do); it is gated by `nvSent` (the lane's cell routed to an enabled MAIN OUT), so a lane that sends nothing posts no event and cannot flare — as
+  the header rings and the FX flash. Glow radii follow the codebase's rule (SwiftUI radius = half the CSS blur: arrow 6 → 3, rail glow 8 → 4 with the spread-2 as a 2pt-larger blurred rect). **BOTTOM SAFE-AREA INSET
+  (Paul's ruling the same day):** the page now takes the view's bottom safe-area inset from the root `geo`, is laid out on the view's FULL height (the page ignores that edge) and uses a bottom margin of
+  `max(16, inset)` (`EuclideousPageMetrics.bottomMargin`; inset 9 → 16, 20 → 20 — tested). I cannot read the device's DEBUG lines (`EUCLIDEOUS root view size … safeAreaInsets …` / `EUCLIDEOUS page size … bottomInset …`), so
+  the code is data-driven: if the 9pt is an inset the boxes become the full 319 / 319.67; if the inset is 0 nothing changes and the 9pt is something else — report what the lines say. **HIDDEN, not deleted (0.2):**
+  `riffWalkTagOverlay`, `drawWalkTag`, `drawWalkThread`, `WalkTagPainter.swift`, `euclideousTagDrawing`/`ThreadGeometry`, `walkTagConfigs`/`walkTagPlans`, `WalkTagSeat`; **deleted:** the grid's overlay call and
+  `tagSeats`, `euclideousRiffPanelHeight` / `euclideousRiffRowH` (replaced), the riff tab row's 28/29pt minimum. `riffMiniIcon` is drawn at the riff TAB ROW (21.7 × 12.8) and the lane card's RIFF thumbnail (31 × 23).
+  **CLOSED the same day (Paul):** FX's strip at y 32 / LANES' blocks at y 60 stay as source has them; the looper numbers (no looper is planned — looper and loop slots are SHELVED); the markers' 0.89× shrink (the markers are gone).
 - **▶ EUCLIDEOUS — PAGE LAYOUT ferry: "six equal boxes in both orientations, portrait fits the view, MIX fills in portrait" (2026-10-19, ratified by Paul from the "Fourfold layout" canvas; on
   `feature/page-layout-six-boxes`; iOS builds clean; macOS suite 1759 green incl. 13 new `PageLayoutTests`; ALL of it visual is device-owed).** **ROOT CAUSE of "portrait laid out ≈885 wide in an 814 view"
   (§0.2a), found by reading + one scratch macOS check:** the page is an overlay child of DiagView's root `ZStack` (AudioUnitViewController.swift) whose other child is the 8×8 workbench (`mainContent`: a header HStack of

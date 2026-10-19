@@ -17,10 +17,22 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Riff panel — arrows, rails, compact tabs (2026-10-19 ferry — §12)
+- The 31 × 17 arrows and their numbers in all four lane colours and in every blend (2 / 3 / 4 lanes), on the light note cells — the single-lane fill is the comet tile's 95 → 55% alpha, so its bottom reads paler (one constant if you want the mock's × 0.86).
+- Hollow dashed on-rest arrows on the dark rest cells (SKIP, FILL and REPEAT all draw them; TIE keeps the solid arrow on the tied note).
+- The 8pt rails, their chevrons (› ‹ •) and the 8.5pt numbers, landscape and portrait; the current segment's glow.
+- The 21.7 × 12.8 tab icon, filled and empty, and the 5 × 6 triangle on the active tab (it did not exist in the restored row — check it reads as "playing").
+- 25pt rows still comfortable to tap and paint (24.4 / 24.7 if the page really is 9pt short).
+- The flare and its 1.06 scale: in time with the lane's comet bar, not jumpy at fast rates; a lane routed to no enabled MAIN OUT never flares (no strike event).
+- A blend reads as two lanes, not a fifth colour (blue into amber for 2·3).
+- The arrow now JUMPS to the latest hit's cell (the tag's flight and flip are gone) — does PEND/PING read as turning at each end without the flip?
+- VoiceOver: a cell with an arrow reads "Step 3, E♭, lane 1 heading right"; each rail reads as one element ("Lane 1: plays columns 1 and 3 to 8, on 4, heading right").
+- Body re-evaluation now recomputes 4 riff readouts for the rails (the lane cards already do 4–8): watch for hitching at fast rates.
+
 ### Page layout — six equal boxes (2026-10-19 ferry)
 - Both orientations in AUM on the 11-inch iPad Pro: six equal boxes (landscape 3 × 2, portrait 2 × 3), 8pt apart, 16pt margins, nothing clipped, the header's gear visible in portrait, MIX | LANES | FX all showing.
 - THE 885 CHECK: run a DEBUG build from Xcode in portrait and read the console — `EUCLIDEOUS root view size` (AUVC) and `EUCLIDEOUS page size … box …` (page) should both say ≈814 wide. If the root says 885 the cause is above DiagView (AUM's container), not the ZStack — say so and the fix moves.
-- THE 9PT BOTTOM: the boxes should end 16pt above the bottom edge. If you see 25 (as in the old screenshots) the page's height is 9pt short of the view (a bottom safe-area inset?) — the boxes are then ≈4.5pt (landscape) / 3pt (portrait) shorter than the ferry's 319 / 319.67; decide whether the page should extend into that inset.
+- THE 9PT BOTTOM (Paul's ruling 2026-10-19): run a DEBUG build and read `EUCLIDEOUS root view size … safeAreaInsets …` and `EUCLIDEOUS page size … bottomInset …`. If the root's bottom inset is ≈ 9 the page now lays out on the full height with a 16pt margin (boxes 319 / 319.67, ending 16 above the bottom); an inset of 20 would give a 20 margin. If the inset is 0, the 9pt is something else — send me the lines.
 - MIX in portrait: all eight pads, the OCT steppers and the four OUT rows; pads ≈ 87 × 82 (landscape) and 89 × 82 (portrait), OUT buttons ≈ 42 wide, comfortable to use; the VEL strip reads "VEL".
 - Riff cells ≈ 38 × 30 comfortable to tap and paint, with the walk-tag markers still legible (their glyph scales to ≈0.89× at this width).
 - LANES cells ≈ 18 wide comfortable to tap and drag-paint; blocks ≈ 55 tall.
