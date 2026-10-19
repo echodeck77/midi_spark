@@ -26,6 +26,120 @@ project has been building this whole stretch.
   whose pitch is the one already held — step 3 stays silent under GATE 100 because nothing changed. Factory presets don't use CHORDS, so none moved.
   **Noted, NOT changed:** `chordSeqNotes` builds arrays, so the CHORDS pool allocates on the render thread every window (pre-existing; invariant 3) — the new refresh adds one
   rebuild per chord change. A rest step in the chord pattern gives an empty pool, as before.
+- **▶ EUCLIDEOUS — "FERRY: RIFF tab rebuilt: OCT goes, a WALK strip, ADVANCE EVERY and REPEAT on rests"
+  (2026-10-19, ratified by Paul; on `feat/riff-tab-walk-advance-repeat`; iOS builds clean; macOS suite green
+  throughout every phase; ALL visuals, touch feel and the ring's live feel are device-owed).** Depends on
+  the RHYTHM-tab/restart-chains ferry directly below (confirmed landed on `main` at `a49907b` before this
+  one started). Removes the RIFF tab's OCT row (MIX's stepper is now riffOctave's only control), adds a
+  non-interactive WALK strip showing the columns the lane's walk reads with a live ring, adds ADVANCE EVERY
+  (the walk moves once every 1-4 hits or steps), and adds REPEAT as a fourth ON REST choice (play the
+  nearest earlier non-rest column's note again). Built in six phases per the ferry's own order, each
+  committed separately: (1) golden renders before any engine change; (2) model/resolvers; (3) the EVERY/
+  TIE-bound/REPEAT engine; (4) the walk/readout/never-play pure functions; (5) layout + controls; (6)
+  VoiceOver. Full report per the ferry's own §14 list follows.
+  **§0 AUDIT FINDINGS.** (a) RIFF tab controls/setters all found and reused as named (riffCard, FWD/REV/
+  PEND/PING, the old 3-group modes row, melodyValuesRow) — none needed inventing. (b) RHYTHM ferry confirmed
+  landed: melody chains exist, `riffLock` is read only by (1) the §12 migration, (2) the FX tab's
+  deliberately-kept old-model pass index, (3) one gap — `euclideousListenPartnerNoteAt` (LISTEN/SHADOW and
+  LISTEN/AVOID), apparently missed by the restart-chains ferry despite its own "no engine or UI code reads
+  riffLock" claim; flagged, not fixed (LISTEN tab is out of this ferry's scope). No LOCK UI anywhere. (c)
+  MIX's riff OCT stepper confirmed to call `euclideousSetRiffOctave`, the SAME setter the RIFF tab's own OCT
+  row used — safe to remove. (d) No velocity control anywhere on the RIFF tab, confirmed. (e) Every
+  ordinal-to-column site mapped: the Router's main strike, the inlined FX pass-index pair, the TIE
+  lookahead, `euclideousWalkStep`/`Pos` (the riff-grid marker mirror), the FX tab's own `euclideousFXPassIndex`
+  wrapper (used by the LANES roll) — `euclideousFXFlashCells` turned out NOT to be a real site (it never
+  derives an ordinal itself, always calls `euclideousFXApply` with `pass: 0`, reading the column straight off
+  an already-resolved NOTE VIEW event — an earlier research note calling it a third site was wrong, corrected
+  here). (f) `riffRotateStep` confirmed `((step + rotate) % steps + steps) % steps`, matching the ferry's own
+  worked example exactly; the LEN setter is new (none existed). (g) FILL-on-rest confirmed to contribute NO
+  distinct riff pitch today (MIX ferry Q1) — independently reproduced by a golden hash: SKIP and FILL hashed
+  byte-identical on a riff with rests, confirming FILL degrades to silence plus a possible tie-extend, nothing
+  else. TIE holds via the preceding hit's own lookahead; SKIP posts a kind-2 rest-flash NOTE VIEW event, TIE
+  posts nothing new, FILL posts nothing (no strike to report). (h) §0.2's claimed 3pt header-row discrepancy
+  does NOT exist in the shared scaffolding (`laneCard`'s own body has no tab-conditional offset) — the real,
+  larger discrepancy is in the ferry's own reference arithmetic, below. (i) FX tab, LANES roll both exist and
+  were updated (§5.2); the looper is confirmed fully absent from live code (no writer ever sets
+  `euclideousLooperActive` true — `euclideousLaneRepeatLookback`'s/the TIE lookahead's `rankAt` closures still
+  call `euclideousLooperEffectiveRank` for future-proofing, currently a structural no-op).
+  **§0.2 LAYOUT DISCREPANCY, CONFIRMED NUMERICALLY, NOT RECONCILED.** The ferry's own reference arithmetic
+  (upper zone 124pt, row A 82pt) does not match the real `contentAreaH`(202)/`patternBlockH`(80) split, which
+  gives upper zone 118pt, row A 76pt — a stale "124pt" doc comment already existed in the RHYTHM tab's own
+  code making the identical error independently. Built against the REAL, derived formula throughout (so both
+  tabs provably sum to the same `contentAreaH`, making "the header row stops moving" true by construction)
+  rather than hand-fitting the ferry's screenshot-derived numbers — confirmed by test 18 that row A is 76 at
+  the reference, 6pt under its own stated 82pt floor, even in the untouched case.
+  **ENGINE (§5-6).** `euclideousRiffWalkStep(ordinal:every:)` (= `floorDiv`) and `euclideousRiffColumn(...)`
+  (today's `riffStepAt`→`riffRotateStep` pipeline, fed `w` instead of the raw ordinal) are the two new pure
+  functions every site above now calls, with EVERY 1 making `w == o` — byte-identical confirmed by the 32-bar
+  preset golden and the LOCK-ranks golden both passing unchanged. `euclideousChainTieExtensionBeats` gained
+  `every`/`bound` params; the Euclideous-row call site passes `bound = min(64, P × EVERY)` (replacing the old
+  `length`-based bound), while the retired/legacy fork passes neither, staying on its exact old bound — a
+  real, deliberate fork so EVERY's bound-widening doesn't leak into out-of-scope code. TIE bound before: at
+  most the riff's own LEN (≤8) hits, over at most 4 laps of ticks. After: at most P × EVERY (≤64) hits, over
+  as many laps as it takes (tick cap scales with the bound too — `cycleLen × bound`, not a fixed ×4). Test 1's
+  goldens show no regression at EVERY 1 within the combos this ferry's own golden matrix covers; a wider
+  bound change this large is accepted as disclosed, not exhaustively diffed against every possible riff shape.
+  `euclideousRiffRepeatLookback` (§6.2) implements REPEAT: an early-exit check (any note anywhere in the riff
+  right now?), then ADV HIT walks ordinals `o-1, o-2, …` (≤64) through the SAME column function, ADV STEP
+  walks the lane's own real tick schedule backward (restart-aware per tick via `euclideousLaneChainTick`,
+  bounded 1024, stopping at the melody origin). **A real off-by-one caught by its own test**
+  (`testRepeatUnderAdvStepReadsTheHitsOnlyNotEveryStep`): the ADV STEP backward walk used `t > originTickM`,
+  excluding the origin tick itself from the search — invisible for most lanes, but a FREE-melody lane's very
+  first hit sits exactly AT the origin tick, so it was unreachable; fixed to `t >= originTickM`.
+  **Worst-case cost per hit (§6.7):** ADV HIT is O(64) column computations (each O(1)); ADV STEP is O(1024)
+  chain-tick evaluations (each O(1), a few arithmetic ops and a ≤4-link chain walk) — both allocation-free,
+  bounded loops only, safe on the render thread as required.
+  **REPEAT's displays (§6.5).** The riff-grid marker mirror (`euclideousWalkTagPlan`'s `heldRank`) already
+  implements "hollow marker held at the last real rank" uniformly for ANY rest hit (SKIP/FILL/TIE alike — it
+  never branches on the lane's own ON REST setting) — confirmed it needs NO new code for REPEAT; its existing
+  behaviour already matches "FILL's on-rest treatment" by construction. The NOTE VIEW event posts the hit's
+  own (rest) column with the repeated column's written rank and `hasRiffNote: true`, exactly as §6.5 asks,
+  via the same `wipeColumn`/`wipeRankOut` telemetry a normal hit sets (fed from the repeated rank, not the
+  repeated column). REPEAT's own strike re-enters the EXACT pipeline a normal hit uses (invert → offset →
+  transpose → mask modes → riffResolve → addPitch → wipe), via a recursive `strikeRiffRawRank(_:) -> Bool`
+  — **a real regression caught and fixed before this ferry's first commit landed**: wrapping that pipeline in
+  a nested function silently changed SKIP/TIE's `return` from "abort the whole hit" (skip the lit-notes layer
+  too) to "only exit the nested func" (the lit-notes layer ran anyway) — caught by the pre-existing riff+lit
+  dedup test, which started reporting 3 note-ons instead of 1; fixed by giving the function a `Bool` return
+  that re-propagates the abort signal to its caller.
+  **§7 WALK/READOUT/NEVER-PLAY (main-thread only).** `euclideousRiffFooterList` (pass q's own (step, column)
+  list, bounded by the NEXT pass's own start rather than a fixed `cycleLen`-tick window, so a rhythm restart
+  that cuts a pass short is reflected automatically) and `euclideousRiffReadout` (H/J/d plus both never-play
+  sets) are new. `d` is found by brute-force divisor search over `F(0..<J)` rather than a KMP prefix function
+  — simpler and correct, acceptable since this runs on a settings change, not per frame; J is capped at the
+  ferry's own 4096 per §7.4. Verified against two of §7.8's worked examples (FWD/STRIDE 2 and FWD/LEN 5/
+  STRIDE 3 on the harness lane) and the layout function against the reference AND the ferry's own 300pt-width
+  worked numbers (test 18) — the FULLER §7.8/test-14/15 matrix (chain-based Q, the over-budget and
+  longest-readout cases) is implemented per the literal formulas but not exhaustively diffed against every
+  example; flagged, not guessed at.
+  **LAYOUT + CONTROLS (§1-3, §8).** `euclideousRiffTabLayout` is the one pure function; riffCard shrinks to
+  90×82 (OCT's row gone) with the new 55.3-square mini-grid; riffMiniGrid's never-played/past-LEN dimming is
+  now one uniform 32% opacity layer (the old baked-in colour reduction for "outside LEN" would have
+  double-dimmed under the new rule, so it was removed, not stacked). INV moved into the direction row as a
+  5th button; the retired 3-group modes row is now two rows with plain two-line labels ("ADVANCE"/"EVERY",
+  "ON REST"/"IN RIFF") replacing the rotated single-word ones; REPEAT is a 4th ON REST button; NUDGE is
+  relabelled SHIFT (same `riffRotate` field). The WALK strip (§3) is new: a header line (WALK + the readout,
+  the amber "N NEVER PLAY" part split into its own colour) over up to 16 cells, each the column the walk
+  reads at that walk step (rest dash, EVERY pips, 42% dim on a never-played step), with a live ring at the
+  current step via one `TimelineView` (paused when stopped), reusing the SAME `euclideousWalkLaneConfig`/
+  `euclideousWalkTick` mirror the existing riff-grid overlay already uses — now itself EVERY-aware (a new
+  `every` field, `euclideousWalkStep`/`Pos` routed through the new pure functions instead of the raw ordinal).
+  **VOICEOVER (§9).** EVERY is one adjustable element; HIT/STEP/INV/SKIP/FILL/TIE/REPEAT get proper labels
+  and the selected trait (REPEAT: "Repeat", hint "Plays the riff's previous note again"); LEN/STRIDE/TRANS
+  get label+value+adjustable accessibility that didn't exist on `melodyStepper` at all before this ferry;
+  SHIFT gets its specific label/hint, with the value disclosing the remembered request when a shorter LEN is
+  clamping it; the WALK strip is one static element, label "Walk", that never reads the current step. Reading
+  order falls out of the existing layout order with no sort-priority needed. Disclosed simplification: the ON
+  REST row's 4 buttons are each their own accessibility element, not grouped under one "On a rest in the
+  riff" container label (would need restructuring the row's hit-testing).
+  **TYPE SIZES/RADII (§14.3).** Direction buttons (now 5, INV included): same 12pt/radius-7 `melodyButton`
+  style as before, just one more in the row. ADVANCE/ON-REST buttons: 11pt/radius-7, matching the old 3-group
+  modes row's own HIT/STEP/SKIP/FILL/TIE/INV sizing exactly (REPEAT reuses it, no new style invented).
+  **§7.7's readout cost at J=4096:** not measured on device (no iPad access this session) — flagged for the
+  device-verification debt list below, alongside REPEAT's own worst-case-cost claim above.
+  **ANYTHING THAT CONTRADICTED THE CODE (§14.8):** the §0.2 layout-arithmetic mismatch above; the
+  `euclideousListenPartnerNoteAt` LISTEN-tab gap found incidentally; `euclideousFXFlashCells` turning out not
+  to be a real EVERY call site despite being named one in prior research.
 - **▶ EUCLIDEOUS — "FERRY: RHYTHM tab rebuilt, outputs move to MIX, restart chains become the one restart
   model" (2026-10-19, ratified by Paul; on `feat/rhythm-tab-restart-chains`; iOS builds clean; macOS suite
   green throughout every phase; ALL visuals, touch feel and device-owed sound checks are device-owed).**

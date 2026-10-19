@@ -20,6 +20,19 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 ### CHORDS source — hits on a chord change (2026-10-19 fix)
 - With the CHORDS source and a chord that changes on the bar line, a lane with a hit ON the bar line plays the NEW chord's note there (it used to play the old chord's, or — on a
   GATE-100 lane — nothing). Re-check the yellow-lane video setup: step 5 should now sound the new chord's root; step 3 stays silent under GATE 100 (same pitch, held).
+
+### RIFF tab rebuilt / WALK strip (2026-10-19 ferry — §13)
+- The WALK strip at real size: 13.4pt slots with their numbers, dashes, EVERY pips, ring and 42% dims, in all four lane colours.
+- The readout's longest kind ("LINES UP EVERY 1312 PASSES · 4 NEVER PLAY") shortens as §3.2 says and stays legible, in landscape and portrait.
+- The 5.6pt mini-grid cells and their 32% dims on all four lane colours.
+- The 45.7 × 40 direction buttons and the 76 × 38 EVERY stepper are comfortable to hit.
+- The header row and tab row hold still when switching between RHYTHM and RIFF (the real contentAreaH-derived row-A height is 76pt, not the ferry's own assumed 82 — confirm this doesn't read as a visible height jump against RHYTHM's own zones).
+- EVERY 2-4 sounds like the riff holding each note for 2-4 hits (or steps), and a melody restart regroups cleanly.
+- REPEAT sounds like the riff's previous note again, and at GATE 100% like one held note.
+- The strip's ring keeps pace with the riff, and agrees with the riff-grid marker under ADV HIT.
+- A long PING tie (test 6: 56 hits at EVERY 4) holds as one note.
+- The TIE lookahead's wider bound (P × EVERY, up to 64 hits, vs the old ≤8/4-laps) doesn't audibly change any of the 20 factory presets beyond what the golden diff already predicts.
+
 ### RHYTHM tab rebuilt / restart chains (2026-10-19 ferry — §16)
 - The STEPS stepper: the 81 × 36 +/− buttons, and tap versus drag on the value box at 12pt per step.
 - The picker's 4.6 × 6 preview bars at real size, in all four lane colours.

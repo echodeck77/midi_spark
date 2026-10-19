@@ -238,7 +238,14 @@ the same pipeline as any other row; it is not a special-cased render path.
   `muteUnit`, LANES GRID ferry 2026-10-18, UNCHANGED by the restart-chains ferry — mute stays on the
   LANES tab), RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
   shared 8-step rank matrix; DRUNK/RANDOM were removed from this walk 2026-10-13 and now coerce to
-  FWD; FREE, INVERT, ON-REST SKIP/FILL/TIE, STRIDE/LENGTH/ADVANCE/TRANSPOSE, ±2 octave, riff
+  FWD; FREE, INVERT, ON-REST SKIP/FILL/TIE/REPEAT (REPEAT added RIFF WALK ferry 2026-10-19: a hit on
+  a rest plays the nearest earlier non-rest column's note again, found by `euclideousRiffRepeatLookback`),
+  STRIDE/LENGTH/ADVANCE EVERY 1-4/TRANSPOSE (ADVANCE EVERY added the same ferry — the walk moves once
+  every N hits/steps, via `euclideousRiffWalkStep`/`Column`, the ONE ordinal→column pair every site
+  — the Router, the TIE lookahead, the riff-grid marker mirror, the FX tab's pass index, REPEAT, the
+  WALK strip — now calls; EVERY 1 is byte-identical to before except ties the lookahead's now-wider
+  P×EVERY bound catches), ±2 octave — **the RIFF tab's own OCT row is gone (same ferry); MIX's riff
+  OCT stepper is the only riffOctave control now** —, riff
   capture — LOCK is RETIRED, restart-chains ferry 2026-10-19: a melody chain of exactly `[1]` does
   what it did, §4.7; `riffLock` stays decodable, read only by migration), NOTES (an additive lit-note layer independent of the riff — it reads ON only while its switch is on AND a note is selected, `euclideousNotesLayerIsOn`; up to 8 ranks + TOP/TOP2,
   per-note octave shift, a bipolar velocity offset), and MASK (11 modes — MUTE/PAUSE/RATCHET/
@@ -317,6 +324,16 @@ the same pipeline as any other row; it is not a special-cased render path.
   reserved placeholder box), proportionally sized — no literal pixel formula survives from any
   mockup; every size claim in the log is reasoned-from-the-layout-model, not measured against a
   real screen, unless explicitly marked device-confirmed.
+- **RIFF tab (RIFF WALK ferry 2026-10-19).** Fills the RHYTHM tab's own two zones exactly, via the
+  same `patternBlockH`(80)/derived-`upperH` split (`euclideousRiffTabLayout`, ONE pure function),
+  so the header/tab rows sit at the same y whichever tab is showing. Upper zone: the riff card +
+  a non-interactive WALK strip (16 cells, the columns the walk reads at each walk step, rest
+  dashes, EVERY pips, a live ring at the current step) + the direction row (FWD/REV/PEND/PING/INV)
+  + an ADVANCE EVERY row (the EVERY 1-4 stepper + HIT/STEP). Lower zone: ON REST (SKIP/FILL/TIE/
+  REPEAT) + the values row (LEN/SHIFT/STRIDE/TRANS — SHIFT was NUDGE). **Confirmed, numeric
+  discrepancy vs the ferry's own reference arithmetic**: the real formula gives row A 76pt, not
+  the ferry's assumed 82pt (6pt under its own stated floor even at the reference) — built against
+  the real, derived formula throughout, not hand-fitted; see the status log's own §0.2 writeup.
 - **Riff-grid walk tags (2026-10-15).** Each riff-on lane's marker on the shared riff grid is a STATELESS
   tag + thread: every frame it is re-derived from the polled step (`riffPositions`, the same value the RIFF-tab
   thumbnail reads) and the live beat, via a pure mirror of `runEuclidLine`'s tick arithmetic

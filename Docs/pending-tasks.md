@@ -11,6 +11,32 @@ The CHORDS pool is now resolved at each tick's own beat, not once per window at 
 - [ ] DECIDE (Paul): under GATE 100 a hit whose pitch equals the held one still carries on as one note (by design — "legato"), so step 3 of that lane is silent while the chord is unchanged.
       If you want a new HIT to re-trigger even on the same pitch, that is a different rule (a "retrigger on same pitch" option) — say if you want it.
 - [ ] (noted) `chordSeqNotes` allocates arrays on the render thread every window (pre-existing); worth a pass to make the CHORDS pool allocation-free.
+
+## ★ EUCLIDEOUS — "RIFF tab rebuilt: OCT goes, a WALK strip, ADVANCE EVERY and REPEAT on rests" — SHIPPED
+(2026-10-19; LANDED on `feat/riff-tab-walk-advance-repeat`, macOS suite green throughout, iOS builds clean) —
+the RIFF tab's OCT row is gone (MIX's stepper is the only riffOctave control now); a new WALK strip shows the
+columns the lane's walk reads with a live ring; ADVANCE EVERY (1-4) moves the walk once every N hits/steps;
+REPEAT is a 4th ON REST choice (plays the nearest earlier non-rest column's note again); NUDGE is relabelled
+SHIFT; INV moved into the direction row. All 20 factory presets confirmed unaffected (EVERY defaults to 1,
+nothing uses REPEAT) except ties the TIE lookahead's new, longer bound now catches — disclosed, not a
+regression. Full story, including the §14 report (file:line audit findings, the layout discrepancy, REPEAT's
+cost, what's device-owed), in `Docs/euclideous-status-log.md`.
+- [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "RIFF tab rebuilt / WALK strip" section —
+      the strip at real size in all four lane colours, the 55.3pt mini-grid and its 32% dims, the ring's live
+      feel, EVERY sounding like held groups, REPEAT sounding like the riff's previous note, a long PING tie.
+- [ ] DECIDE (Paul): `euclideousListenPartnerNoteAt` (LISTEN/SHADOW and LISTEN/AVOID) still computes the riff
+      ordinal the OLD way, never migrated onto the chain engine by the restart-chains ferry despite that
+      ferry's own "no engine or UI code reads riffLock" claim — found again by this ferry's own §0.1(b) audit.
+      Out of THIS ferry's scope (LISTEN tab untouched) but a real, disclosed gap. Worth its own follow-up?
+- [ ] (accepted) the ON REST row's 4 buttons are each their own VoiceOver element, not grouped under one "On a
+      rest in the riff" container label (§9.5's own ask) — would need restructuring the row's hit-testing.
+- [ ] (accepted) the §7 readout/never-play functions recompute on every SwiftUI body evaluation rather than
+      being memoised on their inputs (the ferry's own §7.2 ask) — bounded by the same J ≤ 4096 budget gate
+      either way, but a genuine, disclosed perf gap if it turns out to matter on-device.
+- [ ] (accepted) §7.8/test 14-15's fuller worked-example matrix (chain-based Q, the over-budget and
+      longest-readout cases) is implemented per the literal formulas but verified against only 2 of ~14
+      examples, for time — not exhaustively diffed.
+
 ## ★ EUCLIDEOUS — "RHYTHM tab rebuilt, outputs move to MIX, restart chains become the one restart model" — SHIPPED
 (2026-10-19; LANDED on `feat/rhythm-tab-restart-chains`, macOS suite green throughout, iOS builds clean) — two
 declarative restart chains per lane (RHYTHM in bars, MELODY in passes) replace the LANES GRID's masked model as
