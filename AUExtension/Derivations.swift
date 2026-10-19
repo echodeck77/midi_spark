@@ -5105,16 +5105,6 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
                                        utilities: 3 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
 }
 
-// TEMPORARY (removed by the next commit, when the views move to the page layout): the old landscape column split.
-struct EuclideousLandscapeColumns: Equatable {
-    var riffColW: CGFloat, laneColW: CGFloat, riffLeadingX: CGFloat, laneCentreX: CGFloat
-}
-func euclideousLandscapeColumns(containerW: CGFloat) -> EuclideousLandscapeColumns {
-    let riff = containerW * 0.36
-    let lane = containerW - riff - EuclideousHeaderMetrics.sp16
-    return EuclideousLandscapeColumns(riffColW: riff, laneColW: lane, riffLeadingX: lane + EuclideousHeaderMetrics.sp16, laneCentreX: lane / 2)
-}
-
 struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }
 struct EuclideousHeaderLayout: Equatable {
     enum Kind: Equatable { case a, b, c }
@@ -5597,9 +5587,10 @@ struct EuclideousPadUndoBurst: Equatable {
 enum EuclideousSeqTab: Int, CaseIterable {
     case mix = 0, lanes = 1, riffs = 2, fx = 3
     var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS"; case .fx: return "FX" } }
-    /// The tabs a layout without FX shows (portrait: the FX ferry's §10.4 stop — the panel isn't under the riff grid there and is shorter than 273pt).
+    /// The tabs a layout without FX shows. PAGE LAYOUT ferry (2026-10-19): no layout is without FX any more — portrait's panel is the riff panel's own width,
+    /// so the FX columns match the riff grid's, and it is 319 tall — but the list stays for a caller that wants it.
     static let visible: [EuclideousSeqTab] = [.mix, .lanes]
-    /// FX is the third tab after MIX and LANES, offered only where its columns can line up with the riff grid's (landscape).
+    /// FX is the third tab after MIX and LANES (the page offers it in both orientations since the PAGE LAYOUT ferry).
     static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.mix, .lanes, .fx] : visible }
     static let `default`: EuclideousSeqTab = .mix
 }

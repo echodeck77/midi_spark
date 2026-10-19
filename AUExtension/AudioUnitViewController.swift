@@ -1256,6 +1256,14 @@ struct DiagView: View {
                                    canUndo: euclideousUndo.canUndo, canRedo: euclideousUndo.canRedo,
                                    onUndo: euclideousUndoAction, onRedo: euclideousRedoAction,
                                    onClose: { showEuclideous = false })
+                    // PAGE LAYOUT ferry (2026-10-19) — THE 885pt-IN-AN-814pt-VIEW BUG: this overlay shares the root ZStack with the 8×8 workbench (`mainContent`,
+                    // whose header HStack won't compress below ≈861 + 24pt padding). A ZStack is as wide as its WIDEST child and lays every flexible sibling out at
+                    // that width, so an unframed page's own GeometryReader was offered the workbench's width, not the view's — portrait was laid out ≈885 wide, the
+                    // right column and the header's gear ran off the screen. Framing the page to the root `geo` (the real view) makes its GeometryReader read 814.
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                    #if DEBUG
+                    .onChange(of: geo.size) { s in print("EUCLIDEOUS root view size \(s)") }   // device check: compare with the page's own "page size" line (EuclideousPage)
+                    #endif
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
                     PresetBrowser(presets: presetList, factory: au?.factoryPresetNames() ?? [], current: currentPreset,

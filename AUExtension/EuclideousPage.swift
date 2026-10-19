@@ -979,11 +979,10 @@ struct EuclideousPage: View {
         GeometryReader { geo in
             // ORIENTATION (Paul 2026-10-08, ferry §3): recomputed from the view's OWN live bounds every time
             // SwiftUI re-lays-out (host rotation, AUM windowed ↔ full-screen, split-view resize, …) — never a
-            // cached/fixed assumption. Landscape = strictly wider than tall.
-            let isLandscape = geo.size.width > geo.size.height
+            // cached/fixed assumption. Landscape = strictly wider than tall (`euclideousPageLayout` owns the chooser).
             ZStack(alignment: .topLeading) {
                 Color(red: 0.05, green: 0.055, blue: 0.07).ignoresSafeArea()
-                if isLandscape { landscapeLayout(geo.size) } else { portraitLayout(geo.size) }
+                pageBody(geo.size)
                 // THE DRAG HUD — same floating-card pattern as the existing EUCLID editor's own HUD
                 // (BuildPage.swift's buildEuclidDragHUD/AudioUnitViewController.swift's root-ZStack
                 // rendering): a top-level sibling so it can float anywhere over the lanes, converting
@@ -1089,7 +1088,7 @@ struct EuclideousPage: View {
                 // FOURFOLD SETTINGS (2026-10-15 ferry §2): "a plain overlay on the page, the way CogPage and
                 // the key pop-up are: the engine never stops" — rendered at the SAME nesting level as the key
                 // pop-up above (NOT CogPage's own AudioUnitViewController-level overlay — the gear lives
-                // inside this page). `headerH`/`containerW` recomputed via the SAME `headerLayout` call the
+                // inside this page). `headerH`/`containerW` recomputed via the SAME `pageGeometry` call the
                 // two layout functions already use (one formula, not a parallel derivation).
                 // SWING POPOVER (2026-10-17): anchored under the metronome icon — the UTILITIES group's
                 // middle (index 1 of 3) touch target. No frame-preference tracker needed (unlike the KEY
@@ -1099,8 +1098,7 @@ struct EuclideousPage: View {
                     Color.clear.contentShape(Rectangle()).onTapGesture { swingPopupOpen = false }
                         .frame(width: geo.size.width, height: geo.size.height)
                         .zIndex(3)
-                    let containerW = geo.size.width - sp16 * 2
-                    let hdr = headerLayout(containerW: containerW, isLandscape: isLandscape)
+                    let hdr = pageGeometry(geo.size).hdr
                     let target = hdr.compact ? HM.compactTarget : HM.target
                     let anchorX = sp16 + hdr.utilities.x + target
                     let anchorY = HM.topMargin + hdr.height
@@ -1109,8 +1107,8 @@ struct EuclideousPage: View {
                         .zIndex(4)
                 }
                 if settingsOpen {
-                    let containerW = geo.size.width - sp16 * 2
-                    let hdr = headerLayout(containerW: containerW, isLandscape: isLandscape)
+                    let pg = pageGeometry(geo.size)
+                    let containerW = pg.containerW, hdr = pg.hdr
                     EuclideousSettingsSheet(
                         tab: $settingsTab, containerW: containerW, containerH: geo.size.height,
                         headerBottomY: HM.topMargin + hdr.height,
@@ -1128,6 +1126,12 @@ struct EuclideousPage: View {
                 }
             }
             .coordinateSpace(name: "euclideousXY")
+            #if DEBUG
+            .onChange(of: geo.size) { sz in
+                let pg = euclideousPageLayout(size: sz)
+                print("EUCLIDEOUS page size \(sz) → box \(pg.box) floors \(pg.floors)")
+            }
+            #endif
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
             .onPreferenceChange(EuclideousChordsSegmentFramePreferenceKey.self) { if let f = $0 { chordsSegmentFrame = f } }
             .onPreferenceChange(EuclideousResetChipFramePreferenceKey.self) { resetChipFrames = $0 }
@@ -1140,25 +1144,8 @@ struct EuclideousPage: View {
     // (riffMarkerPointsRight / updateRiffMarkers REMOVED — superseded by the stateless walk-tag plan; see the
     // 2026-10-15 note on the old `riffMarker` state above.)
 
-    // MARK: - ONE CONTAINER (this ferry §1.3, re-affirming the layout-system ferry's own rule): "the view's
-    // bounds minus 16pt left and right. Header, lane grid and riff panel all span exactly that container.
-    // Left and right margins must be equal within 1pt." Applied on all four sides for symmetry.
-    //
-    /// The riff panel's total height at a given MATRIX row height: top+bottom padding (sp8 each) + the
-    /// LOOPER's 40pt loop row (§7.1) + a gap + 8 matrix rows with 7 gaps between them. SUPERSEDES the old
-    /// title-row/column-number-row budget (36pt total, then the loop-slots ferry's 54pt slot row) this
-    /// replaces. `riffRowHForPanelHeight` solves the SAME formula backward from an outer height — one
-    /// pair, so the panel's claimed height and its internal row height can never silently disagree
-    /// (fixing a real bug found while editing this: the previous ferry's own inverse omitted the single
-    /// `sp4` gap `riffPanelHeight` adds, so the two had already drifted out of agreement). The grid-row
-    /// floor stays 24pt (§7.1 "keeping the 24 pt floor" — unchanged by this ferry).
-    private let riffLoopRowH: CGFloat = 40
-    private func riffPanelHeight(rowH: CGFloat) -> CGFloat {
-        sp8 * 2 + riffLoopRowH + sp4 + rowH * 8 + sp4 * 7
-    }
-    private func riffRowHForPanelHeight(_ panelH: CGFloat) -> CGFloat {
-        max(24, (panelH - sp8 * 2 - riffLoopRowH - sp4 - sp4 * 7) / 8)
-    }
+    // (The riff panel's height pair now lives in Derivations.swift — `euclideousRiffPanelHeight` / `euclideousRiffRowH`, PAGE LAYOUT ferry 2026-10-19.
+    // The looper's 40pt loop row it used to budget was never built; the tab row it really draws is 29.)
 
     // --- LANE CARD'S OWN FIXED-HEIGHT ROWS — hoisted to struct level (not re-declared inside `laneCard`),
     // read by `laneCard` itself for its internal row math. ---
@@ -1168,128 +1155,49 @@ struct EuclideousPage: View {
     // overlay stroke doesn't itself consume layout space in SwiftUI, and toggling selection must never shift
     // where the content sits) puts the content at 326×286. Three rows — step row (44) · tab row (28) · tab
     // content (202) — separated by two 6pt gaps: 44+6+28+6+202 = 286, matching exactly.
-    private let cardInset: CGFloat = 10
-    private let cardRowGap: CGFloat = 6
+    private let cardInset: CGFloat = EuclideousLaneCardMetrics.inset   // PAGE LAYOUT ferry: the four lane-card rows live in Derivations.swift now,
+    private let cardRowGap: CGFloat = EuclideousLaneCardMetrics.rowGap // so the page's floor list and the card draw from the same numbers
     private let footerBandH: CGFloat = 14
-    private let cometRowH: CGFloat = 44
-    private let tabRowH: CGFloat = 28
+    private let cometRowH: CGFloat = EuclideousLaneCardMetrics.cometRowH
+    private let tabRowH: CGFloat = EuclideousLaneCardMetrics.tabRowH
     private let contentLineH: CGFloat = 36
-    /// 202, the ferry's own literal "Tab content" height — this IS `tabContentH` now (not a floor the
-    /// gesture pads/step-bar stretch within, now that the RHYTHM tab's own content is itself a fully fixed-
-    /// height layout per the SAME ferry's RHYTHM table: 118 (sliders) + 4 + 80 (rate/direction/emitter
-    /// block) = 202, exactly matching — so nothing stretches to fill a budget anymore, every number is
-    /// literal).
-    private var tabContentH: CGFloat { 202 }
-    /// A lane card's own fixed overhead — every row except… nothing stretches anymore (ferry: "every card is
-    /// 306 tall... whatever tab is open and however many steps"), so this is now simply the card's own total
-    /// fixed height end to end. Used only to protect a lane-grid floor in `portraitLayout` below.
-    private var laneCardFixedOverhead: CGFloat { cometRowH + tabRowH + tabContentH + cardInset * 2 + cardRowGap * 2 }
 
-    /// FULL-WIDTH LAYOUT (this ferry §1, a BLOCKER fix; §2 removes the placeholder entirely) — SUPERSEDES
-    /// the "six equal boxes" design wholesale. ROOT CAUSE of the reported bug: that design forced every
-    /// cell to be SQUARE (`cellSize = min(widthCandidate, heightCandidate)`) — whichever axis was more
-    /// constrained (usually height, since these panels are wide) set the size, and the OTHER axis was left
-    /// with unclaimed empty space the square cells never grew into. "Content stops ~350px short of the
-    /// right edge" is exactly that. FIXED by computing the lane grid's width and height INDEPENDENTLY
-    /// (lane cards are no longer forced square) so the grid always fills its own column on BOTH axes, by
-    /// construction — re-verified numerically (not just reasoned through) at several panel sizes before
-    /// shipping, since that's the only check this environment can actually perform; see the reply for the
-    /// worked numbers.
-    ///
-    /// PORTRAIT: lane grid spans the full container width (§1.4); below it, riff panel + NOTE VIEW split
-    /// the remaining row 50/50 (this ferry §0.1, a real layout change — the space the DASHED PLACEHOLDER
-    /// used to occupy, before the previous ferry deleted it outright, is NOT empty anymore; it's NOTE VIEW,
-    /// per this ferry's own "supersedes the previous ferry's instruction to delete that placeholder: replace
-    /// it with NOTE VIEW instead"). JUDGMENT CALL, flagged: neither ferry specifies a split fraction between
-    /// riff and NOTE VIEW — 50/50 is a neutral default, not a derived number, worth correcting once seen.
-    /// The shared row still gets a TARGET height (`riffRowHTarget`, 20pt/row — now NOTE VIEW's own per-strip
-    /// budget too, see `riffPanelHeight`) that FLEXES DOWN below it — never the lane grid — under the SAME
-    /// "fit always wins, but the primary content is protected first" precedent an earlier ferry established.
-    private let riffRowHTarget: CGFloat = 20
-    private func portraitLayout(_ size: CGSize) -> some View {
+    // MARK: - THE PAGE (PAGE LAYOUT ferry, ratified 2026-10-19: "six equal boxes in both orientations, portrait fits the view, MIX fills in portrait")
+    //
+    // ONE arrangement for both orientations, entirely from `euclideousPageLayout` (Derivations.swift): the view's own size in, six boxes of ONE size out —
+    // the four lane cards, the riff panel and the MIX | LANES | FX panel — landscape three columns by two rows, portrait two by three. SUPERSEDES the
+    // landscape 36% column split and portrait's content-derived heights (the riff panel's 248 target and the lane cards' fixed-overhead floor): nothing
+    // measured from content changes a box's size any more, and every panel lays itself out in its box with its own existing formulas. No ScrollView, nothing
+    // clipped, no minimumScaleFactor: a box under some panel's floor is drawn at the formula's values and listed in `page.floors` (device/size reporting).
+    //
+    // Why `pageGeometry` exists: the body, the swing popover and the settings sheet all need the header's layout, which needs the page's riff-panel x and
+    // lane-gutter x — so there is exactly ONE derivation of (container width, header layout, page layout), here.
+    private func pageGeometry(_ size: CGSize) -> (containerW: CGFloat, hdr: EuclideousHeaderLayout, page: EuclideousPageLayout) {
         let containerW = size.width - sp16 * 2
-        let hdr = headerLayout(containerW: containerW, isLandscape: false)
-        let headerH = hdr.height
-        let totalBelowH = max(1, size.height - headerH - (HM.topMargin + sp16 * 2))   // header top margin (9, keeps the 31pt centre line) + header↔grid gap + bottom margin
-        let riffTargetH = riffPanelHeight(rowH: riffRowHTarget)
-        let laneGridMinH = laneCardFixedOverhead * 2 + sp8   // 2 lane-card rows + the gap between them; the gesture-pad row alone shrinks toward 0
-        let sharedRowH = min(riffTargetH, max(1, totalBelowH - sp16 - laneGridMinH))
-        let laneGridH = max(1, totalBelowH - sp16 - sharedRowH)
-        let laneW = max(1, (containerW - sp8) / 2)
-        let laneH = max(1, (laneGridH - sp8) / 2)
-        let halfW = max(1, (containerW - sp16) / 2)   // riff | NOTE VIEW, 50/50 (judgment call, see above)
-        let riffRowH = riffRowHForPanelHeight(sharedRowH)
-        return VStack(alignment: .leading, spacing: sp16) {
-            // CONTAINER RULE (this ferry §1.3): "every element is laid out within the view bounds minus
-            // 16pt left and right... recalculated on every size change" — the header was the ONE element on
-            // this page with no explicit width ceiling (every other row below already had `.frame(width:
-            // containerW)`), so its own content (title+MAIN OUT+ON+close on row 1) could render wider than
-            // the real screen with nothing to clip or compress it — the confirmed root cause of "D cut off,
-            // ON/close missing." Same frame-then-pad order as the content VStack below, so both compute the
-            // identical left/right margin from the SAME `containerW`.
-            fourfoldHeader(hdr, containerW: containerW)
-                .padding(.horizontal, sp16).padding(.top, HM.topMargin)
-            VStack(spacing: sp16) {
-                // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard
-                // itself): the EXACT frames named in the device crash (`closure #1 in closure #1 in
-                // landscapeLayout`/portraitLayout's own equivalent HStack, resolving 4 laneCard copies'
-                // combined type) — erasing here bounds each HStack to a fixed-size `TupleView<(AnyView,
-                // AnyView)>` instead of a tuple of 4 independently-huge opaque types.
-                VStack(spacing: sp8) {
-                    HStack(spacing: sp8) { AnyView(laneCard(0, width: laneW, height: laneH)); AnyView(laneCard(1, width: laneW, height: laneH)) }
-                    HStack(spacing: sp8) { AnyView(laneCard(2, width: laneW, height: laneH)); AnyView(laneCard(3, width: laneW, height: laneH)) }
-                }
-                HStack(spacing: sp16) {
-                    riffGridView(maxWidth: halfW, rowH: riffRowH).frame(width: halfW, height: sharedRowH)
-                    sequencerPanel(maxWidth: halfW, maxHeight: sharedRowH)
-                }
-            }
-            .frame(width: containerW, alignment: .leading)
-            .padding(.horizontal, sp16).padding(.bottom, sp16)
-        }
+        let page = euclideousPageLayout(size: size)
+        let hdr = euclideousHeaderLayout(containerW: containerW, isLandscape: page.isLandscape,
+                                         riffLeadingX: page.riffLeadingX, laneCentreX: page.laneCentreX)
+        return (containerW, hdr, page)
     }
-
-    /// LANDSCAPE (this ferry §1.4 history, literal): lane grid ≈64% of the container, riff ≈36%, a 16pt gap
-    /// between them. The riff column's share is computed DIRECTLY from the container, and the lane column
-    /// takes the exact COMPLEMENT (`containerW − riffColW − sp16`) — the two always sum to exactly
-    /// `containerW`, never a rounding-induced gap at the right edge. The lane grid's 2×2 cells are sized
-    /// independently on each axis from that column, same non-square fix portrait uses above.
-    ///
-    /// The right column (this ferry §0.1, a real layout change): was riff panel alone, full column height
-    /// — now riff (top) / NOTE VIEW (bottom), splitting that SAME column height 50/50 (the same judgment
-    /// call as portrait's own split, flagged there).
-    private func landscapeLayout(_ size: CGSize) -> some View {
-        let containerW = size.width - sp16 * 2
-        let hdr = headerLayout(containerW: containerW, isLandscape: true)
-        let headerH = hdr.height
-        let belowH = max(1, size.height - headerH - (HM.topMargin + sp16 * 2))   // header top margin (9, keeps the 31pt centre line) + header↔grid gap + bottom margin
-        let cols = euclideousLandscapeColumns(containerW: containerW)   // ONE column split, shared with the header (riff panel's edge, lane gutter)
-        let riffColW = cols.riffColW
-        let laneColW = cols.laneColW
-        let laneW = max(1, (laneColW - sp8) / 2)
-        let laneH = max(1, (belowH - sp8) / 2)
-        let halfH = max(1, (belowH - sp16) / 2)   // riff (top) / NOTE VIEW (bottom), 50/50
-        let riffRowH = riffRowHForPanelHeight(halfH)
-        return VStack(alignment: .leading, spacing: sp16) {
-            fourfoldHeader(hdr, containerW: containerW).padding(.horizontal, sp16).padding(.top, HM.topMargin)
-            HStack(spacing: sp16) {
-                // AnyView on each laneCard call — see the 2026-10-13 crash-fix comment inside laneCard and
-                // portraitLayout's identical HStack above. This is the literal pair of frames named in the
-                // device crash report ("closure #1 in closure #1 in EuclideousPage.landscapeLayout(_:)").
-                VStack(spacing: sp8) {
-                    HStack(spacing: sp8) { AnyView(laneCard(0, width: laneW, height: laneH)); AnyView(laneCard(1, width: laneW, height: laneH)) }
-                    HStack(spacing: sp8) { AnyView(laneCard(2, width: laneW, height: laneH)); AnyView(laneCard(3, width: laneW, height: laneH)) }
-                }
-                .frame(width: laneColW)
-                VStack(spacing: sp16) {
-                    riffGridView(maxWidth: riffColW, rowH: riffRowH).frame(width: riffColW, height: halfH)
-                    sequencerPanel(maxWidth: riffColW, maxHeight: halfH, fxAvailable: true)
-                }
-                .frame(width: riffColW)
-            }
-            .frame(width: containerW, alignment: .leading)
-            .padding(.horizontal, sp16).padding(.bottom, sp16)
+    private func pageBody(_ size: CGSize) -> some View {
+        let g = pageGeometry(size)
+        let page = g.page, box = page.box
+        return ZStack(alignment: .topLeading) {
+            fourfoldHeader(g.hdr, containerW: g.containerW)
+                .offset(x: sp16, y: HM.topMargin)
+            // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
+            // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
+            AnyView(laneCard(0, width: box.width, height: box.height)).offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
+            AnyView(laneCard(1, width: box.width, height: box.height)).offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
+            AnyView(laneCard(2, width: box.width, height: box.height)).offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
+            AnyView(laneCard(3, width: box.width, height: box.height)).offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
+            riffGridView(maxWidth: box.width, rowH: max(1, euclideousRiffRowH(panelHeight: box.height)))
+                .frame(width: box.width, height: box.height)
+                .offset(x: page.riff.minX, y: page.riff.minY)
+            sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)   // FX in portrait too: its columns match the riff grid's (same width)
+                .offset(x: page.seq.minX, y: page.seq.minY)
         }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
     // MARK: - FOURFOLD HEADER (ferry "Fourfold header", approved by Paul 2026-10-15) — replaces the old one-row-or-two
@@ -1299,8 +1207,8 @@ struct EuclideousPage: View {
     //
     // ONE FORMULA: every position/size below comes from `euclideousHeaderLayout` / `EuclideousHeaderMetrics`
     // (Derivations.swift, unit-tested) — the layout (A one row / B two rows / C compact two rows) is CHOSEN from the same
-    // numbers the views are DRAWN with, and `portraitLayout`/`landscapeLayout` read this header's height and the landscape
-    // column split from the same functions, so the body and the header can never disagree. No ScrollView, no
+    // numbers the views are DRAWN with, and `pageBody` reads this header's kind and takes the header's positional inputs (the
+    // riff panel's x, the lane gutter's x) from `euclideousPageLayout`, so the body and the header can never disagree. No ScrollView, no
     // `.minimumScaleFactor` (house rules): text that doesn't fit truncates.
     private typealias HM = EuclideousHeaderMetrics
     private var headerInk: Color { Color(hex: 0x0D0F14) }
@@ -1308,17 +1216,6 @@ struct EuclideousPage: View {
     private var headerMuted: Color { Color(hex: 0xAAB0BA) }
     private var headerDim: Color { Color(hex: 0x8A909A) }
 
-    private func headerLayout(containerW: CGFloat, isLandscape: Bool) -> EuclideousHeaderLayout {
-        if isLandscape {
-            let c = euclideousLandscapeColumns(containerW: containerW)
-            return euclideousHeaderLayout(containerW: containerW, isLandscape: true, riffLeadingX: c.riffLeadingX, laneCentreX: c.laneCentreX)
-        }
-        // Portrait: the lane grid spans the whole container, so its vertical gutter is the container's centre.
-        return euclideousHeaderLayout(containerW: containerW, isLandscape: false, riffLeadingX: 0, laneCentreX: containerW / 2)
-    }
-
-    /// The whole header: four groups placed by the pure layout, every group centred on the 44pt row's own midline (31pt
-    /// below the page top, the spec's centre line, because the page gives the block a 9pt top margin).
     private func fourfoldHeader(_ layout: EuclideousHeaderLayout, containerW: CGFloat) -> some View {
         let rowStep = HM.rowH + HM.sp4
         return ZStack(alignment: .topLeading) {
@@ -1901,13 +1798,11 @@ struct EuclideousPage: View {
         // it already satisfies this. "Narrower cards: if W is under 326, stop and report" — flagged in the
         // CLAUDE.md status entry for this ferry; nothing here can literally halt rendering, so a too-narrow
         // card still lays out (by the same scaling formulas), just unverified below the reference size.
-        let innerWidth = max(1, width - cardInset * 2)
+        let innerWidth = EuclideousLaneCardMetrics.innerWidth(cardWidth: width)
         // THREE FIXED ROWS (ferry: step row 44 · tab row 28 · tab content 202, two 6pt gaps between them) —
         // `contentAreaH` is no longer a "whatever's left" budget; it's the literal 202 whenever `height`
         // matches the reference 306 exactly, and scales only if a caller ever hands this a different height.
-        let outerVPad: CGFloat = cardInset * 2
-        let rowGaps: CGFloat = cardRowGap * 2
-        let contentAreaH = max(1, height - cometRowH - tabRowH - outerVPad - rowGaps)
+        let contentAreaH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: height)   // card height − 104 (comet 44 + tabs 28 + 2 × 10 inset + 2 × 6 gap)
         let steps = max(2, min(16, line.steps))
         VStack(alignment: .leading, spacing: cardRowGap) {
             // LISTEN TAB: a FOLLOW lane PLAYS its partner's pattern, at the partner's rate — so its bar shows THAT (lit cells in the
@@ -4484,7 +4379,7 @@ struct EuclideousPage: View {
     /// SIZED FROM THE CALLER'S OWN `maxWidth`/`rowH` (this ferry §1.4 — landscape passes the 36%-of-container
     /// riff column's own width + a row height solved to fill the full column height; portrait passes the full
     /// container width + a row height solved from the panel's own, possibly-flexed, target height — see
-    /// `portraitLayout`/`landscapeLayout`/`riffRowHForPanelHeight`).
+    /// `pageBody`/`euclideousRiffRowH`).
     ///
     /// Per-lane position dots sit above the columns (ferry §2.3 originally, re-specified by this ferry's own
     /// §7.2 as a DOTS-ONLY row with no background cell drawn — see the row itself, below) — reads
@@ -4521,7 +4416,7 @@ struct EuclideousPage: View {
                                  dotColor: sel ? ink.opacity(0.3) : Color(hex: 0x4A4E57))
                 }
                 .padding(.horizontal, 4).padding(.vertical, 3)
-                .frame(maxWidth: .infinity, minHeight: 28)
+                .frame(maxWidth: .infinity).frame(height: EuclideousRiffPanelMetrics.tabRowH)   // 29 = 23pt icon + 3 + 3 — the same number the page's row formula subtracts
                 .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle())
                 .onTapGesture { onSetActiveRiff(i) }
@@ -4867,7 +4762,7 @@ struct EuclideousPage: View {
 
 
     // MARK: - SEQUENCER PANEL (2026-10-14 ferry) — REPLACES the NOTE VIEW panel above (same size/position at
-    // both call sites, `portraitLayout`/`landscapeLayout` just swap which function they call). Two tabs:
+    // both call sites, the page body just swaps which function it calls). Two tabs:
     // LANES (which of the 4 lanes sounds each step) and RIFFS (which of the 4 riffs plays each step) — both
     // a small step-clock grid over its own ON/RATE/LEN controls. "The step clock always runs" (§4): the grid
     // and its live playhead highlight both read unconditionally from `lanesSeqStep`/`riffsSeqStep`,
@@ -4889,11 +4784,12 @@ struct EuclideousPage: View {
     // (Derivations.swift) — that pure function and its own tests are UNTOUCHED, just orphaned (zero UI call
     // sites now), ready to be wired into wherever §10 lands once it's answered. Not reused here as a guess.
     private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false) -> some View {
-        // FX TAB (§10.4): landscape only — portrait puts this panel BESIDE the riff grid and shorter than 273pt, so its columns can't line up; a document left on FX
-        // when the page turns portrait shows MIX (the stored selection is untouched).
+        // FX TAB: offered in both orientations since the PAGE LAYOUT ferry (2026-10-19) — in portrait this panel sits BESIDE the riff panel at the same width, so each FX
+        // column takes the riff grid's column width and the same offset from its own panel's leading edge (§10.3, by construction); `fxAvailable` stays a parameter.
         let tab: EuclideousSeqTab = (sequencerTab == .fx && !fxAvailable) ? .mix : sequencerTab
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
+        let tabBody = euclideousSeqTabBodySize(panelWidth: maxWidth, panelHeight: maxHeight)   // LANES' and FX's area: one function, shared with the page's floor list
         let tabRowH = EuclideousMixMetrics.tabRowH
         // LANES' own bottom bar (OFF/RATE/LEN) was PANEL CHROME drawn under every tab; it now belongs to the LANES tab alone (MIX ferry §2.2),
         // so MIX gets the whole grid area. LANES keeps its exact geometry: tab row, sp4, grid, sp4, controls row.
@@ -4909,9 +4805,9 @@ struct EuclideousPage: View {
             case .mix:
                 mixGrid(width: innerW, height: mixH)
             case .lanes:
-                lanesTab(width: innerW, height: max(1, innerH - tabRowH - sp4))   // LANES GRID (2026-10-18): replaces the old step grid + ON/RATE/LEN row
+                lanesTab(width: tabBody.width, height: tabBody.height)   // LANES GRID (2026-10-18): replaces the old step grid + ON/RATE/LEN row
             case .fx:
-                fxTab(width: innerW, height: max(1, innerH - tabRowH - sp4))
+                fxTab(width: tabBody.width, height: tabBody.height)
             case .riffs:   // hidden (unreachable from the tab row) — kept so its code stays compiled
                 VStack(spacing: sp4) {
                     sequencerRiffsGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
@@ -5133,9 +5029,10 @@ struct EuclideousPage: View {
     private func mixGrid(width: CGFloat, height: CGFloat) -> some View {
         let grid = euclideousMixGrid(width: width, height: height)
         return ZStack(alignment: .topLeading) {
-            // §9.3: below padH 60, don't build MIX for this layout at all (replaces the old arbitrary 20
-            // floor) — the panel size and the numbers are reported in §17, not drawn on screen.
-            if grid.cellW >= 20, grid.padH >= EuclideousMixMetrics.floorPadH {
+            // PAGE LAYOUT ferry (2026-10-19) retired §9.3's STOP (below padH 60 MIX was not built at all — portrait's 248pt panel drew only its tab strip):
+            // MIX is always drawn at the formula's values and the page's floor list reports a small box. The one guard left is geometric — a pad needs room for
+            // its 24pt VEL strip and 14pt GATE strip, or its plot would have a negative size.
+            if grid.cellW > EuclideousMixMetrics.velStripW, grid.padH > EuclideousMixMetrics.gateStripH {
                 ForEach(0..<8, id: \.self) { cell in
                     let lane = cell / 2, notes = cell % 2 == 1
                     let o = grid.origin(lane: lane, notes: notes)
