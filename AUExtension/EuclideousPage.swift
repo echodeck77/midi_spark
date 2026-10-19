@@ -782,6 +782,10 @@ struct EuclideousPage: View {
     let onUndo: () -> Void
     let onRedo: () -> Void
     let onClose: () -> Void
+    /// The view's bottom safe-area inset (the home-indicator zone), read from the root `GeometryReader` in `DiagView` and passed in because the page is laid out on the
+    /// view's FULL height (it ignores the bottom safe area, and a view whose frame sits inside the safe area reads its own inset as 0). The page's bottom margin is
+    /// `max(16, inset)` (`EuclideousPageMetrics.bottomMargin`), so no box sits in that zone. 0 = nothing to avoid (the default).
+    var pageBottomInset: CGFloat = 0
 
     // FOUR RIFFS (2026-10-18 ferry): the grid shows `riffs[activeRiff]` directly — no looper, no
     // beat-dependent derivation. Every lane reads this SAME array via `activeRiff`, so editing the
@@ -1128,8 +1132,8 @@ struct EuclideousPage: View {
             .coordinateSpace(name: "euclideousXY")
             #if DEBUG
             .onChange(of: geo.size) { sz in
-                let pg = euclideousPageLayout(size: sz)
-                print("EUCLIDEOUS page size \(sz) → box \(pg.box) floors \(pg.floors)")
+                let pg = euclideousPageLayout(size: sz, bottomInset: pageBottomInset)
+                print("EUCLIDEOUS page size \(sz) bottomInset \(pageBottomInset) geo.safeAreaInsets \(geo.safeAreaInsets) → box \(pg.box) floors \(pg.floors)")
             }
             #endif
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
@@ -1174,7 +1178,7 @@ struct EuclideousPage: View {
     // lane-gutter x — so there is exactly ONE derivation of (container width, header layout, page layout), here.
     private func pageGeometry(_ size: CGSize) -> (containerW: CGFloat, hdr: EuclideousHeaderLayout, page: EuclideousPageLayout) {
         let containerW = size.width - sp16 * 2
-        let page = euclideousPageLayout(size: size)
+        let page = euclideousPageLayout(size: size, bottomInset: pageBottomInset)
         let hdr = euclideousHeaderLayout(containerW: containerW, isLandscape: page.isLandscape,
                                          riffLeadingX: page.riffLeadingX, laneCentreX: page.laneCentreX)
         return (containerW, hdr, page)
@@ -1191,7 +1195,7 @@ struct EuclideousPage: View {
             AnyView(laneCard(1, width: box.width, height: box.height)).offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
             AnyView(laneCard(2, width: box.width, height: box.height)).offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
             AnyView(laneCard(3, width: box.width, height: box.height)).offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
-            riffGridView(maxWidth: box.width, rowH: max(1, euclideousRiffRowH(panelHeight: box.height)))
+            riffGridView(box: box)
                 .frame(width: box.width, height: box.height)
                 .offset(x: page.riff.minX, y: page.riff.minY)
             sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)   // FX in portrait too: its columns match the riff grid's (same width)
@@ -4403,20 +4407,30 @@ struct EuclideousPage: View {
     /// directly, "ONE GLOBAL RIFF" ferry) — there is no separate "editing vs. playing" distinction left
     /// to track, since nothing switches riffs live underneath the page anymore. Long-press opens
     /// COPY/PASTE/CLEAR. The glyph is `riffMiniIcon`, unchanged since the 2026-10-14 icon-redesign ferry.
+    /// RIFF PANEL ferry (2026-10-19) §2: four tabs, sp4 apart, each (inner width − 12) ÷ 4 wide and 20 TALL (`EuclideousRiffPanelMetrics.tabRowH`; was ≈29), radius 6.
+    /// Fills, colours, tap, long-press and the labels are as before. Contents, centred as a GROUP: the playing triangle when this riff plays (5 × 6), 3pt, the
+    /// number, 6pt, then the mini icon at its TAB size (21.7 × 12.8). SOURCE DIFFERENCES (reported): there was no triangle in the restored four-riff row (it went
+    /// with the looper tabs, 8a4337e) — in today's one-riff model the ACTIVE riff is the only one that plays, so it is drawn there, in the pre-looper row's colour
+    /// for the active tab (ink); and the number stays 9pt heavy (the ferry text says 10) because source wins on an existing type size.
     private func riffTabRow() -> some View {
-        HStack(spacing: sp4) {
+        HStack(spacing: EuclideousRiffPanelMetrics.tabGap) {
             ForEach(0..<4, id: \.self) { i in
                 let sel = i == max(0, min(3, activeRiff))
                 let ink = Color(hex: 0x0D0F14)
-                HStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    if sel {
+                        RiffPlayTriangle().fill(ink).frame(width: 5, height: 6)
+                        Color.clear.frame(width: 3, height: 1)
+                    }
                     Text("\(i + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
                         .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
+                    Color.clear.frame(width: 6, height: 1)
                     riffMiniIcon(ranks: i < riffs.count ? riffs[i].ranksResolved : [],
                                  noteColor: sel ? ink : Color(hex: 0xDFE3EA),
-                                 dotColor: sel ? ink.opacity(0.3) : Color(hex: 0x4A4E57))
+                                 dotColor: sel ? ink.opacity(0.3) : Color(hex: 0x4A4E57),
+                                 style: .tab)
                 }
-                .padding(.horizontal, 4).padding(.vertical, 3)
-                .frame(maxWidth: .infinity).frame(height: EuclideousRiffPanelMetrics.tabRowH)   // 29 = 23pt icon + 3 + 3 — the same number the page's row formula subtracts
+                .frame(maxWidth: .infinity).frame(height: EuclideousRiffPanelMetrics.tabRowH)
                 .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle())
                 .onTapGesture { onSetActiveRiff(i) }
@@ -4424,6 +4438,12 @@ struct EuclideousPage: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Riff \(i + 1)\(sel ? ", editing" : "")")
             }
+        }
+    }
+    /// The playing triangle: 5 wide, 6 tall, pointing right.
+    private struct RiffPlayTriangle: Shape {
+        func path(in r: CGRect) -> Path {
+            var p = Path(); p.move(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY)); p.addLine(to: CGPoint(x: r.minX, y: r.maxY)); p.closeSubpath(); return p
         }
     }
     private func riffTabMenuCard(_ idx: Int) -> some View {
@@ -4456,16 +4476,14 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
-    private func riffGridView(maxWidth: CGFloat, rowH: CGFloat) -> some View {
+    private func riffGridView(box: CGSize) -> some View {
         let n = 8
         let ranks = effectiveGridRanks
-        // MIDI IN/CHORD/KEY moved to the header (2026-10-14) — the grid reclaims the width the old
-        // vertical source tabs used to occupy; only the label column's own gap is left to account for.
-        let cellW = riffCellW(maxWidth: maxWidth)
-        // RULE 6, LITERAL: "keeping them square" — the cell is the smaller of its width-derived and
-        // height-derived candidate, matching this page's own established "fit always wins over a target"
-        // convention elsewhere (the lane grid/riff-panel split uses the identical idea).
-        let cellH = min(max(1, rowH), cellW)
+        // RIFF PANEL ferry (2026-10-19) §1/§8.1: the panel's inside comes from ONE pure function of the box the page gives it — the tab row, the grid's cell
+        // width and height (the cell is still the smaller of its width- and height-derived candidate, "keeping them square"), the rails block below.
+        let layout = euclideousRiffPanelLayout(box: box)
+        let cellW = layout.cellW
+        let cellH = layout.cellH
         let source = noteSource
         let pool = riffLivePool
         // LIVE STATE (rule, "Live states" §1): MIDI IN with nothing held — no tags anywhere on the grid. An empty
@@ -4478,8 +4496,9 @@ struct EuclideousPage: View {
         let tagSeats: [WalkTagSeat] = (0..<4).compactMap { i in
             tagPlansNow[i].map { WalkTagSeat(lane: i, col: $0.seatStep, rank: $0.seatRank, facingRight: $0.facingRight) }
         }
-        return VStack(alignment: .leading, spacing: sp4) {
+        return VStack(alignment: .leading, spacing: 0) {
             riffTabRow()
+            Color.clear.frame(height: EuclideousRiffPanelMetrics.tabToGrid)
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(pool: pool, source: source, cellH: cellH)
                 // DRAGGABLE (see `riffDragLastCell`'s own doc comment above): the matrix VStack carries no
@@ -4528,6 +4547,8 @@ struct EuclideousPage: View {
                     }
                 }
             }
+            Color.clear.frame(height: EuclideousRiffPanelMetrics.gridToRails)
+            Color.clear.frame(height: EuclideousRiffPanelMetrics.railsH)   // the four lane rails (RIFF PANEL ferry §6) draw here
         }
         .padding(sp8)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
@@ -5369,24 +5390,15 @@ struct EuclideousPage: View {
     /// end of a short `ranks` array) is a full column of dots, and an empty riff is dots throughout. Shows
     /// the riff exactly as stored — no lane's INV/TRANS/octave applies, satisfied for free since `ranks` is
     /// already each riff's own `.ranksResolved` (a riff-level resolve, never a lane-level transform).
-    private func riffMiniIcon(ranks: [Int], noteColor: Color, dotColor: Color) -> some View {
-        Canvas { ctx, _ in
-            for step in 0..<8 {
-                let r = step < ranks.count ? ranks[step] : 0
-                let noteRow = (r >= 1 && r <= 8) ? (8 - r) : -1   // row index 0...7 from the top; -1 = rest, no row matches, so every row below draws a dot
-                let x = CGFloat(step) * 4
-                for row in 0..<8 {
-                    if row == noteRow {
-                        let rect = CGRect(x: x, y: CGFloat(row) * 3, width: 3, height: 2)
-                        ctx.fill(Path(roundedRect: rect, cornerRadius: 0.5), with: .color(noteColor))
-                    } else {
-                        let rect = CGRect(x: x + 1, y: CGFloat(row) * 3 + 0.5, width: 1, height: 1)
-                        ctx.fill(Path(rect), with: .color(dotColor))
-                    }
-                }
-            }
+    private func riffMiniIcon(ranks: [Int], noteColor: Color, dotColor: Color, style: EuclideousMiniIconStyle = .standard) -> some View {
+        // RIFF PANEL ferry (2026-10-19) §2.3: a `style` parameter. `.standard` (the default) is the 31 × 23 every call site but the riff TAB ROW keeps; `.tab` is
+        // 21.7 × 12.8 (column pitch 2.8, row pitch 1.65, marks 2.1 × 1.25, dots 0.7 × 0.7). The marks and dots come from the pure `euclideousMiniIconGeometry`.
+        let g = euclideousMiniIconGeometry(ranks: ranks, style: style)
+        return Canvas { ctx, _ in
+            for m in g.marks { ctx.fill(Path(roundedRect: m, cornerRadius: style.markRadius), with: .color(noteColor)) }
+            for d in g.dots { ctx.fill(Path(d), with: .color(dotColor)) }
         }
-        .frame(width: 31, height: 23)
+        .frame(width: g.size.width, height: g.size.height)
     }
 
     private func euclideousDragHUD(_ info: EuclidDragHUDInfo) -> some View {

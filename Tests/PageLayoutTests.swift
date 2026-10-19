@@ -138,17 +138,12 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(euclideousMixGrid(width: old.width, height: old.height).padH, 46, accuracy: 1e-9)
     }
     func testRiffGridAtBothReferences() {
-        // with the riff tabs (29 tall): cells 37.83 × 30.25 landscape, 38.63 × 30.33 portrait. (The looper's 40pt row is not built; its numbers
-        // — 28.38 / 28.46 in the ferry text — do not reproduce from the formula either: 28.875 / 28.96 — and are reported, not drawn.)
-        XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH, 77)
-        XCTAssertEqual(euclideousRiffCellW(maxWidth: land.box.width), 37.83, accuracy: 0.01)
-        XCTAssertEqual(euclideousRiffRowH(panelHeight: land.box.height), 30.25, accuracy: 1e-9)
-        XCTAssertEqual(euclideousRiffCellW(maxWidth: port.box.width), 38.63, accuracy: 0.01)
-        XCTAssertEqual(euclideousRiffRowH(panelHeight: port.box.height), 30.33, accuracy: 0.01)
-        // the pair is one formula: panel height ↔ row height
-        for rowH in [20.0, 24, 30.25, 41.5] { XCTAssertEqual(euclideousRiffRowH(panelHeight: euclideousRiffPanelHeight(rowH: CGFloat(rowH))), CGFloat(rowH), accuracy: 1e-9) }
-        // today's stale budget: a 308-tall frame budgeted rows of 27.5 for a 40pt looper row that was never drawn (the tab row is 29), so the panel DREW 297
-        XCTAssertEqual(euclideousRiffPanelHeight(rowH: (308 - 16 - 40 - 4 - 28) / 8), 297, accuracy: 1e-9)
+        // RIFF PANEL ferry (2026-10-19) §1: the tabs are 20 tall, the grid starts at y 34, four 8pt rails (41) sit under it — rows (box − 119) / 8 = 25 / 25.08.
+        // (The layout ferry's own chrome was 77 and its pure height/rows pair is GONE: the panel's inside is laid out by `euclideousRiffPanelLayout`, once.)
+        XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH, 119)
+        let l = euclideousRiffPanelLayout(box: land.box), p = euclideousRiffPanelLayout(box: port.box)
+        XCTAssertEqual(l.cellW, 37.83, accuracy: 0.01); XCTAssertEqual(l.rowH, 25, accuracy: 1e-9)
+        XCTAssertEqual(p.cellW, 38.63, accuracy: 0.01); XCTAssertEqual(p.rowH, 25.08, accuracy: 0.01)
     }
     func testFXRowsFollowThePanelAndItsColumnsAreTheRiffGrids() {
         // rows share the height: (content − 86) / 6 with content = box − 40; 29 at the old 260-tall content (a 300pt box); no cap, floor 24
@@ -224,12 +219,12 @@ final class PageLayoutTests: XCTestCase {
         let area = euclideousMixGridArea(panelWidth: 355, panelHeight: 274)
         let g = euclideousMixGrid(width: area.width, height: area.height)
         XCTAssertEqual(g.padH, 59, accuracy: 1e-9); XCTAssertEqual(g.cellW, 80.75, accuracy: 1e-9)
-        XCTAssertEqual(euclideousRiffRowH(panelHeight: 274), 24.625, accuracy: 1e-9)
+        XCTAssertEqual(euclideousRiffPanelLayout(box: CGSize(width: 355, height: 274)).rowH, 19.375, accuracy: 1e-9, "the new chrome (119) takes 42pt more than the old 77")
         let r = euclideousRiffTabLayout(contentAreaH: 274 - 104, fullWidth: 335)
         XCTAssertEqual(r.rowAHeight, 44, accuracy: 1e-9, "RIFF's row A")
         let f = Set(mini.floors)
         XCTAssertTrue(f.isSuperset(of: [.mixCellW, .mixPadH, .mixPadHStop, .rhythmZones, .riffRowA, .riffDirectionRow]), "\(f)")
-        XCTAssertFalse(f.contains(.riffRows), "24.63 clears 24"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
+        XCTAssertTrue(f.contains(.riffRows), "19.4 is under 24 now that the rails take 49pt"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
         // windowed AUM panels
         let wl = euclideousPageLayout(size: CGSize(width: 900, height: 600))
         XCTAssertEqual(wl.headerKind, .b, "868 wide: B, boxes start at 111")
@@ -241,5 +236,28 @@ final class PageLayoutTests: XCTestCase {
         // each flag is exactly its threshold
         XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 295)).contains(.rhythmZones), "contentAreaH 191 < 192")
         XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 380, height: 296)).contains(.rhythmZones), "contentAreaH 192")
+    }
+
+    // MARK: the bottom safe-area inset (Paul's ruling, 2026-10-19)
+
+    func testTheBottomMarginIsTheLargerOfSixteenAndTheInset() {
+        XCTAssertEqual(EuclideousPageMetrics.bottomMargin(inset: 0), 16); XCTAssertEqual(EuclideousPageMetrics.bottomMargin(inset: 9), 16, "an inset of 9 gives a margin of 16")
+        XCTAssertEqual(EuclideousPageMetrics.bottomMargin(inset: 20), 20, "an inset of 20 gives 20"); XCTAssertEqual(EuclideousPageMetrics.bottomMargin(inset: 16), 16)
+        // the page is laid out on the view's FULL height: an inset of 9 gives back exactly the reference boxes (319 / 319.67)
+        let l9 = euclideousPageLayout(size: landscapeRef, bottomInset: 9), p9 = euclideousPageLayout(size: portraitRef, bottomInset: 9)
+        XCTAssertEqual(l9, land); XCTAssertEqual(p9, port)
+        XCTAssertEqual(l9.box.height, 319, accuracy: 1e-9); XCTAssertEqual(p9.box.height, 319.67, accuracy: 0.01)
+        // an inset of 20: the boxes end 20 above the bottom, each a little shorter
+        let l20 = euclideousPageLayout(size: landscapeRef, bottomInset: 20), p20 = euclideousPageLayout(size: portraitRef, bottomInset: 20)
+        XCTAssertEqual(l20.seq.maxY, 726 - 20, accuracy: 1e-9); XCTAssertEqual(l20.box.height, (726 - 64 - 20 - 8) / 2, accuracy: 1e-9)
+        XCTAssertEqual(p20.seq.maxY, 1102 - 20, accuracy: 1e-9); XCTAssertEqual(p20.box.height, (1102 - 111 - 20 - 16) / 3, accuracy: 1e-9)
+        for p in [l20, p20] { XCTAssertEqual(p.lanes[0].minY, EuclideousPageMetrics.top(p.headerKind), "the top edge doesn't move") }
+        // the 9pt-short page (no inset passed): the riff box is ~314.5 / 316.67 and its rows clear the floor (24.44 / 24.71)
+        let short = euclideousPageLayout(size: CGSize(width: 1190, height: 717))
+        XCTAssertEqual(short.box.height, 314.5, accuracy: 1e-9)
+        XCTAssertEqual(euclideousRiffPanelLayout(box: short.box).rowH, 24.4375, accuracy: 1e-9)
+        XCTAssertFalse(short.floors.contains(.riffRows))
+        let shortP = euclideousPageLayout(size: CGSize(width: 814, height: 1093))
+        XCTAssertEqual(shortP.box.height, 316.67, accuracy: 0.01); XCTAssertEqual(euclideousRiffPanelLayout(box: shortP.box).rowH, 24.71, accuracy: 0.01)
     }
 }

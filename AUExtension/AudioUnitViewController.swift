@@ -1255,14 +1255,19 @@ struct DiagView: View {
                                    onOpenPresets: openPresets,
                                    canUndo: euclideousUndo.canUndo, canRedo: euclideousUndo.canRedo,
                                    onUndo: euclideousUndoAction, onRedo: euclideousRedoAction,
-                                   onClose: { showEuclideous = false })
+                                   onClose: { showEuclideous = false },
+                                   pageBottomInset: geo.safeAreaInsets.bottom)
                     // PAGE LAYOUT ferry (2026-10-19) — THE 885pt-IN-AN-814pt-VIEW BUG: this overlay shares the root ZStack with the 8×8 workbench (`mainContent`,
                     // whose header HStack won't compress below ≈861 + 24pt padding). A ZStack is as wide as its WIDEST child and lays every flexible sibling out at
                     // that width, so an unframed page's own GeometryReader was offered the workbench's width, not the view's — portrait was laid out ≈885 wide, the
                     // right column and the header's gear ran off the screen. Framing the page to the root `geo` (the real view) makes its GeometryReader read 814.
-                    .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                    // BOTTOM INSET (Paul's ruling, 2026-10-19): the page is laid out on the view's FULL height — this root `geo` excludes the bottom safe-area inset (the
+                    // home-indicator zone), so the frame adds it back and the page ignores that edge — and its bottom margin becomes max(16, inset), so no box sits in the zone.
+                    // With no inset (0) this is exactly the view's height and a 16 margin.
+                    .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.bottom, alignment: .topLeading)
+                    .ignoresSafeArea(.container, edges: .bottom)
                     #if DEBUG
-                    .onChange(of: geo.size) { s in print("EUCLIDEOUS root view size \(s)") }   // device check: compare with the page's own "page size" line (EuclideousPage)
+                    .onChange(of: geo.size) { s in print("EUCLIDEOUS root view size \(s) safeAreaInsets \(geo.safeAreaInsets)") }   // device check: compare with the page's own "page size" line (EuclideousPage)
                     #endif
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)

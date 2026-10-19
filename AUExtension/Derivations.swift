@@ -4671,6 +4671,9 @@ func euclideousWalkVisitedRange(dir: RiffDir, length: Int, stride: Int, rotate: 
 // ── the plan ────────────────────────────────────────────────────────────────────────────────────────
 
 struct EuclideousTagDest: Equatable { var step: Int; var rank: Int; var isRest: Bool }
+/// RIFF PANEL ferry (2026-10-19) §4.1/§4.8: where a TIE-on-rest lane's arrow STAYS — the column, row and ordinal of the nearest earlier hit that really
+/// played a note (the tied note is still sounding through the rest). Nil unless the seat is a rest under ON REST = TIE with a note behind it.
+struct EuclideousTieStay: Equatable { var step: Int; var rank: Int; var ordinal: Int64 }
 struct EuclideousWalkTagPlan: Equatable {
     var seatStep: Int            // 0-based column the tag sits in
     var seatRank: Int            // 1…8 row (a rest keeps the last note's row)
@@ -4685,13 +4688,16 @@ struct EuclideousWalkTagPlan: Equatable {
     var landedTick: Int64?
     var visitedMin: Int
     var visitedMax: Int
+    /// RIFF PANEL ferry: the ordinal (`advOrd`) of the hit the tag is seated on — nil for a stopped/static seat (the caller supplies the polled ordinal).
+    var seatOrdinal: Int64? = nil
+    var tieStay: EuclideousTieStay? = nil
 }
 
 /// `ranks` is the playing riff's rank per step (0 = rest). `polledStep` is the lane's live step (the SAME value
 /// the RIFF-tab thumbnail reads; < 0 = not started). `running` = transport playing AND the lane playing. Returns
 /// nil when there is nothing to draw (not started, or the riff has no notes on the steps the walk visits).
 func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Double, secondsPerBeat spb: Double,
-                           polledStep: Int, running: Bool) -> EuclideousWalkTagPlan? {
+                           polledStep: Int, running: Bool, polledOrdinal: Int64? = nil) -> EuclideousWalkTagPlan? {
     guard polledStep >= 0 else { return nil }
     let len = max(1, min(8, cfg.length))
     func rankAt(_ s: Int) -> Int { s >= 0 && s < ranks.count ? max(0, min(8, ranks[s])) : 0 }
@@ -4714,9 +4720,20 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
             guard found >= 1 else { return nil }
             rank = found
         }
+        // TIE-on-rest stay-put for a static seat: walk the polled ordinal backward to the nearest earlier note.
+        var stay: EuclideousTieStay? = nil
+        if rest, cfg.onRest == .tie, let po = polledOrdinal {
+            for j in 1...(2 * len + 2) {
+                let o2 = po - Int64(j)
+                guard o2 >= 0 else { break }
+                let col = euclideousWalkStep(cfg, ord: o2)
+                let r = rankAt(col)
+                if r >= 1 { stay = EuclideousTieStay(step: col, rank: r, ordinal: o2); break }
+            }
+        }
         return EuclideousWalkTagPlan(seatStep: step, seatRank: rank, seatIsRest: rest, facingRight: right, turned: false, dest: nil,
                                      isWrap: false, isReset: false, landedSeconds: nil, nextSeconds: nil, landedTick: nil,
-                                     visitedMin: vis.min, visitedMax: vis.max)
+                                     visitedMin: vis.min, visitedMax: vis.max, seatOrdinal: polledOrdinal, tieStay: stay)
     }
     guard running, cfg.sub > 0, spb > 0 else { return staticPlan() }
     let scan = euclideousWalkScanHits(cfg, beat: beat, back: 5, ahead: 1)
@@ -4788,10 +4805,29 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
     // Wrap (display space): the move heads one way but its destination lies the other way, so the thread leaves
     // by the end of the loop and re-enters at the other. A restart is never a wrap.
     let isWrap = !isReset && ((facingRight && destStep < seatStep) || (!facingRight && destStep > seatStep))
+    // TIE-on-rest stay-put (RIFF PANEL ferry §4.1/§4.8): the nearest EARLIER hit that read a note — among the lane's recent striking hits, else the nearest
+    // note behind in walk order — is where the arrow stays; its ordinal gives the heading.
+    var stay: EuclideousTieStay? = nil
+    if seatIsRest, cfg.onRest == .tie {
+        for t in scan.prev.dropFirst() {
+            let w = euclideousWalkTick(cfg, tick: t)
+            let r = rankAt(w.playedStep)
+            if r >= 1 { stay = EuclideousTieStay(step: w.playedStep, rank: r, ordinal: w.advOrd); break }
+        }
+        if stay == nil {
+            for j in 1...(2 * len + 2) {
+                let o2 = tP.advOrd - Int64(j)
+                guard o2 >= 0 else { break }
+                let col = euclideousWalkStep(cfg, ord: o2)
+                let r = rankAt(col)
+                if r >= 1 { stay = EuclideousTieStay(step: col, rank: r, ordinal: o2); break }
+            }
+        }
+    }
     return EuclideousWalkTagPlan(seatStep: seatStep, seatRank: seatRank, seatIsRest: seatIsRest, facingRight: facingRight,
                                  turned: prevFacing != facingRight, dest: dest, isWrap: isWrap, isReset: isReset,
                                  landedSeconds: secP, nextSeconds: secH, landedTick: pTick,
-                                 visitedMin: vis.min, visitedMax: vis.max)
+                                 visitedMin: vis.min, visitedMax: vis.max, seatOrdinal: tP.advOrd, tieStay: stay)
 }
 
 // ── thread geometry + motion ────────────────────────────────────────────────────────────────────────
@@ -5176,6 +5212,9 @@ enum EuclideousPageMetrics {
     static let topOneRowHeader: CGFloat = 64
     static let topTwoRowHeader: CGFloat = 111
     static func top(_ kind: EuclideousHeaderLayout.Kind) -> CGFloat { kind == .a ? topOneRowHeader : topTwoRowHeader }
+    /// The bottom margin: sp16, or the view's bottom safe-area inset (the home-indicator zone) when that is larger, so no box ever sits in it. An inset of 9 gives 16; an
+    /// inset of 20 gives 20. The page is laid out on the view's FULL height (the inset is passed in, not subtracted from `size`).
+    static func bottomMargin(inset: CGFloat) -> CGFloat { max(margin, inset) }
 }
 
 /// A lane card's fixed rows, hoisted out of the view so the page's floor list and the card draw from the same numbers: the comet row (44), the
@@ -5190,18 +5229,56 @@ enum EuclideousLaneCardMetrics {
     static func contentAreaH(cardHeight: CGFloat) -> CGFloat { max(1, cardHeight - chromeH) }
 }
 
-/// The riff panel's chrome: sp8 padding all round, the riff tab row (29 tall — the 23pt mini icon + 3pt above and below), sp4, then eight rows
-/// with 4pt between. The grid's rows take what's left of the box.
+/// The riff panel's chrome (RIFF PANEL ferry, 2026-10-19 §1): sp8 padding all round; the four riff tabs (20 tall); 6pt (a drawing value); the grid (the 30pt
+/// note-label column, a 4pt gap, then eight columns at `euclideousRiffCellW`'s width with 4pt gaps, and eight rows with 4pt gaps); sp8; the four lane rails
+/// (8 tall, 3 apart = 41); the bottom padding. 8 + 20 + 6 above the grid and 8 + 41 + 8 below it = 91, so the grid is box height − 91 tall and
+/// `rowH = (box height − 119) / 8`. There is deliberately NO height-for-rows pair here (the old `riffPanelHeight` and its inverse are gone, and this
+/// ferry's §1.3 says not to bring them back): the panel's inside is laid out from its box by `euclideousRiffPanelLayout`, once.
 enum EuclideousRiffPanelMetrics {
-    static let padding: CGFloat = 8, tabRowH: CGFloat = 29, tabGap: CGFloat = 4, rowGap: CGFloat = 4
-    /// The row-height floor the page REPORTS under (it is never enforced when drawing).
+    static let padding: CGFloat = 8
+    static let tabRowH: CGFloat = 20, tabGap: CGFloat = 4, tabToGrid: CGFloat = 6
+    static let labelW: CGFloat = 30, labelGap: CGFloat = 4, colGap: CGFloat = 4, rowGap: CGFloat = 4
+    static let gridToRails: CGFloat = 8
+    static let railH: CGFloat = 8, railGap: CGFloat = 3
+    static var railsH: CGFloat { railH * 4 + railGap * 3 }          // 41
+    /// The row-height floor the page REPORTS under (it is never enforced when drawing): a box at least 311 tall.
     static let minRowH: CGFloat = 24
-    /// Everything but the eight rows' own height: 16 + 29 + 4 + 7 × 4.
-    static var chromeH: CGFloat { padding * 2 + tabRowH + tabGap + rowGap * 7 }
+    /// Everything but the eight rows' own height: 8 + 20 + 6 + 7 × 4 + 8 + 41 + 8 = 119.
+    static var chromeH: CGFloat { padding + tabRowH + tabToGrid + rowGap * 7 + gridToRails + railsH + padding }
 }
-/// The riff panel's height for a given grid row height, and its inverse — ONE pair, so the panel's frame and its rows can never disagree.
-func euclideousRiffPanelHeight(rowH: CGFloat) -> CGFloat { EuclideousRiffPanelMetrics.chromeH + rowH * 8 }
-func euclideousRiffRowH(panelHeight: CGFloat) -> CGFloat { (panelHeight - EuclideousRiffPanelMetrics.chromeH) / 8 }
+/// §1 / §8.1: the riff panel's inside, from the box the page function gives it. Every coordinate is in the panel's own space (0,0 = its top-left).
+struct EuclideousRiffPanelLayout: Equatable {
+    typealias M = EuclideousRiffPanelMetrics
+    var box: CGSize
+    /// The grid's column width — `euclideousRiffCellW`, the one function the FX tab's columns also use (so FX keeps lining up).
+    var cellW: CGFloat
+    /// The nominal row height `(box height − 119) / 8`, NOT floored (a box under the floor is drawn at this value and reported).
+    var rowH: CGFloat
+    /// The cell height the grid draws: the smaller of `rowH` and `cellW` (the grid has always kept its cells from being taller than wide).
+    var cellH: CGFloat
+    var belowFloor: Bool { rowH < M.minRowH }
+    var tabWidth: CGFloat { (box.width - M.padding * 2 - M.tabGap * 3) / 4 }
+    func tabFrame(_ i: Int) -> CGRect { CGRect(x: M.padding + CGFloat(i) * (tabWidth + M.tabGap), y: M.padding, width: tabWidth, height: M.tabRowH) }
+    /// Column 0's left edge: padding + the note-label column + its gap = 42.
+    var firstColumnX: CGFloat { M.padding + M.labelW + M.labelGap }
+    var gridTop: CGFloat { M.padding + M.tabRowH + M.tabToGrid }                        // 34
+    var gridSize: CGSize { CGSize(width: cellW * 8 + M.colGap * 7, height: cellH * 8 + M.rowGap * 7) }
+    func columnLeft(_ c: Int) -> CGFloat { firstColumnX + CGFloat(c) * (cellW + M.colGap) }
+    /// Row `r` counted from the top (rank 8 is row 0).
+    func rowTop(_ r: Int) -> CGFloat { gridTop + CGFloat(r) * (cellH + M.rowGap) }
+    func cellFrame(column: Int, rank: Int) -> CGRect { CGRect(x: columnLeft(column), y: rowTop(8 - rank), width: cellW, height: cellH) }
+    var railsTop: CGFloat { gridTop + gridSize.height + M.gridToRails }
+    func railTop(_ lane: Int) -> CGFloat { railsTop + CGFloat(lane) * (M.railH + M.railGap) }
+    /// The lane's number sits in the note-label column, right-aligned and centred on its rail.
+    func railNumberFrame(_ lane: Int) -> CGRect { CGRect(x: M.padding, y: railTop(lane), width: M.labelW, height: M.railH) }
+    func railSegmentFrame(lane: Int, column: Int) -> CGRect { CGRect(x: columnLeft(column), y: railTop(lane), width: cellW, height: M.railH) }
+}
+func euclideousRiffPanelLayout(box: CGSize) -> EuclideousRiffPanelLayout {
+    typealias M = EuclideousRiffPanelMetrics
+    let cellW = euclideousRiffCellW(maxWidth: box.width)
+    let rowH = (box.height - M.chromeH) / 8
+    return EuclideousRiffPanelLayout(box: box, cellW: cellW, rowH: rowH, cellH: min(max(1, rowH), cellW))
+}
 
 /// The bottom-right panel's tab body (what LANES and FX are laid out in): the panel less sp8 padding all round, the 20pt tab row and the sp4 gap.
 func euclideousSeqTabBodySize(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
@@ -5233,7 +5310,7 @@ func euclideousPageFloors(box: CGSize) -> [EuclideousPageFloor] {
     if g.cellW < EuclideousMixMetrics.minCellW { out.append(.mixCellW) }
     if g.padH < EuclideousMixMetrics.minPadH { out.append(.mixPadH) }
     if g.padH < EuclideousMixMetrics.floorPadH { out.append(.mixPadHStop) }
-    if euclideousRiffRowH(panelHeight: box.height) < EuclideousRiffPanelMetrics.minRowH { out.append(.riffRows) }
+    if euclideousRiffPanelLayout(box: box).belowFloor { out.append(.riffRows) }
     let body = euclideousSeqTabBodySize(panelWidth: box.width, panelHeight: box.height)
     if euclideousFXRowH(contentHeight: body.height) < EuclideousFXLayout.minRowH { out.append(.fxRows) }
     return out
@@ -5257,17 +5334,18 @@ struct EuclideousPageLayout: Equatable {
 }
 
 /// The page's six boxes for a view of `size` and a header of `headerKind`. Orientation is the view's own: strictly wider than tall is landscape.
-func euclideousPageLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind) -> EuclideousPageLayout {
+func euclideousPageLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind, bottomInset: CGFloat = 0) -> EuclideousPageLayout {
     typealias P = EuclideousPageMetrics
     let landscape = size.width > size.height
     let top = P.top(headerKind)
+    let bottom = P.bottomMargin(inset: bottomInset)
     let cw: CGFloat, rh: CGFloat
     if landscape {
         cw = max(1, (size.width - P.margin * 2 - P.gap * 2) / 3)
-        rh = max(1, (size.height - top - P.margin - P.gap) / 2)
+        rh = max(1, (size.height - top - bottom - P.gap) / 2)
     } else {
         cw = max(1, (size.width - P.margin * 2 - P.gap) / 2)
-        rh = max(1, (size.height - top - P.margin - P.gap * 2) / 3)
+        rh = max(1, (size.height - top - bottom - P.gap * 2) / 3)
     }
     func frame(_ col: Int, _ row: Int) -> CGRect {
         CGRect(x: P.margin + CGFloat(col) * (cw + P.gap), y: top + CGFloat(row) * (rh + P.gap), width: cw, height: rh)
@@ -5280,9 +5358,9 @@ func euclideousPageLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind)
                                 gutterX: P.margin + cw + P.gap / 2, floors: euclideousPageFloors(box: box))
 }
 /// `euclideousPageLayout` with the header kind taken from the header's own ladder for this view width — what the page itself calls.
-func euclideousPageLayout(size: CGSize) -> EuclideousPageLayout {
+func euclideousPageLayout(size: CGSize, bottomInset: CGFloat = 0) -> EuclideousPageLayout {
     let kind = euclideousHeaderKind(containerW: size.width - EuclideousPageMetrics.margin * 2, isLandscape: size.width > size.height)
-    return euclideousPageLayout(size: size, headerKind: kind)
+    return euclideousPageLayout(size: size, headerKind: kind, bottomInset: bottomInset)
 }
 
 // MARK: - MIX TAB (ferry 2026-10-18): gate, velocity and octave for every layer
@@ -7601,4 +7679,456 @@ func euclideousFXFlashCells(fx: EuclideousFX, lines: [EuclidLine], events: [Rout
         }
     }
     return out
+}
+
+// MARK: - RIFF PANEL ferry (2026-10-19): compact tabs, blended arrows, lane rails — the pure maths (§5, §8)
+//
+// Everything the riff panel's new look draws or says is a number or a string from here, so `RiffArrowPainter.swift` only PAINTS what these return and the tests reach every
+// claim: each lane's heading (§5.1), how lanes sharing a note group into one arrow (§5.3), the OKLCH blend its fill uses (§5.4), the arrow's outline / size / label / fill
+// (§4), a lane's current column and its three-column trail (§6.3), what a rail's eight segments look like (§6.2/§6.4), the tab-size mini icon (§2.3) and the VoiceOver words
+// (§7). Display only: nothing here is read by the engine, the snapshot or the document.
+
+// ── 5.1 heading ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+enum EuclideousArrowHeading: Equatable { case left, right, still }
+
+/// §5.1. STILL when LEN ≤ 1 or the walk's period P (`euclideousFXWalkPeriod`, riff ferry 7.1) is 1. Otherwise FWD heads right and REV heads left, whatever SHIFT and
+/// the wrap from the last column to the first do. PEND and PING: with w = floor(o ÷ EVERY) and p the walk position `riffStepAt` gives at w (BEFORE SHIFT), take the smallest k
+/// from 1 to P whose position differs from p — right if it is higher, left if lower, still if there is none (so PING's repeated end step looks one further and the arrow
+/// turns exactly at each end). `ordinal` is the ordinal of the hit the arrow SHOWS (under ADV STEP, that hit's step ordinal). RANDOM / DRUNK can't reach Euclideous
+/// (`euclideousRiffDirResolved` coerces them to FWD) and head right.
+func euclideousArrowHeading(riffDir: RiffDir, length: Int, stride: Int, every: Int, ordinal: Int64) -> EuclideousArrowHeading {
+    let len = max(1, length), st = max(1, stride), ev = max(1, every)
+    let period = euclideousFXWalkPeriod(dir: riffDir, length: len, stride: st)
+    if len <= 1 || period <= 1 { return .still }
+    switch riffDir {
+    case .forward, .random, .drunk: return .right
+    case .reverse: return .left
+    case .pendulum, .pingpong:
+        let w = Int(euclideousRiffWalkStep(ordinal: ordinal, every: ev))
+        func pos(_ k: Int) -> Int { riffStepAt(riffDir, raw: (w + k) * st, steps: len, seed: 0) }
+        let p = pos(0)
+        for k in 1...period { let q = pos(k); if q != p { return q > p ? .right : .left } }
+        return .still
+    }
+}
+
+// ── 5.3 grouping ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+enum EuclideousArrowKind: Equatable { case right, left, double, still }
+struct EuclideousArrowMember: Equatable { var lane: Int; var heading: EuclideousArrowHeading }
+/// §5.3: double-headed if any lane in the cell heads left AND any heads right; otherwise right if any heads right, left if any heads left, else still. Left-to-right order:
+/// the lanes heading left, then the still lanes, then the lanes heading right, each group in lane order. (`lanes` are 0-based lane indices.)
+func euclideousArrowGrouping(_ members: [EuclideousArrowMember]) -> (kind: EuclideousArrowKind, lanes: [Int]) {
+    let sorted = members.sorted { $0.lane < $1.lane }
+    let lefts = sorted.filter { $0.heading == .left }, stills = sorted.filter { $0.heading == .still }, rights = sorted.filter { $0.heading == .right }
+    let kind: EuclideousArrowKind = (!lefts.isEmpty && !rights.isEmpty) ? .double : (!rights.isEmpty ? .right : (!lefts.isEmpty ? .left : .still))
+    return (kind, (lefts + stills + rights).map { $0.lane })
+}
+
+// ── 5.4 colour: OKLCH blending ───────────────────────────────────────────────────────────────────────────────────────────────
+
+struct EuclideousRGB: Equatable, Hashable { var r: Int; var g: Int; var b: Int }
+/// The four lane accents as the page draws them — ONE definition (`EuclideousPage.laneAccents` is built from it): red, blue, yellow, green.
+let euclideousLaneAccentComponents: [(r: Double, g: Double, b: Double)] = [(0.95, 0.35, 0.35), (0.35, 0.75, 0.95), (0.95, 0.75, 0.25), (0.55, 0.85, 0.45)]
+let euclideousLaneRGB: [EuclideousRGB] = euclideousLaneAccentComponents.map {
+    EuclideousRGB(r: Int(($0.r * 255).rounded()), g: Int(($0.g * 255).rounded()), b: Int(($0.b * 255).rounded()))
+}
+private func euclideousSRGBToLinear(_ v: Int) -> Double { let c = Double(v) / 255; return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+private func euclideousLinearToSRGB(_ v: Double) -> Int {
+    let c = v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055
+    return Int(max(0, min(255, (c * 255).rounded())))
+}
+/// sRGB → linear light → OKLab (Björn Ottosson's matrices) → (L, a, b).
+func euclideousOKLab(_ c: EuclideousRGB) -> (L: Double, a: Double, b: Double) {
+    let r = euclideousSRGBToLinear(c.r), g = euclideousSRGBToLinear(c.g), b = euclideousSRGBToLinear(c.b)
+    let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+    let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+    let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+    return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+}
+func euclideousRGBFromOKLab(L: Double, a: Double, b: Double) -> EuclideousRGB {
+    let l_ = L + 0.3963377774 * a + 0.2158037573 * b
+    let m_ = L - 0.1055613458 * a - 0.0638541728 * b
+    let s_ = L - 0.0894841775 * a - 1.2914855480 * b
+    let l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_
+    return EuclideousRGB(r: euclideousLinearToSRGB(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+                         g: euclideousLinearToSRGB(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+                         b: euclideousLinearToSRGB(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s))
+}
+/// OKLab as lightness L, chroma C and hue h (degrees).
+func euclideousOKLCH(_ c: EuclideousRGB) -> (L: Double, C: Double, h: Double) {
+    let lab = euclideousOKLab(c)
+    var h = atan2(lab.b, lab.a) * 180 / .pi
+    if h < 0 { h += 360 }
+    return (lab.L, (lab.a * lab.a + lab.b * lab.b).squareRoot(), h)
+}
+/// §5.4: mix two colours at `t` by interpolating L and C linearly and h the SHORTER way round the circle; convert back and clamp each channel to 0–255.
+/// t = 0 / 1 return the inputs exactly (no round trip), so a lane's own colour stays pure at its end.
+func euclideousMixOKLCH(_ a: EuclideousRGB, _ b: EuclideousRGB, t: Double) -> EuclideousRGB {
+    if t <= 0 { return a }
+    if t >= 1 { return b }
+    let x = euclideousOKLCH(a), y = euclideousOKLCH(b)
+    var d = (y.h - x.h).truncatingRemainder(dividingBy: 360)
+    if d > 180 { d -= 360 } else if d < -180 { d += 360 }
+    let L = x.L + (y.L - x.L) * t, C = x.C + (y.C - x.C) * t, h = (x.h + d * t) * .pi / 180
+    return euclideousRGBFromOKLab(L: L, a: C * cos(h), b: C * sin(h))
+}
+/// "An even blend" of three or more colours (the flare glow, §4.7): the mean in OKLab.
+func euclideousEvenBlend(_ colours: [EuclideousRGB]) -> EuclideousRGB {
+    guard let first = colours.first else { return EuclideousRGB(r: 0, g: 0, b: 0) }
+    if colours.count == 1 { return first }
+    var L = 0.0, a = 0.0, b = 0.0
+    for c in colours { let o = euclideousOKLab(c); L += o.L; a += o.a; b += o.b }
+    let n = Double(colours.count)
+    return euclideousRGBFromOKLab(L: L / n, a: a / n, b: b / n)
+}
+
+struct EuclideousBlendStop: Equatable { var position: Double; var colour: EuclideousRGB; var alpha: Double }
+/// §5.4: the fill for lanes c1 … cn (n ≥ 2), left to right: lane i's colour sits at position i ÷ (n − 1). Between neighbours at p0 and p1, with hold = 0.14 ÷ (n − 1),
+/// seven stops at u = 0, 1/6 … 1 take the mix at e = u²(3 − 2u), placed at p0 + hold + (p1 − p0 − 2 × hold) × u — except u = 0 and u = 1, which sit exactly at p0 and p1. So each
+/// lane's own colour stays pure at its end and the middle blends. `alphas[i]` is lane i's alpha (4.9: a muted lane's stops take 42%); a stop between two lanes takes the
+/// same eased mix of their alphas. Memoised by lane set (main thread only — it is drawing, not engine).
+func euclideousBlendStops(colours: [EuclideousRGB], alphas: [Double]? = nil) -> [EuclideousBlendStop] {
+    let n = colours.count
+    guard n >= 2 else { return colours.map { EuclideousBlendStop(position: 0, colour: $0, alpha: alphas?.first ?? 1) } }
+    let al = (alphas != nil && alphas!.count == n) ? alphas! : [Double](repeating: 1, count: n)
+    let key = EuclideousBlendCache.Key(colours: colours, alphas: al)
+    if let hit = EuclideousBlendCache.stops[key] { return hit }
+    var out: [EuclideousBlendStop] = []
+    let hold = 0.14 / Double(n - 1)
+    for i in 0..<(n - 1) {
+        let p0 = Double(i) / Double(n - 1), p1 = Double(i + 1) / Double(n - 1)
+        for j in 0...6 {
+            let u = Double(j) / 6, e = u * u * (3 - 2 * u)
+            let pos = j == 0 ? p0 : (j == 6 ? p1 : p0 + hold + (p1 - p0 - 2 * hold) * u)
+            let stop = EuclideousBlendStop(position: pos, colour: euclideousMixOKLCH(colours[i], colours[i + 1], t: e), alpha: al[i] + (al[i + 1] - al[i]) * e)
+            if let last = out.last, last.position == pos, last.colour == stop.colour, last.alpha == stop.alpha { continue }
+            out.append(stop)
+        }
+    }
+    if EuclideousBlendCache.stops.count > 256 { EuclideousBlendCache.stops.removeAll() }
+    EuclideousBlendCache.stops[key] = out
+    return out
+}
+enum EuclideousBlendCache {
+    struct Key: Hashable { var colours: [EuclideousRGB]; var alphas: [Double] }
+    /// Main-thread only (the painters). Bounded: 4 lanes make at most a few dozen distinct sets.
+    nonisolated(unsafe) static var stops: [Key: [EuclideousBlendStop]] = [:]
+}
+
+// ── §4 the arrow ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+enum EuclideousArrowStyle {
+    /// 4.4: ONE lane — the comet bar's hit-tile fill. SOURCE differs from the ferry's mock ("lane100 at the top to lane100 × 0.86 at the bottom"): the comet's tile
+    /// (`EuclidCometBar`, `layer.fill` linearGradient) is the lane colour at 95% alpha at the top to 55% (+25% of the afterglow) at the bottom, so that is what the arrow
+    /// uses (reported). Two or more lanes: the blend under `highlight*` (white 16% → clear at 45% → black 14%).
+    static let topAlpha = 0.95, bottomAlpha = 0.55
+    static let highlightWhiteTop = 0.16, highlightClearAt = 0.45, highlightBlackBottom = 0.14
+    static let shadowAlpha = 0.45, shadowRadius: CGFloat = 0.75, shadowY: CGFloat = 1
+    static let hollowStrokeWidth: CGFloat = 1.5, hollowDash: [CGFloat] = [3, 2]
+    static let mutedAlpha = 0.42
+    static let flareBlur: CGFloat = 6, flareAlpha = 0.85, flareScale: CGFloat = 1.06
+    static let labelSizes: [CGFloat] = [10, 8.5, 6.5, 6]     // by lane count 1…4
+    static let tipRadius: CGFloat = 0.9, tipSoftening: CGFloat = 1.3
+    /// The width and height of the arrow centred in a cell: width cellW − 7, height min(18, cellH − 8).
+    static func size(cellW: CGFloat, cellH: CGFloat) -> CGSize { CGSize(width: max(1, cellW - 7), height: max(1, min(18, cellH - 8))) }
+}
+/// One path command in an arrow's outline (SwiftUI's `Path` is built from these; the numbers are testable).
+enum EuclideousPathCmd: Equatable { case move(CGPoint), line(CGPoint), quad(to: CGPoint, control: CGPoint), close }
+enum EuclideousArrowOutline: Equatable { case path([EuclideousPathCmd]), capsule }
+/// 4.3: in a w × h box, pointing right (mirrored for left), with r = min(4, h ÷ 3) and t = m = h ÷ 2: a rounded tail, straight sides and a softened tip; the double-headed
+/// arrow has a softened tip at BOTH ends; "still" is a capsule.
+func euclideousArrowOutline(kind: EuclideousArrowKind, w: CGFloat, h: CGFloat) -> EuclideousArrowOutline {
+    typealias S = EuclideousArrowStyle
+    let r = min(4, h / 3), t = h / 2, m = h / 2
+    let k = S.tipRadius, q = S.tipSoftening
+    func P(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: y) }
+    switch kind {
+    case .still: return .capsule
+    case .right, .left:
+        let right: [EuclideousPathCmd] = [
+            .move(P(r, 0)), .line(P(w - t, 0)), .line(P(w - k, m - q)), .quad(to: P(w - k, m + q), control: P(w, m)), .line(P(w - t, h)), .line(P(r, h)),
+            .quad(to: P(0, h - r), control: P(0, h)), .line(P(0, r)), .quad(to: P(r, 0), control: P(0, 0)), .close]
+        if kind == .right { return .path(right) }
+        func mirror(_ p: CGPoint) -> CGPoint { P(w - p.x, p.y) }
+        return .path(right.map {
+            switch $0 {
+            case .move(let p): return .move(mirror(p))
+            case .line(let p): return .line(mirror(p))
+            case .quad(let to, let c): return .quad(to: mirror(to), control: mirror(c))
+            case .close: return .close
+            }
+        })
+    case .double:
+        return .path([
+            .move(P(t, 0)), .line(P(w - t, 0)), .line(P(w - k, m - q)), .quad(to: P(w - k, m + q), control: P(w, m)), .line(P(w - t, h)), .line(P(t, h)),
+            .line(P(k, m + q)), .quad(to: P(k, m - q), control: P(0, m)), .close])
+    }
+}
+
+/// One lane's part in an arrow: its heading, whether the LANES grid has it muted at this beat, and its flare strength (0 = none, 1 = the strike's peak).
+struct EuclideousArrowLane: Equatable { var lane: Int; var heading: EuclideousArrowHeading; var muted: Bool; var flare: Double }
+enum EuclideousArrowFill: Equatable {
+    case single(colour: EuclideousRGB, topAlpha: Double, bottomAlpha: Double)
+    case blend(stops: [EuclideousBlendStop])
+}
+struct EuclideousArrowLabelPart: Equatable { var text: String; var alpha: Double }
+struct EuclideousArrowSpec: Equatable {
+    var kind: EuclideousArrowKind
+    var lanes: [Int]                       // 0-based, in the fill's left-to-right order
+    var size: CGSize
+    var outline: EuclideousArrowOutline
+    var hollow: Bool                       // 4.8: a rest — no fill, no shadow, a dashed stroke
+    var fill: EuclideousArrowFill          // also the hollow stroke's colours (a gradient when shared)
+    var labelParts: [EuclideousArrowLabelPart]
+    var labelSize: CGFloat
+    var labelRect: CGRect                  // in the arrow's own box
+    var opacity: Double                    // 1, or 0.42 when EVERY lane in it is muted
+    var flareColour: EuclideousRGB?        // the blend of the lanes now flaring; nil = none
+    var flareStrength: Double              // 0…1
+    var label: String { labelParts.map { $0.text }.joined() }
+}
+/// 8.2 / §4: the arrow for ONE cell from its lanes' headings, mutes and flare states. `hollow` = every lane in it is on a rest.
+func euclideousArrowSpec(cellW: CGFloat, cellH: CGFloat, members: [EuclideousArrowLane], hollow: Bool,
+                         laneColours: [EuclideousRGB] = euclideousLaneRGB) -> EuclideousArrowSpec? {
+    typealias S = EuclideousArrowStyle
+    guard !members.isEmpty else { return nil }
+    let group = euclideousArrowGrouping(members.map { EuclideousArrowMember(lane: $0.lane, heading: $0.heading) })
+    let byLane = Dictionary(members.map { ($0.lane, $0) }, uniquingKeysWith: { a, _ in a })
+    let ordered = group.lanes.compactMap { byLane[$0] }
+    func colour(_ lane: Int) -> EuclideousRGB { laneColours[((lane % laneColours.count) + laneColours.count) % laneColours.count] }
+    let size = S.size(cellW: cellW, cellH: cellH)
+    let n = ordered.count
+    let shared = n >= 2
+    // 4.9: alone and muted → the whole arrow at 42%; sharing → that lane's stops (and number) at 42%, the arrow dims as a whole only when EVERY lane in it is muted.
+    let allMuted = ordered.allSatisfy { $0.muted }
+    let fill: EuclideousArrowFill = shared
+        ? .blend(stops: euclideousBlendStops(colours: ordered.map { colour($0.lane) }, alphas: ordered.map { $0.muted ? S.mutedAlpha : 1 }))
+        : .single(colour: colour(ordered[0].lane), topAlpha: S.topAlpha, bottomAlpha: S.bottomAlpha)
+    var parts: [EuclideousArrowLabelPart] = []
+    for (i, m) in ordered.enumerated() {
+        if i > 0 { parts.append(EuclideousArrowLabelPart(text: "\u{00B7}", alpha: 1)) }
+        parts.append(EuclideousArrowLabelPart(text: "\(m.lane + 1)", alpha: (shared && m.muted) ? S.mutedAlpha : 1))
+    }
+    let t = size.height / 2
+    // 4.6: one lane, or two in a one-way arrow → centred in the BODY (between the tail and the tip's base); double-headed, or three or more → the whole arrow, 2pt side insets.
+    let bodyRule = n == 1 || (n == 2 && group.kind != .double)
+    let labelRect: CGRect
+    if bodyRule {
+        labelRect = group.kind == .left ? CGRect(x: t, y: 0, width: size.width - t, height: size.height) : CGRect(x: 0, y: 0, width: size.width - t, height: size.height)
+    } else {
+        labelRect = CGRect(x: 2, y: 0, width: max(1, size.width - 4), height: size.height)
+    }
+    // 4.7: the glow takes the blend of the lanes NOW flaring — one lane its colour, two the t = 0.5 mix, more an even blend.
+    let flaring = ordered.filter { $0.flare > 0 }
+    let flareColour: EuclideousRGB? = flaring.isEmpty ? nil
+        : (flaring.count == 1 ? colour(flaring[0].lane) : (flaring.count == 2 ? euclideousMixOKLCH(colour(flaring[0].lane), colour(flaring[1].lane), t: 0.5) : euclideousEvenBlend(flaring.map { colour($0.lane) })))
+    return EuclideousArrowSpec(kind: group.kind, lanes: group.lanes, size: size, outline: euclideousArrowOutline(kind: group.kind, w: size.width, h: size.height),
+                               hollow: hollow, fill: fill, labelParts: parts, labelSize: S.labelSizes[min(3, n - 1)], labelRect: labelRect,
+                               opacity: allMuted ? S.mutedAlpha : 1, flareColour: flareColour, flareStrength: flaring.map { $0.flare }.max() ?? 0)
+}
+
+/// One lane's arrow seat: the cell it occupies (column 0-based, rank 1…8), whether it is on a rest (hollow) and its heading.
+struct EuclideousLaneArrowState: Equatable {
+    var lane: Int
+    var column: Int
+    var rank: Int
+    var hollow: Bool
+    var heading: EuclideousArrowHeading
+}
+/// §4.1/§4.8: the cell a lane's arrow occupies, from the SAME plan the marker used (so where it sits and when it moves are unchanged). A hit on a rest seats the arrow in the
+/// rest's own column at the held row, hollow — under SKIP, FILL and REPEAT alike (the engine plays nothing, a lit-notes layer, or the repeated note there; the cell is the
+/// marker's today); under TIE the arrow STAYS on the tied note's cell, drawn as normal (`plan.tieStay`). The heading is for the hit the arrow SHOWS.
+func euclideousLaneArrowState(lane: Int, cfg: EuclideousWalkLaneConfig, plan: EuclideousWalkTagPlan, polledOrdinal: Int64) -> EuclideousLaneArrowState {
+    let column: Int, rank: Int, hollow: Bool, ordinal: Int64
+    if plan.seatIsRest, cfg.onRest == .tie, let stay = plan.tieStay {
+        (column, rank, hollow, ordinal) = (stay.step, stay.rank, false, stay.ordinal)
+    } else {
+        (column, rank, hollow, ordinal) = (plan.seatStep, plan.seatRank, plan.seatIsRest, plan.seatOrdinal ?? polledOrdinal)
+    }
+    let heading = euclideousArrowHeading(riffDir: cfg.riffDir, length: cfg.length, stride: cfg.stride, every: cfg.every, ordinal: ordinal)
+    return EuclideousLaneArrowState(lane: lane, column: column, rank: rank, hollow: hollow, heading: heading)
+}
+struct EuclideousArrowCell: Equatable { var column: Int; var rank: Int; var members: [EuclideousLaneArrowState]; var hollow: Bool }
+/// §4.1: lanes whose arrows sit in the same cell share ONE arrow (hollow only if every lane in it is on a rest). Cells come out in the order of their lowest lane.
+func euclideousArrowCells(_ states: [EuclideousLaneArrowState]) -> [EuclideousArrowCell] {
+    var cells: [EuclideousArrowCell] = []
+    for s in states.sorted(by: { $0.lane < $1.lane }) {
+        if let i = cells.firstIndex(where: { $0.column == s.column && $0.rank == s.rank }) { cells[i].members.append(s) }
+        else { cells.append(EuclideousArrowCell(column: s.column, rank: s.rank, members: [s], hollow: true)) }
+    }
+    return cells.map { var c = $0; c.hollow = c.members.allSatisfy { $0.hollow }; return c }
+}
+/// §4.7: a lane's flare strength `beat − onsetBeat` after its latest real strike — the comet bar's own afterglow and burst windows (`euclideousRingFlare`), in the lane's own steps.
+/// The same per-lane strike feed the header rings and the FX flash read (`strikeEvents`); a strike whose onset is still in the future reads 0 until it arrives.
+func euclideousArrowFlare(onsetBeat: Double?, beat: Double, stepBeats: Double) -> Double {
+    guard let onset = onsetBeat else { return 0 }
+    return euclideousRingFlare(ageSteps: (beat - onset) / max(1e-6, stepBeats))
+}
+
+// ── §6 the rails ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+struct EuclideousRailWalk: Equatable {
+    var current: Int          // the column the lane's latest hit read (0-based)
+    var trail: [Int]          // up to three earlier columns, newest first
+    var ordinal: Int64        // that hit's ordinal (its heading is measured on it)
+}
+/// §6.3 / 8.3: the column the hit at `hitTick` read, and the TRAIL — going back from it through the lane's earlier hits since the melody origin, in REPEAT's lookback order
+/// (ADV HIT: ordinals o−1, o−2, …; ADV STEP: the lane's own earlier hits backward in real time), take the column each read, skipping any column equal to the one taken
+/// just before it (the first comparison is with the current column), until three are found or 64 hits have been checked. Pure: nothing is accumulated.
+func euclideousRailWalk(cfg: EuclideousWalkLaneConfig, hitTick: Int64) -> EuclideousRailWalk {
+    let len = max(1, cfg.length)
+    let cycleLen = euclidCycleLen(cfg.dir, n: cfg.n)
+    func column(_ ord: Int64) -> Int {
+        euclideousRiffColumn(ordinal: ord, every: cfg.every, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed)
+    }
+    let here = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: hitTick, chains: cfg.chains,
+                                       legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep)
+    let current = column(here.advOrd)
+    var trail: [Int] = []
+    var last = current
+    var checked = 0
+    func take(_ col: Int) { checked += 1; if col != last { trail.append(col); last = col } }
+    if !cfg.advanceStep {
+        var o2 = here.advOrd - 1
+        while o2 >= 0, checked < 64, trail.count < 3 { take(column(o2)); o2 -= 1 }
+    } else {
+        let origin = euclideousLaneChainPhase(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: hitTick, chains: cfg.chains, legacySpanBeats: cfg.spanBeats).originTickM
+        var t = hitTick - 1
+        var scanned = 0
+        let tickCap = 64 * max(1, cycleLen) + 64          // a sparse pattern spaces its hits up to a lap apart
+        while t >= origin, checked < 64, trail.count < 3, scanned < tickCap {
+            let info = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: t, chains: cfg.chains,
+                                               legacySpanBeats: cfg.spanBeats, advanceStep: true)
+            if info.rawIsHit { take(column(info.advOrd)) }
+            t -= 1; scanned += 1
+        }
+    }
+    return EuclideousRailWalk(current: current, trail: trail, ordinal: here.advOrd)
+}
+/// §6.2 / 8.3: the columns a lane PLAYS — exactly what the riff card's mini-grid draws at full strength: within LEN and not in the readout's never-play set (`neverPlay` is empty when
+/// the readout is over budget or the lane has no hits, 7.6's fallbacks — so the columns within LEN all fill).
+func euclideousRailPlayedColumns(length: Int, neverPlay: Set<Int>) -> Set<Int> {
+    Set((0..<min(8, max(0, length))).filter { !neverPlay.contains($0) })
+}
+
+enum EuclideousRailLook: Equatable { case notPlayed, played, trail(Int), current(EuclideousArrowHeading) }
+struct EuclideousRailSegment: Equatable { var look: EuclideousRailLook; var opacity: Double }
+struct EuclideousRailSpec: Equatable {
+    var lane: Int
+    var segments: [EuclideousRailSegment]   // eight, one per grid column
+    var numberOpacity: Double
+    var flare: Double                       // the current segment's glow strength (0 = none)
+}
+enum EuclideousRailStyle {
+    static let trailAlphas = [0.5, 0.32, 0.2], playedAlpha = 0.16, notPlayedRing = 0.08
+    static let riffOffOpacity = 0.6, riffOffNumberOpacity = 0.42, mutedOpacity = 0.42
+    static let chevronSize: CGFloat = 10, dotSize: CGFloat = 7, chevronAlpha = 0.78, numberSize: CGFloat = 8.5
+    static let glowRadius: CGFloat = 8, glowSpread: CGFloat = 2, glowAlpha = 0.65
+}
+/// §6.2 / §6.4: one rail's eight segments. Riff off → all eight not-played at 60%, the number at 42%, nothing current. A stopped lane or transport (or before the lane's first hit) →
+/// the played columns only. Muted by the LANES grid → the segments and the chevron at 42%, the number at full strength. `current` outranks a trail column.
+func euclideousRailSpec(lane: Int, riffOn: Bool, running: Bool, muted: Bool, played: Set<Int>, current: Int?, trail: [Int], heading: EuclideousArrowHeading, flare: Double) -> EuclideousRailSpec {
+    typealias S = EuclideousRailStyle
+    guard riffOn else {
+        return EuclideousRailSpec(lane: lane, segments: [EuclideousRailSegment](repeating: EuclideousRailSegment(look: .notPlayed, opacity: S.riffOffOpacity), count: 8),
+                                  numberOpacity: S.riffOffNumberOpacity, flare: 0)
+    }
+    let opacity = muted ? S.mutedOpacity : 1
+    var segs = (0..<8).map { EuclideousRailSegment(look: played.contains($0) ? .played : .notPlayed, opacity: opacity) }
+    var f = 0.0
+    if running, let cur = current, (0..<8).contains(cur) {
+        for (k, c) in trail.prefix(3).enumerated() where (0..<8).contains(c) { segs[c].look = .trail(k) }
+        segs[cur].look = .current(heading)
+        f = flare
+    }
+    return EuclideousRailSpec(lane: lane, segments: segs, numberOpacity: 1, flare: f)
+}
+
+// ── §2.3 the tab-size mini icon ──────────────────────────────────────────────────────────────────────────────────────────────
+
+struct EuclideousMiniIconStyle: Equatable {
+    var colPitch: CGFloat, rowPitch: CGFloat, markW: CGFloat, markH: CGFloat, dotW: CGFloat, dotH: CGFloat, markRadius: CGFloat
+    /// The 31 × 23 icon every other place draws (4 / 3 pitch, 3 × 2 marks, 1 × 1 dots).
+    static let standard = EuclideousMiniIconStyle(colPitch: 4, rowPitch: 3, markW: 3, markH: 2, dotW: 1, dotH: 1, markRadius: 0.5)
+    /// The riff TAB ROW's: 21.7 × 12.8 (column pitch 2.8, row pitch 1.65, marks 2.1 × 1.25, dots 0.7 × 0.7).
+    static let tab = EuclideousMiniIconStyle(colPitch: 2.8, rowPitch: 1.65, markW: 2.1, markH: 1.25, dotW: 0.7, dotH: 0.7, markRadius: 0.5)
+    var size: CGSize { CGSize(width: colPitch * 7 + markW, height: rowPitch * 7 + markH) }
+}
+struct EuclideousMiniIconGeometry: Equatable {
+    var size: CGSize
+    var marks: [CGRect]       // one per column that has a note at rank 1…8
+    var dots: [CGRect]        // every other (column, row) — a rest is a full column of dots
+}
+/// Where the icon's marks and dots go for a riff's ranks: a step with a note at rank r draws a mark at row 8 − r; every OTHER row of that step gets a dot centred where a mark
+/// would be. At the standard style this is exactly what the icon has always drawn (marks at (4c, 3·row), dots at (4c + 1, 3·row + 0.5)).
+func euclideousMiniIconGeometry(ranks: [Int], style: EuclideousMiniIconStyle) -> EuclideousMiniIconGeometry {
+    var marks: [CGRect] = [], dots: [CGRect] = []
+    for step in 0..<8 {
+        let r = step < ranks.count ? ranks[step] : 0
+        let noteRow = (r >= 1 && r <= 8) ? (8 - r) : -1
+        let x = CGFloat(step) * style.colPitch
+        for row in 0..<8 {
+            let y = CGFloat(row) * style.rowPitch
+            if row == noteRow { marks.append(CGRect(x: x, y: y, width: style.markW, height: style.markH)) }
+            else { dots.append(CGRect(x: x + (style.markW - style.dotW) / 2, y: y + (style.markH - style.dotH) / 2, width: style.dotW, height: style.dotH)) }
+        }
+    }
+    return EuclideousMiniIconGeometry(size: style.size, marks: marks, dots: dots)
+}
+
+// ── §7 VoiceOver ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+func euclideousHeadingPhrase(_ h: EuclideousArrowHeading) -> String {
+    switch h { case .left: return "heading left"; case .right: return "heading right"; case .still: return "staying put" }
+}
+/// "1, 2 and 3" — a list joined with commas and a final "and".
+private func euclideousSpokenList(_ items: [String]) -> String {
+    switch items.count {
+    case 0: return ""
+    case 1: return items[0]
+    default: return items.dropLast().joined(separator: ", ") + " and " + items[items.count - 1]
+    }
+}
+/// §7.1: what a grid cell with an arrow adds after its label: ", lane 1 heading right" (or "heading left", or "staying put"); with several lanes ", lanes 2 and 3: 2 heading left,
+/// 3 heading right"; on a rest ", lane 1 heading right, on a rest".
+func euclideousArrowCellPhrase(members: [EuclideousArrowMember], onRest: Bool) -> String {
+    let sorted = members.sorted { $0.lane < $1.lane }
+    guard !sorted.isEmpty else { return "" }
+    var s: String
+    if sorted.count == 1 { s = ", lane \(sorted[0].lane + 1) \(euclideousHeadingPhrase(sorted[0].heading))" }
+    else {
+        s = ", lanes \(euclideousSpokenList(sorted.map { "\($0.lane + 1)" })): " + sorted.map { "\($0.lane + 1) \(euclideousHeadingPhrase($0.heading))" }.joined(separator: ", ")
+    }
+    if onRest { s += ", on a rest" }
+    return s
+}
+/// §7.2: columns as a spoken list, 1-based; runs of three or more read as a range ("1 and 3 to 8", "1 to 4"). `columns` are 0-based.
+func euclideousSpokenColumns(_ columns: Set<Int>) -> String {
+    let sorted = columns.sorted()
+    var items: [String] = []
+    var i = 0
+    while i < sorted.count {
+        var j = i
+        while j + 1 < sorted.count, sorted[j + 1] == sorted[j] + 1 { j += 1 }
+        if j - i + 1 >= 3 { items.append("\(sorted[i] + 1) to \(sorted[j] + 1)") } else { for k in i...j { items.append("\(sorted[k] + 1)") } }
+        i = j + 1
+    }
+    return euclideousSpokenList(items)
+}
+/// §7.2: one rail as one static element — "Lane 1: plays columns 1 and 3 to 8, on 4, heading right"; "Lane 2: riff off"; "Lane 4: stopped, plays columns 1 to 4". While the lane is muted
+/// it adds ", silent at this step".
+func euclideousRailAccessibilityLabel(lane: Int, riffOn: Bool, running: Bool, played: Set<Int>, current: Int?, heading: EuclideousArrowHeading, muted: Bool) -> String {
+    var s = "Lane \(lane + 1): "
+    if !riffOn { s += "riff off" }
+    else {
+        if !running { s += "stopped, " }
+        s += played.isEmpty ? "plays no columns" : "plays column\(played.count == 1 ? "" : "s") \(euclideousSpokenColumns(played))"
+        if running, let c = current { s += ", on \(c + 1), \(euclideousHeadingPhrase(heading))" }
+    }
+    if muted { s += ", silent at this step" }
+    return s
 }
