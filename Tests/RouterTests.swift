@@ -12270,6 +12270,148 @@ final class RouterTests: XCTestCase {
         }
     }
 
+    /// §11 test 2: the walk, pure (`euclideousRiffColumn`/`euclideousRiffWalkStep`, EVERY 1). Columns for
+    /// ordinals 0...(N-1), 1-indexed, compared against the ferry's own literal sequences.
+    func testRiffWalkColumnSequencesMatchTheFerrysWorkedExamples() {
+        func cols(_ dir: RiffDir, length: Int, stride: Int = 1, shift: Int = 0, count: Int) -> [Int] {
+            (0..<count).map { euclideousRiffColumn(ordinal: Int64($0), every: 1, direction: dir, length: length, stride: stride, shift: shift) + 1 }
+        }
+        XCTAssertEqual(cols(.forward, length: 8, count: 8), [1, 2, 3, 4, 5, 6, 7, 8])
+        XCTAssertEqual(cols(.reverse, length: 8, count: 8), [8, 7, 6, 5, 4, 3, 2, 1])
+        XCTAssertEqual(cols(.reverse, length: 8, shift: 2, count: 8), [2, 1, 8, 7, 6, 5, 4, 3])
+        XCTAssertEqual(cols(.forward, length: 5, stride: 3, count: 5), [1, 4, 2, 5, 3], "Paul's own worked example")
+        XCTAssertEqual(cols(.pendulum, length: 4, count: 6), [1, 2, 3, 4, 3, 2])
+        XCTAssertEqual(cols(.pingpong, length: 4, count: 8), [1, 2, 3, 4, 4, 3, 2, 1])
+        XCTAssertEqual(cols(.forward, length: 8, shift: 5, count: 8), [6, 7, 8, 1, 2, 3, 4, 5])
+        XCTAssertEqual(cols(.forward, length: 8, stride: 2, count: 4), [1, 3, 5, 7])
+        XCTAssertEqual(cols(.pingpong, length: 8, stride: 3, count: 16), [1, 4, 7, 7, 4, 1, 3, 6, 8, 5, 2, 2, 5, 8, 6, 3])
+        // P (the walk's period, §7.1 — reusing the FX ferry's own function).
+        XCTAssertEqual(euclideousFXWalkPeriod(dir: .pendulum, length: 8, stride: 1), 14)
+        XCTAssertEqual(euclideousFXWalkPeriod(dir: .pingpong, length: 8, stride: 1), 16)
+        XCTAssertEqual(euclideousFXWalkPeriod(dir: .forward, length: 8, stride: 2), 4)
+        XCTAssertEqual(euclideousFXWalkPeriod(dir: .forward, length: 1, stride: 1), 1)
+    }
+
+    /// §11 test 3: EVERY's footers (Router), the harness lane (hits 1, 3, 5, 6, 8), both chains FREE.
+    /// `gridHits` already gives (beat, column) under identity ranks — column+1 is the footer's own number.
+    /// A generous `beats` window is captured and then truncated to the wanted count — the render engine's
+    /// own fixed-size processing windows don't align to this lane's 0.5-beat hit grid, so trying to land
+    /// `beats` exactly between the last wanted hit and the first unwanted one is fragile; comparing a
+    /// prefix is not.
+    func testRiffWalkEveryFootersMatchTheFerrysWorkedExamples() {
+        func footers(every: Int, adv: Bool, shift: Int = 0, passes: Int, want: Int) -> [Int] {
+            var l = riffWalkHarnessLine(dir: .forward, adv: adv, stride: 1, len: 8, shift: shift)
+            l.riffAdvanceEvery = every
+            return Array(gridHits(l, beats: Double(passes) * 4.0 + 0.5).map { $0.idx + 1 }.prefix(want))
+        }
+        XCTAssertEqual(footers(every: 1, adv: false, passes: 4, want: 20), [1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4])
+        XCTAssertEqual(footers(every: 2, adv: false, passes: 4, want: 20), [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 1, 1, 2, 2])
+        XCTAssertEqual(footers(every: 3, adv: false, passes: 4, want: 20), [1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7])
+        XCTAssertEqual(footers(every: 2, adv: true, shift: 5, passes: 4, want: 20), [6, 7, 8, 8, 1, 2, 3, 4, 4, 5, 6, 7, 8, 8, 1, 2, 3, 4, 4, 5])
+    }
+
+    /// §11 test 4: EVERY with restarts (Router).
+    func testRiffWalkEveryWithMelodyRestarts() {
+        var a = riffWalkHarnessLine(dir: .forward, adv: false, stride: 1, len: 8, shift: 0)
+        a.riffAdvanceEvery = 2; a.restartMelodyPasses = [1]
+        XCTAssertEqual(Array(gridHits(a, beats: 4 * 4.0 + 0.5).map { $0.idx + 1 }.prefix(20)), Array(repeating: [1, 1, 2, 2, 3], count: 4).flatMap { $0 })
+
+        var b = riffWalkHarnessLine(dir: .forward, adv: false, stride: 1, len: 8, shift: 0)
+        b.riffAdvanceEvery = 2; b.restartMelodyPasses = [2, 1, 1]
+        XCTAssertEqual(Array(gridHits(b, beats: 6 * 4.0 + 0.5).map { $0.idx + 1 }.prefix(30)),
+                       [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 1, 1, 2, 2, 3, 1, 1, 2, 2, 3, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5])
+
+        var c = EuclidLine(target: 0, pulses: 3, steps: 7, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)
+        c.restartRhythmBars = [1]; c.riffAdvanceEvery = 2
+        let lapBeats7 = 3.5   // 7 steps of 1/8
+        XCTAssertEqual(Array(gridHits(c, beats: 6 * lapBeats7 + 0.5).map { $0.idx + 1 }.prefix(18)),
+                       [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 1, 1])
+    }
+
+    /// §11 test 8: REPEAT (Router). Ranks by column (0 = rest), every step a hit (pulses: n, steps: n).
+    private func repeatLine(ranks: [Int], adv: Bool = false, every: Int = 1, invert: Bool = false, transpose: Int = 0, melody: [UInt8]? = nil) -> (EuclidLine, [Int]) {
+        var l = EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)
+        l.riffOnRest = .repeatLast; l.riffAdvanceStep = adv; l.riffAdvanceEvery = every
+        l.riffInvert = invert; l.melodyTranspose = transpose
+        if let melody { l.restartMelodyPasses = melody }
+        return (l, ranks)
+    }
+    /// `ranks`' OWN reverse lookup (valid whenever its non-zero entries are each unique, true of every §11
+    /// test-8 example) turns a measured RANK (gridHits' idx+1) back into the COLUMN whose written rank it
+    /// was — the metric the ferry's own test-8 sequences are given in ("the columns played").
+    /// A generous `beats` window is captured and truncated to `want` events — the render engine's own
+    /// fixed-size processing windows don't align to this lane's hit grid, so trying to land `beats` exactly
+    /// between the last wanted hit and the first unwanted one is fragile; comparing a prefix is not.
+    private func gridHitsColumns(_ line: EuclidLine, ranks: [Int], beats: Double, want: Int, startBeat: Double = 0) -> [Int] {
+        Array(gridHits(line, ranks: ranks, beats: beats, startBeat: startBeat).map { (ranks.firstIndex(of: $0.idx + 1) ?? -1) + 1 }.prefix(want))
+    }
+    func testRepeatPlaysTheNearestEarlierNonRestColumn() {
+        let (l, r) = repeatLine(ranks: [5, 0, 3, 0, 0, 7, 0, 2])
+        XCTAssertEqual(gridHitsColumns(l, ranks: r, beats: 4.5, want: 8), [1, 1, 3, 3, 3, 6, 6, 8], "every pass")
+    }
+    func testRepeatPassZeroSilentThenBorrowsAcrossThePassBoundary() {
+        let (l, r) = repeatLine(ranks: [0, 4, 0, 0, 6, 0, 0, 0])
+        // pass 0: column 1 has nothing to borrow yet (–, no event at all); 3 and 4 borrow column 2 (rank 4);
+        // 6, 7, 8 borrow column 5 (rank 6). pass 1: column 1 now borrows column 5 FROM pass 0.
+        XCTAssertEqual(gridHitsColumns(l, ranks: r, beats: 8.5, want: 15), [2, 2, 2, 5, 5, 5, 5, 5, 2, 2, 2, 5, 5, 5, 5])
+    }
+    func testRepeatWithMelodyOneNeverCarriesAcrossTheRestart() {
+        let (l0, r0) = repeatLine(ranks: [0, 4, 0, 0, 6, 0, 0, 0], melody: [1])
+        // melody 1 restarts the riff ordinal every pass, so column 1 is silent (nothing to borrow) on EVERY
+        // pass, not just the first — pass 1 looks exactly like pass 0, not like the FREE-melody test above.
+        XCTAssertEqual(gridHitsColumns(l0, ranks: r0, beats: 8.5, want: 14), [2, 2, 2, 5, 5, 5, 5, 2, 2, 2, 5, 5, 5, 5])
+    }
+    func testRepeatUnderAdvStepReadsTheHitsOnlyNotEveryStep() {
+        let (l, r) = repeatLine(ranks: [5, 6, 7, 0, 2, 3, 4, 8], adv: true)
+        var line = l
+        line.customHits = [true, false, false, true, false, false, true, false]   // hits on 1, 4, 7
+        XCTAssertEqual(gridHitsColumns(line, ranks: r, beats: 4.5, want: 3), [1, 1, 7], "the hit on column 4 (a rest) plays column 1's note, not column 3's")
+    }
+    func testRepeatEveryTwoGroupsPairsOfHits() {
+        let (l, r) = repeatLine(ranks: [4, 0, 6, 1, 2, 3, 5, 7], every: 2)
+        XCTAssertEqual(gridHitsColumns(l, ranks: r, beats: 8.5, want: 16), [1, 1, 1, 1, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8])
+    }
+    func testRepeatAcrossARhythmRestartDoesNotAssumeARegularLap() {
+        var l = EuclidLine(target: 0, pulses: 3, steps: 7, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)
+        l.riffOnRest = .repeatLast; l.riffAdvanceStep = true; l.restartRhythmBars = [1]
+        l.customHits = [true, false, true, true, false, true, true]   // hits on 1, 3, 4, 6, 7
+        let r = [0, 6, 0, 2, 3, 4, 7, 8]
+        let hits = gridHits(l, ranks: r, beats: 5.6)
+        // beats 4.0 and 5.0 are the rhythm restart's own columns 1 and 3 (both rests) — both must borrow
+        // column 8 (the hit at beat 3.5, before the restart), not column 2 (what an unbroken-lap lookback
+        // would wrongly see at the step-3 position).
+        for (beat, idx) in hits where beat == 4.0 || beat == 5.0 {
+            let col = (r.firstIndex(of: idx + 1) ?? -1) + 1
+            XCTAssertEqual(col, 8, "beat \(beat): must borrow column 8 from before the restart, not column 2")
+        }
+    }
+    func testRepeatWithEveryRankARestIsSilentWithNoLookback() {
+        let (l, r) = repeatLine(ranks: [0, 0, 0, 0, 0, 0, 0, 0])
+        XCTAssertTrue(gridHits(l, ranks: r, beats: 4.5).isEmpty, "every hit silent at once, no search")
+    }
+    func testRepeatDeterminismStartingMidPass() {
+        let (l, r) = repeatLine(ranks: [0, 4, 0, 0, 6, 0, 0, 0])
+        let e = RecordingEmitter()
+        mixRun(mixBox(l, ranks: r), beats: 4.5, into: e, startBeat: 4.0)
+        assertNothingLeftSounding(e)
+        let firstRank = e.ons.filter { $0.cable == 1 }.first.flatMap { ev in gridPool.firstIndex(of: ev.note) }.map { $0 + 1 }
+        let firstCol = firstRank.map { (r.firstIndex(of: $0) ?? -1) + 1 }
+        XCTAssertEqual(firstCol, 5, "pass 1's own first hit (column 1, a rest) plays column 5 — exactly as from beat 0")
+    }
+    func testRepeatAtLegatoSendsNoNewNoteOnForTheHeldPitch() {
+        let (l0, r0) = repeatLine(ranks: [5, 0, 3, 0, 0, 7, 0, 2])
+        var l = l0; l.gate = 1.0
+        let e = RecordingEmitter()
+        mixRun(mixBox(l, ranks: r0), beats: 4.5, into: e)
+        assertNothingLeftSounding(e)
+        // At GATE 100% consecutive same-pitch hits legato-merge into one held note, so pass 0's own columns
+        // [1,1,3,3,3,6,6,8] (4 pitch RUNS) produce exactly 4 note-ons, not 8 — capture exactly that many so
+        // pass 1's own first (also rank-5) note-on can't sneak into the count.
+        let pass0 = Array(e.ons.filter { $0.cable == 1 }.prefix(4))
+        let onsRank5 = pass0.filter { gridPool.firstIndex(of: $0.note) == 4 }
+        XCTAssertEqual(onsRank5.count, 1, "one held note, not three separate note-ons")
+    }
+
     // MARK: - MIX TAB (ferry 2026-10-18) §9.6/§9.7 — every pitch carries its OWN gate; legato is per LAYER
 
     private func mixBox(_ line: EuclidLine, ranks: [Int] = [5, 0, 0, 0, 0, 0, 0, 0], monoOnA: Bool = false) -> SnapshotBox {
@@ -12285,14 +12427,14 @@ final class RouterTests: XCTestCase {
         return SnapshotBuilder.build(from: st)
     }
     /// `run()` with the test-only mask seam. 120 BPM, 48 kHz: one beat = 24 000 samples.
-    private func mixRun(_ box: SnapshotBox, beats: Double, into e: RecordingEmitter, maskOn: Bool = false) {
+    private func mixRun(_ box: SnapshotBox, beats: Double, into e: RecordingEmitter, maskOn: Bool = false, startBeat: Double = 0) {
         let pool = chord([48, 50, 52, 53, 55, 57, 59, 60])   // rank 1 = 48 … rank 5 = 55 … rank 8 = 60
         let router = Router(); router.euclideousMaskEnabledForTests = maskOn
         var diag = KernelDiag()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let windowBeats = Double(frames) * tempo / 60.0 / sr
-        var beat = 0.0, ts = 0.0
-        while beat < beats {
+        var beat = startBeat, ts = 0.0
+        while beat < startBeat + beats {
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
@@ -12519,10 +12661,11 @@ final class RouterTests: XCTestCase {
         return l
     }
     private let gridPool: [UInt8] = [48, 50, 52, 53, 55, 57, 59, 60]
-    /// Every cable-1 note-on, as (beat, pool index), in sounding order.
-    private func gridHits(_ line: EuclidLine, beats: Double) -> [(beat: Double, idx: Int)] {
+    /// Every cable-1 note-on, as (beat, pool index), in sounding order. `ranks` defaults to identity
+    /// (column c → rank c+1, no rests) — pass a ranks array with zeros to test rest-handling (REPEAT, FILL, TIE).
+    private func gridHits(_ line: EuclidLine, ranks: [Int] = [1, 2, 3, 4, 5, 6, 7, 8], beats: Double, startBeat: Double = 0) -> [(beat: Double, idx: Int)] {
         let e = RecordingEmitter()
-        mixRun(mixBox(line, ranks: [1, 2, 3, 4, 5, 6, 7, 8]), beats: beats, into: e)
+        mixRun(mixBox(line, ranks: ranks), beats: beats, into: e, startBeat: startBeat)
         assertNothingLeftSounding(e)
         // a note-on's sample is truncated, so a hit on beat 5.5 can land one sample early: round to the nearest 1/100 beat
         return e.ons.filter { $0.cable == 1 }.compactMap { ev in gridPool.firstIndex(of: ev.note).map { ((Double(ev.sample) / 24_000 * 100).rounded() / 100, $0) } }

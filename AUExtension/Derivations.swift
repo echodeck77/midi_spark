@@ -6371,7 +6371,7 @@ func euclideousRiffRepeatLookback(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
         let originTickM = euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats).originTickM
         var found = 0
         var t = tick - 1
-        while t > originTickM, found < 1024 {
+        while t >= originTickM, found < 1024 {   // the origin tick itself is a searchable position (often the very first real hit, FREE-melody case included)
             let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains,
                                                legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
             if info.rawIsHit {
