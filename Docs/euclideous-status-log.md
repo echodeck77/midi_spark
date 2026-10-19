@@ -13,7 +13,7 @@ project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
 - **▶ EUCLIDEOUS — LEGATO REMOVED FROM THE XY PAD / A LANE'S GATE (2026-10-19, Paul: "remove the legato from the xy box — it's a bit confusing in retrospect"; on
-  `feature/fx-tab`; macOS suite 1727 green; the feel is device-owed).** Background: a lane at GATE 100% was LEGATO — a repeated pitch carried on as one note and the repeat sounded
+  `feature/fx-tab`; macOS suite 1743 green after merging with the RIFF WALK ferry; the feel is device-owed).** Background: a lane at GATE 100% was LEGATO — a repeated pitch carried on as one note and the repeat sounded
   nothing — which twice read as "hits failing to produce MIDI" (the red lane's 10-hit cycle F F F F F F E E F F made 2 note-ons; the yellow lane's step 3). **Now:**
   `euclideousLaneGateMax = 0.99`. The MIX pad's gate axis ends at 99% (touch maths `values(at:)`, the VoiceOver "longer gate" step, `euclideousMixPadWrite` for both layers); the
   pad's strip name is always GATE and its spoken value has no "legato"; the RHYTHM gate slider's commit stops at 99%; and `PluginState.euclideousLinesResolved` loads a stored
