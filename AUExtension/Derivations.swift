@@ -4464,6 +4464,7 @@ struct EuclideousWalkLaneConfig {
     var locked: Bool = false        // LOCK
     var advanceStep: Bool = false   // ADV STEP
     var seed: UInt64 = 0
+    var every: Int = 1              // RIFF WALK ferry §5.2: ADVANCE EVERY — 1 is today's behaviour
     /// SWING: the engine ticks in MUSICAL beats and maps each tick's onset to real time through `realOf`
     /// (`a` = swing% / 50, `swingStepBeats` = the scene's step beats). `a == 1` (50%) is the identity.
     var swingA: Double = 1
@@ -4579,7 +4580,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                     muteUnitBeats: g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub), listen: listen,
                                     riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: L.riffLengthResolved,
                                     rotate: L.riffRotateResolved, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved,
-                                    seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)),
+                                    seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)), every: L.riffAdvanceEveryResolved,
                                     swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats),
                                     riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
                                     invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved,
@@ -4618,13 +4619,17 @@ func euclideousWalkTick(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Euclideou
     }
     return EuclideousWalkTick(isHit: info.rawIsHit, strikes: strikes, advOrd: info.advOrd, playedStep: euclideousWalkStep(c, ord: info.advOrd))
 }
-/// The riff step (0-based, post-NUDGE) the walk lands on at ordinal `ord`.
+/// The riff step (0-based, post-SHIFT) the walk lands on at ordinal `ord` — RIFF WALK ferry §5.2: routed
+/// through `euclideousRiffColumn` (ordinal -> walk step w = floor(ord/EVERY) -> column), the ONE place
+/// this mirror turns an ordinal into a column, so it can't drift from the Router's own formula.
 func euclideousWalkStep(_ c: EuclideousWalkLaneConfig, ord: Int64) -> Int {
-    riffRotateStep(riffStepAt(c.riffDir, raw: Int(ord) * c.stride, steps: max(1, c.length), seed: c.seed), by: c.rotate, steps: max(1, c.length))
+    euclideousRiffColumn(ordinal: ord, every: c.every, direction: c.riffDir, length: max(1, c.length), stride: c.stride, shift: c.rotate, seed: c.seed)
 }
-/// The walk position BEFORE NUDGE — the axis "up the steps / down the steps" is measured on.
+/// The walk position BEFORE SHIFT — the axis "up the steps / down the steps" is measured on. Also routed
+/// through the walk step (not the raw ordinal), so "facing" agrees with what the walk actually did between
+/// two hits of the same EVERY group (no movement, not a hypothetical raw-ordinal one).
 private func euclideousWalkPos(_ c: EuclideousWalkLaneConfig, ord: Int64) -> Int {
-    riffStepAt(c.riffDir, raw: Int(ord) * c.stride, steps: max(1, c.length), seed: c.seed)
+    riffStepAt(c.riffDir, raw: Int(euclideousRiffWalkStep(ordinal: ord, every: c.every)) * c.stride, steps: max(1, c.length), seed: c.seed)
 }
 
 /// STRIKING ticks (a raw hit that also passes any WITH / GAPS filter) around `beat`: `prev` is newest-first (the first is the latest hit at or before `beat`), `next` is
@@ -6746,7 +6751,7 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         if fxLive {
             let pass = laneHasNoteFX ? euclideousFXPassIndex(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid,
                                                               legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep,
-                                                              riffDir: c.riffDir, stride: c.stride, length: c.length) : 0
+                                                              riffDir: c.riffDir, stride: c.stride, length: c.length, every: c.every) : 0
             fxHit = euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: w.playedStep, writtenRank: written, pass: pass)
         }
         if fxHit.tie { continue }                      // a tied hit does not strike: no bar of its own (the previous bar's length covers it)
@@ -6995,14 +7000,17 @@ private func euclideousLapStartsUpTo(_ x: Int64, rhythmMask: UInt16, unitTicks u
 /// The hit's NOTE pass index from the lane's per-tick core inputs — the one function the Router (FREE: it already holds `advOrd`; LOCK: it holds `localT`), the
 /// roll and the tests all use. FREE reads the core's ordinal; LOCK counts resets in closed form.
 func euclideousFXPassIndex(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, grid: EuclideousLaneRestartGrid,
-                           legacySpanBeats: Double, locked: Bool, advanceStep: Bool, riffDir: RiffDir, stride: Int, length: Int) -> Int {
+                           legacySpanBeats: Double, locked: Bool, advanceStep: Bool, riffDir: RiffDir, stride: Int, length: Int, every: Int = 1) -> Int {
     if locked {
         let ph = euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats)
         return euclideousFXLockPass(tick: tick, cycleLen: cycleLen, grid: grid, localT: ph.localT)
     }
     let info = euclideousLaneTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats,
                                   locked: false, advanceStep: advanceStep)
-    return euclideousFXFreePass(advOrd: info.advOrd, period: euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
+    // RIFF WALK ferry §5.2 test 7: the FREE path counts the WALK STEP, not the raw ordinal, so every EVERY
+    // hit of a group gets the same NOTE pass/offset — the LOCK path above is untouched (out of this ferry's
+    // scope, per the restart-chains ferry's own precedent).
+    return euclideousFXFreePass(advOrd: euclideousRiffWalkStep(ordinal: info.advOrd, every: every), period: euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
 }
 
 /// The riff grid's own cell width (§10.3: "call the riff grid's own function, don't re-derive it"): the FX tab's columns and the riff grid's are the SAME numbers

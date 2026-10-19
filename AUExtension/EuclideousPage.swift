@@ -2951,17 +2951,26 @@ struct EuclideousPage: View {
     /// ferry's own exact "‹ zone 18 | centre 43.25 | › zone 18" breakdown at that width): ‹/› glyphs in the end
     /// zones (decorative), name(10pt) over value(14pt) centred, 2pt apart. Tapping the LEFT HALF of the whole
     /// chip decreases; the RIGHT HALF increases — not just the glyph zones.
-    @ViewBuilder private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, width: CGFloat = 69.5, help: String? = nil, onChange: @escaping (Int) -> Void) -> some View {
+    /// `showLabel: false` (RIFF WALK ferry §8.1, the EVERY stepper): drops the key line, showing only the
+    /// value, centred — every other call site keeps its label unchanged (the default is `true`).
+    @ViewBuilder private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, width: CGFloat = 69.5, showLabel: Bool = true, help: String? = nil, onChange: @escaping (Int) -> Void) -> some View {
         let w: CGFloat = width, h: CGFloat = 34, arrowZone: CGFloat = 18
+        let valueText = Text(unit != nil ? "\(euclideousSigned(value)) \(unit!)" : "\(value)")
+            .font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §4.6: truncate, never shrink — no .minimumScaleFactor
         let base = ZStack {
             RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
             HStack(spacing: 0) {
                 Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                     .frame(width: arrowZone, height: h)
-                VStack(spacing: 2) {
-                    Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                    Text(unit != nil ? "\(euclideousSigned(value)) \(unit!)" : "\(value)")
-                        .font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §4.6: truncate, never shrink — no .minimumScaleFactor
+                Group {
+                    if showLabel {
+                        VStack(spacing: 2) {
+                            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                            valueText
+                        }
+                    } else {
+                        valueText
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
