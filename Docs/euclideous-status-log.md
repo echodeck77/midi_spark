@@ -13,7 +13,7 @@ project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
 - **▶ EUCLIDEOUS — PAGE LAYOUT ferry: "six equal boxes in both orientations, portrait fits the view, MIX fills in portrait" (2026-10-19, ratified by Paul from the "Fourfold layout" canvas; on
-  `feature/page-layout-six-boxes`; iOS builds clean; Euclideous subset 509 green incl. 13 new `PageLayoutTests`; ALL of it visual is device-owed).** **ROOT CAUSE of "portrait laid out ≈885 wide in an 814 view"
+  `feature/page-layout-six-boxes`; iOS builds clean; macOS suite 1759 green incl. 13 new `PageLayoutTests`; ALL of it visual is device-owed).** **ROOT CAUSE of "portrait laid out ≈885 wide in an 814 view"
   (§0.2a), found by reading + one scratch macOS check:** the page is an overlay child of DiagView's root `ZStack` (AudioUnitViewController.swift) whose other child is the 8×8 workbench (`mainContent`: a header HStack of
   fixed-size items that will not compress below ≈861 + 24pt padding). A ZStack is as wide as its WIDEST child and lays every flexible sibling out at that width, so the page's own `GeometryReader` read the
   workbench's width, not the view's (`containerW 853`, cards (853−8)/2 = 422.5, riff/seq (853−16)/2 = 418.5 — every §0.1 measurement reproduces to the half-point). The page now carries `.frame(width: geo.size.width, height:
