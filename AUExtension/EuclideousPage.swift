@@ -3070,14 +3070,54 @@ struct EuclideousPage: View {
             melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many steps the riff walk loops over") { v in
                 edit(idx) { euclideousSetRiffLength(&$0, v) }   // RIFF WALK ferry §4.3: the ONE LEN setter — pins SHIFT memory first
             }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue("\(n)")
+            .accessibilityAdjustableAction { dir in
+                switch dir {
+                case .increment: edit(idx) { euclideousSetRiffLength(&$0, min(8, n + 1)) }
+                case .decrement: edit(idx) { euclideousSetRiffLength(&$0, max(1, n - 1)) }
+                @unknown default: break
+                }
+            }
             melodyStepper("SHIFT", value: shift, range: 0...(n - 1), width: w, help: "Where the walk starts") { v in
                 edit(idx) { euclideousSetRiffShift(&$0, v) }   // RIFF WALK ferry §4.3: the ONE SHIFT setter — stores into riffRotate + riffShiftRequested
+            }
+            // §9.6: label "Shift" (from "Nudge"), hint "Where the walk starts". While riffShiftRequested is
+            // above LEN - 1 (a shorter LEN is currently clamping it), the value discloses the remembered
+            // request too, so VoiceOver users get the same "comes back with a longer length" information
+            // sighted users read from the §4.3 memory behaviour indirectly.
+            .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Where the walk starts")
+            .accessibilityValue({
+                let requested = line.riffShiftRequestedResolved
+                return requested > n - 1 ? "\(shift), set to \(requested); that comes back with a longer length" : "\(shift)"
+            }())
+            .accessibilityAdjustableAction { dir in
+                switch dir {
+                case .increment: edit(idx) { euclideousSetRiffShift(&$0, min(n - 1, shift + 1)) }
+                case .decrement: edit(idx) { euclideousSetRiffShift(&$0, max(0, shift - 1)) }
+                @unknown default: break
+                }
             }
             melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: w, help: "How many riff steps to move per note") { v in
                 edit(idx) { $0.riffStride = v }
             }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue("\(line.riffStrideResolved)")
+            .accessibilityAdjustableAction { dir in
+                switch dir {
+                case .increment: edit(idx) { $0.riffStride = min(7, line.riffStrideResolved + 1) }
+                case .decrement: edit(idx) { $0.riffStride = max(1, line.riffStrideResolved - 1) }
+                @unknown default: break
+                }
+            }
             melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, width: w, help: "Shift every riff note up or down the pool") { v in
                 edit(idx) { $0.melodyTranspose = v }
+            }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Transpose").accessibilityValue(euclideousSigned(line.melodyTransposeResolved))
+            .accessibilityAdjustableAction { dir in
+                switch dir {
+                case .increment: edit(idx) { $0.melodyTranspose = min(7, line.melodyTransposeResolved + 1) }
+                case .decrement: edit(idx) { $0.melodyTranspose = max(-7, line.melodyTransposeResolved - 1) }
+                @unknown default: break
+                }
             }
         }
     }
@@ -3275,7 +3315,11 @@ struct EuclideousPage: View {
         .frame(width: width, height: height, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x262930), lineWidth: 1))
-        .euclideousHelp("The columns this lane's walk reads, in order. " + euclideousWalkVoiceOverValue(cfg: cfg, len: len, every: every, P: P, stepRanks: stepRanks, readoutText: readoutText))
+        .euclideousHelp("The columns this lane's walk reads, in order.")
+        // §9.2: one static element — doesn't read the current step (the ring is a sighted-only cue).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Walk")
+        .accessibilityValue(euclideousWalkVoiceOverValue(cfg: cfg, len: len, every: every, P: P, stepRanks: stepRanks, readoutText: readoutText))
     }
     /// One WALK-strip cell: the column number or a rest dash, EVERY pips underneath when EVERY >= 2, lane20
     /// fill + a lane100 inner ring on the current step (§3.3).
@@ -3378,6 +3422,11 @@ struct EuclideousPage: View {
             }
             melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 12, cornerRadius: 7,
                          help: "Flip the riff upside down in pitch") { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
+                // §9.3: INV's own label doesn't itself say it inverts the riff, so it reads the descriptive
+                // phrase instead, with the toggle trait.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Invert the riff")
+                .accessibilityAddTraits(line.riffInvertResolved ? [.isButton, .isSelected] : .isButton)
         }
     }
     /// RIFF WALK ferry §1.3 Row B — "ADVANCE" / "EVERY" label, the EVERY stepper (§8), then HIT/STEP (§2.4:
@@ -3392,12 +3441,30 @@ struct EuclideousPage: View {
                          help: "The riff moves once every this many hits (or steps)") { v in
                 edit(idx) { $0.riffAdvanceEvery = v }
             }
+            // §9.4: ONE adjustable element — "1 hit"/"2 hits" or "1 step"/"3 steps" following ADV, swipe up/
+            // down changes it by one, matching how the values-row steppers read.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Advance every")
+            .accessibilityValue("\(every) \(line.riffAdvanceStepResolved ? (every == 1 ? "step" : "steps") : (every == 1 ? "hit" : "hits"))")
+            .accessibilityAdjustableAction { dir in
+                switch dir {
+                case .increment: edit(idx) { $0.riffAdvanceEvery = min(4, every + 1) }
+                case .decrement: edit(idx) { $0.riffAdvanceEvery = max(1, every - 1) }
+                @unknown default: break
+                }
+            }
             melodyButton(plural ? "HITS" : "HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
                          help: "Move the riff only on sounding hits") { edit(idx) { $0.riffAdvanceStep = false } }
                 .frame(width: layout.hitStepButtonWidth)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Advance by hits")
+                .accessibilityAddTraits(!line.riffAdvanceStepResolved ? [.isButton, .isSelected] : .isButton)
             melodyButton(plural ? "STEPS" : "STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
                          help: "Move the riff on every step, not just hits") { edit(idx) { $0.riffAdvanceStep = true } }
                 .frame(width: layout.hitStepButtonWidth)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Advance by steps")
+                .accessibilityAddTraits(line.riffAdvanceStepResolved ? [.isButton, .isSelected] : .isButton)
         }
         .opacity(isRiff ? 1.0 : 0.42)
     }
@@ -3408,9 +3475,15 @@ struct EuclideousPage: View {
         return HStack(spacing: sp4) {
             riffRowLabel("ON REST", "IN RIFF").frame(width: layout.labelColumnWidth)
             ForEach([EuclidRiffOnRest.skip, .fill, .tie, .repeatLast], id: \.self) { r in
-                melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: line.riffOnRestResolved == r, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
+                let selected = line.riffOnRestResolved == r
+                melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: selected, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
                              help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
                     .frame(width: layout.onRestButtonWidth)
+                    // §9.5: SKIP/FILL/TIE keep their plain labels; REPEAT reads "Repeat" with its own hint.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(r == .repeatLast ? "Repeat" : r.rawValue.capitalized)
+                    .accessibilityHint(r == .repeatLast ? "Plays the riff's previous note again" : "")
+                    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             }
         }
         .opacity(isRiff ? 1.0 : 0.42)
