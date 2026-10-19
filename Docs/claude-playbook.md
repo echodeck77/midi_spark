@@ -67,6 +67,46 @@ and every other GridUI/BuildPage file) has **zero** test-target reach — a gree
 compiles, nothing more. For that half, a passing suite is not evidence of correctness; an iPad is
 the only check that exists.
 
+## Running only Euclideous-relevant tests (fast inner loop, not a shipping gate)
+
+`MidiSparkTests` is ~1,750 tests across 27 files; the full run takes ~9 minutes. Most of that
+suite (the Acceptance* files, Rooms/Scenes/Macros/Build-workshop/Dice/Fuzz/ReelDeck/MidiFile/
+PresetStore) exercises the Machine/ProcessorSlot/chain-based 8x8-State processor roster or
+product-agnostic infra that Euclideous's `EuclidLine`/`runEuclidLine` path never touches.
+`Scripts/classify_euclideous_tests.py` scans `Tests/*.swift` and sorts every test function into
+"Euclideous/FourStep-relevant" vs "8x8-State-only / skippable," and `Scripts/run-
+euclideous-tests.sh` runs only the relevant ~500 — about 1.5-2 minutes instead of 9.
+
+**Regenerate, don't hand-maintain.** Run the script; don't copy its output into a frozen list —
+test files change often enough that a stored list silently rots. `python3 Scripts/
+classify_euclideous_tests.py` prints the human-readable breakdown; `--xctest` prints the raw
+`MidiSparkTests/Class/method` lines the shell wrapper feeds to `-only-testing:`.
+
+**The name collisions this exists to catch** (the reason naive `grep -i eucl` over the test
+files is wrong): `ProcessorType.euclid`/`euclidPulses`/`euclidPick`/`EuclidDir`/`EuclidNoteSel`/
+`EuclidPick` are the STANDALONE 8x8-State EUCLID generator in the processor roster — unrelated to
+the Euclideous page despite the name. `ProcessorType.riff`/`EUCLIDMASK` collide the same way.
+Each exclusion in the script's regex was found by reading an actual misclassified test, not
+guessed — see the comments at the top of the file before changing the pattern.
+
+**A genuine surprise worth knowing before trusting a "state-only" tag at a glance:** `EuclidLine`/
+`runEuclidLine` are NOT Euclideous-exclusive. The 8x8-State EUCLID processor itself grew a
+"Stage 3" multi-line upgrade (`ProcessorParams.euclidLines: [EuclidLine]?`, `Machine(type:
+.euclid)` + `c.paramsA.euclidLines = [...]`) that reuses the IDENTICAL `EuclidLine` struct and
+`runEuclidLine` function the standalone Euclideous page's `PluginState.euclideousLines` runs on.
+A test built entirely through the `Machine`/chain embedding (`testEuclidLineUseRiff...` in
+RouterTests) still exercises the one shared engine core — the script's "both" bucket (dual
+signal: Euclideous-exclusive AND 8x8-State-processor) is deliberately kept IN the relevant set for
+exactly this reason, not excluded as 8x8-State noise.
+
+**Where the fast subset stops being safe to trust alone:** it's an inner-loop aid for Euclideous-
+scoped logic (EuclidLine fields, `runEuclidLine`, the FX tab, the lanes grid, restart chains,
+riff walk). It is NOT a substitute for the full suite's "Tests green" row in the Definition of
+Done table below — truly cross-cutting shared primitives (swing, clock, the parameter address
+table, snapshot publish, note-off refcounting) are ridden by every row including Euclideous's, and
+a regression there can hide behind a test whose body never mentions "euclid" or "riff" at all.
+Run the full suite before commit → merge → push, same as always.
+
 ## Device-verification debt is a list, not a feeling buried in prose
 
 Keep it in `Docs/euclideous-device-verification-debt.md` — one line per open item, filed under

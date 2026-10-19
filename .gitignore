@@ -29,6 +29,10 @@ Packages/
 timeline.xctimeline
 playground.xcworkspace
 
+# Python (Scripts/ helpers)
+__pycache__/
+*.pyc
+
 # Fastlane / CocoaPods / Carthage (unused today; harmless guards)
 Pods/
 Carthage/Build/
