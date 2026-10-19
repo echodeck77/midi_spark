@@ -71,12 +71,14 @@ still commit+merge+push).
    directory you were launched in. `git status` is clean of the other instances, so stage `-A` freely (no
    cross-instance sweep risk — their edits live in their own checkouts).
 2. **Branch per task, off `main`** (`git checkout -b <feature>`); commit as you go.
-3. **On completion, integrate into `main` via REMOTE fast-forward** (needs no local `main` checkout, so the worktrees
-   never fight over who holds `main`): `git fetch origin && git push origin <feature>:main`, then `git fetch` to refresh
-   local `main`. If rejected (another instance advanced `main`), `git rebase origin/main` the feature branch, rebuild to
-   confirm it still compiles, then push again. (Equivalently: FF a local `main` to `origin/main`, FF it to the feature,
-   `git push origin main` — but then return your worktree to its own branch; don't leave `main` checked out, as that
-   blocks the other worktrees.)
+3. **On completion, integrate into `main` with `sh Scripts/land-on-main.sh`** (from your own worktree, on the feature branch, once the build is green). It does the REMOTE
+   fast-forward (`git push origin <feature>:main` — needs no local `main` checkout, so the worktrees never fight over who holds `main`) AND the catch-up that a bare push does NOT do:
+   a push moves only `origin/main`, **not the local `main` branch and not the build directories Paul builds from** (`/Users/paulbarrett/src/midi_spark` and `-b`) — "landed on main" has
+   repeatedly looked like "my changes aren't there" because of that (2026-09-26, 09-30, 10-01, 10-20). The script therefore also fast-forwards the local `main` ref (`git fetch origin main:main`,
+   ff-only) and each build dir that is clean and strictly behind (`git -C <dir> merge --ff-only origin/main`), reports any dir it must NOT touch (uncommitted work, ahead/diverged), and prints
+   what it found — **quote that output in your reply**. If it exits "origin/main has advanced" (another instance landed first), `git rebase origin/main`, rebuild to confirm it still compiles,
+   rerun. **Do not run the bare push and stop; `git fetch` alone does not refresh local `main`.** (Manual equivalent, only if the script is unusable: push, `git fetch origin main:main`, then
+   `git -C <build dir> merge --ff-only origin/main` per build dir. Don't leave `main` checked out in your worktree — it blocks the others.)
 4. If a shared file genuinely conflicts on integration (two instances changed it), git surfaces it at the rebase/merge
    — resolve it there, don't guess in the working tree.
 (A stale worktree can be pruned with `git worktree remove <path>` / `git worktree prune`; `git worktree list` shows both.)
