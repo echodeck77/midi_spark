@@ -5,6 +5,31 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — "RHYTHM tab rebuilt, outputs move to MIX, restart chains become the one restart model" — SHIPPED
+(2026-10-19; LANDED on `feat/rhythm-tab-restart-chains`, macOS suite green throughout, iOS builds clean) — two
+declarative restart chains per lane (RHYTHM in bars, MELODY in passes) replace the LANES GRID's masked model as
+the ONE live restart decision; LOCK is retired (a melody chain of [1] does what it did); the RHYTHM tab drops
+VEL/GATE/the OUT circles, gains a STEPS stepper+picker and HITS/OFFSET memory, and a restart-tiles editor; the
+LANES panel is mute-only now (no RESTART sub-tab); OUT A–D moved into MIX, which shrank OCT to 24pt and grew a
+20pt OUT row under each pad; the header's output ring now targets MIX (its OUT buttons, or the MIX tab chip)
+instead of the RHYTHM tab. All 20 factory presets confirmed unaffected (none used any old restart field). Full
+story, including the §17 report (what the old models re-anchored, the migration-inexact edge case, every
+judgment call), in `Docs/euclideous-status-log.md`.
+- [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "RHYTHM tab rebuilt / restart chains" section —
+      the STEPS stepper's drag-vs-tap feel, the picker's preview bars, the restart tiles/editor's small type and
+      timeline, TILT's EARLY/LATE, MIX at padH 76, the dashed OUT button, the pulse/trace rings on MIX.
+- [ ] DECIDE (Paul): the restart editor's focus-on-open/back-on-close VoiceOver behaviour (§13.5) isn't wired —
+      every control is individually labeled/hinted, but explicit focus transfer is unimplemented. Worth a follow-up?
+- [ ] DECIDE (Paul): one synthetic old-model test case (`resetSteps=2` over `LEN=5`, a 10-mark true period) migrates
+      "not exact" and falls back to FREE — not a real preset, but confirms the ≤4-link chain model is a genuine,
+      disclosed narrowing of what the old masked grid could express. Any real document likely to hit this shape?
+- [ ] (accepted) the restart editor's chain-row button positions are computed proportionally from the real panel
+      width rather than reproducing the ferry's own literal absolute reference pixels — consistent with how the
+      rest of this page already scales.
+- [ ] (accepted) the editor's timeline "current bar/pass" ring updates on the page's own existing re-render cadence
+      (piggybacking on other TimelineViews already driving it), not a dedicated new timer — may lag slightly in a
+      frame where nothing else on the page is animating.
+
 ## ★ EUCLIDEOUS — "FX tab (six fixed effect rows on the riff's steps)" — SHIPPED (2026-10-18; LANDED on `feature/fx-tab`, macOS 1701 green, iOS builds clean)
 — a third tab FX after MIX and LANES: RATCH · GATE · TIE · VEL · NOTE · CC over the riff's eight columns, per-row lane sets, one decision function
 (`euclideousFXApply`) that the Router, the TIE lookahead, the LANES roll and the flash all call. Every cell starts empty, so old sessions and

@@ -12,6 +12,115 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — "FERRY: RHYTHM tab rebuilt, outputs move to MIX, restart chains become the one restart
+  model" (2026-10-19, ratified by Paul; on `feat/rhythm-tab-restart-chains`; iOS builds clean; macOS suite
+  green throughout every phase; ALL visuals, touch feel and device-owed sound checks are device-owed).**
+  Replaces the LANES GRID ferry's masked rhythm/melody restart with two declarative chains per lane (RHYTHM
+  in bars, MELODY in passes — FREE or up to four links of 1/2/3/4/6/8), rebuilds the RHYTHM tab around that
+  model (STEPS becomes a stepper+picker, OFFSET/TILT grow, restart tiles replace the OUT circles), retires
+  LOCK (a melody chain of [1] does what it did), reduces the LANES panel to mute-only, and moves OUT A–D
+  into MIX. Built in six phases, each committed separately: (1) golden renders before any engine change; (2)
+  model/resolvers/migration; (3) the chain engine + Router wiring; (4) the RHYTHM tab rebuild; (5) LOCK/
+  LANES/MIX; (6) the header ring repoint. Full report below, organized per the ferry's own §17.
+  **ENGINE (§4/§5).** `EuclideousRestartChain` (packed `UInt32`, 4 links) + `EuclideousLaneRestartChains`
+  (rhythm, melody, barBeats, lapBeats) replace `EuclideousLaneRestartGrid` as the ONE live restart model;
+  the old masked grid is kept, byte-for-byte untouched, ONLY for the FX tab's own closed-form pass index
+  (`euclideousFXLockPass`/`FXPassIndex`, explicitly out of this ferry's scope, with its own full test suite
+  that constructs grid values directly) — a new large comment block in Derivations.swift explains why both
+  models now coexist permanently. New pure §5.1–5.4 functions (`euclideousRhythmChainOrigin`/
+  `NextRhythmRestart`/`PassIndex`/`PassStart`/`MelodyChainOrigin`/`ChainHitsBefore`) and a chain-era per-tick
+  core (`euclideousLaneChainPhase`/`Tick`/`NextChainHitGapBeats`/`ChainTieExtensionBeats`) replace the old
+  grid-based ones at every real call site in Router.swift — no `locked:`/`riffLock` parameter anywhere in the
+  new signatures; a melody chain of exactly `[1]` subsumes LOCK with no special-casing (§4.7), proven by a
+  byte-identical-reproduction test against the old locked/free-run paths. **Row-agnostic, a bug I caught and
+  fixed myself**: chains resolve for ANY row with a real `EuclidLine`, matching the `riffLock` field they
+  replace ("the mechanism itself is row-agnostic in the model") — NOT gated behind `isEuclideousRow` the way
+  the LANES-GRID-specific mute/grid block still is. Caught when 3 generic-row LOCK tests broke.
+  **MIGRATION (§12).** `migrateRestartChains` (walks the OLD model's own resolved restart beats over a
+  128-bar window, fits the shortest ≤4-link gap cycle, falls back per §12.7 when no fit exists) runs on
+  `AudioUnitViewController`'s existing main-thread 4 Hz resync loop — NEVER on the render thread, which
+  allocates (confirmed by actually building a Router-side cache first, catching the invariant-3 violation
+  myself, and moving it off-thread) — and auto-pins the resolved chains into the document the first tick
+  after load (a disclosed deviation from §12.2's literal "pin on first edit": safer than a render-thread
+  glitch OR an unmigrated lane silently playing FREE). §2.5's HITS/OFFSET memory (`hitsRequested`/
+  `offsetRequested`, resolved from current pulses/rotate when nil) is pinned the same way, inside the ONE
+  STEPS setter, by every writer (sliders, VoiceOver, the comet strip's single- and all-lanes drags, the
+  pinch) — all now routed through `euclideousSliderCommit(.steps, ...)`. BUILD page's own EUCLID editor
+  (GridUI.swift) confirmed untouched — its own inline mutation closures never touch the new fields, so its
+  lines keep them nil forever, exactly as required.
+  **TEST FALLOUT (unplanned, substantial).** Switching the real engine from masks/`riffLock` to chains broke
+  a long tail of PRE-EXISTING Router-level tests that built documents with the old fields and fed them
+  straight to the Router, bypassing the main-thread migration step this unit-test harness never runs.
+  Converted ~15 of them (new chain fields directly, or a new `migratedLine()` test helper simulating the AVC
+  resync tick); retired ~4 whose premise has no chain equivalent (arbitrary per-cell marks not reducible to
+  a ≤4-link cycle, a "negative carried origin before beat 0" that §12.6 rules out in the new model) with
+  comments explaining why, citing this ferry's own text as authorization. One synthetic test case
+  (`resetSteps=2` over `LEN=5`, true period 10 marks) is a genuine, disclosed "not exact" migration gap —
+  not a real preset, just reported. **All 20 factory presets confirmed unaffected**: none of them set any
+  old restart field (grepped before touching anything), so none change sound.
+  **RHYTHM TAB (§1–§3, §6).** VEL/GATE/STEPS-as-slider and the OUT circles are gone; HITS keeps a full-
+  height vertical fader; STEPS is a +/− stepper (36pt buttons, a tap-to-open/drag-to-change value box) whose
+  picker shows all 15 lengths 2–16, each previewing this lane's own rhythm via `euclideousStepsPickerPreview`
+  (pure Euclid at the requested hits/offset — never `customHits`, except the current length's own cell);
+  OFFSET/TILT grow to full-width 60pt horizontal sliders with their label row pinned to the top (a new
+  `topAlignLabelRow` parameter on the shared `EuclideousSlider`, default false, every other call site byte-
+  identical) and TILT gains EARLY/LATE end labels (a new `endLabels` parameter, same pattern). The OUT
+  circles' old spot now holds two restart tiles (RHYTHM/MELODY) opening a shared editor: each chain is FREE
+  or up to four link buttons (tap steps 1→2→3→4→6→8→removed, + appends), a read-only 16-cell timeline
+  (shaded runs between marks, a ring on the live current bar/pass) and one of six hint lines, including the
+  §5.6 "changes nothing" amber case (`euclideousRhythmChainChangesNothing`) when every mark lands on a lap
+  boundary anyway.
+  **LOCK (§7).** Removed from the RIFF tab. It shared a group with INV (81.6pt at the 326pt reference); INV
+  now fills the group alone via its own pre-existing `.frame(maxWidth: .infinity)` stretch rule — same
+  width/position, confirmed not "LOCK was alone" (the ferry's other branch). `riffLock` stops being written,
+  stays decodable; §12's migration reads it to decide a lane's melody chain.
+  **LANES PANEL (§8 — explicitly confirmed in scope by Paul: "removing the existing reset lane control, that
+  will now be mute only").** The MUTE | RESTART sub-tabs are gone; the panel is mute-only, with a static hint
+  line ("RESTARTS ARE SET ON EACH LANE'S RHYTHM TAB") replacing the chips. The RESTART view's entire drawing/
+  gesture/accessibility code is deleted outright (pure UI code, not a persisted field, so nothing needed to
+  stay decodable) from `LanesPanelPainter.swift`, along with the now-orphaned `EuclideousLanesSubTab` enum
+  and four unused palette constants. The MUTE view's read-only rhythm/melody marks now come from each lane's
+  resolved CHAINS (`euclideousChainRhythmMarkBeats`/`ChainMelodyMarkBeats`, new pure functions walking
+  `euclideousNextRhythmRestart`/`PassIndex`/`PassStart` forward through the visible window) instead of the
+  retired masks. `restartRhythmMask16`/`restartMelodyMask16`/`restartUnit` stay decodable, no longer written.
+  **MIX OUTPUTS (§9).** Each lane's OUT A–D row moves from the RHYTHM tab into MIX, under its pad pair
+  (`mixOutRow`, reusing `euclideousLaneOutChipStyle` verbatim — the SAME three-state look `laneOutRow` drew
+  as circles — now as a rounded rectangle). `laneOutRow` itself is deleted (confirmed nothing else called
+  it). OCT shrinks 28→24pt; the grid formula's `padH` drops from `rowH−32` to `rowH−52` (sp4 + the 24pt OCT
+  + sp4 + a new 20pt OUT row) to make room — at the 401×264 reference this is cellW 96.25 / rowH 128 / padH
+  76 (was 96); portrait (377×204 grid area) gives padH 46, below BOTH the 76 legibility floor and the new
+  60pt "don't build at all" floor (§9.3) — MIX was already not meaningfully usable there pre-ferry, now
+  explicitly not built rather than silently squeezed. VEL/VELOCITY (§9.5) becomes a genuine two-way word
+  choice (`euclideousMixVelocityNameFits`/`DisplayName`, calibrated against the ferry's own "fits at padH 96,
+  not at 76" example — reproduces it exactly) replacing the old truncate-the-long-word-in-place mechanism;
+  it never truncates now, by construction.
+  **HEADER (§10).** Confirmed built (the 2026-10-15 Fourfold header ferry). The ring's TARGET changes from
+  per-lane-card ("this lane's own OUT circle, or its RHYTHM tab chip") to panel-wide (`euclideousOutputCues`
+  loses its ring half entirely, now dim-only; a new `euclideousOutputRingTargets` decides "one ring per
+  routed lane's own MIX OUT button when the panel shows MIX, else one ring on the MIX tab chip, drawn once
+  however many lanes are routed"). A new `.mixButton` `EuclideousOutputCueRing` kind (radius 7, 1pt outset)
+  joins the existing `.tab` kind (reused verbatim for the MIX-tab-chip case, unchanged geometry); `.circle`
+  is now unreachable (reported, not deleted — removing the case would touch every exhaustive switch for no
+  behavioural gain). Lane-card TRACE dimming (§10.3, unchanged) still works exactly as before.
+  **JUDGMENT CALLS / GAPS FLAGGED, not silently resolved:** the restart editor's chain-row button positions
+  are computed proportionally from the real passed-in width (matching how the rest of this page already
+  scales) rather than reproducing the ferry's own literal absolute "x68" reference pixel; the editor's
+  timeline "current bar/pass" ring reads the live beat once per SwiftUI body-evaluation (piggybacking on the
+  page's existing frequent re-renders) rather than a dedicated new timer — may lag very slightly in a frame
+  where nothing else animates; §13.5's "focus moves into the picker/editor on open, back to the tapped
+  control on close" is NOT wired (every control is individually labeled/hinted, but explicit
+  `@AccessibilityFocusState` focus transfer is unimplemented); §9.8's "toggle trait" uses the plain button
+  trait (no stable cross-OS-version SwiftUI toggle-trait constant to reach for); §10.5's "panel not on
+  screen" case was not exercised — the sequencer panel appears to always be present in both orientations in
+  current layouts, so this may be moot in practice rather than actually handled.
+  **DEVICE-OWED:** every item in this ferry's own §16 list, appended to
+  `Docs/euclideous-device-verification-debt.md` — the STEPS stepper's drag-vs-tap feel, the picker's preview
+  bars at real size, the restart tiles/editor's small type and the timeline's marks/ring, TILT's EARLY/LATE
+  legibility, MIX at padH 76 (pad/VEL/OCT/OUT-button legibility and hit targets), the dashed OUT button's
+  read, the pulse/trace rings on MIX, and restarts sounding as predicted (DRUNK/TIE across a melody restart,
+  though Euclideous's own riff walk doesn't expose DRUNK/RAND as live directions — confirmed hard-mapped to
+  FWD at the model layer, so that specific clause doesn't apply here, only to the generic chain RIFF
+  processor's own unrelated DRUNK/RAND, untouched by this ferry).
 - **▶ EUCLIDEOUS — "FERRY: FX tab (six fixed effect rows on the riff's steps)" (2026-10-18, ratified by Paul; on `feature/fx-tab`; iOS builds
   clean; macOS suite 1701 green; ALL visuals, touch feel and every sound check are device-owed).**
   A third tab, FX, after MIX and LANES in the bottom-right panel (LANDSCAPE ONLY — see the portrait stop below). Six fixed, page-level rows —

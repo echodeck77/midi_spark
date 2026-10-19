@@ -17,6 +17,19 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### RHYTHM tab rebuilt / restart chains (2026-10-19 ferry — §16)
+- The STEPS stepper: the 81 × 36 +/− buttons, and tap versus drag on the value box at 12pt per step.
+- The picker's 4.6 × 6 preview bars at real size, in all four lane colours.
+- Restart tiles: the 8pt name and unit, and a four-link chain without its unit.
+- Restart editor: the 49 × 38 link buttons, the 7pt axis label, the 14.5pt timeline cells and their marks, and every hint line fitting.
+- TILT's EARLY and LATE end labels: legible, and the slider still feels the same.
+- MIX at padH 76: pad legibility, VEL (not VELOCITY — confirm the word choice reads right, not just that it fits), the 24pt OCT buttons, and the 46 × 20 OUT buttons being comfortable to hit.
+- The dashed OUT button on MIX reads as "routed, main out off" (same look `laneOutRow` used to draw as a circle, now a rounded rect).
+- The pulse and trace rings on the MIX OUT buttons and the MIX tab: noticeable without being noisy; a ring on an OUT button and the tab's own selected-state underline don't visually clash.
+- Restarts sound as the footers and timelines predict, including TIE across a melody restart (DRUNK/RAND don't apply to Euclideous's own riff walk — confirmed hard-mapped to FWD at the model layer).
+- The 42% dim of a cut-short pass (a rhythm restart about to cut a lap) reads as "this lap won't get here."
+- The restart editor's "current bar/pass" ring on its timeline: confirm it doesn't visibly lag behind the real beat (it updates on the page's existing re-render cadence, not a dedicated timer).
+
 ### FX tab (2026-10-18 ferry — six fixed effect rows on the riff's steps)
 - 29pt rows and 24pt strip controls are comfortable to tap, paint and drag inside AUM.
 - The 8pt axis lock separates painting from value drags reliably, and the step sizes (RATCH 18, GATE 5, VEL 2, NOTE 14, CC 2 pt/step) feel right.

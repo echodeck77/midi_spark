@@ -6309,7 +6309,6 @@ func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats
 // numbers, the position of a beat inside a lane's 16-cell window, which cell/row a touch lands on, the run outlines, the restart-mark
 // beats shown on the MUTE tab, the edits a tap / stroke / rate-box tap make, the roll's feed, and the accessibility words.
 
-enum EuclideousLanesSubTab: Int, CaseIterable { case mute = 0, restart = 1 }
 
 /// §4: the panel's own geometry from the content area under the MIX | LANES tab strip. Horizontal sizes follow the spec's formula exactly
 /// (rail 38, gap 4, then 16 cells with 2pt gaps across the rest — 20.125pt cells at the 394pt reference content width); the vertical

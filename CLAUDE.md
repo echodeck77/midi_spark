@@ -136,7 +136,8 @@ for any 8×8-State-scope work):
 **Euclideous's own vocabulary** (narrower, deliberately NOT the routing-graph language above —
 Euclideous has no receiver/door graph, no cables beyond a flat A–D toggle, no chain-of-processors):
 - **Lane** = one of 4 `EuclidLine` instances (`PluginState.euclideousLines`), each with its own
-  RHYTHM (K-of-N pattern, offset/tilt/gate/velocity, direction, per-lane reset), RIFF (a walk over
+  RHYTHM (K-of-N pattern, offset/tilt/gate/velocity, direction, two restart chains — RHYTHM in
+  bars, MELODY in passes), RIFF (a walk over
   the shared rank matrix), NOTES (an additive lit-note layer), and MASK (an 11-mode per-lane
   modifier) tab.
 - **Riff** = a stencil of *ranks* (not pitches) over an 8-step grid — 4 independently stored, one
@@ -147,8 +148,9 @@ Euclideous has no receiver/door graph, no cables beyond a flat A–D toggle, no 
   repeat/chord-stab/octave-shift/mirror/leap/climb/accent/swell), distinct from the standalone
   `EUCLID MASK` processor type that exists elsewhere in the 8×8 grid's processor roster.
 - **Sequencer panel** = the MIX / LANES / FX tabs of the bottom-right panel (RIFFS is hidden; FX is landscape only). LANES is four lane blocks of
-  16 cells with MUTE and RESTART sub-tabs: each lane's own MUTE grid, and separate RHYTHM / MELODY restart rows, on the
-  lane's own cell size (STEP/4STP/PASS/2PASS to mute, 4STP/PASS/2PASS/4PASS to restart).
+  16 cells, mute-only (restart-chains ferry, 2026-10-19 — the old MUTE/RESTART sub-tabs and their RESTART view are gone;
+  restarts are set on each lane's own RHYTHM tab instead, §6 below), each lane's own MUTE grid on its own cell size
+  (STEP/4STP/PASS/2PASS), with read-only rhythm/melody restart marks drawn from that lane's resolved chains.
 - **FX** = the sequencer panel's third tab: six fixed page-level rows (RATCH, GATE, TIE, VEL, NOTE, CC) over the riff's eight columns, each with its
   own lane set; a cell holds a value or nothing and acts only on a hit that plays the riff, through the column it reads, never on a written rest.
 - **Emitters A–D** here are a flat per-lane output toggle (`MAIN OUT`), not the full 8×8-State
@@ -220,23 +222,38 @@ the same pipeline as any other row; it is not a special-cased render path.
   `composeSceneMeta` when `PluginState.euclideousEnabled` — a regular authored row through the
   ordinary Router/Kernel/SnapshotBox pipeline, not a separate render path.
 - **Four lanes** (`EuclidLine` × 4, `PluginState.euclideousLines`), each with RHYTHM (K-of-N
-  pattern, HITS/STEPS/OFFSET/TILT/GATE/VELOCITY sliders, FWD/BKW/PING-PONG direction; two 16-cell RESTART masks
-  on the LANES tab — RHYTHM (the pattern starts again) and MELODY (the riff goes back to its first position) —
-  and a 16-cell MUTE grid, LANES GRID ferry 2026-10-18: `muteCells16`/`muteUnit`/`restartRhythmMask16`/
-  `restartMelodyMask16`/`restartUnit`, resolved by `euclideousLaneGridResolved` (a pre-feature document migrates
-  from its old `resetSteps`/`restartMask`/sequencer fields at use); the old per-lane 8-bit reset is decode-only),
-  RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
+  pattern; HITS (vertical fader) / STEPS (a +/− stepper opening a 15-length picker, each cell
+  previewing this lane's own rhythm) / OFFSET / TILT (full-width horizontal sliders, TILT with
+  EARLY/LATE end labels) — GATE/VELOCITY are edited on MIX instead, restart-chains ferry 2026-10-19;
+  FWD/BKW/PING-PONG direction; two restart CHAINS — `restartRhythmBars`/`restartMelodyPasses`
+  (`[UInt8]?`, FREE or up to four links of 1/2/3/4/6/8, set via the RHYTHM tab's own restart tiles +
+  editor) are now the ONE live restart model, replacing the LANES GRID ferry's 16-cell
+  `restartRhythmMask16`/`restartMelodyMask16`/`restartUnit` masks (still decodable, no longer written;
+  read ONLY by the FX tab's own preserved closed-form pass index, out of the restart-chains ferry's
+  scope) and `resetSteps`/`restartMask` before them (decode-only); migration
+  (`migrateRestartChains`) runs on `AudioUnitViewController`'s main-thread resync loop and auto-pins
+  on load (never on the render thread, which sees a safe FREE default until then); `hitsRequested`/
+  `offsetRequested` remember what HITS/OFFSET were last actually asked for, so shrinking STEPS and
+  growing it back restores the exact pattern left behind); a 16-cell MUTE grid (`muteCells16`/
+  `muteUnit`, LANES GRID ferry 2026-10-18, UNCHANGED by the restart-chains ferry — mute stays on the
+  LANES tab), RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
   shared 8-step rank matrix; DRUNK/RANDOM were removed from this walk 2026-10-13 and now coerce to
-  FWD; LOCK/FREE, INVERT, ON-REST SKIP/FILL/TIE, STRIDE/LENGTH/ADVANCE/TRANSPOSE, ±2 octave, riff
-  capture), NOTES (an additive lit-note layer independent of the riff — it reads ON only while its switch is on AND a note is selected, `euclideousNotesLayerIsOn`; up to 8 ranks + TOP/TOP2,
+  FWD; FREE, INVERT, ON-REST SKIP/FILL/TIE, STRIDE/LENGTH/ADVANCE/TRANSPOSE, ±2 octave, riff
+  capture — LOCK is RETIRED, restart-chains ferry 2026-10-19: a melody chain of exactly `[1]` does
+  what it did, §4.7; `riffLock` stays decodable, read only by migration), NOTES (an additive lit-note layer independent of the riff — it reads ON only while its switch is on AND a note is selected, `euclideousNotesLayerIsOn`; up to 8 ranks + TOP/TOP2,
   per-note octave shift, a bipolar velocity offset), and MASK (11 modes — MUTE/PAUSE/RATCHET/
   REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — gated by CHANCE).
 - **Sequencer panel** (replaced an earlier "NOTE VIEW" telemetry panel entirely): tabs are MIX (the default —
-  eight XY pads, gate × velocity, + an OCT stepper per layer: each lane's RIFF and NOTES; RIFF = the lane's GATE/VEL,
-  NOTES = its own `notesGate`/`notesVelocity`, which PART from GATE/VEL at the first edit), then LANES (2026-10-18,
-  `LanesPanelPainter.swift`: MUTE | RESTART sub-tabs, four 16-cell lane blocks each with a RATE box that edits that
-  lane's unit, a roll of the lane's hits behind the cells and a playhead per lane — no ON, panel RATE/LEN, RESET boxes
-  or ring any more; the grid is always live); RIFFS is hidden. The tab row is tabs only. Every sounding pitch in a
+  eight XY pads, gate × velocity, + a 24pt OCT stepper per layer (shrunk from 28pt, restart-chains ferry
+  2026-10-19) and, new in that same ferry, a 20pt OUT A–D row under each lane's pad pair (`mixOutRow`,
+  moved here from the RHYTHM tab's old OUT circles — reuses `euclideousLaneOutChipStyle` verbatim as a
+  rounded rect): each lane's RIFF and NOTES; RIFF = the lane's GATE/VEL,
+  NOTES = its own `notesGate`/`notesVelocity`, which PART from GATE/VEL at the first edit), then LANES
+  (mute-only since the restart-chains ferry, 2026-10-19 — `LanesPanelPainter.swift`: no sub-tabs, just a
+  static hint line; four 16-cell lane blocks each with a RATE box that edits that lane's MUTE unit, a roll
+  of the lane's hits behind the cells, a playhead per lane, and read-only rhythm/melody restart marks now
+  drawn from each lane's resolved CHAINS (`euclideousChainRhythmMarkBeats`/`ChainMelodyMarkBeats`) instead
+  of the retired masks); RIFFS is hidden. The tab row is tabs only. Every sounding pitch in a
   Euclideous hit carries its OWN gate and legato is per layer.
 - **FX tab (2026-10-18).** Third tab of the sequencer panel (landscape only — portrait's panel sits beside the riff grid and is 248pt tall, so the spec's
   own stop applies; the tab is hidden there). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
@@ -245,13 +262,22 @@ the same pipeline as any other row; it is not a special-cased render path.
   the beat; LOCK in closed form). RATCH reuses the mask RATCHET's deferred-strike engine (`pushEchoTail`) with n exact; CC goes through `emitModCC(force:)`
   with the notes' own channel stamp. The tab's columns come from `euclideousRiffCellW` — the riff grid's own function — and every UI number is a pure
   `euclideousFX*` function; `FXPanelPainter.swift` only paints them. A moved NOTE rank folds through `riffResolveExtended` (rank 0 is never a rest).
-- **ONE per-tick core (LANES GRID, 2026-10-18).** `euclideousLaneTick` (Derivations.swift) decides, for a lane tick, the pattern
-  phase from the RHYTHM origin and the riff ordinal (`advOrd`) counted from the MELODY origin on the lane's real hit schedule;
-  restarts are cell indices on exact integer lane ticks. Mute is `euclideousLaneAudible` at the hit's own beat (per hit, not per
-  window). The Router, the TIE lookahead (`euclideousRiffTieExtensionBeats`), the next-hit gap, the walk-tag mirror, the roll
-  (`euclideousLaneRollHits`), the comet (`euclideousLaneCometRaw`) and the footer baseline (`euclideousLapStartOrdinal`) all call
-  it — change the arithmetic THERE, nowhere else. A restart (either kind) on a muted cell still takes effect; a muted hit still
-  advances the walk. Render-thread care: nothing in the core or the migration may allocate (`allCases` allocates).
+- **ONE per-tick core (restart chains, 2026-10-19 — supersedes the LANES GRID ferry's own masked core).**
+  `euclideousLaneChainTick`/`euclideousLaneChainPhase` (Derivations.swift) decide, for a lane tick, the
+  pattern phase from the RHYTHM chain's origin and the riff ordinal (`advOrd`) counted from the MELODY
+  chain's origin on the lane's real hit schedule (`euclideousChainHitsBefore`, a bounded closed form spanning
+  rhythm restarts). The Router, the TIE lookahead (`euclideousChainTieExtensionBeats`), the next-hit gap
+  (`euclideousNextChainHitGapBeats`), the walk-tag mirror, the LANES roll's marks and the footer baseline
+  (`euclideousLapStartOrdinal`, now chain-based) all call it — change the arithmetic THERE, nowhere else. No
+  `locked:` parameter anywhere in this generation: a melody chain of exactly `[1]` subsumes old LOCK with no
+  special-casing. Mute is UNCHANGED — still `euclideousLaneAudible` at the hit's own beat (per hit, not per
+  window), still reads `muteCells16`/`muteUnit`, nothing to do with chains. The OLD masked core
+  (`euclideousLaneTick`/`euclideousLanePhase`, `EuclideousLaneRestartGrid`) is kept, byte-for-byte untouched,
+  ONLY for the FX tab's own closed-form pass index (`euclideousFXLockPass`/`FXPassIndex`) — the two models
+  now coexist permanently, by design, each with its own test suite; never modify one expecting it to affect
+  the other. A rhythm restart on a muted cell still takes effect; a muted hit still advances the walk.
+  Render-thread care: nothing in either core may allocate; `migrateRestartChains` (which does allocate) runs
+  only on `AudioUnitViewController`'s main-thread resync loop, never from `Router`.
 - **Source.** One page-level selector — MIDI IN / CHORDS (a self-contained degree-matrix+rate
   chord generator, no 8×8-grid receiver dependency) / KEY (a scale pool). No per-lane source, no
   dependency on the wider receiver/door graph.
@@ -262,7 +288,12 @@ the same pipeline as any other row; it is not a special-cased render path.
   not ×; see below). There is NO ON chip: the page always runs (`euclideousEnabledResolved` is always true; the
   stored field is decode-only). The A/B/C fit ladder, group widths and positions all come from ONE pure
   `euclideousHeaderLayout` (Derivations.swift) that the body layouts also read — change header metrics there, not
-  in the views.
+  in the views. **Ring TARGET repointed (restart-chains ferry, 2026-10-19):** a tap/hold's ring used to go around
+  "this lane's own OUT circle, or its RHYTHM tab chip" — both are gone (OUT moved to MIX, §9; RHYTHM never had a
+  ring of its own again after that). `euclideousOutputRingTargets` (replacing the ring half of
+  `euclideousOutputCues`, which is now dim-only) decides, page-wide not per-lane-card: one ring per routed lane's
+  own MIX OUT button when the sequencer panel is showing MIX, else ONE ring around the MIX tab chip (drawn once
+  however many lanes are routed). Lane-card TRACE dimming while held is unchanged.
 - **Settings sheet (Fourfold, 2026-10-15).** The gear (replacing ×) opens a 3-tab sheet overlay —
   MIDI IN (LISTEN ON channel mask, ALL-NOTES-OFF ignore/obey) · MAIN OUT (per-output A–D channel
   stepper, ALL NOTES OFF) · CLOCK (KEEP PLAYING/STOP when the host transport stops) — presented the
