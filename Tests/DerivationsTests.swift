@@ -4047,20 +4047,34 @@ final class DerivationsTests: XCTestCase {
         for o in 2..<4 { XCTAssertEqual(euclideousOutputRingState(output: o, laneMasks: masks, mainOutMask: 0b1111).mode, .onUnrouted) }
     }
 
-    // §10.2 — pulse / trace targets.
-    func testFourfoldCuesPulseRingsRoutedLanesAndTraceDimsTheRest() {
+    // §10.3 — the lane-card DIM half (RESTART CHAINS ferry §10: the ring half moved to MIX, tested below).
+    func testFourfoldCuesPulseDimsNothingAndTraceDimsUnroutedLanes() {
         let masks: [UInt8] = [0b0001, 0b0010, 0b0010, 0b0001]   // lanes 0,3 → A; lanes 1,2 → B
-        let rhythm = [true, true, false, false]                  // lanes 2,3 are showing another tab
-        XCTAssertEqual(euclideousOutputCues(output: 0, laneMasks: masks, laneShowsRhythm: rhythm, mode: .pulse),
-                       [.ringOutCircle, .none, .none, .ringRhythmTab], "tap A: lane 1 on its A circle, lane 4 on its RHYTHM tab, nobody dims")
-        XCTAssertEqual(euclideousOutputCues(output: 0, laneMasks: masks, laneShowsRhythm: rhythm, mode: .trace),
-                       [.ringOutCircle, .dim, .dim, .ringRhythmTab], "hold A: lanes 2 and 3 drop to 42%, lanes 1 and 4 hold their rings")
-        XCTAssertEqual(euclideousOutputCues(output: 2, laneMasks: masks, laneShowsRhythm: rhythm, mode: .trace),
+        XCTAssertEqual(euclideousOutputCues(output: 0, laneMasks: masks, mode: .pulse),
+                       [.none, .none, .none, .none], "a tap dims no lane card")
+        XCTAssertEqual(euclideousOutputCues(output: 0, laneMasks: masks, mode: .trace),
+                       [.none, .dim, .dim, .none], "hold A: lanes 2 and 3 (routed to B) drop to 42%, lanes 1 and 4 (routed to A) don't")
+        XCTAssertEqual(euclideousOutputCues(output: 2, laneMasks: masks, mode: .trace),
                        [.dim, .dim, .dim, .dim], "no lane routed to C: all four dim")
-        XCTAssertEqual(euclideousOutputCues(output: 2, laneMasks: masks, laneShowsRhythm: rhythm, mode: .pulse),
-                       [.none, .none, .none, .none], "…and a tap pulses nothing")
         let all: [UInt8] = [0b1000, 0b1000, 0b1000, 0b1000]
-        XCTAssertFalse(euclideousOutputCues(output: 3, laneMasks: all, laneShowsRhythm: rhythm, mode: .trace).contains(.dim), "every lane routed: none dim")
+        XCTAssertFalse(euclideousOutputCues(output: 3, laneMasks: all, mode: .trace).contains(.dim), "every lane routed: none dim")
+    }
+    // §10.2/§18 — "Trace targets... each lane dims or not, and the ring goes on its MIX OUT button when MIX
+    // is showing, or once on the MIX tab otherwise." Cover no lane routed (no ring either) and every lane
+    // routed (one ring per lane when MIX shows, one ring total on the tab otherwise).
+    func testFourfoldRingTargetsGoOnMixButtonsWhenMixShowsOrOnceOnTheTabOtherwise() {
+        let masks: [UInt8] = [0b0001, 0b0010, 0b0010, 0b0001]   // lanes 0,3 → A; lanes 1,2 → B
+        XCTAssertEqual(euclideousOutputRingTargets(output: 0, laneMasks: masks, panelShowsMix: true),
+                       [.mixOutButton(lane: 0), .mixOutButton(lane: 3)], "MIX showing: one ring per routed lane's own button")
+        XCTAssertEqual(euclideousOutputRingTargets(output: 0, laneMasks: masks, panelShowsMix: false),
+                       [.mixTab], "another tab showing: ONE ring on the MIX tab, however many lanes are routed")
+        XCTAssertEqual(euclideousOutputRingTargets(output: 2, laneMasks: masks, panelShowsMix: true), [],
+                       "no lane routed to C: no ring at all, MIX showing")
+        XCTAssertEqual(euclideousOutputRingTargets(output: 2, laneMasks: masks, panelShowsMix: false), [],
+                       "no lane routed to C: no ring at all, another tab showing")
+        let all: [UInt8] = [0b1000, 0b1000, 0b1000, 0b1000]
+        XCTAssertEqual(euclideousOutputRingTargets(output: 3, laneMasks: all, panelShowsMix: true).count, 4, "every lane routed, MIX showing: 4 rings")
+        XCTAssertEqual(euclideousOutputRingTargets(output: 3, laneMasks: all, panelShowsMix: false), [.mixTab], "every lane routed, another tab showing: still just the one tab ring")
     }
 
     // §10.3 — the layout ladder.
@@ -4673,10 +4687,12 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - MIX TAB (ferry 2026-10-18) §9 tests 1–4 (pure)
 
-    // §9.1 — the grid: a 401 × 264 grid area gives cellW 96.25, rowH 128, padH 96 and the §2.7 origins.
+    // RESTART CHAINS ferry §9.1/§16: a 401 × 264 grid area gives cellW 96.25, rowH 128, padH 76 (was 96 —
+    // OUT moving into MIX adds sp4 + the 24pt OCT stepper + sp4 + the 20pt OUT row under each pad) and the
+    // §2.7 origins (unchanged: the cells' own x/y origins don't move, only what sits below them does).
     func testMixGridAtTheReferenceSizeAndItsCellOrigins() {
         let g = euclideousMixGrid(width: 401, height: 264)
-        XCTAssertEqual(g.cellW, 96.25, accuracy: 1e-9); XCTAssertEqual(g.rowH, 128, accuracy: 1e-9); XCTAssertEqual(g.padH, 96, accuracy: 1e-9)
+        XCTAssertEqual(g.cellW, 96.25, accuracy: 1e-9); XCTAssertEqual(g.rowH, 128, accuracy: 1e-9); XCTAssertEqual(g.padH, 76, accuracy: 1e-9)
         XCTAssertFalse(g.belowFloors)
         let xs: [CGFloat] = [0, 100.25, 204.5, 304.75], ys: [CGFloat] = [0, 136]
         var want: [CGPoint] = []
@@ -4685,16 +4701,19 @@ final class DerivationsTests: XCTestCase {
         for lane in 0..<4 { for notes in [false, true] { got.append(g.origin(lane: lane, notes: notes)) } }
         // order: lane 1 riff, lane 1 notes, lane 2 riff, lane 2 notes, then lanes 3 and 4
         for (i, (a, b)) in zip(got, want).enumerated() { XCTAssertEqual(a.x, b.x, accuracy: 1e-9, "cell \(i) x"); XCTAssertEqual(a.y, b.y, accuracy: 1e-9, "cell \(i) y") }
-        // the 8 cells exactly tile the area: last cell's trailing edge = W, last row's bottom = H
-        XCTAssertEqual(got[7].x + g.cellW, 401, accuracy: 1e-9); XCTAssertEqual(got[7].y + g.padH + 4 + 28, 264, accuracy: 1e-9)
+        // the 8 cells + the OCT steppers + the OUT rows exactly tile the area: last cell's trailing edge = W, last row's bottom = H
+        XCTAssertEqual(got[7].x + g.cellW, 401, accuracy: 1e-9)
+        XCTAssertEqual(got[7].y + g.padH + 4 + EuclideousMixMetrics.stepperH + 4 + EuclideousMixMetrics.outRowH, 264, accuracy: 1e-9)
         // the panel → grid area: the ferry's 417 × 308 panel is 401 × 264 inside its padding, tab row and gap
         let area = euclideousMixGridArea(panelWidth: 417, panelHeight: 308)
         XCTAssertEqual(area.width, 401); XCTAssertEqual(area.height, 264)
     }
-    // §2.8 — the floors are REPORTED (never shrunk): portrait panels are always short, narrow landscape panels are narrow.
+    // §9.3 — the floors are REPORTED (never shrunk): portrait panels are always short, narrow landscape panels are narrow;
+    // below padH 60, MIX isn't built for that layout at all (§9.3, new — replaces the old "never shrunk" rule's own floor-less reporting).
     func testMixGridFlagsPanelsBelowTheLegibilityFloors() {
         let portrait = euclideousMixGrid(width: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).width, height: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).height)
-        XCTAssertEqual(portrait.padH, 66, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 66 < 76")
+        XCTAssertEqual(portrait.padH, 46, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 46 < 76")
+        XCTAssertLessThan(portrait.padH, EuclideousMixMetrics.floorPadH, "…and below the §9.3 60pt build floor too")
         let narrow = euclideousMixGridArea(panelWidth: 357.12, panelHeight: 333.5)
         XCTAssertTrue(euclideousMixGrid(width: narrow.width, height: narrow.height).belowFloors, "1024-wide landscape: cellW 81.3 < 84")
         let ok = euclideousMixGridArea(panelWidth: 416.88, panelHeight: 312.25)
@@ -4723,6 +4742,18 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(pad.values(at: CGPoint(x: -50, y: 500)).gate, 0.01); XCTAssertEqual(pad.values(at: CGPoint(x: -50, y: 500)).velocity, 1)
         XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).gate, 1.0); XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).velocity, 127)
         XCTAssertEqual(pad.values(at: CGPoint(x: 10, y: 40)).gate, 0.01, "a touch on the VEL strip still sets both values; its x clamps the gate to 1%")
+    }
+    // RESTART CHAINS ferry §9.4/§16, literal: at padH 76 (the new grid-derived reference, OUT moved into
+    // MIX): plotH 62, left-axis ticks at y 43/31/19 (bottom ticks unchanged), and the three named puck points.
+    func testMixPadAtTheNewPadH76ReferenceMatchesTheFerrysOwnLiteralNumbers() {
+        let pad = EuclideousMixPadGeometry(cellW: 96.25, padH: 76)
+        XCTAssertEqual(pad.plotH, 62, accuracy: 1e-9)
+        func near(_ p: CGPoint, _ x: Double, _ y: Double, _ msg: String) { XCTAssertEqual(Double(p.x), x, accuracy: 0.01, msg); XCTAssertEqual(Double(p.y), y, accuracy: 0.01, msg) }
+        near(pad.puck(gate: 0.60, velocity: 104), 65.95, 15.69, "gate 60 / vel 104")
+        near(pad.puck(gate: 1.00, velocity: 127), 89.25, 7, "100 / 127")
+        near(pad.puck(gate: 0.01, velocity: 1), 31.58, 54.62, "1 / 1")
+        XCTAssertEqual(pad.tickXs.map { Double($0) }.map { ($0 * 100).rounded() / 100 }, [45.56, 60.13, 74.69], "bottom-axis ticks unchanged")
+        XCTAssertEqual(pad.tickYs.map { Double($0) }, [43, 31, 19])
     }
     // §9.3 — LEGATO at exactly 100% for BOTH layers, GATE otherwise; the strip texts and the spoken value.
     func testMixGateLabelIsLegatoAtExactly100ForBothLayers() {
@@ -4924,15 +4955,17 @@ final class DerivationsTests: XCTestCase {
         var two = laneWithNoNotesSelected(); euclideousToggleNotesKey(&two, rank: 2); euclideousToggleNotesKey(&two, rank: 6)
         euclideousToggleNotesKey(&two, rank: 2); XCTAssertTrue(euclideousNotesLayerIsOn(two), "one note still selected ⇒ still on")
     }
-    // "change the vel label on the mix tab's xy controls to 'velocity'" — and it truncates, never runs into the number.
-    func testMixVelocityStripNameIsVelocityAndTruncatesToTheRoomItHas() {
-        XCTAssertEqual(euclideousMixVelocityName, "VELOCITY")
-        let natural = CGFloat(euclideousMixVelocityName.count) * (0.6 * 8 + 0.08 * 8)   // 8pt heavy mono + 0.08em tracking
-        let reference = EuclideousMixPadGeometry(cellW: 96.25, padH: 96), portrait = EuclideousMixPadGeometry(cellW: 90.25, padH: 66)
-        XCTAssertEqual(euclideousMixVelocityNameLength(plotH: reference.plotH), 82 - 4 - 19, accuracy: 1e-9)
-        XCTAssertGreaterThanOrEqual(euclideousMixVelocityNameLength(plotH: reference.plotH), natural, "at the reference pad the whole word fits under the number")
-        XCTAssertLessThan(euclideousMixVelocityNameLength(plotH: portrait.plotH), natural, "on a short portrait pad it is truncated, not shrunk or overlapped")
-        XCTAssertEqual(euclideousMixVelocityNameLength(plotH: 10), 0, "never negative")
+    // RESTART CHAINS ferry §9.5/§16, literal: "VELOCITY fits at padH 96 but not at 76, so the reference reads
+    // VEL. It never truncates." (The grid-derived reference padH moved from 96 to 76 when OUT moved to MIX —
+    // see testMixGridAtTheReferenceSizeAndItsCellOrigins — so "the reference" here means padH 96, the OLD
+    // grid-derived value this test's own history used, still a valid fit/no-fit boundary case either way.)
+    func testMixVelocityStripShowsVelocityWhenItFitsAndVelOtherwiseNeverTruncating() {
+        XCTAssertEqual(euclideousMixVelocityName, "VELOCITY"); XCTAssertEqual(euclideousMixVelocityNameShort, "VEL")
+        XCTAssertTrue(euclideousMixVelocityNameFits(plotH: EuclideousMixPadGeometry(cellW: 96.25, padH: 96).plotH), "padH 96: VELOCITY fits")
+        XCTAssertFalse(euclideousMixVelocityNameFits(plotH: EuclideousMixPadGeometry(cellW: 96.25, padH: 76).plotH), "padH 76 (the new MIX-with-outputs reference): VELOCITY does not fit")
+        XCTAssertEqual(euclideousMixVelocityDisplayName(plotH: EuclideousMixPadGeometry(cellW: 96.25, padH: 96).plotH), "VELOCITY")
+        XCTAssertEqual(euclideousMixVelocityDisplayName(plotH: EuclideousMixPadGeometry(cellW: 96.25, padH: 76).plotH), "VEL")
+        XCTAssertFalse(euclideousMixVelocityNameFits(plotH: 10), "a tiny pad never fits the long word")
     }
 
 }

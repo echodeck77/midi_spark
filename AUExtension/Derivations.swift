@@ -3919,6 +3919,43 @@ func euclideousBuildPattern(_ L: EuclidLine) -> (buf: [Bool], n: Int) {
     let n = euclideousBuildPatternInto(L, buf: &buf)
     return (buf, n)
 }
+/// §8.3 — a rhythm chain's own restart beats inside `[windowStart, windowStart + windowBeats)`, walked
+/// forward via `euclideousNextRhythmRestart` from just before the window (the LANES mute window's read-only
+/// marks). FREE gives none — nothing to mark.
+func euclideousChainRhythmMarkBeats(chain: EuclideousRestartChain, barBeats: Double, windowStart: Double, windowBeats: Double) -> [Double] {
+    guard !chain.isFree, barBeats > 0, windowBeats > 0 else { return [] }
+    var out: [Double] = []
+    var b = windowStart - Double(max(1, chain.total)) * barBeats - 1   // safely before the window
+    var guardCount = 0
+    while guardCount < 4096 {
+        guard let next = euclideousNextRhythmRestart(after: b, barBeats: barBeats, chain: chain) else { break }
+        if next >= windowStart + windowBeats - 1e-9 { break }
+        if next >= windowStart - 1e-9 { out.append(next) }
+        b = next
+        guardCount += 1
+    }
+    return out
+}
+/// §8.3 — a melody chain's own restarting-pass START beats inside the window, via `euclideousPassIndex`/
+/// `Start` and `euclideousIsMelodyChainRestartPass`. FREE gives none.
+func euclideousChainMelodyMarkBeats(melodyChain: EuclideousRestartChain, rhythmChain: EuclideousRestartChain, barBeats: Double, lapBeats: Double, windowStart: Double, windowBeats: Double) -> [Double] {
+    guard !melodyChain.isFree, lapBeats > 0, windowBeats > 0 else { return [] }
+    let qStart = Int64((euclideousPassIndex(beat: windowStart, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)) - 1)
+    var out: [Double] = []
+    var q = qStart
+    var guardCount = 0
+    while guardCount < 4096 {
+        let start = euclideousPassStart(q, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)
+        if start >= windowStart + windowBeats - 1e-9 { break }
+        if start >= windowStart - 1e-9,
+           euclideousIsMelodyChainRestartPass(beat: start, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain, melodyChain: melodyChain) {
+            out.append(start)
+        }
+        q += 1
+        guardCount += 1
+    }
+    return out
+}
 /// §5.6/§6.2 — "a rhythm chain 'changes nothing' when it isn't FREE and every restart lands on a lap start
 /// of the free-running lane: every running total × barBeats, and C × barBeats, is a whole multiple of
 /// lapBeats (within the epsilon)." Drives the restart editor's amber hint line, nowhere in the engine
@@ -4867,17 +4904,29 @@ func euclideousOutputRingState(output: Int, laneMasks: [UInt8], mainOutMask: UIn
     return EuclideousOutputRingState(mode: on ? (lit.contains(true) ? .onRouted : .onUnrouted) : .off, lit: lit)
 }
 
-enum EuclideousOutputCue: Equatable { case none, ringOutCircle, ringRhythmTab, dim }
+enum EuclideousOutputCue: Equatable { case none, dim }
 enum EuclideousOutputCueMode { case pulse, trace }
-/// What each lane shows for output `output`: PULSE (after a tap) rings every routed lane — around its OUT circle if the
-/// card is showing RHYTHM, else around its RHYTHM tab — and leaves the rest alone; TRACE (while held) does the same but
-/// dims every lane that is NOT routed (so with no routed lane all four dim). `laneShowsRhythm[i]` = lane i's tab is RHYTHM.
-func euclideousOutputCues(output: Int, laneMasks: [UInt8], laneShowsRhythm: [Bool], mode: EuclideousOutputCueMode) -> [EuclideousOutputCue] {
+/// What each LANE CARD shows for output `output` (RESTART CHAINS ferry §10: the RING half of this moved to
+/// `euclideousOutputRingTargets`, below — the lane cards no longer have OUT circles to ring, §10.4). TRACE
+/// (while held) dims every lane that is NOT routed (so with no routed lane all four dim, §10.3, unchanged);
+/// PULSE leaves every lane card alone.
+func euclideousOutputCues(output: Int, laneMasks: [UInt8], mode: EuclideousOutputCueMode) -> [EuclideousOutputCue] {
     (0..<4).map { lane in
         let routed = lane < laneMasks.count && (laneMasks[lane] >> UInt8(output)) & 1 != 0
-        if routed { return (lane < laneShowsRhythm.count && laneShowsRhythm[lane]) ? .ringOutCircle : .ringRhythmTab }
+        if routed { return .none }
         return mode == .trace ? .dim : .none
     }
+}
+/// §10.2/§10.3 — where the ring for output `output` goes, PULSE or TRACE alike: one ring per routed lane's
+/// OWN MIX OUT button when the bottom-right panel is showing MIX; otherwise ONE ring around the MIX tab
+/// itself (drawn once, however many lanes are routed) — never both. No lane routed to `output` ⇒ no ring at
+/// all (§10.2's own "if no lane is routed to X, there is no ring"); a layout where the panel isn't on screen
+/// ⇒ no ring either (§10.5 — the caller simply never calls this when the panel is absent).
+enum EuclideousOutputRingTarget: Equatable { case mixOutButton(lane: Int), mixTab }
+func euclideousOutputRingTargets(output: Int, laneMasks: [UInt8], panelShowsMix: Bool) -> [EuclideousOutputRingTarget] {
+    let routedLanes = (0..<4).filter { lane in lane < laneMasks.count && (laneMasks[lane] >> UInt8(output)) & 1 != 0 }
+    guard !routedLanes.isEmpty else { return [] }
+    return panelShowsMix ? routedLanes.map { .mixOutButton(lane: $0) } : [.mixTab]
 }
 
 // ── ring flare ──────────────────────────────────────────────────────────────────────────────────────
@@ -5181,9 +5230,27 @@ func euclideousToggleNotesTop2(_ line: inout EuclidLine) {
 
 /// The name turned along the pad's VEL strip. Upper-case like every other label on the page (GATE, LEGATO, OCT).
 let euclideousMixVelocityName = "VELOCITY"
-/// The vertical room the turned name has: from 4pt above the strip's bottom up to just under the velocity value's 14pt line box
-/// (y 3…17, plus a 2pt gap). The name is truncated to this — never shrunk (house rule) — so on a short pad it can't run into the number.
-func euclideousMixVelocityNameLength(plotH: CGFloat) -> CGFloat { max(0, plotH - 4 - 19) }
+let euclideousMixVelocityNameShort = "VEL"
+/// RESTART CHAINS ferry §9.5 — "keep VELOCITY when it fits between the bottom of the value's 14pt line box
+/// (y 17) plus sp4 and the strip's bottom inset (plotH − 4)... otherwise show VEL. Work the fit out from the
+/// font metrics the view draws with. It never truncates." Replaces the OLD `euclideousMixVelocityNameLength`
+/// truncate-to-fit mechanism (MIX §3.12, superseded here) with a genuine two-way word choice. A real UIFont/
+/// NSFont measurement isn't available to this Foundation-only, macOS-test-linkable file (CLAUDE.md: the
+/// macOS test target links no UIKit/AppKit) — approximated from the SAME heavy-monospaced-8pt/0.08em-
+/// tracking metrics `MixPadPainter.swift` actually draws with (a heavy monospaced glyph at size S runs
+/// roughly 0.62×S wide; SwiftUI's `.tracking` adds its own amount after every character, last included).
+/// Calibrated against the ferry's own literal example — "VELOCITY fits at padH 96 but not at 76" — which
+/// this reproduces exactly; not independently verified at every other size (device-owed, §16).
+func euclideousMixVelocityNameFits(plotH: CGFloat) -> Bool {
+    let available = plotH - 4 - 17 - EuclideousMixMetrics.sp4
+    let fontSize: CGFloat = 8, glyphWidth = 0.62 * fontSize, tracking = 0.08 * fontSize
+    let needed = CGFloat(euclideousMixVelocityName.count) * (glyphWidth + tracking)
+    return available >= needed
+}
+/// The display word for the current pad height — "VELOCITY" when it fits, else the never-truncating "VEL".
+func euclideousMixVelocityDisplayName(plotH: CGFloat) -> String {
+    euclideousMixVelocityNameFits(plotH: plotH) ? euclideousMixVelocityName : euclideousMixVelocityNameShort
+}
 func euclideousMixPadAccessibilityLabel(lane: Int, notes: Bool, off: Bool) -> String { "Lane \(lane + 1) \(notes ? "notes" : "riff")" + (off ? ", off" : "") }
 func euclideousMixOctaveAccessibilityLabel(lane: Int, notes: Bool) -> String { "Lane \(lane + 1) \(notes ? "notes" : "riff") octave" }
 
@@ -5212,12 +5279,14 @@ func euclideousMixGateStep(_ g: Double, longer: Bool) -> Double {
 enum EuclideousMixMetrics {
     static let sp4: CGFloat = 4, sp8: CGFloat = 8
     static let tabRowH: CGFloat = 20
-    static let stepperH: CGFloat = 28
+    // RESTART CHAINS ferry §9.6: OCT shrinks from 28 to 24; §9.7 adds the 20pt OUT row under each lane's pair.
+    static let stepperH: CGFloat = 24
+    static let outRowH: CGFloat = 20
     static let velStripW: CGFloat = 24
     static let gateStripH: CGFloat = 14
     static let puckInset: CGFloat = 7
-    /// §2.8: below either, REPORT with the panel size — never shrink anything.
-    static let minCellW: CGFloat = 84, minPadH: CGFloat = 76
+    /// §9.3: below either, REPORT with the panel size — never shrink anything (never build below padH 60).
+    static let minCellW: CGFloat = 84, minPadH: CGFloat = 76, floorPadH: CGFloat = 60
 }
 /// The grid area (inside the panel's sp8 padding, below the 20pt tab row + sp8) for a panel of this size.
 func euclideousMixGridArea(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
@@ -5237,10 +5306,12 @@ struct EuclideousMixGrid: Equatable {
         return CGPoint(x: blockX + (notes ? cellW + sp4 : 0), y: CGFloat(row) * (rowH + sp8))
     }
 }
-/// cellW = (W − 16) / 4, rowH = (H − 8) / 2, padH = rowH − 32 (the OCT stepper's 28 + sp4 sit under the pad).
+/// §9.1: cellW = (W − 16) / 4, rowH = (H − 8) / 2, padH = rowH − 52 (sp4 + the OCT stepper's 24 + sp4 + the
+/// OUT row's 20, all sitting under the pad now).
 func euclideousMixGrid(width: CGFloat, height: CGFloat) -> EuclideousMixGrid {
     let rowH = (height - EuclideousMixMetrics.sp8) / 2
-    return EuclideousMixGrid(cellW: (width - 16) / 4, rowH: rowH, padH: rowH - (EuclideousMixMetrics.stepperH + EuclideousMixMetrics.sp4))
+    let belowPad = EuclideousMixMetrics.sp4 + EuclideousMixMetrics.stepperH + EuclideousMixMetrics.sp4 + EuclideousMixMetrics.outRowH
+    return EuclideousMixGrid(cellW: (width - 16) / 4, rowH: rowH, padH: rowH - belowPad)
 }
 
 // ── the pad (§3/§4): drawing geometry and touch-to-value are ONE definition ────────────────────────────────────────────

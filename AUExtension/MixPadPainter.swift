@@ -86,11 +86,13 @@ struct EuclideousMixPad: View {
             // VEL strip text: the value (11pt, 14pt line box at y 3…17) and the name turned to read bottom-to-top
             Text("\(velocity)").font(heavyMono(11)).monospacedDigit().foregroundColor(valueColour).lineLimit(1)
                 .frame(width: EuclideousMixMetrics.velStripW, height: 14).offset(x: 0, y: 3)
-            // The name (Paul 2026-10-18: "velocity"): turned to read bottom-to-top, its bottom end at plotH − 4, truncated (never shrunk) to the
-            // room under the velocity number — so on a short pad it can't run into it. Leading-aligned in its frame, so it hugs the bottom end.
-            let nameLen = euclideousMixVelocityNameLength(plotH: g.plotH)
-            Text(euclideousMixVelocityName).font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(nameColour)
-                .lineLimit(1).truncationMode(.tail)
+            // The name (Paul 2026-10-18: "velocity"; RESTART CHAINS ferry §9.5: VELOCITY-or-VEL, never
+            // truncated): turned to read bottom-to-top, its bottom end at plotH − 4. Leading-aligned in its
+            // frame, so it hugs the bottom end.
+            let velName = euclideousMixVelocityDisplayName(plotH: g.plotH)
+            let nameLen = max(0, g.plotH - 4 - 17 - EuclideousMixMetrics.sp4)
+            Text(velName).font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(nameColour)
+                .lineLimit(1)
                 .frame(width: nameLen, alignment: .leading)
                 .rotationEffect(.degrees(-90))
                 .position(x: EuclideousMixMetrics.velStripW / 2, y: g.plotH - 4 - nameLen / 2)

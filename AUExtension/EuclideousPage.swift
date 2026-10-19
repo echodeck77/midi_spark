@@ -91,7 +91,12 @@ struct EuclideousOutputCueInfo { let output: Int; let held: Bool; let token: Int
 /// scale 1 and eases out over 650ms to 0% and scale 1.35; a HELD trace sits still at 95% until release. Visual only — never
 /// blocks a touch. Reduce Motion: fade only, no scale.
 struct EuclideousOutputCueRing: View {
-    enum Kind { case circle, tab }
+    // RESTART CHAINS ferry §10: `.circle` (the old RHYTHM-tab OUT circle) is retired — kept only because
+    // removing the case would also force touching every exhaustive switch below for no behavioural gain; no
+    // caller constructs it any more (reported, not silently left reachable). `.tab` now rings the MIX tab
+    // chip (unchanged geometry, still what the RHYTHM tab's own ring used); `.mixButton` is new, §10.2's own
+    // "the button's rounded rectangle outset by 1pt (radius 7)".
+    enum Kind { case circle, tab, mixButton }
     let kind: Kind
     let held: Bool
     let reduceMotion: Bool
@@ -101,6 +106,7 @@ struct EuclideousOutputCueRing: View {
             switch kind {
             case .circle: Circle().stroke(Color(hex: 0xDFE3EA), lineWidth: 2)
             case .tab: RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0xDFE3EA), lineWidth: 2).padding(4)
+            case .mixButton: RoundedRectangle(cornerRadius: 7).strokeBorder(Color(hex: 0xDFE3EA), lineWidth: 2).padding(-1)
             }
         }
         .opacity(held ? 0.95 : 0.95 * Double(1 - progress))
@@ -787,9 +793,9 @@ struct EuclideousPage: View {
     // SEQUENCER PANEL (2026-10-14 ferry §1; MIX ferry 2026-10-18 §1.5): which tab is showing — MIX first and the DEFAULT, LANES second,
     // RIFFS hidden — purely ephemeral, never persisted (so a fresh page always opens on MIX).
     @State private var sequencerTab: EuclideousSeqTab = .default
-    // LANES GRID (2026-10-18): which sub-tab of LANES is showing (MUTE first, ephemeral like the tab above — switching never changes data), and
-    // the per-lane cache of the roll feed (recomputed only when its inputs or its window change, never per frame).
-    @State private var lanesSubTab: EuclideousLanesSubTab = .mute
+    // LANES GRID (2026-10-18): the per-lane cache of the roll feed (recomputed only when its inputs or its
+    // window change, never per frame). RESTART CHAINS ferry §8: the panel's own MUTE/RESTART sub-tab state
+    // (`lanesSubTab`) is retired along with the RESTART view itself — the panel is mute-only now.
     @State private var lanesRollCache = EuclideousLanesRollCache()
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
     // opens, changed only by value drags), the NOTE cell touched last (the strip's preview), the double-tap memory, and whether this touch has opened its undo step.
@@ -1593,16 +1599,27 @@ struct EuclideousPage: View {
         keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false; riffTabMenuLane = nil
     }
 
-    // MARK: LANE SIDE of the output rings (§7) — pulse (after a tap) and trace (while held)
-    /// What lane `lane` shows right now: nil when nothing is pulsing/held or this lane isn't involved.
+    // MARK: LANE SIDE of the output cues (§10) — pulse (after a tap) and trace (while held)
+    /// What lane `lane`'s CARD shows right now (dim only, §10.3 — the ring moved to MIX/the MIX tab, below):
+    /// nil when nothing is pulsing/held or this lane isn't involved.
     private func outputCue(forLane lane: Int) -> EuclideousOutputCueInfo? {
         let mode: EuclideousOutputCueMode, output: Int, token: Int
         if let h = heldOutput { mode = .trace; output = h; token = 0 }
         else if let p = outputPulse { mode = .pulse; output = p.output; token = p.token }
         else { return nil }
-        let rhythm = (0..<4).map { ($0 < laneTab.count ? laneTab[$0] : .rhythm) == .rhythm }
-        let cue = euclideousOutputCues(output: output, laneMasks: euclideousLaneMasks(lines), laneShowsRhythm: rhythm, mode: mode)[lane]
+        let cue = euclideousOutputCues(output: output, laneMasks: euclideousLaneMasks(lines), mode: mode)[lane]
         return cue == .none ? nil : EuclideousOutputCueInfo(output: output, held: mode == .trace, token: token, cue: cue)
+    }
+    /// §10.2/§10.3/§10.5 — where the active output's ring goes, if any: the bottom-right panel's own MIX OUT
+    /// buttons (one per routed lane) when it's showing MIX, else once around the MIX tab chip — nil entirely
+    /// while the panel isn't on screen (the one caller that can't show the panel never calls this).
+    private func outputRingTargets(panelShowsMix: Bool) -> (output: Int, held: Bool, token: Int, targets: [EuclideousOutputRingTarget])? {
+        let held: Bool, output: Int, token: Int
+        if let h = heldOutput { held = true; output = h; token = 0 }
+        else if let p = outputPulse { held = false; output = p.output; token = p.token }
+        else { return nil }
+        let targets = euclideousOutputRingTargets(output: output, laneMasks: euclideousLaneMasks(lines), panelShowsMix: panelShowsMix)
+        return targets.isEmpty ? nil : (output, held, token, targets)
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -2160,13 +2177,9 @@ struct EuclideousPage: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .center).frame(height: rowH)
                 .overlay(Rectangle().fill(sel ? lane100(accent) : patternUnselectedFill).frame(height: 2), alignment: .bottom)
-                .overlay {
-                    // FOURFOLD §7.1: a pulse/trace for an output this lane feeds, while the card is showing another tab —
-                    // the ring goes around the RHYTHM tab ("your OUT toggles are in here"). Visual only.
-                    if t == .rhythm, let c = outputCue(forLane: idx), c.cue == .ringRhythmTab {
-                        EuclideousOutputCueRing(kind: .tab, held: c.held, reduceMotion: reduceMotion).id(c.token)
-                    }
-                }
+                // RESTART CHAINS ferry §10.4: the RHYTHM tab chip no longer rings — lane cards have no OUT
+                // circles any more, so the pulse/trace now points at MIX (its OUT buttons, or the MIX tab
+                // chip), never at this per-lane tab row.
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if idx < laneTab.count { laneTab[idx] = t }
@@ -2174,8 +2187,6 @@ struct EuclideousPage: View {
                     if stepsPickerLane == idx { stepsPickerLane = nil }
                     if restartEditorLane == idx { restartEditorLane = nil }
                 }
-                // A ringed cell is raised above its siblings so the ring (which grows past the cell) is never painted over.
-                .zIndex(t == .rhythm && outputCue(forLane: idx)?.cue == .ringRhythmTab ? 1 : 0)
             }
         }
     }
@@ -2649,71 +2660,57 @@ struct EuclideousPage: View {
         .accessibilityLabel("\(length) steps, \(hits) hits\(isCurrent ? ", current length" : "")")
     }
 
-    /// EMITTER TOGGLES A–D, equal width (ferry §5/§6/§7). A SIMPLIFICATION from the old `laneOutRow`'s
-    /// THREE visual states down to the ferry's own TWO, flagged not silently dropped: "active" (routed
-    /// AND this bus's MAIN OUT gate on) is solid LANE-100/#0d0f14 text; anything else — not routed, OR
-    /// routed but the main gate is off — now reads as a plain unselected button (#2a2d34/#aab0ba). The
-    /// old dashed/hollow "routed but muted" ring and the trailing "NO OUTPUT" warning text are DROPPED —
-    /// the ferry's own button-styling rule names only two emitter states, and this fixed 40pt-tall row
-    /// has no room left for a third visual language or trailing warning text the way the old, taller/
-    /// wider `laneOutRow` (circular dots + an "OUT" caption + a warning label) did.
-    private func laneOutRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
+    /// RESTART CHAINS ferry §9.7/§9.9 — the lane's OUT A–D row, moved here from the RHYTHM tab's own
+    /// `laneOutRow` (deleted: nothing else used it). Reuses `euclideousLaneOutChipStyle` verbatim (the SAME
+    /// three-state look `laneOutRow` drew as circles) as a rounded rectangle instead — "header §7.3's dashed
+    /// circle as a rounded rectangle" — and carries over its own ring wiring (§10.2), now targeting THIS
+    /// button instead of the old RHYTHM-tab circle.
+    private func mixOutRow(lane: Int, width: CGFloat, height: CGFloat) -> some View {
+        let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        let accent = laneAccents[lane % laneAccents.count]
         let mask = line.emitterMask ?? 0
         let names = ["A", "B", "C", "D"]
-        return HStack(spacing: 3) {   // exact-dimensions ferry: 4 equal buttons, 3pt gaps (was sp4=4)
+        let btnW = max(1, (width - sp4 * 3) / 4)
+        let ring = outputRingTargets(panelShowsMix: true)
+        return HStack(spacing: sp4) {
             ForEach(0..<4, id: \.self) { b in
                 let routed = (mask >> UInt8(b)) & 1 != 0
                 let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
-                // FERRY (2026-10-14 §4): ratified 7 Oct as "routed but main-off draws dashed/hollow" — never
-                // built; the chip collapsed routed-but-main-off to the SAME look as not-routed (both read
-                // the one bool `routed && mainOn`). The ROUTING itself was always correct (confirmed: the
-                // chip turns green the instant main A comes back on) — only the drawing had no 3rd state.
                 let style = euclideousLaneOutChipStyle(routed: routed, mainOn: mainOn)
-                // ROUND (Paul 2026-10-14: "like the buttons on top of the page, strictly no more space") —
-                // mirrors `mainOutToggle`'s own plain `Circle()` fill/stroke exactly; the OUTER footprint
-                // (`.frame(maxWidth: .infinity).frame(height: rowH)`, the tap target) is BYTE-IDENTICAL to
-                // before — only the drawn shape inside it shrinks from a cell-filling RoundedRectangle to a
-                // true circle sized to `rowH` (the row's own existing height, never larger), centred in the
-                // unchanged cell, so the row's total width/height can't grow.
                 let textColor: Color = {
                     switch style {
                     case .filled: return patternEmitterActiveText
-                    case .hollowDashed: return lane100(accent)   // §4: "letter in the lane colour" (my interpretation, disclosed)
+                    case .hollowDashed: return lane100(accent)
                     case .plain: return patternUnselectedText
                     }
                 }()
-                Text(names[b]).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                Text(names[b]).font(.system(size: 11, weight: .heavy, design: .monospaced))
                     .foregroundColor(textColor)
-                    .frame(width: rowH, height: rowH)
-                    .background(Circle().fill(style == .filled ? lane100(accent) : (style == .plain ? patternUnselectedFill : Color.clear)))
+                    .frame(width: btnW, height: height)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(style == .filled ? lane100(accent) : (style == .plain ? patternUnselectedFill : Color.clear)))
                     .overlay(
                         Group {
                             switch style {
-                            case .filled: Circle().stroke(lane100(accent), lineWidth: 1)
-                            // §4: "dashed ring in the lane colour, 2pt wide, 3pt dashes with 3pt gaps" (literal).
-                            case .hollowDashed: Circle().stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
+                            case .filled: EmptyView()
+                            case .hollowDashed: RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
                             case .plain: EmptyView()
                             }
                         }
                     )
-                    .frame(maxWidth: .infinity).frame(height: rowH)
                     .overlay {
-                        // FOURFOLD §7.1: the ring around THIS OUT circle (2pt, inner edge sp4 outside it → diameter + 10)
-                        // when the output ring just tapped/held is this one and this lane is routed to it. Visual only.
-                        if let c = outputCue(forLane: idx), c.cue == .ringOutCircle, c.output == b {
-                            EuclideousOutputCueRing(kind: .circle, held: c.held, reduceMotion: reduceMotion)
-                                .frame(width: rowH + 10, height: rowH + 10).id(c.token)
+                        // §10.2: a ring around THIS button when the active output's pulse/trace is this one and this lane is routed to it.
+                        if let r = ring, r.output == b, r.targets.contains(.mixOutButton(lane: lane)) {
+                            EuclideousOutputCueRing(kind: .mixButton, held: r.held, reduceMotion: reduceMotion).id(r.token)
                         }
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture { edit(idx) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
-                    // FOURFOLD §7.1: the cue ring grows past its circle into the 3pt gaps. Later HStack siblings paint ABOVE
-                    // earlier siblings' overlays, so a ringed circle is raised above its neighbours or the next circle's fill
-                    // would cover the ring's far side.
-                    .zIndex({ if let c = outputCue(forLane: idx), c.cue == .ringOutCircle, c.output == b { return 1.0 }; return 0.0 }())
-                    .accessibilityLabel("Emitter \(names[b])\(style == .hollowDashed ? ", main output off" : "")")
+                    .onTapGesture { edit(lane) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
+                    .zIndex({ if let r = ring, r.output == b, r.targets.contains(.mixOutButton(lane: lane)) { return 1.0 }; return 0.0 }())
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Lane \(lane + 1), output \(names[b]), \(routed ? "on" : "off")\(style == .hollowDashed ? ", main out \(names[b]) is off" : "")")
             }
         }
+        .frame(width: width, height: height)
     }
 
     /// Draws one feel glyph — ♩ (U+2669 QUARTER NOTE) for straight, ♩+"." for dotted, ♩+a raised "3" for
@@ -3265,9 +3262,10 @@ struct EuclideousPage: View {
         }
     }
     /// The modes row — now exactly 3 groups (DIRECTION moved to `riffTopRow`'s own right column, Fix 2):
-    /// ADV+HIT/STEP · REST+SKIP/FILL/TIE · INV+LOCK. None of these turn the riff on or off (the ferry's
-    /// standing rule: "change their setting live... so you can set the riff up before bringing it in"). Group
-    /// widths are the ferry's own literal 326pt-reference numbers (ADV 93.82 · REST 134.59 · INV 81.6,
+    /// ADV+HIT/STEP · REST+SKIP/FILL/TIE · INV alone (was INV+LOCK; LOCK retired, restart-chains ferry §7.1 —
+    /// INV keeps the group's own width/position and fills it). None of these turn the riff on or off (the
+    /// ferry's standing rule: "change their setting live... so you can set the riff up before bringing it
+    /// in"). Group widths are the ferry's own literal 326pt-reference numbers (ADV 93.82 · REST 134.59 · INV 81.6,
     /// re-verified algebraically against every given x-coordinate before trusting them — e.g. ADV = label(13)
     /// + gap(3) + 2 buttons of 37.41 + 1 internal gap(3) = 93.82, exactly reproducing "HIT x 16 · STEP x
     /// 56.41"), scaled proportionally at any other width per the ferry's own "share the extra width across
@@ -3295,13 +3293,13 @@ struct EuclideousPage: View {
                 }
             }
             .frame(width: wRest)
-            HStack(spacing: 3) {
-                melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 11, cornerRadius: 7,
-                             help: "Flip the riff upside down in pitch") { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
-                melodyButton("LOCK", on: line.riffLockResolved, accent: accent, height: 40, fontSize: 11, cornerRadius: 7,
-                             help: "Restart the riff each time the pattern loops") { edit(idx) { $0.riffLock = !($0.riffLockResolved) } }
-            }
-            .frame(width: wInv)
+            // RESTART CHAINS ferry §7.1: LOCK goes — a melody chain of [1] does the same (§4.7), set on the
+            // RHYTHM tab's restart editor. INV wasn't alone in this group, so per §7.1's FIRST branch the
+            // group keeps its overall width/position (81.6pt at the 326pt reference) and INV takes the whole
+            // of it via `melodyButton`'s own existing `.frame(maxWidth: .infinity)` stretch rule — unchanged.
+            melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 11, cornerRadius: 7,
+                         help: "Flip the riff upside down in pitch") { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
+                .frame(width: wInv)
         }
         .opacity(isRiff ? 1.0 : 0.42)
     }
@@ -4705,9 +4703,14 @@ struct EuclideousPage: View {
     private func sequencerTabRow(width: CGFloat, height: CGFloat, fxAvailable: Bool, selected: EuclideousSeqTab) -> some View {
         let tabs = EuclideousSeqTab.visible(fxAvailable: fxAvailable)
         let tabW = euclideousSeqTabWidth(count: tabs.count, contentWidth: width)
+        // §10.2: while the panel is showing a tab OTHER than MIX, a routed output's ring goes around the MIX
+        // tab chip itself instead of any per-lane button (`outputRingTargets(panelShowsMix:)` already decides
+        // this; the panel being on screen at all is this whole row's own precondition, so §10.5 is automatic).
+        let ring = selected == .mix ? nil : outputRingTargets(panelShowsMix: false)
         return HStack(spacing: sp4) {
             ForEach(tabs, id: \.rawValue) { tab in
                 let sel = selected == tab
+                let ringedHere = tab == .mix && ring?.targets.contains(.mixTab) == true
                 // The on/off ring beside LANES is gone with the ON switch (LANES GRID, 2026-10-18): the grid is always live.
                 ZStack(alignment: .bottom) {
                     HStack(spacing: 6) {
@@ -4719,6 +4722,8 @@ struct EuclideousPage: View {
                     Rectangle().fill(sel ? Color(hex: 0xFFFFFF) : Color(hex: 0x2A2D34)).frame(width: tabW, height: 2)
                 }
                 .frame(width: tabW, height: height)
+                .overlay { if ringedHere, let r = ring { EuclideousOutputCueRing(kind: .tab, held: r.held, reduceMotion: reduceMotion).id(r.token) } }
+                .zIndex(ringedHere ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     sequencerTab = tab
@@ -4739,9 +4744,8 @@ struct EuclideousPage: View {
     private func lanesTab(width: CGFloat, height: CGFloat) -> some View {
         let layout = euclideousLanesLayout(width: width, height: height)
         return TimelineView(.periodic(from: .now, by: 0.25)) { tl in
-            EuclideousLanesPanel(layout: layout, tab: lanesSubTab, lanes: lanesPanelLanes(beat: lanesMusicalBeat(real: walkTagBeat(at: tl.date))), accents: laneAccents,
+            EuclideousLanesPanel(layout: layout, lanes: lanesPanelLanes(beat: lanesMusicalBeat(real: walkTagBeat(at: tl.date))), accents: laneAccents,
                                  playing: clock.playing, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) },
-                                 onSelectTab: { lanesSubTab = $0 },
                                  onRateTap: { lane in lanesRateTap(lane) },
                                  cellValue: { hit in lanesCellValue(hit) },
                                  onApply: { hit, value, first in lanesApply(hit, value, first: first) },
@@ -4749,17 +4753,19 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: height, alignment: .topLeading)
     }
-    /// The four lanes' data for the active sub-tab at `beat`. The roll feed is cached per lane and recomputed only when one of its inputs changes
-    /// (the lane's settings and its neighbours', the riff, the unit, the window, the bar, the tempo) or the window wraps — never per frame.
+    /// The four lanes' MUTE data at `beat` (RESTART CHAINS ferry §8: the panel is mute-only now — restarts are
+    /// set on each lane's own RHYTHM tab, §6). The roll feed is cached per lane and recomputed only when one of
+    /// its inputs changes (the lane's settings and its neighbours', the riff, the unit, the window, the bar,
+    /// the tempo) or the window wraps — never per frame. The read-only rhythm/melody marks (§8.3) now come
+    /// from each lane's resolved CHAINS, not the retired masks.
     private func lanesPanelLanes(beat: Double) -> [EuclideousLanesPanelLane] {
-        let restart = lanesSubTab == .restart
         let ranks = effectiveGridRanks   // the riff that is playing — the SAME read the footer and the grid use
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
         return (0..<4).map { lane in
             let v = euclideousLaneGridView(lines: lines, lane: lane, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
-            let unit = restart ? v.restartUnitBeats : v.muteUnitBeats
+            let unit = v.muteUnitBeats
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
-            let key = EuclideousLanesRollCache.Key(lines: lines, lanesSeq: lanesSeq, ranks: ranks, windowStart: win.start, unit: unit, restartTab: restart,
+            let key = EuclideousLanesRollCache.Key(lines: lines, lanesSeq: lanesSeq, ranks: ranks, windowStart: win.start, unit: unit, restartTab: false,
                                                     beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, swing: clock.swing, fx: fx)
             let roll = lanesRollCache.roll(lane: lane, key: key) {
                 guard let cfg = euclideousWalkLaneConfig(lane: lane, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
@@ -4770,34 +4776,34 @@ struct EuclideousPage: View {
                     column >= 0 && column < ranks.count ? ranks[column] : 0
                 }
             }
-            var rhythmMarks: [Double] = [], melodyMarks: [Double] = []
-            if !restart {
-                rhythmMarks = euclideousLanesMarkBeats(mask: v.grid.rhythmMask, restartUnitBeats: v.restartUnitBeats, windowStart: win.start, windowBeats: win.length)
-                melodyMarks = euclideousLanesMarkBeats(mask: v.grid.melodyMask, restartUnitBeats: v.restartUnitBeats, windowStart: win.start, windowBeats: win.length)
-            }
-            let audible = restart ? (0..<16).map { euclideousLaneAudible(beat: win.start + Double($0) * unit, cells16: v.grid.muteCells, unitBeats: v.muteUnitBeats) } : []
-            return EuclideousLanesPanelLane(grid: v.grid, unitLabel: restart ? v.grid.restartUnit.label : v.grid.muteUnit.label, unitBeats: unit,
-                                            windowStart: win.start, roll: roll, rhythmMarkBeats: rhythmMarks, melodyMarkBeats: melodyMarks, cellAudible: audible)
+            let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+            let rhythmChain = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
+            let melodyChain = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
+            let lapBeats = Double(v.cycleLen) * v.sub
+            let rhythmMarks = euclideousChainRhythmMarkBeats(chain: rhythmChain, barBeats: clock.beatsPerBar, windowStart: win.start, windowBeats: win.length)
+            let melodyMarks = euclideousChainMelodyMarkBeats(melodyChain: melodyChain, rhythmChain: rhythmChain, barBeats: clock.beatsPerBar,
+                                                             lapBeats: lapBeats, windowStart: win.start, windowBeats: win.length)
+            return EuclideousLanesPanelLane(grid: v.grid, unitLabel: v.grid.muteUnit.label, unitBeats: unit,
+                                            windowStart: win.start, roll: roll, rhythmMarkBeats: rhythmMarks, melodyMarkBeats: melodyMarks)
         }
     }
     private func lanesGridView(_ lane: Int) -> EuclideousLaneGridView {
         euclideousLaneGridView(lines: lines, lane: lane, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
     }
     private func lanesCellValue(_ hit: EuclideousLanesHit) -> Bool {
-        euclideousLaneGridCellValue(lanesGridView(hit.lane).grid, restart: lanesSubTab == .restart, melody: hit.row == 1, cell: hit.cell)
+        euclideousLaneGridCellValue(lanesGridView(hit.lane).grid, restart: false, melody: hit.row == 1, cell: hit.cell)
     }
     /// One cell edit. `first` opens the stroke's single undo step (`editStep`'s `newStep`); the lane's resolved grid is read at touch-down and the
     /// first write pins all five fields from it, so a pre-feature lane's migrated values become its stored values.
     private func lanesApply(_ hit: EuclideousLanesHit, _ value: Bool, first: Bool) {
         let resolved = lanesGridView(hit.lane).grid
-        let op: EuclideousLaneGridOp = lanesSubTab == .restart ? .restart(melody: hit.row == 1, cell: hit.cell, on: value) : .mute(cell: hit.cell, on: value)
-        editStep(hit.lane, first) { euclideousApplyLaneGridOp(&$0, resolved: resolved, op) }
+        editStep(hit.lane, first) { euclideousApplyLaneGridOp(&$0, resolved: resolved, .mute(cell: hit.cell, on: value)) }
     }
-    /// The rate box: tap cycles the unit (STEP → 4STP → PASS → 2PASS on MUTE; 4STP → PASS → 2PASS → 4PASS on RESTART); cells are kept.
+    /// The rate box: tap cycles muteUnit (STEP → 4STP → PASS → 2PASS → STEP). RESTART CHAINS ferry §8.2: no
+    /// longer has a RESTART-unit mode — restartUnit stays decodable but is no longer written from here.
     private func lanesRateTap(_ lane: Int) {
         let resolved = lanesGridView(lane).grid
-        let op: EuclideousLaneGridOp = lanesSubTab == .restart ? .nextRestartUnit : .nextMuteUnit
-        editStep(lane, true) { euclideousApplyLaneGridOp(&$0, resolved: resolved, op) }
+        editStep(lane, true) { euclideousApplyLaneGridOp(&$0, resolved: resolved, .nextMuteUnit) }
     }
 
     // MARK: - THE FX TAB (FX ferry, 2026-10-18)
@@ -4889,19 +4895,34 @@ struct EuclideousPage: View {
         }
     }
 
-    /// THE MIX TAB (ferry 2026-10-18 §2): eight cells in two rows of two lane blocks — each lane's pair (RIFF leading, NOTES trailing) sits
-    /// where that lane's CARD sits (lanes 1,2 on the top row, 3,4 below; both layouts arrange the cards that way). ONE formula
-    /// (`euclideousMixGrid`): cellW = (W−16)/4, rowH = (H−8)/2, padH = rowH−32. If a panel is too small for the legibility floors
-    /// (cellW < 84, padH < 76 — every portrait layout is) nothing is shrunk: it is built to the formula and reported.
+    /// THE MIX TAB (ferry 2026-10-18 §2, outputs moved here by the restart-chains ferry §9): eight cells in two
+    /// rows of two lane blocks — each lane's pair (RIFF leading, NOTES trailing) sits where that lane's CARD
+    /// sits (lanes 1,2 on the top row, 3,4 below). ONE formula (`euclideousMixGrid`): cellW = (W−16)/4,
+    /// rowH = (H−8)/2, padH = rowH−52 (§9.1). If a panel is too small for the legibility floors (cellW < 84,
+    /// padH < 76) nothing is shrunk: it is built to the formula and reported; below padH 60 (§9.3), MIX isn't
+    /// built for that layout at all (the shared row's own too-short-window guard already existed; 60 replaces
+    /// its old arbitrary 20).
     private func mixGrid(width: CGFloat, height: CGFloat) -> some View {
         let grid = euclideousMixGrid(width: width, height: height)
         return ZStack(alignment: .topLeading) {
-            if grid.cellW >= 20, grid.padH >= 20 {   // a collapsed shared row (a very short window) has no room for MIX at all
+            // §9.3: below padH 60, don't build MIX for this layout at all (replaces the old arbitrary 20
+            // floor) — the panel size and the numbers are reported in §17, not drawn on screen.
+            if grid.cellW >= 20, grid.padH >= EuclideousMixMetrics.floorPadH {
                 ForEach(0..<8, id: \.self) { cell in
-                    let o = grid.origin(lane: cell / 2, notes: cell % 2 == 1)
-                    mixCell(lane: cell / 2, notes: cell % 2 == 1, grid: grid)
+                    let lane = cell / 2, notes = cell % 2 == 1
+                    let o = grid.origin(lane: lane, notes: notes)
+                    // §9.8: cell by cell, lanes 1–4, riff before notes, each pad before its stepper (handled by
+                    // `mixCell`'s own internal VStack order), then that lane's A–D row.
+                    mixCell(lane: lane, notes: notes, grid: grid)
                         .offset(x: o.x, y: o.y)
-                        .accessibilitySortPriority(Double(8 - cell))   // VoiceOver: cell by cell, lanes 1–4, riff before notes, each pad before its stepper
+                        .accessibilitySortPriority(Double(100 - (lane * 3 + (notes ? 1 : 0))))
+                }
+                ForEach(0..<4, id: \.self) { lane in
+                    let riffOrigin = grid.origin(lane: lane, notes: false)
+                    let pairW = grid.cellW * 2 + EuclideousMixMetrics.sp4
+                    mixOutRow(lane: lane, width: pairW, height: EuclideousMixMetrics.outRowH)
+                        .offset(x: riffOrigin.x, y: riffOrigin.y + grid.padH + EuclideousMixMetrics.sp4 + EuclideousMixMetrics.stepperH + EuclideousMixMetrics.sp4)
+                        .accessibilitySortPriority(Double(100 - (lane * 3 + 2)))
                 }
             }
         }
