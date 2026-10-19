@@ -12411,6 +12411,90 @@ final class RouterTests: XCTestCase {
         let onsRank5 = pass0.filter { gridPool.firstIndex(of: $0.note) == 4 }
         XCTAssertEqual(onsRank5.count, 1, "one held note, not three separate note-ons")
     }
+    /// §11 test 5: TIE with EVERY. Every step a hit, ranks [5, 0, 3, 6, 2, 4, 7, 1] by column, EVERY 2, ADV
+    /// HIT, ON REST TIE. Hits 1 and 2 both read column 1 (rank 5, same pitch — legato merges them into one
+    /// held note); hits 3 and 4 read the rest. Hit 2's note lasts through both to hit 5 (a genuinely
+    /// different pitch, column 3/rank 3); compared against the SAME run under SKIP, where that note ends at
+    /// its own normal gate length instead.
+    func testTieWithEveryHoldsThroughTheRestRunToTheNextRealHit() {
+        let ranks = [5, 0, 3, 6, 2, 4, 7, 1]
+        func rank5NoteOff(onRest: EuclidRiffOnRest) -> Int64? {
+            var l = EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)
+            l.riffOnRest = onRest; l.riffAdvanceEvery = 2
+            let e = RecordingEmitter()
+            mixRun(mixBox(l, ranks: ranks), beats: 4.5, into: e)
+            assertNothingLeftSounding(e)
+            // hit 1 ALSO reads column 1/rank 5 but is unrelated to the tie (nothing precedes it) — below
+            // GATE 100% consecutive same-pitch hits don't legato-merge, so hit 2's own note is the SECOND
+            // note-on/off pair for this pitch, not the first.
+            return mixNotes(e, gridPool[4]).dropFirst().first?.off
+        }
+        guard let tieOff = rank5NoteOff(onRest: .tie), let skipOff = rank5NoteOff(onRest: .skip) else {
+            return XCTFail("expected a second note-off for the rank-5 pitch (hit 2's own) under both ON REST modes")
+        }
+        // The actual tied duration is `nextHitGapBeats + gate × tieExt` (euclideousPitchGateBeats), not raw
+        // tieExt — tieExt here is 2 rest-ticks × 0.5 beats/tick = 1.0 beat, so TIE's note-off lands at hit
+        // 2's own onset (0.5) + nextHitGapBeats (0.5) + gate×1.0 ≈ 1.9 at the lane's default gate, i.e. right
+        // up to (not past) hit 5's own onset (beat 2.0). SKIP has no tieExt, so it releases at its own plain
+        // gate length, well short of that.
+        XCTAssertGreaterThanOrEqual(Double(tieOff) / 24_000, 1.85, "TIE: held through hits 3 and 4's rests, up to hit 5's own onset")
+        XCTAssertLessThan(Double(skipOff) / 24_000, 1.0, "SKIP: released at hit 2's own gate length, well before hit 5")
+    }
+    /// §11 test 6: a long PING tie. PING, every step a hit, ranks [3, 0, 0, 0, 0, 0, 0, 0], ADV HIT, EVERY 4,
+    /// ON REST TIE. P = 16 for PING at LEN 8, so hits 1-4 (ordinals 0-3, all walk step 0) read column 1 (the
+    /// ONLY real column); hits 5-60 (walk steps 1-14) read rests — 56 hits, exactly the scenario §5.5 widened
+    /// the TIE bound to cover (P x EVERY = 64, where the old <=8-hit bound could never have reached); hits
+    /// 61-64 (walk step 15, PING's own reflection back to column 0) read column 1 again. Hit 4's own note
+    /// must be held far past where the OLD bound could ever have reached (its exact note-off depends on the
+    /// lane's GATE, which scales the tie extension — see `euclideousPitchGateBeats` — so this checks "far
+    /// beyond the old bound," not an exact beat).
+    func testLongPingTieReachesAcrossFiftySixRestHits() {
+        var l = EuclidLine(target: 0, pulses: 8, steps: 8, rate: .r1_8, useRiff: true, litNotes: 0, riffOn: true, sourceMode: .midi, riffLength: 8)
+        l.riffDir = .pingpong; l.riffAdvanceEvery = 4; l.riffOnRest = .tie
+        let ranks = [3, 0, 0, 0, 0, 0, 0, 0]
+        let e = RecordingEmitter()
+        mixRun(mixBox(l, ranks: ranks), beats: 32.5, into: e)
+        assertNothingLeftSounding(e)
+        // hits 1-3 ALSO read column 1/rank 3 but (below GATE 100%, no legato merge) each gets its own short
+        // note — hit 4's is the FOURTH note-on/off pair for this pitch, and it's the one whose own TIE
+        // lookahead must reach across the 56-hit rest run.
+        guard let off = mixNotes(e, gridPool[2]).dropFirst(3).first?.off else {   // rank 3 -> pool index 2
+            return XCTFail("expected a fourth note-off for the rank-3 pitch (hit 4's own)")
+        }
+        // The actual tied duration is `nextHitGapBeats + gate × tieExt` (euclideousPitchGateBeats), not raw
+        // tieExt, so the exact note-off depends on the lane's own default GATE — not pinned to an exact
+        // value here. What IS robust: the OLD bound (<= riffLength = 8 rest-hits, i.e. tieExt <= 4.0 beats)
+        // could reach AT MOST hit 4's own onset (1.5) + nextHitGapBeats (0.5) + gate × 4.0, comfortably under
+        // beat 6 at any plausible gate. The new P x EVERY (= 64) bound reaching deep into the 56-hit rest run
+        // (tieExt up to 28.0 beats) must land far past that, nowhere near hit 61's own onset (beat 30) either
+        // (since gate < 1 scales tieExt down) — asserting a generous, OLD-bound-busting floor rather than a
+        // precise but gate-dependent exact value.
+        XCTAssertGreaterThan(Double(off) / 24_000, 15.0, "the tie must reach far beyond what the OLD <=8-hit bound could ever produce (max ~6 beats)")
+    }
+    /// §11 test 10: REPEAT's own NOTE VIEW telemetry. 8a's ranks ([5, 0, 3, 0, 0, 7, 0, 2]); hit 2 posts one
+    /// event whose column is column 2 (the rest, 1-based "2" = 0-based index 1) and whose rank is 5 (column
+    /// 1's written rank), with hasRiffNote true.
+    func testRepeatPostsNoteViewTelemetryAtTheRestColumnWithTheRepeatedRank() {
+        let (l, r) = repeatLine(ranks: [5, 0, 3, 0, 0, 7, 0, 2])
+        let router = Router()
+        var diag = KernelDiag()
+        let pool = chord([48, 50, 52, 53, 55, 57, 59, 60])
+        let box = mixBox(l, ranks: r)
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        let e = RecordingEmitter()
+        while beat < 1.0 {   // hits 1 (beat 0.0) and 2 (beat 0.5) both land inside this window
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        let events = router.drainEuclideousNoteViewEvents()[0]
+        guard events.count >= 2 else { return XCTFail("expected at least 2 NOTE VIEW events (hit 1, hit 2's REPEAT)") }
+        let repeatEvent = events[1]
+        XCTAssertEqual(repeatEvent.column, 1, "the hit's own column (the rest), 0-based")
+        XCTAssertEqual(repeatEvent.rank, 5, "column 1's written rank")
+        XCTAssertTrue(repeatEvent.hasRiffNote)
+    }
 
     /// §11 test 14 (a slice): the readout and never-play set, pure (`euclideousRiffReadout`/
     /// `euclideousRiffReadoutText`), against two of §7.8's own worked examples on the harness lane

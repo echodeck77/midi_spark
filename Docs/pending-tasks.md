@@ -42,6 +42,24 @@ cost, what's device-owed), in `Docs/euclideous-status-log.md`.
 - [ ] (accepted) §7.8/test 14-15's fuller worked-example matrix (chain-based Q, the over-budget and
       longest-readout cases) is implemented per the literal formulas but verified against only 2 of ~14
       examples, for time — not exhaustively diffed.
+- [x] ~~opacity multiplied on a never-played WALK-strip cell of a riff-off lane (≈0.176 instead of the
+      spec's own "the dims don't multiply" 42%)~~ — FIXED (adversarial review, below).
+- [x] ~~§11 tests 5, 6, 10 (TIE+EVERY, the long PING tie, REPEAT's own NOTE VIEW telemetry) were unwritten~~
+      — ADDED (adversarial review, below).
+
+### Adversarial review follow-up (2026-10-19; `fix/riff-walk-adversarial-review`) — remaining open items
+- [ ] §3.2's readout text-shortening fallback ("drop 'LINES UP' first, then truncate before the amber part,
+      which stays whole") is unimplemented — the strip's header just `.lineLimit(1)`s the full string, so the
+      amber "N NEVER PLAY" part isn't protected at the ferry's own 41-char worst case.
+- [ ] `riffModesRow` was deleted outright rather than hidden (§0.3's own "hide, don't delete, report anything
+      you delete") — never disclosed in the original report. Low risk (fully superseded, no persisted state)
+      but worth a one-line acknowledgment or restoring it as dead code, your call.
+- [ ] `euclideousRiffReadout` does two full passes internally (builds `F`/`playedColumns`, then re-walks every
+      tick again for `neverPlayWalkSteps`) and is recomputed independently by the mini-grid AND the WALK strip
+      on the same render — worse than the original "not memoised" disclosure. Worth collapsing to one pass
+      and/or caching per-lane if it turns out to matter on-device.
+- [ ] §11 tests 9 (REPEAT+FX), 13 (REPEAT+lit notes), 17 (the ring's ADV HIT vs ADV STEP behaviour), 19
+      (SHIFT's full LEN 8→4→8 walkthrough), 20 (decode-clamp boundary values 0/9/12) remain unwritten.
 
 ## ★ EUCLIDEOUS — "RHYTHM tab rebuilt, outputs move to MIX, restart chains become the one restart model" — SHIPPED
 (2026-10-19; LANDED on `feat/rhythm-tab-restart-chains`, macOS suite green throughout, iOS builds clean) — two

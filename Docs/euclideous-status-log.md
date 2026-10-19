@@ -22,6 +22,42 @@ project has been building this whole stretch.
   1.0 but nothing can set one); the 8×8 workbench's own EUCLID editor (`GridUI.swift`, on hold); every engine test (they build lines directly with gate 1.0 to test legato).
   The 20 factory presets are all ≤ 98%, so none moves (a test pins it). Tests: pad touch/step/label/speech updated; `testNoLaneGateSetterCanReachLegato`,
   `testAStoredLaneGateOf100LoadsAs99ButEverythingBelowIsUntouched` (3 clamp mutants all caught).
+- **▶ EUCLIDEOUS — RIFF WALK ferry: ADVERSARIAL REVIEW against the raw ferry text, found and partly fixed
+  (2026-10-19; on `fix/riff-walk-adversarial-review`; macOS suite green; iOS builds clean).** Paul asked for
+  an adversarial review of the just-shipped RIFF WALK ferry against its own literal text, independent of the
+  ferry's own status-log self-report. Findings, most severe first, and what was done about each:
+  1. **REAL BUG, FIXED — opacity multiplied where §3.3 explicitly forbids it.** `riffTopRow` dimmed the whole
+     WALK strip + direction row to 0.42 when the riff was off; each never-played strip cell ALSO dimmed to
+     0.42 independently — SwiftUI opacity multiplies across ancestors, so a never-played cell on an off lane
+     rendered at ≈0.176, not 0.42 ("the dims don't multiply"). Fixed: the strip now folds BOTH conditions
+     into one `dim` decision per cell (`neverPlays || !isRiff`) computed once, with no wrapping ancestor
+     opacity around the cell row; the header line and the direction row keep their own single-level dim.
+  2. **Untested headline scenario, FIXED — §11 test 6 (the long PING tie, 56 rest-hits at EVERY 4) added.**
+     This is the ferry's own proof that widening the TIE bound from ≤8 to ≤64 hits actually works; it had
+     zero coverage. Writing it surfaced a real gap in my own understanding, not the engine: the held
+     duration is `nextHitGapBeats + gate × tieExt` (`euclideousPitchGateBeats`, pre-existing, not new to this
+     ferry) — GATE SCALES the tie extension, so the note does NOT hold all the way to hit 61's own onset at
+     any gate below 100%. The engine is correct; my first draft's expected exact beat was wrong. Fixed to
+     assert what's actually guaranteed (far past what the OLD ≤8-hit bound could ever reach) rather than an
+     exact, gate-dependent value. Test 5 (TIE+EVERY, the simpler case) added alongside it and hit the SAME
+     gate-scaling surprise, fixed the same way.
+  3. **Test 10 added (REPEAT's own NOTE VIEW telemetry)** — confirmed hit 2 posts one event, column 1
+     (0-based, the rest), rank 5 (column 1's written rank), `hasRiffNote: true`, exactly as §6.5 specifies.
+     Passed on the first real attempt once written correctly.
+  4. **Not yet fixed, left for a follow-up:** §3.2's text-shortening fallback ("drop 'LINES UP' first, then
+     truncate before the amber part") is entirely unimplemented — the readout just `.lineLimit(1)`s the whole
+     string today, so the amber "N NEVER PLAY" part isn't protected at the ferry's own worst-case length (41
+     chars). `riffModesRow` was deleted outright rather than hidden (§0.3's own "hide, don't delete, report
+     anything you delete" — this deletion was never disclosed; low risk, no persisted state, fully
+     superseded, but a direct instruction miss). `euclideousRiffReadout` does two full passes internally and
+     is recomputed independently by the mini-grid AND the WALK strip on the same frame — worse than the
+     original "not memoised" disclosure. §11 tests 9, 13, 17, 19, 20 remain unwritten.
+  5. **Confirmed correct by hand-trace, not previously verified:** §12's own flagship acceptance example (the
+     16-step "Lane 1" screenshot scenario) — strip `6 7 8 1 2 3 4 5`, never-play `{2,4,7}`, footers
+     `6 1 5 8 3` — matches the real formulas exactly. Had been asserted as fact in the original report without
+     ever having been checked.
+  **Verdict going in:** not clean enough to call fully done as first shipped; items 1-3 above are now fixed;
+  items under 4 remain open, tracked in `Docs/pending-tasks.md`.
 - **▶ EUCLIDEOUS — FIX: a hit exactly on a chord change read the PREVIOUS chord (2026-10-19; from Paul's screen recording of the yellow lane staying silent on step 5;
   on `feature/fx-tab`; macOS suite green; the sound is device-owed).** With the CHORDS source the shared pool was built ONCE PER RENDER WINDOW at the window's START beat
   (`chordSeqNotes(beat: mWinStart …)`), so any hit that lands in the window where the chord changes — in practice every hit ON the change, e.g. a lane on the bar line under a

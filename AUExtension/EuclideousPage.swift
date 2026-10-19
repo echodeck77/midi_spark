@@ -3282,6 +3282,7 @@ struct EuclideousPage: View {
         let every = line.riffAdvanceEveryResolved
         let P = euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)
         let readoutText = euclideousRiffReadoutText(readout, overBudget: readout == nil)
+        let isRiff = line.riffOnResolved
         return VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text("WALK").font(.system(size: 8, weight: .heavy, design: .monospaced)).kerning(0.8).foregroundColor(Color(hex: 0xAAB0BA))
@@ -3289,10 +3290,11 @@ struct EuclideousPage: View {
                 euclideousWalkReadoutText(readoutText)
             }
             .padding(.horizontal, 2)
+            .opacity(isRiff ? 1.0 : 0.42)   // §1.8: dims while the riff is off — the cell row below folds this into its own per-cell opacity instead (§3.3: "the dims don't multiply")
             // §3.4: the ring shows only while the transport runs, the lane plays and the riff is on — one
             // TimelineView for the whole row (never one per cell), paused while stopped, matching this
             // page's own established idiom (`riffWalkTagOverlay`).
-            let ringEligible = clock.playing && line.enabledResolved && line.riffOnResolved
+            let ringEligible = clock.playing && line.enabledResolved && isRiff
             TimelineView(.animation(minimumInterval: 1.0 / 15, paused: !ringEligible)) { tl in
                 let current: Int? = (ringEligible ? cfg : nil).flatMap { riffWalkCurrentStep($0, beat: walkTagBeat(at: tl.date), P: P) }
                 HStack(spacing: 1.5) {
@@ -3302,7 +3304,11 @@ struct EuclideousPage: View {
                             let rank = col < stepRanks.count ? stepRanks[col] : 0
                             let isRest = rank < 1
                             let neverPlays = readout?.neverPlayWalkSteps.contains(i) ?? false
-                            riffWalkStripCell(col: col, isRest: isRest, every: every, isCurrent: i == current, accent: accent, dim: neverPlays)
+                            // §3.3: "the dims don't multiply" — a never-played step on a riff-off lane stays
+                            // at 42%, not 0.42×0.42 ≈ 17.6% — so this is ONE opacity decision, not two nested
+                            // modifiers (the bug an adversarial review caught: the old code let this cell's
+                            // own 42% compound with riffTopRow's outer 42% wrapper).
+                            riffWalkStripCell(col: col, isRest: isRest, every: every, isCurrent: i == current, accent: accent, dim: neverPlays || !isRiff)
                         } else {
                             RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x181A1F)).frame(maxWidth: .infinity)
                         }
@@ -3322,7 +3328,8 @@ struct EuclideousPage: View {
         .accessibilityValue(euclideousWalkVoiceOverValue(cfg: cfg, len: len, every: every, P: P, stepRanks: stepRanks, readoutText: readoutText))
     }
     /// One WALK-strip cell: the column number or a rest dash, EVERY pips underneath when EVERY >= 2, lane20
-    /// fill + a lane100 inner ring on the current step (§3.3).
+    /// fill + a lane100 inner ring on the current step (§3.3). `dim` is already the FULLY-RESOLVED decision
+    /// (never-played OR riff-off) — exactly one opacity level, never stacked with an ancestor's own dim.
     private func riffWalkStripCell(col: Int, isRest: Bool, every: Int, isCurrent: Bool, accent: Color, dim: Bool) -> some View {
         VStack(spacing: 1.5) {
             Text(isRest ? "\u{2013}" : "\(col + 1)")
@@ -3391,11 +3398,15 @@ struct EuclideousPage: View {
         return HStack(spacing: sp4) {
             riffCard(idx, line, accent, width: 90, height: layout.rowAHeight)
             VStack(spacing: sp4) {
+                // §3.3: the strip dims itself per-cell (folding the riff-off state into its own single
+                // opacity decision) — NOT wrapped in an outer .opacity() here, which would compound with
+                // that per-cell dim (a bug an adversarial review caught: 0.42×0.42 ≈ 17.6% on a never-played
+                // step of an off lane, instead of the spec's own "the dims don't multiply" 42%).
                 riffWalkStrip(idx, line, accent, width: layout.rightColumnWidth, height: layout.walkStripHeight)
                 riffDirectionRow(idx, line, accent)
                     .frame(height: layout.directionRowHeight)
+                    .opacity(isRiff ? 1.0 : 0.42)
             }
-            .opacity(isRiff ? 1.0 : 0.42)
         }
         .frame(height: layout.rowAHeight)
     }
