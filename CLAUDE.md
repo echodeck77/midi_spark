@@ -240,7 +240,7 @@ the same pipeline as any other row; it is not a special-cased render path.
   `muteUnit`, LANES GRID ferry 2026-10-18, UNCHANGED by the restart-chains ferry — mute stays on the
   LANES tab), RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
   shared 8-step rank matrix; DRUNK/RANDOM were removed from this walk 2026-10-13 and now coerce to
-  FWD; FREE, INVERT, ON-REST SKIP/FILL/TIE/REPEAT (REPEAT added RIFF WALK ferry 2026-10-19: a hit on
+  FWD; FREE, INVERT, ON-REST SKIP/TIE/REPEAT (FILL left ON REST in the NOTES TAB ferry 2026-10-19 — RESTS does what it was for; REPEAT added RIFF WALK ferry 2026-10-19: a hit on
   a rest plays the nearest earlier non-rest column's note again, found by `euclideousRiffRepeatLookback`),
   STRIDE/LENGTH/ADVANCE EVERY 1-4/TRANSPOSE (ADVANCE EVERY added the same ferry — the walk moves once
   every N hits/steps, via `euclideousRiffWalkStep`/`Column`, the ONE ordinal→column pair every site
@@ -249,8 +249,17 @@ the same pipeline as any other row; it is not a special-cased render path.
   P×EVERY bound catches), ±2 octave — **the RIFF tab's own OCT row is gone (same ferry); MIX's riff
   OCT stepper is the only riffOctave control now** —, riff
   capture — LOCK is RETIRED, restart-chains ferry 2026-10-19: a melody chain of exactly `[1]` does
-  what it did, §4.7; `riffLock` stays decodable, read only by migration), NOTES (an additive lit-note layer independent of the riff — it reads ON only while its switch is on AND a note is selected, `euclideousNotesLayerIsOn`; up to 8 ranks + TOP/TOP2,
-  per-note octave shift, a bipolar velocity offset), and MASK (11 modes — MUTE/PAUSE/RATCHET/
+  what it did, §4.7; `riffLock` stays decodable, read only by migration), NOTES (an additive lit-note layer independent of the riff — it reads ON only while its switch is on AND a note is selected, `euclideousNotesLayerIsOn`; **rebuilt by the NOTES TAB ferry
+  2026-10-19**: ONE stored lit ORDER (`notesLitOrder`, `EuclideousLitOrder` — positions 0–7 = ranks 1–8, 8 = TOP 2, 9 = TOP; `litNotes`/`topLit`/`top2Lit` are decodable read-only projections written
+  from it), WHEN (`notesWhen`: PLAYS/RESTS — a *rest hit* is a hit whose WRITTEN riff column is a rest, riff on or off), CHANCE (`notesChance` 25/50/75/100, `splitmix64Mix` replay-exact),
+  PLAY AS (`notesPlayAs`: CHORD/ROLL/RUN/CYCLE/BOUNCE/SPLIT/BUILD) and RECEIVED (`notesReceivedOnly`); the per-note octave shifts and NOTES VEL are gone from the tab and **no longer sound/are no
+  longer set** — `noteOctShifts`/`notesVelOffset` stay decodable and are encoded as decoded; MIX's notes pad + notes OCT stepper are the only velocity/gate/octave controls. TOP 2 keeps its PAIR
+  (second-highest AND highest). **ONE derivation:** `euclideousNotes*` in Derivations.swift (WhenChooses, ChanceRoll/Allows, HitOrdinal, CountBefore — k in 1024-hit blocks —, PlayList, WayPick,
+  RollSpacingBeats, RunSlotBeats, KeyFlash, Pips, GreyFooters, and `euclideousNotesTabLayout`); the Router and every display call them. A rest no longer ends a hit by itself: the riff layer sets
+  `restEnd` (SKIP-like / tied) and the notes layer may strike on it; only when it plays nothing does the old SKIP / tied-rest exit run. TIE answers per layer
+  (`euclideousChainTieExtensions` → riff, notes; the notes carry on only up to the first tied rest the notes themselves strike on), and `euclideousHeldRiffPitch` stops the notes re-striking the held riff
+  pitch. ROLL/RUN later notes are deferred strikes on the shared echo ring (or struck directly when their sample is still inside the current window). The 5.6 migration (decoder): `notesWhen` nil →
+  riff off ⇒ both; riff on ⇒ SKIP/TIE PLAYS only, FILL/REPEAT both — sound-preserving; **FILL decodes as SKIP**), and MASK (11 modes — MUTE/PAUSE/RATCHET/
   REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — gated by CHANCE).
 - **Sequencer panel** (replaced an earlier "NOTE VIEW" telemetry panel entirely): tabs are MIX (the default —
   eight XY pads, gate × velocity, + a 24pt OCT stepper per layer (shrunk from 28pt, restart-chains ferry
@@ -347,8 +356,8 @@ the same pipeline as any other row; it is not a special-cased render path.
   so the header/tab rows sit at the same y whichever tab is showing. Upper zone: the riff card +
   a non-interactive WALK strip (16 cells, the columns the walk reads at each walk step, rest
   dashes, EVERY pips, a live ring at the current step) + the direction row (FWD/REV/PEND/PING/INV)
-  + an ADVANCE EVERY row (the EVERY 1-4 stepper + HIT/STEP). Lower zone: ON REST (SKIP/FILL/TIE/
-  REPEAT) + the values row (LEN/SHIFT/STRIDE/TRANS — SHIFT was NUDGE). **Confirmed, numeric
+  + an ADVANCE EVERY row (the EVERY 1-4 stepper + HIT/STEP). Lower zone: ON REST (SKIP/TIE/
+  REPEAT, three buttons since the NOTES TAB ferry) + the values row (LEN/SHIFT/STRIDE/TRANS — SHIFT was NUDGE). **Confirmed, numeric
   discrepancy vs the ferry's own reference arithmetic**: the real formula gives row A 76pt, not
   the ferry's assumed 82pt (6pt under its own stated floor even at the reference) — built against
   the real, derived formula throughout, not hand-fitted; see the status log's own §0.2 writeup.

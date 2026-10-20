@@ -5,6 +5,13 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — NOTES TAB: keys, WHEN, PLAY AS, CHANCE, RECEIVED; FILL leaves ON REST (2026-10-20; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "NOTES tab" lines in `Docs/euclideous-device-verification-debt.md` — the key sizes, the picker, ROLL/RUN by ear, the tied-rest strike, one old SKIP/TIE session and one old FILL session.
+- [ ] DECIDE (Paul): TOP 2 kept its PAIR (the ferry's single-note design assumed one note): lower note + "+" on the key, "2–3" as its place number, two places in CYCLE/BOUNCE/BUILD/SPLIT. Say if it should become a single note (and whether an old TOP-2 lane then gets TOP added to keep its sound).
+- [ ] DECIDE (Paul): with nothing held the keys show an en dash like the riff grid (the ferry said rank numbers 1–8).
+- [ ] (noted) `addPitch` holds 9 pitches; a ten-key lit order plus the riff note and mask CHORD extras can pass it (first lit wins).
+- [ ] (noted) the hidden NOTES controls (`notesOctaveTopRow`, `notesVelBar`, the per-note chips, `euclideousOctaveTrough`, `euclideousHighPickRanks`) are kept, unreferenced; `noteOctShifts`/`notesVelOffset` are decodable but no longer sound / are no longer set.
+
 ## ★ EUCLIDEOUS — RIFF PANEL: compact tabs, blended arrows, lane rails (2026-10-19; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "Riff panel" lines in `Docs/euclideous-device-verification-debt.md`, and the two DEBUG size lines (root `safeAreaInsets` / page `bottomInset`) — they settle whether the 9pt bottom gap was an inset.
 - [ ] DECIDE (Paul): the one-lane arrow fill is the comet tile's own (lane colour 95% → 55% alpha) because source differs from the mock; it reads paler at the bottom on the light cells. Switch to the mock's lane100 → × 0.86 (`EuclideousArrowStyle`)?

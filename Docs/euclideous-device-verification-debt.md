@@ -17,6 +17,20 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### NOTES tab rebuilt — keys, WHEN, PLAY AS, CHANCE, RECEIVED; FILL leaves ON REST (2026-10-20 ferry — §15)
+- The 27.85pt keys at real size: labels, the 3pt bar, the hollow bar, the 8.5pt place numbers and the riff dot, in all four lane colours, on received and copy keys; TOP 2's lower-note-plus-"+" label (it keeps its PAIR) and its "2–3" place number.
+- The PLAY AS button's 19.6 × 30 preview columns and the picker's 47pt previews: legible, with RUN's split bars and ROLL's offsets readable.
+- The picker's cells (106 × 85 and 79 × 85) and its 30 × 18 close button are comfortable to hit; the picker closes on a tab switch.
+- The pips on 8- and 16-step lanes, and the grey footers with the riff off (WHEN one-sided); a rest hit where the notes strike flashes solid.
+- ROLL's 25ms spacing sounds like a strum, and RUN sounds like a quick figure, at slow and fast tempos (and at a large host buffer — a note inside the current window is struck directly).
+- CYCLE, BOUNCE, SPLIT and BUILD follow the lit order and restart cleanly at a melody restart.
+- RECEIVED: lit ranks join in as the held chord grows (the hollow bars fill in).
+- A tied rest with RESTS on sounds like the notes striking under a held riff note (and never re-strikes the held pitch).
+- The 42% dim while the notes are off (right of the strip only).
+- An old session with the riff on and ON REST SKIP/TIE loads PLAYS-only (sounds as before); one on FILL loads SKIP with PLAYS+RESTS (sounds as before). Check one of each by ear.
+- With nothing held every key shows an en dash and the copy look (the ferry said rank numbers; kept the grid's own look).
+- VoiceOver reads and operates every control, the picker included.
+
 ### FX GATE row: legato removed; LISTEN SHADOW/AVOID follow the partner's real walk (2026-10-20)
 - FX GATE row: the top cell reads 95 (it was 100 / "LEG"); the strip says only "REPLACES THE LANE'S GATE"; a repeated pitch under a GATE cell re-strikes. A session saved with a GATE 100 cell loads it as 95.
 - LISTEN: give a lane EVERY 2 (or a MELODY restart chain, or a RHYTHM chain that cuts a pass short), put a second lane on FOLLOW + SHADOW (unison) of it — the second lane now sounds the same notes as the first, hit for hit
