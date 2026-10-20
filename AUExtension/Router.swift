@@ -1616,6 +1616,9 @@ final class Router {
         /// timeline) — the window's host time + the onset's sample offset. 0 = unknown (the Kernel only stamps it in
         /// DEBUG builds, and only when the host supplied a valid host time).
         var hostSeconds: Double = 0
+        /// PULSE ferry (2026-10-20, §1.3): the velocity each pitch in `notes` actually played with, parallel to `notes` (the value handed to `strikeChord`, after MIX VEL / FX VEL / ACCENT / SWELL / LISTEN
+        /// DUCK and ACCENT, 1…127). `vels[0]` is the riff note's when `hasRiffNote`; the rest are the notes layer's (and mask CHORD extras'). Empty on the retired non-Euclideous sites.
+        var vels: [UInt8] = []
     }
     func drainEuclideousNoteViewEvents() -> [[EuclideousNoteViewEventSnapshot]] {
         var out: [[EuclideousNoteViewEventSnapshot]] = []
