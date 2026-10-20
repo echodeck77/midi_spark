@@ -292,13 +292,21 @@ the same pipeline as any other row; it is not a special-cased render path.
   chord generator, no 8×8-grid receiver dependency) / KEY (a scale pool). No per-lane source, no
   dependency on the wider receiver/door graph.
 - **Header (Fourfold, 2026-10-15).** Four groups: BRAND (mark, FOURFOLD, undo/redo — ↶/↷ bounded 50-deep, scoped to
-  Euclideous's own fields only) · OUTPUTS (four output RINGS = MAIN OUT A–D: each quarter lights in the colour of a
-  lane routed to it, tap pulses those lanes, hold traces them, a quarter flares on a real strike) · NOTES (one
-  MIDI IN · CHORDS · KEY control + a key pill that opens the key pop-up) · UTILITIES (presets, settings — a gear,
-  not ×; see below). There is NO ON chip: the page always runs (`euclideousEnabledResolved` is always true; the
-  stored field is decode-only). The A/B/C fit ladder, group widths and positions all come from ONE pure
-  `euclideousHeaderLayout` (Derivations.swift) that the body layouts also read — change header metrics there, not
-  in the views. **Ring TARGET repointed (restart-chains ferry, 2026-10-19):** a tap/hold's ring used to go around
+  Euclideous's own fields only) · OUTPUTS (four output RINGS = MAIN OUT A–D, 75% scale since 2026-10-20 —
+  `EuclideousHeaderMetrics.outputRingScale`, rendered at natural size then `.scaleEffect`-shrunk, same technique as
+  the Settings Sheet's own 0.8× mini rings, so the hardcoded radius-17 Canvas circle never clips: each quarter
+  lights in the colour of a lane routed to it, tap pulses those lanes, hold traces them, a quarter flares on a real
+  strike) · NOTES (MIDI IN · CHORDS · KEY control + a key pill that opens the key pop-up + HOLD/LATCH, added
+  2026-10-20: two mutually-exclusive chips — a behavioural port of the 8x8-State door graph's `DoorMode.hold`/
+  `.latch` onto Euclideous's own page-level MIDI IN pool, since Euclideous has no receiver/door graph to reuse the
+  original mechanism from; HOLD mirrors live input and sustains the last chord once every key releases, replacing
+  it the moment a new one arrives; LATCH toggles each newly-risen note in/out of an accumulated pool and ignores
+  note-off entirely; both reuse `NotePool.captureFiltered`/`latchAddStep` (the door LATCH/HOLD's own primitives,
+  Derivations.swift) against a NEW Router-owned persistent pool (`euclideousHoldLatchPool`), gated to `.midi`
+  source only and reset on a mode switch or transport restart) · UTILITIES (presets, settings — a gear, not ×; see
+  below). There is NO ON chip: the page always runs (`euclideousEnabledResolved` is always true; the stored field
+  is decode-only). The A/B/C fit ladder, group widths and positions all come from ONE pure `euclideousHeaderLayout`
+  (Derivations.swift) that the body layouts also read — change header metrics there, not in the views. **Ring TARGET repointed (restart-chains ferry, 2026-10-19):** a tap/hold's ring used to go around
   "this lane's own OUT circle, or its RHYTHM tab chip" — both are gone (OUT moved to MIX, §9; RHYTHM never had a
   ring of its own again after that). `euclideousOutputRingTargets` (replacing the ring half of
   `euclideousOutputCues`, which is now dim-only) decides, page-wide not per-lane-card: one ring per routed lane's

@@ -5542,6 +5542,112 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e2.ons.filter { $0.cable == 1 }.contains { Int($0.note) == 67 }, "a genuinely live note on receiver 4 must still sound through MIDI IN")
     }
 
+    // HOLD/LATCH (Paul 2026-10-20) — a page-level behavioural port of the door graph's chord-detect-and-
+    // replace / note-toggle-accumulation onto Euclideous's own ONE GLOBAL pool (Router.swift's `.euclid`
+    // `case .midi:` branch). Dense pulses=1/steps=1 at a fast rate + `noteSel: .low` (the SAME proven fixture
+    // `testEuclideousMidiInReadsOnlyGenuinelyLiveNotesNotASelfArmedDoor` above already uses) — one note at a
+    // time sidesteps any question of whether a given pick mode strikes a whole chord per hit, which isn't
+    // what this feature is testing. One shared `RecordingEmitter` + one continuously-driven `Router` (not
+    // `run`, which tears down after one call) across all phases, sliced by sample time, so the final
+    // `assertNothingLeftSounding` check still covers the WHOLE run's note lifecycle, not just one phase's.
+    private func euclideousHoldLatchFixture(mode: EuclideousHoldLatchMode?) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, rate: .r1_16, sourceMode: .midi)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousHoldLatchMode = mode
+        return SnapshotBuilder.build(from: st)
+    }
+    func testEuclideousHoldSustainsAfterReleaseAndReplacesOnANewChord() {
+        let box = euclideousHoldLatchFixture(mode: .hold)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func drive(_ pool: NotePool, windows: Int) -> (Int64, Int64) {
+            let start = Int64(ts)
+            for _ in 0..<windows {
+                router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
+                               sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            return (start, Int64(ts))
+        }
+        let (aStart, aEnd) = drive(chord([60]), windows: 8)                // HELD: mirrors live, like `nil`
+        let (_, bEnd) = drive(NotePool(), windows: 8)                      // RELEASED: HOLD sustains the last note
+        let (_, cEnd) = drive(chord([67]), windows: 8)                    // A GENUINELY NEW note: HOLD replaces
+        router.process(box: box, pool: chord([67]), playing: false, beatPos: beat, tempo: tempo,   // stop edge → flush
+                       sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        func notes(_ lo: Int64, _ hi: Int64) -> Set<Int> { Set(e.ons.filter { $0.cable == 1 && $0.sample >= lo && $0.sample < hi }.map { Int($0.note) }) }
+        XCTAssertEqual(notes(aStart, aEnd), [60], "held note sounds live")
+        XCTAssertEqual(notes(aEnd, bEnd), [60], "HOLD sustains the last note after every key is released")
+        XCTAssertEqual(notes(bEnd, cEnd), [67], "a genuinely new note replaces the held one, not layers onto it")
+        assertNothingLeftSounding(e)
+    }
+    func testEuclideousLatchTogglesMembershipAndIgnoresNoteOff() {
+        let box = euclideousHoldLatchFixture(mode: .latch)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func drive(_ pool: NotePool, windows: Int) -> (Int64, Int64) {
+            let start = Int64(ts)
+            for _ in 0..<windows {
+                router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
+                               sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            return (start, Int64(ts))
+        }
+        _ = drive(chord([60]), windows: 8)                                 // PRESS 60 → a rising edge → toggled IN
+        let (bStart, bEnd) = drive(NotePool(), windows: 8)                 // RELEASE 60 → LATCH ignores note-off entirely
+        let (cStart, cEnd) = drive(chord([60]), windows: 8)                // PRESS 60 AGAIN → a NEW rising edge → toggled OUT
+        router.process(box: box, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo,   // stop edge → flush
+                       sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        func notes(_ lo: Int64, _ hi: Int64) -> Set<Int> { Set(e.ons.filter { $0.cable == 1 && $0.sample >= lo && $0.sample < hi }.map { Int($0.note) }) }
+        XCTAssertEqual(notes(bStart, bEnd), [60], "a released note stays latched in, ignoring note-off")
+        XCTAssertTrue(notes(cStart, cEnd).isEmpty, "re-pressing an already-latched note is a NEW rising edge — toggles it back out")
+        assertNothingLeftSounding(e)
+    }
+    func testEuclideousHoldLatchResetsOnModeSwitchAndTransportRestart() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, rate: .r1_16, sourceMode: .midi)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousHoldLatchMode = .hold
+        let holdBox = SnapshotBuilder.build(from: st)
+        st.euclideousHoldLatchMode = .latch
+        let latchBox = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func drive(_ box: SnapshotBox, _ pool: NotePool, windows: Int) -> (Int64, Int64) {
+            let start = Int64(ts)
+            for _ in 0..<windows {
+                router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
+                               sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            return (start, Int64(ts))
+        }
+        _ = drive(holdBox, chord([60, 64]), windows: 8)                   // HOLD freezes [60, 64]
+        _ = drive(holdBox, NotePool(), windows: 8)                        // released — still sustaining [60, 64]
+        // SWITCH to LATCH with nothing currently played: a stale HOLD-frozen [60, 64] must NOT leak into LATCH's fresh set.
+        let (latchStart, _) = drive(latchBox, NotePool(), windows: 8)
+        router.process(box: latchBox, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo,
+                       sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        let afterSwitch = Set(e.ons.filter { $0.cable == 1 && $0.sample >= latchStart }.map { Int($0.note) })
+        XCTAssertTrue(afterSwitch.isEmpty, "a mode switch must drop the previous mode's frozen/latched notes, not carry them over: got \(afterSwitch)")
+        assertNothingLeftSounding(e)
+    }
+
 
     // MARK: - SAMPLE-ACCURATE ONSETS (Paul 2026-10-18) — the "odd timing" investigation.
     //

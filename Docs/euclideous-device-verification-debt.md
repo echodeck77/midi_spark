@@ -22,6 +22,23 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - LISTEN: give a lane EVERY 2 (or a MELODY restart chain, or a RHYTHM chain that cuts a pass short), put a second lane on FOLLOW + SHADOW (unison) of it — the second lane now sounds the same notes as the first, hit for hit
   (it used to follow a different column). AVOID/MUTE of such a partner mutes the colliding hits.
 
+### Header: output rings at 75%, HOLD/LATCH buttons (2026-10-20)
+- The four MAIN OUT rings' actual on-screen size at 0.75× — the `.scaleEffect`+reclaiming-`.frame` technique
+  (same idiom as the Settings Sheet's existing 0.8× mini rings) is untested on a real render; confirm the ring,
+  its tap target, and the flare/pulse animations all still read cleanly at the smaller size, in both the full
+  and compact header layouts.
+- HOLD/LATCH chips beside the key pill: legible at 48/54pt wide, selected-state fill reads clearly, dim to ~40%
+  and stop responding to taps the moment the source control leaves MIDI IN (tap CHORDS/KEY while one is
+  engaged — does it visibly go inert, not just silently no-op?).
+- HOLD against real MIDI input: play a chord, release every key — does the engine actually keep sounding the
+  last chord (not just pass the off-device unit tests)? Then play something new — does it cleanly replace,
+  with no overlap/double-sounding of the old chord's notes?
+- LATCH against real MIDI input: tap a note on, release it (it should keep sounding), tap the SAME note again
+  (it should stop) — does the toggle feel immediate, or is there audible lag from the render-tick granularity?
+- Switching HOLD ⇄ LATCH ⇄ off mid-performance: any audible glitch/double-note from the reset, or clean?
+- Undo/redo (↶/↷) across a HOLD/LATCH change — does it restore the prior mode cleanly, including the sounding
+  state?
+
 ### Riff panel — arrows, rails, compact tabs (2026-10-19 ferry — §12)
 - The 31 × 17 arrows and their numbers in all four lane colours and in every blend (2 / 3 / 4 lanes), on the light note cells — the single-lane fill is the comet tile's 95 → 55% alpha, so its bottom reads paler (one constant if you want the mock's × 0.86).
 - Hollow dashed on-rest arrows on the dark rest cells (SKIP, FILL and REPEAT all draw them; TIE keeps the solid arrow on the tied note).

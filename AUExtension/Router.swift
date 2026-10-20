@@ -1016,6 +1016,16 @@ final class Router {
     private var latchedPools: [NotePool] = []
     private var receiverDisabledMask: UInt8 = 0            // INPUT ENABLE: bit i = receiver i not listening (door closed)
     private let emptyPool: NotePool = { let p = NotePool(); p.rebuildSorted(); return p }()   // a disabled door's cells read this
+    // HOLD/LATCH (Paul 2026-10-20): Euclideous's OWN page-level pool, derived each render from `livePool` —
+    // genuinely analogous to a door's `latchedPools` entry (reuses the SAME `NotePool.captureFiltered`/
+    // `latchAddStep` primitives, Derivations.swift), but owned directly by Router (like the note tracker
+    // above), not Kernel: there's no arm gesture here, just a pure function of (this render's resolved
+    // `euclideousHoldLatchMode`, this render's `livePool`). ONE instance (Euclideous has one global pool, not
+    // 4 per-door ones). `euclideousHoldLatchPrevHeld` is `latchAddStep`'s own caller-owned rising-edge state
+    // (fixed 128-entry array, allocated once — render-thread safe, no per-tick allocation).
+    private let euclideousHoldLatchPool = NotePool()
+    private var euclideousHoldLatchPrevHeld = [Bool](repeating: false, count: 128)
+    private var euclideousHoldLatchPrevMode: EuclideousHoldLatchMode? = nil
     // INPUT ADMISSION: this render's per-receiver channel/cable/range filter (mute+disable already folded into
     // receiverChannels) + the no-machine LIVE WIRE mask. Read from the box each render. (The door-level BYPASS mask/dest
     // that once lived here was retired 2026-08-25; only passEmitterMask remains.)
@@ -3131,6 +3141,8 @@ final class Router {
                 euclideousMaskStep[i] = -1   // the UI-pollable position resets alongside the ordinal it mirrors
             }
             for i in 0..<4 { nvHead[i] = 0; nvNew[i] = 0 }   // NOTE VIEW: a fresh play/stop clears any stale queued events, not just future ones (Paul 2026-10-10)
+            euclideousHoldLatchPool.reset()   // HOLD/LATCH: a fresh play/stop drops any stale frozen/latched notes (Paul 2026-10-20)
+            for i in euclideousHoldLatchPrevHeld.indices { euclideousHoldLatchPrevHeld[i] = false }   // no re-allocation on the render thread — mutate in place, matching every sibling reset above
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
@@ -3421,7 +3433,12 @@ final class Router {
         // into this guard's own condition instead of a separate pre-guard call, since CHORDS rides the NORMAL
         // emitTickRow→emitGeneratorRow dispatch once past this point (no separate subsystem needed).
         let euclideousChordsActive = box.cells[Snap.euclideousRow].procs.first?.euclidLines.contains { $0.sourceModeResolved == .chords } ?? false
-        guard pool.count > 0 || latchMask != 0 || euclideousChordsActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
+        // HOLD/LATCH (Paul 2026-10-20): the SAME gap CHORDS mode found above — a HOLD-sustained or LATCH-
+        // accumulated pool must keep driving the row even once every physical key is released, same
+        // "generates its own content" exception, just sourced from `euclideousHoldLatchPool` (this render's
+        // persistent frozen/latched notes) instead of an algorithmic generator.
+        let euclideousHoldLatchActive = box.cells[Snap.euclideousRow].procs.first?.euclideousHoldLatchMode != nil && euclideousHoldLatchPool.count > 0
+        guard pool.count > 0 || latchMask != 0 || euclideousChordsActive || euclideousHoldLatchActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             for i in euclidLineReady.indices { euclidLineReady[i] = 0 }   // nothing held/latched ⇒ nothing can play; case .euclid: won't run below to refresh this itself
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
@@ -4430,7 +4447,35 @@ final class Router {
                         // channels of `livePool` actually reach every lane AND the riff (both read this SAME
                         // `fillGlobalSrcFromPool` output via `laneCount`/`laneNotes` below — one filtered pool,
                         // shared, so the riff inherits lane 1's filtering for free, with no separate mask of its own).
-                        fillGlobalSrcFromPool(livePool, chanMask: p.globalSrcChanMask)
+                        // HOLD/LATCH (Paul 2026-10-20): a mode switch drops any stale frozen/latched notes first
+                        // (same reasoning as the transport-edge reset above — a HOLD sustain surviving a switch
+                        // to LATCH, or vice versa, would read as a stuck/ghost note). HOLD mirrors `livePool` live
+                        // while it's non-empty (byte-identical to the `nil` case) and freezes the last non-empty
+                        // snapshot the instant it goes empty (`captureFiltered`, reused verbatim from the door
+                        // LATCH-strip's own FREEZE primitive). LATCH toggles membership on each note newly risen
+                        // since last render (`latchAddStep`, reused verbatim from the door ADD-latch's own rising-
+                        // edge primitive) and ignores note-off entirely. Both read back at chanMask 0xFFFF (OMNI):
+                        // the pool was already filtered by `p.globalSrcChanMask` AT CAPTURE — re-filtering by a
+                        // LATER (possibly narrower) mask would wrongly drop already-frozen/latched notes, the exact
+                        // bug `NotePool.omniRead`'s own doc comment names ("replay stops when I disable the input
+                        // channel").
+                        if p.euclideousHoldLatchMode != euclideousHoldLatchPrevMode {
+                            euclideousHoldLatchPool.reset()
+                            for i in euclideousHoldLatchPrevHeld.indices { euclideousHoldLatchPrevHeld[i] = false }
+                            euclideousHoldLatchPrevMode = p.euclideousHoldLatchMode
+                        }
+                        switch p.euclideousHoldLatchMode {
+                        case .hold:
+                            if livePool.srcCount(chanMask: p.globalSrcChanMask, cableMask: 0b1111) > 0 {
+                                euclideousHoldLatchPool.captureFiltered(from: livePool, chanMask: p.globalSrcChanMask, cableMask: 0b1111)
+                            }
+                            fillGlobalSrcFromPool(euclideousHoldLatchPool, chanMask: 0xFFFF)
+                        case .latch:
+                            euclideousHoldLatchPool.latchAddStep(from: livePool, chanMask: p.globalSrcChanMask, cableMask: 0b1111, prevHeld: &euclideousHoldLatchPrevHeld)
+                            fillGlobalSrcFromPool(euclideousHoldLatchPool, chanMask: 0xFFFF)
+                        case nil:
+                            fillGlobalSrcFromPool(livePool, chanMask: p.globalSrcChanMask)
+                        }
                     } else {
                         globalSrcUsesLegacy = true
                     }

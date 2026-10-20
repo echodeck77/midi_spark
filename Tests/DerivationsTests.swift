@@ -4111,16 +4111,20 @@ final class DerivationsTests: XCTestCase {
         let caption: CGFloat = 3 * 9 * 0.74            // "OUT": 3 chars × 9pt × (0.6 + 0.14)
         XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88, accuracy: 1e-9)
         XCTAssertEqual(f.brand, 192, accuracy: 0.2)
-        XCTAssertEqual(f.outputs, caption + 4 + 176, accuracy: 1e-9)
+        // NARROWED 44→33 / 40→30pt ring pitch (2026-10-20, output rings to 75%): 4 rings × 11pt less = 44pt off
+        // `outputs`/`ringsSpan`, and 4 × 10pt = 40pt off the compact `c.outputs`.
+        XCTAssertEqual(f.outputs, caption + 4 + 132, accuracy: 1e-9)
         XCTAssertEqual(f.outputsLead, caption + 4, accuracy: 1e-9, "the caption + sp4 before the first ring's target")
-        XCTAssertEqual(f.ringsSpan, 176, accuracy: 1e-9)
+        XCTAssertEqual(f.ringsSpan, 132, accuracy: 1e-9)
         // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings): 2×t / 3×t before/after.
-        XCTAssertEqual(f.notes, 312); XCTAssertEqual(f.utilities, 132)
+        // WIDENED 312→426 (2026-10-20, HOLD/LATCH header buttons): two fixed-width chips (48+54) + the sp4
+        // gap between them + the sp8 before them = 114pt added after the key pill.
+        XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 132)
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
-        XCTAssertEqual(c.brand, 93); XCTAssertEqual(c.outputs, 160); XCTAssertEqual(c.utilities, 108)
+        XCTAssertEqual(c.brand, 93); XCTAssertEqual(c.outputs, 120); XCTAssertEqual(c.utilities, 108)
         XCTAssertEqual(c.outputsLead, 0, "layout C hides the caption: the group IS the rings")
-        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 377, "layout C's row 1 — was ≈341 at 2 UTILITIES icons, 377 now that SWING made it 3")
+        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 337, "layout C's row 1 — was 377 before the rings shrank to 75%")
         XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
     }
     // WIDENED from 1158 → 1300 (2026-10-17, UTILITIES grew from 2 to 3 icons — the SWING icon — so the
@@ -4128,27 +4132,32 @@ final class DerivationsTests: XCTestCase {
     // the sibling test below covers).
     // WIDENED again 1300 → 1500 (PAGE LAYOUT ferry, 2026-10-19): the riff panel is now the THIRD of three equal columns (it started 36% in), so NOTES only
     // sits unclamped on its leading edge once the container is wide enough that the three utility icons don't push it left.
+    // WIDENED again 1500 → 1750 (2026-10-20, HOLD/LATCH header buttons): NOTES grew 114pt, so it needs a
+    // wider container before its unclamped position stops colliding with UTILITIES.
     func testFourfoldLayoutAAt1500PutsNotesOnTheRiffPanelAndRingsOnTheLaneGutter() {
-        let l = hdrLayout(1500, landscape: true)
+        let l = hdrLayout(1750, landscape: true)
         XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
-        let cols = pageFor(1500, landscape: true)
-        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1500, accuracy: 1e-9)
+        let cols = pageFor(1750, landscape: true)
+        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1750, accuracy: 1e-9)
         XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
         XCTAssertEqual(ringsCentre(l), cols.laneCentreX, accuracy: 1e-9, "the RINGS (not the caption-inclusive group) centred on the lane gutter (between lane columns 1 and 2)")
         XCTAssertNotEqual(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, "…so the caption-inclusive group is NOT what's centred")
-        assertHeaderInvariants(l, 1500, "A@1500")
+        assertHeaderInvariants(l, 1750, "A@1750")
     }
-    // WIDENED from 868 → 900 for the same reason as the test above — 900 is where the 3-icon UTILITIES
-    // formula now reproduces the same "A, but both groups had to slide" case 868 used to demonstrate.
+    // WIDENED from 868 → 900 (2026-10-17) for the SWING icon, then RENUMBERED to 960 and its story CHANGED
+    // (2026-10-20, HOLD/LATCH header buttons): NOTES is now wider (426pt) than the rings' own upper-bound
+    // clamp room, so once the container is wide enough for layout A at all, it's NOTES — not BRAND — that
+    // pushes the rings off-centre (the rings clamp against NOTES' leading edge, not BRAND's trailing edge;
+    // confirmed by reading the actual gap at a few widths, not assumed from the old story).
     func testFourfoldLayoutASlidesNotesAndRingsAt900() {
-        let l = hdrLayout(900, landscape: true)
-        let cols = pageFor(900, landscape: true)
+        let l = hdrLayout(960, landscape: true)
+        let cols = pageFor(960, landscape: true)
         XCTAssertEqual(l.kind, .a)
         XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
         XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), 16, accuracy: 1e-9)
-        XCTAssertGreaterThan(ringsCentre(l), cols.laneCentreX, "rings slid right to clear BRAND")
-        XCTAssertEqual(l.outputs.x - (l.brand.x + l.brand.width), 16, accuracy: 1e-9)
-        assertHeaderInvariants(l, 900, "A@900")
+        XCTAssertLessThan(ringsCentre(l), cols.laneCentreX, "rings slid left to clear NOTES (not BRAND — NOTES is now the wider neighbour)")
+        XCTAssertEqual(l.notes.x - (l.outputs.x + l.outputs.width), 16, accuracy: 1e-9)
+        assertHeaderInvariants(l, 960, "A@960")
     }
     func testFourfoldLayoutBAt600AndCAt343() {
         let b = hdrLayout(600, landscape: false)
@@ -4156,14 +4165,17 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES on row 2's leading edge")
         XCTAssertEqual([b.brand.row, b.outputs.row, b.utilities.row], [0, 0, 0])
         assertHeaderInvariants(b, 600, "B@600")
-        // WIDENED from 343 → 380 (2026-10-17): UTILITIES' 3rd icon (SWING) raised row-1's real floor from
-        // 341 to 377 — 343 no longer fits at all (would overflow its own trailing edge).
-        let c = hdrLayout(380, landscape: false)
+        // WIDENED from 343 → 380 (2026-10-17) for row 1's own floor (341→377 when SWING joined UTILITIES).
+        // WIDENED again 380 → 430 (2026-10-20, HOLD/LATCH header buttons): NOTES grew to 426pt — now WIDER
+        // than row 1's own floor (369, down from 377: ring-scaling shrank compact OUTPUTS 160→120) — so
+        // NOTES' own row, not row 1, is what sets C's real floor now.
+        let c = hdrLayout(430, landscape: false)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)
-        assertHeaderInvariants(c, 380, "C@380")
-        // C's floor: the narrowest container it fits is its own row-1 need (377, was 341 at 2 icons) → page width 409.
-        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 409)
+        assertHeaderInvariants(c, 430, "C@430")
+        // Row 1's OWN floor (brand+outputs+utilities): 369 now (was 377 before ring-scaling shrank compact
+        // OUTPUTS 160→120) — no longer C's real floor (see the comment above: NOTES' own 426pt width is).
+        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 369)
         // a landscape page too narrow for A falls to B, never A.
         XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
         // portrait never uses A, however wide.

@@ -155,6 +155,16 @@ enum EuclideousLaneSource: String, Codable, CaseIterable { case midi, key, chord
 // FOURFOLD SETTINGS, CLOCK tab (2026-10-15 ferry, "Fourfold settings" §5.1).
 enum EuclideousHostStopBehavior: String, Codable, CaseIterable { case keepPlaying, stop }
 
+// HOLD/LATCH (Paul 2026-10-20): a page-level behavioural port of the 8x8-State door graph's
+// `DoorMode.hold`/`.latch` (§2081-2089 above) onto Euclideous's own ONE GLOBAL MIDI IN pool —
+// Euclideous has no receiver/door graph to hang the EXISTING per-Receiver `latchedPools`
+// (Kernel.swift) off, so this is new engine state, not a reuse of that mechanism. Mutually
+// exclusive by construction (one optional field, not two independent bools): nil = off (today's
+// plain live-MIDI behaviour, byte-identical for every existing document). Only meaningful against
+// `.midi` source — CHORDS/KEY already generate a fixed algorithmic pool with no physical note-on/
+// off to freeze or toggle.
+enum EuclideousHoldLatchMode: String, Codable, CaseIterable { case hold = "HOLD", latch = "LATCH" }
+
 /// MELODY TAB (Paul 2026-10-13 ferry, "Behaviour" rule 1): "note and riff are mutually exclusive, and the
 /// selection IS the mode — there's no separate switch." Replaces reading `useRiff` directly as the mode flag
 /// going forward — a dedicated field reads unambiguously as "the mode is the selection" (tapping a note/TOP/
@@ -2840,6 +2850,9 @@ struct PluginState: Codable, Equatable {
     // behaviour, byte-identical for every existing document (§5.2, literal).
     var euclideousHostStopBehavior: EuclideousHostStopBehavior? = nil
     var euclideousHostStopBehaviorResolved: EuclideousHostStopBehavior { euclideousHostStopBehavior ?? .keepPlaying }
+    // HOLD/LATCH (Paul 2026-10-20, header buttons beside the key pill): nil ⇒ off, today's plain live-MIDI
+    // pool, byte-identical for every existing document. See `EuclideousHoldLatchMode`'s own doc comment.
+    var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
     // EUCLIDEOUS CHORDS (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a
     // chord grid with rate control... base this on the existing chord grid used on the chord door." Stored
     // as a plain MachineParams — the EXACT same storage shape the chord door's own `Receiver.chordSeqs:
@@ -3575,6 +3588,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var lanesSeq: EuclideousLanesSeq
     var riffsSeq: EuclideousRiffsSeq
     var fx: EuclideousFX = EuclideousFX()   // FX TAB (2026-10-18): cells, lane sets, PASSES, CC number, BASE — undoable page-level state (selection/brush/bubble are not)
+    var holdLatchMode: EuclideousHoldLatchMode? = nil   // HOLD/LATCH (2026-10-20): undoable like noteSource above, no §7.3-style exclusion
 }
 
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack

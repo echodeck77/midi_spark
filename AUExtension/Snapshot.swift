@@ -182,6 +182,9 @@ struct SnapParams {
     var globalSrcChanMask: UInt16 = 0xFFFF
     var globalSrcChanMaskSet: Bool = false
     var euclideousNoteSourceResolved: EuclideousLaneSource = .key
+    // HOLD/LATCH (Paul 2026-10-20): nil = off (plain live MIDI, today's behaviour). Only consulted by
+    // Router.swift's `.euclid` `case .midi:` branch — inert for CHORDS/KEY and every non-Euclideous `.euclid` cell.
+    var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
     // EUCLIDEOUS CHORDS (Paul 2026-10-08): the page's own self-contained chord progression reuses the SHARED
     // chords* fields directly (chordsMode/chordsDegrees/chordsSteps/chordsRateBeats/chordsRotate/chordsVoicing/
     // chordsSpread, already present on SnapParams for the regular CHORDS processor) rather than a parallel

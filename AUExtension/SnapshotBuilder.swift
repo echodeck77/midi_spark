@@ -142,6 +142,9 @@ enum SnapshotBuilder {
                     // `globalSrcChanMask` at all), so narrowing MIDI's own mask can't leak into them.
                     sc.procs[0].globalSrcChanMask = doc.euclideousNoteSourceResolved == .midi ? doc.euclideousMidiInChannelMaskResolved : 0
                     sc.procs[0].globalSrcChanMaskSet = true
+                    // HOLD/LATCH (Paul 2026-10-20): only meaningful against MIDI IN — CHORDS/KEY already
+                    // generate a fixed algorithmic pool with no physical note-on/off to freeze or toggle.
+                    sc.procs[0].euclideousHoldLatchMode = doc.euclideousNoteSourceResolved == .midi ? doc.euclideousHoldLatchMode : nil
                 }
                 // RESET SPAN (Paul 2026-10-08, §2.2): a SEPARATE, independent guard from the block above — this
                 // has nothing to do with receivers, so it must not be skipped just because none are configured.

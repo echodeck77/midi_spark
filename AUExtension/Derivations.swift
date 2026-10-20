@@ -5111,7 +5111,15 @@ enum EuclideousHeaderMetrics {
     static let centreLineY: CGFloat = 31
     static var topMargin: CGFloat { centreLineY - rowH / 2 }
     static let target: CGFloat = 44, compactTarget: CGFloat = 36
-    static let ringPitch: CGFloat = 44, compactRingPitch: CGFloat = 40
+    /// The output rings' CANVAS stays at its NATURAL size (fed to `EuclideousOutputRing`'s own `width`/`height`) —
+    /// shrinking the view's own frame instead of scaling the finished render clips the hardcoded radius-17 circle
+    /// before the scale ever applies (the exact hazard `EuclideousSettingsSheet.mainOutRow` already worked around
+    /// with `.scaleEffect` + a reclaiming `.frame`). `ringPitch`/`compactRingPitch` are the POST-scale LAYOUT
+    /// footprint every other header formula reads; the call site applies `.scaleEffect(outputRingScale)` then
+    /// reclaims exactly this width/height.
+    static let outputRingScale: CGFloat = 0.75   // Paul, 2026-10-20: output emitter toggles to 75% of their original size
+    static let ringNaturalPitch: CGFloat = 44, compactRingNaturalPitch: CGFloat = 40
+    static let ringPitch: CGFloat = ringNaturalPitch * outputRingScale, compactRingPitch: CGFloat = compactRingNaturalPitch * outputRingScale
     static let markSize: CGFloat = 13
     static let monoAdvance: CGFloat = 0.6          // em — the page's monospaced advance estimate
     static let wordmarkChars = 8, wordmarkSize: CGFloat = 11, wordmarkTracking: CGFloat = 0.16
@@ -5120,6 +5128,10 @@ enum EuclideousHeaderMetrics {
     static let segmentInset: CGFloat = 4
     static var segmentedWidth: CGFloat { segmentWidths.reduce(0, +) + segmentInset * 2 }   // 184
     static let keyPillWidth: CGFloat = 120
+    // HOLD/LATCH (Paul 2026-10-20): two fixed-width chips after the key pill, same "nothing moves when the
+    // selection changes" shape as `segmentWidths` above — chip 0 = HOLD (4 chars), chip 1 = LATCH (5 chars).
+    static let holdLatchChipWidths: [CGFloat] = [48, 54]
+    static var holdLatchWidth: CGFloat { holdLatchChipWidths.reduce(0, +) + sp4 }   // 2 chips + the gap between them
     /// The two text runs whose widths the layout estimates — the views use these SAME numbers for their frames.
     static var wordmarkWidth: CGFloat { CGFloat(wordmarkChars) * wordmarkSize * (monoAdvance + wordmarkTracking) }
     static var captionWidth: CGFloat { CGFloat(captionChars) * captionSize * (monoAdvance + captionTracking) }
@@ -5143,7 +5155,7 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     let lead = compact ? 0 : captionW + M.sp4
     let outputs = lead + 4 * (compact ? M.compactRingPitch : M.ringPitch)
     // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings), one `t`-wide touch target each.
-    return EuclideousHeaderGroupWidths(brand: brand, outputs: outputs, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth,
+    return EuclideousHeaderGroupWidths(brand: brand, outputs: outputs, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth + M.sp8 + M.holdLatchWidth,
                                        utilities: 3 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
 }
 

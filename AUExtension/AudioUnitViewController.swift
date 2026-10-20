@@ -220,7 +220,8 @@ struct DiagView: View {
                                 keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords,
                                 noteSource: euclideousNoteSource,
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
-                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX)
+                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
+                                holdLatchMode: euclideousHoldLatchMode)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -250,6 +251,7 @@ struct DiagView: View {
         euclideousLanesSeq = s.lanesSeq
         euclideousRiffsSeq = s.riffsSeq
         euclideousFX = s.fx
+        euclideousHoldLatchMode = s.holdLatchMode
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
             $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType; $0.euclideousChords = s.chords
@@ -260,6 +262,7 @@ struct DiagView: View {
             $0.euclideousRiffsSeqOn = s.riffsSeq.on; $0.euclideousRiffsSeqRate = s.riffsSeq.rate
             $0.euclideousRiffsSeqLen = s.riffsSeq.len; $0.euclideousRiffsSeqCells = s.riffsSeq.cells
             $0.euclideousFX = s.fx
+            $0.euclideousHoldLatchMode = s.holdLatchMode
         }
         buildPublishScene()
     }
@@ -351,6 +354,7 @@ struct DiagView: View {
     // BEFORE the per-lane redesign) stay in place, unreachable from any live UI — decode-safety only, same
     // treatment every other retired-but-not-deleted field on this page already gets.
     @State var euclideousNoteSource: EuclideousLaneSource = .key
+    @State var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil   // HOLD/LATCH (2026-10-20): nil = off, today's plain live-MIDI behaviour
     @State var euclideousRiffSourceMidi: Bool = true            // MIDI is the default (preserves pre-rework behaviour)
     @State var euclideousLanesSourceMidi: Bool = true
     @State var euclideousMainOutMask: UInt8 = 0b1111            // all 4 buses open by default
@@ -836,6 +840,7 @@ struct DiagView: View {
         euclideousKeyRoot = au.uiEuclideousKeyRoot()
         euclideousKeyType = au.uiEuclideousKeyType()
         euclideousNoteSource = au.uiEuclideousNoteSource()
+        euclideousHoldLatchMode = au.uiEuclideousHoldLatchMode()
         euclideousRiffSourceMidi = au.uiEuclideousRiffSourceMidi()
         euclideousLanesSourceMidi = au.uiEuclideousLanesSourceMidi()
         euclideousMainOutMask = au.uiEuclideousMainOutMask()
@@ -1092,6 +1097,13 @@ struct DiagView: View {
                                        euclideousRecordUndo(coalesceKey: nil)
                                        euclideousNoteSource = v
                                        au?.editDocument { $0.euclideousNoteSource = v }
+                                       buildPublishScene()
+                                   },
+                                   holdLatchMode: euclideousHoldLatchMode,
+                                   onSetHoldLatchMode: { v in
+                                       euclideousRecordUndo(coalesceKey: nil)
+                                       euclideousHoldLatchMode = v
+                                       au?.editDocument { $0.euclideousHoldLatchMode = v }
                                        buildPublishScene()
                                    },
                                    // PER-LANE I/O (Paul 2026-10-08): riffSourceMidi/lanesSourceMidi no longer passed —
@@ -1467,6 +1479,7 @@ struct DiagView: View {
             let ehsb = au.uiEuclideousHostStopBehavior(); if ehsb != euclideousHostStopBehavior { euclideousHostStopBehavior = ehsb; euclideousResynced = true }
             let echd = au.uiEuclideousChords(); if echd != euclideousChords { euclideousChords = echd; euclideousResynced = true }
             let ens = au.uiEuclideousNoteSource(); if ens != euclideousNoteSource { euclideousNoteSource = ens; euclideousResynced = true }
+            let ehlm = au.uiEuclideousHoldLatchMode(); if ehlm != euclideousHoldLatchMode { euclideousHoldLatchMode = ehlm; euclideousResynced = true }
             // SEQUENCER PANEL (2026-10-14 ferry) — same checklist discipline as the 6 lines just above.
             let erfs = au.uiEuclideousRiffs(); if erfs != euclideousRiffs { euclideousRiffs = erfs; euclideousResynced = true }
             let ear = au.uiEuclideousActiveRiff(); if ear != euclideousActiveRiff { euclideousActiveRiff = ear; euclideousResynced = true }

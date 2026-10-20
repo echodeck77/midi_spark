@@ -563,6 +563,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiEuclideousKeyRoot() -> Int { document.euclideousKeyRootResolved }
     func uiEuclideousKeyType() -> ScaleType { document.euclideousKeyTypeResolved }
     func uiEuclideousNoteSource() -> EuclideousLaneSource { document.euclideousNoteSourceResolved }
+    func uiEuclideousHoldLatchMode() -> EuclideousHoldLatchMode? { document.euclideousHoldLatchMode }   // HOLD/LATCH (2026-10-20): nil = off, no Resolved coercion needed
     func uiEuclideousRiffSourceMidi() -> Bool { document.euclideousRiffSourceMidiResolved }
     func uiEuclideousLanesSourceMidi() -> Bool { document.euclideousLanesSourceMidiResolved }
     func uiEuclideousMainOutMask() -> UInt8 { document.euclideousMainOutMaskResolved }

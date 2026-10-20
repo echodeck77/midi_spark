@@ -719,6 +719,11 @@ struct EuclideousPage: View {
     // above.
     let noteSource: EuclideousLaneSource
     let onSetNoteSource: (EuclideousLaneSource) -> Void
+    // HOLD/LATCH (Paul 2026-10-20): two mutually-exclusive header buttons beside the key pill, same live-
+    // mirror/onSet convention as `noteSource` above. nil = off (plain live MIDI, today's behaviour). Only
+    // meaningful against MIDI IN — the buttons themselves dim when `noteSource != .midi`.
+    let holdLatchMode: EuclideousHoldLatchMode?
+    let onSetHoldLatchMode: (EuclideousHoldLatchMode?) -> Void
     let mainOutMask: UInt8
     // CHORDS BUTTON (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a chord
     // grid with rate control... base this on the existing chord grid used on the chord door." Stored/edited
@@ -1273,6 +1278,7 @@ struct EuclideousPage: View {
     private func headerOutputs(_ layout: EuclideousHeaderLayout) -> some View {
         let compact = layout.compact
         let pitch = compact ? HM.compactRingPitch : HM.ringPitch
+        let naturalPitch = compact ? HM.compactRingNaturalPitch : HM.ringNaturalPitch
         return HStack(spacing: 0) {
             if !compact {
                 Text("OUT").font(.system(size: HM.captionSize, weight: .bold, design: .monospaced))
@@ -1285,7 +1291,7 @@ struct EuclideousPage: View {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
                 let beat = walkTagBeat(at: tl.date)
                 HStack(spacing: 0) {
-                    ForEach(0..<4, id: \.self) { b in outputRing(b, pitch: pitch, beat: beat) }
+                    ForEach(0..<4, id: \.self) { b in outputRing(b, pitch: pitch, naturalPitch: naturalPitch, beat: beat) }
                 }
             }
         }
@@ -1304,7 +1310,7 @@ struct EuclideousPage: View {
         }
     }
 
-    private func outputRing(_ b: Int, pitch: CGFloat, beat: Double) -> some View {
+    private func outputRing(_ b: Int, pitch: CGFloat, naturalPitch: CGFloat, beat: Double) -> some View {
         let masks = euclideousLaneMasks(lines)
         let state = euclideousOutputRingState(output: b, laneMasks: masks, mainOutMask: mainOutMask)
         let held = heldOutput == b
@@ -1316,8 +1322,14 @@ struct EuclideousPage: View {
                 if began { heldOutput = b } else if heldOutput == b { heldOutput = nil }
             }
         ) {
+            // The ring's own canvas renders at its NATURAL size (its hardcoded radius-17 circle needs that room —
+            // shrinking the view's own frame instead of scaling the finished render would clip it before the scale
+            // ever applied). `.scaleEffect` shrinks the already-complete render to 75%, then the outer `.frame`
+            // reclaims only that much row space — same technique as EuclideousSettingsSheet's `mainOutRow`.
             EuclideousOutputRing(letter: ["A", "B", "C", "D"][b], state: state, laneColours: laneAccents, held: held,
-                                 flare: flare, width: pitch, height: HM.rowH)
+                                 flare: flare, width: naturalPitch, height: HM.rowH)
+                .scaleEffect(HM.outputRingScale)
+                .frame(width: pitch, height: HM.rowH * HM.outputRingScale)
                 .opacity(heldOutput != nil && !held ? 0.42 : 1)        // §4.7: while one is held, the other three sit at 42%
         }
         .accessibilityElement(children: .ignore)
@@ -1354,7 +1366,40 @@ struct EuclideousPage: View {
         HStack(spacing: HM.sp8) {
             headerSourceControl()
             headerKeyPill()
+            headerHoldLatch()
         }
+    }
+    /// HOLD/LATCH (Paul 2026-10-20): two fixed-width chips, mutually exclusive by construction (one optional
+    /// field) — tapping the active one again turns it off; tapping the other switches. Only meaningful
+    /// against MIDI IN (CHORDS/KEY already generate a fixed algorithmic pool with no physical note-on/off to
+    /// freeze or toggle) — dimmed and non-interactive otherwise, same "visible but inert" treatment as every
+    /// other source-gated control on this page.
+    private func headerHoldLatch() -> some View {
+        let enabled = noteSource == .midi
+        return HStack(spacing: HM.sp4) {
+            headerHoldLatchChip(.hold, label: "HOLD", width: HM.holdLatchChipWidths[0], enabled: enabled)
+            headerHoldLatchChip(.latch, label: "LATCH", width: HM.holdLatchChipWidths[1], enabled: enabled)
+        }
+    }
+    private func headerHoldLatchChip(_ mode: EuclideousHoldLatchMode, label: String, width: CGFloat, enabled: Bool) -> some View {
+        let active = enabled && holdLatchMode == mode
+        return ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(active ? Color(hex: 0xDFE3EA) : Color.clear).frame(height: 24)
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
+                .foregroundColor(!enabled ? headerMuted.opacity(0.4) : (active ? headerInk : headerMuted)).lineLimit(1)
+        }
+        .frame(width: width, height: 32)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard enabled else { return }
+            onSetHoldLatchMode(holdLatchMode == mode ? nil : mode)
+        }
+        .allowsHitTesting(enabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label.capitalized)
+        .accessibilityHint(enabled ? "" : "Only available for MIDI In")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
     /// MIDI IN · CHORDS · KEY as ONE segmented control (§5): a 32pt #2A2D34 container (radius 8), 24pt segments (radius 6)
     /// of FIXED widths 66/70/40 so nothing moves when the selection changes. Tapping an unselected segment switches the

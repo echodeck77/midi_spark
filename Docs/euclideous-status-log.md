@@ -27,6 +27,40 @@ project has been building this whole stretch.
   multi-link-melody and rhythm-cut tests FAIL on the old code (EVERY 2; ADV STEP + EVERY + chain; REV + LEN 5 + SHIFT + EVERY 3; AVOID/MUTE with EVERY 2; melody chain [1, 2]; a 7-step lane whose rhythm restarts every bar), while the plain partner and the
   one-link melody chain (which the old coarse span re-anchor happened to cover) pass on both — baselines the rewrite had to keep, as did the nine existing SHADOW/AVOID tests (T5, T6). **STILL NOT FOLLOWED (disclosed):** a partner that is itself
   FOLLOWing a third lane (the partner's pattern here is its own), the partner's WITH/GAPS strike filter, and the partner's ON REST modes (a hit on a rest, REPEAT/TIE/FILL included, leaves the shadow resting — §6's own rule).
+- **▶ EUCLIDEOUS — header: output rings to 75%, HOLD/LATCH buttons (2026-10-20; on
+  `feat/header-hold-latch-ring-scale`, merged to `main`; iOS builds clean; macOS suite green incl. 3 new
+  `RouterTests` + 1 new `SnapshotBuilderTests`).**
+  Two independent asks. **(1) Output rings at 75%:** `EuclideousOutputRing`'s Canvas draws at hardcoded absolute
+  constants (radius 17, arcThickness 2.5) independent of its own frame — shrinking the frame directly clips the
+  circle, the exact hazard `EuclideousSettingsSheet`'s `mainOutRow` already worked around. Reused that EXACT
+  `.scaleEffect` + reclaiming-`.frame` idiom at 0.75 instead of 0.8, header-only (Settings Sheet's own rings
+  untouched). New `EuclideousHeaderMetrics.outputRingScale`; `ringPitch`/`compactRingPitch` are now the POST-scale
+  LAYOUT footprint (33/30, was 44/40) — every header formula already read these, so no further layout-math changes
+  needed. Pinned header-geometry literals across `DerivationsTests`/`PageLayoutTests` updated to match (176→132,
+  160→120, 377→337/369 depending on which formula, plus several A/B/C threshold widths that shifted — **the full
+  suite caught three of these the fast Euclideous-subset missed entirely**, since they're pure header-geometry
+  tests with no "euclid"/"riff" in their body — a live demonstration of the fast-subset's own documented limit, see
+  `Docs/claude-playbook.md`). **(2) HOLD/LATCH:** a behavioural port of the 8x8-State door graph's `DoorMode.hold`/
+  `.latch` (Models.swift:2089, "chord-detect-and-replace" / "notes toggle in/out of the pool") onto Euclideous's own
+  page-level MIDI IN pool — Euclideous has no receiver/door graph to reuse the original `Kernel.latchedPools`
+  mechanism from. New `PluginState.euclideousHoldLatchMode: EuclideousHoldLatchMode?` (nil/hold/latch — mutually
+  exclusive by construction, nil = off = byte-identical to every existing document), threaded into `SnapParams` at
+  the SAME `Snap.euclideousRow`-gated hop `globalSrcChanMask` already uses, forced nil off MIDI IN (CHORDS/KEY have
+  no physical note-on/off to freeze or toggle). Router-owned persistent state (`euclideousHoldLatchPool`, a
+  `NotePool`, same architectural class as the note tracker) REUSES the door's own `captureFiltered`/`latchAddStep`
+  primitives verbatim (Derivations.swift) rather than inventing new pool logic — HOLD calls `captureFiltered` only
+  while `livePool` is non-empty (mirrors live, freezes the instant it empties); LATCH calls `latchAddStep` every
+  tick (toggles on each newly-risen note, ignores release entirely). Reset on a mode switch or transport restart.
+  **ONE real engine gap found along the way:** the pre-existing "nothing held anywhere ⇒ skip the whole row" guard
+  (originally added for CHORDS mode, `euclideousChordsActive`) didn't know about this new third kind of "virtual
+  latch" — a HOLD-sustained row went silent on the exact release it was supposed to survive, caught by the new
+  `testEuclideousHoldSustainsAfterReleaseAndReplacesOnANewChord` test, fixed by adding `euclideousHoldLatchActive`
+  alongside the existing two conditions. Header UI: two fixed-width chips (HOLD 48pt, LATCH 54pt) in NOTES beside
+  the key pill, dimmed + `.allowsHitTesting(false)` off MIDI IN; `euclideousHeaderGroupWidths`'s `notes` term
+  widened 114pt. Full live-mirror/undo wiring (AudioUnitViewController's `@State`/resync-loop/`EuclideousUndoSnapshot`,
+  mirroring `noteSource`'s own exact pattern) + a new `uiEuclideousHoldLatchMode()` AU accessor. **DEVICE-OWED (both
+  halves) — logged in `Docs/euclideous-device-verification-debt.md`:** the rings' actual on-screen size; HOLD/LATCH
+  against real MIDI input (does the sustain/toggle feel immediate, any audible glitch on a mode switch).
 - **▶ EUCLIDEOUS — follow-up to the RIFF PANEL ferry: the riff readout is memoised (2026-10-20; on `feature/riff-panel-arrows`; iOS builds clean; `RiffPanelTests` 22 green; no behaviour change).** The RIFF WALK ferry's §7.2
   asked for the readout (the never-play set the lane card's mini-grid dims, the WALK strip's walk steps, and now the rails' played columns) to be memoised on its inputs; it was recomputed on every SwiftUI body
   evaluation (≈30 Hz) — by the mini-grid and the WALK strip per lane card, and by the rails four more times. New `EuclideousRiffReadoutCache` (Derivations.swift, next to `euclideousRiffReadout`): one slot per lane keyed on every

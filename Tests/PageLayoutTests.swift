@@ -52,7 +52,9 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertFalse(euclideousPageLayout(size: CGSize(width: 814, height: 1102)).isLandscape)
         XCTAssertFalse(euclideousPageLayout(size: CGSize(width: 800, height: 800)).isLandscape, "square is not strictly wider than tall")
         // the header kind comes from the header's own ladder on the page's container width
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .b, "868 < the 883.86 layout A needs")
+        // 2026-10-20: two offsetting changes — output rings to 75% dropped OUTPUTS by 44pt (839.86 layout A
+        // need), then the HOLD/LATCH header buttons widened NOTES by 114pt (953.86) — net +70, still short of 868.
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .b, "868 < the now-953.86 layout A needs")
         XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 1190, height: 600)).headerKind, .a)
         XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 400, height: 900)).headerKind, .c)
     }
@@ -193,19 +195,22 @@ final class PageLayoutTests: XCTestCase {
     func testRingsCentreOnTheLaneGutterInBothOrientations() {
         let hl = headerFor(land, landscapeRef)
         XCTAssertEqual(hl.kind, .a)
-        for (i, x) in [334.67, 378.67, 422.67, 466.67].enumerated() { XCTAssertEqual(ringCentre(hl, i), CGFloat(x), accuracy: 0.01, "landscape ring \(i)") }
+        // NARROWED 44→33pt pitch (2026-10-20, output rings to 75%): spacing between ring centres shrank from 44 to 33.
+        for (i, x) in [351.17, 384.17, 417.17, 450.17].enumerated() { XCTAssertEqual(ringCentre(hl, i), CGFloat(x), accuracy: 0.01, "landscape ring \(i)") }
         let hp = headerFor(port, portraitRef)
         XCTAssertEqual(hp.kind, .b); XCTAssertEqual(hp.utilities.x + hp.utilities.width + 16, 798, accuracy: 1e-9, "row 1 now fits: the gear ends at the right margin")
-        for (i, x) in [341.0, 385, 429, 473].enumerated() { XCTAssertEqual(ringCentre(hp, i), CGFloat(x), accuracy: 0.01, "portrait ring \(i)") }
+        for (i, x) in [357.5, 390.5, 423.5, 456.5].enumerated() { XCTAssertEqual(ringCentre(hp, i), CGFloat(x), accuracy: 0.01, "portrait ring \(i)") }
         // the middle of the four rings IS the gutter
         XCTAssertEqual((ringCentre(hl, 1) + ringCentre(hl, 2)) / 2, land.gutterX, accuracy: 0.01)
         XCTAssertEqual((ringCentre(hp, 1) + ringCentre(hp, 2)) / 2, port.gutterX, accuracy: 0.01)
     }
     func testNotesDoesNotMoveAt1190() {
         // layout A: NOTES wants the riff panel's leading edge (777.33 now, 741.12 before) but slides left to sp16 before the 3 utility icons either way
+        // WIDENED 312→426 (2026-10-20, HOLD/LATCH header buttons) — NOTES' own width grew 114pt, so its
+        // clamped x (which ends at the same point before UTILITIES either way) shifts left by exactly that.
         let l = headerFor(land, landscapeRef)
-        XCTAssertEqual(l.notes.x, 1158 - 132 - 16 - 312, accuracy: 1e-9)
-        XCTAssertEqual(l.notes.x, 698, accuracy: 1e-9, "today's x at 1190 (741.12 clamped to 698)")
+        XCTAssertEqual(l.notes.x, 1158 - 132 - 16 - 426, accuracy: 1e-9)
+        XCTAssertEqual(l.notes.x, 584, accuracy: 1e-9, "today's x at 1190 (741.12 clamped to 584)")
         XCTAssertLessThan(l.notes.x, land.riffLeadingX)
     }
 

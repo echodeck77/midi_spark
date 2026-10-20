@@ -859,6 +859,33 @@ final class SnapshotBuilderTests: XCTestCase {
     // now — per-lane `EuclidLine.sourceMode` governs real behaviour, see testEuclideousSourceModeSurvivesSnap-
     // shotBuild above; KEY mode itself now generates a real scale pool, Router.swift's `.key` branch, not an
     // empty one — the §4.4 gap this comment used to describe was closed 2026-10-09.)
+    // HOLD/LATCH (Paul 2026-10-20): the field reaches the Euclideous row's own SnapParams (`procs[0]`,
+    // same hop `globalSrcChanMask` already uses), gated to MIDI IN only — CHORDS/KEY force it to nil
+    // regardless of the stored value, since neither source has physical note-on/off to freeze or toggle.
+    func testEuclideousHoldLatchModeOnlyReachesTheRowWhenSourceIsMidi() {
+        var st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: machineIDs[0], buses: [.a])
+                                 return s }()])
+        func resolved(_ st: PluginState) -> EuclideousHoldLatchMode? {
+            SnapshotBuilder.build(from: st).cells[0 * Snap.rows + Snap.euclideousRow].procs[0].euclideousHoldLatchMode
+        }
+        st.euclideousNoteSource = .midi
+        st.euclideousHoldLatchMode = .hold
+        XCTAssertEqual(resolved(st), .hold, "MIDI IN: the stored mode reaches the row")
+        st.euclideousHoldLatchMode = .latch
+        XCTAssertEqual(resolved(st), .latch)
+        st.euclideousNoteSource = .chords
+        XCTAssertNil(resolved(st), "CHORDS: forced nil — no physical note-on/off to freeze or toggle")
+        st.euclideousNoteSource = .key
+        XCTAssertNil(resolved(st), "KEY: same")
+        // an untouched document (nil, nil) must resolve to nil — byte-identical for every pre-existing session.
+        let untouched = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) },
+                                    scenes: [{ var s = SceneState.empty()
+                                        s.cells[0][Snap.euclideousRow] = Cell(machineID: machineIDs[0], buses: [.a])
+                                        return s }()])
+        XCTAssertNil(resolved(untouched))
+    }
     func testEuclideousSourceModeDefaultsToMidiOnAnUntouchedDocument() {
         let st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         XCTAssertTrue(st.euclideousRiffSourceMidiResolved, "an untouched document must default to MIDI for the riff's own source")
