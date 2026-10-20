@@ -97,7 +97,7 @@ private struct EuclideousFXStaticLayer: View, Equatable {
 }
 
 /// The firing flash (§11.8): a cell that has a value and applied to a hit that struck keeps its fill and mark and gains a 2pt inner ring in the hit's lane colour
-/// plus a 10pt glow, fading on the comet bar's own flare. Its own layer so only it animates.
+/// plus a 10pt glow, its opacity the PULSE flash f of the strike that fires it (velocity-scaled, ferry 2026-10-20 §8.1). Its own layer so only it animates.
 private struct EuclideousFXFlashLayer: View {
     let layout: EuclideousFXLayout
     let accents: [Color]
@@ -105,8 +105,8 @@ private struct EuclideousFXFlashLayer: View {
     let flashAt: (Date) -> [EuclideousFXFlash?]
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
-            let flashes = playing ? flashAt(tl.date) : []
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !playing)) { tl in
+            let flashes = playing ? flashAt(tl.date) : []   // `playing`: the page is playing or settling after a stop (PULSE §9.1)
             Canvas { ctx, _ in
                 for (i, f) in flashes.enumerated() {
                     guard let f, f.intensity > 0.01 else { continue }

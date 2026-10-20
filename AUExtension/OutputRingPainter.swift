@@ -2,7 +2,7 @@
 //  The Fourfold header's OUTPUT RING (MAIN OUT A–D) and the FOURFOLD mark (ferry "Fourfold header", 2026-10-15).
 //
 //  SwiftUI-only on purpose (GridUI seam rule: no UIKit, no AU frameworks), like `WalkTagPainter.swift`: pure paint
-//  routines over the plain state `Derivations.swift` computes (`EuclideousOutputRingState`, `euclideousRingFlare`), kept
+//  routines over the plain state `Derivations.swift` computes (`EuclideousOutputRingState`, `euclideousPulseRingStroke`), kept
 //  out of `EuclideousPage` so a macOS harness can render exactly what the page draws.
 
 import SwiftUI

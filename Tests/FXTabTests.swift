@@ -603,25 +603,29 @@ final class FXTabTests: XCTestCase {
         fx.cells[0 * 8 + 3] = 3; fx.cells[3 * 8 + 3] = 110; fx.cells[2 * 8 + 5] = 1            // RATCH + VEL on column 4; a TIE on column 6
         fx.lanes[3] = 0b0001                                                                  // VEL only for lane 1
         let lines = (0..<4).map { _ in EuclidLine(pulses: 3, steps: 8, riffOn: true) }
-        func ev(_ col: Int8, onset: Double) -> Router.EuclideousNoteViewEventSnapshot {
-            var e = Router.EuclideousNoteViewEventSnapshot(onsetBeat: onset, durationBeat: 0.25, kind: 1, notes: [60]); e.column = col; return e
-        }
+        // PULSE ferry §8.1: the flash reads the feed's riff strikes — column, played velocity, onset on the display clock — and takes §1's f for that velocity
+        func st(_ col: Int8, at: Double, vel: UInt8 = 100) -> EuclideousPulseStrike { EuclideousPulseStrike(onsetBeat: at * 2, onsetAt: at, riffVel: vel, notesVel: 0, rank: 1, column: col) }
         let ranks = [1, 2, 3, 4, 5, 6, 7, 8]
-        let step = (lines[0].rate ?? .r1_16).beats
-        let cells = euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), ev(3, onset: 10.02), nil, ev(5, onset: 10)], ranks: ranks, beat: 10 + step * 0.1)
+        let now = 10.05
+        let cells = euclideousFXFlashCells(fx: fx, lines: lines, strikes: [st(3, at: 10), st(3, at: 10.02), nil, st(5, at: 10)], ranks: ranks, now: now, scale: 1)
         XCTAssertEqual(cells[0 * 8 + 3]?.lane, 1, "RATCH is on for lanes 1 and 2; lane 2's hit is the later one and takes the cell over")
         XCTAssertEqual(cells[3 * 8 + 3]?.lane, 0, "VEL only applies to lane 1")
         XCTAssertNil(cells[2 * 8 + 5], "TIE never flashes (a tied hit posts no event, and the function says TIE hits apply nothing else)")
         XCTAssertNil(cells[1 * 8 + 3]); XCTAssertEqual(cells.compactMap { $0 }.count, 2)
-        // the flare is the comet bar's: bright at the strike, gone after the afterglow
-        XCTAssertEqual(cells[3 * 8 + 3]?.intensity ?? 0, euclideousRingFlare(ageSteps: 0.1), accuracy: 1e-9)
-        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), nil, nil, nil], ranks: ranks, beat: 10 + step * 2).allSatisfy { $0 == nil })
-        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), nil, nil, nil], ranks: ranks, beat: 9.9).allSatisfy { $0 == nil }, "a strike still in the future reads nothing")
-        // a lane with its riff off, a rest column, and a no-column event flash nothing
+        // the opacity is the strike's flash f at its velocity, 0.05 s after the onset — and a harder hit flashes harder
+        XCTAssertEqual(cells[3 * 8 + 3]?.intensity ?? 0, euclideousPulseEnvelopes(velocity: 100, seconds: 0.05, scale: 1).f, accuracy: 1e-9)
+        let soft = euclideousFXFlashCells(fx: fx, lines: lines, strikes: [st(3, at: 10, vel: 30), nil, nil, nil], ranks: ranks, now: now, scale: 1)
+        XCTAssertLessThan(soft[3 * 8 + 3]?.intensity ?? 9, cells[3 * 8 + 3]?.intensity ?? 0)
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, strikes: [st(3, at: 10), nil, nil, nil], ranks: ranks, now: 11.6, scale: 1).allSatisfy { $0 == nil }, "gone after 1.5 s")
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, strikes: [st(3, at: 10), nil, nil, nil], ranks: ranks, now: 9.9, scale: 1).allSatisfy { $0 == nil }, "a strike still in the future reads nothing")
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, strikes: [st(3, at: 10), nil, nil, nil], ranks: ranks, now: now, scale: 0).allSatisfy { $0 == nil }, "PULSE OFF")
+        // a lane with its riff off, a rest column, a notes-only strike and a no-column event flash nothing
         var off = lines; off[0].riffOn = false
-        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: off, events: [ev(3, onset: 10), nil, nil, nil], ranks: ranks, beat: 10 + step * 0.1).allSatisfy { $0 == nil })
-        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(3, onset: 10), nil, nil, nil], ranks: [1, 2, 3, 0, 5, 6, 7, 8], beat: 10 + step * 0.1).allSatisfy { $0 == nil })
-        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, events: [ev(-1, onset: 10), nil, nil, nil], ranks: ranks, beat: 10 + step * 0.1).allSatisfy { $0 == nil })
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: off, strikes: [st(3, at: 10), nil, nil, nil], ranks: ranks, now: now, scale: 1).allSatisfy { $0 == nil })
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, strikes: [st(3, at: 10), nil, nil, nil], ranks: [1, 2, 3, 0, 5, 6, 7, 8], now: now, scale: 1).allSatisfy { $0 == nil })
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, strikes: [st(-1, at: 10), nil, nil, nil], ranks: ranks, now: now, scale: 1).allSatisfy { $0 == nil })
+        var notesOnly = st(3, at: 10); notesOnly.riffVel = 0; notesOnly.notesVel = 90
+        XCTAssertTrue(euclideousFXFlashCells(fx: fx, lines: lines, strikes: [notesOnly, nil, nil, nil], ranks: ranks, now: now, scale: 1).allSatisfy { $0 == nil }, "the FX rows act on the riff's hit")
     }
 
     // MARK: - ADVERSARIAL REVIEW (2026-10-19)

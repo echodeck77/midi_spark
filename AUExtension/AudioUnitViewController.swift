@@ -1269,6 +1269,7 @@ struct DiagView: View {
                                        au?.editDocument { $0.euclideousHostStopBehavior = v }
                                        buildPublishScene()
                                    },
+                                   onSetPulseLevel: { pulseLevel = max(0, min(2, $0)) },   // PULSE §7.1: a device preference (@AppStorage), not the document — no undo, no publish
                                    onOpenPresets: openPresets,
                                    canUndo: euclideousUndo.canUndo, canRedo: euclideousUndo.canRedo,
                                    onUndo: euclideousUndoAction, onRedo: euclideousRedoAction,

@@ -239,12 +239,9 @@ final class RiffPanelTests: XCTestCase {
         XCTAssertEqual(two.flareColour, euclideousMixOKLCH(euclideousLaneRGB[0], euclideousLaneRGB[1], t: 0.5)); XCTAssertEqual(two.flareStrength, 1)
         let three = euclideousArrowSpec(cellW: 37.83, cellH: 25, members: [lane(0, flare: 1), lane(1, flare: 1), lane(2, flare: 1)], hollow: false)!
         XCTAssertEqual(three.flareColour, euclideousEvenBlend([0, 1, 2].map { euclideousLaneRGB[$0] }))
-        // the comet bar's own afterglow / burst windows
-        XCTAssertEqual(euclideousArrowFlare(onsetBeat: 1, beat: 1, stepBeats: 0.25), 1, "the strike's peak")
-        XCTAssertEqual(euclideousArrowFlare(onsetBeat: 1, beat: 1 + 0.25 * 0.35, stepBeats: 0.25), 0.6 * (1 - 0.35 / 1.5), accuracy: 1e-9, "the burst is over; 60% of the decaying afterglow remains")
-        XCTAssertEqual(euclideousArrowFlare(onsetBeat: 1, beat: 1 + 0.25 * 1.5, stepBeats: 0.25), 0, accuracy: 1e-9, "…gone when the afterglow ends")
-        XCTAssertEqual(euclideousArrowFlare(onsetBeat: 2, beat: 1, stepBeats: 0.25), 0, "a strike still in the future reads 0")
-        XCTAssertEqual(euclideousArrowFlare(onsetBeat: nil, beat: 1, stepBeats: 0.25), 0)
+        // PULSE ferry §4.1: the flare is §1's f (velocity-scaled); the arrow's peak scale and glow are 1.24 / 12 blur (radius 6)
+        XCTAssertEqual(EuclideousArrowStyle.flareScale, 1.24); XCTAssertEqual(EuclideousArrowStyle.flareBlur, 12); XCTAssertEqual(EuclideousArrowStyle.flareRadius, 6); XCTAssertEqual(EuclideousArrowStyle.flareAlpha, 0.85)
+        XCTAssertEqual(euclideousPulseEnvelopes(velocity: 127, seconds: 0, scale: 1).f, 1, "the strike's peak")
     }
 
     // MARK: arrow seats: where the arrow sits (TIE stays, the others take the rest's cell)

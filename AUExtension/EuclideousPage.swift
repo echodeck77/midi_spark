@@ -779,6 +779,7 @@ struct EuclideousPage: View {
     let onAllNotesOff: () -> Void
     let hostStopBehavior: EuclideousHostStopBehavior
     let onSetHostStopBehavior: (EuclideousHostStopBehavior) -> Void
+    let onSetPulseLevel: (Int) -> Void   // PULSE §7.1: the settings sheet's STRIKE PULSE row (a device preference — `pulseLevel` above)
     let onOpenPresets: () -> Void   // (Paul 2026-10-11: "add a preset button on the euclidius page" — presets
                                      // were only reachable by leaving this page; opens the SAME browser overlay
                                      // the main header already uses, which the VC renders as a sibling z-above
@@ -1138,7 +1139,8 @@ struct EuclideousPage: View {
                         laneMasks: euclideousLaneMasks(lines), mainOutMask: mainOutMask, busChannels: busChannels,
                         outputNames: outputNames, allOutputName: allOutputName, onSetBusChannel: onSetBusChannel,
                         onAllNotesOff: onAllNotesOff,
-                        hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior
+                        hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior,
+                        pulseLevel: pulseLevel, onSetPulseLevel: onSetPulseLevel
                     )
                     .padding(.horizontal, sp16)
                     .zIndex(5)
@@ -3804,8 +3806,10 @@ struct EuclideousPage: View {
     /// 10.1 / 10.2: which keys are sounding and where the riff dot sits, for lane `idx` at `beat` — from the lane's latest strike event (the engine's own NOTE VIEW event, the same feed the
     /// header rings and the comet bar flash from) and `euclideousNotesKeyFlash`; nothing is kept per frame. ROLL's spacing needs the gap to the lane's next hit, so that is worked out
     /// from the lane's own walk config exactly as the engine does (`euclideousNextChainHitGapBeats`).
-    private func notesKeyFlash(_ idx: Int, _ line: EuclidLine, list: EuclideousNotesList, beat: Double) -> EuclideousNotesKeyFlash {
-        guard clock.playing, idx < strikeEvents.count, let ev = strikeEvents[idx], let cfg = riffWalkConfig(idx) else { return EuclideousNotesKeyFlash() }
+    private func notesKeyFlash(_ idx: Int, _ line: EuclidLine, list: EuclideousNotesList, now: Double) -> EuclideousNotesKeyFlash {
+        // the strike's pitches come from the latest NOTE VIEW event; its velocities and display-clock onset from the feed's matching strike (PULSE §8.1: the glow takes §1's f for the notes layer's played velocity)
+        guard idx < strikeEvents.count, let ev = strikeEvents[idx], let cfg = riffWalkConfig(idx),
+              let s = pulseFeed.strikes(lane: idx).last(where: { $0.onsetBeat == ev.onsetBeat && $0.onsetAt <= now }) else { return EuclideousNotesKeyFlash() }
         let way = line.notesPlayAsResolved
         let step = max(1e-6, cfg.sub)
         let tempo = max(1.0, clock.tempo)
@@ -3817,9 +3821,9 @@ struct EuclideousPage: View {
         }
         let g = line.notesGateResolved
         let len = euclideousPitchGateBeats(gate: g, nextHitGapBeats: gap, tieExt: 0, minGateBeats: 0.005 * tempo / 60.0)
-        return euclideousNotesKeyFlash(eventPitches: ev.notes, hasRiffNote: ev.hasRiffNote, riffRank: Int(ev.rank), onsetBeat: ev.onsetBeat, list: list,
+        return euclideousNotesKeyFlash(eventPitches: ev.notes, hasRiffNote: ev.hasRiffNote, riffRank: Int(ev.rank), seconds: now - s.onsetAt, riffVel: Int(s.riffVel), notesVel: Int(s.notesVel), list: list,
                                        pitchShift: 12 * max(-2, min(2, line.octaveResolved)), way: way, stepBeats: step, gapBeats: gap, lenBeats: len, legato: g >= 1.0,
-                                       tempo: tempo, beat: beat)
+                                       tempo: tempo, scale: euclideousPulseScale(level: pulseLevel))
     }
     @ViewBuilder private func notesToggle(_ label: String, on: Bool, accent: Color, accessibility: String, hint: String, help: String, action: @escaping () -> Void) -> some View {
         melodyButton(label, on: on, accent: accent, height: EuclideousNotesTabLayout.rowH, fontSize: 12, cornerRadius: 8, help: help, action: action)
@@ -3862,8 +3866,8 @@ struct EuclideousPage: View {
                     // the keys (§2): a tap lights or unlights through the lit order — one undo step
                     group(lay.keyRow, label: euclideousNotesKeyRowGroupLabel) {
                         // the glow and the riff dot follow the hit events (10.1, 10.2) — the only per-frame work on the tab, and only while the transport runs
-                        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
-                            let flash = notesKeyFlash(idx, line, list: data.list, beat: walkTagBeat(at: tl.date))
+                        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+                            let flash = notesKeyFlash(idx, line, list: data.list, now: tl.date.timeIntervalSinceReferenceDate)
                             ZStack(alignment: .topLeading) {
                                 ForEach(0..<10, id: \.self) { p in
                                     let spec: EuclideousNotesKeySpec = {
@@ -5386,8 +5390,12 @@ struct EuclideousPage: View {
         let previewCol = euclideousFXPreviewColumn(touched: fxNotePreviewCol, fx: fx, ranks: ranks)
         return EuclideousFXPanel(layout: layout, fx: fx, selectedRow: fxSelectedRow, headers: headers, noteNames: noteNames, accents: laneAccents,
                                  previewText: euclideousFXNotePreviewText(fx: fx, touched: fxNotePreviewCol, ranks: ranks, pool: pool, name: name),
-                                 previewColumn: previewCol, brushes: fxBrushes, playing: clock.playing,
-                                 flashAt: { date in euclideousFXFlashCells(fx: fx, lines: lines, events: strikeEvents, ranks: ranks, beat: walkTagBeat(at: date)) },
+                                 previewColumn: previewCol, brushes: fxBrushes, playing: pulseLive,   // PULSE §8.1: the flash keeps animating for the 1.5 s after a stop
+                                 flashAt: { date in
+                                     let now = date.timeIntervalSinceReferenceDate
+                                     return euclideousFXFlashCells(fx: fx, lines: lines, strikes: (0..<4).map { pulseFeed.latestHappened(lane: $0, now: now, riff: true) }, ranks: ranks,
+                                                                   now: now, scale: euclideousPulseScale(level: pulseLevel))
+                                 },
                                  onSelectRow: { fxSelectedRow = $0 },
                                  onTouchBegan: { row, col in
                                      fxSelectedRow = row; fxStepOpen = false; fxTouchDownTime = Date().timeIntervalSinceReferenceDate

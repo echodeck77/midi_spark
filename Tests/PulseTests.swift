@@ -199,4 +199,31 @@ final class PulseTests: XCTestCase {
         }
     }
     private func euclideousPulseButton(_ g: EuclideousMixGrid, _ lane: Int, _ b: Int) -> CGRect { euclideousMixOutButtonFrame(grid: g, lane: lane, button: b) }
+
+    // MARK: 9.3 the pure cost of a frame
+    /// All four lanes at 16 steps of 1/16 at 180 BPM with a full 48-strike ring each: per frame the comet bars map every strike to its tile and work out 16 tiles' envelopes, marks and cores. This times ONLY that pure part on the
+    /// build machine (the draw calls and the SwiftUI diff are device-owed); the bound is deliberately loose, the printed figure is what the report quotes.
+    func testAFramesPureWorkIsCheap() {
+        let sub = 0.25, tempo = 180.0
+        var strikes: [EuclideousPulseStrike] = []
+        for k in 0..<48 { let beat = Double(k) * sub; strikes.append(EuclideousPulseStrike(onsetBeat: beat, onsetAt: beat * 60 / tempo, riffVel: UInt8(40 + k % 80), notesVel: 0)) }
+        let now = 48 * sub * 60 / tempo
+        let frames = 600
+        let start = Date()
+        var sink = 0.0
+        for f in 0..<frames {
+            let t = now + Double(f) * (1.0 / 60.0)
+            for _ in 0..<4 {
+                let tiles = euclideousPulseTileStrikes(strikes, riffOn: true, tiles: 16, now: t, tileOf: { euclideousPulseTileForOnset(rawAtOnset: $0 / sub, n: 16, dir: .fwd) })
+                for tile in tiles { if let s = tile {
+                    let e = euclideousPulseEnvelopes(velocity: s.velocity, seconds: s.seconds, scale: 1)
+                    sink += e.k + e.b + euclideousPulseMarkAlpha(seconds: s.seconds, lapSeconds: 5.33, scale: 1)
+                } }
+                if let l = euclideousPulseLatestStrike(strikes, riffOn: true, now: t) { sink += euclideousPulseEnvelopes(velocity: l.velocity, seconds: l.seconds, scale: 1).a }
+            }
+        }
+        let perFrame = Date().timeIntervalSince(start) / Double(frames)
+        print("PULSE pure work per frame (4 lanes x 16 tiles x 48 strikes): \(perFrame * 1000) ms (sink \(sink > 0))")
+        XCTAssertLessThan(perFrame, 0.004, "well under a quarter of a 60 Hz frame on any machine")
+    }
 }

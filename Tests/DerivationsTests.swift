@@ -4212,14 +4212,14 @@ final class DerivationsTests: XCTestCase {
         for cw in stride(from: need, through: need + 400, by: 7) { assertHeaderInvariants(hdrLayout(cw, landscape: true), cw, "A@\(cw)") }
     }
 
-    // §4.8 — the flare envelope.
-    func testFourfoldRingFlareEnvelopeIsPeakAtTheStrikeAndGoneByTheAfterglow() {
-        XCTAssertEqual(euclideousRingFlare(ageSteps: 0), 1, accuracy: 1e-12)
-        XCTAssertEqual(euclideousRingFlare(ageSteps: -0.5), 0, "a strike that hasn't happened yet")
-        XCTAssertEqual(euclideousRingFlare(ageSteps: euclideousFlareAfterglowSteps), 0, accuracy: 1e-12)
-        XCTAssertEqual(euclideousRingFlare(ageSteps: 3), 0)
+    // §4.8 → PULSE ferry §6: the ring's flash is §1's velocity-scaled envelope (the step-based `euclideousRingFlare` is retired).
+    func testFourfoldRingFlareEnvelopeIsPeakAtTheStrikeAndGoneAfterOneAndAHalfSeconds() {
+        XCTAssertEqual(euclideousPulseEnvelopes(velocity: 127, seconds: 0, scale: 1).f, 1, accuracy: 1e-12)
+        XCTAssertEqual(euclideousPulseEnvelopes(velocity: 127, seconds: -0.5, scale: 1).f, 0, "a strike that hasn't happened yet")
+        XCTAssertEqual(euclideousPulseEnvelopes(velocity: 127, seconds: 1.6, scale: 1).f, 0)
         var last = 2.0
-        for i in 0...60 { let v = euclideousRingFlare(ageSteps: Double(i) * 0.03); XCTAssertLessThanOrEqual(v, last + 1e-12); last = v }
+        for i in 0...50 { let v = euclideousPulseEnvelopes(velocity: 100, seconds: Double(i) * 0.03, scale: 1).f; XCTAssertLessThanOrEqual(v, last + 1e-12); last = v }
+        // the OLD windows still exist for the BUILD-page editor's own comet bar
         XCTAssertEqual(euclideousFlareAfterglowSteps, 1.5); XCTAssertEqual(euclideousFlareBurstSteps, 0.35)
     }
     // The painter's disc/letter decision (held OFF must still get its light disc, or the ink letter vanishes on the ground).

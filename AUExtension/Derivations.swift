@@ -4999,19 +4999,10 @@ func euclideousOutputRingTargets(output: Int, laneMasks: [UInt8], panelShowsMix:
 
 // ── ring flare ──────────────────────────────────────────────────────────────────────────────────────
 
-/// The comet bar's own flare windows, in LANE STEPS since the strike (one definition, used by `EuclidCometBar` and the
-/// output rings so they fade together): the lingering afterglow and the short sharp burst.
+/// The OLD comet-bar flare windows, in LANE STEPS since the strike — now read ONLY by the regular BUILD-page EUCLID editor's comet bar (no strike feed there). Every Euclideous strike effect uses PULSE's velocity-scaled
+/// envelopes instead (`euclideousPulseEnvelopes`, 2026-10-20): the header rings, riff arrows and rails, the FX flash and the NOTES key glow no longer read these.
 let euclideousFlareAfterglowSteps: Double = 1.5
 let euclideousFlareBurstSteps: Double = 0.35
-/// 0…1 flare strength `ageSteps` after a strike: the burst's peak at the strike, settling onto 60% of the afterglow,
-/// then fading to 0 as the afterglow ends. Drives the ring quarter's 2.5 → 3.5pt thickening, its 7pt glow and the
-/// disc wash together.
-func euclideousRingFlare(ageSteps: Double) -> Double {
-    guard ageSteps >= 0 else { return 0 }
-    let recede = max(0, 1 - ageSteps / euclideousFlareAfterglowSteps)
-    let burst = max(0, 1 - ageSteps / euclideousFlareBurstSteps)
-    return max(burst, recede * 0.6)
-}
 
 // ── Fourfold settings, MIDI IN "LISTEN ON" (2026-10-15 ferry §3) ───────────────────────────────────────
 
@@ -7738,23 +7729,22 @@ func euclideousFXCellOpacity(restColumn: Bool, rowHasLanes: Bool) -> Double { (r
 // ── the firing flash (§11.8) ─────────────────────────────────────────────────────────────────────────────────────────
 
 struct EuclideousFXFlash: Equatable { var lane: Int; var intensity: Double }
-/// Which cells are firing at `beat`: for each lane's latest real strike (the engine's own hit event — its `column` is the riff column the hit actually read),
-/// the rows `euclideousFXApply` says applied to it flash in that lane's colour with the comet bar's own flare (`euclideousRingFlare`) over the lane's own
-/// step. A later hit on the same cell takes the cell over. 48 entries, row-major. TIE hits post no event, and BASE sends have no cell.
-func euclideousFXFlashCells(fx: EuclideousFX, lines: [EuclidLine], events: [Router.EuclideousNoteViewEventSnapshot?], ranks: [Int], beat: Double) -> [EuclideousFXFlash?] {
+/// FX §11.8's firing flash, now on PULSE ferry (2026-10-20, §8.1) timing: each lane's latest RIFF strike that has happened (`strikes[lane]`, from the feed: the riff column the hit read, its played velocity and its onset on the
+/// display clock) flashes the cells of the rows `euclideousFXApply` says applied to it, in that lane's colour, at §1's flash f for that velocity `now - onsetAt` seconds on — so it scales with velocity and fades on the same
+/// timing as every other strike effect (it used to read the comet bar's step-based flare). A later hit on the same cell takes the cell over. 48 entries, row-major. TIE hits post no event, and BASE sends have no cell.
+func euclideousFXFlashCells(fx: EuclideousFX, lines: [EuclidLine], strikes: [EuclideousPulseStrike?], ranks: [Int], now: Double, scale: Double) -> [EuclideousFXFlash?] {
     var out = [EuclideousFXFlash?](repeating: nil, count: 48)
     var onsets = [Double](repeating: -Double.infinity, count: 48)
-    for lane in 0..<min(4, min(lines.count, events.count)) {
-        guard let ev = events[lane], ev.column >= 0, Int(ev.column) < 8 else { continue }
-        let col = Int(ev.column)
+    for lane in 0..<min(4, min(lines.count, strikes.count)) {
+        guard let s = strikes[lane], s.riffVel > 0, s.column >= 0, Int(s.column) < 8, s.onsetAt <= now else { continue }
+        let col = Int(s.column)
         let hit = euclideousFXApply(fx, lane: lane, playsRiff: euclideousLanePlaysRiff(lines[lane]), column: col, writtenRank: col < ranks.count ? ranks[col] : 0, pass: 0)
         guard hit.appliedRows != 0 else { continue }
-        let step = max(1e-6, (lines[lane].rate ?? .r1_16).beats)
-        let intensity = euclideousRingFlare(ageSteps: (beat - ev.onsetBeat) / step)
+        let intensity = euclideousPulseEnvelopes(velocity: Int(s.riffVel), seconds: now - s.onsetAt, scale: scale).f
         guard intensity > 0 else { continue }
         for r in 0..<6 where (hit.appliedRows >> UInt8(r)) & 1 != 0 {
             let i = r * 8 + col
-            if ev.onsetBeat >= onsets[i] { onsets[i] = ev.onsetBeat; out[i] = EuclideousFXFlash(lane: lane, intensity: intensity) }
+            if s.onsetAt >= onsets[i] { onsets[i] = s.onsetAt; out[i] = EuclideousFXFlash(lane: lane, intensity: intensity) }
         }
     }
     return out
@@ -8044,12 +8034,6 @@ func euclideousArrowCells(_ states: [EuclideousLaneArrowState]) -> [EuclideousAr
         else { cells.append(EuclideousArrowCell(column: s.column, rank: s.rank, members: [s], hollow: true)) }
     }
     return cells.map { var c = $0; c.hollow = c.members.allSatisfy { $0.hollow }; return c }
-}
-/// §4.7: a lane's flare strength `beat − onsetBeat` after its latest real strike — the comet bar's own afterglow and burst windows (`euclideousRingFlare`), in the lane's own steps.
-/// The same per-lane strike feed the header rings and the FX flash read (`strikeEvents`); a strike whose onset is still in the future reads 0 until it arrives.
-func euclideousArrowFlare(onsetBeat: Double?, beat: Double, stepBeats: Double) -> Double {
-    guard let onset = onsetBeat else { return 0 }
-    return euclideousRingFlare(ageSteps: (beat - onset) / max(1e-6, stepBeats))
 }
 
 // ── §6 the rails ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -8611,18 +8595,20 @@ func euclideousNotesPlayHitsPhrase(_ hits: [Int]) -> String? {
 
 // MARK: - NOTES TAB displays (ferry 2026-10-19, §10) — keys light as their notes sound, the riff dot, the comet strip's pips and the grey footers
 
-/// 10.1 / 10.2: what the keys show for one lane at one beat, worked out from the lane's latest strike event and §6-§7's own functions (no engine path of its own): which lit-order
-/// positions are sounding (0...1 glow strength, the comet bar's own flare and afterglow timing from each note's START — the hit, or its ROLL / RUN offset), and the rank key the riff
-/// dot sits on. A key never lights for a note the riff took (event note 0 is the riff's pitch when the hit has one — it is skipped) and a held-back key has no entry in the list.
+/// 10.1 / 10.2: what the keys show for one lane at one moment, worked out from the lane's latest strike (its pitches from the NOTE VIEW event, its velocities and display-clock onset from the feed) and §6-§7's own functions
+/// (no engine path of its own): which lit-order positions are sounding (0…1 glow strength = §1's flash f for the notes layer's played velocity, from each note's START — the hit, or its ROLL / RUN offset — PULSE ferry
+/// 2026-10-20 §8.1, replacing the comet bar's step-based timing), and the rank key the riff dot sits on (f for the riff note's velocity). A key never lights for a note the riff took (event note 0 is the riff's pitch when the
+/// hit has one — it is skipped) and a held-back key has no entry in the list.
 struct EuclideousNotesKeyFlash: Equatable {
     var sounding: [Double] = Array(repeating: 0, count: 10)
     var riffDotRank: Int? = nil
     var riffDotStrength: Double = 0
 }
 /// - `eventPitches`: the pitches the hit struck, in strike order (the NOTE VIEW event's `notes`; the riff note first when `hasRiffNote`).
+/// - `seconds`: time since the strike's onset (the hit); `riffVel` / `notesVel`: the velocities the two layers played.
 /// - `list`: the CURRENT play list built at octave 0; `pitchShift` is 12 × the lane's notes octave (what the engine added when it resolved them).
-func euclideousNotesKeyFlash(eventPitches: [UInt8], hasRiffNote: Bool, riffRank: Int, onsetBeat: Double, list: EuclideousNotesList, pitchShift: Int, way: EuclidNotesPlayAs,
-                             stepBeats: Double, gapBeats: Double, lenBeats: Double, legato: Bool, tempo: Double, beat: Double) -> EuclideousNotesKeyFlash {
+func euclideousNotesKeyFlash(eventPitches: [UInt8], hasRiffNote: Bool, riffRank: Int, seconds: Double, riffVel: Int, notesVel: Int, list: EuclideousNotesList, pitchShift: Int, way: EuclidNotesPlayAs,
+                             stepBeats: Double, gapBeats: Double, lenBeats: Double, legato: Bool, tempo: Double, scale: Double) -> EuclideousNotesKeyFlash {
     var out = EuclideousNotesKeyFlash()
     let first = hasRiffNote ? 1 : 0
     var matched: [Int] = []   // list indices, in strike order
@@ -8632,17 +8618,18 @@ func euclideousNotesKeyFlash(eventPitches: [UInt8], hasRiffNote: Bool, riffRank:
         }
     }
     let m = matched.count
-    var spacing = 0.0
+    let secPerBeat = 60.0 / max(1.0, tempo)
+    var spacing = 0.0   // beats between one note's start and the next
     if way == .roll, m >= 2 { spacing = euclideousNotesRollSpacingBeats(m: m, gapBeats: gapBeats, lenBeats: lenBeats, legato: legato, tempo: tempo) }
     if way == .run, m >= 1 { spacing = euclideousNotesRunSlotBeats(stepBeats: stepBeats, m: m) }
     for (j, i) in matched.enumerated() {
-        let strength = euclideousArrowFlare(onsetBeat: onsetBeat + Double(j) * spacing, beat: beat, stepBeats: stepBeats)
+        let strength = euclideousPulseEnvelopes(velocity: notesVel, seconds: seconds - Double(j) * spacing * secPerBeat, scale: scale).f
         let pos = list.position(i)
         if pos >= 0, pos < 10 { out.sounding[pos] = max(out.sounding[pos], strength) }
     }
     if hasRiffNote, (1...8).contains(riffRank) {
         out.riffDotRank = riffRank
-        out.riffDotStrength = euclideousArrowFlare(onsetBeat: onsetBeat, beat: beat, stepBeats: stepBeats)
+        out.riffDotStrength = euclideousPulseEnvelopes(velocity: riffVel, seconds: seconds, scale: scale).f
     }
     return out
 }
@@ -8774,7 +8761,7 @@ func euclideousPulseFilter(_ effect: EuclideousPulseEffect, scale p: Double, red
 /// One strike as the feed keeps it: the onset beat (the engine's real beat — it maps the strike to its comet tile) and `onsetAt`, the same moment on the DISPLAY clock (`timeIntervalSinceReferenceDate`),
 /// worked out ONCE when the event arrives from the dejittered beat anchor the comet dot reads — so a strike draws in the frame the dot reaches its tile, and keeps decaying in wall time even after the
 /// anchor stops advancing (a stopped transport re-anchors every poll). `riffVel` / `notesVel` are the velocities those layers played (0 = that layer didn't strike on this hit).
-struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Double; var riffVel: UInt8; var notesVel: UInt8; var rank: Int8 = -1 }   // `rank`: the riff-grid row the engine reports for this hit (REPEAT's is the repeated note's); -1 = none
+struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Double; var riffVel: UInt8; var notesVel: UInt8; var rank: Int8 = -1; var column: Int8 = -1 }   // `rank` / `column`: the riff-grid row and column the engine reports for this hit (REPEAT's rank is the repeated note's); -1 = none
 
 /// 9.2: the small retained list per lane, filled from the existing NOTE VIEW poll (nothing new is polled). Main-thread only (filled by the poll, read inside the surfaces' TimelineViews), held in
 /// `LiveTelemetry` so filling it never re-runs the page body. A strike is a kind 0 / 3 event that carries notes; a rest flash (kind 2), a tied rest with nothing struck and a muted / FX-tied hit post
@@ -8797,7 +8784,7 @@ final class EuclideousPulseFeed {
             var notes: UInt8 = 0
             if ev.notes.count > first { for i in first..<ev.notes.count { notes = max(notes, vel(i)) } }
             let at = anchorAt.timeIntervalSinceReferenceDate + (ev.onsetBeat - anchorBeat) * secPerBeat
-            rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes, rank: ev.hasRiffNote ? ev.rank : -1))
+            rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes, rank: ev.hasRiffNote ? ev.rank : -1, column: ev.hasRiffNote ? ev.column : -1))
             if rings[lane].count > Self.ringCap { rings[lane].removeFirst(rings[lane].count - Self.ringCap) }
         }
     }

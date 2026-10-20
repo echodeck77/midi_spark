@@ -323,26 +323,29 @@ final class NotesTabTests: XCTestCase {
     }
     func testKeyFlashLightsTheKeysOfTheNotesThatSoundWithTheirRollAndRunOffsets() {
         let l = list([7, 4, 5], pool: exPool)   // C4 60 (rank 8, position 7), G3 55 (position 4), A♭3 56 (position 5)
+        func flash(_ pitches: [UInt8], riff: Bool, rank: Int, secs: Double, way: EuclidNotesPlayAs = .chord, list: EuclideousNotesList? = nil, shift: Int = 0, scale: Double = 1, notesVel: Int = 100) -> EuclideousNotesKeyFlash {
+            euclideousNotesKeyFlash(eventPitches: pitches, hasRiffNote: riff, riffRank: rank, seconds: secs, riffVel: 100, notesVel: notesVel, list: list ?? l, pitchShift: shift, way: way,
+                                    stepBeats: 0.5, gapBeats: 1, lenBeats: 0.5, legato: false, tempo: 120, scale: scale)
+        }
         // the hit on 1 with the riff on, CHORD, both: the riff A♭3 first, then C4 and G3 (A♭3 was dropped, 7.2) -> C4 and G3 light, A♭3 does not; the riff dot sits on rank 6
-        let f = euclideousNotesKeyFlash(eventPitches: [56, 60, 55], hasRiffNote: true, riffRank: 6, onsetBeat: 10, list: l, pitchShift: 0, way: .chord, stepBeats: 0.5, gapBeats: 1,
-                                        lenBeats: 0.5, legato: false, tempo: 120, beat: 10.0)
+        let f = flash([56, 60, 55], riff: true, rank: 6, secs: 0.01)
         XCTAssertGreaterThan(f.sounding[7], 0.5); XCTAssertGreaterThan(f.sounding[4], 0.5); XCTAssertEqual(f.sounding[5], 0, "the key whose note the riff took never lights")
         XCTAssertEqual(f.riffDotRank, 6); XCTAssertGreaterThan(f.riffDotStrength, 0.5)
+        // §8.1: the glow is §1's f for the notes layer's played velocity — a harder note lights harder, and it fades on the same timing
+        XCTAssertEqual(f.sounding[7], euclideousPulseEnvelopes(velocity: 100, seconds: 0.01, scale: 1).f, accuracy: 1e-12)
+        XCTAssertLessThan(flash([60], riff: false, rank: -1, secs: 0.01, notesVel: 30).sounding[7], flash([60], riff: false, rank: -1, secs: 0.01, notesVel: 120).sounding[7])
+        XCTAssertEqual(flash([60], riff: false, rank: -1, secs: 1.6).sounding[7], 0, "gone after 1.5 s"); XCTAssertEqual(flash([60], riff: false, rank: -1, secs: 0.01, scale: 0).sounding[7], 0, "PULSE OFF")
         // a hit with no riff note puts no dot anywhere; the notes shifted by the lane's octave still find their keys
-        let g = euclideousNotesKeyFlash(eventPitches: [72, 67], hasRiffNote: false, riffRank: -1, onsetBeat: 4, list: l, pitchShift: 12, way: .chord, stepBeats: 0.5, gapBeats: 1,
-                                        lenBeats: 0.5, legato: false, tempo: 120, beat: 4.0)
+        let g = flash([72, 67], riff: false, rank: -1, secs: 0.01, shift: 12)
         XCTAssertNil(g.riffDotRank); XCTAssertGreaterThan(g.sounding[7], 0.5); XCTAssertGreaterThan(g.sounding[4], 0.5)
-        // RUN: the second note starts a slot later, so right at the hit only the first key is lit; ROLL likewise by its spacing
-        let run = euclideousNotesKeyFlash(eventPitches: [60, 55, 56], hasRiffNote: false, riffRank: -1, onsetBeat: 4, list: l, pitchShift: 0, way: .run, stepBeats: 0.5, gapBeats: 1,
-                                          lenBeats: 0.5, legato: false, tempo: 120, beat: 4.0)
+        // RUN: the second note starts a slot (1/6 beat = 1/12 s at 120 BPM… 0.5 beat / 3 notes = 1/6 beat = 0.0833 s) later, so right at the hit only the first key is lit
+        let run = flash([60, 55, 56], riff: false, rank: -1, secs: 0.0, way: .run)
         XCTAssertGreaterThan(run.sounding[7], 0.5); XCTAssertEqual(run.sounding[4], 0, accuracy: 1e-9, "RUN: G3 has not started"); XCTAssertEqual(run.sounding[5], 0, accuracy: 1e-9)
-        let later = euclideousNotesKeyFlash(eventPitches: [60, 55, 56], hasRiffNote: false, riffRank: -1, onsetBeat: 4, list: l, pitchShift: 0, way: .run, stepBeats: 0.5, gapBeats: 1,
-                                            lenBeats: 0.5, legato: false, tempo: 120, beat: 4.0 + 1.0 / 6.0 + 0.001)
-        XCTAssertGreaterThan(later.sounding[4], 0.5, "RUN: G3 starts 1/6 beat after the hit")
+        let later = flash([60, 55, 56], riff: false, rank: -1, secs: 1.0 / 12.0 + 0.001, way: .run)
+        XCTAssertGreaterThan(later.sounding[4], 0.5, "RUN: G3 starts 1/6 beat after the hit"); XCTAssertEqual(later.sounding[5], 0, accuracy: 1e-9, "…and A♭3 a slot after that")
         // a key that is not in the list (held back) has nothing to light
         let held = list([0, 1, 2, 3, 4], pool: [48, 51, 55], received: true)
-        let h = euclideousNotesKeyFlash(eventPitches: [48, 51, 55], hasRiffNote: false, riffRank: -1, onsetBeat: 0, list: held, pitchShift: 0, way: .chord, stepBeats: 0.5, gapBeats: 1,
-                                        lenBeats: 0.5, legato: false, tempo: 120, beat: 0)
+        let h = flash([48, 51, 55], riff: false, rank: -1, secs: 0, list: held)
         XCTAssertEqual(h.sounding[3], 0); XCTAssertEqual(h.sounding[4], 0); XCTAssertGreaterThan(h.sounding[0], 0.5)
     }
 

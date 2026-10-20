@@ -45,6 +45,10 @@ struct EuclideousSettingsSheet: View {
     let hostStopBehavior: EuclideousHostStopBehavior
     let onSetHostStopBehavior: (EuclideousHostStopBehavior) -> Void
 
+    // PULSE (ferry 2026-10-20, §7.1): a device-wide display preference — 0 OFF · 1 SUBTLE · 2 FULL — shown beside CLOCK's own row. Not in the document, no undo.
+    let pulseLevel: Int
+    let onSetPulseLevel: (Int) -> Void
+
     @State private var mainOutNaturalHeight: CGFloat = 0
     @State private var allNotesOffSentAt: Date? = nil
 
@@ -312,10 +316,17 @@ struct EuclideousSettingsSheet: View {
     // MARK: - CLOCK tab (§5)
 
     private var clockTabContent: some View {
-        block(name: "WHEN THE HOST STOPS",
-              description: "KEEP PLAYING runs Fourfold on its own clock while the host is stopped. STOP waits for the host.") {
-            segmented([("KEEP PLAYING", 104), ("STOP", 48)], selected: hostStopBehavior == .keepPlaying ? 0 : 1) { i in
-                onSetHostStopBehavior(i == 0 ? .keepPlaying : .stop)
+        VStack(spacing: 8) {
+            block(name: "WHEN THE HOST STOPS",
+                  description: "KEEP PLAYING runs Fourfold on its own clock while the host is stopped. STOP waits for the host.") {
+                segmented([("KEEP PLAYING", 104), ("STOP", 48)], selected: hostStopBehavior == .keepPlaying ? 0 : 1) { i in
+                    onSetHostStopBehavior(i == 0 ? .keepPlaying : .stop)
+                }
+            }
+            // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows, MIX pads and OUT rings. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
+            block(name: "STRIKE PULSE",
+                  description: "How strongly each strike shows, by how hard it played. OFF shows none; SUBTLE is softer. Reduce Motion also turns off dips, swells, tails and ripples.") {
+                segmented([("OFF", 48), ("SUBTLE", 64), ("FULL", 56)], selected: max(0, min(2, pulseLevel))) { i in onSetPulseLevel(i) }
             }
         }
     }
