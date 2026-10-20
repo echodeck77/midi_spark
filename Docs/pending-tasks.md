@@ -5,6 +5,13 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — PULSE: strikes that show velocity; riff rests are gaps (2026-10-21; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "PULSE" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul, "later we'll find an easier way to differentiate notes from riffs"): with the riff OFF the comet bar pulses on the notes layer's strike (one function, `euclideousPulseStrikeVelocity`); with the riff ON it follows the riff only.
+- [ ] DECIDE (Paul): an FX-tied hit stays a NORMAL tile with no pulse (a gap is only a riff rest under SKIP/TIE); a REPEAT hit that finds no earlier note to repeat likewise (the footers show it as a rest hit, the engine plays nothing).
+- [ ] DECIDE (Paul): strikes can lag the dot by up to ~50 ms (the NOTE VIEW poll is 30 Hz). If it shows, poll it at 60 Hz (the rate of an existing poll only).
+- [ ] (noted) the BUILD-page EUCLID editor's comet bar (no feed) keeps the old geometric flare; the step-based ring/arrow flare functions are gone.
+
 ## ★ EUCLIDEOUS — NOTES TAB: keys, WHEN, PLAY AS, CHANCE, RECEIVED; FILL leaves ON REST (2026-10-20; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "NOTES tab" lines in `Docs/euclideous-device-verification-debt.md` — the key sizes, the picker, ROLL/RUN by ear, the tied-rest strike, one old SKIP/TIE session and one old FILL session.
 - [ ] DECIDE (Paul): TOP 2 kept its PAIR (the ferry's single-note design assumed one note): lower note + "+" on the key, "2–3" as its place number, two places in CYCLE/BOUNCE/BUILD/SPLIT. Say if it should become a single note (and whether an old TOP-2 lane then gets TOP added to keep its sound).
