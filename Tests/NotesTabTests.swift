@@ -302,4 +302,71 @@ final class NotesTabTests: XCTestCase {
         // TOP 2 keeps its pair: two places
         XCTAssertEqual(euclideousNotesPlaceNumbers(list: list([7, 8], pool: exPool), way: .cycle)[8], "2\u{2013}3")
     }
+
+    // MARK: 11. displays (pure): pips, grey footers, key flash
+    func testPipsMarkTheHitsThePlaysAndRestsChooseAndRingBelowChance100() {
+        // the example lane's footers: steps 1 and 6 play the riff, 3, 5 and 8 are rests (step 2, 4, 7 are misses)
+        let st: [EuclidFooterState] = [.hit(riffStep: 6), .miss, .hitOnRest(riffStep: 8), .miss, .hitOnRest(riffStep: 2), .hit(riffStep: 3), .miss, .hitOnRest(riffStep: 5)]
+        XCTAssertEqual(euclideousNotesPips(states: st, when: 0b10, chance: 100), [0, 0, 1, 0, 1, 0, 0, 1], "RESTS gives hits 3, 5 and 8")
+        XCTAssertEqual(euclideousNotesPips(states: st, when: 0b01, chance: 100), [1, 0, 0, 0, 0, 1, 0, 0], "PLAYS gives 1 and 6")
+        XCTAssertEqual(euclideousNotesPips(states: st, when: 0b11, chance: 100), [1, 0, 1, 0, 1, 1, 0, 1])
+        XCTAssertEqual(euclideousNotesPips(states: st, when: 0b10, chance: 50), [0, 0, 2, 0, 2, 0, 0, 2], "at CHANCE 50 they are rings")
+        XCTAssertEqual(euclideousNotesPipSteps(euclideousNotesPips(states: st, when: 0b10, chance: 100)), [3, 5, 8])
+        XCTAssertEqual(euclideousNotesPips(states: [.hitTied(riffStep: 2)], when: 0b11, chance: 100), [0], "an FX-tied hit strikes nothing")
+        XCTAssertEqual(euclideousNotesPlayHitsPhrase([3, 5, 8]), "The notes play on hits 3, 5 and 8"); XCTAssertNil(euclideousNotesPlayHitsPhrase([]))
+        XCTAssertEqual(euclideousNotesPlayHitsPhrase([4]), "The notes play on hit 4")
+    }
+    func testGreyFootersOnlyWhenTheRiffIsOffTheNotesAreOnAndWhenIsOneSided() {
+        XCTAssertTrue(euclideousNotesGreyFooters(riffOn: false, notesLayerOn: true, when: 0b01)); XCTAssertTrue(euclideousNotesGreyFooters(riffOn: false, notesLayerOn: true, when: 0b10))
+        XCTAssertFalse(euclideousNotesGreyFooters(riffOn: false, notesLayerOn: true, when: 0b11), "both on: none")
+        XCTAssertFalse(euclideousNotesGreyFooters(riffOn: true, notesLayerOn: true, when: 0b01)); XCTAssertFalse(euclideousNotesGreyFooters(riffOn: false, notesLayerOn: false, when: 0b01))
+    }
+    func testKeyFlashLightsTheKeysOfTheNotesThatSoundWithTheirRollAndRunOffsets() {
+        let l = list([7, 4, 5], pool: exPool)   // C4 60 (rank 8, position 7), G3 55 (position 4), A♭3 56 (position 5)
+        // the hit on 1 with the riff on, CHORD, both: the riff A♭3 first, then C4 and G3 (A♭3 was dropped, 7.2) -> C4 and G3 light, A♭3 does not; the riff dot sits on rank 6
+        let f = euclideousNotesKeyFlash(eventPitches: [56, 60, 55], hasRiffNote: true, riffRank: 6, onsetBeat: 10, list: l, pitchShift: 0, way: .chord, stepBeats: 0.5, gapBeats: 1,
+                                        lenBeats: 0.5, legato: false, tempo: 120, beat: 10.0)
+        XCTAssertGreaterThan(f.sounding[7], 0.5); XCTAssertGreaterThan(f.sounding[4], 0.5); XCTAssertEqual(f.sounding[5], 0, "the key whose note the riff took never lights")
+        XCTAssertEqual(f.riffDotRank, 6); XCTAssertGreaterThan(f.riffDotStrength, 0.5)
+        // a hit with no riff note puts no dot anywhere; the notes shifted by the lane's octave still find their keys
+        let g = euclideousNotesKeyFlash(eventPitches: [72, 67], hasRiffNote: false, riffRank: -1, onsetBeat: 4, list: l, pitchShift: 12, way: .chord, stepBeats: 0.5, gapBeats: 1,
+                                        lenBeats: 0.5, legato: false, tempo: 120, beat: 4.0)
+        XCTAssertNil(g.riffDotRank); XCTAssertGreaterThan(g.sounding[7], 0.5); XCTAssertGreaterThan(g.sounding[4], 0.5)
+        // RUN: the second note starts a slot later, so right at the hit only the first key is lit; ROLL likewise by its spacing
+        let run = euclideousNotesKeyFlash(eventPitches: [60, 55, 56], hasRiffNote: false, riffRank: -1, onsetBeat: 4, list: l, pitchShift: 0, way: .run, stepBeats: 0.5, gapBeats: 1,
+                                          lenBeats: 0.5, legato: false, tempo: 120, beat: 4.0)
+        XCTAssertGreaterThan(run.sounding[7], 0.5); XCTAssertEqual(run.sounding[4], 0, accuracy: 1e-9, "RUN: G3 has not started"); XCTAssertEqual(run.sounding[5], 0, accuracy: 1e-9)
+        let later = euclideousNotesKeyFlash(eventPitches: [60, 55, 56], hasRiffNote: false, riffRank: -1, onsetBeat: 4, list: l, pitchShift: 0, way: .run, stepBeats: 0.5, gapBeats: 1,
+                                            lenBeats: 0.5, legato: false, tempo: 120, beat: 4.0 + 1.0 / 6.0 + 0.001)
+        XCTAssertGreaterThan(later.sounding[4], 0.5, "RUN: G3 starts 1/6 beat after the hit")
+        // a key that is not in the list (held back) has nothing to light
+        let held = list([0, 1, 2, 3, 4], pool: [48, 51, 55], received: true)
+        let h = euclideousNotesKeyFlash(eventPitches: [48, 51, 55], hasRiffNote: false, riffRank: -1, onsetBeat: 0, list: held, pitchShift: 0, way: .chord, stepBeats: 0.5, gapBeats: 1,
+                                        lenBeats: 0.5, legato: false, tempo: 120, beat: 0)
+        XCTAssertEqual(h.sounding[3], 0); XCTAssertEqual(h.sounding[4], 0); XCTAssertGreaterThan(h.sounding[0], 0.5)
+    }
+
+    // MARK: §11 VoiceOver words
+    func testVoiceOverWordsMatchTheFerry() {
+        XCTAssertEqual(euclideousNotesRankKeyAccessibilityLabel(rank: 6, spokenNote: "A flat 3", received: true, lit: true, heldBack: false, place: "3"), "Rank 6, A flat 3, received, lit, 3rd in the lit order")
+        XCTAssertEqual(euclideousNotesRankKeyAccessibilityLabel(rank: 4, spokenNote: "C 4", received: false, lit: true, heldBack: true, place: nil),
+                       "Rank 4, C 4, an octave copy, lit, held back because only received notes sound")
+        XCTAssertEqual(euclideousNotesRankKeyAccessibilityLabel(rank: 1, spokenNote: nil, received: false, lit: false, heldBack: false, place: nil), "Rank 1, nothing held, an octave copy, not lit")
+        // TOP keeps its single highest note; TOP 2 keeps its PAIR (the second-highest and the highest) — the one place this differs from the ferry's single-note wording
+        XCTAssertEqual(euclideousNotesTopKeyAccessibilityLabel(isTopTwo: false, spokenNotes: ["B flat 3"], lit: true, place: nil), "The highest received note, B flat 3, lit")
+        XCTAssertEqual(euclideousNotesTopKeyAccessibilityLabel(isTopTwo: true, spokenNotes: ["A flat 3", "B flat 3"], lit: false, place: nil), "The two highest received notes, A flat 3 and B flat 3, not lit")
+        XCTAssertEqual(euclideousNotesTopKeyAccessibilityLabel(isTopTwo: true, spokenNotes: [], lit: false, place: nil), "The highest received note, nothing held, not lit")
+        XCTAssertEqual(euclideousNotesTopKeyAccessibilityLabel(isTopTwo: true, spokenNotes: ["A flat 3", "B flat 3"], lit: true, place: "2\u{2013}3"), "The two highest received notes, A flat 3 and B flat 3, lit, 2nd and 3rd in the lit order")
+        XCTAssertEqual([1, 2, 3, 4, 11, 12, 13, 21, 22].map(euclideousNotesOrdinal), ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd"])
+        XCTAssertEqual(euclideousNotesChanceValue(100), "100 percent: every chosen hit plays"); XCTAssertEqual(euclideousNotesChanceValue(50), "50 percent: each chosen hit plays 50 times in 100")
+        XCTAssertEqual(euclideousNotesPlayAsButtonLabel(.cycle), "Play as cycle"); XCTAssertEqual(euclideousNotesPlayAsButtonValue(.cycle), "One lit note a hit, in the order you lit them")
+        XCTAssertEqual(euclideousNotesWayAccessibilityLabel(.chord), "Chord: every lit note at once")
+        XCTAssertEqual(euclideousNotesWayAccessibilityLabel(.run), "Run: every lit note one after another, spread across the hit\u{2019}s step, in the order you lit them")
+        XCTAssertEqual(euclideousNotesWayAccessibilityLabel(.build), "Build: one more lit note each hit, in the order you lit them, then start again")
+        XCTAssertEqual(euclideousNotesWhenHint(isOnlyOneOn: true, riffOn: true), "One of the two always stays on")
+        XCTAssertEqual(euclideousNotesWhenHint(isOnlyOneOn: false, riffOn: false), "The riff is off but still decides")
+        XCTAssertEqual(euclideousNotesWhenHint(isOnlyOneOn: true, riffOn: false), "One of the two always stays on. The riff is off but still decides")
+        XCTAssertEqual(euclideousNotesKeyRowGroupLabel, "Lit notes: the riff grid\u{2019}s eight rows, then the top two received notes")
+        for way in EuclidNotesPlayAs.allCases { XCTAssertNotNil(euclideousNotesWayDescriptions[way]); XCTAssertTrue(euclideousNotesWayOrder.contains(way)) }
+    }
 }

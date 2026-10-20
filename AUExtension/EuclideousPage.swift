@@ -1794,7 +1794,28 @@ struct EuclideousPage: View {
     /// `euclideousFooterStates` pure functions (Derivations.swift) fresh every time this view's body runs —
     /// SwiftUI only re-evaluates it when one of `line`/`riff`/`riffWalkState` actually changes, which is
     /// exactly "recompute... whenever settings... change" (Prediction rule 1) without a hand-rolled cache.
-    private func laneFooterStates(_ idx: Int, _ line: EuclidLine) -> [EuclidFooterState] {
+    /// What the lane's comet strip draws under its cells (NOTES TAB ferry §10.4-§10.5 added the pips and the grey fill): the footer states, a pip per hit the notes will play (NOTES tab
+    /// only, the layer on), and whether the light hit bands are grey (riff off, WHEN one-sided). The pips read the SAME prediction the bands draw from — "use the footers' own per-hit
+    /// functions" — even while the riff is off (6.1: the written columns still decide which hits are rest hits).
+    private struct LaneFooterPlan {
+        var states: [EuclidFooterState]
+        var pips: [UInt8]?
+        var grey: Bool
+        var notesStrikeOnRest: Bool
+    }
+    private func laneFooterPlan(_ idx: Int, _ line: EuclidLine) -> LaneFooterPlan {
+        let layerOn = euclideousNotesLayerIsOn(line)
+        let grey = euclideousNotesGreyFooters(riffOn: line.riffOnResolved, notesLayerOn: layerOn, when: line.notesWhenResolved)
+        let tab = idx < laneTab.count ? laneTab[idx] : .rhythm
+        let showPips = layerOn && tab == .notes
+        let reading = laneFooterStates(idx, line, readRiff: line.riffOnResolved || grey || showPips)
+        // drawn: as today unless the riff is on or the grey case — with the riff off (and not grey) every hit is a plain light band, no number
+        let drawn = (line.riffOnResolved || grey) ? reading : laneFooterStates(idx, line, readRiff: false)
+        return LaneFooterPlan(states: drawn,
+                              pips: showPips ? euclideousNotesPips(states: reading, when: line.notesWhenResolved, chance: line.notesChanceResolved) : nil,
+                              grey: grey, notesStrikeOnRest: layerOn && line.notesRestsResolved)
+    }
+    private func laneFooterStates(_ idx: Int, _ line: EuclidLine, readRiff: Bool) -> [EuclidFooterState] {
         // A FOLLOW lane plays its PARTNER's pattern (and step count), so its footer is predicted from THAT — the same
         // finished buffer the engine and the step bar use (`euclideousEffectivePattern`). Every other lane is unchanged.
         let follow = euclideousEffectivePattern(lane: idx, lines: lines).flatMap { $0.followsPartner ? $0 : nil }
@@ -1804,7 +1825,7 @@ struct EuclideousPage: View {
                                       tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
                                       customHits: line.customHitsResolved(steps), dir: line.directionResolved)
         var prediction: [Int]? = nil
-        if line.riffOnResolved {
+        if readRiff {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
             let advanceStep = line.riffAdvanceStepResolved
             // RESTART CHAINS (ferry 2026-10-19): `cfg` (built first now) carries this lane's resolved chains, so
@@ -1847,6 +1868,7 @@ struct EuclideousPage: View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
         let tab = idx < laneTab.count ? laneTab[idx] : .rhythm
+        let footerPlan = laneFooterPlan(idx, line)   // NOTES TAB ferry §10: the comet strip's footers, pips and grey fill
         // ONE INNER WIDTH FOR EVERY ROW — every row below is built from THIS one width, never the raw card
         // `width` (W = 326 at the ferry's own reference 346pt card). "Wider cards: flexible items share the
         // extra width" — `innerWidth` scales directly with `width`, so every formula below that derives from
@@ -1910,7 +1932,8 @@ struct EuclideousPage: View {
                           // the separate trailing row the comment here used to describe): a pure array, not a
                           // view — `EuclidCometBar` draws each step's own band directly inside that step's
                           // own cell rect now, so there's no separate row height/gap to budget here at all.
-                          footerStates: laneFooterStates(idx, line),
+                          footerStates: footerPlan.states, notesPips: footerPlan.pips,
+                          notesPlayPhrase: footerPlan.pips.flatMap { euclideousNotesPlayHitsPhrase(euclideousNotesPipSteps($0)) }, footerGrey: footerPlan.grey, notesStrikeOnRest: footerPlan.notesStrikeOnRest,
                           stepCountBadge: AnyView(stepCountBadge(
                               followEff?.n ?? steps,
                               dotTint: listenFollowTint)),
@@ -3770,6 +3793,26 @@ struct EuclideousPage: View {
         }
         return NotesTabData(specs: specs, list: list, spoken: spokenNames)
     }
+    /// 10.1 / 10.2: which keys are sounding and where the riff dot sits, for lane `idx` at `beat` — from the lane's latest strike event (the engine's own NOTE VIEW event, the same feed the
+    /// header rings and the comet bar flash from) and `euclideousNotesKeyFlash`; nothing is kept per frame. ROLL's spacing needs the gap to the lane's next hit, so that is worked out
+    /// from the lane's own walk config exactly as the engine does (`euclideousNextChainHitGapBeats`).
+    private func notesKeyFlash(_ idx: Int, _ line: EuclidLine, list: EuclideousNotesList, beat: Double) -> EuclideousNotesKeyFlash {
+        guard clock.playing, idx < strikeEvents.count, let ev = strikeEvents[idx], let cfg = riffWalkConfig(idx) else { return EuclideousNotesKeyFlash() }
+        let way = line.notesPlayAsResolved
+        let step = max(1e-6, cfg.sub)
+        let tempo = max(1.0, clock.tempo)
+        var gap = step
+        if way == .roll {
+            let tick = Int64((lanesMusicalBeat(real: ev.onsetBeat) / step).rounded())
+            gap = euclideousNextChainHitGapBeats(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: euclidCycleLen(cfg.dir, n: cfg.n), sub: step, tick: tick,
+                                                 cap: euclidCycleLen(cfg.dir, n: cfg.n) * 4, chains: cfg.chains, legacySpanBeats: cfg.spanBeats)
+        }
+        let g = line.notesGateResolved
+        let len = euclideousPitchGateBeats(gate: g, nextHitGapBeats: gap, tieExt: 0, minGateBeats: 0.005 * tempo / 60.0)
+        return euclideousNotesKeyFlash(eventPitches: ev.notes, hasRiffNote: ev.hasRiffNote, riffRank: Int(ev.rank), onsetBeat: ev.onsetBeat, list: list,
+                                       pitchShift: 12 * max(-2, min(2, line.octaveResolved)), way: way, stepBeats: step, gapBeats: gap, lenBeats: len, legato: g >= 1.0,
+                                       tempo: tempo, beat: beat)
+    }
     @ViewBuilder private func notesToggle(_ label: String, on: Bool, accent: Color, accessibility: String, hint: String, help: String, action: @escaping () -> Void) -> some View {
         melodyButton(label, on: on, accent: accent, height: EuclideousNotesTabLayout.rowH, fontSize: 12, cornerRadius: 8, help: help, action: action)
             .accessibilityElement(children: .ignore)
@@ -3792,81 +3835,109 @@ struct EuclideousPage: View {
         let chance = line.notesChanceResolved
         let chanceStops = [25, 50, 75, 100]
         let chanceIdx = chanceStops.firstIndex(of: chance) ?? 3
-        func placed<V: View>(_ r: CGRect, @ViewBuilder _ v: () -> V) -> some View { v().frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY) }
+        // a control placed by its layout frame; `row` is the row group it lives in (the group's origin is subtracted so the control sits where the layout says)
+        func placed<V: View>(_ r: CGRect, in row: CGRect? = nil, @ViewBuilder _ v: () -> V) -> some View {
+            v().frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY - (row?.minY ?? 0))
+        }
+        // one VoiceOver group per row (§11.2): the group spans the content width at the row's own y, its children keep their layout x
+        func group<V: View>(_ row: CGRect, label: String, @ViewBuilder _ v: () -> V) -> some View {
+            ZStack(alignment: .topLeading) { v() }
+                .frame(width: fullWidth, height: row.height, alignment: .topLeading)
+                .offset(x: 0, y: row.minY)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(label)
+        }
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 placed(lay.strip) { notesStrip(idx, line, accent, height: lay.strip.height) }
                 Group {
                     // the keys (§2): a tap lights or unlights through the lit order — one undo step
-                    placed(lay.keyRow) { Color.clear }.allowsHitTesting(false)
-                        .accessibilityElement(children: .contain).accessibilityLabel(euclideousNotesKeyRowGroupLabel)
-                    ForEach(0..<10, id: \.self) { p in
-                        let spec = data.specs[p]
-                        EuclideousNotesKeyView(spec: spec, accent: lane100(accent), size: lay.keys[p].size)
-                            .offset(x: lay.keys[p].minX, y: lay.keys[p].minY)
-                            .contentShape(Rectangle())
-                            .onTapGesture { edit(idx) { euclideousToggleLitPosition(&$0, position: p) } }
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(p < 8
-                                ? euclideousNotesRankKeyAccessibilityLabel(rank: p + 1, spokenNote: data.spoken[p].first, received: spec.received, lit: spec.lit, heldBack: spec.heldBack, place: spec.place)
-                                : euclideousNotesTopKeyAccessibilityLabel(isTopTwo: p == EuclideousLitOrder.topTwoPosition, spokenNotes: data.spoken[p], lit: spec.lit, place: spec.place))
-                            .accessibilityHint("Lights or unlights this note")
-                            .accessibilityAddTraits(.isButton)
-                            .ringToggleTrait()
+                    group(lay.keyRow, label: euclideousNotesKeyRowGroupLabel) {
+                        // the glow and the riff dot follow the hit events (10.1, 10.2) — the only per-frame work on the tab, and only while the transport runs
+                        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+                            let flash = notesKeyFlash(idx, line, list: data.list, beat: walkTagBeat(at: tl.date))
+                            ZStack(alignment: .topLeading) {
+                                ForEach(0..<10, id: \.self) { p in
+                                    let spec: EuclideousNotesKeySpec = {
+                                        var sp = data.specs[p]
+                                        sp.sounding = flash.sounding[p]
+                                        sp.riffDot = p < 8 && flash.riffDotRank == p + 1 && flash.riffDotStrength > 0
+                                        return sp
+                                    }()
+                                    EuclideousNotesKeyView(spec: spec, accent: lane100(accent), size: lay.keys[p].size)
+                                        .offset(x: lay.keys[p].minX, y: lay.keys[p].minY - lay.keyRow.minY)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { edit(idx) { euclideousToggleLitPosition(&$0, position: p) } }
+                                        .accessibilityElement(children: .ignore)
+                                        .accessibilityLabel(p < 8
+                                            ? euclideousNotesRankKeyAccessibilityLabel(rank: p + 1, spokenNote: data.spoken[p].first, received: spec.received, lit: spec.lit, heldBack: spec.heldBack, place: spec.place)
+                                            : euclideousNotesTopKeyAccessibilityLabel(isTopTwo: p == EuclideousLitOrder.topTwoPosition, spokenNotes: data.spoken[p], lit: spec.lit, place: spec.place))
+                                        .accessibilityHint("Lights or unlights this note")
+                                        .accessibilityAddTraits(.isButton)
+                                        .ringToggleTrait()
+                                }
+                            }
+                        }
                     }
                     // WHEN (§3.1, §3.2): PLAYS and RESTS — one of the two always stays on; CHANCE steps 25 / 50 / 75 / 100
-                    placed(lay.whenLabel) { riffRowLabel("WHEN", "RIFF") }.accessibilityHidden(true)
-                    placed(lay.plays) {
-                        notesToggle("PLAYS", on: plays, accent: accent, accessibility: euclideousNotesPlaysLabel,
-                                    hint: euclideousNotesWhenHint(isOnlyOneOn: plays && !rests, riffOn: line.riffOnResolved),
-                                    help: "Play the lit notes on hits where the riff plays a note.") {
-                            guard !(plays && !rests) else { return }
-                            edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 }
+                    group(lay.whenRow, label: euclideousNotesWhenGroupLabel) {
+                        placed(lay.whenLabel, in: lay.whenRow) { riffRowLabel("WHEN", "RIFF") }.accessibilityHidden(true)
+                        placed(lay.plays, in: lay.whenRow) {
+                            notesToggle("PLAYS", on: plays, accent: accent, accessibility: euclideousNotesPlaysLabel,
+                                        hint: euclideousNotesWhenHint(isOnlyOneOn: plays && !rests, riffOn: line.riffOnResolved),
+                                        help: "Play the lit notes on hits where the riff plays a note.") {
+                                guard !(plays && !rests) else { return }
+                                edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 }
+                            }
                         }
-                    }
-                    placed(lay.rests) {
-                        notesToggle("RESTS", on: rests, accent: accent, accessibility: euclideousNotesRestsLabel,
-                                    hint: euclideousNotesWhenHint(isOnlyOneOn: rests && !plays, riffOn: line.riffOnResolved),
-                                    help: "Play the lit notes on hits where the riff rests.") {
-                            guard !(rests && !plays) else { return }
-                            edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 }
+                        placed(lay.rests, in: lay.whenRow) {
+                            notesToggle("RESTS", on: rests, accent: accent, accessibility: euclideousNotesRestsLabel,
+                                        hint: euclideousNotesWhenHint(isOnlyOneOn: rests && !plays, riffOn: line.riffOnResolved),
+                                        help: "Play the lit notes on hits where the riff rests.") {
+                                guard !(rests && !plays) else { return }
+                                edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 }
+                            }
                         }
-                    }
-                    placed(lay.chance) {
-                        melodyStepper("CHANCE", value: chanceIdx, range: 0...3, width: lay.chance.width, help: "How many of the chosen hits the lit notes play.",
-                                      height: lay.chance.height, valueText: "\(chance)%", lowDisabled: chanceIdx == 0, highDisabled: chanceIdx == 3) { v in
-                            guard v != chanceIdx else { return }
-                            edit(idx) { $0.notesChance = chanceStops[v] }
-                        }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Chance")
-                        .accessibilityValue(euclideousNotesChanceValue(chance))
-                        .accessibilityAdjustableAction { direction in
-                            let next = direction == .increment ? min(3, chanceIdx + 1) : max(0, chanceIdx - 1)
-                            guard next != chanceIdx else { return }
-                            edit(idx) { $0.notesChance = chanceStops[next] }
+                        placed(lay.chance, in: lay.whenRow) {
+                            melodyStepper("CHANCE", value: chanceIdx, range: 0...3, width: lay.chance.width, help: "How many of the chosen hits the lit notes play.",
+                                          height: lay.chance.height, valueText: "\(chance)%", lowDisabled: chanceIdx == 0, highDisabled: chanceIdx == 3) { v in
+                                guard v != chanceIdx else { return }
+                                edit(idx) { $0.notesChance = chanceStops[v] }
+                            }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Chance")
+                            .accessibilityValue(euclideousNotesChanceValue(chance))
+                            .accessibilityAdjustableAction { direction in
+                                let next = direction == .increment ? min(3, chanceIdx + 1) : max(0, chanceIdx - 1)
+                                guard next != chanceIdx else { return }
+                                edit(idx) { $0.notesChance = chanceStops[next] }
+                            }
                         }
                     }
                     // PLAY AS (§3.3): the current way with a live preview; a tap opens the picker (not an undo step)
-                    placed(lay.playAsLabel) { riffRowLabel("PLAY", "AS") }.accessibilityHidden(true)
-                    placed(lay.playAs) {
-                        EuclideousNotesPlayAsButtonView(way: way, list: data.list, accent: lane100(accent))
-                            .equatable()
-                            .contentShape(Rectangle())
-                            .onTapGesture { notesPickerOpen.insert(idx) }
-                            .euclideousHelp("How the lit notes play on each hit it chooses.")
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(euclideousNotesPlayAsButtonLabel(way))
-                            .accessibilityValue(euclideousNotesPlayAsButtonValue(way))
-                            .accessibilityHint(euclideousNotesPlayAsHint)
-                            .accessibilityAddTraits(.isButton)
+                    group(lay.playAsRow, label: euclideousNotesPlayAsGroupLabel) {
+                        placed(lay.playAsLabel, in: lay.playAsRow) { riffRowLabel("PLAY", "AS") }.accessibilityHidden(true)
+                        placed(lay.playAs, in: lay.playAsRow) {
+                            EuclideousNotesPlayAsButtonView(way: way, list: data.list, accent: lane100(accent))
+                                .equatable()
+                                .contentShape(Rectangle())
+                                .onTapGesture { notesPickerOpen.insert(idx) }
+                                .euclideousHelp("How the lit notes play on each hit it chooses.")
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(euclideousNotesPlayAsButtonLabel(way))
+                                .accessibilityValue(euclideousNotesPlayAsButtonValue(way))
+                                .accessibilityHint(euclideousNotesPlayAsHint)
+                                .accessibilityAddTraits(.isButton)
+                        }
                     }
                     // SOUND ONLY (§3.4)
-                    placed(lay.soundLabel) { riffRowLabel("SOUND", "ONLY") }.accessibilityHidden(true)
-                    placed(lay.received) {
-                        notesToggle("RECEIVED", on: line.notesReceivedOnlyResolved, accent: accent, accessibility: euclideousNotesReceivedLabel, hint: euclideousNotesReceivedHint,
-                                    help: "Keep lit octave copies silent, so lit ranks join in as the held chord grows.") {
-                            edit(idx) { $0.notesReceivedOnly = !$0.notesReceivedOnlyResolved }
+                    group(lay.soundRow, label: euclideousNotesSoundOnlyGroupLabel) {
+                        placed(lay.soundLabel, in: lay.soundRow) { riffRowLabel("SOUND", "ONLY") }.accessibilityHidden(true)
+                        placed(lay.received, in: lay.soundRow) {
+                            notesToggle("RECEIVED", on: line.notesReceivedOnlyResolved, accent: accent, accessibility: euclideousNotesReceivedLabel, hint: euclideousNotesReceivedHint,
+                                        help: "Keep lit octave copies silent, so lit ranks join in as the held chord grows.") {
+                                edit(idx) { $0.notesReceivedOnly = !$0.notesReceivedOnlyResolved }
+                            }
                         }
                     }
                 }

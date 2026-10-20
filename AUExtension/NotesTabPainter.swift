@@ -166,11 +166,6 @@ struct EuclideousNotesPlayAsButtonView: View, Equatable {
 
 // MARK: - the picker (§4)
 
-let euclideousNotesWayDescriptions: [EuclidNotesPlayAs: String] = [
-    .chord: "ALL AT ONCE", .roll: "A QUICK STRUM", .run: "ACROSS THE STEP", .cycle: "ONE AT A TIME", .bounce: "TO AND FRO", .split: "LOW THEN REST", .build: "STACKS UP",
-]
-let euclideousNotesWayOrder: [EuclidNotesPlayAs] = [.chord, .roll, .run, .cycle, .bounce, .split, .build]
-
 struct EuclideousNotesPickerView: View {
     let layout: EuclideousNotesTabLayout
     let current: EuclidNotesPlayAs

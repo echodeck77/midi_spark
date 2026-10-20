@@ -3288,11 +3288,13 @@ enum EuclideousHitFlashStyle: Equatable { case solid, outline }
 /// (no footer info available at all, e.g. the regular BUILD-page EUCLID editor's own comet bar, which never
 /// passes `footerStates`) defaults to `.solid` — today's unchanged behaviour, since that editor has no
 /// riff/ON-REST concept to be wrong about.
-func euclideousHitFlashStyle(footerState: EuclidFooterState?, onRest: EuclidRiffOnRest) -> EuclideousHitFlashStyle {
+/// NOTES TAB ferry: `notesStrikeOnRest` — the lane's notes layer plays on rest hits (the layer is on, something is lit and RESTS is on), so a hit on a rest starts a note and flashes solid
+/// whatever ON REST says (FILL left ON REST: what it was for is now RESTS).
+func euclideousHitFlashStyle(footerState: EuclidFooterState?, onRest: EuclidRiffOnRest, notesStrikeOnRest: Bool = false) -> EuclideousHitFlashStyle {
     guard let footerState else { return .solid }
     switch footerState {
     case .hit: return .solid
-    case .hitOnRest: return (onRest == .fill || onRest == .repeatLast) ? .solid : .outline   // RIFF WALK ferry §6: REPEAT strikes a real note, flash it solid like FILL
+    case .hitOnRest: return (onRest == .fill || onRest == .repeatLast || notesStrikeOnRest) ? .solid : .outline   // RIFF WALK ferry §6: REPEAT strikes a real note, flash it solid like FILL
     case .hitTied: return .outline                    // a tied hit never strikes, whatever the lane's ON REST is
     case .miss: return .outline
     }
@@ -8596,3 +8598,68 @@ func euclideousNotesPlayHitsPhrase(_ hits: [Int]) -> String? {
     let items = hits.map(String.init)
     return "The notes play on hit\(hits.count == 1 ? "" : "s") " + euclideousSpokenList(items)
 }
+
+// MARK: - NOTES TAB displays (ferry 2026-10-19, §10) — keys light as their notes sound, the riff dot, the comet strip's pips and the grey footers
+
+/// 10.1 / 10.2: what the keys show for one lane at one beat, worked out from the lane's latest strike event and §6-§7's own functions (no engine path of its own): which lit-order
+/// positions are sounding (0...1 glow strength, the comet bar's own flare and afterglow timing from each note's START — the hit, or its ROLL / RUN offset), and the rank key the riff
+/// dot sits on. A key never lights for a note the riff took (event note 0 is the riff's pitch when the hit has one — it is skipped) and a held-back key has no entry in the list.
+struct EuclideousNotesKeyFlash: Equatable {
+    var sounding: [Double] = Array(repeating: 0, count: 10)
+    var riffDotRank: Int? = nil
+    var riffDotStrength: Double = 0
+}
+/// - `eventPitches`: the pitches the hit struck, in strike order (the NOTE VIEW event's `notes`; the riff note first when `hasRiffNote`).
+/// - `list`: the CURRENT play list built at octave 0; `pitchShift` is 12 × the lane's notes octave (what the engine added when it resolved them).
+func euclideousNotesKeyFlash(eventPitches: [UInt8], hasRiffNote: Bool, riffRank: Int, onsetBeat: Double, list: EuclideousNotesList, pitchShift: Int, way: EuclidNotesPlayAs,
+                             stepBeats: Double, gapBeats: Double, lenBeats: Double, legato: Bool, tempo: Double, beat: Double) -> EuclideousNotesKeyFlash {
+    var out = EuclideousNotesKeyFlash()
+    let first = hasRiffNote ? 1 : 0
+    var matched: [Int] = []   // list indices, in strike order
+    if eventPitches.count > first {
+        for k in first..<eventPitches.count {
+            if let i = list.index(ofPitch: Int(eventPitches[k]) - pitchShift) { matched.append(i) }
+        }
+    }
+    let m = matched.count
+    var spacing = 0.0
+    if way == .roll, m >= 2 { spacing = euclideousNotesRollSpacingBeats(m: m, gapBeats: gapBeats, lenBeats: lenBeats, legato: legato, tempo: tempo) }
+    if way == .run, m >= 1 { spacing = euclideousNotesRunSlotBeats(stepBeats: stepBeats, m: m) }
+    for (j, i) in matched.enumerated() {
+        let strength = euclideousArrowFlare(onsetBeat: onsetBeat + Double(j) * spacing, beat: beat, stepBeats: stepBeats)
+        let pos = list.position(i)
+        if pos >= 0, pos < 10 { out.sounding[pos] = max(out.sounding[pos], strength) }
+    }
+    if hasRiffNote, (1...8).contains(riffRank) {
+        out.riffDotRank = riffRank
+        out.riffDotStrength = euclideousArrowFlare(onsetBeat: onsetBeat, beat: beat, stepBeats: stepBeats)
+    }
+    return out
+}
+
+/// 10.4: each hit cell of the comet strip whose hit PLAYS and RESTS choose gets a pip — a fill at CHANCE 100, a ring below (CHANCE may skip the hit). 0 none, 1 fill, 2 ring.
+/// `states` is the footer's own per-step prediction (the SAME one the footers draw), so a pip can never sit on a hit the footers don't show. A hit an FX TIE cell applies to strikes
+/// nothing, so it gets none; a miss is no hit.
+func euclideousNotesPips(states: [EuclidFooterState], when: UInt8, chance: Int) -> [UInt8] {
+    states.map { st in
+        switch st {
+        case .hit: return euclideousNotesWhenChooses(when: when, isRestHit: false) ? (chance >= 100 ? 1 : 2) : 0
+        case .hitOnRest: return euclideousNotesWhenChooses(when: when, isRestHit: true) ? (chance >= 100 ? 1 : 2) : 0
+        case .hitTied, .miss: return 0
+        }
+    }
+}
+/// 10.5: with the riff OFF, the notes layer ON and only one of PLAYS and RESTS on, the footers show on every tab as they would with the riff on — but grey — so you can see which hits
+/// the riff's written columns decide. Otherwise, with the riff off, they are as they always were.
+func euclideousNotesGreyFooters(riffOn: Bool, notesLayerOn: Bool, when: UInt8) -> Bool {
+    !riffOn && notesLayerOn && ((when & 0b11) == 0b01 || (when & 0b11) == 0b10)
+}
+/// 11.10: the 1-based step numbers of the hits the notes will play (a pip of either kind), for "The notes play on hits 3, 5 and 8".
+func euclideousNotesPipSteps(_ pips: [UInt8]) -> [Int] { pips.enumerated().filter { $0.element != 0 }.map { $0.offset + 1 } }
+
+// The picker's cell order (§4.3: the top row plays every lit note on each hit, the bottom row a changing set) and each way's one-line description (§4.4).
+let euclideousNotesWayDescriptions: [EuclidNotesPlayAs: String] = [
+    .chord: "ALL AT ONCE", .roll: "A QUICK STRUM", .run: "ACROSS THE STEP", .cycle: "ONE AT A TIME", .bounce: "TO AND FRO", .split: "LOW THEN REST", .build: "STACKS UP",
+]
+let euclideousNotesWayOrder: [EuclidNotesPlayAs] = [.chord, .roll, .run, .cycle, .bounce, .split, .build]
+

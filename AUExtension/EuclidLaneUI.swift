@@ -157,6 +157,12 @@ struct EuclidLaneBox: View {
     // the band can be drawn at the EXACT same rect the step box itself occupies — nil (every other caller,
     // incl. the regular BUILD-page EUCLID editor) ⇒ byte-identical, no band drawn.
     var footerStates: [EuclidFooterState]? = nil
+    // NOTES TAB ferry (2026-10-19, §10.4-§10.5) — passthroughs to `EuclidCometBar`: a pip on each hit the notes will play (0 none / 1 fill / 2 ring, per step), the grey footer fill (riff off,
+    // WHEN one-sided) and whether the notes strike on a rest hit (so its flash is solid). nil / false / false (every other caller) ⇒ byte-identical.
+    var notesPips: [UInt8]? = nil
+    var notesPlayPhrase: String? = nil
+    var footerGrey: Bool = false
+    var notesStrikeOnRest: Bool = false
     // STEP-COUNT BADGE (EUCLIDEOUS PAGE REWORK, Paul 2026-10-07: "a step count shown as a number" beside the
     // comet bar, permanently) — an optional trailing sibling in the SAME play+comet HStack, same additive-
     // nil-default shape as `trailingContent` above. nil (every existing BUILD-page call site) ⇒ byte-identical.
@@ -228,7 +234,7 @@ struct EuclidLaneBox: View {
                            rate: rate, spanN: spanN, tilt: patternOverride != nil ? 0 : line.tiltResolved,
                            missStyle: patternOverride != nil ? false : line.patternMissResolved,
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
-                           footerStates: footerStates, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
+                           footerStates: footerStates, notesPips: notesPips, notesPlayPhrase: notesPlayPhrase, footerGrey: footerGrey, notesStrikeOnRest: notesStrikeOnRest, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
                            restartChains: restartChains, mutedAt: mutedAt,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
@@ -331,6 +337,12 @@ struct EuclidCometBar: View {
     // names step `i`'s own box, no re-indexing needed). nil (every other caller — the regular BUILD-page
     // EUCLID editor, Euclideous's own MASK-tab bar) ⇒ no band drawn, byte-identical.
     var footerStates: [EuclidFooterState]? = nil
+    // NOTES TAB ferry (2026-10-19, §10.4-§10.5) — passthroughs to `EuclidCometBar`: a pip on each hit the notes will play (0 none / 1 fill / 2 ring, per step), the grey footer fill (riff off,
+    // WHEN one-sided) and whether the notes strike on a rest hit (so its flash is solid). nil / false / false (every other caller) ⇒ byte-identical.
+    var notesPips: [UInt8]? = nil
+    var notesPlayPhrase: String? = nil
+    var footerGrey: Bool = false
+    var notesStrikeOnRest: Bool = false
     // EXACT DIMENSIONS (2026-10-13 "lane card, exact dimensions" ferry) — Euclideous's own cell styling: zero
     // side insets (the ferry's own cell-width table — 25.63/16.08/12.25 at 8/12/16 steps — only reconciles
     // with `euclidBoxGeometry`'s formula when the FULL steps-area width is used, hand-verified), flat LANE-
@@ -523,7 +535,7 @@ struct EuclidCometBar: View {
                             // (age/recede/burst, untouched) rendered as an outline instead of a filled shape.
                             let flashStyle = euclideousHitFlashStyle(
                                 footerState: (footerStates != nil && i < footerStates!.count) ? footerStates![i] : nil,
-                                onRest: riffOnRest)
+                                onRest: riffOnRest, notesStrikeOnRest: notesStrikeOnRest)
                             if flashStyle == .solid {
                                 // a top-lit gradient fill — a flat fill read as a dead swatch; light-to-dark top-to-
                                 // bottom gives each box a glassy, lit-from-above quality, brightening further on its
@@ -591,6 +603,14 @@ struct EuclidCometBar: View {
                         let notch = CGRect(x: rect.maxX - 3 - 4, y: rect.minY + 3, width: 4, height: 4)
                         ctx.fill(Path(roundedRect: notch, cornerRadius: 1), with: .color(.white.opacity(0.6)))
                     }
+                    // NOTES TAB PIP (ferry 2026-10-19 §10.4): a 6pt pip, centred, its top 7pt below the cell's top, on each hit the notes will play — a fill at CHANCE 100, a 1.25pt ring
+                    // below it (CHANCE may skip the hit). Cells under 8pt wide get none. Read from the same footer prediction the band below draws from.
+                    if let pips = notesPips, i < pips.count, pips[i] != 0, rect.width >= 8 {
+                        let pipRect = CGRect(x: rect.midX - 3, y: rect.minY + 7, width: 6, height: 6)
+                        let ink = Color(red: 13.0 / 255, green: 15.0 / 255, blue: 20.0 / 255).opacity(0.62)
+                        if pips[i] == 1 { ctx.fill(Path(ellipseIn: pipRect), with: .color(ink)) }
+                        else { ctx.stroke(Path(ellipseIn: pipRect.insetBy(dx: 0.625, dy: 0.625)), with: .color(ink), lineWidth: 1.25) }
+                    }
                     // FOOTER BAND (2026-10-13 ferry §1): a 14pt band across the bottom of THIS cell, clipped to
                     // the cell's own rounded shape (so only its bottom two corners read rounded — the top edge
                     // sits well inside the cell, away from the top corners, so it's naturally straight/dashed
@@ -608,7 +628,7 @@ struct EuclidCometBar: View {
                             case .hit(let riffStep):
                                 // riffStep == nil ⇒ "riff off, notes lit" (ferry §1, 3rd bullet) — same fill,
                                 // no number; riffStep != nil ⇒ "riff on, sounds" — fill + the riff-step number.
-                                layer.fill(Path(band), with: .color(Color(hex: 0xDFE3EA)))
+                                layer.fill(Path(band), with: .color(Color(hex: footerGrey ? 0x6B707A : 0xDFE3EA)))   // NOTES TAB §10.5: grey while the riff is off but still decides
                                 if showFooterNumber, let riffStep {
                                     let txt = Text("\(riffStep)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
                                     layer.draw(layer.resolve(txt), at: CGPoint(x: band.midX, y: band.midY))
@@ -695,6 +715,9 @@ struct EuclidCometBar: View {
                 }
             }
             .allowsHitTesting(false)
+            // NOTES TAB §11.10: on the NOTES tab the strip's value adds which hits the notes will play ("The notes play on hits 3, 5 and 8")
+            .accessibilityElement(children: .contain)
+            .accessibilityValue(notesPlayPhrase ?? "")
         }
         }
         // LEFTOVER RULE (2026-10-14 ferry, "Step groups on the lane step row" §3): a 2pt bar, 1pt corner
