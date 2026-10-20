@@ -5070,7 +5070,7 @@ struct EuclideousPage: View {
     /// this page uses (frozen at the anchor while the transport is stopped).
     /// PULSE §9.1: the strike effects keep their TimelineViews running while the page plays AND for the 1.5 s after it stops (the decays and the marks' fade), then idle. `pulseSettleTick` is bumped once
     /// when that window ends so the body re-evaluates and the views pause.
-    private var pulseLive: Bool { clock.playing || pulseFeed.isSettling(now: Date()) }
+    private var pulseLive: Bool { _ = pulseSettleTick; return clock.playing || pulseFeed.isSettling(now: Date()) }   // reading the tick is what makes its bump re-evaluate the body
     private func walkTagBeat(at date: Date) -> Double {
         clock.playing ? clock.anchor + date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
     }
