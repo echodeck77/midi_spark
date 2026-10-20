@@ -331,9 +331,11 @@ struct EuclidLine: Codable, Equatable {
             return (0b0000_0001, false, false, false, true)
         }
     }
-    var litNotesResolved: UInt8 { litNotes ?? litMigrated.lit }
-    var topLitResolved: Bool { topLit ?? litMigrated.top }
-    var top2LitResolved: Bool { top2Lit ?? litMigrated.top2 }
+    // NOTES TAB ferry (§5.2): the three below are READ-ONLY PROJECTIONS of the lit order (`litOrderResolved`); `litNotes`/`topLit`/`top2Lit` themselves are
+    // only the legacy decode source and what the encoder writes.
+    var litNotesResolved: UInt8 { litOrderResolved.rankMask }
+    var topLitResolved: Bool { litOrderResolved.hasTop }
+    var top2LitResolved: Bool { litOrderResolved.hasTop2 }
     var riffOnResolved: Bool { riffOn ?? litMigrated.riffOn }
     /// True exactly when none of `litNotes`/`topLit`/`top2Lit`/`riffOn` have been explicitly set AND the
     /// legacy migration landed on the "unexpected value" branch — i.e. this lane genuinely needs the
@@ -583,6 +585,45 @@ struct EuclidLine: Codable, Equatable {
     // euclideousSliderCommit's STEPS case (Derivations.swift) for where these are read and written.
     var hitsRequested: Int? = nil
     var offsetRequested: Int? = nil
+    // NOTES TAB ferry (2026-10-19, §5): WHEN the lit notes play (PLAYS / RESTS), how many of those hits get through (CHANCE), HOW they play (PLAY AS),
+    // whether lit octave copies stay silent (RECEIVED), and the ONE stored source of truth for what is lit — the lit ORDER. APPENDED LAST (memberwise-init
+    // order), additive-Optional, decode-tolerant.
+    //  · `notesWhen`: bit 0 PLAYS, bit 1 RESTS. DEFAULT 0b11 (not nil) so a lane made in this build always SAVES its WHEN — nil only ever comes from a document
+    //    saved before this feature, and the decoder migrates it (`migratedNotesWhen`) so an old lane sounds exactly as it did.
+    //  · `notesLitOrder`: lit positions in the order they were lit, 0-7 = ranks 1-8, 8 = TOP 2, 9 = TOP. `litNotes`/`topLit`/`top2Lit` stay decodable but are
+    //    READ-ONLY PROJECTIONS of it (`litNotesResolved` & co.); setting the order rewrites all three so the encoder always writes them in agreement.
+    var notesWhen: UInt8? = 0b11
+    var notesChance: Int? = nil
+    var notesPlayAs: EuclidNotesPlayAs? = nil
+    var notesReceivedOnly: Bool? = nil
+    var notesLitOrder: [UInt8]? = nil {
+        didSet { if let a = notesLitOrder, let o = EuclideousLitOrder(valid: a) { litNotes = o.rankMask; topLit = o.hasTop; top2Lit = o.hasTop2 } }
+    }
+    var notesWhenResolved: UInt8 { let w = (notesWhen ?? 0b11) & 0b11; return w == 0 ? 0b11 : w }
+    var notesPlaysResolved: Bool { notesWhenResolved & 0b01 != 0 }
+    var notesRestsResolved: Bool { notesWhenResolved & 0b10 != 0 }
+    var notesChanceResolved: Int { EuclidLine.nearestLegalNotesChance(notesChance ?? 100) }
+    var notesPlayAsResolved: EuclidNotesPlayAs { notesPlayAs ?? .chord }
+    var notesReceivedOnlyResolved: Bool { notesReceivedOnly ?? false }
+    /// The lit order: the stored one when valid, else (5.2) the lit ranks from low to high, then TOP 2, then TOP.
+    var litOrderResolved: EuclideousLitOrder {
+        if let a = notesLitOrder, let o = EuclideousLitOrder(valid: a) { return o }
+        return EuclideousLitOrder.derived(litNotes: litNotes ?? litMigrated.lit, top: topLit ?? litMigrated.top, top2: top2Lit ?? litMigrated.top2)
+    }
+    /// The ONE writer of what is lit — stores the order (and, through its observer, the three projected fields).
+    mutating func setLitOrder(_ o: EuclideousLitOrder) { notesLitOrder = o.array }
+    /// Nearest of 25 / 50 / 75 / 100 (60 -> 50, 63 -> 75, 0 -> 25, 200 -> 100).
+    static func nearestLegalNotesChance(_ v: Int) -> Int {
+        var best = 25
+        for c in [25, 50, 75, 100] where abs(c - v) < abs(best - v) { best = c }
+        return best
+    }
+    /// 5.6: a lane saved before WHEN existed. Riff OFF: the lit notes sound on every hit -> both. Riff ON: SKIP and TIE silence the lit notes on a rest hit
+    /// (the hit returns before the lit-notes layer) -> PLAYS only; FILL and REPEAT sound them on a rest hit -> both.
+    static func migratedNotesWhen(riffOn: Bool, onRest: EuclidRiffOnRest) -> UInt8 {
+        guard riffOn else { return 0b11 }
+        switch onRest { case .skip, .tie: return 0b01; case .fill, .repeatLast: return 0b11 }
+    }
     var hitsRequestedResolved: Int { hitsRequested ?? pulses }
     /// The same mirrored-OFFSET quantity `euclideousSliderRange(.offset)` displays (Derivations.swift) —
     /// `(steps − rotate mod steps) mod steps` — so a fresh/unrequested lane's "remembered" OFFSET is exactly
@@ -784,7 +825,83 @@ extension EuclidLine {
         restartMelodyPasses = try c.decodeIfPresent([UInt8].self, forKey: .restartMelodyPasses)
         hitsRequested = try c.decodeIfPresent(Int.self, forKey: .hitsRequested)
         offsetRequested = try c.decodeIfPresent(Int.self, forKey: .offsetRequested)
+        // NOTES TAB ferry (2026-10-19, §5): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset.
+        let rawWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)).flatMap { $0 }
+        notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)
+        notesPlayAs = (try? c.decodeIfPresent(EuclidNotesPlayAs.self, forKey: .notesPlayAs)).flatMap { $0 }
+        notesReceivedOnly = (try? c.decodeIfPresent(Bool.self, forKey: .notesReceivedOnly)).flatMap { $0 }
+        // 5.2: a valid order wins and the legacy trio is rewritten from it; otherwise (missing OR invalid) the order stays nil and `litOrderResolved` derives it.
+        notesLitOrder = nil
+        if let a = (try? c.decodeIfPresent([UInt8].self, forKey: .notesLitOrder)).flatMap({ $0 }), let o = EuclideousLitOrder(valid: a) {
+            notesLitOrder = o.array; litNotes = o.rankMask; topLit = o.hasTop; top2Lit = o.hasTop2
+        }
+        // 5.6 migration, here so every load path (presets, sessions, the host's saved state, paste) gets it. FILL leaves ON REST (§9): it decodes as SKIP, whatever
+        // the lane's WHEN. A lane with no stored WHEN gets the sound-preserving one; one with a stored WHEN keeps it (`& 3`, neither bit -> both).
+        if let w = rawWhen {
+            let m = w & 0b11
+            notesWhen = m == 0 ? 0b11 : m
+        } else {
+            notesWhen = EuclidLine.migratedNotesWhen(riffOn: riffOnResolved, onRest: riffOnRestResolved)
+        }
+        if riffOnRest == .fill { riffOnRest = .skip }
     }
+}
+// NOTES TAB ferry (2026-10-19, §5.1): the seven ways the lit notes play on a hit they are chosen for. String-raw like every sibling enum; an unknown stored value
+// decodes as CHORD (never a whole-session reset).
+enum EuclidNotesPlayAs: String, Codable, CaseIterable {
+    case chord = "CHORD", roll = "ROLL", run = "RUN", cycle = "CYCLE", bounce = "BOUNCE", split = "SPLIT", build = "BUILD"
+    init(from decoder: Decoder) throws {
+        let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
+        self = EuclidNotesPlayAs(rawValue: raw) ?? .chord
+    }
+}
+/// The lit positions in the order they were lit, as FIXED-SIZE data (ten bytes and a count — the render thread reads it, so no array): 0-7 are ranks 1-8, 8 is
+/// TOP 2 and 9 is TOP. No repeats, at most ten.
+struct EuclideousLitOrder: Equatable {
+    static let topTwoPosition = 8, topPosition = 9
+    private(set) var count = 0
+    private var bytes = SIMD16<UInt8>(repeating: 0)
+    init() {}
+    /// nil when `a` has a repeat or a value outside 0...9 ("valid" in 5.2).
+    init?(valid a: [UInt8]) {
+        guard a.count <= 10 else { return nil }
+        var seen = 0
+        var o = EuclideousLitOrder()
+        for v in a {
+            guard v <= 9, seen & (1 << Int(v)) == 0 else { return nil }
+            seen |= 1 << Int(v); o.bytes[o.count] = v; o.count += 1
+        }
+        self = o
+    }
+    /// 5.2: the lit ranks from low to high, then TOP 2, then TOP.
+    static func derived(litNotes: UInt8, top: Bool, top2: Bool) -> EuclideousLitOrder {
+        var o = EuclideousLitOrder()
+        for r in 0..<8 where litNotes & (1 << UInt8(r)) != 0 { o.append(r) }
+        if top2 { o.append(topTwoPosition) }
+        if top { o.append(topPosition) }
+        return o
+    }
+    subscript(i: Int) -> Int { Int(bytes[i]) }
+    func contains(_ position: Int) -> Bool { for i in 0..<count where Int(bytes[i]) == position { return true }; return false }
+    /// Place of `position` in the order (0-based), or nil.
+    func index(of position: Int) -> Int? { for i in 0..<count where Int(bytes[i]) == position { return i }; return nil }
+    mutating func append(_ position: Int) {
+        guard position >= 0, position <= 9, count < 10, !contains(position) else { return }
+        bytes[count] = UInt8(position); count += 1
+    }
+    mutating func remove(_ position: Int) {
+        guard let at = index(of: position) else { return }
+        var i = at
+        while i + 1 < count { bytes[i] = bytes[i + 1]; i += 1 }
+        count -= 1; bytes[count] = 0
+    }
+    /// Lighting adds to the end of the order; unlighting takes it out (2.11).
+    mutating func toggle(_ position: Int) { contains(position) ? remove(position) : append(position) }
+    var array: [UInt8] { (0..<count).map { bytes[$0] } }
+    /// The projected `litNotes` bitmask (bit i = rank i + 1).
+    var rankMask: UInt8 { var m: UInt8 = 0; for i in 0..<count where bytes[i] < 8 { m |= 1 << bytes[i] }; return m }
+    var hasTop: Bool { contains(EuclideousLitOrder.topPosition) }
+    var hasTop2: Bool { contains(EuclideousLitOrder.topTwoPosition) }
 }
 // LISTEN TAB enums (ferry 2026-10-14) — String-raw, matching every sibling enum on this struct.
 enum EuclideousRhythmMode: String, Codable, CaseIterable { case follow = "FOLLOW", with = "WITH", gaps = "GAPS" }

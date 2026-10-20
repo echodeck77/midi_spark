@@ -738,6 +738,22 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertFalse(untouched.euclidLines[0].patternMissResolved, "nil defaults to HIT, not MISS")
     }
 
+    // NOTES TAB (2026-10-19, §13 test 10): WHEN / CHANCE / PLAY AS / RECEIVED / the lit order must survive the fresh-literal reconstruction. `notesWhen` DEFAULTS
+    // to both, so a stored PLAYS-only that the literal forgot would silently turn back into both on every render.
+    func testNotesTabFieldsSurviveSnapshotBuild() {
+        var line = EuclidLine(target: 0, pulses: 4, steps: 8)
+        line.notesWhen = 0b01; line.notesChance = 50; line.notesPlayAs = .cycle; line.notesReceivedOnly = true
+        var o = EuclideousLitOrder(); o.append(7); o.append(4); o.append(9); line.setLitOrder(o)
+        let a = box(machines(customizing: 0) { $0.paramsA.euclidLines = [line] }) { _ in }.machines[0].a
+        let r = a.euclidLines[0]
+        XCTAssertEqual(r.notesWhenResolved, 0b01); XCTAssertEqual(r.notesChanceResolved, 50); XCTAssertEqual(r.notesPlayAsResolved, .cycle)
+        XCTAssertTrue(r.notesReceivedOnlyResolved); XCTAssertEqual(r.litOrderResolved.array, [7, 4, 9])
+        XCTAssertEqual(r.litNotesResolved, 0b1001_0000); XCTAssertTrue(r.topLitResolved)
+        let untouched = box(machines(customizing: 0) { $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)] }) { _ in }.machines[0].a
+        XCTAssertEqual(untouched.euclidLines[0].notesWhenResolved, 0b11); XCTAssertEqual(untouched.euclidLines[0].notesChanceResolved, 100)
+        XCTAssertEqual(untouched.euclidLines[0].notesPlayAsResolved, .chord); XCTAssertFalse(untouched.euclidLines[0].notesReceivedOnlyResolved)
+    }
+
     // RIFF/NOTES SPLIT (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs") —
     // notesOn/noteOctShifts/notesVelOffset must ALSO survive the fresh-literal reconstruction, the exact
     // standing regression class every entry in this cluster already guards for.

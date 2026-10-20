@@ -5490,16 +5490,18 @@ func euclideousNotesLayerIsOn(_ line: EuclidLine) -> Bool { line.notesOnResolved
 /// layer on. De-selecting a note never turns anything off by itself — the layer just reads off once the last one goes.
 func euclideousToggleNotesKey(_ line: inout EuclidLine, rank: Int) {
     guard (1...8).contains(rank) else { return }
-    if !line.notesOnResolved { line.notesOn = true }
-    line.litNotes = line.litNotesResolved ^ (1 << UInt8(rank - 1))
+    euclideousToggleLitPosition(&line, position: rank - 1)
 }
-func euclideousToggleNotesTop(_ line: inout EuclidLine) {
+func euclideousToggleNotesTop(_ line: inout EuclidLine) { euclideousToggleLitPosition(&line, position: EuclideousLitOrder.topPosition) }
+func euclideousToggleNotesTop2(_ line: inout EuclidLine) { euclideousToggleLitPosition(&line, position: EuclideousLitOrder.topTwoPosition) }
+/// NOTES TAB ferry §2.11: a tap lights or unlights a key through the lit ORDER — lighting adds it to the END, unlighting takes it out, lighting it again later puts it at
+/// the end. Positions 0-7 are ranks 1-8, 8 is TOP 2, 9 is TOP. One edit, so one undo step; and — as before — a tap on an off layer also turns it on.
+func euclideousToggleLitPosition(_ line: inout EuclidLine, position: Int) {
+    guard (0...9).contains(position) else { return }
     if !line.notesOnResolved { line.notesOn = true }
-    line.topLit = !line.topLitResolved
-}
-func euclideousToggleNotesTop2(_ line: inout EuclidLine) {
-    if !line.notesOnResolved { line.notesOn = true }
-    line.top2Lit = !line.top2LitResolved
+    var o = line.litOrderResolved
+    o.toggle(position)
+    line.setLitOrder(o)
 }
 
 // ── the VELOCITY strip label (Paul 2026-10-18: "VEL" → "velocity") ─────────────────────────────────────────────────────

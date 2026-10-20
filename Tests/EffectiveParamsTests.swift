@@ -1128,7 +1128,7 @@ final class EffectiveParamsTests: XCTestCase {
         l.patternMiss = true; l.rate = .r1_8; l.emitterMask = 0b0110; l.useRiff = true; l.melodyMode = .riff; l.litNotes = 0b0101_0101
         l.topLit = true; l.top2Lit = true; l.riffOn = false; l.riffRotate = 2; l.riffOctave = -2; l.riffDir = .pendulum; l.riffDirSeed = 9
         l.riffDirBias = 0.25; l.mask = EuclidLineMask(); l.sourceMode = .midi; l.tilt = -0.3; l.riffLock = true; l.riffInvert = true
-        l.riffOnRest = .fill; l.riffStride = 3; l.riffLength = 5; l.riffAdvanceStep = true; l.melodyTranspose = -2
+        l.riffOnRest = .repeatLast; l.riffStride = 3; l.riffLength = 5; l.riffAdvanceStep = true; l.melodyTranspose = -2
         l.customHits = [true, false, true]; l.notesOn = false; l.noteOctShifts = [1, -1, 0, 0, 0, 0, 0, 1]; l.notesVelOffset = -20
         l.resetSteps = 4; l.restartMask = 0b0000_0101; l.listenRhythmMode = .gaps; l.listenRhythmPartner = 2; l.listenFollowMult = -1
         l.listenPitchMode = .avoid; l.listenPitchPartner = 1; l.listenPitchPartnerAny = true; l.listenShadowInterval = 3; l.listenShadowOctave = -1
@@ -1137,6 +1137,9 @@ final class EffectiveParamsTests: XCTestCase {
         l.muteCells16 = 0x0F3C; l.muteUnit = 3; l.restartRhythmMask16 = 0x0121; l.restartMelodyMask16 = 0x8040; l.restartUnit = 4   // LANES GRID
         l.restartRhythmBars = [2, 1]; l.restartMelodyPasses = [1]; l.hitsRequested = 5; l.offsetRequested = 3   // RESTART CHAINS (2026-10-19)
         l.riffAdvanceEvery = 3; l.riffShiftRequested = 4   // RIFF WALK (2026-10-19)
+        // NOTES TAB (2026-10-19). riffOnRest is `.repeatLast` above, not `.fill`: FILL leaves ON REST and decodes as SKIP by design (§9).
+        l.notesWhen = 0b01; l.notesChance = 50; l.notesPlayAs = .split; l.notesReceivedOnly = true
+        var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {
             let m = Mirror(reflecting: child.value)
