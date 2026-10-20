@@ -43,6 +43,7 @@ struct EuclideousArrowShape: Shape {
 struct EuclideousArrowView: View {
     let spec: EuclideousArrowSpec
     private typealias S = EuclideousArrowStyle
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PULSE §7.3: no arrow scale (the glow stays)
 
     private func gradient(_ stops: [EuclideousBlendStop]) -> LinearGradient {
         LinearGradient(stops: stops.map { Gradient.Stop(color: Color($0.colour, alpha: $0.alpha), location: CGFloat($0.position)) }, startPoint: .leading, endPoint: .trailing)
@@ -89,13 +90,13 @@ struct EuclideousArrowView: View {
         ZStack(alignment: .topLeading) {
             body_
                 .frame(width: spec.size.width, height: spec.size.height, alignment: .topLeading)
-                .shadow(color: spec.flareColour.map { Color($0, alpha: S.flareAlpha * strength) } ?? .clear, radius: spec.flareColour == nil ? 0 : S.flareRadius)
+                .shadow(color: spec.flareColour.map { Color($0, alpha: S.flareAlpha * strength) } ?? .clear, radius: spec.flareColour == nil ? 0 : S.flareRadius * CGFloat(strength))   // PULSE §4.1: blur 12 × f
             label.font(.system(size: spec.labelSize, weight: .heavy, design: .monospaced)).lineLimit(1).truncationMode(.tail)
                 .frame(width: spec.labelRect.width, height: spec.labelRect.height)
                 .offset(x: spec.labelRect.minX, y: spec.labelRect.minY)
         }
         .frame(width: spec.size.width, height: spec.size.height, alignment: .topLeading)
-        .scaleEffect(1 + (S.flareScale - 1) * strength)
+        .scaleEffect(euclideousPulseFilter(.arrowScale, scale: 1, reduceMotion: reduceMotion) == .off ? 1 : 1 + (S.flareScale - 1) * strength)   // §4.1: 1 + 0.24 × f
         .opacity(spec.opacity)
     }
 }
@@ -125,7 +126,7 @@ struct EuclideousRailsView: View {
                 .fill(LinearGradient(colors: [c.opacity(EuclideousArrowStyle.topAlpha), c.opacity(EuclideousArrowStyle.bottomAlpha)], startPoint: .top, endPoint: .bottom))
                 .background {
                     if flare > 0 {
-                        RoundedRectangle(cornerRadius: r + 2).fill(c.opacity(S.glowAlpha * flare)).padding(-S.glowSpread).blur(radius: S.glowRadius / 2)
+                        RoundedRectangle(cornerRadius: r + 2).fill(c.opacity(S.glowAlpha * flare)).padding(-S.glowSpread).blur(radius: S.glowRadius / 2 * flare)   // PULSE §4.4: blur 8 × f, spread 2, lane100 @ 65% × f
                     }
                 }
                 .overlay {

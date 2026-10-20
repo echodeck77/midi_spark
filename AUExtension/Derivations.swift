@@ -7899,8 +7899,8 @@ enum EuclideousArrowStyle {
     static let shadowAlpha = 0.45, shadowRadius: CGFloat = 0.75, shadowY: CGFloat = 1
     static let hollowStrokeWidth: CGFloat = 1.5, hollowDash: [CGFloat] = [3, 2]
     static let mutedAlpha = 0.42
-    /// 4.7: the glow is a 6pt BLUR (CSS terms); SwiftUI's shadow radius is half the CSS blur (this codebase's own rule — 1.5pt blur ⇒ radius 0.75), so 3.
-    static let flareBlur: CGFloat = 6, flareRadius: CGFloat = 3, flareAlpha = 0.85, flareScale: CGFloat = 1.06
+    /// PULSE §4.1 (replacing rails 4.7's 6pt glow and 1.06 scale): the flare's PEAK — scale 1 + 0.24 × f, a glow of blur 12 × f (SwiftUI shadow radius = half a CSS blur, so 6 × f) at 85% × f.
+    static let flareBlur: CGFloat = 12, flareRadius: CGFloat = 6, flareAlpha = 0.85, flareScale: CGFloat = 1.24
     static let labelSizes: [CGFloat] = [10, 8.5, 6.5, 6]     // by lane count 1…4
     static let tipRadius: CGFloat = 0.9, tipSoftening: CGFloat = 1.3
     /// The width and height of the arrow centred in a cell: width cellW − 7, height min(18, cellH − 8).
@@ -8764,7 +8764,7 @@ func euclideousPulseFilter(_ effect: EuclideousPulseEffect, scale p: Double, red
 /// One strike as the feed keeps it: the onset beat (the engine's real beat — it maps the strike to its comet tile) and `onsetAt`, the same moment on the DISPLAY clock (`timeIntervalSinceReferenceDate`),
 /// worked out ONCE when the event arrives from the dejittered beat anchor the comet dot reads — so a strike draws in the frame the dot reaches its tile, and keeps decaying in wall time even after the
 /// anchor stops advancing (a stopped transport re-anchors every poll). `riffVel` / `notesVel` are the velocities those layers played (0 = that layer didn't strike on this hit).
-struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Double; var riffVel: UInt8; var notesVel: UInt8 }
+struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Double; var riffVel: UInt8; var notesVel: UInt8; var rank: Int8 = -1 }   // `rank`: the riff-grid row the engine reports for this hit (REPEAT's is the repeated note's); -1 = none
 
 /// 9.2: the small retained list per lane, filled from the existing NOTE VIEW poll (nothing new is polled). Main-thread only (filled by the poll, read inside the surfaces' TimelineViews), held in
 /// `LiveTelemetry` so filling it never re-runs the page body. A strike is a kind 0 / 3 event that carries notes; a rest flash (kind 2), a tied rest with nothing struck and a muted / FX-tied hit post
@@ -8787,7 +8787,7 @@ final class EuclideousPulseFeed {
             var notes: UInt8 = 0
             if ev.notes.count > first { for i in first..<ev.notes.count { notes = max(notes, vel(i)) } }
             let at = anchorAt.timeIntervalSinceReferenceDate + (ev.onsetBeat - anchorBeat) * secPerBeat
-            rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes))
+            rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes, rank: ev.hasRiffNote ? ev.rank : -1))
             if rings[lane].count > Self.ringCap { rings[lane].removeFirst(rings[lane].count - Self.ringCap) }
         }
     }
@@ -8798,6 +8798,8 @@ final class EuclideousPulseFeed {
         return rings[lane].last(where: keep)
     }
     func latestRiff(lane: Int) -> EuclideousPulseStrike? { latest(lane: lane) { $0.riffVel > 0 } }
+    /// The latest strike that has HAPPENED by `now` (a reference-date time) on the given layer — a strike still in the future is not there yet, and must not hide the one before it that is still fading.
+    func latestHappened(lane: Int, now: Double, riff: Bool) -> EuclideousPulseStrike? { latest(lane: lane) { $0.onsetAt <= now && (riff ? $0.riffVel > 0 : $0.notesVel > 0) } }
     func latestNotes(lane: Int) -> EuclideousPulseStrike? { latest(lane: lane) { $0.notesVel > 0 } }
     /// Called from the poll when the playing flag is (re)read — only an EDGE does anything: a start clears the strikes of the last run (their beats mean nothing now), a stop stamps the moment.
     func noteTransport(playing now: Bool, at when: Date) {

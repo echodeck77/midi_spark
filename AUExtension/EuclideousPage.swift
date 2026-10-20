@@ -4871,7 +4871,15 @@ struct EuclideousPage: View {
         let flare: Double           // 0…1, the comet bar's burst + afterglow since the lane's latest real strike
         let plan: EuclideousWalkTagPlan?
     }
-    private func riffLaneFrames(ranks: [Int], beat: Double) -> [RiffLaneFrame] {
+    /// PULSE §4: lane `lane`'s riff strike as the riff panel shows it — the flash f of its latest riff strike that has happened by `now` (a reference-date time), scaled by the played velocity and P, and the
+    /// grid row the engine reported for it. nil when nothing is flaring. A gap hit makes no strike, so it never appears here (2.4).
+    private func riffPulse(_ lane: Int, now: Double) -> (f: Double, rank: Int, lane: Int)? {
+        let p = euclideousPulseScale(level: pulseLevel)
+        guard p > 0, let s = pulseFeed.latestHappened(lane: lane, now: now, riff: true) else { return nil }
+        let env = euclideousPulseEnvelopes(velocity: Int(s.riffVel), seconds: now - s.onsetAt, scale: p)
+        return env.f >= 0.01 ? (env.f, Int(s.rank), lane) : nil
+    }
+    private func riffLaneFrames(ranks: [Int], beat: Double, now: Double = Date().timeIntervalSinceReferenceDate) -> [RiffLaneFrame] {
         let spb = 60.0 / max(1.0, clock.tempo)
         return (0..<4).compactMap { i in
             guard i < lines.count, let cfg = riffWalkConfig(i) else { return nil }
@@ -4879,8 +4887,7 @@ struct EuclideousPage: View {
             let riffOn = walkTagShows(i)
             let running = clock.playing && line.enabledResolved
             let muted = !euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats)
-            let ev = i < strikeEvents.count ? strikeEvents[i] : nil
-            let flare = clock.playing ? euclideousArrowFlare(onsetBeat: ev?.onsetBeat, beat: beat, stepBeats: (line.rate ?? .r1_16).beats) : 0
+            let flare = riffPulse(i, now: now)?.f ?? 0   // PULSE §4.1: velocity-scaled flash of the lane's latest riff strike (was the comet bar's step-based flare)
             // `running` is NOT gated on the mute: a muted hit still advances the walk, and the arrow / rail stay on it (dimmed to 42%).
             let plan = (riffOn && i < riffPositions.count)
                 ? euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i], running: running,
@@ -4903,9 +4910,9 @@ struct EuclideousPage: View {
         return (w.current, w.trail, euclideousArrowHeading(riffDir: f.cfg.riffDir, length: f.cfg.length, stride: f.cfg.stride, every: f.cfg.every, ordinal: w.ordinal))
     }
     private func riffPanelOverlay(layout: EuclideousRiffPanelLayout, ranks: [Int], suppressArrows: Bool, played: [Set<Int>]) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !clock.playing)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
             let beat = walkTagBeat(at: tl.date)
-            let frames = riffLaneFrames(ranks: ranks, beat: beat)
+            let frames = riffLaneFrames(ranks: ranks, beat: beat, now: tl.date.timeIntervalSinceReferenceDate)
             let cells = suppressArrows ? [] : riffArrowCells(frames)
             ZStack(alignment: .topLeading) {
                 ForEach(cells.indices, id: \.self) { k in
@@ -4916,6 +4923,12 @@ struct EuclideousPage: View {
                     }
                     if let spec = euclideousArrowSpec(cellW: layout.cellW, cellH: layout.cellH, members: members, hollow: cell.hollow) {
                         let cf = layout.cellFrame(column: cell.column, rank: cell.rank)
+                        // PULSE §4.2: the light note cell under a flaring arrow takes a lane100 overlay at 80% × f (the strongest flaring lane in it), drawn under the arrow; the cell's own colour
+                        // returns as f falls. A hollow (rest-cell) arrow has no light cell to tint.
+                        if !cell.hollow, let top = members.max(by: { $0.flare < $1.flare }), top.flare > 0 {
+                            RoundedRectangle(cornerRadius: 3).fill(laneAccents[top.lane % laneAccents.count].opacity(0.8 * top.flare))
+                                .frame(width: cf.width, height: cf.height).offset(x: cf.minX, y: cf.minY)
+                        }
                         EuclideousArrowView(spec: spec)
                             .offset(x: cf.midX - spec.size.width / 2, y: cf.midY - spec.size.height / 2)
                     }
@@ -4937,7 +4950,22 @@ struct EuclideousPage: View {
     /// pool (MIDI IN, nothing held) shows "–" in `#4A4E57` on every row (Live states §1) instead of a note
     /// name. "For MIDI IN and CHORD, spell flats by default" (rule 2) — only KEY keeps the existing
     /// root-driven sharp/flat choice (`euclideousKeyIsFlat`).
+    /// PULSE §4.3: the row of a flaring arrow draws its name in lane100 while f > 0.12, with a text glow of blur 10 × f (radius 5 × f) at f; the strongest lane wins a row. Its own small TimelineView (eight Texts)
+    /// reading the same feed the arrows read — nothing is re-derived.
+    private func riffNameLights(now: Double) -> [Int: (colour: Color, f: Double)] {
+        var out: [Int: (colour: Color, f: Double)] = [:]
+        for lane in 0..<4 {
+            guard let s = riffPulse(lane, now: now), (1...8).contains(s.rank), euclideousPulseNameLit(f: s.f) else { continue }
+            if (out[s.rank]?.f ?? 0) < s.f { out[s.rank] = (laneAccents[lane % laneAccents.count], s.f) }
+        }
+        return out
+    }
     private func riffNoteLabelColumn(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+            riffNoteLabelColumnBody(pool: pool, source: source, cellH: cellH, lights: riffNameLights(now: tl.date.timeIntervalSinceReferenceDate))
+        }
+    }
+    private func riffNoteLabelColumnBody(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat, lights: [Int: (colour: Color, f: Double)]) -> some View {
         // DEAD-CODE FIX (2026-10-13 adversarial review): `euclideousGlobalPoolExtended` was built specifically
         // to feed THIS label column with the correct octave-extended note for ranks beyond the raw held-note
         // count, but was never actually wired in — every rank past `pool.count` showed a plain "–" even though
@@ -4955,7 +4983,8 @@ struct EuclideousPage: View {
                 // relative to the actually-held chord instead (see `euclideousDisplayNoteName`'s own doc).
                 let label: String = hasNote ? euclideousDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType) : "–"
                 Text(label).font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(hasNote ? (isReal ? Color(hex: 0xDFE3EA) : Color(hex: 0xDFE3EA).opacity(0.55)) : Color(hex: 0x4A4E57))
+                    .foregroundColor(lights[rank]?.colour ?? (hasNote ? (isReal ? Color(hex: 0xDFE3EA) : Color(hex: 0xDFE3EA).opacity(0.55)) : Color(hex: 0x4A4E57)))
+                    .shadow(color: lights[rank].map { $0.colour.opacity($0.f) } ?? .clear, radius: lights[rank].map { 5 * CGFloat($0.f) } ?? 0)
                     .frame(width: riffLabelColW, height: cellH, alignment: .trailing)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(hasNote ? "Rank \(rank), \(euclideousAccessibleDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType))" : "Rank \(rank), no note")
