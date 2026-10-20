@@ -639,6 +639,9 @@ final class Router {
     // every call site writes its (small, ≤8) note list into IN PLACE before calling this function with
     // just a count; nothing here or at any call site constructs a new array.
     private var nvScratch = [UInt8](repeating: 0, count: Router.noteViewMaxNotes)
+    /// PULSE ferry (§1.3): the velocity each `nvScratch` pitch played with — parallel storage, fixed-size, written beside `nvScratch` at the Euclideous push sites only.
+    private var nvVelScratch = [UInt8](repeating: 0, count: Router.noteViewMaxNotes)
+    private var nvVels = [UInt8](repeating: 0, count: 4 * Router.noteViewRing * Router.noteViewMaxNotes)
     /// Records ONE step's outcome for `lane` (0...3) — called from inside `runEuclidLine` at its 3 real
     /// decision points (hit, miss-playing, rest-flash). Reads `noteCount` entries from `nvScratch`
     /// (written by the caller just before this call) — the FINAL, already-transposed/octave-shifted,
@@ -648,7 +651,7 @@ final class Router {
     /// is pre-capped at `noteViewMaxNotes` by every caller (ample for any realistic chord). Write-side
     /// `nvNew` is capped at the ring size (never over-counted), matching `focusNoteNew`'s own idiom
     /// exactly — the ring naturally keeps-newest/drops-oldest with no extra branching needed.
-    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, noteCount: Int, column: Int8 = -1, rank: Int8 = -1, hasRiffNote: Bool = false) {
+    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, noteCount: Int, column: Int8 = -1, rank: Int8 = -1, hasRiffNote: Bool = false, withVels: Bool = false) {
         guard lane >= 0, lane < 4 else { return }
         let slot = lane * Router.noteViewRing + nvHead[lane]
         nvOnsetBeat[slot] = onsetBeat; nvDurationBeat[slot] = durationBeat; nvKind[slot] = kind
@@ -658,6 +661,7 @@ final class Router {
         nvNoteCount[slot] = UInt8(nc)
         let nbase = slot * Router.noteViewMaxNotes
         for i in 0..<Router.noteViewMaxNotes { nvNotes[nbase + i] = i < nc ? nvScratch[i] : 0 }
+        for i in 0..<Router.noteViewMaxNotes { nvVels[nbase + i] = (withVels && i < nc) ? nvVelScratch[i] : 0 }   // PULSE §1.3: 0 = this site reports no velocities
         nvHead[lane] = (nvHead[lane] + 1) % Router.noteViewRing
         if nvNew[lane] < Router.noteViewRing { nvNew[lane] &+= 1 }
     }
@@ -1633,7 +1637,8 @@ final class Router {
                 let nbase = slot * Router.noteViewMaxNotes
                 let cnt = Int(nvNoteCount[slot])
                 let notes = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvNotes[nbase + $0] }
-                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], hostSeconds: nvHostSeconds[slot]))
+                let vels = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvVels[nbase + $0] }
+                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], hostSeconds: nvHostSeconds[slot], vels: vels))
             }
             out.append(events)
         }
@@ -4924,10 +4929,10 @@ final class Router {
                                     }
                                     if nvSent {
                                         var nc = 0
-                                        for i in 0..<n where nc < Router.noteViewMaxNotes { if let p = finalPitch(Int(euclideousLastSoundedNotes[lineIndex * 9 + i]), oct: 0) { nvScratch[nc] = p; nc += 1 } }
+                                        for i in 0..<n where nc < Router.noteViewMaxNotes { if let p = finalPitch(Int(euclideousLastSoundedNotes[lineIndex * 9 + i]), oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = euclideousLastSoundedVels[lineIndex * 9 + i]; nc += 1 } }
                                         if nc > 0 {
                                             let (onset, duration) = nvTiming(gb)
-                                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc)
+                                            pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc, withVels: true)
                                         }
                                     }
                                 }
@@ -5576,7 +5581,7 @@ final class Router {
                                 }
                                 if nvSent {
                                     var nc = 0
-                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nc += 1 } }
+                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nc += 1 } }
                                     if nc > 0 {
                                         let (onset, duration) = nvTiming(repGb)
                                         // WIPE TELEMETRY: a REPEAT TRIGGER (this branch) still reports the
@@ -5589,7 +5594,7 @@ final class Router {
                                         // substitute). Only -1/-1 when riff is off/FILL/SKIP-degraded this
                                         // tick, same as every other push site.
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieOf(0) > 0 ? 3 : 0, noteCount: nc,
-                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote)
+                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true)
                                     }
                                 }
                                 return
@@ -5774,11 +5779,11 @@ final class Router {
                                 // ("a downstream ECHO echoes only strike 0, not the ratchet copies").
                                 if nvSent {
                                     var nc = 0
-                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nc += 1 } }
+                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nc += 1 } }
                                     if nc > 0 {
                                         let (onset, duration) = nvTiming(repSpacing * pitchGate[0])   // NOTE VIEW's one duration: pitch 0's
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc,
-                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote)
+                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true)
                                     }
                                 }
                                 cacheWholeSet()
@@ -5827,11 +5832,11 @@ final class Router {
                             cacheWholeSet()
                             if nvSent {
                                 var nc = 0
-                                for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nc += 1 } }
+                                for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nc += 1 } }
                                 if nc > 0 {
                                     let (onset, duration) = nvTiming(gateBeatsWithTie(pitchGate[0], tieOf(0)))   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieOf(0) > 0 ? 3 : 0, noteCount: nc,
-                                                       column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote)
+                                                       column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true)
                                 }
                             }
                             return

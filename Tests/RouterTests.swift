@@ -14169,4 +14169,63 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertGreaterThan(e.ons.count, 100)
     }
+
+    // MARK: PULSE ferry §1.3 — the hit event carries the velocity each pitch actually played with
+    /// Every struck pitch of every posted event has a note-on on the wire at that onset with exactly the velocity the event reports (riff note first when `hasRiffNote`, then the notes layer).
+    private func assertEventVelsMatchTheWire(_ e: RecordingEmitter, _ events: [Router.EuclideousNoteViewEventSnapshot], _ context: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(events.isEmpty, "\(context): the lane posted events", file: file, line: line)
+        for ev in events where ev.kind == 0 || ev.kind == 3 {
+            XCTAssertEqual(ev.vels.count, ev.notes.count, "\(context): one velocity per note", file: file, line: line)
+            let onsetSample = ev.onsetBeat * 24_000
+            for (i, note) in ev.notes.enumerated() {
+                let wire = e.ons.first { $0.cable == 1 && $0.note == note && abs(Double($0.sample) - onsetSample) <= 3 }
+                XCTAssertNotNil(wire, "\(context): a note-on for \(note) at beat \(ev.onsetBeat)", file: file, line: line)
+                if let wire, i < ev.vels.count { XCTAssertEqual(wire.vel, ev.vels[i], "\(context): the event's velocity for note \(note) is what was sent", file: file, line: line) }
+            }
+        }
+    }
+    func testTheNoteViewEventCarriesThePlayedVelocityOfTheRiffAndTheNotesLayer() {
+        // riff on (ranks 1…8 walked FWD at one hit a beat), rank 8 lit; VEL 90 (the riff pad), notes velocity 60 (the notes pad)
+        var line = fxLine(gate: 0.5, vel: 90, litNotes: 0b1000_0000)
+        line.notesVelocity = 60
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(fxBox([line]), chord(fxPoolNotes), beats: 4, into: e, forceColumn: 0)
+        let events = router.drainEuclideousNoteViewEvents()[0]
+        assertEventVelsMatchTheWire(e, events, "plain")
+        XCTAssertEqual(events.first?.hasRiffNote, true); XCTAssertEqual(events.first?.vels.first, 90, "the riff note plays the lane's VEL"); XCTAssertEqual(events.first?.vels.dropFirst().first, 60, "the notes layer plays the notes pad's velocity")
+        // FX VEL on the column the first hit reads (row 3 = VEL): both layers are re-weighted, and the event reports what was actually sent
+        let fx = fxCells([(row: 3, col: 0, v: 40), (row: 3, col: 2, v: 120)], lanes: [3: 0b0001])
+        let e2 = RecordingEmitter()
+        let r2 = runKeepingRouter(fxBox([line], fx: fx), chord(fxPoolNotes), beats: 4, into: e2, forceColumn: 0)
+        let ev2 = r2.drainEuclideousNoteViewEvents()[0]
+        assertEventVelsMatchTheWire(e2, ev2, "FX VEL")
+        XCTAssertNotEqual(ev2.first?.vels.first, 90, "the FX VEL cell changed the riff note's velocity — and the event follows it")
+        // riff off: the notes layer alone, no riff note, its velocity in vels[0]
+        var off = fxLine(gate: 0.5, vel: 90, litNotes: 0b0000_0100, riffOn: false); off.notesVelocity = 55
+        let e3 = RecordingEmitter()
+        let r3 = runKeepingRouter(fxBox([off]), chord(fxPoolNotes), beats: 3, into: e3, forceColumn: 0)
+        let ev3 = r3.drainEuclideousNoteViewEvents()[0]
+        assertEventVelsMatchTheWire(e3, ev3, "riff off")
+        XCTAssertEqual(ev3.first?.hasRiffNote, false); XCTAssertEqual(ev3.first?.vels, [55])
+    }
+    func testAMutedLanesStrikesPostNoEventAndANotesStrikeOnARestIsNotARiffStrike() {
+        // the LANES grid mutes the whole lane: no strike event at all (1.6)
+        var muted = fxLine(gate: 0.5, vel: 90, litNotes: 0b1000_0000); muted.muteCells16 = 0; muted.muteUnit = EuclideousMuteUnit.pass.rawValue
+        let e = RecordingEmitter()
+        let router = runKeepingRouter(fxBox([muted]), chord(fxPoolNotes), beats: 4, into: e, forceColumn: 0)
+        XCTAssertTrue(router.drainEuclideousNoteViewEvents()[0].filter { $0.kind == 0 || $0.kind == 3 }.isEmpty, "a muted lane strikes nothing, so nothing pulses")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty)
+        // a rest hit under SKIP with the notes playing on it (WHEN RESTS): an event with notes but NO riff note — the comet bar passes through, the notes surfaces strike
+        var rest = notesExLine(onRest: .skip, riffOn: true, gate: 0.5); rest.notesWhen = 0b10; rest.notesVelocity = 70
+        let e2 = RecordingEmitter()
+        let r2 = runKeepingRouter(fxBox([rest], ranks: notesExRanks), chord(notesExPool), beats: 3.9, into: e2, forceColumn: 0)   // one pass: the next pass's first hit is at beat 4
+        let all = r2.drainEuclideousNoteViewEvents()[0].filter { $0.kind == 0 || $0.kind == 3 }
+        let restHits = all.filter { !$0.hasRiffNote }, riffHits = all.filter { $0.hasRiffNote }
+        XCTAssertEqual(restHits.count, 3, "the hits on 3, 5 and 8 are rest hits: the notes strike there with no riff note")
+        XCTAssertTrue(restHits.allSatisfy { $0.vels.allSatisfy { $0 == 70 } }, "…at the notes pad's velocity")
+        XCTAssertEqual(riffHits.count, 2, "the hits on 1 and 6 are riff strikes"); XCTAssertTrue(riffHits.allSatisfy { $0.vels.first == 100 }, "…at the lane's own VEL (the default 100)")
+        let feed = EuclideousPulseFeed(); feed.ingest(lane: 0, events: all)
+        XCTAssertEqual(feed.strikes(lane: 0).filter { $0.riffVel == 0 && $0.notesVel == 70 }.count, 3)
+        XCTAssertEqual(feed.strikes(lane: 0).filter { $0.riffVel == 100 }.count, 2)
+    }
 }
