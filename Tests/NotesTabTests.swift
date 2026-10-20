@@ -247,4 +247,59 @@ final class NotesTabTests: XCTestCase {
         XCTAssertEqual(slot, 1.0 / 6.0, accuracy: 1e-12); XCTAssertEqual(ms(slot, bpm: 110), 90.91, accuracy: 0.01)
         XCTAssertEqual(euclideousNotesRunSlotBeats(stepBeats: 0.5, m: 2), 0.25)
     }
+
+    // MARK: 12. layout
+    private func near(_ r: CGRect, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(r.minX, x, accuracy: 0.01, "\(msg) x", file: file, line: line); XCTAssertEqual(r.minY, y, accuracy: 0.01, "\(msg) y", file: file, line: line)
+        XCTAssertEqual(r.width, w, accuracy: 0.01, "\(msg) w", file: file, line: line); XCTAssertEqual(r.height, h, accuracy: 0.01, "\(msg) h", file: file, line: line)
+    }
+    func testTheLayoutAtTheReferenceMatchesTheFerrysFrames() {
+        // the reference card 358.5 × 312: content x 10-348.5 (338.5 wide), y 94-302 (208 tall) — card coordinates below subtract (10, 94)
+        let l = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 338.5)
+        near(l.strip, 0, 0, 35, 208, "strip")
+        near(l.keyRow, 38, 0, 300.5, 82, "key row"); near(l.whenRow, 38, 86, 300.5, 38, "WHEN row"); near(l.playAsRow, 38, 128, 300.5, 38, "PLAY AS row"); near(l.soundRow, 38, 170, 300.5, 38, "SOUND ONLY row")
+        let ranksX: [(CGFloat, CGFloat)] = [(48, 75.85), (77.85, 105.7), (107.7, 135.55), (137.55, 165.4), (167.4, 195.25), (197.25, 225.1), (227.1, 254.95), (256.95, 284.8), (290.8, 318.65), (320.65, 348.5)]
+        for (i, k) in l.keys.enumerated() { near(k, ranksX[i].0 - 10, 0, ranksX[i].1 - ranksX[i].0, 82, "key \(i)") }
+        near(l.whenLabel, 38, 86, 48, 38, "WHEN label"); near(l.plays, 90, 86, 76.25, 38, "PLAYS"); near(l.rests, 170.25, 86, 76.25, 38, "RESTS"); near(l.chance, 250.5, 86, 88, 38, "CHANCE")
+        near(l.playAsLabel, 38, 128, 48, 38, "PLAY AS label"); near(l.playAs, 90, 128, 248.5, 38, "PLAY AS button")
+        near(l.soundLabel, 38, 170, 48, 38, "SOUND ONLY label"); near(l.received, 90, 170, 248.5, 38, "RECEIVED")
+        near(l.picker, 0, 0, 338.5, 208, "picker"); near(l.pickerHeader, 6, 6, 326.5, 18, "picker header"); near(l.pickerClose, 302.5, 6, 30, 18, "close")
+        let top: [(CGFloat, CGFloat)] = [(16, 122.17), (126.17, 232.33), (236.33, 342.5)], bottom: [(CGFloat, CGFloat)] = [(16, 94.625), (98.625, 177.25), (181.25, 259.875), (263.875, 342.5)]
+        for (i, c) in top.enumerated() { near(l.pickerCells[i], c.0 - 10, 122 - 94, c.1 - c.0, 85, "top cell \(i)") }
+        for (i, c) in bottom.enumerated() { near(l.pickerCells[3 + i], c.0 - 10, 211 - 94, c.1 - c.0, 85, "bottom cell \(i)") }
+        XCTAssertFalse(l.underFloor)
+    }
+    func testTheLayoutAtNarrowerContentWidthsFlagsOnlyWhatFallsUnderTheFloors() {
+        let at300 = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 300)
+        XCTAssertEqual(at300.keys[0].width, 24, accuracy: 0.01); XCTAssertEqual(at300.plays.width, 57, accuracy: 0.01); XCTAssertEqual(at300.rests.width, 57, accuracy: 0.01)
+        XCTAssertEqual(at300.playAs.width, 210, accuracy: 0.01); XCTAssertFalse(at300.underFloor, "keys exactly at the 24 floor: no flag")
+        let at290 = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 290)
+        XCTAssertEqual(at290.keys[0].width, 23, accuracy: 0.01); XCTAssertTrue(at290.underFloor); XCTAssertEqual(at290.floorFlags.count, 1)
+        // heights: the WHEN row stays 38 and the key row takes the rest of the upper zone; a short card flags the key row
+        let short = euclideousNotesTabLayout(contentAreaH: 180, fullWidth: 338.5)
+        XCTAssertEqual(short.whenRow.height, 38); XCTAssertEqual(short.keyRow.height, 54, accuracy: 0.01); XCTAssertTrue(short.underFloor)
+    }
+    func testPreviewBarsAndPlaceNumbersFollowThePlayList() {
+        let l = list([7, 4, 5], pool: exPool)   // C4 (rank 8), G3 (rank 5), A♭3 (rank 6)
+        // CHORD / CYCLE bars span their row; RUN splits the row by m; ROLL is 76% wide with the stagger
+        XCTAssertEqual(euclideousNotesPreviewBars(list: l, way: .chord, k: 0), [.init(rank: 8, x: 0, w: 1), .init(rank: 5, x: 0, w: 1), .init(rank: 6, x: 0, w: 1)])
+        XCTAssertEqual(euclideousNotesPreviewBars(list: l, way: .cycle, k: 4), [.init(rank: 5, x: 0, w: 1)])
+        let run = euclideousNotesPreviewBars(list: l, way: .run, k: 0)
+        XCTAssertEqual(run.map { $0.x }, [0, 1.0 / 3, 2.0 / 3]); XCTAssertEqual(run.map { $0.w }, [1.0 / 3, 1.0 / 3, 1.0 / 3])
+        let roll = euclideousNotesPreviewBars(list: l, way: .roll, k: 0)   // k even: low to high = G3, A♭3, C4
+        XCTAssertEqual(roll.map { $0.rank }, [5, 6, 8]); XCTAssertEqual(roll.map { $0.w }, [0.76, 0.76, 0.76])
+        for (b, want) in zip(roll, [0.0, 0.12, 0.24]) { XCTAssertEqual(b.x, want, accuracy: 1e-12) }
+        XCTAssertEqual(euclideousNotesPreviewBars(list: list([7], pool: exPool), way: .run, k: 0), [.init(rank: 8, x: 0, w: 1)], "one note spans its row")
+        XCTAssertEqual(euclideousNotesPreviewBars(list: list([9], pool: Array(40..<50)), way: .chord, k: 0), [], "TOP over a pool of ten sits on no grid row")
+        // 11. place numbers: CYCLE on the example gives C4 1, G3 2, A♭3 3; CHORD / ROLL / SPLIT none
+        let cycle = euclideousNotesPlaceNumbers(list: l, way: .cycle)
+        XCTAssertEqual(cycle[7], "1"); XCTAssertEqual(cycle[4], "2"); XCTAssertEqual(cycle[5], "3"); XCTAssertNil(cycle[0])
+        for way in [EuclidNotesPlayAs.chord, .roll, .split] { XCTAssertEqual(euclideousNotesPlaceNumbers(list: l, way: way).compactMap { $0 }, []) }
+        // with C E♭ G held, ranks 1-5 lit and RECEIVED on: C3 1, E♭3 2, G3 3 and none on C4 or E♭4
+        let held = list([0, 1, 2, 3, 4], pool: [48, 51, 55], received: true)
+        let pn = euclideousNotesPlaceNumbers(list: held, way: .cycle)
+        XCTAssertEqual(Array(pn[0..<5]), ["1", "2", "3", nil, nil])
+        // TOP 2 keeps its pair: two places
+        XCTAssertEqual(euclideousNotesPlaceNumbers(list: list([7, 8], pool: exPool), way: .cycle)[8], "2\u{2013}3")
+    }
 }

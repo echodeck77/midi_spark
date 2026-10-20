@@ -8410,3 +8410,189 @@ func euclideousNotesRollSpacingBeats(m: Int, gapBeats: Double, lenBeats: Double,
 }
 /// 7.4: RUN's slot in beats — the lane's step length ÷ m. Note j starts j × slot after the hit and lasts its effective gate as a share of its slot.
 @inline(__always) func euclideousNotesRunSlotBeats(stepBeats: Double, m: Int) -> Double { m > 0 ? stepBeats / Double(m) : stepBeats }
+
+// MARK: - NOTES TAB layout (ferry 2026-10-19, §1, §3, §4) — every frame, from the content width and the two zones' heights
+//
+// Frames are in the tab's CONTENT coordinates: (0, 0) is the top-left of the upper zone (card x 10, y 94 at the reference), `width` the content width (338.5 at the reference) and `height` both zones and
+// the gap between them (208). The upper zone is the RHYTHM tab's own (`contentAreaH − patternBlockH(80) − sp4`), the lower zone its fixed 80.
+
+struct EuclideousNotesTabLayout: Equatable {
+    static let stripW: CGFloat = 35, stripGap: CGFloat = 3, labelW: CGFloat = 48, rowH: CGFloat = 38, chanceW: CGFloat = 88
+    static let keyGap: CGFloat = 2, topTwoExtraGap: CGFloat = 4, pickerPad: CGFloat = 6, pickerHeaderH: CGFloat = 18, closeW: CGFloat = 30
+    static let keyFloorW: CGFloat = 24, keyRowFloorH: CGFloat = 64, rowFloorH: CGFloat = 32
+    var content: CGRect
+    var strip: CGRect
+    var keys: [CGRect]                 // ranks 1-8, then TOP 2, then TOP
+    var keyRow: CGRect, whenRow: CGRect, playAsRow: CGRect, soundRow: CGRect
+    var whenLabel: CGRect, playAsLabel: CGRect, soundLabel: CGRect
+    var plays: CGRect, rests: CGRect, chance: CGRect, playAs: CGRect, received: CGRect
+    var picker: CGRect, pickerHeader: CGRect, pickerClose: CGRect
+    var pickerCells: [CGRect]          // CHORD, ROLL, RUN, then CYCLE, BOUNCE, SPLIT, BUILD
+    var underFloor: Bool
+    var floorFlags: [String]
+}
+func euclideousNotesTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGFloat = 4) -> EuclideousNotesTabLayout {
+    typealias L = EuclideousNotesTabLayout
+    let patternBlockH: CGFloat = 80
+    let upperH = max(1, contentAreaH - patternBlockH - sp4)
+    let lowerRowH = max(1, (patternBlockH - sp4) / 2)
+    let keyRowH = max(1, upperH - sp4 - L.rowH)
+    let colX = L.stripW + L.stripGap
+    let colW = max(1, fullWidth - colX)
+    let keyW = max(1, (colW - (7 * L.keyGap + (L.keyGap + L.topTwoExtraGap) + L.keyGap)) / 10)
+    var keys: [CGRect] = []
+    var x = colX
+    for i in 0..<10 {
+        keys.append(CGRect(x: x, y: 0, width: keyW, height: keyRowH))
+        x += keyW + L.keyGap + (i == 7 ? L.topTwoExtraGap : 0)
+    }
+    let whenY = keyRowH + sp4, playAsY = upperH + sp4, soundY = playAsY + lowerRowH + sp4
+    let ctrlX = colX + L.labelW + sp4                 // where a row's controls start, after its label column
+    let toggleW = max(1, (fullWidth - ctrlX - L.chanceW - sp4 - sp4) / 2)
+    let plays = CGRect(x: ctrlX, y: whenY, width: toggleW, height: L.rowH)
+    let rests = CGRect(x: plays.maxX + sp4, y: whenY, width: toggleW, height: L.rowH)
+    let chance = CGRect(x: fullWidth - L.chanceW, y: whenY, width: L.chanceW, height: L.rowH)
+    let wide = max(1, fullWidth - ctrlX)
+    let playAs = CGRect(x: ctrlX, y: playAsY, width: wide, height: lowerRowH)
+    let received = CGRect(x: ctrlX, y: soundY, width: wide, height: lowerRowH)
+    // the picker: both zones and the gap, 6 pt padding, a header row, then two rows of ways splitting the rest
+    let pad = L.pickerPad
+    let innerW = max(1, fullWidth - 2 * pad)
+    let waysH = max(1, (contentAreaH - 2 * pad - L.pickerHeaderH - 2 * sp4) / 2)
+    let row1Y = pad + L.pickerHeaderH + sp4, row2Y = row1Y + waysH + sp4
+    let top3W = max(1, (innerW - 2 * sp4) / 3), bottom4W = max(1, (innerW - 3 * sp4) / 4)
+    var cells: [CGRect] = []
+    for i in 0..<3 { cells.append(CGRect(x: pad + CGFloat(i) * (top3W + sp4), y: row1Y, width: top3W, height: waysH)) }
+    for i in 0..<4 { cells.append(CGRect(x: pad + CGFloat(i) * (bottom4W + sp4), y: row2Y, width: bottom4W, height: waysH)) }
+    var flags: [String] = []
+    if keyW < L.keyFloorW { flags.append("keys \(keyW)") }
+    if keyRowH < L.keyRowFloorH { flags.append("key row \(keyRowH)") }
+    if L.rowH < L.rowFloorH || lowerRowH < L.rowFloorH { flags.append("rows \(min(L.rowH, lowerRowH))") }
+    return EuclideousNotesTabLayout(
+        content: CGRect(x: 0, y: 0, width: fullWidth, height: contentAreaH),
+        strip: CGRect(x: 0, y: 0, width: L.stripW, height: contentAreaH),
+        keys: keys,
+        keyRow: CGRect(x: colX, y: 0, width: colW, height: keyRowH),
+        whenRow: CGRect(x: colX, y: whenY, width: colW, height: L.rowH),
+        playAsRow: CGRect(x: colX, y: playAsY, width: colW, height: lowerRowH),
+        soundRow: CGRect(x: colX, y: soundY, width: colW, height: lowerRowH),
+        whenLabel: CGRect(x: colX, y: whenY, width: L.labelW, height: L.rowH),
+        playAsLabel: CGRect(x: colX, y: playAsY, width: L.labelW, height: lowerRowH),
+        soundLabel: CGRect(x: colX, y: soundY, width: L.labelW, height: lowerRowH),
+        plays: plays, rests: rests, chance: chance, playAs: playAs, received: received,
+        picker: CGRect(x: 0, y: 0, width: fullWidth, height: contentAreaH),
+        pickerHeader: CGRect(x: pad, y: pad, width: innerW, height: L.pickerHeaderH),
+        pickerClose: CGRect(x: fullWidth - pad - L.closeW, y: pad, width: L.closeW, height: L.pickerHeaderH),
+        pickerCells: cells, underFloor: !flags.isEmpty, floorFlags: flags)
+}
+
+/// One bar of a way preview (3.3, 4.4): the pool rank row it sits in (1 = the bottom row, 8 = the top) and its horizontal span as fractions of the row's width.
+struct EuclideousNotesPreviewBar: Equatable { var rank: Int; var x: Double; var w: Double }
+/// 10.6: column `k` of a preview shows 7.1's notes for that k with the CURRENT play list — ignoring the riff, WHEN, CHANCE and the riff-pitch drop (7.2). A bar spans its row, except under RUN, where
+/// note j of m covers the j-th m-th of the row left to right in strike order, and under ROLL, where each bar is 76% of the row wide and note j of m starts j × 24 ÷ (m − 1) % in, in strike order.
+/// With one note, either spans its row. A note whose rank is not one of the grid's eight rows (TOP over a pool of more than eight) has no row to sit in.
+func euclideousNotesPreviewBars(list: EuclideousNotesList, way: EuclidNotesPlayAs, k: Int) -> [EuclideousNotesPreviewBar] {
+    let pick = euclideousNotesWayPick(list: list, way: way, k: k)
+    let m = pick.count
+    var bars: [EuclideousNotesPreviewBar] = []
+    for j in 0..<m {
+        let rank = list.rank(pick[j])
+        guard rank >= 1, rank <= 8 else { continue }
+        switch way {
+        case .run where m >= 2: bars.append(EuclideousNotesPreviewBar(rank: rank, x: Double(j) / Double(m), w: 1 / Double(m)))
+        case .roll where m >= 2: bars.append(EuclideousNotesPreviewBar(rank: rank, x: Double(j) * 0.24 / Double(m - 1), w: 0.76))
+        default: bars.append(EuclideousNotesPreviewBar(rank: rank, x: 0, w: 1))
+        }
+    }
+    return bars
+}
+/// 10.3: under RUN, CYCLE, BOUNCE and BUILD each key whose note is in the play list shows its 1-based place in the list; keys left out of the list show none, and CHORD, ROLL and SPLIT show none at
+/// all. Index = lit-order position (0-7 ranks, 8 TOP 2, 9 TOP). TOP 2 keeps its pair, so it can hold two places: "2–3".
+func euclideousNotesPlaceNumbers(list: EuclideousNotesList, way: EuclidNotesPlayAs) -> [String?] {
+    var out = [String?](repeating: nil, count: 10)
+    guard way == .run || way == .cycle || way == .bounce || way == .build else { return out }
+    for pos in 0..<10 {
+        var places: [Int] = []
+        for i in 0..<list.count where list.position(i) == pos { places.append(i + 1) }
+        if let f = places.first, let l = places.last { out[pos] = f == l ? "\(f)" : "\(f)\u{2013}\(l)" }
+    }
+    return out
+}
+
+// MARK: - NOTES TAB VoiceOver (ferry 2026-10-19, §11; U+2019 for apostrophes)
+
+let euclideousNotesKeyRowGroupLabel = "Lit notes: the riff grid\u{2019}s eight rows, then the top two received notes"
+let euclideousNotesWhenGroupLabel = "When the notes play"
+let euclideousNotesPlayAsGroupLabel = "How the lit notes play"
+let euclideousNotesSoundOnlyGroupLabel = "Which lit notes sound"
+let euclideousNotesPickerGroupLabel = "Play the lit notes as"
+let euclideousNotesPickerCloseLabel = "Close, keeping the current way"
+let euclideousNotesPlaysLabel = "Play on hits where the riff plays a note"
+let euclideousNotesRestsLabel = "Play on hits where the riff rests"
+let euclideousNotesReceivedLabel = "Sound only received notes"
+let euclideousNotesReceivedHint = "Lit octave copies stay silent"
+let euclideousNotesPlayAsHint = "Choose another way to play"
+
+/// 11.7: a way’s sentence ("One lit note a hit, in the order you lit them"). 11.8 reads the same sentence after the way’s name.
+func euclideousNotesWayDescription(_ way: EuclidNotesPlayAs) -> String {
+    switch way {
+    case .chord: return "every lit note at once"
+    case .roll: return "every lit note in a quick strum, upwards and downwards on alternate hits"
+    case .run: return "every lit note one after another, spread across the hit\u{2019}s step, in the order you lit them"
+    case .cycle: return "one lit note a hit, in the order you lit them"
+    case .bounce: return "one lit note a hit, through the order you lit them and back"
+    case .split: return "the lowest lit note on one hit, the rest together on the next"
+    case .build: return "one more lit note each hit, in the order you lit them, then start again"
+    }
+}
+private func euclideousNotesCapitalised(_ s: String) -> String { s.prefix(1).uppercased() + s.dropFirst() }
+/// 11.8: "Chord: every lit note at once".
+func euclideousNotesWayAccessibilityLabel(_ way: EuclidNotesPlayAs) -> String { "\(euclideousNotesCapitalised(way.rawValue.lowercased())): \(euclideousNotesWayDescription(way))" }
+/// 11.7: the button reads "Play as cycle", with the sentence as its value.
+func euclideousNotesPlayAsButtonLabel(_ way: EuclidNotesPlayAs) -> String { "Play as \(way.rawValue.lowercased())" }
+func euclideousNotesPlayAsButtonValue(_ way: EuclidNotesPlayAs) -> String { euclideousNotesCapitalised(euclideousNotesWayDescription(way)) }
+/// 11.5: PLAYS and RESTS are toggles; the only one that is on says why a tap does nothing, and while the riff is off both add that it still decides.
+func euclideousNotesWhenHint(isOnlyOneOn: Bool, riffOn: Bool) -> String {
+    var parts: [String] = []
+    if isOnlyOneOn { parts.append("One of the two always stays on") }
+    if !riffOn { parts.append("The riff is off but still decides") }
+    return parts.joined(separator: ". ")
+}
+/// 11.6: CHANCE as one adjustable element.
+func euclideousNotesChanceValue(_ chance: Int) -> String {
+    chance >= 100 ? "100 percent: every chosen hit plays" : "\(chance) percent: each chosen hit plays \(chance) times in 100"
+}
+/// "1st", "2nd", "3rd", "4th", … "11th".
+func euclideousNotesOrdinal(_ n: Int) -> String {
+    let m100 = n % 100
+    if (11...13).contains(m100) { return "\(n)th" }
+    switch n % 10 { case 1: return "\(n)st"; case 2: return "\(n)nd"; case 3: return "\(n)rd"; default: return "\(n)th" }
+}
+/// 11.3: "Rank 6, A flat 3, received, lit, 3rd in the lit order". `spokenNote` nil = nothing held. `place` is the place number the key shows (10.3), if any.
+func euclideousNotesRankKeyAccessibilityLabel(rank: Int, spokenNote: String?, received: Bool, lit: Bool, heldBack: Bool, place: String?) -> String {
+    var s = "Rank \(rank), \(spokenNote ?? "nothing held"), \(received ? "received" : "an octave copy"), \(lit ? "lit" : "not lit")"
+    if heldBack { s += ", held back because only received notes sound" }
+    if let place { s += ", \(euclideousNotesSpokenPlace(place)) in the lit order" }
+    return s
+}
+/// "3" -> "3rd"; "2–3" -> "2nd and 3rd".
+func euclideousNotesSpokenPlace(_ place: String) -> String {
+    let parts = place.split(separator: "\u{2013}").compactMap { Int($0) }
+    return parts.map(euclideousNotesOrdinal).joined(separator: " and ")
+}
+/// 11.4: TOP 2 keeps its pair ("The two highest received notes, A flat 3 and B flat 3, not lit"; with one received note it is that note); TOP is "The highest received note, B flat 3, lit".
+/// `spokenNotes` empty = nothing held.
+func euclideousNotesTopKeyAccessibilityLabel(isTopTwo: Bool, spokenNotes: [String], lit: Bool, place: String?) -> String {
+    let what: String
+    if isTopTwo { what = spokenNotes.count >= 2 ? "The two highest received notes" : "The highest received note" } else { what = "The highest received note" }
+    let notes = spokenNotes.isEmpty ? "nothing held" : spokenNotes.joined(separator: " and ")
+    var s = "\(what), \(notes), \(lit ? "lit" : "not lit")"
+    if let place { s += ", \(euclideousNotesSpokenPlace(place)) in the lit order" }
+    return s
+}
+/// 11.10: on the NOTES tab the comet strip’s value adds which hits the notes will play — "The notes play on hits 3, 5 and 8" (1-based hit numbers within the lap; nil when none).
+func euclideousNotesPlayHitsPhrase(_ hits: [Int]) -> String? {
+    guard !hits.isEmpty else { return nil }
+    let items = hits.map(String.init)
+    return "The notes play on hit\(hits.count == 1 ? "" : "s") " + euclideousSpokenList(items)
+}
