@@ -43,15 +43,15 @@ cost, what's device-owed), in `Docs/euclideous-status-log.md`.
 - [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "RIFF tab rebuilt / WALK strip" section —
       the strip at real size in all four lane colours, the 55.3pt mini-grid and its 32% dims, the ring's live
       feel, EVERY sounding like held groups, REPEAT sounding like the riff's previous note, a long PING tie.
-- [ ] DECIDE (Paul): `euclideousListenPartnerNoteAt` (LISTEN/SHADOW and LISTEN/AVOID) still computes the riff
-      ordinal the OLD way, never migrated onto the chain engine by the restart-chains ferry despite that
-      ferry's own "no engine or UI code reads riffLock" claim — found again by this ferry's own §0.1(b) audit.
-      Out of THIS ferry's scope (LISTEN tab untouched) but a real, disclosed gap. Worth its own follow-up?
+- [ ] DECIDE (Paul) — AUDITED 2026-10-20, worse than first noted: `euclideousListenPartnerNoteAt` (Derivations.swift; used by Router for LISTEN/SHADOW and LISTEN/AVOID) re-derives the PARTNER's walk by itself
+      and ignores ADVANCE EVERY (no `riffAdvanceEvery`/`euclideousRiffWalkStep`/`euclideousRiffColumn` anywhere in it), the restart CHAINS (`restartRhythmBars`/`restartMelodyPasses`), and the ON REST modes
+      (REPEAT/TIE/FILL), and still reads the retired LOCK flag (`riffLockResolved`). So a SHADOW/AVOID lane whose partner has EVERY ≥ 2, a restart chain or REPEAT follows a different column from the one
+      the partner actually plays. Fix = route it through the chain core the Router and the walk mirror already share (`euclideousLaneChainTick` + `euclideousRiffColumn`, partner's chains) — render-thread
+      engine code, 16 LISTEN tests to keep green, NOT device-verifiable by me (it changes what SHADOW sounds). Recommend doing it; say go.
 - [ ] (accepted) the ON REST row's 4 buttons are each their own VoiceOver element, not grouped under one "On a
       rest in the riff" container label (§9.5's own ask) — would need restructuring the row's hit-testing.
-- [ ] (accepted) the §7 readout/never-play functions recompute on every SwiftUI body evaluation rather than
-      being memoised on their inputs (the ferry's own §7.2 ask) — bounded by the same J ≤ 4096 budget gate
-      either way, but a genuine, disclosed perf gap if it turns out to matter on-device.
+- [x] ~~the §7 readout/never-play functions recompute on every SwiftUI body evaluation rather than being memoised~~ — DONE (2026-10-20): `EuclideousRiffReadoutCache`, one slot per lane keyed on every input;
+      the lane card's mini-grid, the WALK strip and the riff panel's rails now share one computation per edit (tested). The readout's two internal passes remain (see the adversarial follow-up).
 - [ ] (accepted) §7.8/test 14-15's fuller worked-example matrix (chain-based Q, the over-budget and
       longest-readout cases) is implemented per the literal formulas but verified against only 2 of ~14
       examples, for time — not exhaustively diffed.
@@ -67,10 +67,8 @@ cost, what's device-owed), in `Docs/euclideous-status-log.md`.
 - [ ] `riffModesRow` was deleted outright rather than hidden (§0.3's own "hide, don't delete, report anything
       you delete") — never disclosed in the original report. Low risk (fully superseded, no persisted state)
       but worth a one-line acknowledgment or restoring it as dead code, your call.
-- [ ] `euclideousRiffReadout` does two full passes internally (builds `F`/`playedColumns`, then re-walks every
-      tick again for `neverPlayWalkSteps`) and is recomputed independently by the mini-grid AND the WALK strip
-      on the same render — worse than the original "not memoised" disclosure. Worth collapsing to one pass
-      and/or caching per-lane if it turns out to matter on-device.
+- [ ] `euclideousRiffReadout` still does two full passes internally (builds `F`/`playedColumns`, then re-walks every tick again for `neverPlayWalkSteps`). The recompute-per-body half of this is FIXED
+      (cached per lane on its inputs, 2026-10-20); collapsing the two passes would only speed up the recompute that now happens once per edit — do it only if dragging HITS/STEPS hitches on-device.
 - [ ] §11 tests 9 (REPEAT+FX), 13 (REPEAT+lit notes), 17 (the ring's ADV HIT vs ADV STEP behaviour), 19
       (SHIFT's full LEN 8→4→8 walkthrough), 20 (decode-clamp boundary values 0/9/12) remain unwritten.
 

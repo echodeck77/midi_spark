@@ -349,4 +349,42 @@ final class RiffPanelTests: XCTestCase {
                        "Lane 1: plays columns 1 and 2, on 2, heading left, silent at this step")
         XCTAssertEqual(euclideousRailAccessibilityLabel(lane: 2, riffOn: true, running: true, played: [], current: nil, heading: .still, muted: false), "Lane 3: plays no columns")
     }
+
+    // MARK: the readout cache (RIFF WALK §7.2: memoise on the inputs)
+
+    func testReadoutIsComputedOncePerInputsPerLane() {
+        let cache = EuclideousRiffReadoutCache()
+        let harness = [true, false, true, false, true, true, false, true]   // hits 1, 3, 5, 6, 8 (RouterTests' §7.8 harness lane)
+        let a = laneCfg(buf: harness, sub: 0.5, stride: 2)
+        let first = cache.readout(lane: 0, cfg: a), again = cache.readout(lane: 0, cfg: a)
+        XCTAssertEqual(cache.computeCount, 1, "the second ask is a hit")
+        XCTAssertEqual(first?.neverPlay, [1, 3, 5, 7]); XCTAssertEqual(again?.neverPlay, [1, 3, 5, 7])
+        let direct = euclideousRiffReadout(buf: harness, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, chains: .off, legacySpanBeats: 0, advanceStep: false,
+                                           riffDir: .forward, stride: 2, length: 8, shift: 0, every: 1, seed: 0)
+        XCTAssertEqual(first?.neverPlay, direct?.neverPlay); XCTAssertEqual(first?.period, direct?.period)
+        _ = cache.readout(lane: 1, cfg: a)
+        XCTAssertEqual(cache.computeCount, 2, "each lane has its own slot")
+        _ = cache.readout(lane: 0, cfg: a)
+        XCTAssertEqual(cache.computeCount, 2, "…and lane 0's slot survived lane 1's fill")
+        // any input a lane edits recomputes: the riff's STRIDE, its pattern, its restart chains, ADV STEP, EVERY, SHIFT, LEN
+        let edits: [EuclideousWalkLaneConfig] = [laneCfg(buf: harness, sub: 0.5, stride: 3), laneCfg(buf: [true, true, true, true, true, true, true, false], sub: 0.5, stride: 2),
+                                                 laneCfg(buf: harness, sub: 0.5, stride: 2, advanceStep: true), laneCfg(buf: harness, sub: 0.5, stride: 2, every: 2),
+                                                 laneCfg(buf: harness, sub: 0.5, stride: 2, rotate: 1), laneCfg(buf: harness, sub: 0.5, length: 5, stride: 2),
+                                                 laneCfg(buf: harness, sub: 0.25, stride: 2),
+                                                 laneCfg(buf: harness, sub: 0.5, stride: 2, chains: EuclideousLaneRestartChains(rhythm: .free, melody: .from([2]), barBeats: 4, lapBeats: 4))]
+        var expected = 2
+        for e in edits {
+            _ = cache.readout(lane: 0, cfg: e); expected += 1
+            XCTAssertEqual(cache.computeCount, expected, "an edit recomputes")
+            _ = cache.readout(lane: 0, cfg: e)
+            XCTAssertEqual(cache.computeCount, expected, "…and the same edit again is a hit")
+        }
+        // a lane index outside the four slots is simply computed (never cached, never trapped)
+        _ = cache.readout(lane: 9, cfg: a); _ = cache.readout(lane: 9, cfg: a)
+        XCTAssertEqual(cache.computeCount, expected + 2)
+        // the over-budget answer (nil) is cached too — recomputing it is the expensive case
+        let overBudget = laneCfg(buf: [Bool](repeating: true, count: 16), n: 16, sub: 0.25, riffDir: .pingpong, length: 8, stride: 1)
+        _ = cache.readout(lane: 2, cfg: overBudget); let c1 = cache.computeCount; _ = cache.readout(lane: 2, cfg: overBudget)
+        XCTAssertEqual(cache.computeCount, c1)
+    }
 }

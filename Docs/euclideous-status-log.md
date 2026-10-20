@@ -12,6 +12,13 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — follow-up to the RIFF PANEL ferry: the riff readout is memoised (2026-10-20; on `feature/riff-panel-arrows`; iOS builds clean; `RiffPanelTests` 22 green; no behaviour change).** The RIFF WALK ferry's §7.2
+  asked for the readout (the never-play set the lane card's mini-grid dims, the WALK strip's walk steps, and now the rails' played columns) to be memoised on its inputs; it was recomputed on every SwiftUI body
+  evaluation (≈30 Hz) — by the mini-grid and the WALK strip per lane card, and by the rails four more times. New `EuclideousRiffReadoutCache` (Derivations.swift, next to `euclideousRiffReadout`): one slot per lane keyed on every
+  input the function reads (pattern, steps, direction, rate, chains, span, ADV STEP, riff direction, STRIDE, LEN, SHIFT, EVERY, seed), a reference type in the page's `@State` like `lanesRollCache`; `riffReadout(_:)` goes through it. A
+  test proves one computation per distinct input per lane, that each listed edit recomputes, and that an over-budget nil is cached. **AUDITED, NOT CHANGED:** the SHADOW/AVOID partner-note function
+  (`euclideousListenPartnerNoteAt`) ignores ADVANCE EVERY, the restart chains and the ON REST modes and still reads the retired LOCK flag — recommendation and scope in `Docs/pending-tasks.md`; it is render-thread engine code that changes
+  what SHADOW sounds, so it waits for your go.
 - **▶ EUCLIDEOUS — RIFF PANEL ferry: "compact riff tabs, big arrows that blend, and lane rails under the grid" (2026-10-19, ratified by Paul from the "Fourfold layout" canvas, boards 10–12; on
   `feature/riff-panel-arrows`; iOS builds clean; macOS suite 1781 green incl. 21 new `RiffPanelTests`; ALL of it visual is device-owed — I rendered the painters off-device to a PNG with a scratch
   macOS harness and checked the shapes, blends, hollow dashes, flare and rails by eye, which found and fixed one bug: the 10pt chevron inflated the current rail segment to ~13pt tall).** Display only: no model,

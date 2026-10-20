@@ -801,6 +801,7 @@ struct EuclideousPage: View {
     // window change, never per frame). RESTART CHAINS ferry §8: the panel's own MUTE/RESTART sub-tab state
     // (`lanesSubTab`) is retired along with the RESTART view itself — the panel is mute-only now.
     @State private var lanesRollCache = EuclideousLanesRollCache()
+    @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
     // opens, changed only by value drags), the NOTE cell touched last (the strip's preview), the double-tap memory, and whether this touch has opened its undo step.
     @State private var fxSelectedRow = 0
@@ -4746,14 +4747,11 @@ struct EuclideousPage: View {
                                         lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
                                         swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
     }
-    /// The readout for lane `idx`'s current riff settings (§7), nil when over budget. Recomputed on each
-    /// body evaluation — not memoised (§7.2's own ask) given the time available to wire a cache; bounded by
-    /// §7.4's own J <= 4096 gate either way.
+    /// The readout for lane `idx`'s current riff settings (§7), nil when over budget. MEMOISED on its inputs (§7.2's own ask; `EuclideousRiffReadoutCache`): the lane card's mini-grid,
+    /// its WALK strip and the riff panel's rails all read it on every body evaluation, but it is only recomputed when a lane's pattern, rate, chains or riff settings change.
     private func riffReadout(_ idx: Int) -> EuclideousRiffReadout? {
         guard let c = riffWalkConfig(idx) else { return nil }
-        return euclideousRiffReadout(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, chains: c.chains,
-                                     legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep, riffDir: c.riffDir, stride: c.stride,
-                                     length: c.length, shift: c.rotate, every: c.every, seed: c.seed)
+        return riffReadoutCache.readout(lane: idx, cfg: c)
     }
     /// The UI clock's beat at `date` — the same `anchor + elapsed × tempo` extrapolation every other live view on
     /// this page uses (frozen at the anchor while the transport is stopped).

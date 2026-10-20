@@ -27,7 +27,6 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - A blend reads as two lanes, not a fifth colour (blue into amber for 2·3).
 - The arrow now JUMPS to the latest hit's cell (the tag's flight and flip are gone) — does PEND/PING read as turning at each end without the flip?
 - VoiceOver: a cell with an arrow reads "Step 3, E♭, lane 1 heading right"; each rail reads as one element ("Lane 1: plays columns 1 and 3 to 8, on 4, heading right").
-- Body re-evaluation now recomputes 4 riff readouts for the rails (the lane cards already do 4–8): watch for hitching at fast rates.
 
 ### Page layout — six equal boxes (2026-10-19 ferry)
 - Both orientations in AUM on the 11-inch iPad Pro: six equal boxes (landscape 3 × 2, portrait 2 × 3), 8pt apart, 16pt margins, nothing clipped, the header's gear visible in portrait, MIX | LANES | FX all showing.

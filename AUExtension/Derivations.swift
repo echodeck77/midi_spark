@@ -6723,6 +6723,32 @@ func euclideousRiffReadout(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, s
     }
     return EuclideousRiffReadout(hitsPerCycle: H, period: d, neverPlay: neverPlay, neverPlayWalkSteps: neverPlayWalkSteps)
 }
+/// RIFF WALK ferry §7.2 asked for the readout to be MEMOISED on its inputs; it was recomputed on every SwiftUI body evaluation (≈30 Hz, once per lane by the lane card's mini-grid and once
+/// more by its WALK strip — and, since the RIFF PANEL ferry, once more per lane by the rails' played set). One slot per lane, keyed on EVERY input `euclideousRiffReadout` reads, so a hit
+/// returns the same answer the function would and any edit to a lane's pattern, rate, chains or riff settings recomputes it. A reference type the page keeps in `@State` (filling it never
+/// invalidates the view); main thread only — these are not render-thread functions. `computeCount` is for the tests.
+final class EuclideousRiffReadoutCache {
+    struct Key: Equatable {
+        var buf: [Bool], n: Int, dir: EuclidDir, sub: Double, chains: EuclideousLaneRestartChains, spanBeats: Double, advanceStep: Bool
+        var riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64
+    }
+    private var slots: [(key: Key, value: EuclideousRiffReadout?)?] = [nil, nil, nil, nil]
+    private(set) var computeCount = 0
+    private func compute(_ k: Key) -> EuclideousRiffReadout? {
+        computeCount += 1
+        return euclideousRiffReadout(buf: k.buf, n: k.n, dir: k.dir, cycleLen: euclidCycleLen(k.dir, n: k.n), sub: k.sub, chains: k.chains, legacySpanBeats: k.spanBeats,
+                                     advanceStep: k.advanceStep, riffDir: k.riffDir, stride: k.stride, length: k.length, shift: k.shift, every: k.every, seed: k.seed)
+    }
+    func readout(lane: Int, cfg c: EuclideousWalkLaneConfig) -> EuclideousRiffReadout? {
+        let key = Key(buf: c.buf, n: c.n, dir: c.dir, sub: c.sub, chains: c.chains, spanBeats: c.spanBeats, advanceStep: c.advanceStep,
+                      riffDir: c.riffDir, stride: c.stride, length: c.length, shift: c.rotate, every: c.every, seed: c.seed)
+        guard lane >= 0, lane < slots.count else { return compute(key) }
+        if let hit = slots[lane], hit.key == key { return hit.value }
+        let value = compute(key)
+        slots[lane] = (key, value)
+        return value
+    }
+}
 /// §7.5: the readout's own text. `overBudget` is true when `euclideousRiffReadout` itself returned nil.
 func euclideousRiffReadoutText(_ r: EuclideousRiffReadout?, overBudget: Bool) -> String {
     if overBudget { return "CYCLE TOO LONG TO COUNT" }
