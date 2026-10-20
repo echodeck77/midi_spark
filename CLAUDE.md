@@ -264,7 +264,7 @@ the same pipeline as any other row; it is not a special-cased render path.
   drawn from each lane's resolved CHAINS (`euclideousChainRhythmMarkBeats`/`ChainMelodyMarkBeats`) instead
   of the retired masks); RIFFS is hidden. The tab row is tabs only. Every sounding pitch in a
   Euclideous hit carries its OWN gate. A lane's RIFF/NOTES gate tops out at 99% (`euclideousLaneGateMax`; 2026-10-19 — the XY pad no longer offers LEGATO, and a stored 100% loads as 99%);
-  the engine's per-pitch legato is unchanged and now comes only from the FX tab's GATE row (100 = LEGATO).
+  the engine's per-pitch legato is unchanged but nothing the UI or a document can set reaches it any more (the FX tab's GATE row stopped at 95 on 2026-10-20 — `EuclideousFX.gateMax`; a stored 100 loads as 95).
 - **FX tab (2026-10-18).** Third tab of the sequencer panel (both orientations since the PAGE LAYOUT ferry, 2026-10-19 — in portrait the panel sits beside the riff
   panel at the same width, so its columns match the riff grid's; its six rows now SHARE the panel's height, `euclideousFXRowH`). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
   `SnapParams.euclideousFX` → Router. **ONE decision function** `euclideousFXApply` (Derivations.swift) decides what the rows do to a hit; the Router, the TIE

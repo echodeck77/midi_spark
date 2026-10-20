@@ -17,6 +17,11 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### FX GATE row: legato removed; LISTEN SHADOW/AVOID follow the partner's real walk (2026-10-20)
+- FX GATE row: the top cell reads 95 (it was 100 / "LEG"); the strip says only "REPLACES THE LANE'S GATE"; a repeated pitch under a GATE cell re-strikes. A session saved with a GATE 100 cell loads it as 95.
+- LISTEN: give a lane EVERY 2 (or a MELODY restart chain, or a RHYTHM chain that cuts a pass short), put a second lane on FOLLOW + SHADOW (unison) of it — the second lane now sounds the same notes as the first, hit for hit
+  (it used to follow a different column). AVOID/MUTE of such a partner mutes the colliding hits.
+
 ### Riff panel — arrows, rails, compact tabs (2026-10-19 ferry — §12)
 - The 31 × 17 arrows and their numbers in all four lane colours and in every blend (2 / 3 / 4 lanes), on the light note cells — the single-lane fill is the comet tile's 95 → 55% alpha, so its bottom reads paler (one constant if you want the mock's × 0.86).
 - Hollow dashed on-rest arrows on the dark rest cells (SKIP, FILL and REPEAT all draw them; TIE keeps the solid arrow on the tied note).

@@ -11630,6 +11630,87 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(restoredHits, "x.x.x.x.", "T9: blue's own 4-of-8 pattern, unchanged")
         XCTAssertEqual(restoredHits, plainHits, "T9: byte-identical to a blue that was never FOLLOWing at all")
     }
+    // MARK: - LISTEN SHADOW / AVOID follow the partner's REAL walk (fixed 2026-10-20)
+    // `euclideousListenPartnerNoteAt` used to re-derive the partner's riff ordinal by hand from the retired LOCK model: it knew nothing of ADVANCE EVERY or the restart chains, so a SHADOW lane
+    // followed a different column from the one its partner played. It now asks the same chain core + `euclideousRiffColumn` the Router uses. Verified against the OLD function: every test below failed on it except the two
+    // BASELINES (`testAShadowOfAPlainPartnerIsUnchanged` and the one-link melody chain, which the old coarse span re-anchor happened to cover) — those pin that the rewrite changes nothing it got right.
+    /// Red and blue over `beats` (several laps), each lane's struck notes in time order. Same rig as `listenRun` (110 BPM, C minor pool, ranks [1,2,3,5,4,3,2,1]).
+    private func listenBothNotes(_ red: EuclidLine, _ blue: EuclidLine, beats: Double, ranks: [Int] = [1, 2, 3, 5, 4, 3, 2, 1]) -> (red: [UInt8], blue: [UInt8]) {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: ranks)
+        c.paramsA.euclidLines = [red, blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord(listenPoolCMinor), beats: beats, into: e, forceColumn: 0, tempo: 110, sr: 48_000)
+        assertNothingLeftSounding(e)
+        func notes(_ cable: Int) -> [UInt8] { e.ons.filter { $0.cable == cable }.sorted { $0.sample < $1.sample }.map { $0.note } }
+        return (notes(1), notes(2))
+    }
+    private func shadowOf(_ red: EuclidLine) -> EuclidLine {
+        var blue = red                                   // the same rhythm, rate and riff settings…
+        blue.emitterMask = 0b0010
+        blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0
+        blue.listenPitchMode = .shadow; blue.listenPitchPartner = 0; blue.listenShadowInterval = 0; blue.listenShadowOctave = 0   // …a unison shadow
+        return blue
+    }
+    func testShadowFollowsAPartnerWithAdvanceEvery() {
+        var red = listenRedLine(); red.riffAdvanceEvery = 2
+        let (r, b) = listenBothNotes(red, shadowOf(red), beats: 12)
+        XCTAssertGreaterThanOrEqual(r.count, 8, "red struck over three laps")
+        XCTAssertEqual(b, r, "a unison SHADOW sounds exactly what its partner sounds — EVERY 2 groups the partner's hits in pairs, so the shadow must too")
+        XCTAssertNotEqual(Array(r.prefix(4)), [36, 38, 39, 41], "(the walk is not the plain one: the partner's first hits repeat a column)")
+    }
+    func testShadowFollowsAPartnersMelodyRestartChain() {   // BASELINE: a one-link chain was already right
+        var red = listenRedLine(); red.restartMelodyPasses = [1]      // the riff walk restarts at every pass
+        let (r, b) = listenBothNotes(red, shadowOf(red), beats: 12)
+        XCTAssertGreaterThanOrEqual(r.count, 8)
+        XCTAssertEqual(b, r, "the shadow restarts with the partner's melody chain, not on a monotonic ordinal")
+        // and the partner really does restart: the same three notes every lap
+        XCTAssertEqual(Array(r.prefix(3)), Array(r[3..<6]))
+    }
+    func testShadowFollowsAMultiLinkMelodyChain() {
+        var red = listenRedLine(); red.restartMelodyPasses = [1, 2]    // restarts at pass 0 AND pass 1 of every 3-pass cycle — not just at the cycle's start
+        let (r, b) = listenBothNotes(red, shadowOf(red), beats: 16)
+        XCTAssertGreaterThanOrEqual(r.count, 12)
+        XCTAssertEqual(b, r)
+    }
+    func testShadowFollowsARhythmChainThatCutsThePassShort() {
+        var red = listenRedLine(); red.steps = 7; red.pulses = 3        // a 7-step lap is 3.5 beats…
+        red.restartRhythmBars = [1]                                      // …and the rhythm restarts every 4-beat bar, cutting every second pass short
+        let (r, b) = listenBothNotes(red, shadowOf(red), beats: 16)
+        XCTAssertGreaterThanOrEqual(r.count, 12)
+        XCTAssertEqual(b, r)
+    }
+    func testShadowFollowsAnAdvStepPartnerWithEveryAndAChain() {
+        var red = listenRedLine(); red.riffAdvanceStep = true; red.riffAdvanceEvery = 2; red.restartMelodyPasses = [2]
+        let (r, b) = listenBothNotes(red, shadowOf(red), beats: 16)
+        XCTAssertGreaterThanOrEqual(r.count, 10)
+        XCTAssertEqual(b, r)
+    }
+    func testShadowFollowsAPartnerWalkingBackwardsOverAShorterLoopWithShift() {
+        var red = listenRedLine(); red.riffDir = .reverse; red.riffLength = 5; red.riffRotate = 2; red.riffAdvanceEvery = 3
+        let (r, b) = listenBothNotes(red, shadowOf(red), beats: 12)
+        XCTAssertGreaterThanOrEqual(r.count, 8)
+        XCTAssertEqual(b, r)
+    }
+    func testAvoidMuteSeesThePartnersRealNoteWhenItHasAdvanceEvery() {
+        var red = listenRedLine(); red.riffAdvanceEvery = 2
+        var blue = red; blue.emitterMask = 0b0010
+        blue.listenPitchMode = .avoid; blue.listenPitchPartner = 0       // MUTE: blue would play exactly what red plays at every coincident hit
+        let (r, b) = listenBothNotes(red, blue, beats: 12)
+        XCTAssertGreaterThanOrEqual(r.count, 8)
+        XCTAssertEqual(b.count, 0, "every hit collides with red's REAL note (EVERY 2 included), so all are muted — the old function computed a different note for red and let some through")
+    }
+    func testAShadowOfAPlainPartnerIsUnchanged() {
+        // the baseline T5 path: no EVERY, no chains — the rewrite must reproduce the old answer exactly
+        let red = listenRedLine()
+        let (r, b) = listenBothNotes(red, shadowOf(red), beats: 12)
+        XCTAssertEqual(b, r)
+        XCTAssertEqual(Array(r.prefix(3)), [36, 38, 39], "red's first lap: C2 D2 E\u{266D}2 (T5)")
+    }
+
     // MARK: - Adversarial-review fixes (2026-10-15): AVOID+ANY loop-detection gap
     // Lane 0 (red) has PITCH/AVOID with partner ANY — implicitly depending on every other lane. Lane 1
     // (blue) must NOT be allowed to pick lane 0 as its own RHYTHM/PITCH/LEVEL partner, since doing so
@@ -13187,8 +13268,8 @@ final class RouterTests: XCTestCase {
         }
     }
     func testFXRatchWithGateOverrideAndVelocityAndNoteCarriesEveryStrike() {
-        // GATE 100 on a ratcheted hit fills each slot and re-strikes (never merged); VEL and NOTE reach every strike
-        let fx = fxCells([(0, 3, 4), (1, 3, 100), (3, 3, 110), (4, 3, 1)], passes: 4)
+        // GATE 95 (the row's top — there is no legato any more) on a ratcheted hit takes 95% of each slot and re-strikes (never merged); VEL and NOTE reach every strike
+        let fx = fxCells([(0, 3, 4), (1, 3, 95), (3, 3, 110), (4, 3, 1)], passes: 4)
         let e = fxRun(fxBox([fxLine(gate: 0.5, vel: 90)], ranks: [1, 2, 3, 4, 1, 2, 3, 4], fx: fx), beats: 20)
         assertNothingLeftSounding(e)
         // first play of column 3 (beat 3, pass 0 ⇒ as written: rank 4 = 53): four strikes, each the full slot, all at velocity 110
@@ -13196,7 +13277,7 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(first.count, 4)
         for (k, snd) in first.enumerated() {
             XCTAssertEqual(Double(snd.on), 3 * 24_000 + Double(k) * 6_000, accuracy: 3)
-            XCTAssertEqual(Double(snd.off ?? 0) - Double(snd.on), 6_000, accuracy: 4, "100% fills the slot")
+            XCTAssertEqual(Double(snd.off ?? 0) - Double(snd.on), 0.95 * 6_000, accuracy: 4, "95% of the slot")
         }
         XCTAssertTrue(e.ons.filter { $0.cable == 1 && $0.note == 53 }.prefix(4).allSatisfy { $0.vel == 110 })
         // second play of column 3 (beat 7 is column 7; the column comes round at beat 11): pass 1 ⇒ rank 5 = 55, four strikes again
@@ -13224,11 +13305,12 @@ final class RouterTests: XCTestCase {
             XCTAssertEqual(fxSoundings(e, fxPoolNotes[0]).count, 4, "frames \(frames)")
         }
     }
-    func testFXRatchedHitAfterAGate100HitClosesTheHeldNote() {
-        let e = fxRun(fxBox([fxLine(gate: 0.5)], ranks: [1, 1, 1, 1, 1, 1, 1, 1], fx: fxCells([(1, 2, 100), (0, 3, 2)])), beats: 5)
+    func testFXRatchedHitAfterALegatoHitClosesTheHeldNote() {
+        // (legato from the lane's own gate 1.0 — the FX GATE row can no longer produce it; the held same-pitch note now runs from beat 0)
+        let e = fxRun(fxBox([fxLine(gate: 1.0)], ranks: [1, 1, 1, 1, 1, 1, 1, 1], fx: fxCells([(0, 3, 2)])), beats: 5)
         assertNothingLeftSounding(e)
         let evs = e.events.filter { $0.cable == 1 && $0.note == 48 }
-        // the legato note struck at beat 2 is still held at beat 3; the ratcheted hit closes it at its own sample, just before the new strike
+        // the legato note is still held at beat 3; the ratcheted hit closes it at its own sample, just before the new strike
         let on3 = evs.firstIndex { $0.status == 0x90 && abs(Double($0.sample) / 24_000 - 3) < 0.01 }!
         XCTAssertEqual(evs[on3 - 1].status, 0x80); XCTAssertEqual(evs[on3 - 1].sample, evs[on3].sample)
         var sounding = 0
@@ -13242,14 +13324,8 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Double(fxSoundings(e, fxPoolNotes[2])[0].off ?? 0) - Double(fxSoundings(e, fxPoolNotes[2])[0].on), 0.25 * 24_000, accuracy: 3, "GATE 25 → 25% of the gap")
         XCTAssertEqual(Double(fxSoundings(e, fxPoolNotes[1])[0].off ?? 0) - Double(fxSoundings(e, fxPoolNotes[1])[0].on), 0.5 * 24_000, accuracy: 3, "the lane's own 50% elsewhere")
     }
-    func testFXGate100ThenGate100RepeatingAPitchHoldsOneNote() {
-        let e = fxRun(fxBox([fxLine(gate: 0.5)], ranks: [2, 1, 1, 3, 4, 5, 6, 7], fx: fxCells([(1, 1, 100), (1, 2, 100)])), beats: 6)
-        assertNothingLeftSounding(e)
-        let s = fxSoundings(e, 48)
-        XCTAssertEqual(s.count, 1, "one note carried across both hits")
-        XCTAssertEqual(Double(s[0].on), 24_000, accuracy: 3)
-        XCTAssertEqual(Double(s[0].off ?? 0), 3 * 24_000 + 480, accuracy: 6, "ends 10 ms after the next hit (a different pitch)")
-    }
+    // (testFXGate100ThenGate100RepeatingAPitchHoldsOneNote — retired 2026-10-20 with FX GATE 100 = LEGATO: a repeated pitch holding one note is the engine's lane-gate-1.0 legato, covered by
+    // testEuclideousGateLegatoStuckNoteStress…, testRepeatAtLegatoSendsNoNewNoteOnForTheHeldPitch and testMixLegatoIsPerLayerInBothDirections.)
     func testFXGate50OnALaneAt100PercentEndsThatHitAtHalfItsGap() {
         let e = fxRun(fxBox([fxLine(gate: 1.0)], fx: fxCells([(1, 2, 50)])), beats: 5)
         assertNothingLeftSounding(e)
@@ -13258,21 +13334,8 @@ final class RouterTests: XCTestCase {
         // the lane's legato note from the hit before is closed 10 ms after hit 2 (a different pitch), as unmatched pitches always are
         XCTAssertEqual(Double(fxSoundings(e, fxPoolNotes[1])[0].off ?? 0), 2 * 24_000 + 480, accuracy: 6)
     }
-    func testFXGate100OnALaneAt80PercentThenSamePitchLeavesNothingSoundingAndNeverOverlapsItself() {
-        // hit 1 holds (GATE 100); hit 2 reads the SAME pitch at the lane's 80% → the held note closes just before the new note-on, same sample
-        let e = fxRun(fxBox([fxLine(gate: 0.8)], ranks: [2, 1, 1, 2, 1, 1, 2, 1], fx: fxCells([(1, 1, 100)])), beats: 9)
-        assertNothingLeftSounding(e)
-        for note in fxPoolNotes {
-            var sounding = 0
-            for ev in e.events where ev.cable == 1 && ev.note == note && (ev.status == 0x90 || ev.status == 0x80) {
-                sounding += ev.status == 0x90 ? 1 : -1
-                XCTAssertLessThanOrEqual(sounding, 1, "note \(note) overlaps itself")
-            }
-        }
-        let held = fxSoundings(e, 48)[0]
-        XCTAssertEqual(Double(held.on), 24_000, accuracy: 3)
-        XCTAssertEqual(Double(held.off ?? 0), 2 * 24_000, accuracy: 3, "closes at the next hit's own sample")
-    }
+    // (testFXGate100OnALaneAt80Percent… — retired 2026-10-20 with FX GATE 100 = LEGATO: "a held legato pitch the next hit strikes again never overlaps itself" is covered WITHOUT any FX by
+    // `fxRestrikeLine` / the MIX per-layer-gate tests.)
     func testFXTieExtensionUsesTheHitsEffectiveGate() {
         // GATE 50 on hit 1 and TIE on hit 2: gap up to the tied hit in full (1 beat) + 50% × the extension (1 beat) = 1.5 beats
         let e = fxRun(fxBox([fxLine(gate: 0.9)], fx: fxCells([(1, 1, 50), (2, 2, 1)])), beats: 5)
@@ -13306,8 +13369,9 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Double(s[0].off ?? 0) - Double(s[0].on), 0.5 * 12_000, accuracy: 4, "earlier strikes are unchanged: gate × slot")
         XCTAssertEqual(Double(s[1].off ?? 0) - Double(s[1].on), (24_000 - 12_000) + 0.5 * 24_000, accuracy: 8, "the last strike: the gap left to the next hit in full + gate × the 1-beat tie extension")
     }
-    func testFXTieAfterAGate100HitKeepsTheNoteSoundingAndAFirstHitTieIsSilent() {
-        let e = fxRun(fxBox([fxLine(gate: 0.5)], fx: fxCells([(1, 1, 100), (2, 2, 1)])), beats: 5.5)
+    func testFXTieAfterALegatoHitKeepsTheNoteSoundingAndAFirstHitTieIsSilent() {
+        // (legato from the lane's own gate 1.0 — the FX GATE row can no longer produce it)
+        let e = fxRun(fxBox([fxLine(gate: 1.0)], fx: fxCells([(2, 2, 1)])), beats: 5.5)
         assertNothingLeftSounding(e)
         let held = fxSoundings(e, fxPoolNotes[1])[0]
         XCTAssertEqual(Double(held.on), 24_000, accuracy: 3)
@@ -13376,12 +13440,12 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Set(ccEvents(e).map { $0.cable }), [0, 2], "lane 2 → bus B's cable 2 and the ALL cable; nothing on cable 1")
         XCTAssertEqual(ccEvents(e).count, 2)
     }
-    func testFXCCSendsOncePerRatchetedHitAndOnAHitThatCarriesOnLegato() {
+    func testFXCCSendsOncePerRatchetedHitAndOnAHitThatCarriesOnLegato() {   // (legato from the lane's own gate 1.0 since 2026-10-20)
         let r = fxRun(fxBox([fxLine(gate: 0.5)], fx: fxCells([(0, 1, 4), (5, 1, 50)])), beats: 3.5)
         XCTAssertEqual(ccEvents(r).filter { $0.cable == 1 }.count, 1, "a ratcheted hit sends it once, before its first strike")
         XCTAssertEqual(fxSoundings(r, fxPoolNotes[1]).count, 4)
-        // legato: GATE 100 on hits 1 and 2 with the same pitch → hit 2's pitch carries on (no new note-on) yet its CC still goes out
-        let l = fxRun(fxBox([fxLine(gate: 0.5)], ranks: [2, 1, 1, 3, 4, 5, 6, 7], fx: fxCells([(1, 1, 100), (1, 2, 100), (5, 2, 33)])), beats: 4.5)
+        // legato: the lane's gate 1.0 with hits 1 and 2 on the same pitch → hit 2's pitch carries on (no new note-on) yet its CC still goes out
+        let l = fxRun(fxBox([fxLine(gate: 1.0)], ranks: [2, 1, 1, 3, 4, 5, 6, 7], fx: fxCells([(5, 2, 33)])), beats: 4.5)
         XCTAssertEqual(fxSoundings(l, 48).count, 1, "the second hit carried the pitch on")
         XCTAssertEqual(ccEvents(l).filter { $0.cable == 1 && $0.value == 33 }.count, 1, "…and still sent its CC")
     }

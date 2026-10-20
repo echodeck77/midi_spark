@@ -20,9 +20,10 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 
 ## ★ EUCLIDEOUS — LEGATO removed from the XY pad / a lane's gate (2026-10-19; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: the pad's far-right edge reads GATE 99% and every hit re-strikes (set the red/yellow lane to the far right: all hits sound); an older session that had a lane at 100% now loads at 99%.
-- [ ] DECIDE (Paul): the FX tab's GATE row still has 100 = LEGATO (the ratified spec). It is the same rule that read as "hits not producing MIDI" — remove it too (cap the row at 95, or turn
-      100 into "full length, re-strike")? I left it because you said "from the xy box".
-- [ ] (noted) the shared slider-label function and the engine's per-pitch legato code remain, now reachable only from the FX GATE row and from tests.
+- [x] ~~DECIDE: the FX tab's GATE row still has 100 = LEGATO~~ — DONE (Paul 2026-10-20: "remove 100=legato"): the row tops out at 95 (its step is 5; `EuclideousFX.gateMax`), a stored 100 loads as 95, and every LEG /
+      LEGATO label is gone (strip, mark, bubble, VoiceOver). DEVICE: the GATE row's top cell reads 95; an older session with a GATE 100 cell now plays it at 95 and a repeated pitch re-strikes.
+- [ ] (noted) the shared slider-label function and the engine's per-pitch legato code remain, but NOTHING the UI or a document can set reaches them any more (lane gate ≤ 99, FX GATE ≤ 95) — only tests that build
+      lines / FX cells directly do. Deleting the engine's legato path is possible but is a bigger engine change with its own tests; say if you want it gone.
 
 ## ★ EUCLIDEOUS — FIX: a hit on a chord change read the previous chord (2026-10-19; found from Paul's video of the yellow lane's silent step 5)
 The CHORDS pool is now resolved at each tick's own beat, not once per window at its start (`Docs/euclideous-status-log.md`).
@@ -43,11 +44,10 @@ cost, what's device-owed), in `Docs/euclideous-status-log.md`.
 - [ ] DEVICE: see `Docs/euclideous-device-verification-debt.md`'s "RIFF tab rebuilt / WALK strip" section —
       the strip at real size in all four lane colours, the 55.3pt mini-grid and its 32% dims, the ring's live
       feel, EVERY sounding like held groups, REPEAT sounding like the riff's previous note, a long PING tie.
-- [ ] DECIDE (Paul) — AUDITED 2026-10-20, worse than first noted: `euclideousListenPartnerNoteAt` (Derivations.swift; used by Router for LISTEN/SHADOW and LISTEN/AVOID) re-derives the PARTNER's walk by itself
-      and ignores ADVANCE EVERY (no `riffAdvanceEvery`/`euclideousRiffWalkStep`/`euclideousRiffColumn` anywhere in it), the restart CHAINS (`restartRhythmBars`/`restartMelodyPasses`), and the ON REST modes
-      (REPEAT/TIE/FILL), and still reads the retired LOCK flag (`riffLockResolved`). So a SHADOW/AVOID lane whose partner has EVERY ≥ 2, a restart chain or REPEAT follows a different column from the one
-      the partner actually plays. Fix = route it through the chain core the Router and the walk mirror already share (`euclideousLaneChainTick` + `euclideousRiffColumn`, partner's chains) — render-thread
-      engine code, 16 LISTEN tests to keep green, NOT device-verifiable by me (it changes what SHADOW sounds). Recommend doing it; say go.
+- [x] ~~`euclideousListenPartnerNoteAt` (LISTEN/SHADOW, LISTEN/AVOID) computed the partner's riff ordinal the OLD way~~ — FIXED (Paul 2026-10-20: "fix the bug you found"). It ignored ADVANCE EVERY, the restart chains and the
+      melody origin and read the retired LOCK flag; it now asks the same chain core + `euclideousRiffColumn` the Router uses, so a SHADOW lane sounds what its partner sounds (6 new Router tests; 4 + the two multi-link-chain
+      ones failed on the old code). DEVICE (by ear): a SHADOW lane (unison, FOLLOW) of a partner with EVERY 2 / a restart chain plays the same notes as the partner. STILL NOT FOLLOWED, disclosed: a partner that is itself
+      FOLLOWing a third lane (its pattern is its own here), the partner's WITH/GAPS strike filter, and its ON REST modes (a hit on a rest — REPEAT/TIE/FILL included — leaves the shadow resting, per §6's own rule).
 - [ ] (accepted) the ON REST row's 4 buttons are each their own VoiceOver element, not grouped under one "On a
       rest in the riff" container label (§9.5's own ask) — would need restructuring the row's hit-testing.
 - [x] ~~the §7 readout/never-play functions recompute on every SwiftUI body evaluation rather than being memoised~~ — DONE (2026-10-20): `EuclideousRiffReadoutCache`, one slot per lane keyed on every input;

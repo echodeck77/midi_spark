@@ -4053,6 +4053,13 @@ func euclideousListenPartnerHasHitAt(buf: [Bool], n: Int, dir: EuclidDir, rateBe
     let raw = Int(((Int64(nearestLocalT) % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
     return buf[euclidReadIndex(raw, n: n, dir: dir)]
 }
+/// The restart chains a lane's own fields resolve to — `.off` (both FREE) until `migrateRestartChains` (main thread) has pinned real ones, exactly as `Router.runEuclidLine` and the UI's
+/// walk mirror resolve them (`cycleLen` is the lane's lap in ticks, `sub` its tick in beats). Allocation-free (`EuclideousRestartChain.from` packs into a UInt32).
+func euclideousLaneRestartChains(for line: EuclidLine, cycleLen: Int, sub: Double, beatsPerBar: Double) -> EuclideousLaneRestartChains {
+    line.usesRestartChains
+        ? EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []), melody: .from(line.restartMelodyPasses ?? []), barBeats: beatsPerBar, lapBeats: Double(cycleLen) * sub)
+        : .off
+}
 /// §6's shared primitive for SHADOW and AVOID: the (rank, note) a lane with the given pattern/riff params
 /// is sounding AT this exact beat (`epsilonBeats` given — AVOID's coincidence check) or at its most recent
 /// real hit AT OR BEFORE this beat (`epsilonBeats` nil — SHADOW's "the note under the partner's walk arrow
@@ -4061,20 +4068,27 @@ func euclideousListenPartnerHasHitAt(buf: [Bool], n: Int, dir: EuclidDir, rateBe
 /// riff layer uses — MASK (MIRROR/LEAP/CLIMB) is deliberately NOT applied, matching §6's own literal list
 /// ("after the partner's INV, TRANS and riff octave" — no mention of MASK). Bounded backward scan (same
 /// shape as this file's own forward TIE-lookahead idiom, just run in reverse) — no allocation, pure.
+///
+/// THE PARTNER'S WALK IS THE ENGINE'S OWN (fixed 2026-10-20). This used to re-derive the partner's riff ordinal by hand from the retired LOCK model — it knew nothing of ADVANCE EVERY, the
+/// RHYTHM / MELODY restart chains or the melody origin, so a SHADOW / AVOID lane whose partner had EVERY ≥ 2 or a restart chain followed a different column from the one the partner actually
+/// plays. It now asks the same two functions the Router, the TIE lookahead and the UI's walk mirror ask: `euclideousLaneChainTick` (the tick's hit / ordinal, from the partner's own chains,
+/// absolute tick) and `euclideousRiffColumn` (EVERY, direction, STRIDE, SHIFT) — so "the note under the partner's arrow" is, by construction, what its walk reads. `legacySpanBeats` is the
+/// machine-wide re-anchor (`ladderSpanBeats`), used only while the partner has no chain; the partner's own chains come from its own fields (`beatsPerBar` sizes their bar).
+/// STILL NOT FOLLOWED (disclosed): a partner that is itself FOLLOWing a third lane (its pattern here is its own), the partner's WITH / GAPS strike filter, and its ON REST modes
+/// (§6's own rule stands: a hit on a rest — REPEAT / TIE / FILL included — leaves the shadow resting).
 func euclideousListenPartnerNoteAt(
-    buf: [Bool], n: Int, dir: EuclidDir, rateBeats: Double, spanBeats: Double, atBeat: Double,
+    buf: [Bool], n: Int, dir: EuclidDir, rateBeats: Double, legacySpanBeats: Double, atBeat: Double, beatsPerBar: Double,
     epsilonBeats: Double?, line: EuclidLine, ranks: [Int], poolCount: Int, poolAsc: (Int) -> Int
 ) -> (rank: Int, note: Int)? {
     guard n > 0, rateBeats > 0, !buf.isEmpty else { return nil }
     let cycleLen = euclidCycleLen(dir, n: n)
-    let phaseBeat = spanBeats > 0 ? (atBeat - columnStart(atBeat, spanBeats)) : atBeat
-    let spanOrigin = spanBeats > 0 ? columnStart(atBeat, spanBeats) : 0
-    let localTExact = phaseBeat / rateBeats
+    let chains = euclideousLaneRestartChains(for: line, cycleLen: cycleLen, sub: rateBeats, beatsPerBar: beatsPerBar)
+    let advanceStep = line.riffAdvanceStepResolved
+    let localTExact = atBeat / rateBeats
     var t: Int64
     if let eps = epsilonBeats {
         let nearest = localTExact.rounded()
-        let nearestBeat = spanOrigin + nearest * rateBeats
-        guard abs(nearestBeat - atBeat) <= eps else { return nil }
+        guard abs(nearest * rateBeats - atBeat) <= eps else { return nil }
         t = Int64(nearest)
     } else {
         t = Int64(localTExact.rounded(.down))
@@ -4082,22 +4096,14 @@ func euclideousListenPartnerNoteAt(
     let startT = t
     var scanned = 0
     let cap = cycleLen * 4
+    let seed = UInt64(bitPattern: Int64(line.riffDirSeedResolved))
     while scanned < cap {
-        let raw = Int(((t % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
-        if buf[euclidReadIndex(raw, n: n, dir: dir)] {
+        let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: rateBeats, tick: t, chains: chains,
+                                           legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
+        if info.rawIsHit {
             if epsilonBeats != nil && t != startT { return nil }   // AVOID's coincidence check never falls back to an earlier hit — only an exact match counts
-            var hitsUpTo = 0
-            for s in 0...raw where buf[euclidReadIndex(s, n: n, dir: dir)] { hitsUpTo += 1 }
-            let cy = (t - Int64(raw)) / Int64(cycleLen)
-            var cycleHits = 0
-            for s in 0..<cycleLen where buf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }
-            let effHits = Int64(max(1, cycleHits))
-            let advOrd: Int64 = line.riffAdvanceStepResolved
-                ? (line.riffLockResolved ? Int64(raw) : t)
-                : (line.riffLockResolved ? Int64(hitsUpTo - 1) : (cy * effHits + Int64(hitsUpTo - 1)))
-            let seed = UInt64(bitPattern: Int64(line.riffDirSeedResolved))
-            let walkPos = riffStepAt(line.euclideousRiffDirResolved, raw: Int(advOrd) * line.riffStrideResolved, steps: line.riffLengthResolved, seed: seed)
-            let playedStep = riffRotateStep(walkPos, by: line.riffRotateResolved, steps: line.riffLengthResolved)
+            let playedStep = euclideousRiffColumn(ordinal: info.advOrd, every: line.riffAdvanceEveryResolved, direction: line.euclideousRiffDirResolved,
+                                                  length: line.riffLengthResolved, stride: line.riffStrideResolved, shift: line.riffRotateResolved, seed: seed)
             let rawRank = playedStep < ranks.count ? ranks[playedStep] : 0
             guard rawRank >= 1 else { return nil }   // a rest — nothing sounding here
             let invRank = line.riffInvertResolved ? (9 - rawRank) : rawRank
@@ -5377,7 +5383,7 @@ func euclideousGateIsLegato(_ g: Double) -> Bool { Int((g * 100).rounded()) >= 1
 /// The highest GATE a lane's RIFF or NOTES layer can be SET to (Paul 2026-10-19: "remove the legato from the xy box — it's a bit confusing in retrospect"). 100% used to
 /// be LEGATO — a repeated pitch carried on as one note and the repeat sounded nothing — which read as hits failing to produce MIDI. The pad, the VoiceOver step, the
 /// RHYTHM slider and a document's stored lane gates (`PluginState.euclideousLinesResolved`) all stop at this, so a lane's own gate can no longer be legato. The
-/// ENGINE's legato (`euclideousGateIsLegato`) is untouched: the FX tab's GATE row still has 100 = LEGATO.
+/// ENGINE's legato (`euclideousGateIsLegato`) is untouched, but nothing the UI or a document can set reaches it any more: the FX tab's GATE row stopped at 95 on 2026-10-20 (it was 100 = LEGATO).
 let euclideousLaneGateMax = 0.99
 
 /// §6.3: the layers part at the FIRST edit. Before GATE changes, if `notesGate` is nil store the current GATE in it; before VEL
@@ -7143,7 +7149,7 @@ enum EuclideousFXRow: Int, CaseIterable {
 struct EuclideousFXHit: Equatable {
     var tie = false
     var ratch = 0              // 0 = none, else 2…4 strikes
-    var gatePct: Int? = nil    // 5…100 (100 = legato)
+    var gatePct: Int? = nil    // 5…95 (no legato since 2026-10-20)
     var vel: Int? = nil        // 1…127
     var noteStep = 0           // s (−3…−1, +1…+3), 0 = no NOTE cell applied
     var noteOffset = 0         // s × (pass mod PASSES) — what the riff rank moves by on this hit
@@ -7171,7 +7177,7 @@ func euclideousFXApply(_ fx: EuclideousFX, lane: Int, playsRiff: Bool, column: I
     guard playsRiff, writtenRank >= 1, column >= 0, column < 8, lane >= 0, lane < 4 else { return hit }
     if fx.laneOn(row: 2, lane: lane), fx.cell(row: 2, column: column) != nil { hit.tie = true; return hit }
     if fx.laneOn(row: 0, lane: lane), let v = fx.cell(row: 0, column: column) { hit.ratch = max(2, min(4, v)); hit.appliedRows |= 1 << 0 }
-    if fx.laneOn(row: 1, lane: lane), let v = fx.cell(row: 1, column: column) { hit.gatePct = max(5, min(100, v)); hit.appliedRows |= 1 << 1 }
+    if fx.laneOn(row: 1, lane: lane), let v = fx.cell(row: 1, column: column) { hit.gatePct = max(5, min(EuclideousFX.gateMax, v)); hit.appliedRows |= 1 << 1 }   // 5…95: the GATE row has no legato (2026-10-20)
     if fx.laneOn(row: 3, lane: lane), let v = fx.cell(row: 3, column: column) { hit.vel = max(1, min(127, v)); hit.appliedRows |= 1 << 3 }
     if fx.laneOn(row: 4, lane: lane), let v = fx.cell(row: 4, column: column), v != 0 {
         let passes = max(2, min(8, Int(fx.notePasses)))
@@ -7331,7 +7337,7 @@ extension EuclideousFXRow {
     var stripDescription: String? {
         switch self {
         case .ratch: return "PLAYS THE NOTE 2–4 TIMES IN ITS STEP"
-        case .gate: return "REPLACES THE LANE\u{2019}S GATE · 100 = LEGATO"
+        case .gate: return "REPLACES THE LANE\u{2019}S GATE"
         case .tie: return "THE NOTE BEFORE CARRIES ON THROUGH"
         case .vel: return "REPLACES THE LANE\u{2019}S VELOCITY"
         case .note, .cc: return nil
@@ -7418,7 +7424,7 @@ func euclideousFXMark(row: Int, value: Int, cellW: CGFloat) -> EuclideousFXMark 
     func fill(_ num: Double, _ den: Double) -> CGFloat { min(barW, max(2, barW * CGFloat(num / den))) }
     switch row {
     case 0: return .ticks(count: max(2, min(4, value)))
-    case 1: return .gate(label: value >= 100 ? "LEG" : "\(value)", barW: barW, fillW: fill(Double(value), 100))
+    case 1: return .gate(label: "\(value)", barW: barW, fillW: fill(Double(value), 100))
     case 2: return .tie(arcW: max(2, min(30, cellW - 6)))
     case 3, 5: return .bar(label: "\(value)", barW: barW, fillW: fill(Double(value), 127))
     default: return .step(label: euclideousFXSignedLabel(value))
@@ -7429,7 +7435,7 @@ func euclideousFXMark(row: Int, value: Int, cellW: CGFloat) -> EuclideousFXMark 
 func euclideousFXBubbleText(row: Int, value: Int, ccNumber: Int) -> String {
     switch row {
     case 0: return "RATCH \u{00D7}\(value)"
-    case 1: return value >= 100 ? "GATE LEGATO" : "GATE \(value)%"
+    case 1: return "GATE \(value)%"
     case 3: return "VEL \(value)"
     case 4: return "NOTE \(euclideousFXSignedLabel(value)) A PASS"
     case 5: return "CC\(ccNumber) = \(value)"
@@ -7465,7 +7471,7 @@ func euclideousFXDragValue(row: Int, start: Int, travelUp: CGFloat) -> Int {
         return list[max(0, min(list.count - 1, i0 + steps))]
     }
     switch row {
-    case 1: return max(5, min(100, start + 5 * steps))
+    case 1: return max(5, min(EuclideousFX.gateMax, start + 5 * steps))
     case 3: return max(1, min(127, start + steps))
     default: return max(0, min(127, start + steps))
     }
@@ -7670,7 +7676,7 @@ func euclideousFXCellLabel(row: Int, ccNumber: Int, column: Int, noteName: Strin
     if let v = value {
         switch row {
         case 0: tail = "ratchet \(v)"
-        case 1: tail = v >= 100 ? "gate legato" : "gate \(v) percent"
+        case 1: tail = "gate \(v) percent"
         case 2: tail = "tie on"
         case 3: tail = "velocity \(v)"
         case 4: tail = "note step \(v < 0 ? "minus" : "plus") \(abs(v)) per pass"

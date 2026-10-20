@@ -27,7 +27,8 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(EuclideousFX.legalCell(row: 0, raw: 1), 2); XCTAssertEqual(EuclideousFX.legalCell(row: 0, raw: 3), 3); XCTAssertEqual(EuclideousFX.legalCell(row: 0, raw: 9), 4)
         // GATE: nearest 5 in 5…100
         XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 0), 5); XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 52), 50); XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 53), 55)
-        XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 100), 100); XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 127), 100)
+        XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 95), 95); XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 100), 95, "LEGATO RETIRED (2026-10-20): the GATE row tops out at 95 — a stored 100 loads as 95"); XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 127), 95)
+        XCTAssertEqual(EuclideousFX.gateMax, 95); XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 98), 95); XCTAssertEqual(EuclideousFX.legalCell(row: 1, raw: 92), 90)
         // TIE: on (any non-sentinel)
         XCTAssertEqual(EuclideousFX.legalCell(row: 2, raw: 0), 1); XCTAssertEqual(EuclideousFX.legalCell(row: 2, raw: 77), 1)
         // VEL 1…127
@@ -69,7 +70,7 @@ final class FXTabTests: XCTestCase {
 
     func testRoundTripAndDocumentFieldSurvive() throws {
         var fx = EuclideousFX()
-        fx.cells[0] = 3; fx.cells[8 + 2] = 100; fx.cells[16 + 7] = 1; fx.cells[24 + 1] = 110; fx.cells[32 + 4] = -2; fx.cells[40 + 6] = 20
+        fx.cells[0] = 3; fx.cells[8 + 2] = 95; fx.cells[16 + 7] = 1; fx.cells[24 + 1] = 110; fx.cells[32 + 4] = -2; fx.cells[40 + 6] = 20
         fx.lanes[3] = 0b0110; fx.notePasses = 6; fx.ccNumber = 7; fx.ccBase = 64
         let back = try JSONDecoder().decode(EuclideousFX.self, from: JSONEncoder().encode(fx))
         XCTAssertEqual(back, fx)
@@ -77,6 +78,19 @@ final class FXTabTests: XCTestCase {
         doc.euclideousFX = fx
         let doc2 = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(doc))
         XCTAssertEqual(doc2.euclideousFX, fx); XCTAssertEqual(doc2.euclideousFXResolved, fx)
+    }
+    /// LEGATO RETIRED from the GATE row (Paul 2026-10-20: "remove 100=legato"): a session saved while a cell held 100 loads it as 95, so the UI and the engine (both fed from the
+    /// decoded document) agree and a repeated pitch re-strikes.
+    func testAStoredGate100LoadsAs95AndNothingElseMoves() throws {
+        var fx = EuclideousFX()
+        fx.cells[8 + 2] = 100; fx.cells[8 + 5] = 90; fx.cells[24 + 1] = 100        // GATE 100, GATE 90, and a VEL row 100 (VEL is untouched)
+        let back = try JSONDecoder().decode(EuclideousFX.self, from: JSONEncoder().encode(fx))
+        XCTAssertEqual(back.cell(row: 1, column: 2), 95, "a stored GATE 100 loads as 95")
+        XCTAssertEqual(back.cell(row: 1, column: 5), 90); XCTAssertEqual(back.cell(row: 3, column: 1), 100, "VEL 100 is a real velocity")
+        var doc = PluginState(machines: [], scenes: [SceneState.empty()]); doc.euclideousFX = fx
+        let doc2 = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(doc))
+        XCTAssertEqual(doc2.euclideousFXResolved.cell(row: 1, column: 2), 95)
+        XCTAssertFalse(euclideousGateIsLegato(Double(doc2.euclideousFXResolved.cell(row: 1, column: 2)!) / 100), "…so no value a document can hold reaches the engine's legato predicate")
     }
     func testAPreFeatureDocumentDecodesWithEmptyFXAndNoFactoryReset() throws {
         let doc = PluginState(machines: [], scenes: [SceneState.empty()])
@@ -408,7 +422,8 @@ final class FXTabTests: XCTestCase {
     func testCellMarksForEveryValueIncludingANarrowCell() {
         XCTAssertEqual(euclideousFXMark(row: 0, value: 3, cellW: 42), .ticks(count: 3))
         XCTAssertEqual(euclideousFXMark(row: 1, value: 50, cellW: 42), .gate(label: "50", barW: 28, fillW: 14))
-        XCTAssertEqual(euclideousFXMark(row: 1, value: 100, cellW: 42), .gate(label: "LEG", barW: 28, fillW: 28))
+        XCTAssertEqual(euclideousFXMark(row: 1, value: 95, cellW: 42), .gate(label: "95", barW: 28, fillW: 28 * 0.95), "the top value reads 95 — there is no LEG")
+        XCTAssertEqual(euclideousFXMark(row: 1, value: 100, cellW: 42), .gate(label: "100", barW: 28, fillW: 28), "a raw 100 (never stored any more) is just a number")
         XCTAssertEqual(euclideousFXMark(row: 1, value: 5, cellW: 42), .gate(label: "5", barW: 28, fillW: 2), "the fill never drops under 2pt")
         XCTAssertEqual(euclideousFXMark(row: 2, value: 1, cellW: 42), .tie(arcW: 30))
         XCTAssertEqual(euclideousFXMark(row: 3, value: 127, cellW: 42), .bar(label: "127", barW: 28, fillW: 28))
@@ -423,7 +438,7 @@ final class FXTabTests: XCTestCase {
     func testBubbleTextAndPlacement() {
         XCTAssertEqual(euclideousFXBubbleText(row: 0, value: 3, ccNumber: 74), "RATCH \u{00D7}3")
         XCTAssertEqual(euclideousFXBubbleText(row: 1, value: 50, ccNumber: 74), "GATE 50%")
-        XCTAssertEqual(euclideousFXBubbleText(row: 1, value: 100, ccNumber: 74), "GATE LEGATO")
+        XCTAssertEqual(euclideousFXBubbleText(row: 1, value: 95, ccNumber: 74), "GATE 95%"); XCTAssertEqual(euclideousFXBubbleText(row: 1, value: 100, ccNumber: 74), "GATE 100%", "no LEGATO wording anywhere")
         XCTAssertEqual(euclideousFXBubbleText(row: 3, value: 110, ccNumber: 74), "VEL 110")
         XCTAssertEqual(euclideousFXBubbleText(row: 4, value: 1, ccNumber: 74), "NOTE +1 A PASS")
         XCTAssertEqual(euclideousFXBubbleText(row: 4, value: -2, ccNumber: 74), "NOTE \u{2212}2 A PASS")
@@ -448,7 +463,7 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXDragValue(row: 0, start: 2, travelUp: 8), 2, "under half a step rounds back"); XCTAssertEqual(euclideousFXDragValue(row: 0, start: 2, travelUp: 10), 3)
         // GATE 5pt per 5%, 5–100
         XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: 5), 55); XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: -45), 5)
-        XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: 1000), 100); XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: -1000), 5)
+        XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: 1000), 95, "the drag stops at 95"); XCTAssertEqual(euclideousFXDragValue(row: 1, start: 50, travelUp: -1000), 5)
         // VEL / CC 2pt per 1
         XCTAssertEqual(euclideousFXDragValue(row: 3, start: 100, travelUp: 20), 110); XCTAssertEqual(euclideousFXDragValue(row: 3, start: 100, travelUp: -1000), 1)
         XCTAssertEqual(euclideousFXDragValue(row: 5, start: 64, travelUp: -200), 0); XCTAssertEqual(euclideousFXDragValue(row: 5, start: 64, travelUp: 1000), 127)
@@ -459,7 +474,7 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXAdjust(row: 4, current: -1, brush: 1, up: true), 1, "NOTE skips 0")
         XCTAssertEqual(euclideousFXAdjust(row: 0, current: nil, brush: 2, up: true), 2, "incrementing an empty cell turns it on at the brush")
         XCTAssertNil(euclideousFXAdjust(row: 0, current: nil, brush: 2, up: false)); XCTAssertNil(euclideousFXAdjust(row: 2, current: 1, brush: 1, up: true), "TIE isn't adjustable")
-        XCTAssertEqual(euclideousFXAdjust(row: 1, current: 50, brush: 50, up: false), 45); XCTAssertNil(euclideousFXAdjust(row: 1, current: 100, brush: 50, up: true))
+        XCTAssertEqual(euclideousFXAdjust(row: 1, current: 50, brush: 50, up: false), 45); XCTAssertNil(euclideousFXAdjust(row: 1, current: 95, brush: 50, up: true), "95 is the top"); XCTAssertEqual(euclideousFXAdjust(row: 1, current: 90, brush: 50, up: true), 95)
         XCTAssertEqual(euclideousFXAdjust(row: 3, current: 100, brush: 100, up: true), 101)
     }
     func testSteppersNeverWrapAndBaseStepsThroughItsStops() {
@@ -565,7 +580,7 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXCellLabel(row: 1, ccNumber: 74, column: 5, noteName: nil, value: nil), "Note 6, rest, gate off")
         XCTAssertEqual(euclideousFXCellLabel(row: 0, ccNumber: 74, column: 0, noteName: "C3", value: 2), "Note 1, C3, ratchet 2")
         XCTAssertEqual(euclideousFXCellLabel(row: 1, ccNumber: 74, column: 0, noteName: "C3", value: 25), "Note 1, C3, gate 25 percent")
-        XCTAssertEqual(euclideousFXCellLabel(row: 1, ccNumber: 74, column: 0, noteName: "C3", value: 100), "Note 1, C3, gate legato")
+        XCTAssertEqual(euclideousFXCellLabel(row: 1, ccNumber: 74, column: 0, noteName: "C3", value: 95), "Note 1, C3, gate 95 percent")
         XCTAssertEqual(euclideousFXCellLabel(row: 2, ccNumber: 74, column: 0, noteName: "C3", value: 1), "Note 1, C3, tie on")
         XCTAssertEqual(euclideousFXCellLabel(row: 3, ccNumber: 74, column: 0, noteName: "C3", value: 110), "Note 1, C3, velocity 110")
         XCTAssertEqual(euclideousFXCellLabel(row: 4, ccNumber: 74, column: 0, noteName: "C3", value: 1), "Note 1, C3, note step plus 1 per pass")
@@ -579,7 +594,7 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXCellOpacity(restColumn: false, rowHasLanes: true), 1); XCTAssertEqual(euclideousFXCellOpacity(restColumn: true, rowHasLanes: true), 0.42)
         XCTAssertEqual(euclideousFXCellOpacity(restColumn: true, rowHasLanes: false), 0.42 * 0.42, accuracy: 1e-12, "the two dims multiply")
         XCTAssertEqual(EuclideousFXRow.cc.railName(ccNumber: 74), "CC74"); XCTAssertEqual(EuclideousFXRow.ratch.railName(ccNumber: 74), "RATCH")
-        XCTAssertEqual(EuclideousFXRow.gate.stripDescription, "REPLACES THE LANE\u{2019}S GATE · 100 = LEGATO"); XCTAssertNil(EuclideousFXRow.note.stripDescription); XCTAssertNil(EuclideousFXRow.cc.stripDescription)
+        XCTAssertEqual(EuclideousFXRow.gate.stripDescription, "REPLACES THE LANE\u{2019}S GATE"); XCTAssertNil(EuclideousFXRow.note.stripDescription); XCTAssertNil(EuclideousFXRow.cc.stripDescription)
         XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.mix, .lanes, .fx]); XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: false), [.mix, .lanes])
         XCTAssertEqual(EuclideousSeqTab.fx.label, "FX")
     }

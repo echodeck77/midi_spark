@@ -962,11 +962,14 @@ enum EuclideousSeqRate: String, Codable, CaseIterable {
 // FX TAB (ferry 2026-10-18) — six fixed effect rows (RATCH, GATE, TIE, VEL, NOTE, CC) on the riff's eight steps. PAGE-level (one set for the
 // whole page, shared by all four lanes), stored as ONE additive-Optional document field (`PluginState.euclideousFX`). Row order is fixed and is
 // the storage order: row r, riff column c lives at `cells[r * 8 + c]`. A cell is EMPTY (the sentinel `emptyCell`) or holds that row's legal value:
-// RATCH 2/3/4 · GATE 5…100 in 5s (100 = legato) · TIE 1 (on) · VEL 1…127 · NOTE −3…−1/+1…+3 (never 0) · CC 0…127. Each row also has a lane set
+// RATCH 2/3/4 · GATE 5…95 in 5s (NO legato: 100 was retired 2026-10-20 — a stored 100 loads as 95) · TIE 1 (on) · VEL 1…127 · NOTE −3…−1/+1…+3 (never 0) · CC 0…127. Each row also has a lane set
 // (bit n−1 = lane n, default all four). The whole struct is fixed-size flat arrays (6 + 48 + 3 settings) so the render thread only ever READS it.
 // Defaults (every cell empty, BASE none) make every existing session and all 20 factory presets sound exactly as before.
 struct EuclideousFX: Equatable {
     static let rows = 6, columns = 8
+    /// The GATE row's top value. It was 100 (= LEGATO, a repeated pitch carried on as one note and the repeat sounded nothing — the same rule that read as "hits not producing MIDI" on the
+    /// XY pad); Paul 2026-10-20: "remove 100=legato". The row's step is 5, so its top is 95 — a lane's own gate tops out at 99 (`euclideousLaneGateMax`); every hit now re-strikes.
+    static let gateMax = 95
     static let emptyCell: Int8 = Int8.min
     static let allLanes: UInt8 = 0b1111
     var lanes: [UInt8] = [UInt8](repeating: EuclideousFX.allLanes, count: 6)
@@ -975,13 +978,13 @@ struct EuclideousFX: Equatable {
     var ccNumber: UInt8 = 74         // CC row: controller 0…119 (120–127 are channel-mode messages, never sent)
     var ccBase: Int16 = -1           // CC row: BASE, −1 = none, else 0…127
 
-    /// A row's legal cell value for a raw integer, or nil for "empty / unreadable". GATE rounds to the nearest 5 within 5…100; the ranged rows clamp;
+    /// A row's legal cell value for a raw integer, or nil for "empty / unreadable". GATE rounds to the nearest 5 within 5…`gateMax` (95 — a stored 100 from an older session loads as 95); the ranged rows clamp;
     /// NOTE 0 is not a value; TIE has no value (any non-sentinel is "on").
     static func legalCell(row: Int, raw: Int) -> Int8? {
         if raw == Int(emptyCell) { return nil }
         switch row {
         case 0: return Int8(max(2, min(4, raw)))
-        case 1: return Int8(max(5, min(100, Int((Double(raw) / 5).rounded()) * 5)))
+        case 1: return Int8(max(5, min(gateMax, Int((Double(raw) / 5).rounded()) * 5)))
         case 2: return 1
         case 3: return Int8(max(1, min(127, raw)))
         case 4: return raw == 0 ? nil : Int8(max(-3, min(3, raw)))
@@ -2698,7 +2701,7 @@ struct PluginState: Codable, Equatable {
         return (0..<4).map { i in
             var line = i < (L ?? []).count ? L![i] : Self.euclideousDefaultLine(i)
             // LEGATO REMOVED FROM A LANE'S GATE (2026-10-19): a stored 100% (an older session, or one set before this) loads as 99% — the UI and the engine (which are fed from
-            // this) agree, and a repeated pitch re-strikes. The FX tab's GATE row keeps its own 100 = LEGATO.
+            // this) agree, and a repeated pitch re-strikes. (The FX tab's GATE row followed on 2026-10-20: it tops out at 95 and a stored 100 loads as 95.)
             if let g = line.gate, g > euclideousLaneGateMax { line.gate = euclideousLaneGateMax }
             if let g = line.notesGate, g > euclideousLaneGateMax { line.notesGate = euclideousLaneGateMax }
             if line.resetSteps == nil {

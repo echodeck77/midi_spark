@@ -5164,7 +5164,7 @@ final class Router {
                                     let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
                                     if let hit = euclideousListenPartnerNoteAt(
                                         buf: euclidListenScratch, n: partnerN, dir: partnerLine.directionResolved,
-                                        rateBeats: partnerRate, spanBeats: spanBeats, atBeat: mTickBeat, epsilonBeats: nil,
+                                        rateBeats: partnerRate, legacySpanBeats: ladderSpanBeats, atBeat: mTickBeat, beatsPerBar: beatsPerBar, epsilonBeats: nil,
                                         line: partnerLine, ranks: ranks, poolCount: thisLaneCount, poolAsc: { notes[$0].note }
                                     ), let shadowNote = riffResolve(rank: hit.rank + listenShadowInterval,
                                                                       oct: partnerLine.riffOctaveResolved + listenShadowOctave,
@@ -5379,7 +5379,7 @@ final class Router {
                                         let patN = euclideousBuildPatternInto(other, buf: &euclidListenScratch)
                                         let rate = other.rate?.beats ?? p.euclidRateBeats
                                         guard let hit = euclideousListenPartnerNoteAt(buf: euclidListenScratch, n: patN, dir: other.directionResolved,
-                                                                                        rateBeats: rate, spanBeats: spanBeats, atBeat: atBeat, epsilonBeats: epsilonBeats,
+                                                                                        rateBeats: rate, legacySpanBeats: ladderSpanBeats, atBeat: atBeat, beatsPerBar: beatsPerBar, epsilonBeats: epsilonBeats,
                                                                                         line: other, ranks: ranks, poolCount: thisLaneCount, poolAsc: { notes[$0].note }) else { return false }
                                         return hit.note == note
                                     }
