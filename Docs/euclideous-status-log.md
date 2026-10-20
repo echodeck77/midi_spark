@@ -13,7 +13,7 @@ project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
 - **▶ EUCLIDEOUS — NOTES TAB ferry: "octave and velocity go, WHEN RIFF, seven ways to PLAY AS, CHANCE and RECEIVED; FILL leaves ON REST" (2026-10-20, ratified by Paul 2026-10-19 from the "Fourfold Notes tab" canvas; on `feature/notes-tab`;
-  iOS builds clean; the Euclideous-scoped macOS suite is green (602 tests); the full suite is run before landing; every visual and every by-ear check is device-owed).** Built in the ferry's order, a commit at each green step.
+  iOS builds clean; macOS suite 1829 green (full, 0 failures); every visual and every by-ear check is device-owed).** Built in the ferry's order, a commit at each green step.
   **0. Goldens first** (`testNotesExampleLaneGoldensBeforeTheNotesTabEngine`, captured on `03adfa5` before any engine change): the example lane (8 × 1/8, hits 1 3 5 6 8, riff [8 0 8 6 0 6 5 0], ranks 5 6 8 lit) × ON REST SKIP/FILL/TIE/REPEAT
   × riff on/off × GATE 50/100. **They proved the ferry's premise wrong:** with the riff ON, SKIP and TIE return before the lit-notes layer (lit notes are SILENT on a rest hit; TIE only carries what the hit before struck), while FILL and a
   successful REPEAT fall through and SOUND them — so "both on is today's sound" is false for SKIP/TIE and **FILL ≠ SKIP today** (984 vs 408 note-ons, riff on, GATE 50; the older riff-ferry goldens that show FILL == SKIP had no lit notes).
