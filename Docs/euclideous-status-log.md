@@ -28,7 +28,7 @@ project has been building this whole stretch.
   one-link melody chain (which the old coarse span re-anchor happened to cover) pass on both — baselines the rewrite had to keep, as did the nine existing SHADOW/AVOID tests (T5, T6). **STILL NOT FOLLOWED (disclosed):** a partner that is itself
   FOLLOWing a third lane (the partner's pattern here is its own), the partner's WITH/GAPS strike filter, and the partner's ON REST modes (a hit on a rest, REPEAT/TIE/FILL included, leaves the shadow resting — §6's own rule).
 - **▶ EUCLIDEOUS — header: output rings to 75%, HOLD/LATCH buttons (2026-10-20; on
-  `feat/header-hold-latch-ring-scale`, merged to `main`; iOS builds clean; macOS suite green incl. 3 new
+  `feat/header-hold-latch-ring-scale`, merged to `main`; iOS builds clean; macOS suite 1793 green incl. 3 new
   `RouterTests` + 1 new `SnapshotBuilderTests`).**
   Two independent asks. **(1) Output rings at 75%:** `EuclideousOutputRing`'s Canvas draws at hardcoded absolute
   constants (radius 17, arcThickness 2.5) independent of its own frame — shrinking the frame directly clips the
