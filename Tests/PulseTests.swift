@@ -185,4 +185,18 @@ final class PulseTests: XCTestCase {
         XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, now: 4.6 * 0.5)?.velocity, 110)
         XCTAssertNil(euclideousPulseLatestStrike([], riffOn: true, now: 1))
     }
+
+    // MARK: MIX: the OUT buttons' frames are the row's own layout
+    func testTheOutButtonFramesTileTheLanesPairUnderTheOctStepper() {
+        let grid = euclideousMixGrid(width: 364.67, height: 275)
+        let pairW = grid.cellW * 2 + EuclideousMixMetrics.sp4
+        for lane in 0..<4 {
+            let f = (0..<4).map { euclideousPulseButton(grid, lane, $0) }
+            XCTAssertEqual(f[0].minX, grid.origin(lane: lane, notes: false).x, accuracy: 1e-9)
+            XCTAssertEqual(f[3].maxX - f[0].minX, pairW, accuracy: 1e-9, "four buttons and three sp4 gaps fill the pair")
+            for b in 0..<3 { XCTAssertEqual(f[b + 1].minX - f[b].maxX, EuclideousMixMetrics.sp4, accuracy: 1e-9) }
+            XCTAssertEqual(f[0].minY, grid.origin(lane: lane, notes: false).y + grid.padH + 4 + 24 + 4, accuracy: 1e-9); XCTAssertEqual(f[0].height, 20)
+        }
+    }
+    private func euclideousPulseButton(_ g: EuclideousMixGrid, _ lane: Int, _ b: Int) -> CGRect { euclideousMixOutButtonFrame(grid: g, lane: lane, button: b) }
 }

@@ -28,7 +28,8 @@ enum EuclideousRingPalette {
 /// One output ring: a disc of radius 17 and four 66° quarter arcs (round caps, 2.5pt) on radius 17, centred at 315°/45°/
 /// 225°/135° clockwise from 12 o'clock = lanes 1…4 (TL/TR/BL/BR). A quarter is lane-coloured when that lane routes here,
 /// else a dim mark. OFF: no disc, every quarter dashed (2.5 on / 2 off, butt caps). HELD: the disc goes light, the letter ink.
-/// `flare` (0…1 per lane) thickens a quarter 2.5 → 3.5pt over a 7pt lane-40% glow and washes the disc to lane-20%.
+/// `flare` (0…1 per lane — PULSE ferry 2026-10-20 §6: each lane's velocity-scaled flash f) thickens its quarter 2.5 → 5pt (2.5 + 2.5 × f); the strongest lane washes the disc (lane100 @ 38% × f over #1B1D23), glows the whole ring (blur 6 × f at
+/// 70% × f) and turns the letter white while f > 0.35.
 struct EuclideousOutputRing: View {
     let letter: String
     let state: EuclideousOutputRingState
@@ -49,13 +50,21 @@ struct EuclideousOutputRing: View {
             // DISC: none when off (the ground shows through) — EXCEPT while held, whose light disc is unconditional (§4.7);
             // `euclideousRingDisc` is the one decision, tested, so a held OFF ring can't end up with an ink letter on no disc.
             let discKind = euclideousRingDisc(mode: state.mode, held: held)
+            // PULSE §6.2: two lanes on one output — each quarter follows its own lane; the wash, the glow and the letter follow the stronger.
+            var topLane = -1
+            var topF = 0.0
+            for lane in 0..<4 where lane < flare.count && lane < laneColours.count && flare[lane] > topF { topLane = lane; topF = min(1, flare[lane]) }
             if discKind != .none {
                 let disc = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-                ctx.fill(disc, with: .color(discKind == .held ? EuclideousRingPalette.heldDisc : EuclideousRingPalette.disc))
-                if discKind == .base {
-                    for lane in 0..<4 where lane < flare.count && flare[lane] > 0 && lane < laneColours.count {
-                        ctx.fill(disc, with: .color(laneColours[lane].opacity(0.2 * flare[lane])))
+                if discKind == .base, topLane >= 0 {   // §6.1: the whole ring glows — blur 6 × f (shadow radius 3 × f) in that lane's colour at 70% × f
+                    ctx.drawLayer { layer in
+                        layer.addFilter(.shadow(color: laneColours[topLane].opacity(0.7 * topF), radius: 3 * CGFloat(topF)))
+                        layer.fill(disc, with: .color(EuclideousRingPalette.disc))
                     }
+                }
+                ctx.fill(disc, with: .color(discKind == .held ? EuclideousRingPalette.heldDisc : EuclideousRingPalette.disc))
+                if discKind == .base, topLane >= 0 {   // §6.1: the disc takes a lane100 wash at 38% × f over #1B1D23, from the strongest striking lane
+                    ctx.fill(disc, with: .color(laneColours[topLane].opacity(0.38 * topF)))
                 }
             }
             // QUARTERS
@@ -74,10 +83,7 @@ struct EuclideousOutputRing: View {
                     let p = CGPoint(x: c.x + r * CGFloat(sin(rad)), y: c.y - r * CGFloat(cos(rad)))
                     if i == 0 { arc.move(to: p) } else { arc.addLine(to: p) }
                 }
-                if f > 0 && lit && lane < laneColours.count {
-                    ctx.stroke(arc, with: .color(laneColours[lane].opacity(0.4 * f)), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                }
-                let thickness = Self.arcThickness + CGFloat(f)
+                let thickness = euclideousPulseRingStroke(f: lit ? f : 0)   // §6.1: 2.5 + 2.5 × f (the old 7pt per-quarter glow is replaced by the whole-ring glow above)
                 if state.dashed {
                     ctx.stroke(arc, with: .color(colour), style: StrokeStyle(lineWidth: thickness, lineCap: .butt, dash: [2.5, 2]))
                 } else {
@@ -92,7 +98,7 @@ struct EuclideousOutputRing: View {
             case .unrouted: letterColour = EuclideousRingPalette.letterUnrouted
             case .off: letterColour = EuclideousRingPalette.letterOff
             }
-            ctx.draw(Text(letter).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(letterColour), at: c)
+            ctx.draw(Text(letter).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(euclideousPulseRingLetterIsWhite(f: topF) ? Color.white : letterColour), at: c)   // §6.1: #FFFFFF while f > 0.35
         }
         .frame(width: width, height: height)
     }

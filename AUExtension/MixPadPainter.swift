@@ -216,3 +216,85 @@ struct EuclideousMixOctaveStepper: View {
             .onTapGesture { if enabled { action() } }
     }
 }
+
+
+// MARK: - PULSE (ferry 2026-10-20, §5): the ripple, the fill flash, the puck swell and the OUT-button glow
+//
+// ONE overlay Canvas over the whole MIX grid (never one per pad — the page's standing DSP rule), painted from pure numbers: `euclideousPulseEnvelopes` / `euclideousPulseRipple` (Derivations.swift) turn a strike's played
+// velocity and age into what each effect draws. The pads themselves are untouched: values, gestures, steppers and the header's pulse and trace rings on the OUT buttons are as they were.
+
+/// One pad that has a strike to show: its frame in the overlay's coordinates, the puck centre and the VEL × GATE fill rectangle in PAD coordinates, the lane colour, and the strike (velocity 1…127, seconds since its onset).
+struct EuclideousMixPulsePad: Equatable {
+    var rect: CGRect
+    var puck: CGPoint
+    var fill: CGRect
+    var colour: Color
+    var velocity: Int
+    var seconds: Double
+}
+/// One routed, main-out-on OUT button that its lane's strike should glow.
+struct EuclideousMixPulseButton: Equatable {
+    var rect: CGRect
+    var colour: Color
+    var velocity: Int
+    var seconds: Double
+}
+struct EuclideousMixPulseOverlay: View {
+    let pads: [EuclideousMixPulsePad]
+    let buttons: [EuclideousMixPulseButton]
+    let scale: Double
+    let size: CGSize
+    /// The Canvas is larger than the grid by this much on every side so a glow just outside the bottom row's buttons isn't cut off.
+    static let bleed: CGFloat = 12
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let b = Self.bleed
+        Canvas { ctx, _ in
+            ctx.translateBy(x: b, y: b)
+            let ripples = euclideousPulseFilter(.ripple, scale: scale, reduceMotion: reduceMotion) != .off
+            let swell = euclideousPulseFilter(.puckSwell, scale: scale, reduceMotion: reduceMotion) != .off
+            for pad in pads {
+                let env = euclideousPulseEnvelopes(velocity: pad.velocity, seconds: pad.seconds, scale: scale)
+                let ripple = ripples ? euclideousPulseRipple(d0: 12, velocity: pad.velocity, seconds: pad.seconds, scale: scale) : nil
+                guard env.isVisible || ripple != nil else { continue }
+                ctx.drawLayer { layer in
+                    layer.translateBy(x: pad.rect.minX, y: pad.rect.minY)
+                    layer.clip(to: Path(roundedRect: CGRect(origin: .zero, size: pad.rect.size), cornerRadius: 6))   // "clipped to the pad" (5.2)
+                    // 5.3: the VEL × GATE fill takes a lane100 overlay at 25% × f
+                    if env.f > 0 { layer.fill(Path(pad.fill), with: .color(pad.colour.opacity(0.25 * env.f))) }
+                    // 5.2: the ripple — a 1.5 stroke ring around the puck, growing and fading with the velocity
+                    if let r = ripple {
+                        let d = r.diameter
+                        layer.stroke(Path(ellipseIn: CGRect(x: pad.puck.x - d / 2, y: pad.puck.y - d / 2, width: d, height: d)), with: .color(pad.colour.opacity(r.opacity)), lineWidth: 1.5)
+                    }
+                    // 5.4: the puck swells by 6 × b (12 → up to 18) inside its 2pt #15161A ring, with an outer glow of blur 12 × f (shadow radius 6 × f) at f
+                    if env.f > 0 || env.b > 0 {
+                        let d: CGFloat = 12 + (swell ? 6 * CGFloat(env.b) : 0)
+                        layer.drawLayer { puck in
+                            puck.addFilter(.shadow(color: pad.colour.opacity(env.f), radius: 6 * CGFloat(env.f)))
+                            puck.fill(Path(ellipseIn: CGRect(x: pad.puck.x - (d + 4) / 2, y: pad.puck.y - (d + 4) / 2, width: d + 4, height: d + 4)), with: .color(EuclideousMixPalette.puckRing))
+                            puck.fill(Path(ellipseIn: CGRect(x: pad.puck.x - d / 2, y: pad.puck.y - d / 2, width: d, height: d)), with: .color(pad.colour))
+                        }
+                    }
+                }
+            }
+            // 5.5: each routed OUT button with its main out on gains an outer glow of blur 10 × f (radius 5 × f) in lane100 at f and a white overlay at 45% × f
+            for button in buttons {
+                let env = euclideousPulseEnvelopes(velocity: button.velocity, seconds: button.seconds, scale: scale)
+                guard env.f > 0 else { continue }
+                let shape = Path(roundedRect: button.rect, cornerRadius: 6)
+                ctx.drawLayer { layer in
+                    layer.clip(to: shape, options: .inverse)   // only the glow OUTSIDE the button: the button (and its letter) is the page's own, drawn underneath
+                    layer.addFilter(.shadow(color: button.colour.opacity(env.f), radius: 5 * CGFloat(env.f)))
+                    layer.fill(shape, with: .color(button.colour))
+                }
+                ctx.fill(shape, with: .color(.white.opacity(0.45 * env.f)))
+            }
+        }
+        .frame(width: size.width + 2 * b, height: size.height + 2 * b)
+        .offset(x: -b, y: -b)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}

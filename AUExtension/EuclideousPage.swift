@@ -1296,34 +1296,33 @@ struct EuclideousPage: View {
                 Color.clear.frame(width: HM.sp4, height: 1)
             }
             // One TimelineView for the four rings (never one per ring — the page's standing DSP rule): it only ticks while
-            // the transport runs, because the only thing animating here is a strike's flare.
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
-                let beat = walkTagBeat(at: tl.date)
+            // the transport runs, because the only thing animating here is a strike's pulse (PULSE §6; it keeps running for 1.5 s after a stop, then idles).
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+                let now = tl.date.timeIntervalSinceReferenceDate
                 HStack(spacing: 0) {
-                    ForEach(0..<4, id: \.self) { b in outputRing(b, pitch: pitch, naturalPitch: naturalPitch, beat: beat) }
+                    ForEach(0..<4, id: \.self) { b in outputRing(b, pitch: pitch, naturalPitch: naturalPitch, now: now) }
                 }
             }
         }
     }
 
-    /// A quarter's flare: its lane routes to this output, the output is ON, the transport runs, and that lane's latest real
-    /// strike (the engine's own NOTE VIEW event, `strikeEvents`) is `age` lane-steps old — the same step unit and the same
-    /// afterglow/burst windows the comet bar uses (`euclideousRingFlare`). A strike whose onset is still in the future
-    /// (the engine renders ahead) reads 0 until its moment arrives.
-    private func ringFlare(_ b: Int, masks: [UInt8], beat: Double) -> [Double] {
-        guard clock.playing, (mainOutMask >> UInt8(b)) & 1 != 0 else { return [0, 0, 0, 0] }
+    /// PULSE §6: a quarter's flash f — its lane routes to this output, the output is ON, and that lane's latest strike of EITHER layer (riff or notes) has happened: f = the flash envelope of the velocity it
+    /// played (the louder layer), `now` seconds after its onset, scaled by P. Nothing animates when nothing strikes, and the strike decays by itself after a stop.
+    private func ringFlare(_ b: Int, masks: [UInt8], now: Double) -> [Double] {
+        let p = euclideousPulseScale(level: pulseLevel)
+        guard p > 0, (mainOutMask >> UInt8(b)) & 1 != 0 else { return [0, 0, 0, 0] }
         return (0..<4).map { lane -> Double in
-            guard (masks[lane] >> UInt8(b)) & 1 != 0, lane < strikeEvents.count, lane < lines.count, let ev = strikeEvents[lane] else { return 0 }
-            let step = max(1e-6, (lines[lane].rate ?? .r1_16).beats)
-            return euclideousRingFlare(ageSteps: (beat - ev.onsetBeat) / step)
+            guard (masks[lane] >> UInt8(b)) & 1 != 0, let s = pulseFeed.latest(lane: lane, where: { $0.onsetAt <= now }) else { return 0 }
+            let env = euclideousPulseEnvelopes(velocity: euclideousPulseRingVelocity(riffVel: Int(s.riffVel), notesVel: Int(s.notesVel)), seconds: now - s.onsetAt, scale: p)
+            return env.f
         }
     }
 
-    private func outputRing(_ b: Int, pitch: CGFloat, naturalPitch: CGFloat, beat: Double) -> some View {
+    private func outputRing(_ b: Int, pitch: CGFloat, naturalPitch: CGFloat, now: Double) -> some View {
         let masks = euclideousLaneMasks(lines)
         let state = euclideousOutputRingState(output: b, laneMasks: masks, mainOutMask: mainOutMask)
         let held = heldOutput == b
-        let flare = ringFlare(b, masks: masks, beat: beat)
+        let flare = ringFlare(b, masks: masks, now: now)
         return EuclideousRingPressable(
             onTap: { toggleMainOut(b); pulseOutput(b) },
             onHold: { began in
@@ -5481,6 +5480,43 @@ struct EuclideousPage: View {
                         .accessibilitySortPriority(Double(100 - (lane * 3 + 2)))
                 }
             }
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+        .overlay(alignment: .topLeading) { mixPulseOverlay(grid: grid, width: width, height: height) }   // PULSE §5: ripple, fill flash, puck swell, OUT-button glow
+    }
+    /// PULSE §5: ONE overlay over the whole grid (one TimelineView, never one per pad): for each pad the lane's latest strike of ITS layer — the riff pad shows riff strikes, the notes pad notes-layer strikes (5.1) — and
+    /// for each routed, main-out-on OUT button the lane's latest strike of either layer. Only strikes that have happened and are younger than 1.5 s are passed; the painter turns velocity and age into pixels.
+    private func mixPulseOverlay(grid: EuclideousMixGrid, width: CGFloat, height: CGFloat) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+            let now = tl.date.timeIntervalSinceReferenceDate
+            let p = euclideousPulseScale(level: pulseLevel)
+            var pads: [EuclideousMixPulsePad] = []
+            var buttons: [EuclideousMixPulseButton] = []
+            if p > 0, grid.cellW > EuclideousMixMetrics.velStripW, grid.padH > EuclideousMixMetrics.gateStripH {
+                let geo = EuclideousMixPadGeometry(cellW: grid.cellW, padH: grid.padH)
+                for lane in 0..<min(4, lines.count) {
+                    let line = lines[lane]
+                    let accent = laneAccents[lane % laneAccents.count]
+                    for notes in [false, true] {
+                        guard let s = pulseFeed.latestHappened(lane: lane, now: now, riff: !notes) else { continue }
+                        let age = now - s.onsetAt
+                        guard age <= euclideousPulseMaxAge else { continue }
+                        let v = euclideousMixPadValues(of: line, notes: notes)
+                        let puck = geo.puck(gate: v.gate, velocity: v.velocity)
+                        pads.append(EuclideousMixPulsePad(rect: CGRect(origin: grid.origin(lane: lane, notes: notes), size: CGSize(width: grid.cellW, height: grid.padH)), puck: puck,
+                                                          fill: CGRect(x: geo.plot.minX, y: puck.y, width: max(0, puck.x - geo.plot.minX), height: max(0, geo.plotH - puck.y)),
+                                                          colour: accent, velocity: Int(notes ? s.notesVel : s.riffVel), seconds: age))
+                    }
+                    if let s = pulseFeed.latest(lane: lane, where: { $0.onsetAt <= now }), now - s.onsetAt <= euclideousPulseMaxAge {
+                        let mask = line.emitterMask ?? 0
+                        for b in 0..<4 where (mask >> UInt8(b)) & 1 != 0 && (mainOutMask >> UInt8(b)) & 1 != 0 {
+                            buttons.append(EuclideousMixPulseButton(rect: euclideousMixOutButtonFrame(grid: grid, lane: lane, button: b), colour: accent,
+                                                                    velocity: euclideousPulseRingVelocity(riffVel: Int(s.riffVel), notesVel: Int(s.notesVel)), seconds: now - s.onsetAt))
+                        }
+                    }
+                }
+            }
+            return EuclideousMixPulseOverlay(pads: pads, buttons: buttons, scale: p, size: CGSize(width: width, height: height))
         }
         .frame(width: width, height: height, alignment: .topLeading)
     }

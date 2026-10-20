@@ -5595,6 +5595,16 @@ func euclideousMixGrid(width: CGFloat, height: CGFloat) -> EuclideousMixGrid {
     return EuclideousMixGrid(cellW: (width - 16) / 4, rowH: rowH, padH: rowH - belowPad)
 }
 
+/// The frame of one of a lane's four OUT A–D buttons, in the grid area's coordinates — the SAME numbers `mixOutRow` lays its HStack out with (the pair's width, sp4 gaps, 20pt tall, under the OCT stepper), so the PULSE glow
+/// (§5.5) lands exactly on the button.
+func euclideousMixOutButtonFrame(grid: EuclideousMixGrid, lane: Int, button b: Int) -> CGRect {
+    let sp4 = EuclideousMixMetrics.sp4
+    let riff = grid.origin(lane: lane, notes: false)
+    let pairW = grid.cellW * 2 + sp4
+    let btnW = max(1, (pairW - sp4 * 3) / 4)
+    return CGRect(x: riff.x + CGFloat(b) * (btnW + sp4), y: riff.y + grid.padH + sp4 + EuclideousMixMetrics.stepperH + sp4, width: btnW, height: EuclideousMixMetrics.outRowH)
+}
+
 // ── the pad (§3/§4): drawing geometry and touch-to-value are ONE definition ────────────────────────────────────────────
 
 struct EuclideousMixPadGeometry: Equatable {
