@@ -13803,4 +13803,66 @@ final class RouterTests: XCTestCase {
             }
         }
     }
+    // MARK: - NOTES TAB (ferry 2026-10-19) §13 test 1 — golden renders captured BEFORE the NOTES-tab engine change.
+    // The ferry's example lane: 8 steps of 1/8, hits on 1, 3, 5, 6 and 8, FWD, LEN 8, STRIDE 1, SHIFT 5, EVERY 1, ADV STEP, both chains FREE, riff ranks
+    // [8, 0, 8, 6, 0, 6, 5, 0], so the hits read columns 6, 8, 2, 3, 5 (the hits on 1 and 6 play, 3, 5 and 8 are rests). The pool is MIDI IN with the C-minor pitches
+    // C3 D3 Eb3 F3 G3 Ab3 Bb3 (ranks 1-7; rank 8 is the octave copy C4), which is what KEY C MINOR resolves to. Ranks 5, 6 and 8 are lit.
+
+    private let notesExPool: [UInt8] = [48, 50, 51, 53, 55, 56, 58]
+    private let notesExRanks = [8, 0, 8, 6, 0, 6, 5, 0]
+    private func notesExLine(onRest: EuclidRiffOnRest = .skip, riffOn: Bool = true, gate: Double = 0.5, lit: UInt8 = 0b1011_0000) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: 5, steps: 8, gate: gate, rate: .r1_8, useRiff: true, litNotes: lit, riffOn: riffOn, sourceMode: .midi, riffLength: 8)
+        l.customHits = [true, false, true, false, true, true, false, true]
+        l.riffDir = .forward; l.riffAdvanceStep = true; l.riffRotate = 5; l.riffOnRest = onRest; l.notesOn = true
+        return l
+    }
+    /// FNV-1a over every note-on / note-off on every cable (sample, cable, status, channel, note, velocity) plus the note-on count.
+    private func notesStreamHash(_ e: RecordingEmitter) -> (hash: UInt64, ons: Int) {
+        var h: UInt64 = 0xcbf29ce484222325
+        func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
+            mix(UInt64(bitPattern: ev.sample)); mix(UInt64(ev.cable)); mix(UInt64(ev.status)); mix(UInt64(ev.chan)); mix(UInt64(ev.note)); mix(UInt64(ev.vel))
+        }
+        return (h, e.ons.count)
+    }
+    private func notesExHash(_ line: EuclidLine) -> (hash: UInt64, ons: Int) {
+        let e = fxRun(fxBox([line], ranks: notesExRanks), beats: 8 * 4.0 + 0.5, pool: notesExPool)
+        assertNothingLeftSounding(e)
+        return notesStreamHash(e)
+    }
+    /// GOLDEN: "ON REST/riff/gate" -> (stream hash, note-on count) over 8 passes. CAPTURED on origin/main 03adfa5, before the NOTES-tab engine change. With lit notes FILL is NOT the same as SKIP (984 vs 408
+    /// note-ons at riff/50): SKIP silences the lit notes on a rest hit, FILL sounds them. (The riff-ferry goldens that show FILL == SKIP had no lit notes.)
+    private let notesExampleGolden: [String: (UInt64, Int)] = [
+        "SKIP/riff/50": (4458790343570662725, 408),
+        "SKIP/riff/100": (18259817443166798221, 188),
+        "SKIP/noriff/50": (6276098541914531621, 984),
+        "SKIP/noriff/100": (7172130965572859533, 24),
+        "FILL/riff/50": (5910540215221559509, 984),
+        "FILL/riff/100": (13226157152018472061, 24),
+        "FILL/noriff/50": (6276098541914531621, 984),
+        "FILL/noriff/100": (7172130965572859533, 24),
+        "TIE/riff/50": (15200567670056044365, 408),
+        "TIE/riff/100": (13226157152018472061, 24),
+        "TIE/noriff/50": (6276098541914531621, 984),
+        "TIE/noriff/100": (7172130965572859533, 24),
+        "REPEAT/riff/50": (16200784428846764181, 984),
+        "REPEAT/riff/100": (13226157152018472061, 24),
+        "REPEAT/noriff/50": (6276098541914531621, 984),
+        "REPEAT/noriff/100": (7172130965572859533, 24),
+    ]
+    func testNotesExampleLaneGoldensBeforeTheNotesTabEngine() {
+        var captured = ""
+        for onRest in [EuclidRiffOnRest.skip, .fill, .tie, .repeatLast] {
+            for riffOn in [true, false] {
+                for gate in [0.5, 1.0] {
+                    let key = "\(onRest.rawValue)/\(riffOn ? "riff" : "noriff")/\(Int(gate * 100))"
+                    let got = notesExHash(notesExLine(onRest: onRest, riffOn: riffOn, gate: gate))
+                    guard let want = notesExampleGolden[key] else { captured += "        \"\(key)\": (\(got.hash), \(got.ons)),\n"; continue }
+                    XCTAssertEqual(got.hash, want.0, "\(key): stream must match the pre-change golden")
+                    XCTAssertEqual(got.ons, want.1, "\(key): note-on count")
+                }
+            }
+        }
+        if !captured.isEmpty { XCTFail("CAPTURE:\n" + captured) }
+    }
 }
