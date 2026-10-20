@@ -119,10 +119,10 @@ final class PageLayoutTests: XCTestCase {
         // widths: landscape content 360.67, portrait 367
         let rl = euclideousRiffTabLayout(contentAreaH: land.box.height - 104, fullWidth: land.box.width - 20)
         XCTAssertEqual(rl.rightColumnWidth, 266.67, accuracy: 0.01); XCTAssertEqual(rl.directionButtonWidth, 50.13, accuracy: 0.01)
-        XCTAssertEqual(rl.hitStepButtonWidth, 106.33, accuracy: 0.01); XCTAssertEqual(rl.onRestButtonWidth, 71.17, accuracy: 0.01); XCTAssertEqual(rl.valueStepperWidth, 87.17, accuracy: 0.01)
+        XCTAssertEqual(rl.hitStepButtonWidth, 106.33, accuracy: 0.01); XCTAssertEqual(rl.onRestButtonWidth, 96.22, accuracy: 0.01); XCTAssertEqual(rl.valueStepperWidth, 87.17, accuracy: 0.01)
         let rp = euclideousRiffTabLayout(contentAreaH: port.box.height - 104, fullWidth: port.box.width - 20)
         XCTAssertEqual(rp.directionButtonWidth, 51.4, accuracy: 0.01); XCTAssertEqual(rp.hitStepButtonWidth, 109.5, accuracy: 0.01)
-        XCTAssertEqual(rp.onRestButtonWidth, 72.75, accuracy: 0.01); XCTAssertEqual(rp.valueStepperWidth, 88.75, accuracy: 0.01)
+        XCTAssertEqual(rp.onRestButtonWidth, 98.33, accuracy: 0.01); XCTAssertEqual(rp.valueStepperWidth, 88.75, accuracy: 0.01)
     }
     func testMixAtBothReferencesFillsTheBoxAndClearsItsFloors() {
         for (p, areaW, areaH, cellW, rowH, padH, outW) in [(land, 364.67, 275.0, 87.17, 133.5, 81.5, 41.58), (port, 371.0, 275.67, 88.75, 133.83, 81.83, 42.38)] {

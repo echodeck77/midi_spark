@@ -3428,18 +3428,19 @@ struct EuclideousPage: View {
         }
         .opacity(isRiff ? 1.0 : 0.42)
     }
-    /// RIFF WALK ferry §1.4 — the ON REST row: "ON REST" / "IN RIFF" label, then SKIP/FILL/TIE/REPEAT (§2.5,
-    /// §6 — REPEAT is new, same style as the other three).
+    /// RIFF WALK ferry §1.4 — the ON REST row: "ON REST" / "IN RIFF" label, then SKIP / TIE / REPEAT. NOTES TAB ferry §9: FILL is gone from the row (it adds no pitch of its own; the
+    /// NOTES tab's RESTS now does what it was for). A lane still holding `.fill` in memory reads as SKIP — which is what its decoder makes it.
     private func riffOnRestRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         let isRiff = line.riffOnResolved
+        let current: EuclidRiffOnRest = line.riffOnRestResolved == .fill ? .skip : line.riffOnRestResolved
         return HStack(spacing: sp4) {
             riffRowLabel("ON REST", "IN RIFF").frame(width: layout.labelColumnWidth)
-            ForEach([EuclidRiffOnRest.skip, .fill, .tie, .repeatLast], id: \.self) { r in
-                let selected = line.riffOnRestResolved == r
+            ForEach([EuclidRiffOnRest.skip, .tie, .repeatLast], id: \.self) { r in
+                let selected = current == r
                 melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: selected, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
                              help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
                     .frame(width: layout.onRestButtonWidth)
-                    // §9.5: SKIP/FILL/TIE keep their plain labels; REPEAT reads "Repeat" with its own hint.
+                    // §9.5 / NOTES TAB §9.3: SKIP and TIE keep their plain labels; REPEAT reads "Repeat" with its own hint.
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(r == .repeatLast ? "Repeat" : r.rawValue.capitalized)
                     .accessibilityHint(r == .repeatLast ? "Plays the riff's previous note again" : "")

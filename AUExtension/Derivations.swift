@@ -6832,7 +6832,8 @@ func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGF
     let labelColumnWidth: CGFloat = 60
     let everyStepperWidth: CGFloat = 76
     let hitStepButtonWidth = max(1, (fullWidth - labelColumnWidth - everyStepperWidth - 3 * sp4) / 2)
-    let onRestButtonWidth = max(1, (fullWidth - labelColumnWidth - 4 * sp4) / 4)
+    // NOTES TAB ferry §9.1: FILL left ON REST — three equal buttons (SKIP, TIE, REPEAT) sp4 apart after the label column and its gap: (fullWidth − 60 − 3·sp4) ÷ 3 = 88.83 at the 338.5 reference, 76 at 300.
+    let onRestButtonWidth = max(1, (fullWidth - labelColumnWidth - 3 * sp4) / 3)
     let valueStepperWidth = max(1, (fullWidth - 3 * sp4) / 4)
     let underFloor = rowAHeight < 82 || directionRowHeight < 32 || lowerRowHeight < 32 || directionButtonWidth < 40
     return EuclideousRiffTabLayout(rowAHeight: rowAHeight, rowBHeight: rowBHeight, lowerRowHeight: lowerRowHeight,
