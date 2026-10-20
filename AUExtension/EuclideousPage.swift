@@ -3864,8 +3864,9 @@ struct EuclideousPage: View {
                                         sp.riffDot = p < 8 && flash.riffDotRank == p + 1 && flash.riffDotStrength > 0
                                         return sp
                                     }()
+                                    // The shape, the tap and the accessibility element go BEFORE the offset: a `.contentShape` applied after `.offset` stays at the un-offset position, which stacked all
+                                    // ten keys' hit areas at the row's top-left (over the strip) and left the keys, TOP 2, TOP and the strip's left edge untappable.
                                     EuclideousNotesKeyView(spec: spec, accent: lane100(accent), size: lay.keys[p].size)
-                                        .offset(x: lay.keys[p].minX, y: lay.keys[p].minY - lay.keyRow.minY)
                                         .contentShape(Rectangle())
                                         .onTapGesture { edit(idx) { euclideousToggleLitPosition(&$0, position: p) } }
                                         .accessibilityElement(children: .ignore)
@@ -3875,6 +3876,7 @@ struct EuclideousPage: View {
                                         .accessibilityHint("Lights or unlights this note")
                                         .accessibilityAddTraits(.isButton)
                                         .ringToggleTrait()
+                                        .offset(x: lay.keys[p].minX, y: lay.keys[p].minY - lay.keyRow.minY)
                                 }
                             }
                         }
