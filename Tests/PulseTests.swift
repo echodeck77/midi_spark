@@ -133,21 +133,33 @@ final class PulseTests: XCTestCase {
     private func ev(_ onset: Double, notes: [UInt8], vels: [UInt8], riff: Bool, kind: UInt8 = 0) -> Router.EuclideousNoteViewEventSnapshot {
         var e = Router.EuclideousNoteViewEventSnapshot(onsetBeat: onset, durationBeat: 0.25, kind: kind, notes: notes); e.hasRiffNote = riff; e.vels = vels; return e
     }
-    func testTheFeedKeepsRiffAndNotesVelocitiesAndIgnoresNonStrikes() {
+    private let t0 = Date(timeIntervalSinceReferenceDate: 1000)
+    private func ingest(_ f: EuclideousPulseFeed, _ lane: Int, _ events: [Router.EuclideousNoteViewEventSnapshot]) { f.ingest(lane: lane, events: events, anchorBeat: 0, anchorAt: t0, tempo: 120) }
+    func testTheFeedKeepsRiffAndNotesVelocitiesAndStampsTheDisplayClockOnset() {
         let f = EuclideousPulseFeed()
-        f.ingest(lane: 1, events: [ev(1, notes: [60, 55, 56], vels: [100, 70, 90], riff: true), ev(2, notes: [], vels: [], riff: false, kind: 2), ev(3, notes: [55, 56], vels: [40, 80], riff: false), ev(4, notes: [60], vels: [110], riff: true, kind: 3)])
-        XCTAssertEqual(f.strikes(lane: 1), [EuclideousPulseStrike(onsetBeat: 1, riffVel: 100, notesVel: 90), EuclideousPulseStrike(onsetBeat: 3, riffVel: 0, notesVel: 80), EuclideousPulseStrike(onsetBeat: 4, riffVel: 110, notesVel: 0)],
+        f.noteTransport(playing: true, at: t0)
+        ingest(f, 1, [ev(1, notes: [60, 55, 56], vels: [100, 70, 90], riff: true), ev(2, notes: [], vels: [], riff: false, kind: 2), ev(3, notes: [55, 56], vels: [40, 80], riff: false), ev(4, notes: [60], vels: [110], riff: true, kind: 3)])
+        let s = f.strikes(lane: 1)
+        XCTAssertEqual(s.map { [$0.onsetBeat, Double($0.riffVel), Double($0.notesVel)] }, [[1, 100, 90], [3, 0, 80], [4, 110, 0]],
                        "a rest flash (kind 2) is not a strike; the notes layer's velocity is the louder of its notes")
+        // the anchor is beat 0 at t0, 120 BPM: beat b is b × 0.5 s after t0 — wall time, fixed at arrival
+        XCTAssertEqual(s.map { $0.onsetAt - t0.timeIntervalSinceReferenceDate }, [0.5, 1.5, 2.0])
         XCTAssertEqual(f.latestRiff(lane: 1)?.onsetBeat, 4); XCTAssertEqual(f.latestNotes(lane: 1)?.onsetBeat, 3); XCTAssertNil(f.latest(lane: 0))
-        // a beat that goes back (a restart or a loop) drops the old strikes; a start clears; a stop stamps and settles for 1.5 s
-        f.ingest(lane: 1, events: [ev(0.5, notes: [60], vels: [90], riff: true)]); XCTAssertEqual(f.strikes(lane: 1).count, 1)
-        let t0 = Date(timeIntervalSince1970: 1000)
+        // a beat that goes back (a restart or a loop) drops the old strikes
+        ingest(f, 1, [ev(0.5, notes: [60], vels: [90], riff: true)]); XCTAssertEqual(f.strikes(lane: 1).count, 1)
+        // a stop stamps the moment and settles for 1.5 s; the marks fade over the same window; a start clears the last run
         f.noteTransport(playing: false, at: t0); XCTAssertTrue(f.isSettling(now: t0.addingTimeInterval(1.4))); XCTAssertFalse(f.isSettling(now: t0.addingTimeInterval(1.6)))
-        f.noteTransport(playing: true, at: t0.addingTimeInterval(5)); XCTAssertTrue(f.strikes(lane: 1).isEmpty); XCTAssertNil(f.stoppedAt); XCTAssertFalse(f.isSettling(now: t0.addingTimeInterval(5)))
+        XCTAssertEqual(f.markFade(now: t0.addingTimeInterval(0.75)), 0.5, accuracy: 1e-9); XCTAssertEqual(f.markFade(now: t0.addingTimeInterval(3)), 0)
+        f.noteTransport(playing: false, at: t0.addingTimeInterval(1)); XCTAssertEqual(f.stoppedAt, t0, "a second 'stopped' reading is not a new edge")
+        f.noteTransport(playing: true, at: t0.addingTimeInterval(5)); XCTAssertTrue(f.strikes(lane: 1).isEmpty, "a start drops the strikes of the last run…"); XCTAssertNil(f.stoppedAt); XCTAssertEqual(f.markFade(now: t0), 1)
+        f.noteTransport(playing: false, at: t0.addingTimeInterval(5.1))
+        f.ingest(lane: 0, events: [ev(1, notes: [60], vels: [90], riff: true)], anchorBeat: 0, anchorAt: t0.addingTimeInterval(5.05), tempo: 120)   // a strike that arrived just before the start edge was read
+        f.noteTransport(playing: true, at: t0.addingTimeInterval(5.2)); XCTAssertEqual(f.strikes(lane: 0).count, 1, "…but not one that belongs to the new run (within 0.5 s of the start)")
+        f.noteTransport(playing: true, at: t0.addingTimeInterval(6)); ingest(f, 1, [ev(1, notes: [60], vels: [90], riff: true)]); f.noteTransport(playing: true, at: t0.addingTimeInterval(7)); XCTAssertEqual(f.strikes(lane: 1).count, 1, "playing again is not an edge")
         // the ring is bounded
-        f.ingest(lane: 2, events: (0..<200).map { ev(Double($0), notes: [60], vels: [90], riff: true) }); XCTAssertEqual(f.strikes(lane: 2).count, EuclideousPulseFeed.ringCap)
+        ingest(f, 2, (0..<200).map { ev(Double($0), notes: [60], vels: [90], riff: true) }); XCTAssertEqual(f.strikes(lane: 2).count, EuclideousPulseFeed.ringCap)
         // an event without velocities (should not happen) still pulses, at a middling 100
-        f.ingest(lane: 3, events: [ev(1, notes: [60], vels: [], riff: true)]); XCTAssertEqual(f.strikes(lane: 3).first?.riffVel, 100)
+        ingest(f, 3, [ev(1, notes: [60], vels: [], riff: true)]); XCTAssertEqual(f.strikes(lane: 3).first?.riffVel, 100)
     }
     func testTheCometBarFollowsTheRiffWhenItIsOnAndTheNotesWhenItIsOff() {
         XCTAssertEqual(euclideousPulseStrikeVelocity(riffOn: true, riffVel: 90, notesVel: 50), 90)
@@ -159,18 +171,18 @@ final class PulseTests: XCTestCase {
         XCTAssertEqual((0..<8).map { euclideousPulseTileForOnset(rawAtOnset: Double($0) - 1e-9, n: 8, dir: .fwd) }, Array(0..<8), "a hair under the tick still rounds to it")
         XCTAssertEqual((0..<8).map { euclideousPulseTileForOnset(rawAtOnset: Double($0), n: 8, dir: .bkw) }, [7, 6, 5, 4, 3, 2, 1, 0])
         XCTAssertEqual((0..<16).map { euclideousPulseTileForOnset(rawAtOnset: Double($0), n: 8, dir: .pingpong) }, [0, 1, 2, 3, 4, 5, 6, 7, 7, 6, 5, 4, 3, 2, 1, 0])
-        // strikes at beats 0 (tile 0), 0.5 (tile 1), 1.0 (tile 2); the latest per tile; a still-future strike is not there; seconds from the beat at 120 BPM
-        let strikes = [EuclideousPulseStrike(onsetBeat: 0, riffVel: 100, notesVel: 0), EuclideousPulseStrike(onsetBeat: 0.5, riffVel: 0, notesVel: 80),
-                       EuclideousPulseStrike(onsetBeat: 1.0, riffVel: 60, notesVel: 0), EuclideousPulseStrike(onsetBeat: 4.0, riffVel: 60, notesVel: 0), EuclideousPulseStrike(onsetBeat: 4.5, riffVel: 110, notesVel: 0)]
+        // strikes at beats 0 (tile 0), 0.5 (tile 1), 1.0 (tile 2), 4.0 (tile 0 again), 4.5 (tile 1); 120 BPM, 1/8 steps (0.5 beat = 0.25 s); onsetAt = beat × 0.5 s
+        func st(_ b: Double, _ r: UInt8, _ n: UInt8) -> EuclideousPulseStrike { EuclideousPulseStrike(onsetBeat: b, onsetAt: b * 0.5, riffVel: r, notesVel: n) }
+        let strikes = [st(0, 100, 0), st(0.5, 0, 80), st(1.0, 60, 0), st(4.0, 60, 0), st(4.5, 110, 0)]
         let tileOf: (Double) -> Int = { euclideousPulseTileForOnset(rawAtOnset: $0 / 0.5, n: 8, dir: .fwd) }
-        let on = euclideousPulseTileStrikes(strikes, riffOn: true, tiles: 8, beat: 4.2, tempo: 120, tileOf: tileOf)
+        let now = 4.2 * 0.5   // beat 4.2: the strike at 4.5 is still in the future
+        let on = euclideousPulseTileStrikes(strikes, riffOn: true, tiles: 8, now: now, tileOf: tileOf)
         XCTAssertEqual(on[0]?.velocity, 60, "beat 4.0 maps back onto tile 0 and replaces beat 0's strike"); XCTAssertEqual(on[0]?.seconds ?? 0, 0.1, accuracy: 1e-9)
-        XCTAssertNil(on[1], "riff on: the notes-only strike at beat 0.5 passes through"); XCTAssertEqual(on[2]?.velocity, 60)
-        XCTAssertNil(on[1], "tile 1")
-        let off = euclideousPulseTileStrikes(strikes, riffOn: false, tiles: 8, beat: 4.2, tempo: 120, tileOf: tileOf)
+        XCTAssertNil(on[1], "riff on: the notes-only strike at beat 0.5 passes through, and the strike at 4.5 has not happened yet"); XCTAssertEqual(on[2]?.velocity, 60)
+        let off = euclideousPulseTileStrikes(strikes, riffOn: false, tiles: 8, now: now, tileOf: tileOf)
         XCTAssertNil(off[0], "riff off: only the notes layer's strike counts"); XCTAssertEqual(off[1]?.velocity, 80)
-        XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, beat: 4.2, tempo: 120)?.velocity, 60, "the latest strike that has happened by 4.2 is the one at 4.0")
-        XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, beat: 4.6, tempo: 120)?.velocity, 110)
-        XCTAssertNil(euclideousPulseLatestStrike([], riffOn: true, beat: 1, tempo: 120))
+        XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, now: now)?.velocity, 60, "the latest strike that has happened by beat 4.2 is the one at 4.0")
+        XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, now: 4.6 * 0.5)?.velocity, 110)
+        XCTAssertNil(euclideousPulseLatestStrike([], riffOn: true, now: 1))
     }
 }

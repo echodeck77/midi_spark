@@ -141,6 +141,8 @@ final class LiveTelemetry {
     var partRollNotes: [[PartRowRollNote]] = Array(repeating: [], count: Snap.rowsPerFerry)   // PART grid's live per-row piano-roll (Paul 2026-09-29) — held here (not @State), same reason as cellRoll
     var selectRollNotes: [PartRowRollNote] = []   // SELECT grid's live scrolling piano-roll on the auditioning cell (Paul 2026-09-29) — one row, same reason as partRollNotes
     var lastStep = -1   // step-boundary detector for the quantized voice-switch commit (replaced .onChange(of: d.absoluteStep))
+    /// PULSE ferry (2026-10-20, §9.2): the strike feed every strike effect reads — held here (not @State) so filling it from the NOTE VIEW poll does not re-run the page body.
+    let pulse = EuclideousPulseFeed()
 }
 
 /// PART ROW ROLL (Paul 2026-09-29): the fixed trailing fade window, in musical BEATS (not wall-clock seconds — this
@@ -586,6 +588,8 @@ struct DiagView: View {
     // init (below) to seed showEuclideous's STARTING value once per fresh plugin instance — a live toggle here
     // only changes what the NEXT instance opens into, matching "load as", not an instant in-session switch (the
     // existing header icon + showEuclideous already provide that).
+    // PULSE ferry (2026-10-20, §7.1): how strongly a strike shows on the page — 0 OFF · 1 SUBTLE · 2 FULL (default). A device-wide display preference like the three above: not in the document, no undo.
+    @AppStorage("midispark.pulseLevel") var pulseLevel = 2
     @AppStorage("midispark.launchIntoEuclideous") var launchIntoEuclideous = true   // DEFAULT FLIPPED 2026-10-11 — see DiagView.init's own comment
     // INTERFACE REDESIGN (Docs/INSTRUCTIONS-interface-redesign.md) — a parallel NEW-interface shell behind a preview toggle
     // (old BUILD stays the default + fully working). Off ⇒ the current BUILD page; on ⇒ the room shell (roomsPage).
@@ -1086,6 +1090,7 @@ struct DiagView: View {
                                    lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
                                    lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                    wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
+                                   pulseFeed: meters.pulse, pulseLevel: pulseLevel,
                                    resetSpanBars: euclideousResetSpanBars, keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
                                    // SWING (2026-10-17): the SAME global setter/readback ArrangementBar's own header
                                    // slider already uses — a second UI surface onto one shared value, not new state
@@ -1395,6 +1400,8 @@ struct DiagView: View {
                     }
                     if changed { euclideousWipeEvent = newWipe }
                     if strikeChanged { euclideousStrikeEvent = newStrike }
+                    // PULSE: the same drained events, kept with their velocities and stamped on the display clock the comet dot reads (nothing new is polled).
+                    for lane in 0..<4 { meters.pulse.ingest(lane: lane, events: nvEvents[lane], anchorBeat: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo) }
                 }
             }
             // PART ROW ROLL (Paul 2026-09-29): the part grid's live per-row piano-roll — same ~30fps timer as the
@@ -1545,6 +1552,7 @@ struct DiagView: View {
                     buildPublishScene()   // `euclideousResynced`'s own publish (above) already ran this tick — this block lands after it, so it republishes directly
                 }
             }
+            meters.pulse.noteTransport(playing: nd.effectivePlaying, at: Date())   // PULSE: a start drops the last run's strikes, a stop starts the 1.5 s settle
             meters.syncBeat(nd.beat, tempo: nd.tempo, playing: nd.effectivePlaying, at: Date())   // BEAT clock (4 Hz) → the telemetry; playheads extrapolate at 30 fps. DEJITTER: re-anchors only on a discontinuity, else free-runs (see syncBeat) → no 4 Hz stutter
             buildTickFerryOneShot(nd.beat)                                // PLAY-FERRY LAUNCH (Phase 2b): stop a ONE-SHOT ferry one part-length after its launch (≤ one poll of the pass end)
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop

@@ -701,6 +701,9 @@ struct EuclideousPage: View {
     let wipeEvents: [Router.EuclideousNoteViewEventSnapshot?]
     // FOURFOLD HEADER (§4.8): each lane's latest real strike of any kind — read ONLY by the output rings' flare.
     let strikeEvents: [Router.EuclideousNoteViewEventSnapshot?]
+    // PULSE ferry (2026-10-20): the retained strike feed (velocities, display-clock onsets) every strike effect reads, and the PULSE level (0 OFF · 1 SUBTLE · 2 FULL).
+    let pulseFeed: EuclideousPulseFeed
+    let pulseLevel: Int
     // PAGE REWORK (Paul 2026-10-07): the new global reset-span/key/source-mode/main-out config (§2.2-§2.4).
     let resetSpanBars: Int
     let keyRoot: Int
@@ -806,6 +809,7 @@ struct EuclideousPage: View {
     // window change, never per frame). RESTART CHAINS ferry §8: the panel's own MUTE/RESTART sub-tab state
     // (`lanesSubTab`) is retired along with the RESTART view itself — the panel is mute-only now.
     @State private var lanesRollCache = EuclideousLanesRollCache()
+    @State private var pulseSettleTick = 0   // PULSE §9.1: see `pulseLive`
     @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
@@ -993,6 +997,10 @@ struct EuclideousPage: View {
             // cached/fixed assumption. Landscape = strictly wider than tall (`euclideousPageLayout` owns the chooser).
             ZStack(alignment: .topLeading) {
                 Color(red: 0.05, green: 0.055, blue: 0.07).ignoresSafeArea()
+                    // PULSE §9.1: when the page stops playing, bump a tick once the 1.5 s settle window is over so the strike views re-evaluate and pause (they idle from then on)
+                    .onChange(of: clock.playing) { playing in
+                        if !playing { DispatchQueue.main.asyncAfter(deadline: .now() + euclideousPulseMaxAge + 0.1) { pulseSettleTick &+= 1 } }
+                    }
                 pageBody(geo.size)
                 // THE DRAG HUD — same floating-card pattern as the existing EUCLID editor's own HUD
                 // (BuildPage.swift's buildEuclidDragHUD/AudioUnitViewController.swift's root-ZStack
@@ -1934,6 +1942,7 @@ struct EuclideousPage: View {
                           // own cell rect now, so there's no separate row height/gap to budget here at all.
                           footerStates: footerPlan.states, notesPips: footerPlan.pips,
                           notesPlayPhrase: footerPlan.pips.flatMap { euclideousNotesPlayHitsPhrase(euclideousNotesPipSteps($0)) }, footerGrey: footerPlan.grey, notesStrikeOnRest: footerPlan.notesStrikeOnRest,
+                          pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive, pulseRiffOn: line.riffOnResolved,
                           stepCountBadge: AnyView(stepCountBadge(
                               followEff?.n ?? steps,
                               dotTint: listenFollowTint)),
@@ -5027,6 +5036,9 @@ struct EuclideousPage: View {
     }
     /// The UI clock's beat at `date` — the same `anchor + elapsed × tempo` extrapolation every other live view on
     /// this page uses (frozen at the anchor while the transport is stopped).
+    /// PULSE §9.1: the strike effects keep their TimelineViews running while the page plays AND for the 1.5 s after it stops (the decays and the marks' fade), then idle. `pulseSettleTick` is bumped once
+    /// when that window ends so the body re-evaluates and the views pause.
+    private var pulseLive: Bool { clock.playing || pulseFeed.isSettling(now: Date()) }
     private func walkTagBeat(at date: Date) -> Double {
         clock.playing ? clock.anchor + date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
     }

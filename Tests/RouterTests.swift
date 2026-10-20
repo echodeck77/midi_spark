@@ -14224,7 +14224,7 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(restHits.count, 3, "the hits on 3, 5 and 8 are rest hits: the notes strike there with no riff note")
         XCTAssertTrue(restHits.allSatisfy { $0.vels.allSatisfy { $0 == 70 } }, "…at the notes pad's velocity")
         XCTAssertEqual(riffHits.count, 2, "the hits on 1 and 6 are riff strikes"); XCTAssertTrue(riffHits.allSatisfy { $0.vels.first == 100 }, "…at the lane's own VEL (the default 100)")
-        let feed = EuclideousPulseFeed(); feed.ingest(lane: 0, events: all)
+        let feed = EuclideousPulseFeed(); feed.ingest(lane: 0, events: all, anchorBeat: 0, anchorAt: Date(timeIntervalSinceReferenceDate: 0), tempo: 120)
         XCTAssertEqual(feed.strikes(lane: 0).filter { $0.riffVel == 0 && $0.notesVel == 70 }.count, 3)
         XCTAssertEqual(feed.strikes(lane: 0).filter { $0.riffVel == 100 }.count, 2)
     }

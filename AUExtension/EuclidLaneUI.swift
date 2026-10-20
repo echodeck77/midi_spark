@@ -163,6 +163,14 @@ struct EuclidLaneBox: View {
     var notesPlayPhrase: String? = nil
     var footerGrey: Bool = false
     var notesStrikeOnRest: Bool = false
+    // PULSE ferry (2026-10-20, §2/§3): the strike feed and what the comet bar needs to draw it. `pulseFeed` nil (the regular BUILD-page EUCLID editor) ⇒ the bar draws exactly as before.
+    // `pulseScale` is P (0 OFF / 0.6 SUBTLE / 1 FULL), `pulseLive` is "the page is playing or settling after a stop" (the TimelineView's un-paused condition), `pulseRiffOn` is whether the lane's riff is on
+    // (the strike rule and the gap rule both read it) and `pulseLane` is the lane's index in the feed.
+    var pulseFeed: EuclideousPulseFeed? = nil
+    var pulseLane: Int = 0
+    var pulseScale: Double = 0
+    var pulseLive: Bool = false
+    var pulseRiffOn: Bool = true
     // STEP-COUNT BADGE (EUCLIDEOUS PAGE REWORK, Paul 2026-10-07: "a step count shown as a number" beside the
     // comet bar, permanently) — an optional trailing sibling in the SAME play+comet HStack, same additive-
     // nil-default shape as `trailingContent` above. nil (every existing BUILD-page call site) ⇒ byte-identical.
@@ -234,7 +242,7 @@ struct EuclidLaneBox: View {
                            rate: rate, spanN: spanN, tilt: patternOverride != nil ? 0 : line.tiltResolved,
                            missStyle: patternOverride != nil ? false : line.patternMissResolved,
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
-                           footerStates: footerStates, notesPips: notesPips, notesPlayPhrase: notesPlayPhrase, footerGrey: footerGrey, notesStrikeOnRest: notesStrikeOnRest, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
+                           footerStates: footerStates, notesPips: notesPips, notesPlayPhrase: notesPlayPhrase, footerGrey: footerGrey, notesStrikeOnRest: notesStrikeOnRest, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, pulseRiffOn: pulseRiffOn, exactStyle: compact, grouped: grouped, riffOnRest: riffOnRest,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
                            restartChains: restartChains, mutedAt: mutedAt,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
@@ -343,6 +351,14 @@ struct EuclidCometBar: View {
     var notesPlayPhrase: String? = nil
     var footerGrey: Bool = false
     var notesStrikeOnRest: Bool = false
+    // PULSE ferry (2026-10-20, §2/§3): the strike feed and what the comet bar needs to draw it. `pulseFeed` nil (the regular BUILD-page EUCLID editor) ⇒ the bar draws exactly as before.
+    // `pulseScale` is P (0 OFF / 0.6 SUBTLE / 1 FULL), `pulseLive` is "the page is playing or settling after a stop" (the TimelineView's un-paused condition), `pulseRiffOn` is whether the lane's riff is on
+    // (the strike rule and the gap rule both read it) and `pulseLane` is the lane's index in the feed.
+    var pulseFeed: EuclideousPulseFeed? = nil
+    var pulseLane: Int = 0
+    var pulseScale: Double = 0
+    var pulseLive: Bool = false
+    var pulseRiffOn: Bool = true
     // EXACT DIMENSIONS (2026-10-13 "lane card, exact dimensions" ferry) — Euclideous's own cell styling: zero
     // side insets (the ferry's own cell-width table — 25.63/16.08/12.25 at 8/12/16 steps — only reconciles
     // with `euclidBoxGeometry`'s formula when the FULL steps-area width is used, hand-verified), flat LANE-
@@ -377,6 +393,7 @@ struct EuclidCometBar: View {
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PULSE §7.3: followed live
     // WIDTH (Paul 2026-10-06): this bar's own real rendered width, as computed by its caller (`EuclidLaneBox`)
     // — needed OUTSIDE the Canvas so the rotate-drag's step distance can be derived from the SAME box pitch
     // the Canvas will draw, via the shared `euclidBoxGeometry`. Not optional/defaulted: every current caller
@@ -419,7 +436,7 @@ struct EuclidCometBar: View {
         let stepW: CGFloat = groupGeo?.stepW ?? boxGeo.boxW
         let rotateStepPt: CGFloat = n > 1 ? (stepXs[n - 1] - stepXs[0]) / CGFloat(n - 1) : boxGeo.pitch
         ZStack {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running)) { tl in
+        TimelineView(.animation(minimumInterval: pulseFeed != nil ? 1.0 / 60.0 : 1.0 / 30.0, paused: !(running || (pulseFeed != nil && pulseLive)))) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             // DIRECTION-AWARE SWEEP: `cometRaw` is the raw tick count mod the direction's real cycle length (n, or
             // 2n under PING-PONG); `cometPos` is its continuous screen position, reversing/bouncing per
@@ -435,6 +452,21 @@ struct EuclidCometBar: View {
             let runningNow = running && !mutedNow
             let cometPos = euclidCometPos(cometRaw, n: n, dir: dir)
             let nD = Double(n)
+            // PULSE (ferry 2026-10-20): every strike effect comes from the feed's strikes and the pure functions in Derivations.swift. A strike's tile is the step the engine read at its onset tick (the comet raw
+            // at the MUSICAL onset beat, the same function the dot uses); its age is wall time since the onset stamped on the display clock when the event arrived (1.2).
+            let pulseOn = pulseFeed != nil
+            let nowRef = tl.date.timeIntervalSinceReferenceDate
+            let pulseStrikes = pulseFeed?.strikes(lane: pulseLane) ?? []
+            let pulseTiles: [(velocity: Int, seconds: Double)?] = pulseOn ? euclideousPulseTileStrikes(pulseStrikes, riffOn: pulseRiffOn, tiles: n, now: nowRef, tileOf: { onset in
+                let swingA = min(75, max(50, clock.swing)) / 50.0
+                let mb = swingA == 1 ? onset : musicalOf(onset, stepBeats: max(0.03125, clock.stepBeats), a: swingA)
+                let raw = restartChains.map { euclideousLaneCometChainRaw(beat: mb, n: n, dir: dir, sub: sub, chains: $0, legacySpanBeats: spanBeats) }
+                    ?? euclidCometRaw(mTickBeat: mb, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
+                return euclideousPulseTileForOnset(rawAtOnset: raw, n: n, dir: dir)
+            }) : []
+            let pulseLatest = pulseOn ? euclideousPulseLatestStrike(pulseStrikes, riffOn: pulseRiffOn, now: nowRef) : nil
+            let pulseLap = euclideousPulseLapSeconds(cycleLen: euclidCycleLen(dir, n: n), stepBeats: sub, tempo: clock.tempo)
+            let pulseMarkFade = pulseFeed?.markFade(now: tl.date) ?? 1
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
                 let cellColour = cellTint ?? tint   // the LIT cells' colour (the comet head below keeps `tint`)
@@ -491,6 +523,7 @@ struct EuclidCometBar: View {
                 // that screen position, full stop. The age/flare timing below is keyed on screen position `i`
                 // directly; only the comet's own motion (via `cometRaw`/`cometPos`, already direction-aware)
                 // varies by DIRECTION.
+                var pulseCores: [(x: CGFloat, b: Double)] = []
                 for i in 0..<n {
                     let rawHit = invert ? !buf[i] : buf[i]
                     // MISS STYLE (ferry §3.2): draw as if "hit" means "sounding" — the inverted steps get the
@@ -499,13 +532,40 @@ struct EuclidCometBar: View {
                     let hit = missStyle ? !rawHit : rawHit
                     let rect = boxRect(i)
                     let box = boxPath(rect)
+                    // PULSE: this tile's footer state, whether it is a gap (2.1), its latest strike's envelopes, and the dip it asks for (3.3)
+                    let tState: EuclidFooterState = (footerStates != nil && i < footerStates!.count) ? footerStates![i] : .miss
+                    let isGap = pulseOn && hit && euclideousPulseIsGap(state: tState, onRest: riffOnRest, riffOn: pulseRiffOn)
+                    let tileStrike = (pulseOn && hit && !isGap && i < pulseTiles.count) ? pulseTiles[i] : nil
+                    let env = tileStrike.map { euclideousPulseEnvelopes(velocity: $0.velocity, seconds: $0.seconds, scale: pulseScale) } ?? .none
+                    let dipK = euclideousPulseFilter(.keyDipMove, scale: pulseScale, reduceMotion: reduceMotion) == .off ? 0 : env.k
+                    let overlayK = euclideousPulseFilter(.keyDipOverlay, scale: pulseScale, reduceMotion: reduceMotion) == .off ? 0 : env.k
+                    func drawTile(_ ctx: inout GraphicsContext) {
                     if hit {
                         // STOPPED: `running` false (either the HOST transport, or THIS LANE's own PLAY/STOP) means
                         // the TimelineView above is PAUSED, so `phase` is frozen at whatever it was the instant
                         // playback stopped, not a meaningful "time since the comet passed." Drawing the age/
                         // recede/burst flare off a frozen age would leave some hit box stuck mid-flash forever. A
                         // stopped lane shows every hit at one steady, unflared brightness instead.
-                        if runningNow {
+                        if pulseOn {
+                            // PULSE §2/§3: a GAP is an outline (no fill, a 1pt inner ring, lane100 @40%) — present, never blank — also while stopped; every other hit tile is a steady fill (the settled look of
+                            // the old flare: top .95 → bottom .55, a 0.18 white edge) and its strike effects (dip, overlay, level mark, core) are layered on it below.
+                            if isGap {
+                                ctx.stroke(boxPath(rect.insetBy(dx: 0.5, dy: 0.5)), with: .color(cellColour.opacity(0.4)), lineWidth: 1)
+                            } else if runningNow {
+                                ctx.drawLayer { layer in
+                                    layer.addFilter(.shadow(color: cellColour.opacity(0.55), radius: 5))
+                                    layer.fill(box, with: .linearGradient(Gradient(colors: [cellColour.opacity(0.95 * cellFade), cellColour.opacity(0.55 * cellFade)]),
+                                                                           startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
+                                }
+                                ctx.stroke(box, with: .color(.white.opacity(0.18)), lineWidth: 1)
+                            } else if exactStyle {
+                                ctx.fill(box, with: .color(cellColour.opacity(cellFade)))
+                            } else {
+                                ctx.fill(box, with: .color(cellColour.opacity(0.55 * cellFade)))
+                                ctx.stroke(box, with: .color(.white.opacity(0.2)), lineWidth: 1)
+                            }
+                            if overlayK > 0 { ctx.fill(box, with: .color(.white.opacity(0.4 * overlayK))) }   // the key's white flash (3.3)
+                        } else if runningNow {
                             // steps since the comet passed this node (0 = just now), wrapped positive every lap —
                             // direction-aware: FWD unchanged; BKW mirrors it (the comet visits box i when
                             // cometRaw = n−i); PING-PONG visits box i TWICE per lap (ascending at cometRaw=i,
@@ -647,6 +707,55 @@ struct EuclidCometBar: View {
                             }
                         }
                     }
+                    // PULSE §3.5: the LEVEL MARK — a white line that rose to this tile's latest strike's velocity (in 60 ms) and fades over half a lap: a record of the pass. Not on a gap, not on a tile with no
+                    // strike yet; it moves with the tile's dip. The band runs from the top of the footer (14pt, flush with the tile's bottom) up to 2pt below the tile's top.
+                    if pulseOn, hit, !isGap, let st = (i < pulseTiles.count ? pulseTiles[i] : nil), tState != .miss, euclideousPulseFilter(.levelMark, scale: pulseScale, reduceMotion: reduceMotion) != .off {
+                        let m = euclideousPulseMarkAlpha(seconds: st.seconds, lapSeconds: pulseLap, scale: pulseScale) * pulseMarkFade
+                        if m >= 0.01 {
+                            let band = euclideousPulseMarkBand(tileHeight: rect.height, footerTopY: rect.height - 14)
+                            let instant = euclideousPulseFilter(.levelMark, scale: pulseScale, reduceMotion: reduceMotion) == .instantRise
+                            let rise = euclideousPulseMarkRise(velocity: st.velocity, band: band.height, seconds: st.seconds, instant: instant)
+                            let bottomEdge = rect.minY + band.bottomY - rise
+                            let markRect = CGRect(x: rect.minX + 3, y: bottomEdge - 2, width: max(1, rect.width - 6), height: 2)
+                            ctx.drawLayer { layer in
+                                layer.clip(to: box)
+                                layer.fill(Path(CGRect(x: rect.minX, y: bottomEdge, width: rect.width, height: max(0, rect.maxY - bottomEdge))), with: .color(.white.opacity(0.16 * m)))
+                                layer.fill(Path(CGRect(x: markRect.minX, y: bottomEdge, width: markRect.width, height: 1)), with: .color(Color(red: 13.0 / 255, green: 15.0 / 255, blue: 20.0 / 255).opacity(0.45 * m)))
+                                layer.drawLayer { glow in
+                                    glow.addFilter(.shadow(color: .white.opacity(0.6 * m), radius: 3))   // ≈ the design's 6pt blur (a SwiftUI shadow radius is about half a CSS blur)
+                                    glow.fill(Path(roundedRect: markRect, cornerRadius: 1), with: .color(.white.opacity(m)))
+                                }
+                            }
+                        }
+                    }
+                    }
+                    if pulseOn && dipK > 0 {
+                        // 3.3: the struck tile draws moved down 3 × k and scaled to 1 − 0.05 × k about its centre — draw-time only (no layout, hit-test or neighbour moves); its footer and mark move with it
+                        ctx.drawLayer { layer in
+                            layer.translateBy(x: rect.midX, y: rect.midY + 3 * CGFloat(dipK))
+                            layer.scaleBy(x: 1 - 0.05 * CGFloat(dipK), y: 1 - 0.05 * CGFloat(dipK))
+                            layer.translateBy(x: -rect.midX, y: -rect.midY)
+                            drawTile(&layer)
+                        }
+                    } else {
+                        drawTile(&ctx)
+                    }
+                    if env.b > 0 { pulseCores.append((rect.midX, env.b)) }
+                }
+                // PULSE §3.1: the FLARE CORE on each struck tile, centred on the line the comet dot travels — a white disc 6 + 16 × b at opacity b over a lane100 glow (blur 14 × b); Reduce Motion keeps it at
+                // a fixed 10pt. (An old-flare "expanding ring" is gone.)
+                if pulseOn {
+                    let coreKind = euclideousPulseFilter(.flareCore, scale: pulseScale, reduceMotion: reduceMotion)
+                    if coreKind != .off {
+                        for core in pulseCores {
+                            let dia: CGFloat = coreKind == .fixedCore ? 10 : 6 + 16 * CGFloat(core.b)
+                            let disc = Path(ellipseIn: CGRect(x: core.x - dia / 2, y: midY - dia / 2, width: dia, height: dia))
+                            ctx.drawLayer { layer in
+                                layer.addFilter(.shadow(color: tint.opacity(core.b), radius: 7 * CGFloat(core.b)))   // blur 14 × b ≈ shadow radius 7 × b
+                                layer.fill(disc, with: .color(.white.opacity(core.b)))
+                            }
+                        }
+                    }
                 }
                 // THE COMET — a soft blurred trail + a glowing head, riding OVER the box row. MOTION reverses for
                 // BKW and bounces for PING-PONG — `hx` tracks `cometPos`'s own direction-aware sweep; the TRAIL
@@ -671,9 +780,24 @@ struct EuclidCometBar: View {
                                                                    startPoint: CGPoint(x: hx, y: midY), endPoint: CGPoint(x: tx, y: midY)),
                                      lineWidth: 5)
                     }
+                    // PULSE §3.4 / §3.2: after a strike the dot carries a short TAIL (a 4pt capsule behind it, 10 + 60 × vis long, cut off at the step area's edge, lane100 from 0% at its back to 85% × a at the dot) and
+                    // swells by 8 × b about its centre. A tile that is a gap makes no strike, so it adds neither (the latest strike is the last REAL one). Reduce Motion: no tail, no swell.
+                    var dotD: CGFloat = 10
+                    if pulseOn, let latest = pulseLatest {
+                        let env = euclideousPulseEnvelopes(velocity: latest.velocity, seconds: latest.seconds, scale: pulseScale)
+                        if euclideousPulseFilter(.tail, scale: pulseScale, reduceMotion: reduceMotion) != .off, env.a >= 0.01 {
+                            let tail = euclideousPulseTail(vis: euclideousPulseVis(latest.velocity), dotX: hx, areaMinX: insetL, areaMaxX: insetL + usable, movingRight: movingRight)
+                            if tail.length > 0 {
+                                let rect = CGRect(x: min(tail.backX, hx), y: midY - 2, width: tail.length, height: 4)
+                                let from = CGPoint(x: tail.backX, y: midY), to = CGPoint(x: hx, y: midY)
+                                ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .linearGradient(Gradient(colors: [tint.opacity(0), tint.opacity(0.85 * env.a)]), startPoint: from, endPoint: to))
+                            }
+                        }
+                        if euclideousPulseFilter(.dotSwell, scale: pulseScale, reduceMotion: reduceMotion) != .off { dotD += 8 * CGFloat(env.b) }
+                    }
                     ctx.drawLayer { layer in
                         layer.addFilter(.shadow(color: tint, radius: 9))
-                        layer.fill(Path(ellipseIn: CGRect(x: hx - 5, y: midY - 5, width: 10, height: 10)), with: .color(tint))
+                        layer.fill(Path(ellipseIn: CGRect(x: hx - dotD / 2, y: midY - dotD / 2, width: dotD, height: dotD)), with: .color(tint))
                     }
                 }
             }
@@ -699,7 +823,7 @@ struct EuclidCometBar: View {
                     let label: String = {
                         switch state {
                         case .miss: return "Miss"
-                        case .hitOnRest: return "Hit, lands on rest"
+                        case .hitOnRest: return (pulseFeed != nil && euclideousPulseIsGap(state: state, onRest: riffOnRest, riffOn: pulseRiffOn)) ? "Rest in the riff" : "Hit, lands on rest"   // PULSE §2.7
                         case .hitTied: return "Hit, tied"
                         case .hit(let riffStep):
                             if let riffStep { return "Hit, plays riff step \(riffStep)" }
