@@ -6536,8 +6536,24 @@ func euclideousChainTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycle
                                       riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64, every: Int = 1, bound: Int? = nil,
                                       restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
                                       rankAt: (_ column: Int, _ beat: Double) -> Int) -> Double {
+    euclideousChainTieExtensions(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats,
+                                 advanceStep: advanceStep, riffDir: riffDir, stride: stride, length: length, rotate: rotate, seed: seed, every: every, bound: bound,
+                                 restTies: restTies, fxTie: fxTie, rankAt: rankAt, notesStrikes: nil).riff
+}
+/// NOTES TAB ferry (2026-10-19) §8.4: the TIE lookahead, now with TWO answers. `riff` is the riff note's extension, exactly as before. `notes` is how far the notes the notes layer
+/// strikes on this hit carry on: they carry through the tied hits until the first TIED REST on which the notes layer itself strikes (it re-strikes there, so what it struck before ends
+/// at that hit as it would at an untied one). `notesStrikes(isRest, column, beat)` is asked, in order, about every scanned tied hit — it advances its own count k as it goes — and says
+/// whether the notes strike there; an FX-tied real hit is asked too (isRest false) so the count stays right, and never stops the notes. nil = the notes carry exactly as far as the riff.
+func euclideousChainTieExtensions(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                                  chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                                  riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64, every: Int = 1, bound: Int? = nil,
+                                  restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
+                                  rankAt: (_ column: Int, _ beat: Double) -> Int,
+                                  notesStrikes: ((_ isRest: Bool, _ column: Int, _ beat: Double) -> Bool)?) -> (riff: Double, notes: Double) {
     var hitsAhead = 0
     var lastConsumed = 0
+    var notesLast = 0
+    var notesStopped = notesStrikes == nil
     var j = 0
     // RIFF WALK ferry §5.5 (Euclideous row only — the retired/legacy fork passes no `bound`, keeping its
     // own original `length`-based cap byte-identical): the lookahead must reach the end of any run of tied
@@ -6560,14 +6576,18 @@ func euclideousChainTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycle
         let column = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: length, stride: stride, shift: rotate, seed: seed)
         let beatJ = Double(t) * sub
         let writtenJ = rankAt(column, beatJ)
-        if writtenJ < 1 {
+        let isRest = writtenJ < 1
+        if isRest {
             guard restTies else { break }
         } else {
             guard fxTie(column, beatJ, writtenJ) else { break }
         }
+        if let ns = notesStrikes, !notesStopped {
+            if ns(isRest, column, beatJ) { notesStopped = true } else { notesLast = j }
+        }
         lastConsumed = j
     }
-    return Double(lastConsumed) * sub
+    return (Double(lastConsumed) * sub, notesStrikes == nil ? Double(lastConsumed) * sub : Double(notesLast) * sub)
 }
 
 /// RIFF WALK ferry (2026-10-19) §6.2: REPEAT's lookback — the column of the nearest EARLIER hit of this
@@ -8182,3 +8202,210 @@ func euclideousRailAccessibilityLabel(lane: Int, riffOn: Bool, running: Bool, pl
     if muted { s += ", silent at this step" }
     return s
 }
+
+// MARK: - NOTES TAB (ferry 2026-10-19, §6-§8) — which hits the lit notes play, the play list, the seven ways, and ROLL / RUN timing
+//
+// Everything the Router decides about the lit notes, and everything a display shows about it, comes from the functions below — one derivation, never two.
+// Pure, allocation-free (fixed SIMD storage, non-escaping closures) and safe on the render thread.
+
+/// The lane facts every per-hit NOTES decision reads: the finished rhythm and the riff walk — scalars only (the pattern `buf` is passed beside it).
+struct EuclideousNotesWalk {
+    var n: Int
+    var dir: EuclidDir
+    var cycleLen: Int
+    var sub: Double
+    var chains: EuclideousLaneRestartChains
+    var legacySpanBeats: Double
+    var advanceStep: Bool
+    var riffDir: RiffDir
+    var stride: Int
+    var length: Int
+    var rotate: Int
+    var seed: UInt64
+    var every: Int
+}
+
+/// 6.4: the count k runs in blocks of this many hits (and restarts at the melody origin).
+let euclideousNotesBlock: Int64 = 1024
+/// A salt of its own so the NOTES CHANCE rolls never repeat the mask's or RATCHET's.
+private let euclideousNotesChanceSalt: UInt64 = 0x4E4F_5445_5343_4841
+
+/// 6.2: PLAYS (bit 0) and RESTS (bit 1) choose a hit when it is not a rest hit and PLAYS is on, or it is a rest hit and RESTS is on.
+@inline(__always) func euclideousNotesWhenChooses(when: UInt8, isRestHit: Bool) -> Bool { (when & (isRestHit ? 0b10 : 0b01)) != 0 }
+
+/// 6.3: the CHANCE roll, 0...99, from `splitmix64Mix` (the idiom the mask's chance uses) seeded with the lane and `h` (the hit's index among the lane's pattern hits since the
+/// melody origin) plus a salt of its own. Replay-exact: a pure function of (lane, h).
+@inline(__always) func euclideousNotesChanceRoll(lane: Int, h: Int64) -> Int {
+    let x = UInt64(bitPattern: h) &* 0x9E37_79B9_7F4A_7C15 &+ UInt64(truncatingIfNeeded: lane) &* 0xBF58_476D_1CE4_E5B9 &+ euclideousNotesChanceSalt
+    return Int(splitmix64Mix(x) % 100)
+}
+/// A chosen hit gets through when roll < CHANCE; CHANCE 100 lets every one through.
+@inline(__always) func euclideousNotesChanceAllows(chance: Int, lane: Int, h: Int64) -> Bool { chance >= 100 || euclideousNotesChanceRoll(lane: lane, h: h) < chance }
+
+/// h: the hit's index among the lane's pattern hits since the melody origin (the rhythm's hits, before LANES, the mask or FX act on them), 0 for the first — whatever ADVANCE the
+/// riff walk uses (under ADV STEP the walk counts ticks, but the notes count hits).
+func euclideousNotesHitOrdinal(buf: [Bool], w: EuclideousNotesWalk, tick: Int64) -> Int64 {
+    euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: tick, chains: w.chains,
+                            legacySpanBeats: w.legacySpanBeats, advanceStep: false).advOrd
+}
+/// 6.1: the riff column the lane's walk reads at the hit on `tick`, and whether its WRITTEN rank is a rest — worked out whether or not the riff layer is on. INVERT, TRANSPOSE,
+/// an FX NOTE offset, the mask's rank modes and ON REST never change it.
+func euclideousNotesRiffColumn(buf: [Bool], w: EuclideousNotesWalk, tick: Int64) -> Int {
+    let info = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: tick, chains: w.chains,
+                                       legacySpanBeats: w.legacySpanBeats, advanceStep: w.advanceStep)
+    return euclideousRiffColumn(ordinal: info.advOrd, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed)
+}
+func euclideousNotesIsRestHit(buf: [Bool], w: EuclideousNotesWalk, tick: Int64, rankAt: (_ column: Int, _ beat: Double) -> Int) -> Bool {
+    rankAt(euclideousNotesRiffColumn(buf: buf, w: w, tick: tick), Double(tick) * w.sub) < 1
+}
+
+/// 6.4: k for the hit with ordinal `h` on `tick` — the number of EARLIER hits since the melody origin that PLAYS and RESTS chose and CHANCE let through, whatever happened to
+/// them next (a LANES mute, the mask, FX TIE, an empty list, the riff taking the pitch). It is counted in blocks of 1024 hits: only the hits from `h − h mod 1024` to `h − 1`.
+/// Each earlier hit is decided by 6.1-6.3 with the lane's CURRENT values, so an edit re-derives k instead of carrying old state. `thisBeat` reads every earlier hit's written rank (the
+/// grid has no time axis; a looper would — none exists), as the RIFF ferry's REPEAT lookback does.
+///   · WHEN both and CHANCE 100: every earlier hit counts — O(1).
+///   · ADV HIT: the walk ordinal IS the hit ordinal, so the column of hit h' is a closed form — O(h mod 1024), no ticks.
+///   · ADV STEP: the walk ordinal is a tick count, so the earlier hits are found by stepping the lane's ticks backwards (at most 1023 hits, the same shape as REPEAT's lookback).
+func euclideousNotesCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64, h: Int64, when: UInt8, chance: Int, lane: Int,
+                                thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int) -> Int {
+    guard h > 0 else { return 0 }
+    let blockStart = h - (h % euclideousNotesBlock)
+    let want = Int(h - blockStart)
+    guard want > 0 else { return 0 }
+    if when & 0b11 == 0b11 && chance >= 100 { return want }
+    var k = 0
+    if !w.advanceStep {
+        var hp = blockStart
+        while hp < h {
+            let col = euclideousRiffColumn(ordinal: hp, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed)
+            if euclideousNotesWhenChooses(when: when, isRestHit: rankAt(col, thisBeat) < 1) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: hp) { k += 1 }
+            hp += 1
+        }
+        return k
+    }
+    var found = 0
+    var t = tick - 1
+    let floorTick = tick - Int64(want + 1) * Int64(max(1, w.cycleLen)) * 4 - 64   // a hard bound for a degenerate (hit-less) pattern
+    while found < want && t > floorTick {
+        let ph = euclideousLaneChainPhase(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains, legacySpanBeats: w.legacySpanBeats)
+        if ph.rawIsHit {
+            found += 1
+            let hp = h - Int64(found)
+            let info = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains,
+                                               legacySpanBeats: w.legacySpanBeats, advanceStep: true)
+            let col = euclideousRiffColumn(ordinal: info.advOrd, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed)
+            if euclideousNotesWhenChooses(when: when, isRestHit: rankAt(col, thisBeat) < 1) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: hp) { k += 1 }
+        }
+        t -= 1
+    }
+    return k
+}
+
+/// The play list (6.5): up to eleven notes — a pitch, the lit-order position it came from, and the pool rank it stands for — in fixed storage.
+struct EuclideousNotesList: Equatable {
+    static let capacity = 16
+    private(set) var count = 0
+    private var pitches = SIMD16<Int16>(repeating: 0)
+    private var positions = SIMD16<UInt8>(repeating: 0)
+    private var ranks = SIMD16<Int16>(repeating: 0)
+    init() {}
+    func pitch(_ i: Int) -> Int { Int(pitches[i]) }
+    func position(_ i: Int) -> Int { Int(positions[i]) }
+    func rank(_ i: Int) -> Int { Int(ranks[i]) }
+    func contains(pitch p: Int) -> Bool { for i in 0..<count where Int(pitches[i]) == p { return true }; return false }
+    func index(ofPitch p: Int) -> Int? { for i in 0..<count where Int(pitches[i]) == p { return i }; return nil }
+    /// A pitch already in the list is left out ("when its pitch is already in the list").
+    mutating func append(pitch p: Int, position: Int, rank: Int) {
+        guard count < EuclideousNotesList.capacity, !contains(pitch: p), p >= Int(Int16.min), p <= Int(Int16.max) else { return }
+        pitches[count] = Int16(p); positions[count] = UInt8(position); ranks[count] = Int16(rank); count += 1
+    }
+    /// The list without `pitch` (for 7.2: the riff keeps its pitch).
+    func without(pitch p: Int) -> EuclideousNotesList {
+        var o = EuclideousNotesList()
+        for i in 0..<count where Int(pitches[i]) != p { o.append(pitch: Int(pitches[i]), position: Int(positions[i]), rank: Int(ranks[i])) }
+        return o
+    }
+}
+/// 6.5: go through the lit order from first to last. A rank is the pool note at that rank (`resolve` = `riffResolve` against this hit's pool at the notes layer's octave); TOP is the
+/// highest received note (rank n); TOP 2 keeps its pair — the second-highest AND the highest (ranks n − 1 and n; one received note gives that note), so it adds up to two pitches.
+/// A position is left out when RECEIVED is on and its rank is an octave copy (rank > n; TOP and TOP 2 are received notes, never left out), when it has no note, or when its pitch is
+/// already in the list. With nothing held (n = 0) the list is empty.
+func euclideousNotesPlayList(order: EuclideousLitOrder, poolCount n: Int, receivedOnly: Bool, resolve: (_ rank: Int) -> Int?) -> EuclideousNotesList {
+    var list = EuclideousNotesList()
+    guard n > 0 else { return list }
+    for i in 0..<order.count {
+        let pos = order[i]
+        if pos < 8 {
+            let rank = pos + 1
+            if receivedOnly && rank > n { continue }
+            if let p = resolve(rank) { list.append(pitch: p, position: pos, rank: rank) }
+        } else if pos == EuclideousLitOrder.topPosition {
+            if let p = resolve(n) { list.append(pitch: p, position: pos, rank: n) }
+        } else {
+            let lo = max(1, n - 1)
+            if let p = resolve(lo) { list.append(pitch: p, position: pos, rank: lo) }
+            if let p = resolve(n) { list.append(pitch: p, position: pos, rank: n) }
+        }
+    }
+    return list
+}
+
+/// The notes a way strikes on one hit, as indices into the play list, in STRIKE ORDER.
+struct EuclideousNotesPick: Equatable {
+    private(set) var count = 0
+    private var idx = SIMD16<UInt8>(repeating: 0)
+    init() {}
+    subscript(i: Int) -> Int { Int(idx[i]) }
+    mutating func append(_ i: Int) { guard count < 16 else { return }; idx[count] = UInt8(i); count += 1 }
+}
+/// 7.1. With the list L (n notes) and the count k: CHORD every note, together · ROLL every note, low to high when k is even and high to low when k is odd · RUN every note in L's order,
+/// one after another across the step · CYCLE L[k mod n] · BOUNCE L[0] for n = 1, else with p = 2n − 2 and x = k mod p: L[x] when x < n, else L[p − x] · SPLIT with L sorted low to high,
+/// the lowest alone when k is even and all the others together when k is odd (one note: that note every hit) · BUILD the first (k mod n) + 1 notes. n = 0: nothing.
+func euclideousNotesWayPick(list: EuclideousNotesList, way: EuclidNotesPlayAs, k: Int) -> EuclideousNotesPick {
+    var out = EuclideousNotesPick()
+    let n = list.count
+    guard n > 0 else { return out }
+    let k = max(0, k)
+    func sortedLowToHigh() -> EuclideousNotesPick {
+        var s = EuclideousNotesPick()
+        var used: UInt16 = 0
+        for _ in 0..<n {
+            var best = -1
+            for i in 0..<n where used & (1 << UInt16(i)) == 0 && (best < 0 || list.pitch(i) < list.pitch(best)) { best = i }
+            used |= 1 << UInt16(best); s.append(best)
+        }
+        return s
+    }
+    switch way {
+    case .chord, .run:
+        for i in 0..<n { out.append(i) }
+    case .roll:
+        let s = sortedLowToHigh()
+        if k % 2 == 0 { for i in 0..<n { out.append(s[i]) } } else { var i = n - 1; while i >= 0 { out.append(s[i]); i -= 1 } }
+    case .cycle:
+        out.append(k % n)
+    case .bounce:
+        if n == 1 { out.append(0) } else {
+            let p = 2 * n - 2, x = k % p
+            out.append(x < n ? x : p - x)
+        }
+    case .split:
+        let s = sortedLowToHigh()
+        if n == 1 || k % 2 == 0 { out.append(s[0]) } else { for i in 1..<n { out.append(s[i]) } }
+    case .build:
+        for i in 0...(k % n) { out.append(i) }
+    }
+    return out
+}
+/// Does this way index the count k at all? (CHORD and RUN never do — the Router and the lookahead skip the count for them.)
+@inline(__always) func euclideousNotesWayUsesCount(_ way: EuclidNotesPlayAs) -> Bool { !(way == .chord || way == .run) }
+
+/// 7.3: ROLL's spacing in beats, for m ≥ 2 notes: s = min(25 ms, R ÷ (m − 1)), R the lesser of half the gap to the lane's next pattern hit and half the notes' length on this hit (the
+/// length is ignored when the notes are legato). Note j (counting from 0, in strike order) starts j × s after the hit; every note still ends where it would without the roll.
+func euclideousNotesRollSpacingBeats(m: Int, gapBeats: Double, lenBeats: Double, legato: Bool, tempo: Double) -> Double {
+    guard m >= 2 else { return 0 }
+    let r = legato ? gapBeats / 2 : min(gapBeats / 2, lenBeats / 2)
+    return max(0, min(0.025 * tempo / 60.0, r / Double(m - 1)))
+}
+/// 7.4: RUN's slot in beats — the lane's step length ÷ m. Note j starts j × slot after the hit and lasts its effective gate as a share of its slot.
+@inline(__always) func euclideousNotesRunSlotBeats(stepBeats: Double, m: Int) -> Double { m > 0 ? stepBeats / Double(m) : stepBeats }

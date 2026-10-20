@@ -33,6 +33,7 @@ EXCLUSIVE_FILES = {
     "RestartChainsTests.swift",
     "PageLayoutTests.swift",
     "RiffPanelTests.swift",
+    "NotesTabTests.swift",
 }
 
 # Mixed files worth scanning function-by-function: the shared engine (Router/Derivations) plus
@@ -74,7 +75,8 @@ POS_CI = re.compile(
     r"euclideous|riffOctave|riffLock\b|riffStride|riffLength|riffPositions|riffDirection|"
     r"riffRotate|riffInvert|riffOnRest|activeRiff|\briffs\b|FourStep|fourfold|"
     r"LanesPanelPainter|FXPanelPainter|restartRhythmBars|restartMelodyPasses|"
-    r"muteCells16|muteUnit\b|mixOutRow",
+    r"muteCells16|muteUnit\b|mixOutRow|"
+    r"notesWhen|notesLitOrder|notesPlayAs|notesLine\(|notesRender\(|notesExLine\(|\bfxBox\(|\bfxRun\(",
     re.IGNORECASE,
 )
 

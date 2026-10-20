@@ -5815,7 +5815,9 @@ final class RouterTests: XCTestCase {
         // note is C3 or G3, that pitch sounds once."
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1 → pool[0] → 48 (C3), coincides with the lit rank-1 button
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: false, litNotes: 0b0000_0011, riffOn: true, sourceMode: .midi)]
+        // notesWhen: PLAYS only — the riff reads columns 2-8 (rests) after column 1, and a lane built in this build plays its lit notes on rest hits too (WHEN RESTS); this test is about
+        // the coinciding pitch on the hits where the riff plays.
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: false, litNotes: 0b0000_0011, riffOn: true, sourceMode: .midi, notesWhen: 0b01)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
         st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
@@ -11462,10 +11464,9 @@ final class RouterTests: XCTestCase {
     // per-note octave shifts, the notes layer's own on/off, and its own velocity offset, all independent of
     // the riff layer's `octave`/`velocityAbsolute`.
 
-    /// Acceptance: "A C3 shifted −1 reads C2" — the same rule applies to the STRUCK PITCH, not just the
-    /// displayed label. A lit note's own `noteOctShifts[rank-1]` entry shifts ONLY that rank, by a whole
-    /// octave (±12 semitones), independent of the lane's shared `octave`.
-    func testEuclideousPerNoteOctaveShiftSoundsAWholeOctaveHigher() {
+    /// NOTES TAB ferry (2026-10-19, §6.7): the per-note octave shifts STOP SOUNDING. The field stays decodable and is encoded as decoded, but nothing reads it — a lit note sounds the
+    /// plain pool note at the notes layer's octave (MIX's notes OCT stepper still moves it). (Before this ferry a +1 shift on rank 1 sounded a whole octave up: 72, not 60.)
+    func testEuclideousPerNoteOctaveShiftNoLongerSounds() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [0])   // riff off anyway, but rank0=rest either way
         c.paramsA.euclidLines = [EuclidLine(pulses: 1, steps: 8, rate: .r1_16, useRiff: false, litNotes: 0b0000_0001, riffOn: false,
@@ -11478,7 +11479,7 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         let ons = e.ons.filter { $0.cable == 1 }
         XCTAssertEqual(ons.count, 1)
-        XCTAssertEqual(ons[0].note, 72, "rank 1's own +1 shift sounds a whole octave (12 semitones) above the plain pool note, independent of the lane's shared octave")
+        XCTAssertEqual(ons[0].note, 60, "rank 1's +1 shift is stored but no longer sounds: the plain pool note (60), not 72")
     }
 
     /// Acceptance #5 (literal): NOTES VEL offsets the lit notes' own velocity, never the riff note's — and a
@@ -13825,8 +13826,15 @@ final class RouterTests: XCTestCase {
         }
         return (h, e.ons.count)
     }
+    /// The lane as a document saved BEFORE the NOTES tab existed (no notesWhen / chance / way / received / order keys): decoding it runs the 5.6 migration,
+    /// so a lane built here sounds as the old engine made it. (A lane built in code now defaults to WHEN both, which is the NEW fresh-lane behaviour.)
+    private func notesLegacyDecoded(_ line: EuclidLine) -> EuclidLine {
+        var obj = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(line)) as! [String: Any]
+        for k in ["notesWhen", "notesChance", "notesPlayAs", "notesReceivedOnly", "notesLitOrder"] { obj.removeValue(forKey: k) }
+        return try! JSONDecoder().decode(EuclidLine.self, from: JSONSerialization.data(withJSONObject: obj))
+    }
     private func notesExHash(_ line: EuclidLine) -> (hash: UInt64, ons: Int) {
-        let e = fxRun(fxBox([line], ranks: notesExRanks), beats: 8 * 4.0 + 0.5, pool: notesExPool)
+        let e = fxRun(fxBox([notesLegacyDecoded(line)], ranks: notesExRanks), beats: 8 * 4.0 + 0.5, pool: notesExPool)
         assertNothingLeftSounding(e)
         return notesStreamHash(e)
     }
@@ -13864,5 +13872,301 @@ final class RouterTests: XCTestCase {
             }
         }
         if !captured.isEmpty { XCTFail("CAPTURE:\n" + captured) }
+    }
+
+    // MARK: NOTES TAB engine (ferry 2026-10-19) — §13 tests 2, 6, 7, 8, 9, 13, 14 (the pure ones live in NotesTabTests)
+    // The example lane (above): its hits, in order within a pass, are on steps 1, 3, 5, 6, 8 = ticks 0, 2, 4, 5, 7. The hits on 1 and 6 play the riff (A♭3 = 56, C4 = 60); the hits on
+    // 3, 5 and 8 (hit indices 1, 2, 4) are rests. Lit in this order: rank 8 (C4 60), rank 5 (G3 55), rank 6 (A♭3 56). 120 BPM / 48 kHz: one beat = 24 000 samples, one step = 12 000.
+
+    private func notesLine(_ way: EuclidNotesPlayAs = .chord, when: UInt8 = 0b11, chance: Int = 100, onRest: EuclidRiffOnRest = .skip, riffOn: Bool = true, gate: Double = 0.5,
+                           order: [Int] = [7, 4, 5], received: Bool = false) -> EuclidLine {
+        var l = notesExLine(onRest: onRest, riffOn: riffOn, gate: gate, lit: 0)
+        var o = EuclideousLitOrder(); for p in order { o.append(p) }; l.setLitOrder(o)
+        l.notesWhen = when; l.notesChance = chance; l.notesPlayAs = way; l.notesReceivedOnly = received
+        return l
+    }
+    /// Every note-on of `cable`, grouped by the hit it belongs to (hit index = pass × 5 + position in the pass), each group sorted. A deferred (ROLL / RUN) note belongs to the step it starts in.
+    private func notesByHit(_ e: RecordingEmitter, passes: Int, cable: UInt8 = 1) -> [[Int]] {
+        let hitTicks = [0, 2, 4, 5, 7]
+        var out = [[Int]](repeating: [], count: passes * 5)
+        for ev in e.ons where ev.cable == cable {
+            let tick = Int((Double(ev.sample) / 12_000 + 1e-3).rounded(.down))   // a sample or two early is still this step
+            if tick / 8 >= passes { continue }   // the extra pass rendered after the last one, so every note of the last pass has ended before the stop flush
+            guard let at = hitTicks.firstIndex(of: tick % 8) else { XCTFail("a note-on at tick \(tick) is not on a hit of the example lane"); continue }
+            out[(tick / 8) * 5 + at].append(Int(ev.note))
+        }
+        return out.map { $0.sorted() }
+    }
+    private func notesRender(_ line: EuclidLine, passes: Int, frames: UInt32 = 2048, fx: EuclideousFX = EuclideousFX(), restartAt: [Double] = []) -> RecordingEmitter {
+        fxRun(fxBox([line], ranks: notesExRanks, fx: fx), beats: Double(passes) * 4 + 4.5, frames: frames, pool: notesExPool, restartAt: restartAt)
+    }
+    private func notesPasses(_ e: RecordingEmitter, _ passes: Int) -> [[[Int]]] {
+        let all = notesByHit(e, passes: passes); return (0..<passes).map { Array(all[($0 * 5)..<($0 * 5 + 5)]) }
+    }
+    private let C4 = 60, G3 = 55, Ab3 = 56
+    /// Two renders hold the same note stream when every event has a partner with the same cable / status / note / velocity within `tol` samples. (The engine maps a beat to a sample once per
+    /// render window, so the SAME hit can land a sample apart at different buffer sizes — that is the engine's own rounding, with or without NOTES, so "identical" means identical to it.)
+    private func notesSameStream(_ a: [RecordingEmitter.Ev], _ b: [RecordingEmitter.Ev], tol: Int64 = 2) -> String? {
+        if a.count != b.count { return "\(a.count) events vs \(b.count)" }
+        var rest = b
+        for ev in a {
+            guard let i = rest.firstIndex(where: { $0.cable == ev.cable && $0.status == ev.status && $0.note == ev.note && $0.vel == ev.vel && abs($0.sample - ev.sample) <= tol }) else {
+                return "no partner for \(ev)"
+            }
+            rest.remove(at: i)
+        }
+        return nil
+    }
+    // test 6: the count k, on the example lane
+    func testNotesWhenRestsPlayOnlyTheRestHitsAndTheWayWalksOnlyThoseHits() {
+        // RESTS, CYCLE: the hits on 3, 5, 8 play C4, G3, A♭3 in every pass (the riff plays A♭3 and C4 on hits 1 and 6)
+        let cyc = notesPasses(notesRender(notesLine(.cycle, when: 0b10), passes: 3), 3)
+        for p in 0..<3 { XCTAssertEqual(cyc[p], [[Ab3], [C4], [G3], [C4], [Ab3]], "CYCLE pass \(p)") }
+        // RESTS, BOUNCE, passes 0-2: C4 G3 A♭3 | G3 C4 G3 | A♭3 G3 C4
+        let bo = notesPasses(notesRender(notesLine(.bounce, when: 0b10), passes: 3), 3)
+        XCTAssertEqual(bo[0], [[Ab3], [C4], [G3], [C4], [Ab3]]); XCTAssertEqual(bo[1], [[Ab3], [G3], [C4], [C4], [G3]]); XCTAssertEqual(bo[2], [[Ab3], [Ab3], [G3], [C4], [C4]])
+        // RESTS, SPLIT, passes 0-1: G3, A♭3 + C4, G3 | A♭3 + C4, G3, A♭3 + C4
+        let sp = notesPasses(notesRender(notesLine(.split, when: 0b10), passes: 2), 2)
+        XCTAssertEqual(sp[0], [[Ab3], [G3], [Ab3, C4], [C4], [G3]]); XCTAssertEqual(sp[1], [[Ab3], [Ab3, C4], [G3], [C4], [Ab3, C4]])
+        // RESTS, BUILD: C4, C4 + G3, C4 + G3 + A♭3 in every pass
+        let bu = notesPasses(notesRender(notesLine(.build, when: 0b10), passes: 2), 2)
+        for p in 0..<2 { XCTAssertEqual(bu[p], [[Ab3], [C4], [G3, C4], [C4], [G3, Ab3, C4]], "BUILD pass \(p)") }
+    }
+    func testNotesBothWithTheRiffOnTheRiffKeepsItsPitchAndTheHitStillCountsForK() {
+        // Both, CYCLE, riff on, passes 0-1, hits 1 3 5 6 8: C4, G3, A♭3, nothing (the riff plays C4), G3 | nothing (the riff plays A♭3), C4, G3, A♭3, C4
+        let cy = notesPasses(notesRender(notesLine(.cycle), passes: 2), 2)
+        XCTAssertEqual(cy[0], [[Ab3, C4], [G3], [Ab3], [C4], [G3]]); XCTAssertEqual(cy[1], [[Ab3], [C4], [G3], [Ab3, C4], [C4]])
+        // Both, BUILD, riff on, pass 0: C4, C4 + G3, C4 + G3 + A♭3, nothing (C4 is the riff's), C4 + G3
+        let bu = notesPasses(notesRender(notesLine(.build), passes: 1), 1)
+        XCTAssertEqual(bu[0], [[Ab3, C4], [G3, C4], [G3, Ab3, C4], [C4], [G3, C4]])
+    }
+    func testNotesInvertTransposeAndOnRestNeverChangeWhichHitsAreRestHits() {
+        // RESTS only, CHORD: the lit notes sound exactly on hit indices 1, 2, 4 — whatever INVERT, TRANSPOSE or ON REST do to the riff
+        for (invert, transpose, onRest) in [(false, 0, EuclidRiffOnRest.skip), (true, 0, .skip), (false, 3, .skip), (false, 0, .tie), (false, 0, .repeatLast), (true, 3, .repeatLast)] {
+            var l = notesLine(.chord, when: 0b10, onRest: onRest); l.riffInvert = invert; l.melodyTranspose = transpose
+            let e = notesRender(l, passes: 2)
+            for (i, group) in notesByHit(e, passes: 2).enumerated() {
+                let isRestHit = [1, 2, 4].contains(i % 5)
+                XCTAssertEqual(group.contains(G3), isRestHit,   // (G3 is never a riff pitch here, and never the held one: C4 can be, under TIE)
+                               "invert \(invert) transpose \(transpose) \(onRest.rawValue) hit \(i): the notes sound on exactly the rest hits")
+            }
+        }
+        // …and with the riff OFF the written columns still decide
+        let off = notesByHit(notesRender(notesLine(.chord, when: 0b10, riffOn: false), passes: 1), passes: 1)
+        XCTAssertEqual(off, [[], [Ab3, G3, C4].sorted(), [Ab3, G3, C4].sorted(), [], [Ab3, G3, C4].sorted()], "riff off, RESTS only: the notes play on hits 3, 5, 8")
+        let offPlays = notesByHit(notesRender(notesLine(.chord, when: 0b01, riffOn: false), passes: 1), passes: 1)
+        XCTAssertEqual(offPlays, [[Ab3, G3, C4].sorted(), [], [], [Ab3, G3, C4].sorted(), []], "riff off, PLAYS only: hits 1 and 6 still play the notes")
+    }
+    func testNotesAHitChanceSkipsDoesNotMoveCycleOnButALanesMutedHitDoes() {
+        // CHANCE 50, RESTS only, CYCLE over two notes: the rest hits that get through walk the list one by one; a skipped one leaves it where it was.
+        let l = notesLine(.cycle, when: 0b10, chance: 50, order: [7, 4])   // L = [C4, G3]
+        let passes = 6
+        let got = notesByHit(notesRender(l, passes: passes), passes: passes)
+        var expectedNext = 0, played = 0
+        for p in 0..<passes {
+            for at in [1, 2, 4] {
+                let h = Int64(p * 5 + at)   // the hit's index among the lane's pattern hits since beat 0
+                let group = got[p * 5 + at]
+                if euclideousNotesChanceAllows(chance: 50, lane: 0, h: h) {
+                    XCTAssertEqual(group, [[C4], [G3]][expectedNext % 2], "pass \(p) rest hit \(at): the \(expectedNext)th note that got through"); expectedNext += 1; played += 1
+                } else {
+                    XCTAssertTrue(group.isEmpty, "pass \(p) rest hit \(at): CHANCE skipped it, and the riff rests there")
+                }
+            }
+        }
+        XCTAssertGreaterThan(played, 3); XCTAssertLessThan(played, 15, "about half of 18 got through")
+        // a LANES-muted PASS still counts: pass 1 muted, three rest hits per pass, two notes in the list -> pass 2 starts on L[6 % 2] = C4, not on G3
+        var m = notesLine(.cycle, when: 0b10, order: [7, 4]); m.muteCells16 = 0xFFFF & ~0b10; m.muteUnit = EuclideousMuteUnit.pass.rawValue
+        let mg = notesByHit(notesRender(m, passes: 3), passes: 3)
+        XCTAssertEqual(mg[5 + 1], [], "the muted pass is silent"); XCTAssertEqual(mg[2 * 5 + 1], [C4], "…but its three rest hits counted: pass 2 begins at k = 6")
+        XCTAssertEqual(mg[1], [C4]); XCTAssertEqual(mg[2], [G3]); XCTAssertEqual(mg[4], [C4])
+    }
+    func testNotesKAfterATransportJumpAndAfterEditsEqualsTheDefinition() {
+        // k is derived, never carried: starting the transport at beat 37, or editing WHEN / CHANCE / the riff while playing, gives exactly what a fresh run of the same document gives.
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        func render(_ boxes: [(SnapshotBox, Double)], from start: Double, to end: Double) -> RecordingEmitter {
+            let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag(); var ts = start * 60.0 / tempo * sr
+            while true {
+                let beat = ts * tempo / 60.0 / sr
+                if beat >= end { break }
+                let box = boxes.last(where: { beat >= $0.1 })!.0
+                router.process(box: box, pool: chord(notesExPool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                ts += Double(frames)
+            }
+            router.process(box: boxes.last!.0, pool: chord(notesExPool), playing: false, beatPos: end, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            return e
+        }
+        let a = fxBox([notesLine(.build, when: 0b10, chance: 75)], ranks: notesExRanks), b = fxBox([notesLine(.cycle, when: 0b11, chance: 50)], ranks: notesExRanks)
+        let full = render([(a, 0)], from: 0, to: 60)
+        let jumped = render([(a, 37)], from: 37, to: 60)
+        func events(_ e: RecordingEmitter, _ lo: Double, _ hi: Double) -> [RecordingEmitter.Ev] { e.events.filter { Double($0.sample) / 24_000 >= lo && Double($0.sample) / 24_000 < hi && ($0.status == 0x90 || $0.status == 0x80) } }
+        // (windows start between hits so a one-sample rounding cannot move an event across the edge)
+        if let d = notesSameStream(events(full, 40.1, 58.1), events(jumped, 40.1, 58.1)) { XCTFail("a transport start at beat 37 plays the same hits with the same k: \(d)") }
+        let edited = render([(a, 0), (b, 24)], from: 0, to: 60)
+        let fresh = render([(b, 0)], from: 0, to: 60)
+        if let d = notesSameStream(events(edited, 28.1, 58.1), events(fresh, 28.1, 58.1)) { XCTFail("after WHEN / CHANCE / the way changed at beat 24, the notes are what a fresh run of the new document plays: \(d)") }
+    }
+
+    // test 7: ROLL and RUN timing (120 BPM: 25 ms = 1 200 samples, a beat = 24 000)
+    private func notesOnsAt(_ e: RecordingEmitter, hit tick: Int) -> [(note: Int, at: Int64, off: Int64?)] {
+        let lo = Int64(tick) * 12_000, hi = lo + 12_000
+        var out: [(note: Int, at: Int64, off: Int64?)] = []
+        for ev in e.ons where ev.cable == 1 && ev.sample >= lo - 12 && ev.sample < hi - 12 {
+            let off = e.offs.first { $0.cable == 1 && $0.note == ev.note && $0.sample > ev.sample }?.sample
+            // a deferred note lands on the sample its beat maps to, which can be a sample early; every expectation here is a multiple of 4, so compare on a 4-sample grid
+            func q(_ x: Int64) -> Int64 { Int64((Double(x) / 4).rounded()) * 4 }
+            out.append((Int(ev.note), q(ev.sample - lo), off.map { q($0 - lo) }))
+        }
+        return out.sorted { $0.at < $1.at }
+    }
+    func testNotesRollStrumsUpThenDownEachNoteEndingWhereTheUnrolledHitWouldEnd() {
+        let e = notesRender(notesLine(.roll, when: 0b10), passes: 1)
+        // the hit on 3 (tick 2, k = 0): G3, A♭3, C4 at 0, 25 and 50 ms; all end where an unrolled hit (GATE 50% of the 1-beat gap = 12 000) would end
+        let r0 = notesOnsAt(e, hit: 2)
+        XCTAssertEqual(r0.map { $0.note }, [G3, Ab3, C4]); XCTAssertEqual(r0.map { $0.at }, [0, 1200, 2400])
+        for n in r0 { XCTAssertEqual(n.off, 12_000, "\(n.note) ends where the unrolled hit's notes end") }
+        // the hit on 5 (tick 4, k = 1): C4, A♭3, G3, also 25 ms apart; the unrolled length is 50% of the half-beat gap = 6 000
+        let r1 = notesOnsAt(e, hit: 4)
+        XCTAssertEqual(r1.map { $0.note }, [C4, Ab3, G3]); XCTAssertEqual(r1.map { $0.at }, [0, 1200, 2400])
+        for n in r1 { XCTAssertEqual(n.off, 6_000) }
+        assertNothingLeftSounding(e)
+        // the later notes land on the same samples at every buffer size
+        let ref = notesOnsAt(e, hit: 2).map { [Int64($0.note), $0.at] }
+        for frames: UInt32 in [64, 256, 1024] {
+            XCTAssertEqual(notesOnsAt(notesRender(notesLine(.roll, when: 0b10), passes: 1, frames: frames), hit: 2).map { [Int64($0.note), $0.at] }, ref, "buffer \(frames)")
+        }
+    }
+    func testNotesRunSpreadsTheNotesAcrossTheStepNeverCarriedOnLegato() {
+        for gate in [0.5, 1.0] {
+            let e = notesRender(notesLine(.run, when: 0b10, gate: gate), passes: 1)
+            // the hit on 3: C4, G3, A♭3 at 0, 1/6, 1/3 of a beat after it (4 000 samples apart), each lasting GATE × 1/6 of a beat
+            let r = notesOnsAt(e, hit: 2)
+            XCTAssertEqual(r.map { $0.note }, [C4, G3, Ab3]); XCTAssertEqual(r.map { $0.at }, [0, 4000, 8000])
+            for n in r { XCTAssertEqual(Double((n.off ?? 0) - n.at), gate * 4000, accuracy: 2, "gate \(gate): lasts its effective gate as a share of its slot") }
+            assertNothingLeftSounding(e)
+        }
+        // RUN, both, the hit on 1: the riff's A♭3 at the hit, and the notes C4 and G3 at 0 and 1/4 of a beat after it (m is 2 once A♭3 is dropped)
+        let e = notesRender(notesLine(.run), passes: 1)
+        let h1 = notesOnsAt(e, hit: 0)
+        XCTAssertEqual(h1.filter { $0.note == Ab3 }.map { $0.at }, [0]); XCTAssertEqual(h1.filter { $0.note == C4 }.map { $0.at }, [0]); XCTAssertEqual(h1.filter { $0.note == G3 }.map { $0.at }, [6000])
+        // the later notes land on the same samples at every buffer size
+        let ref = notesOnsAt(notesRender(notesLine(.run, when: 0b10), passes: 1), hit: 2).map { [Int64($0.note), $0.at] }
+        for frames: UInt32 in [64, 256, 1024] {
+            XCTAssertEqual(notesOnsAt(notesRender(notesLine(.run, when: 0b10), passes: 1, frames: frames), hit: 2).map { [Int64($0.note), $0.at] }, ref, "buffer \(frames)")
+        }
+    }
+    func testNotesARatchetOnARunHitStrikesAllTheChosenNotesTogetherOnEveryStrike() {
+        // FX RATCH 2 on the riff column the hit on 1 reads (column 6 = index 5): two strikes, each of ALL the chosen notes together, no spread
+        let fx = fxCells([(row: 0, col: 5, v: 2)], lanes: [0: 0b0001])
+        let e = notesRender(notesLine(.run), passes: 1, fx: fx)
+        let at0 = Set(e.ons.filter { $0.cable == 1 && $0.sample == 0 }.map { Int($0.note) }), atHalf = Set(e.ons.filter { $0.cable == 1 && $0.sample == 6000 }.map { Int($0.note) })
+        XCTAssertEqual(at0, [Ab3, C4, G3]); XCTAssertEqual(atHalf, [Ab3, C4, G3], "the second strike repeats the whole hit, all notes together")
+        assertNothingLeftSounding(e)
+    }
+
+    // test 8: TIE
+    func testNotesTieRestsStrikeTheNotesUnderTheHeldRiffNoteAndNeverTheHeldPitchAgain() {
+        // RESTS only, TIE, CHORD: the rest hits 3 and 5 strike G3 and C4 under the riff's A♭3 (held from hit 1); hit 8 strikes G3 and A♭3 under the C4 held from hit 6
+        let e = notesRender(notesLine(.chord, when: 0b10, onRest: .tie), passes: 2)
+        let g = notesPasses(e, 2)
+        for p in 0..<2 { XCTAssertEqual(g[p], [[Ab3], [G3, C4], [G3, C4], [C4], [G3, Ab3]], "pass \(p)") }
+        // the notes struck on hit 3 end by hit 5 as they would at an untied hit (GATE 50% of the 1-beat gap = 12 000); the held riff note carries through both
+        let h3 = notesOnsAt(e, hit: 2)
+        for n in h3 { XCTAssertEqual(n.off, 12_000, "note \(n.note) from hit 3 ends at its own gate") }
+        let riff = e.ons.first { $0.cable == 1 && $0.note == UInt8(Ab3) && $0.sample == 0 }
+        let riffOff = e.offs.first { $0.cable == 1 && $0.note == UInt8(Ab3) && $0.sample > 0 }
+        XCTAssertNotNil(riff); XCTAssertGreaterThanOrEqual(riffOff?.sample ?? 0, 48_000, "the riff note rings on through the tied rests 3 and 5")
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 && $0.note == UInt8(Ab3) && $0.sample > 0 && $0.sample < 60_000 }.count, 0, "A♭3 is never struck again while it is held")
+        assertNothingLeftSounding(e)
+        // PLAYS only: the tied rests strike nothing and the notes struck on hit 1 carry on with the riff note — the pre-change TIE golden, note for note
+        var plays = notesExLine(onRest: .tie, riffOn: true, gate: 0.5); plays.notesWhen = 0b01
+        let golden = notesExampleGolden["TIE/riff/50"]!
+        let h = notesStreamHash(fxRun(fxBox([plays], ranks: notesExRanks), beats: 8 * 4.0 + 0.5, pool: notesExPool))
+        XCTAssertEqual(h.hash, golden.0); XCTAssertEqual(h.ons, golden.1)
+    }
+    func testNotesTieLookaheadEndsTheNotesExtensionAtTheFirstTiedRestTheyStrikeOn() {
+        let buf = [true, false, true, false, true, true, false, true]
+        let ranks = notesExRanks
+        func ext(strikeAt: Set<Int>) -> (riff: Double, notes: Double) {
+            var seen = 0
+            return euclideousChainTieExtensions(buf: buf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, tick: 0, chains: .off, legacySpanBeats: 0, advanceStep: true,
+                                                riffDir: .forward, stride: 1, length: 8, rotate: 5, seed: 0, bound: 64, restTies: true, rankAt: { c, _ in ranks[c] },
+                                                notesStrikes: { _, _, _ in defer { seen += 1 }; return strikeAt.contains(seen) })
+        }
+        XCTAssertEqual(ext(strikeAt: []).riff, 2.0); XCTAssertEqual(ext(strikeAt: []).notes, 2.0, "no tied rest strikes: the notes carry as far as the riff note")
+        XCTAssertEqual(ext(strikeAt: [0]).notes, 0, "the first tied rest strikes: what was struck before ends at its own length"); XCTAssertEqual(ext(strikeAt: [0]).riff, 2.0, "the riff note's extension is unchanged")
+        XCTAssertEqual(ext(strikeAt: [1]).notes, 1.0, "the second tied rest strikes: they carry through the first only")
+    }
+
+    // test 9: FILL decodes as SKIP and renders identically to its FILL golden
+    func testNotesAFillDocumentLoadsAsSkipAndRendersLikeItsFillGolden() throws {
+        let fill = notesExLine(onRest: .fill, riffOn: true, gate: 0.5)
+        let loaded = notesLegacyDecoded(fill)
+        XCTAssertEqual(loaded.riffOnRestResolved, .skip); XCTAssertEqual(loaded.notesWhenResolved, 0b11)
+        let got = notesStreamHash(fxRun(fxBox([loaded], ranks: notesExRanks), beats: 8 * 4.0 + 0.5, pool: notesExPool))
+        XCTAssertEqual(got.hash, notesExampleGolden["FILL/riff/50"]!.0); XCTAssertEqual(got.ons, notesExampleGolden["FILL/riff/50"]!.1)
+    }
+
+    // the latent REPEAT recursion found while restructuring the rest switch
+    func testNotesRepeatWithATransposeThatPushesTheRepeatedRankBelowOneStillTerminates() {
+        var l = notesLine(.chord, when: 0b11, onRest: .repeatLast); l.riffLength = 8; l.pulses = 8; l.customHits = nil; l.melodyTranspose = -1
+        let e = fxRun(fxBox([l], ranks: [1, 0, 0, 0, 0, 0, 0, 0]), beats: 8, pool: notesExPool)
+        assertNothingLeftSounding(e)
+    }
+
+    // test 13: determinism
+    func testNotesEveryWayWithChance50IsIdenticalAtEveryBufferSizeAndAfterATransportRestart() {
+        for way in EuclidNotesPlayAs.allCases {
+            let line = notesLine(way, when: 0b11, chance: 50, order: [7, 4, 5, 9, 8])
+            let ref = notesRender(line, passes: 8)
+            for frames: UInt32 in [64, 256, 1024] {
+                if let d = notesSameStream(notesRender(line, passes: 8, frames: frames).events, ref.events) { XCTFail("\(way.rawValue) at buffer \(frames): \(d)") }
+            }
+            // after a transport restart the same document replays the same notes: the second play equals the first
+            var restarts: [Int64] = []
+            let twice = withUnsafeMutablePointer(to: &restarts) { ptr in
+                fxRun(fxBox([line], ranks: notesExRanks), beats: 16.5 + 16.25, pool: notesExPool, restartAt: [16.5], restartSamples: ptr)
+            }
+            XCTAssertEqual(restarts.count, 1)
+            let r = restarts.first ?? 0, span = Int64(16 * 24_000)
+            func slice(_ lo: Int64, _ hi: Int64) -> [RecordingEmitter.Ev] {
+                twice.events.filter { ($0.status == 0x90 || $0.status == 0x80) && $0.sample >= lo && $0.sample < hi }
+                    .map { RecordingEmitter.Ev(sample: $0.sample - lo, cable: $0.cable, status: $0.status, chan: $0.chan, note: $0.note, vel: $0.vel) }
+            }
+            XCTAssertFalse(slice(0, span).isEmpty, "\(way.rawValue) plays something")
+            if let d = notesSameStream(slice(r + 600, r + span), slice(600, span)) { XCTFail("\(way.rawValue): the replay after a transport restart equals the first play: \(d)") }
+            assertNothingLeftSounding(twice)
+        }
+    }
+
+    // test 14: stuck notes
+    func testNotesStressCyclingEverythingLeavesNothingSounding() {
+        let order: [Int] = [7, 4, 5, 9, 8, 0, 3]
+        let ways = EuclidNotesPlayAs.allCases
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 512
+        let wb = Double(frames) * tempo / 60.0 / sr
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        var beat = 0.0, ts = 0.0
+        func lineFor(_ k: Int) -> EuclidLine {
+            var l = notesLine(ways[k % ways.count], when: [0b11, 0b01, 0b10][k % 3], chance: [100, 75, 50, 25][k % 4],
+                              onRest: [.skip, .tie, .repeatLast][k % 3], gate: [0.5, 0.99, 1.0, 0.25][k % 4], order: Array(order.prefix(1 + k % order.count)), received: k % 5 == 0)
+            if k % 7 == 3 { l.muteCells16 = 0xAAAA; l.muteUnit = EuclideousMuteUnit.step.rawValue }
+            return l
+        }
+        for k in 0..<60 {
+            let fx = k % 4 == 1 ? fxCells([(row: 0, col: 5, v: 3), (row: 0, col: 2, v: 2)], lanes: [0: 0b0001]) : EuclideousFX()
+            let box = fxBox([lineFor(k)], ranks: notesExRanks, fx: fx)
+            if k % 9 == 8 {   // a transport restart in the middle of everything
+                router.process(box: box, pool: chord(notesExPool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            for _ in 0..<8 {
+                router.process(box: box, pool: chord(notesExPool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+        }
+        router.process(box: fxBox([lineFor(0)], ranks: notesExRanks), pool: chord(notesExPool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        XCTAssertGreaterThan(e.ons.count, 100)
     }
 }

@@ -105,4 +105,146 @@ final class NotesTabTests: XCTestCase {
         XCTAssertEqual(back.notesWhenResolved, 0b10); XCTAssertEqual(back.notesChanceResolved, 75); XCTAssertEqual(back.notesPlayAsResolved, .build)
         XCTAssertTrue(back.notesReceivedOnlyResolved); XCTAssertEqual(back.noteOctShiftsResolved, [1, -1, 0, 0, 0, 0, 0, 1]); XCTAssertEqual(back.notesVelOffsetResolved, -20)
     }
+
+    // MARK: the example lane, pure
+
+    private let exBuf = [true, false, true, false, true, true, false, true]          // hits on steps 1, 3, 5, 6, 8
+    private let exRanks = [8, 0, 8, 6, 0, 6, 5, 0]                                     // the riff's written ranks by column (0 = a rest)
+    private let exPool = [48, 50, 51, 53, 55, 56, 58]                                  // C3 D3 E♭3 F3 G3 A♭3 B♭3 (+ the octave copy C4 = rank 8)
+    private func walk(advanceStep: Bool = true, chains: EuclideousLaneRestartChains = .off, rotate: Int = 5) -> EuclideousNotesWalk {
+        EuclideousNotesWalk(n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, chains: chains, legacySpanBeats: 0, advanceStep: advanceStep,
+                            riffDir: .forward, stride: 1, length: 8, rotate: rotate, seed: 0, every: 1)
+    }
+    private func rankAt(_ ranks: [Int]) -> (Int, Double) -> Int { { c, _ in ranks[c] } }
+    private func list(_ order: [Int], pool: [Int], received: Bool = false) -> EuclideousNotesList {
+        var o = EuclideousLitOrder(); for p in order { o.append(p) }
+        return euclideousNotesPlayList(order: o, poolCount: pool.count, receivedOnly: received) { rank in
+            riffResolve(rank: rank, oct: 0, n: pool.count, wrap: .fold, asc: { pool[$0] })
+        }
+    }
+    private func pitches(_ l: EuclideousNotesList) -> [Int] { (0..<l.count).map { l.pitch($0) } }
+    private func pitches(_ l: EuclideousNotesList, _ pick: EuclideousNotesPick) -> [Int] { (0..<pick.count).map { l.pitch(pick[$0]) } }
+
+    // MARK: 2. WHEN
+    func testWhenChoosesTheRestHitsOrThePlayingHitsOrBothOnTheExampleLane() {
+        let ticks: [Int64] = [0, 2, 4, 5, 7]
+        let rest = ticks.map { euclideousNotesIsRestHit(buf: exBuf, w: walk(), tick: $0, rankAt: rankAt(exRanks)) }
+        XCTAssertEqual(rest, [false, true, true, false, true], "the hits on 3, 5 and 8 are rest hits")
+        func chosen(_ when: UInt8) -> [Int] { rest.enumerated().filter { euclideousNotesWhenChooses(when: when, isRestHit: $0.element) }.map { [1, 3, 5, 6, 8][$0.offset] } }
+        XCTAssertEqual(chosen(0b10), [3, 5, 8]); XCTAssertEqual(chosen(0b01), [1, 6]); XCTAssertEqual(chosen(0b11), [1, 3, 5, 6, 8])
+        // the same in the next pass and under ADV HIT (the walk reads the same columns on this lane)
+        let hit = [0, 2, 4, 5, 7].map { euclideousNotesIsRestHit(buf: exBuf, w: walk(advanceStep: false), tick: Int64($0), rankAt: rankAt(exRanks)) }
+        XCTAssertEqual(hit.count, 5)
+        let pass1 = ticks.map { euclideousNotesIsRestHit(buf: exBuf, w: walk(), tick: $0 + 8, rankAt: rankAt(exRanks)) }
+        XCTAssertEqual(pass1.count, 5)
+    }
+
+    // MARK: 3. CHANCE
+    func testChanceIsReplayExactAndThinsAboutTheRightShare() {
+        for h in 0..<64 as Range<Int64> { XCTAssertTrue(euclideousNotesChanceAllows(chance: 100, lane: 0, h: h)) }
+        for h in 0..<64 as Range<Int64> { XCTAssertEqual(euclideousNotesChanceRoll(lane: 2, h: h), euclideousNotesChanceRoll(lane: 2, h: h)); XCTAssertTrue((0..<100).contains(euclideousNotesChanceRoll(lane: 2, h: h))) }
+        func share(_ chance: Int, lane: Int = 0) -> Double { Double((0..<10_000 as Range<Int64>).filter { euclideousNotesChanceAllows(chance: chance, lane: lane, h: $0) }.count) / 10_000 }
+        XCTAssertEqual(share(50), 0.5, accuracy: 0.02); XCTAssertEqual(share(25), 0.25, accuracy: 0.02); XCTAssertEqual(share(75), 0.75, accuracy: 0.02)
+        let a = (0..<200 as Range<Int64>).map { euclideousNotesChanceAllows(chance: 50, lane: 0, h: $0) }, b = (0..<200 as Range<Int64>).map { euclideousNotesChanceAllows(chance: 50, lane: 1, h: $0) }
+        XCTAssertNotEqual(a, b, "two lanes thin differently")
+        // h is the hit ordinal since the MELODY origin: from a transport start at beat 4 the answers match the run from beat 0, hit for hit; MELODY 1 repeats the same thinning every pass
+        var melodyOne = EuclideousLaneRestartChains.off; melodyOne.melody = .from([1]); melodyOne.barBeats = 4; melodyOne.lapBeats = 4
+        let hs = (0..<40).map { euclideousNotesHitOrdinal(buf: exBuf, w: walk(chains: melodyOne), tick: Int64($0)) }
+        let hitTicks = (0..<40).filter { exBuf[$0 % 8] }
+        for t in hitTicks { XCTAssertEqual(hs[t], Int64(([0, 2, 4, 5, 7].firstIndex(of: t % 8))!), "MELODY 1: every pass counts its hits from 0 again (tick \(t))") }
+        let free = (0..<40).filter { exBuf[$0 % 8] }.map { euclideousNotesHitOrdinal(buf: exBuf, w: walk(), tick: Int64($0)) }
+        XCTAssertEqual(free, (0..<free.count).map { Int64($0) }, "FREE: the ordinal counts every hit since the origin")
+    }
+
+    // MARK: 4. the play list
+    func testThePlayListFollowsTheLitOrderAndTheReceivedNotes() {
+        XCTAssertEqual(pitches(list([7, 4, 5], pool: exPool)), [60, 55, 56], "the example's list is C4, G3, A♭3")
+        let held = [48, 51, 55]                                                            // C E♭ G held: ranks C3 E♭3 G3 C4 E♭4 G4 C5 E♭5
+        XCTAssertEqual(pitches(list([0, 1, 2, 3, 4], pool: held)), [48, 51, 55, 60, 63], "RECEIVED off: ranks 1-5")
+        XCTAssertEqual(pitches(list([0, 1, 2, 3, 4], pool: held, received: true)), [48, 51, 55], "RECEIVED on: the octave copies stay out")
+        XCTAssertEqual(pitches(list([0, 1, 2, 9], pool: held, received: true)), [48, 51, 55], "TOP lit after rank 3 adds nothing — it is G3 again")
+        XCTAssertEqual(pitches(list([9], pool: held)), [55]); XCTAssertEqual(pitches(list([8], pool: held)), [51, 55], "TOP 2 keeps its pair: the second-highest and the highest")
+        XCTAssertEqual(pitches(list([8], pool: [60])), [60], "one received note: TOP 2 is that note")
+        XCTAssertEqual(pitches(list([0, 4, 9, 8], pool: [])), [], "nothing held: the list is empty")
+        // the rank each entry stands for (the mask's representative rank reads it)
+        let l = list([7, 9, 8], pool: exPool)
+        XCTAssertEqual((0..<l.count).map { l.rank($0) }, [8, 7, 6], "C4 = rank 8, TOP = rank 7, TOP 2 adds rank 6 (rank 7 is already in)")
+    }
+
+    // MARK: 5. the seven ways
+    func testTheSevenWaysOnTheExampleListForK0To7() {
+        let l = list([7, 4, 5], pool: exPool)   // C4, G3, A♭3 = 60, 55, 56
+        func seq(_ way: EuclidNotesPlayAs) -> [[Int]] { (0..<8).map { pitches(l, euclideousNotesWayPick(list: l, way: way, k: $0)) } }
+        XCTAssertEqual(seq(.chord), Array(repeating: [60, 55, 56], count: 8))
+        XCTAssertEqual(seq(.roll), (0..<8).map { $0 % 2 == 0 ? [55, 56, 60] : [60, 56, 55] })
+        XCTAssertEqual(seq(.run), Array(repeating: [60, 55, 56], count: 8))
+        XCTAssertEqual(seq(.cycle), [[60], [55], [56], [60], [55], [56], [60], [55]])
+        XCTAssertEqual(seq(.bounce), [[60], [55], [56], [55], [60], [55], [56], [55]])
+        XCTAssertEqual(seq(.split).map { Set($0) }, [[55], [56, 60], [55], [56, 60], [55], [56, 60], [55], [56, 60]].map { Set($0) })
+        XCTAssertEqual(seq(.build).map { Set($0) }, [[60], [60, 55], [60, 55, 56], [60], [60, 55], [60, 55, 56], [60], [60, 55]].map { Set($0) })
+        // one note: every way plays it every time; two notes: BOUNCE alternates; an empty list plays nothing
+        let one = list([0], pool: exPool)
+        for way in EuclidNotesPlayAs.allCases { for k in 0..<5 { XCTAssertEqual(pitches(one, euclideousNotesWayPick(list: one, way: way, k: k)), [48], "\(way.rawValue) k \(k)") } }
+        let two = list([7, 4], pool: exPool)
+        XCTAssertEqual((0..<4).map { pitches(two, euclideousNotesWayPick(list: two, way: .bounce, k: $0)) }, [[60], [55], [60], [55]])
+        for way in EuclidNotesPlayAs.allCases { XCTAssertEqual(euclideousNotesWayPick(list: EuclideousNotesList(), way: way, k: 3).count, 0) }
+    }
+
+    // MARK: 6. the count k (pure)
+    private func brute(w: EuclideousNotesWalk, hitTick: Int64, ranks: [Int], when: UInt8, chance: Int, lane: Int, melodyOrigin: Int64 = 0) -> (h: Int64, k: Int) {
+        var k = 0, h: Int64 = 0
+        var t = melodyOrigin
+        while t < hitTick {
+            let ph = euclideousLaneChainPhase(buf: exBuf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, tick: t, chains: w.chains, legacySpanBeats: 0)
+            if ph.rawIsHit {
+                let rest = euclideousNotesIsRestHit(buf: exBuf, w: w, tick: t, rankAt: rankAt(ranks))
+                if euclideousNotesWhenChooses(when: when, isRestHit: rest) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: h) { k += 1 }
+                h += 1
+            }
+            t += 1
+        }
+        return (h, k)
+    }
+    func testTheCountEqualsItsDefinitionInBothAdvanceModes() {
+        for adv in [false, true] {
+            let w = walk(advanceStep: adv)
+            for (when, chance) in [(UInt8(0b10), 100), (0b01, 100), (0b11, 50), (0b10, 25), (0b11, 100)] {
+                for hitTick in [Int64(2), 7, 10, 21, 37, 63, 80, 205] where exBuf[Int(hitTick % 8)] {
+                    let ref = brute(w: w, hitTick: hitTick, ranks: exRanks, when: when, chance: chance, lane: 0)
+                    let h = euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: hitTick)
+                    XCTAssertEqual(h, ref.h)
+                    XCTAssertEqual(euclideousNotesCountBefore(buf: exBuf, w: w, tick: hitTick, h: h, when: when, chance: chance, lane: 0, thisBeat: 0, rankAt: rankAt(exRanks)), ref.k,
+                                   "adv step \(adv) when \(when) chance \(chance) tick \(hitTick)")
+                }
+            }
+        }
+    }
+    func testTheCountRunsInBlocksOf1024HitsFromTheMelodyOrigin() {
+        let w = walk(advanceStep: false)
+        // FREE melody: the hit with h = 1024 has k = 0; the one with h = 1023 has k equal to the count over hits 0-1022 (1023 when both are chosen, otherwise counted)
+        XCTAssertEqual(euclideousNotesCountBefore(buf: exBuf, w: w, tick: 0, h: 1024, when: 0b11, chance: 100, lane: 0, thisBeat: 0, rankAt: rankAt(exRanks)), 0)
+        XCTAssertEqual(euclideousNotesCountBefore(buf: exBuf, w: w, tick: 0, h: 1023, when: 0b11, chance: 100, lane: 0, thisBeat: 0, rankAt: rankAt(exRanks)), 1023)
+        // one-sided WHEN: count the rest hits among hit ordinals 0-1022 by the closed form (the walk is ADV HIT here, so the column of hit h' is a function of h')
+        var restCount = 0
+        for hp in 0..<1023 { let col = euclideousRiffColumn(ordinal: Int64(hp), every: 1, direction: .forward, length: 8, stride: 1, shift: 5, seed: 0); if exRanks[col] < 1 { restCount += 1 } }
+        XCTAssertEqual(euclideousNotesCountBefore(buf: exBuf, w: w, tick: 0, h: 1023, when: 0b10, chance: 100, lane: 0, thisBeat: 0, rankAt: rankAt(exRanks)), restCount)
+        XCTAssertEqual(euclideousNotesCountBefore(buf: exBuf, w: w, tick: 0, h: 2047, when: 0b10, chance: 100, lane: 0, thisBeat: 0, rankAt: rankAt(exRanks)),
+                       (1024..<2047).filter { exRanks[Int(euclideousRiffColumn(ordinal: Int64($0), every: 1, direction: .forward, length: 8, stride: 1, shift: 5, seed: 0))] < 1 }.count)
+    }
+
+    // MARK: 7. ROLL and RUN timing (pure)
+    func testRollSpacingAndRunSlotsMatchTheFerrysExamples() {
+        func ms(_ beats: Double, bpm: Double) -> Double { beats * 60_000 / bpm }
+        // 110 BPM, three notes: a 1/8 lane whose next hit is two steps (1 beat) away, GATE 50 (length 0.5 beat): s is 25 ms
+        XCTAssertEqual(ms(euclideousNotesRollSpacingBeats(m: 3, gapBeats: 1, lenBeats: 0.5, legato: false, tempo: 110), bpm: 110), 25, accuracy: 1e-9)
+        // a 1/32 lane (68.18 ms step) whose next hit is one step away: 8.52 ms at GATE 50, 17.05 ms at GATE 100 (legato: the length is ignored)
+        let step = 0.125
+        XCTAssertEqual(ms(euclideousNotesRollSpacingBeats(m: 3, gapBeats: step, lenBeats: step * 0.5, legato: false, tempo: 110), bpm: 110), 8.52, accuracy: 0.01)
+        XCTAssertEqual(ms(euclideousNotesRollSpacingBeats(m: 3, gapBeats: step, lenBeats: step, legato: true, tempo: 110), bpm: 110), 17.05, accuracy: 0.01)
+        XCTAssertEqual(euclideousNotesRollSpacingBeats(m: 1, gapBeats: 1, lenBeats: 1, legato: false, tempo: 110), 0)
+        // RUN: three notes on a 1/8 step at 110 BPM start 0, 1/6 and 1/3 of a beat after the hit (90.91 ms apart)
+        let slot = euclideousNotesRunSlotBeats(stepBeats: 0.5, m: 3)
+        XCTAssertEqual(slot, 1.0 / 6.0, accuracy: 1e-12); XCTAssertEqual(ms(slot, bpm: 110), 90.91, accuracy: 0.01)
+        XCTAssertEqual(euclideousNotesRunSlotBeats(stepBeats: 0.5, m: 2), 0.25)
+    }
 }
