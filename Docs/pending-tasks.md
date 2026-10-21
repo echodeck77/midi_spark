@@ -15,9 +15,20 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
   sessions have SOMETHING else held, or inherited the old per-lane field from before the rework), not confirmed to be
   audible — flag to Paul before touching it.
 
+## ★ EUCLIDEOUS — LANE STRIP: the riff contour over the notes keys, in place of the comet (2026-10-21; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "Lane strip" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul): the chip/cell colours are the riff grid's real composites (#DCDCDD note cell, #28292D empty cell — `EuclideousStripPalette`, one place), not the ferry's #DFE3EA / #24262C; the current chip is the light chip with the ARROW's own gradient (lane @ 95% → 55%) over it, not "lane100 → × 0.86" (which is not what the arrow draws). Say if you want the mock's numbers instead.
+- [ ] DECIDE (Paul): columns are 11.3 wide at 16 steps (the grouped geometry; the ferry's 12.25 is the old ungrouped table), so chips carry no label at 16 steps and keys none until 12 steps. Lower the floors (12 / 16) or leave it.
+- [ ] DECIDE (Paul): a FOLLOW lane lost its partner-coloured cells (the strip's cells are plain); the count box's dot still names the partner. A SHADOW lane shows no chips and the existing partner band over the key row. The pattern-miss outline and the hand-edited notch went with the tiles. Say if any should come back.
+- [ ] DECIDE (Paul): key labels use the pool name without the lane's OCT (as the NOTES keys and the riff grid do), so with MIX OCT ≠ 0 the label is one or two octaves off what sounds. Chips use the WRITTEN rank (the arrow's rule); the LANES roll bars use the sounding rank — with INV / TRANS set the two contours differ.
+- [ ] DECIDE (Paul): the strip's key glow is shadow radius 5 (CSS blur 10 ≈ half); the NOTES tab's key uses radius 10. One constant each if you want them equal.
+- [ ] (noted) the footers' prediction ignored ADVANCE EVERY (`euclideousRiffCyclePrediction`); fixed in this ferry (`every:` → `euclideousRiffColumn`), with a footer-vs-engine test at EVERY 1-4.
+- [ ] (noted) a poll-uncorroborated moment (the arrow's static seat, at most one hit) shows no current chip; the strip's pass switches when the page body re-runs, as the footers always did.
+- [ ] (noted) the per-body strip plan costs ≈ 1.3 ms a lane in a debug build at its worst (WHEN one-sided + CHANCE counting up to 1023 hits per key); a memo keyed on the lane's inputs is the obvious next step if the body shows up in a profile.
+
 ## ★ EUCLIDEOUS — PULSE: strikes that show velocity; riff rests are gaps (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "PULSE" lines in `Docs/euclideous-device-verification-debt.md`.
-- [ ] DECIDE (Paul, "later we'll find an easier way to differentiate notes from riffs"): with the riff OFF the comet bar pulses on the notes layer's strike (one function, `euclideousPulseStrikeVelocity`); with the riff ON it follows the riff only.
+- [x] (superseded by the LANE STRIP ferry, 2026-10-21) the comet-bar "riff off ⇒ the notes pulse it" rule: the strip lights the chip for a riff strike and the key for a notes strike, separately — `euclideousPulseStrikeVelocity` is gone.
 - [ ] DECIDE (Paul): an FX-tied hit stays a NORMAL tile with no pulse (a gap is only a riff rest under SKIP/TIE); a REPEAT hit that finds no earlier note to repeat likewise (the footers show it as a rest hit, the engine plays nothing).
 - [ ] DECIDE (Paul): strikes can lag the dot by up to ~50 ms (the NOTE VIEW poll is 30 Hz). If it shows, poll it at 60 Hz (the rate of an existing poll only).
 - [ ] (noted) the BUILD-page EUCLID editor's comet bar (no feed) keeps the old geometric flare; the step-based ring/arrow flare functions are gone.

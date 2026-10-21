@@ -17,6 +17,17 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Lane strip — the riff contour over the notes keys, in place of the comet (2026-10-21 ferry — §11)
+- The riff contour reads as the riff's melody at 8 and 16 steps (ranks ≈ 2.6 pt apart; chips 21.6 wide at 8 steps, ≈ 7.3 at 16 — NOT the ferry's "≈ 13": the grouped columns are 11.3 wide at the reference card, so there are NO chip labels at 16 steps, key labels start at 12 steps and "G3+2" truncates to "G3…" at ≈ 16 pt).
+- Chip labels at 7 pt on the light chip and on the lane gradient (current chip), in all four lane colours; the chip is #DCDCDD and the cell #28292D (the riff grid's real composites), not the ferry's #DFE3EA / #24262C.
+- Key labels at 7 pt and the 2 pt bar at 14 pt tall; the CHANCE ring reads as "may skip"; the key glow (clipped at the strip's bottom edge) and the chip glow (clipped at rank 8's top edge).
+- The playhead band reads as "now" without the comet, glides smoothly over the 7 pt group gaps, and slides off the end cleanly; 60 fps while a lane runs — watch the iPad with four strips + the riff overlay (the per-frame work is pure and tiny, the Canvas text/shadow draw cost is unmeasured).
+- The strip's key and the NOTES tab's key feel like ONE event (the tab key's shadow radius is 10, the strip's 5 — the codebase's half-a-CSS-blur convention; say if the strip should match the tab).
+- Velocity still reads without the level mark (chip glow/dip and key ring/glow strength).
+- The current chip follows the arrow on the riff grid, including TIE's stay-put and REPEAT's hollow chip; ADVANCE EVERY 2-4: the chip numbers now agree with the engine (they did not before this ferry).
+- A SHADOW lane: no chips, the partner-colour band over the key row; a FOLLOW lane: no partner-coloured cells any more (the count box's dot still says who it follows), the playhead runs at the partner's rate.
+- Mute a lane on the LANES grid: the whole strip dims to 42% and nothing strikes; PULSE OFF and Reduce Motion as §4.5 says; VoiceOver reads the strip as one element ("Lane 1 step strip").
+
 ### NOTES tab rebuilt — keys, WHEN, PLAY AS, CHANCE, RECEIVED; FILL leaves ON REST (2026-10-20 ferry — §15)
 - The 27.85pt keys at real size: labels, the 3pt bar, the hollow bar, the 8.5pt place numbers and the riff dot, in all four lane colours, on received and copy keys; TOP 2's lower-note-plus-"+" label (it keeps its PAIR) and its "2–3" place number.
 - The PLAY AS button's 19.6 × 30 preview columns and the picker's 47pt previews: legible, with RUN's split bars and ROLL's offsets readable.
