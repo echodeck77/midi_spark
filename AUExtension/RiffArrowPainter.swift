@@ -98,6 +98,7 @@ struct EuclideousArrowView: View {
         .frame(width: spec.size.width, height: spec.size.height, alignment: .topLeading)
         .scaleEffect(euclideousPulseFilter(.arrowScale, scale: 1, reduceMotion: reduceMotion) == .off ? 1 : 1 + (S.flareScale - 1) * strength)   // §4.1: 1 + 0.24 × f
         .opacity(spec.opacity)
+        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: spec.opacity)   // LANE SOLO §6: the dim eases over 0.15 s both ways (the whole arrow; a shared cell's blend snaps)
     }
 }
 
@@ -146,11 +147,13 @@ struct EuclideousRailsView: View {
                 let nf = layout.railNumberFrame(rail.lane)
                 Text("\(rail.lane + 1)").font(.system(size: S.numberSize, weight: .heavy, design: .monospaced))
                     .foregroundColor(laneColour(rail.lane).opacity(rail.numberOpacity))
+                    .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: rail.numberOpacity)
                     .frame(width: nf.width, height: nf.height, alignment: .trailing)
                     .offset(x: nf.minX, y: nf.minY)
                 ForEach(0..<rail.segments.count, id: \.self) { c in
                     let f = layout.railSegmentFrame(lane: rail.lane, column: c)
                     segment(rail.segments[c], lane: rail.lane, flare: rail.flare)
+                        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: rail.segments[c].opacity)
                         .frame(width: f.width, height: f.height)
                         .offset(x: f.minX, y: f.minY)
                 }

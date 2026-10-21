@@ -37,24 +37,29 @@ struct EuclideousLanesPanelLane: Equatable {
     /// Where this lane's restart marks (from its resolved CHAINS, §8.3) fall inside the mute window (read-only ticks, §4.8).
     var rhythmMarkBeats: [Double]
     var melodyMarkBeats: [Double]
+    /// LANE SOLO §6.4: the solo mask silences this lane — its whole block (rail, cells, roll, marks, playhead) draws at 42 %, still live. One flag with the LANES mute's own dim of the roll's bars (never stacked: the bars
+    /// already drawn dim for a muted cell stay as they are, this dims the block as a whole).
+    var silenced: Bool = false
 }
 
 /// The static layer: cell fills, run outlines, restart marks / slots, the roll, the read-only marks. No time in here — the playhead is a
 /// separate layer — so it is redrawn only when its inputs change.
 private struct EuclideousLanesStaticLayer: View, Equatable {
     let layout: EuclideousLanesLayout
-    let lanes: [EuclideousLanesPanelLane]
+    /// ONE lane's layer (LANE SOLO: each lane is its own Canvas so its block can ease to 42 % on its own — an opacity modifier can't reach inside a shared Canvas).
+    let lane: Int
+    let data: EuclideousLanesPanelLane
     let accents: [Color]
 
-    static func == (a: Self, b: Self) -> Bool { a.layout == b.layout && a.lanes == b.lanes }
+    static func == (a: Self, b: Self) -> Bool { a.layout == b.layout && a.lane == b.lane && a.data == b.data }
 
     var body: some View {
         Canvas { ctx, _ in
-            for lane in 0..<min(4, lanes.count) {
-                draw(&ctx, lane: lane, data: lanes[lane], accent: accents[lane % accents.count])
-            }
+            draw(&ctx, lane: lane, data: data, accent: accents[lane % accents.count])
         }
         .frame(width: layout.width, height: layout.height)
+        .opacity(data.silenced ? EuclideousLaneDimStyle.opacity : 1)
+        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: data.silenced)
         .allowsHitTesting(false)
     }
 
@@ -130,20 +135,28 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
 private struct EuclideousLanesPlayheads: View {
     let layout: EuclideousLanesLayout
     let unitBeats: [Double]
+    let silenced: [Bool]
     let playing: Bool
     let beatAt: (Date) -> Double
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !playing)) { tl in
             let beat = beatAt(tl.date)
-            Canvas { ctx, _ in
-                for lane in 0..<4 where lane < unitBeats.count && unitBeats[lane] > 0 {
-                    let pos = euclideousLanesPosition(beat: beat, unitBeats: unitBeats[lane], layout: layout)
-                    let r = CGRect(x: layout.gridX + pos.x - 1, y: layout.laneTop(lane) - 2, width: 2, height: layout.laneH + 4)
-                    ctx.drawLayer { layer in
-                        layer.addFilter(.shadow(color: EuclideousLanesPalette.ink.opacity(0.55), radius: 6))
-                        layer.fill(RoundedRectangle(cornerRadius: 1).path(in: r), with: .color(EuclideousLanesPalette.ink))
+            // one Canvas per lane inside the ONE timeline, so a silenced lane's playhead eases to 42 % on its own (LANE SOLO §6.4)
+            ZStack(alignment: .topLeading) {
+                ForEach(0..<4, id: \.self) { lane in
+                    Canvas { ctx, _ in
+                        guard lane < unitBeats.count, unitBeats[lane] > 0 else { return }
+                        let pos = euclideousLanesPosition(beat: beat, unitBeats: unitBeats[lane], layout: layout)
+                        let r = CGRect(x: layout.gridX + pos.x - 1, y: layout.laneTop(lane) - 2, width: 2, height: layout.laneH + 4)
+                        ctx.drawLayer { layer in
+                            layer.addFilter(.shadow(color: EuclideousLanesPalette.ink.opacity(0.55), radius: 6))
+                            layer.fill(RoundedRectangle(cornerRadius: 1).path(in: r), with: .color(EuclideousLanesPalette.ink))
+                        }
                     }
+                    .frame(width: layout.width, height: layout.height)
+                    .opacity(lane < silenced.count && silenced[lane] ? EuclideousLaneDimStyle.opacity : 1)
+                    .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: lane < silenced.count && silenced[lane])
                 }
             }
             .frame(width: layout.width, height: layout.height)
@@ -177,10 +190,12 @@ struct EuclideousLanesPanel: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             subTabHint
-            EuclideousLanesStaticLayer(layout: layout, lanes: lanes, accents: accents).equatable()
+            ForEach(0..<min(4, lanes.count), id: \.self) { lane in
+                EuclideousLanesStaticLayer(layout: layout, lane: lane, data: lanes[lane], accents: accents).equatable()
+            }
             ForEach(0..<4, id: \.self) { lane in rateBox(lane) }
             gestureLayer
-            EuclideousLanesPlayheads(layout: layout, unitBeats: lanes.map { $0.unitBeats }, playing: playing, beatAt: beatAt)
+            EuclideousLanesPlayheads(layout: layout, unitBeats: lanes.map { $0.unitBeats }, silenced: lanes.map { $0.silenced }, playing: playing, beatAt: beatAt)
             accessibilityCells
             legend
         }
@@ -212,8 +227,10 @@ struct EuclideousLanesPanel: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent, lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .opacity(data?.silenced == true ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.4 — still live
+        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: data?.silenced == true)
         .offset(x: 0, y: layout.laneTop(lane))
-        .accessibilityLabel(euclideousLanesRateBoxLabel(lane: lane, unit: data?.unitLabel ?? ""))
+        .accessibilityLabel(euclideousAppendSilencedBySolo(euclideousLanesRateBoxLabel(lane: lane, unit: data?.unitLabel ?? ""), silenced: data?.silenced == true))
         .accessibilityAction(named: "Next size") { onRateTap(lane) }
     }
 
@@ -257,7 +274,7 @@ struct EuclideousLanesPanel: View {
                     .offset(x: layout.gridX + layout.cellLeft(cell), y: layout.laneTop(lane))
                     .allowsHitTesting(false)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(euclideousLanesMuteCellLabel(lane: lane, cell: cell, sounding: on))
+                    .accessibilityLabel(euclideousAppendSilencedBySolo(euclideousLanesMuteCellLabel(lane: lane, cell: cell, sounding: on), silenced: lane < lanes.count && lanes[lane].silenced))
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction(named: "Toggle") { onToggle(hit) }
                     .accessibilityAction { onToggle(hit) }

@@ -121,6 +121,8 @@ struct EuclidLaneBox: View {
     var soloButton: AnyView? = nil
     var soloButtonWidth: CGFloat = 0
     var soloDim: Bool = false
+    /// Is this lane solo-silenced (for the strip's VoiceOver value: ", silenced by solo")? Not the same flag as `soloDim` when an output-ring trace already dims the card.
+    var soloSilenced: Bool = false
     // EXACT DIMENSIONS (2026-10-13, "lane card, exact dimensions" ferry) — Euclideous's own styling: zero
     // self-padding (the card itself now supplies the inset), 6pt inter-item spacing (was 8), a CHIP-filled
     // triangle play button (was an SF Symbol on a translucent fill), and no own background/border (the card
@@ -179,7 +181,7 @@ struct EuclidLaneBox: View {
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            strip: strip, stripCurrent: stripCurrent, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
-                           restartChains: restartChains, mutedAt: mutedAt, suppressMuteDim: soloDim,
+                           restartChains: restartChains, mutedAt: mutedAt, suppressMuteDim: soloDim, soloSilencedWords: soloSilenced,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
@@ -309,6 +311,7 @@ struct EuclidCometBar: View {
     var mutedAt: ((Double) -> Bool)? = nil
     /// LANE SOLO: the box already dims this whole bar (the lane is solo-silenced), so the bar's own LANES-mute dim stands down — one 42 %, never two multiplied.
     var suppressMuteDim: Bool = false
+    var soloSilencedWords: Bool = false   // the strip's VoiceOver value adds ", silenced by solo"
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -593,7 +596,7 @@ struct EuclidCometBar: View {
                 .allowsHitTesting(false)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Lane \(pulseLane + 1) step strip")
-                .accessibilityValue(euclideousStripAppendLive(strip.hitsPhrase, onStep: onStep, muted: mutedAt?(beatNow) ?? false))
+                .accessibilityValue(euclideousAppendSilencedBySolo(euclideousStripAppendLive(strip.hitsPhrase, onStep: onStep, muted: mutedAt?(beatNow) ?? false), silenced: soloSilencedWords))
         }
         }
         // LEFTOVER RULE (2026-10-14 ferry, "Step groups on the lane step row" §3): a 2pt bar, 1pt corner

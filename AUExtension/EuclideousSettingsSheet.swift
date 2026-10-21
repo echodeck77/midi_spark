@@ -35,6 +35,7 @@ struct EuclideousSettingsSheet: View {
     // MAIN OUT (§4)
     let laneMasks: [UInt8]
     let mainOutMask: UInt8
+    let soloSilenced: [Bool]      // LANE SOLO (2026-10-21): the rings' solo-silenced lanes' quarters draw at 42 %, as the header's rings do
     let busChannels: [Int]        // 1-based, A...D
     let outputNames: [String]     // the REAL host-visible names, A...D (index 0...3) — NOT assumed "FOURFOLD A"
     let allOutputName: String     // the REAL host-visible name for the "All" cable — NOT assumed "FOURFOLD ALL"
@@ -279,7 +280,7 @@ struct EuclideousSettingsSheet: View {
             // too-small canvas before the scale ever applied). `.scaleEffect` shrinks the already-complete
             // render to radius 13.6/2pt arcs/dash 2-1.6 — exactly 0.8× the existing constants, per §4.1 —
             // then `.frame` only constrains how much ROW SPACE it occupies.
-            EuclideousOutputRing(letter: letter, state: state, laneColours: laneColours)
+            EuclideousOutputRing(letter: letter, state: state, laneColours: laneColours, dim: EuclideousLaneDimLevels(soloSilenced))
                 .scaleEffect(0.8)
                 .frame(width: 32, height: 32)
                 .allowsHitTesting(false)

@@ -1219,7 +1219,7 @@ struct EuclideousPage: View {
                         onWorkbench: { onClose() },
                         midiInMask: midiInChannelMask, onSetMidiInMask: onSetMidiInChannelMask,
                         ignoreAllNotesOff: ignoreAllNotesOff, onSetIgnoreAllNotesOff: onSetIgnoreAllNotesOff,
-                        laneMasks: euclideousLaneMasks(lines), mainOutMask: mainOutMask, busChannels: busChannels,
+                        laneMasks: euclideousLaneMasks(lines), mainOutMask: mainOutMask, soloSilenced: (0..<4).map { soloSilenced($0) }, busChannels: busChannels,
                         outputNames: outputNames, allOutputName: allOutputName, onSetBusChannel: onSetBusChannel,
                         onAllNotesOff: onAllNotesOff,
                         hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior,
@@ -1408,6 +1408,7 @@ struct EuclideousPage: View {
         let state = euclideousOutputRingState(output: b, laneMasks: masks, mainOutMask: mainOutMask)
         let held = heldOutput == b
         let flare = ringFlare(b, masks: masks, now: now)
+        let ringDim = EuclideousLaneDimLevels((0..<4).map { heldOutput != nil && !held ? false : soloSilenced($0) })
         return EuclideousRingPressable(
             onTap: { toggleMainOut(b); pulseOutput(b) },
             onHold: { began in
@@ -1420,7 +1421,8 @@ struct EuclideousPage: View {
             // ever applied). `.scaleEffect` shrinks the already-complete render to 75%, then the outer `.frame`
             // reclaims only that much row space — same technique as EuclideousSettingsSheet's `mainOutRow`.
             EuclideousOutputRing(letter: ["A", "B", "C", "D"][b], state: state, laneColours: laneAccents, held: held,
-                                 flare: flare, width: naturalPitch, height: HM.rowH)
+                                 flare: flare, dim: ringDim, width: naturalPitch, height: HM.rowH)   // LANE SOLO §6.6: a solo-silenced lane's quarter at 42 % (not while the whole ring is already at 42 % for a trace — never stacked)
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: ringDim)
                 .scaleEffect(HM.outputRingScale)
                 .frame(width: pitch, height: HM.rowH * HM.outputRingScale)
                 .opacity(heldOutput != nil && !held ? 0.42 : 1)        // §4.7: while one is held, the other three sit at 42%
@@ -5115,7 +5117,7 @@ struct EuclideousPage: View {
         let railLabels: [String] = (0..<4).map { i in
             guard let f = frameNow.first(where: { $0.lane == i }) else { return "Lane \(i + 1): riff off" }
             let w = riffRailInputs(f)
-            return euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted)
+            return euclideousAppendSilencedBySolo(euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted), silenced: f.soloSilenced)
         }
         return VStack(alignment: .leading, spacing: 0) {
             riffTabRow()
@@ -5197,6 +5199,8 @@ struct EuclideousPage: View {
         let riffOn: Bool            // the riff is on and the lane isn't SHADOWing (a SHADOW lane's own riff is overridden entirely)
         let running: Bool           // the transport runs and the lane isn't stopped
         let muted: Bool             // the LANES grid has this lane muted at this beat
+        let soloSilenced: Bool      // LANE SOLO: the solo mask silences this lane (the marker dims like a muted lane's; the words differ)
+        var dimmed: Bool { muted || soloSilenced }   // ONE 42 %, never both multiplied
         let flare: Double           // 0…1, the comet bar's burst + afterglow since the lane's latest real strike
         let plan: EuclideousWalkTagPlan?
     }
@@ -5207,6 +5211,7 @@ struct EuclideousPage: View {
         guard p > 0, let s = pulseFeed.latestHappened(lane: lane, now: now, riff: true) else { return nil }
         let env = euclideousPulseEnvelopes(velocity: Int(s.riffVel), seconds: now - s.onsetAt, scale: p)
         guard env.f >= 0.01 else { return nil }
+        if soloSilenced(lane) { return nil }   // LANE SOLO: a silenced lane makes no strikes, and one it made just before the solo stops flaring at once
         // 4.6 / 1.6: a lane the LANES grid has muted at this moment shows no flare (a strike it made just before the mute stops fading in its arrow, its note cell and its name). Looked up only while something flares.
         if let cfg = riffWalkConfig(lane), !euclideousLaneAudible(beat: lanesMusicalBeat(real: walkTagBeat(at: Date(timeIntervalSinceReferenceDate: now))), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats) { return nil }
         return (env.f, Int(s.rank), lane)
@@ -5226,7 +5231,7 @@ struct EuclideousPage: View {
                 ? euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i], running: running,
                                         polledOrdinal: i < riffWalkState.count ? riffWalkState[i] : nil)
                 : nil
-            return RiffLaneFrame(lane: i, cfg: cfg, riffOn: riffOn, running: running, muted: muted, flare: flare, plan: plan)
+            return RiffLaneFrame(lane: i, cfg: cfg, riffOn: riffOn, running: running, muted: muted, soloSilenced: soloSilenced(i), flare: flare, plan: plan)
         }
     }
     /// The arrows' cells: each lane's seat (`euclideousLaneArrowState`), grouped by the cell they share.
@@ -5252,7 +5257,7 @@ struct EuclideousPage: View {
                     let cell = cells[k]
                     let members = cell.members.map { m -> EuclideousArrowLane in
                         let f = frames.first(where: { $0.lane == m.lane })
-                        return EuclideousArrowLane(lane: m.lane, heading: m.heading, muted: f?.muted ?? false, flare: f?.flare ?? 0)
+                        return EuclideousArrowLane(lane: m.lane, heading: m.heading, muted: f?.dimmed ?? false, flare: f?.flare ?? 0)
                     }
                     if let spec = euclideousArrowSpec(cellW: layout.cellW, cellH: layout.cellH, members: members, hollow: cell.hollow) {
                         let cf = layout.cellFrame(column: cell.column, rank: cell.rank)
@@ -5269,7 +5274,7 @@ struct EuclideousPage: View {
                 EuclideousRailsView(layout: layout, rails: (0..<4).map { i in
                     let f = frames.first(where: { $0.lane == i })
                     let w = f.map(riffRailInputs) ?? (nil, [], EuclideousArrowHeading.still)
-                    return euclideousRailSpec(lane: i, riffOn: f?.riffOn ?? false, running: f?.running ?? false, muted: f?.muted ?? false,
+                    return euclideousRailSpec(lane: i, riffOn: f?.riffOn ?? false, running: f?.running ?? false, muted: f?.dimmed ?? false,
                                               played: i < played.count ? played[i] : [], current: w.0, trail: w.1, heading: w.2, flare: f?.flare ?? 0)
                 })
             }
@@ -5667,7 +5672,8 @@ struct EuclideousPage: View {
             let melodyMarks = euclideousChainMelodyMarkBeats(melodyChain: melodyChain, rhythmChain: rhythmChain, barBeats: clock.beatsPerBar,
                                                              lapBeats: lapBeats, windowStart: win.start, windowBeats: win.length)
             return EuclideousLanesPanelLane(grid: v.grid, unitLabel: v.grid.muteUnit.label, unitBeats: unit,
-                                            windowStart: win.start, roll: roll, rhythmMarkBeats: rhythmMarks, melodyMarkBeats: melodyMarks)
+                                            windowStart: win.start, roll: roll, rhythmMarkBeats: rhythmMarks, melodyMarkBeats: melodyMarks,
+                                            silenced: soloSilenced(lane))   // LANE SOLO §6.4: the block (rail, cells, roll, marks, playhead) at 42 %
         }
     }
     private func lanesGridView(_ lane: Int) -> EuclideousLaneGridView {
@@ -5714,6 +5720,7 @@ struct EuclideousPage: View {
         }
         let previewCol = euclideousFXPreviewColumn(touched: fxNotePreviewCol, fx: fx, ranks: ranks)
         return EuclideousFXPanel(layout: layout, fx: fx, selectedRow: fxSelectedRow, headers: headers, noteNames: noteNames, accents: laneAccents,
+                                 silenced: (0..<4).map { soloSilenced($0) },   // LANE SOLO §6.5: the lane dots on each rail and the strip's lane buttons
                                  previewText: euclideousFXNotePreviewText(fx: fx, touched: fxNotePreviewCol, ranks: ranks, pool: pool, name: name),
                                  previewColumn: previewCol, brushes: fxBrushes, playing: pulseLive,   // PULSE §8.1: the flash keeps animating for the 1.5 s after a stop
                                  flashAt: { date in
@@ -5809,6 +5816,9 @@ struct EuclideousPage: View {
                     let riffOrigin = grid.origin(lane: lane, notes: false)
                     let pairW = grid.cellW * 2 + EuclideousMixMetrics.sp4
                     mixOutRow(lane: lane, width: pairW, height: EuclideousMixMetrics.outRowH)
+                        .opacity(soloSilenced(lane) ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.3: …and its OUT row
+                        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloSilenced(lane))
+                        .accessibilityValue(euclideousAppendSilencedBySolo("", silenced: soloSilenced(lane)))
                         .offset(x: riffOrigin.x, y: riffOrigin.y + grid.padH + EuclideousMixMetrics.sp4 + EuclideousMixMetrics.stepperH + EuclideousMixMetrics.sp4)
                         .accessibilitySortPriority(Double(100 - (lane * 3 + 2)))
                 }
@@ -5870,7 +5880,10 @@ struct EuclideousPage: View {
                                        onSet: { o in edit(lane) { l in if notes { euclideousSetNotesOctave(&l, o) } else { euclideousSetRiffOctave(&l, o) } } })
         }
         .frame(width: grid.cellW, height: grid.padH + sp4 + EuclideousMixMetrics.stepperH, alignment: .top)
+        .opacity(soloSilenced(lane) ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.3: the whole cell (pad, OCT stepper) — still live
+        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloSilenced(lane))
         .accessibilityElement(children: .contain)
+        .accessibilityValue(euclideousAppendSilencedBySolo("", silenced: soloSilenced(lane)))
     }
     /// HIDDEN (LANES GRID ferry, 2026-10-18 — superseded by `lanesTab`; unreachable, kept compiled and its stored fields decodable, per "hide, don't
     /// delete"). The old step grid with its ON/RATE/LEN row and per-lane RESET boxes (this function, `sequencerResetBox`, `resetPopupCard`, the hold

@@ -137,6 +137,8 @@ struct EuclideousFXPanel: View {
     /// VoiceOver's note name for each column (nil = a rest).
     let noteNames: [String?]
     let accents: [Color]
+    /// LANE SOLO §6.5: lane i is solo-silenced — its dot on every rail and its button in the strip draw at 42 % (still live).
+    let silenced: [Bool]
     let previewText: String
     let previewColumn: Int?
     let brushes: [Int]
@@ -213,6 +215,8 @@ struct EuclideousFXPanel: View {
                             }
                         }
                         .frame(width: 4, height: 4)
+                        .opacity(lane < silenced.count && silenced[lane] ? EuclideousLaneDimStyle.opacity : 1)
+                        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: lane < silenced.count && silenced[lane])
                     }
                 }
             }
@@ -249,6 +253,8 @@ struct EuclideousFXPanel: View {
                             .overlay(RoundedRectangle(cornerRadius: 6).inset(by: 0.5).stroke(on ? c : Color.clear, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
+                    .opacity(lane < silenced.count && silenced[lane] ? EuclideousLaneDimStyle.opacity : 1)
+                    .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: lane < silenced.count && silenced[lane])
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(euclideousFXLaneButtonLabel(lane: lane, on: on))
                     .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)

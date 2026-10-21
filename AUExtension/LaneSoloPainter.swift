@@ -105,3 +105,24 @@ struct EuclideousSoloPressable: View {
         if case .ended(let toggles) = r { onUp(toggles) }
     }
 }
+
+/// How dimmed each of the four lanes is, 0 (full strength) … 1 (the OFF-dim 42 %). A `VectorArithmetic` so a painter that draws these in a Canvas can be an `Animatable` view: SwiftUI then re-evaluates its body with
+/// interpolated levels for the 0.15 s ease (a Canvas's contents cannot be animated by an opacity modifier from outside, and a lane's quarter is just one stroke inside it).
+struct EuclideousLaneDimLevels: VectorArithmetic, Equatable {
+    var l0 = 0.0, l1 = 0.0, l2 = 0.0, l3 = 0.0
+    init() {}
+    init(_ flags: [Bool]) {
+        func f(_ i: Int) -> Double { i < flags.count && flags[i] ? 1 : 0 }
+        l0 = f(0); l1 = f(1); l2 = f(2); l3 = f(3)
+    }
+    subscript(lane: Int) -> Double { [l0, l1, l2, l3][max(0, min(3, lane))] }
+    /// The lane's drawn opacity: 1 at level 0, 0.42 at level 1.
+    func opacity(_ lane: Int) -> Double { 1 - (1 - EuclideousLaneDimStyle.opacity) * self[lane] }
+    static var zero: EuclideousLaneDimLevels { EuclideousLaneDimLevels() }
+    static func += (a: inout Self, b: Self) { a.l0 += b.l0; a.l1 += b.l1; a.l2 += b.l2; a.l3 += b.l3 }
+    static func -= (a: inout Self, b: Self) { a.l0 -= b.l0; a.l1 -= b.l1; a.l2 -= b.l2; a.l3 -= b.l3 }
+    static func + (a: Self, b: Self) -> Self { var r = a; r += b; return r }
+    static func - (a: Self, b: Self) -> Self { var r = a; r -= b; return r }
+    mutating func scale(by rhs: Double) { l0 *= rhs; l1 *= rhs; l2 *= rhs; l3 *= rhs }
+    var magnitudeSquared: Double { l0 * l0 + l1 * l1 + l2 * l2 + l3 * l3 }
+}

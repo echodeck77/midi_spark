@@ -30,12 +30,18 @@ enum EuclideousRingPalette {
 /// else a dim mark. OFF: no disc, every quarter dashed (2.5 on / 2 off, butt caps). HELD: the disc goes light, the letter ink.
 /// `flare` (0…1 per lane — PULSE ferry 2026-10-20 §6: each lane's velocity-scaled flash f) thickens its quarter 2.5 → 5pt (2.5 + 2.5 × f); the strongest lane washes the disc (lane100 @ 38% × f over #1B1D23), glows the whole ring (blur 6 × f at
 /// 70% × f) and turns the letter white while f > 0.35.
-struct EuclideousOutputRing: View {
+struct EuclideousOutputRing: View, Animatable {
     let letter: String
     let state: EuclideousOutputRingState
     let laneColours: [Color]            // 4, lane 0…3
     var held = false
     var flare: [Double] = [0, 0, 0, 0]
+    /// LANE SOLO §6.6: how dimmed each lane's quarter is (a solo-silenced lane's quarter — lit or unlit — draws at 42 %). Animatable: the ring eases to it over 0.15 s.
+    var dim = EuclideousLaneDimLevels()
+    var animatableData: EuclideousLaneDimLevels {
+        get { dim }
+        set { dim = newValue }
+    }
     /// The tap target's drawn width (44 normally, 40 compact) — the ring itself is the same ~36pt either way.
     var width: CGFloat = 44
     var height: CGFloat = 44
@@ -85,9 +91,9 @@ struct EuclideousOutputRing: View {
                 }
                 let thickness = euclideousPulseRingStroke(f: lit ? f : 0)   // §6.1: 2.5 + 2.5 × f (the old 7pt per-quarter glow is replaced by the whole-ring glow above)
                 if state.dashed {
-                    ctx.stroke(arc, with: .color(colour), style: StrokeStyle(lineWidth: thickness, lineCap: .butt, dash: [2.5, 2]))
+                    ctx.stroke(arc, with: .color(colour.opacity(dim.opacity(lane))), style: StrokeStyle(lineWidth: thickness, lineCap: .butt, dash: [2.5, 2]))
                 } else {
-                    ctx.stroke(arc, with: .color(colour), style: StrokeStyle(lineWidth: thickness, lineCap: .round))
+                    ctx.stroke(arc, with: .color(colour.opacity(dim.opacity(lane))), style: StrokeStyle(lineWidth: thickness, lineCap: .round))
                 }
             }
             // LETTER
