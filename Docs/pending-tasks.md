@@ -15,6 +15,30 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] (noted) AU parameter / MIDI learn for solo is trivial to add (new stable address beside the macro bank); out of scope.
 - [ ] (noted) the pulse feed shows a strike made just before a solo decaying on its own — nothing new is made.
 
+## ★ EUCLIDEOUS — RHYTHM tab fixes: restart-engine edges, STEPS, layout fallbacks, accessibility (2026-10-21; `Docs/euclideous-status-log.md`)
+- [x] FIXED §3.3: `euclideousPassIndex`/`euclideousPassStart` were missing `+ eps` on two of their three
+  floor/round formulas (a beat landing exactly on a cycle or segment boundary could round into the wrong
+  pass) — both now match the spec's stated formulas.
+- [x] FIXED §4: the AUTO-lane automation ramp wrote `steps`/`pulses`/`rotate` straight to row 0 without
+  nil-ing `hitsRequested`/`offsetRequested`, so a later manual HITS/OFFSET edit could resurface a stale
+  pre-ramp request; the long-press-revert now restores those two fields too, for the same reason.
+- [x] FIXED §5: the restart editor had a hard `height >= 192` gate with no fallback — below that it drew
+  nothing. Now a pure `euclideousRestartEditorFallback(height:)` drops the timeline under 156pt and the
+  hint line under 128pt, same progressive-degradation shape as the DYNAMICS editor. Touch areas widened
+  (`.contentShape` only, drawn size unchanged): MIX OUT button and the picker/editor close buttons all now
+  24pt tall.
+- [x] FIXED §6: restart editor's close button reads "Close restarts" (was "Close the restart editor"); the
+  STEPS value-box's VoiceOver swipe no longer shares `commitSteps`'s drag-only `firstWriteDone` coalescing —
+  every swipe now calls `onCommit(true)` directly, so each is its own undo step.
+- [x] CONFIRMED, not bugs (read against current code, not the spec's own framing): §3.1 ping-pong already
+  doubles the lap length; §3.4 lap starts are independent of the rhythm origin by construction; §3.5 the
+  riff ordinal still counts across rhythm restarts when melody is FREE; §3.7 bar length already comes from
+  the host's live time-signature, not a hardcoded 4; §3.2 a restart mid-step floors to the containing tick
+  (the engine's only resolution — same convention as the pre-existing legacy re-anchor, not a new rounding);
+  §3.6 ping-pong's duplicate-visit-at-the-turn is deliberate, documented, pre-existing, and untouched by this
+  ferry (confirmed by diff: none of this ferry's changes touch `euclidReadIndex`/`euclidCycleLen`).
+- [ ] DEVICE: see the "RHYTHM tab fixes" lines in `Docs/euclideous-device-verification-debt.md`.
+
 ## ★ EUCLIDEOUS — RHYTHM DYNAMICS: per-hit velocity and gate movement below the MIX level (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "RHYTHM tab — DYNAMICS" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] DECIDE (Paul): the ferry's §6 (comet-bar partial fills) was NOT built on your ruling — the LANE STRIP ferry replaced the comet's lane-coloured cells. If you want the factor on the strip (the riff chips at a height or opacity of f), say where.

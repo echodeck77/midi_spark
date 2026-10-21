@@ -26,6 +26,20 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - The 0.15 s ease: the card, MIX, LANES, riff arrows / rails, FX dots and ring quarters all ease (and the existing LANES-mute dims now do too); a quarter of a ring and a shared riff cell's blend snap by design.
 - Preset load: a factory preset clears solo; a user preset saved while a lane was latched restores it (decide if that is wanted).
 
+### RHYTHM tab fixes — restart-engine edges, STEPS, layout fallbacks, accessibility (2026-10-21 ferry)
+- The restart editor below 192pt: it should keep drawing (chain rows + editor), losing only the
+  timeline under 156pt and the hint line under 128pt too, instead of refusing to render at all.
+  Check all three bands in both orientations on a small split-screen AUM window.
+- OUT button (MIX), restart-editor close ×, steps-picker close × — the widened touch targets (24pt
+  tall now, drawn size unchanged) should feel easier to hit without any false taps on the OCT
+  stepper directly below OUT.
+- VoiceOver: the restart editor's close button now reads "Close restarts"; a STEPS swipe (±1) should
+  record its OWN undo step — two swipes then two undos should land back where you started, one step
+  at a time, not jump back two steps on the first undo.
+- An AUTO-lane ramp that changes STEPS, then a manual HITS/OFFSET edit afterward: the edit should
+  land on the fresh default pattern, not resurface whatever HITS/OFFSET was asked for before the
+  ramp (this was the stale-request-field bug; fixed, but only test-covered, never heard).
+
 ### DEBUG-build launch (2026-10-21)
 - Run the DEBUG build from Xcode into AUM and open the page: it must come up (the 2026-10-21 DYNAMICS ferry crashed it at launch — `Thread stack size exceeded`, fixed by `fix/dynamics-stack-depth`). Then tap the DYNAMICS row to open the editor on each of the four lanes, and switch RHYTHM → RIFF → RHYTHM: none may crash. This is the ONLY check the stack fix has had (frame sizes were measured off the binary, the page was not run).
 

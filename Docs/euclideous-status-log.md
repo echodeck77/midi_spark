@@ -12,6 +12,61 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — RHYTHM tab fixes: restart-engine edges, STEPS, layout fallbacks, accessibility (2026-10-21,
+  a follow-up correction ferry to the RHYTHM tab rebuild of 2026-10-19; on `main` directly, four commits
+  `65eb372`/`0023f6e`/`2a01893`/`d78955b`; iOS builds clean; macOS Euclideous-scoped suite 698 green throughout;
+  all layout/touch/VoiceOver claims are device-owed). Scope per Paul: skip everything about old-session
+  migration (the ferry's own §1/§2 and the matching §8/§9 lines) — only §3 (restart engine edges), §4 (STEPS),
+  §5 (layout fallbacks/touch) and §6 (accessibility) were in scope. Audited against the ferry's own raw text,
+  not a paraphrase; several of its named gaps turned out to already be fixed by concurrent ferries that landed
+  mid-audit (RIFF WALK, the page-layout six-equal-boxes ferry, NOTES tab, PULSE, LANE STRIP) — verified each
+  claim against CURRENT code rather than trusting the ferry's "the draft got this wrong" framing.
+  **§3 — four of seven already correct, confirmed by reading, not assumed:** 3.1 (`euclidCycleLen` already
+  doubles the lap for ping-pong, fed into `euclideousRhythmChainChangesNothing` as `lapBeats`), 3.4 (lap starts
+  wrap every `lapBeats` in `euclideousLaneChainPhase` regardless of the rhythm chain's state — a different but
+  equivalent mechanism to the ferry's assumed `pass_start(pass_index(beat))` composition), 3.5 (`…ChainTick`
+  branches on `originTickM == originTickO`, not on melody's own chain value, so a FREE melody still counts
+  across rhythm restarts when rhythm has a real chain), 3.7 (`Kernel.swift` already derives bar length fresh
+  from the host meter every render call). **Two confirmed and fixed:** 3.3 — `euclideousPassIndex`/`…PassStart`
+  (Derivations.swift ~6378-6419) were missing `+ eps` on two of their three floor formulas (`(beat / cycle)` and
+  `(w − segStart) / lapBeats`, both now `(x + eps) / …`), so a beat landing exactly on a cycle or segment
+  boundary could round down into the wrong pass — the third formula (passes-per-segment, `-eps`) was already
+  right. **Two resolved by direct investigation, not left as open questions:** 3.2 (restart inside a step) —
+  `euclideousOriginTick` floors the chain's origin beat to the containing tick before `localT` is computed
+  from it, so a restart that falls mid-step takes effect from the START of that tick, not at the exact restart
+  beat — the SAME flooring convention the pre-existing legacy re-anchor already used (`columnStart` +
+  `.rounded(.down)`), not a new or different rounding; this is the only meaningful interpretation in a
+  tick-resolution engine, not a bug. 3.6 (ping-pong duplicate-visit footer) — `euclidReadIndex`'s own doc
+  comment already states the turn deliberately sounds each endpoint on two consecutive ticks, not RIFF's other
+  `.pendulum` mode which never repeats one; confirmed by diff that nothing in this ferry's four commits
+  touches `euclidReadIndex`/`euclidCycleLen`, so "as today" (the ferry's own phrasing) holds by construction.
+  **§4 — two gaps, both fixed:** the AUTO-lane automation ramp (`Snapshot.swift settingAuto`) wrote
+  `steps`/`pulses`/`rotate` straight to row 0 bypassing the one setter's own rule (a writer that changes
+  pulses/rotate any other way nils the matching `hitsRequested`/`offsetRequested`) — now nils them there too;
+  the long-press-revert (`euclideousSliderRevert`) restored `steps`/`pulses`/`rotate`/`customHits` from the
+  snapshot but not the two requested fields — same fix, for consistency (a stale request resurfacing on the
+  next STEPS change). The one setter itself (`euclideousSliderCommit(.steps:...)`) and the picker preview
+  (`euclideousStepsPickerPreview`) were already correct — no fix needed. **§5 — two gaps, both fixed:** the
+  restart editor had a hard binary gate (`pickerEditorH >= 192`) with no fallback — refused to render below it
+  instead of degrading. New pure `EuclideousRestartEditorFallback`/`euclideousRestartEditorFallback(height:)`
+  (Derivations.swift) decides, at two new floors (`restartEditorTimelineFloor` 156, `restartEditorHintFloor`
+  128): drop the timeline first, then the hint line — same progressive-degradation shape the DYNAMICS editor
+  already established. Touch areas were short of spec (OUT button 20pt tall, picker/editor close buttons
+  28×20) — widened via `.contentShape(Rectangle().path(in: CGRect(...)))` (NOT `.inset(by:)`, which expands
+  both dimensions — width must stay unchanged) to 24pt tall on all three, drawn sizes untouched; geometrically
+  confirmed the widened OUT button's +2pt downward reach still clears the OCT stepper below it (today's 4pt
+  gap). **§6 — two gaps, both fixed:** the restart editor's close button read "Close the restart editor" →
+  "Close restarts" (the ferry's exact wording). The STEPS value-box's own `accessibilityAdjustableAction`
+  called `commitSteps`, which gates `newStep` on `firstWriteDone` — a flag reset only inside the DRAG
+  gesture's `onChanged`/`onEnded`, never inside the adjustable action itself — so every VoiceOver swipe after
+  the first batched into the SAME undo step. Fixed by having the adjustable action bypass `commitSteps`
+  entirely and call `onCommit(true) { ... }` directly, mirroring how the OTHER, generic-slider component's own
+  adjustable action (EuclideousPage.swift:568, covering HITS/OFFSET/etc.) already did this correctly; the
+  drag gesture's own `firstWriteDone` coalescing is untouched. **Not test-coverable:** §5/§6 are
+  `EuclideousPage.swift`-only (zero macOS test-target reach, per CLAUDE.md) — verified by iOS build + the fast
+  subset (698 green) only; §3/§4 got new regression tests (`RestartChainsTests`, `DerivationsTests`,
+  `EffectiveParamsTests`), each confirmed to fail without its fix via `git stash` before being confirmed to
+  pass with it.**
 - **▶ EUCLIDEOUS — RIFF GRID review + fix: only a RUNNING lane has an arrow (2026-10-21, Paul: "some of the arrows show even when that lane is not running … fix it, and report on what shows on the riff grid"; on `feature/riff-grid-stopped-arrows`; iOS builds clean; macOS Euclideous-scoped suite 642 green incl. `RiffGridArrowFuzzTests`; the look is device-owed).**
   **ROOT CAUSE.** The Router resets a lane's riff cursor (`euclideousRiffStep`) only at a transport edge (Router.swift:3147); a lane the engine stops running — PLAY / STOP off, or taken down to 0 HITS (the gate is `(pulses > 0 || patternMiss) && enabled`, :6473) — keeps its last step, and `euclideousWalkTagPlan` answers a STATIC seat on a stopped lane's polled step. So the riff panel drew an arrow (and the lane card's riff thumbnail lit a current column and spoke "now on step N") on a lane that was not walking. The WALK strip's ring and the rails' current column already followed the rule. **FIX (UI only, no engine change):** `euclideousLaneIsRunning(transportPlaying:line:)` / `euclideousLaneRunsInEngine` (Derivations) mirror the engine's gate; `riffLaneFrames` builds an arrow plan only for a running lane (`euclideousLaneArrowShows`), and the thumbnail highlight and spoken step use the same rule. A lane muted by the LANES grid is still running (its arrow stays, dimmed to 42% — the RIFF PANEL ferry's own rule). **MISMATCHES TO CHECK:** a transport stop changes nothing visible (the engine already clears every lane's cursor at the stop edge, Router.swift:3147, so the arrows went then); a lane re-enabled mid-run has no arrow until its first hit lands; the thumbnail's current-step highlight and VoiceOver "now on step" also go while the lane is stopped (a change to the 2026-10-14 "always shows where we are" thumbnail — say if it should stay).
   **WHAT THE GRID SHOWS, AND WHETHER IT IS USEFUL (findings; only the first was changed).** (1) ARROWS — the grid's one live element and a good one: the fuzz (`RiffGridArrowFuzzTests`, 1500 seeded lanes: direction, riff direction / LEN / stride / SHIFT / EVERY / ADV, ON REST) found the seat exact on 4825 played hits and 676 SKIP rests, the REPEAT rest's column exact on 675 and its row equal to the repeated note on all but 1, a TIE rest hollow only 1 time in 594 (nothing held yet). (2) NOTE NAMES lit on a strike use the ENGINE's rank (after INV / MIRROR / LEAP — Router `wipeRankOut`), while the arrow and the note-cell tint sit on the WRITTEN rank: with riff INV on (or a MIRROR / LEAP mask) the lit name is on a different row from the arrow — the name is the pitch you hear, the arrow is where the walk reads. (3) The GRID SHOWS WHAT IS WRITTEN, NOT WHAT SOUNDS: the cells and the name column ignore per-lane INV and TRANS, MIX's riff OCT and FX NOTE; the lane card's riff thumbnail shows INV / TRANS but not OCT / FX NOTE — so the names can mislead on a lane that transposes. (4) RAILS — useful for LEN < 8, stride, EVERY and never-played columns; a lane with the full 8 columns and FWD shows an all-"played" rail that only differs from "not played" by 16% vs 8% alpha (hard to tell apart), and a lane with NO hits (or an over-budget readout) falls back to "all columns within LEN played" (by design, RIFF WALK §7.6) which is the opposite of the truth for a 0-hit lane. (5) The same current-column fact is drawn in five places (arrow, rail chevron, thumbnail highlight, WALK ring, strip current chip); the rails' chevron adds only the trail and differs from the arrow only on a TIE rest. (6) MIDI IN with nothing held hides the arrows (and shows the HOLD pill) but the rails keep walking — by RIFF PANEL §6.4, though it shows a lane "moving" on a grid that says nothing will sound. (7) NOT RUNNING BUT STILL LIVE ELSEWHERE: the LANES tab's four playheads and roll run on the transport alone (`playing: clock.playing`), so a stopped lane's playhead keeps sweeping there; a running lane routed to no enabled MAIN OUT ("NO OUTPUT" / "MAIN OUT OFF", `euclideousSilenceReason` — still unwired, §10 open) keeps its arrow and playhead though it can make no sound. (8) The riff tab row's playing-triangle sits on the selected tab, which is always the playing one, so it carries no information beyond the selection fill. (9) A lane with an all-rest riff has no arrow (right), but nothing on the grid says why a running lane is silent beyond the HOLD pill.
