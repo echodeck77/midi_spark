@@ -37,6 +37,7 @@
 		3E9FF95A517649C43ED0D955 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */; };
 		47C29EACF7E0D356CD7DADDF /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */; };
 		4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */; };
+		4F2C1369A07D6F7E9B85B10D /* RhythmDynamicsGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7FFD37EAEBA9D78C4E7465 /* RhythmDynamicsGeometryTests.swift */; };
 		4F7BB6013CA868EE5B545EEE /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C260460EAF19255196447 /* NotesTabTests.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		5533EBEF2E9CE4295C52B55C /* manual-skeleton.md in Resources */ = {isa = PBXBuildFile; fileRef = 688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */; };
@@ -212,6 +213,7 @@
 		CAFE93FB65D88CFE67BE75A9 /* DynamicsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicsTests.swift; sourceTree = "<group>"; };
 		CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPresets.swift; sourceTree = "<group>"; };
 		CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartChainsTests.swift; sourceTree = "<group>"; };
+		CC7FFD37EAEBA9D78C4E7465 /* RhythmDynamicsGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RhythmDynamicsGeometryTests.swift; sourceTree = "<group>"; };
 		CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Row8Tests.swift; sourceTree = "<group>"; };
 		CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesPanelPainter.swift; sourceTree = "<group>"; };
 		D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CogPage.swift; sourceTree = "<group>"; };
@@ -286,6 +288,7 @@
 				E398927CED84CAC2C67B9CF0 /* PulseTests.swift */,
 				EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */,
 				CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */,
+				CC7FFD37EAEBA9D78C4E7465 /* RhythmDynamicsGeometryTests.swift */,
 				7FC04EA80539F56545C2F422 /* RiffGridArrowFuzzTests.swift */,
 				4B5AB77F620263EEC9BCFE6A /* RiffPanelTests.swift */,
 				E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */,
@@ -628,6 +631,7 @@
 				E057A4E35EB36C4AB1005812 /* PulseTests.swift in Sources */,
 				EBAECBA5B3E3F98B83E42E48 /* ReelDeckTests.swift in Sources */,
 				6F18BF8AB71ADFDCB76024E4 /* RestartChainsTests.swift in Sources */,
+				4F2C1369A07D6F7E9B85B10D /* RhythmDynamicsGeometryTests.swift in Sources */,
 				746E24079B190777EFA7AF96 /* RiffGridArrowFuzzTests.swift in Sources */,
 				83AA7B12EA973469EB436ADD /* RiffPanelTests.swift in Sources */,
 				D45C1A821793F49D844B14A5 /* RoomsLatticeTests.swift in Sources */,
