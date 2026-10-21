@@ -3539,6 +3539,7 @@ extension DiagView {
             // directly, unconditionally. `MachineParams.euclideousLiveGrid`/`Looper*` fields themselves
             // stay in place (decode-safety for a `RouterTests` fixture or similar built directly).
             p.mainOutMask = euclideousMainOutMask   // EUCLIDEOUS PAGE REWORK (2026-10-07): the global MAIN OUT gate
+            p.soloMask = euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld)   // LANE SOLO (2026-10-21): latched | held — the render thread sees only the union
             let chain = [ProcessorSlot(type: .euclid, params: p)]
             // NOTE: the registered machine's OWN stored params are irrelevant at render time — Router.swift's
             // `emitGeneratorRow` always overwrites `.a` with the CELL's own `processors` (confirmed: `treat.a =

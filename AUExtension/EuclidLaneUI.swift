@@ -115,6 +115,12 @@ struct EuclidLaneBox: View {
     // approximation for any caller that doesn't pass the real figure, but at least no longer silently wrong
     // for the one caller that now does.
     var stepCountBadgeWidth: CGFloat = 0
+    // LANE SOLO (2026-10-21): the SOLO button takes the step-count box's slot (the Euclideous page passes this INSTEAD of `stepCountBadge`, whose code stays — §1.3): same frame, so the comet strip
+    // doesn't move. `soloDim` is "this lane is solo-silenced": the play button and the comet composite draw at the page's 42 % (the comet's own mute dim stands down so it is 42 % once, never 42 % × 42 %);
+    // the button never dims. nil / false (every other caller, incl. the regular BUILD-page EUCLID editor) ⇒ byte-identical.
+    var soloButton: AnyView? = nil
+    var soloButtonWidth: CGFloat = 0
+    var soloDim: Bool = false
     // EXACT DIMENSIONS (2026-10-13, "lane card, exact dimensions" ferry) — Euclideous's own styling: zero
     // self-padding (the card itself now supplies the inset), 6pt inter-item spacing (was 8), a CHIP-filled
     // triangle play button (was an SF Symbol on a translucent fill), and no own background/border (the card
@@ -151,6 +157,8 @@ struct EuclidLaneBox: View {
         let on = line.enabledResolved
         HStack(spacing: compact ? 6 : 8) {
             playButton(on: on)
+                .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)
             // WIDTH: the comet bar's own real rendered width, derived exactly from this box's layout —
             // compact: 0pt self-padding + the 44pt play button + 6pt spacing = 50pt before the comet bar,
             // PLUS — if a badge is present — its own width and the matching 6pt gap before it; non-compact
@@ -158,7 +166,7 @@ struct EuclidLaneBox: View {
             // badge gap 8pt. NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch
             // (for the rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
             let gap: CGFloat = compact ? 6 : 8
-            let badgeReserve: CGFloat = stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth)
+            let badgeReserve: CGFloat = soloButton != nil ? (gap + soloButtonWidth) : (stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth))
             let leadReserve: CGFloat = compact ? 50 : 64
             // `patternOverride` is already FINISHED (partner's pattern, this lane's own OFFSET + INV baked in), so it goes in as a
             // hand-edited pattern with nothing left to rotate, tilt or invert — the bar's own customHits path replaces generation.
@@ -171,7 +179,7 @@ struct EuclidLaneBox: View {
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            strip: strip, stripCurrent: stripCurrent, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
-                           restartChains: restartChains, mutedAt: mutedAt,
+                           restartChains: restartChains, mutedAt: mutedAt, suppressMuteDim: soloDim,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
@@ -180,7 +188,9 @@ struct EuclidLaneBox: View {
                 // derivation (56−12=44, unchanged for the regular BUILD-page editor).
                 .frame(height: compact ? max(20, height) : max(20, height - 12))
                 .overlay(alignment: .bottom) { if let t = listenShadowTint { Rectangle().fill(t).frame(height: 14).allowsHitTesting(false) } }
-            if let stepCountBadge { stepCountBadge }
+                .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.1: the whole strip (cells, riff track, key row, playhead, the SHADOW band) once at 42 %
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)
+            if let soloButton { soloButton } else if let stepCountBadge { stepCountBadge }
         }
         .padding(compact ? 0 : 6)
         .frame(width: width, height: height)   // EXPLICIT width/height — the stroke/background below can never bleed past it
@@ -297,6 +307,8 @@ struct EuclidCometBar: View {
     // RESTART CHAINS (ferry 2026-10-19) — see `EuclidLaneBox`. nil/nil (every other caller) ⇒ byte-identical.
     var restartChains: EuclideousLaneRestartChains? = nil
     var mutedAt: ((Double) -> Bool)? = nil
+    /// LANE SOLO: the box already dims this whole bar (the lane is solo-silenced), so the bar's own LANES-mute dim stands down — one 42 %, never two multiplied.
+    var suppressMuteDim: Bool = false
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -560,7 +572,8 @@ struct EuclidCometBar: View {
                     }
                 }
             }
-            .opacity(mutedNow ? 0.42 : 1)   // LANES GRID: a muted lane dims to the page's 42%
+            .opacity(mutedNow && !suppressMuteDim ? EuclideousLaneDimStyle.opacity : 1)   // LANES GRID: a muted lane dims to the page's 42% (and, since LANE SOLO, eases over 0.15 s both ways)
+            .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: mutedNow && !suppressMuteDim)
             .allowsHitTesting(false)
         }
         // GESTURES: 1-finger drag left/right = Δrotate, up/down = Δhits (this lane); 2-finger drag does the same

@@ -802,6 +802,9 @@ struct EuclideousPage: View {
     let holdLatchMode: EuclideousHoldLatchMode?
     let onSetHoldLatchMode: (EuclideousHoldLatchMode?) -> Void
     let mainOutMask: UInt8
+    // LANE SOLO (2026-10-21): the latched solo mask (saved) and the held one (a finger down; UI only). `soloEffective` is what every dim and the engine use.
+    let soloMask: UInt8
+    let soloHeld: UInt8
     // CHORDS BUTTON (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a chord
     // grid with rate control... base this on the existing chord grid used on the chord door." Stored/edited
     // exactly like the chord door's own chord sequencer — a plain MachineParams, only its chords* fields ever
@@ -838,6 +841,9 @@ struct EuclideousPage: View {
     let onSetKeyRoot: (Int) -> Void
     let onSetKeyType: (ScaleType) -> Void
     let onSetMainOutMask: (UInt8) -> Void
+    /// LANE SOLO §3: a finger lands on lane i's SOLO button / lifts off it (`latchToggles` = it was a tap).
+    let onSoloDown: (Int) -> Void
+    let onSoloUp: (Int, Bool) -> Void
     // FOURFOLD SETTINGS (2026-10-15 ferry) — the sheet's own 4 document fields, threaded in the same plain
     // live-mirror/onSet shape as every field above. `ignoreAllNotesOff`/`busChannels`/`outputNames`/
     // `allOutputName` are the EXISTING, already-live fields/constants this ferry's MIDI IN/MAIN OUT tabs give
@@ -1969,6 +1975,9 @@ struct EuclideousPage: View {
         // matches the reference 306 exactly, and scales only if a caller ever hands this a different height.
         let contentAreaH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: height)   // card height − 104 (comet 44 + tabs 28 + 2 × 10 inset + 2 × 6 gap)
         let steps = max(2, min(16, line.steps))
+        // LANE SOLO §6.1: a solo-silenced lane's card content draws at 42 % — except the SOLO button and the card's own ground / border — and never stacks with the output-ring TRACE dim below (which already
+        // dims the whole card).
+        let soloDimContent = soloSilenced(idx) && outputCue(forLane: idx)?.cue != .dim
         VStack(alignment: .leading, spacing: cardRowGap) {
             // LISTEN TAB: a FOLLOW lane PLAYS its partner's pattern, at the partner's rate — so its bar shows THAT (lit cells in the
             // partner's colour, faded; the comet sweeping at the partner's pace) and its bar gestures edit the PARTNER, the thing it
@@ -2020,10 +2029,9 @@ struct EuclideousPage: View {
                           // chip is the current one (the arrow's hit).
                           strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(idx, plan: stripPlan, beat: beat) },
                           pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
-                          stepCountBadge: AnyView(stepCountBadge(
-                              followEff?.n ?? steps,
-                              dotTint: listenFollowTint)),
-                          stepCountBadgeWidth: stepCountBadgeTotalWidth,
+                          // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
+                          // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
+                          soloButton: soloButton(idx, accent), soloButtonWidth: stepCountBadgeTotalWidth, soloDim: soloDimContent,
                           // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
                           // triangle play button, flat LANE-100/#2c2f36 cell colours, the hand-placed notch.
                           compact: true,
@@ -2052,7 +2060,11 @@ struct EuclideousPage: View {
             // `stepCountBadge` below (and, at the time, the now-retired `trailingContent` slot) — rather
             // than a logic change; nothing about what's drawn or how it behaves is different.
             AnyView(laneTabRow(idx, line, accent, rowH: tabRowH))
+                .opacity(soloDimContent ? EuclideousLaneDimStyle.opacity : 1)
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDimContent)
             AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth))
+                .opacity(soloDimContent ? EuclideousLaneDimStyle.opacity : 1)
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDimContent)
         }
         .padding(cardInset)
         .frame(width: width, height: height)
@@ -2069,6 +2081,16 @@ struct EuclideousPage: View {
     // ferry's own RHYTHM table), making the count box's old secondary content redundant; dropped here rather
     // than kept alongside it. `accent`/`mask` params are gone — this box no longer needs either.
     private var stepCountBadgeTotalWidth: CGFloat { 44 }
+    // MARK: LANE SOLO (ferry 2026-10-21)
+    /// The effective solo mask: latched | held (§4.3).
+    private var soloEffective: UInt8 { euclideousSoloEffective(latched: soloMask, held: soloHeld) }
+    /// Is lane `lane` solo-silenced — the effective mask isn't 0 and doesn't contain it (§6)? Every dim below asks this (or `euclideousLaneIsDimmed`, which folds in the LANES mute).
+    private func soloSilenced(_ lane: Int) -> Bool { euclideousSoloSilences(lane: lane, soloMask: soloEffective) }
+    /// The SOLO button of lane `idx` (§2-3), built here as an `AnyView` like every other leaf of the lane card (the page's construction chain has almost no stack to spare in a debug build).
+    private func soloButton(_ idx: Int, _ accent: Color) -> AnyView {
+        AnyView(EuclideousSoloPressable(lane: idx, accent: accent, latched: (soloMask >> UInt8(idx)) & 1 != 0,
+                                        onDown: { onSoloDown(idx) }, onUp: { onSoloUp(idx, $0) }))
+    }
     /// §8: "FOLLOW: the count box shows the inherited step count, with an 8pt dot in the partner's
     /// LANE-100 3pt below the number." `dotTint` nil (every other state) ⇒ byte-identical to before.
     private func stepCountBadge(_ n: Int, dotTint: Color? = nil) -> some View {

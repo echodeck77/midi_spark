@@ -567,6 +567,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiEuclideousRiffSourceMidi() -> Bool { document.euclideousRiffSourceMidiResolved }
     func uiEuclideousLanesSourceMidi() -> Bool { document.euclideousLanesSourceMidiResolved }
     func uiEuclideousMainOutMask() -> UInt8 { document.euclideousMainOutMaskResolved }
+    func uiEuclideousSoloMask() -> UInt8 { document.euclideousSoloMaskResolved }   // LANE SOLO (2026-10-21): the LATCHED mask
     // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
     func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }
     func setEuclideousMidiInChannelMask(_ mask: UInt16) { editDocument { $0.euclideousMidiInChannelMask = mask } }

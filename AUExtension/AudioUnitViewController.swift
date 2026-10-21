@@ -360,6 +360,10 @@ struct DiagView: View {
     @State var euclideousRiffSourceMidi: Bool = true            // MIDI is the default (preserves pre-rework behaviour)
     @State var euclideousLanesSourceMidi: Bool = true
     @State var euclideousMainOutMask: UInt8 = 0b1111            // all 4 buses open by default
+    // LANE SOLO (2026-10-21): the LATCHED solo mask (a document field, mirrored here like the main-out mask; no undo) and the HELD one (a finger on a SOLO button — UI state only: never saved, never undoable).
+    // The effective mask `latched | held` is what reaches the render thread (`BuildPage.buildPublishScene` → `MachineParams.soloMask` → `SnapParams.soloMask`).
+    @State var euclideousSoloMask: UInt8 = 0
+    @State var euclideousSoloHeld: UInt8 = 0
     // FOURFOLD SETTINGS (2026-10-15 ferry): same live-mirror treatment as every field above.
     @State var euclideousMidiInChannelMask: UInt16 = 0xFFFF
     @State var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying
@@ -848,6 +852,7 @@ struct DiagView: View {
         euclideousRiffSourceMidi = au.uiEuclideousRiffSourceMidi()
         euclideousLanesSourceMidi = au.uiEuclideousLanesSourceMidi()
         euclideousMainOutMask = au.uiEuclideousMainOutMask()
+        euclideousSoloMask = au.uiEuclideousSoloMask()
         euclideousMidiInChannelMask = au.uiEuclideousMidiInChannelMask()
         euclideousHostStopBehavior = au.uiEuclideousHostStopBehavior()
         ignoreAllNotesOff = au.uiIgnoreAllNotesOff()
@@ -1118,6 +1123,7 @@ struct DiagView: View {
                                    // from this call site — decode-safety for an old saved doc, matching how
                                    // euclideousReceiver was handled when ITS control was dropped.
                                    mainOutMask: euclideousMainOutMask,
+                                   soloMask: euclideousSoloMask, soloHeld: euclideousSoloHeld,
                                    chords: euclideousChords,
                                    onEditChords: { mutate in
                                        euclideousRecordUndo(coalesceKey: "euclideousChords")
@@ -1230,6 +1236,23 @@ struct DiagView: View {
                                        // §7.3 ("main outputs... not undoable") — not recorded, deliberately.
                                        euclideousMainOutMask = v
                                        au?.editDocument { $0.euclideousMainOutMask = v }
+                                       buildPublishScene()
+                                   },
+                                   // LANE SOLO (2026-10-21, §3): touch-down puts the lane in the HELD mask at once (it counts as soloed for sound and every dim from the moment of touch); the lift clears it and — for a tap
+                                   // only — flips the lane's LATCHED bit, in the SAME update (one publish, no flicker). Neither records undo (the output rings don't); only the latched mask is saved.
+                                   onSoloDown: { lane in
+                                       guard (0..<4).contains(lane) else { return }
+                                       euclideousSoloHeld |= UInt8(1 << lane)
+                                       buildPublishScene()
+                                   },
+                                   onSoloUp: { lane, latchToggles in
+                                       guard (0..<4).contains(lane) else { return }
+                                       euclideousSoloHeld &= ~UInt8(1 << lane)
+                                       if latchToggles {
+                                           euclideousSoloMask ^= UInt8(1 << lane)
+                                           let v = euclideousSoloMask
+                                           au?.editDocument { $0.euclideousSoloMask = v }
+                                       }
                                        buildPublishScene()
                                    },
                                    // FOURFOLD SETTINGS (2026-10-15 ferry) — §6.3/§6.4: "no undo steps... changes
@@ -1483,6 +1506,7 @@ struct DiagView: View {
             let erfm = au.uiEuclideousRiffSourceMidi(); if erfm != euclideousRiffSourceMidi { euclideousRiffSourceMidi = erfm; euclideousResynced = true }
             let elsm = au.uiEuclideousLanesSourceMidi(); if elsm != euclideousLanesSourceMidi { euclideousLanesSourceMidi = elsm; euclideousResynced = true }
             let emom = au.uiEuclideousMainOutMask(); if emom != euclideousMainOutMask { euclideousMainOutMask = emom; euclideousResynced = true }
+            let esol = au.uiEuclideousSoloMask(); if esol != euclideousSoloMask { euclideousSoloMask = esol; euclideousResynced = true }   // LANE SOLO: a preset load / session restore replaces it
             let emicm = au.uiEuclideousMidiInChannelMask(); if emicm != euclideousMidiInChannelMask { euclideousMidiInChannelMask = emicm; euclideousResynced = true }
             let ehsb = au.uiEuclideousHostStopBehavior(); if ehsb != euclideousHostStopBehavior { euclideousHostStopBehavior = ehsb; euclideousResynced = true }
             let echd = au.uiEuclideousChords(); if echd != euclideousChords { euclideousChords = echd; euclideousResynced = true }
