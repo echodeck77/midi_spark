@@ -1803,81 +1803,83 @@ struct EuclideousPage: View {
     /// `euclideousFooterStates` pure functions (Derivations.swift) fresh every time this view's body runs —
     /// SwiftUI only re-evaluates it when one of `line`/`riff`/`riffWalkState` actually changes, which is
     /// exactly "recompute... whenever settings... change" (Prediction rule 1) without a hand-rolled cache.
-    /// What the lane's comet strip draws under its cells (NOTES TAB ferry §10.4-§10.5 added the pips and the grey fill): the footer states, a pip per hit the notes will play (NOTES tab
-    /// only, the layer on), and whether the light hit bands are grey (riff off, WHEN one-sided). The pips read the SAME prediction the bands draw from — "use the footers' own per-hit
-    /// functions" — even while the riff is off (6.1: the written columns still decide which hits are rest hits).
-    private struct LaneFooterPlan {
-        var states: [EuclidFooterState]
-        var pips: [UInt8]?
-        var grey: Bool
-        var notesStrikeOnRest: Bool
-    }
-    private func laneFooterPlan(_ idx: Int, _ line: EuclidLine) -> LaneFooterPlan {
-        let layerOn = euclideousNotesLayerIsOn(line)
-        let grey = euclideousNotesGreyFooters(riffOn: line.riffOnResolved, notesLayerOn: layerOn, when: line.notesWhenResolved)
-        let tab = idx < laneTab.count ? laneTab[idx] : .rhythm
-        let showPips = layerOn && tab == .notes
-        let reading = laneFooterStates(idx, line, readRiff: line.riffOnResolved || grey || showPips)
-        // drawn: as today unless the riff is on or the grey case — with the riff off (and not grey) every hit is a plain light band, no number
-        let drawn = (line.riffOnResolved || grey) ? reading : laneFooterStates(idx, line, readRiff: false)
-        return LaneFooterPlan(states: drawn,
-                              pips: showPips ? euclideousNotesPips(states: reading, when: line.notesWhenResolved, chance: line.notesChanceResolved) : nil,
-                              grey: grey, notesStrikeOnRest: layerOn && line.notesRestsResolved)
-    }
-    private func laneFooterStates(_ idx: Int, _ line: EuclidLine, readRiff: Bool) -> [EuclidFooterState] {
-        // A FOLLOW lane plays its PARTNER's pattern (and step count), so its footer is predicted from THAT — the same
-        // finished buffer the engine and the step bar use (`euclideousEffectivePattern`). Every other lane is unchanged.
+    /// THE LANE STRIP's plan (LANE STRIP ferry 2026-10-21 — replaces the footer bands, the NOTES-tab pips and the grey fill; the footers' own per-hit functions now drive the riff track and the key
+    /// row). Worked out per body: the rhythm's hits and the pass the footers show (`euclideousFooterPass` — the lap that contains the UI clock at this body's evaluation, whose riff columns come from the
+    /// engine's own walk), the footers' states for it (`euclideousFooterStates`), then `euclideousStripHits` turns them into chips, gaps and keys. A FOLLOW lane plays its PARTNER's pattern and step count,
+    /// so everything is predicted from that — the same finished buffer the engine and the step bar use (`euclideousEffectivePattern`).
+    private func laneStripPlan(_ idx: Int, _ line: EuclidLine) -> EuclideousStripPlan {
+        let shadowed = line.listenPitchMode == .shadow
+        let layerOn = euclideousNotesLayerIsOn(line) && !shadowed   // a SHADOWing lane's own riff and lit notes are ignored entirely (LISTEN §6)
+        let playsRiff = euclideousLanePlaysRiff(line)
+        let grey = !shadowed && euclideousNotesGreyFooters(riffOn: line.riffOnResolved, notesLayerOn: layerOn, when: line.notesWhenResolved)
         let follow = euclideousEffectivePattern(lane: idx, lines: lines).flatMap { $0.followsPartner ? $0 : nil }
         let steps = follow?.n ?? max(2, min(16, line.steps))
         let hitSteps = follow.map { euclideousLapHitSteps(buf: Array($0.buf.prefix($0.n)), dir: line.directionResolved) }
             ?? euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                       tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
                                       customHits: line.customHitsResolved(steps), dir: line.directionResolved)
+        let cfg = riffWalkConfig(idx)
         var prediction: [Int]? = nil
-        if readRiff {
+        var lapStartTick: Int64? = nil
+        if playsRiff || grey {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
-            let advanceStep = line.riffAdvanceStepResolved
-            // RESTART CHAINS (ferry 2026-10-19): `cfg` (built first now) carries this lane's resolved chains, so
-            // the fallback baseline below can ask "is the CURRENT pass itself a melody restart" (§4.6) instead of
-            // reading the retired `riffLock` boolean — a melody chain of [1] answers true for every pass, old
-            // LOCK's own guarantee (§4.7), with no special-casing needed.
-            let cyc = clock.stepBeats * Double(max(1, clock.cols))
-            let cfg = euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
-                                               lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
-                                               swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
-            let nowBeat = lanesMusicalBeat(real: walkTagBeat(at: Date()))
-            let isMelodyRestartPass = cfg.map {
-                euclideousIsMelodyChainRestartPass(beat: nowBeat, lapBeats: $0.chains.lapBeats, barBeats: $0.chains.barBeats,
-                                                   rhythmChain: $0.chains.rhythm, melodyChain: $0.chains.melody)
-            } ?? false
-            var baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: steps, isMelodyRestartPass: isMelodyRestartPass,
-                                                       advanceStep: advanceStep, liveOrd: ws, dir: line.directionResolved)
-            // LANES GRID §2.8: the footer's lap baseline takes BOTH origins — it is the riff ordinal the CURRENT lap's first hit reads, from the engine's
-            // own per-tick core (`euclideousLapStartOrdinal`), not reverse-derived from the polled ordinal (which a melody restart would break). A restart
-            // that falls INSIDE the lap stays unforeseen, so the prediction remains oblivious to it, as before.
-            if let cfg, let lapStart = euclideousLapStartOrdinal(cfg: cfg, beat: nowBeat) {
-                baseline.startOrd = lapStart
-            }
-            prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: advanceStep, dir: line.euclideousRiffDirResolved,
-                                                         stride: line.riffStrideResolved, length: line.riffLengthResolved,
-                                                         rotate: line.riffRotateResolved, seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)),
-                                                         startOrd: baseline.startOrd)
+            let pass = euclideousFooterPass(line: line, cfg: cfg, hitSteps: hitSteps, lapSteps: steps, liveOrd: ws, nowBeat: lanesMusicalBeat(real: walkTagBeat(at: Date())))
+            prediction = pass.prediction; lapStartTick = pass.lapStartTick
+        } else if layerOn, let cfg {
+            lapStartTick = euclideousLapStart(cfg: cfg, beat: lanesMusicalBeat(real: walkTagBeat(at: Date())))?.lapStartTick   // the keys' count k needs the pass's ticks even with the riff off
         }
-        // LIT NOTES PLUS THE RIFF (Paul 2026-10-13 ferry), Elsewhere-on-page §4: riff off + notes lit → a
-        // `.hit(riffStep: nil)` band (drawn grey, no number, by `EuclidCometBar` itself); riff off + nothing
-        // lit → `.miss` everywhere, "because nothing will sound."
-        // RIFF/NOTES SPLIT (third same-day ferry): the notes layer's own master switch gates this too —
-        // nothing can be "lit" in the sense that matters here if the whole layer is off.
-        let anyLit = euclideousNotesLayerIsOn(line)
-        return euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: effectiveGridRanks, anyLit: anyLit,
-                                      fxTieColumns: euclideousFXTieColumns(fx, line: line, lane: idx))   // FX §13.2: a TIE cell's hit reads as a hit on a tied rest
+        // riff off with nothing lit: every step is a `.miss` ("nothing will sound"); a hit an FX TIE cell applies to reads as a hit on a tied rest
+        let ranks = effectiveGridRanks
+        let states = euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: ranks, anyLit: layerOn,
+                                            fxTieColumns: euclideousFXTieColumns(fx, line: line, lane: idx))
+        var pattern = [Bool](repeating: false, count: steps)
+        for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < steps { pattern[hs.bufIdx] = true }
+        let notes: EuclideousStripNotes? = layerOn
+            ? EuclideousStripNotes(layerOn: true, when: line.notesWhenResolved, chance: line.notesChanceResolved, way: line.notesPlayAsResolved, list: notesPlayList(line), lane: idx) : nil
+        let hits = euclideousStripHits(pattern: pattern, hitSteps: hitSteps, states: states, ranks: ranks, riffPlays: playsRiff, grey: grey, onRest: line.riffOnRestResolved,
+                                       cfg: cfg, lapStartTick: lapStartTick, notes: notes, name: stripNoteName)
+        // VoiceOver (§6): the note at a written rank is the riff grid's row name; a pitch is spoken as the NOTES tab's keys speak it
+        let pool = riffLivePool
+        let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
+        let phrase = euclideousStripHitsPhrase(hits: hits,
+                                               spokenRank: { r in
+                                                   guard r >= 1, r <= extended.count, (0...127).contains(extended[r - 1]) else { return nil }
+                                                   return euclideousAccessibleDisplayNoteName(UInt8(extended[r - 1]), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType)
+                                               },
+                                               spokenPitch: { p in
+                                                   (0...127).contains(p) ? euclideousAccessibleDisplayNoteName(UInt8(p), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) : "no note"
+                                               })
+        return EuclideousStripPlan(hits: hits, hitSteps: hitSteps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase)
+    }
+    /// A pitch named the way the riff grid names its rows (`riffNoteLabelColumn`): C4, A♭3 — spelled relative to what is held for MIDI IN / CHORDS, from the key for KEY.
+    private func stripNoteName(_ p: Int) -> String {
+        guard (0...127).contains(p) else { return "\u{2013}" }
+        return euclideousDisplayNoteName(UInt8(p), source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType)
+    }
+    /// The lane's play list (6.5) against the pool the riff grid's name column reads — what the NOTES tab's keys and the strip's key labels both name.
+    private func notesPlayList(_ line: EuclidLine) -> EuclideousNotesList {
+        let pool = riffLivePool
+        return euclideousNotesPlayList(order: line.litOrderResolved, poolCount: pool.count, receivedOnly: line.notesReceivedOnlyResolved) { rank in
+            riffResolve(rank: rank, oct: 0, n: pool.count, wrap: .fold, asc: { Int(pool[$0]) })
+        }
+    }
+    /// 1.4 / 1.6: which step's chip is lane `idx`'s current one at UI beat `beat` — the chip of the hit its riff arrow shows (the same walk plan the arrow reads, per frame; TIE stays on the tied note).
+    /// nil while the lane or the transport is stopped, before its first hit of the pass, with the riff off, and while MIDI IN holds nothing (the arrows are suppressed then too).
+    private func stripCurrentStep(_ idx: Int, plan: EuclideousStripPlan, beat: Double) -> Int? {
+        guard plan.riffPlays, let cfg = plan.cfg, idx < lines.count, idx < riffPositions.count, clock.playing, lines[idx].enabledResolved else { return nil }
+        let ord: Int64? = idx < riffWalkState.count ? riffWalkState[idx] : nil
+        guard let tp = euclideousWalkTagPlan(cfg: cfg, ranks: effectiveGridRanks, beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo), polledStep: riffPositions[idx], running: true,
+                                             polledOrdinal: ord) else { return nil }
+        let arrow = euclideousLaneArrowState(lane: idx, cfg: cfg, plan: tp, polledOrdinal: ord ?? 0)
+        return euclideousStripCurrentStep(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow,
+                                          hitSteps: plan.hitSteps, hits: plan.hits)
     }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
         let tab = idx < laneTab.count ? laneTab[idx] : .rhythm
-        let footerPlan = laneFooterPlan(idx, line)   // NOTES TAB ferry §10: the comet strip's footers, pips and grey fill
+        let stripPlan = laneStripPlan(idx, line)   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions
         // ONE INNER WIDTH FOR EVERY ROW — every row below is built from THIS one width, never the raw card
         // `width` (W = 326 at the ferry's own reference 346pt card). "Wider cards: flexible items share the
         // extra width" — `innerWidth` scales directly with `width`, so every formula below that derives from
@@ -1937,13 +1939,10 @@ struct EuclideousPage: View {
                           // used to drive), so this is a genuine no-op, not a disabled one.
                           onSelect: { },
                           onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          // LANE FOOTER BANDS (2026-10-13 ferry, "footers inside the step cells" — supersedes
-                          // the separate trailing row the comment here used to describe): a pure array, not a
-                          // view — `EuclidCometBar` draws each step's own band directly inside that step's
-                          // own cell rect now, so there's no separate row height/gap to budget here at all.
-                          footerStates: footerPlan.states, notesPips: footerPlan.pips,
-                          notesPlayPhrase: footerPlan.pips.flatMap { euclideousNotesPlayHitsPhrase(euclideousNotesPipSteps($0)) }, footerGrey: footerPlan.grey, notesStrikeOnRest: footerPlan.notesStrikeOnRest,
-                          pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive, pulseRiffOn: line.riffOnResolved,
+                          // THE STRIP (LANE STRIP ferry 2026-10-21): a pure plan, not a view — `EuclidCometBar` paints the riff track and the key row from it; `stripCurrent` is asked per display frame which step's
+                          // chip is the current one (the arrow's hit).
+                          strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(idx, plan: stripPlan, beat: beat) },
+                          pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
                           stepCountBadge: AnyView(stepCountBadge(
                               followEff?.n ?? steps,
                               dotTint: listenFollowTint)),
@@ -1963,9 +1962,6 @@ struct EuclideousPage: View {
                           patternOverride: followEff.map { Array($0.buf.prefix($0.n)) },
                           cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
                           rateBeatsOverride: followEff?.rateBeats,
-                          // FERRY (2026-10-14 §5): the one piece the footer prediction itself doesn't carry —
-                          // whether landing on a riff rest actually sounds (FILL) or not (SKIP/TIE).
-                          riffOnRest: line.riffOnRestResolved,
                           restartChains: cardChains.isActive ? cardChains : nil,
                           mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) })
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
@@ -3775,9 +3771,7 @@ struct EuclideousPage: View {
         }
         let order = line.litOrderResolved
         let receivedOnly = line.notesReceivedOnlyResolved
-        let list = euclideousNotesPlayList(order: order, poolCount: n, receivedOnly: receivedOnly) { rank in
-            riffResolve(rank: rank, oct: 0, n: n, wrap: .fold, asc: { Int(pool[$0]) })
-        }
+        let list = notesPlayList(line)
         let places = euclideousNotesPlaceNumbers(list: list, way: line.notesPlayAsResolved)
         var specs: [EuclideousNotesKeySpec] = []
         var spokenNames: [[String]] = []

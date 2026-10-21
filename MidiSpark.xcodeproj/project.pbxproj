@@ -39,6 +39,7 @@
 		4F7BB6013CA868EE5B545EEE /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C260460EAF19255196447 /* NotesTabTests.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		5533EBEF2E9CE4295C52B55C /* manual-skeleton.md in Resources */ = {isa = PBXBuildFile; fileRef = 688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */; };
+		59AB6964C8403D8ECB724041 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */; };
 		5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D181AD808BD18E8D2F085F /* FuzzTests.swift */; };
 		5B182C150ACB6B3B81425BB0 /* SceneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D364D224C3D245B4D5AE548 /* SceneFactory.swift */; };
 		5C648CAB6448DD80453069B0 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
@@ -91,6 +92,7 @@
 		D767C243D5F256253014F295 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0FF4898E2B013BF63E6CE0 /* EuclideousPage.swift */; };
 		D8E56D6903D836F0B80F29A0 /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */; };
 		D9216BAE1234A4B5C0B908FC /* AcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C3BD2C1AC32230B747C194 /* AcceptanceTests.swift */; };
+		D93A9E0C720E078D01E49E28 /* LaneStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */; };
 		DC948A6C41FBACF023BDC377 /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
 		DFCB6B6D89E818DFDD3FEF71 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */; };
 		E057A4E35EB36C4AB1005812 /* PulseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E398927CED84CAC2C67B9CF0 /* PulseTests.swift */; };
@@ -143,6 +145,7 @@
 		17328D614B4463EECE452DA4 /* BuildModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildModel.swift; sourceTree = "<group>"; };
 		17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXTabTests.swift; sourceTree = "<group>"; };
 		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripPainter.swift; sourceTree = "<group>"; };
 		1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFactoryTests.swift; sourceTree = "<group>"; };
 		1FE84D11C4695B381242AD6D /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		20AB7B8688724B64F843182A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -199,6 +202,7 @@
 		B324D879C239B5A1451B258F /* WalkTagPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkTagPainter.swift; sourceTree = "<group>"; };
 		B3CD05B6D166BF878367A888 /* RoomsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsPage.swift; sourceTree = "<group>"; };
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
+		B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripTests.swift; sourceTree = "<group>"; };
 		BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTuttiLengthTests.swift; sourceTree = "<group>"; };
 		CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPresets.swift; sourceTree = "<group>"; };
 		CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartChainsTests.swift; sourceTree = "<group>"; };
@@ -264,6 +268,7 @@
 				99D181AD808BD18E8D2F085F /* FuzzTests.swift */,
 				17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */,
 				9A732F956AC8A9961E6F346F /* LanesGridTests.swift */,
+				B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */,
 				EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */,
 				F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */,
 				91BA15AAFC801CACFECA4085 /* MigrationTests.swift */,
@@ -343,6 +348,7 @@
 				F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */,
 				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
 				CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */,
+				1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */,
 				31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */,
 				FB579E7A98D1755158B6B0DE /* ManualView.swift */,
 				9093C469F102E1F2CCC6DF7D /* MidiFile.swift */,
@@ -534,6 +540,7 @@
 				9E72B64FD55D3542492F0113 /* GridSkin.swift in Sources */,
 				D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */,
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
+				59AB6964C8403D8ECB724041 /* LaneStripPainter.swift in Sources */,
 				66E87FCC147957D2D5BE9931 /* LanesPanelPainter.swift in Sources */,
 				EA12B8EA582FDBCD044746B9 /* MacroAuthoring.swift in Sources */,
 				14001737F3526E61A6910D74 /* ManualView.swift in Sources */,
@@ -595,6 +602,7 @@
 				5CD10BE7CE98FDD633F57ACB /* EuclideousPresets.swift in Sources */,
 				76200A32A504EA152B5EE00C /* FXTabTests.swift in Sources */,
 				5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */,
+				D93A9E0C720E078D01E49E28 /* LaneStripTests.swift in Sources */,
 				8C0A79D7C15CDA8D43AC7760 /* LanesGridTests.swift in Sources */,
 				E21AD093B1D437E674242AD2 /* MacroAuthoring.swift in Sources */,
 				D561647D508BA5A188B6D44B /* MacroAuthoringTests.swift in Sources */,

@@ -3495,7 +3495,7 @@ func euclideousRiffLapBaseline(hitSteps: [EuclidHitStep], lapSteps: Int, isMelod
 /// MELODY-tab ferry — removed; the generic chain RIFF processor keeps its own, unrelated DRUNK untouched),
 /// so every direction here is a pure function of the ordinal alone — no live-walk state to poll.
 func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool, dir: RiffDir, stride: Int, length: Int,
-                                    rotate: Int, seed: UInt64, startOrd: Int64) -> [Int] {
+                                    rotate: Int, seed: UInt64, startOrd: Int64, every: Int = 1) -> [Int] {
     guard !hitSteps.isEmpty, length > 0 else { return [] }
     let firstTick = hitSteps[0].tick
     return hitSteps.enumerated().map { (hitIdx, hs) in
@@ -3503,9 +3503,29 @@ func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool,
         // first hit" must be measured on the TICK axis (`.tick`), not the buffer-index axis — the two only
         // coincide for FWD. See `EuclidHitStep`'s own doc comment.
         let advOrd: Int64 = advanceStep ? startOrd + Int64(hs.tick - firstTick) : startOrd + Int64(hitIdx)
-        let walkPos = riffStepAt(dir, raw: Int(advOrd) * stride, steps: length, seed: seed)
-        return riffRotateStep(walkPos, by: rotate, steps: length) + 1   // 1-based, matching the grid's own displayed rank numbers
+        // LANE STRIP ferry (2026-10-21): through `euclideousRiffColumn`, the one ordinal -> column function the Router, the mirror, the rails and REPEAT call. This used to walk
+        // `riffStepAt(raw: ordinal × stride)` itself and so ignored ADVANCE EVERY: with EVERY ≥ 2 the footer numbers disagreed with the engine. `every` 1 is byte-identical.
+        return euclideousRiffColumn(ordinal: advOrd, every: every, direction: dir, length: length, stride: stride, shift: rotate, seed: seed) + 1   // 1-based, matching the grid's own displayed rank numbers
     }
+}
+
+/// LANE STRIP ferry (2026-10-21): the pass the footers show, assembled in ONE place so the page and the tests call the same code — the lap that contains `nowBeat` (read when the page's body runs, which is
+/// when the footers switch passes), its hits' riff columns (`prediction`, one per hit in time order), the ordinal its first hit reads (`startOrd`) and the ABSOLUTE tick of its first step
+/// (`lapStartTick`; nil when the pattern has no hit or `cfg` is unknown), from which every hit's own tick follows (`lapStartTick + hit.tick`).
+struct EuclideousFooterPass: Equatable { var prediction: [Int]; var startOrd: Int64; var lapStartTick: Int64? }
+func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitSteps: [EuclidHitStep], lapSteps: Int, liveOrd: Int64, nowBeat: Double) -> EuclideousFooterPass {
+    let isMelodyRestartPass = cfg.map {
+        euclideousIsMelodyChainRestartPass(beat: nowBeat, lapBeats: $0.chains.lapBeats, barBeats: $0.chains.barBeats, rhythmChain: $0.chains.rhythm, melodyChain: $0.chains.melody)
+    } ?? false
+    var baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: lapSteps, isMelodyRestartPass: isMelodyRestartPass,
+                                              advanceStep: line.riffAdvanceStepResolved, liveOrd: liveOrd, dir: line.directionResolved)
+    var lapStartTick: Int64? = nil
+    // LANES GRID §2.8: the lap's baseline takes BOTH origins — the riff ordinal the CURRENT lap's first hit reads, from the engine's own per-tick core, not reverse-derived from the polled ordinal.
+    if let cfg, let lap = euclideousLapStart(cfg: cfg, beat: nowBeat) { baseline.startOrd = lap.ordinal; lapStartTick = lap.lapStartTick }
+    let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: line.riffAdvanceStepResolved, dir: line.euclideousRiffDirResolved,
+                                                    stride: line.riffStrideResolved, length: line.riffLengthResolved, rotate: line.riffRotateResolved,
+                                                    seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)), startOrd: baseline.startOrd, every: line.riffAdvanceEveryResolved)
+    return EuclideousFooterPass(prediction: prediction, startOrd: baseline.startOrd, lapStartTick: lapStartTick)
 }
 
 /// Per-step footer state (ferry Part 2) — `prediction` is `euclideousRiffCyclePrediction`'s own output,
@@ -7128,7 +7148,10 @@ func euclideousRollBarY(rank: Int, laneH: CGFloat) -> CGFloat {
 /// being reverse-derived from the polled ordinal (which a melody restart would break). The lap is the one containing the latest tick at or
 /// before `beat`; nil if the pattern has no hit. Restarts that fall INSIDE the lap are not foreseen (the prediction stays oblivious to
 /// them, §2.8), exactly as before.
-func euclideousLapStartOrdinal(cfg c: EuclideousWalkLaneConfig, beat: Double) -> Int64? {
+func euclideousLapStartOrdinal(cfg c: EuclideousWalkLaneConfig, beat: Double) -> Int64? { euclideousLapStart(cfg: c, beat: beat)?.ordinal }
+/// LANE STRIP ferry: the same lap, with the ABSOLUTE tick of its first step (raw 0) as well — a hit of the shown pass sits at `lapStartTick + hit.tick`, which is how the strip asks the notes
+/// functions (k, the hit ordinal) and REPEAT's lookback about that hit.
+func euclideousLapStart(cfg c: EuclideousWalkLaneConfig, beat: Double) -> (lapStartTick: Int64, ordinal: Int64)? {
     guard c.sub > 0, c.n > 0 else { return nil }
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
     let tick = Int64((beat / c.sub).rounded(.down))
@@ -7136,8 +7159,9 @@ func euclideousLapStartOrdinal(cfg c: EuclideousWalkLaneConfig, beat: Double) ->
                                       legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
     let lapStart = tick - Int64(now.raw)
     for r in 0..<cycleLen where c.buf[euclidReadIndex(r, n: c.n, dir: c.dir)] {
-        return euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: lapStart + Int64(r), chains: c.chains,
-                                       legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep).advOrd
+        let ord = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: lapStart + Int64(r), chains: c.chains,
+                                          legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep).advOrd
+        return (lapStart, ord)
     }
     return nil
 }
@@ -8862,4 +8886,338 @@ func euclideousPulseGeometryKey(n: Int, dir: EuclidDir, sub: Double, spanBeats: 
     h.combine(n); h.combine(dir.rawValue); h.combine(sub.bitPattern); h.combine(spanBeats.bitPattern); h.combine(swing.bitPattern); h.combine(stepBeats.bitPattern)
     if let c = chains { h.combine(c.rhythm.packed); h.combine(c.melody.packed); h.combine(c.barBeats.bitPattern); h.combine(c.lapBeats.bitPattern) }
     return h.finalize()
+}
+
+// MARK: - LANE STRIP (ferry 2026-10-21 "a riff contour over a row of notes keys, in place of the comet")
+//
+// The lane card's 44 pt header strip is two rows on today's step columns: a 27 pt RIFF TRACK (a dark cell per step; on each hit that reads a riff note a light CHIP numbered with its
+// riff column, at a height set by its rank, so the strip traces the riff's melody the way the riff grid draws it; the lane's current note in the lane colour; a playhead band instead of
+// the comet dot) over a 14 pt KEY ROW (a key per hit, in the NOTES tab's key look, lit with the lane bar and the note's name when the notes will play on that hit). Every number below is
+// built from the footers', the arrow's and the notes functions that already exist — nothing here re-derives what the engine decides. Display only: nothing here reaches the engine,
+// the snapshot or the document. `LaneStripPainter.swift` only paints what these return.
+
+enum EuclideousStripMetrics {
+    static let trackH: CGFloat = 27, keyRowH: CGFloat = 14, rowGap: CGFloat = 3
+    static let columnRadius: CGFloat = 4, keyRadius: CGFloat = 3
+    static let chipH: CGFloat = 9, chipInset: CGFloat = 2, chipRadius: CGFloat = 2
+    static let chipLabelLine: CGFloat = 9, keyLabelLine: CGFloat = 8
+    static let chipLabelSize: CGFloat = 7, keyLabelSize: CGFloat = 7
+    /// §1.2 / §3.2: a column narrower than this draws no chip label, a key narrower than this no key label.
+    static let chipLabelFloor: CGFloat = 12, keyLabelFloor: CGFloat = 16
+    /// §1.2: a chip's top is (8 − r) × 18 ÷ 7 from its column's top, so rank 8 sits at 0 and rank 1 at 18 (a 9-tall chip then ends on the track's 27).
+    static let chipTravel: CGFloat = 18
+    static let playheadFillAlpha = 0.14, playheadEdgeAlpha = 0.85, playheadEdgeW: CGFloat = 2
+    /// §3.2: the lane bar is 2 tall, inset 3, its bottom 2 above the key's; below 100% CHANCE it is a 1 pt ring 3 tall.
+    static let barH: CGFloat = 2, barInset: CGFloat = 3, barBottom: CGFloat = 2, ringH: CGFloat = 3
+    static let mutedAlpha = 0.42
+    /// The distance a playhead slides past the last column before the next pass starts it on the first: one column plus the 2 pt gap inside a group (the strip clips it to the step area).
+    static let slideGap: CGFloat = 2
+}
+
+/// 7.2: a chip's top from its rank, in its column's own y: (8 − r) × 18 ÷ 7.
+func euclideousStripChipTop(rank: Int) -> CGFloat { CGFloat(8 - max(1, min(8, rank))) * EuclideousStripMetrics.chipTravel / 7 }
+
+/// 7.1: one step's frames in the strip's own coordinates: the track cell (y 0, 27 tall) and the key (y 30, 14 tall), both at the step's column x and width.
+struct EuclideousStripFrame: Equatable { var column: CGRect; var key: CGRect }
+func euclideousStripLayout(xs: [CGFloat], columnW: CGFloat) -> [EuclideousStripFrame] {
+    typealias M = EuclideousStripMetrics
+    return xs.map { x in
+        EuclideousStripFrame(column: CGRect(x: x, y: 0, width: columnW, height: M.trackH),
+                             key: CGRect(x: x, y: M.trackH + M.rowGap, width: columnW, height: M.keyRowH))
+    }
+}
+/// A chip's frame inside its column: inset 2 from each side, 9 tall, its top set by the rank.
+func euclideousStripChipFrame(column: CGRect, rank: Int) -> CGRect {
+    typealias M = EuclideousStripMetrics
+    return CGRect(x: column.minX + M.chipInset, y: column.minY + euclideousStripChipTop(rank: rank), width: max(0, column.width - 2 * M.chipInset), height: M.chipH)
+}
+func euclideousStripShowsChipLabel(columnWidth w: CGFloat) -> Bool { w >= EuclideousStripMetrics.chipLabelFloor }
+func euclideousStripShowsKeyLabel(keyWidth w: CGFloat) -> Bool { w >= EuclideousStripMetrics.keyLabelFloor }
+
+/// 5.1: a lane the LANES grid has muted draws its whole strip at 42% and makes no strikes.
+func euclideousStripMuteLook(muted: Bool) -> (opacity: Double, strikes: Bool) { (muted ? EuclideousStripMetrics.mutedAlpha : 1, !muted) }
+
+// ── the per-hit plan (7.3) ───────────────────────────────────────────────────────────────────────────────────────────────
+
+enum EuclideousStripColumnKind: Equatable {
+    case rhythmRest   // the rhythm has no hit here: dashed, present, never blank
+    case hit          // the rhythm hits: a dark cell (with a chip when the hit reads a riff note)
+    case gap          // a hit on a riff REST under SKIP / TIE (or a REPEAT that finds no note): the cell with a lane-colour inner ring and no chip
+}
+/// `rank` 1…8 is the WRITTEN rank the arrow's row rule uses (INV and TRANS never touch it); `column` is the riff column (1-based) the footer shows; `hollow` = a REPEAT hit (the repeated note's
+/// height, a dashed lane outline); `grey` = the riff is off and only one of PLAYS / RESTS is on (the chips show which hits the riff's columns decide).
+struct EuclideousStripChip: Equatable { var rank: Int; var column: Int; var hollow: Bool; var grey: Bool }
+/// `plays` = the notes will play on this hit; `chanceRing` = CHANCE below 100 (it may skip the hit); `label` = what the way plays here, nil when there is nothing to name; `picked` = the pitches the way picks.
+struct EuclideousStripKey: Equatable { var plays: Bool; var chanceRing: Bool; var label: String?; var picked: [Int] }
+struct EuclideousStripHit: Equatable {
+    var kind: EuclideousStripColumnKind = .rhythmRest
+    var chip: EuclideousStripChip? = nil
+    var key: EuclideousStripKey? = nil
+    var column: Int? = nil   // the footer's riff column for this hit (1-based), nil when none is read
+    var tick: Int = -1       // the hit's lap-local tick (its place in the pass), -1 for a rest
+}
+/// What the key row needs to know about the lane's notes layer: the layer on (`euclideousNotesLayerIsOn`), WHEN, CHANCE, the way, the play list and the lane index (CHANCE's roll is seeded with it).
+struct EuclideousStripNotes {
+    var layerOn: Bool
+    var when: UInt8
+    var chance: Int
+    var way: EuclidNotesPlayAs
+    var list: EuclideousNotesList
+    var lane: Int
+}
+/// The notes walk a lane config describes — the same fields the Router builds `EuclideousNotesWalk` from.
+func euclideousNotesWalk(from c: EuclideousWalkLaneConfig) -> EuclideousNotesWalk {
+    EuclideousNotesWalk(n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep,
+                        riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed, every: c.every)
+}
+/// REPEAT's repeated rank at the hit on absolute `tick`: the WRITTEN rank of the nearest earlier hit's column that is not a rest (`euclideousRiffRepeatLookback`, the Router's own call), nil
+/// when there is none (the hit then plays as SKIP).
+func euclideousStripRepeatRank(cfg c: EuclideousWalkLaneConfig, ranks: [Int], tick: Int64) -> Int? {
+    euclideousRiffRepeatLookback(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats,
+                                 advanceStep: c.advanceStep, riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed, every: c.every,
+                                 thisBeat: Double(tick) * c.sub, rankAt: { col, _ in col >= 0 && col < ranks.count ? ranks[col] : 0 })?.rank
+}
+
+/// 7.3: for every buffer step, what the strip draws — from the footers' own states for the pass they show.
+///   · `pattern[i]` is the rhythm's hit at step i as the strip draws it; `hitSteps` and `states` are the footers' (`euclideousLapHitSteps`, `euclideousFooterStates`).
+///   · `riffPlays` = the riff layer is on and not shadowed; `grey` = `euclideousNotesGreyFooters`; `onRest` the lane's ON REST.
+///   · `cfg` + `lapStartTick` (from `euclideousFooterPass`) place each hit on the tick axis, which REPEAT's lookback and the notes' count k need; without them REPEAT reads as a gap and k as 0.
+///   · `notes` nil = the notes layer is off / ignored: every key is unlit.
+///   · `name` names a pitch the way the riff grid does; `keyLabels` false skips the label work (k is not free) when the keys are too narrow to show one.
+func euclideousStripHits(pattern: [Bool], hitSteps: [EuclidHitStep], states: [EuclidFooterState], ranks: [Int], riffPlays: Bool, grey: Bool, onRest: EuclidRiffOnRest,
+                         cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, keyLabels: Bool = true, name: (Int) -> String) -> [EuclideousStripHit] {
+    let n = pattern.count
+    var out = [EuclideousStripHit](repeating: EuclideousStripHit(), count: n)
+    var tickAt = [Int](repeating: -1, count: n)
+    for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < n { tickAt[hs.bufIdx] = hs.tick }   // PING-PONG writes a step twice; the later leg wins, as in the footers
+    func writtenRank(_ column: Int) -> Int { column >= 1 && column <= ranks.count ? max(0, min(8, ranks[column - 1])) : 0 }
+    let nw = cfg.map(euclideousNotesWalk(from:))
+    for i in 0..<n where pattern[i] {
+        var hit = EuclideousStripHit(kind: .hit, tick: tickAt[i])
+        let state: EuclidFooterState = i < states.count ? states[i] : .miss
+        let absTick: Int64? = (lapStartTick != nil && tickAt[i] >= 0) ? lapStartTick! + Int64(tickAt[i]) : nil
+        switch state {
+        case .hit(let col?), .hitTied(let col):
+            hit.column = col
+            let r = writtenRank(col)
+            if r >= 1 {
+                if riffPlays { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: false, grey: false) }
+                else if grey { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: false, grey: true) }
+            }
+        case .hitOnRest(let col):
+            hit.column = col
+            if riffPlays && onRest == .repeatLast {
+                // REPEAT strikes the repeated note (not a gap): the arrow's on-rest look — a hollow chip at the repeated rank's height; a riff with nothing to repeat plays as SKIP, so a gap
+                var repeated: Int? = nil
+                if let cfg, let t = absTick { repeated = euclideousStripRepeatRank(cfg: cfg, ranks: ranks, tick: t) }
+                if let r = repeated, r >= 1 { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: true, grey: false) } else { hit.kind = .gap }
+            } else if euclideousPulseIsGap(state: state, onRest: onRest, riffOn: riffPlays) {
+                hit.kind = .gap
+            }
+        case .hit(nil), .miss:
+            break
+        }
+        // the key row: a key under every hit, lit when the notes will play there
+        if let notes, notes.layerOn {
+            let plays = euclideousNotesPips(states: [state], when: notes.when, chance: notes.chance)[0] != 0
+            var label: String? = nil
+            var picked: [Int] = []
+            if plays, notes.list.count > 0 {
+                var k = 0
+                if euclideousNotesWayUsesCount(notes.way), let cfg, let nw, let t = absTick {
+                    let h = euclideousNotesHitOrdinal(buf: cfg.buf, w: nw, tick: t)
+                    k = euclideousNotesCountBefore(buf: cfg.buf, w: nw, tick: t, h: h, when: notes.when, chance: notes.chance, lane: notes.lane,
+                                                   thisBeat: Double(t) * cfg.sub, rankAt: { col, _ in col >= 0 && col < ranks.count ? ranks[col] : 0 })
+                }
+                let pick = euclideousNotesWayPick(list: notes.list, way: notes.way, k: k)
+                for j in 0..<pick.count { picked.append(notes.list.pitch(pick[j])) }
+                if keyLabels { label = euclideousStripKeyLabel(pitches: picked, name: name) }
+            }
+            hit.key = EuclideousStripKey(plays: plays, chanceRing: plays && notes.chance < 100, label: label, picked: picked)
+        } else {
+            hit.key = EuclideousStripKey(plays: false, chanceRing: false, label: nil, picked: [])
+        }
+        out[i] = hit
+    }
+    return out
+}
+/// 3.2: one note — its name; several — the lowest note's name, "+" and how many more (G3+2); none — no label.
+func euclideousStripKeyLabel(pitches: [Int], name: (Int) -> String) -> String? {
+    guard let lowest = pitches.min() else { return nil }
+    return pitches.count == 1 ? name(lowest) : name(lowest) + "+\(pitches.count - 1)"
+}
+
+// ── the current chip (1.4 / 1.6) ─────────────────────────────────────────────────────────────────────────────────────────
+
+/// The step (buffer index) whose chip is the lane's CURRENT one: the chip of the hit the riff arrow shows. `landedTick` is the arrow's plan's latest landed hit (an absolute tick, nil before the lane's first
+/// hit and for a static seat); `passLapStartTick` the lap the footers show. nil when the landed hit is in another pass, when the arrow sits on a rest (a gap or a REPEAT's hollow chip has no filled chip),
+/// and when nothing has landed. `arrowStaysOnTiedNote` = the arrow's TIE stay-put (it sits on the tied note while the rest is the landed hit): the current chip then stays on the nearest EARLIER hit
+/// of the pass that has a filled chip — the same note `plan.tieStay` names — or nowhere if the tied note belongs to the pass before.
+func euclideousStripCurrentStep(cfg c: EuclideousWalkLaneConfig, landedTick: Int64?, passLapStartTick: Int64?, arrowStaysOnTiedNote: Bool, hitSteps: [EuclidHitStep], hits: [EuclideousStripHit]) -> Int? {
+    guard let landed = landedTick, let lapStart = passLapStartTick else { return nil }
+    let cycleLen = euclidCycleLen(c.dir, n: c.n)
+    let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: landed, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
+    guard landed - Int64(info.raw) == lapStart, let j = hitSteps.firstIndex(where: { $0.tick == info.raw }) else { return nil }
+    func filledChip(_ step: Int) -> Bool { step >= 0 && step < hits.count && (hits[step].chip.map { !$0.hollow && !$0.grey } ?? false) }
+    if filledChip(hitSteps[j].bufIdx) { return hitSteps[j].bufIdx }
+    guard arrowStaysOnTiedNote else { return nil }
+    var jj = j - 1
+    while jj >= 0 { if filledChip(hitSteps[jj].bufIdx) { return hitSteps[jj].bufIdx }; jj -= 1 }
+    return nil
+}
+
+// ── the playhead (2.x / 7.4) ─────────────────────────────────────────────────────────────────────────────────────────────
+
+struct EuclideousStripPlayhead: Equatable { var x: CGFloat; var width: CGFloat; var movingRight: Bool }
+/// 2.2: `raw` is the lane's position in its pass, in ticks (the comet's `cometRaw`: whole numbers are step onsets). At an onset the band covers the column the lane reads then exactly; between onsets its
+/// left edge moves linearly to the column it reads next by the fraction of the step gone, so it glides over a group gap. At the end of an FWD or BKW pass the next column does not exist: the band
+/// slides off the end it is travelling toward, one column and a gap past it, and the next pass starts it on the first column. PING-PONG repeats its end step (the same column twice), so the band rests
+/// there for a step. `xs` are the columns' x in the strip's own coordinates.
+func euclideousStripPlayhead(raw: Double, n: Int, dir: EuclidDir, xs: [CGFloat], columnW: CGFloat) -> EuclideousStripPlayhead {
+    let n = max(1, min(n, xs.count))
+    guard n > 0, !xs.isEmpty else { return EuclideousStripPlayhead(x: 0, width: columnW, movingRight: true) }
+    let cl = euclidCycleLen(dir, n: n)
+    let wrapped = raw - Double(cl) * (raw / Double(cl)).rounded(.down)
+    let k0 = min(cl - 1, max(0, Int(wrapped.rounded(.down))))
+    let frac = CGFloat(max(0, min(1, wrapped - Double(k0))))
+    let i0 = euclidReadIndex(k0, n: n, dir: dir)
+    let movingRight: Bool
+    switch dir {
+    case .fwd: movingRight = true
+    case .bkw: movingRight = false
+    case .pingpong: movingRight = k0 < n
+    }
+    let x0 = xs[i0]
+    let x1: CGFloat
+    if k0 == cl - 1 && dir != .pingpong {
+        x1 = dir == .fwd ? xs[n - 1] + columnW + EuclideousStripMetrics.slideGap : xs[0] - columnW - EuclideousStripMetrics.slideGap
+    } else {
+        x1 = xs[euclidReadIndex((k0 + 1) % cl, n: n, dir: dir)]
+    }
+    return EuclideousStripPlayhead(x: x0 + (x1 - x0) * frac, width: columnW, movingRight: movingRight)
+}
+
+// ── strikes (4.x) ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+typealias EuclideousStripTileStrike = (velocity: Int, seconds: Double)
+/// Each step's latest strike of each layer, separately: the riff's (its chip) and the notes' (its key). A strike still in the future (its onset after `now`, a reference-date time) is not there yet.
+/// A strike's step is its resolved `tile` (`EuclideousPulseFeed.resolveTiles`).
+func euclideousStripTileStrikes(_ strikes: [EuclideousPulseStrike], tiles n: Int, now: Double) -> (riff: [EuclideousStripTileStrike?], notes: [EuclideousStripTileStrike?]) {
+    var riff = [EuclideousStripTileStrike?](repeating: nil, count: max(0, n))
+    var notes = [EuclideousStripTileStrike?](repeating: nil, count: max(0, n))
+    for s in strikes where s.onsetAt <= now {
+        let t = Int(s.tile)
+        guard t >= 0, t < n else { continue }
+        if s.riffVel > 0 { riff[t] = (Int(s.riffVel), now - s.onsetAt) }
+        if s.notesVel > 0 { notes[t] = (Int(s.notesVel), now - s.onsetAt) }
+    }
+    return (riff, notes)
+}
+/// 4.1: a riff strike draws its chip down 2 × k with an outer glow of blur 10 × f in the lane colour at f. Reduce Motion: no dip, the glow stays. PULSE OFF (P = 0): neither.
+struct EuclideousStripChipLook: Equatable { var dip: CGFloat; var glowBlur: CGFloat; var glowAlpha: Double }
+func euclideousStripChipLook(_ env: EuclideousPulseEnvelopes, scale: Double, reduceMotion: Bool) -> EuclideousStripChipLook {
+    let dip = euclideousPulseFilter(.keyDipMove, scale: scale, reduceMotion: reduceMotion) == .off ? 0 : CGFloat(env.k)
+    let glow = euclideousPulseFilter(.glow, scale: scale, reduceMotion: reduceMotion) == .off ? 0 : env.f
+    return EuclideousStripChipLook(dip: 2 * dip, glowBlur: CGFloat(10 * glow), glowAlpha: glow)
+}
+/// 4.2: a notes strike gives the hit's key a 1.5 pt lane-colour inner ring at f and an outer glow (blur 10, spread 1) at 45% × f, and turns its label #F2F4F7 while f > 0.25.
+struct EuclideousStripKeyLook: Equatable { var ringAlpha: Double; var glowAlpha: Double; var labelLit: Bool }
+func euclideousStripKeyLook(_ env: EuclideousPulseEnvelopes, scale: Double, reduceMotion: Bool) -> EuclideousStripKeyLook {
+    let f = euclideousPulseFilter(.glow, scale: scale, reduceMotion: reduceMotion) == .off ? 0 : env.f
+    return EuclideousStripKeyLook(ringAlpha: f, glowAlpha: 0.45 * f, labelLit: f > 0.25)
+}
+
+// ── VoiceOver (6.x) ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// 6.1: the strip is ONE element whose value reads each hit in step order — "step 1, riff column 6, A flat 3", "step 3, rest in the riff" — with ", notes play C 4" (several: "notes play G 3 and 2
+/// more") where the notes play; then, while playing, "on step 5"; while muted ", silent at this step". `spokenRank` speaks the note at a written rank; `spokenPitch` speaks a pitch.
+/// The hits' sentence (changes with the plan) and the live part (moves with the clock) are separate so the bar adds the second at its own body evaluation.
+func euclideousStripHitsPhrase(hits: [EuclideousStripHit], spokenRank: (Int) -> String?, spokenPitch: (Int) -> String) -> String {
+    var parts: [String] = []
+    for (i, h) in hits.enumerated() where h.kind != .rhythmRest {
+        var s = "step \(i + 1)"
+        if h.kind == .gap { s += ", rest in the riff" }
+        else if let c = h.chip {
+            if c.hollow { s += ", rest in the riff, repeats " + (spokenRank(c.rank) ?? "the note before") }
+            else {
+                s += ", riff column \(c.column)"
+                if !c.grey, let n = spokenRank(c.rank) { s += ", " + n }
+            }
+        } else { s += ", hit" }
+        if let k = h.key, k.plays, let lowest = k.picked.min() {
+            s += k.picked.count == 1 ? ", notes play " + spokenPitch(lowest) : ", notes play " + spokenPitch(lowest) + " and \(k.picked.count - 1) more"
+        }
+        parts.append(s)
+    }
+    return parts.isEmpty ? "no hits" : parts.joined(separator: "; ")
+}
+func euclideousStripAppendLive(_ hitsPhrase: String, onStep: Int?, muted: Bool) -> String {
+    var out = hitsPhrase
+    if let on = onStep { out += "; on step \(on)" }
+    if muted { out += ", silent at this step" }
+    return out
+}
+func euclideousStripAccessibilityValue(hits: [EuclideousStripHit], spokenRank: (Int) -> String?, spokenPitch: (Int) -> String, onStep: Int?, muted: Bool) -> String {
+    euclideousStripAppendLive(euclideousStripHitsPhrase(hits: hits, spokenRank: spokenRank, spokenPitch: spokenPitch), onStep: onStep, muted: muted)
+}
+
+// MARK: - STEP-BOX GEOMETRY (moved here unchanged from EuclidLaneUI.swift by the LANE STRIP ferry, 2026-10-21, so the strip's layout is testable on macOS)
+
+/// Shared step-box geometry — the SAME formula `EuclidCometBar`'s own Canvas drawing uses for box width/
+/// gap, so the gesture pad's rotate-drag sensitivity (how many points of finger movement = one step) can
+/// never compute a DIFFERENT box pitch than what's actually on screen for that lane. One function, two
+/// callers, by construction can't drift apart (the RATCHET/DEST class of bug this codebase keeps guarding
+/// against — a widget and the thing it controls silently disagreeing about the same quantity).
+func euclidBoxGeometry(n: Int, usableWidth: CGFloat) -> (boxW: CGFloat, gap: CGFloat, pitch: CGFloat) {
+    // GAP TIERS (2026-10-13, "footers inside the step cells" ferry §2, literal): "3pt gaps, or 2pt above
+    // 12 steps" — collapses the old 3-tier 4/3/2 ladder to 2. Shared with the regular BUILD-page EUCLID
+    // editor's own comet bar and Euclideous's own MASK-tab step bar (both read this same function) — a
+    // disclosed, harmless side effect: their own 2-8-step gap tightens 4pt→3pt, nothing else changes.
+    let gap: CGFloat = n <= 12 ? 3 : 2
+    // "No minimum cell width" (ferry §2) — the `max(3, ...)` floor below is crash/negative-width
+    // protection only, never a touch-target minimum; left as-is.
+    let boxW = max(3, (usableWidth - gap * CGFloat(n - 1)) / CGFloat(n))
+    return (boxW, gap, boxW + gap)
+}
+
+/// STEP GROUPS (2026-10-14 ferry, "Step groups on the lane step row") — a SEPARATE, opt-in geometry from
+/// `euclidBoxGeometry` above (not a generalization of it: the gap system is genuinely different — a fixed
+/// 2pt WITHIN a group and 7pt BETWEEN groups, regardless of step count, replacing that function's own
+/// count-dependent 3pt/2pt tiers for whichever caller opts in). Groups count from step 1, left to right, and
+/// are FIXED TO STEP POSITION — never to whatever's currently hit (OFFSET/TILT/hand-edited hits/DIRECTION/
+/// INVERT only ever change which box lights up, never where a box's own rect sits; this struct decides
+/// position alone). `xs[i]` is each step's own left edge (0-based, excluding any caller-side inset); the
+/// formula is the ferry's own literal one, hand-verified against every one of its 7 given check tables
+/// before being trusted (e.g. n=7,g=4: w=29.86, x(4)=4×29.86+2×4+5×1=132.44, matching the ferry's own
+/// "groups at 0, 132.43" exactly, mod rounding). `ruleX`/`ruleW` describe the LEFTOVER rule (nil when n is
+/// an exact multiple of g — "counts that divide evenly get no rule"): the leftover is a group's own trailing
+/// SHORT remainder (`n mod g`), or — when n itself is smaller than g — the WHOLE row.
+struct EuclidStepGroupGeometry {
+    let stepW: CGFloat
+    let xs: [CGFloat]
+    let ruleX: CGFloat?
+    let ruleW: CGFloat?
+}
+func euclidGroupedBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGroupGeometry {
+    guard n > 0 else { return EuclidStepGroupGeometry(stepW: 0, xs: [], ruleX: nil, ruleW: nil) }
+    let gSize = max(1, g)
+    let groups = max(1, Int((Double(n) / Double(gSize)).rounded(.up)))
+    let withinGaps = max(0, n - groups)      // one fewer 2pt gap than steps, per group, summed over all groups
+    let betweenGaps = max(0, groups - 1)     // one fewer 7pt gap than the group count
+    let totalGaps = CGFloat(withinGaps) * 2 + CGFloat(betweenGaps) * 7
+    let w = max(0.5, (usableWidth - totalGaps) / CGFloat(n))
+    var xs = [CGFloat](repeating: 0, count: n)
+    for i in 0..<n { xs[i] = CGFloat(i) * w + 2 * CGFloat(i) + 5 * CGFloat(i / gSize) }
+    let leftover = n % gSize
+    guard leftover != 0 else { return EuclidStepGroupGeometry(stepW: w, xs: xs, ruleX: nil, ruleW: nil) }
+    let firstLeftoverIdx = n - leftover
+    let x0 = xs[firstLeftoverIdx]
+    let xEnd = xs[n - 1] + w
+    return EuclidStepGroupGeometry(stepW: w, xs: xs, ruleX: x0, ruleW: xEnd - x0)
+}
+/// The group size for a given RATE — g=3 under triplet feel, g=4 otherwise (ferry §4, literal). Shared by
+/// `EuclidCometBar` and the MASK step bar (ferry §5: "uses the same group size as its lane") so the two
+/// can't independently land on different group sizes for what's meant to be the same lane.
+func euclidStepGroupSize(forRate rate: ArpRate) -> Int {
+    euclideousRateDivisionFeel(rate).feel == 2 ? 3 : 4
 }
