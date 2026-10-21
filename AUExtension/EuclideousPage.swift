@@ -751,6 +751,10 @@ struct EuclideousPage: View {
     // §5.6: the hold's own higher-priority override, same shape, separate channel.
     var holdOverrides: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
     var onSetHoldOverrides: ([EuclideousPendingRoll?]) -> Void = { _ in }
+    // §7.2: random mode finished — the ordered, already-filtered list of kept card-tabs to record as undo
+    // steps (one each). Only AVC owns `euclideousUndo`/`euclideousSnapshot`, so it builds the actual
+    // `EuclideousUndoSnapshot` sequence and pushes it.
+    var onRandomFinish: ([EuclideousRandomUndoEntry]) -> Void = { _ in }
     // MIX TAB (2026-10-18 §4.3): a lane edit that records ONE undo step per TOUCH. `onEdit`'s fixed coalesce key merges consecutive edits
     // across different touches into one step; a pad instead passes `newStep: true` on the first value-changing write of a touch (the VC
     // takes a `coalesceKey: nil` checkpoint) and `false` for the rest, so dragging is one step and two pads never flood the stack.
@@ -886,6 +890,13 @@ struct EuclideousPage: View {
     // §5.6: the beat each in-flight hold's own override is scheduled to START at, keyed by pending-slot —
     // read back on release to decide "did the hold even start yet" (if not, cancel outright, nothing switches).
     @State private var euclideousRandomHoldStartBeat: [Int: Double] = [:]
+    // §7.2: the order KEEP was pressed this session, (lane, tab) pairs — reset when a fresh session starts.
+    @State private var euclideousRandomKeepOrder: [(lane: Int, tab: EuclideousRandomTab)] = []
+    // §7.2: non-nil while finish() is waiting on one or more still-queued BACKs to land before the undo
+    // recording (and the bookkeeping reset) can happen — the slots still outstanding.
+    @State private var euclideousRandomAwaitingFinishSlots: Set<Int>? = nil
+    // §7.3: when each lane's return highlight started (visual only — no state, no undo).
+    @State private var euclideousRandomReturnHighlightStart: [Int: Date] = [:]
 
     // MARK: RANDOM MODE — actions (§5-§7). §7's full finishing/undo/return sequence is a later ferry step
     // (the status log/pending-tasks note which); `euclideousRandomFinish` here is §7.1's own drop/keep rule
@@ -938,7 +949,8 @@ struct EuclideousPage: View {
         rolls[euclideousRandomPendingSlot(lane: lane, tab: tab)] = roll
         onSetPendingRolls(rolls)
         var state = euclideousRandomRolls[lane][tab.rawValue]
-        if state.original == nil { state.original = lines[lane] }
+        if state.decided { state.original = lines[lane]; state.decided = false }   // §6.6: a fresh roll's original is whatever was last decided (KEEP's own state, or the pre-session baseline)
+        if state.sessionBaseline == nil { state.sessionBaseline = lines[lane] }     // §7.2: the ONE pre-session baseline, captured once, held for the whole session
         if waiting != .back { state.goes += 1 }
         state.tag = tag
         state.waiting = waiting
@@ -1069,10 +1081,11 @@ struct EuclideousPage: View {
         rolls[euclideousRandomPendingSlot(lane: lane, tab: tab)] = nil
         onSetPendingRolls(rolls)
         var state = euclideousRandomRolls[lane][tab.rawValue]
-        state.original = nil
+        state.decided = true   // `original`/`sessionBaseline` stay — §6.6 needs the former for a later roll, §7.2 needs the latter at finish
         state.waiting = nil
         state.decidedAt = Date()
         euclideousRandomRolls[lane][tab.rawValue] = state
+        euclideousRandomKeepOrder.append((lane, tab))   // §7.2: "tabs kept with KEEP, in the order KEEP was pressed"
     }
 
     /// §5.6: touch-down on the picture — asks for the original, from the next beat. Only while the selected
@@ -1141,31 +1154,86 @@ struct EuclideousPage: View {
     /// Detects a roll landing (its slot transitioning non-nil → nil in `pendingRolls`, which AVC's resync
     /// loop does once it commits — Phase 3) to clear `waiting`, and for a landed BACK, to decide the tab.
     private func euclideousRandomHandlePendingRollsChange(old: [EuclideousPendingRoll?], new: [EuclideousPendingRoll?]) {
+        var anyLanded = false
         for lane in 0..<4 {
             for tab in EuclideousRandomTab.allCases {
                 let slot = euclideousRandomPendingSlot(lane: lane, tab: tab)
                 guard slot < old.count, slot < new.count, old[slot] != nil, new[slot] == nil else { continue }
                 var state = euclideousRandomRolls[lane][tab.rawValue]
-                if state.waiting == .back { state.original = nil; state.decidedAt = Date() }
+                if state.waiting == .back { state.decided = true; state.decidedAt = Date() }
                 state.waiting = nil
                 euclideousRandomRolls[lane][tab.rawValue] = state
+                anyLanded = true
             }
+        }
+        // §7.2: a finish deferred on one or more waiting BACKs completes once they've all landed.
+        if anyLanded, euclideousRandomAwaitingFinishSlots != nil { euclideousRandomCheckAwaitingFinish() }
+    }
+
+    /// §7.2's own ordered kept-tab list — KEEP's press order, then every other touched tab (lane, then
+    /// RHYTHM/RIFF/NOTES), each kept only if its final state still differs from the session baseline (a
+    /// landed BACK records nothing). Reads live state, so it's safe to call either at finish time (for
+    /// tabs with nothing still waiting) or later, once a deferred BACK has landed.
+    private func euclideousRandomBuildFinishEntries() -> [EuclideousRandomUndoEntry] {
+        var order = euclideousRandomKeepOrder
+        for lane in 0..<4 {
+            for tab in EuclideousRandomTab.allCases where euclideousRandomRolls[lane][tab.rawValue].sessionBaseline != nil {
+                if !order.contains(where: { $0.lane == lane && $0.tab == tab }) { order.append((lane, tab)) }
+            }
+        }
+        return order.compactMap { (lane, tab) -> EuclideousRandomUndoEntry? in
+            guard let baseline = euclideousRandomRolls[lane][tab.rawValue].sessionBaseline else { return nil }
+            guard !euclideousRandomTabFieldsEqual(baseline, lines[lane], tab: tab) else { return nil }   // a landed BACK: no net change
+            return EuclideousRandomUndoEntry(lane: lane, tab: tab, original: baseline)
         }
     }
 
-    /// §7.1 (the drop/keep rule only — undo recording and return highlights are a later ferry step).
+    /// §7.3: visual only — no state, no undo. One Date per changed lane; the card reads it to show the
+    /// ring pulse + "KEPT · UNDO TO GO BACK" tag for two bars (4 s if not running), then it's inert.
+    private func euclideousRandomMarkReturnHighlights(_ entries: [EuclideousRandomUndoEntry]) {
+        let now = Date()
+        for lane in Set(entries.map { $0.lane }) { euclideousRandomReturnHighlightStart[lane] = now }
+    }
+
+    private func euclideousRandomCheckAwaitingFinish() {
+        guard let awaiting = euclideousRandomAwaitingFinishSlots else { return }
+        let stillWaiting = awaiting.filter { pendingRolls[$0] != nil }
+        guard stillWaiting.isEmpty else { euclideousRandomAwaitingFinishSlots = stillWaiting; return }
+        euclideousRandomAwaitingFinishSlots = nil
+        let entries = euclideousRandomBuildFinishEntries()
+        euclideousRandomMarkReturnHighlights(entries)
+        onRandomFinish(entries)
+        euclideousRandomRolls = Array(repeating: Array(repeating: EuclideousRandomRollState(), count: 3), count: 4)
+        euclideousRandomKeepOrder = []
+    }
+
+    /// §7.1: drop every still-waiting THROW/TWEAK; keep every waiting BACK (it lands on its own bar); end
+    /// any hold. §7.2's undo recording hands off to AVC (only it owns `euclideousUndo`/`euclideousSnapshot`)
+    /// — immediately if nothing's still waiting on a BACK, else deferred until every one has landed.
     private func euclideousRandomFinish() {
+        if let held = euclideousRandomHeldLane { euclideousRandomHoldEnded(lane: held) }
         var rolls = pendingRolls
+        var awaitingSlots: Set<Int> = []
         for lane in 0..<4 {
             for tab in EuclideousRandomTab.allCases {
                 let slot = euclideousRandomPendingSlot(lane: lane, tab: tab)
                 guard slot < rolls.count else { continue }
-                if euclideousRandomRolls[lane][tab.rawValue].waiting != .back { rolls[slot] = nil }
+                if euclideousRandomRolls[lane][tab.rawValue].waiting == .back { awaitingSlots.insert(slot) } else { rolls[slot] = nil }
             }
         }
         onSetPendingRolls(rolls)
-        euclideousRandomHeldLane = nil
         euclideousRandomMode = false
+
+        if awaitingSlots.isEmpty {
+            let entries = euclideousRandomBuildFinishEntries()
+            euclideousRandomMarkReturnHighlights(entries)
+            onRandomFinish(entries)
+            euclideousRandomRolls = Array(repeating: Array(repeating: EuclideousRandomRollState(), count: 3), count: 4)
+            euclideousRandomKeepOrder = []
+        } else {
+            // Deferred: keep the bookkeeping alive (sessionBaseline etc.) until every waiting BACK lands.
+            euclideousRandomAwaitingFinishSlots = awaitingSlots
+        }
     }
     // headerResetChip/resetSpanPopupOpen/resetSpanPopupCard RETIRED (2026-10-14 sequencer-panel ferry §3:
     // "RESET becomes per-lane... replacing the old machine-wide header RESET control") — the struct's own
@@ -2349,6 +2417,37 @@ struct EuclideousPage: View {
         // FOURFOLD §7.2: while an output ring is HELD, every lane NOT routed to it sits at the existing OFF-dim 42% (no animation
         // — release restores everything at once). Routed lanes get their ring in `laneTabRow` / `laneOutRow` instead.
         .opacity(outputCue(forLane: idx)?.cue == .dim ? 0.42 : 1)
+        .overlay(euclideousRandomReturnHighlight(idx, width: width, height: height))
+        }
+    }
+
+    // MARK: RANDOM MODE — §7.3 the return highlight (visual only: no state, no undo, never blocks a touch)
+    @ViewBuilder private func euclideousRandomReturnHighlight(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
+        if let start = euclideousRandomReturnHighlightStart[idx] {
+            let accent = laneAccents[idx % laneAccents.count]
+            let durationSeconds = clock.playing && clock.tempo > 0 ? (2 * clock.beatsPerBar * 60.0 / clock.tempo) : 4.0
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                let elapsed = tl.date.timeIntervalSinceReferenceDate - start.timeIntervalSinceReferenceDate
+                if elapsed < 0 || elapsed > durationSeconds {
+                    Color.clear.allowsHitTesting(false)
+                        .onAppear { if euclideousRandomReturnHighlightStart[idx] == start { euclideousRandomReturnHighlightStart[idx] = nil } }
+                } else {
+                    let fadeIn = min(1, elapsed / 0.6)
+                    let fadeOut = elapsed > durationSeconds - 0.5 ? max(0, (durationSeconds - elapsed) / 0.5) : 1
+                    let ringOpacity = elapsed < 0.6 ? (1 - elapsed / 0.6) : 0   // §7.3: a 600 ms ring fading 100%→0
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12).strokeBorder(accent, lineWidth: 2).opacity(ringOpacity)
+                        Text("KEPT · UNDO TO GO BACK").font(.system(size: 9, weight: .heavy)).tracking(0.8)
+                            .foregroundColor(Color(hex: 0xF2F4F7))
+                            .padding(.horizontal, 10).frame(height: 20)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(Color(red: 0.106, green: 0.114, blue: 0.137, opacity: 0.95))
+                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(accent, lineWidth: 1)))
+                            .position(x: width / 2, y: height - 30)
+                            .opacity(min(fadeIn, fadeOut))
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
         }
     }
 

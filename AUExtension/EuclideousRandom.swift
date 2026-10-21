@@ -632,12 +632,20 @@ enum EuclideousRandomTab: Int, Equatable, CaseIterable { case rhythm = 0, riff =
 /// `waiting` is non-nil while a THROW/TWEAK/BACK is queued for the next bar/beat (§3.6's "NEXT BAR" caption).
 struct EuclideousRandomRollState: Equatable {
     enum Waiting: Equatable { case throwing, tweaking, back }
+    /// The CURRENT roll's own original (§5.6's ghost, §5.2's BACK target) — reset each time a new
+    /// undecided roll starts (including right after a KEEP, per §6.6: "a later throw or tweak... starts a
+    /// new undecided roll whose original is the state KEEP locked in").
     var original: EuclidLine?
-    var goes: Int = 0
-    var tag: String = ""
+    var decided = true
+    /// The tab's state from BEFORE random mode touched it AT ALL this session — captured once, on the
+    /// first roll, held until the session ends (§7.2 needs this baseline; `original` above isn't it once
+    /// a KEEP has happened mid-session).
+    var sessionBaseline: EuclidLine?
+    var goes = 0
+    var tag = ""
     var waiting: Waiting?
     var decidedAt: Date?   // §7.3: when KEEP/a landed BACK decided this tab — drives the two-bar "KEPT" caption
-    var isUndecided: Bool { original != nil }
+    var isUndecided: Bool { !decided }
 }
 
 /// §6.1/§6.3: a per-lane pending override. Reaches the render thread via `Kernel.setEuclideousPendingRolls`
@@ -776,6 +784,15 @@ func euclideousRandomApplyTabFields(from original: EuclidLine, tab: EuclideousRa
         line.notesLitOrder = original.notesLitOrder; line.notesWhen = original.notesWhen
         line.notesChance = original.notesChance; line.notesPlayAs = original.notesPlayAs
     }
+}
+
+/// §7.2's own last line: "a tab that was rolled and then put back with BACK records nothing" — compares
+/// ONLY the tab's own fields (never the whole line, which may differ for unrelated reasons), via the SAME
+/// field groups `euclideousRandomApplyTabFields` touches, so the two can't drift.
+func euclideousRandomTabFieldsEqual(_ a: EuclidLine, _ b: EuclidLine, tab: EuclideousRandomTab) -> Bool {
+    var la = EuclidLine(); euclideousRandomApplyTabFields(from: a, tab: tab, into: &la)
+    var lb = EuclidLine(); euclideousRandomApplyTabFields(from: b, tab: tab, into: &lb)
+    return la == lb
 }
 
 /// §7.2: builds `[S0, ..., S_{N-1}]` to push (in order, each with `coalesceKey: nil`) so one undo restores

@@ -1163,6 +1163,16 @@ struct DiagView: View {
                                        euclideousHoldOverrides = rolls
                                        au?.setEuclideousHoldOverrides(rolls)
                                    },
+                                   // RANDOM MODE ferry §7.2: one undo step per kept card-tab, in the order given —
+                                   // `euclideousRandomUndoSequence` builds S0...S_{N-1} from the CURRENT (already
+                                   // settled) snapshot; each push uses `coalesceKey: nil` so none coalesce away.
+                                   onRandomFinish: { entries in
+                                       guard !entries.isEmpty else { return }
+                                       let settled = euclideousSnapshot()
+                                       for s in euclideousRandomUndoSequence(settled: settled, entries: entries) {
+                                           euclideousUndo.record(s, coalesceKey: nil)
+                                       }
+                                   },
                                    // MIX TAB (2026-10-18 §4.3): one undo step per TOUCH. `onEdit`'s fixed key merges consecutive edits across
                                    // different touches, so a pad takes an explicit `coalesceKey: nil` checkpoint at the first value-changing write
                                    // of a touch (`newStep`) and none for the rest — the write itself is the SAME document + publish path.
