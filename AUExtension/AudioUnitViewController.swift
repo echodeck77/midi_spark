@@ -371,6 +371,9 @@ struct DiagView: View {
     // `setEuclideousSoloLive`) the instant it changes; the 4 Hz resync loop below commits a landed roll's
     // fields into the document and clears its slot.
     @State var euclideousPendingRolls: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
+    // §5.6: the hold's own higher-priority override — same shape, separate channel, never committed to the
+    // document (the UI itself clears a slot once the hold ends, via a one-shot beat-aligned timer).
+    @State var euclideousHoldOverrides: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
     // FOURFOLD SETTINGS (2026-10-15 ferry): same live-mirror treatment as every field above.
     @State var euclideousMidiInChannelMask: UInt16 = 0xFFFF
     @State var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying
@@ -1154,6 +1157,11 @@ struct DiagView: View {
                                    onSetPendingRolls: { rolls in
                                        euclideousPendingRolls = rolls
                                        au?.setEuclideousPendingRolls(rolls)
+                                   },
+                                   holdOverrides: euclideousHoldOverrides,
+                                   onSetHoldOverrides: { rolls in
+                                       euclideousHoldOverrides = rolls
+                                       au?.setEuclideousHoldOverrides(rolls)
                                    },
                                    // MIX TAB (2026-10-18 §4.3): one undo step per TOUCH. `onEdit`'s fixed key merges consecutive edits across
                                    // different touches, so a pad takes an explicit `coalesceKey: nil` checkpoint at the first value-changing write

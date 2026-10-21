@@ -2266,7 +2266,8 @@ final class Router {
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, heldCell: Int, tempo: Double,
-                             euclideousPendingRolls: [EuclideousPendingRoll?] = [], out: MIDIEmitter?, diag: inout KernelDiag) {
+                             euclideousPendingRolls: [EuclideousPendingRoll?] = [], euclideousHoldOverrides: [EuclideousPendingRoll?] = [],
+                             out: MIDIEmitter?, diag: inout KernelDiag) {
             var cell = box.cells[effColumn * Snap.rows + r]
             if cell.machineIndex < 0 || cell.muted || cell.dormant { return }   // LADDER dormant
             applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, cycleBeats: cycleBeats, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
@@ -2350,7 +2351,7 @@ final class Router {
                     emitGeneratorRow(mode: dm, cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                      pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, out: out, diag: &diag)
+                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
                 case .weave:
                     emitWeaveRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
@@ -2403,7 +2404,7 @@ final class Router {
                 emitGeneratorRow(mode: mode, cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, out: out, diag: &diag)
+                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
             case .weave:
                 emitWeaveRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                              pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
@@ -3043,6 +3044,7 @@ final class Router {
                  euclideousAllNotesOff: Bool = false,
                  euclideousSoloLive: UInt16 = 0,
                  euclideousPendingRolls: [EuclideousPendingRoll?] = [],
+                 euclideousHoldOverrides: [EuclideousPendingRoll?] = [],
                  sceneFlush: Bool = false,
                  sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
@@ -3513,7 +3515,7 @@ final class Router {
             for r in 0..<Snap.rows {
                 emitTickRow(r: r, effColumn: effColumn, S: S, cycleBeats: cycleBeats, windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, out: out, diag: &diag)
+                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
                 emitGlideDriven(box: box, column: effColumn, row: r, beatPos: beatPos, windowBeats: windowBeats,   // §7① [driver→GLIDE]: drain the driver's targets into the mono glide voice
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, out: out)
             }
@@ -3525,7 +3527,7 @@ final class Router {
                 let rowBeat = beatPos - box.rowLaunchAnchor[r]   // PLAY-FERRY LAUNCH: anchored beat so the arp/tick PHASE shifts with the launch (offset math cancels the anchor); 0 ⇒ raw
                 emitTickRow(r: r, effColumn: rowEffColBuf[r], S: rowSBuf[r], cycleBeats: rowCycBuf[r], windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: rowBeat, windowStart: windowStart, windowEnd: windowEnd,
-                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, out: out, diag: &diag)
+                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
                 emitGlideDriven(box: box, column: rowEffColBuf[r], row: r, beatPos: rowBeat, windowBeats: windowBeats,   // §7① per-row clock
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: rowSBuf[r], a: a, out: out)
             }
@@ -4270,7 +4272,8 @@ final class Router {
                                   emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                   cycleBeats: Double = 0, chainDriver: Int = -1, tempo: Double = 120,
-                                  euclideousPendingRolls: [EuclideousPendingRoll?] = [], out: MIDIEmitter?, diag: inout KernelDiag) {
+                                  euclideousPendingRolls: [EuclideousPendingRoll?] = [], euclideousHoldOverrides: [EuclideousPendingRoll?] = [],
+                                  out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
         let p = machine.a
@@ -6523,9 +6526,13 @@ final class Router {
                 // flag (invariant 2: derived, never accumulated) — every render re-checks it, so it's stable
                 // regardless of how many renders straddle the landing beat. §10's "never touched" fields are
                 // enforced structurally: only the three groups of arguments below ever read `*Roll`.
+                // §5.6: the hold's own override takes priority — "the original keeps playing until the hold
+                // ends" even while an unrelated THROW/TWEAK keeps landing underneath it on schedule.
                 func euclideousLandedRoll(_ tab: EuclideousRandomTab) -> EuclideousPendingRoll? {
                     guard isEuclideousRow else { return nil }
                     let slot = euclideousRandomPendingSlot(lane: lineIndex, tab: tab)
+                    if slot < euclideousHoldOverrides.count, let hold = euclideousHoldOverrides[slot],
+                       euclideousRandomShouldApply(hostBeat: beatPos, landingBeat: hold.landingBeat) { return hold }
                     guard slot < euclideousPendingRolls.count, let roll = euclideousPendingRolls[slot] else { return nil }
                     return euclideousRandomShouldApply(hostBeat: beatPos, landingBeat: roll.landingBeat) ? roll : nil
                 }

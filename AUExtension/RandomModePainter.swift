@@ -38,8 +38,8 @@ struct EuclideousRandomCardView: View {
             picture.frame(height: max(1, height - 58 - 84))
                 .padding(.horizontal, 18)
                 .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 0.0001, maximumDistance: 40,
-                                     pressing: { down in down ? onHoldBegan() : onHoldEnded() }, perform: {})
+                // §5.6: only while the selected tab has an undecided roll — a decided tab's picture isn't a hold target.
+                .modifier(EuclideousRandomHoldModifier(enabled: state.isUndecided, onBegan: onHoldBegan, onEnded: onHoldEnded))
             caption.frame(height: 14).padding(.top, 6)
             Spacer(minLength: 2)
             buttonRow.frame(height: 44).padding(.bottom, 10)
@@ -186,6 +186,23 @@ struct EuclideousRandomCardView: View {
 
 private extension EuclideousRandomRollState {
     func isUndecidedFor(_ t: EuclideousRandomTab) -> Bool { original != nil }
+}
+
+/// §5.6: touch-down/touch-up on the picture, gated on `enabled` (an undecided roll). No minimum-duration
+/// threshold — read literally, the spec's hold switches from touch-down itself, unlike the 0.3 s hold this
+/// codebase uses elsewhere for the output rings/SOLO buttons (flagged in the ferry report).
+private struct EuclideousRandomHoldModifier: ViewModifier {
+    let enabled: Bool
+    let onBegan: () -> Void
+    let onEnded: () -> Void
+    func body(content: Content) -> some View {
+        if enabled {
+            content.onLongPressGesture(minimumDuration: 0.0001, maximumDistance: 1000,
+                                        pressing: { down in down ? onBegan() : onEnded() }, perform: {})
+        } else {
+            content
+        }
+    }
 }
 
 // MARK: - §4.1 RHYTHM picture

@@ -742,6 +742,13 @@ func euclideousRandomQueuedLandingBeat(running: Bool, currentBeat: Double, barBe
     running ? euclideousRandomNextBarLine(afterBeat: currentBeat, barBeats: barBeats, marginBeats: marginBeats) : currentBeat
 }
 
+/// §5.6: the hold switches "from the next beat" — the SAME bar-line formula with a one-beat period
+/// (never a second "what's the next boundary" formula), so the hold's margin behaves identically to
+/// THROW/TWEAK/BACK's own bar-line landing.
+func euclideousRandomQueuedHoldBeat(running: Bool, currentBeat: Double, marginBeats: Double) -> Double {
+    euclideousRandomQueuedLandingBeat(running: running, currentBeat: currentBeat, barBeats: 1, marginBeats: marginBeats)
+}
+
 // MARK: - §7.2 Undo-sequence builder
 
 /// One kept card-tab, in the order §7.2 wants pushed: KEEP-order first, then finish-order (lane, then

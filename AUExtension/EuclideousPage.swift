@@ -746,8 +746,11 @@ struct EuclideousPage: View {
     // RANDOM MODE ferry (§6): the live pending-roll array (AudioUnitViewController's own @State, never the
     // document) — read-only here; `onSetPendingRolls` queues a new one or clears a landed one. The commit
     // into `lines` itself happens on the VC's 4 Hz resync loop once a roll's landingBeat has passed.
-    var pendingRolls: [EuclideousPendingRoll?] = [nil, nil, nil, nil]
+    var pendingRolls: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
     var onSetPendingRolls: ([EuclideousPendingRoll?]) -> Void = { _ in }
+    // §5.6: the hold's own higher-priority override, same shape, separate channel.
+    var holdOverrides: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
+    var onSetHoldOverrides: ([EuclideousPendingRoll?]) -> Void = { _ in }
     // MIX TAB (2026-10-18 §4.3): a lane edit that records ONE undo step per TOUCH. `onEdit`'s fixed coalesce key merges consecutive edits
     // across different touches into one step; a pad instead passes `newStep: true` on the first value-changing write of a touch (the VC
     // takes a `coalesceKey: nil` checkpoint) and `false` for the rest, so dragging is one step and two pads never flood the stack.
@@ -880,6 +883,9 @@ struct EuclideousPage: View {
     // The deployment target (iOS 16) has no two-parameter `.onChange`, so the handler below diffs against
     // this itself to detect a slot's non-nil → nil landing transition.
     @State private var euclideousRandomPrevPendingRolls: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
+    // §5.6: the beat each in-flight hold's own override is scheduled to START at, keyed by pending-slot —
+    // read back on release to decide "did the hold even start yet" (if not, cancel outright, nothing switches).
+    @State private var euclideousRandomHoldStartBeat: [Int: Double] = [:]
 
     // MARK: RANDOM MODE — actions (§5-§7). §7's full finishing/undo/return sequence is a later ferry step
     // (the status log/pending-tasks note which); `euclideousRandomFinish` here is §7.1's own drop/keep rule
@@ -1067,6 +1073,69 @@ struct EuclideousPage: View {
         state.waiting = nil
         state.decidedAt = Date()
         euclideousRandomRolls[lane][tab.rawValue] = state
+    }
+
+    /// §5.6: touch-down on the picture — asks for the original, from the next beat. Only while the selected
+    /// tab has an undecided roll; a decided tab offers no hold (the picture view gates the gesture on this
+    /// via `state.isUndecided`, but this guards too in case a stray event slips through).
+    private func euclideousRandomHoldBegan(lane: Int) {
+        let tab = euclideousRandomTab[lane]
+        guard let original = euclideousRandomRolls[lane][tab.rawValue].original else { return }
+        let nowBeat = clock.playing ? clock.anchor + Date().timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
+        let margin = euclideousRandomLandingMarginBeats(tempo: clock.tempo)
+        let startBeat = euclideousRandomQueuedHoldBeat(running: clock.playing, currentBeat: nowBeat, marginBeats: margin)
+        var roll = EuclideousPendingRoll(tab: tab, landingBeat: startBeat)
+        switch tab {
+        case .rhythm:
+            roll.steps = original.steps; roll.pulses = original.pulses; roll.rotate = original.rotate
+        case .riff:
+            roll.riffDir = original.euclideousRiffDirResolved; roll.riffInvert = original.riffInvertResolved
+            roll.riffAdvanceEvery = original.riffAdvanceEveryResolved; roll.riffAdvanceStep = original.riffAdvanceStepResolved
+            roll.riffOnRest = original.riffOnRestResolved; roll.riffRotate = original.riffRotateResolved; roll.riffStride = original.riffStrideResolved
+        case .notes:
+            roll.notesLitOrder = original.litOrderResolved; roll.notesWhen = original.notesWhenResolved
+            roll.notesChance = original.notesChanceResolved; roll.notesPlayAs = original.notesPlayAsResolved
+        }
+        let slot = euclideousRandomPendingSlot(lane: lane, tab: tab)
+        euclideousRandomHoldStartBeat[slot] = startBeat
+        var overrides = holdOverrides
+        overrides[slot] = roll
+        onSetHoldOverrides(overrides)
+        euclideousRandomHeldLane = lane
+    }
+
+    /// §5.6: release — asks for the current state again, from the next beat; if the hold's OWN start beat
+    /// hadn't passed yet, cancels outright ("if the touch lifts before the beat, nothing switches").
+    private func euclideousRandomHoldEnded(lane: Int) {
+        guard euclideousRandomHeldLane == lane else { return }
+        euclideousRandomHeldLane = nil
+        let tab = euclideousRandomTab[lane]
+        let slot = euclideousRandomPendingSlot(lane: lane, tab: tab)
+        let startBeat = euclideousRandomHoldStartBeat.removeValue(forKey: slot)
+        let nowBeat = clock.playing ? clock.anchor + Date().timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
+        if let startBeat, nowBeat < startBeat {
+            var overrides = holdOverrides
+            overrides[slot] = nil
+            onSetHoldOverrides(overrides)
+            return
+        }
+        guard clock.playing, clock.tempo > 0 else {
+            var overrides = holdOverrides
+            overrides[slot] = nil
+            onSetHoldOverrides(overrides)
+            return
+        }
+        let margin = euclideousRandomLandingMarginBeats(tempo: clock.tempo)
+        let endBeat = euclideousRandomQueuedHoldBeat(running: true, currentBeat: nowBeat, marginBeats: margin)
+        let delaySeconds = max(0, (endBeat - nowBeat) * 60.0 / clock.tempo)
+        // ONE-SHOT, main-thread-only (the same idiom this file's own PULSE settle-tick already uses) — not a
+        // render-thread mechanism; the render thread has nothing to clear, it just stops being handed an
+        // override at the beat the UI itself determined.
+        DispatchQueue.main.asyncAfter(deadline: .now() + delaySeconds) { [self] in
+            var overrides = holdOverrides
+            overrides[slot] = nil
+            onSetHoldOverrides(overrides)
+        }
     }
 
     /// Detects a roll landing (its slot transitioning non-nil → nil in `pendingRolls`, which AVC's resync
@@ -2464,8 +2533,8 @@ struct EuclideousPage: View {
                                   onTweak: { euclideousRandomTweak(lane: idx) },
                                   onBack: { euclideousRandomBack(lane: idx) },
                                   onKeep: { euclideousRandomKeep(lane: idx) },
-                                  onHoldBegan: { euclideousRandomHeldLane = idx },
-                                  onHoldEnded: { if euclideousRandomHeldLane == idx { euclideousRandomHeldLane = nil } })
+                                  onHoldBegan: { euclideousRandomHoldBegan(lane: idx) },
+                                  onHoldEnded: { euclideousRandomHoldEnded(lane: idx) })
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
