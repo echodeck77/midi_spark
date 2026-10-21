@@ -2138,74 +2138,99 @@ struct EuclideousPage: View {
     /// columns (the HITS fader, full height; the STEPS stepper, §2.2). Right half: two equal rows (OFFSET,
     /// TILT), each a full-width horizontal slider with its label row pinned to the top (§2.3/§2.4) — VEL and
     /// GATE are gone from this tab (MIX's riff pad already edits them, §1.2); STEPS is no longer a slider.
-    private func rhythmUpperZone(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, rowHeight: CGFloat) -> some View {
+    private func rhythmUpperZone(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, rowHeight: CGFloat) -> AnyView {
+        // STACK DEPTH (2026-10-21, device crash `MidiSparkAU-2026-10-21-164149.ips`, "Thread stack size exceeded" in this function's right-half closure): in a DEBUG build every view value this
+        // eager construction chain holds is a stack temporary — an `EuclideousSlider` is ~4 KB (it carries two `EuclidLine`s) and each opaque `some View` it is wrapped in is another dynamic
+        // 4 KB alloca — and the DYNAMICS row made the right half's closure hold eight of them at once, on the extension's 1 MB main-thread stack that the page's SwiftUI update chain already
+        // nearly fills. Every piece below is therefore built by its own small function that returns an `AnyView` (the technique `laneCard` already uses for `laneTabRow` / `tabContent`):
+        // each callee's temporaries die when it returns, and the closures in between only ever hold an 8-byte `AnyView`.
         let halfW = max(1, (fullWidth - sp4) / 2)
-        let leftColW = max(1, (halfW - sp4) / 2)
-        // DYNAMICS ferry §1.2 (supersedes the RHYTHM tab ferry's two equal rows): the right half is THREE equal rows — (upper − 8) ÷ 3 — OFFSET, TILT, DYNAMICS.
-        let rightRowH = euclideousRhythmRightRowH(upperH: rowHeight)
-        // LISTEN/FOLLOW (§5 of an earlier ferry, carried over): HITS and TILT show the partner's values at
-        // 42% opacity and can't be dragged while following; OFFSET stays live, matching "OFFSET stays live"
-        // literally. STEPS (no longer a slider) isn't part of this set either — the stepper has no FOLLOW
-        // treatment of its own today (device-owed, §16, not silently assumed).
-        let followPartner: EuclidLine? = {
-            guard line.listenRhythmMode == .follow else { return nil }
-            let p = line.listenRhythmPartnerResolved
-            return p >= 0 && p < lines.count ? lines[p] : nil
-        }()
-        let lockedFields: Set<EuclideousSliderField> = followPartner != nil ? [.hits, .tilt] : []
-        return HStack(spacing: sp4) {
-            HStack(spacing: sp4) {
-                EuclideousSlider(
-                    field: .hits, line: line, accent: accent, width: leftColW, height: rowHeight, horizontal: false,
-                    onCommit: { mutate in edit(idx, mutate) },
-                    onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.hits, &$0) } },
-                    onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
-                    displayOverrideLine: lockedFields.contains(.hits) ? followPartner : nil,
-                    listenFollowLocked: lockedFields.contains(.hits))
-                EuclideousStepsStepper(
-                    line: line, accent: accent, width: leftColW, height: rowHeight,
-                    onCommit: { newStep, mutate in editStep(idx, newStep, mutate) },
-                    onToggleValueBoxTap: {
-                        if stepsPickerLane == idx { stepsPickerLane = nil }
-                        else { stepsPickerLane = idx; restartEditorLane = nil; dynamicsEditorLane = nil }
-                    })
-            }
-            .frame(width: halfW, height: rowHeight)
-            VStack(spacing: sp4) {
-                EuclideousSlider(
-                    field: .offset, line: line, accent: accent, width: halfW, height: rightRowH, horizontal: true,
-                    touchPad: 2,
-                    onCommit: { mutate in edit(idx, mutate) },
-                    onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.offset, &$0) } },
-                    onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
-                    topAlignLabelRow: true)
-                EuclideousSlider(
-                    field: .tilt, line: line, accent: accent, width: halfW, height: rightRowH, horizontal: true,
-                    touchPad: 2,
-                    onCommit: { mutate in edit(idx, mutate) },
-                    onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.tilt, &$0) } },
-                    onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
-                    displayOverrideLine: lockedFields.contains(.tilt) ? followPartner : nil,
-                    listenFollowLocked: lockedFields.contains(.tilt),
-                    topAlignLabelRow: true, endLabels: ("EARLY", "LATE"))
-                // DYNAMICS (§2): a horizontal drag sets DEPTH (one undo step per touch); a tap — a touch that stays within 4 pt — opens the editor. The result bars sit above the fill, under the labels.
-                EuclideousSlider(
-                    field: .dynDepth, line: line, accent: accent, width: halfW, height: rightRowH, horizontal: true,
-                    touchPad: 2,
-                    onCommit: { _ in }, onDoubleTap: {}, onRevertToEuclid: {},
-                    topAlignLabelRow: true,
-                    onCommitStep: { newStep, mutate in editStep(idx, newStep, mutate) },
-                    tapOpens: { dynamicsEditorLane = idx; stepsPickerLane = nil; restartEditorLane = nil; dynamicsFocus = .editor(idx) },
-                    labelOverride: "DYNAMICS", showsChevron: true,
-                    barsOverlay: AnyView(dynamicsRowBars(idx, line, accent, width: halfW, height: rightRowH)),
-                    accessibilityNameOverride: "Dynamics",
-                    accessibilityValueOverride: euclideousDynamicsRowAccessibilityValue(depth: line.dynDepthResolved),
-                    accessibilityHintOverride: "Double-tap to edit dynamics; swipe up or down to change depth")
-                    .accessibilityFocused($dynamicsFocus, equals: .row(idx))
-            }
-            .frame(width: halfW, height: rowHeight)
+        return AnyView(HStack(spacing: sp4) {
+            rhythmLeftHalf(idx, line, accent, halfW: halfW, rowHeight: rowHeight)
+            rhythmRightHalf(idx, line, accent, halfW: halfW, rowHeight: rowHeight)
         }
-        .frame(width: fullWidth, height: rowHeight)
+        .frame(width: fullWidth, height: rowHeight))
+    }
+    /// LISTEN/FOLLOW (§5 of an earlier ferry, carried over): HITS and TILT show the partner's values at 42% opacity and can't be dragged while following; OFFSET stays live. STEPS (no longer
+    /// a slider) isn't part of this set either — the stepper has no FOLLOW treatment of its own today (device-owed, §16, not silently assumed).
+    private func rhythmFollowPartner(_ line: EuclidLine) -> EuclidLine? {
+        guard line.listenRhythmMode == .follow else { return nil }
+        let p = line.listenRhythmPartnerResolved
+        return p >= 0 && p < lines.count ? lines[p] : nil
+    }
+    private func rhythmLeftHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, rowHeight: CGFloat) -> AnyView {
+        let leftColW = max(1, (halfW - sp4) / 2)
+        return AnyView(HStack(spacing: sp4) {
+            rhythmHitsSlider(idx, line, accent, width: leftColW, height: rowHeight)
+            rhythmStepsStepper(idx, line, accent, width: leftColW, height: rowHeight)
+        }
+        .frame(width: halfW, height: rowHeight))
+    }
+    /// DYNAMICS ferry §1.2 (supersedes the RHYTHM tab ferry's two equal rows): the right half is THREE equal rows — (upper − 8) ÷ 3 — OFFSET, TILT, DYNAMICS.
+    private func rhythmRightHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, rowHeight: CGFloat) -> AnyView {
+        let rowH = euclideousRhythmRightRowH(upperH: rowHeight)
+        return AnyView(VStack(spacing: sp4) {
+            rhythmOffsetRow(idx, line, accent, width: halfW, height: rowH)
+            rhythmTiltRow(idx, line, accent, width: halfW, height: rowH)
+            rhythmDynamicsRow(idx, line, accent, width: halfW, height: rowH)
+        }
+        .frame(width: halfW, height: rowHeight))
+    }
+    private func rhythmHitsSlider(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        let partner = rhythmFollowPartner(line)
+        return AnyView(EuclideousSlider(
+            field: .hits, line: line, accent: accent, width: width, height: height, horizontal: false,
+            onCommit: { mutate in edit(idx, mutate) },
+            onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.hits, &$0) } },
+            onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+            displayOverrideLine: partner,
+            listenFollowLocked: partner != nil))
+    }
+    private func rhythmStepsStepper(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        AnyView(EuclideousStepsStepper(
+            line: line, accent: accent, width: width, height: height,
+            onCommit: { newStep, mutate in editStep(idx, newStep, mutate) },
+            onToggleValueBoxTap: {
+                if stepsPickerLane == idx { stepsPickerLane = nil }
+                else { stepsPickerLane = idx; restartEditorLane = nil; dynamicsEditorLane = nil }
+            }))
+    }
+    private func rhythmOffsetRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        AnyView(EuclideousSlider(
+            field: .offset, line: line, accent: accent, width: width, height: height, horizontal: true,
+            touchPad: 2,
+            onCommit: { mutate in edit(idx, mutate) },
+            onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.offset, &$0) } },
+            onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+            topAlignLabelRow: true))
+    }
+    private func rhythmTiltRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        let partner = rhythmFollowPartner(line)
+        return AnyView(EuclideousSlider(
+            field: .tilt, line: line, accent: accent, width: width, height: height, horizontal: true,
+            touchPad: 2,
+            onCommit: { mutate in edit(idx, mutate) },
+            onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.tilt, &$0) } },
+            onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+            displayOverrideLine: partner,
+            listenFollowLocked: partner != nil,
+            topAlignLabelRow: true, endLabels: ("EARLY", "LATE")))
+    }
+    /// DYNAMICS (§2): a horizontal drag sets DEPTH (one undo step per touch); a tap — a touch that stays within 4 pt — opens the editor. The result bars sit above the fill, under the labels.
+    private func rhythmDynamicsRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        AnyView(EuclideousSlider(
+            field: .dynDepth, line: line, accent: accent, width: width, height: height, horizontal: true,
+            touchPad: 2,
+            onCommit: { _ in }, onDoubleTap: {}, onRevertToEuclid: {},
+            topAlignLabelRow: true,
+            onCommitStep: { newStep, mutate in editStep(idx, newStep, mutate) },
+            tapOpens: { dynamicsEditorLane = idx; stepsPickerLane = nil; restartEditorLane = nil; dynamicsFocus = .editor(idx) },
+            labelOverride: "DYNAMICS", showsChevron: true,
+            barsOverlay: AnyView(dynamicsRowBars(idx, line, accent, width: width, height: height)),
+            accessibilityNameOverride: "Dynamics",
+            accessibilityValueOverride: euclideousDynamicsRowAccessibilityValue(depth: line.dynDepthResolved),
+            accessibilityHintOverride: "Double-tap to edit dynamics; swipe up or down to change depth")
+            .accessibilityFocused($dynamicsFocus, equals: .row(idx)))
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
@@ -2700,68 +2725,26 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: height)
     }
-    private func dynamicsLabelColumn(_ top: String, _ bottom: String, height: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+    private func dynamicsLabelColumn(_ top: String, _ bottom: String, height: CGFloat) -> AnyView {
+        AnyView(VStack(alignment: .leading, spacing: 3) {
             Text(top).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.9).foregroundColor(Color(hex: 0xF2F4F7))
             Text(bottom).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
         }
         .padding(.leading, 4)
-        .frame(width: EuclideousDynamicsMetrics.labelColW, height: height, alignment: .leading)
+        .frame(width: EuclideousDynamicsMetrics.labelColW, height: height, alignment: .leading))
     }
     /// §3 — the DYNAMICS editor: RESULT, four sliders, APPLY TO. It covers both RHYTHM zones in the restart editor's card style; the header row and tab row stay live above it.
-    private func dynamicsEditor(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
-        typealias M = EuclideousDynamicsMetrics
+    /// Built like `rhythmUpperZone` (see its STACK DEPTH note): every child is its own function returning an `AnyView`, so this ZStack's closure holds a handful of 8-byte values, never a tree.
+    private func dynamicsEditor(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         let L = euclideousDynamicsEditorLayout(width: width, height: height)
-        let d = EuclideousDynamics(line)
-        let passHits = euclideousDynamicsPassHitSteps(lane: idx, lines: lines).hits.count
-        func place<V: View>(_ r: CGRect, _ v: V) -> some View { v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY) }
-        func slider(_ field: EuclideousSliderField, _ r: CGRect, endLabels: (String, String)?) -> some View {
-            EuclideousSlider(
-                field: field, line: line, accent: accent, width: r.width, height: r.height, horizontal: true,
-                onCommit: { _ in }, onDoubleTap: {}, onRevertToEuclid: {},
-                topAlignLabelRow: true, endLabels: endLabels, passHits: passHits,
-                onCommitStep: { newStep, mutate in editStep(idx, newStep, mutate) },
-                tileFill: Color(hex: 0x2A2D34))
-        }
-        return ZStack(alignment: .topLeading) {
-            // §3.2: the header — "DYNAMICS" then " · PULLS HITS BELOW THE MIX LEVEL" (truncating), the close button at the trailing edge
-            place(L.header, HStack(spacing: 0) {
-                (Text("DYNAMICS").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48).foregroundColor(Color(hex: 0xAAB0BA))
-                 + Text(" \u{00B7} PULLS HITS BELOW THE MIX LEVEL").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)))
-                    .lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 4)
-            }.padding(.leading, 4).padding(.trailing, M.closeW + 4))
-            place(L.closeButton, Button(action: { dynamicsEditorLane = nil; dynamicsFocus = .row(idx) }) {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .heavy))
-                    .foregroundColor(Color(hex: 0xAAB0BA))
-                    .frame(width: M.closeW, height: M.headerH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
-                    .frame(width: M.closeW, height: M.headerH + 4)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Close dynamics"))
-            if L.showsResult, let lr = L.resultLabel, let pv = L.resultPreview {
-                place(lr, dynamicsLabelColumn("RESULT", "TOP = MIX", height: lr.height))
-                dynamicsResultPreview(idx, line, accent, layout: L).frame(width: pv.width, height: pv.height).position(x: pv.midX, y: pv.midY)
-            }
-            place(L.accents, slider(.dynAccents, L.accents, endLabels: nil))
-            place(L.shape, slider(.dynShape, L.shape, endLabels: ("FADE", "SWELL")))
-            place(L.depth, slider(.dynDepth, L.depth, endLabels: ("SUBTLE", "DEEP")))
-            place(L.spread, slider(.dynSpread, L.spread, endLabels: ("STEADY", "LOOSE")))
-            place(L.applyLabel, dynamicsLabelColumn("APPLY", "TO", height: L.applyLabel.height))
-            ForEach(Array(EuclidDynTarget.allCases.enumerated()), id: \.offset) { i, t in
-                let on = d.target == t
-                place(L.applyButtons[i], Text(t.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-                    .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                    .contentShape(Rectangle())
-                    .onTapGesture { if !on { editStep(idx, true) { $0.dynTarget = t } } }   // §3.5: one undo step, nothing if already selected
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(t == .vel ? "Apply to velocity" : (t == .gate ? "Apply to gate" : "Apply to both"))
-                    .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton))
-            }
+        return AnyView(ZStack(alignment: .topLeading) {
+            dynamicsEditorHeader(idx, L)
+            dynamicsEditorResult(idx, line, accent, L)
+            dynamicsEditorSlider(idx, line, .dynAccents, L.accents, endLabels: nil)
+            dynamicsEditorSlider(idx, line, .dynShape, L.shape, endLabels: ("FADE", "SWELL"))
+            dynamicsEditorSlider(idx, line, .dynDepth, L.depth, endLabels: ("SUBTLE", "DEEP"))
+            dynamicsEditorSlider(idx, line, .dynSpread, L.spread, endLabels: ("STEADY", "LOOSE"))
+            dynamicsEditorApply(idx, line, accent, L)
         }
         .frame(width: width, height: height, alignment: .topLeading)
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -2771,13 +2754,73 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Dynamics for lane \(idx + 1)")
         .accessibilityAddTraits(.isModal)
-        .accessibilityFocused($dynamicsFocus, equals: .editor(idx))
+        .accessibilityFocused($dynamicsFocus, equals: .editor(idx)))
+    }
+    private func dynamicsPlace(_ r: CGRect, _ v: AnyView) -> AnyView { AnyView(v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)) }
+    /// §3.2: the header — "DYNAMICS" then " · PULLS HITS BELOW THE MIX LEVEL" (truncating), the close button at the trailing edge.
+    private func dynamicsEditorHeader(_ idx: Int, _ L: EuclideousDynamicsEditorLayout) -> AnyView {
+        typealias M = EuclideousDynamicsMetrics
+        let title = AnyView(HStack(spacing: 0) {
+            (Text("DYNAMICS").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48).foregroundColor(Color(hex: 0xAAB0BA))
+             + Text(" \u{00B7} PULLS HITS BELOW THE MIX LEVEL").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)))
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 4)
+        }.padding(.leading, 4).padding(.trailing, M.closeW + 4))
+        let close = AnyView(Button(action: { dynamicsEditorLane = nil; dynamicsFocus = .row(idx) }) {
+            Image(systemName: "xmark").font(.system(size: 9, weight: .heavy))
+                .foregroundColor(Color(hex: 0xAAB0BA))
+                .frame(width: M.closeW, height: M.headerH)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                .frame(width: M.closeW, height: M.headerH + 4)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Close dynamics"))
+        return AnyView(ZStack(alignment: .topLeading) { dynamicsPlace(L.header, title); dynamicsPlace(L.closeButton, close) })
+    }
+    /// §3.3: RESULT — the label column and the preview; both dropped when the editor is under 208 tall (§3.6).
+    private func dynamicsEditorResult(_ idx: Int, _ line: EuclidLine, _ accent: Color, _ L: EuclideousDynamicsEditorLayout) -> AnyView {
+        guard L.showsResult, let lr = L.resultLabel, let pv = L.resultPreview else { return AnyView(EmptyView()) }
+        return AnyView(ZStack(alignment: .topLeading) {
+            dynamicsPlace(lr, dynamicsLabelColumn("RESULT", "TOP = MIX", height: lr.height))
+            dynamicsPlace(pv, dynamicsResultPreview(idx, line, accent, layout: L))
+        })
+    }
+    private func dynamicsEditorSlider(_ idx: Int, _ line: EuclidLine, _ field: EuclideousSliderField, _ r: CGRect, endLabels: (String, String)?) -> AnyView {
+        let hits = euclideousDynamicsPassHitSteps(lane: idx, lines: lines).hits.count
+        return dynamicsPlace(r, AnyView(EuclideousSlider(
+            field: field, line: line, accent: laneAccents[idx % laneAccents.count], width: r.width, height: r.height, horizontal: true,
+            onCommit: { _ in }, onDoubleTap: {}, onRevertToEuclid: {},
+            topAlignLabelRow: true, endLabels: endLabels, passHits: hits,
+            onCommitStep: { newStep, mutate in editStep(idx, newStep, mutate) },
+            tileFill: Color(hex: 0x2A2D34))))
+    }
+    /// §3.5: APPLY TO — a label column and three buttons; a tap selects one (one undo step, nothing if already selected).
+    private func dynamicsEditorApply(_ idx: Int, _ line: EuclidLine, _ accent: Color, _ L: EuclideousDynamicsEditorLayout) -> AnyView {
+        let current = EuclideousDynamics(line).target
+        return AnyView(ZStack(alignment: .topLeading) {
+            dynamicsPlace(L.applyLabel, dynamicsLabelColumn("APPLY", "TO", height: L.applyLabel.height))
+            dynamicsApplyButton(idx, accent, .vel, selected: current == .vel, L.applyButtons[0])
+            dynamicsApplyButton(idx, accent, .gate, selected: current == .gate, L.applyButtons[1])
+            dynamicsApplyButton(idx, accent, .both, selected: current == .both, L.applyButtons[2])
+        })
+    }
+    private func dynamicsApplyButton(_ idx: Int, _ accent: Color, _ t: EuclidDynTarget, selected on: Bool, _ r: CGRect) -> AnyView {
+        dynamicsPlace(r, AnyView(Text(t.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
+            .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { if !on { editStep(idx, true) { $0.dynTarget = t } } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(t == .vel ? "Apply to velocity" : (t == .gate ? "Apply to gate" : "Apply to both"))
+            .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)))
     }
     /// §3.3: the RESULT preview — one column per comet-bar cell of the current pass; read-only, updated each pass (SPREAD) and on every setting change.
-    private func dynamicsResultPreview(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout L: EuclideousDynamicsEditorLayout) -> some View {
+    private func dynamicsResultPreview(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout L: EuclideousDynamicsEditorLayout) -> AnyView {
         let live = dynamicsDisplayIsLive(line)
         let d = EuclideousDynamics(line)
-        return TimelineView(.animation(minimumInterval: 0.1, paused: !live)) { tl in
+        return AnyView(TimelineView(.animation(minimumInterval: 0.1, paused: !live)) { tl in
             let pass = dynamicsPass(idx, line, at: tl.date)
             let cols = L.previewColumns(cells: pass.cells.count)
             Canvas { ctx, _ in
@@ -2801,7 +2844,7 @@ struct EuclideousPage: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(euclideousDynamicsPreviewAccessibility(factors: pass.hitFactors, target: d.target))
-        }
+        })
     }
 
     /// §3 — the STEPS picker: 15 cells (lengths 2–16), each previewing this lane's rhythm.

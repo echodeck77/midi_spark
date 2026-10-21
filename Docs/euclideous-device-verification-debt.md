@@ -17,6 +17,9 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### DEBUG-build launch (2026-10-21)
+- Run the DEBUG build from Xcode into AUM and open the page: it must come up (the 2026-10-21 DYNAMICS ferry crashed it at launch — `Thread stack size exceeded`, fixed by `fix/dynamics-stack-depth`). Then tap the DYNAMICS row to open the editor on each of the four lanes, and switch RHYTHM → RIFF → RHYTHM: none may crash. This is the ONLY check the stack fix has had (frame sizes were measured off the binary, the page was not run).
+
 ### RHYTHM tab — DYNAMICS (2026-10-21)
 - OFFSET and TILT at 38.67 pt (41 in landscape): still easy to drag, and TILT's EARLY / LATE legible under their label row (boxes overlap 1 pt, ink clears ≈ 5.6 pt).
 - The DYNAMICS row: drag versus tap at 4 pt feels right (a tap must open the editor, never nudge DEPTH); the 13 pt result bars read at 8 and 16 cells in all four lane colours — and their tops sitting under the "DYNAMICS ⌄" / value backings.
