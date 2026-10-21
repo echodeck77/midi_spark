@@ -479,11 +479,11 @@ private func euclideousRandomOrderShape(_ positions: [Int], rng: inout Euclideou
 /// §8.5: THROW. `riffOn`/`writtenRanks`/`length` are this LANE's own riff layer facts (for the "remove the
 /// riff's most-written rank" exclusion); `receivedCount` is 0 when unknown/nothing received (§8.5: "with
 /// nothing received, remove nothing for this reason").
-func euclideousRandomThrowNotes(role: EuclideousRandomRole,
-                                 current: (litOrder: EuclideousLitOrder, when: UInt8, chance: Int, playAs: EuclidNotesPlayAs),
-                                 riffOn: Bool, writtenRanks: [Int], length: Int,
-                                 receivedOnly: Bool, receivedCount: Int,
-                                 rng: inout EuclideousRandomRNG) -> EuclideousRandomNotesResult? {
+/// §8.5's candidate-position computation (role band ∩ "not the riff's most-written rank" ∩ RECEIVED's
+/// overflow exclusion) — shared by THROW (here) and the UI's own TWEAK call site (which needs the same
+/// `allowed` set but mustn't re-derive it), so the exclusion rules can't drift between the two.
+func euclideousRandomAllowedNotesPositions(role: EuclideousRandomRole, riffOn: Bool, writtenRanks: [Int], length: Int,
+                                            receivedOnly: Bool, receivedCount: Int) -> [Int] {
     var candidates = euclideousRandomNotesCandidates(role: role)
     if riffOn, let mostWritten = euclideousRandomRiffMostWrittenRank(writtenRanks: writtenRanks, length: length) {
         candidates.removeAll { $0 == mostWritten - 1 }   // position (mostWritten-1) == rank mostWritten, 0-based
@@ -491,6 +491,16 @@ func euclideousRandomThrowNotes(role: EuclideousRandomRole,
     if receivedOnly, receivedCount > 0 {
         candidates.removeAll { $0 < 8 && ($0 + 1) > receivedCount }
     }
+    return candidates
+}
+
+func euclideousRandomThrowNotes(role: EuclideousRandomRole,
+                                 current: (litOrder: EuclideousLitOrder, when: UInt8, chance: Int, playAs: EuclidNotesPlayAs),
+                                 riffOn: Bool, writtenRanks: [Int], length: Int,
+                                 receivedOnly: Bool, receivedCount: Int,
+                                 rng: inout EuclideousRandomRNG) -> EuclideousRandomNotesResult? {
+    let candidates = euclideousRandomAllowedNotesPositions(role: role, riffOn: riffOn, writtenRanks: writtenRanks, length: length,
+                                                            receivedOnly: receivedOnly, receivedCount: receivedCount)
 
     for _ in 0..<80 {
         let playAs = euclideousRandomWeightedPick(euclideousRandomPlayAsWeights(role), rng: &rng)
