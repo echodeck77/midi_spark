@@ -4428,6 +4428,19 @@ final class Router {
                 guard Int((mm / chordPoolRateBeats).rounded(.down)) != chordPoolStep else { return }
                 fillChordPool(atBeat: mm)
             }
+            // HOLD/LATCH (Paul 2026-10-20, fixed 2026-10-21): checked HERE, unconditionally once per
+            // Euclideous-row tick, not nested inside `case .midi:` below — `p.euclideousHoldLatchMode` is
+            // forced to nil by SnapshotBuilder whenever source isn't MIDI, so a check that only runs inside
+            // `.midi:` never sees that transition and never resets: HOLD could freeze a chord, the page
+            // switch to CHORDS/KEY (mode reads nil, but the nested check was never reached to notice), then
+            // switch BACK to MIDI with the OLD stored mode and no reset having happened, resuming the stale
+            // frozen/latched pool from before the detour instead of starting fresh. Running the comparison
+            // here instead catches both edges (leaving MIDI drops it; returning sees `prevMode` already nil).
+            if isEuclideousRow, p.euclideousHoldLatchMode != euclideousHoldLatchPrevMode {
+                euclideousHoldLatchPool.reset()
+                for i in euclideousHoldLatchPrevHeld.indices { euclideousHoldLatchPrevHeld[i] = false }
+                euclideousHoldLatchPrevMode = p.euclideousHoldLatchMode
+            }
             if isEuclideousRow {
                 switch p.euclideousNoteSourceResolved {
                 case .chords:
@@ -4460,23 +4473,19 @@ final class Router {
                         // channels of `livePool` actually reach every lane AND the riff (both read this SAME
                         // `fillGlobalSrcFromPool` output via `laneCount`/`laneNotes` below — one filtered pool,
                         // shared, so the riff inherits lane 1's filtering for free, with no separate mask of its own).
-                        // HOLD/LATCH (Paul 2026-10-20): a mode switch drops any stale frozen/latched notes first
-                        // (same reasoning as the transport-edge reset above — a HOLD sustain surviving a switch
-                        // to LATCH, or vice versa, would read as a stuck/ghost note). HOLD mirrors `livePool` live
-                        // while it's non-empty (byte-identical to the `nil` case) and freezes the last non-empty
-                        // snapshot the instant it goes empty (`captureFiltered`, reused verbatim from the door
-                        // LATCH-strip's own FREEZE primitive). LATCH toggles membership on each note newly risen
-                        // since last render (`latchAddStep`, reused verbatim from the door ADD-latch's own rising-
-                        // edge primitive) and ignores note-off entirely. Both read back at chanMask 0xFFFF (OMNI):
-                        // the pool was already filtered by `p.globalSrcChanMask` AT CAPTURE — re-filtering by a
-                        // LATER (possibly narrower) mask would wrongly drop already-frozen/latched notes, the exact
-                        // bug `NotePool.omniRead`'s own doc comment names ("replay stops when I disable the input
-                        // channel").
-                        if p.euclideousHoldLatchMode != euclideousHoldLatchPrevMode {
-                            euclideousHoldLatchPool.reset()
-                            for i in euclideousHoldLatchPrevHeld.indices { euclideousHoldLatchPrevHeld[i] = false }
-                            euclideousHoldLatchPrevMode = p.euclideousHoldLatchMode
-                        }
+                        // HOLD/LATCH (Paul 2026-10-20): HOLD mirrors `livePool` live while it's non-empty
+                        // (byte-identical to the `nil` case) and freezes the last non-empty snapshot the instant
+                        // it goes empty (`captureFiltered`, reused verbatim from the door LATCH-strip's own FREEZE
+                        // primitive). LATCH toggles membership on each note newly risen since last render
+                        // (`latchAddStep`, reused verbatim from the door ADD-latch's own rising-edge primitive)
+                        // and ignores note-off entirely. Both read back at chanMask 0xFFFF (OMNI): the pool was
+                        // already filtered by `p.globalSrcChanMask` AT CAPTURE — re-filtering by a LATER (possibly
+                        // narrower) mask would wrongly drop already-frozen/latched notes, the exact bug
+                        // `NotePool.omniRead`'s own doc comment names ("replay stops when I disable the input
+                        // channel"). The reset-on-mode-change check itself now lives above, outside this `.midi:`
+                        // arm (2026-10-21 fix) — it used to live here, which meant it never ran while the source
+                        // was CHORDS/KEY, so a HOLD/LATCH pool could go stale across a source detour and resume
+                        // on return to MIDI IN.
                         switch p.euclideousHoldLatchMode {
                         case .hold:
                             if livePool.srcCount(chanMask: p.globalSrcChanMask, cableMask: 0b1111) > 0 {

@@ -5647,6 +5647,53 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(afterSwitch.isEmpty, "a mode switch must drop the previous mode's frozen/latched notes, not carry them over: got \(afterSwitch)")
         assertNothingLeftSounding(e)
     }
+    // REGRESSION (adversarial review, 2026-10-21): the reset-on-mode-change check used to live inside
+    // `case .midi:`, so it never ran while the source was CHORDS/KEY — leaving the frozen pool from before
+    // the detour to resume unchanged the moment the page switched back to MIDI IN with HOLD still the
+    // stored mode, even though nothing is currently held.
+    // NOTE: the CHORDS-phase pool is deliberately non-empty (`chord([72])`, unrelated to the HOLD'd note) —
+    // this test is isolating the mode-reset fix, not the SEPARATE, pre-existing gap where the row's own
+    // "nothing held anywhere, skip it" guard (`euclideousChordsActive`, Router.swift:3448) checks each
+    // lane's legacy per-lane `sourceModeResolved` instead of the page-level `euclideousNoteSourceResolved`
+    // the ONE-GLOBAL-SOURCE ferry (2026-10-12) made authoritative — found while debugging this fix,
+    // reported separately, not touched here (out of scope for this bug).
+    func testEuclideousHoldDoesNotResumeAStalePoolAfterASourceDetourThroughChords() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, rate: .r1_16, sourceMode: .midi)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty()
+                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                 return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousHoldLatchMode = .hold
+        let midiHoldBox = SnapshotBuilder.build(from: st)
+        st.euclideousNoteSource = .chords   // euclideousHoldLatchMode stays .hold in the DOCUMENT — SnapshotBuilder
+                                            // forces the RESOLVED value to nil here; the stored field is untouched.
+        let chordsBox = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func drive(_ box: SnapshotBox, _ pool: NotePool, windows: Int) -> (Int64, Int64) {
+            let start = Int64(ts)
+            for _ in 0..<windows {
+                router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
+                               sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            return (start, Int64(ts))
+        }
+        _ = drive(midiHoldBox, chord([60]), windows: 8)         // HOLD freezes [60]
+        _ = drive(chordsBox, chord([72]), windows: 8)           // detour through CHORDS (something else held, so the
+                                                                 // row's own guard passes honestly) — must reset the stale pool
+        // BACK to MIDI IN, nothing physically held: a stale, unreset pool would resume sounding 60 here.
+        let (backStart, backEnd) = drive(midiHoldBox, NotePool(), windows: 8)
+        router.process(box: midiHoldBox, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo,
+                       sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        let afterDetour = Set(e.ons.filter { $0.cable == 1 && $0.sample >= backStart && $0.sample < backEnd }.map { Int($0.note) })
+        XCTAssertTrue(afterDetour.isEmpty, "a CHORDS/KEY detour must drop HOLD's frozen pool, not let it resume on return to MIDI IN: got \(afterDetour)")
+        assertNothingLeftSounding(e)
+    }
 
 
     // MARK: - SAMPLE-ACCURATE ONSETS (Paul 2026-10-18) — the "odd timing" investigation.
