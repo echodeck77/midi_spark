@@ -5,15 +5,11 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
-## ★ EUCLIDEOUS — header HOLD/LATCH: source-detour reset fix (2026-10-21; `Docs/euclideous-status-log.md`)
+## ★ EUCLIDEOUS — header HOLD/LATCH: source-detour reset fix + CHORDS/KEY guard fix (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "Header: output rings... HOLD/LATCH" lines in `Docs/euclideous-device-verification-debt.md`.
-- [ ] (noted, found while fixing the above, NOT fixed — separate bug) `euclideousChordsActive` (Router.swift:3448, the
-  "nothing held anywhere, skip the row" guard's CHORDS exception) checks each lane's legacy per-lane `sourceModeResolved`
-  instead of the page-level `euclideousNoteSourceResolved` the ONE-GLOBAL-SOURCE ferry (2026-10-12) made authoritative —
-  a page-level CHORDS/KEY session with no lane ever having had its own legacy `sourceMode` set to `.chords` (the normal
-  case post-rework) and nothing else held anywhere won't register as "active" by this check. Likely latent (most real
-  sessions have SOMETHING else held, or inherited the old per-lane field from before the rework), not confirmed to be
-  audible — flag to Paul before touching it.
+- [x] `euclideousChordsActive` → `euclideousGeneratedSourceActive` (Router.swift:3448) now reads the page-level
+  `euclideousNoteSourceResolved` instead of each lane's legacy per-lane field, and covers KEY as well as CHORDS — fixed,
+  tested (`testEuclideousChordsAndKeyPlayWithGenuinelyNothingHeldAnywhere`), landed `edaaa09`.
 
 ## ★ EUCLIDEOUS — LANE STRIP: the riff contour over the notes keys, in place of the comet (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "Lane strip" lines in `Docs/euclideous-device-verification-debt.md`.
