@@ -14300,4 +14300,68 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(feed.strikes(lane: 0).filter { $0.riffVel == 0 && $0.notesVel == 70 }.count, 3)
         XCTAssertEqual(feed.strikes(lane: 0).filter { $0.riffVel == 100 }.count, 2)
     }
+
+    // MARK: - RHYTHM DYNAMICS ferry (2026-10-21) §9 test 1 — golden renders captured BEFORE any DYNAMICS engine change (origin/main 612c365).
+    // The 20 factory presets' 8- and 32-bar goldens above are the preset half (verified green on 612c365 before this ferry touched anything).
+    // This is the other half: synthetic lanes covering what the presets don't (every direction, TILT, hand-edited hits, rhythm restarts, mute, the notes
+    // layer, FX RATCH / GATE / TIE / VEL, the test-only mask's ACCENT and SWELL, transport restarts). With every DYNAMICS field absent (nil) OR explicitly at its
+    // default (DEPTH 0, ACCENTS 1, SHAPE 0, SPREAD 0, APPLY TO VEL) each scenario must render this exact note stream.
+
+    private struct DynScenario { let name: String; let lines: [EuclidLine]; let ranks: [Int]; let fx: EuclideousFX; let beats: Double; let restartAt: [Double]; let maskOn: Bool }
+    private func dynScenarios(_ tweak: (inout EuclidLine) -> Void = { _ in }) -> [DynScenario] {
+        func line(_ pulses: Int, _ steps: Int, _ rate: ArpRate, _ dir: EuclidDir, gate: Double = 0.5, vel: Int = 100, lit: UInt8 = 0, _ more: (inout EuclidLine) -> Void = { _ in }) -> EuclidLine {
+            var l = EuclidLine(target: 0, pulses: pulses, steps: steps)
+            l.gate = gate; l.velocityAbsolute = vel; l.rate = rate; l.useRiff = true; l.litNotes = lit; l.riffOn = true; l.sourceMode = .midi
+            l.riffLength = 8; l.notesOn = true; l.direction = dir; l.riffOnRest = .skip
+            more(&l); tweak(&l); return l
+        }
+        let ranks = [1, 3, 0, 5, 2, 0, 8, 4]
+        let fx = fxCells([(0, 1, 3), (0, 4, 2), (1, 0, 50), (1, 3, 80), (2, 3, 1), (3, 6, 120), (3, 4, 70)])
+        let four = [
+            line(5, 8, .r1_8, .fwd),
+            line(3, 8, .r1_16, .bkw, gate: 0.9, vel: 90),
+            line(5, 8, .r1_8, .pingpong, lit: 0b101) { $0.tilt = 0.5; $0.rotate = 2 },
+            line(4, 7, .r1_8, .fwd, gate: 0.7) { $0.customHits = [true, false, true, true, false, true, false]; $0.restartRhythmBars = [2] }
+        ]
+        var muted = line(5, 8, .r1_8, .fwd, lit: 0b1001); muted.muteCells16 = 0b1111_0000_1010_0101; muted.muteUnit = EuclideousMuteUnit.pass.rawValue
+        var m1 = EuclidLineMask(); m1.enabled = true; m1.mode = .accent; m1.accentAmount = 24; m1.pulses = 3; m1.steps = 8
+        var m2 = EuclidLineMask(); m2.enabled = true; m2.mode = .swell; m2.swellStep = 8; m2.pulses = 8; m2.steps = 8
+        let accent = line(5, 8, .r1_8, .fwd) { $0.mask = m1 }
+        let swell = line(4, 4, .r1_4, .fwd, gate: 0.6) { $0.mask = m2 }
+        return [
+            DynScenario(name: "four lanes, no FX", lines: four, ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false),
+            DynScenario(name: "four lanes, FX ratch/gate/tie/vel", lines: four, ranks: ranks, fx: fx, beats: 16, restartAt: [], maskOn: false),
+            DynScenario(name: "four lanes, FX, transport restarts", lines: four, ranks: ranks, fx: fx, beats: 16, restartAt: [5.5, 11.25], maskOn: false),
+            DynScenario(name: "muted lane with lit notes", lines: [muted], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false),
+            DynScenario(name: "mask ACCENT", lines: [accent], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: true),
+            DynScenario(name: "mask SWELL", lines: [swell], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: true)
+        ]
+    }
+    private func dynStreamHash(_ sc: DynScenario) -> (hash: UInt64, ons: Int) {
+        let e = fxRun(fxBox(sc.lines, ranks: sc.ranks, fx: sc.fx), beats: sc.beats, restartAt: sc.restartAt, maskOn: sc.maskOn)
+        var h: UInt64 = 0xcbf29ce484222325
+        func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
+            mix(UInt64(bitPattern: ev.sample)); mix(UInt64(ev.cable)); mix(UInt64(ev.status)); mix(UInt64(ev.chan)); mix(UInt64(ev.note)); mix(UInt64(ev.vel))
+        }
+        return (h, e.ons.count)
+    }
+    /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main 612c365, before the DYNAMICS ferry changed anything.
+    private let dynGolden: [String: (UInt64, Int)] = [
+        "four lanes, no FX": (2369415864824715333, 800),
+        "four lanes, FX ratch/gate/tie/vel": (15251175310064653733, 1008),
+        "four lanes, FX, transport restarts": (18130081851072502405, 2072),
+        "muted lane with lit notes": (3312976233490713525, 208),
+        "mask ACCENT": (5253426162309938749, 128),
+        "mask SWELL": (13038166893529998973, 104)
+    ]
+    func testSyntheticLanesRenderTheSameNoteStreamBeforeAndAfterDynamics() {
+        for sc in dynScenarios() {
+            let got = dynStreamHash(sc)
+            XCTAssertGreaterThan(got.ons, 0, "\(sc.name): the scenario must actually sound")
+            guard let want = dynGolden[sc.name] else { XCTFail("no golden for \(sc.name): (\(got.hash), \(got.ons))"); continue }
+            XCTAssertEqual(got.ons, want.1, "\(sc.name): note-on count")
+            XCTAssertEqual(got.hash, want.0, "\(sc.name): the note-on/off/velocity stream must be bit-identical")
+        }
+    }
 }
