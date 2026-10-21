@@ -38,6 +38,7 @@ EXCLUSIVE_FILES = {
     "LaneStripTests.swift",
     "LaneStripFuzzTests.swift",
     "LaneSoloTests.swift",
+    "RestartFlashTests.swift",
     "RiffGridArrowFuzzTests.swift",
 }
 

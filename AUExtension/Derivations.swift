@@ -9283,3 +9283,93 @@ func euclideousAppendSilencedBySolo(_ s: String, silenced: Bool) -> String {
     guard silenced else { return s }
     return s.isEmpty ? euclideousSilencedBySoloPhrase : s + ", " + euclideousSilencedBySoloPhrase
 }
+
+// MARK: - RESTART FLASH (2026-10-21) — the RHYTHM tab's two restart tiles flash every time their lane restarts
+// "Flash in a stylish way every time the rhythm or melody restarts, including its natural restart point when it's on FREE mode" (Paul). Everything here is pure and built from the engine's OWN origins — the
+// rhythm / melody chain origins the Router's per-tick core reads (`euclideousRhythmChainOrigin`, `euclideousMelodyChainOrigin`), the per-tick phase (`euclideousLaneChainPhase`) and the walk mirror
+// (`euclideousWalkTick`) — so the flash and the sound cannot disagree about when a restart happened (the recurring bug class: one derivation, never two).
+//   · RHYTHM, with a chain: each rhythm restart (a chain mark; the first at beat 0). FREE: its natural restart — the start of every pass (lap) of the pattern.
+//   · MELODY, with a chain: each melody restart (the first hit of a restarting pass). FREE: its natural restart — the riff walk coming back to its first step (every period × EVERY walk ordinals), which is NOT
+//     tied to the pass (a riff of 8 over 5 hits restarts every 8 hits). A riff that is off, or of length 1 (nothing to come back to), has none.
+
+enum EuclideousRestartKind: Equatable { case rhythm, melody }
+
+/// How long a restart's flash lives, and what each part of it does (seconds since the restart).
+enum EuclideousRestartFlash {
+    static let life = 0.7
+    static let glowTau = 0.2          // the wash / rim / glow decay e^(−t ÷ τ)
+    static let sweepSeconds = 0.42    // the light band crossing the tile
+    static let spinSeconds = 0.5      // the ↻ icon's one full turn
+}
+
+/// Seconds since the lane's last restart of `kind` at REAL beat `beat`, or nil when there has been none within `lifeSeconds` (so nothing to draw). `secondsPerBeat` is 60 ÷ tempo.
+func euclideousRestartSinceSeconds(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneConfig, beat: Double, secondsPerBeat spb: Double,
+                                   lifeSeconds: Double = EuclideousRestartFlash.life) -> Double? {
+    guard c.sub > 0, c.n > 0, spb > 0, beat.isFinite else { return nil }
+    let mNow = c.swingA == 1 ? beat : musicalOf(beat, stepBeats: c.swingStepBeats, a: c.swingA)
+    func realOfMusical(_ m: Double) -> Double { c.swingA == 1 ? m : realOf(m, stepBeats: c.swingStepBeats, a: c.swingA) }
+    /// `s` seconds since the real beat of a musical event; nil when it hasn't happened yet or is older than the flash's life.
+    func since(musicalEvent m: Double) -> Double? {
+        let s = (beat - realOfMusical(m)) * spb
+        return s >= -1e-9 && s <= lifeSeconds + 1e-9 ? max(0, s) : nil
+    }
+    let lifeTicks = Int64((lifeSeconds / spb / c.sub).rounded(.up)) + 2
+    let k0 = Int64((mNow / c.sub).rounded(.down))
+    let cycleLen = euclidCycleLen(c.dir, n: c.n)
+    switch kind {
+    case .rhythm:
+        if !c.chains.rhythm.isFree {
+            return since(musicalEvent: euclideousRhythmChainOrigin(beat: mNow, barBeats: c.chains.barBeats, chain: c.chains.rhythm))
+        }
+        var k = k0
+        while k >= k0 - lifeTicks {
+            if euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: k, chains: c.chains, legacySpanBeats: c.spanBeats).raw == 0 {
+                return since(musicalEvent: Double(k) * c.sub)
+            }
+            k -= 1
+        }
+        return nil
+    case .melody:
+        if !c.chains.melody.isFree {
+            return since(musicalEvent: euclideousMelodyChainOrigin(beat: mNow, lapBeats: c.chains.lapBeats, barBeats: c.chains.barBeats,
+                                                                    rhythmChain: c.chains.rhythm, melodyChain: c.chains.melody))
+        }
+        guard c.riffOn, c.playsRiff else { return nil }
+        let period = euclideousFXWalkPeriod(dir: c.riffDir, length: c.length, stride: c.stride)
+        guard period > 1 else { return nil }
+        let cyc = Int64(period) * Int64(max(1, c.every))
+        var k = k0
+        while k >= k0 - lifeTicks {
+            let w = euclideousWalkTick(c, tick: k)
+            // ADV HIT counts hits: the walk is back at its first step on the hit whose ordinal is a whole number of cycles. ADV STEP counts ticks: on the tick whose ordinal is.
+            if (c.advanceStep || w.isHit), w.advOrd >= 0, w.advOrd % cyc == 0 { return since(musicalEvent: Double(k) * c.sub) }
+            k -= 1
+        }
+        return nil
+    }
+}
+
+/// What one restart's flash looks like `seconds` after it, as plain numbers the painter draws (all 0…1 unless noted). `scale` is the page's PULSE level (0 OFF · 0.6 SUBTLE · 1 FULL); nil when off or over.
+/// Reduce Motion keeps the glow and drops the two moving parts (the sweep and the spin), as the other pulse effects do.
+struct EuclideousRestartFlashLook: Equatable {
+    var wash: Double      // the lane colour lifting the tile
+    var rim: Double       // the white rim
+    var glow: Double      // the outer glow's strength
+    var sweep: Double?    // the light band's position across the tile, 0 (left) … 1 (right); nil once it has crossed
+    var sweepAlpha: Double
+    var spinDegrees: Double   // the ↻ icon's rotation, 0 … 360
+    var hot: Double       // how white the icon reads
+}
+func euclideousRestartFlashLook(since seconds: Double, scale p: Double, reduceMotion: Bool) -> EuclideousRestartFlashLook? {
+    typealias F = EuclideousRestartFlash
+    guard p > 0, seconds >= 0, seconds <= F.life else { return nil }
+    let decay = exp(-seconds / F.glowTau) * p
+    guard decay >= 0.01 else { return nil }
+    func easeOut(_ x: Double) -> Double { let t = max(0, min(1, x)); return 1 - pow(1 - t, 3) }
+    let sweeping = !reduceMotion && seconds < F.sweepSeconds
+    return EuclideousRestartFlashLook(wash: decay, rim: decay, glow: decay,
+                                      sweep: sweeping ? easeOut(seconds / F.sweepSeconds) : nil,
+                                      sweepAlpha: sweeping ? p * (1 - seconds / F.sweepSeconds) : 0,
+                                      spinDegrees: reduceMotion ? 0 : 360 * easeOut(seconds / F.spinSeconds),
+                                      hot: decay)
+}
