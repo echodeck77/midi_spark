@@ -329,18 +329,16 @@ struct EuclidCometBar: View {
         let insetL: CGFloat = exactStyle ? 0 : 6, insetR: CGFloat = exactStyle ? 0 : 6
         // SAME FORMULA the Canvas below independently recomputes from `size.width` (which `.frame(width:
         // width)` at the very end of this body pins to this SAME `width` — the two can't disagree) — reused
-        // here, at body scope, only for the gesture's rotate-sensitivity and the footer-band accessibility
-        // overlay below, neither of which has access to the Canvas's own local `size`.
+        // here, at body scope, only for the gesture's rotate-sensitivity below, which has no access to the Canvas's own local `size`.
         let usableOuter = max(1, width - insetL - insetR)
         let groupSize = euclidStepGroupSize(forRate: rate)
         let groupGeo = grouped ? euclidGroupedBoxGeometry(n: n, g: groupSize, usableWidth: usableOuter) : nil
         let boxGeo = euclidBoxGeometry(n: n, usableWidth: usableOuter)
         // STEP-GROUPS (2026-10-14 ferry): one shared step-position list for both the gesture's rotate-
-        // sensitivity and the footer-band accessibility overlay — `groupGeo` when grouped, else the plain
+        // sensitivity — `groupGeo` when grouped, else the plain
         // uniform-pitch list, which reduces `rotateStepPt` below to EXACTLY `boxGeo.pitch` (byte-identical
         // for every ungrouped caller, not a special case: with xs[i] = i×pitch, (xs[n-1]-xs[0])/(n-1) = pitch).
         let stepXs: [CGFloat] = groupGeo?.xs ?? (0..<n).map { CGFloat($0) * boxGeo.pitch }
-        let stepW: CGFloat = groupGeo?.stepW ?? boxGeo.boxW
         let rotateStepPt: CGFloat = n > 1 ? (stepXs[n - 1] - stepXs[0]) / CGFloat(n - 1) : boxGeo.pitch
         // the lane's position in its pass at a UI beat: with an active restart chain it is measured from the RHYTHM origin (the engine's own core); with both chains FREE it is the legacy span formula
         let cometRawAt: (Double) -> Double = { b in
@@ -579,7 +577,7 @@ struct EuclidCometBar: View {
             Color.clear
                 .allowsHitTesting(false)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Step strip")
+                .accessibilityLabel("Lane \(pulseLane + 1) step strip")
                 .accessibilityValue(euclideousStripAppendLive(strip.hitsPhrase, onStep: onStep, muted: mutedAt?(beatNow) ?? false))
         }
         }

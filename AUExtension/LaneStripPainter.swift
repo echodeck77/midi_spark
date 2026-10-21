@@ -159,7 +159,8 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         let strike = i < d.noteStrikes.count ? d.noteStrikes[i] : nil
         let env = strike.map { euclideousPulseEnvelopes(velocity: $0.velocity, seconds: $0.seconds, scale: d.scale) } ?? .none
         let look = euclideousStripKeyLook(env, scale: d.scale, reduceMotion: d.reduceMotion)
-        if plays && look.glowAlpha > 0.01 {
+        // a strike lights the key it lands on even when the pass shown says the notes were not due there (the engine struck: the display must not hide it)
+        if look.glowAlpha > 0.01 {
             ctx.drawLayer { layer in
                 layer.addFilter(.shadow(color: d.tint.opacity(look.glowAlpha), radius: 5))   // blur 10, spread 1
                 layer.fill(RoundedRectangle(cornerRadius: M.keyRadius + 1).path(in: key.insetBy(dx: -1, dy: -1)), with: .color(plays ? P.keyPlays : P.keyDark))
@@ -167,6 +168,9 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         }
         ctx.fill(shape, with: .color(plays ? P.keyPlays : P.keyDark))
         ctx.stroke(RoundedRectangle(cornerRadius: M.keyRadius - 0.5).path(in: key.insetBy(dx: 0.5, dy: 0.5)), with: .color(plays ? P.keyPlaysBorder : P.keyDarkBorder), lineWidth: 1)
+        if look.ringAlpha > 0.01 {
+            ctx.stroke(RoundedRectangle(cornerRadius: M.keyRadius - 0.75).path(in: key.insetBy(dx: 0.75, dy: 0.75)), with: .color(d.tint.opacity(look.ringAlpha)), lineWidth: 1.5)
+        }
         guard plays, let k else { continue }
         // the lane bar — or, below 100% CHANCE, a ring that says "may skip"
         let barW = max(0, key.width - 2 * M.barInset)
@@ -178,9 +182,6 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
                 let bar = CGRect(x: key.minX + M.barInset, y: key.maxY - M.barBottom - M.barH, width: barW, height: M.barH)
                 ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: bar), with: .color(d.tint))
             }
-        }
-        if look.ringAlpha > 0.01 {
-            ctx.stroke(RoundedRectangle(cornerRadius: M.keyRadius - 0.75).path(in: key.insetBy(dx: 0.75, dy: 0.75)), with: .color(d.tint.opacity(look.ringAlpha)), lineWidth: 1.5)
         }
         if let label = k.label, euclideousStripShowsKeyLabel(keyWidth: key.width) {
             let s = fitted(ctx, label, size: M.keyLabelSize, maxWidth: key.width - 2)

@@ -1801,16 +1801,6 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousLaneOutChipStyle(routed: false, mainOn: false), .plain)
     }
 
-    // MARK: - FERRY §5 — the hit-flash style, the 4 literal cases plus the reasoned `.miss` extension
-    func testEuclideousHitFlashStyleMatchesAllFourLiteralCasesPlusTheMissExtension() {
-        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hit(riffStep: 3), onRest: .skip), .solid, "a hit on a note is always solid")
-        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitOnRest(riffStep: 2), onRest: .fill), .solid, "FILL substitutes a real note")
-        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitOnRest(riffStep: 2), onRest: .skip), .outline, "SKIP plays nothing new")
-        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitOnRest(riffStep: 2), onRest: .tie), .outline, "TIE plays nothing new — the held note carries on")
-        XCTAssertEqual(euclideousHitFlashStyle(footerState: .miss, onRest: .skip), .outline, "nothing can ever sound here either — the reasoned extension")
-        XCTAssertEqual(euclideousHitFlashStyle(footerState: nil, onRest: .skip), .solid, "no footer info at all (the regular BUILD-page editor) ⇒ unchanged default")
-    }
-
     func testEuclideousKeyIsFlatMatchesTheStandardCircleOfFifthsRoots() {
         for root in [5, 10, 3, 8, 1] { XCTAssertTrue(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional flat-key root") }
         for root in [0, 7, 2, 9, 4, 11, 6] { XCTAssertFalse(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional sharp-key root (6/F#-Gb defaults sharp)") }

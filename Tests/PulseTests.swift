@@ -64,38 +64,6 @@ final class PulseTests: XCTestCase {
         XCTAssertFalse(euclideousPulseIsGap(state: .miss, onRest: .skip, riffOn: true)); XCTAssertFalse(euclideousPulseIsGap(state: .hit(riffStep: 2), onRest: .skip, riffOn: true))
     }
 
-    // MARK: 4. the level mark
-    func testLevelMarkBandRiseAndAlpha() {
-        // the spec's tile: 44 tall, a 12-tall footer 3 above the tile's bottom -> footer top 29: the band runs from y 29 up to y 2 (27 tall)
-        let band = euclideousPulseMarkBand(tileHeight: 44, footerTopY: 29)
-        XCTAssertEqual(band.bottomY, 29); XCTAssertEqual(band.topY, 2); XCTAssertEqual(band.height, 27)
-        XCTAssertEqual(euclideousPulseMarkRise(velocity: 127, band: band.height, seconds: 0.06), 27, accuracy: 1e-9)
-        XCTAssertEqual(euclideousPulseMarkRise(velocity: 64, band: band.height, seconds: 0.06), 13.6, accuracy: 0.05)
-        XCTAssertEqual(euclideousPulseMarkRise(velocity: 64, band: band.height, seconds: 0.03), 6.8, accuracy: 0.03, "half that at 30 ms")
-        XCTAssertEqual(euclideousPulseMarkRise(velocity: 127, band: band.height, seconds: 5), 27, accuracy: 1e-9, "it stays at the velocity")
-        XCTAssertEqual(euclideousPulseMarkRise(velocity: 127, band: band.height, seconds: 0, instant: true), 27, accuracy: 1e-9, "Reduce Motion: at once")
-        // the real tile (source): a 14pt footer flush with the bottom of a 44 tall tile -> band y 30 … 2, 28 tall
-        let real = euclideousPulseMarkBand(tileHeight: 44, footerTopY: 44 - 14)
-        XCTAssertEqual(real.bottomY, 30); XCTAssertEqual(real.height, 28)
-        // m at half a lap is 0.95 × e^(−1); m scales with the lap, so a longer lap holds it longer
-        near(euclideousPulseMarkAlpha(seconds: 1, lapSeconds: 2, scale: 1), 0.95 * exp(-1.0))
-        XCTAssertGreaterThan(euclideousPulseMarkAlpha(seconds: 1, lapSeconds: 8, scale: 1), euclideousPulseMarkAlpha(seconds: 1, lapSeconds: 2, scale: 1))
-        near(euclideousPulseMarkAlpha(seconds: 0, lapSeconds: 4, scale: 0.6), 0.95 * 0.6); XCTAssertEqual(euclideousPulseMarkAlpha(seconds: 0, lapSeconds: 4, scale: 0), 0)
-        near(euclideousPulseLapSeconds(cycleLen: 8, stepBeats: 0.5, tempo: 120), 2.0); near(euclideousPulseLapSeconds(cycleLen: 16, stepBeats: 0.25, tempo: 180), 16 * 0.25 * 60 / 180)
-    }
-
-    // MARK: 5. the tail
-    func testTailLengthGrowsWithVelocityAndIsCutAtTheLeadingEdge() {
-        XCTAssertEqual(euclideousPulseTailLength(vis: 0), 10); XCTAssertEqual(euclideousPulseTailLength(vis: 1), 70)
-        let free = euclideousPulseTail(vis: 1, dotX: 200, areaMinX: 0, areaMaxX: 300, movingRight: true)
-        XCTAssertEqual(free.length, 70); XCTAssertEqual(free.backX, 130)
-        let cut = euclideousPulseTail(vis: 1, dotX: 30, areaMinX: 0, areaMaxX: 300, movingRight: true)
-        XCTAssertEqual(cut.length, 30, "cut off at the step area's leading edge when the dot is 30 from it"); XCTAssertEqual(cut.backX, 0)
-        let back = euclideousPulseTail(vis: 0, dotX: 100, areaMinX: 0, areaMaxX: 300, movingRight: false)
-        XCTAssertEqual(back.length, 10); XCTAssertEqual(back.backX, 110, "a BKW comet trails to its right")
-        XCTAssertEqual(euclideousPulseTail(vis: 1, dotX: 295, areaMinX: 0, areaMaxX: 300, movingRight: false).length, 5)
-    }
-
     // MARK: 6. the ripple
     func testRippleGrowsWithVelocityAndFadesOut() {
         let end = euclideousPulseRipple(d0: 12, velocity: 127, seconds: 0.3599, scale: 1)!
@@ -132,10 +100,8 @@ final class PulseTests: XCTestCase {
     func testTheReduceMotionAndOffFilter() {
         for e in EuclideousPulseEffect.allCases { XCTAssertEqual(euclideousPulseFilter(e, scale: 0, reduceMotion: false), .off, "OFF: \(e)"); XCTAssertEqual(euclideousPulseFilter(e, scale: 0, reduceMotion: true), .off) }
         for e in EuclideousPulseEffect.allCases { XCTAssertEqual(euclideousPulseFilter(e, scale: 1, reduceMotion: false), .full, "FULL: \(e)") }
-        for e in [EuclideousPulseEffect.keyDipMove, .dotSwell, .tail, .ripple, .puckSwell, .arrowScale] { XCTAssertEqual(euclideousPulseFilter(e, scale: 1, reduceMotion: true), .off, "Reduce Motion: no \(e)") }
-        for e in [EuclideousPulseEffect.keyDipOverlay, .glow, .wash, .overlay, .noteName, .letter] { XCTAssertEqual(euclideousPulseFilter(e, scale: 0.6, reduceMotion: true), .full, "Reduce Motion keeps \(e)") }
-        XCTAssertEqual(euclideousPulseFilter(.flareCore, scale: 1, reduceMotion: true), .fixedCore, "the core stays, at a fixed 10 pt")
-        XCTAssertEqual(euclideousPulseFilter(.levelMark, scale: 1, reduceMotion: true), .instantRise, "the mark stays, drawn at its height at once")
+        for e in [EuclideousPulseEffect.keyDipMove, .ripple, .puckSwell, .arrowScale] { XCTAssertEqual(euclideousPulseFilter(e, scale: 1, reduceMotion: true), .off, "Reduce Motion: no \(e)") }
+        for e in [EuclideousPulseEffect.glow, .wash, .overlay, .noteName, .letter] { XCTAssertEqual(euclideousPulseFilter(e, scale: 0.6, reduceMotion: true), .full, "Reduce Motion keeps \(e)") }
     }
 
     // MARK: the feed, the ruling, the tile mapping
@@ -153,14 +119,13 @@ final class PulseTests: XCTestCase {
                        "a rest flash (kind 2) is not a strike; the notes layer's velocity is the louder of its notes")
         // the anchor is beat 0 at t0, 120 BPM: beat b is b × 0.5 s after t0 — wall time, fixed at arrival
         XCTAssertEqual(s.map { $0.onsetAt - t0.timeIntervalSinceReferenceDate }, [0.5, 1.5, 2.0])
-        XCTAssertEqual(f.latestRiff(lane: 1)?.onsetBeat, 4); XCTAssertEqual(f.latestNotes(lane: 1)?.onsetBeat, 3); XCTAssertNil(f.latest(lane: 0))
+        XCTAssertEqual(f.latestHappened(lane: 1, now: .infinity, riff: true)?.onsetBeat, 4); XCTAssertEqual(f.latestHappened(lane: 1, now: .infinity, riff: false)?.onsetBeat, 3); XCTAssertNil(f.latest(lane: 0))
         // a beat that goes back (a restart or a loop) drops the old strikes
         ingest(f, 1, [ev(0.5, notes: [60], vels: [90], riff: true)]); XCTAssertEqual(f.strikes(lane: 1).count, 1)
-        // a stop stamps the moment and settles for 1.5 s; the marks fade over the same window; a start clears the last run
+        // a stop stamps the moment and settles for 1.5 s; a start clears the last run
         f.noteTransport(playing: false, at: t0); XCTAssertTrue(f.isSettling(now: t0.addingTimeInterval(1.4))); XCTAssertFalse(f.isSettling(now: t0.addingTimeInterval(1.6)))
-        XCTAssertEqual(f.markFade(now: t0.addingTimeInterval(0.75)), 0.5, accuracy: 1e-9); XCTAssertEqual(f.markFade(now: t0.addingTimeInterval(3)), 0)
         f.noteTransport(playing: false, at: t0.addingTimeInterval(1)); XCTAssertEqual(f.stoppedAt, t0, "a second 'stopped' reading is not a new edge")
-        f.noteTransport(playing: true, at: t0.addingTimeInterval(5)); XCTAssertTrue(f.strikes(lane: 1).isEmpty, "a start drops the strikes of the last run…"); XCTAssertNil(f.stoppedAt); XCTAssertEqual(f.markFade(now: t0), 1)
+        f.noteTransport(playing: true, at: t0.addingTimeInterval(5)); XCTAssertTrue(f.strikes(lane: 1).isEmpty, "a start drops the strikes of the last run…"); XCTAssertNil(f.stoppedAt)
         f.noteTransport(playing: false, at: t0.addingTimeInterval(5.1))
         f.ingest(lane: 0, events: [ev(1, notes: [60], vels: [90], riff: true)], anchorBeat: 0, anchorAt: t0.addingTimeInterval(5.05), tempo: 120)   // a strike that arrived just before the start edge was read
         f.noteTransport(playing: true, at: t0.addingTimeInterval(5.2)); XCTAssertEqual(f.strikes(lane: 0).count, 1, "…but not one that belongs to the new run (within 0.5 s of the start)")
@@ -169,11 +134,6 @@ final class PulseTests: XCTestCase {
         ingest(f, 2, (0..<200).map { ev(Double($0), notes: [60], vels: [90], riff: true) }); XCTAssertEqual(f.strikes(lane: 2).count, EuclideousPulseFeed.ringCap)
         // an event without velocities (should not happen) still pulses, at a middling 100
         ingest(f, 3, [ev(1, notes: [60], vels: [], riff: true)]); XCTAssertEqual(f.strikes(lane: 3).first?.riffVel, 100)
-    }
-    func testTheCometBarFollowsTheRiffWhenItIsOnAndTheNotesWhenItIsOff() {
-        XCTAssertEqual(euclideousPulseStrikeVelocity(riffOn: true, riffVel: 90, notesVel: 50), 90)
-        XCTAssertEqual(euclideousPulseStrikeVelocity(riffOn: true, riffVel: 0, notesVel: 50), 0, "riff on: a notes-only strike (the notes on a rest) passes through")
-        XCTAssertEqual(euclideousPulseStrikeVelocity(riffOn: false, riffVel: 0, notesVel: 50), 50, "riff off: the notes layer is the lane's only voice (for now)")
     }
     func testTileMappingAndPerTileLatestStrikes() {
         // FWD: tick k reads step k; BKW reads n−1−k; PING-PONG n−1, … bounces
@@ -193,14 +153,11 @@ final class PulseTests: XCTestCase {
         _ = feed.resolveTiles(lane: 0, key: 7, tileOf: { calls += 1; return tileOf($0) }); XCTAssertEqual(calls, 0, "a strike is mapped once for a given geometry")
         _ = feed.resolveTiles(lane: 0, key: 8, tileOf: { calls += 1; return tileOf($0) }); XCTAssertEqual(calls, 5, "…and again when the geometry changes")
         let now = 4.2 * 0.5   // beat 4.2: the strike at 4.5 is still in the future
-        let on = euclideousPulseTileStrikes(resolved.map { var r = $0; r.onsetAt = r.onsetBeat * 0.5; return r }, riffOn: true, tiles: 8, now: now)
-        XCTAssertEqual(on[0]?.velocity, 60, "beat 4.0 maps back onto tile 0 and replaces beat 0's strike"); XCTAssertEqual(on[0]?.seconds ?? 0, 0.1, accuracy: 1e-9)
-        XCTAssertNil(on[1], "riff on: the notes-only strike at beat 0.5 passes through, and the strike at 4.5 has not happened yet"); XCTAssertEqual(on[2]?.velocity, 60)
-        let off = euclideousPulseTileStrikes(resolved.map { var r = $0; r.onsetAt = r.onsetBeat * 0.5; return r }, riffOn: false, tiles: 8, now: now)
-        XCTAssertNil(off[0], "riff off: only the notes layer's strike counts"); XCTAssertEqual(off[1]?.velocity, 80)
-        XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, now: now)?.velocity, 60, "the latest strike that has happened by beat 4.2 is the one at 4.0")
-        XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, now: 4.6 * 0.5)?.velocity, 110)
-        XCTAssertNil(euclideousPulseLatestStrike([], riffOn: true, now: 1))
+        // each layer keeps its own latest strike per step (the lane strip's chip reads the riff's, its key the notes')
+        let (riff, notes) = euclideousStripTileStrikes(resolved.map { var r = $0; r.onsetAt = r.onsetBeat * 0.5; return r }, tiles: 8, now: now)
+        XCTAssertEqual(riff[0]?.velocity, 60, "beat 4.0 maps back onto tile 0 and replaces beat 0's strike"); XCTAssertEqual(riff[0]?.seconds ?? 0, 0.1, accuracy: 1e-9)
+        XCTAssertNil(riff[1], "the notes-only strike at beat 0.5 is not a riff strike, and the strike at 4.5 has not happened yet"); XCTAssertEqual(riff[2]?.velocity, 60)
+        XCTAssertNil(notes[0], "only the notes layer's strikes count for a key"); XCTAssertEqual(notes[1]?.velocity, 80)
     }
 
     // MARK: MIX: the OUT buttons' frames are the row's own layout
@@ -218,7 +175,7 @@ final class PulseTests: XCTestCase {
     private func euclideousPulseButton(_ g: EuclideousMixGrid, _ lane: Int, _ b: Int) -> CGRect { euclideousMixOutButtonFrame(grid: g, lane: lane, button: b) }
 
     // MARK: 9.3 the pure cost of a frame
-    /// All four lanes at 16 steps of 1/16 at 180 BPM with a full 48-strike ring each: per frame the comet bars map every strike to its tile and work out 16 tiles' envelopes, marks and cores. This times ONLY that pure part on the
+    /// All four lanes at 16 steps of 1/16 at 180 BPM with a full 48-strike ring each: per frame the strips map every strike to its tile and work out 16 tiles' envelopes. This times ONLY that pure part on the
     /// build machine (the draw calls and the SwiftUI diff are device-owed); the bound is deliberately loose, the printed figure is what the report quotes.
     func testAFramesPureWorkIsCheap() {
         let sub = 0.25, tempo = 180.0
@@ -232,12 +189,11 @@ final class PulseTests: XCTestCase {
         for f in 0..<frames {
             let t = now + Double(f) * (1.0 / 60.0)
             for _ in 0..<4 {
-                let tiles = euclideousPulseTileStrikes(resolved, riffOn: true, tiles: 16, now: t)
-                for tile in tiles { if let s = tile {
+                let tiles = euclideousStripTileStrikes(resolved, tiles: 16, now: t)
+                for tile in tiles.riff + tiles.notes { if let s = tile {
                     let e = euclideousPulseEnvelopes(velocity: s.velocity, seconds: s.seconds, scale: 1)
-                    sink += e.k + e.b + euclideousPulseMarkAlpha(seconds: s.seconds, lapSeconds: 5.33, scale: 1)
+                    sink += e.k + e.b + e.f
                 } }
-                if let l = euclideousPulseLatestStrike(strikes, riffOn: true, now: t) { sink += euclideousPulseEnvelopes(velocity: l.velocity, seconds: l.seconds, scale: 1).a }
             }
         }
         let perFrame = Date().timeIntervalSince(start) / Double(frames)
@@ -268,7 +224,7 @@ final class PulseTests: XCTestCase {
             let t = now + Double(f) / 60.0
             for lane in 0..<4 {
                 let s = feed.resolveTiles(lane: lane, key: key, tileOf: tileOf)
-                sink &+= euclideousPulseTileStrikes(s, riffOn: true, tiles: 16, now: t).compactMap { $0 }.count
+                sink &+= euclideousStripTileStrikes(s, tiles: 16, now: t).riff.compactMap { $0 }.count
             }
         }
         let perFrame = Date().timeIntervalSince(start) / Double(frames)

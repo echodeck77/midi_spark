@@ -311,10 +311,7 @@ final class NotesTabTests: XCTestCase {
         XCTAssertEqual(euclideousNotesPips(states: st, when: 0b01, chance: 100), [1, 0, 0, 0, 0, 1, 0, 0], "PLAYS gives 1 and 6")
         XCTAssertEqual(euclideousNotesPips(states: st, when: 0b11, chance: 100), [1, 0, 1, 0, 1, 1, 0, 1])
         XCTAssertEqual(euclideousNotesPips(states: st, when: 0b10, chance: 50), [0, 0, 2, 0, 2, 0, 0, 2], "at CHANCE 50 they are rings")
-        XCTAssertEqual(euclideousNotesPipSteps(euclideousNotesPips(states: st, when: 0b10, chance: 100)), [3, 5, 8])
         XCTAssertEqual(euclideousNotesPips(states: [.hitTied(riffStep: 2)], when: 0b11, chance: 100), [0], "an FX-tied hit strikes nothing")
-        XCTAssertEqual(euclideousNotesPlayHitsPhrase([3, 5, 8]), "The notes play on hits 3, 5 and 8"); XCTAssertNil(euclideousNotesPlayHitsPhrase([]))
-        XCTAssertEqual(euclideousNotesPlayHitsPhrase([4]), "The notes play on hit 4")
     }
     func testGreyFootersOnlyWhenTheRiffIsOffTheNotesAreOnAndWhenIsOneSided() {
         XCTAssertTrue(euclideousNotesGreyFooters(riffOn: false, notesLayerOn: true, when: 0b01)); XCTAssertTrue(euclideousNotesGreyFooters(riffOn: false, notesLayerOn: true, when: 0b10))

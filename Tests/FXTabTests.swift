@@ -663,8 +663,5 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXTieColumns(fx, line: { var l = line; l.listenPitchMode = .shadow; return l }(), lane: 0), 0)
         let restRanks = [1, 0, 3, 4, 5, 6, 7, 8]
         XCTAssertTrue(euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: prediction.map { $0 + 1 }, riffRanksResolved: restRanks, fxTieColumns: 0b10).contains(.hitOnRest(riffStep: 2)))
-        // the comet flash for a tied hit is the OUTLINE (a hit that plays nothing new), even on a lane whose ON REST is FILL
-        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitTied(riffStep: 2), onRest: .fill), .outline)
-        XCTAssertEqual(euclideousHitFlashStyle(footerState: .hitOnRest(riffStep: 2), onRest: .fill), .solid, "a FILL rest still strikes")
     }
 }

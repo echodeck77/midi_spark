@@ -3274,32 +3274,6 @@ func euclideousLaneOutChipStyle(routed: Bool, mainOn: Bool) -> EuclideousLaneOut
     return mainOn ? .filled : .hollowDashed
 }
 
-// ── FERRY §5: FLASH ON A HIT THAT PLAYS NOTHING ─────────────────────────────────────────────────────────
-enum EuclideousHitFlashStyle: Equatable { case solid, outline }
-/// "The solid flash means a note started" (Paul's own stated rule, generalised one step further than his
-/// literal 4-case table): a rhythm hit that starts nothing gets an outline instead, matching LISTEN's own
-/// convention for a dropped hit. `footerState` is the SAME prediction the footer band already draws from
-/// (so the two can never disagree about which case applies); `onRest` is the one piece the footer's own
-/// `.hitOnRest` classification doesn't yet carry — FILL plays a substitute note (solid), SKIP/TIE play
-/// nothing new (outline). `.miss` (a genuine rhythm rest, OR "riff off with nothing lit" collapsing every
-/// step to miss) is a reasoned EXTENSION beyond the ferry's own four literal test cases, not one of them —
-/// flagged as such: nothing can sound there either, so the same "solid means a note started" principle
-/// says outline, but no worked example in the ferry covers this specific combination. A nil `footerState`
-/// (no footer info available at all, e.g. the regular BUILD-page EUCLID editor's own comet bar, which never
-/// passes `footerStates`) defaults to `.solid` — today's unchanged behaviour, since that editor has no
-/// riff/ON-REST concept to be wrong about.
-/// NOTES TAB ferry: `notesStrikeOnRest` — the lane's notes layer plays on rest hits (the layer is on, something is lit and RESTS is on), so a hit on a rest starts a note and flashes solid
-/// whatever ON REST says (FILL left ON REST: what it was for is now RESTS).
-func euclideousHitFlashStyle(footerState: EuclidFooterState?, onRest: EuclidRiffOnRest, notesStrikeOnRest: Bool = false) -> EuclideousHitFlashStyle {
-    guard let footerState else { return .solid }
-    switch footerState {
-    case .hit: return .solid
-    case .hitOnRest: return (onRest == .fill || onRest == .repeatLast || notesStrikeOnRest) ? .solid : .outline   // RIFF WALK ferry §6: REPEAT strikes a real note, flash it solid like FILL
-    case .hitTied: return .outline                    // a tied hit never strikes, whatever the lane's ON REST is
-    case .miss: return .outline
-    }
-}
-
 /// EXPLAIN SILENCE (usability ferry §2, literal priority order): the first applicable reason a lane that's
 /// nominally "playing" can't actually produce a note right now, or nil when it genuinely can (nothing to
 /// explain — the note box falls through to its normal content). HIT-vs-GAPS (0 HITS / NO GAPS) is checked
@@ -8610,12 +8584,6 @@ func euclideousNotesTopKeyAccessibilityLabel(isTopTwo: Bool, spokenNotes: [Strin
     if let place { s += ", \(euclideousNotesSpokenPlace(place)) in the lit order" }
     return s
 }
-/// 11.10: on the NOTES tab the comet strip’s value adds which hits the notes will play — "The notes play on hits 3, 5 and 8" (1-based hit numbers within the lap; nil when none).
-func euclideousNotesPlayHitsPhrase(_ hits: [Int]) -> String? {
-    guard !hits.isEmpty else { return nil }
-    let items = hits.map(String.init)
-    return "The notes play on hit\(hits.count == 1 ? "" : "s") " + euclideousSpokenList(items)
-}
 
 // MARK: - NOTES TAB displays (ferry 2026-10-19, §10) — keys light as their notes sound, the riff dot, the comet strip's pips and the grey footers
 
@@ -8675,8 +8643,6 @@ func euclideousNotesPips(states: [EuclidFooterState], when: UInt8, chance: Int) 
 func euclideousNotesGreyFooters(riffOn: Bool, notesLayerOn: Bool, when: UInt8) -> Bool {
     !riffOn && notesLayerOn && ((when & 0b11) == 0b01 || (when & 0b11) == 0b10)
 }
-/// 11.10: the 1-based step numbers of the hits the notes will play (a pip of either kind), for "The notes play on hits 3, 5 and 8".
-func euclideousNotesPipSteps(_ pips: [UInt8]) -> [Int] { pips.enumerated().filter { $0.element != 0 }.map { $0.offset + 1 } }
 
 // The picker's cell order (§4.3: the top row plays every lit note on each hit, the bottom row a changing set) and each way's one-line description (§4.4).
 let euclideousNotesWayDescriptions: [EuclidNotesPlayAs: String] = [
@@ -8712,33 +8678,8 @@ func euclideousPulseEnvelopes(velocity: Int, seconds t: Double, scale p: Double)
     return env.isVisible ? env : .none
 }
 
-/// 3.5: the level mark's alpha m = 0.95 × P × e^(−t ÷ (0.5 × lap)) — the one envelope that scales with the lap (a record of the pass, not a flash).
-func euclideousPulseMarkAlpha(seconds t: Double, lapSeconds lap: Double, scale p: Double) -> Double {
-    guard t >= 0, lap > 0, p > 0 else { return 0 }
-    return max(0, min(1, 0.95 * p * exp(-t / (0.5 * lap))))
-}
-/// A lane's pass length in seconds at the current tempo (the PING-PONG lap is 2n ticks): `cycleLen` ticks of `stepBeats`.
-func euclideousPulseLapSeconds(cycleLen: Int, stepBeats: Double, tempo: Double) -> Double { Double(cycleLen) * stepBeats * 60.0 / max(1.0, tempo) }
 
-/// 3.5: the band a level mark moves in — from the top of the tile's footer (`footerTopY`, in the tile's own y, 0 = its top) up to 2 pt below the tile's top.
-struct EuclideousPulseMarkBand: Equatable { var bottomY: CGFloat; var topY: CGFloat; var height: CGFloat { max(0, bottomY - topY) } }
-func euclideousPulseMarkBand(tileHeight: CGFloat, footerTopY: CGFloat) -> EuclideousPulseMarkBand {
-    EuclideousPulseMarkBand(bottomY: max(2, min(tileHeight, footerTopY)), topY: 2)
-}
-/// How far the mark's bottom edge sits ABOVE the band's bottom: (v ÷ 127) × band height × min(1, t ÷ 0.06) — it rises to the hit's velocity in 60 ms (`instant`: at once, Reduce Motion).
-func euclideousPulseMarkRise(velocity: Int, band: CGFloat, seconds t: Double, instant: Bool = false) -> CGFloat {
-    let v = CGFloat(max(0, min(127, velocity))) / 127
-    return v * band * CGFloat(instant ? 1 : max(0, min(1, t / 0.06)))
-}
 
-/// 3.4: the tail's length 10 + 60 × vis, cut off at the step area's leading edge: it runs BEHIND the dot (left of it when the dot moves right) and stops at the area's edge.
-func euclideousPulseTailLength(vis: Double) -> CGFloat { CGFloat(10 + 60 * max(0, min(1, vis))) }
-func euclideousPulseTail(vis: Double, dotX: CGFloat, areaMinX: CGFloat, areaMaxX: CGFloat, movingRight: Bool) -> (backX: CGFloat, length: CGFloat) {
-    let want = euclideousPulseTailLength(vis: vis)
-    let room = movingRight ? max(0, dotX - areaMinX) : max(0, areaMaxX - dotX)
-    let len = min(want, room)
-    return (movingRight ? dotX - len : dotX + len, len)
-}
 
 /// 5.2: the MIX ripple around a puck of diameter `d0`: p = min(1, t ÷ 0.36), diameter d0 + 44 × p × (0.35 + 0.65 × vis), opacity (1 − p) × vis × P. nil when it isn't alive.
 func euclideousPulseRipple(d0: CGFloat, velocity: Int, seconds t: Double, scale p: Double) -> (diameter: CGFloat, opacity: Double)? {
@@ -8764,23 +8705,18 @@ func euclideousPulseIsGap(state: EuclidFooterState, onRest: EuclidRiffOnRest, ri
     return onRest == .skip || onRest == .tie || onRest == .fill
 }
 
-/// 1.4 + Paul's ruling (2026-10-20): the velocity a lane's COMET BAR shows for a strike. With the riff ON it is the riff note's (a strike the riff didn't make — the notes on a rest — passes through);
-/// with the riff OFF the notes layer is the lane's only voice, so its strike counts ("for now"). 0 = no strike.
-func euclideousPulseStrikeVelocity(riffOn: Bool, riffVel: Int, notesVel: Int) -> Int { riffOn ? riffVel : notesVel }
 /// 6: a ring shows a strike of either layer — the louder one.
 func euclideousPulseRingVelocity(riffVel: Int, notesVel: Int) -> Int { max(riffVel, notesVel) }
 
-/// 7: what each strike effect does under the PULSE scale and Reduce Motion. OFF (P = 0): every strike effect is off. Reduce Motion: no key dip move, no dot swell, no tail, no ripple, no puck
-/// swell, no arrow scale; glows, washes, overlays and the note name stay; the flare core stays at a fixed 10 pt diameter; the level mark appears at its height at once.
-enum EuclideousPulseEffect: CaseIterable { case keyDipMove, keyDipOverlay, dotSwell, tail, flareCore, levelMark, ripple, puckSwell, arrowScale, glow, wash, overlay, noteName, letter }
-enum EuclideousPulseTreatment: Equatable { case off, full, fixedCore, instantRise }
+/// 7: what each strike effect does under the PULSE scale and Reduce Motion. OFF (P = 0): every strike effect is off. Reduce Motion: no chip dip (the lane strip's key dip move), no ripple, no puck
+/// swell, no arrow scale; glows, washes, overlays and the note name stay. (The comet's dot swell, tail, flare core and level mark were removed by the LANE STRIP ferry, 2026-10-21.)
+enum EuclideousPulseEffect: CaseIterable { case keyDipMove, ripple, puckSwell, arrowScale, glow, wash, overlay, noteName, letter }
+enum EuclideousPulseTreatment: Equatable { case off, full }
 func euclideousPulseFilter(_ effect: EuclideousPulseEffect, scale p: Double, reduceMotion: Bool) -> EuclideousPulseTreatment {
     guard p > 0 else { return .off }
     guard reduceMotion else { return .full }
     switch effect {
-    case .keyDipMove, .dotSwell, .tail, .ripple, .puckSwell, .arrowScale: return .off
-    case .flareCore: return .fixedCore
-    case .levelMark: return .instantRise
+    case .keyDipMove, .ripple, .puckSwell, .arrowScale: return .off
     default: return .full
     }
 }
@@ -8833,10 +8769,8 @@ final class EuclideousPulseFeed {
         guard lane >= 0, lane < 4 else { return nil }
         return rings[lane].last(where: keep)
     }
-    func latestRiff(lane: Int) -> EuclideousPulseStrike? { latest(lane: lane) { $0.riffVel > 0 } }
     /// The latest strike that has HAPPENED by `now` (a reference-date time) on the given layer — a strike still in the future is not there yet, and must not hide the one before it that is still fading.
     func latestHappened(lane: Int, now: Double, riff: Bool) -> EuclideousPulseStrike? { latest(lane: lane) { $0.onsetAt <= now && (riff ? $0.riffVel > 0 : $0.notesVel > 0) } }
-    func latestNotes(lane: Int) -> EuclideousPulseStrike? { latest(lane: lane) { $0.notesVel > 0 } }
     /// Called from the poll when the playing flag is (re)read — only an EDGE does anything: a start clears the strikes of the last run (their beats mean nothing now), a stop stamps the moment.
     func noteTransport(playing now: Bool, at when: Date) {
         // The start edge is read at the 4 Hz poll, up to 0.25 s after it happened; strikes that arrived meanwhile (30 Hz poll) belong to the new run, so only the older ones go.
@@ -8847,8 +8781,6 @@ final class EuclideousPulseFeed {
     func reset() { for i in rings.indices { rings[i].removeAll(keepingCapacity: true) }; stoppedAt = nil; playing = false }
     /// 9.1: the surfaces run while playing, and for the 1.5 s the last strikes (and the marks' fade) need after it stops.
     func isSettling(now: Date) -> Bool { stoppedAt.map { now.timeIntervalSince($0) < euclideousPulseMaxAge } ?? false }
-    /// 3.5 on a stop: the level marks fade out over the same 1.5 s (1 while playing, 0 once settled).
-    func markFade(now: Date) -> Double { guard let t = stoppedAt else { return 1 }; return max(0, 1 - now.timeIntervalSince(t) / euclideousPulseMaxAge) }
 }
 
 /// The comet tile a strike belongs to: the buffer step the engine read at the onset tick — the same index `footerStates[i]` and the tile loop use. `rawAtOnset` is the comet's raw tick count at the strike's
@@ -8858,26 +8790,6 @@ func euclideousPulseTileForOnset(rawAtOnset: Double, n: Int, dir: EuclidDir) -> 
     var k = Int(rawAtOnset.rounded()) % cl
     if k < 0 { k += cl }
     return max(0, min(max(1, n) - 1, euclidReadIndex(k, n: n, dir: dir)))
-}
-/// Each tile's latest strike, for the key dip, the flare core and the level mark (3.3, 3.1, 3.5): velocity (comet-bar rule) and seconds since its onset, nil for a tile with none yet.
-/// Each strike's tile is its resolved `tile` (see `euclideousPulseTileForOnset`). A strike still in the future (its onset after `now`, a reference-date time) is not there yet (1.2).
-func euclideousPulseTileStrikes(_ strikes: [EuclideousPulseStrike], riffOn: Bool, tiles n: Int, now: Double) -> [(velocity: Int, seconds: Double)?] {
-    var out = [(velocity: Int, seconds: Double)?](repeating: nil, count: max(0, n))
-    for s in strikes where s.onsetAt <= now {
-        let v = euclideousPulseStrikeVelocity(riffOn: riffOn, riffVel: Int(s.riffVel), notesVel: Int(s.notesVel))
-        guard v > 0 else { continue }
-        let t = Int(s.tile)   // resolved by `EuclideousPulseFeed.resolveTiles`; -1 (not resolved) maps nowhere
-        if t >= 0, t < out.count { out[t] = (v, now - s.onsetAt) }   // chronological: the last one wins
-    }
-    return out
-}
-/// The lane's latest strike on the comet-bar rule, for the dot's swell and tail: velocity and seconds since its onset (nil = none yet).
-func euclideousPulseLatestStrike(_ strikes: [EuclideousPulseStrike], riffOn: Bool, now: Double) -> (velocity: Int, seconds: Double)? {
-    for s in strikes.reversed() where s.onsetAt <= now {
-        let v = euclideousPulseStrikeVelocity(riffOn: riffOn, riffVel: Int(s.riffVel), notesVel: Int(s.notesVel))
-        if v > 0 { return (v, now - s.onsetAt) }
-    }
-    return nil
 }
 
 /// What the tile mapping depends on: the lane's step count, direction, step length, span, swing and restart chains. Two keys are equal exactly when `euclideousPulseTileForOnset` would map every onset the same way.
