@@ -6516,17 +6516,22 @@ final class Router {
                 guard lineIndex < p.euclidLines.count else { continue }
                 let L = p.euclidLines[lineIndex]
                 guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { continue }
-                // RANDOM MODE ferry (§6): a per-lane pending THROW/TWEAK/BACK/hold override lands the instant
-                // `beatPos` — the SAME absolute beat every other per-tick decision in this function already
-                // uses, never a second clock — reaches its own `landingBeat`. A per-tick comparison, not a
-                // one-shot consumed flag (invariant 2: derived, never accumulated) — every render re-checks it,
-                // so it's stable regardless of how many renders straddle the landing beat. §10's "never touched"
-                // fields are enforced structurally: only the three groups of arguments below ever read `*Roll`.
-                let pendingRoll: EuclideousPendingRoll? = (isEuclideousRow && lineIndex < euclideousPendingRolls.count) ? euclideousPendingRolls[lineIndex] : nil
-                let pendingRollLanded = pendingRoll.map { euclideousRandomShouldApply(hostBeat: beatPos, landingBeat: $0.landingBeat) } ?? false
-                let rhythmRoll = (pendingRollLanded && pendingRoll?.tab == .rhythm) ? pendingRoll : nil
-                let riffRoll = (pendingRollLanded && pendingRoll?.tab == .riff) ? pendingRoll : nil
-                let notesRoll = (pendingRollLanded && pendingRoll?.tab == .notes) ? pendingRoll : nil
+                // RANDOM MODE ferry (§6.1): "one slot per card tab" — a lane may have THREE independent
+                // pending THROW/TWEAK/BACK/hold overrides in flight at once, each at its own `landingBeat`,
+                // compared against `beatPos` — the SAME absolute beat every other per-tick decision in this
+                // function already uses, never a second clock. A per-tick comparison, not a one-shot consumed
+                // flag (invariant 2: derived, never accumulated) — every render re-checks it, so it's stable
+                // regardless of how many renders straddle the landing beat. §10's "never touched" fields are
+                // enforced structurally: only the three groups of arguments below ever read `*Roll`.
+                func euclideousLandedRoll(_ tab: EuclideousRandomTab) -> EuclideousPendingRoll? {
+                    guard isEuclideousRow else { return nil }
+                    let slot = euclideousRandomPendingSlot(lane: lineIndex, tab: tab)
+                    guard slot < euclideousPendingRolls.count, let roll = euclideousPendingRolls[slot] else { return nil }
+                    return euclideousRandomShouldApply(hostBeat: beatPos, landingBeat: roll.landingBeat) ? roll : nil
+                }
+                let rhythmRoll = euclideousLandedRoll(.rhythm)
+                let riffRoll = euclideousLandedRoll(.riff)
+                let notesRoll = euclideousLandedRoll(.notes)
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
                 // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the
                 // cell's own bm, via strikeChord's busOverride).

@@ -5145,7 +5145,8 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     let t = compact ? M.compactTarget : M.target
     let wordmarkW = M.wordmarkWidth
     let captionW = M.captionWidth
-    let brand = M.markSize + M.sp8 + (compact ? 0 : wordmarkW + M.sp16) + 2 * t
+    // RANDOM MODE ferry §2.2: the dice sits sp8 after redo — one more target + one more gap than before.
+    let brand = M.markSize + M.sp8 + (compact ? 0 : wordmarkW + M.sp16) + 3 * t + M.sp8
     let lead = compact ? 0 : captionW + M.sp4
     let outputs = lead + 4 * (compact ? M.compactRingPitch : M.ringPitch)
     // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings), one `t`-wide touch target each.

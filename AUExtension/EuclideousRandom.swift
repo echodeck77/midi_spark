@@ -615,7 +615,20 @@ private func whenName(_ w: UInt8) -> String { w == 0b01 ? "PLAYS" : (w == 0b10 ?
 
 // MARK: - §6 Future-beat landing
 
-enum EuclideousRandomTab: Equatable { case rhythm, riff, notes }
+enum EuclideousRandomTab: Int, Equatable, CaseIterable { case rhythm = 0, riff = 1, notes = 2 }
+
+/// §3-§7: one card-tab's own random-mode bookkeeping. `original` is non-nil exactly when the tab has an
+/// undecided roll (§3.4's dot, §6.6's "the tab's state just before a landing becomes the roll's original").
+/// `waiting` is non-nil while a THROW/TWEAK/BACK is queued for the next bar/beat (§3.6's "NEXT BAR" caption).
+struct EuclideousRandomRollState: Equatable {
+    enum Waiting: Equatable { case throwing, tweaking, back }
+    var original: EuclidLine?
+    var goes: Int = 0
+    var tag: String = ""
+    var waiting: Waiting?
+    var decidedAt: Date?   // §7.3: when KEEP/a landed BACK decided this tab — drives the two-bar "KEPT" caption
+    var isUndecided: Bool { original != nil }
+}
 
 /// §6.1/§6.3: a per-lane pending override. Reaches the render thread via `Kernel.setEuclideousPendingRolls`
 /// — the SAME plain main-thread-writes/render-thread-reads hand-off `Kernel.euclideousSoloLive` already
@@ -652,6 +665,27 @@ struct EuclideousPendingRoll: Equatable {
 /// only) must use — never two formulas for "has it landed."
 @inline(__always)
 func euclideousRandomShouldApply(hostBeat: Double, landingBeat: Double) -> Bool { hostBeat >= landingBeat }
+
+/// §6.1: "one slot per card tab" — a lane can have THREE independent rolls in flight at once (one per tab),
+/// not one. The flat index every reader/writer of the pending-rolls array uses, so none can drift.
+@inline(__always)
+func euclideousRandomPendingSlot(lane: Int, tab: EuclideousRandomTab) -> Int { lane * 3 + tab.rawValue }
+
+/// The displayed OFFSET ↔ stored `rotate` mirror — the EXACT formula `EuclidLine.offsetRequestedResolved`/
+/// `euclideousSliderCommit(.offset)` already use (Derivations.swift), reused rather than re-derived so a
+/// roll's OFFSET always means what the RHYTHM tab's own OFFSET control already means.
+@inline(__always)
+func euclideousRandomDisplayedOffset(rotate: Int, steps: Int) -> Int {
+    let n = max(2, min(16, steps))
+    let r = ((rotate % n) + n) % n
+    return (n - r) % n
+}
+@inline(__always)
+func euclideousRandomRotateFromDisplayed(offset: Int, steps: Int) -> Int {
+    let n = max(2, min(16, steps))
+    let d = ((offset % n) + n) % n
+    return (n - d) % n
+}
 
 /// §6.7: the main thread's own write once a roll has landed — direct field writes, mirroring the AUTO-ramp
 /// precedent (`Snapshot.swift`'s own `euclidPulses`/`euclidRot` writer), never `euclideousSliderCommit`

@@ -364,11 +364,13 @@ struct DiagView: View {
     // The effective mask `latched | held` is what reaches the render thread (`BuildPage.buildPublishScene` → `MachineParams.soloMask` → `SnapParams.soloMask`).
     @State var euclideousSoloMask: UInt8 = 0
     @State var euclideousSoloHeld: UInt8 = 0
-    // RANDOM MODE ferry (§6): one pending THROW/TWEAK/BACK/hold override per lane — UI-only, never saved, never
-    // undoable (§1.1). Mirrored straight to the render thread (`au.setEuclideousPendingRolls`, the same plain
-    // hand-off as `euclideousSoloHeld`'s own `setEuclideousSoloLive`) the instant it changes; the 4 Hz resync
-    // loop below commits a landed roll's fields into the document and clears its slot.
-    @State var euclideousPendingRolls: [EuclideousPendingRoll?] = [nil, nil, nil, nil]
+    // RANDOM MODE ferry (§6.1): one pending THROW/TWEAK/BACK/hold override per (lane, tab) — up to 3 per
+    // lane in flight at once (§6.1's "one slot per card tab"), flat 12 slots (`euclideousRandomPendingSlot`).
+    // UI-only, never saved, never undoable (§1.1). Mirrored straight to the render thread
+    // (`au.setEuclideousPendingRolls`, the same plain hand-off as `euclideousSoloHeld`'s own
+    // `setEuclideousSoloLive`) the instant it changes; the 4 Hz resync loop below commits a landed roll's
+    // fields into the document and clears its slot.
+    @State var euclideousPendingRolls: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
     // FOURFOLD SETTINGS (2026-10-15 ferry): same live-mirror treatment as every field above.
     @State var euclideousMidiInChannelMask: UInt16 = 0xFFFF
     @State var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying
@@ -1148,6 +1150,11 @@ struct DiagView: View {
                                        au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
                                        buildPublishScene()
                                    },
+                                   pendingRolls: euclideousPendingRolls,
+                                   onSetPendingRolls: { rolls in
+                                       euclideousPendingRolls = rolls
+                                       au?.setEuclideousPendingRolls(rolls)
+                                   },
                                    // MIX TAB (2026-10-18 §4.3): one undo step per TOUCH. `onEdit`'s fixed key merges consecutive edits across
                                    // different touches, so a pad takes an explicit `coalesceKey: nil` checkpoint at the first value-changing write
                                    // of a touch (`newStep`) and none for the rest — the write itself is the SAME document + publish path.
@@ -1596,11 +1603,14 @@ struct DiagView: View {
                 var lines = euclideousLines
                 var rolls = euclideousPendingRolls
                 var landedAny = false
-                for i in lines.indices where i < rolls.count {
-                    guard let roll = rolls[i], euclideousRandomShouldApply(hostBeat: nd.beat, landingBeat: roll.landingBeat) else { continue }
-                    euclideousRandomCommitPendingRoll(roll, into: &lines[i])
-                    rolls[i] = nil
-                    landedAny = true
+                for lane in lines.indices {
+                    for tab in EuclideousRandomTab.allCases {
+                        let slot = euclideousRandomPendingSlot(lane: lane, tab: tab)
+                        guard slot < rolls.count, let roll = rolls[slot], euclideousRandomShouldApply(hostBeat: nd.beat, landingBeat: roll.landingBeat) else { continue }
+                        euclideousRandomCommitPendingRoll(roll, into: &lines[lane])
+                        rolls[slot] = nil
+                        landedAny = true
+                    }
                 }
                 if landedAny {
                     euclideousPendingRolls = rolls

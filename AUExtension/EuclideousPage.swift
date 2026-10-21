@@ -743,6 +743,11 @@ struct EuclideousPage: View {
     let onEditChords: (@escaping (inout MachineParams) -> Void) -> Void
     let clock: EuclidLiveClock
     let onEdit: (@escaping (inout [EuclidLine]) -> Void) -> Void
+    // RANDOM MODE ferry (§6): the live pending-roll array (AudioUnitViewController's own @State, never the
+    // document) — read-only here; `onSetPendingRolls` queues a new one or clears a landed one. The commit
+    // into `lines` itself happens on the VC's 4 Hz resync loop once a roll's landingBeat has passed.
+    var pendingRolls: [EuclideousPendingRoll?] = [nil, nil, nil, nil]
+    var onSetPendingRolls: ([EuclideousPendingRoll?]) -> Void = { _ in }
     // MIX TAB (2026-10-18 §4.3): a lane edit that records ONE undo step per TOUCH. `onEdit`'s fixed coalesce key merges consecutive edits
     // across different touches into one step; a pad instead passes `newStep: true` on the first value-changing write of a touch (the VC
     // takes a `coalesceKey: nil` checkpoint) and `false` for the rest, so dragging is one step and two pads never flood the stack.
@@ -862,6 +867,16 @@ struct EuclideousPage: View {
     // PER-LANE TABS: which of RHYTHM/MELODY/MASK each lane currently shows — purely local/ephemeral, same
     // convention as touchedPad above (not persisted; a fresh page open always starts every lane on RHYTHM).
     @State private var laneTab: [EuclideousLaneTab] = [.rhythm, .rhythm, .rhythm, .rhythm]
+    // RANDOM MODE ferry (§1.1): page-local, ephemeral — not in the document, not an undo step, not saved.
+    @State private var euclideousRandomMode = false
+    // The card's own tab while in random mode (RHYTHM/RIFF/NOTES only — LISTEN maps to RHYTHM, §3.3).
+    @State private var euclideousRandomTab: [EuclideousRandomTab] = [.rhythm, .rhythm, .rhythm, .rhythm]
+    // Per (lane, tab) bookkeeping — indexed [lane][tab.rawValue]. `original` non-nil ⇒ an undecided roll.
+    @State private var euclideousRandomRolls: [[EuclideousRandomRollState]] = Array(repeating: Array(repeating: EuclideousRandomRollState(), count: 3), count: 4)
+    // The RNG seed for the NEXT throw/tweak — reseeded (not reused) after every press so repeats differ.
+    @State private var euclideousRandomSeed: UInt64 = UInt64(Date().timeIntervalSinceReferenceDate * 1000)
+    // §5.6: the lane currently held (showing its original), nil when nothing is held.
+    @State private var euclideousRandomHeldLane: Int? = nil
     // headerResetChip/resetSpanPopupOpen/resetSpanPopupCard RETIRED (2026-10-14 sequencer-panel ferry §3:
     // "RESET becomes per-lane... replacing the old machine-wide header RESET control") — the struct's own
     // `resetSpanBars`/`onSetResetSpanBars` properties stay in place, unreachable from any new UI, matching
