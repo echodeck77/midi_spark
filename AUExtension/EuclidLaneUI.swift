@@ -92,9 +92,9 @@ struct EuclidLaneBox: View {
     // THE STRIP (LANE STRIP ferry, 2026-10-21 — replaces the footer bands, the NOTES-tab pips and the comet's pulse layers): the lane's riff contour over its notes keys, planned per body by the caller
     // (`EuclideousStripPlan`, built from the footers' own per-hit functions) and painted by `drawEuclideousStrip`. nil (every other caller — the regular BUILD-page EUCLID editor) ⇒ the bar draws
     // exactly as before. `stripCurrent` answers, per display frame, which step's chip is the lane's current one (the chip of the hit its riff arrow shows): it takes the UI beat and the frame's
-    // date and returns a buffer step, or nil.
+    // date and returns the leg and buffer step of that chip, or nil.
     var strip: EuclideousStripPlan? = nil
-    var stripCurrent: ((_ liveBeat: Double, _ date: Date) -> Int?)? = nil
+    var stripCurrent: ((_ liveBeat: Double, _ date: Date) -> EuclideousStripCurrent?)? = nil
     // PULSE ferry (2026-10-20): the strike feed the strip's chips and keys flash from. `pulseFeed` nil (the BUILD-page editor) ⇒ no strikes. `pulseScale` is P (0 OFF / 0.6 SUBTLE / 1 FULL),
     // `pulseLive` is "the page is playing or settling after a stop" (the TimelineView's un-paused condition) and `pulseLane` is the lane's index in the feed.
     var pulseFeed: EuclideousPulseFeed? = nil
@@ -267,7 +267,7 @@ struct EuclidCometBar: View {
     var customHits: [Bool]? = nil
     // THE STRIP (LANE STRIP ferry, 2026-10-21): see `EuclidLaneBox`. nil (the regular BUILD-page EUCLID editor) ⇒ the lane-filled tiles and the comet draw exactly as they did.
     var strip: EuclideousStripPlan? = nil
-    var stripCurrent: ((_ liveBeat: Double, _ date: Date) -> Int?)? = nil
+    var stripCurrent: ((_ liveBeat: Double, _ date: Date) -> EuclideousStripCurrent?)? = nil
     // PULSE ferry (2026-10-20): the strike feed (nil ⇒ no strikes), P, whether the page is playing or settling after a stop, and the lane's index in the feed.
     var pulseFeed: EuclideousPulseFeed? = nil
     var pulseLane: Int = 0
@@ -376,7 +376,10 @@ struct EuclidCometBar: View {
             // LANE STRIP (ferry 2026-10-21): each layer's latest strike per step (the riff's for the chip, the notes' for the key), and the lane's current chip (the hit its riff arrow shows). A muted lane makes no strikes.
             let stripStrikes = (strip != nil && pulseOn && !mutedNow) ? euclideousStripTileStrikes(pulseStrikes, tiles: n, now: nowRef)
                 : (riff: [EuclideousStripTileStrike?](repeating: nil, count: n), notes: [EuclideousStripTileStrike?](repeating: nil, count: n))
-            let stripCurrentStep: Int? = (strip?.riffPlays == true && running) ? stripCurrent?(liveBeat, tl.date) : nil
+            // PING-PONG visits each step twice with different notes: the strip shows the sweep the lane is on (the first while it is stopped)
+            let stripLeg = strip.map { $0.legIndex(raw: running ? cometRaw : 0) } ?? 0
+            let stripCurrentNow: EuclideousStripCurrent? = (strip?.riffPlays == true && running) ? stripCurrent?(liveBeat, tl.date) : nil
+            let stripCurrentStep: Int? = stripCurrentNow.flatMap { $0.leg == stripLeg ? $0.step : nil }
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
                 let cellColour = cellTint ?? tint   // the LIT cells' colour (the comet head below keeps `tint`)
@@ -428,11 +431,10 @@ struct EuclidCometBar: View {
                 }
                 // LANE STRIP (ferry 2026-10-21): the Euclideous lane card's strip — a riff track over a key row on these same step columns, the playhead in place of the comet. Everything it draws is a
                 // pure function of the plan the page built (`EuclideousStripPlan`) and the clock; see `drawEuclideousStrip`.
-                if let strip {
-                    let hitMask: [Bool] = (0..<n).map { i in let rawHit = invert ? !buf[i] : buf[i]; return missStyle ? !rawHit : rawHit }
+                if let strip, stripLeg < strip.legs.count {
                     let xs: [CGFloat] = (0..<n).map { insetL + boxXs[$0] }
                     let playhead: EuclideousStripPlayhead? = running ? euclideousStripPlayhead(raw: cometRaw, n: n, dir: dir, xs: xs, columnW: boxW) : nil
-                    drawEuclideousStrip(&ctx, EuclideousStripFrameInput(plan: strip, hitMask: hitMask, frames: euclideousStripLayout(xs: xs, columnW: boxW), tint: tint, playhead: playhead,
+                    drawEuclideousStrip(&ctx, EuclideousStripFrameInput(hits: strip.legs[stripLeg].hits, shadowed: strip.shadowed, frames: euclideousStripLayout(xs: xs, columnW: boxW), tint: tint, playhead: playhead,
                                                                          areaMinX: insetL, areaMaxX: insetL + usable, current: stripCurrentStep,
                                                                          riffStrikes: stripStrikes.riff, noteStrikes: stripStrikes.notes, scale: pulseScale, reduceMotion: reduceMotion))
                     return

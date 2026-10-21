@@ -178,7 +178,7 @@ final class LaneStripTests: XCTestCase {
         XCTAssertEqual(plan.landedTick, abs, "the arrow's plan landed on this hit")
         let arrow = euclideousLaneArrowState(lane: 0, cfg: f.cfg, plan: plan, polledOrdinal: w.advOrd)
         let stays = plan.seatIsRest && !arrow.hollow
-        return (euclideousStripCurrentStep(cfg: f.cfg, landedTick: plan.landedTick, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: stays, hitSteps: f.hitSteps, hits: h), arrow)
+        return (euclideousStripCurrentStep(cfg: f.cfg, landedTick: plan.landedTick, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: stays, legs: [EuclideousStripLeg(hitSteps: f.hitSteps, hits: h)])?.step, arrow)
     }
     func testTheCurrentChipIsTheHitTheArrowShowsAndSkipLeavesNoneOnARest() {
         let f = fix(exLine())
@@ -204,8 +204,8 @@ final class LaneStripTests: XCTestCase {
     func testNoCurrentChipBeforeTheFirstHitOfThePassOrWhenTheLandedHitIsInAnotherPass() {
         let f = fix(exLine(onRest: .tie))
         let h = hits(f)
-        XCTAssertNil(euclideousStripCurrentStep(cfg: f.cfg, landedTick: nil, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: false, hitSteps: f.hitSteps, hits: h), "nothing has landed (stopped, or before the first hit)")
-        XCTAssertNil(euclideousStripCurrentStep(cfg: f.cfg, landedTick: lapStart - 1, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: true, hitSteps: f.hitSteps, hits: h),
+        XCTAssertNil(euclideousStripCurrentStep(cfg: f.cfg, landedTick: nil, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: false, legs: [EuclideousStripLeg(hitSteps: f.hitSteps, hits: h)]), "nothing has landed (stopped, or before the first hit)")
+        XCTAssertNil(euclideousStripCurrentStep(cfg: f.cfg, landedTick: lapStart - 1, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: true, legs: [EuclideousStripLeg(hitSteps: f.hitSteps, hits: h)]),
                      "the landed hit belongs to the pass before the one the footers show")
     }
     func testATiedRestAtTheStartOfThePassHasNoChipToHold() {
@@ -214,11 +214,34 @@ final class LaneStripTests: XCTestCase {
         let f = fix(l)
         XCTAssertEqual(f.pass.prediction, [8, 2, 4, 5, 7])
         let h = hits(f)
-        func cur(_ t: Int) -> Int? { euclideousStripCurrentStep(cfg: f.cfg, landedTick: lapStart + Int64(t), passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: true, hitSteps: f.hitSteps, hits: h) }
+        func cur(_ t: Int) -> Int? { euclideousStripCurrentStep(cfg: f.cfg, landedTick: lapStart + Int64(t), passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: true, legs: [EuclideousStripLeg(hitSteps: f.hitSteps, hits: h)])?.step }
         XCTAssertNil(cur(0)); XCTAssertNil(cur(2))
         XCTAssertEqual(cur(4), 4, "the third hit reads column 4: a chip of its own")
         XCTAssertEqual(cur(5), 4, "…and the tied rest after it holds that chip")
         XCTAssertEqual(cur(7), 7)
+    }
+
+    // MARK: PING-PONG — each step is visited twice, with different notes
+    func testPingPongHasASweepPerVisitAndTheCurrentChipFollowsTheSweepItIsOn() {
+        var l = exLine(); l.direction = .pingpong
+        let f = fix(l)
+        // the pass is 2n = 16 ticks: up the steps (ticks 0…7) then back down (8…15, step 15 − tick)
+        XCTAssertEqual(f.hitSteps.map { $0.tick }, [0, 2, 4, 5, 7, 8, 10, 11, 13, 15]); XCTAssertEqual(f.hitSteps.map { $0.bufIdx }, [0, 2, 4, 5, 7, 7, 5, 4, 2, 0])
+        let legs = euclideousStripLegs(pattern: exBuf, hitSteps: f.hitSteps, prediction: f.pass.prediction, lapSteps: 8, ranks: exRanks, anyLit: true, fxTieColumns: 0, pingPong: true, riffPlays: true, grey: false,
+                                       onRest: .skip, cfg: f.cfg, lapStartTick: f.pass.lapStartTick, notes: notes(.cycle), name: name)
+        XCTAssertEqual(legs.count, 2); XCTAssertEqual(legs[0].hitSteps.count, 5); XCTAssertEqual(legs[1].hitSteps.count, 5)
+        // step 1 is read twice: the walk is at tick 800 going up and tick 815 coming back, two different columns of the riff
+        XCTAssertEqual(legs[0].hits[0].column, 6); XCTAssertEqual(legs[1].hits[0].column, 5, "the way back reads another column: the old single-chip strip showed this one on the way up too")
+        XCTAssertEqual(legs[0].hits[0].chip?.rank, 6); XCTAssertNil(legs[1].hits[0].chip, "column 5 is a riff rest: a gap on the way back")
+        XCTAssertEqual(legs[1].hits[0].kind, .gap); XCTAssertEqual(legs[0].hits[0].kind, .hit)
+        XCTAssertEqual(euclideousStripLegIndex(raw: 7.99, n: 8, legCount: 2), 0); XCTAssertEqual(euclideousStripLegIndex(raw: 8.0, n: 8, legCount: 2), 1); XCTAssertEqual(euclideousStripLegIndex(raw: 12, n: 8, legCount: 1), 0)
+        // the current chip lives in the sweep the landed hit is in
+        func cur(_ t: Int, tie: Bool = false) -> EuclideousStripCurrent? { euclideousStripCurrentStep(cfg: f.cfg, landedTick: lapStart + Int64(t), passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: tie, legs: legs) }
+        XCTAssertEqual(cur(0), EuclideousStripCurrent(leg: 0, step: 0))
+        XCTAssertNil(cur(15), "the way back lands on a gap at step 1")
+        XCTAssertEqual(cur(8), EuclideousStripCurrent(leg: 1, step: 7), "the first hit of the way back reads column 6 (rank 6) at step 8")
+        XCTAssertNil(cur(10), "the next hit reads column 8, a rest: a gap")
+        XCTAssertEqual(cur(10, tie: true), EuclideousStripCurrent(leg: 1, step: 7), "…and under TIE the current chip stays on the note it holds, in its own sweep")
     }
 
     // MARK: 7. the playhead
@@ -366,7 +389,7 @@ final class LaneStripTests: XCTestCase {
             let abs = lapStart + Int64(t)
             let w = euclideousWalkTick(f.cfg, tick: abs)
             if let plan = euclideousWalkTagPlan(cfg: f.cfg, ranks: exRanks, beat: (Double(abs) + 0.1) * f.cfg.sub, secondsPerBeat: 0.5, polledStep: w.playedStep, running: true, polledOrdinal: w.advOrd) {
-                sink += euclideousStripCurrentStep(cfg: f.cfg, landedTick: plan.landedTick, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: plan.seatIsRest, hitSteps: f.hitSteps, hits: h) ?? 0
+                sink += euclideousStripCurrentStep(cfg: f.cfg, landedTick: plan.landedTick, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: plan.seatIsRest, legs: [EuclideousStripLeg(hitSteps: f.hitSteps, hits: h)])?.step ?? 0
             }
             sink += Int(euclideousStripPlayhead(raw: Double(i % 80) / 10, n: 8, dir: .fwd, xs: (0..<8).map { CGFloat($0) * 28 }, columnW: 26).x)
         }

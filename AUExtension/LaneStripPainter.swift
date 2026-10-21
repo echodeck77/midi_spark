@@ -30,9 +30,11 @@ enum EuclideousStripPalette {
 
 /// What the page works out per body for one lane's strip (nothing here changes per frame).
 struct EuclideousStripPlan {
-    var hits: [EuclideousStripHit]
-    /// The lane's hits of the pass the footers show (`bufIdx` and lap-local tick), its walk config and the absolute tick of the pass's first step — what the current chip needs to place the arrow's landed hit in this pass.
-    var hitSteps: [EuclidHitStep]
+    /// The pass the footers show, one leg for FWD / BKW and two (the up sweep, then the way back) for PING-PONG: the frame draws the leg the lane is on.
+    var legs: [EuclideousStripLeg]
+    /// The ticks in one sweep (the step count): PING-PONG's second leg starts at this lap-local tick.
+    var sweepLength: Int
+    /// The lane's walk config and the absolute tick of the shown pass's first step — what the current chip needs to place the arrow's landed hit in this pass.
     var cfg: EuclideousWalkLaneConfig?
     var lapStartTick: Int64?
     /// The current chip may show: the riff layer plays on this lane (on, and not SHADOWing) and its arrow isn't suppressed (MIDI IN with nothing held).
@@ -41,13 +43,15 @@ struct EuclideousStripPlan {
     var shadowed: Bool
     /// The hits' VoiceOver sentence (6.1); the bar adds "on step N" and "silent at this step", which move with the clock.
     var hitsPhrase: String
+
+    func legIndex(raw: Double) -> Int { euclideousStripLegIndex(raw: raw, n: sweepLength, legCount: legs.count) }
 }
 
 /// Everything one frame of the strip needs.
 struct EuclideousStripFrameInput {
-    var plan: EuclideousStripPlan
-    /// The rhythm's hit at each step as the strip draws it (a rest is a dashed cell with no key).
-    var hitMask: [Bool]
+    /// What the strip draws for each step (the leg the lane is on): a rhythm rest is a dashed cell with no key.
+    var hits: [EuclideousStripHit]
+    var shadowed: Bool
     var frames: [EuclideousStripFrame]
     var tint: Color
     /// nil while the lane or the transport is stopped.
@@ -87,9 +91,9 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
     for i in 0..<n {
         let col = d.frames[i].column
         let shape = RoundedRectangle(cornerRadius: M.columnRadius).path(in: col)
-        if i < d.hitMask.count, d.hitMask[i] {
+        if i < d.hits.count, d.hits[i].kind != .rhythmRest {
             ctx.fill(shape, with: .color(P.hitColumn))
-            if i < d.plan.hits.count, d.plan.hits[i].kind == .gap {
+            if d.hits[i].kind == .gap {
                 ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - 0.5).path(in: col.insetBy(dx: 0.5, dy: 0.5)), with: .color(d.tint.opacity(0.45)), lineWidth: 1)
             }
         } else {
@@ -113,8 +117,8 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
     }
 
     // 3. the chips
-    for i in 0..<n where i < d.plan.hits.count {
-        guard let chip = d.plan.hits[i].chip, i < d.hitMask.count, d.hitMask[i] else { continue }
+    for i in 0..<n where i < d.hits.count {
+        guard let chip = d.hits[i].chip else { continue }
         let isCurrent = d.current == i && !chip.hollow && !chip.grey
         let strike = i < d.riffStrikes.count ? d.riffStrikes[i] : nil
         let env = strike.map { euclideousPulseEnvelopes(velocity: $0.velocity, seconds: $0.seconds, scale: d.scale) } ?? .none
@@ -151,10 +155,10 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
     }
 
     // 4. the key row (a SHADOWing lane has none: the partner-colour band over this row stands in)
-    guard !d.plan.shadowed else { return }
-    for i in 0..<n where i < d.hitMask.count && d.hitMask[i] {
+    guard !d.shadowed else { return }
+    for i in 0..<n where i < d.hits.count && d.hits[i].kind != .rhythmRest {
         let key = d.frames[i].key
-        let k = i < d.plan.hits.count ? d.plan.hits[i].key : nil
+        let k = d.hits[i].key
         let plays = k?.plays ?? false
         let shape = RoundedRectangle(cornerRadius: M.keyRadius).path(in: key)
         let strike = i < d.noteStrikes.count ? d.noteStrikes[i] : nil

@@ -1830,18 +1830,19 @@ struct EuclideousPage: View {
         }
         // riff off with nothing lit: every step is a `.miss` ("nothing will sound"); a hit an FX TIE cell applies to reads as a hit on a tied rest
         let ranks = effectiveGridRanks
-        let states = euclideousFooterStates(hitSteps: hitSteps, lapSteps: steps, prediction: prediction, riffRanksResolved: ranks, anyLit: layerOn,
-                                            fxTieColumns: euclideousFXTieColumns(fx, line: line, lane: idx))
         var pattern = [Bool](repeating: false, count: steps)
         for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < steps { pattern[hs.bufIdx] = true }
         let notes: EuclideousStripNotes? = layerOn
             ? EuclideousStripNotes(layerOn: true, when: line.notesWhenResolved, chance: line.notesChanceResolved, way: line.notesPlayAsResolved, list: notesPlayList(line), lane: idx) : nil
-        let hits = euclideousStripHits(pattern: pattern, hitSteps: hitSteps, states: states, ranks: ranks, riffPlays: playsRiff, grey: grey, onRest: line.riffOnRestResolved,
-                                       cfg: cfg, lapStartTick: lapStartTick, notes: notes, name: stripNoteName)
-        // VoiceOver (§6): the note at a written rank is the riff grid's row name; a pitch is spoken as the NOTES tab's keys speak it
+        let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: euclideousFXTieColumns(fx, line: line, lane: idx),
+                                       pingPong: line.directionResolved == .pingpong, riffPlays: playsRiff, grey: grey, onRest: line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,
+                                       notes: notes, name: stripNoteName)
+        // VoiceOver (§6): read the sweep the lane is on at this body (PING-PONG has two); the note at a written rank is the riff grid's row name, a pitch is spoken as the NOTES tab's keys speak it
+        var nowLeg = 0
+        if legs.count > 1, let cfg, let lapStartTick { nowLeg = euclideousStripLegIndex(raw: Double(Int64((lanesMusicalBeat(real: walkTagBeat(at: Date())) / cfg.sub).rounded(.down)) - lapStartTick), n: steps, legCount: legs.count) }
         let pool = riffLivePool
         let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
-        let phrase = euclideousStripHitsPhrase(hits: hits,
+        let phrase = euclideousStripHitsPhrase(hits: legs[min(nowLeg, legs.count - 1)].hits,
                                                spokenRank: { r in
                                                    guard r >= 1, r <= extended.count, (0...127).contains(extended[r - 1]) else { return nil }
                                                    return euclideousAccessibleDisplayNoteName(UInt8(extended[r - 1]), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType)
@@ -1849,7 +1850,7 @@ struct EuclideousPage: View {
                                                spokenPitch: { p in
                                                    (0...127).contains(p) ? euclideousAccessibleDisplayNoteName(UInt8(p), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) : "no note"
                                                })
-        return EuclideousStripPlan(hits: hits, hitSteps: hitSteps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase)
+        return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase)
     }
     /// A pitch named the way the riff grid names its rows (`riffNoteLabelColumn`): C4, A♭3 — spelled relative to what is held for MIDI IN / CHORDS, from the key for KEY.
     private func stripNoteName(_ p: Int) -> String {
@@ -1865,14 +1866,13 @@ struct EuclideousPage: View {
     }
     /// 1.4 / 1.6: which step's chip is lane `idx`'s current one at UI beat `beat` — the chip of the hit its riff arrow shows (the same walk plan the arrow reads, per frame; TIE stays on the tied note).
     /// nil while the lane or the transport is stopped, before its first hit of the pass, with the riff off, and while MIDI IN holds nothing (the arrows are suppressed then too).
-    private func stripCurrentStep(_ idx: Int, plan: EuclideousStripPlan, beat: Double) -> Int? {
+    private func stripCurrentStep(_ idx: Int, plan: EuclideousStripPlan, beat: Double) -> EuclideousStripCurrent? {
         guard plan.riffPlays, let cfg = plan.cfg, idx < lines.count, idx < riffPositions.count, clock.playing, lines[idx].enabledResolved else { return nil }
         let ord: Int64? = idx < riffWalkState.count ? riffWalkState[idx] : nil
         guard let tp = euclideousWalkTagPlan(cfg: cfg, ranks: effectiveGridRanks, beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo), polledStep: riffPositions[idx], running: true,
                                              polledOrdinal: ord) else { return nil }
         let arrow = euclideousLaneArrowState(lane: idx, cfg: cfg, plan: tp, polledOrdinal: ord ?? 0)
-        return euclideousStripCurrentStep(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow,
-                                          hitSteps: plan.hitSteps, hits: plan.hits)
+        return euclideousStripCurrentStep(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow, legs: plan.legs)
     }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {

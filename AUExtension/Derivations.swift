@@ -8959,22 +8959,55 @@ func euclideousStripKeyLabel(pitches: [Int], name: (Int) -> String) -> String? {
     return pitches.count == 1 ? name(lowest) : name(lowest) + "+\(pitches.count - 1)"
 }
 
+// ── PING-PONG legs ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// One sweep of the pass: its hits (`bufIdx`, lap-local tick) and what the strip draws for them. A lane whose rhythm direction is FWD or BKW has ONE leg — each step is visited once per pass. PING-PONG visits
+/// every step TWICE (up, then back down, the end steps repeating), and the two visits read different riff columns and notes, so it has two legs; one chip and one key per step can only show one of them, and
+/// the strip shows the sweep the playhead is on (the first while the lane is stopped). (The footers always showed the later visit only — "the later write wins" — which is wrong for the first sweep.)
+struct EuclideousStripLeg: Equatable { var hitSteps: [EuclidHitStep]; var hits: [EuclideousStripHit] }
+/// Which leg the lane is on at lap-local tick `raw`: PING-PONG's second sweep starts at tick n; every other lane has the one leg.
+func euclideousStripLegIndex(raw: Double, n: Int, legCount: Int) -> Int { legCount > 1 && raw >= Double(n) ? 1 : 0 }
+/// The strip's legs for the pass the footers show: `hitSteps` / `prediction` are the footers' (`euclideousLapHitSteps`, `euclideousFooterPass`), split into sweeps for PING-PONG; each leg's states come from
+/// `euclideousFooterStates` over its own hits and its chips, gaps and keys from `euclideousStripHits`.
+func euclideousStripLegs(pattern: [Bool], hitSteps: [EuclidHitStep], prediction: [Int]?, lapSteps: Int, ranks: [Int], anyLit: Bool, fxTieColumns: UInt8, pingPong: Bool,
+                         riffPlays: Bool, grey: Bool, onRest: EuclidRiffOnRest, cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, name: (Int) -> String) -> [EuclideousStripLeg] {
+    let all = Array(hitSteps.indices)
+    let groups: [[Int]] = pingPong ? [all.filter { hitSteps[$0].tick < lapSteps }, all.filter { hitSteps[$0].tick >= lapSteps }] : [all]
+    return groups.map { idxs in
+        let steps = idxs.map { hitSteps[$0] }
+        let pred: [Int]? = prediction.map { p in idxs.compactMap { $0 < p.count ? p[$0] : nil } }
+        let states = euclideousFooterStates(hitSteps: steps, lapSteps: lapSteps, prediction: pred, riffRanksResolved: ranks, anyLit: anyLit, fxTieColumns: fxTieColumns)
+        let hits = euclideousStripHits(pattern: pattern, hitSteps: steps, states: states, ranks: ranks, riffPlays: riffPlays, grey: grey, onRest: onRest, cfg: cfg, lapStartTick: lapStartTick, notes: notes, name: name)
+        return EuclideousStripLeg(hitSteps: steps, hits: hits)
+    }
+}
+
 // ── the current chip (1.4 / 1.6) ─────────────────────────────────────────────────────────────────────────────────────────
 
-/// The step (buffer index) whose chip is the lane's CURRENT one: the chip of the hit the riff arrow shows. `landedTick` is the arrow's plan's latest landed hit (an absolute tick, nil before the lane's first
-/// hit and for a static seat); `passLapStartTick` the lap the footers show. nil when the landed hit is in another pass, when the arrow sits on a rest (a gap or a REPEAT's hollow chip has no filled chip),
-/// and when nothing has landed. `arrowStaysOnTiedNote` = the arrow's TIE stay-put (it sits on the tied note while the rest is the landed hit): the current chip then stays on the nearest EARLIER hit
-/// of the pass that has a filled chip — the same note `plan.tieStay` names — or nowhere if the tied note belongs to the pass before.
-func euclideousStripCurrentStep(cfg c: EuclideousWalkLaneConfig, landedTick: Int64?, passLapStartTick: Int64?, arrowStaysOnTiedNote: Bool, hitSteps: [EuclidHitStep], hits: [EuclideousStripHit]) -> Int? {
+/// The chip that is the lane's CURRENT one: which leg it lives in and the step (buffer index) it sits on.
+struct EuclideousStripCurrent: Equatable { var leg: Int; var step: Int }
+/// The chip of the hit the lane's riff arrow shows. `landedTick` is the arrow's plan's latest landed hit (an absolute tick, nil before the lane's first hit and for a static seat); `passLapStartTick` the lap the
+/// footers show. nil when the landed hit is in another pass, when the arrow sits on a rest (a gap or a REPEAT's hollow chip has no filled chip), and when nothing has landed. `arrowStaysOnTiedNote` = the arrow's
+/// TIE stay-put (it sits on the tied note while the rest is the landed hit): the current chip then stays on the nearest EARLIER hit (this leg first, then the leg before) that has a filled chip — the same note
+/// `plan.tieStay` names — or nowhere if the tied note belongs to the pass before.
+func euclideousStripCurrentStep(cfg c: EuclideousWalkLaneConfig, landedTick: Int64?, passLapStartTick: Int64?, arrowStaysOnTiedNote: Bool, legs: [EuclideousStripLeg]) -> EuclideousStripCurrent? {
     guard let landed = landedTick, let lapStart = passLapStartTick else { return nil }
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
     let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: landed, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
-    guard landed - Int64(info.raw) == lapStart, let j = hitSteps.firstIndex(where: { $0.tick == info.raw }) else { return nil }
-    func filledChip(_ step: Int) -> Bool { step >= 0 && step < hits.count && (hits[step].chip.map { !$0.hollow && !$0.grey } ?? false) }
-    if filledChip(hitSteps[j].bufIdx) { return hitSteps[j].bufIdx }
+    guard landed - Int64(info.raw) == lapStart else { return nil }
+    guard let li = legs.firstIndex(where: { $0.hitSteps.contains { $0.tick == info.raw } }), let j = legs[li].hitSteps.firstIndex(where: { $0.tick == info.raw }) else { return nil }
+    func filledChip(_ leg: Int, _ step: Int) -> Bool {
+        let hits = legs[leg].hits
+        return step >= 0 && step < hits.count && (hits[step].chip.map { !$0.hollow && !$0.grey } ?? false)
+    }
+    if filledChip(li, legs[li].hitSteps[j].bufIdx) { return EuclideousStripCurrent(leg: li, step: legs[li].hitSteps[j].bufIdx) }
     guard arrowStaysOnTiedNote else { return nil }
-    var jj = j - 1
-    while jj >= 0 { if filledChip(hitSteps[jj].bufIdx) { return hitSteps[jj].bufIdx }; jj -= 1 }
+    var leg = li, jj = j - 1
+    while leg >= 0 {
+        while jj >= 0 { if filledChip(leg, legs[leg].hitSteps[jj].bufIdx) { return EuclideousStripCurrent(leg: leg, step: legs[leg].hitSteps[jj].bufIdx) }; jj -= 1 }
+        leg -= 1
+        if leg >= 0 { jj = legs[leg].hitSteps.count - 1 }
+    }
     return nil
 }
 
