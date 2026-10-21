@@ -169,14 +169,18 @@ final class RiffPanelTests: XCTestCase {
         let r = euclideousRiffReadout(buf: buf, n: 16, dir: .fwd, cycleLen: 16, sub: 0.25, chains: .off, legacySpanBeats: 0, advanceStep: true,
                                       riffDir: .forward, stride: 1, length: 8, shift: 5, every: 1, seed: 0)
         XCTAssertEqual(r?.neverPlay, [1, 3, 6], "columns 2, 4 and 7 (1-based) never play")
-        XCTAssertEqual(euclideousRailPlayedColumns(length: 8, neverPlay: r?.neverPlay ?? []), [0, 2, 4, 5, 7])
+        XCTAssertEqual(euclideousRailPlayedColumns(length: 8, shift: 5, neverPlay: r?.neverPlay ?? []), [0, 2, 4, 5, 7])
         // 7.6's fallbacks: no hits at all (H = 0) / an over-budget readout → no never-play info → every column within LEN fills
         let none = euclideousRiffReadout(buf: [Bool](repeating: false, count: 16), n: 16, dir: .fwd, cycleLen: 16, sub: 0.25, chains: .off, legacySpanBeats: 0, advanceStep: true,
                                          riffDir: .forward, stride: 1, length: 8, shift: 5, every: 1, seed: 0)
         XCTAssertEqual(none?.neverPlay, [])
-        XCTAssertEqual(euclideousRailPlayedColumns(length: 8, neverPlay: none?.neverPlay ?? []), Set(0..<8))
-        XCTAssertEqual(euclideousRailPlayedColumns(length: 5, neverPlay: []), Set(0..<5), "only within LEN")
-        XCTAssertEqual(euclideousRailPlayedColumns(length: 8, neverPlay: [1]), [0, 2, 3, 4, 5, 6, 7])
+        XCTAssertEqual(euclideousRailPlayedColumns(length: 8, shift: 5, neverPlay: none?.neverPlay ?? []), Set(0..<8))
+        XCTAssertEqual(euclideousRailPlayedColumns(length: 5, shift: 0, neverPlay: []), Set(0..<5), "SHIFT 0: the window is still columns 1...LEN")
+        XCTAssertEqual(euclideousRailPlayedColumns(length: 8, shift: 0, neverPlay: [1]), [0, 2, 3, 4, 5, 6, 7])
+        // RIFF WINDOW ferry (2026-10-21): LEN 4 SHIFT 4 reads columns 5,6,7,8 (0-based 4...7), wrapping past
+        // column 8 back to column 1 at SHIFT 6 — Paul's own worked examples.
+        XCTAssertEqual(euclideousRailPlayedColumns(length: 4, shift: 4, neverPlay: []), [4, 5, 6, 7], "LEN 4 SHIFT 4 plays columns 5,6,7,8")
+        XCTAssertEqual(euclideousRailPlayedColumns(length: 4, shift: 6, neverPlay: []), [6, 7, 0, 1], "LEN 4 SHIFT 6 wraps past column 8 back to column 1")
     }
 
     // MARK: 8. arrow spec: size, outline, label, fill, muting, flare

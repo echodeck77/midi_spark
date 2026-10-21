@@ -2218,7 +2218,10 @@ func euclideousRiffReachableRanks(dir: RiffDir, length: Int, stride: Int, rotate
     var out = Set<Int>()
     for ord in 0..<(2 * 8 * 7) {
         let walkPos = riffStepAt(dir, raw: ord * stride, steps: length, seed: 0)
-        let playedStep = riffRotateStep(walkPos, by: rotate, steps: length)
+        // RIFF WINDOW ferry (2026-10-21): SHIFT wraps at the riff's 8 columns, not at LENGTH — see
+        // `euclideousRiffColumn`'s own comment for why. Mirrored here so a short-LENGTH lane's marks agree
+        // with what the engine can actually reach.
+        let playedStep = riffRotateStep(walkPos, by: rotate, steps: 8)
         guard playedStep < ranks.count else { continue }
         let rawRank = ranks[playedStep]
         guard rawRank >= 1 else { continue }   // rest — never reaches a note button
@@ -2290,11 +2293,29 @@ func euclideousRiffWalkStep(ordinal o: Int64, every: Int) -> Int64 {
 /// the WALK STEP (not the raw ordinal) driving the walk. Every site that turns the riff ordinal into a column
 /// calls this and nothing else — no second derivation. `w * stride` stays far inside `Int`'s range in every
 /// real caller (w is bounded by the walk period, at most 16, and stride by 7).
+/// RIFF WINDOW ferry (2026-10-21): `riffStepAt` still cycles over `0..<length` — LENGTH is the WIDTH of the
+/// window the walk loops over (and still anchors PENDULUM/PING-PONG's bounce points, REVERSE's mirroring,
+/// etc., exactly as before). The final `riffRotateStep` used to wrap that result back into the SAME
+/// `0..<length` window (so SHIFT only ever reordered the read sequence within columns 1...LENGTH — it could
+/// never reach column LENGTH+1). It now wraps at 8 (the riff's real column count) instead, so SHIFT picks
+/// WHERE that LENGTH-wide window starts in the full 8-column riff, wrapping past column 8 back to column 1
+/// (LEN 4 SHIFT 4 now reads columns 5,6,7,8 — Paul's own worked example). SHIFT 0 and LENGTH 8 are both
+/// unaffected by this change (mod 8 == mod length in both cases), so this only changes lanes that combine a
+/// short LENGTH with a nonzero SHIFT — exactly the combination that used to silently do nothing useful.
 @inline(__always)
 func euclideousRiffColumn(ordinal o: Int64, every: Int, direction dir: RiffDir, length: Int, stride: Int, shift: Int, seed: UInt64 = 0) -> Int {
     let w = euclideousRiffWalkStep(ordinal: o, every: every)
     let step = riffStepAt(dir, raw: Int(w) * stride, steps: max(1, length), seed: seed)
-    return riffRotateStep(step, by: shift, steps: max(1, length))
+    return riffRotateStep(step, by: shift, steps: 8)
+}
+/// RIFF WINDOW ferry (2026-10-21): the set of columns (0-based, 0...7) a LENGTH-wide window starting at SHIFT
+/// covers, wrapping past column 8 back to column 1 — the ONE definition of "is this column inside the lane's
+/// current riff window," so the mini-grid thumbnail, the never-play computation and the rail's played-column
+/// set can't disagree about which columns the walk can actually reach. Before this ferry the window was
+/// always `0..<length`; now it's this set instead, wherever a caller used to test `col < length`.
+func euclideousRiffWindowColumns(length: Int, shift: Int) -> Set<Int> {
+    let len = max(1, min(8, length))
+    return Set((0..<len).map { ((shift + $0) % 8 + 8) % 8 })
 }
 
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
@@ -5443,27 +5464,25 @@ func euclideousNotesVelBarDoubleTap(_ line: inout EuclidLine) { line.notesVeloci
 /// RIFF layer octave (the RIFF tab's OCT row).
 func euclideousSetRiffOctave(_ line: inout EuclidLine, _ v: Int) { line.riffOctave = v }
 
-// ── SHIFT memory (RIFF WALK ferry 2026-10-19 §4.3): the ONE LEN setter and the ONE SHIFT setter ─────────
+// ── LEN / SHIFT (RIFF WINDOW ferry 2026-10-21 — supersedes the RIFF WALK ferry's "SHIFT memory": SHIFT now
+// wraps at the riff's own 8 columns, not at LEN, so it is independent of LENGTH and never needs clamping-
+// then-remembering across a LEN change) ──────────────────────────────────────────────────────────────────
 
-/// The ONE LEN setter — every LEN edit (the values-row stepper, keyboard, VoiceOver adjustment) calls
-/// this, never `riffLength` directly. Pins whatever SHIFT was last actually asked for (resolved from the
-/// CURRENT riffRotate if nothing was requested yet) BEFORE the length change can clamp it away, so growing
-/// LEN back later restores the exact SHIFT left behind (§4.3's own worked example: LEN 8 SHIFT 5 → LEN 4
-/// gives SHIFT 3 → LEN 8 again gives SHIFT 5).
+/// The ONE LEN setter — every LEN edit (the values-row stepper, keyboard, VoiceOver adjustment) calls this,
+/// never `riffLength` directly. SHIFT is untouched by a LEN change (RIFF WINDOW ferry): LEN only sizes the
+/// walk's own window (how many columns, counted from SHIFT, it cycles through); SHIFT independently picks
+/// WHERE in the 8-column riff that window starts. Previously LEN clamped `riffRotate` into 0...(LEN−1) and a
+/// "requested" shadow value remembered what SHIFT was before the clamp, restoring it when LEN grew back; that
+/// whole mechanism is gone because there's nothing to clamp away any more.
 func euclideousSetRiffLength(_ line: inout EuclidLine, _ L: Int) {
-    if line.riffShiftRequested == nil { line.riffShiftRequested = line.riffShiftRequestedResolved }
     line.riffLength = L
-    line.riffRotate = min(line.riffShiftRequestedResolved, max(0, L - 1))
 }
-/// The ONE SHIFT setter — every SHIFT edit stores the new value, reduced into 0...(LEN − 1), in BOTH
-/// `riffRotate` (what the engine and every other reader keep reading) and `riffShiftRequested` (what was
-/// actually asked for, surviving a later shorter LEN). A writer that sets `riffRotate` some other way (a
-/// future randomise, say) should set `riffShiftRequested` to nil instead of calling this.
+/// The ONE SHIFT setter — every SHIFT edit stores the new value, reduced into 0...7 (the riff's 8 columns,
+/// wrapping — e.g. SHIFT 9 stores as 1), into `riffRotate`, the one field the engine and every other reader
+/// keep reading. Independent of LENGTH: LEN 4 SHIFT 5 reads columns 6,7,8,1 (wrapping past the end), and
+/// changing LEN afterwards never perturbs SHIFT.
 func euclideousSetRiffShift(_ line: inout EuclidLine, _ v: Int) {
-    let n = line.riffLengthResolved
-    let reduced = ((v % n) + n) % n
-    line.riffRotate = reduced
-    line.riffShiftRequested = reduced
+    line.riffRotate = ((v % 8) + 8) % 8
 }
 /// NOTES layer octave (the NOTES tab's octave trough): writing it also switches the notes layer ON, as that control always has.
 func euclideousSetNotesOctave(_ line: inout EuclidLine, _ v: Int) {
@@ -6751,9 +6770,10 @@ func euclideousRiffReadout(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, s
         F.append(list.map { $0.column })
         for (_, col) in list { playedColumns.insert(col) }
     }
-    // never-play: §7.6 — columns 1...LEN (1-based) no hit reads over the J passes examined.
+    // never-play: §7.6 — columns in the lane's own window (RIFF WINDOW ferry: LEN columns starting at SHIFT,
+    // wrapping at 8 — no longer always 0...LEN) no hit reads over the J passes examined.
     var neverPlay = Set<Int>()
-    for c in 0..<len where !playedColumns.contains(c) { neverPlay.insert(c) }
+    for c in euclideousRiffWindowColumns(length: len, shift: shift) where !playedColumns.contains(c) { neverPlay.insert(c) }
     // the strip's own never-play set is in WALK-STEP space (w mod P), not column space — recompute the
     // walk steps actually visited by replaying each pass's own hit ordinals through euclideousRiffWalkStep.
     for q in 0..<J {
@@ -8110,10 +8130,12 @@ func euclideousRailWalk(cfg: EuclideousWalkLaneConfig, hitTick: Int64) -> Euclid
     }
     return EuclideousRailWalk(current: current, trail: trail, ordinal: here.advOrd)
 }
-/// §6.2 / 8.3: the columns a lane PLAYS — exactly what the riff card's mini-grid draws at full strength: within LEN and not in the readout's never-play set (`neverPlay` is empty when
-/// the readout is over budget or the lane has no hits, 7.6's fallbacks — so the columns within LEN all fill).
-func euclideousRailPlayedColumns(length: Int, neverPlay: Set<Int>) -> Set<Int> {
-    Set((0..<min(8, max(0, length))).filter { !neverPlay.contains($0) })
+/// §6.2 / 8.3: the columns a lane PLAYS — exactly what the riff card's mini-grid draws at full strength:
+/// inside the lane's own window (RIFF WINDOW ferry: LEN columns starting at SHIFT, wrapping at 8) and not in
+/// the readout's never-play set (`neverPlay` is empty when the readout is over budget or the lane has no
+/// hits, 7.6's fallbacks — so every column in the window fills).
+func euclideousRailPlayedColumns(length: Int, shift: Int, neverPlay: Set<Int>) -> Set<Int> {
+    Set(euclideousRiffWindowColumns(length: length, shift: shift).filter { !neverPlay.contains($0) })
 }
 
 enum EuclideousRailLook: Equatable { case notPlayed, played, trail(Int), current(EuclideousArrowHeading) }

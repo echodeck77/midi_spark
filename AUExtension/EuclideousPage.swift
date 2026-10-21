@@ -3527,7 +3527,7 @@ struct EuclideousPage: View {
     /// `showLabel: false` (RIFF WALK ferry §8.1, the EVERY stepper): drops the key line, showing only the
     /// value, centred — every other call site keeps its label unchanged (the default is `true`).
     @ViewBuilder private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, width: CGFloat = 69.5, showLabel: Bool = true, help: String? = nil,
-                                             height: CGFloat = 34, valueText shown: String? = nil, lowDisabled: Bool = false, highDisabled: Bool = false, onChange: @escaping (Int) -> Void) -> some View {
+                                             height: CGFloat = 34, valueText shown: String? = nil, lowDisabled: Bool = false, highDisabled: Bool = false, wraps: Bool = false, onChange: @escaping (Int) -> Void) -> some View {
         // NOTES TAB ferry (CHANCE): `height`, a text-valued stepper (25% / 50% / 75% / 100%) and a disabled look at either end — every default leaves the other callers exactly as they were.
         let w: CGFloat = width, h: CGFloat = height, arrowZone: CGFloat = 18
         let valueText = Text(shown ?? (unit != nil ? "\(euclideousSigned(value)) \(unit!)" : "\(value)"))
@@ -3556,9 +3556,9 @@ struct EuclideousPage: View {
         .overlay(
             HStack(spacing: 0) {
                 Color.clear.contentShape(Rectangle())
-                    .onTapGesture { onChange(max(range.lowerBound, value - 1)) }
+                    .onTapGesture { onChange(wraps && value <= range.lowerBound ? range.upperBound : max(range.lowerBound, value - 1)) }
                 Color.clear.contentShape(Rectangle())
-                    .onTapGesture { onChange(min(range.upperBound, value + 1)) }
+                    .onTapGesture { onChange(wraps && value >= range.upperBound ? range.lowerBound : min(range.upperBound, value + 1)) }
             }
         )
         if let help { base.euclideousHelp(help) } else { base }
@@ -3639,11 +3639,11 @@ struct EuclideousPage: View {
     /// the ferry's own literal table).
     private func melodyValuesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, stepperWidth: CGFloat? = nil) -> some View {
         let n = line.riffLengthResolved
-        let shift = ((line.riffRotateResolved % n) + n) % n
+        let shift = line.riffRotateResolved
         let w = stepperWidth ?? max(1, (fullWidth - 3 * sp4) / 4)
         return HStack(spacing: sp4) {
-            melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many steps the riff walk loops over") { v in
-                edit(idx) { euclideousSetRiffLength(&$0, v) }   // RIFF WALK ferry §4.3: the ONE LEN setter — pins SHIFT memory first
+            melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many riff columns, from SHIFT, the walk loops over") { v in
+                edit(idx) { euclideousSetRiffLength(&$0, v) }   // RIFF WINDOW ferry: the ONE LEN setter — independent of SHIFT now, nothing to pin
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue("\(n)")
             .accessibilityAdjustableAction { dir in
@@ -3653,22 +3653,18 @@ struct EuclideousPage: View {
                 @unknown default: break
                 }
             }
-            melodyStepper("SHIFT", value: shift, range: 0...(n - 1), width: w, help: "Where the walk starts") { v in
-                edit(idx) { euclideousSetRiffShift(&$0, v) }   // RIFF WALK ferry §4.3: the ONE SHIFT setter — stores into riffRotate + riffShiftRequested
+            // RIFF WINDOW ferry (2026-10-21): SHIFT picks which riff column (1...8) the window starts at,
+            // wrapping past column 8 back to column 1 — independent of LENGTH (LEN 4 SHIFT 4 reads columns
+            // 5,6,7,8). `wraps: true` makes the ‹/› taps cycle 7→0 and 0→7 to match.
+            melodyStepper("SHIFT", value: shift, range: 0...7, width: w, help: "Which riff column the walk starts reading from, wrapping at 8", wraps: true) { v in
+                edit(idx) { euclideousSetRiffShift(&$0, v) }   // RIFF WINDOW ferry: the ONE SHIFT setter — wraps at 8, nothing to do with LEN
             }
-            // §9.6: label "Shift" (from "Nudge"), hint "Where the walk starts". While riffShiftRequested is
-            // above LEN - 1 (a shorter LEN is currently clamping it), the value discloses the remembered
-            // request too, so VoiceOver users get the same "comes back with a longer length" information
-            // sighted users read from the §4.3 memory behaviour indirectly.
-            .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Where the walk starts")
-            .accessibilityValue({
-                let requested = line.riffShiftRequestedResolved
-                return requested > n - 1 ? "\(shift), set to \(requested); that comes back with a longer length" : "\(shift)"
-            }())
+            .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Which riff column the walk starts reading from, wrapping at 8")
+            .accessibilityValue("\(shift)")
             .accessibilityAdjustableAction { dir in
                 switch dir {
-                case .increment: edit(idx) { euclideousSetRiffShift(&$0, min(n - 1, shift + 1)) }
-                case .decrement: edit(idx) { euclideousSetRiffShift(&$0, max(0, shift - 1)) }
+                case .increment: edit(idx) { euclideousSetRiffShift(&$0, (shift + 1) % 8) }
+                case .decrement: edit(idx) { euclideousSetRiffShift(&$0, (shift + 7) % 8) }
                 @unknown default: break
                 }
             }
@@ -5372,7 +5368,7 @@ struct EuclideousPage: View {
         let frameNow = riffLaneFrames(ranks: ranks, beat: beatNow)
         let arrowsNow: [EuclideousArrowCell] = midiEmpty ? [] : riffArrowCells(frameNow)
         let playedNow: [Set<Int>] = (0..<4).map { i in
-            i < lines.count ? euclideousRailPlayedColumns(length: lines[i].riffLengthResolved, neverPlay: riffReadout(i)?.neverPlay ?? []) : []
+            i < lines.count ? euclideousRailPlayedColumns(length: lines[i].riffLengthResolved, shift: lines[i].riffRotateResolved, neverPlay: riffReadout(i)?.neverPlay ?? []) : []
         }
         let railLabels: [String] = (0..<4).map { i in
             guard let f = frameNow.first(where: { $0.lane == i }) else { return "Lane \(i + 1): riff off" }

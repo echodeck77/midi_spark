@@ -6863,18 +6863,21 @@ final class RouterTests: XCTestCase {
     // PLUS shift, not a forced 0+shift. Locked in as documented, deliberate behaviour (a direct, unmodified
     // reuse of the existing riffStepAt formula), not a silent gap — redirectable later if this isn't what
     // was actually intended.
+    // RIFF WINDOW ferry (2026-10-21): SHIFT now wraps at the riff's 8 columns, not at LENGTH (so a LENGTH-
+    // wide window can start anywhere in the 8-column riff, not just rotate within its own first LENGTH
+    // columns) — this example's expected rank moved from 1 to 6, recomputed below, since LENGTH 5 < 8.
     func testEuclideousRiffLockReverseRestartsAtItsOwnNaturalAnchorPlusShift() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-        // LENGTH 5, SHIFT 1: REV's walkPos at ord=0 is (length-1)=4; played step = (4+1) mod 5 = 0 → rank 1.
+        // LENGTH 5, SHIFT 1: REV's walkPos at ord=0 is (length-1)=4; played step = (4+1) mod 8 = 5 → rank 6.
         // "LOCK" is now a melody chain of [1] — §4.7, exactly what riffLock (retired, §7) did.
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, rate: .r1_8, useRiff: true, riffRotate: 1, riffDir: .reverse, riffLength: 5, restartMelodyPasses: [1])]
         let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
         let e = RecordingEmitter(); run(b, chord(pool), beats: 1.9, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let ranks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)).map { $0 + 1 } }
-        XCTAssertEqual(ranks.first, 1, "REV's own anchor (length-1=4) + shift(1) mod length(5) = 0 → rank 1, not a forced 0+shift")
+        XCTAssertEqual(ranks.first, 6, "REV's own anchor (length-1=4) + shift(1) mod 8 (the riff's own column count, RIFF WINDOW ferry) = 5 → rank 6")
     }
     // ADVANCE=STEP (§3.5): the walk advances on EVERY step (hit or miss), not just hits. A sparse K=2/N=8
     // Euclidean pattern spaces its 2 hits far apart (never adjacent, by construction) — HIT mode's 2nd hit
@@ -12496,9 +12499,13 @@ final class RouterTests: XCTestCase {
     }
     /// GOLDEN: (meta-hash, total note-on count) across all 64 combos, one entry per lane. CAPTURED on
     /// origin/main a49907b, immediately before this ferry's engine change.
+    /// RECAPTURED (RIFF WINDOW ferry, 2026-10-21): SHIFT now wraps at the riff's 8 columns instead of at
+    /// LENGTH, so the `len: 5, shift: 2` combos in this matrix read different columns than before — an
+    /// intentional sound change (the combination this ferry fixes), not a regression. Note-on COUNTS are
+    /// unchanged (same hits land, just on different pitches); only the hashes moved.
     private let riffWalkComboGolden: [String: (UInt64, Int)] = [
-        "harness": (233709503425253965, 2624),
-        "second": (2048466058459289501, 1600)
+        "harness": (12069258775816225389, 2624),
+        "second": (2104906034728872053, 1600)
     ]
     func testRiffWalkComboMatrixBeforeAdvanceEvery() {
         let harness = riffWalkComboMetaHash { riffWalkHarnessLine(dir: $0, adv: $1, stride: $2, len: $3, shift: $4) }

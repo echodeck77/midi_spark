@@ -344,20 +344,17 @@ struct EuclidLine: Codable, Equatable {
     var litMigrationNeedsWarning: Bool {
         litNotes == nil && topLit == nil && top2Lit == nil && riffOn == nil && litMigrated.warn
     }
+    // RIFF WINDOW (RIFF WINDOW ferry 2026-10-21): which of the riff's 8 columns the walk's window starts
+    // reading from, wrapping at 8 — independent of LENGTH (see `euclideousSetRiffShift`/`euclideousRiffColumn`;
+    // `riffRotateResolved`, below with the other resolved properties, does the wrapping).
     var riffRotate: Int? = nil
-    // SHIFT MEMORY (RIFF WALK ferry 2026-10-19 §4.3): what SHIFT was last actually asked for, so a shorter
-    // LEN followed by a longer one restores the exact SHIFT left behind — mirrors `offsetRequested`'s own
-    // idiom exactly (resolve from the current value when nothing was requested yet; pinned by the one LEN
-    // setter, `euclideousSetRiffLength`, before a shrink can clamp it away). nil ⇒ riffRotate reduced into
-    // 0...(riffLengthResolved − 1) exactly as `riffRotateStep` reduces it (13 at LEN 8 resolves to 5).
+    // RETIRED (RIFF WINDOW ferry 2026-10-21): SHIFT used to be clamped into 0...(riffLengthResolved − 1) by
+    // every LEN change, so this remembered what was actually asked for before the clamp, to restore on a later
+    // LEN grow. SHIFT no longer depends on LENGTH at all (it wraps at a fixed 8, LEN just sizes the window),
+    // so there is nothing left to clamp away or remember. Kept ONLY for Codable decode compatibility with
+    // documents saved before this ferry — never written or read for resolution any more.
     var riffShiftRequested: Int? = nil
-    var riffShiftRequestedResolved: Int {
-        guard let v = riffShiftRequested else {
-            let n = riffLengthResolved
-            return ((riffRotate ?? 0) % n + n) % n
-        }
-        return v
-    }
+    var riffShiftRequestedResolved: Int { riffRotateResolved }
     var riffOctave: Int? = nil
     // RIFF DIRECTION, PER-LANE (Paul 2026-10-07: "the back/forward, drunk controls should be per lane, not on
     // the riff control" — supersedes the first-draft design, which put these on the SHARED EuclideousRiff struct
@@ -677,7 +674,8 @@ struct EuclidLine: Codable, Equatable {
     // EuclidLaneUI.swift reader of `useRiffResolved` needs no change at all; only the WRITE side (the new
     // MELODY tab's UI) writes `melodyMode` directly instead of `useRiff`.
     var useRiffResolved: Bool { melodyModeResolved == .riff }
-    var riffRotateResolved: Int { riffRotate ?? 0 }
+    // RIFF WINDOW ferry (2026-10-21): wraps at the riff's 8 columns, not LENGTH — see `riffRotate`'s own comment.
+    var riffRotateResolved: Int { ((riffRotate ?? 0) % 8 + 8) % 8 }
     // OCT RANGE −2…+2 (ferry "Engine" rule 4 — was ±3).
     var riffOctaveResolved: Int { max(-2, min(2, riffOctave ?? 0)) }
     var riffDirResolved: RiffDir { riffDir ?? .forward }
