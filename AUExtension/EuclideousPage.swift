@@ -2399,21 +2399,43 @@ struct EuclideousPage: View {
         let tileW = max(1, (fullWidth - sp4) / 2)
         let rhythm = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
         let melody = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
-        return HStack(spacing: sp4) {
-            restartTile(idx, chain: rhythm, name: "RHYTHM", unitSingular: "BAR", unitPlural: "bars", accent: accent, width: tileW, height: rowH)
-            restartTile(idx, chain: melody, name: "MELODY", unitSingular: "PASS", unitPlural: "passes", accent: accent, width: tileW, height: rowH)
+        // RESTART FLASH (2026-10-21): each tile flashes every time its lane restarts — at a chain restart, and (FREE) at its natural one: every pass for RHYTHM, the riff walk coming back to its first step for
+        // MELODY. One TimelineView for the pair, and only while the lane RUNS (a stopped lane restarts nothing); the pure `euclideousRestartSinceSeconds` reads the engine's own origins.
+        let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
+        let p = euclideousPulseScale(level: pulseLevel)
+        let cfg = riffWalkConfig(idx)
+        let live = running && p > 0 && cfg != nil
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !live)) { tl in
+            let beat = walkTagBeat(at: tl.date)
+            HStack(spacing: sp4) {
+                restartTile(idx, chain: rhythm, name: "RHYTHM", unitSingular: "BAR", unitPlural: "bars", accent: accent, width: tileW, height: rowH,
+                            flash: restartFlash(.rhythm, cfg: cfg, beat: beat, live: live, scale: p))
+                restartTile(idx, chain: melody, name: "MELODY", unitSingular: "PASS", unitPlural: "passes", accent: accent, width: tileW, height: rowH,
+                            flash: restartFlash(.melody, cfg: cfg, beat: beat, live: live, scale: p))
+            }
         }
+        .frame(width: fullWidth, height: rowH)
     }
-    private func restartTile(_ idx: Int, chain: EuclideousRestartChain, name: String, unitSingular: String, unitPlural: String, accent: Color, width: CGFloat, height: CGFloat) -> some View {
+    /// The flash of one tile at the UI beat `beat`: nil unless the lane runs, PULSE is on and a restart of this kind happened within the flash's life.
+    private func restartFlash(_ kind: EuclideousRestartKind, cfg: EuclideousWalkLaneConfig?, beat: Double, live: Bool, scale p: Double) -> EuclideousRestartFlashLook? {
+        guard live, let cfg, let since = euclideousRestartSinceSeconds(kind, cfg: cfg, beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo)) else { return nil }
+        return euclideousRestartFlashLook(since: since, scale: p, reduceMotion: reduceMotion)
+    }
+    /// One restart tile. Labelled for what it is — "RHYTHM RESTART" / "MELODY RESTART" over the chain (FREE, or its links with the unit); the ↻ moved down beside the value, where it spins once on each restart.
+    /// Built as an `AnyView` (the page's construction chain has almost no stack to spare in a debug build — see Docs/claude-playbook.md).
+    private func restartTile(_ idx: Int, chain: EuclideousRestartChain, name: String, unitSingular: String, unitPlural: String, accent: Color, width: CGFloat, height: CGFloat,
+                             flash: EuclideousRestartFlashLook?) -> AnyView {
         let text = euclideousRestartChainText(chain)
         let showUnit = !chain.isFree && chain.count <= 3
-        return VStack(spacing: 3) {
-            HStack(spacing: 3) {
-                Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy))
-                Text(name).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
-            }
-            .foregroundColor(Color(hex: 0x8A909A))
+        let hot = flash?.hot ?? 0
+        return AnyView(VStack(spacing: 3) {
+            Text(euclideousRestartTileLabel(name: name, width: width)).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1).truncationMode(.tail)
+                .padding(.horizontal, 2)
             HStack(alignment: .lastTextBaseline, spacing: 3) {
+                Image(systemName: "arrow.clockwise").font(.system(size: 9, weight: .heavy))
+                    .foregroundColor(hot > 0 ? Color.white.opacity(0.55 + 0.45 * hot) : Color(hex: 0x8A909A))
+                    .rotationEffect(.degrees(flash?.spinDegrees ?? 0))
                 Text(text).font(.system(size: 12, weight: .heavy, design: .monospaced))
                     .foregroundColor(chain.isFree ? Color(hex: 0xAAB0BA) : Color(hex: 0xF2F4F7))
                 if showUnit {
@@ -2426,13 +2448,14 @@ struct EuclideousPage: View {
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 8).fill(chain.isFree ? Color(hex: 0x2A2D34) : lane20(accent)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(chain.isFree ? Color.clear : lane100(accent), lineWidth: 1))
+        .overlay { if let flash { EuclideousRestartFlashOverlay(look: flash, accent: accent, radius: 8) } }
         .contentShape(Rectangle())
         .onTapGesture {
             restartEditorLane = idx
             stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
         }
         .accessibilityLabel(euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitSingular.lowercased(), unitPlural: unitPlural))
-        .accessibilityHint("Double-tap to edit")
+        .accessibilityHint("Double-tap to edit"))
     }
 
     /// §6.2 — the restart editor: both chains, each a FREE + 4-link row, a read-only 16-cell timeline and a hint line.

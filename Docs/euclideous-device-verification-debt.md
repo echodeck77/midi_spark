@@ -17,6 +17,11 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Restart tiles — labels and flash (2026-10-21)
+- The RHYTHM tab's two tiles read "RHYTHM RESTART" / "MELODY RESTART" and are legible at 8 pt; on a narrow card they fall back to "RHYTHM" / "MELODY".
+- The flash reads as "stylish" and in time: each tile flashes on the chain restarts you set and — on FREE — at the pattern's natural restart (RHYTHM: every pass; MELODY: the riff coming back to its first step, which is NOT every pass), in all four lane colours; the sweep, the rim glow and the spinning ↻ don't feel busy at fast rates (1/16 passes every ~1 s).
+- It stops when the lane stops or the transport does, honours PULSE OFF / SUBTLE and Reduce Motion, and the tiles still open the restart editor on a tap.
+
 ### Lane SOLO (2026-10-21)
 - LAUNCH the DEBUG build from Xcode into AUM first (the 1 MB main-thread stack; the page must come up), then: 300 ms tap versus hold on the SOLO button feels right, and solo engages on touch-down with no lag (the snapshot path: one run-loop turn + the next window — judge the hold).
 - "SOLO" legible at 44 × 44 in all four lane colours; the latched (lane colour) and held (#DFE3EA) looks read as different; the OFF border shows.

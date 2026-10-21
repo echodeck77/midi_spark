@@ -60,6 +60,7 @@
 		7BC45590A45ECF62AD2F08A1 /* AcceptanceRatchetStrumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8221885E2107EBA3F721C051 /* AcceptanceRatchetStrumTests.swift */; };
 		7D4F68EA5FCFB518C422FDAA /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
 		7EA1C8DA4E957BD8D6316445 /* MigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BA15AAFC801CACFECA4085 /* MigrationTests.swift */; };
+		80358173C9B1DD2FF58E79F6 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */; };
 		838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
 		83AA7B12EA973469EB436ADD /* RiffPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5AB77F620263EEC9BCFE6A /* RiffPanelTests.swift */; };
 		8418D719517A4A7F501460A1 /* SceneFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */; };
@@ -234,6 +235,7 @@
 		F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridUI.swift; sourceTree = "<group>"; };
 		F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFileTests.swift; sourceTree = "<group>"; };
 		F760F9EC70B6E5E30769292C /* AutoPilot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPilot.swift; sourceTree = "<group>"; };
+		F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashPainter.swift; sourceTree = "<group>"; };
 		FB579E7A98D1755158B6B0DE /* ManualView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualView.swift; sourceTree = "<group>"; };
 		FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXPanelPainter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -375,6 +377,7 @@
 				1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */,
 				6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */,
 				8624A489A951D42AFB805E16 /* RackMatrix.swift */,
+				F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */,
 				67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */,
 				B3CD05B6D166BF878367A888 /* RoomsPage.swift */,
 				80701821EB9AD6D1683D1DDD /* Router.swift */,
@@ -569,6 +572,7 @@
 				C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */,
 				1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */,
 				700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */,
+				80358173C9B1DD2FF58E79F6 /* RestartFlashPainter.swift in Sources */,
 				36AE872430F7852DAEE6C3E0 /* RiffArrowPainter.swift in Sources */,
 				A562F349805997D49225F58F /* RoomsPage.swift in Sources */,
 				515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */,

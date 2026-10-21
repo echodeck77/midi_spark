@@ -9373,3 +9373,11 @@ func euclideousRestartFlashLook(since seconds: Double, scale p: Double, reduceMo
                                       spinDegrees: reduceMotion ? 0 : 360 * easeOut(seconds / F.spinSeconds),
                                       hot: decay)
 }
+
+/// The restart tile's label for a tile `width` wide: "RHYTHM RESTART" / "MELODY RESTART" when it fits at 8 pt heavy mono (`EuclideousHeaderMetrics.monoAdvance` × 8 per character, 2 pt either side),
+/// else just "RHYTHM" / "MELODY" — never a word cut in the middle (the ↻ beside the value still says "restart").
+func euclideousRestartTileLabel(name: String, width: CGFloat) -> String {
+    let full = "\(name) RESTART"
+    let needed = CGFloat(full.count) * 8 * EuclideousHeaderMetrics.monoAdvance + 4
+    return width >= needed ? full : name
+}

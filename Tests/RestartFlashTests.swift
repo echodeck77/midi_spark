@@ -46,6 +46,15 @@ final class RestartFlashTests: XCTestCase {
         XCTAssertEqual(end.spinDegrees, 360, accuracy: 1e-9, "one full turn"); XCTAssertNil(end.sweep, "the band has crossed by then")
     }
 
+    // MARK: the label
+    func testTheTileSaysRestartWhenItFitsAndNeverCutsAWordWhenItDoesNot() {
+        XCTAssertEqual(euclideousRestartTileLabel(name: "RHYTHM", width: 78.4), "RHYTHM RESTART", "the reference card's tile")
+        XCTAssertEqual(euclideousRestartTileLabel(name: "MELODY", width: 76.7), "MELODY RESTART", "an iPad mini's")
+        XCTAssertEqual(euclideousRestartTileLabel(name: "RHYTHM", width: 71.2), "RHYTHM RESTART", "exactly enough")
+        XCTAssertEqual(euclideousRestartTileLabel(name: "RHYTHM", width: 71.1), "RHYTHM", "a hair short: the short form, not 'RHYTHM RESTAR…'")
+        XCTAssertEqual(euclideousRestartTileLabel(name: "MELODY", width: 57), "MELODY", "a small window's tile")
+    }
+
     // MARK: RHYTHM
     func testRhythmWithAChainFlashesAtExactlyTheChainsRestartMarks() {
         var rng = Rng(s: 0xA11CE)
