@@ -5651,12 +5651,9 @@ final class RouterTests: XCTestCase {
     // `case .midi:`, so it never ran while the source was CHORDS/KEY — leaving the frozen pool from before
     // the detour to resume unchanged the moment the page switched back to MIDI IN with HOLD still the
     // stored mode, even though nothing is currently held.
-    // NOTE: the CHORDS-phase pool is deliberately non-empty (`chord([72])`, unrelated to the HOLD'd note) —
-    // this test is isolating the mode-reset fix, not the SEPARATE, pre-existing gap where the row's own
-    // "nothing held anywhere, skip it" guard (`euclideousChordsActive`, Router.swift:3448) checks each
-    // lane's legacy per-lane `sourceModeResolved` instead of the page-level `euclideousNoteSourceResolved`
-    // the ONE-GLOBAL-SOURCE ferry (2026-10-12) made authoritative — found while debugging this fix,
-    // reported separately, not touched here (out of scope for this bug).
+    // NOTE: the CHORDS-phase pool is non-empty (`chord([72])`, unrelated to the HOLD'd note) — this
+    // predates the `euclideousGeneratedSourceActive` fix just below (2026-10-21), kept so this test still
+    // passes an honest `pool.count > 0` regardless of which guard condition is doing the letting-through.
     func testEuclideousHoldDoesNotResumeAStalePoolAfterASourceDetourThroughChords() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, rate: .r1_16, sourceMode: .midi)]
@@ -5693,6 +5690,34 @@ final class RouterTests: XCTestCase {
         let afterDetour = Set(e.ons.filter { $0.cable == 1 && $0.sample >= backStart && $0.sample < backEnd }.map { Int($0.note) })
         XCTAssertTrue(afterDetour.isEmpty, "a CHORDS/KEY detour must drop HOLD's frozen pool, not let it resume on return to MIDI IN: got \(afterDetour)")
         assertNothingLeftSounding(e)
+    }
+    // REGRESSION (found while writing the test above, 2026-10-21): `euclideousGeneratedSourceActive`
+    // (Router.swift:3448, née `euclideousChordsActive`) used to read each lane's legacy per-lane
+    // `sourceModeResolved` instead of the page-level `euclideousNoteSourceResolved` — a CHORDS or KEY
+    // session with GENUINELY nothing held anywhere (no receivers, no 8x8-State latch, empty pool) fell
+    // through the "nothing held, skip the row" guard and went silent, even though both sources generate
+    // their own content unconditionally. No existing test caught it: every other CHORDS/KEY RouterTest
+    // passes a non-empty pool incidentally.
+    func testEuclideousChordsAndKeyPlayWithGenuinelyNothingHeldAnywhere() {
+        func fixture(source: EuclideousLaneSource) -> SnapshotBox {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, rate: .r1_16, sourceMode: .midi)]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var s = SceneState.empty()
+                                     s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                     return s }()])
+            st.euclideousNoteSource = source
+            st.euclideousKeyRoot = 0; st.euclideousKeyType = .major
+            return SnapshotBuilder.build(from: st)
+        }
+        let eChords = RecordingEmitter()
+        run(fixture(source: .chords), NotePool(), beats: 2, into: eChords, forceColumn: 0)
+        assertNothingLeftSounding(eChords)
+        XCTAssertFalse(eChords.ons.filter { $0.cable == 1 }.isEmpty, "CHORDS must keep generating with truly nothing held anywhere in the document")
+        let eKey = RecordingEmitter()
+        run(fixture(source: .key), NotePool(), beats: 2, into: eKey, forceColumn: 0)
+        assertNothingLeftSounding(eKey)
+        XCTAssertFalse(eKey.ons.filter { $0.cable == 1 }.isEmpty, "KEY must keep generating with truly nothing held anywhere in the document")
     }
 
 

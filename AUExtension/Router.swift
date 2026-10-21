@@ -3439,19 +3439,30 @@ final class Router {
         // CHORDS BUTTON (Paul 2026-10-08): a real gap found while testing, not by inspection — this guard
         // predates CHORDS mode and was always safe before it: EVERY processor type in this engine has always
         // needed SOME held/latched input to produce sound, so "nothing held anywhere ⇒ nothing can play" was a
-        // completely sound assumption. A CHORDS-mode Euclideous lane breaks it — it generates its own content
-        // algorithmically and must keep playing even when nothing else in the whole session has anything held.
-        // Cheap, allocation-free check (euclidLines is always exactly 4 entries) mirrors the SAME "run me
-        // regardless of the pool" exception `emitFreeMod`/`emitColumnRatchetPattern` already get, just folded
-        // into this guard's own condition instead of a separate pre-guard call, since CHORDS rides the NORMAL
-        // emitTickRow→emitGeneratorRow dispatch once past this point (no separate subsystem needed).
-        let euclideousChordsActive = box.cells[Snap.euclideousRow].procs.first?.euclidLines.contains { $0.sourceModeResolved == .chords } ?? false
-        // HOLD/LATCH (Paul 2026-10-20): the SAME gap CHORDS mode found above — a HOLD-sustained or LATCH-
+        // completely sound assumption. A CHORDS- or KEY-mode Euclideous row breaks it — both generate their
+        // own content algorithmically (CHORDS from the chord generator, KEY from `euclideousChordKeyTones`
+        // alone — neither reads `pool`/`livePool` at all) and must keep playing even when nothing else in the
+        // whole session has anything held. Cheap, allocation-free check (one optional field read) mirrors the
+        // SAME "run me regardless of the pool" exception `emitFreeMod`/`emitColumnRatchetPattern` already get,
+        // just folded into this guard's own condition instead of a separate pre-guard call, since CHORDS/KEY
+        // ride the NORMAL emitTickRow→emitGeneratorRow dispatch once past this point (no separate subsystem
+        // needed). FIXED 2026-10-21 (found while shipping HOLD/LATCH, reported separately, now fixed): this
+        // used to read each LANE's legacy per-lane `sourceModeResolved` — a field the ONE-GLOBAL-SOURCE ferry
+        // (2026-10-12) made decode-only/dead for behavior — instead of the page-level
+        // `euclideousNoteSourceResolved` that actually governs the source today, so a CHORDS/KEY session with
+        // nothing else held anywhere (and no lane's stale legacy field happening to still say `.chords`)
+        // incorrectly fell through and went silent. No existing test caught it: every CHORDS/KEY RouterTest
+        // passes a non-empty pool incidentally, masking the gap.
+        let euclideousGeneratedSourceActive = {
+            guard let src = box.cells[Snap.euclideousRow].procs.first?.euclideousNoteSourceResolved else { return false }
+            return src == .chords || src == .key
+        }()
+        // HOLD/LATCH (Paul 2026-10-20): the SAME gap CHORDS/KEY mode found above — a HOLD-sustained or LATCH-
         // accumulated pool must keep driving the row even once every physical key is released, same
         // "generates its own content" exception, just sourced from `euclideousHoldLatchPool` (this render's
         // persistent frozen/latched notes) instead of an algorithmic generator.
         let euclideousHoldLatchActive = box.cells[Snap.euclideousRow].procs.first?.euclideousHoldLatchMode != nil && euclideousHoldLatchPool.count > 0
-        guard pool.count > 0 || latchMask != 0 || euclideousChordsActive || euclideousHoldLatchActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
+        guard pool.count > 0 || latchMask != 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             for i in euclidLineReady.indices { euclidLineReady[i] = 0 }   // nothing held/latched ⇒ nothing can play; case .euclid: won't run below to refresh this itself
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
