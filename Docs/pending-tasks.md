@@ -11,6 +11,7 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] DECIDE (Paul): an FX-tied hit stays a NORMAL tile with no pulse (a gap is only a riff rest under SKIP/TIE); a REPEAT hit that finds no earlier note to repeat likewise (the footers show it as a rest hit, the engine plays nothing).
 - [ ] DECIDE (Paul): strikes can lag the dot by up to ~50 ms (the NOTE VIEW poll is 30 Hz). If it shows, poll it at 60 Hz (the rate of an existing poll only).
 - [ ] (noted) the BUILD-page EUCLID editor's comet bar (no feed) keeps the old geometric flare; the step-based ring/arrow flare functions are gone.
+- [ ] RECOMMEND (Paul to say): `euclideousStrikeEvent` (@State on `DiagView`) is now read only by the NOTES keys (for the struck pitches); every strike batch re-evaluates the WHOLE page body (pre-existing since the header ferry, up to 30×/s). Storing the pitches on the feed's strike and dropping that @State would remove it — an unmeasured main-thread win, not done here.
 
 ## ★ EUCLIDEOUS — NOTES TAB: keys, WHEN, PLAY AS, CHANCE, RECEIVED; FILL leaves ON REST (2026-10-20; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "NOTES tab" lines in `Docs/euclideous-device-verification-debt.md` — the key sizes, the picker, ROLL/RUN by ear, the tied-rest strike, one old SKIP/TIE session and one old FILL session.

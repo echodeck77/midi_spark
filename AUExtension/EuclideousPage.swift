@@ -4880,7 +4880,10 @@ struct EuclideousPage: View {
         let p = euclideousPulseScale(level: pulseLevel)
         guard p > 0, let s = pulseFeed.latestHappened(lane: lane, now: now, riff: true) else { return nil }
         let env = euclideousPulseEnvelopes(velocity: Int(s.riffVel), seconds: now - s.onsetAt, scale: p)
-        return env.f >= 0.01 ? (env.f, Int(s.rank), lane) : nil
+        guard env.f >= 0.01 else { return nil }
+        // 4.6 / 1.6: a lane the LANES grid has muted at this moment shows no flare (a strike it made just before the mute stops fading in its arrow, its note cell and its name). Looked up only while something flares.
+        if let cfg = riffWalkConfig(lane), !euclideousLaneAudible(beat: lanesMusicalBeat(real: walkTagBeat(at: Date(timeIntervalSinceReferenceDate: now))), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats) { return nil }
+        return (env.f, Int(s.rank), lane)
     }
     private func riffLaneFrames(ranks: [Int], beat: Double, now: Double = Date().timeIntervalSinceReferenceDate) -> [RiffLaneFrame] {
         let spb = 60.0 / max(1.0, clock.tempo)
@@ -4964,33 +4967,28 @@ struct EuclideousPage: View {
         return out
     }
     private func riffNoteLabelColumn(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
-            riffNoteLabelColumnBody(pool: pool, source: source, cellH: cellH, lights: riffNameLights(now: tl.date.timeIntervalSinceReferenceDate))
+        // The names and their VoiceOver words are worked out ONCE per body; the TimelineView only decides which rows are lit this frame.
+        let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
+        let rows: [(rank: Int, label: String, hasNote: Bool, isReal: Bool, spoken: String)] = (1...8).reversed().map { rank in
+            let hasNote = rank <= extended.count
+            let noteValue = hasNote ? UInt8(extended[rank - 1]) : 0
+            return (rank, hasNote ? euclideousDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType) : "–", hasNote, rank <= pool.count,
+                    hasNote ? "Rank \(rank), \(euclideousAccessibleDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType))" : "Rank \(rank), no note")
+        }
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+            riffNoteLabelColumnBody(rows: rows, cellH: cellH, lights: riffNameLights(now: tl.date.timeIntervalSinceReferenceDate))
         }
     }
-    private func riffNoteLabelColumnBody(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat, lights: [Int: (colour: Color, f: Double)]) -> some View {
-        // DEAD-CODE FIX (2026-10-13 adversarial review): `euclideousGlobalPoolExtended` was built specifically
-        // to feed THIS label column with the correct octave-extended note for ranks beyond the raw held-note
-        // count, but was never actually wired in — every rank past `pool.count` showed a plain "–" even though
-        // the real strike path (`riffResolve(wrap: .fold)`) will happily sound an octave-up copy of the pool
-        // there. `extended` is empty exactly when `pool` is (nothing held, still shows "–"), else always 8
-        // entries. Real-vs-copy dimming mirrors the MELODY tab's own established convention for the same
-        // distinction.
-        let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
+    private func riffNoteLabelColumnBody(rows: [(rank: Int, label: String, hasNote: Bool, isReal: Bool, spoken: String)], cellH: CGFloat, lights: [Int: (colour: Color, f: Double)]) -> some View {
+        // (the note names — octave-extended, real-vs-copy dimming, spelled relative to the held chord, "–" with nothing held — are built once in `riffNoteLabelColumn`; see the 2026-10-13 and 2026-10-14 notes in git history)
         return VStack(spacing: sp4) {
-            ForEach((1...8).reversed(), id: \.self) { rank in
-                let hasNote = rank >= 1 && rank <= extended.count
-                let noteValue = hasNote ? UInt8(extended[rank - 1]) : 0
-                let isReal = rank <= pool.count
-                // FERRY (2026-10-14 §1): "for MIDI IN and CHORD, spell flats by default" is RETIRED — spell
-                // relative to the actually-held chord instead (see `euclideousDisplayNoteName`'s own doc).
-                let label: String = hasNote ? euclideousDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType) : "–"
-                Text(label).font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(lights[rank]?.colour ?? (hasNote ? (isReal ? Color(hex: 0xDFE3EA) : Color(hex: 0xDFE3EA).opacity(0.55)) : Color(hex: 0x4A4E57)))
-                    .shadow(color: lights[rank].map { $0.colour.opacity($0.f) } ?? .clear, radius: lights[rank].map { 5 * CGFloat($0.f) } ?? 0)
+            ForEach(rows, id: \.rank) { row in
+                Text(row.label).font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(lights[row.rank]?.colour ?? (row.hasNote ? (row.isReal ? Color(hex: 0xDFE3EA) : Color(hex: 0xDFE3EA).opacity(0.55)) : Color(hex: 0x4A4E57)))
+                    .shadow(color: lights[row.rank].map { $0.colour.opacity($0.f) } ?? .clear, radius: lights[row.rank].map { 5 * CGFloat($0.f) } ?? 0)
                     .frame(width: riffLabelColW, height: cellH, alignment: .trailing)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(hasNote ? "Rank \(rank), \(euclideousAccessibleDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType))" : "Rank \(rank), no note")
+                    .accessibilityLabel(row.spoken)
             }
         }
         .frame(width: riffLabelColW)

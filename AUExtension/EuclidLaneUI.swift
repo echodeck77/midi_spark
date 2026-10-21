@@ -436,7 +436,7 @@ struct EuclidCometBar: View {
         let stepW: CGFloat = groupGeo?.stepW ?? boxGeo.boxW
         let rotateStepPt: CGFloat = n > 1 ? (stepXs[n - 1] - stepXs[0]) / CGFloat(n - 1) : boxGeo.pitch
         ZStack {
-        TimelineView(.animation(minimumInterval: pulseFeed != nil ? 1.0 / 60.0 : 1.0 / 30.0, paused: !(running || (pulseFeed != nil && pulseLive)))) { tl in
+        TimelineView(.animation(minimumInterval: pulseFeed != nil && pulseScale > 0 ? 1.0 / 60.0 : 1.0 / 30.0, paused: !(running || (pulseFeed != nil && pulseLive)))) { tl in
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             // DIRECTION-AWARE SWEEP: `cometRaw` is the raw tick count mod the direction's real cycle length (n, or
             // 2n under PING-PONG); `cometPos` is its continuous screen position, reversing/bouncing per
@@ -456,15 +456,16 @@ struct EuclidCometBar: View {
             // at the MUSICAL onset beat, the same function the dot uses); its age is wall time since the onset stamped on the display clock when the event arrived (1.2).
             let pulseOn = pulseFeed != nil
             let nowRef = tl.date.timeIntervalSinceReferenceDate
-            let pulseStrikes = pulseFeed?.strikes(lane: pulseLane) ?? []
-            let pulseTiles: [(velocity: Int, seconds: Double)?] = pulseOn ? euclideousPulseTileStrikes(pulseStrikes, riffOn: pulseRiffOn, tiles: n, now: nowRef, tileOf: { onset in
-                let swingA = min(75, max(50, clock.swing)) / 50.0
+            let swingA = min(75, max(50, clock.swing)) / 50.0
+            let pulseKey = euclideousPulseGeometryKey(n: n, dir: dir, sub: sub, spanBeats: spanBeats, swing: swingA, stepBeats: clock.stepBeats, chains: restartChains)
+            let pulseStrikes = pulseFeed?.resolveTiles(lane: pulseLane, key: pulseKey, tileOf: { onset in
                 let mb = swingA == 1 ? onset : musicalOf(onset, stepBeats: max(0.03125, clock.stepBeats), a: swingA)
                 let raw = restartChains.map { euclideousLaneCometChainRaw(beat: mb, n: n, dir: dir, sub: sub, chains: $0, legacySpanBeats: spanBeats) }
                     ?? euclidCometRaw(mTickBeat: mb, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
                 return euclideousPulseTileForOnset(rawAtOnset: raw, n: n, dir: dir)
-            }) : []
-            let pulseLatest = pulseOn ? euclideousPulseLatestStrike(pulseStrikes, riffOn: pulseRiffOn, now: nowRef) : nil
+            }) ?? []
+            let pulseTiles: [(velocity: Int, seconds: Double)?] = pulseOn ? euclideousPulseTileStrikes(pulseStrikes, riffOn: pulseRiffOn, tiles: n, now: nowRef) : []
+            let pulseLatest = (pulseOn && !mutedNow) ? euclideousPulseLatestStrike(pulseStrikes, riffOn: pulseRiffOn, now: nowRef) : nil
             let pulseLap = euclideousPulseLapSeconds(cycleLen: euclidCycleLen(dir, n: n), stepBeats: sub, tempo: clock.tempo)
             let pulseMarkFade = pulseFeed?.markFade(now: tl.date) ?? 1
             Canvas { ctx, size in
@@ -536,7 +537,7 @@ struct EuclidCometBar: View {
                     let tState: EuclidFooterState = (footerStates != nil && i < footerStates!.count) ? footerStates![i] : .miss
                     let isGap = pulseOn && hit && euclideousPulseIsGap(state: tState, onRest: riffOnRest, riffOn: pulseRiffOn)
                     let tileStrike = (pulseOn && hit && !isGap && i < pulseTiles.count) ? pulseTiles[i] : nil
-                    let env = tileStrike.map { euclideousPulseEnvelopes(velocity: $0.velocity, seconds: $0.seconds, scale: pulseScale) } ?? .none
+                    let env = mutedNow ? .none : (tileStrike.map { euclideousPulseEnvelopes(velocity: $0.velocity, seconds: $0.seconds, scale: pulseScale) } ?? .none)
                     let dipK = euclideousPulseFilter(.keyDipMove, scale: pulseScale, reduceMotion: reduceMotion) == .off ? 0 : env.k
                     let overlayK = euclideousPulseFilter(.keyDipOverlay, scale: pulseScale, reduceMotion: reduceMotion) == .off ? 0 : env.k
                     func drawTile(_ ctx: inout GraphicsContext) {

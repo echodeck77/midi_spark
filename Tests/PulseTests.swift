@@ -109,12 +109,21 @@ final class PulseTests: XCTestCase {
         }
         XCTAssertEqual(euclideousPulseRipple(d0: 12, velocity: 127, seconds: 0.18, scale: 1)!.diameter, 12 + 22, accuracy: 1e-6, "vis 1 at p 0.5")
         XCTAssertNil(euclideousPulseRipple(d0: 12, velocity: 100, seconds: 0.1, scale: 0), "OFF")
+        // the ferry's own worked numbers, literally (vis 0.2, p 0.5): diameter d0 + 10.56 at opacity 0.1 × P — and at p = 1, vis 1: d0 + 44 at opacity 0
+        for p in [1.0, 0.6] {
+            let r = euclideousPulseRipple(d0: 12, vis: 0.2, progress: 0.5, scale: p)
+            XCTAssertEqual(Double(r.diameter), 12 + 10.56, accuracy: 1e-9); XCTAssertEqual(r.opacity, 0.1 * p, accuracy: 1e-12)
+        }
+        let full = euclideousPulseRipple(d0: 12, vis: 1, progress: 1, scale: 1)
+        XCTAssertEqual(Double(full.diameter), 56, accuracy: 1e-9); XCTAssertEqual(full.opacity, 0, accuracy: 1e-12)
     }
 
     // MARK: 7. the ring
     func testRingStrokeAndLetter() {
         XCTAssertEqual(euclideousPulseRingStroke(f: 1), 5); XCTAssertEqual(euclideousPulseRingStroke(f: 0), 2.5); XCTAssertEqual(euclideousPulseRingStroke(f: 0.5), 3.75); XCTAssertEqual(euclideousPulseRingStroke(f: 9), 5)
         XCTAssertTrue(euclideousPulseRingLetterIsWhite(f: 0.36)); XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 0.35)); XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 0))
+        // 6.3: a HELD ring keeps its ink letter on the light disc, whatever strikes; an off / unrouted ring has no white letter either
+        XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 1, tone: .ink)); XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 1, tone: .off)); XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 1, tone: .unrouted))
         XCTAssertTrue(euclideousPulseNameLit(f: 0.13)); XCTAssertFalse(euclideousPulseNameLit(f: 0.12))
         XCTAssertEqual(euclideousPulseRingVelocity(riffVel: 40, notesVel: 90), 90)
     }
@@ -175,11 +184,19 @@ final class PulseTests: XCTestCase {
         func st(_ b: Double, _ r: UInt8, _ n: UInt8) -> EuclideousPulseStrike { EuclideousPulseStrike(onsetBeat: b, onsetAt: b * 0.5, riffVel: r, notesVel: n) }
         let strikes = [st(0, 100, 0), st(0.5, 0, 80), st(1.0, 60, 0), st(4.0, 60, 0), st(4.5, 110, 0)]
         let tileOf: (Double) -> Int = { euclideousPulseTileForOnset(rawAtOnset: $0 / 0.5, n: 8, dir: .fwd) }
+        let feed = EuclideousPulseFeed()
+        feed.ingest(lane: 0, events: strikes.map { s in var e = Router.EuclideousNoteViewEventSnapshot(onsetBeat: s.onsetBeat, durationBeat: 0.25, kind: 0, notes: [60, 55]); e.hasRiffNote = s.riffVel > 0; e.vels = s.riffVel > 0 ? [s.riffVel, s.notesVel] : [s.notesVel, s.notesVel]; return e },
+                    anchorBeat: 0, anchorAt: Date(timeIntervalSinceReferenceDate: 0), tempo: 120)
+        let resolved = feed.resolveTiles(lane: 0, key: 7, tileOf: tileOf)
+        XCTAssertEqual(resolved.map { Int($0.tile) }, [0, 1, 2, 0, 1])
+        var calls = 0
+        _ = feed.resolveTiles(lane: 0, key: 7, tileOf: { calls += 1; return tileOf($0) }); XCTAssertEqual(calls, 0, "a strike is mapped once for a given geometry")
+        _ = feed.resolveTiles(lane: 0, key: 8, tileOf: { calls += 1; return tileOf($0) }); XCTAssertEqual(calls, 5, "…and again when the geometry changes")
         let now = 4.2 * 0.5   // beat 4.2: the strike at 4.5 is still in the future
-        let on = euclideousPulseTileStrikes(strikes, riffOn: true, tiles: 8, now: now, tileOf: tileOf)
+        let on = euclideousPulseTileStrikes(resolved.map { var r = $0; r.onsetAt = r.onsetBeat * 0.5; return r }, riffOn: true, tiles: 8, now: now)
         XCTAssertEqual(on[0]?.velocity, 60, "beat 4.0 maps back onto tile 0 and replaces beat 0's strike"); XCTAssertEqual(on[0]?.seconds ?? 0, 0.1, accuracy: 1e-9)
         XCTAssertNil(on[1], "riff on: the notes-only strike at beat 0.5 passes through, and the strike at 4.5 has not happened yet"); XCTAssertEqual(on[2]?.velocity, 60)
-        let off = euclideousPulseTileStrikes(strikes, riffOn: false, tiles: 8, now: now, tileOf: tileOf)
+        let off = euclideousPulseTileStrikes(resolved.map { var r = $0; r.onsetAt = r.onsetBeat * 0.5; return r }, riffOn: false, tiles: 8, now: now)
         XCTAssertNil(off[0], "riff off: only the notes layer's strike counts"); XCTAssertEqual(off[1]?.velocity, 80)
         XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, now: now)?.velocity, 60, "the latest strike that has happened by beat 4.2 is the one at 4.0")
         XCTAssertEqual(euclideousPulseLatestStrike(strikes, riffOn: true, now: 4.6 * 0.5)?.velocity, 110)
@@ -208,13 +225,14 @@ final class PulseTests: XCTestCase {
         var strikes: [EuclideousPulseStrike] = []
         for k in 0..<48 { let beat = Double(k) * sub; strikes.append(EuclideousPulseStrike(onsetBeat: beat, onsetAt: beat * 60 / tempo, riffVel: UInt8(40 + k % 80), notesVel: 0)) }
         let now = 48 * sub * 60 / tempo
+        let resolved = strikes.map { s -> EuclideousPulseStrike in var r = s; r.tile = Int16(euclideousPulseTileForOnset(rawAtOnset: s.onsetBeat / sub, n: 16, dir: .fwd)); return r }
         let frames = 600
         let start = Date()
         var sink = 0.0
         for f in 0..<frames {
             let t = now + Double(f) * (1.0 / 60.0)
             for _ in 0..<4 {
-                let tiles = euclideousPulseTileStrikes(strikes, riffOn: true, tiles: 16, now: t, tileOf: { euclideousPulseTileForOnset(rawAtOnset: $0 / sub, n: 16, dir: .fwd) })
+                let tiles = euclideousPulseTileStrikes(resolved, riffOn: true, tiles: 16, now: t)
                 for tile in tiles { if let s = tile {
                     let e = euclideousPulseEnvelopes(velocity: s.velocity, seconds: s.seconds, scale: 1)
                     sink += e.k + e.b + euclideousPulseMarkAlpha(seconds: s.seconds, lapSeconds: 5.33, scale: 1)
@@ -225,5 +243,36 @@ final class PulseTests: XCTestCase {
         let perFrame = Date().timeIntervalSince(start) / Double(frames)
         print("PULSE pure work per frame (4 lanes x 16 tiles x 48 strikes): \(perFrame * 1000) ms (sink \(sink > 0))")
         XCTAssertLessThan(perFrame, 0.004, "well under a quarter of a 60 Hz frame on any machine")
+    }
+
+    /// The same frame with an ACTIVE restart chain. The chain-aware tile mapping builds a small pattern buffer per call (~2 ms a frame for 4 × 48 strikes in a debug build when redone every frame, which is what the first version of this ferry did);
+    /// it is now resolved once per strike per geometry (`EuclideousPulseFeed.resolveTiles`), so a frame only scans. This times the first frame (all 192 strikes resolved) and then the steady state.
+    func testAFramesPureWorkWithARestartChainIsStillCheap() {
+        let sub = 0.25, tempo = 180.0
+        var chains = EuclideousLaneRestartChains.off; chains.rhythm = .from([2, 1]); chains.melody = .from([1]); chains.barBeats = 4; chains.lapBeats = 4
+        let feed = EuclideousPulseFeed()
+        for lane in 0..<4 {
+            feed.ingest(lane: lane, events: (0..<48).map { k in var e = Router.EuclideousNoteViewEventSnapshot(onsetBeat: Double(k) * sub, durationBeat: 0.1, kind: 0, notes: [60]); e.hasRiffNote = true; e.vels = [90]; return e },
+                        anchorBeat: 0, anchorAt: Date(timeIntervalSinceReferenceDate: 0), tempo: tempo)
+        }
+        let key = euclideousPulseGeometryKey(n: 16, dir: .fwd, sub: sub, spanBeats: 0, swing: 1, stepBeats: 0.5, chains: chains)
+        let tileOf: (Double) -> Int = { euclideousPulseTileForOnset(rawAtOnset: euclideousLaneCometChainRaw(beat: $0, n: 16, dir: .fwd, sub: sub, chains: chains, legacySpanBeats: 0), n: 16, dir: .fwd) }
+        let first = Date()
+        for lane in 0..<4 { _ = feed.resolveTiles(lane: lane, key: key, tileOf: tileOf) }
+        let firstFrame = Date().timeIntervalSince(first)
+        let now = 48 * sub * 60 / tempo
+        let frames = 600
+        let start = Date()
+        var sink = 0
+        for f in 0..<frames {
+            let t = now + Double(f) / 60.0
+            for lane in 0..<4 {
+                let s = feed.resolveTiles(lane: lane, key: key, tileOf: tileOf)
+                sink &+= euclideousPulseTileStrikes(s, riffOn: true, tiles: 16, now: t).compactMap { $0 }.count
+            }
+        }
+        let perFrame = Date().timeIntervalSince(start) / Double(frames)
+        print("PULSE pure work WITH a restart chain: first frame \(firstFrame * 1000) ms, steady state \(perFrame * 1000) ms per frame (sink \(sink))")
+        XCTAssertLessThan(perFrame, 0.004); XCTAssertLessThan(firstFrame, 0.05)
     }
 }

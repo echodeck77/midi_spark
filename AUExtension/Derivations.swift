@@ -8719,14 +8719,17 @@ func euclideousPulseTail(vis: Double, dotX: CGFloat, areaMinX: CGFloat, areaMaxX
 /// 5.2: the MIX ripple around a puck of diameter `d0`: p = min(1, t ÷ 0.36), diameter d0 + 44 × p × (0.35 + 0.65 × vis), opacity (1 − p) × vis × P. nil when it isn't alive.
 func euclideousPulseRipple(d0: CGFloat, velocity: Int, seconds t: Double, scale p: Double) -> (diameter: CGFloat, opacity: Double)? {
     guard t >= 0, t < 0.36, p > 0, velocity > 0 else { return nil }
-    let vis = euclideousPulseVis(velocity)
-    let q = min(1, t / 0.36)
-    return (d0 + 44 * CGFloat(q) * CGFloat(0.35 + 0.65 * vis), (1 - q) * vis * p)
+    return euclideousPulseRipple(d0: d0, vis: euclideousPulseVis(velocity), progress: min(1, t / 0.36), scale: p)
+}
+/// 5.2 in its own terms — `vis` and the progress p = min(1, t ÷ 0.36) — so the ferry's worked numbers can be asserted literally.
+func euclideousPulseRipple(d0: CGFloat, vis: Double, progress q: Double, scale p: Double) -> (diameter: CGFloat, opacity: Double) {
+    (d0 + 44 * CGFloat(q) * CGFloat(0.35 + 0.65 * vis), (1 - q) * vis * p)
 }
 
 /// 6.1: the sounding quarter's stroke 2.5 + 2.5 × f, and the letter's white while f > 0.35.
 func euclideousPulseRingStroke(f: Double) -> CGFloat { 2.5 + 2.5 * CGFloat(max(0, min(1, f))) }
-func euclideousPulseRingLetterIsWhite(f: Double) -> Bool { f > 0.35 }
+/// 6.1: the letter draws #FFFFFF while f > 0.35 — on a ring whose letter is the lit one (`.on`). A HELD ring keeps its ink letter on the light disc (6.3: held is unchanged), and an off / unrouted ring has no strike.
+func euclideousPulseRingLetterIsWhite(f: Double, tone: EuclideousRingLetterTone = .on) -> Bool { tone == .on && f > 0.35 }
 /// 4.3: the riff panel's note name lights in the lane's colour while f > 0.12.
 func euclideousPulseNameLit(f: Double) -> Bool { f > 0.12 }
 
@@ -8761,7 +8764,9 @@ func euclideousPulseFilter(_ effect: EuclideousPulseEffect, scale p: Double, red
 /// One strike as the feed keeps it: the onset beat (the engine's real beat — it maps the strike to its comet tile) and `onsetAt`, the same moment on the DISPLAY clock (`timeIntervalSinceReferenceDate`),
 /// worked out ONCE when the event arrives from the dejittered beat anchor the comet dot reads — so a strike draws in the frame the dot reaches its tile, and keeps decaying in wall time even after the
 /// anchor stops advancing (a stopped transport re-anchors every poll). `riffVel` / `notesVel` are the velocities those layers played (0 = that layer didn't strike on this hit).
-struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Double; var riffVel: UInt8; var notesVel: UInt8; var rank: Int8 = -1; var column: Int8 = -1 }   // `rank` / `column`: the riff-grid row and column the engine reports for this hit (REPEAT's rank is the repeated note's); -1 = none
+struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Double; var riffVel: UInt8; var notesVel: UInt8; var rank: Int8 = -1; var column: Int8 = -1
+    /// The comet tile this strike belongs to, resolved ONCE (`EuclideousPulseFeed.resolveTiles`) for the lane geometry `tileKey` names — the chain-aware mapping is not free, so it is not redone every frame. -1 = not resolved yet.
+    var tile: Int16 = -1; var tileKey: Int = 0 }   // `rank` / `column`: the riff-grid row and column the engine reports for this hit (REPEAT's rank is the repeated note's); -1 = none
 
 /// 9.2: the small retained list per lane, filled from the existing NOTE VIEW poll (nothing new is polled). Main-thread only (filled by the poll, read inside the surfaces' TimelineViews), held in
 /// `LiveTelemetry` so filling it never re-runs the page body. A strike is a kind 0 / 3 event that carries notes; a rest flash (kind 2), a tied rest with nothing struck and a muted / FX-tied hit post
@@ -8790,6 +8795,16 @@ final class EuclideousPulseFeed {
     }
     /// Chronological, oldest first.
     func strikes(lane: Int) -> [EuclideousPulseStrike] { lane >= 0 && lane < 4 ? rings[lane] : [] }
+    /// The lane's strikes with every strike's comet tile resolved for the geometry `key` (see `euclideousPulseGeometryKey`): a strike is mapped once, when it first draws, and again only if the lane's pattern, rate, direction, chains or swing
+    /// change. Per frame this is a scan that finds nothing to do.
+    func resolveTiles(lane: Int, key: Int, tileOf: (Double) -> Int) -> [EuclideousPulseStrike] {
+        guard lane >= 0, lane < 4 else { return [] }
+        for i in rings[lane].indices where rings[lane][i].tile < 0 || rings[lane][i].tileKey != key {
+            rings[lane][i].tile = Int16(max(0, min(Int(Int16.max), tileOf(rings[lane][i].onsetBeat))))
+            rings[lane][i].tileKey = key
+        }
+        return rings[lane]
+    }
     func latest(lane: Int, where keep: (EuclideousPulseStrike) -> Bool = { _ in true }) -> EuclideousPulseStrike? {
         guard lane >= 0, lane < 4 else { return nil }
         return rings[lane].last(where: keep)
@@ -8821,13 +8836,13 @@ func euclideousPulseTileForOnset(rawAtOnset: Double, n: Int, dir: EuclidDir) -> 
     return max(0, min(max(1, n) - 1, euclidReadIndex(k, n: n, dir: dir)))
 }
 /// Each tile's latest strike, for the key dip, the flare core and the level mark (3.3, 3.1, 3.5): velocity (comet-bar rule) and seconds since its onset, nil for a tile with none yet.
-/// `tileOf` maps an onset beat to its tile (see `euclideousPulseTileForOnset`). A strike still in the future (its onset after `now`, a reference-date time) is not there yet (1.2).
-func euclideousPulseTileStrikes(_ strikes: [EuclideousPulseStrike], riffOn: Bool, tiles n: Int, now: Double, tileOf: (Double) -> Int) -> [(velocity: Int, seconds: Double)?] {
+/// Each strike's tile is its resolved `tile` (see `euclideousPulseTileForOnset`). A strike still in the future (its onset after `now`, a reference-date time) is not there yet (1.2).
+func euclideousPulseTileStrikes(_ strikes: [EuclideousPulseStrike], riffOn: Bool, tiles n: Int, now: Double) -> [(velocity: Int, seconds: Double)?] {
     var out = [(velocity: Int, seconds: Double)?](repeating: nil, count: max(0, n))
     for s in strikes where s.onsetAt <= now {
         let v = euclideousPulseStrikeVelocity(riffOn: riffOn, riffVel: Int(s.riffVel), notesVel: Int(s.notesVel))
         guard v > 0 else { continue }
-        let t = tileOf(s.onsetBeat)
+        let t = Int(s.tile)   // resolved by `EuclideousPulseFeed.resolveTiles`; -1 (not resolved) maps nowhere
         if t >= 0, t < out.count { out[t] = (v, now - s.onsetAt) }   // chronological: the last one wins
     }
     return out
@@ -8839,4 +8854,12 @@ func euclideousPulseLatestStrike(_ strikes: [EuclideousPulseStrike], riffOn: Boo
         if v > 0 { return (v, now - s.onsetAt) }
     }
     return nil
+}
+
+/// What the tile mapping depends on: the lane's step count, direction, step length, span, swing and restart chains. Two keys are equal exactly when `euclideousPulseTileForOnset` would map every onset the same way.
+func euclideousPulseGeometryKey(n: Int, dir: EuclidDir, sub: Double, spanBeats: Double, swing: Double, stepBeats: Double, chains: EuclideousLaneRestartChains?) -> Int {
+    var h = Hasher()
+    h.combine(n); h.combine(dir.rawValue); h.combine(sub.bitPattern); h.combine(spanBeats.bitPattern); h.combine(swing.bitPattern); h.combine(stepBeats.bitPattern)
+    if let c = chains { h.combine(c.rhythm.packed); h.combine(c.melody.packed); h.combine(c.barBeats.bitPattern); h.combine(c.lapBeats.bitPattern) }
+    return h.finalize()
 }

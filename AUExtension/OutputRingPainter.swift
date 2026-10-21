@@ -92,13 +92,14 @@ struct EuclideousOutputRing: View {
             }
             // LETTER
             let letterColour: Color
-            switch euclideousRingLetterTone(mode: state.mode, held: held) {
+            let letterTone = euclideousRingLetterTone(mode: state.mode, held: held)
+            switch letterTone {
             case .ink: letterColour = EuclideousRingPalette.ink
             case .on: letterColour = EuclideousRingPalette.letterOn
             case .unrouted: letterColour = EuclideousRingPalette.letterUnrouted
             case .off: letterColour = EuclideousRingPalette.letterOff
             }
-            ctx.draw(Text(letter).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(euclideousPulseRingLetterIsWhite(f: topF) ? Color.white : letterColour), at: c)   // §6.1: #FFFFFF while f > 0.35
+            ctx.draw(Text(letter).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(euclideousPulseRingLetterIsWhite(f: topF, tone: letterTone) ? Color.white : letterColour), at: c)   // §6.1: #FFFFFF while f > 0.35
         }
         .frame(width: width, height: height)
     }
