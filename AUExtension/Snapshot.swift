@@ -460,9 +460,12 @@ extension SnapParams {
         // 2026-09-29 fixed-4-row redesign). An AUTO lane still targets "euclidPulses" etc by name (authored before
         // the redesign, and the redesign didn't touch AutoParamField), so mirror the write onto row 0 — the row the
         // flat fields always fed — or the ramp would silently stop reaching the render path.
-        case .euclidPulses: s.euclidPulses = ci(1, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].pulses = s.euclidPulses }
+        // RHYTHM fixes §4.3 (2026-10-21): this writes pulses/rotate directly, not through the STEPS setter
+        // (euclideousSliderCommit) — nil the matching requested field, same rule a randomise would follow,
+        // so a later STEPS change doesn't silently resurface a HITS/OFFSET value this ramp never asked for.
+        case .euclidPulses: s.euclidPulses = ci(1, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].pulses = s.euclidPulses; s.euclidLines[0].hitsRequested = nil }
         case .euclidSteps:  s.euclidSteps = ci(2, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].steps = s.euclidSteps }
-        case .euclidRot:    s.euclidRot = ci(0, 15); if !s.euclidLines.isEmpty { s.euclidLines[0].rotate = s.euclidRot }
+        case .euclidRot:    s.euclidRot = ci(0, 15); if !s.euclidLines.isEmpty { s.euclidLines[0].rotate = s.euclidRot; s.euclidLines[0].offsetRequested = nil }
         case .glideRange:   s.glideRange = ci(1, 48)
         case .modMin:       s.modMin = ci(0, 127)
         case .modMax:       s.modMax = ci(0, 127)

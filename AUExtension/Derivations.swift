@@ -2970,9 +2970,16 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
 /// can't be clobbered by this one's revert.
 func euclideousSliderRevert(_ field: EuclideousSliderField, _ line: inout EuclidLine, snapshot: EuclidLine) {
     switch field {
-    case .hits: line.pulses = snapshot.pulses; line.customHits = snapshot.customHits
-    case .steps: line.steps = snapshot.steps; line.customHits = snapshot.customHits
-    case .offset: line.rotate = snapshot.rotate
+    // RHYTHM fixes §4 (2026-10-21): each case now restores every field its own commit touches, not
+    // just the headline one — `hitsRequested`/`offsetRequested` (and, for `.steps`, `pulses`/`rotate`
+    // too) were left at whatever the committed-then-aborted drag last wrote, so a long-press-cancel
+    // could leave a stale requested value (or, for STEPS, a stale pulses/rotate pair inconsistent
+    // with the restored step count) to resurface unexpectedly on a later edit.
+    case .hits: line.pulses = snapshot.pulses; line.customHits = snapshot.customHits; line.hitsRequested = snapshot.hitsRequested
+    case .steps:
+        line.steps = snapshot.steps; line.pulses = snapshot.pulses; line.rotate = snapshot.rotate; line.customHits = snapshot.customHits
+        line.hitsRequested = snapshot.hitsRequested; line.offsetRequested = snapshot.offsetRequested
+    case .offset: line.rotate = snapshot.rotate; line.offsetRequested = snapshot.offsetRequested
     case .tilt: line.tilt = snapshot.tilt
     case .gate:
         line.gate = snapshot.gate

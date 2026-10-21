@@ -1039,6 +1039,20 @@ final class EffectiveParamsTests: XCTestCase {
             XCTAssertEqual(readAuto(SnapParams().settingAuto(f, 9_999), f), hi, accuracy: 1e-9, "\(f) clamps above to \(hi)")
         }
     }
+    // RHYTHM fixes §4.3 (2026-10-21): .euclidPulses/.euclidRot write euclidLines[0].pulses/rotate directly,
+    // bypassing the STEPS setter — they must nil the matching hitsRequested/offsetRequested, same as any
+    // other writer that sets pulses/rotate "any other way," so a later STEPS change doesn't silently
+    // resurface a HITS/OFFSET value this automation ramp never asked for.
+    func testSettingAutoNilsTheMatchingRequestedField() {
+        var s = SnapParams()
+        s.euclidLines = [EuclidLine(pulses: 3, steps: 8, rotate: 2, noteSel: .all, hitsRequested: 3, offsetRequested: 2)]
+        let afterPulses = s.settingAuto(.euclidPulses, 6)
+        XCTAssertEqual(afterPulses.euclidLines[0].pulses, 6)
+        XCTAssertNil(afterPulses.euclidLines[0].hitsRequested, "euclidPulses writes pulses directly — hitsRequested must not survive stale")
+        let afterRot = s.settingAuto(.euclidRot, 5)
+        XCTAssertEqual(afterRot.euclidLines[0].rotate, 5)
+        XCTAssertNil(afterRot.euclidLines[0].offsetRequested, "euclidRot writes rotate directly — offsetRequested must not survive stale")
+    }
     /// Read one automatable field back out of a SnapParams as a Double (for the clamp assertions above).
     private func readAuto(_ s: SnapParams, _ f: AutoParamField) -> Double {
         switch f {

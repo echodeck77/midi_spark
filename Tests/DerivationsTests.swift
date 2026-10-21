@@ -3577,6 +3577,38 @@ final class DerivationsTests: XCTestCase {
         euclideousSliderRevert(.offset, &line, snapshot: before)
         XCTAssertEqual(line.rotate, 1)
     }
+    // RHYTHM fixes §4 (2026-10-21): a revert used to restore only the headline field (pulses/steps/
+    // rotate), leaving hitsRequested/offsetRequested (and, for STEPS, pulses/rotate too) at whatever the
+    // committed-then-aborted drag last wrote — a long-press-cancel could leave a stale requested value to
+    // resurface on a later edit. Each revert now restores every field its own commit can touch.
+    func testEuclideousSliderRevertRestoresHitsRequestedToo() {
+        let before = EuclidLine(pulses: 2, steps: 8, noteSel: .all, hitsRequested: 2)
+        var line = before
+        line.pulses = 6; line.hitsRequested = 6
+        euclideousSliderRevert(.hits, &line, snapshot: before)
+        XCTAssertEqual(line.pulses, 2); XCTAssertEqual(line.hitsRequested, 2)
+    }
+    func testEuclideousSliderRevertRestoresOffsetRequestedToo() {
+        let before = EuclidLine(pulses: 2, steps: 8, rotate: 1, noteSel: .all, offsetRequested: 7)
+        var line = before
+        line.rotate = 5; line.offsetRequested = 1
+        euclideousSliderRevert(.offset, &line, snapshot: before)
+        XCTAssertEqual(line.rotate, 1); XCTAssertEqual(line.offsetRequested, 7)
+    }
+    func testEuclideousSliderRevertOnStepsRestoresPulsesRotateAndBothRequestedFields() {
+        // Touch-down: STEPS=8, pulses=3, rotate=1, neither Requested field pinned yet.
+        let before = EuclidLine(pulses: 3, steps: 8, rotate: 1, noteSel: .all)
+        var line = before
+        // Mid-drag the commit pins both Requested fields from the pre-change values, then changes STEPS,
+        // pulses and rotate for the new length (steps: 8→12, matching euclideousSliderCommit's own formula).
+        euclideousSliderCommit(.steps, &line, snapshot: before, newValue: 12)
+        XCTAssertEqual(line.steps, 12)
+        XCTAssertNotNil(line.hitsRequested, "sanity: the commit actually pinned something to revert"); XCTAssertNotNil(line.offsetRequested)
+        euclideousSliderRevert(.steps, &line, snapshot: before)
+        XCTAssertEqual(line.steps, before.steps); XCTAssertEqual(line.pulses, before.pulses); XCTAssertEqual(line.rotate, before.rotate)
+        XCTAssertNil(line.hitsRequested, "the pin the commit made must be undone too, not left stale")
+        XCTAssertNil(line.offsetRequested)
+    }
     func testEuclideousSliderDoubleTapDefaults() {
         var line = EuclidLine(pulses: 3, steps: 8, rotate: 4, noteSel: .all, gate: 0.3, velocityAbsolute: 40, tilt: 0.5)
         euclideousSliderDoubleTapDefault(.hits, &line); XCTAssertEqual(line.pulses, 3, "HITS has no double-tap default, matching the old pad's own behaviour")
