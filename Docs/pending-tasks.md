@@ -11,6 +11,14 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
   `euclideousNoteSourceResolved` instead of each lane's legacy per-lane field, and covers KEY as well as CHORDS — fixed,
   tested (`testEuclideousChordsAndKeyPlayWithGenuinelyNothingHeldAnywhere`), landed `edaaa09`.
 
+## ★ EUCLIDEOUS — RIFF GRID review (2026-10-21; `Docs/euclideous-status-log.md`)
+- [x] FIXED: an arrow (and the lane card's riff thumbnail highlight / spoken "now on step") on a lane that is not running — PLAY off, 0 HITS, transport stopped. DEVICE: see the "Riff grid" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul): the note names / cells show what is WRITTEN, not what sounds (per-lane INV and TRANS, MIX riff OCT and FX NOTE are invisible there); the lit name on a strike uses the engine's rank (after INV / MIRROR / LEAP) while the arrow sits on the written row. Show the sounding rank on the grid, or leave it.
+- [ ] DECIDE (Paul): LANES-tab playheads/roll for a STOPPED lane (they run on the transport alone), and a running lane with NO OUTPUT / MAIN OUT OFF (arrow + playhead move, nothing can sound) — should they follow the same "running" rule?
+- [ ] DECIDE (Paul): the rails — keep as they are, make "played" vs "not played" easier to tell apart (16% vs 8% alpha), or drop the always-played full-length rails; a 0-hit lane's rail reads "all played" (§7.6 fallback).
+- [ ] DECIDE (Paul): the riff tab's playing-triangle (always on the selected tab) adds nothing; remove or keep.
+- [ ] (noted) a lane re-enabled mid-run has no arrow until its first hit lands; the engine still keeps a stopped lane's last riff step (only the UI hides it) — resetting it when the lane stops would be the engine-side alternative.
+
 ## ★ EUCLIDEOUS — LANE STRIP: the riff contour over the notes keys, in place of the comet (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "Lane strip" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] DECIDE (Paul): the chip/cell colours are the riff grid's real composites (#DCDCDD note cell, #28292D empty cell — `EuclideousStripPalette`, one place), not the ferry's #DFE3EA / #24262C; the current chip is the light chip with the ARROW's own gradient (lane @ 95% → 55%) over it, not "lane100 → × 0.86" (which is not what the arrow draws). Say if you want the mock's numbers instead.

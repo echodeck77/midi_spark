@@ -37,6 +37,7 @@ EXCLUSIVE_FILES = {
     "PulseTests.swift",
     "LaneStripTests.swift",
     "LaneStripFuzzTests.swift",
+    "RiffGridArrowFuzzTests.swift",
 }
 
 # Mixed files worth scanning function-by-function: the shared engine (Router/Derivations) plus

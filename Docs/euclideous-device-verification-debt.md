@@ -17,6 +17,12 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Riff grid — only a running lane has an arrow (2026-10-21)
+- Switch a lane's PLAY off while the others run: its arrow leaves the grid and its rail shows only the played columns; switch it back on: no arrow until its first hit lands, then it follows.
+- Take a lane to 0 HITS: same. Stop the transport: every arrow goes (it used to rest on the last note); start: arrows appear lane by lane at each lane's first hit.
+- The RIFF tab's thumbnail: no highlighted current column and no "now on step" while its lane is stopped (the WALK strip's ring already behaved so).
+- A lane muted by the LANES grid still shows its arrow, dimmed to 42%.
+
 ### Lane strip — the riff contour over the notes keys, in place of the comet (2026-10-21 ferry — §11)
 - The riff contour reads as the riff's melody at 8 and 16 steps (ranks ≈ 2.6 pt apart; columns at 16 steps are 11.2 / 13.6 / 17.1 wide on a 10.2" / 11" / 12.9" iPad landscape, so chips are 7 / 10 / 13 wide and carry a label from ≈ 345 pt cards up; key labels begin at 12 steps, and "G3+2" truncates to "G3…" at ≈ 16 pt).
 - Chip labels at 7 pt on the light chip and on the lane gradient (current chip), in all four lane colours; the chip is #DCDCDD and the cell #28292D (the riff grid's real composites), not the ferry's #DFE3EA / #24262C.

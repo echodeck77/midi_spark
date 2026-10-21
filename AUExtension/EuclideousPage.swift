@@ -3141,7 +3141,7 @@ struct EuclideousPage: View {
         let n = 8
         let stepRanks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
         let len = line.riffLengthResolved
-        let curStep = idx < riffPositions.count ? riffPositions[idx] : -1
+        let curStep = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1   // the live step only while the lane runs (as the WALK strip's ring)
         let isRiff = line.riffOnResolved
         let neverPlay = riffReadout(idx)?.neverPlay ?? []   // RIFF WALK ferry §2.1/§7.6
         let cell = max(1, (size - 7) / 8)   // 8 cells + 7 gaps of 1pt
@@ -3208,7 +3208,7 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel({
             guard isRiff else { return "Riff, off" }
-            let pos = idx < riffPositions.count ? riffPositions[idx] : -1
+            let pos = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1
             return pos >= 0 ? "Riff, on, now on step \(pos + 1)" : "Riff, on"
         }())
     }
@@ -4885,11 +4885,12 @@ struct EuclideousPage: View {
             guard i < lines.count, let cfg = riffWalkConfig(i) else { return nil }
             let line = lines[i]
             let riffOn = walkTagShows(i)
-            let running = clock.playing && line.enabledResolved
+            let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
             let muted = !euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats)
             let flare = riffPulse(i, now: now)?.f ?? 0   // PULSE §4.1: velocity-scaled flash of the lane's latest riff strike (was the comet bar's step-based flare)
             // `running` is NOT gated on the mute: a muted hit still advances the walk, and the arrow / rail stay on it (dimmed to 42%).
-            let plan = (riffOn && i < riffPositions.count)
+            // a lane that is not RUNNING (its PLAY / STOP off, 0 HITS, or the transport stopped) has no arrow: the engine keeps its last step, and an arrow resting on it read as a lane still walking
+            let plan = (euclideousLaneArrowShows(riffOn: riffOn, running: running) && i < riffPositions.count)
                 ? euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i], running: running,
                                         polledOrdinal: i < riffWalkState.count ? riffWalkState[i] : nil)
                 : nil

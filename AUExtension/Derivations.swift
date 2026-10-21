@@ -8002,6 +8002,15 @@ func euclideousArrowSpec(cellW: CGFloat, cellH: CGFloat, members: [EuclideousArr
                                opacity: allMuted ? S.mutedAlpha : 1, flareColour: flareColour, flareStrength: flaring.map { $0.flare }.max() ?? 0)
 }
 
+/// RIFF GRID review (2026-10-21): a lane is RUNNING while the transport (or the free-run that stands in for it) plays AND the engine runs the lane — the Router's own gate (`runEuclidLine`'s caller):
+/// the lane's PLAY / STOP is on and it has HITS (or its pattern is inverted). The riff panel's arrows, the lane card's riff thumbnail highlight and its spoken "now on step" show a lane's live position
+/// only while it runs: the engine keeps a lane's last riff step when it stops running (the step resets only at a transport edge), so without this a lane switched off — or taken down to 0 HITS —
+/// kept an arrow sitting on its last note, as if it were still walking. (The WALK strip's ring and the rails' current column already followed the PLAY / STOP half of this rule.)
+func euclideousLaneRunsInEngine(_ line: EuclidLine) -> Bool { (line.pulses > 0 || line.patternMissResolved) && line.enabledResolved }
+func euclideousLaneIsRunning(transportPlaying: Bool, line: EuclidLine) -> Bool { transportPlaying && euclideousLaneRunsInEngine(line) }
+/// The arrow of a lane draws only while the lane runs and its riff is on (a SHADOWing lane's riff is overridden entirely, so the caller passes `riffOn` already false for it).
+func euclideousLaneArrowShows(riffOn: Bool, running: Bool) -> Bool { riffOn && running }
+
 /// One lane's arrow seat: the cell it occupies (column 0-based, rank 1…8), whether it is on a rest (hollow) and its heading.
 struct EuclideousLaneArrowState: Equatable {
     var lane: Int
