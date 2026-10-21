@@ -14565,4 +14565,177 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.count, 50)
         assertNothingLeftSounding(e)
     }
+
+    // MARK: - LANE SOLO engine (ferry 2026-10-21, §8 tests 3-6 and 9; test 1 = the existing preset / synthetic-lane goldens, which run with the solo mask 0)
+
+    /// Four lanes on their own buses (lane i → output A…D = cable 1…4), rate 1/8, E(i+2, 8), the riff over eight columns (every hit sounds a note), gate 50 %.
+    private func soloLines(_ tweak: (Int, inout EuclidLine) -> Void = { _, _ in }) -> [EuclidLine] {
+        (0..<4).map { i in
+            var l = EuclidLine(target: 0, pulses: i + 2, steps: 8)
+            l.gate = 0.5; l.velocityAbsolute = 100; l.rate = .r1_8; l.useRiff = true; l.litNotes = 0; l.riffOn = true; l.sourceMode = .midi
+            l.riffLength = 8; l.notesOn = true; l.riffOnRest = .skip; l.emitterMask = 1 << UInt8(i)
+            tweak(i, &l); return l
+        }
+    }
+    private func soloBox(_ lines: [EuclidLine], solo: UInt8, fx: EuclideousFX = EuclideousFX()) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = lines
+        c.paramsA.soloMask = solo
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi
+        st.euclideousFX = fx
+        return SnapshotBuilder.build(from: st)
+    }
+    /// Plays `beats` beats in 2048-frame windows on ONE router, taking each window's box from `solo(windowStartBeat)` (a solo change reaches the render thread at a window boundary — the snapshot the next
+    /// window acquires), optionally stopping and restarting the transport at the given beats. Returns the stream, the router and the window length in beats.
+    private func soloRun(_ lines: [EuclidLine], beats: Double, restartAt: [Double] = [], fx: EuclideousFX = EuclideousFX(), stopAtEnd: Bool = true, solo: (Double) -> UInt8)
+        -> (e: RecordingEmitter, router: Router, windowBeats: Double) {
+        let e = RecordingEmitter()
+        let router = Router()
+        var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        let p = chord(fxPoolNotes)
+        var ts = 0.0, origin = 0.0
+        func beatNow() -> Double { (ts - origin) * tempo / 60.0 / sr }
+        var restarts = restartAt.sorted()
+        var cache: [UInt8: SnapshotBox] = [:]
+        func box(_ m: UInt8) -> SnapshotBox { if let b = cache[m] { return b }; let b = soloBox(lines, solo: m, fx: fx); cache[m] = b; return b }
+        while beatNow() < beats {
+            if let r = restarts.first, beatNow() >= r {
+                restarts.removeFirst()
+                router.process(box: box(solo(beatNow())), pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                ts += Double(frames); origin = ts
+            }
+            router.process(box: box(solo(beatNow())), pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            ts += Double(frames)
+        }
+        if stopAtEnd { router.process(box: box(0), pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag) }
+        return (e, router, windowBeats)
+    }
+    private func soloOnSamples(_ e: RecordingEmitter, lane: Int) -> [Int64] { e.ons.filter { $0.cable == UInt8(1 + lane) }.map { Int64($0.sample) } }
+    /// The first window start (in samples) at or after `beat`.
+    private func soloWindowStartSample(atOrAfter beat: Double, windowBeats: Double) -> Int64 { Int64((ceil(beat / windowBeats - 1e-9) * windowBeats) * 24_000) }
+
+    // §8.3
+    func testSoloLatchedLaneOneSilencesTheOthersAndTheyComeBackInTimeBecauseTheyKeptWalking() {
+        let lines = soloLines()
+        let ref = soloRun(lines, beats: 32) { _ in 0 }
+        let run = soloRun(lines, beats: 32) { $0 < 16 ? 0b0001 : 0 }
+        let sw = soloWindowStartSample(atOrAfter: 16, windowBeats: run.windowBeats)
+        XCTAssertEqual(soloOnSamples(run.e, lane: 0), soloOnSamples(ref.e, lane: 0), "the soloed lane is identical to an unsoloed render, throughout")
+        XCTAssertGreaterThan(soloOnSamples(ref.e, lane: 0).count, 10)
+        for lane in 1..<4 {
+            XCTAssertTrue(soloOnSamples(run.e, lane: lane).filter { $0 < sw }.isEmpty, "lane \(lane + 1) is silent while lane 1 is soloed")
+            let after = soloOnSamples(run.e, lane: lane).filter { $0 >= sw }, refAfter = soloOnSamples(ref.e, lane: lane).filter { $0 >= sw }
+            XCTAssertFalse(refAfter.isEmpty)
+            XCTAssertEqual(after, refAfter, "lane \(lane + 1) is back at exactly the samples a never-soloed render plays — it kept walking, so it is in time")
+        }
+        assertNothingLeftSounding(run.e)
+    }
+    func testASoloSilencedLaneMakesNoStrikesForThePulseFeed() {
+        let run = soloRun(soloLines(), beats: 8, stopAtEnd: false) { _ in 0b0001 }
+        let ev = run.router.drainEuclideousNoteViewEvents()
+        XCTAssertFalse(ev[0].filter { $0.kind == 0 || $0.kind == 3 }.isEmpty, "the soloed lane strikes")
+        for lane in 1..<4 { XCTAssertTrue(ev[lane].filter { $0.kind == 0 || $0.kind == 3 }.isEmpty, "lane \(lane + 1): a silenced lane posts no strike, so nothing pulses") }
+    }
+    // §8.4 — a momentary hold is the same thing to the engine (the effective mask), for exactly the bars it was held
+    func testAHeldSoloSilencesTheOthersForExactlyTheBarsItWasHeld() {
+        let lines = soloLines()
+        let ref = soloRun(lines, beats: 24) { _ in 0 }
+        let run = soloRun(lines, beats: 24) { ($0 >= 8 && $0 < 16) ? 0b0100 : 0 }
+        let a = soloWindowStartSample(atOrAfter: 8, windowBeats: run.windowBeats), b = soloWindowStartSample(atOrAfter: 16, windowBeats: run.windowBeats)
+        for lane in [0, 1, 3] {
+            let got = soloOnSamples(run.e, lane: lane), want = soloOnSamples(ref.e, lane: lane)
+            XCTAssertTrue(got.filter { $0 >= a && $0 < b }.isEmpty, "lane \(lane + 1) is silent while lane 3 is held")
+            XCTAssertEqual(got.filter { $0 < a }, want.filter { $0 < a }, "lane \(lane + 1) plays as normal before")
+            XCTAssertEqual(got.filter { $0 >= b }, want.filter { $0 >= b }, "…and as normal after")
+            XCTAssertFalse(want.filter { $0 >= a && $0 < b }.isEmpty)
+        }
+        XCTAssertEqual(soloOnSamples(run.e, lane: 2), soloOnSamples(ref.e, lane: 2), "the held lane is identical to an unsoloed render")
+        assertNothingLeftSounding(run.e)
+    }
+    // §8.5 — additive
+    func testSoloIsAdditiveLanesOneAndFourPlayTwoAndThreeAreSilent() {
+        let lines = soloLines()
+        let ref = soloRun(lines, beats: 32) { _ in 0 }
+        let run = soloRun(lines, beats: 32) { _ in 0b1001 }
+        for lane in [0, 3] { XCTAssertEqual(soloOnSamples(run.e, lane: lane), soloOnSamples(ref.e, lane: lane), "lane \(lane + 1) plays exactly as unsoloed") }
+        for lane in [1, 2] { XCTAssertTrue(soloOnSamples(run.e, lane: lane).isEmpty, "lane \(lane + 1) is silent") }
+        assertNothingLeftSounding(run.e)
+    }
+    // §8.6 — stuck notes: legato (GATE 100) + TIE + ratchets, solo toggled and held across transport restarts
+    func testSoloToggledAndHeldAcrossTransportRestartsLeavesNothingSounding() {
+        let lines = soloLines { i, l in
+            switch i {
+            case 0: l.gate = 1.0; l.riffOnRest = .tie                  // legato, tied rests
+            case 1: l.gate = 0.9                                        // ratchets (FX RATCH row, below)
+            case 2: l.gate = 1.0; l.pulses = 5; l.rate = .r1_16         // legato at 1/16
+            default: l.gate = 0.7
+            }
+        }
+        let fx = fxCells([(0, 1, 4), (0, 4, 3), (2, 2, 1), (2, 6, 1), (1, 3, 50)])   // RATCH, TIE, GATE cells
+        var rng: UInt64 = 0xDEADBEEF
+        func next() -> Int { rng = rng &* 6364136223846793005 &+ 1442695040888963407; return Int(rng >> 33) }
+        var masks: [UInt8] = []
+        for _ in 0..<2000 { masks.append(UInt8(next() % 16)) }
+        let run = soloRun(lines, beats: 120, restartAt: [17.3, 41.9, 66.1, 90.4], fx: fx) { b in masks[min(masks.count - 1, Int(b / 0.37))] }
+        XCTAssertGreaterThan(run.e.ons.count, 200)
+        assertNothingLeftSounding(run.e)
+        // every note-on of every lane has its note-off, per cable and note
+        var open: [Int: Int] = [:]
+        for ev in run.e.events where ev.status == 0x90 || ev.status == 0x80 {
+            let k = (Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)
+            open[k, default: 0] += ev.status == 0x90 ? 1 : -1
+            XCTAssertGreaterThanOrEqual(open[k]!, 0, "a note-off with no note-on")
+        }
+        // (a retriggered note is closed before its re-strike, so every pitch is never left more than once on)
+        XCTAssertTrue(open.values.allSatisfy { $0 == 0 }, "every note-on has its note-off")
+    }
+    // §8.9 — the display's dim equals what the Router did, hit by hit, with solo (latched / held changes) and LANES mutes in combination
+    func testTheDisplayDimEqualsTheSoundForEveryHitOverEightBarsWithSoloHeldAndMuteInCombination() {
+        let cells: [UInt16] = [0xFFFF, 0b1111_1111_0000_1111, 0b0101_0101_0101_0101, 0b1111_0000_1111_0000]   // lane 1 never muted; the others mute some 4-beat cells
+        let lines = soloLines { i, l in l.muteCells16 = cells[i]; l.muteUnit = EuclideousMuteUnit.pass.rawValue }
+        // latched lane 2 from bar 0; a hold of lane 4 for bars 2-3; both latched 1 and 3 for bars 5-6; nothing for bar 7
+        func schedule(_ b: Double) -> UInt8 {
+            switch b {
+            case ..<8: return 0b0010
+            case 8..<16: return 0b0010 | 0b1000
+            case 16..<20: return 0
+            case 20..<28: return 0b0101
+            default: return 0
+            }
+        }
+        let run = soloRun(lines, beats: 32, solo: schedule)
+        var soundedHits = 0, dimmedHits = 0
+        for lane in 0..<4 {
+            let line = lines[lane]
+            let buf = euclideousNoteViewPattern(pulses: line.pulses, steps: 8, rotate: 0, tilt: 0)
+            let ons = soloOnSamples(run.e, lane: lane)
+            for tick in 0..<Int(31.5 / 0.5) where buf[tick % 8] {
+                let beat = Double(tick) * 0.5
+                let w = Int(beat / run.windowBeats)   // the window this hit is rendered in
+                let mask = schedule(Double(w) * run.windowBeats)
+                let muteAudible = euclideousLaneAudible(beat: beat, cells16: cells[lane], unitBeats: 4)
+                let dimmed = euclideousLaneIsDimmed(lane: lane, soloMask: mask, muteAudible: muteAudible)
+                let sounded = ons.contains { abs($0 - Int64((beat * 24_000).rounded())) <= 3 }
+                XCTAssertEqual(sounded, !dimmed, "lane \(lane + 1) hit at beat \(beat): window mask \(mask), mute audible \(muteAudible)")
+                if sounded { soundedHits += 1 } else { dimmedHits += 1 }
+            }
+        }
+        XCTAssertGreaterThan(soundedHits, 30); XCTAssertGreaterThan(dimmedHits, 30)
+    }
+    /// §11.3: how long one `SnapshotBuilder.build` takes — the main-thread cost between a SOLO touch and the snapshot the render thread acquires (`scheduleRebuild` builds one run-loop turn after the edit).
+    func testSnapshotBuildTimeForTheSoloPath() {
+        let lines = soloLines()
+        let t0 = Date()
+        let n = 20
+        for i in 0..<n { _ = soloBox(lines, solo: UInt8(i % 16)) }
+        let ms = Date().timeIntervalSince(t0) * 1000 / Double(n)
+        print(String(format: "LANE SOLO: one SnapshotBuilder.build (4 lanes, debug macOS) ≈ %.2f ms", ms))
+        XCTAssertLessThan(ms, 100)
+    }
 }

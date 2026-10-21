@@ -4903,7 +4903,10 @@ final class Router {
                     // LANES GRID §2.1/§2.2: the lane's MUTE is resolved PER HIT, at the hit's own beat — a hit on the first tick of a new cell takes
                     // the NEW cell's state (the old once-per-render-window decision took the previous step's). A muted hit still advances the walk
                     // (the existing "mute but keep walking" rule below), so muting never shifts the melody or the rhythm.
-                    let lanesSeqMuted = !euclideousLaneAudible(beat: mTickBeat, cells16: muteCells, unitBeats: muteUnitBeats)
+                    // LANE SOLO (ferry 2026-10-21, §5.2): a lane the solo mask silences goes through this SAME early return — it keeps walking (pattern, riff position, restarts, passes, DYNAMICS), nothing emits, the
+                    // pulse feed sees no strike. `euclideousLaneMayStrike` is the one decision (the lane is already known to be enabled here); mask 0 — and every non-Euclideous row — is exactly the old test.
+                    let lanesSeqMuted = !euclideousLaneMayStrike(lane: lineIndex, soloMask: isEuclideousRow ? p.soloMask : 0,
+                                                                 muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: muteCells, unitBeats: muteUnitBeats), enabled: true)
                     if isHit {
                         // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively
                         // off with zero velocity") — confirmed by testing, not assumed: strikeChord's own
@@ -6452,14 +6455,17 @@ final class Router {
                             cells = g.muteCells
                             unit = g.muteUnit.beats(stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub)
                         }
-                        let audibleAtStart = euclideousLaneAudible(beat: fBeatPos, cells16: cells, unitBeats: unit)
+                        // LANE SOLO (2026-10-21): a lane the solo mask silences is "not audible" here exactly as a muted cell is — its tracked legato voices close at the window start when solo first silences it, and it is
+                        // audible again (for the next edge) when solo lets it back. `euclideousLaneMayStrike` is the one decision, shared with the per-hit test.
+                        let soloMaskNow = p.soloMask
+                        let audibleAtStart = euclideousLaneMayStrike(lane: i, soloMask: soloMaskNow, muteAudible: euclideousLaneAudible(beat: fBeatPos, cells16: cells, unitBeats: unit), enabled: true)
                         if euclideousLaneWasAudibleThisStep[i] && !audibleAtStart {
                             closeAt = windowStart
                         } else if audibleAtStart,
                                   let b = euclideousLaneMuteStart(fromBeat: fBeatPos, toBeat: windowEndBeat, cells16: cells, unitBeats: unit) {
                             closeAt = windowStart + Int64(max(0, (b - fBeatPos) / beatsPerSample))
                         }
-                        audibleAtEnd = euclideousLaneAudible(beat: windowEndBeat - 1e-9, cells16: cells, unitBeats: unit)
+                        audibleAtEnd = euclideousLaneMayStrike(lane: i, soloMask: soloMaskNow, muteAudible: euclideousLaneAudible(beat: windowEndBeat - 1e-9, cells16: cells, unitBeats: unit), enabled: true)
                     } else if euclideousLaneWasAudibleThisStep[i] {
                         closeAt = windowStart
                     }
