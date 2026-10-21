@@ -1139,6 +1139,7 @@ final class EffectiveParamsTests: XCTestCase {
         l.riffAdvanceEvery = 3; l.riffShiftRequested = 4   // RIFF WALK (2026-10-19)
         // NOTES TAB (2026-10-19). riffOnRest is `.repeatLast` above, not `.fill`: FILL leaves ON REST and decodes as SKIP by design (§9).
         l.notesWhen = 0b01; l.notesChance = 50; l.notesPlayAs = .split; l.notesReceivedOnly = true
+        l.dynDepth = 45; l.dynAccents = 3; l.dynShape = -40; l.dynSpread = 15; l.dynTarget = .both   // RHYTHM DYNAMICS (2026-10-21)
         var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {

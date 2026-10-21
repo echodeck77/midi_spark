@@ -9175,3 +9175,100 @@ func euclidGroupedBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidSte
 func euclidStepGroupSize(forRate rate: ArpRate) -> Int {
     euclideousRateDivisionFeel(rate).feel == 2 ? 3 : 4
 }
+
+// MARK: - RHYTHM DYNAMICS (ferry 2026-10-21, §5)
+// A per-lane factor f in [0, 1] that pulls a hit's velocity, gate or both BELOW the level MIX and the other velocity/gate inputs already gave it — never above. ONE
+// pure function (`euclideousDynamicsFactor`) decides it; the Router, the DYNAMICS row's bars and the editor's RESULT preview all call it (§5.1). The factor is a pure
+// function of the hit's position in its pass (`EuclideousDynamicsPosition`, all derived from the beat by the Router's own pass functions, never accumulated) and the
+// lane's five resolved settings, so a transport start at any beat, any buffer size and a restart give the same f for the same hit. DEPTH 0 is f = 1 exactly and the
+// Router skips every step for that lane, so its output is bit-identical to a build without this ferry (§5.3).
+
+/// The lane's five DYNAMICS settings, resolved, as plain fixed-size data (the render thread reads it — no array).
+struct EuclideousDynamics: Equatable {
+    var depth = 0, accents = 1, shape = 0, spread = 0
+    var target: EuclidDynTarget = .vel
+    init() {}
+    init(depth: Int, accents: Int, shape: Int, spread: Int, target: EuclidDynTarget) {
+        self.depth = max(0, min(100, depth)); self.accents = max(0, min(16, accents)); self.shape = max(-100, min(100, shape))
+        self.spread = max(0, min(100, spread)); self.target = target
+    }
+    init(_ line: EuclidLine) {
+        self.init(depth: line.dynDepthResolved, accents: line.dynAccentsResolved, shape: line.dynShapeResolved, spread: line.dynSpreadResolved, target: line.dynTargetResolved)
+    }
+    /// DEPTH 0: nothing moves.
+    var isFlat: Bool { depth <= 0 }
+    var onVelocity: Bool { target.touchesVelocity }
+    var onGate: Bool { target.touchesGate }
+}
+
+/// §5.2 — where a hit sits in its pass. `pass` q: the pass index of the hit's beat; `step` s: its step index within the pass in play order (0 at the pass start —
+/// for BKW and PING-PONG the steps as played, not as numbered); `steps` n: the steps in one full pass as the Router plays it (STEPS for FWD and BKW; 2 × STEPS for
+/// PING-PONG, the full there-and-back, each end step played twice); `hit` j: its ordinal among the pattern's hits in the pass, from 0, in play order, counting EVERY
+/// pattern hit (muted, tied or on a riff rest alike); `hits` k: the pattern's hits in one FULL pass — a pass a rhythm restart cuts short still uses the full pass's n and k.
+struct EuclideousDynamicsPosition: Equatable {
+    var pass: Int64, step: Int, steps: Int, hit: Int, hits: Int
+}
+
+/// §5.3 — r in [0, 1): a stateless hash of (lane, pass, step) — SplitMix64 of `lane << 40 | pass << 8 | step`, its top 24 bits over 2^24 — so SPREAD is deterministic
+/// and replay-exact, changes from pass to pass, and costs no state. `pass` keeps its low 32 bits (negative passes — a transport before beat 0 — wrap, deterministically).
+func euclideousDynamicsSpreadUnit(lane: Int, pass: Int64, step: Int) -> Double {
+    let key = (UInt64(truncatingIfNeeded: lane) << 40) | ((UInt64(truncatingIfNeeded: pass) & 0xFFFF_FFFF) << 8) | (UInt64(truncatingIfNeeded: step) & 0xFF)
+    return Double(splitmix64Mix(key) >> 40) / 16_777_216.0
+}
+
+/// §5.3 — is hit `j` of `k` one of the `a` accents (a Euclidean spread over the pass's hits, starting on its first hit)?
+@inline(__always) func euclideousDynamicsIsAccent(hit j: Int, hits k: Int, accents a: Int) -> Bool {
+    k > 0 && a > 0 && (j * a) % k < a
+}
+
+/// §5.3 — the factor, in [0, 1]. With D = DEPTH/100, S = SHAPE/100, P = SPREAD/100 and a = min(ACCENTS, k):
+///   accentTerm = 1 for an accented hit (or when a is 0), else 1 − D;
+///   shapeTerm  = 1 − D × shapeDrop, shapeDrop = S × (1 − p) for S > 0 (a swell: quiet early, full at the end), −S × p for S < 0 (a fade), p = s/(n − 1) (0 when n is 1);
+///   spreadTerm = 1 − D × P × r, r = `euclideousDynamicsSpreadUnit`.
+/// DEPTH 0 returns exactly 1 without touching the rest.
+func euclideousDynamicsFactor(_ d: EuclideousDynamics, lane: Int, at pos: EuclideousDynamicsPosition) -> Double {
+    guard d.depth > 0 else { return 1 }
+    let D = Double(d.depth) / 100
+    let a = min(d.accents, pos.hits)
+    let accentTerm = a > 0 ? (euclideousDynamicsIsAccent(hit: pos.hit, hits: pos.hits, accents: a) ? 1 : 1 - D) : 1
+    let S = Double(d.shape) / 100
+    let p = pos.steps > 1 ? Double(pos.step) / Double(pos.steps - 1) : 0
+    let shapeDrop = S > 0 ? S * (1 - p) : (S < 0 ? -S * p : 0)
+    let shapeTerm = 1 - D * shapeDrop
+    let spreadTerm = d.spread > 0 ? 1 - D * (Double(d.spread) / 100) * euclideousDynamicsSpreadUnit(lane: lane, pass: pos.pass, step: pos.step) : 1
+    return max(0, min(1, accentTerm * shapeTerm * spreadTerm))
+}
+
+/// §5.2 q — the pass index of the pass whose step 0 played at `tick - raw`: `euclideousPassIndex` read half a tick INTO the pass (never on a boundary, so floating-point
+/// rounding in `tick × sub` can't land it in the neighbouring pass). A pass is `cycleLen` ticks; a rhythm chain cuts passes short at its restarts, as everywhere else.
+func euclideousDynamicsPassIndex(tick: Int64, raw: Int, sub: Double, cycleLen: Int, chains: EuclideousLaneRestartChains) -> Int64 {
+    guard sub > 0 else { return 0 }
+    let beat = (Double(tick) - Double(raw) + 0.5) * sub
+    return euclideousPassIndex(beat: beat, lapBeats: Double(max(1, cycleLen)) * sub, barBeats: chains.barBeats, rhythmChain: chains.rhythm)
+}
+
+/// §5.2 — a hit's position from what the Router's per-tick core already has: `raw` (the step in the pass, from the rhythm origin), `hitsUpTo` (the pattern hits at or
+/// before it in the pass — so j = hitsUpTo − 1) and the full pass's hit count.
+func euclideousDynamicsPosition(tick: Int64, raw: Int, hitsUpTo: Int, cycleHits: Int, cycleLen: Int, sub: Double, chains: EuclideousLaneRestartChains) -> EuclideousDynamicsPosition {
+    EuclideousDynamicsPosition(pass: euclideousDynamicsPassIndex(tick: tick, raw: raw, sub: sub, cycleLen: cycleLen, chains: chains),
+                               step: raw, steps: max(1, cycleLen), hit: max(0, hitsUpTo - 1), hits: max(1, cycleHits))
+}
+
+/// §5.4 — a velocity times f, rounded to nearest, never below 1, never above 127. (The Router calls this right where its own 1…127 clamp already sits.)
+@inline(__always) func euclideousDynamicsScaledVelocity(_ v: Int, factor f: Double) -> Int { max(1, min(127, Int((Double(v) * f).rounded()))) }
+
+/// §5.4 — a gate fraction times f, never below 1 %. A gate the engine treats as legato (`euclideousGateIsLegato`) is not scaled and stays legato.
+@inline(__always) func euclideousDynamicsScaledGate(_ g: Double, factor f: Double) -> Double {
+    euclideousGateIsLegato(g) ? g : min(g, max(0.01, g * f))
+}
+
+/// §5.6 / §2.3 / §3.3 — the factor of every hit of one pass, in play order, for the displays (the DYNAMICS row's bars, the editor's RESULT preview): the SAME
+/// `euclideousDynamicsFactor` the Router calls, at the positions `euclideousLapHitSteps` lists (`tick` = the step in the pass, `cycleLen` = the pass's steps).
+func euclideousDynamicsPassFactors(_ d: EuclideousDynamics, lane: Int, pass q: Int64, hitSteps: [EuclidHitStep], cycleLen: Int) -> [Double] {
+    var out: [Double] = []
+    out.reserveCapacity(hitSteps.count)
+    for (j, hs) in hitSteps.enumerated() {
+        out.append(euclideousDynamicsFactor(d, lane: lane, at: EuclideousDynamicsPosition(pass: q, step: hs.tick, steps: max(1, cycleLen), hit: j, hits: hitSteps.count)))
+    }
+    return out
+}
