@@ -19,7 +19,7 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ### Riff grid — only a running lane has an arrow (2026-10-21)
 - Switch a lane's PLAY off while the others run: its arrow leaves the grid and its rail shows only the played columns; switch it back on: no arrow until its first hit lands, then it follows.
-- Take a lane to 0 HITS: same. Stop the transport: every arrow goes (it used to rest on the last note); start: arrows appear lane by lane at each lane's first hit.
+- Take a lane to 0 HITS: same. Stop the transport: every arrow goes (as before); start: arrows appear lane by lane at each lane's first hit.
 - The RIFF tab's thumbnail: no highlighted current column and no "now on step" while its lane is stopped (the WALK strip's ring already behaved so).
 - A lane muted by the LANES grid still shows its arrow, dimmed to 42%.
 

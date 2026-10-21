@@ -12,7 +12,7 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
   tested (`testEuclideousChordsAndKeyPlayWithGenuinelyNothingHeldAnywhere`), landed `edaaa09`.
 
 ## ★ EUCLIDEOUS — RIFF GRID review (2026-10-21; `Docs/euclideous-status-log.md`)
-- [x] FIXED: an arrow (and the lane card's riff thumbnail highlight / spoken "now on step") on a lane that is not running — PLAY off, 0 HITS, transport stopped. DEVICE: see the "Riff grid" lines in `Docs/euclideous-device-verification-debt.md`.
+- [x] FIXED: an arrow (and the lane card's riff thumbnail highlight / spoken "now on step") on a lane that is not running — PLAY off or 0 HITS (a transport stop already cleared them). DEVICE: see the "Riff grid" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] DECIDE (Paul): the note names / cells show what is WRITTEN, not what sounds (per-lane INV and TRANS, MIX riff OCT and FX NOTE are invisible there); the lit name on a strike uses the engine's rank (after INV / MIRROR / LEAP) while the arrow sits on the written row. Show the sounding rank on the grid, or leave it.
 - [ ] DECIDE (Paul): LANES-tab playheads/roll for a STOPPED lane (they run on the transport alone), and a running lane with NO OUTPUT / MAIN OUT OFF (arrow + playhead move, nothing can sound) — should they follow the same "running" rule?
 - [ ] DECIDE (Paul): the rails — keep as they are, make "played" vs "not played" easier to tell apart (16% vs 8% alpha), or drop the always-played full-length rails; a 0-hit lane's rail reads "all played" (§7.6 fallback).
