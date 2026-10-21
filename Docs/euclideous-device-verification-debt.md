@@ -17,6 +17,15 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Lane SOLO (2026-10-21)
+- LAUNCH the DEBUG build from Xcode into AUM first (the 1 MB main-thread stack; the page must come up), then: 300 ms tap versus hold on the SOLO button feels right, and solo engages on touch-down with no lag (the snapshot path: one run-loop turn + the next window — judge the hold).
+- "SOLO" legible at 44 × 44 in all four lane colours; the latched (lane colour) and held (#DFE3EA) looks read as different; the OFF border shows.
+- A whole card at 42 % reads as "greyed out", not "disabled" or "broken", in all four lane colours — and the SOLO button beside it reads as the way back in.
+- Two-handed play: holding two SOLO buttons at once in AUM, and a latched lane plus a held one.
+- Solo in and out mid-phrase sounds clean: no clicks, no stuck notes (legato / TIE / ratchet lanes especially), lanes back in time.
+- The 0.15 s ease: the card, MIX, LANES, riff arrows / rails, FX dots and ring quarters all ease (and the existing LANES-mute dims now do too); a quarter of a ring and a shared riff cell's blend snap by design.
+- Preset load: a factory preset clears solo; a user preset saved while a lane was latched restores it (decide if that is wanted).
+
 ### DEBUG-build launch (2026-10-21)
 - Run the DEBUG build from Xcode into AUM and open the page: it must come up (the 2026-10-21 DYNAMICS ferry crashed it at launch — `Thread stack size exceeded`, fixed by `fix/dynamics-stack-depth`). Then tap the DYNAMICS row to open the editor on each of the four lanes, and switch RHYTHM → RIFF → RHYTHM: none may crash. This is the ONLY check the stack fix has had (frame sizes were measured off the binary, the page was not run).
 

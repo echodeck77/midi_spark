@@ -5,6 +5,16 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — LANE SOLO: the step-count box becomes a SOLO button (2026-10-21; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "Lane SOLO" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build).
+- [ ] DECIDE (Paul): §5.4 wants solo "within one buffer" but §4.2 says "the same path as the main-out mask"; that path publishes a snapshot one main run-loop turn after the touch, then the next window reads it (a few audio blocks; the build is ≈ 1.7 ms). A dedicated atomic the Router reads would be one buffer but is a second path — say if the hold feels late.
+- [ ] DECIDE (Paul): preset load resets solo for factory presets but a USER preset restores the latch it was saved with (it mirrors main-out). Force solo to 0 on every preset load?
+- [ ] DECIDE (Paul): while an output-ring TRACE is held the whole lane card (SOLO button too) sits at the trace's 42 % — the ferry says the button never dims.
+- [ ] DECIDE (Paul): in a shared riff-grid cell only the silenced lane's stop / number dim (the blend snaps instead of easing); a ring quarter eases.
+- [ ] (noted) the 0.15 s ease the ferry cites for the silent-lane look did not exist; built, and the LANES-mute dims on the touched surfaces now ease too.
+- [ ] (noted) AU parameter / MIDI learn for solo is trivial to add (new stable address beside the macro bank); out of scope.
+- [ ] (noted) the pulse feed shows a strike made just before a solo decaying on its own — nothing new is made.
+
 ## ★ EUCLIDEOUS — RHYTHM DYNAMICS: per-hit velocity and gate movement below the MIX level (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "RHYTHM tab — DYNAMICS" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] DECIDE (Paul): the ferry's §6 (comet-bar partial fills) was NOT built on your ruling — the LANE STRIP ferry replaced the comet's lane-coloured cells. If you want the factor on the strip (the riff chips at a height or opacity of f), say where.
