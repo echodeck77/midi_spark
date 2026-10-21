@@ -70,6 +70,8 @@ choice, active OUT toggles.
 no text. A rest is drawn as a dim, *present* cell, never a true gap — a blank/invisible rest has
 been reported as "the note vanished" rather than "off" more than once; keep it visible.
 
+**Lane strip (LANE STRIP ferry 2026-10-21) [verified — LaneStripPainter.swift `EuclideousStripPalette`]** — track cell (hit) `#28292D` = the riff grid's empty cell as composited (white 8% over its 3.5% panel on the page ground; the ferry said `#24262C`); chip `#DCDCDD` = the riff grid's note cell (white 85%; the ferry said `#DFE3EA`), ink label `#0D0F14` 7pt heavy; rhythm rest `#1A1C21` + 1pt dashed `#3A3E47` (3 on, 2 off); gap = the cell + a 1pt lane-100 ring @ 45%; grey chip `#6B707A`; hollow (REPEAT) chip = a 1pt dashed lane-100 stroke; key (notes play) `#30343C` / border `#454A54`, label `#CBCCCE`; key (unlit) `#17191E` / `#202329`; current chip = the chip + the arrow's lane gradient (95% → 55%). Playhead: lane-100 @ 14% + a 2pt lane-100 @ 85% leading edge.
+
 ## Keeping this honest
 
 Committed to dark-only — this documents the real shipped instrument, which has no light theme.

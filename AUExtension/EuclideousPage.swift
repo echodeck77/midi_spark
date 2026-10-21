@@ -1818,7 +1818,7 @@ struct EuclideousPage: View {
             ?? euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                       tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
                                       customHits: line.customHitsResolved(steps), dir: line.directionResolved)
-        let cfg = riffWalkConfig(idx)
+        let cfg = (playsRiff || grey || layerOn) ? riffWalkConfig(idx) : nil   // the walk's facts: the pass, REPEAT's lookback and the keys' count k need them; a plain lane needs none
         var prediction: [Int]? = nil
         var lapStartTick: Int64? = nil
         if playsRiff || grey {

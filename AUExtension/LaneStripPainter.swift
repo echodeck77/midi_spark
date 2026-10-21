@@ -66,6 +66,7 @@ private func stripFont(_ size: CGFloat) -> Font { .system(size: size, weight: .h
 
 /// A label that fits `maxWidth`: truncated at the tail with an ellipsis, never shrunk.
 private func fitted(_ ctx: GraphicsContext, _ s: String, size: CGFloat, maxWidth: CGFloat) -> String {
+    if CGFloat(s.count) * 5 <= maxWidth { return s }   // a monospaced 7 pt heavy glyph is ≈ 4.4 pt wide: this much room needs no measuring (the text resolve is the costly part of a frame)
     var t = s
     while t.count > 1 {
         let w = ctx.resolve(Text(t).font(stripFont(size))).measure(in: CGSize(width: 1000, height: 100)).width
