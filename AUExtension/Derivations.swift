@@ -2759,14 +2759,10 @@ func euclideousRateFromDivisionFeel(division: Int, feel: Int) -> ArpRate {
 /// One of the six independent slider fields, left-to-right as specified.
 enum EuclideousSliderField: Int, CaseIterable {
     case hits = 0, steps = 1, offset = 2, tilt = 3, gate = 4, velocity = 5
-    // RHYTHM DYNAMICS ferry (2026-10-21, §2-§3): the DYNAMICS row's DEPTH drag and the editor's four sliders ride this same slider machinery (range, fraction, touch mapping,
-    // commit, revert, double-tap default, VoiceOver step and text) so they cannot drift from OFFSET / TILT's own feel.
-    case dynDepth = 6, dynAccents = 7, dynShape = 8, dynSpread = 9
     var name: String {
         switch self {
         case .hits: return "HITS"; case .steps: return "STEPS"; case .offset: return "OFFSET"
         case .tilt: return "TILT"; case .gate: return "GATE"; case .velocity: return "VEL"
-        case .dynDepth: return "DEPTH"; case .dynAccents: return "ACCENTS"; case .dynShape: return "SHAPE"; case .dynSpread: return "SPREAD"
         }
     }
     /// Long-press help text (ferry §3.3: "<60 chars").
@@ -2778,24 +2774,18 @@ enum EuclideousSliderField: Int, CaseIterable {
         case .tilt: return "Bunches hits toward the start or end"
         case .gate: return "How long each note lasts, as a share of the time until the next hit. At 100%, notes join: different notes overlap slightly and repeated notes hold as one."   // 2026-10-13 ferry's own literal text — exceeds this file's older "<60 chars" guideline, used verbatim per explicit instruction
         case .velocity: return "How hard every hit strikes"
-        case .dynDepth: return "How far hits can drop below the MIX level"
-        case .dynAccents: return "How many hits per pass stay at full level"
-        case .dynShape: return "Fades or swells the level across the pass"
-        case .dynSpread: return "Random looseness on top of the pattern"
         }
     }
-    /// HITS/STEPS/OFFSET (and ACCENTS) snap to one of a fixed count of whole values (band-snapped, ferry Touch
-    /// behaviour §3); TILT/GATE/VELOCITY (and DEPTH / SHAPE / SPREAD) are continuous across their range, rounded only for storage/
+    /// HITS/STEPS/OFFSET snap to one of a fixed count of whole values (band-snapped, ferry Touch
+    /// behaviour §3); TILT/GATE/VELOCITY are continuous across their range, rounded only for storage/
     /// display (§5).
-    var isWhole: Bool { self == .hits || self == .steps || self == .offset || self == .dynAccents }
-    /// SHAPE is bipolar like TILT: a centre line, the fill running from the centre to the value.
-    var isBipolar: Bool { self == .tilt || self == .dynShape }
+    var isWhole: Bool { self == .hits || self == .steps || self == .offset }
 }
 
 /// The field's current value (in its own natural units — NOT normalized) and its current valid range,
 /// read straight off the line. Pure — the ONE source both the drawn fill/tick positions and the
 /// touch→value mapping read, so the two can never disagree about where a value currently sits.
-func euclideousSliderRange(_ field: EuclideousSliderField, _ line: EuclidLine, hits: Int? = nil) -> (value: Double, lo: Double, hi: Double) {
+func euclideousSliderRange(_ field: EuclideousSliderField, _ line: EuclidLine) -> (value: Double, lo: Double, hi: Double) {
     switch field {
     case .hits:
         let steps = max(2, min(16, line.steps))
@@ -2832,24 +2822,13 @@ func euclideousSliderRange(_ field: EuclideousSliderField, _ line: EuclidLine, h
         return (line.gateResolved, 0.01, 1)
     case .velocity:
         return (Double(line.velocityAbsoluteResolved), 1, 127)
-    case .dynDepth:
-        return (Double(line.dynDepthResolved), 0, 100)
-    case .dynAccents:
-        // RHYTHM DYNAMICS §3.4: 0 to the lane's hits per pass k (the stored count can exceed k; the slider SHOWS min(stored, k), and a drag stores what it shows). The stored
-        // field tops out at 16, so a ping-pong pass with more hits than that still offers 16.
-        let k = max(0, min(16, hits ?? euclideousDynamicsOwnPassHits(line)))
-        return (Double(min(line.dynAccentsResolved, k)), 0, Double(k))
-    case .dynShape:
-        return (Double(line.dynShapeResolved), -100, 100)
-    case .dynSpread:
-        return (Double(line.dynSpreadResolved), 0, 100)
     }
 }
 
 /// Where the CURRENT value sits along the track, 0 (bottom/min) ... 1 (top/max) — used both to draw the
 /// fill/edge-line and (inverted) as the basis for the "did touch-down land on the same value" dedup.
-func euclideousSliderFrac(_ field: EuclideousSliderField, _ line: EuclidLine, hits: Int? = nil) -> Double {
-    let r = euclideousSliderRange(field, line, hits: hits)
+func euclideousSliderFrac(_ field: EuclideousSliderField, _ line: EuclidLine) -> Double {
+    let r = euclideousSliderRange(field, line)
     guard r.hi > r.lo else { return 0 }
     return max(0, min(1, (r.value - r.lo) / (r.hi - r.lo)))
 }
@@ -2860,8 +2839,8 @@ func euclideousSliderFrac(_ field: EuclideousSliderField, _ line: EuclidLine, hi
 /// the finger"), plain linear interpolation for a continuous one (§5). TILT's own centre detent (§4) is
 /// applied separately, by the caller, BEFORE this — it's a pre-step on the touch fraction, not a
 /// property of the generic mapping.
-func euclideousSliderValueAt(_ field: EuclideousSliderField, _ line: EuclidLine, frac: Double, hits: Int? = nil) -> Double {
-    let r = euclideousSliderRange(field, line, hits: hits)
+func euclideousSliderValueAt(_ field: EuclideousSliderField, _ line: EuclidLine, frac: Double) -> Double {
+    let r = euclideousSliderRange(field, line)
     let f = max(0, min(1, frac))
     if field.isWhole {
         let count = Int((r.hi - r.lo).rounded()) + 1
@@ -2884,10 +2863,10 @@ func euclideousTiltDetentFrac(_ frac: Double) -> Double {
 /// Tick-mark positions (0...1 each, matching `euclideousSliderFrac`'s own convention) — ONLY HITS and
 /// OFFSET carry ticks (ferry, literal: "one tick per possible count" / "one tick per step"); every other
 /// field has none.
-func euclideousSliderTickFracs(_ field: EuclideousSliderField, _ line: EuclidLine, hits: Int? = nil) -> [Double] {
+func euclideousSliderTickFracs(_ field: EuclideousSliderField, _ line: EuclidLine) -> [Double] {
     switch field {
-    case .hits, .offset, .dynAccents:   // ACCENTS: one tick per value 0…k along the bottom edge, as OFFSET draws its n ticks (§3.4)
-        let r = euclideousSliderRange(field, line, hits: hits)
+    case .hits, .offset:
+        let r = euclideousSliderRange(field, line)
         let count = Int((r.hi - r.lo).rounded()) + 1
         guard count > 1 else { return [0] }
         return (0..<count).map { Double($0) / Double(count - 1) }
@@ -2955,10 +2934,6 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
         let target = max(1, min(127, Int(newValue.rounded())))
         if target != line.velocityAbsoluteResolved { euclideousPinNotesLayer(&line, gate: false, velocity: true) }
         line.velocityAbsolute = target
-    case .dynDepth: line.dynDepth = max(0, min(100, Int(newValue.rounded())))
-    case .dynAccents: line.dynAccents = max(0, min(16, Int(newValue.rounded())))
-    case .dynShape: line.dynShape = max(-100, min(100, Int(newValue.rounded())))
-    case .dynSpread: line.dynSpread = max(0, min(100, Int(newValue.rounded())))
     }
 }
 
@@ -2990,10 +2965,6 @@ func euclideousSliderRevert(_ field: EuclideousSliderField, _ line: inout Euclid
     case .velocity:
         line.velocityAbsolute = snapshot.velocityAbsolute
         if snapshot.notesVelocity == nil, line.notesVelocity == snapshot.notesVelocityResolved { line.notesVelocity = nil }
-    case .dynDepth: line.dynDepth = snapshot.dynDepth
-    case .dynAccents: line.dynAccents = snapshot.dynAccents
-    case .dynShape: line.dynShape = snapshot.dynShape
-    case .dynSpread: line.dynSpread = snapshot.dynSpread
     }
 }
 
@@ -3012,10 +2983,6 @@ func euclideousSliderDoubleTapDefault(_ field: EuclideousSliderField, _ line: in
     case .velocity:
         if line.velocityAbsoluteResolved != 100 { euclideousPinNotesLayer(&line, gate: false, velocity: true) }
         line.velocityAbsolute = 100
-    case .dynDepth: line.dynDepth = 0        // §3.4: DEPTH resets to 0 (FLAT), ACCENTS to 1, SHAPE and SPREAD to 0
-    case .dynAccents: line.dynAccents = 1
-    case .dynShape: line.dynShape = 0
-    case .dynSpread: line.dynSpread = 0
     }
 }
 
@@ -3028,7 +2995,6 @@ func euclideousSliderDoubleTapDefault(_ field: EuclideousSliderField, _ line: in
 func euclideousSliderAccessibilityStep(_ field: EuclideousSliderField) -> Double {
     switch field {
     case .gate, .tilt: return 0.01
-    case .dynDepth, .dynShape, .dynSpread: return 5   // §8.4: each swipe 5 (ACCENTS 1)
     default: return 1
     }
 }
@@ -3036,7 +3002,7 @@ func euclideousSliderAccessibilityStep(_ field: EuclideousSliderField) -> Double
 /// The slider's own compact value readout text — mirrors this page's existing display conventions (a
 /// true minus sign for negatives, a bare "0" with no sign) without depending on `euclideousSigned`
 /// (EuclideousPage.swift, `private`, unreachable from here) so this stays pure/testable.
-func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLine, hits: Int? = nil) -> String {
+func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
     switch field {
     case .hits: return "\(line.pulses)"
     case .steps: return "\(line.steps)"
@@ -3053,37 +3019,13 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
         return "\(Int((line.gateResolved * 100).rounded()))%"
     case .velocity:
         return "\(line.velocityAbsoluteResolved)"
-    case .dynDepth:
-        return euclideousDynamicsDepthText(line.dynDepthResolved)
-    case .dynAccents:
-        let r = euclideousSliderRange(.dynAccents, line, hits: hits)
-        let a = Int(r.value), k = Int(r.hi)
-        return a == 0 ? "OFF" : "\(a) OF \(k)"
-    case .dynShape:
-        let v = line.dynShapeResolved
-        return v == 0 ? "0" : (v > 0 ? "+\(v)" : "\u{2212}\(-v)")
-    case .dynSpread:
-        return "\(line.dynSpreadResolved)%"
     }
 }
-/// §2.2 / §3.4: "FLAT" at DEPTH 0, otherwise DEPTH and a percent sign ("45%").
-func euclideousDynamicsDepthText(_ depth: Int) -> String { depth <= 0 ? "FLAT" : "\(depth)%" }
 /// VoiceOver-only variant (2026-10-13 ferry §6: "add 'legato' to the value at 100%, for example 'Gate,
 /// 100 percent, legato'") — the on-screen compact text stays bare "100%"; only the spoken value gains the
 /// suffix, and only for GATE specifically, at the exact 100% boundary (matching the legato mode's own
 /// threshold, not a near-100% approximation).
-func euclideousSliderAccessibilityValueText(_ field: EuclideousSliderField, _ line: EuclidLine, hits: Int? = nil) -> String {
-    switch field {
-    case .dynDepth: return "\(line.dynDepthResolved) percent"
-    case .dynSpread: return "\(line.dynSpreadResolved) percent"
-    case .dynAccents:
-        let r = euclideousSliderRange(.dynAccents, line, hits: hits)
-        return "\(Int(r.value)) of \(Int(r.hi))"
-    case .dynShape:
-        let v = line.dynShapeResolved
-        return v == 0 ? "flat" : (v > 0 ? "swell \(v)" : "fade \(-v)")   // §8.4: "swell 40" / "fade 40" / "flat"
-    default: break
-    }
+func euclideousSliderAccessibilityValueText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
     let base = euclideousSliderValueText(field, line)
     guard field == .gate, euclideousGateIsLegato(line.gateResolved) else { return base }
     return "\(base), legato"
@@ -4549,8 +4491,6 @@ struct EuclideousWalkLaneConfig {
     var lane: Int = 0
     var playsRiff: Bool = true
     var cyc: Double = 4
-    /// RHYTHM DYNAMICS (2026-10-21, §6.3): the lane's five settings — the roll draws each bar's GATE length, so it scales it by the same factor the Router does.
-    var dynamics = EuclideousDynamics()
 }
 
 /// What `Router.runEuclidLine`'s `passesListenRhythmFilter` reads for a WITH / GAPS lane, captured once: the PARTNER's own
@@ -4653,7 +4593,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                     swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats),
                                     riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
                                     invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved,
-                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc, dynamics: EuclideousDynamics(L))
+                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc)
 }
 /// A tick's REAL onset beat — what the note-on is scheduled at (swing-warped), the time a tag must arrive.
 func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Double {
@@ -5381,8 +5321,6 @@ enum EuclideousPageFloor: Equatable, Hashable {
     case mixCellW, mixPadH, mixPadHStop   // MIX: cellW < 84 · padH < 76 · padH < 60
     case riffRows                    // riff grid rows < 24
     case fxRows                      // FX rows < 24
-    case rhythmRows                  // RHYTHM DYNAMICS ferry §1.4: the right half's three rows < 36 (card height under 304)
-    case dynamicsEditor              // §3.6: the two zones total < 208, so the DYNAMICS editor drops its RESULT row (under 160 its bottom edge clips)
 }
 
 /// Which floors a box of this size falls under. Every flagged item is still drawn at the formula's values.
@@ -5390,8 +5328,6 @@ func euclideousPageFloors(box: CGSize) -> [EuclideousPageFloor] {
     var out: [EuclideousPageFloor] = []
     let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: box.height)
     if contentH < EuclideousLaneCardMetrics.rhythmZonesFloor { out.append(.rhythmZones) }
-    if euclideousRhythmRightRowH(contentAreaH: contentH) < EuclideousDynamicsMetrics.minRowH { out.append(.rhythmRows) }
-    if contentH < EuclideousDynamicsMetrics.editorFullH { out.append(.dynamicsEditor) }
     let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: box.width))
     if r.rowAHeight < 82 { out.append(.riffRowA) }
     if r.directionRowHeight < 32 { out.append(.riffDirectionRow) }
@@ -7148,8 +7084,6 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
     let laneHasNoteFX = c.fx.rowHasCells(4, lane: c.lane)
     let laneHasTieFX = c.fx.rowHasCells(2, lane: c.lane)
     let fxLive = c.playsRiff && c.riffOn && !c.fx.isInert
-    var rollCycleHits = 0
-    for r in 0..<cycleLen where c.buf[euclidReadIndex(r, n: c.n, dir: c.dir)] { rollCycleHits += 1 }
     var tick = Int64((windowStart / c.sub - 1e-9).rounded(.up))
     var out: [EuclideousRollHit] = []
     while true {
@@ -7173,13 +7107,7 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
             rank = euclideousRiffStepRanks(ranks: [written], invert: c.invert, transpose: c.transpose)[0]
             if fxHit.noteOffset != 0 && written >= 1 { rank = max(1, min(8, rank + fxHit.noteOffset)) }   // drawing only: NOTE's offset, clamped to the 1–8 rows
         }
-        var g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
-        // RHYTHM DYNAMICS §6.3 / §5.4: when APPLY TO includes GATE the sounded gate is × f — the same `euclideousDynamicsFactor` at the same hit position the Router uses (a legato gate is not scaled).
-        if !c.dynamics.isFlat, c.dynamics.onGate {
-            let ti = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
-            let pos = euclideousDynamicsPosition(tick: tick, raw: ti.raw, hitsUpTo: ti.hitsUpTo, cycleHits: rollCycleHits, cycleLen: cycleLen, sub: c.sub, chains: c.chains)
-            g = euclideousDynamicsScaledGate(g, factor: euclideousDynamicsFactor(c.dynamics, lane: c.lane, at: pos))
-        }
+        let g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
         let gap = euclideousNextChainHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
                                                   chains: c.chains, legacySpanBeats: c.spanBeats)
         var tie = 0.0
@@ -9273,250 +9201,6 @@ func euclidGroupedBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidSte
 func euclidStepGroupSize(forRate rate: ArpRate) -> Int {
     euclideousRateDivisionFeel(rate).feel == 2 ? 3 : 4
 }
-
-// MARK: - RHYTHM DYNAMICS (ferry 2026-10-21, §5)
-// A per-lane factor f in [0, 1] that pulls a hit's velocity, gate or both BELOW the level MIX and the other velocity/gate inputs already gave it — never above. ONE
-// pure function (`euclideousDynamicsFactor`) decides it; the Router, the DYNAMICS row's bars and the editor's RESULT preview all call it (§5.1). The factor is a pure
-// function of the hit's position in its pass (`EuclideousDynamicsPosition`, all derived from the beat by the Router's own pass functions, never accumulated) and the
-// lane's five resolved settings, so a transport start at any beat, any buffer size and a restart give the same f for the same hit. DEPTH 0 is f = 1 exactly and the
-// Router skips every step for that lane, so its output is bit-identical to a build without this ferry (§5.3).
-
-/// The lane's five DYNAMICS settings, resolved, as plain fixed-size data (the render thread reads it — no array).
-struct EuclideousDynamics: Equatable {
-    var depth = 0, accents = 1, shape = 0, spread = 0
-    var target: EuclidDynTarget = .vel
-    init() {}
-    init(depth: Int, accents: Int, shape: Int, spread: Int, target: EuclidDynTarget) {
-        self.depth = max(0, min(100, depth)); self.accents = max(0, min(16, accents)); self.shape = max(-100, min(100, shape))
-        self.spread = max(0, min(100, spread)); self.target = target
-    }
-    init(_ line: EuclidLine) {
-        self.init(depth: line.dynDepthResolved, accents: line.dynAccentsResolved, shape: line.dynShapeResolved, spread: line.dynSpreadResolved, target: line.dynTargetResolved)
-    }
-    /// DEPTH 0: nothing moves.
-    var isFlat: Bool { depth <= 0 }
-    var onVelocity: Bool { target.touchesVelocity }
-    var onGate: Bool { target.touchesGate }
-}
-
-/// §5.2 — where a hit sits in its pass. `pass` q: the pass index of the hit's beat; `step` s: its step index within the pass in play order (0 at the pass start —
-/// for BKW and PING-PONG the steps as played, not as numbered); `steps` n: the steps in one full pass as the Router plays it (STEPS for FWD and BKW; 2 × STEPS for
-/// PING-PONG, the full there-and-back, each end step played twice); `hit` j: its ordinal among the pattern's hits in the pass, from 0, in play order, counting EVERY
-/// pattern hit (muted, tied or on a riff rest alike); `hits` k: the pattern's hits in one FULL pass — a pass a rhythm restart cuts short still uses the full pass's n and k.
-struct EuclideousDynamicsPosition: Equatable {
-    var pass: Int64, step: Int, steps: Int, hit: Int, hits: Int
-}
-
-/// §5.3 — r in [0, 1): a stateless hash of (lane, pass, step) — SplitMix64 of `lane << 40 | pass << 8 | step`, its top 24 bits over 2^24 — so SPREAD is deterministic
-/// and replay-exact, changes from pass to pass, and costs no state. `pass` keeps its low 32 bits (negative passes — a transport before beat 0 — wrap, deterministically).
-func euclideousDynamicsSpreadUnit(lane: Int, pass: Int64, step: Int) -> Double {
-    let key = (UInt64(truncatingIfNeeded: lane) << 40) | ((UInt64(truncatingIfNeeded: pass) & 0xFFFF_FFFF) << 8) | (UInt64(truncatingIfNeeded: step) & 0xFF)
-    return Double(splitmix64Mix(key) >> 40) / 16_777_216.0
-}
-
-/// §5.3 — is hit `j` of `k` one of the `a` accents (a Euclidean spread over the pass's hits, starting on its first hit)?
-@inline(__always) func euclideousDynamicsIsAccent(hit j: Int, hits k: Int, accents a: Int) -> Bool {
-    k > 0 && a > 0 && (j * a) % k < a
-}
-
-/// §5.3 — the factor, in [0, 1]. With D = DEPTH/100, S = SHAPE/100, P = SPREAD/100 and a = min(ACCENTS, k):
-///   accentTerm = 1 for an accented hit (or when a is 0), else 1 − D;
-///   shapeTerm  = 1 − D × shapeDrop, shapeDrop = S × (1 − p) for S > 0 (a swell: quiet early, full at the end), −S × p for S < 0 (a fade), p = s/(n − 1) (0 when n is 1);
-///   spreadTerm = 1 − D × P × r, r = `euclideousDynamicsSpreadUnit`.
-/// DEPTH 0 returns exactly 1 without touching the rest.
-func euclideousDynamicsFactor(_ d: EuclideousDynamics, lane: Int, at pos: EuclideousDynamicsPosition) -> Double {
-    guard d.depth > 0 else { return 1 }
-    let D = Double(d.depth) / 100
-    let a = min(d.accents, pos.hits)
-    let accentTerm = a > 0 ? (euclideousDynamicsIsAccent(hit: pos.hit, hits: pos.hits, accents: a) ? 1 : 1 - D) : 1
-    let S = Double(d.shape) / 100
-    let p = pos.steps > 1 ? Double(pos.step) / Double(pos.steps - 1) : 0
-    let shapeDrop = S > 0 ? S * (1 - p) : (S < 0 ? -S * p : 0)
-    let shapeTerm = 1 - D * shapeDrop
-    let spreadTerm = d.spread > 0 ? 1 - D * (Double(d.spread) / 100) * euclideousDynamicsSpreadUnit(lane: lane, pass: pos.pass, step: pos.step) : 1
-    return max(0, min(1, accentTerm * shapeTerm * spreadTerm))
-}
-
-/// §5.2 q — the pass index of the pass whose step 0 played at `tick - raw`: `euclideousPassIndex` read half a tick INTO the pass (never on a boundary, so floating-point
-/// rounding in `tick × sub` can't land it in the neighbouring pass). A pass is `cycleLen` ticks; a rhythm chain cuts passes short at its restarts, as everywhere else.
-func euclideousDynamicsPassIndex(tick: Int64, raw: Int, sub: Double, cycleLen: Int, chains: EuclideousLaneRestartChains) -> Int64 {
-    guard sub > 0 else { return 0 }
-    let beat = (Double(tick) - Double(raw) + 0.5) * sub
-    return euclideousPassIndex(beat: beat, lapBeats: Double(max(1, cycleLen)) * sub, barBeats: chains.barBeats, rhythmChain: chains.rhythm)
-}
-
-/// §5.2 — a hit's position from what the Router's per-tick core already has: `raw` (the step in the pass, from the rhythm origin), `hitsUpTo` (the pattern hits at or
-/// before it in the pass — so j = hitsUpTo − 1) and the full pass's hit count.
-func euclideousDynamicsPosition(tick: Int64, raw: Int, hitsUpTo: Int, cycleHits: Int, cycleLen: Int, sub: Double, chains: EuclideousLaneRestartChains) -> EuclideousDynamicsPosition {
-    EuclideousDynamicsPosition(pass: euclideousDynamicsPassIndex(tick: tick, raw: raw, sub: sub, cycleLen: cycleLen, chains: chains),
-                               step: raw, steps: max(1, cycleLen), hit: max(0, hitsUpTo - 1), hits: max(1, cycleHits))
-}
-
-/// §5.4 — a velocity times f, rounded to nearest, never below 1, never above 127. (The Router calls this right where its own 1…127 clamp already sits.)
-@inline(__always) func euclideousDynamicsScaledVelocity(_ v: Int, factor f: Double) -> Int { max(1, min(127, Int((Double(v) * f).rounded()))) }
-
-/// §5.4 — a gate fraction times f, never below 1 %. A gate the engine treats as legato (`euclideousGateIsLegato`) is not scaled and stays legato.
-@inline(__always) func euclideousDynamicsScaledGate(_ g: Double, factor f: Double) -> Double {
-    euclideousGateIsLegato(g) ? g : min(g, max(0.01, g * f))
-}
-
-/// §5.6 / §2.3 / §3.3 — the factor of every hit of one pass, in play order, for the displays (the DYNAMICS row's bars, the editor's RESULT preview): the SAME
-/// `euclideousDynamicsFactor` the Router calls, at the positions `euclideousLapHitSteps` lists (`tick` = the step in the pass, `cycleLen` = the pass's steps).
-func euclideousDynamicsPassFactors(_ d: EuclideousDynamics, lane: Int, pass q: Int64, hitSteps: [EuclidHitStep], cycleLen: Int) -> [Double] {
-    var out: [Double] = []
-    out.reserveCapacity(hitSteps.count)
-    for (j, hs) in hitSteps.enumerated() {
-        out.append(euclideousDynamicsFactor(d, lane: lane, at: EuclideousDynamicsPosition(pass: q, step: hs.tick, steps: max(1, cycleLen), hit: j, hits: hitSteps.count)))
-    }
-    return out
-}
-
-
-// MARK: - RHYTHM DYNAMICS — layout, cells and words for the RHYTHM tab's row and editor (ferry 2026-10-21, §1-§3, §8)
-// Every number the row and the editor draw comes from here (pure, so the geometry test reaches it); `EuclideousPage` only paints.
-
-enum EuclideousDynamicsMetrics {
-    static let sp4: CGFloat = 4, sp8: CGFloat = 8
-    /// §1.4: a right-half row under this is built at the formula's value and reported (never shrunk).
-    static let minRowH: CGFloat = 36
-    /// The RHYTHM tab's lower zone (the control block) — fixed 80 (§1.1), also `tabContent`'s own `patternBlockH`.
-    static let lowerZoneH: CGFloat = 80
-    /// §3.1: the editor covers both zones — 208 at the reference (124 + 4 + 80).
-    static let editorFullH: CGFloat = 208
-    /// §3.6: without the RESULT row (40) and the sp8 after it (8) the rest needs 160. (The ferry says 164; its own coordinates give 208 − 48 = 160 — reported.)
-    static let editorNoResultH: CGFloat = 160
-    static let headerH: CGFloat = 20, closeW: CGFloat = 28
-    static let labelColW: CGFloat = 56, resultRowH: CGFloat = 40, sliderH: CGFloat = 38, applyRowH: CGFloat = 32
-    static let rowBarsH: CGFloat = 13, rowBarsInset: CGFloat = 8, rowBarsBottom: CGFloat = 5, rowBarGap: CGFloat = 3
-    static let previewGap: CGFloat = 2, previewVelH: CGFloat = 32, previewGateGap: CGFloat = 2, previewGateH: CGFloat = 4
-    /// §2.4 / §2.4's tap rule: a touch that moves less than this is a tap.
-    static let tapSlop: CGFloat = 4
-}
-
-/// §1.2: the upper zone's height from the card's tab-content height (the RHYTHM tab's lower zone is a fixed 80 and an sp4 gap).
-func euclideousRhythmUpperH(contentAreaH: CGFloat) -> CGFloat { max(1, contentAreaH - EuclideousDynamicsMetrics.lowerZoneH - EuclideousDynamicsMetrics.sp4) }
-/// §1.2: the right half's three equal rows: (upper zone height − 8) ÷ 3 — 38.67 at the reference's 124, 41 at the layout ferry's landscape 131.
-func euclideousRhythmRightRowH(upperH: CGFloat) -> CGFloat { max(1, (upperH - EuclideousDynamicsMetrics.sp4 * 2) / 3) }
-func euclideousRhythmRightRowH(contentAreaH: CGFloat) -> CGFloat { euclideousRhythmRightRowH(upperH: euclideousRhythmUpperH(contentAreaH: contentAreaH)) }
-/// Row `i` (0 OFFSET, 1 TILT, 2 DYNAMICS) of the right half, in the upper zone's coordinates: `x` is the half's left edge, `width` its width.
-func euclideousRhythmRightRow(_ i: Int, upperH: CGFloat, x: CGFloat, width: CGFloat) -> CGRect {
-    let h = euclideousRhythmRightRowH(upperH: upperH)
-    return CGRect(x: x, y: CGFloat(i) * (h + EuclideousDynamicsMetrics.sp4), width: width, height: h)
-}
-
-/// §3.1-§3.6: the editor's inside, in its own coordinates (0,0 = its top-left corner, sp8 padding all round).
-struct EuclideousDynamicsEditorLayout: Equatable {
-    var size: CGSize
-    /// §3.6: true when the two zones reach 208; below that the RESULT row and the sp8 after it are dropped.
-    var showsResult: Bool
-    var header: CGRect
-    var closeButton: CGRect
-    var resultLabel: CGRect?
-    var resultPreview: CGRect?
-    var accents: CGRect, shape: CGRect, depth: CGRect, spread: CGRect
-    var applyLabel: CGRect
-    var applyButtons: [CGRect]
-    /// The bottom of the APPLY TO row (+ the sp8 padding): what the editor needs to show everything.
-    var neededH: CGFloat { applyLabel.maxY + EuclideousDynamicsMetrics.sp8 }
-    var clipsBottom: Bool { neededH > size.height + 0.001 }
-    /// §3.3: one column per comet-bar cell of the pass, sharing the preview's width, 2 apart. Rects are in the PREVIEW's own space (0,0 = its top-left).
-    func previewColumns(cells n: Int) -> [(vel: CGRect, gate: CGRect)] {
-        guard let pv = resultPreview, n > 0 else { return [] }
-        typealias M = EuclideousDynamicsMetrics
-        let w = (pv.width - M.previewGap * CGFloat(n - 1)) / CGFloat(n)
-        return (0..<n).map { i in
-            let x = CGFloat(i) * (w + M.previewGap)
-            return (CGRect(x: x, y: 0, width: w, height: M.previewVelH), CGRect(x: x, y: M.previewVelH + M.previewGateGap, width: w, height: M.previewGateH))
-        }
-    }
-}
-func euclideousDynamicsEditorLayout(width: CGFloat, height: CGFloat) -> EuclideousDynamicsEditorLayout {
-    typealias M = EuclideousDynamicsMetrics
-    let pad = M.sp8
-    let inner = max(1, width - pad * 2)
-    let showsResult = height >= M.editorFullH
-    let header = CGRect(x: pad, y: pad, width: inner, height: M.headerH)
-    let close = CGRect(x: width - pad - M.closeW, y: pad, width: M.closeW, height: M.headerH)
-    var y = header.maxY + pad
-    var resultLabel: CGRect? = nil, resultPreview: CGRect? = nil
-    if showsResult {
-        resultLabel = CGRect(x: pad, y: y, width: M.labelColW, height: M.resultRowH)
-        // the preview starts after the label column and its 4 pt gap (x 68) and runs to the right padding; it is 1 pt in from the row's top and bottom (y 37, 38 tall)
-        let px = pad + M.labelColW + M.sp4
-        resultPreview = CGRect(x: px, y: y + 1, width: max(1, width - pad - px), height: M.previewVelH + M.previewGateGap + M.previewGateH)
-        y += M.resultRowH + pad
-    }
-    let sw = (inner - M.sp4) / 2
-    let row1 = y, row2 = y + M.sliderH + M.sp4
-    let accents = CGRect(x: pad, y: row1, width: sw, height: M.sliderH), shape = CGRect(x: pad + sw + M.sp4, y: row1, width: sw, height: M.sliderH)
-    let depth = CGRect(x: pad, y: row2, width: sw, height: M.sliderH), spread = CGRect(x: pad + sw + M.sp4, y: row2, width: sw, height: M.sliderH)
-    let applyY = row2 + M.sliderH + M.sp4
-    let applyLabel = CGRect(x: pad, y: applyY, width: M.labelColW, height: M.applyRowH)
-    let bx = pad + M.labelColW + M.sp4
-    let bw = (max(1, width - pad - bx) - M.sp4 * 2) / 3
-    let buttons = (0..<3).map { i in CGRect(x: bx + CGFloat(i) * (bw + M.sp4), y: applyY, width: bw, height: M.applyRowH) }
-    return EuclideousDynamicsEditorLayout(size: CGSize(width: width, height: height), showsResult: showsResult, header: header, closeButton: close,
-                                          resultLabel: resultLabel, resultPreview: resultPreview, accents: accents, shape: shape, depth: depth, spread: spread,
-                                          applyLabel: applyLabel, applyButtons: buttons)
-}
-
-/// §2.3: the DYNAMICS row's result bars — one per comet-bar cell, equal widths, 3 pt apart, bottom-aligned in a strip 8 pt in from each side, its bottom 5 above the tile's bottom,
-/// 13 tall. `cells[i]` is the cell's factor, or nil for a rest. Rects are in the ROW's own coordinates. A hit is max(2, 13 × f) tall, a rest 2.
-struct EuclideousDynamicsBar: Equatable { var rect: CGRect; var isHit: Bool; var factor: Double }
-func euclideousDynamicsRowBars(rowWidth: CGFloat, rowHeight: CGFloat, cells: [Double?]) -> [EuclideousDynamicsBar] {
-    typealias M = EuclideousDynamicsMetrics
-    let n = cells.count
-    guard n > 0 else { return [] }
-    let stripW = max(1, rowWidth - M.rowBarsInset * 2)
-    let w = max(1, (stripW - M.rowBarGap * CGFloat(n - 1)) / CGFloat(n))
-    let bottom = rowHeight - M.rowBarsBottom
-    return cells.enumerated().map { i, f in
-        let x = M.rowBarsInset + CGFloat(i) * (w + M.rowBarGap)
-        let h: CGFloat = f.map { max(2, M.rowBarsH * CGFloat($0)) } ?? 2
-        return EuclideousDynamicsBar(rect: CGRect(x: x, y: bottom - h, width: w, height: h), isHit: f != nil, factor: f ?? 1)
-    }
-}
-
-/// The lane's own pass hits (its pattern, direction, TILT, INV and hand edits applied) — k in §5.2 — for a lane that isn't following a partner.
-func euclideousDynamicsOwnPassHits(_ line: EuclidLine) -> Int {
-    let b = euclideousBuildPattern(line)
-    return euclideousLapHitSteps(buf: Array(b.buf.prefix(b.n)), dir: line.directionResolved).count
-}
-/// §5.2 for the displays: the lane's pass as the Router plays it — its hits in play order, the pattern's step count and the pass's steps (`cycleLen`: 2 × steps for PING-PONG). A FOLLOW lane plays
-/// its partner's pattern (`euclideousEffectivePattern`, the engine's own mirror), so k and the cells are the partner's, with this lane's direction.
-func euclideousDynamicsPassHitSteps(lane: Int, lines: [EuclidLine]) -> (hits: [EuclidHitStep], patternSteps: Int, cycleLen: Int) {
-    guard let eff = euclideousEffectivePattern(lane: lane, lines: lines) else { return ([], 1, 1) }
-    let dir = lines[lane].directionResolved
-    let buf = Array(eff.buf.prefix(eff.n))
-    return (euclideousLapHitSteps(buf: buf, dir: dir), max(1, eff.n), euclidCycleLen(dir, n: max(1, eff.n)))
-}
-/// §2.3 / §3.3 / §5.6: the factor of each comet-bar CELL (buffer order, `patternSteps` of them) in pass `q` — nil for a rest. A PING-PONG pass plays every cell twice (the there and the back): the cell
-/// shows the visit in `sweep` (0 = the first, 1 = the second — the one the lane is on while it runs; 0 when stopped).
-func euclideousDynamicsCellFactors(_ d: EuclideousDynamics, lane: Int, pass q: Int64, patternSteps n: Int, hitSteps: [EuclidHitStep], cycleLen: Int, sweep: Int) -> [Double?] {
-    var out = [Double?](repeating: nil, count: max(0, n))
-    guard n > 0 else { return out }
-    let f = euclideousDynamicsPassFactors(d, lane: lane, pass: q, hitSteps: hitSteps, cycleLen: cycleLen)
-    let twoSweeps = cycleLen > n
-    for (j, hs) in hitSteps.enumerated() where hs.bufIdx >= 0 && hs.bufIdx < n {
-        let secondVisit = twoSweeps && hs.tick >= n
-        if secondVisit != (sweep == 1) && twoSweeps { continue }
-        out[hs.bufIdx] = f[j]
-    }
-    return out
-}
-
-/// §8.3: the RESULT preview's spoken form — the current pass, hit by hit ("This pass, velocity: hit 1 full, hit 2 at 55 percent, …"), naming velocity, gate or both by APPLY TO.
-func euclideousDynamicsPreviewAccessibility(factors: [Double], target: EuclidDynTarget) -> String {
-    let what = target == .vel ? "velocity" : (target == .gate ? "gate" : "velocity and gate")
-    guard !factors.isEmpty else { return "This pass, \(what): no hits" }
-    let parts = factors.enumerated().map { j, f -> String in
-        let pct = Int((f * 100).rounded())
-        return pct >= 100 ? "hit \(j + 1) full" : "hit \(j + 1) at \(pct) percent"
-    }
-    return "This pass, \(what): " + parts.joined(separator: ", ")
-}
-/// §8.1: the DYNAMICS row's spoken value (its label is "Dynamics").
-func euclideousDynamicsRowAccessibilityValue(depth: Int) -> String { depth <= 0 ? "flat" : "depth \(depth) percent" }
 
 // MARK: - LANE SOLO (ferry 2026-10-21)
 // The step-count box at the end of each lane's comet row became a SOLO button. Tap latches (additive); a hold (≥ 300 ms) solos while held. While any lane is soloed every other lane is SILENT (it keeps walking,

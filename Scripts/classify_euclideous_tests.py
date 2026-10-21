@@ -37,8 +37,6 @@ EXCLUSIVE_FILES = {
     "PulseTests.swift",
     "LaneStripTests.swift",
     "LaneStripFuzzTests.swift",
-    "DynamicsTests.swift",
-    "RhythmDynamicsGeometryTests.swift",
     "LaneSoloTests.swift",
     "RiffGridArrowFuzzTests.swift",
 }

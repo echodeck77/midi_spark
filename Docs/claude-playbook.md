@@ -71,9 +71,9 @@ the only check that exists.
 
 The AU extension's main thread has a **1 MB** stack, and `EuclideousPage`'s eager view-construction chain (`body` → `pageBody` → `laneCard` → `tabContent` → a tab's builder → its sliders) fills almost
 all of it in the debug build Paul runs from Xcode: every `some View` a function returns is a stack temporary, an `EuclideousSlider` is ~4 KB (it holds two `EuclidLine`s) and each opaque wrapper
-around it is another dynamic 4 KB allocation. It has crashed twice at launch with "Thread stack size exceeded" (2026-10-13 type-metadata decode; 2026-10-21 the DYNAMICS row's third slider) and no
+around it is another dynamic 4 KB allocation. It has crashed twice at launch with "Thread stack size exceeded" (2026-10-13 type-metadata decode; 2026-10-21 a third slider in the RHYTHM tab's right half) and no
 test or compile check can see it (release builds have none of these temporaries). Rules: **build every new leaf view (a slider, a row, an editor's section) in its own function that returns
-`AnyView`**, so closures only hold 8-byte values and each leaf's temporaries die on return (`rhythmUpperZone` and `dynamicsEditor` are the pattern); never put several sliders in one
+`AnyView`**, so closures only hold 8-byte values and each leaf's temporaries die on return (`rhythmUpperZone` and its `rhythm…` leaf functions are the pattern); never put several sliders in one
 `@ViewBuilder` closure; and after a UI change compare frame sizes against the previous build with `Scripts/debug-frame-sizes.py <MidiSparkAU.debug.dylib> 'EuclideousPage\.(rhythm|tabContent|laneCard)'`
 (static bytes + dynamic-allocation count per function; a worst-case path should sit well under the baseline). A UI ferry is not done until Paul has launched the page in a debug build.
 

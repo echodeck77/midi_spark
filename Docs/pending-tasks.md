@@ -42,14 +42,8 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
   covers `euclideousRhythmChainChangesNothing` itself, a dotted/non-bar-dividing restart-link length, or
   `barBeats` sourced from a non-4/4 host time signature — a coverage gap, not a known bug.
 
-## ★ EUCLIDEOUS — RHYTHM DYNAMICS: per-hit velocity and gate movement below the MIX level (2026-10-21; `Docs/euclideous-status-log.md`)
-- [ ] DEVICE: see the "RHYTHM tab — DYNAMICS" lines in `Docs/euclideous-device-verification-debt.md`.
-- [ ] DECIDE (Paul): the ferry's §6 (comet-bar partial fills) was NOT built on your ruling — the LANE STRIP ferry replaced the comet's lane-coloured cells. If you want the factor on the strip (the riff chips at a height or opacity of f), say where.
-- [ ] DECIDE (Paul): the editor's sliders use the ferry's #2A2D34 tile (the card is #22252C, where the source's #22252C tile vanishes); the RHYTHM tab's rows and the DYNAMICS row keep the source's #22252C. Label / backing styles are the source slider's (10 pt semibold #AAB0BA), not the ferry's 9 pt heavy #F2F4F7.
-- [ ] DECIDE (Paul): ACCENTS' range stops at min(k, 16); a PING-PONG lane counts its full there-and-back pass (n = 2 × STEPS, each hit twice) for k, s and j — so ACCENTS 2 on E(5,8) ping-pong accents two of the ten hits.
-- [ ] DECIDE (Paul): AU parameters / MIDI-learn for DEPTH etc. were out of scope — adding them is trivial (new stable addresses beside the macro bank); say if you want them.
-- [ ] (noted) the mask's ACCENT / SWELL are unreachable for the Euclideous row; DYNAMICS multiplies after them where they apply (test seam only). LEGATO is unreachable from the UI (MIX GATE 99, FX GATE 95); the engine path is kept and a legato gate is never scaled.
-- [ ] (noted) ferry arithmetic that does not hold, built to the formulas: RESULT columns 31.06 (not 32.06) at 8 cells; row bars 6.64 (not ≈ 6.9) at 16; editor without RESULT needs 160 (not 164); f can be exactly 0 at DEPTH 100.
+## ★ EUCLIDEOUS — RHYTHM DYNAMICS: REMOVED (2026-10-21; `Docs/euclideous-status-log.md`)
+- [x] Paul asked for the DYNAMICS button and functionality to be removed; it is gone (row, editor, engine, model fields, tests). A session saved while it existed still loads — the five stored keys are ignored. Nothing open here.
 
 ## ★ EUCLIDEOUS — header HOLD/LATCH: source-detour reset fix + CHORDS/KEY guard fix (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "Header: output rings... HOLD/LATCH" lines in `Docs/euclideous-device-verification-debt.md`.

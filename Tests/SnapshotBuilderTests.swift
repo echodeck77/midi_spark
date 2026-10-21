@@ -707,21 +707,6 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(clamped.euclidLines[0].riffLengthResolved, 8)
         XCTAssertEqual(clamped.euclidLines[0].melodyTransposeResolved, 7)
     }
-    // RHYTHM DYNAMICS (2026-10-21, §9.10): the five fields must ALSO survive the fresh-literal reconstruction — and arrive clamped.
-    func testEuclidLineDynamicsFieldsSurviveSnapshotBuild() {
-        var l = EuclidLine(target: 0, pulses: 4, steps: 8)
-        l.dynDepth = 70; l.dynAccents = 4; l.dynShape = 25; l.dynSpread = 33; l.dynTarget = .gate
-        let a = box(machines(customizing: 0) { $0.paramsA.euclidLines = [l] }) { _ in }.machines[0].a
-        XCTAssertEqual(a.euclidLines[0].dynDepth, 70, "DEPTH must survive the resolve, not silently reset")
-        XCTAssertEqual(a.euclidLines[0].dynAccents, 4); XCTAssertEqual(a.euclidLines[0].dynShape, 25); XCTAssertEqual(a.euclidLines[0].dynSpread, 33)
-        XCTAssertEqual(a.euclidLines[0].dynTarget, .gate)
-        XCTAssertTrue(a.euclidLines[1...3].allSatisfy { $0.dynDepth == nil }, "padded rows carry nothing and resolve to FLAT")
-        var wild = EuclidLine(target: 0, pulses: 4, steps: 8)
-        wild.dynDepth = 400; wild.dynAccents = 99; wild.dynShape = -999; wild.dynSpread = 150
-        let c = box(machines(customizing: 0) { $0.paramsA.euclidLines = [wild] }) { _ in }.machines[0].a
-        XCTAssertEqual(c.euclidLines[0].dynDepth, 100); XCTAssertEqual(c.euclidLines[0].dynAccents, 16)
-        XCTAssertEqual(c.euclidLines[0].dynShape, -100); XCTAssertEqual(c.euclidLines[0].dynSpread, 100)
-    }
     // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): `litNotes`/`topLit`/`top2Lit`/
     // `riffOn` must ALSO survive the fresh-literal reconstruction — the exact regression class this file
     // keeps guarding for. `melodyMode` is included too: a direct read confirmed it was MISSING from this

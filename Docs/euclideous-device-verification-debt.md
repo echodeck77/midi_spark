@@ -41,15 +41,7 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
   ramp (this was the stale-request-field bug; fixed, but only test-covered, never heard).
 
 ### DEBUG-build launch (2026-10-21)
-- Run the DEBUG build from Xcode into AUM and open the page: it must come up (the 2026-10-21 DYNAMICS ferry crashed it at launch — `Thread stack size exceeded`, fixed by `fix/dynamics-stack-depth`). Then tap the DYNAMICS row to open the editor on each of the four lanes, and switch RHYTHM → RIFF → RHYTHM: none may crash. This is the ONLY check the stack fix has had (frame sizes were measured off the binary, the page was not run).
-
-### RHYTHM tab — DYNAMICS (2026-10-21)
-- OFFSET and TILT at 38.67 pt (41 in landscape): still easy to drag, and TILT's EARLY / LATE legible under their label row (boxes overlap 1 pt, ink clears ≈ 5.6 pt).
-- The DYNAMICS row: drag versus tap at 4 pt feels right (a tap must open the editor, never nudge DEPTH); the 13 pt result bars read at 8 and 16 cells in all four lane colours — and their tops sitting under the "DYNAMICS ⌄" / value backings.
-- The editor: the 159 × 38 sliders (end labels vs the label row), the 32 pt APPLY TO buttons, the RESULT preview at 16 cells; SPREAD changes the RESULT every pass while the lane runs.
-- (the comet-bar partial fills of the ferry's §6 are not built — Paul's ruling — so nothing to check there)
-- DYNAMICS sounds like movement: ACCENTS on drums, SHAPE swells / fades over a pass, SPREAD feels human rather than broken, GATE scaling stays clean with ties and ratchets, PING-PONG's accents over the full there-and-back pass; the editor's dark-on-#2A2D34 tiles read as bounded.
-- VoiceOver: the row ("Dynamics, depth 45 percent", swipe ±5, double-tap opens), the editor as a dialog (focus in / back to the row), every slider, APPLY TO's selected state, the RESULT sentence.
+- Run the DEBUG build from Xcode into AUM and open the page: it must come up (the 2026-10-21 DYNAMICS ferry crashed it at launch — `Thread stack size exceeded`, fixed by `fix/dynamics-stack-depth`). Then open the RHYTHM tab on each of the four lanes (the right half is two rows again, OFFSET and TILT — both must drag as before) and switch RHYTHM → RIFF → RHYTHM: none may crash. This is the ONLY check the stack fix has had (frame sizes were measured off the binary, the page was not run).
 
 ### Riff grid — only a running lane has an arrow (2026-10-21)
 - Switch a lane's PLAY off while the others run: its arrow leaves the grid and its rail shows only the played columns; switch it back on: no arrow until its first hit lands, then it follows.

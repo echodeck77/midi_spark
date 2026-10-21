@@ -1133,6 +1133,14 @@ final class EffectiveParamsTests: XCTestCase {
         let old = Data(#"{"target":0,"pulses":3,"steps":8,"rotate":0,"invert":false,"velocityAbsolute":72}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(EuclidLine.self, from: old).velocityAbsoluteResolved, 72)
     }
+    /// RHYTHM DYNAMICS was removed (2026-10-21): a lane saved while it existed still carries its five keys (`dynDepth`…`dynTarget`) — they must be ignored on load, never a failure, and never written back.
+    func testALaneSavedWithTheRemovedDynamicsKeysStillDecodesAndTheKeysAreDropped() throws {
+        let json = #"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"gate":0.6,"dynDepth":80,"dynAccents":3,"dynShape":-40,"dynSpread":15,"dynTarget":"BOTH"}"#
+        let line = try JSONDecoder().decode(EuclidLine.self, from: Data(json.utf8))   // MUST NOT throw
+        XCTAssertEqual(line.pulses, 5); XCTAssertEqual(line.gateResolved, 0.6, "everything else is read as before")
+        let back = String(decoding: try JSONEncoder().encode(line), as: UTF8.self)
+        XCTAssertFalse(back.contains("dyn"), "the removed keys are not written back")
+    }
     /// The bug CLASS: a stored field the hand-written decoder forgets. Every stored field is set to a non-default value, round-tripped,
     /// and compared — and a reflection check fails the test if a newly added field isn't populated here, so the next field can't be skipped.
     func testEveryStoredEuclidLineFieldSurvivesAnEncodeDecodeRoundTrip() throws {
@@ -1153,7 +1161,6 @@ final class EffectiveParamsTests: XCTestCase {
         l.riffAdvanceEvery = 3; l.riffShiftRequested = 4   // RIFF WALK (2026-10-19)
         // NOTES TAB (2026-10-19). riffOnRest is `.repeatLast` above, not `.fill`: FILL leaves ON REST and decodes as SKIP by design (§9).
         l.notesWhen = 0b01; l.notesChance = 50; l.notesPlayAs = .split; l.notesReceivedOnly = true
-        l.dynDepth = 45; l.dynAccents = 3; l.dynShape = -40; l.dynSpread = 15; l.dynTarget = .both   // RHYTHM DYNAMICS (2026-10-21)
         var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {

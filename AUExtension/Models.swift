@@ -599,19 +599,6 @@ struct EuclidLine: Codable, Equatable {
     var notesLitOrder: [UInt8]? = nil {
         didSet { if let a = notesLitOrder, let o = EuclideousLitOrder(valid: a) { litNotes = o.rankMask; topLit = o.hasTop; top2Lit = o.hasTop2 } }
     }
-    // RHYTHM DYNAMICS ferry (2026-10-21, §4): per-hit velocity/gate movement BELOW the MIX level. APPENDED LAST (memberwise-init order), additive-Optional,
-    // decode-tolerant and clamped AT DECODE. nil resolves to DEPTH 0 / ACCENTS 1 / SHAPE 0 / SPREAD 0 / APPLY TO VEL, and DEPTH 0 changes nothing, bit for bit,
-    // so an old document plays as it always did. `dynAccents` stores what was asked for (0…16); the engine reads min(ACCENTS, k) (§4.2).
-    var dynDepth: Int? = nil
-    var dynAccents: Int? = nil
-    var dynShape: Int? = nil
-    var dynSpread: Int? = nil
-    var dynTarget: EuclidDynTarget? = nil
-    var dynDepthResolved: Int { max(0, min(100, dynDepth ?? 0)) }
-    var dynAccentsResolved: Int { max(0, min(16, dynAccents ?? 1)) }
-    var dynShapeResolved: Int { max(-100, min(100, dynShape ?? 0)) }
-    var dynSpreadResolved: Int { max(0, min(100, dynSpread ?? 0)) }
-    var dynTargetResolved: EuclidDynTarget { dynTarget ?? .vel }
     var notesWhenResolved: UInt8 { let w = (notesWhen ?? 0b11) & 0b11; return w == 0 ? 0b11 : w }
     var notesPlaysResolved: Bool { notesWhenResolved & 0b01 != 0 }
     var notesRestsResolved: Bool { notesWhenResolved & 0b10 != 0 }
@@ -848,12 +835,6 @@ extension EuclidLine {
         if let a = (try? c.decodeIfPresent([UInt8].self, forKey: .notesLitOrder)).flatMap({ $0 }), let o = EuclideousLitOrder(valid: a) {
             notesLitOrder = o.array; litNotes = o.rankMask; topLit = o.hasTop; top2Lit = o.hasTop2
         }
-        // RHYTHM DYNAMICS (2026-10-21, §4.1): tolerant (`try?`) and clamped at decode, so a corrupt value reads back already in range (test 10).
-        dynDepth = (try? c.decodeIfPresent(Int.self, forKey: .dynDepth)).flatMap { $0 }.map { max(0, min(100, $0)) }
-        dynAccents = (try? c.decodeIfPresent(Int.self, forKey: .dynAccents)).flatMap { $0 }.map { max(0, min(16, $0)) }
-        dynShape = (try? c.decodeIfPresent(Int.self, forKey: .dynShape)).flatMap { $0 }.map { max(-100, min(100, $0)) }
-        dynSpread = (try? c.decodeIfPresent(Int.self, forKey: .dynSpread)).flatMap { $0 }.map { max(0, min(100, $0)) }
-        dynTarget = (try? c.decodeIfPresent(EuclidDynTarget.self, forKey: .dynTarget)).flatMap { $0 }
         // 5.6 migration, here so every load path (presets, sessions, the host's saved state, paste) gets it. FILL leaves ON REST (§9): it decodes as SKIP, whatever
         // the lane's WHEN. A lane with no stored WHEN gets the sound-preserving one; one with a stored WHEN keeps it (`& 3`, neither bit -> both).
         if let w = rawWhen {
@@ -873,13 +854,6 @@ enum EuclidNotesPlayAs: String, Codable, CaseIterable {
         let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
         self = EuclidNotesPlayAs(rawValue: raw) ?? .chord
     }
-}
-// RHYTHM DYNAMICS ferry (2026-10-21, §4.1): what DYNAMICS pulls below the MIX level — velocity, gate, or both. String-raw like every sibling enum; an unknown
-// stored value fails the field's tolerant decode and reads as nil (= VEL).
-enum EuclidDynTarget: String, Codable, CaseIterable {
-    case vel = "VEL", gate = "GATE", both = "BOTH"
-    var touchesVelocity: Bool { self != .gate }
-    var touchesGate: Bool { self != .vel }
 }
 /// The lit positions in the order they were lit, as FIXED-SIZE data (ten bytes and a count — the render thread reads it, so no array): 0-7 are ranks 1-8, 8 is
 /// TOP 2 and 9 is TOP. No repeats, at most ten.
@@ -2833,8 +2807,6 @@ struct PluginState: Codable, Equatable {
         // without needing to trace through the legacy-migration chain to see what it produces.
         x.riffOn = true
         x.riffDir = .forward
-        // RHYTHM DYNAMICS (2026-10-21, §4.1): a new lane stores the resolved defaults explicitly (DEPTH 0 = FLAT, ACCENTS 1, SHAPE 0, SPREAD 0, APPLY TO VEL).
-        x.dynDepth = 0; x.dynAccents = 1; x.dynShape = 0; x.dynSpread = 0; x.dynTarget = .vel
         switch i {
         case 0: x.pulses = 3; x.steps = 8; x.rate = .r1_8
         case 1: x.pulses = 5; x.steps = 16; x.rate = .r1_16; x.riffOctave = 1

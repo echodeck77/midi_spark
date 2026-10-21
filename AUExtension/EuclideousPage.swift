@@ -232,25 +232,6 @@ struct EuclideousSlider: View {
     // §2.4: TILT's new EARLY/LATE end labels, drawn only when non-nil (every other field/call site stays
     // byte-identical). (leading, trailing) — RHYTHM tab passes ("EARLY", "LATE"); nothing else does.
     var endLabels: (String, String)? = nil
-    // RHYTHM DYNAMICS ferry (2026-10-21, §2-§3, §8). Every one defaults so each pre-existing call site is byte-identical.
-    //  · `passHits`: k, the lane's hits per pass, for ACCENTS' range (nil = the lane's own pattern).
-    //  · `onCommitStep`: ONE UNDO STEP PER TOUCH — when set it replaces `onCommit`/`onDoubleTap`: the first value-changing write of a touch asks for a fresh undo checkpoint (`newStep`),
-    //    the rest of that drag merge into it, and a double-tap's reset joins the step its own first tap opened (so "tap tap" = one step). OFFSET / TILT keep the coalescing `onCommit`.
-    //  · `tapOpens`: the DYNAMICS row — a touch that stays within 4 pt is a TAP (it writes nothing, and opens the editor); a touch that leaves 4 pt is a drag and sets the value from
-    //    there on, exactly as the slider's drag does. No double-tap (it would delay the tap).
-    //  · `labelOverride` / `showsChevron`: the row reads "DYNAMICS ⌄" over a DEPTH value. `barsOverlay` is drawn above the fill and below the label backings (§2.3).
-    var passHits: Int? = nil
-    var onCommitStep: ((_ newStep: Bool, _ mutate: @escaping (inout EuclidLine) -> Void) -> Void)? = nil
-    var tapOpens: (() -> Void)? = nil
-    var labelOverride: String? = nil
-    var showsChevron: Bool = false
-    var barsOverlay: AnyView? = nil
-    var accessibilityNameOverride: String? = nil
-    var accessibilityValueOverride: String? = nil
-    var accessibilityHintOverride: String? = nil
-    /// The tile (and the opaque label backings that must match it). The RHYTHM tab's sliders sit on the lane card's own darker fill, so #22252C reads as a tile there; the DYNAMICS editor's card IS
-    /// #22252C, where the same fill would make four sliders look unbounded — its sliders pass #2A2D34 (the ferry's own tile colour).
-    var tileFill: Color = Color(hex: 0x22252C)
 
     @State private var snapshot: EuclidLine? = nil
     @State private var lastCommitted: Double? = nil
@@ -258,9 +239,6 @@ struct EuclideousSlider: View {
     @State private var helpWorkItem: DispatchWorkItem? = nil
     @State private var startLocation: CGPoint? = nil
     @State private var lastShortTapAt: Date? = nil
-    @State private var stepOpen = false             // `onCommitStep`: this touch (or the double-tap it belongs to) already took its undo checkpoint
-    @State private var firstTapOpenedStep = false   // …and whether the previous short tap of a possible double-tap did
-    @State private var leftTapSlop = false          // `tapOpens`: this touch moved past 4 pt, so it is a drag for good
 
     private let inset: CGFloat = 6
 
@@ -297,14 +275,14 @@ struct EuclideousSlider: View {
     private func backed<V: View>(_ content: V) -> some View {
         content
             .padding(.horizontal, 3).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(tileFill))
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x22252C)))
     }
 
     var body: some View {
-        let curFrac = euclideousSliderFrac(field, effectiveLine, hits: passHits)
+        let curFrac = euclideousSliderFrac(field, effectiveLine)
         ZStack {
             Canvas { ctx, size in
-                ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 8), with: .color(tileFill))
+                ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 8), with: .color(Color(hex: 0x22252C)))
                 let len = horizontal ? size.width : size.height
                 func pos(_ f: Double) -> CGFloat { travelPos(f, length: len) }
                 /// A rect spanning the FULL cross-axis, from one travel-axis coordinate to another —
@@ -320,7 +298,7 @@ struct EuclideousSlider: View {
                 if !edited {
                     // TICKS (ferry, literal): "1pt high, 5pt long, at the left edge of the track" — HITS/
                     // OFFSET only. Rotated for a horizontal track: 1pt wide, 5pt long, at the BOTTOM edge.
-                    for tf in euclideousSliderTickFracs(field, effectiveLine, hits: passHits) {
+                    for tf in euclideousSliderTickFracs(field, effectiveLine) {
                         let tp = pos(tf)
                         let tick: CGRect = horizontal ? CGRect(x: tp - 0.5, y: size.height - 5, width: 1, height: 5)
                                                        : CGRect(x: 0, y: tp - 0.5, width: 5, height: 1)
@@ -330,7 +308,7 @@ struct EuclideousSlider: View {
                 if edited {
                     // DISABLED (ferry, literal): "no fill, a grey centre edge."
                     ctx.fill(Path(edgeLine(len / 2)), with: .color(.white.opacity(0.25)))
-                } else if field.isBipolar {
+                } else if field == .tilt {
                     // BIPOLAR (ferry, literal): "the fill runs from the centre line to the value" — up
                     // for positive / down for negative when vertical, left/right when horizontal.
                     // "A centre tick is always visible."
@@ -348,14 +326,10 @@ struct EuclideousSlider: View {
                     // UNIPOLAR (ferry, literal): "rises from the bottom of the track to the value" —
                     // grows from the LEFT when horizontal.
                     let value = pos(curFrac)
-                    // DYNAMICS row §2.1: "at DEPTH 0 there is no fill and no line" (the slider's own inset would otherwise leave a 6 pt stub and a line at FLAT)
-                    if !(tapOpens != nil && curFrac <= 0) {
-                        ctx.fill(Path(bar(horizontal ? 0 : len, value)), with: .color(accent.opacity(0.2)))
-                        ctx.fill(Path(edgeLine(value)), with: .color(accent))
-                    }
+                    ctx.fill(Path(bar(horizontal ? 0 : len, value)), with: .color(accent.opacity(0.2)))
+                    ctx.fill(Path(edgeLine(value)), with: .color(accent))
                 }
             }
-            if let bars = barsOverlay { bars.allowsHitTesting(false) }   // DYNAMICS §2.3: above the fill, below the label backings
             if horizontal {
                 // FIX 1 (2026-10-14 ferry, "RHYTHM tab sliders: keep the mix"): one line, vertically
                 // centred, matching the NOTES VEL bar's own established convention exactly — name left,
@@ -363,17 +337,9 @@ struct EuclideousSlider: View {
                 // stacked value-over-label layout, which crossed the TILT zero line when used here.
                 let labelRow = HStack {
                     backed(
-                        HStack(spacing: 4) {
-                            Text(labelOverride ?? euclideousSliderLabelText(field, effectiveLine))
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(0.8)
-                                .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
-                            if showsChevron {
-                                // §2.2: a 7 × 5 down chevron, stroke 1.4, round caps, #8A909A — it says "this opens something"
-                                Path { p in p.move(to: CGPoint(x: 0.7, y: 0.7)); p.addLine(to: CGPoint(x: 3.5, y: 4.3)); p.addLine(to: CGPoint(x: 6.3, y: 0.7)) }
-                                    .stroke(Color(hex: 0x8A909A), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
-                                    .frame(width: 7, height: 5)
-                            }
-                        }
+                        Text(euclideousSliderLabelText(field, effectiveLine))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(0.8)
+                            .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
                     )
                     Spacer(minLength: 4)
                     if edited {
@@ -387,17 +353,16 @@ struct EuclideousSlider: View {
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
                     } else {
                         backed(
-                            Text(euclideousSliderValueText(field, effectiveLine, hits: passHits))
+                            Text(euclideousSliderValueText(field, effectiveLine))
                                 .font(.system(size: 13, weight: .heavy, design: .monospaced))
                                 .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §1.8: truncate, never shrink — no .minimumScaleFactor anywhere
                         )
                     }
                 }
                 .padding(.horizontal, 10)
-                // §2.3: RHYTHM's OFFSET / TILT / DYNAMICS frames pin this row below the tile's top instead of centring it — 9 pt in the RHYTHM tab ferry, 6 pt since the DYNAMICS ferry
-                // (2026-10-21 §1.3: three rows share the zone now).
+                // §2.3: RHYTHM's new OFFSET/TILT frames pin this row 9pt below the tile's top instead of centring it.
                 if topAlignLabelRow {
-                    VStack(spacing: 0) { labelRow.padding(.top, 6); Spacer(minLength: 0) }
+                    VStack(spacing: 0) { labelRow.padding(.top, 9); Spacer(minLength: 0) }
                 } else {
                     labelRow
                 }
@@ -409,11 +374,11 @@ struct EuclideousSlider: View {
                         HStack {
                             Text(early).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
                                 .foregroundColor(Color(hex: 0x8A909A))
-                                .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(tileFill))
+                                .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x22252C)))
                             Spacer()
                             Text(late).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
                                 .foregroundColor(Color(hex: 0x8A909A))
-                                .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(tileFill))
+                                .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x22252C)))
                         }
                         .padding(.horizontal, 8).padding(.bottom, 5)
                     }
@@ -485,47 +450,32 @@ struct EuclideousSlider: View {
                     guard !edited, !listenFollowLocked else { return }   // ferry, literal: "touches elsewhere on a disabled TILT do nothing" / "[HITS/STEPS/TILT] can't be dragged" while following
                     if snapshot == nil {
                         snapshot = line
-                        lastCommitted = euclideousSliderRange(field, line, hits: passHits).value
+                        lastCommitted = euclideousSliderRange(field, line).value
                         startLocation = g.location
-                        leftTapSlop = false
-                        // a touch that follows a short tap within the double-tap window continues that tap's undo step (one step for "tap, tap, reset")
-                        stepOpen = onCommitStep != nil && firstTapOpenedStep && (lastShortTapAt.map { Date().timeIntervalSince($0) <= 0.35 } ?? false)
                         scheduleHelpCheck()
                     }
                     let start = startLocation ?? g.location
                     let moved = hypot(g.location.x - start.x, g.location.y - start.y)
                     if moved > 4 { cancelHelpCheck() }
                     guard !helpActive else { return }
-                    // DYNAMICS row (§2.4): inside the 4 pt tap slop a touch writes nothing — it may still be a tap; once it leaves the slop it is a drag from then on.
-                    if tapOpens != nil {
-                        if moved > EuclideousDynamicsMetrics.tapSlop { leftTapSlop = true }
-                        guard leftTapSlop else { return }
-                    }
                     let len = horizontal ? width : height
                     var f = frac(atTravel: horizontal ? g.location.x : g.location.y, length: len)
                     if field == .tilt { f = euclideousTiltDetentFrac(f) }
-                    let v = euclideousSliderValueAt(field, line, frac: f, hits: passHits)
+                    let v = euclideousSliderValueAt(field, line, frac: f)
                     // "NO CHANGE, NO COMMIT" (ferry Touch behaviour §6) — a touch landing on (or staying
                     // within) the band of the value it started at writes nothing.
                     if v != lastCommitted, let snap = snapshot {
                         lastCommitted = v
-                        commit { l in euclideousSliderCommit(field, &l, snapshot: snap, newValue: v) }
+                        onCommit { l in euclideousSliderCommit(field, &l, snapshot: snap, newValue: v) }
                     }
                 }
                 .onEnded { g in
                     guard !edited, !listenFollowLocked else { return }
                     let start = startLocation ?? g.location
                     let totalMoved = hypot(g.location.x - start.x, g.location.y - start.y)
-                    let wasShortTap = totalMoved <= 4 && !helpActive && !leftTapSlop
-                    let tookStep = stepOpen
+                    let wasShortTap = totalMoved <= 4 && !helpActive
                     cancelHelpCheck()
-                    snapshot = nil; lastCommitted = nil; startLocation = nil; helpActive = false; leftTapSlop = false
-                    if tapOpens != nil {
-                        // DYNAMICS row (§2.4): a plain tap opens the editor; a touch that became a drag never does; there is no double-tap.
-                        lastShortTapAt = nil
-                        if wasShortTap { tapOpens?() }
-                        return
-                    }
+                    snapshot = nil; lastCommitted = nil; startLocation = nil; helpActive = false
                     if wasShortTap {
                         if let last = lastShortTapAt, Date().timeIntervalSince(last) <= 0.35 {
                             // DOUBLE-TAP (ferry §9): applied LAST, after whatever each individual tap's own
@@ -534,20 +484,12 @@ struct EuclideousSlider: View {
                             // first (both fold into the SAME undo coalesce burst as this one, so an UNDO
                             // afterward still restores cleanly to the state before the whole double-tap).
                             lastShortTapAt = nil
-                            if let step = onCommitStep {
-                                // one undo step for the whole double-tap: the reset joins whichever step this tap (or the tap before it) opened
-                                step(!(tookStep || firstTapOpenedStep)) { euclideousSliderDoubleTapDefault(field, &$0) }
-                                firstTapOpenedStep = false
-                            } else {
-                                onDoubleTap()
-                            }
+                            onDoubleTap()
                         } else {
                             lastShortTapAt = Date()
-                            firstTapOpenedStep = tookStep
                         }
                     } else {
                         lastShortTapAt = nil
-                        firstTapOpenedStep = false
                     }
                 }
         )
@@ -562,19 +504,15 @@ struct EuclideousSlider: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityNameOverride ?? (listenFollowLocked ? "\(field.name), following" : (edited ? "\(field.name), edited" : field.name)))
-        .accessibilityValue(accessibilityValueOverride ?? (edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, effectiveLine, hits: passHits)))
-        .accessibilityHint(accessibilityHintOverride ?? "")
+        .accessibilityLabel(listenFollowLocked ? "\(field.name), following" : (edited ? "\(field.name), edited" : field.name))
+        .accessibilityValue(edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, effectiveLine))
         .accessibilityAdjustableAction { direction in
             guard !edited, !listenFollowLocked else { return }
             let step = euclideousSliderAccessibilityStep(field)
-            let cur = euclideousSliderRange(field, line, hits: passHits).value
+            let cur = euclideousSliderRange(field, line).value
             let target = direction == .increment ? cur + step : cur - step
-            // a VoiceOver swipe is its own undo step (§8.1 / §8.4); the other sliders keep the coalescing path
-            if let cs = onCommitStep { cs(true) { l in euclideousSliderCommit(field, &l, snapshot: line, newValue: target) } }
-            else { onCommit { l in euclideousSliderCommit(field, &l, snapshot: line, newValue: target) } }
+            onCommit { l in euclideousSliderCommit(field, &l, snapshot: line, newValue: target) }
         }
-        .modifier(EuclideousSliderActivate(action: tapOpens))   // §8.1: the DYNAMICS row's double-tap (VoiceOver's activate) opens the editor; every other slider has none
     }
 
     /// Long-press help (ferry Touch behaviour §10, literal): "restore the value from the touch-down
@@ -585,26 +523,14 @@ struct EuclideousSlider: View {
     private func scheduleHelpCheck() {
         let item = DispatchWorkItem {
             helpActive = true
-            if let snap = snapshot, onCommitStep == nil || stepOpen {
-                commit { l in euclideousSliderRevert(field, &l, snapshot: snap) }
+            if let snap = snapshot {
+                onCommit { l in euclideousSliderRevert(field, &l, snapshot: snap) }
             }
         }
         helpWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
     }
     private func cancelHelpCheck() { helpWorkItem?.cancel(); helpWorkItem = nil }
-    /// One write. `onCommitStep` sliders ask for an undo checkpoint on the first write of a touch; the others go through the coalescing `onCommit` exactly as before.
-    private func commit(_ mutate: @escaping (inout EuclidLine) -> Void) {
-        if let step = onCommitStep { step(!stepOpen, mutate); stepOpen = true } else { onCommit(mutate) }
-    }
-}
-
-/// VoiceOver's activate on a slider that has one (the DYNAMICS row opens its editor); a slider without one gets no extra action.
-private struct EuclideousSliderActivate: ViewModifier {
-    let action: (() -> Void)?
-    @ViewBuilder func body(content: Content) -> some View {
-        if let action { content.accessibilityAction(.default, action) } else { content }
-    }
 }
 
 /// RESTART CHAINS ferry §2.2 — the STEPS +/− stepper replacing the old STEPS slider. The value box opens
@@ -971,9 +897,6 @@ struct EuclideousPage: View {
     // closes the other on that SAME lane (both close on a tab switch too, handled where `laneTab` is set).
     @State private var stepsPickerLane: Int? = nil
     @State private var restartEditorLane: Int? = nil
-    @State private var dynamicsEditorLane: Int? = nil   // RHYTHM DYNAMICS ferry §1.5: one of the picker / restart editor / this one per card; UI state, never saved, never undoable
-    private enum DynamicsFocus: Hashable { case row(Int), editor(Int) }
-    @AccessibilityFocusState private var dynamicsFocus: DynamicsFocus?   // §8.2: focus moves into the editor on open and back to the row on close
     // FOUR RIFFS — the tab row's own long-press COPY/PASTE/CLEAR menu (2026-10-14 ferry §7). No precedent
     // for a long-press CONTEXT MENU anywhere in this codebase (grepped first) — built as a 5th instance of
     // the scrim+centred-card family this page already uses 4 times (RESET/MASK MODE/CHORDS/KEY), not an
@@ -2169,9 +2092,9 @@ struct EuclideousPage: View {
     private func rhythmUpperZone(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, rowHeight: CGFloat) -> AnyView {
         // STACK DEPTH (2026-10-21, device crash `MidiSparkAU-2026-10-21-164149.ips`, "Thread stack size exceeded" in this function's right-half closure): in a DEBUG build every view value this
         // eager construction chain holds is a stack temporary — an `EuclideousSlider` is ~4 KB (it carries two `EuclidLine`s) and each opaque `some View` it is wrapped in is another dynamic
-        // 4 KB alloca — and the DYNAMICS row made the right half's closure hold eight of them at once, on the extension's 1 MB main-thread stack that the page's SwiftUI update chain already
-        // nearly fills. Every piece below is therefore built by its own small function that returns an `AnyView` (the technique `laneCard` already uses for `laneTabRow` / `tabContent`):
-        // each callee's temporaries die when it returns, and the closures in between only ever hold an 8-byte `AnyView`.
+        // 4 KB alloca — so a closure holding several sliders at once, on the extension's 1 MB main-thread stack that the page's SwiftUI update chain already nearly fills, overflowed it. Every
+        // piece below is therefore built by its own small function that returns an `AnyView` (the technique `laneCard` already uses for `laneTabRow` / `tabContent`): each callee's temporaries die
+        // when it returns, and the closures in between only ever hold an 8-byte `AnyView`. Keep it that way (Docs/claude-playbook.md).
         let halfW = max(1, (fullWidth - sp4) / 2)
         return AnyView(HStack(spacing: sp4) {
             rhythmLeftHalf(idx, line, accent, halfW: halfW, rowHeight: rowHeight)
@@ -2194,13 +2117,12 @@ struct EuclideousPage: View {
         }
         .frame(width: halfW, height: rowHeight))
     }
-    /// DYNAMICS ferry §1.2 (supersedes the RHYTHM tab ferry's two equal rows): the right half is THREE equal rows — (upper − 8) ÷ 3 — OFFSET, TILT, DYNAMICS.
+    /// RESTART CHAINS ferry §1.3: the right half is TWO equal rows (OFFSET, TILT), each a full-width horizontal slider with its label row pinned to the top (§2.3/§2.4).
     private func rhythmRightHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, rowHeight: CGFloat) -> AnyView {
-        let rowH = euclideousRhythmRightRowH(upperH: rowHeight)
+        let rowH = max(1, (rowHeight - sp4) / 2)
         return AnyView(VStack(spacing: sp4) {
             rhythmOffsetRow(idx, line, accent, width: halfW, height: rowH)
             rhythmTiltRow(idx, line, accent, width: halfW, height: rowH)
-            rhythmDynamicsRow(idx, line, accent, width: halfW, height: rowH)
         }
         .frame(width: halfW, height: rowHeight))
     }
@@ -2220,7 +2142,7 @@ struct EuclideousPage: View {
             onCommit: { newStep, mutate in editStep(idx, newStep, mutate) },
             onToggleValueBoxTap: {
                 if stepsPickerLane == idx { stepsPickerLane = nil }
-                else { stepsPickerLane = idx; restartEditorLane = nil; dynamicsEditorLane = nil }
+                else { stepsPickerLane = idx; restartEditorLane = nil }
             }))
     }
     private func rhythmOffsetRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
@@ -2243,22 +2165,6 @@ struct EuclideousPage: View {
             displayOverrideLine: partner,
             listenFollowLocked: partner != nil,
             topAlignLabelRow: true, endLabels: ("EARLY", "LATE")))
-    }
-    /// DYNAMICS (§2): a horizontal drag sets DEPTH (one undo step per touch); a tap — a touch that stays within 4 pt — opens the editor. The result bars sit above the fill, under the labels.
-    private func rhythmDynamicsRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
-        AnyView(EuclideousSlider(
-            field: .dynDepth, line: line, accent: accent, width: width, height: height, horizontal: true,
-            touchPad: 2,
-            onCommit: { _ in }, onDoubleTap: {}, onRevertToEuclid: {},
-            topAlignLabelRow: true,
-            onCommitStep: { newStep, mutate in editStep(idx, newStep, mutate) },
-            tapOpens: { dynamicsEditorLane = idx; stepsPickerLane = nil; restartEditorLane = nil; dynamicsFocus = .editor(idx) },
-            labelOverride: "DYNAMICS", showsChevron: true,
-            barsOverlay: AnyView(dynamicsRowBars(idx, line, accent, width: width, height: height)),
-            accessibilityNameOverride: "Dynamics",
-            accessibilityValueOverride: euclideousDynamicsRowAccessibilityValue(depth: line.dynDepthResolved),
-            accessibilityHintOverride: "Double-tap to edit dynamics; swipe up or down to change depth")
-            .accessibilityFocused($dynamicsFocus, equals: .row(idx)))
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
@@ -2310,7 +2216,6 @@ struct EuclideousPage: View {
                     // §1.6: the STEPS picker and the restart editor both close when the card switches tab.
                     if stepsPickerLane == idx { stepsPickerLane = nil }
                     if restartEditorLane == idx { restartEditorLane = nil }
-                    if dynamicsEditorLane == idx { dynamicsEditorLane = nil }   // DYNAMICS §1.5
                 }
             }
         }
@@ -2347,10 +2252,6 @@ struct EuclideousPage: View {
                     let geo = euclideousLaneStepGeometry(lines: lines, lane: idx, defaultRateBeats: 0.25)
                     let lapBeats = Double(geo.cycleLen) * geo.sub
                     restartEditor(idx, line, accent, width: fullWidth, height: pickerEditorH, lapBeats: lapBeats)
-                }
-                // DYNAMICS ferry §3.1/§3.6: the same frame (both zones), built at whatever height the layout gives — under 208 it drops its RESULT row, under 160 its bottom edge clips.
-                if dynamicsEditorLane == idx {
-                    dynamicsEditor(idx, line, accent, width: fullWidth, height: pickerEditorH)
                 }
             }
         case .riff:
@@ -2529,7 +2430,6 @@ struct EuclideousPage: View {
         .onTapGesture {
             restartEditorLane = idx
             stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
-            dynamicsEditorLane = nil   // DYNAMICS §1.5: …and now the DYNAMICS editor makes a third
         }
         .accessibilityLabel(euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitSingular.lowercased(), unitPlural: unitPlural))
         .accessibilityHint("Double-tap to edit")
@@ -2720,173 +2620,6 @@ struct EuclideousPage: View {
         return Text(text).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48)
             .foregroundColor(color).lineLimit(1).truncationMode(.tail)
             .padding(.leading, labelW + sp4)
-    }
-
-    // MARK: - RHYTHM DYNAMICS (ferry 2026-10-21)
-
-    /// The factor of every comet-bar cell of lane `idx`'s CURRENT pass (nil = a rest) and of every hit of it in play order — from the one pure function the Router calls
-    /// (`euclideousDynamicsFactor`), at the pass the UI clock is in (SPREAD is the only setting that changes from pass to pass; stopped, it is the playhead's pass, §5.6).
-    private func dynamicsPass(_ idx: Int, _ line: EuclidLine, at date: Date) -> (cells: [Double?], hitFactors: [Double]) {
-        let d = EuclideousDynamics(line)
-        let pass = euclideousDynamicsPassHitSteps(lane: idx, lines: lines)
-        let geo = euclideousLaneStepGeometry(lines: lines, lane: idx, defaultRateBeats: 0.25)
-        var q: Int64 = 0, sweep = 0
-        if d.depth > 0, geo.sub > 0 {
-            let beat = walkTagBeat(at: date)
-            if d.spread > 0 {
-                q = euclideousPassIndex(beat: beat, lapBeats: Double(geo.cycleLen) * geo.sub, barBeats: max(0.0001, clock.beatsPerBar),
-                                        rhythmChain: .from(line.restartRhythmBars ?? []))
-            }
-            // PING-PONG plays every cell twice per pass; while the lane runs the cell shows the sweep it is on (ignoring rhythm restarts — a display nicety, not a decision)
-            if clock.playing, geo.cycleLen > geo.n {
-                let t = Int((beat / geo.sub).rounded(.down)), raw = ((t % geo.cycleLen) + geo.cycleLen) % geo.cycleLen
-                sweep = raw >= geo.n ? 1 : 0
-            }
-        }
-        return (euclideousDynamicsCellFactors(d, lane: idx, pass: q, patternSteps: pass.patternSteps, hitSteps: pass.hits, cycleLen: pass.cycleLen, sweep: sweep),
-                euclideousDynamicsPassFactors(d, lane: idx, pass: q, hitSteps: pass.hits, cycleLen: pass.cycleLen))
-    }
-    /// Does the DYNAMICS display change with time? Only SPREAD (per pass) and PING-PONG's sweep; anything else is static, so the view then needs no timeline.
-    private func dynamicsDisplayIsLive(_ line: EuclidLine) -> Bool {
-        clock.playing && line.dynDepthResolved > 0 && (line.dynSpreadResolved > 0 || line.directionResolved == .pingpong)
-    }
-    /// §2.3: the row's result bars.
-    private func dynamicsRowBars(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
-        let live = dynamicsDisplayIsLive(line)
-        let on = line.dynDepthResolved > 0
-        return TimelineView(.animation(minimumInterval: 0.1, paused: !live)) { tl in
-            let cells = dynamicsPass(idx, line, at: tl.date).cells
-            let bars = euclideousDynamicsRowBars(rowWidth: width, rowHeight: height, cells: cells)
-            Canvas { ctx, _ in
-                for b in bars {
-                    let color: Color = b.isHit ? (on ? lane100(accent) : Color(hex: 0x5C626C)) : Color(hex: 0x4A4E57)
-                    ctx.fill(Path(roundedRect: b.rect, cornerRadius: 1), with: .color(color))
-                }
-            }
-            .frame(width: width, height: height)
-        }
-        .frame(width: width, height: height)
-    }
-    private func dynamicsLabelColumn(_ top: String, _ bottom: String, height: CGFloat) -> AnyView {
-        AnyView(VStack(alignment: .leading, spacing: 3) {
-            Text(top).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.9).foregroundColor(Color(hex: 0xF2F4F7))
-            Text(bottom).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
-        }
-        .padding(.leading, 4)
-        .frame(width: EuclideousDynamicsMetrics.labelColW, height: height, alignment: .leading))
-    }
-    /// §3 — the DYNAMICS editor: RESULT, four sliders, APPLY TO. It covers both RHYTHM zones in the restart editor's card style; the header row and tab row stay live above it.
-    /// Built like `rhythmUpperZone` (see its STACK DEPTH note): every child is its own function returning an `AnyView`, so this ZStack's closure holds a handful of 8-byte values, never a tree.
-    private func dynamicsEditor(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
-        let L = euclideousDynamicsEditorLayout(width: width, height: height)
-        return AnyView(ZStack(alignment: .topLeading) {
-            dynamicsEditorHeader(idx, L)
-            dynamicsEditorResult(idx, line, accent, L)
-            dynamicsEditorSlider(idx, line, .dynAccents, L.accents, endLabels: nil)
-            dynamicsEditorSlider(idx, line, .dynShape, L.shape, endLabels: ("FADE", "SWELL"))
-            dynamicsEditorSlider(idx, line, .dynDepth, L.depth, endLabels: ("SUBTLE", "DEEP"))
-            dynamicsEditorSlider(idx, line, .dynSpread, L.spread, endLabels: ("STEADY", "LOOSE"))
-            dynamicsEditorApply(idx, line, accent, L)
-        }
-        .frame(width: width, height: height, alignment: .topLeading)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
-        .shadow(color: Color.black.opacity(0.5), radius: 8, x: 0, y: 6)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Dynamics for lane \(idx + 1)")
-        .accessibilityAddTraits(.isModal)
-        .accessibilityFocused($dynamicsFocus, equals: .editor(idx)))
-    }
-    private func dynamicsPlace(_ r: CGRect, _ v: AnyView) -> AnyView { AnyView(v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)) }
-    /// §3.2: the header — "DYNAMICS" then " · PULLS HITS BELOW THE MIX LEVEL" (truncating), the close button at the trailing edge.
-    private func dynamicsEditorHeader(_ idx: Int, _ L: EuclideousDynamicsEditorLayout) -> AnyView {
-        typealias M = EuclideousDynamicsMetrics
-        let title = AnyView(HStack(spacing: 0) {
-            (Text("DYNAMICS").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48).foregroundColor(Color(hex: 0xAAB0BA))
-             + Text(" \u{00B7} PULLS HITS BELOW THE MIX LEVEL").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)))
-                .lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 4)
-        }.padding(.leading, 4).padding(.trailing, M.closeW + 4))
-        let close = AnyView(Button(action: { dynamicsEditorLane = nil; dynamicsFocus = .row(idx) }) {
-            Image(systemName: "xmark").font(.system(size: 9, weight: .heavy))
-                .foregroundColor(Color(hex: 0xAAB0BA))
-                .frame(width: M.closeW, height: M.headerH)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
-                .frame(width: M.closeW, height: M.headerH + 4)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel("Close dynamics"))
-        return AnyView(ZStack(alignment: .topLeading) { dynamicsPlace(L.header, title); dynamicsPlace(L.closeButton, close) })
-    }
-    /// §3.3: RESULT — the label column and the preview; both dropped when the editor is under 208 tall (§3.6).
-    private func dynamicsEditorResult(_ idx: Int, _ line: EuclidLine, _ accent: Color, _ L: EuclideousDynamicsEditorLayout) -> AnyView {
-        guard L.showsResult, let lr = L.resultLabel, let pv = L.resultPreview else { return AnyView(EmptyView()) }
-        return AnyView(ZStack(alignment: .topLeading) {
-            dynamicsPlace(lr, dynamicsLabelColumn("RESULT", "TOP = MIX", height: lr.height))
-            dynamicsPlace(pv, dynamicsResultPreview(idx, line, accent, layout: L))
-        })
-    }
-    private func dynamicsEditorSlider(_ idx: Int, _ line: EuclidLine, _ field: EuclideousSliderField, _ r: CGRect, endLabels: (String, String)?) -> AnyView {
-        let hits = euclideousDynamicsPassHitSteps(lane: idx, lines: lines).hits.count
-        return dynamicsPlace(r, AnyView(EuclideousSlider(
-            field: field, line: line, accent: laneAccents[idx % laneAccents.count], width: r.width, height: r.height, horizontal: true,
-            onCommit: { _ in }, onDoubleTap: {}, onRevertToEuclid: {},
-            topAlignLabelRow: true, endLabels: endLabels, passHits: hits,
-            onCommitStep: { newStep, mutate in editStep(idx, newStep, mutate) },
-            tileFill: Color(hex: 0x2A2D34))))
-    }
-    /// §3.5: APPLY TO — a label column and three buttons; a tap selects one (one undo step, nothing if already selected).
-    private func dynamicsEditorApply(_ idx: Int, _ line: EuclidLine, _ accent: Color, _ L: EuclideousDynamicsEditorLayout) -> AnyView {
-        let current = EuclideousDynamics(line).target
-        return AnyView(ZStack(alignment: .topLeading) {
-            dynamicsPlace(L.applyLabel, dynamicsLabelColumn("APPLY", "TO", height: L.applyLabel.height))
-            dynamicsApplyButton(idx, accent, .vel, selected: current == .vel, L.applyButtons[0])
-            dynamicsApplyButton(idx, accent, .gate, selected: current == .gate, L.applyButtons[1])
-            dynamicsApplyButton(idx, accent, .both, selected: current == .both, L.applyButtons[2])
-        })
-    }
-    private func dynamicsApplyButton(_ idx: Int, _ accent: Color, _ t: EuclidDynTarget, selected on: Bool, _ r: CGRect) -> AnyView {
-        dynamicsPlace(r, AnyView(Text(t.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-            .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-            .contentShape(Rectangle())
-            .onTapGesture { if !on { editStep(idx, true) { $0.dynTarget = t } } }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(t == .vel ? "Apply to velocity" : (t == .gate ? "Apply to gate" : "Apply to both"))
-            .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)))
-    }
-    /// §3.3: the RESULT preview — one column per comet-bar cell of the current pass; read-only, updated each pass (SPREAD) and on every setting change.
-    private func dynamicsResultPreview(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout L: EuclideousDynamicsEditorLayout) -> AnyView {
-        let live = dynamicsDisplayIsLive(line)
-        let d = EuclideousDynamics(line)
-        return AnyView(TimelineView(.animation(minimumInterval: 0.1, paused: !live)) { tl in
-            let pass = dynamicsPass(idx, line, at: tl.date)
-            let cols = L.previewColumns(cells: pass.cells.count)
-            Canvas { ctx, _ in
-                for (i, f) in pass.cells.enumerated() where i < cols.count {
-                    let c = cols[i]
-                    if let f {
-                        // velocity cell: lane20 fill, lane100 from the bottom 32 × f tall when APPLY TO includes VEL (full height otherwise)
-                        let vf = d.onVelocity ? f : 1
-                        ctx.fill(Path(roundedRect: c.vel, cornerRadius: 3), with: .color(lane20(accent)))
-                        let h = c.vel.height * CGFloat(vf)
-                        ctx.fill(Path(roundedRect: CGRect(x: c.vel.minX, y: c.vel.maxY - h, width: c.vel.width, height: h), cornerRadius: 3), with: .color(lane100(accent)))
-                        // gate track: #2A2D34 with #F2F4F7 at 75 % from the leading edge, the track's width × f when APPLY TO includes GATE
-                        let gf = d.onGate ? f : 1
-                        ctx.fill(Path(roundedRect: c.gate, cornerRadius: 1), with: .color(Color(hex: 0x2A2D34)))
-                        ctx.fill(Path(roundedRect: CGRect(x: c.gate.minX, y: c.gate.minY, width: c.gate.width * CGFloat(gf), height: c.gate.height), cornerRadius: 1),
-                                 with: .color(Color(hex: 0xF2F4F7).opacity(0.75)))
-                    } else {
-                        ctx.fill(Path(roundedRect: c.vel, cornerRadius: 3), with: .color(Color(hex: 0x2A2D34)))   // a rest: no fill, no track
-                    }
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(euclideousDynamicsPreviewAccessibility(factors: pass.hitFactors, target: d.target))
-        })
     }
 
     /// §3 — the STEPS picker: 15 cells (lengths 2–16), each previewing this lane's rhythm.

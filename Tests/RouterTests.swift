@@ -14301,14 +14301,12 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(feed.strikes(lane: 0).filter { $0.riffVel == 100 }.count, 2)
     }
 
-    // MARK: - RHYTHM DYNAMICS ferry (2026-10-21) §9 test 1 — golden renders captured BEFORE any DYNAMICS engine change (origin/main 612c365).
-    // The 20 factory presets' 8- and 32-bar goldens above are the preset half (verified green on 612c365 before this ferry touched anything).
-    // This is the other half: synthetic lanes covering what the presets don't (every direction, TILT, hand-edited hits, rhythm restarts, mute, the notes
-    // layer, FX RATCH / GATE / TIE / VEL, the test-only mask's ACCENT and SWELL, transport restarts). With every DYNAMICS field absent (nil) OR explicitly at its
-    // default (DEPTH 0, ACCENTS 1, SHAPE 0, SPREAD 0, APPLY TO VEL) each scenario must render this exact note stream.
+    // MARK: - SYNTHETIC-LANE GOLDENS (captured on origin/main 612c365 — the RHYTHM DYNAMICS ferry's step 1; they outlived that ferry, which was removed 2026-10-21, as general engine regression tests).
+    // The 20 factory presets' 8- and 32-bar goldens above are the preset half. This is the other half: synthetic lanes covering what the presets don't (every direction, TILT, hand-edited hits, rhythm restarts, mute, the notes
+    // layer, FX RATCH / GATE / TIE / VEL, the test-only mask's ACCENT and SWELL, transport restarts) — each scenario must render exactly this note stream.
 
-    private struct DynScenario { let name: String; let lines: [EuclidLine]; let ranks: [Int]; let fx: EuclideousFX; let beats: Double; let restartAt: [Double]; let maskOn: Bool }
-    private func dynScenarios(_ tweak: (inout EuclidLine) -> Void = { _ in }) -> [DynScenario] {
+    private struct GoldenScenario { let name: String; let lines: [EuclidLine]; let ranks: [Int]; let fx: EuclideousFX; let beats: Double; let restartAt: [Double]; let maskOn: Bool }
+    private func goldenScenarios(_ tweak: (inout EuclidLine) -> Void = { _ in }) -> [GoldenScenario] {
         func line(_ pulses: Int, _ steps: Int, _ rate: ArpRate, _ dir: EuclidDir, gate: Double = 0.5, vel: Int = 100, lit: UInt8 = 0, _ more: (inout EuclidLine) -> Void = { _ in }) -> EuclidLine {
             var l = EuclidLine(target: 0, pulses: pulses, steps: steps)
             l.gate = gate; l.velocityAbsolute = vel; l.rate = rate; l.useRiff = true; l.litNotes = lit; l.riffOn = true; l.sourceMode = .midi
@@ -14329,15 +14327,15 @@ final class RouterTests: XCTestCase {
         let accent = line(5, 8, .r1_8, .fwd) { $0.mask = m1 }
         let swell = line(4, 4, .r1_4, .fwd, gate: 0.6) { $0.mask = m2 }
         return [
-            DynScenario(name: "four lanes, no FX", lines: four, ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false),
-            DynScenario(name: "four lanes, FX ratch/gate/tie/vel", lines: four, ranks: ranks, fx: fx, beats: 16, restartAt: [], maskOn: false),
-            DynScenario(name: "four lanes, FX, transport restarts", lines: four, ranks: ranks, fx: fx, beats: 16, restartAt: [5.5, 11.25], maskOn: false),
-            DynScenario(name: "muted lane with lit notes", lines: [muted], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false),
-            DynScenario(name: "mask ACCENT", lines: [accent], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: true),
-            DynScenario(name: "mask SWELL", lines: [swell], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: true)
+            GoldenScenario(name: "four lanes, no FX", lines: four, ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false),
+            GoldenScenario(name: "four lanes, FX ratch/gate/tie/vel", lines: four, ranks: ranks, fx: fx, beats: 16, restartAt: [], maskOn: false),
+            GoldenScenario(name: "four lanes, FX, transport restarts", lines: four, ranks: ranks, fx: fx, beats: 16, restartAt: [5.5, 11.25], maskOn: false),
+            GoldenScenario(name: "muted lane with lit notes", lines: [muted], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false),
+            GoldenScenario(name: "mask ACCENT", lines: [accent], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: true),
+            GoldenScenario(name: "mask SWELL", lines: [swell], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: true)
         ]
     }
-    private func dynStreamHash(_ sc: DynScenario) -> (hash: UInt64, ons: Int) {
+    private func goldenStreamHash(_ sc: GoldenScenario) -> (hash: UInt64, ons: Int) {
         let e = fxRun(fxBox(sc.lines, ranks: sc.ranks, fx: sc.fx), beats: sc.beats, restartAt: sc.restartAt, maskOn: sc.maskOn)
         var h: UInt64 = 0xcbf29ce484222325
         func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
@@ -14347,7 +14345,7 @@ final class RouterTests: XCTestCase {
         return (h, e.ons.count)
     }
     /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main 612c365, before the DYNAMICS ferry changed anything.
-    private let dynGolden: [String: (UInt64, Int)] = [
+    private let syntheticGolden: [String: (UInt64, Int)] = [
         "four lanes, no FX": (2369415864824715333, 800),
         "four lanes, FX ratch/gate/tie/vel": (15251175310064653733, 1008),
         "four lanes, FX, transport restarts": (18130081851072502405, 2072),
@@ -14355,215 +14353,14 @@ final class RouterTests: XCTestCase {
         "mask ACCENT": (5253426162309938749, 128),
         "mask SWELL": (13038166893529998973, 104)
     ]
-    func testSyntheticLanesRenderTheSameNoteStreamBeforeAndAfterDynamics() {
-        for sc in dynScenarios() {
-            let got = dynStreamHash(sc)
+    func testSyntheticLanesRenderTheirGoldenNoteStreams() {
+        for sc in goldenScenarios() {
+            let got = goldenStreamHash(sc)
             XCTAssertGreaterThan(got.ons, 0, "\(sc.name): the scenario must actually sound")
-            guard let want = dynGolden[sc.name] else { XCTFail("no golden for \(sc.name): (\(got.hash), \(got.ons))"); continue }
+            guard let want = syntheticGolden[sc.name] else { XCTFail("no golden for \(sc.name): (\(got.hash), \(got.ons))"); continue }
             XCTAssertEqual(got.ons, want.1, "\(sc.name): note-on count")
             XCTAssertEqual(got.hash, want.0, "\(sc.name): the note-on/off/velocity stream must be bit-identical")
         }
-    }
-
-    /// §9.1, second half: every DYNAMICS field written explicitly at its default (DEPTH 0, ACCENTS 1, SHAPE 0, SPREAD 0, APPLY TO VEL) renders the same stream as nil —
-    /// for the synthetic lanes AND for the 20 factory presets (whose goldens above are the pre-ferry capture). DEPTH 0 with every OTHER knob turned renders it too.
-    func testExplicitDefaultsAndDepthZeroRenderTheGoldenStreamsExactly() {
-        func explicit(_ l: inout EuclidLine) { l.dynDepth = 0; l.dynAccents = 1; l.dynShape = 0; l.dynSpread = 0; l.dynTarget = .vel }
-        func depthZeroButEverythingElseUp(_ l: inout EuclidLine) { l.dynDepth = 0; l.dynAccents = 9; l.dynShape = 100; l.dynSpread = 100; l.dynTarget = .both }
-        for tweak in [explicit, depthZeroButEverythingElseUp] {
-            for sc in dynScenarios(tweak) {
-                let got = dynStreamHash(sc)
-                guard let want = dynGolden[sc.name] else { XCTFail("no golden for \(sc.name)"); continue }
-                XCTAssertEqual(got.ons, want.1, "\(sc.name): note-on count"); XCTAssertEqual(got.hash, want.0, "\(sc.name): bit-identical")
-            }
-        }
-        for (name, make) in EuclideousPresets.all {
-            guard let want = mixPresetGolden32Bar[name] else { XCTFail("no golden for \(name)"); continue }
-            var st = make()
-            st.euclideousLines = st.euclideousLinesResolved.map { var l = $0; explicit(&l); return l }
-            let got = mixPresetStreamHash(st, bars: 32)
-            XCTAssertEqual(got.ons, want.1, "\(name): note-on count"); XCTAssertEqual(got.hash, want.0, "\(name): explicit defaults must render the 32-bar golden exactly")
-        }
-    }
-
-    // MARK: - RHYTHM DYNAMICS engine (ferry 2026-10-21, §9 tests 6-9 and 12)
-
-    /// `fxLine` (one hit per beat at 1/4, the riff FWD over 8 columns: beat k reads column k mod 8; rank r = pool note r) with DYNAMICS set. A pass is 4 beats (cycleLen 4).
-    private func dynLine(pulses: Int = 4, steps: Int = 4, rate: ArpRate = .r1_4, gate: Double = 0.5, vel: Int = 100, lit: UInt8 = 0, riffOn: Bool = true,
-                         depth: Int, accents: Int = 1, shape: Int = 0, spread: Int = 0, target: EuclidDynTarget = .vel) -> EuclidLine {
-        var l = fxLine(gate: gate, vel: vel, litNotes: lit, riffOn: riffOn)
-        l.pulses = pulses; l.steps = steps; l.rate = rate
-        l.dynDepth = depth; l.dynAccents = accents; l.dynShape = shape; l.dynSpread = spread; l.dynTarget = target
-        return l
-    }
-    private func dynVels(_ e: RecordingEmitter) -> [Int] { fxOns(e).map { Int($0.vel) } }
-    /// the sounding of the pool note `n` that starts nearest to beat `b`
-    private func dynLength(_ e: RecordingEmitter, note: UInt8, atBeat b: Double) -> Int64? {
-        guard let s = fxSoundings(e, note).first(where: { abs(Double($0.on) / 24_000 - b) < 0.01 }), let off = s.off else { return nil }
-        return off - s.on
-    }
-
-    // §9.6 — velocity
-    func testDynamicsPullsTheRiffVelocityBelowTheMixLevelAndNeverAboveIt() {
-        let e = fxRun(fxBox([dynLine(depth: 45)]), beats: 7.9)
-        XCTAssertEqual(dynVels(e), [100, 55, 55, 55, 100, 55, 55, 55], "ACCENTS 1: the first hit of each 4-hit pass keeps the MIX level, the others play at 55 %")
-        let hot = fxRun(fxBox([dynLine(vel: 127, depth: 80, accents: 2)]), beats: 3.9)
-        XCTAssertTrue(dynVels(hot).allSatisfy { $0 <= 127 }); XCTAssertEqual(dynVels(hot).max(), 127, "an accent plays exactly at the MIX level: 127")
-    }
-    func testDynamicsMultipliesAfterFXVelocityAndTheLitNotesOwnVelocity() {
-        let fx = fxCells([(3, 1, 120)])
-        let e = fxRun(fxBox([dynLine(depth: 50)], fx: fx), beats: 3.9)
-        XCTAssertEqual(dynVels(e), [100, 60, 50, 50], "FX VEL 120 on the second hit × f 0.5 = 60; the other non-accents 100 × 0.5")
-        var lit = dynLine(lit: 0b0000_0001, riffOn: false, depth: 45); lit.notesVelocity = 80
-        let n = fxRun(fxBox([lit]), beats: 3.9)
-        XCTAssertEqual(dynVels(n), [80, 44, 44, 44], "the notes layer's own velocity × f (80 × 0.55)")
-    }
-    func testDynamicsVelocityClampsAtOneAndEveryRatchetStrikeIsScaled() {
-        let flatOut = fxRun(fxBox([dynLine(depth: 100)]), beats: 3.9)
-        XCTAssertEqual(dynVels(flatOut), [100, 1, 1, 1], "DEPTH 100: the non-accents fall to the floor, which is velocity 1 — never 0")
-        let ratch = fxRun(fxBox([dynLine(depth: 45)], fx: fxCells([(0, 1, 3)])), beats: 3.9)
-        let on = fxOns(ratch)
-        XCTAssertEqual(on.count, 6, "1 + 3 + 1 + 1 strikes")
-        XCTAssertEqual(on.filter { $0.beat >= 1 && $0.beat < 2 }.map { Int($0.vel) }, [55, 55, 55], "every ratchet strike of the pulled-down hit is scaled by the same f")
-    }
-    func testALegatoHitIsNeitherScaledNorReStruckAndAGateOnlyDynamicsLeavesVelocitiesAlone() {
-        var held = dynLine(gate: 1.0, depth: 45); held.riffLength = 1
-        let e = fxRun(fxBox([held], ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 7.9)
-        XCTAssertEqual(fxOns(e).count, 1, "gate 100 % = legato: the repeated pitch is carried on as one note, so f never gets a second strike to scale")
-        XCTAssertEqual(dynVels(e), [100], "…and it keeps its FIRST velocity")
-        XCTAssertEqual(dynVels(fxRun(fxBox([dynLine(depth: 80, target: .gate)]), beats: 3.9)), [100, 100, 100, 100], "APPLY TO GATE leaves every velocity at the MIX level")
-        assertNothingLeftSounding(e)
-    }
-
-    /// §5.5 / §12.6: the mask's ACCENT is unreachable in a real session (the Euclideous row never takes its lane mask — `euclideousMaskEnabledForTests` is a test seam), but where it
-    /// IS applied DYNAMICS multiplies after it: velocity 70 + ACCENT 24 = 94, then × f. ACCENTS 2 over a 4-hit pass at DEPTH 45 accents j 0 and 2.
-    func testDynamicsMultipliesAfterTheMasksAccentWhereThatIsApplied() {
-        var m = EuclidLineMask(); m.enabled = true; m.mode = .accent; m.accentAmount = 24; m.pulses = 4; m.steps = 4
-        var l = dynLine(vel: 70, depth: 45, accents: 2); l.mask = m
-        let e = fxRun(fxBox([l]), beats: 3.9, maskOn: true)
-        XCTAssertEqual(dynVels(e), [94, 52, 94, 52], "94 for an accent, 94 × 0.55 = 51.7 → 52 for the others")
-    }
-
-    // §9.7 — gate
-    func testDynamicsScalesTheGateOfThePullDownHitsAndFXGateComposes() {
-        let e = fxRun(fxBox([dynLine(gate: 0.5, depth: 50, target: .gate)]), beats: 3.9)
-        XCTAssertEqual(Double(dynLength(e, note: 48, atBeat: 0) ?? 0), 12_000, accuracy: 6, "the accent keeps its 50 % of the 24 000 gap")
-        XCTAssertEqual(Double(dynLength(e, note: 50, atBeat: 1) ?? 0), 6_000, accuracy: 6, "a pulled-down hit: 50 % × f 0.5 = 25 %")
-        let fx = fxRun(fxBox([dynLine(gate: 0.9, depth: 50, target: .gate)], fx: fxCells([(1, 1, 50)])), beats: 3.9)
-        XCTAssertEqual(Double(dynLength(fx, note: 50, atBeat: 1) ?? 0), 6_000, accuracy: 6, "FX GATE 50 with f 0.5 lands at 25 %")
-        let velOnly = fxRun(fxBox([dynLine(gate: 0.5, depth: 50, target: .vel)]), beats: 3.9)
-        XCTAssertEqual(Double(dynLength(velOnly, note: 50, atBeat: 1) ?? 0), 12_000, accuracy: 6, "APPLY TO VEL leaves gates untouched")
-    }
-    func testATieExtensionUsesTheScaledGateAndTheMinimumIsOnePercent() {
-        let tied = fxRun(fxBox([dynLine(gate: 0.5, depth: 50, target: .gate)], fx: fxCells([(2, 2, 1)])), beats: 3.9)
-        XCTAssertEqual(Double(dynLength(tied, note: 50, atBeat: 1) ?? 0), 24_000 + 0.25 * 24_000, accuracy: 6, "the gap to the tied hit in full, plus the SCALED gate × the following gap")
-        let velTied = fxRun(fxBox([dynLine(gate: 0.5, depth: 50, target: .vel)], fx: fxCells([(2, 2, 1)])), beats: 3.9)
-        XCTAssertEqual(Double(dynLength(velTied, note: 50, atBeat: 1) ?? 0), 24_000 + 0.5 * 24_000, accuracy: 6)
-        let floor = fxRun(fxBox([dynLine(rate: .r1_2, gate: 0.5, depth: 100, target: .gate)]), beats: 3.9)
-        XCTAssertEqual(Double(dynLength(floor, note: 50, atBeat: 2) ?? 0), 0.01 * 48_000, accuracy: 6, "f 0 never shortens a gate below 1 % of the gap")
-    }
-
-    // §9.8 — mute and tie do not move accents
-    func testMutingOrTyingAHitNeverMovesTheAccents() {
-        // E(5,8) at 1/8: hits on ticks 0, 2, 4, 5, 7 (j 0…4); ACCENTS 2 accents j 0 and 3 (ticks 0 and 5)
-        func line(_ tweak: (inout EuclidLine) -> Void = { _ in }) -> EuclidLine {
-            var l = dynLine(pulses: 5, steps: 8, rate: .r1_8, depth: 50, accents: 2); tweak(&l); return l
-        }
-        func beats(_ o: [(beat: Double, note: UInt8, vel: UInt8)]) -> [Double] { o.map { ($0.beat * 100).rounded() / 100 } }   // the wire sample is rounded: 2.4999583 ≙ beat 2.5
-        let base = fxOns(fxRun(fxBox([line()]), beats: 3.9))
-        XCTAssertEqual(beats(base), [0, 1, 2, 2.5, 3.5]); XCTAssertEqual(base.map { Int($0.vel) }, [100, 50, 50, 100, 50])
-        var muted = line(); muted.muteCells16 = 0xFFFF & ~(1 << 2); muted.muteUnit = EuclideousMuteUnit.step.rawValue   // tick 2 = hit j 1
-        let m = fxOns(fxRun(fxBox([muted]), beats: 3.9))
-        XCTAssertEqual(beats(m), [0, 2, 2.5, 3.5], "hit j 1 is silent")
-        XCTAssertEqual(m.map { Int($0.vel) }, [100, 50, 100, 50], "…and hit j 3 is STILL the accent (a muted hit still counts)")
-        let tied = fxOns(fxRun(fxBox([line()], fx: fxCells([(2, 1, 1)])), beats: 3.9))   // FX TIE on column 1 = the walk's second hit = j 1
-        XCTAssertEqual(beats(tied), [0, 2, 2.5, 3.5], "the tied hit doesn't strike")
-        XCTAssertEqual(tied.map { Int($0.vel) }, [100, 50, 100, 50], "a tied hit still counts too")
-    }
-
-    // §9.9 — the display agrees with the sound
-    func testTheFactorTheDisplaysComputeEqualsTheOneTheRouterUsedForEveryHitOverEightBars() {
-        let l = dynLine(pulses: 5, steps: 8, rate: .r1_8, depth: 60, accents: 2, shape: 50, spread: 70, target: .both)
-        let d = EuclideousDynamics(l)
-        let hs = euclideousLapHitSteps(pulses: 5, steps: 8, rotate: 0, tilt: 0, patternMiss: false, customHits: nil, dir: .fwd)
-        let e = fxRun(fxBox([l]), beats: 31.9)
-        let ons = fxOns(e)
-        XCTAssertEqual(ons.count, 40, "5 hits × 8 passes")
-        var seenPulledDown = 0
-        for on in ons {
-            let tick = Int((on.beat / 0.5).rounded()), raw = tick % 8
-            let q = euclideousPassIndex(beat: Double(tick) * 0.5, lapBeats: 4, barBeats: 4, rhythmChain: .free)   // the hit's tick beat (the wire sample is rounded to a sample, a hair under it)
-            let f = euclideousDynamicsPassFactors(d, lane: 0, pass: q, hitSteps: hs, cycleLen: 8)
-            let j = hs.firstIndex { $0.tick == raw }!
-            XCTAssertEqual(Int(on.vel), euclideousDynamicsScaledVelocity(100, factor: f[j]), "beat \(on.beat): pass \(q) hit \(j)")
-            if f[j] < 1 { seenPulledDown += 1 }
-        }
-        XCTAssertGreaterThan(seenPulledDown, 20)
-        XCTAssertGreaterThan(Set(ons.map { $0.vel }).count, 4, "SPREAD + SHAPE give the pass real movement")
-    }
-
-    /// §6.3: the LANES roll draws each hit's GATE length, so with APPLY TO including GATE it must draw the length the Router actually sounds — same factor, same hits, every pass of 8 bars.
-    func testTheLanesRollDrawsTheGateLengthTheRouterSoundsWithDynamicsOn() {
-        let l = dynLine(pulses: 5, steps: 8, rate: .r1_8, gate: 0.5, depth: 60, accents: 2, shape: 50, spread: 70, target: .both)
-        let ranks = [1, 2, 3, 4, 5, 6, 7, 8]
-        guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { return XCTFail("no cfg") }
-        let roll = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 32, minGateBeats: 0.005 * 2) { c, _ in ranks[c] }
-        let e = fxRun(fxBox([l], ranks: ranks), beats: 31.9)
-        let evs = e.events.filter { $0.cable == 1 && ($0.status == 0x90 || $0.status == 0x80) }
-        XCTAssertEqual(roll.count, 40)
-        var checked = 0, shorter = 0
-        for (i, hit) in roll.enumerated() {
-            guard let on = evs.first(where: { $0.status == 0x90 && abs(Double($0.sample) / 24_000 - hit.beat) < 0.01 }),
-                  let off = evs.first(where: { $0.status == 0x80 && $0.note == on.note && $0.sample > on.sample }) else { XCTFail("hit \(i) at beat \(hit.beat): no sounding"); continue }
-            XCTAssertEqual(Double(off.sample - on.sample) / 24_000, hit.gateBeats, accuracy: 0.001, "hit \(i) at beat \(hit.beat)")
-            checked += 1
-            if hit.gateBeats < 0.5 * 0.5 - 0.001 { shorter += 1 }   // under the unscaled 50 % of a 0.5-beat gap
-        }
-        XCTAssertEqual(checked, 40); XCTAssertGreaterThan(shorter, 10, "the roll really does draw shorter bars")
-        // APPLY TO VEL: the roll is untouched
-        var v = l; v.dynTarget = .vel
-        guard let cfgV = euclideousWalkLaneConfig(lane: 0, lines: [v], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { return XCTFail("no cfg") }
-        var flat = l; flat.dynDepth = 0
-        guard let cfgF = euclideousWalkLaneConfig(lane: 0, lines: [flat], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { return XCTFail("no cfg") }
-        let rv = euclideousLaneRollHits(cfg: cfgV, windowStart: 0, windowBeats: 8, minGateBeats: 0.01) { c, _ in ranks[c] }
-        let rf = euclideousLaneRollHits(cfg: cfgF, windowStart: 0, windowBeats: 8, minGateBeats: 0.01) { c, _ in ranks[c] }
-        XCTAssertEqual(rv, rf, "APPLY TO VEL (and DEPTH 0) draw the unscaled roll")
-    }
-
-    // §9.12 — stuck notes
-    func testDynamicsDepth80Spread100BothWithFXGateAndTieAndTransportRestartsLeavesNothingSounding() {
-        let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]
-        func state(_ tick: Int) -> PluginState {
-            var l = EuclidLine(target: 0, pulses: 3 + tick % 3, steps: 8, gate: tick % 2 == 0 ? 0.99 : 0.6, rate: .r1_32,
-                               useRiff: true, litNotes: UInt8(1 << (tick % 8)), riffOn: true, sourceMode: .midi, riffLength: 8)
-            l.dynDepth = 80; l.dynAccents = 1 + tick % 3; l.dynShape = tick % 2 == 0 ? 60 : -60; l.dynSpread = 100; l.dynTarget = .both
-            var gold = Machine(machineID: "gold", type: .euclid)
-            gold.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 0, 4, 5, 6, 7, 8])
-            gold.paramsA.euclidLines = [l]
-            var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }, scenes: [sc])
-            st.euclideousNoteSource = .midi
-            st.euclideousFX = fxCells(tick % 2 == 0 ? [(1, 2, 95), (1, 5, 95), (2, 3, 1), (0, 6, 3)] : [(2, 1, 1), (2, 4, 1), (1, 0, 95)])
-            return st
-        }
-        let e = RecordingEmitter()
-        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
-        let windowBeats = Double(frames) * tempo / 60.0 / sr
-        let router = runKeepingRouter(SnapshotBuilder.build(from: state(0)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
-        var diag = KernelDiag()
-        var beat = 0.2, ts = 0.2 / tempo * 60.0 * sr
-        for tick in 1...200 {
-            let box = SnapshotBuilder.build(from: state(tick))
-            if tick % 50 == 0 {   // a transport stop and restart (to beat 0) mid-run
-                router.process(box: box, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
-                beat = 0; ts += Double(frames)
-            }
-            router.process(box: box, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
-            beat += windowBeats; ts += Double(frames)
-        }
-        router.process(box: SnapshotBuilder.build(from: state(200)), pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        XCTAssertGreaterThan(e.ons.count, 50)
-        assertNothingLeftSounding(e)
     }
 
     // MARK: - LANE SOLO engine (ferry 2026-10-21, §8 tests 3-6 and 9; test 1 = the existing preset / synthetic-lane goldens, which run with the solo mask 0)
