@@ -4132,8 +4132,9 @@ final class DerivationsTests: XCTestCase {
         let wordmark: CGFloat = 8 * 11 * 0.76          // 8 chars × 11pt × (0.6 advance + 0.16 tracking)
         let caption: CGFloat = 3 * 9 * 0.74            // "OUT": 3 chars × 9pt × (0.6 + 0.14)
         // RANDOM MODE ferry (§2.2): the dice adds one more sp8 + one more target after redo — +52pt (+8+44).
-        XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88 + 8 + 44, accuracy: 1e-9)
-        XCTAssertEqual(f.brand, 244, accuracy: 0.2)
+        // LANE LOCK ferry (§2.2): the padlock sits sp8 after the dice — once more, +52pt (+8+44).
+        XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88 + 8 + 44 + 8 + 44, accuracy: 1e-9)
+        XCTAssertEqual(f.brand, 296, accuracy: 0.2)
         // NARROWED 44→33 / 40→30pt ring pitch (2026-10-20, output rings to 75%): 4 rings × 11pt less = 44pt off
         // `outputs`/`ringsSpan`, and 4 × 10pt = 40pt off the compact `c.outputs`.
         XCTAssertEqual(f.outputs, caption + 4 + 132, accuracy: 1e-9)
@@ -4146,9 +4147,10 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
         // RANDOM MODE ferry (§2.2): "In layout C the dice target is 36 wide, like the other icon targets" — +8+36=44.
-        XCTAssertEqual(c.brand, 93 + 44); XCTAssertEqual(c.outputs, 120); XCTAssertEqual(c.utilities, 108)
+        // LANE LOCK ferry (§2.2): "In layout C the target is 36 wide, like the other icon targets" — the padlock adds another +8+36=44.
+        XCTAssertEqual(c.brand, 93 + 44 + 44); XCTAssertEqual(c.outputs, 120); XCTAssertEqual(c.utilities, 108)
         XCTAssertEqual(c.outputsLead, 0, "layout C hides the caption: the group IS the rings")
-        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 337 + 44, "layout C's row 1")
+        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 337 + 44 + 44, "layout C's row 1")
         XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
     }
     // WIDENED from 1158 → 1300 (2026-10-17, UTILITIES grew from 2 to 3 icons — the SWING icon — so the
@@ -4183,7 +4185,7 @@ final class DerivationsTests: XCTestCase {
     // `brand + gap` (flush against BRAND) rather than centring anywhere near the lane gutter — a DIFFERENT,
     // but equally real, way NOTES' extra width (426pt) still pushes the rings off-centre.
     func testFourfoldLayoutANotesClampPushesRingsToTheDegenerateBrandFallback() {
-        let w: CGFloat = 1010
+        let w: CGFloat = 1062   // LANE LOCK ferry §2.2: A's floor rose 1006 → 1058 with the padlock
         let full = euclideousHeaderGroupWidths(compact: false)
         let l = hdrLayout(w, landscape: true)
         let cols = pageFor(w, landscape: true)
@@ -4194,14 +4196,14 @@ final class DerivationsTests: XCTestCase {
         // The degenerate fallback: no room at all between BRAND and NOTES for the rings' own span, so
         // `headerClamp` returns its lower bound outright — rings sit flush against BRAND, not against NOTES.
         XCTAssertEqual(l.outputs.x, full.brand + full.gap, accuracy: 1e-9, "rings pinned flush against BRAND (the degenerate fallback), not centred")
-        assertHeaderInvariants(l, w, "A@1010")
+        assertHeaderInvariants(l, w, "A@1062")
     }
     func testFourfoldLayoutBAt600AndCAt343() {
-        let b = hdrLayout(600, landscape: false)
+        let b = hdrLayout(660, landscape: false)   // LANE LOCK ferry §2.2: B's floor rose ≈564 → ≈616 with the padlock, so 600 is C now
         XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.rowCount, 2); XCTAssertEqual(b.height, 44 + 4 + 44)
         XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES on row 2's leading edge")
         XCTAssertEqual([b.brand.row, b.outputs.row, b.utilities.row], [0, 0, 0])
-        assertHeaderInvariants(b, 600, "B@600")
+        assertHeaderInvariants(b, 660, "B@660")
         // WIDENED from 343 → 380 (2026-10-17) for row 1's own floor (341→377 when SWING joined UTILITIES).
         // WIDENED again 380 → 430 (2026-10-20, HOLD/LATCH header buttons): NOTES grew to 426pt — now WIDER
         // than row 1's own floor (369, down from 377: ring-scaling shrank compact OUTPUTS 160→120) — so
@@ -4213,7 +4215,8 @@ final class DerivationsTests: XCTestCase {
         // Row 1's OWN floor (brand+outputs+utilities): 369 now (was 377 before ring-scaling shrank compact
         // OUTPUTS 160→120) — no longer C's real floor (see the comment above: NOTES' own 426pt width is).
         // RANDOM MODE ferry §2.2: compact BRAND grew +44pt (the dice, compact-target-sized) — 369 → 413.
-        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 413)
+        // LANE LOCK ferry §2.2: the padlock adds another +44 — 413 → 457.
+        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 457)
         // a landscape page too narrow for A falls to B, never A.
         XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
         // portrait never uses A, however wide.
@@ -4237,8 +4240,9 @@ final class DerivationsTests: XCTestCase {
         // WIDENED again 560 → 612 (RANDOM MODE ferry §2.2): BRAND grew +52pt, raising the B/C threshold by
         // the same 52pt (≈556 → ≈608) — shifting this width by the identical amount keeps the same
         // relative tightness the original 560 was chosen for.
-        let c = hdrLayout(612, landscape: false)
-        XCTAssertEqual(c.kind, .b) // 612 ≥ ≈608: still B
+        // WIDENED again 612 → 664 (LANE LOCK ferry §2.2): the padlock grew BRAND another 52pt (≈608 → ≈616 + the same 52 shift).
+        let c = hdrLayout(664, landscape: false)
+        XCTAssertEqual(c.kind, .b) // 664 ≥ ≈616: still B
         let c2 = hdrLayout(500, landscape: false)
         XCTAssertEqual(c2.kind, .c)
         XCTAssertEqual(ringsCentre(c2), c2.outputs.x + c2.outputs.width / 2, accuracy: 1e-9)

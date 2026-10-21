@@ -3000,6 +3000,11 @@ struct PluginState: Codable, Equatable {
     // is deliberately not a field of anything saved.
     var euclideousSoloMask: UInt8? = nil
     var euclideousSoloMaskResolved: UInt8 { (euclideousSoloMask ?? 0) & 0x0F }
+    // LANE LOCK (ferry 2026-10-21, §3.2): one lock per Euclideous lane — on, snap-back grid (kept while unlocked) and the locked state L. A 4-entry array BESIDE `euclideousLines`, deliberately NOT a field of
+    // `EuclidLine` (which is shared by the persisted `MachineParams`, the render `SnapParams` and every "is this the same line" test, and is the struct that nearly filled the extension's 1 MB debug stack).
+    // Consequences by construction: a lock is never in an undo snapshot (9.2), carries through no preset (9.3) and no copy/paste (3.4), and a pre-feature document (nil) resolves to four unlocked lanes. A session
+    // saved while a locked lane was deviated opens at L (`normalizeLocksAtLoad`, 3.5). The lock's mode (the padlock in the header) is page state: not here.
+    var euclideousLocks: [EuclideousLaneLock]? = nil
     // delta §6a CLAIM v2 LEAK %: per-claimant bleed — a claimed pitch class passes on non-claimants at this
     // scaled velocity (0 = full suppression = v1; the hole becomes a SHADOW). Persisted. Optional → nil = all 0.
     var claimLeak: [Int]? = nil

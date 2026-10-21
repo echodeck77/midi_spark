@@ -81,6 +81,7 @@ targets:
       - Tests
       - path: AUExtension/Derivations.swift
       - path: AUExtension/EuclideousRandom.swift   # RANDOM MODE ferry: throw/tweak pure functions + landing/undo-sequence builder (Foundation-only)
+      - path: AUExtension/EuclideousLock.swift     # LANE LOCK ferry: grid lines, lock fields, snap decision, control-change list, layouts, undo rules (Foundation-only)
       - path: AUExtension/MacroAuthoring.swift   # macro authoring flow — the pure control-group registry + logic
       - path: AUExtension/Models.swift
       - path: AUExtension/Snapshot.swift    # pure now (store split out) → effective-param tests

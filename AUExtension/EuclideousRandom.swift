@@ -264,7 +264,7 @@ struct EuclideousRandomRiffResult: Equatable {
 
 let euclideousRandomRiffDirections: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
 
-private func euclideousRandomRiffDirShort(_ d: RiffDir) -> String {
+func euclideousRandomRiffDirShort(_ d: RiffDir) -> String {   // internal since the LANE LOCK ferry: the lock card's RIFF row reuses the tag text (no second formatting)
     switch d {
     case .forward: return "FWD"
     case .reverse: return "REV"
@@ -274,7 +274,7 @@ private func euclideousRandomRiffDirShort(_ d: RiffDir) -> String {
     }
 }
 
-private func euclideousRandomRiffTag(dir: RiffDir, invert: Bool, advanceStep: Bool, every: Int, stride: Int) -> String {
+func euclideousRandomRiffTag(dir: RiffDir, invert: Bool, advanceStep: Bool, every: Int, stride: Int) -> String {
     var s = euclideousRandomRiffDirShort(dir)
     if invert { s += " INV" }
     s += advanceStep ? " · BY STEP" : " · BY HIT"
@@ -430,7 +430,7 @@ func euclideousRandomRiffMostWrittenRank(writtenRanks: [Int], length: Int) -> In
     return counts.filter { $0.value == maxCount }.keys.min()
 }
 
-private func euclideousRandomNotesTag(playAs: EuclidNotesPlayAs, count: Int, when: UInt8, chance: Int) -> String {
+func euclideousRandomNotesTag(playAs: EuclidNotesPlayAs, count: Int, when: UInt8, chance: Int) -> String {
     var s = playAs.rawValue + " · \(count) NOTES"
     switch when { case 0b01: s += " · ON NOTES"; case 0b10: s += " · ON RESTS"; default: s += " · ON BOTH" }
     if chance < 100 { s += " · \(chance)%" }
