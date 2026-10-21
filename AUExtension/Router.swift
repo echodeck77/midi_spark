@@ -4639,6 +4639,8 @@ final class Router {
                                 litOrder: EuclideousLitOrder = EuclideousLitOrder(), notesWhen: UInt8 = 0b11, notesChance: Int = 100,
                                 notesPlayAs: EuclidNotesPlayAs = .chord, notesReceivedOnly: Bool = false,
                                 notesOn: Bool = true, notesVelocity: Int = 100, notesGate: Double = 0.9,
+                                // RHYTHM DYNAMICS (ferry 2026-10-21): the lane's five settings, resolved, as fixed-size data. DEPTH 0 (the default) changes nothing, bit for bit.
+                                dynamics: EuclideousDynamics = EuclideousDynamics(),
                                 // LANES GRID (2026-10-18): the per-lane restart / mute grid is resolved INSIDE this function (it needs the
                                 // lane's own step length and lap, known only after the pattern is built) from `p.euclidLines[lineIndex]` —
                                 // so nothing grid-related is passed in any more.
@@ -5679,6 +5681,19 @@ final class Router {
                                 if shifted >= 0 && shifted <= 127 { pitches[i] = shifted }
                                 pitchVel[i] = UInt8(max(1, min(127, Int(pitchVel[i]) + velDelta)))
                             }
+                            // RHYTHM DYNAMICS (ferry 2026-10-21, §5.4-§5.5): the hit's factor f multiplies what every earlier input produced — MIX's pads, NOTES VEL, FX VEL / GATE, the mask's
+                            // ACCENT / SWELL (test-only here), LISTEN's duck / accent — so it only ever pulls a hit BELOW its level. Velocity: × f, rounded to nearest, never below 1, at the
+                            // clamp's own place; every ratchet strike, roll / run note and cached REPEAT set reads these scaled values. Gate: × f before it becomes a length, never below 1 %;
+                            // a legato gate (`euclideousGateIsLegato`) is left alone and stays legato. The next-hit gap and the TIE lookahead are untouched; `gateBeatsWithTie` reads the scaled
+                            // gate. f is a pure function of the hit's position (`euclideousDynamicsFactor`); a muted, tied or rest hit returned above and never gets here, yet still counts in j
+                            // (`hitsUpTo` is the pattern's, not the strike's). DEPTH 0 skips every line of it, so a flat lane's output is bit-identical to a build without DYNAMICS (§5.3).
+                            var dynGateFactor = 1.0
+                            if !dynamics.isFlat {
+                                let f = euclideousDynamicsFactor(dynamics, lane: lineIndex,
+                                                                 at: euclideousDynamicsPosition(tick: tick, raw: tickInfo.raw, hitsUpTo: hitsUpTo, cycleHits: cycleHits, cycleLen: cycleLen, sub: sub, chains: chains))
+                                if dynamics.onVelocity { for i in 0..<pitchCount { pitchVel[i] = UInt8(euclideousDynamicsScaledVelocity(Int(pitchVel[i]), factor: f)) } }
+                                if dynamics.onGate { dynGateFactor = f; for i in 0..<pitchCount { pitchGate[i] = euclideousDynamicsScaledGate(pitchGate[i], factor: f) } }
+                            }
 
                             // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): the below-100%/REPEAT-cache gate is
                             // now `gate * nextHitGapBeats` (the gap to the lane's OWN next real pattern hit),
@@ -5819,7 +5834,7 @@ final class Router {
                             func slotNibble(_ j: Int) -> UInt64 { (notesSlotBits >> UInt64(4 * j)) & 0xF }
                             func strikePosition(_ j: Int) -> Int { var c = 0; let sj = slotNibble(j); for i in 0..<pitchCount where slotNibble(i) != 0xF && slotNibble(i) < sj { c += 1 }; return c }
                             var rollSpacing = 0.0, runSlot = 0.0
-                            let runNoteGate = fxLitGate()   // RUN lengths read the notes layer's own gate (at 100% a note fills its slot), not the legato-capped copy the reconcile saw
+                            let runNoteGate = euclideousDynamicsScaledGate(fxLitGate(), factor: dynGateFactor)   // (× the hit's DYNAMICS factor when APPLY TO includes GATE) RUN lengths read the notes layer's own gate (at 100% a note fills its slot), not the legato-capped copy the reconcile saw
                             if isRun { runSlot = euclideousNotesRunSlotBeats(stepBeats: sub, m: spreadM) }
                             if isRoll {
                                 var firstNotes = 0
@@ -6533,6 +6548,7 @@ final class Router {
                               litOrder: L.litOrderResolved, notesWhen: L.notesWhenResolved, notesChance: L.notesChanceResolved,
                               notesPlayAs: L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,
                               notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
+                              dynamics: EuclideousDynamics(L),
                               // LISTEN (ferry 2026-10-14) — only Euclideous's own row ever has a non-nil
                               // mode here (every other `.euclid` cell's `EuclidLine` never sets these
                               // fields, so they resolve to the byte-identical "off" defaults below).
