@@ -196,13 +196,17 @@ final class PageLayoutTests: XCTestCase {
         let hl = headerFor(land, landscapeRef)
         XCTAssertEqual(hl.kind, .a)
         // NARROWED 44→33pt pitch (2026-10-20, output rings to 75%): spacing between ring centres shrank from 44 to 33.
-        for (i, x) in [351.17, 384.17, 417.17, 450.17].enumerated() { XCTAssertEqual(ringCentre(hl, i), CGFloat(x), accuracy: 0.01, "landscape ring \(i)") }
+        // LANE LOCK ferry (§2.2): BRAND grew another 52pt (the padlock), so at the 1190 reference the rings' ideal x (centred on the lane gutter) is now LEFT of BRAND's trailing edge + sp16 — they pin flush against
+        // BRAND, 17.19pt right of the gutter (before: 351.17 … 450.17, centred). Reported as a consequence of the required BRAND width, not a choice.
+        for (i, x) in [368.36, 401.36, 434.36, 467.36].enumerated() { XCTAssertEqual(ringCentre(hl, i), CGFloat(x), accuracy: 0.01, "landscape ring \(i)") }
+        XCTAssertEqual(hl.outputs.x, hl.brand.width + hl.widths.gap, accuracy: 1e-9, "the rings are pinned flush against BRAND")
         let hp = headerFor(port, portraitRef)
         XCTAssertEqual(hp.kind, .b); XCTAssertEqual(hp.utilities.x + hp.utilities.width + 16, 798, accuracy: 1e-9, "row 1 now fits: the gear ends at the right margin")
-        for (i, x) in [357.5, 390.5, 423.5, 456.5].enumerated() { XCTAssertEqual(ringCentre(hp, i), CGFloat(x), accuracy: 0.01, "portrait ring \(i)") }
-        // the middle of the four rings IS the gutter
-        XCTAssertEqual((ringCentre(hl, 1) + ringCentre(hl, 2)) / 2, land.gutterX, accuracy: 0.01)
-        XCTAssertEqual((ringCentre(hp, 1) + ringCentre(hp, 2)) / 2, port.gutterX, accuracy: 0.01)
+        // LANE LOCK ferry (§2.2): the same pin in portrait (before: 357.5 … 456.5, centred) — 10.86pt right of the gutter.
+        for (i, x) in [368.36, 401.36, 434.36, 467.36].enumerated() { XCTAssertEqual(ringCentre(hp, i), CGFloat(x), accuracy: 0.01, "portrait ring \(i)") }
+        // the rings sit to the RIGHT of the gutter by exactly how far BRAND pushes them (they used to be centred on it)
+        XCTAssertEqual((ringCentre(hl, 1) + ringCentre(hl, 2)) / 2 - land.gutterX, 17.19, accuracy: 0.01)
+        XCTAssertEqual((ringCentre(hp, 1) + ringCentre(hp, 2)) / 2 - port.gutterX, 10.86, accuracy: 0.01)
     }
     func testNotesDoesNotMoveAt1190() {
         // layout A: NOTES wants the riff panel's leading edge (777.33 now, 741.12 before) but slides left to sp16 before the 3 utility icons either way
@@ -235,8 +239,8 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(wl.headerKind, .b, "868 wide: B, boxes start at 111")
         XCTAssertEqual(wl.box.width, 284, accuracy: 1e-9); XCTAssertEqual(wl.box.height, 232.5, accuracy: 1e-9)
         XCTAssertTrue(Set(wl.floors).isSuperset(of: [.mixCellW, .mixPadHStop, .rhythmZones, .riffRows, .fxRows]), "\(wl.floors)")
-        let wp = euclideousPageLayout(size: CGSize(width: 600, height: 900))
-        XCTAssertEqual(wp.headerKind, .b); XCTAssertEqual(wp.box.width, 280, accuracy: 1e-9); XCTAssertEqual(wp.box.height, (900 - 111 - 32) / 3, accuracy: 1e-9)
+        let wp = euclideousPageLayout(size: CGSize(width: 650, height: 900))   // 600 → 650 (LANE LOCK ferry §2.2): B's floor rose ≈564 → ≈616, so a 600-wide portrait view is layout C now
+        XCTAssertEqual(wp.headerKind, .b); XCTAssertEqual(wp.box.width, 305, accuracy: 1e-9); XCTAssertEqual(wp.box.height, (900 - 111 - 32) / 3, accuracy: 1e-9)
         XCTAssertFalse(wp.floors.isEmpty)
         // each flag is exactly its threshold
         XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 295)).contains(.rhythmZones), "contentAreaH 191 < 192")

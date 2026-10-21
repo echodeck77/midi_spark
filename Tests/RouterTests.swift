@@ -14772,4 +14772,250 @@ final class RouterTests: XCTestCase {
                        euclideousPendingRolls: pendingRolls, euclideousHoldOverrides: holdOverrides, out: e, diag: &diag)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 1, "the RIFF-slot hold must not block the RHYTHM slot's own landed pending roll")
     }
+
+    // MARK: - LANE LOCK ferry (2026-10-21) — the tick-exact snap back (spec tests 5, 6, 7, 7a, 8, 9, 9a, the stuck-note stress, and "locks off changes nothing")
+    // Method: the lane's position is a pure function of the beat, so a locked run's note-ons must equal a splice of STATIC renders — L's before the edit, the edit's from the moment it is published to the line, L's from
+    // the line on. The hit AT the line is the sharp case: the old window-granular landing plays it with the old pattern whenever the window straddles the line.
+
+    private struct LockStep { var beat: Double; var lines: [EuclidLine]; var snapRev: UInt32 = 0; var liveRev: UInt32 = 0; var held: UInt8 = 0 }
+    private struct LockRun { let e: RecordingEmitter; let router: Router; var landings: [(window: Int, lane: Int, beat: Double)] }
+
+    private func lockLine(pulses: Int, steps: Int = 8, rotate: Int = 0, rate: ArpRate = .r1_8, dir: EuclidDir? = nil, sel: EuclidNoteSel = .low) -> EuclidLine {
+        EuclidLine(target: 0, pulses: pulses, steps: steps, rotate: rotate, noteSel: sel, direction: dir, rate: rate, sourceMode: .midi)
+    }
+    private func lockLanes(_ a: EuclidLine, _ b: EuclidLine? = nil, _ c: EuclidLine? = nil) -> [EuclidLine] {
+        let silent = lockLine(pulses: 0)
+        return [a, b ?? silent, c ?? silent, silent]
+    }
+    private func lockBox(_ lines: [EuclidLine], locks: [EuclideousLaneLock], revs: UInt32) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = lines
+        c.paramsA.euclideousLocks = locks.isEmpty ? nil : locks
+        c.paramsA.lockRevs = revs
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return sc }()])
+        st.euclideousNoteSource = .midi
+        return SnapshotBuilder.build(from: st)
+    }
+    private func lockedRender(_ steps: [LockStep], locks: [EuclideousLaneLock], to: Double, frames: UInt32, chord: [UInt8] = [60], tempo: Double = 120) -> LockRun {
+        let sr = 48_000.0
+        let pool = NotePool(); for n in chord { pool.noteOn(n, velocity: 100, channel: 0) }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let boxes = steps.map { lockBox($0.lines, locks: locks, revs: $0.snapRev) }
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0, w = 0, cur = 0
+        var landings = [(window: Int, lane: Int, beat: Double)](), lastSeq: UInt32 = 0
+        while beat < to {
+            while cur + 1 < steps.count, steps[cur + 1].beat <= beat + 1e-12 { cur += 1 }
+            let st = steps[cur]
+            router.process(box: boxes[cur], pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: 4,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0,
+                           euclideousLockLive: locks.isEmpty ? 0 : EuclideousLockLive.word(held: st.held, revs: st.liveRev), out: e, diag: &diag)
+            let seq = router.lockSnapSeqPacked
+            if seq != lastSeq {
+                for lane in 0..<4 where EuclideousLockLive.rev(seq, lane: lane) != EuclideousLockLive.rev(lastSeq, lane: lane) { landings.append((w, lane, router.lockSnapBeats[lane])) }
+                lastSeq = seq
+            }
+            beat += wb; ts += Double(frames); w += 1
+        }
+        router.process(box: boxes[cur], pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop edge → flush
+        return LockRun(e: e, router: router, landings: landings)
+    }
+    /// A note-on's onset in beats, quantised to 1/1000 (every hit sits on a multiple of 1/16 beat; this absorbs the sample rounding).
+    private func lockOnsets(_ e: RecordingEmitter, note: UInt8? = nil, tempo: Double = 120) -> [Double] {
+        e.ons.filter { $0.cable == 1 && (note == nil || $0.note == note!) }.map { (Double($0.sample) / 48_000.0 * tempo / 60.0 * 1000).rounded() / 1000 }.sorted()
+    }
+    /// The onsets of `lines` rendered statically (no lock) up to `to`.
+    private func staticOnsets(_ lines: [EuclidLine], to: Double, frames: UInt32, chord: [UInt8] = [60], note: UInt8? = nil) -> [Double] {
+        lockOnsets(lockedRender([LockStep(beat: 0, lines: lines)], locks: [], to: to, frames: frames, chord: chord).e, note: note)
+    }
+    private func splice(_ segs: [(from: Double, to: Double, ons: [Double])]) -> [Double] {
+        segs.flatMap { seg in seg.ons.filter { $0 >= seg.from - 1e-6 && $0 < seg.to - 1e-6 } }.sorted()
+    }
+    private func assertOnsets(_ got: [Double], _ want: [Double], _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(got.count, want.count, "\(msg): \(got) vs \(want)", file: file, line: line)
+        for (g, w) in zip(got, want) { XCTAssertEqual(g, w, accuracy: 6e-4, msg, file: file, line: line) }
+    }
+    private func assertNothingSticks(_ r: LockRun, _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(r.e.ons.count, r.e.offs.count, "\(msg): every note-on has its note-off", file: file, line: line)
+        var open = [UInt16: Int]()
+        for ev in r.e.events where ev.status == 0x90 || ev.status == 0x80 {
+            let k = UInt16(ev.cable) << 8 | UInt16(ev.note)
+            open[k, default: 0] += ev.status == 0x90 ? 1 : -1
+        }
+        XCTAssertTrue(open.values.allSatisfy { $0 == 0 }, "\(msg): nothing left sounding \(open)", file: file, line: line)
+    }
+
+    // 5 — lane 1 locked on 2 BARS at 3 OF 8; edited to 5 OF 8 in bar 3 beat 2 and lifted at beat 3: 5 OF 8 to the end of bar 4, 3 OF 8 from the line exactly.
+    func testLockSnapBackLandsExactlyOnTheLineAtEveryBufferSize() {
+        let L = lockLine(pulses: 3), B = lockLine(pulses: 5)
+        let locks = [EuclideousLaneLock.locking(L, grid: .bars2), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+        let refL = staticOnsets(lockLanes(L), to: 24, frames: 1024), refB = staticOnsets(lockLanes(B), to: 24, frames: 1024)   // a pure function of the beat: the same at any buffer size
+        for frames: UInt32 in [64, 256, 1024] {
+            // edited in bar 3, beat 2 (published at 9.25), lifted at beat 10
+            let late = lockedRender([LockStep(beat: 0, lines: lockLanes(L)), LockStep(beat: 9.25, lines: lockLanes(B), snapRev: 1, liveRev: 1, held: 1),
+                                     LockStep(beat: 10, lines: lockLanes(B), snapRev: 1, liveRev: 1)], locks: locks, to: 19.9, frames: frames)
+            assertOnsets(lockOnsets(late.e), splice([(0, 9.25, refL), (9.25, 16, refB), (16, 20, refL)]), "buffer \(frames): 5 OF 8 to the end of bar 4, 3 OF 8 from the line")
+            XCTAssertEqual(late.landings.map { $0.beat }, [16], "buffer \(frames): one snap, on the end of bar 4")
+            assertNothingSticks(late, "buffer \(frames), bar 3 edit")
+            // the same edit lifted in bar 2, beat 4 snaps at the end of bar 2
+            let early = lockedRender([LockStep(beat: 0, lines: lockLanes(L)), LockStep(beat: 5.25, lines: lockLanes(B), snapRev: 1, liveRev: 1, held: 1),
+                                      LockStep(beat: 7, lines: lockLanes(B), snapRev: 1, liveRev: 1)], locks: locks, to: 11.9, frames: frames)
+            assertOnsets(lockOnsets(early.e), splice([(0, 5.25, refL), (5.25, 8, refB), (8, 12, refL)]), "buffer \(frames): an edit lifted in bar 2 snaps at the end of bar 2")
+            XCTAssertEqual(early.landings.map { $0.beat }, [8])
+            assertNothingSticks(early, "buffer \(frames), bar 2 edit")
+        }
+    }
+    // 6 — an edit held across three lines never snaps while held; it snaps on the first line after the lift.
+    func testLockHeldEditNeverSnapsWhileHeldAndSnapsOnTheFirstLineAfterTheLift() {
+        let L = lockLine(pulses: 3), B = lockLine(pulses: 5)
+        let locks = [EuclideousLaneLock.locking(L, grid: .bar1), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+        let refL = staticOnsets(lockLanes(L), to: 20, frames: 1024), refB = staticOnsets(lockLanes(B), to: 20, frames: 1024)
+        for frames: UInt32 in [64, 1024] {
+            let r = lockedRender([LockStep(beat: 0, lines: lockLanes(L)), LockStep(beat: 1.25, lines: lockLanes(B), snapRev: 1, liveRev: 1, held: 1),
+                                  LockStep(beat: 14.1, lines: lockLanes(B), snapRev: 1, liveRev: 1)], locks: locks, to: 19.9, frames: frames)
+            XCTAssertEqual(r.landings.map { $0.beat }, [16], "buffer \(frames): lines 4, 8, 12 pass while a finger is down; the first line after the lift (16) snaps")
+            assertOnsets(lockOnsets(r.e), splice([(0, 1.25, refL), (1.25, 16, refB), (16, 20, refL)]), "buffer \(frames)")
+            assertNothingSticks(r, "held")
+        }
+    }
+    // 7 — lanes 1 and 3 on 4 BARS, edited in bars 2 and 3: both snap at the end of bar 4, in one buffer.
+    func testLockTwoLanesOnTheSameGridSnapTogetherInOneBuffer() {
+        let L0 = lockLine(pulses: 3, sel: .low), B0 = lockLine(pulses: 5, sel: .low)
+        let L2 = lockLine(pulses: 2, rate: .r1_4, sel: .high), B2 = lockLine(pulses: 3, rotate: 1, rate: .r1_4, sel: .high)
+        let locks = [EuclideousLaneLock.locking(L0, grid: .bars4), EuclideousLaneLock(), EuclideousLaneLock.locking(L2, grid: .bars4), EuclideousLaneLock()]
+        let chord: [UInt8] = [60, 67]
+        let ref = { (a: EuclidLine, c: EuclidLine, note: UInt8) in self.staticOnsets(self.lockLanes(a, nil, c), to: 20, frames: 1024, chord: chord, note: note) }
+        for frames: UInt32 in [64, 256, 1024] {
+            let r = lockedRender([LockStep(beat: 0, lines: lockLanes(L0, nil, L2)),
+                                  LockStep(beat: 5.25, lines: lockLanes(B0, nil, L2), snapRev: 1, liveRev: 1),
+                                  LockStep(beat: 9.25, lines: lockLanes(B0, nil, B2), snapRev: 0x0100_0001, liveRev: 0x0100_0001)], locks: locks, to: 19.9, frames: frames, chord: chord)
+            XCTAssertEqual(r.landings.count, 2, "buffer \(frames)")
+            XCTAssertEqual(Set(r.landings.map { $0.window }).count, 1, "buffer \(frames): both lanes land in the same render window")
+            XCTAssertEqual(r.landings.map { $0.beat }, [16, 16])
+            // lane 1 (note 60): L, B0 from 5.25, L from 16 — lane 3 (note 67): L, B2 from 9.25, L from 16
+            assertOnsets(lockOnsets(r.e, note: 60), splice([(0, 5.25, ref(L0, L2, 60)), (5.25, 16, ref(B0, L2, 60)), (16, 20, ref(L0, L2, 60))]), "buffer \(frames): lane 1")
+            assertOnsets(lockOnsets(r.e, note: 67), splice([(0, 9.25, ref(L0, L2, 67)), (9.25, 16, ref(L0, B2, 67)), (16, 20, ref(L0, L2, 67))]), "buffer \(frames): lane 3")
+            assertNothingSticks(r, "together")
+        }
+    }
+    // 7a — BEAT grid: a change made on touch-down sounds from the next hit and is gone from the first beat after the lift.
+    func testLockBeatGridMomentaryChangeIsGoneOnTheFirstBeatAfterTheLift() {
+        let L = lockLine(pulses: 3, steps: 16, rate: .r1_16), B = lockLine(pulses: 9, steps: 16, rate: .r1_16)
+        let locks = [EuclideousLaneLock.locking(L, grid: .beat), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+        let refL = staticOnsets(lockLanes(L), to: 10, frames: 1024), refB = staticOnsets(lockLanes(B), to: 10, frames: 1024)
+        for frames: UInt32 in [64, 1024] {
+            let r = lockedRender([LockStep(beat: 0, lines: lockLanes(L)), LockStep(beat: 5.1, lines: lockLanes(B), snapRev: 1, liveRev: 1, held: 1),
+                                  LockStep(beat: 6.4, lines: lockLanes(B), snapRev: 1, liveRev: 1)], locks: locks, to: 9.9, frames: frames)
+            XCTAssertEqual(r.landings.map { $0.beat }, [7], "buffer \(frames): the beat-6 line passes under the finger; beat 7 is the first after the lift")
+            assertOnsets(lockOnsets(r.e), splice([(0, 5.1, refL), (5.1, 7, refB), (7, 10, refL)]), "buffer \(frames)")
+            assertNothingSticks(r, "beat grid")
+        }
+    }
+    // 8 — the snap writes the restart chains back exactly (here a chain in L the edit replaced): the stream after the line is L's, chain restarts included.
+    func testLockSnapRestoresRestartChainsAndRequestedFields() {
+        var L = lockLine(pulses: 3, steps: 7); L.restartRhythmBars = [2]; L.restartMelodyPasses = []; L.hitsRequested = 3; L.offsetRequested = 0
+        var B = lockLine(pulses: 5, steps: 7); B.restartRhythmBars = [1]; B.restartMelodyPasses = [2]; B.hitsRequested = 5
+        let locks = [EuclideousLaneLock.locking(L, grid: .bars2), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+        let frames: UInt32 = 256
+        let refL = staticOnsets(lockLanes(L), to: 32, frames: frames), refB = staticOnsets(lockLanes(B), to: 32, frames: frames)
+        let r = lockedRender([LockStep(beat: 0, lines: lockLanes(L)), LockStep(beat: 9.25, lines: lockLanes(B), snapRev: 1, liveRev: 1)], locks: locks, to: 31.9, frames: frames)
+        assertOnsets(lockOnsets(r.e), splice([(0, 9.25, refL), (9.25, 16, refB), (16, 32, refL)]), "chains: L's restart pattern is back from the line, bar for bar")
+        XCTAssertGreaterThan(Set(refL.filter { $0 >= 16 }).symmetricDifference(Set(refB.filter { $0 >= 16 })).count, 0, "the fixture discriminates: L and the edit differ after the line")
+    }
+    // 9 — external writes: a write mid-bar snaps at that bar's end; a stream every half beat is pulled back on each bar line and heard between them.
+    func testLockExternalWritesAreHeardBetweenLinesAndPulledBackOnEach() {
+        let L = lockLine(pulses: 3)
+        let locks = [EuclideousLaneLock.locking(L, grid: .bar1), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+        let frames: UInt32 = 256
+        let refL = staticOnsets(lockLanes(L), to: 16, frames: frames)
+        // one write, mid-bar 1 (beat 1.75): never held, settled → snaps at beat 4
+        let refB = staticOnsets(lockLanes(lockLine(pulses: 6)), to: 16, frames: frames)
+        let one = lockedRender([LockStep(beat: 0, lines: lockLanes(L)), LockStep(beat: 1.75, lines: lockLanes(lockLine(pulses: 6)), snapRev: 1, liveRev: 1)], locks: locks, to: 7.9, frames: frames)
+        XCTAssertEqual(one.landings.map { $0.beat }, [4])
+        assertOnsets(lockOnsets(one.e), splice([(0, 1.75, refL), (1.75, 4, refB), (4, 8, refL)]), "a write mid-bar snaps at that bar's end")
+        // a stream: a new write every half beat (at x.25 / x.75), a different pulse count each time, each one settled
+        var steps = [LockStep(beat: 0, lines: lockLanes(L))]
+        let pulses = (0..<30).map { 4 + ($0 % 5) }
+        for k in 0..<30 { steps.append(LockStep(beat: 0.25 + 0.5 * Double(k), lines: lockLanes(lockLine(pulses: pulses[k])), snapRev: UInt32(k + 1), liveRev: UInt32(k + 1))) }
+        let stream = lockedRender(steps, locks: locks, to: 14.9, frames: frames)
+        XCTAssertEqual(stream.landings.map { $0.beat }, [4, 8, 12], "pulled back on every bar line")
+        let got = lockOnsets(stream.e)
+        func slice(_ xs: [Double], _ lo: Double, _ hi: Double) -> [Double] { xs.filter { $0 >= lo - 1e-6 && $0 < hi - 1e-6 } }
+        for line in [4.0, 8.0, 12.0] {
+            // the write that was current when the line came is replaced by L on the line …
+            assertOnsets(slice(got, line, line + 0.25), slice(refL, line, line + 0.25), "line \(line): L is back on the line")
+            // … and the next write (0.25 later) is heard again
+            let k = Int(line / 0.5)
+            let wk = staticOnsets(lockLanes(lockLine(pulses: pulses[k])), to: 16, frames: frames)
+            assertOnsets(slice(got, line + 0.25, line + 0.75), slice(wk, line + 0.25, line + 0.75), "line \(line): the stream is heard between lines")
+        }
+        assertNothingSticks(stream, "stream")
+    }
+    // 9a — the fill: lane 2 locked on 4 BARS at 3 OF 16; HITS 7 and REV written at bar 4 beat 3: that stretch is 7 OF 16 reversed, and bar 5 starts with 3 OF 16 forward, ON the downbeat.
+    func testLockFillReturnsOnTheDownbeatOfTheNextPhrase() {
+        let L = lockLine(pulses: 3, steps: 16, rate: .r1_16), B = lockLine(pulses: 7, steps: 16, rate: .r1_16, dir: .bkw)
+        let locks = [EuclideousLaneLock(), EuclideousLaneLock.locking(L, grid: .bars4), EuclideousLaneLock(), EuclideousLaneLock()]
+        let silent = lockLine(pulses: 0)
+        func lanes(_ l: EuclidLine) -> [EuclidLine] { [silent, l, silent, silent] }
+        let refL = staticOnsets(lanes(L), to: 20, frames: 1024), refB = staticOnsets(lanes(B), to: 20, frames: 1024)
+        for frames: UInt32 in [64, 256, 1024] {
+            XCTAssertTrue(refL.contains(16.0), "fixture: 3 OF 16 hits on the downbeat of bar 5")
+            XCTAssertFalse(refB.contains(16.0), "fixture: the edit does NOT hit there, so a late landing would drop the downbeat")
+            for (published, label) in [(14.1, "bar 4 beat 3"), (15.9, "0.1 beat before the line")] {
+                let r = lockedRender([LockStep(beat: 0, lines: lanes(L)), LockStep(beat: published, lines: lanes(B), snapRev: 0x100, liveRev: 0x100)], locks: locks, to: 19.9, frames: frames)
+                assertOnsets(lockOnsets(r.e), splice([(0, published, refL), (published, 16, refB), (16, 20, refL)]), "buffer \(frames), written at \(label)")
+                XCTAssertEqual(r.landings.map { $0.beat }, [16], "buffer \(frames), \(label)")
+                assertNothingSticks(r, "fill \(label)")
+            }
+            // an edit still on its way at the line waits one line (the next 4-bar line is 32): the live revision moved, the snapshot has not caught up
+            let late = lockedRender([LockStep(beat: 0, lines: lanes(L)), LockStep(beat: 15.95, lines: lanes(B), snapRev: 0, liveRev: 0x100), LockStep(beat: 16.05, lines: lanes(B), snapRev: 0x100, liveRev: 0x100)], locks: locks, to: 19.9, frames: frames)
+            XCTAssertTrue(late.landings.isEmpty, "buffer \(frames): an edit in flight at the line passes")
+        }
+    }
+    // Locks that never deviate, or are absent, change nothing: the event stream is bit-identical to an unlocked render.
+    func testLockOffAndUndeviatedLocksLeaveTheStreamUntouched() {
+        let L = lockLine(pulses: 5, steps: 8)
+        let steps = [LockStep(beat: 0, lines: lockLanes(L, lockLine(pulses: 3, rate: .r1_16, sel: .high)))]
+        for frames: UInt32 in [64, 1024] {
+            let none = lockedRender(steps, locks: [], to: 20, frames: frames, chord: [60, 67])
+            let undeviated = lockedRender(steps, locks: [EuclideousLaneLock.locking(L, grid: .beat), EuclideousLaneLock.locking(lockLine(pulses: 3, rate: .r1_16, sel: .high), grid: .bars2), EuclideousLaneLock(), EuclideousLaneLock()], to: 20, frames: frames, chord: [60, 67])
+            XCTAssertEqual(none.e.events, undeviated.e.events, "buffer \(frames): a lock at its own state leaves the stream bit-identical")
+            XCTAssertTrue(undeviated.landings.isEmpty)
+        }
+    }
+    // Nothing is left sounding whatever the edit schedule: random edits, holds and in-flight revisions over 64 beats, a chord, long gates.
+    func testLockSnapNeverLeavesANoteSounding() {
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        func rnd(_ n: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 33) % UInt64(n)) }
+        for frames: UInt32 in [64, 1024] {
+            for grid in [EuclideousLockGrid.beat, .bars4] {
+                var L = lockLine(pulses: 4, sel: .all); L.gate = 0.99
+                let locks = [EuclideousLaneLock.locking(L, grid: grid), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+                var steps = [LockStep(beat: 0, lines: lockLanes(L))]
+                var rev: UInt32 = 0, beat = 0.0
+                while beat < 40 {
+                    beat += 0.1 + Double(rnd(40)) / 20
+                    var B = lockLine(pulses: 1 + rnd(8), steps: 4 + rnd(12), rotate: rnd(8), rate: [.r1_8, .r1_16, .r1_4][rnd(3)], dir: [nil, .bkw, .pingpong][rnd(3)], sel: .all); B.gate = 0.99
+                    rev = (rev + 1) & 0xFF
+                    let inFlight = rnd(5) == 0
+                    steps.append(LockStep(beat: beat, lines: lockLanes(rnd(4) == 0 ? L : B), snapRev: inFlight ? (rev &- 1) & 0xFF : rev, liveRev: rev, held: rnd(4) == 0 ? 1 : 0))
+                    if inFlight { steps.append(LockStep(beat: beat + 0.03, lines: steps.last!.lines, snapRev: rev, liveRev: rev, held: steps.last!.held)) }
+                }
+                let r = lockedRender(steps, locks: locks, to: 44, frames: frames, chord: [60, 64, 67])
+                assertNothingSticks(r, "buffer \(frames), grid \(grid)")
+                XCTAssertGreaterThan(r.e.ons.count, 20)
+            }
+        }
+    }
+    // The count-down's latency margin: how long the main→render path takes to build a snapshot (the page's side of it; the render side adds at most one buffer).
+    func testLockSnapshotBuildTimeForTheMarginEstimate() {
+        let L = lockLine(pulses: 5)
+        let locks = [EuclideousLaneLock.locking(L, grid: .bar1), EuclideousLaneLock.locking(L, grid: .bars2), EuclideousLaneLock(), EuclideousLaneLock()]
+        let t0 = Date()
+        for _ in 0..<20 { _ = lockBox(lockLanes(L, L, L), locks: locks, revs: 3) }
+        let ms = Date().timeIntervalSince(t0) / 20 * 1000
+        print("LANE LOCK: SnapshotBuilder.build ≈ \(String(format: "%.2f", ms)) ms (macOS, release-ish test build) — the UI margin is \(EuclideousLockMargin.seconds * 1000) ms")
+        XCTAssertLessThan(ms, EuclideousLockMargin.seconds * 1000)
+    }
 }

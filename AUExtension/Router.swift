@@ -99,6 +99,68 @@ final class Router {
     /// The snapshot's solo mask as of the last Euclideous sweep — the early cut (before the echo ring drains) uses it when there is no live word.
     private var lastSnapshotSoloMask: UInt8 = 0
     private func soloMaskNow(snapshot: UInt8) -> UInt8 { soloLiveWord & 0x100 != 0 ? UInt8(soloLiveWord & 0x0F) : (snapshot & 0x0F) }
+
+    // MARK: LANE LOCK (ferry 2026-10-21) — the snap back, decided HERE (the render thread), on the lane's own grid line
+    // The lock itself (on / grid / the locked state L) rides the snapshot; what only the UI knows instantly — which lanes a finger is on and each lane's document revision — rides `lockLiveWord`
+    // (`Kernel.euclideousLockLive`). At a grid line G the lane snaps to L exactly on G when it is deviated, not held and no edit to it is still on its way (`snapshot.lockRevs` ≠ the live revision =
+    // "on its way"). The landing is TICK-exact: the window that holds G runs the lane twice — the old line for ticks before G, L applied for ticks from G — so the hit on the line plays L. After a landing
+    // the lane keeps running on L (`lockOverrideActive`) until a snapshot built after the page applied the snap arrives (its revision changed), so the sound never waits for the main thread. The page polls
+    // `lockSnapSeqPacked` (one byte per lane) to apply each landed snap to the document. Everything here is allocation-free: fixed arrays, in-place scratch lines.
+    private var lockLiveWord: UInt64 = 0
+    private var lockOverrideActive = [Bool](repeating: false, count: 4)
+    private var lockOverrideRev = [UInt8](repeating: 0, count: 4)
+    private(set) var lockSnapSeqPacked: UInt32 = 0
+    private var lockSnapBeatsV = SIMD4<Double>(repeating: 0)
+    var lockSnapBeats: [Double] { [lockSnapBeatsV[0], lockSnapBeatsV[1], lockSnapBeatsV[2], lockSnapBeatsV[3]] }
+    private var lockPrevWindowEnd = 0.0
+    private var lockPrevValid = false
+    private var lockFromStart = [Bool](repeating: false, count: 4)
+    private var lockAtSplit = [Bool](repeating: false, count: 4)
+    private var lockSplitBeat = 0.0
+    private var lockHasSplit = false
+    private var lockAnyActive = false
+    private var lockLinesBefore: [EuclidLine] = { var a = [EuclidLine](); a.reserveCapacity(8); for _ in 0..<4 { a.append(EuclidLine()) }; return a }()
+    private var lockLinesAfter: [EuclidLine] = { var a = [EuclidLine](); a.reserveCapacity(8); for _ in 0..<4 { a.append(EuclidLine()) }; return a }()
+
+    /// The plan for one Euclideous window `(windowStartBeat, windowEndBeat]`: which lanes already run on L (a landed snap the document has not caught up with), which land at a grid line in this window, and the
+    /// scratch line arrays the two segments read (`lockLinesBefore` for ticks before the line, `lockLinesAfter` from it).
+    private func planLocks(locks: [EuclideousLockSnap], lines: [EuclidLine], revs: UInt32, windowStartBeat: Double, windowEndBeat: Double) {
+        lockAnyActive = false; lockHasSplit = false
+        let discontinuity = !lockPrevValid || abs(windowStartBeat - lockPrevWindowEnd) > 1e-3   // a start / loop / seek: the first window's own start may sit on a line
+        lockPrevValid = true; lockPrevWindowEnd = windowEndBeat
+        let spoken = EuclideousLockLive.hasSpoken(lockLiveWord)
+        let heldBits = spoken ? EuclideousLockLive.heldMask(lockLiveWord) : 0
+        let liveRevs = EuclideousLockLive.revs(lockLiveWord)
+        for lane in 0..<4 {
+            lockFromStart[lane] = false; lockAtSplit[lane] = false
+            guard lane < locks.count, lane < lines.count, locks[lane].on, let L = locks[lane].state else { lockOverrideActive[lane] = false; continue }
+            let snapRev = EuclideousLockLive.rev(revs, lane: lane)
+            if lockOverrideActive[lane] {
+                if snapRev != lockOverrideRev[lane] { lockOverrideActive[lane] = false }   // a snapshot built after the page applied the snap (or after a user edit): it is authoritative again
+                else { lockFromStart[lane] = true; lockAnyActive = true; continue }
+            }
+            guard let g = euclideousLockLineIn(grid: locks[lane].grid, barBeats: beatsPerBar, after: windowStartBeat, through: windowEndBeat, inclusiveStart: discontinuity) else { continue }
+            let held = (heldBits >> UInt8(lane)) & 1 != 0
+            let inFlight = spoken && EuclideousLockLive.rev(liveRevs, lane: lane) != snapRev
+            guard euclideousLockSnapsAtLine(deviated: euclideousLockDeviated(line: lines[lane], from: L), held: held, editInFlight: inFlight) else { continue }
+            lockOverrideActive[lane] = true; lockOverrideRev[lane] = snapRev
+            lockAtSplit[lane] = true
+            if !lockHasSplit || g < lockSplitBeat { lockSplitBeat = g }   // lines sit on whole beats, a window is under a beat: one line per window
+            lockHasSplit = true; lockAnyActive = true
+            lockSnapSeqPacked = EuclideousLockLive.bumped(lockSnapSeqPacked, lane: lane)
+            lockSnapBeatsV[lane] = g
+        }
+        guard lockAnyActive else { return }
+        lockLinesBefore.removeAll(keepingCapacity: true); lockLinesAfter.removeAll(keepingCapacity: true)
+        for j in 0..<lines.count {
+            var before = lines[j], after = lines[j]
+            if j < locks.count, locks[j].on, let L = locks[j].state {
+                if lockFromStart[j] || lockAtSplit[j] { L.applied(to: &after) }
+                if lockFromStart[j] { L.applied(to: &before) }
+            }
+            lockLinesBefore.append(before); lockLinesAfter.append(after)
+        }
+    }
     /// §5.2 + "the mute kicks in immediately" (Paul 2026-10-21): the moment solo silences a lane its already-sounding notes END NOW (a note-off at this window's first sample) and its pending ratchet / roll repeats are
     /// dropped — a LANES mute lets them ring out, but a solo that left the other lanes sounding for a gate's length read as a delay. Only the solo-silenced lanes' own voices (tagged at the strike) are touched; every
     /// note-on still gets its note-off (`closeVoice` owns the refcount), so nothing is left sounding.
@@ -2918,6 +2980,7 @@ final class Router {
                               beatsPerSample: Double, S: Double, a: Double, columns: Int = Snap.cols,
                               clockCell: SnapCell? = nil, clockFrom: Int = 0, clockTo: Int = 0, cycleBeats: Double = 0,
                               lineIndex: Int = 0,   // which of this row's up-to-tickDedupSlotsPerRow lines this call is (EUCLID only; every other caller keeps the default, landing on slot 0 — byte-identical to the old single-scalar-per-row dedup)
+                              tickFrom: Double = -Double.infinity, tickBefore: Double = Double.infinity,   // LANE LOCK: a window split at a lock line runs the lane twice — ticks before the line, then ticks from it (the default is every tick: byte-identical)
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
@@ -2938,6 +3001,7 @@ final class Router {
         for tick in firstTick...lastT {
             let mTickBeat = Double(tick) * sub   // LOCAL beat — feeds body() for note-selection only, never scheduling
             let mTickBeatReal = hasClock ? driverClockBeatInverse(clockCell!, from: clockFrom, to: clockTo, atLocalBeat: mTickBeat, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mTickBeat
+            if mTickBeatReal + 1e-9 < tickFrom || mTickBeatReal + 1e-9 >= tickBefore { continue }   // LANE LOCK: before the dedup, so the other segment still gets this tick
             // Which column is EFFECTIVE at this tick's step (lap-aware, §5b) — REAL time, since columns stay
             // upstream of CLOCK — so a held column's ticks fire during the current window even though the tick's
             // TRUE column differs. With no lap, lapColumn returns the tick's true column and this is the original
@@ -3045,6 +3109,7 @@ final class Router {
                  euclideousSoloLive: UInt16 = 0,
                  euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
+                 euclideousLockLive: UInt64 = 0,
                  sceneFlush: Bool = false,
                  sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
@@ -3167,6 +3232,7 @@ final class Router {
         // LANE SOLO (2026-10-21): the UI's live solo word, and — BEFORE the echo ring drains and any lane strikes — the solo-silenced lanes' sounding notes end now (the live word if the page has spoken, else the snapshot's mask
         // as the last Euclideous sweep saw it). The sweep inside the Euclideous row repeats this with the authoritative mask, so the snapshot-only path (no UI) is covered too.
         soloLiveWord = euclideousSoloLive
+        lockLiveWord = euclideousLockLive    // LANE LOCK: the page's held lanes + revisions, read per window (planLocks)
         if !frozen { cutSoloSilencedLanes(soloMask: soloMaskNow(snapshot: lastSnapshotSoloMask), atSample: windowStart, out: out) }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
@@ -3193,6 +3259,7 @@ final class Router {
             euclideousHoldLatchPool.reset()   // HOLD/LATCH: a fresh play/stop drops any stale frozen/latched notes (Paul 2026-10-20)
             for i in euclideousHoldLatchPrevHeld.indices { euclideousHoldLatchPrevHeld[i] = false }   // no re-allocation on the render thread — mutate in place, matching every sibling reset above
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
+            lockPrevValid = false; for i in 0..<4 { lockOverrideActive[i] = false }   // LANE LOCK: a fresh play starts at L (the page has applied it) — no override, and the first window may sit on a line
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
             resetRecorderCapture(full: false)            // RECORDER: keep the committed loop across a stop→start; discard any partial capture
@@ -4659,6 +4726,8 @@ final class Router {
                 if let idx = pickIndex { return [idx] }
                 return Array(0..<count)
             }
+            // LANE LOCK: every read of a lane's (or its partner's) line inside `runEuclidLine` goes through this — the snapshot's lines, or, for the window segment a lock snap has changed, the same lines with L applied.
+            var linesView = p.euclidLines
             func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, velocityAbsolute: Int, rate: Double, busOverride: UInt8?,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
                                 patternMiss: Bool = false,
@@ -4678,19 +4747,20 @@ final class Router {
                                 notesPlayAs: EuclidNotesPlayAs = .chord, notesReceivedOnly: Bool = false,
                                 notesOn: Bool = true, notesVelocity: Int = 100, notesGate: Double = 0.9,
                                 // LANES GRID (2026-10-18): the per-lane restart / mute grid is resolved INSIDE this function (it needs the
-                                // lane's own step length and lap, known only after the pattern is built) from `p.euclidLines[lineIndex]` —
+                                // lane's own step length and lap, known only after the pattern is built) from `linesView[lineIndex]` —
                                 // so nothing grid-related is passed in any more.
                                 // LISTEN TAB (ferry 2026-10-14) — all additive, defaulted to "off," so this
                                 // function's one existing call site is the only one that needs to change.
                                 // Partner indices are plain Ints (-1 = none/not applicable) rather than a
-                                // bundled struct: `p.euclidLines`/`laneNotes`/`laneCount` are ALREADY in
+                                // bundled struct: `linesView`/`laneNotes`/`laneCount` are ALREADY in
                                 // this closure's own captured scope (this is a nested func inside
                                 // `process()`), so looking a partner's EuclidLine/pool up here directly is
                                 // simpler and cheaper than having the call site pre-build and pass it.
                                 listenRhythmMode: EuclideousRhythmMode? = nil, listenRhythmPartnerIdx: Int = -1, listenFollowRatio: Double = 1.0,
                                 listenLevelMode: EuclideousLevelMode? = nil, listenLevelPartnerIdx: Int = -1, listenLevelAmount: Double = 0.4,
                                 listenPitchMode: EuclideousPitchMode? = nil, listenPitchPartnerIdx: Int = -1, listenPitchPartnerAny: Bool = false,
-                                listenShadowInterval: Int = 0, listenShadowOctave: Int = 0, listenAvoidAction: EuclideousAvoidAction = .mute) {
+                                listenShadowInterval: Int = 0, listenShadowOctave: Int = 0, listenAvoidAction: EuclideousAvoidAction = .mute,
+                                tickFrom: Double = -Double.infinity, tickBefore: Double = Double.infinity) {   // LANE LOCK: the segment of the window this call plays (the default is all of it)
                 // LANE SOLO: every voice and echo tail this lane's hits open is stamped with the lane (Euclideous's own row only), so a solo can end exactly its notes.
                 euclideousStrikeLane = isEuclideousRow ? Int8(lineIndex) : -1
                 defer { euclideousStrikeLane = -1 }
@@ -4702,9 +4772,9 @@ final class Router {
                 // `euclidRotateBuffer`/`patternMiss` calls immediately below, both left completely
                 // unconditional so they keep doing exactly that for a FOLLOWing lane too.
                 let n: Int
-                let followPartnerValid = listenRhythmMode == .follow && listenRhythmPartnerIdx >= 0 && listenRhythmPartnerIdx < p.euclidLines.count
+                let followPartnerValid = listenRhythmMode == .follow && listenRhythmPartnerIdx >= 0 && listenRhythmPartnerIdx < linesView.count
                 if followPartnerValid {
-                    n = euclideousBuildPatternInto(p.euclidLines[listenRhythmPartnerIdx], buf: &euclidListenScratch)
+                    n = euclideousBuildPatternInto(linesView[listenRhythmPartnerIdx], buf: &euclidListenScratch)
                     for i in 0..<n { euclidBuf[i] = euclidListenScratch[i] }
                 } else {
                     n = max(2, min(16, nIn))
@@ -4751,7 +4821,7 @@ final class Router {
                 // becomes the partner's own rate × the multiplier — `listenFollowRatio` is already the
                 // correct 2^−exponent (×2 halves the step length, ÷2 doubles it; see
                 // `EuclidLine.listenFollowRatioResolved`'s own doc comment for the worked sign check).
-                let sub = followPartnerValid ? (p.euclidLines[listenRhythmPartnerIdx].rate?.beats ?? p.euclidRateBeats) * listenFollowRatio : rate
+                let sub = followPartnerValid ? (linesView[listenRhythmPartnerIdx].rate?.beats ?? p.euclidRateBeats) * listenFollowRatio : rate
                 // RESET SPAN (Paul 2026-10-08, §2.2): Euclideous's own GLOBAL reset-span control — resolved
                 // directly from `doc.euclideousResetSpanBarsResolved` into `p.euclideousResetSpanBars` (gated
                 // to Euclideous's own row in SnapshotBuilder, 0 for every other `.euclid` cell) — OVERRIDES the
@@ -4789,16 +4859,16 @@ final class Router {
                 // here is therefore only the brief window before that first resync tick lands (or a
                 // document built directly in a test, bypassing the AVC entirely) — FREE is a safe,
                 // allocation-free default for that window, not a silent, permanent behaviour change.
-                if lineIndex < p.euclidLines.count {
-                    let line = p.euclidLines[lineIndex]
+                if lineIndex < linesView.count {
+                    let line = linesView[lineIndex]
                     if line.usesRestartChains {
                         chains = EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []),
                                                              melody: .from(line.restartMelodyPasses ?? []),
                                                              barBeats: beatsPerBar, lapBeats: Double(cycleLen) * sub)
                     }
                 }
-                if isEuclideousRow, lineIndex < p.euclidLines.count {
-                    let line = p.euclidLines[lineIndex]
+                if isEuclideousRow, lineIndex < linesView.count {
+                    let line = linesView[lineIndex]
                     let passBeats = Double(cycleLen) * sub
                     let g = euclideousLaneGridResolved(line: line, lane: lineIndex, legacyOn: p.euclideousLanesSeqOn,
                                                        legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
@@ -4830,7 +4900,7 @@ final class Router {
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                              beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
                              clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc,
-                             lineIndex: lineIndex) { tick, mTickBeat, _, _ in
+                             lineIndex: lineIndex, tickFrom: tickFrom, tickBefore: tickBefore) { tick, mTickBeat, _, _ in
                     refreshChordPool(atBeat: mTickBeat)   // CHORDS: this tick reads the chord that is current at ITS beat, not at the window's start
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
@@ -4864,8 +4934,8 @@ final class Router {
                     // is filtered, not the walk/ordinal that any riff on this lane depends on).
                     let passesListenRhythmFilter: Bool = {
                         guard rawIsHit, let mode = listenRhythmMode, mode != .follow,
-                              listenRhythmPartnerIdx >= 0, listenRhythmPartnerIdx < p.euclidLines.count else { return true }
-                        let partnerLine = p.euclidLines[listenRhythmPartnerIdx]
+                              listenRhythmPartnerIdx >= 0, listenRhythmPartnerIdx < linesView.count else { return true }
+                        let partnerLine = linesView[listenRhythmPartnerIdx]
                         let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
                         let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
                         let epsilonBeats = 0.001 * (tempo / 60.0)
@@ -4901,7 +4971,7 @@ final class Router {
                     // `isEuclideousRow` (already in scope, computed once per cell above) is EQUALLY load-
                     // bearing here, caught before any test was written, not after: `runEuclidLine` is the
                     // SAME shared function every ordinary, non-Euclideous `.euclid` cell anywhere else in
-                    // the 8×8 grid calls too (confirmed — `p.euclidLines` is always populated, even for a
+                    // the 8×8 grid calls too (confirmed — `linesView` is always populated, even for a
                     // plain single-EUCLID cell, so `lineIndex` 0...3 is NOT unique to Euclideous's own 4
                     // lanes). Without this guard, an ordinary EUCLID processor on any other row would also
                     // write into this SAME 4-slot queue, corrupting Euclideous's own NOTE VIEW with
@@ -5315,9 +5385,9 @@ final class Router {
                             // explicitly; a genuinely silent partner — never yet struck a real note within
                             // the bounded backward scan — is indistinguishable from "resting" and both
                             // correctly produce silence here).
-                            let shadowPartnerValid = listenPitchMode == .shadow && listenPitchPartnerIdx >= 0 && listenPitchPartnerIdx < p.euclidLines.count
+                            let shadowPartnerValid = listenPitchMode == .shadow && listenPitchPartnerIdx >= 0 && listenPitchPartnerIdx < linesView.count
                             if shadowPartnerValid {
-                                let partnerLine = p.euclidLines[listenPitchPartnerIdx]
+                                let partnerLine = linesView[listenPitchPartnerIdx]
                                 if partnerLine.riffOnResolved {
                                     let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
                                     let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
@@ -5552,11 +5622,11 @@ final class Router {
                                         return hit.note == note
                                     }
                                     if listenPitchPartnerAny {
-                                        for j in 0..<p.euclidLines.count where j != lineIndex { if checks(p.euclidLines[j]) { return true } }
+                                        for j in 0..<linesView.count where j != lineIndex { if checks(linesView[j]) { return true } }
                                         return false
                                     }
-                                    guard listenPitchPartnerIdx >= 0, listenPitchPartnerIdx < p.euclidLines.count else { return false }
-                                    return checks(p.euclidLines[listenPitchPartnerIdx])
+                                    guard listenPitchPartnerIdx >= 0, listenPitchPartnerIdx < linesView.count else { return false }
+                                    return checks(linesView[listenPitchPartnerIdx])
                                 }
                                 var i = 0
                                 while i < pitchCount {
@@ -5592,8 +5662,8 @@ final class Router {
                             // the SAME coincidence definition WITH/GAPS use (the partner's own step pattern,
                             // not its sounding note). Scales every pitch's already-resolved velocity, "after
                             // the lane's own VEL."
-                            if let levelMode = listenLevelMode, listenLevelPartnerIdx >= 0, listenLevelPartnerIdx < p.euclidLines.count {
-                                let partnerLine = p.euclidLines[listenLevelPartnerIdx]
+                            if let levelMode = listenLevelMode, listenLevelPartnerIdx >= 0, listenLevelPartnerIdx < linesView.count {
+                                let partnerLine = linesView[listenLevelPartnerIdx]
                                 let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
                                 let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
                                 let epsilonBeats = 0.001 * (tempo / 60.0)
@@ -6514,11 +6584,16 @@ final class Router {
             // index order back, since `euclideousListenProcessingOrder` reduces to it when no lane has any
             // LISTEN mode lit (confirmed by construction: with every `deps[i]` empty, Kahn's algorithm
             // places lane 0, then 1, then 2, then 3, in that exact order).
+            // LANE LOCK (D3): decide, once per window, which locked lanes land on a grid line in it (tick-exact below) and which already run on L.
+            if isEuclideousRow && !p.euclideousLocks.isEmpty {
+                planLocks(locks: p.euclideousLocks, lines: p.euclidLines, revs: p.lockRevs, windowStartBeat: beatPos, windowEndBeat: beatPos + windowBeats)
+            } else {
+                lockAnyActive = false; lockHasSplit = false
+                if isEuclideousRow { for i in 0..<4 { lockOverrideActive[i] = false } }
+            }
             let euclideousListenOrder = isEuclideousRow ? euclideousListenProcessingOrder(p.euclidLines) : Array(p.euclidLines.indices)
             for lineIndex in euclideousListenOrder {
                 guard lineIndex < p.euclidLines.count else { continue }
-                let L = p.euclidLines[lineIndex]
-                guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { continue }
                 // RANDOM MODE ferry (§6.1): "one slot per card tab" — a lane may have THREE independent
                 // pending THROW/TWEAK/BACK/hold overrides in flight at once, each at its own `landingBeat`,
                 // compared against `beatPos` — the SAME absolute beat every other per-tick decision in this
@@ -6539,6 +6614,10 @@ final class Router {
                 let rhythmRoll = euclideousLandedRoll(.rhythm)
                 let riffRoll = euclideousLandedRoll(.riff)
                 let notesRoll = euclideousLandedRoll(.notes)
+                // LANE LOCK: the lane plays its window in one segment, or — when a lock snap lands inside it — in two: the old line for the ticks before the line, L applied from it.
+                func runSegment(tickFrom: Double, tickBefore: Double) {
+                let L = linesView[lineIndex]
+                guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { return }
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
                 // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the
                 // cell's own bm, via strikeChord's busOverride).
@@ -6607,8 +6686,18 @@ final class Router {
                               listenRhythmMode: L.listenRhythmMode, listenRhythmPartnerIdx: L.listenRhythmPartnerResolved, listenFollowRatio: L.listenFollowRatioResolved,
                               listenLevelMode: L.listenLevelMode, listenLevelPartnerIdx: L.listenLevelPartnerResolved, listenLevelAmount: L.listenLevelAmountResolved,
                               listenPitchMode: L.listenPitchMode, listenPitchPartnerIdx: L.listenPitchPartnerResolved, listenPitchPartnerAny: L.listenPitchPartnerAnyResolved,
-                              listenShadowInterval: L.listenShadowIntervalResolved, listenShadowOctave: L.listenShadowOctaveResolved, listenAvoidAction: L.listenAvoidActionResolved)
+                              listenShadowInterval: L.listenShadowIntervalResolved, listenShadowOctave: L.listenShadowOctaveResolved, listenAvoidAction: L.listenAvoidActionResolved,
+                              tickFrom: tickFrom, tickBefore: tickBefore)
+                }
+                if lockHasSplit {
+                    linesView = lockLinesBefore; runSegment(tickFrom: -Double.infinity, tickBefore: lockSplitBeat)
+                    linesView = lockLinesAfter; runSegment(tickFrom: lockSplitBeat, tickBefore: Double.infinity)
+                } else {
+                    linesView = lockAnyActive ? lockLinesAfter : p.euclidLines
+                    runSegment(tickFrom: -Double.infinity, tickBefore: Double.infinity)
+                }
             }
+            linesView = p.euclidLines   // release the scratch lines (so the next window rewrites them in place)
         case .burst:
             let count = Int(max(2, min(16, p.count)))
             // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,

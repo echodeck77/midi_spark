@@ -1508,6 +1508,8 @@ struct MachineParams: Codable, Equatable {
     var euclideousLooperEvents: [EuclideousLoopEvent]? = nil    // capped 128/column at the write site (§3.4)
     var mainOutMask: UInt8? = nil // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07) — only meaningful for Euclideous's cell; nil ⇒ 0b1111 (all open, byte-identical for every other chain)
     var soloMask: UInt8? = nil    // LANE SOLO (2026-10-21): the EFFECTIVE solo mask (latched | held), composed at publish — only meaningful for Euclideous's cell; nil ⇒ 0 (no solo, byte-identical for every other chain)
+    var euclideousLocks: [EuclideousLaneLock]? = nil   // LANE LOCK (2026-10-21): the four lanes' locks, composed at publish — only meaningful for Euclideous's cell; nil ⇒ nothing locked (byte-identical for every other chain)
+    var lockRevs: UInt32? = nil   // LANE LOCK: the per-lane document revisions this snapshot was built from (one byte per lane) — the render thread compares them with the live word to know an edit is on its way (6.4)
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
     var burstSpanN: Int? = nil                // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from burstSpan)

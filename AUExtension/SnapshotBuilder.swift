@@ -848,6 +848,10 @@ enum SnapshotBuilder {
         out.euclideousLooperEvents = p.euclideousLooperEvents ?? []
         out.mainOutMask = (p.mainOutMask ?? 0b1111) & 0x0F   // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07); nil ⇒ all-open, byte-identical for every other chain
         out.soloMask = (p.soloMask ?? 0) & 0x0F               // LANE SOLO (2026-10-21): nil ⇒ no solo, byte-identical for every other chain
+        if let locks = p.euclideousLocks, locks.contains(where: { $0.isLocked }) {   // LANE LOCK (2026-10-21): nil / nothing locked ⇒ [] ⇒ the Router takes its untouched path
+            out.euclideousLocks = locks.prefix(4).map { EuclideousLockSnap(on: $0.isLocked, grid: $0.gridResolved, state: $0.state) }
+        }
+        out.lockRevs = p.lockRevs ?? 0
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
         if let v = p.burstMode { out.burstMode = v }

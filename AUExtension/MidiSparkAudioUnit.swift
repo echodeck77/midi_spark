@@ -574,6 +574,12 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setEuclideousPendingRolls(_ rolls: EuclideousPendingRollSlots) { kernel.setEuclideousPendingRolls(rolls) }
     /// §5.6: the hold's own higher-priority override — same hand-off, separate channel.
     func setEuclideousHoldOverrides(_ rolls: EuclideousPendingRollSlots) { kernel.setEuclideousHoldOverrides(rolls) }
+    /// LANE LOCK ferry: the held lanes + per-lane revisions straight to the render thread — same hand-off as setEuclideousSoloLive above. Main thread.
+    func setEuclideousLockLive(held: UInt8, revs: UInt32) { kernel.setEuclideousLockLive(held: held, revs: revs) }
+    /// LANE LOCK: the Router's landed-snap counters (one byte per lane) and the beats they landed at — the page applies each landed snap to the document.
+    func pollEuclideousLockSnapSeq() -> UInt32 { kernel.euclideousLockSnapSeq() }
+    func pollEuclideousLockSnapBeats() -> [Double] { kernel.euclideousLockSnapBeats() }
+    func uiEuclideousLocks() -> [EuclideousLaneLock] { document.euclideousLocksResolved }
     // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
     func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }
     func setEuclideousMidiInChannelMask(_ mask: UInt16) { editDocument { $0.euclideousMidiInChannelMask = mask } }

@@ -150,6 +150,13 @@ final class Kernel {
     /// so there is nothing for Router itself to clear).
     private var euclideousHoldOverrides = EuclideousPendingRollSlots()
     func setEuclideousHoldOverrides(_ rolls: EuclideousPendingRollSlots) { euclideousHoldOverrides = rolls }
+    /// LANE LOCK ferry (§6.2/§6.4): the UI's LIVE lock word — which lanes a finger is on (HELD) and each lane's document revision — stored by the main thread at the instant a touch starts / ends or a lock-relevant document
+    /// write is made, read once per window by the Router (same plain hand-off as `euclideousSoloLive`). 0 = the page has not spoken: nothing is held and no edit is ever "on its way".
+    private var euclideousLockLive: UInt64 = 0
+    func setEuclideousLockLive(held: UInt8, revs: UInt32) { euclideousLockLive = EuclideousLockLive.word(held: held, revs: revs) }
+    /// The snap seq the Router bumps each time a lock snap lands (one byte per lane) and the beats they landed at — the page polls these and applies the snap to the document (D3/D4).
+    func euclideousLockSnapSeq() -> UInt32 { router.lockSnapSeqPacked }
+    func euclideousLockSnapBeats() -> [Double] { router.lockSnapBeats }
     func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).
@@ -1099,6 +1106,7 @@ final class Kernel {
                         euclideousSoloLive: euclideousSoloLive,
                         euclideousPendingRolls: euclideousPendingRolls,
                         euclideousHoldOverrides: euclideousHoldOverrides,
+                        euclideousLockLive: euclideousLockLive,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewMachineIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
