@@ -5,6 +5,16 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — header HOLD/LATCH: source-detour reset fix (2026-10-21; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "Header: output rings... HOLD/LATCH" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] (noted, found while fixing the above, NOT fixed — separate bug) `euclideousChordsActive` (Router.swift:3448, the
+  "nothing held anywhere, skip the row" guard's CHORDS exception) checks each lane's legacy per-lane `sourceModeResolved`
+  instead of the page-level `euclideousNoteSourceResolved` the ONE-GLOBAL-SOURCE ferry (2026-10-12) made authoritative —
+  a page-level CHORDS/KEY session with no lane ever having had its own legacy `sourceMode` set to `.chords` (the normal
+  case post-rework) and nothing else held anywhere won't register as "active" by this check. Likely latent (most real
+  sessions have SOMETHING else held, or inherited the old per-lane field from before the rework), not confirmed to be
+  audible — flag to Paul before touching it.
+
 ## ★ EUCLIDEOUS — PULSE: strikes that show velocity; riff rests are gaps (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "PULSE" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] DECIDE (Paul, "later we'll find an easier way to differentiate notes from riffs"): with the riff OFF the comet bar pulses on the notes layer's strike (one function, `euclideousPulseStrikeVelocity`); with the riff ON it follows the riff only.

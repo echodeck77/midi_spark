@@ -12,6 +12,19 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — HOLD/LATCH fix: the reset check was unreachable off MIDI IN (2026-10-21, found by an
+  adversarial review of the HOLD/LATCH ferry further down; on `fix/hold-latch-source-detour-reset`,
+  merged to `main`; iOS builds clean; macOS suite 1846 green incl. 1 new `RouterTests` regression
+  case).** The reset-on-mode-change check lived inside Router.swift's `case .midi:`, so it never ran
+  while the page source was CHORDS/KEY — even though SnapshotBuilder forces the resolved mode to nil
+  there. Engaging HOLD, detouring through CHORDS/KEY, then returning to MIDI IN resumed the stale
+  frozen/latched pool from before the detour instead of starting fresh, contradicting the shipped
+  design. Fix: the check now runs unconditionally once per Euclideous-row tick, before the source
+  dispatch, so it catches the mode going to nil on the way out and `prevMode` already being nil on the
+  way back in. **Also found, NOT fixed (separate, pre-existing, out of scope — logged in
+  `Docs/pending-tasks.md`):** the row's own "nothing held, skip it" guard's CHORDS exception checks
+  each lane's legacy per-lane `sourceModeResolved` instead of the page-level
+  `euclideousNoteSourceResolved` the ONE-GLOBAL-SOURCE ferry (2026-10-12) made authoritative.
 - **▶ EUCLIDEOUS — PULSE ferry: "strikes that show velocity on the comet bar, riff arrows, MIX pads and OUT rings, and riff rests the comet passes through" (2026-10-21, ratified by Paul 2026-10-20 from the "Fourfold pulse effects" canvas, plus his "a hit on a riff rest should be a gap" ruling; on `feature/pulse`;
   iOS builds clean; macOS suite 1844 green (full, 0 failures); every visual, touch and by-ear check is device-owed — I rendered the comet bar, MIX overlay and ring off-device for geometry only).** **0. Findings (before building).** **The comet bar's flare was GEOMETRIC, not event-driven:** `EuclidCometBar`
   aged each tile in lane steps from the dot's own position (`recede = 1 − age/1.5`, `burst = 1 − age/0.35`), so it flashed EVERY rhythm hit as the dot passed — sounded or not — with zero latency and no idea of velocity; the other surfaces (header rings, riff arrows/rails,
