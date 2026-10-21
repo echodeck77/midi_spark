@@ -6373,7 +6373,10 @@ func euclideousNextRhythmRestart(after beat: Double, barBeats: Double, chain: Eu
 }
 /// §5.2 — the PASS index at `beat` (0-based). FREE ⇒ floor(beat/lapBeats). Otherwise: link i's segment holds
 /// passes_i = ceil(l_i×barBeats/lapBeats − ε) passes (ε so an exact multiple adds no empty pass), Q = Σ passes_i
-/// over one rhythm cycle, index = m×Q + Σ(passes_i before w's segment) + floor((w − that segment's own start)/lapBeats).
+/// over one rhythm cycle, index = m×Q + Σ(passes_i before w's segment) + floor((w − that segment's own start + ε)/lapBeats),
+/// where m = floor((beat + ε)/cycle) (rhythm fixes §3.3: every floor/ceil in this family reads `+ ε`, not just the
+/// ceil — a beat landing exactly on a cycle or segment boundary (floating-point noise aside) must round UP into the
+/// next cycle/segment, not stay a hair short of it).
 /// Bounded: ≤ 4 segments.
 func euclideousPassIndex(beat: Double, lapBeats: Double, barBeats: Double, rhythmChain: EuclideousRestartChain) -> Int64 {
     guard lapBeats > 0 else { return 0 }
@@ -6382,7 +6385,7 @@ func euclideousPassIndex(beat: Double, lapBeats: Double, barBeats: Double, rhyth
     guard cycle > 0 else { return Int64((beat / lapBeats).rounded(.down)) }
     let eps = 1e-9
     func passesIn(_ linkBars: Int) -> Int64 { Int64((Double(linkBars) * barBeats / lapBeats - eps).rounded(.up)) }
-    let m = (beat / cycle).rounded(.down)
+    let m = ((beat + eps) / cycle).rounded(.down)
     let w = beat - m * cycle
     var Q: Int64 = 0
     var i = 0
@@ -6393,7 +6396,7 @@ func euclideousPassIndex(beat: Double, lapBeats: Double, barBeats: Double, rhyth
         let segStart = Double(rhythmChain.runningTotal(i)) * barBeats
         let segLen = Double(rhythmChain.link(i)) * barBeats
         if w < segStart + segLen - eps || i == rhythmChain.count - 1 {
-            return Int64(m) * Q + passesBefore + Int64(((w - segStart) / lapBeats).rounded(.down))
+            return Int64(m) * Q + passesBefore + Int64(((w - segStart + eps) / lapBeats).rounded(.down))
         }
         passesBefore += passesIn(rhythmChain.link(i)); i += 1
     }

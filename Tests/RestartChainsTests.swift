@@ -111,6 +111,36 @@ final class RestartChainsTests: XCTestCase {
             XCTAssertEqual(euclideousPassIndex(beat: Double(bar) * barBeats, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: chain), Int64(bar))
         }
     }
+    /// §3's own worked example (rhythm fixes §8 test 3): a 16-step 1/4 lane (lapBeats 16) with rhythm [1, 2]
+    /// starts passes at 0, 4, 12, 16, 24, 28 — the lap (16 beats) is longer than link 0's own segment (1 bar
+    /// = 4 beats), so one pass can span a segment boundary.
+    func testPassStartsForALapLongerThanASegment() {
+        let chain = EuclideousRestartChain.from([1, 2])
+        let lapBeats = 16.0, barBeats = 4.0
+        let wantStarts: [Double] = [0, 4, 12, 16, 24, 28]
+        for (q, want) in wantStarts.enumerated() {
+            XCTAssertEqual(euclideousPassStart(Int64(q), lapBeats: lapBeats, barBeats: barBeats, rhythmChain: chain), want, accuracy: 1e-9, "pass \(q)")
+        }
+    }
+    // REGRESSION (rhythm fixes §3.3, 2026-10-21): `euclideousPassIndex`'s own `m = floor(beat/cycle)` and its
+    // pass-within-segment floor both used to omit the `+ ε` the sibling `passesIn` ceil already had — a beat
+    // landing within epsilon of (but just under) a cycle or segment boundary read as the PREVIOUS cycle/pass,
+    // not the one starting exactly there. Hand-verified against the unfixed formulas (not guessed): both cases
+    // below gave the wrong answer before the `+ eps` fix.
+    func testPassIndexRoundsUpAtACycleBoundaryWithinEpsilon() {
+        let chain = EuclideousRestartChain.from([1])   // cycle = 1 bar = barBeats
+        let barBeats = 4.0, lapBeats = 4.0              // one pass per bar
+        let justUnderOneCycle = barBeats - 5e-10        // within the 1e-9 epsilon of the cycle boundary
+        XCTAssertEqual(euclideousPassIndex(beat: justUnderOneCycle, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: chain), 1,
+                       "a beat within epsilon of the cycle boundary must round UP into the next cycle (was 0 before the +eps fix)")
+    }
+    func testPassIndexRoundsUpAtASegmentBoundaryWithinEpsilon() {
+        let chain = EuclideousRestartChain.from([2, 1, 1])   // segment 0 = 2 bars = 8 beats
+        let barBeats = 4.0, lapBeats = 4.0                    // one pass per bar within a segment
+        let justUnderSegment0End = 8.0 - 5e-10                // within epsilon of where segment 1 begins
+        XCTAssertEqual(euclideousPassIndex(beat: justUnderSegment0End, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: chain), 2,
+                       "a beat within epsilon of a segment boundary must round UP into that segment's own first pass (was 1 before the +eps fix)")
+    }
 
     // MARK: - §5.3 melody origin — melody [1] ≡ old LOCK; melody FREE ≡ old FREE
 
