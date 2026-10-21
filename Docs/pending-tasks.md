@@ -38,6 +38,9 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
   §3.6 ping-pong's duplicate-visit-at-the-turn is deliberate, documented, pre-existing, and untouched by this
   ferry (confirmed by diff: none of this ferry's changes touch `euclidReadIndex`/`euclidCycleLen`).
 - [ ] DEVICE: see the "RHYTHM tab fixes" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] (noted, a second independent audit's own finding, confirmed — no contradiction with the above) no test
+  covers `euclideousRhythmChainChangesNothing` itself, a dotted/non-bar-dividing restart-link length, or
+  `barBeats` sourced from a non-4/4 host time signature — a coverage gap, not a known bug.
 
 ## ★ EUCLIDEOUS — RHYTHM DYNAMICS: per-hit velocity and gate movement below the MIX level (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "RHYTHM tab — DYNAMICS" lines in `Docs/euclideous-device-verification-debt.md`.
