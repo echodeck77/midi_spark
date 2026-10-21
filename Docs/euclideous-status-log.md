@@ -12,6 +12,89 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — RANDOM MODE ferry: "a dice in the header turns the four lane cards into throw/tweak
+  pictures" (2026-10-21, ratified by Paul from the "Fourfold roll" design canvas — a text-only spec, no
+  shared canvas; on branch `euclideous-random-mode`; iOS + macOS builds clean; full macOS suite 671 green
+  throughout, Euclideous-scoped subset re-run after every step; ALL visuals, the hold's feel, landing
+  smoothness at 64/1024-sample buffers and the device-eye items below are device-owed).** The biggest
+  Euclideous ferry to date — seven build steps, each committed separately on the feature branch before
+  this one-shot merge to `main`. §0's own mapping pass (file:line findings for BRAND width, every rhythm/
+  riff/notes field writer, chain pinning, the engine's pattern/riff-column/rest-hit functions, the render-
+  thread hand-off, the page clock, the undo stack, pulse surfaces, the hold precedent) is in the session's
+  plan file and this entry's own build-step summaries below; it is NOT re-typed here in full — see the
+  commit messages on the feature branch for the complete §0 write-up.
+  **BUILT, by step:**
+  1. **Pure functions (`EuclideousRandom.swift`, new, Foundation-only):** §8.1-8.2 roles/pyramid, §8.3-9.4
+     THROW+TWEAK for RHYTHM/RIFF/NOTES — every "which steps hit / which column / is a rest / play list"
+     decision calls the engine's OWN function (`euclidPatternInto`/`TiltPattern`/`RotateBuffer`,
+     `euclideousRiffColumn`, `euclideousNotesPlayList`/`WayPick`), never a second derivation — a seeded
+     RNG wrapping the existing `splitmix64Mix` (no new hash), `EuclideousPendingRoll` (the landing type),
+     `euclideousRandomNextBarLine`/`QueuedLandingBeat`/`QueuedHoldBeat` (§6's bar/beat-line math, one
+     formula for THROW/TWEAK/BACK/the hold), the §6.7 commit-write (direct field writes + chain-pinning +
+     nil-ing `hitsRequested`/`offsetRequested`/`riffShiftRequested` — never the STEPS setter), and the
+     §7.2 undo-sequence builder. §13 tests 1-8 (500-3000 seeds each).
+  2. **The landing mechanism (§6) — NONE existed; built the smallest one that fits.** `EuclideousPendingRoll`
+     reaches the render thread via a direct `Kernel` property + a new `Router.process()` parameter — the
+     SAME plain main-thread-writes/render-thread-reads hand-off `Kernel.euclideousSoloLive` already uses,
+     not the Snapshot/SnapParams pipeline (`EuclidLine` is reused wholesale by both the persisted
+     `MachineParams.euclidLines` and the render-time `SnapParams.euclidLines`, so a new stored property
+     there would leak into the save file AND change what "two lines are equal" means everywhere that's
+     checked). **One slot per (lane, tab)** — 12 flat slots, `euclideousRandomPendingSlot(lane:tab:)` —
+     not one per lane: §6.1 allows three independent rolls in flight on one lane at once (caught and fixed
+     after the UI step already assumed 12 slots existed; the first landing-mechanism commit shipped with
+     only 4 and needed a follow-up pass through Router/Kernel/AVC). Router overrides exactly the three
+     named argument groups at its one `runEuclidLine` call site; every other argument is untouched, so
+     §10's "never touched" list is enforced structurally. AVC's existing 4 Hz resync loop commits a landed
+     roll into the document and clears its slot. **Granularity, flagged plainly:** a landing is decided
+     ONCE per render window (`emitGeneratorRow`/`emitTickRow`), not per sample — this engine resolves a
+     lane's whole pattern once per call with no mechanism to split a window mid-buffer. RouterTests prove
+     landing is correct at 64/256/1024-sample buffers for a landing beat chosen to be a hit position in
+     both the old and new pattern (so the one straddling window can't misattribute it either way) — not a
+     claim of true sample-exactness this architecture doesn't have.
+  3. **The dice + the pictures (§2-4).** BRAND grows 52pt (44pt target + 8pt gap after redo — compact
+     grows 44pt, the compact target), matching the ferry's own "+52, ≈244" estimate exactly; confirmed by
+     direct probing (not derivation) that one pre-existing header-geometry test's specific triple-clamp
+     scenario no longer occurs as a stable width post-dice (`headerClamp`'s own degenerate "no room at
+     all" fallback dominates that range instead) — rewritten to match the real, confirmed behaviour.
+     `RandomModePainter.swift` (new): the picture-mode card (selector, the three pictures, caption,
+     THROW/TWEAK/BACK/KEEP buttons); `laneCard` branches to it at the top, mirroring the existing per-tab
+     switch's own early-branch convention. THROW/TWEAK/BACK/KEEP call the pure functions with each lane's
+     real resolved state and the other three lanes' facts, track per-(lane,tab) bookkeeping (original,
+     session baseline, GOES, waiting, decided), and queue through the landing mechanism.
+  4. **The hold (§5.6) actually changes what's audible.** A SEPARATE, higher-priority override channel
+     (`euclideousHoldOverrides`, same shape and plumbing as the pending-rolls array) rather than reusing
+     the per-tab slot — a throw/tweak must keep landing on its own schedule while a hold is active ("the
+     original keeps playing until the hold ends"), which a shared slot can't represent. Touch-down pushes
+     the original with landing = the next beat (the same bar-line formula, one-beat period); release
+     either cancels outright (if the hold's own start beat hadn't passed — "nothing switches") or
+     schedules a one-shot main-thread timer at the release beat (the same `DispatchQueue.asyncAfter` idiom
+     this page's own PULSE settle-tick already uses) to clear the override. No minimum-duration threshold
+     on the gesture — a literal reading of "a touch that starts on the picture," unlike the 0.3 s hold used
+     elsewhere on this page (output rings, SOLO) — flagged for Paul in case a hold was actually intended.
+  5. **Finishing, undo, the return (§7).** The roll-state model splits "the current roll's own original"
+     (resets after each KEEP, per §6.6) from a new "session baseline" (captured once, held for the whole
+     session — what undo actually needs). `euclideousRandomTabFieldsEqual` (comparing only the tab's own
+     field group) implements "a tab rolled then put back with BACK records nothing." §7.2's ordering
+     (KEEP's press order, then every other touched tab by finishing) hands off to AVC (only it owns
+     `euclideousUndo`/`euclideousSnapshot`) via a new callback; a finish with a still-queued BACK defers
+     the whole computation until it lands, since the equality check needs the post-landing state.
+     **§7.3 (the return highlight) is simplified:** a 600 ms ring fade + a two-bar "KEPT · UNDO TO GO
+     BACK" tag per changed lane, not the full per-control glow (comet strip, HITS/STEPS/OFFSET, the WALK
+     strip, the key row, etc.) the spec also names — explicitly visual-only per the spec itself, no state/
+     undo/correctness stake, left for a follow-up pass.
+  **Confirmed, not assumed, against the real code (§0):** "the one STEPS setter" is
+  `euclideousSliderCommit(.steps,...)` (Derivations.swift) — the landing-write bypasses it, copying the
+  shape the AUTO-ramp writer (`Snapshot.swift`) already uses; chain pinning's own doc comment claims the
+  RHYTHM tab's restart editor "pins both on first edit" but the actual editor code never calls the pin
+  function (only the auto-migration resync loop and this ferry's own commit-write do) — not a blocker,
+  just a pre-existing doc/code mismatch worth knowing about; no existing mechanism queued a change to a
+  future beat anywhere in the codebase before this ferry.
+  **FLAGGED for Paul:** the 150 ms landing-margin constant (a judgment call, easy to retune once heard);
+  `die.face.4` SF Symbol availability at this deployment target is unverified (falls back silently to a
+  blank glyph on device if missing — no compile-time signal either way); the TWEAK button's glyph is
+  `waveform.path` (an approximation, not a custom one-period-sine path as literally specced); §7.3's
+  simplified return highlight (above). **Out of scope, confirmed untouched:** the riff panel, MIX/LANES/
+  FX, a throw-history, rolling LISTEN.
 - **▶ EUCLIDEOUS — RHYTHM tab fixes: restart-engine edges, STEPS, layout fallbacks, accessibility (2026-10-21,
   a follow-up correction ferry to the RHYTHM tab rebuild of 2026-10-19; on `main` directly, four commits
   `65eb372`/`0023f6e`/`2a01893`/`d78955b`; iOS builds clean; macOS Euclideous-scoped suite 698 green throughout;

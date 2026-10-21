@@ -5,6 +5,14 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — RANDOM MODE: the dice, THROW/TWEAK/BACK/KEEP, the hold, finish+undo (2026-10-21; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "RANDOM MODE" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul): the 150 ms landing-margin constant (before a bar/beat line) is a judgment call with no spec number behind it — retune once heard.
+- [ ] DECIDE (Paul): the hold has no minimum-duration threshold (switches from touch-down itself), unlike the 0.3 s hold used elsewhere on this page (output rings, SOLO) — confirm a bare touch-down was actually intended, not a hold timer.
+- [ ] DECIDE (Paul): §7.3's return highlight is simplified to a ring fade + "KEPT · UNDO TO GO BACK" tag, not the full per-control glow the spec also names (the comet strip; HITS/STEPS/OFFSET; the direction row/EVERY/HIT·STEP/ON REST/SHIFT/STRIDE/WALK strip; the key row/PLAYS·RESTS/CHANCE/PLAY AS). Worth the follow-up pass, or is the simplified version enough?
+- [ ] DECIDE (Paul): TWEAK's glyph is `waveform.path` (an SF Symbol approximation), not a custom one-period-sine path as literally specced ("one period, round caps, 2.2 pt stroke") — build the custom path, or keep the symbol?
+- [ ] Not built: rolling the riff panel/MIX/LANES/FX, a throw-history, rolling LISTEN — all explicitly out of scope per the ferry text, noted here only so they're not mistaken for an oversight.
+
 ## ★ EUCLIDEOUS — LANE SOLO: the step-count box becomes a SOLO button (2026-10-21; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "Lane SOLO" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build).
 - [ ] DECIDE (Paul): §5.4 wants solo "within one buffer" but §4.2 says "the same path as the main-out mask"; that path publishes a snapshot one main run-loop turn after the touch, then the next window reads it (a few audio blocks; the build is ≈ 1.7 ms). A dedicated atomic the Router reads would be one buffer but is a second path — say if the hold feels late.

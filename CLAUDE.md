@@ -287,6 +287,23 @@ the same pipeline as any other row; it is not a special-cased render path.
   saved); the render thread sees `latched | held` — through the snapshot AND through a live word the AVC stores in the kernel the instant a button is touched (`Kernel.euclideousSoloLive`, read per window, preferred over the snapshot's mask), and a solo that silences a lane ends its sounding notes and pending repeats at once (`cutSoloSilencedLanes`; LANES mutes still let notes ring out). **ONE decision:** `euclideousLaneMayStrike` (Derivations.swift `// MARK: - LANE SOLO`) — the Router calls it per hit (`lanesSeqMuted`) and in the mute edge sweep, so a solo-silenced lane keeps walking and emits nothing exactly as a LANES-muted one; every
   display calls `euclideousLaneIsDimmed` (muted OR solo-silenced = ONE 42 %, `EuclideousLaneDimStyle`, eased 0.15 s with `.animation(value: dimmed)`; Canvas painters use `EuclideousLaneDimLevels` + `Animatable`). Dimmed everywhere a lane shows: card content (not the SOLO button, not the card ground), riff arrows / rails,
   MIX cells + OUT rows, LANES blocks, FX lane dots / buttons, header + sheet ring quarters. Change the rule in `euclideousLaneMayStrike`, nowhere else.
+- **RANDOM MODE (ferry 2026-10-21, "Fourfold roll").** A dice in the header (BRAND, +52pt, right after redo) turns the four lane cards
+  into pictures of their selected tab (RHYTHM circle / RIFF walk path / NOTES pattern, `RandomModePainter.swift`) while the riff panel and
+  the MIX|LANES|FX panel sit under a dim wash and take no input; a tap anywhere outside the four cards (including the dice again) finishes.
+  THROW/TWEAK (`EuclideousRandom.swift` §8-9 pure functions — role/pyramid-aware, every "which steps hit/which column/is a rest/play list"
+  decision calling the engine's own function, never a second derivation) queue a result through a genuinely new mechanism: **apply-at-a-
+  beat**, the first future-beat landing this codebase has ever needed. `EuclideousPendingRoll` — one per (lane, tab), 12 flat slots
+  (`euclideousRandomPendingSlot`), since a lane may have three independent rolls in flight at once — reaches the render thread via a
+  direct `Kernel` property + a `Router.process()` parameter (the same plain hand-off `Kernel.euclideousSoloLive` already uses, not the
+  Snapshot/SnapParams pipeline — `EuclidLine` is reused wholesale by the persisted document, so a stored field there would leak into the
+  save file). Router overrides exactly the three named argument groups at its one `runEuclidLine` call site; AVC's existing 4 Hz resync
+  loop commits a landed roll into the document (direct field writes + chain-pinning + nil-ing the requested fields, mirroring the AUTO-
+  ramp precedent, never the STEPS setter) and clears its slot. Landing is decided once per render window, not per sample (this engine
+  resolves a lane's pattern once per call; no mid-buffer split exists). The hold (§5.6) is a SEPARATE, higher-priority override channel
+  (`euclideousHoldOverrides`, same shape) so a throw/tweak keeps landing on schedule underneath it. BACK/KEEP, finishing and undo
+  (§7) split each tab's "current roll's own original" (resets per KEEP) from a "session baseline" (captured once, the whole session) —
+  undo records one step per kept card-tab, handed to AVC (`onRandomFinish`) since only it owns `euclideousUndo`/`euclideousSnapshot`.
+  §7.3's return highlight is a simplified ring-fade + tag, not yet the full per-control glow the spec also names.
 - **FX tab (2026-10-18).** Third tab of the sequencer panel (both orientations since the PAGE LAYOUT ferry, 2026-10-19 — in portrait the panel sits beside the riff
   panel at the same width, so its columns match the riff grid's; its six rows now SHARE the panel's height, `euclideousFXRowH`). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
   `SnapParams.euclideousFX` → Router. **ONE decision function** `euclideousFXApply` (Derivations.swift) decides what the rows do to a hit; the Router, the TIE

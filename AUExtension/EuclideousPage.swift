@@ -1599,19 +1599,50 @@ struct EuclideousPage: View {
         return ZStack(alignment: .topLeading) {
             fourfoldHeader(g.hdr, containerW: g.containerW)
                 .offset(x: sp16, y: HM.topMargin)
+            riffGridView(box: box)
+                .frame(width: box.width, height: box.height)
+                .offset(x: page.riff.minX, y: page.riff.minY)
+                .overlay(euclideousRandomPanelDim(cornerRadius: 12))
+                .allowsHitTesting(!euclideousRandomMode)
+            sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)   // FX in portrait too: its columns match the riff grid's (same width)
+                .offset(x: page.seq.minX, y: page.seq.minY)
+                .overlay(euclideousRandomPanelDim(cornerRadius: 12))
+                .allowsHitTesting(!euclideousRandomMode)
+            // RANDOM MODE §1.3: a tap ANYWHERE outside the four lane cards (header incl. the dice, margins,
+            // gutters, the dimmed panels above) finishes — sits above the header/panels but below the lane
+            // cards in z-order, so a card's own controls still get first claim on their own area, and
+            // "tap the dice to finish" falls out of this for free (the dice is outside the lane cards too).
+            if euclideousRandomMode {
+                Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
+                    .onTapGesture { euclideousRandomFinish() }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Finish random mode, keeping what's playing")
+                    .accessibilityAddTraits(.isButton)
+            }
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
             // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
             AnyView(laneCard(0, width: box.width, height: box.height)).offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
             AnyView(laneCard(1, width: box.width, height: box.height)).offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
             AnyView(laneCard(2, width: box.width, height: box.height)).offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
             AnyView(laneCard(3, width: box.width, height: box.height)).offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
-            riffGridView(box: box)
-                .frame(width: box.width, height: box.height)
-                .offset(x: page.riff.minX, y: page.riff.minY)
-            sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)   // FX in portrait too: its columns match the riff grid's (same width)
-                .offset(x: page.seq.minX, y: page.seq.minY)
+            if euclideousRandomMode {
+                Text("TAP OFF THE LANE CARDS TO FINISH · WHAT YOU HEAR IS KEPT")
+                    .font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
+                    .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).truncationMode(.tail)
+                    .frame(width: size.width, height: 14)
+                    .position(x: size.width / 2, y: size.height - 1 - 7)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    /// §1.2: the riff panel + bottom-right panel sit under this wash while random mode is on.
+    @ViewBuilder private func euclideousRandomPanelDim(cornerRadius: CGFloat) -> some View {
+        if euclideousRandomMode {
+            RoundedRectangle(cornerRadius: cornerRadius).fill(Color(red: 12.0/255, green: 14.0/255, blue: 18.0/255, opacity: 0.62))
+                .allowsHitTesting(false)
+        }
     }
 
     // MARK: - FOURFOLD HEADER (ferry "Fourfold header", approved by Paul 2026-10-15) — replaces the old one-row-or-two

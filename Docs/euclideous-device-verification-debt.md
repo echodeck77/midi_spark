@@ -17,6 +17,16 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### RANDOM MODE (2026-10-21)
+- Landings sound clean — no doubled or dropped hit — in AUM at 64 and 1024 buffers; also judge whether the ~150 ms safety margin before a bar/beat line feels too eager or too laggy.
+- The hold's switch on the beat feels immediate enough to compare by ear (touch-down → original, release → current).
+- The three pictures (RHYTHM circle, RIFF path, NOTES pattern) read at a glance at a lane card's real frame (≈381×319 landscape, ≈387×320 portrait).
+- The THROW/TWEAK/BACK/KEEP buttons (two-up and four-up) are comfortable to hit at their real card width.
+- `die.face.4` actually renders (SF Symbols availability unverified at this deployment target — no compile-time signal either way if it's missing).
+- The simplified §7.3 return highlight (a ring fade + "KEPT · UNDO TO GO BACK" tag, not the full per-control glow the spec also names) reads as "these moved" without hiding the values.
+- Tapping off the lane cards (header, margins, gutters, the dimmed riff/bottom panels) reliably finishes and never also presses something underneath.
+- The riff panel + bottom-right panel's dim wash (rgba(12,14,18,0.62)) reads as "inert" without looking broken, in all four lane colours' pictures on top of it.
+
 ### Restart tiles — labels and flash (2026-10-21)
 - The RHYTHM tab's two tiles read "RHYTHM RESTART" / "MELODY RESTART" and are legible at 8 pt; on a narrow card they fall back to "RHYTHM" / "MELODY".
 - The flash reads as "stylish" and in time: each tile flashes on the chain restarts you set and — on FREE — at the pattern's natural restart (RHYTHM: every pass; MELODY: the riff coming back to its first step, which is NOT every pass), in all four lane colours; the sweep, the rim glow and the spinning ↻ don't feel busy at fast rates (1/16 passes every ~1 s).
