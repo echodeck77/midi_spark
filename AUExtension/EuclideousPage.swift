@@ -682,7 +682,11 @@ struct EuclideousStepsStepper: View {
             .accessibilityLabel("Steps, \(line.steps)")
             .accessibilityHint("Double-tap to pick a length")
             .accessibilityAdjustableAction { direction in
-                commitSteps(direction == .increment ? min(16, line.steps + 1) : max(2, line.steps - 1))
+                // §6.2: each VoiceOver swipe is its own undo step, independent of firstWriteDone's
+                // drag-gesture coalescing — mirrors the generic slider's own adjustable action.
+                let target = direction == .increment ? min(16, line.steps + 1) : max(2, line.steps - 1)
+                guard target != line.steps else { return }
+                onCommit(true) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(target)) }
             }
             Button(action: { commitSteps(line.steps > 16 ? 16 : max(2, line.steps - 1)) }) {
                 Image(systemName: "minus").font(.system(size: 14, weight: .heavy))
@@ -2558,7 +2562,7 @@ struct EuclideousPage: View {
                         // picker's own close button below.
                         .contentShape(Rectangle().path(in: CGRect(x: 0, y: -2, width: 28, height: 24)))
                 }
-                .accessibilityLabel("Close the restart editor")
+                .accessibilityLabel("Close restarts")   // RHYTHM fixes §6.1 (2026-10-21): the spec's exact wording
             }
             .frame(height: 20)
             .padding(.leading, 4)
