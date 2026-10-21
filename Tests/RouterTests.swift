@@ -14502,6 +14502,34 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(Set(ons.map { $0.vel }).count, 4, "SPREAD + SHAPE give the pass real movement")
     }
 
+    /// §6.3: the LANES roll draws each hit's GATE length, so with APPLY TO including GATE it must draw the length the Router actually sounds — same factor, same hits, every pass of 8 bars.
+    func testTheLanesRollDrawsTheGateLengthTheRouterSoundsWithDynamicsOn() {
+        let l = dynLine(pulses: 5, steps: 8, rate: .r1_8, gate: 0.5, depth: 60, accents: 2, shape: 50, spread: 70, target: .both)
+        let ranks = [1, 2, 3, 4, 5, 6, 7, 8]
+        guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { return XCTFail("no cfg") }
+        let roll = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 32, minGateBeats: 0.005 * 2) { c, _ in ranks[c] }
+        let e = fxRun(fxBox([l], ranks: ranks), beats: 31.9)
+        let evs = e.events.filter { $0.cable == 1 && ($0.status == 0x90 || $0.status == 0x80) }
+        XCTAssertEqual(roll.count, 40)
+        var checked = 0, shorter = 0
+        for (i, hit) in roll.enumerated() {
+            guard let on = evs.first(where: { $0.status == 0x90 && abs(Double($0.sample) / 24_000 - hit.beat) < 0.01 }),
+                  let off = evs.first(where: { $0.status == 0x80 && $0.note == on.note && $0.sample > on.sample }) else { XCTFail("hit \(i) at beat \(hit.beat): no sounding"); continue }
+            XCTAssertEqual(Double(off.sample - on.sample) / 24_000, hit.gateBeats, accuracy: 0.001, "hit \(i) at beat \(hit.beat)")
+            checked += 1
+            if hit.gateBeats < 0.5 * 0.5 - 0.001 { shorter += 1 }   // under the unscaled 50 % of a 0.5-beat gap
+        }
+        XCTAssertEqual(checked, 40); XCTAssertGreaterThan(shorter, 10, "the roll really does draw shorter bars")
+        // APPLY TO VEL: the roll is untouched
+        var v = l; v.dynTarget = .vel
+        guard let cfgV = euclideousWalkLaneConfig(lane: 0, lines: [v], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { return XCTFail("no cfg") }
+        var flat = l; flat.dynDepth = 0
+        guard let cfgF = euclideousWalkLaneConfig(lane: 0, lines: [flat], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { return XCTFail("no cfg") }
+        let rv = euclideousLaneRollHits(cfg: cfgV, windowStart: 0, windowBeats: 8, minGateBeats: 0.01) { c, _ in ranks[c] }
+        let rf = euclideousLaneRollHits(cfg: cfgF, windowStart: 0, windowBeats: 8, minGateBeats: 0.01) { c, _ in ranks[c] }
+        XCTAssertEqual(rv, rf, "APPLY TO VEL (and DEPTH 0) draw the unscaled roll")
+    }
+
     // §9.12 — stuck notes
     func testDynamicsDepth80Spread100BothWithFXGateAndTieAndTransportRestartsLeavesNothingSounding() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]

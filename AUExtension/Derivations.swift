@@ -4542,6 +4542,8 @@ struct EuclideousWalkLaneConfig {
     var lane: Int = 0
     var playsRiff: Bool = true
     var cyc: Double = 4
+    /// RHYTHM DYNAMICS (2026-10-21, §6.3): the lane's five settings — the roll draws each bar's GATE length, so it scales it by the same factor the Router does.
+    var dynamics = EuclideousDynamics()
 }
 
 /// What `Router.runEuclidLine`'s `passesListenRhythmFilter` reads for a WITH / GAPS lane, captured once: the PARTNER's own
@@ -4644,7 +4646,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                     swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats),
                                     riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
                                     invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved,
-                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc)
+                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc, dynamics: EuclideousDynamics(L))
 }
 /// A tick's REAL onset beat — what the note-on is scheduled at (swing-warped), the time a tag must arrive.
 func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Double {
@@ -7120,6 +7122,8 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
     let laneHasNoteFX = c.fx.rowHasCells(4, lane: c.lane)
     let laneHasTieFX = c.fx.rowHasCells(2, lane: c.lane)
     let fxLive = c.playsRiff && c.riffOn && !c.fx.isInert
+    var rollCycleHits = 0
+    for r in 0..<cycleLen where c.buf[euclidReadIndex(r, n: c.n, dir: c.dir)] { rollCycleHits += 1 }
     var tick = Int64((windowStart / c.sub - 1e-9).rounded(.up))
     var out: [EuclideousRollHit] = []
     while true {
@@ -7143,7 +7147,13 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
             rank = euclideousRiffStepRanks(ranks: [written], invert: c.invert, transpose: c.transpose)[0]
             if fxHit.noteOffset != 0 && written >= 1 { rank = max(1, min(8, rank + fxHit.noteOffset)) }   // drawing only: NOTE's offset, clamped to the 1–8 rows
         }
-        let g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
+        var g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
+        // RHYTHM DYNAMICS §6.3 / §5.4: when APPLY TO includes GATE the sounded gate is × f — the same `euclideousDynamicsFactor` at the same hit position the Router uses (a legato gate is not scaled).
+        if !c.dynamics.isFlat, c.dynamics.onGate {
+            let ti = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
+            let pos = euclideousDynamicsPosition(tick: tick, raw: ti.raw, hitsUpTo: ti.hitsUpTo, cycleHits: rollCycleHits, cycleLen: cycleLen, sub: c.sub, chains: c.chains)
+            g = euclideousDynamicsScaledGate(g, factor: euclideousDynamicsFactor(c.dynamics, lane: c.lane, at: pos))
+        }
         let gap = euclideousNextChainHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
                                                   chains: c.chains, legacySpanBeats: c.spanBeats)
         var tie = 0.0
