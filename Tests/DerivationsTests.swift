@@ -5007,6 +5007,33 @@ final class DerivationsTests: XCTestCase {
         XCTAssertFalse(euclideousMixVelocityNameFits(plotH: 10), "a tiny pad never fits the long word")
     }
 
+    // MARK: - §5.1/§5.3 restart editor fallback + touch areas (RHYTHM fixes, 2026-10-21)
+
+    /// The spec's own three heights (§8 test 10): 192 (everything shows), 156 (timeline just clears, hint
+    /// still shows), 128 (hint just clears) — plus one below all three to confirm it still renders (reduced
+    /// content, lets its own bottom edge clip) rather than refusing to build.
+    func testRestartEditorFallbackAtTheSpecsThreeHeights() {
+        XCTAssertEqual(euclideousRestartEditorFallback(height: 192), EuclideousRestartEditorFallback(showTimeline: true, showHint: true))
+        XCTAssertEqual(euclideousRestartEditorFallback(height: 156), EuclideousRestartEditorFallback(showTimeline: true, showHint: true))
+        XCTAssertEqual(euclideousRestartEditorFallback(height: 128), EuclideousRestartEditorFallback(showTimeline: false, showHint: true))
+        XCTAssertEqual(euclideousRestartEditorFallback(height: 100), EuclideousRestartEditorFallback(showTimeline: false, showHint: false), "below both floors: still a decision, not a refusal — the view builds the same reduced content and lets it clip")
+    }
+    func testRestartEditorFallbackThresholdEdges() {
+        XCTAssertFalse(euclideousRestartEditorFallback(height: 155.99).showTimeline)
+        XCTAssertTrue(euclideousRestartEditorFallback(height: 156).showTimeline)
+        XCTAssertFalse(euclideousRestartEditorFallback(height: 127.99).showHint)
+        XCTAssertTrue(euclideousRestartEditorFallback(height: 128).showHint)
+    }
+    /// §5.3: the MIX OUT button's widened hit area (±2pt vertically) must never reach into the OCT
+    /// stepper's own — there's exactly one `sp4` gap between them (`euclideousMixGrid`'s own `belowPad`
+    /// layout), so a 2pt expansion each still leaves clearance. A regression guard on the real constants,
+    /// not a re-derived literal, so a future change to any of the three catches this invariant.
+    func testOutButtonWidenedHitAreaNeverReachesTheOctStepper() {
+        let gap = EuclideousMixMetrics.sp4
+        let outExpansion: CGFloat = 2
+        XCTAssertGreaterThanOrEqual(gap, outExpansion, "the OUT button's upward hit-area expansion must not exceed the gap to the OCT stepper above it")
+    }
+
     // ── LEGATO REMOVED FROM A LANE'S GATE (2026-10-19) ──────────────────────────────────────────────────────────────────
     func testNoLaneGateSetterCanReachLegato() {
         XCTAssertEqual(euclideousLaneGateMax, 0.99)

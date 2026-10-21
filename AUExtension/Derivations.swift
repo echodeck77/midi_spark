@@ -5294,11 +5294,27 @@ enum EuclideousPageMetrics {
 /// upper zone the rest = card height − 188).
 enum EuclideousLaneCardMetrics {
     static let inset: CGFloat = 10, rowGap: CGFloat = 6, cometRowH: CGFloat = 44, tabRowH: CGFloat = 28
-    /// RHYTHM's picker / restart editor covers both zones and is built only when they reach this (`tabContent`).
+    /// RHYTHM's STEPS picker covers both zones and is built only when they reach this (`tabContent`); the
+    /// restart editor no longer has a hard floor — see `euclideousRestartEditorFallback` below (RHYTHM
+    /// fixes §5.1, 2026-10-21).
     static let rhythmZonesFloor: CGFloat = 192
+    /// RHYTHM fixes §5.1 — the restart editor's own progressive fallback thresholds: below this, each
+    /// section drops its 16-cell timeline (+ the sp4 after it); below `restartEditorHintFloor`, each
+    /// section drops its hint line too (+ the sp4 before it); below THAT, the editor still renders (the
+    /// same reduced content) and lets its own bottom edge clip rather than refusing to build at all.
+    static let restartEditorTimelineFloor: CGFloat = 156
+    static let restartEditorHintFloor: CGFloat = 128
     static var chromeH: CGFloat { cometRowH + tabRowH + inset * 2 + rowGap * 2 }
     static func innerWidth(cardWidth: CGFloat) -> CGFloat { max(1, cardWidth - inset * 2) }
     static func contentAreaH(cardHeight: CGFloat) -> CGFloat { max(1, cardHeight - chromeH) }
+}
+/// RHYTHM fixes §5.1 (2026-10-21) — what the restart editor shows at a given height, as ONE pure decision
+/// the view just reads (not re-derived inline), so a test can pin the exact 192/156/128pt thresholds the
+/// spec names without needing the (untestable) SwiftUI view itself.
+struct EuclideousRestartEditorFallback: Equatable { var showTimeline: Bool; var showHint: Bool }
+func euclideousRestartEditorFallback(height: CGFloat) -> EuclideousRestartEditorFallback {
+    EuclideousRestartEditorFallback(showTimeline: height >= EuclideousLaneCardMetrics.restartEditorTimelineFloor,
+                                    showHint: height >= EuclideousLaneCardMetrics.restartEditorHintFloor)
 }
 
 /// The riff panel's chrome (RIFF PANEL ferry, 2026-10-19 §1): sp8 padding all round; the four riff tabs (20 tall); 6pt (a drawing value); the grid (the 30pt

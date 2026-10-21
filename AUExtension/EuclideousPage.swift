@@ -2308,18 +2308,17 @@ struct EuclideousPage: View {
                     patternControlBlock(idx, line, accent, fullWidth: fullWidth)
                 }
                 // §1.5/§1.7: the picker and the restart editor cover both zones, full content width, from
-                // the top of the upper zone — only one of the two open at a time (§1.6), and only built when
-                // the two zones together reach the spec's own 192pt floor (a too-short layout reports, builds
-                // neither — device/layout-size reporting is out of this code path's reach, so this silently
-                // just doesn't render rather than crashing; report any layout that hits it).
-                if pickerEditorH >= 192 {
-                    if stepsPickerLane == idx {
+                // the top of the upper zone — only one of the two open at a time (§1.6). The STEPS picker
+                // keeps its own 192pt floor (unchanged, not in this ferry's scope); the restart editor now
+                // builds at ANY height and degrades itself (RHYTHM fixes §5.1 — see its own doc comment).
+                if stepsPickerLane == idx {
+                    if pickerEditorH >= 192 {
                         stepsPicker(idx, line, accent, width: fullWidth, height: pickerEditorH)
-                    } else if restartEditorLane == idx {
-                        let geo = euclideousLaneStepGeometry(lines: lines, lane: idx, defaultRateBeats: 0.25)
-                        let lapBeats = Double(geo.cycleLen) * geo.sub
-                        restartEditor(idx, line, accent, width: fullWidth, height: pickerEditorH, lapBeats: lapBeats)
                     }
+                } else if restartEditorLane == idx {
+                    let geo = euclideousLaneStepGeometry(lines: lines, lane: idx, defaultRateBeats: 0.25)
+                    let lapBeats = Double(geo.cycleLen) * geo.sub
+                    restartEditor(idx, line, accent, width: fullWidth, height: pickerEditorH, lapBeats: lapBeats)
                 }
                 // DYNAMICS ferry §3.1/§3.6: the same frame (both zones), built at whatever height the layout gives — under 208 it drops its RESULT row, under 160 its bottom edge clips.
                 if dynamicsEditorLane == idx {
@@ -2509,10 +2508,16 @@ struct EuclideousPage: View {
     }
 
     /// §6.2 — the restart editor: both chains, each a FREE + 4-link row, a read-only 16-cell timeline and a hint line.
+    /// RHYTHM fixes §5.1 (2026-10-21): a progressive fallback, not a hard refuse-below-192 gate — the caller now
+    /// builds this at ANY height; it drops each section's timeline (+ its sp4) first (below 156pt), then each
+    /// section's hint line (+ its sp4) too (below 128pt), and only below that lets its own bottom edge clip.
     private func restartEditor(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat, lapBeats: Double) -> some View {
         let rhythmChain = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
         let melodyChain = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
         let contentW = max(1, width - sp8 * 2)
+        let fallback = euclideousRestartEditorFallback(height: height)
+        let showTimeline = fallback.showTimeline
+        let showHint = fallback.showHint
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 (Text("RESTARTS").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48).foregroundColor(Color(hex: 0xAAB0BA))
@@ -2524,19 +2529,24 @@ struct EuclideousPage: View {
                         .foregroundColor(Color(hex: 0xAAB0BA))
                         .frame(width: 28, height: 20)
                         .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                        // RHYTHM fixes §5.3 (2026-10-21): the drawn size stays 28×20; the hit area extends 2pt
+                        // up/down ONLY (28×24, not 32×24 — `.inset(by:)` would widen it too), matching the
+                        // picker's own close button below.
+                        .contentShape(Rectangle().path(in: CGRect(x: 0, y: -2, width: 28, height: 24)))
                 }
                 .accessibilityLabel("Close the restart editor")
             }
             .frame(height: 20)
             .padding(.leading, 4)
             Spacer(minLength: sp4)
-            restartChainSection(idx, name: "RHYTHM", unitWord: "bar", chain: rhythmChain, rhythmChain: rhythmChain, accent: accent, isMelody: false, width: contentW, lapBeats: lapBeats)
+            restartChainSection(idx, name: "RHYTHM", unitWord: "bar", chain: rhythmChain, rhythmChain: rhythmChain, accent: accent, isMelody: false, width: contentW, lapBeats: lapBeats, showTimeline: showTimeline, showHint: showHint)
             Spacer(minLength: sp8)
-            restartChainSection(idx, name: "MELODY", unitWord: "pass", chain: melodyChain, rhythmChain: rhythmChain, accent: accent, isMelody: true, width: contentW, lapBeats: lapBeats)
+            restartChainSection(idx, name: "MELODY", unitWord: "pass", chain: melodyChain, rhythmChain: rhythmChain, accent: accent, isMelody: true, width: contentW, lapBeats: lapBeats, showTimeline: showTimeline, showHint: showHint)
             Spacer(minLength: 0)
         }
         .padding(sp8)
         .frame(width: width, height: height, alignment: .top)
+        .clipped()
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
         .shadow(color: Color.black.opacity(0.5), radius: 8, x: 0, y: 6)
@@ -2546,7 +2556,7 @@ struct EuclideousPage: View {
     private func euclideousRestartEditorSetChain(_ idx: Int, melody: Bool, links: [UInt8]) {
         edit(idx) { l in if melody { l.restartMelodyPasses = links } else { l.restartRhythmBars = links } }
     }
-    private func restartChainSection(_ idx: Int, name: String, unitWord: String, chain: EuclideousRestartChain, rhythmChain: EuclideousRestartChain, accent: Color, isMelody: Bool, width: CGFloat, lapBeats: Double) -> some View {
+    private func restartChainSection(_ idx: Int, name: String, unitWord: String, chain: EuclideousRestartChain, rhythmChain: EuclideousRestartChain, accent: Color, isMelody: Bool, width: CGFloat, lapBeats: Double, showTimeline: Bool, showHint: Bool) -> some View {
         let labelW: CGFloat = 56
         let btnGap: CGFloat = sp4
         let btnsW = max(1, width - labelW - btnGap)
@@ -2573,8 +2583,12 @@ struct EuclideousPage: View {
                     restartLinkSlot(idx, isMelody: isMelody, chain: chain, slot: slot, unitWord: unitWord, accent: accent, width: btnW, height: rowH)
                 }
             }
-            restartTimeline(chain: chain, rhythmChain: isMelody ? rhythmChain : chain, accent: accent, isMelody: isMelody, unitWord: unitWord, labelW: labelW, width: width, barBeats: clock.beatsPerBar, lapBeats: lapBeats)
-            restartHint(name: name, chain: chain, isMelody: isMelody, labelW: labelW, barBeats: clock.beatsPerBar, lapBeats: lapBeats)
+            if showTimeline {
+                restartTimeline(chain: chain, rhythmChain: isMelody ? rhythmChain : chain, accent: accent, isMelody: isMelody, unitWord: unitWord, labelW: labelW, width: width, barBeats: clock.beatsPerBar, lapBeats: lapBeats)
+            }
+            if showHint {
+                restartHint(name: name, chain: chain, isMelody: isMelody, labelW: labelW, barBeats: clock.beatsPerBar, lapBeats: lapBeats)
+            }
         }
     }
     private func restartLinkSlot(_ idx: Int, isMelody: Bool, chain: EuclideousRestartChain, slot: Int, unitWord: String, accent: Color, width: CGFloat, height: CGFloat) -> some View {
@@ -2868,6 +2882,9 @@ struct EuclideousPage: View {
                         .foregroundColor(Color(hex: 0xAAB0BA))
                         .frame(width: 28, height: 20)
                         .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                        // RHYTHM fixes §5.3 (2026-10-21): drawn size stays 28×20; hit area extends 2pt up/down
+                        // only (28×24).
+                        .contentShape(Rectangle().path(in: CGRect(x: 0, y: -2, width: 28, height: 24)))
                 }
                 .accessibilityLabel("Close the steps picker")
             }
@@ -2972,7 +2989,10 @@ struct EuclideousPage: View {
                             EuclideousOutputCueRing(kind: .mixButton, held: r.held, reduceMotion: reduceMotion).id(r.token)
                         }
                     }
-                    .contentShape(Rectangle())
+                    // RHYTHM fixes §5.3 (2026-10-21): drawn size stays btnW×height (height=outRowH=20); the
+                    // hit area extends 2pt up/down only (to 24 tall) — there's exactly a 4pt gap (sp4) to the
+                    // OCT stepper above, so this never reaches into it.
+                    .contentShape(Rectangle().path(in: CGRect(x: 0, y: -2, width: btnW, height: height + 4)))
                     .onTapGesture { edit(lane) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
                     .zIndex({ if let r = ring, r.output == b, r.targets.contains(.mixOutButton(lane: lane)) { return 1.0 }; return 0.0 }())
                     .accessibilityAddTraits(.isButton)
