@@ -1535,6 +1535,7 @@ struct MachineParams: Codable, Equatable {
     var euclideousLooperStartRanks: [Int]? = nil      // 8, frozen at B
     var euclideousLooperEvents: [EuclideousLoopEvent]? = nil    // capped 128/column at the write site (§3.4)
     var mainOutMask: UInt8? = nil // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07) — only meaningful for Euclideous's cell; nil ⇒ 0b1111 (all open, byte-identical for every other chain)
+    var soloMask: UInt8? = nil    // LANE SOLO (2026-10-21): the EFFECTIVE solo mask (latched | held), composed at publish — only meaningful for Euclideous's cell; nil ⇒ 0 (no solo, byte-identical for every other chain)
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
     var burstSpanN: Int? = nil                // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from burstSpan)
@@ -3024,6 +3025,11 @@ struct PluginState: Codable, Equatable {
     // (all open, byte-identical to every doc saved before this field existed).
     var euclideousMainOutMask: UInt8? = nil
     var euclideousMainOutMaskResolved: UInt8 { (euclideousMainOutMask ?? 0b1111) & 0x0F }
+    // LANE SOLO (ferry 2026-10-21, §4.1): the LATCHED solo mask — bit i = lane i soloed. Stored, saved and handed to the render thread exactly as `euclideousMainOutMask` is (a document field → the AVC's @State →
+    // `MachineParams.soloMask` → `SnapParams.soloMask`; no undo; a preset load replaces it with the preset's own). nil ⇒ 0 = no solo, so every pre-feature document sounds as before. The HELD solo is UI state only and
+    // is deliberately not a field of anything saved.
+    var euclideousSoloMask: UInt8? = nil
+    var euclideousSoloMaskResolved: UInt8 { (euclideousSoloMask ?? 0) & 0x0F }
     // delta §6a CLAIM v2 LEAK %: per-claimant bleed — a claimed pitch class passes on non-claimants at this
     // scaled velocity (0 = full suppression = v1; the hole becomes a SHADOW). Persisted. Optional → nil = all 0.
     var claimLeak: [Int]? = nil

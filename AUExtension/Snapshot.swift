@@ -173,6 +173,8 @@ struct SnapParams {
     // EUCLIDEOUS PAGE REWORK (2026-10-07): mainOutMask gates every chain's emission uniformly (default
     // all-open, byte-identical for every non-Euclideous processor).
     var mainOutMask: UInt8 = 0b1111
+    // LANE SOLO (2026-10-21): bit i = Euclideous lane i is soloed (latched | held). 0 (the default, and every non-Euclideous cell) = no solo ⇒ the Router's output is unchanged.
+    var soloMask: UInt8 = 0
     // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — SUPERSEDES the old per-lane
     // (Paul 2026-10-08) `laneSrcChanMasks: [UInt16]` entirely: one resolved channel mask for the WHOLE page
     // when the global source is MIDI (0xFFFF default — "any live input"; irrelevant for KEY/CHORDS, which

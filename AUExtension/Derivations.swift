@@ -9517,3 +9517,85 @@ func euclideousDynamicsPreviewAccessibility(factors: [Double], target: EuclidDyn
 }
 /// §8.1: the DYNAMICS row's spoken value (its label is "Dynamics").
 func euclideousDynamicsRowAccessibilityValue(depth: Int) -> String { depth <= 0 ? "flat" : "depth \(depth) percent" }
+
+// MARK: - LANE SOLO (ferry 2026-10-21)
+// The step-count box at the end of each lane's comet row became a SOLO button. Tap latches (additive); a hold (≥ 300 ms) solos while held. While any lane is soloed every other lane is SILENT (it keeps walking,
+// exactly as a LANES-muted lane does) and GREYED OUT to the page's 42 % everywhere that lane shows. Everything below is pure: the Router and every dim call `euclideousLaneMayStrike` /
+// `euclideousLaneIsDimmed` (§5.1 — no second derivation anywhere), the SOLO button calls the press machine and the look. Mask 0 changes nothing, bit for bit.
+
+/// §4.3: what the engine and every display use — the latched mask or the held one (bit i = lane i), four bits.
+@inline(__always) func euclideousSoloEffective(latched: UInt8, held: UInt8) -> UInt8 { (latched | held) & 0x0F }
+/// A lane is SOLO-SILENCED when the effective mask is not 0 and does not contain it (§6 preamble).
+@inline(__always) func euclideousSoloSilences(lane: Int, soloMask: UInt8) -> Bool {
+    let m = soloMask & 0x0F
+    return m != 0 && lane >= 0 && lane < 4 && (m >> UInt8(lane)) & 1 == 0
+}
+/// §5.1 — may the lane sound at this moment? Its PLAY state allows it, the LANES sequencer's cell doesn't mute it (`muteAudible` = `euclideousLaneAudible`), and the solo mask is 0 or contains the lane.
+/// The Router calls it per hit and in its mute edge sweep; `euclideousLaneIsDimmed` below is the same question for the displays.
+@inline(__always) func euclideousLaneMayStrike(lane: Int, soloMask: UInt8, muteAudible: Bool, enabled: Bool) -> Bool {
+    enabled && muteAudible && !euclideousSoloSilences(lane: lane, soloMask: soloMask)
+}
+/// §6: does a view that shows this lane draw it at the OFF-dim 42 %? A lane the LANES grid mutes at this beat OR the solo mask silences — ONE dim, never both multiplied. This is `euclideousLaneMayStrike` with the
+/// play state taken out (a stopped lane is shown by its play button, not greyed).
+@inline(__always) func euclideousLaneIsDimmed(lane: Int, soloMask: UInt8, muteAudible: Bool) -> Bool {
+    !euclideousLaneMayStrike(lane: lane, soloMask: soloMask, muteAudible: muteAudible, enabled: true)
+}
+/// The dimmed lanes' 0.42, in one place (the page's existing OFF-dim value) and the ease every dim uses (§6: 0.15 s both ways).
+enum EuclideousLaneDimStyle {
+    static let opacity = 0.42
+    static let easeSeconds = 0.15
+}
+/// The four lanes' dim flags for a given solo mask (LANES-mute is beat-derived and added by the caller where it applies).
+func euclideousSoloSilencedLanes(soloMask: UInt8) -> [Bool] { (0..<4).map { euclideousSoloSilences(lane: $0, soloMask: soloMask) } }
+
+// ── tap vs hold (§3) ────────────────────────────────────────────────────────────────────────────────────
+
+/// §3.2 / §3.3: the latched value AFTER a press of `pressSeconds`, from the latched value before. A tap (under 300 ms, the header rings' threshold) toggles it; a hold (300 ms or more) leaves it exactly as it was —
+/// a hold never toggles. Touch-down already counted the lane as soloed (§3.1), so the "off + tap → on" case changes nothing the touch hadn't already shown.
+func euclideousSoloLatchAfter(latchedBefore: Bool, pressSeconds: Double) -> Bool {
+    pressSeconds >= EuclideousRingPress.holdSeconds ? latchedBefore : !latchedBefore
+}
+/// One SOLO button's touch, as a pure state machine (the view owns the timer and the clock): down at once (the lane counts as soloed from touch-down, §3.1); after 300 ms the HELD look; whatever lifts it — wherever the
+/// finger is, a slide-off never cancels (§3.4) — decides tap or hold by DURATION; a touch the system cancels ends as a hold would (it never toggles). Unlike `EuclideousRingPress` there is no drag-cancel.
+struct EuclideousSoloPress: Equatable {
+    enum Release: Equatable {
+        case none
+        /// The touch ended; `latchToggles` is true for a tap. The caller clears the held bit and, for a tap, flips the latched one — in ONE update.
+        case ended(latchToggles: Bool)
+    }
+    private(set) var down = false
+    private(set) var holdFired = false
+    private(set) var downAt: Double = 0
+    /// The held look (§2.3): from 300 ms until release.
+    var showsHeldLook: Bool { down && holdFired }
+    mutating func touchDown(at now: Double) { down = true; holdFired = false; downAt = now }
+    /// The 300 ms timer fired while still down.
+    mutating func holdTimerFired() { if down { holdFired = true } }
+    mutating func touchEnded(at now: Double) -> Release {
+        guard down else { return .none }
+        let isHold = holdFired || now - downAt >= EuclideousRingPress.holdSeconds
+        self = EuclideousSoloPress()
+        return .ended(latchToggles: !isHold)
+    }
+    /// A cancelled touch (the system took it, the view went away): ends as a hold would — held cleared, latch untouched.
+    mutating func touchCancelled() -> Release {
+        guard down else { return .none }
+        self = EuclideousSoloPress()
+        return .ended(latchToggles: false)
+    }
+}
+
+// ── the button's look and words (§2.3, §7.1) ────────────────────────────────────────────────────────────
+
+enum EuclideousSoloButtonLook: Equatable { case off, latched, held }
+/// §2.3: OFF (#2A2D34 + 1 pt #3A3E47 inner border, label #AAB0BA), LATCHED (lane100, no border, label #0D0F14), HELD (#DFE3EA, no border, label #0D0F14 — from 300 ms until release, whether or not it was latched).
+func euclideousSoloButtonLook(latched: Bool, heldLook: Bool) -> EuclideousSoloButtonLook { heldLook ? .held : (latched ? .latched : .off) }
+func euclideousSoloAccessibilityLabel(lane: Int) -> String { "Solo lane \(lane + 1)" }
+func euclideousSoloAccessibilityValue(latched: Bool) -> String { latched ? "on" : "off" }
+let euclideousSoloAccessibilityHint = "Tap to latch; hold to solo while held"
+/// §7.2: what a solo-silenced lane's value / label adds, as the silent-lane look adds ", silent at this step".
+let euclideousSilencedBySoloPhrase = "silenced by solo"
+func euclideousAppendSilencedBySolo(_ s: String, silenced: Bool) -> String {
+    guard silenced else { return s }
+    return s.isEmpty ? euclideousSilencedBySoloPhrase : s + ", " + euclideousSilencedBySoloPhrase
+}

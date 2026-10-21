@@ -850,6 +850,7 @@ enum SnapshotBuilder {
         if let r = p.euclideousLooperStartRanks { out.euclideousLooperStartRanks = r.count == 8 ? r : (0..<8).map { $0 < r.count ? r[$0] : 0 } }
         out.euclideousLooperEvents = p.euclideousLooperEvents ?? []
         out.mainOutMask = (p.mainOutMask ?? 0b1111) & 0x0F   // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07); nil ⇒ all-open, byte-identical for every other chain
+        out.soloMask = (p.soloMask ?? 0) & 0x0F               // LANE SOLO (2026-10-21): nil ⇒ no solo, byte-identical for every other chain
         if let v = p.burstSpan { out.burstSpan = v }
         out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
         if let v = p.burstMode { out.burstMode = v }
