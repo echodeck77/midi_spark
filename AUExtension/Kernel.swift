@@ -133,6 +133,13 @@ final class Kernel {
     /// `soloMask` stays the fallback for a session where no page has spoken.
     private var euclideousSoloLive: UInt16 = 0
     func setEuclideousSoloLive(_ mask: UInt8) { euclideousSoloLive = 0x100 | UInt16(mask & 0x0F) }
+    /// RANDOM MODE ferry (§6.3): one pending THROW/TWEAK/BACK/hold override per lane, carrying the beat it
+    /// takes effect at — the SAME plain-var hand-off `euclideousSoloLive` above already uses (set from the
+    /// main thread the instant a roll is queued or a hold starts/ends; read once per window). Never part of
+    /// the document/SnapshotBox — the ferry's landing beat already carries a safety margin (the ferry text's
+    /// own §6.1) comfortably wider than one render block, so this hand-off's staleness tolerance is harmless.
+    private var euclideousPendingRolls: [EuclideousPendingRoll?] = [nil, nil, nil, nil]
+    func setEuclideousPendingRolls(_ rolls: [EuclideousPendingRoll?]) { euclideousPendingRolls = rolls }
     func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).
@@ -1080,6 +1087,7 @@ final class Kernel {
                         velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
                         euclideousAllNotesOff: euclideousAllNotesOffRequested,
                         euclideousSoloLive: euclideousSoloLive,
+                        euclideousPendingRolls: euclideousPendingRolls,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewMachineIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),

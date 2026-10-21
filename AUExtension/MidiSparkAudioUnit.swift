@@ -570,6 +570,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiEuclideousSoloMask() -> UInt8 { document.euclideousSoloMaskResolved }
     /// LANE SOLO: the effective mask (latched | held) straight to the render thread — no snapshot in the way. Main thread.
     func setEuclideousSoloLive(_ mask: UInt8) { kernel.setEuclideousSoloLive(mask) }   // LANE SOLO (2026-10-21): the LATCHED mask
+    /// RANDOM MODE ferry: a per-lane pending THROW/TWEAK/BACK/hold override straight to the render thread — same hand-off as setEuclideousSoloLive above. Main thread.
+    func setEuclideousPendingRolls(_ rolls: [EuclideousPendingRoll?]) { kernel.setEuclideousPendingRolls(rolls) }
     // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
     func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }
     func setEuclideousMidiInChannelMask(_ mask: UInt16) { editDocument { $0.euclideousMidiInChannelMask = mask } }

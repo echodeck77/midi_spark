@@ -364,6 +364,11 @@ struct DiagView: View {
     // The effective mask `latched | held` is what reaches the render thread (`BuildPage.buildPublishScene` → `MachineParams.soloMask` → `SnapParams.soloMask`).
     @State var euclideousSoloMask: UInt8 = 0
     @State var euclideousSoloHeld: UInt8 = 0
+    // RANDOM MODE ferry (§6): one pending THROW/TWEAK/BACK/hold override per lane — UI-only, never saved, never
+    // undoable (§1.1). Mirrored straight to the render thread (`au.setEuclideousPendingRolls`, the same plain
+    // hand-off as `euclideousSoloHeld`'s own `setEuclideousSoloLive`) the instant it changes; the 4 Hz resync
+    // loop below commits a landed roll's fields into the document and clears its slot.
+    @State var euclideousPendingRolls: [EuclideousPendingRoll?] = [nil, nil, nil, nil]
     // FOURFOLD SETTINGS (2026-10-15 ferry): same live-mirror treatment as every field above.
     @State var euclideousMidiInChannelMask: UInt16 = 0xFFFF
     @State var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying
@@ -1580,6 +1585,29 @@ struct DiagView: View {
                     euclideousLines = lines
                     au.editDocument { $0.euclideousLines = lines }
                     buildPublishScene()   // `euclideousResynced`'s own publish (above) already ran this tick — this block lands after it, so it republishes directly
+                }
+            }
+            // RANDOM MODE ferry §6.3/§6.7: the render thread already switched exactly on time (its own per-tick
+            // sample-accurate check, Router.swift); this main-thread commit is pure bookkeeping — write the
+            // landed roll into the document so it's the live truth going forward, and clear its slot so Router
+            // stops overriding a lane the document now already agrees with. The ~1/4 s poll-tick lag this
+            // tolerates is harmless (not an audio-timing guarantee).
+            if euclideousPendingRolls.contains(where: { $0 != nil }) {
+                var lines = euclideousLines
+                var rolls = euclideousPendingRolls
+                var landedAny = false
+                for i in lines.indices where i < rolls.count {
+                    guard let roll = rolls[i], euclideousRandomShouldApply(hostBeat: nd.beat, landingBeat: roll.landingBeat) else { continue }
+                    euclideousRandomCommitPendingRoll(roll, into: &lines[i])
+                    rolls[i] = nil
+                    landedAny = true
+                }
+                if landedAny {
+                    euclideousPendingRolls = rolls
+                    au.setEuclideousPendingRolls(rolls)
+                    euclideousLines = lines
+                    au.editDocument { $0.euclideousLines = lines }
+                    buildPublishScene()
                 }
             }
             meters.pulse.noteTransport(playing: nd.effectivePlaying, at: Date())   // PULSE: a start drops the last run's strikes, a stop starts the 1.5 s settle

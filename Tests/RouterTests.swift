@@ -14601,4 +14601,75 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertTrue(open.values.allSatisfy { $0 == 0 }, "every note-on has its note-off")
     }
+
+    // MARK: - RANDOM MODE ferry (§13 tests 9-10) — the apply-at-a-beat landing mechanism.
+    // GRANULARITY, flagged plainly (ferry report §16.2): a landing is decided ONCE per `emitGeneratorRow`/
+    // `emitTickRow` call (the render WINDOW's start beat), not per sample — `runEuclidLine` resolves a
+    // lane's whole pattern once per call and has no mechanism to split a window mid-buffer. These tests
+    // therefore pick a landing beat that is itself a hit position in BOTH the old and new pattern (the lap
+    // downbeat), so the one window that straddles it can't misattribute that hit either way — proving the
+    // mechanism switches at the right beat at the granularity it actually operates at, not claiming
+    // sample-exactness this architecture doesn't have.
+
+    private func euclideousRandomLandingFixture() -> (box: SnapshotBox, pool: NotePool) {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 4, rotate: 0, noteSel: .low, rate: .r1_4, sourceMode: .midi)]
+        let st: PluginState = {
+            var s = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return sc }()])
+            s.euclideousNoteSource = .midi
+            return s
+        }()
+        let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
+        return (SnapshotBuilder.build(from: st), pool)
+    }
+
+    /// Runs the fixture from beat 0 to `toBeats` with a single pending RHYTHM roll (4-of-4, i.e. every step
+    /// hits) landing at `landingBeat`, at the given buffer size — no `run()`/`runKeepingRouter()` reuse
+    /// (neither takes `euclideousPendingRolls`).
+    private func runWithPendingRhythmRoll(landingBeat: Double, toBeats: Double, frames: UInt32) -> RecordingEmitter {
+        let (box, pool) = euclideousRandomLandingFixture()
+        let roll = EuclideousPendingRoll(tab: .rhythm, landingBeat: landingBeat, steps: 4, pulses: 4, rotate: 0)
+        let e = RecordingEmitter()
+        let router = Router()
+        var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < toBeats {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: 4,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0,
+                           euclideousPendingRolls: [roll], out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        return e
+    }
+
+    func testRandomModeRhythmLandingAtTheBarLineAcrossBufferSizes() {
+        // OLD (1-of-4, hits at the lap downbeat only) for bars 1-2 [0,8), NEW (4-of-4) from bar 3 [8,12) —
+        // landing at beat 8, itself a hit in both patterns. Expect 1 + 1 + 4 = 6 hits.
+        for frames: UInt32 in [64, 256, 1024] {
+            // 11.9, not 12 (the RouterTests convention, e.g. testEuclidSpanReAnchorsThePattern's own "3.9"):
+            // stopping exactly on a lap boundary risks the LAST window straddling into lap 4's own downbeat.
+            let e = runWithPendingRhythmRoll(landingBeat: 8, toBeats: 11.9, frames: frames)
+            let ons = e.ons.filter { $0.cable == 1 }.count
+            XCTAssertEqual(ons, 6, "buffer \(frames): expected 1(bar1)+1(bar2)+4(bar3, landed) = 6 hits, got \(ons)")
+        }
+    }
+
+    func testRandomModeLandingNeverFiresBeforeItsBeat() {
+        // A landing far in the future (beat 100) must never take effect during a short run — only the OLD
+        // 1-of-4 pattern's single downbeat hit (3.9, not 4, for the same lap-boundary reason as above).
+        let e = runWithPendingRhythmRoll(landingBeat: 100, toBeats: 3.9, frames: 256)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 1, "the far-future roll must not have landed yet")
+    }
+
+    func testRandomModeLandingAtBeatGranularity() {
+        // §13 test 10's mechanism (the hold is the SAME EuclideousPendingRoll primitive at beat, not bar,
+        // granularity — Router has no separate "hold" concept): landing at beat 2 (also a hit in neither
+        // pattern's own right, proving the override applies even off a lap boundary) over a 4-beat run.
+        // OLD (1-of-4) hits once at beat 0; NEW (4-of-4) then hits at 2 and 3 before the lap ends at 4.
+        let e = runWithPendingRhythmRoll(landingBeat: 2, toBeats: 4, frames: 256)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "expected the beat-0 OLD hit plus NEW hits at beats 2 and 3")
+    }
 }

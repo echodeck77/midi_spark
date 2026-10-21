@@ -617,9 +617,13 @@ private func whenName(_ w: UInt8) -> String { w == 0b01 ? "PLAYS" : (w == 0b10 ?
 
 enum EuclideousRandomTab: Equatable { case rhythm, riff, notes }
 
-/// §6.1/§6.3: a per-lane pending override, carried through the Snapshot pipeline on `SnapParams` (never
-/// on `EuclidLine` — see the ferry plan's architecture note on why: `EuclidLine`'s Codable/Equatable
-/// surface must stay untouched). `landingBeat` is an ABSOLUTE beat, the same unit/origin Router's own
+/// §6.1/§6.3: a per-lane pending override. Reaches the render thread via `Kernel.setEuclideousPendingRolls`
+/// — the SAME plain main-thread-writes/render-thread-reads hand-off `Kernel.euclideousSoloLive` already
+/// uses for live UI state, not the Snapshot/SnapParams pipeline (never on `EuclidLine` — its Codable/
+/// Equatable surface must stay untouched; `EuclidLine` is reused wholesale by both the persisted
+/// `MachineParams.euclidLines` and the render-time `SnapParams.euclidLines`, so a new stored property
+/// there would both leak into the save file's encoding and change what "two lines are equal" means
+/// everywhere that's checked). `landingBeat` is an ABSOLUTE beat, the same unit/origin Router's own
 /// `beatPos`/`beatsPerBar` already use (restart chains' own convention: bar lines are multiples of
 /// `beatsPerBar` from beat 0 — no second phase/origin concept).
 struct EuclideousPendingRoll: Equatable {
@@ -649,6 +653,30 @@ struct EuclideousPendingRoll: Equatable {
 @inline(__always)
 func euclideousRandomShouldApply(hostBeat: Double, landingBeat: Double) -> Bool { hostBeat >= landingBeat }
 
+/// §6.7: the main thread's own write once a roll has landed — direct field writes, mirroring the AUTO-ramp
+/// precedent (`Snapshot.swift`'s own `euclidPulses`/`euclidRot` writer), never `euclideousSliderCommit`
+/// (§6.7: "Not through the STEPS setter") or `euclideousSetRiffShift`. Pins both restart chains first if the
+/// lane is still on the pre-chains model (idempotent — a no-op once pinned, so calling this on every landing
+/// is safe regardless of session history).
+func euclideousRandomCommitPendingRoll(_ roll: EuclideousPendingRoll, into line: inout EuclidLine) {
+    switch roll.tab {
+    case .rhythm:
+        if !line.usesRestartChains {
+            euclideousPinRestartChains(&line, .from(line.restartRhythmBars ?? []), .from(line.restartMelodyPasses ?? []))
+        }
+        line.steps = roll.steps; line.pulses = roll.pulses; line.rotate = roll.rotate
+        line.hitsRequested = nil; line.offsetRequested = nil
+    case .riff:
+        line.riffDir = roll.riffDir; line.riffInvert = roll.riffInvert
+        line.riffAdvanceEvery = roll.riffAdvanceEvery; line.riffAdvanceStep = roll.riffAdvanceStep
+        line.riffOnRest = roll.riffOnRest; line.riffStride = roll.riffStride
+        line.riffRotate = roll.riffRotate; line.riffShiftRequested = nil   // RIFF ferry §4.3: a writer that sets riffRotate some other way nils this instead
+    case .notes:
+        line.notesLitOrder = roll.notesLitOrder.array
+        line.notesWhen = roll.notesWhen; line.notesChance = roll.notesChance; line.notesPlayAs = roll.notesPlayAs
+    }
+}
+
 /// §6.1: the next bar line at or after `afterBeat + marginBeats`, on the SAME "bar lines are multiples of
 /// `barBeats` from beat 0" convention the restart chains already use (Router.swift's `EuclideousLaneRestartChains`).
 func euclideousRandomNextBarLine(afterBeat: Double, barBeats: Double, marginBeats: Double) -> Double {
@@ -662,6 +690,12 @@ func euclideousRandomNextBarLine(afterBeat: Double, barBeats: Double, marginBeat
 func euclideousRandomLandingMarginBeats(tempo: Double) -> Double {
     guard tempo > 0 else { return 0.5 }
     return 0.15 * tempo / 60.0
+}
+
+/// §6.4: when the page isn't running (no bar line to wait for), a request lands at once — the queuing
+/// site's own choice of `landingBeat`, not a Router-side special case (Router only ever compares beats).
+func euclideousRandomQueuedLandingBeat(running: Bool, currentBeat: Double, barBeats: Double, marginBeats: Double) -> Double {
+    running ? euclideousRandomNextBarLine(afterBeat: currentBeat, barBeats: barBeats, marginBeats: marginBeats) : currentBeat
 }
 
 // MARK: - §7.2 Undo-sequence builder

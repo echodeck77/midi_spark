@@ -279,4 +279,41 @@ final class EuclideousRandomTests: XCTestCase {
         XCTAssertFalse(euclideousRandomShouldApply(hostBeat: 7.999, landingBeat: 8))
         XCTAssertTrue(euclideousRandomShouldApply(hostBeat: 8, landingBeat: 8))
     }
+
+    // MARK: §13 test 11 — a stopped page lands at once (§6.4: the QUEUING side's own choice of landingBeat,
+    // not a Router-side special case — Router only ever compares beats, confirmed in RouterTests).
+
+    func testQueuedLandingBeatIsImmediateWhenNotRunning() {
+        let beat = euclideousRandomQueuedLandingBeat(running: false, currentBeat: 5.3, barBeats: 4, marginBeats: 1)
+        XCTAssertEqual(beat, 5.3, accuracy: 1e-9)
+    }
+
+    func testQueuedLandingBeatIsTheNextBarLineWhenRunning() {
+        let beat = euclideousRandomQueuedLandingBeat(running: true, currentBeat: 5.3, barBeats: 4, marginBeats: 1)
+        XCTAssertEqual(beat, 8, accuracy: 1e-9)
+    }
+
+    // MARK: §6.7 commit-write (pure unit test — pinning, nil-ing requested fields; the full Router-level
+    // landing-exactness tests at 64/256/1024-sample buffers live in RouterTests, added alongside this ferry)
+
+    func testCommitPendingRollPinsChainsAndNilsRequestedFields() {
+        var line = EuclidLine()
+        line.hitsRequested = 3; line.offsetRequested = 2   // stale "requested" memory from a prior STEPS edit
+        XCTAssertFalse(line.usesRestartChains)
+        let roll = EuclideousPendingRoll(tab: .rhythm, landingBeat: 8, steps: 12, pulses: 5, rotate: 3)
+        euclideousRandomCommitPendingRoll(roll, into: &line)
+        XCTAssertEqual(line.steps, 12); XCTAssertEqual(line.pulses, 5); XCTAssertEqual(line.rotate, 3)
+        XCTAssertNil(line.hitsRequested); XCTAssertNil(line.offsetRequested)
+        XCTAssertTrue(line.usesRestartChains, "an unpinned lane's chains must be pinned on its first landing")
+    }
+
+    func testCommitPendingRollNilsRiffShiftRequestedOnly() {
+        var line = EuclidLine()
+        line.riffShiftRequested = 4
+        var roll = EuclideousPendingRoll(tab: .riff, landingBeat: 4)
+        roll.riffRotate = 6
+        euclideousRandomCommitPendingRoll(roll, into: &line)
+        XCTAssertEqual(line.riffRotate, 6)
+        XCTAssertNil(line.riffShiftRequested, "RIFF ferry §4.3: a writer that sets riffRotate some other way nils riffShiftRequested")
+    }
 }

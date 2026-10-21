@@ -2265,7 +2265,8 @@ final class Router {
     }
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
-                             beatsPerSample: Double, a: Double, heldCell: Int, tempo: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+                             beatsPerSample: Double, a: Double, heldCell: Int, tempo: Double,
+                             euclideousPendingRolls: [EuclideousPendingRoll?] = [], out: MIDIEmitter?, diag: inout KernelDiag) {
             var cell = box.cells[effColumn * Snap.rows + r]
             if cell.machineIndex < 0 || cell.muted || cell.dormant { return }   // LADDER dormant
             applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, cycleBeats: cycleBeats, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
@@ -2349,7 +2350,7 @@ final class Router {
                     emitGeneratorRow(mode: dm, cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                      pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, out: out, diag: &diag)
+                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, out: out, diag: &diag)
                 case .weave:
                     emitWeaveRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
@@ -2402,7 +2403,7 @@ final class Router {
                 emitGeneratorRow(mode: mode, cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, out: out, diag: &diag)
+                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, out: out, diag: &diag)
             case .weave:
                 emitWeaveRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                              pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
@@ -3041,6 +3042,7 @@ final class Router {
                  panic: Bool = false,
                  euclideousAllNotesOff: Bool = false,
                  euclideousSoloLive: UInt16 = 0,
+                 euclideousPendingRolls: [EuclideousPendingRoll?] = [],
                  sceneFlush: Bool = false,
                  sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
@@ -3511,7 +3513,7 @@ final class Router {
             for r in 0..<Snap.rows {
                 emitTickRow(r: r, effColumn: effColumn, S: S, cycleBeats: cycleBeats, windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, out: out, diag: &diag)
+                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, out: out, diag: &diag)
                 emitGlideDriven(box: box, column: effColumn, row: r, beatPos: beatPos, windowBeats: windowBeats,   // §7① [driver→GLIDE]: drain the driver's targets into the mono glide voice
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, out: out)
             }
@@ -3523,7 +3525,7 @@ final class Router {
                 let rowBeat = beatPos - box.rowLaunchAnchor[r]   // PLAY-FERRY LAUNCH: anchored beat so the arp/tick PHASE shifts with the launch (offset math cancels the anchor); 0 ⇒ raw
                 emitTickRow(r: r, effColumn: rowEffColBuf[r], S: rowSBuf[r], cycleBeats: rowCycBuf[r], windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: rowBeat, windowStart: windowStart, windowEnd: windowEnd,
-                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, out: out, diag: &diag)
+                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, out: out, diag: &diag)
                 emitGlideDriven(box: box, column: rowEffColBuf[r], row: r, beatPos: rowBeat, windowBeats: windowBeats,   // §7① per-row clock
                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: rowSBuf[r], a: a, out: out)
             }
@@ -4267,7 +4269,8 @@ final class Router {
     private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                                   emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
-                                  cycleBeats: Double = 0, chainDriver: Int = -1, tempo: Double = 120, out: MIDIEmitter?, diag: inout KernelDiag) {
+                                  cycleBeats: Double = 0, chainDriver: Int = -1, tempo: Double = 120,
+                                  euclideousPendingRolls: [EuclideousPendingRoll?] = [], out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
         let p = machine.a
@@ -6513,6 +6516,17 @@ final class Router {
                 guard lineIndex < p.euclidLines.count else { continue }
                 let L = p.euclidLines[lineIndex]
                 guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { continue }
+                // RANDOM MODE ferry (§6): a per-lane pending THROW/TWEAK/BACK/hold override lands the instant
+                // `beatPos` — the SAME absolute beat every other per-tick decision in this function already
+                // uses, never a second clock — reaches its own `landingBeat`. A per-tick comparison, not a
+                // one-shot consumed flag (invariant 2: derived, never accumulated) — every render re-checks it,
+                // so it's stable regardless of how many renders straddle the landing beat. §10's "never touched"
+                // fields are enforced structurally: only the three groups of arguments below ever read `*Roll`.
+                let pendingRoll: EuclideousPendingRoll? = (isEuclideousRow && lineIndex < euclideousPendingRolls.count) ? euclideousPendingRolls[lineIndex] : nil
+                let pendingRollLanded = pendingRoll.map { euclideousRandomShouldApply(hostBeat: beatPos, landingBeat: $0.landingBeat) } ?? false
+                let rhythmRoll = (pendingRollLanded && pendingRoll?.tab == .rhythm) ? pendingRoll : nil
+                let riffRoll = (pendingRollLanded && pendingRoll?.tab == .riff) ? pendingRoll : nil
+                let notesRoll = (pendingRollLanded && pendingRoll?.tab == .notes) ? pendingRoll : nil
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
                 // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the
                 // cell's own bm, via strikeChord's busOverride).
@@ -6522,13 +6536,13 @@ final class Router {
                 // reading `GridUI.swift`'s `-3...3` control before deciding this) — the tighter range is applied
                 // right here instead, gated on the SAME `isEuclideousRow` this per-row loop already computed.
                 let euclideousOct = isEuclideousRow ? max(-2, min(2, L.octaveResolved)) : L.octaveResolved
-                runEuclidLine(lineIndex: lineIndex, pulses: L.pulses, steps: L.steps, rotate: L.rotate, dir: L.directionResolved,
+                runEuclidLine(lineIndex: lineIndex, pulses: rhythmRoll?.pulses ?? L.pulses, steps: rhythmRoll?.steps ?? L.steps, rotate: rhythmRoll?.rotate ?? L.rotate, dir: L.directionResolved,
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: euclideousOct, velocity: L.velocityResolved,
                               velocityAbsolute: L.velocityAbsoluteResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
                               patternMiss: L.patternMissResolved,
-                              useRiff: L.useRiffResolved, riffRotate: L.riffRotateResolved, riffOctave: L.riffOctaveResolved,
+                              useRiff: L.useRiffResolved, riffRotate: riffRoll?.riffRotate ?? L.riffRotateResolved, riffOctave: L.riffOctaveResolved,
                               // EUCLIDEOUS-SCOPED DRUNK/RANDOM→FWD (Paul 2026-10-13 ferry, Presets rule 1):
                               // `riffStepAt`'s own `.drunk`/`.random` arms already degrade to the plain
                               // forward position regardless (confirmed by reading — this call was already
@@ -6536,11 +6550,11 @@ final class Router {
                               // scoped `euclideousRiffDirResolved` makes that explicit by construction rather
                               // than relying on an incidental engine fallback, and keeps this one call site
                               // consistent with the new WALK row's own "which direction is lit" UI check.
-                              riffDir: isEuclideousRow ? L.euclideousRiffDirResolved : L.riffDirResolved, riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved,
+                              riffDir: riffRoll?.riffDir ?? (isEuclideousRow ? L.euclideousRiffDirResolved : L.riffDirResolved), riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved,
                               tilt: L.tiltResolved,
-                              riffLock: L.riffLockResolved, riffInvert: L.riffInvertResolved, riffOnRest: L.riffOnRestResolved,
-                              riffStride: L.riffStrideResolved, riffLength: L.riffLengthResolved, riffAdvanceStep: L.riffAdvanceStepResolved,
-                              riffAdvanceEvery: L.riffAdvanceEveryResolved,   // RIFF WALK ferry §5: EVERY 1 (today's behaviour) by default
+                              riffLock: L.riffLockResolved, riffInvert: riffRoll?.riffInvert ?? L.riffInvertResolved, riffOnRest: riffRoll?.riffOnRest ?? L.riffOnRestResolved,
+                              riffStride: riffRoll?.riffStride ?? L.riffStrideResolved, riffLength: L.riffLengthResolved, riffAdvanceStep: riffRoll?.riffAdvanceStep ?? L.riffAdvanceStepResolved,
+                              riffAdvanceEvery: riffRoll?.riffAdvanceEvery ?? L.riffAdvanceEveryResolved,   // RIFF WALK ferry §5: EVERY 1 (today's behaviour) by default
                               // LISTEN (ferry 2026-10-14 §1): "stop the Euclid mask affecting output" —
                               // Euclideous's own row now ALWAYS passes a disabled (default) mask, ignoring
                               // whatever `L.mask` holds, so every MASK-driven branch inside `runEuclidLine`
@@ -6572,8 +6586,8 @@ final class Router {
                               riffOn: L.riffOnResolved,
                               // NOTES TAB (2026-10-19): the lit order is fixed-size data (ten bytes and a count), built from the lane's stored order without allocating; WHEN / CHANCE / PLAY AS /
                               // RECEIVED are plain scalars. `noteOctShifts` is no longer passed at all — the per-note octave shifts stopped sounding (§6.7).
-                              litOrder: L.litOrderResolved, notesWhen: L.notesWhenResolved, notesChance: L.notesChanceResolved,
-                              notesPlayAs: L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,
+                              litOrder: notesRoll?.notesLitOrder ?? L.litOrderResolved, notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
+                              notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,
                               notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
                               // LISTEN (ferry 2026-10-14) — only Euclideous's own row ever has a non-nil
                               // mode here (every other `.euclid` cell's `EuclidLine` never sets these
