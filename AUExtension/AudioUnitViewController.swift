@@ -853,6 +853,7 @@ struct DiagView: View {
         euclideousLanesSourceMidi = au.uiEuclideousLanesSourceMidi()
         euclideousMainOutMask = au.uiEuclideousMainOutMask()
         euclideousSoloMask = au.uiEuclideousSoloMask()
+        au.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))   // the live word follows the document (a restore / a preset load)
         euclideousMidiInChannelMask = au.uiEuclideousMidiInChannelMask()
         euclideousHostStopBehavior = au.uiEuclideousHostStopBehavior()
         ignoreAllNotesOff = au.uiIgnoreAllNotesOff()
@@ -1240,16 +1241,20 @@ struct DiagView: View {
                                    },
                                    // LANE SOLO (2026-10-21, §3): touch-down puts the lane in the HELD mask at once (it counts as soloed for sound and every dim from the moment of touch); the lift clears it and — for a tap
                                    // only — flips the lane's LATCHED bit, in the SAME update (one publish, no flicker). Neither records undo (the output rings don't); only the latched mask is saved.
+                                   // The effective mask goes to the render thread FIRST (`setEuclideousSoloLive`: one store the kernel reads at its next window), so the mute does not wait for the scene to be composed and a
+                                   // snapshot built and published; `buildPublishScene()` still follows so the snapshot (the fallback, and what a session with no page open plays) agrees.
                                    onSoloDown: { lane in
                                        guard (0..<4).contains(lane) else { return }
                                        euclideousSoloHeld |= UInt8(1 << lane)
+                                       au?.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))
                                        buildPublishScene()
                                    },
                                    onSoloUp: { lane, latchToggles in
                                        guard (0..<4).contains(lane) else { return }
                                        euclideousSoloHeld &= ~UInt8(1 << lane)
+                                       if latchToggles { euclideousSoloMask ^= UInt8(1 << lane) }
+                                       au?.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))
                                        if latchToggles {
-                                           euclideousSoloMask ^= UInt8(1 << lane)
                                            let v = euclideousSoloMask
                                            au?.editDocument { $0.euclideousSoloMask = v }
                                        }
@@ -1506,7 +1511,7 @@ struct DiagView: View {
             let erfm = au.uiEuclideousRiffSourceMidi(); if erfm != euclideousRiffSourceMidi { euclideousRiffSourceMidi = erfm; euclideousResynced = true }
             let elsm = au.uiEuclideousLanesSourceMidi(); if elsm != euclideousLanesSourceMidi { euclideousLanesSourceMidi = elsm; euclideousResynced = true }
             let emom = au.uiEuclideousMainOutMask(); if emom != euclideousMainOutMask { euclideousMainOutMask = emom; euclideousResynced = true }
-            let esol = au.uiEuclideousSoloMask(); if esol != euclideousSoloMask { euclideousSoloMask = esol; euclideousResynced = true }   // LANE SOLO: a preset load / session restore replaces it
+            let esol = au.uiEuclideousSoloMask(); if esol != euclideousSoloMask { euclideousSoloMask = esol; au.setEuclideousSoloLive(euclideousSoloEffective(latched: esol, held: euclideousSoloHeld)); euclideousResynced = true }   // LANE SOLO: a preset load / session restore replaces it
             let emicm = au.uiEuclideousMidiInChannelMask(); if emicm != euclideousMidiInChannelMask { euclideousMidiInChannelMask = emicm; euclideousResynced = true }
             let ehsb = au.uiEuclideousHostStopBehavior(); if ehsb != euclideousHostStopBehavior { euclideousHostStopBehavior = ehsb; euclideousResynced = true }
             let echd = au.uiEuclideousChords(); if echd != euclideousChords { euclideousChords = echd; euclideousResynced = true }
@@ -1866,8 +1871,12 @@ struct DiagView: View {
             latchMask = au?.latchArm() ?? latchMask            // re-light the door-arm state at once on a view rebuild (the poll would else take a tick) — Paul 2026-08-27
             replayEngagedMask = au?.replayEngaged() ?? replayEngagedMask
         }
-        .onDisappear { uiAppeared = false }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
+        .onDisappear {
+            uiAppeared = false
+            // LANE SOLO: a page that goes away takes any finger-held solo with it — the render thread keeps only the LATCHED mask (a held bit it never heard released would otherwise stay on).
+            euclideousSoloHeld = 0
+            au?.setEuclideousSoloLive(euclideousSoloMask)
+        }        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
     }
 

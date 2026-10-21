@@ -14591,7 +14591,7 @@ final class RouterTests: XCTestCase {
     }
     /// Plays `beats` beats in 2048-frame windows on ONE router, taking each window's box from `solo(windowStartBeat)` (a solo change reaches the render thread at a window boundary — the snapshot the next
     /// window acquires), optionally stopping and restarting the transport at the given beats. Returns the stream, the router and the window length in beats.
-    private func soloRun(_ lines: [EuclidLine], beats: Double, restartAt: [Double] = [], fx: EuclideousFX = EuclideousFX(), stopAtEnd: Bool = true, solo: (Double) -> UInt8)
+    private func soloRun(_ lines: [EuclidLine], beats: Double, restartAt: [Double] = [], fx: EuclideousFX = EuclideousFX(), stopAtEnd: Bool = true, live: ((Double) -> UInt16)? = nil, solo: (Double) -> UInt8)
         -> (e: RecordingEmitter, router: Router, windowBeats: Double) {
         let e = RecordingEmitter()
         let router = Router()
@@ -14610,7 +14610,8 @@ final class RouterTests: XCTestCase {
                 router.process(box: box(solo(beatNow())), pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
                 ts += Double(frames); origin = ts
             }
-            router.process(box: box(solo(beatNow())), pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            router.process(box: box(solo(beatNow())), pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0,
+                           euclideousSoloLive: live?(beatNow()) ?? 0, out: e, diag: &diag)
             ts += Double(frames)
         }
         if stopAtEnd { router.process(box: box(0), pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag) }
@@ -14737,5 +14738,70 @@ final class RouterTests: XCTestCase {
         let ms = Date().timeIntervalSince(t0) * 1000 / Double(n)
         print(String(format: "LANE SOLO: one SnapshotBuilder.build (4 lanes, debug macOS) ≈ %.2f ms", ms))
         XCTAssertLessThan(ms, 100)
+    }
+
+    // MARK: LANE SOLO — the mute kicks in IMMEDIATELY (Paul 2026-10-21): the UI's live word, and the cut of a silenced lane's sounding notes
+
+    /// A solo the UI announces through the live word reaches the engine at the very next window — the snapshot (still saying "no solo") is not waited for — and the live word, once it has spoken, outranks the snapshot's.
+    func testALiveSoloWordSilencesTheOtherLanesAtTheNextWindowWithoutAnySnapshot() {
+        let lines = soloLines()
+        let ref = soloRun(lines, beats: 24) { _ in 0 }
+        let run = soloRun(lines, beats: 24, live: { $0 >= 8 ? 0x100 | 0b0001 : 0 }) { _ in 0 }   // the snapshot never says solo
+        let sw = soloWindowStartSample(atOrAfter: 8, windowBeats: run.windowBeats)
+        XCTAssertEqual(soloOnSamples(run.e, lane: 0), soloOnSamples(ref.e, lane: 0), "the soloed lane is untouched")
+        for lane in 1..<4 {
+            XCTAssertEqual(soloOnSamples(run.e, lane: lane).filter { $0 < sw }, soloOnSamples(ref.e, lane: lane).filter { $0 < sw }, "lane \(lane + 1) plays until the live word")
+            XCTAssertTrue(soloOnSamples(run.e, lane: lane).filter { $0 >= sw }.isEmpty, "…and is silent from the very next window — no snapshot rebuild in between")
+            XCTAssertFalse(soloOnSamples(ref.e, lane: lane).filter { $0 >= sw }.isEmpty)
+        }
+        // the live word outranks the snapshot: the snapshot says lane 1 is soloed, the page says "no solo" (0x100 | 0)
+        let overridden = soloRun(lines, beats: 24, live: { _ in 0x100 }) { _ in 0b0001 }
+        for lane in 0..<4 { XCTAssertEqual(soloOnSamples(overridden.e, lane: lane), soloOnSamples(ref.e, lane: lane), "lane \(lane + 1): the live \"none\" wins") }
+        assertNothingLeftSounding(run.e)
+    }
+    /// The notes a silenced lane is ALREADY sounding end at once (a note-off at the first sample of the window the solo lands in) instead of ringing out their gate; the soloed lane's own notes are untouched.
+    func testSoloEndsTheSilencedLanesSoundingNotesImmediatelyAndLeavesTheSoloedLaneAlone() {
+        let lines = soloLines { _, l in l.pulses = 8; l.steps = 8; l.rate = .r1_2; l.gate = 0.9 }   // a hit every 2 beats, each note ~1.8 beats long
+        let ref = soloRun(lines, beats: 12) { _ in 0 }
+        let run = soloRun(lines, beats: 12, live: { $0 >= 7 ? 0x100 | 0b0001 : 0 }) { _ in 0 }
+        let sw = soloWindowStartSample(atOrAfter: 7, windowBeats: run.windowBeats)   // the hit at beat 6 is mid-note (it would end at beat 7.8)
+        func offs(_ e: RecordingEmitter, _ lane: Int) -> [Int64] { e.offs.filter { $0.cable == UInt8(1 + lane) }.map { Int64($0.sample) } }
+        XCTAssertEqual(offs(run.e, 0), offs(ref.e, 0), "the soloed lane's notes end where they always do")
+        XCTAssertEqual(soloOnSamples(run.e, lane: 0), soloOnSamples(ref.e, lane: 0))
+        for lane in 1..<4 {
+            let refOffs = offs(ref.e, lane), runOffs = offs(run.e, lane)
+            let naturalEnd = refOffs.first { $0 > sw }!
+            XCTAssertGreaterThan(naturalEnd, sw + 10_000, "in the unsoloed render lane \(lane + 1)'s note is still ringing well after the solo")
+            XCTAssertTrue(runOffs.contains { $0 == sw }, "lane \(lane + 1)'s sounding note ends AT the window the solo landed in (sample \(sw))")
+            XCTAssertFalse(runOffs.contains { $0 == naturalEnd }, "…not at its natural end")
+            XCTAssertTrue(soloOnSamples(run.e, lane: lane).filter { $0 >= sw }.isEmpty)
+        }
+        assertNothingLeftSounding(run.e)
+    }
+    /// Ratchet repeats and legato holds belong to a lane too: a solo that silences it drops its pending repeats and closes its held notes — under a stream of live words, with TIE, GATE 100 and transport restarts, nothing is left sounding.
+    func testLiveSoloWordsAcrossRatchetsLegatoAndTiesLeaveNothingSounding() {
+        let lines = soloLines { i, l in
+            switch i {
+            case 0: l.gate = 1.0; l.riffOnRest = .tie
+            case 1: l.gate = 0.9
+            case 2: l.gate = 1.0; l.pulses = 5; l.rate = .r1_16
+            default: l.gate = 0.7
+            }
+        }
+        let fx = fxCells([(0, 1, 4), (0, 4, 3), (2, 2, 1), (2, 6, 1), (1, 3, 50)])
+        var rng: UInt64 = 0xC0FFEE
+        func next() -> Int { rng = rng &* 6364136223846793005 &+ 1442695040888963407; return Int(rng >> 33) }
+        var words: [UInt16] = []
+        for _ in 0..<2000 { words.append(0x100 | UInt16(next() % 16)) }
+        let run = soloRun(lines, beats: 120, restartAt: [17.3, 41.9, 66.1, 90.4], fx: fx, live: { words[min(words.count - 1, Int($0 / 0.37))] }) { _ in 0 }
+        XCTAssertGreaterThan(run.e.ons.count, 150)
+        assertNothingLeftSounding(run.e)
+        var open: [Int: Int] = [:]
+        for ev in run.e.events where ev.status == 0x90 || ev.status == 0x80 {
+            let k = (Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)
+            open[k, default: 0] += ev.status == 0x90 ? 1 : -1
+            XCTAssertGreaterThanOrEqual(open[k]!, 0, "a note-off with no note-on")
+        }
+        XCTAssertTrue(open.values.allSatisfy { $0 == 0 }, "every note-on has its note-off")
     }
 }

@@ -77,6 +77,7 @@ final class Router {
                                      // owned entirely by emitColumnRatchetPattern (a stateless per-window diff-reconcile, like
                                      // reconcileBypass). Excluded from the grid hold-reconcile (emitColumnHolds candidate loop)
                                      // so the grid boundary never closes it; allNotesOff closes it on every transport/scene edge.
+        var euclideousLane: Int8 = -1 // LANE SOLO (2026-10-21): the Euclideous lane that struck this voice (−1 = none) — see `Router.euclideousStrikeLane`
         var euclideousLegato = false // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): an IMMORTAL legato-held voice owned
                                      // entirely by reconcileEuclidLegato (its own stateless-per-tick reconcile, mirroring
                                      // rtcHold/glideAnchor exactly). MUST be excluded from the grid hold-reconcile
@@ -88,6 +89,27 @@ final class Router {
                                      // allNotesOff still closes it on every transport/scene edge (unconditional, as always).
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
+
+    // LANE SOLO (2026-10-21): which Euclideous lane struck a voice / an echo tail (−1 = none, every other row). `euclideousStrikeLane` is set for the duration of one lane's `runEuclidLine` and, per tail, while the
+    // echo ring drains, and stamped by `openVoice` / `pushEchoTail` — so a solo that silences a lane can end exactly ITS sounding notes and pending repeats at once (`cutSoloSilencedLanes`).
+    private var euclideousStrikeLane: Int8 = -1
+    /// The UI's LIVE solo word (`Kernel.euclideousSoloLive`: 0x100 | the effective mask once the page has spoken, else 0 = "use the snapshot's"). Written by the main thread the instant a SOLO button is touched,
+    /// read here once per render window — so solo reaches the engine within a buffer, not a snapshot rebuild later.
+    private var soloLiveWord: UInt16 = 0
+    /// The snapshot's solo mask as of the last Euclideous sweep — the early cut (before the echo ring drains) uses it when there is no live word.
+    private var lastSnapshotSoloMask: UInt8 = 0
+    private func soloMaskNow(snapshot: UInt8) -> UInt8 { soloLiveWord & 0x100 != 0 ? UInt8(soloLiveWord & 0x0F) : (snapshot & 0x0F) }
+    /// §5.2 + "the mute kicks in immediately" (Paul 2026-10-21): the moment solo silences a lane its already-sounding notes END NOW (a note-off at this window's first sample) and its pending ratchet / roll repeats are
+    /// dropped — a LANES mute lets them ring out, but a solo that left the other lanes sounding for a gate's length read as a delay. Only the solo-silenced lanes' own voices (tagged at the strike) are touched; every
+    /// note-on still gets its note-off (`closeVoice` owns the refcount), so nothing is left sounding.
+    private func cutSoloSilencedLanes(soloMask: UInt8, atSample t: Int64, out: MIDIEmitter?) {
+        guard soloMask & 0x0F != 0 else { return }
+        for lane in 0..<4 where euclideousSoloSilences(lane: lane, soloMask: soloMask) {
+            let tag = Int8(lane)
+            for i in voices.indices where voices[i].active && voices[i].euclideousLane == tag { closeVoice(i, atSample: t, out: out) }
+            for i in echoTails.indices where echoTails[i].active && echoTails[i].lane == tag { echoTails[i].active = false }
+        }
+    }
 
     // Collision refcount (§7, normative): per (bus, channel, note). Note-ONs always emit
     // (re-articulation is audible truth); the wire note-OFF is emitted only when the LAST instance
@@ -1184,6 +1206,7 @@ final class Router {
         // on the same channel + timing as the dry (a [CHANNEL→ECHO] cell echoes on its own channel, not the wire).
         var chan: Int8 = -1          // output channel override (−1 = the bus stamp)
         var nudge: Int64 = 0         // timing offset in samples
+        var lane: Int8 = -1          // LANE SOLO (2026-10-21): the Euclideous lane that pushed this tail (−1 = none) — so a solo can drop ITS pending repeats
     }
     private static let echoTailCap = 256
     private var echoTails = [EchoTail](repeating: EchoTail(), count: Router.echoTailCap)
@@ -1217,7 +1240,8 @@ final class Router {
                                    decay: decay, offset: offset, pitch: pitch, inKeyMode: inKeyMode, inKeyReceivers: inKeyReceivers,
                                    gateBeats: gateBeats, spill: spill,
                                    route: route, cellIdx: cellIdx, echoSlot: echoSlot,
-                                   chan: Int8(max(-1, min(15, Int(chanOverride)))), nudge: nudgeSamples)   // repeats inherit the registering cell's CHANNEL/NUDGE (set at every push site)
+                                   chan: Int8(max(-1, min(15, Int(chanOverride)))), nudge: nudgeSamples,
+                                   lane: euclideousStrikeLane)   // repeats inherit the registering cell's CHANNEL/NUDGE (set at every push site)
     }
 
     // reset() arrives on the CONTROL thread (the AU's @objc reset:, e.g. AUM disabling the plugin) — which can race
@@ -1418,6 +1442,7 @@ final class Router {
         voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < Snap.cells) ? Int16(currentCellIndex) : -1   // SEAL sounding gate (Int16 now — was the grid's hard ceiling at Int8's 127)
         voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
         voices[slot].rtcHold = rtcHold         // RATCHET PATTERN standalone: tag the immortal pass-through sustain (owned by emitColumnRatchetPattern)
+        voices[slot].euclideousLane = euclideousStrikeLane   // LANE SOLO: who struck it (stamped unconditionally, so a reused slot's stale tag is always overwritten)
         voices[slot].euclideousLegato = euclideousLegato   // GATE FOLLOWS THE RHYTHM: tag the immortal legato hold (owned by reconcileEuclidLegato) — unconditional, so a reused slot's stale tag is always cleared
         voices[slot].glideAnchor = meter && !rtcHold  // GLIDE: `meter` marks glide direct-injection voices (its sole users — see
                                                // the comment above + the Voice.glideAnchor note); tag them so the
@@ -2762,6 +2787,7 @@ final class Router {
         echoPrevMEnd = mEnd
         for i in echoTails.indices where echoTails[i].active {
             let e = echoTails[i]
+            euclideousStrikeLane = e.lane   // LANE SOLO: the repeat's voice is tagged with the lane that pushed it
             chanOverride = Int16(e.chan); nudgeSamples = e.nudge   // repeats sound on the source cell's CHANNEL/NUDGE (captured at registration) — emitOneBus reads these
             currentCellIndex = e.cellIdx >= 0 ? e.cellIdx : -1   // E6 fix 2026-08-27: attribute the repeat to its SOURCE cell (was a stale value from the prior loop → mis-keyed close-except-legato / SEAL / note-sweep)
             // TAIL SPILL = CUT: once the playhead has crossed this tail's COLUMN boundary, stop scheduling repeats —
@@ -2807,6 +2833,7 @@ final class Router {
             }
         }
         chanOverride = -1; nudgeSamples = 0; currentCellIndex = -1   // clear the per-tail override so the MOD/GLIDE block + tick loop start clean
+        euclideousStrikeLane = -1
     }
     /// §7② Emit ONE echo repeat (note `n`, vel `v`, beat `tau`) through the chain stages AFTER the ECHO slot, looked up
     /// on the LIVE cell — LENGTH gates/ties it by the slice it lands in, SPLIT/CHANCE/HARMONIZE re-shape it, etc. Falls
@@ -3013,6 +3040,7 @@ final class Router {
                  masterKill: Bool = false,
                  panic: Bool = false,
                  euclideousAllNotesOff: Bool = false,
+                 euclideousSoloLive: UInt16 = 0,
                  sceneFlush: Bool = false,
                  sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
@@ -3132,6 +3160,10 @@ final class Router {
         // ---- drain scheduled gate-offs that have come due (survive across renders → no stuck note
         //      when a voice's off falls beyond its opening window). Runs regardless of transport. ----
         if !frozen { drainDue(windowStart: windowStart, windowEnd: windowEnd, out: out) }
+        // LANE SOLO (2026-10-21): the UI's live solo word, and — BEFORE the echo ring drains and any lane strikes — the solo-silenced lanes' sounding notes end now (the live word if the page has spoken, else the snapshot's mask
+        // as the last Euclideous sweep saw it). The sweep inside the Euclideous row repeats this with the authoritative mask, so the snapshot-only path (no UI) is covered too.
+        soloLiveWord = euclideousSoloLive
+        if !frozen { cutSoloSilencedLanes(soloMask: soloMaskNow(snapshot: lastSnapshotSoloMask), atSample: windowStart, out: out) }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
         diag.floodDropped = floodDropped              // FLOOD GOVERNOR: surface the session drop total to HEALTH
@@ -4655,6 +4687,9 @@ final class Router {
                                 listenLevelMode: EuclideousLevelMode? = nil, listenLevelPartnerIdx: Int = -1, listenLevelAmount: Double = 0.4,
                                 listenPitchMode: EuclideousPitchMode? = nil, listenPitchPartnerIdx: Int = -1, listenPitchPartnerAny: Bool = false,
                                 listenShadowInterval: Int = 0, listenShadowOctave: Int = 0, listenAvoidAction: EuclideousAvoidAction = .mute) {
+                // LANE SOLO: every voice and echo tail this lane's hits open is stamped with the lane (Euclideous's own row only), so a solo can end exactly its notes.
+                euclideousStrikeLane = isEuclideousRow ? Int8(lineIndex) : -1
+                defer { euclideousStrikeLane = -1 }
                 // LISTEN/FOLLOW (§5): REPLACES this lane's own generation entirely — the finished pattern
                 // becomes the PARTNER's own (its OFFSET/TILT/INV/hand-edits already baked in by the SAME
                 // `euclideousBuildPattern` helper, called fresh on the partner's current `EuclidLine`), and
@@ -4905,7 +4940,7 @@ final class Router {
                     // (the existing "mute but keep walking" rule below), so muting never shifts the melody or the rhythm.
                     // LANE SOLO (ferry 2026-10-21, §5.2): a lane the solo mask silences goes through this SAME early return — it keeps walking (pattern, riff position, restarts, passes, DYNAMICS), nothing emits, the
                     // pulse feed sees no strike. `euclideousLaneMayStrike` is the one decision (the lane is already known to be enabled here); mask 0 — and every non-Euclideous row — is exactly the old test.
-                    let lanesSeqMuted = !euclideousLaneMayStrike(lane: lineIndex, soloMask: isEuclideousRow ? p.soloMask : 0,
+                    let lanesSeqMuted = !euclideousLaneMayStrike(lane: lineIndex, soloMask: isEuclideousRow ? soloMaskNow(snapshot: p.soloMask) : 0,
                                                                  muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: muteCells, unitBeats: muteUnitBeats), enabled: true)
                     if isHit {
                         // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively
@@ -6457,15 +6492,17 @@ final class Router {
                         }
                         // LANE SOLO (2026-10-21): a lane the solo mask silences is "not audible" here exactly as a muted cell is — its tracked legato voices close at the window start when solo first silences it, and it is
                         // audible again (for the next edge) when solo lets it back. `euclideousLaneMayStrike` is the one decision, shared with the per-hit test.
-                        let soloMaskNow = p.soloMask
-                        let audibleAtStart = euclideousLaneMayStrike(lane: i, soloMask: soloMaskNow, muteAudible: euclideousLaneAudible(beat: fBeatPos, cells16: cells, unitBeats: unit), enabled: true)
+                        let soloMaskSweep = soloMaskNow(snapshot: p.soloMask)
+                        lastSnapshotSoloMask = p.soloMask & 0x0F
+                        cutSoloSilencedLanes(soloMask: soloMaskSweep, atSample: windowStart, out: out)
+                        let audibleAtStart = euclideousLaneMayStrike(lane: i, soloMask: soloMaskSweep, muteAudible: euclideousLaneAudible(beat: fBeatPos, cells16: cells, unitBeats: unit), enabled: true)
                         if euclideousLaneWasAudibleThisStep[i] && !audibleAtStart {
                             closeAt = windowStart
                         } else if audibleAtStart,
                                   let b = euclideousLaneMuteStart(fromBeat: fBeatPos, toBeat: windowEndBeat, cells16: cells, unitBeats: unit) {
                             closeAt = windowStart + Int64(max(0, (b - fBeatPos) / beatsPerSample))
                         }
-                        audibleAtEnd = euclideousLaneMayStrike(lane: i, soloMask: soloMaskNow, muteAudible: euclideousLaneAudible(beat: windowEndBeat - 1e-9, cells16: cells, unitBeats: unit), enabled: true)
+                        audibleAtEnd = euclideousLaneMayStrike(lane: i, soloMask: soloMaskSweep, muteAudible: euclideousLaneAudible(beat: windowEndBeat - 1e-9, cells16: cells, unitBeats: unit), enabled: true)
                     } else if euclideousLaneWasAudibleThisStep[i] {
                         closeAt = windowStart
                     }

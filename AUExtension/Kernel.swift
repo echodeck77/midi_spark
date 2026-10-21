@@ -128,6 +128,11 @@ final class Kernel {
     // same shape as panic above — set from the main thread, read+cleared by this render's own process() call.
     // Narrower than panic: only Euclideous's own row's sounding voices (see Router.process's own consumption).
     private var euclideousAllNotesOffRequested = false
+    /// LANE SOLO (2026-10-21): the UI's LIVE solo word — 0x100 | the effective mask (latched | held) once the page has spoken, 0 before. The main thread writes it the instant a SOLO button is touched or lifted;
+    /// the render thread reads it once per window (the same plain-var hand-off as `soloEmitterMask` / `velKillMask`), so solo does not wait for a snapshot to be rebuilt and published. The snapshot's own
+    /// `soloMask` stays the fallback for a session where no page has spoken.
+    private var euclideousSoloLive: UInt16 = 0
+    func setEuclideousSoloLive(_ mask: UInt8) { euclideousSoloLive = 0x100 | UInt16(mask & 0x0F) }
     func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).
@@ -1074,6 +1079,7 @@ final class Kernel {
                         emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
                         velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
                         euclideousAllNotesOff: euclideousAllNotesOffRequested,
+                        euclideousSoloLive: euclideousSoloLive,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewMachineIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
