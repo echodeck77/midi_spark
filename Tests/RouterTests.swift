@@ -14500,6 +14500,57 @@ final class RouterTests: XCTestCase {
         let roll = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 3.99, minGateBeats: 0.005) { col, _ in col + 1 }
         XCTAssertEqual(roll.map { $0.beat }, [1.25, 2.375, 3.5].map { $0 }, "roll = Router")
     }
+    // MARK: - RESTART TILES ferry (2026-10-22): the strike events that feed the MELODY tile's cells
+
+    /// Every riff-note strike event the lane posts over `beats`, drained window by window the way the UI poll does.
+    private func rpStrikes(_ lines: [EuclidLine], ranks: [Int] = [1, 2, 3, 4, 5, 6, 7, 8], beats: Double) -> [Router.EuclideousNoteViewEventSnapshot] {
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        let p = chord(fxPoolNotes), box = fxBox(lines, ranks: ranks)
+        var ts = 0.0, out: [Router.EuclideousNoteViewEventSnapshot] = []
+        while ts * tempo / 60 / sr < beats {
+            router.process(box: box, pool: p, playing: true, beatPos: ts * tempo / 60 / sr, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            out += router.drainEuclideousNoteViewEvents()[0]
+            ts += Double(frames)
+        }
+        return out.filter { ($0.kind == 0 || $0.kind == 3) && !$0.notes.isEmpty && $0.hasRiffNote && $0.onsetBeat < beats - 0.05 }
+    }
+    func testEachHitThatPlaysARiffNoteStrikesThatNotesCellAndTheRecordedLaneStrikesCellsOneToFiveTwiceEach() {
+        var l = rpLine(5, 8); l.riffDir = .reverse; l.riffAdvanceEvery = 2; l.restartRhythmBars = [1]; l.restartMelodyPasses = [2]
+        let events = rpStrikes([l], beats: 8)
+        XCTAssertEqual(events.count, 10, "two passes of five hits")
+        let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        let columnCells = restartTileState(.melody, cfg: cfg, beat: 0.1, running: true).columnCells
+        var perCell = [Int](repeating: 0, count: 8)
+        for ev in events {
+            XCTAssertEqual(ev.cellColumn, ev.column, "a normal hit strikes the cell of the column it read")
+            let cell = Int((columnCells >> UInt32(4 * Int(ev.cellColumn))) & 0xF)
+            XCTAssertLessThan(cell, 8); perCell[cell] += 1
+        }
+        XCTAssertEqual(perCell, [2, 2, 2, 2, 2, 0, 0, 0], "cells 1–5 strike twice each (EVERY 2); the three ghosts never")
+        XCTAssertEqual(events.map { Int($0.cellColumn) + 1 }, [8, 8, 7, 7, 6, 6, 5, 5, 4, 4], "REV: column 8 first, each note for two hits")
+    }
+    func testTiedAndSkippedRestsPostNoStrikeAndRepeatStrikesTheRepeatedNotesCell() {
+        let ranks = [1, 0, 3, 0, 5, 6, 0, 8]          // columns 2, 4 and 7 (1-based) are rests
+        for rest in [EuclidRiffOnRest.skip, .tie] {
+            let l = rpLine(8, 8) { $0.riffOnRest = rest }
+            let cols = Set(rpStrikes([l], ranks: ranks, beats: 4).map { Int($0.cellColumn) })
+            XCTAssertEqual(cols, [0, 2, 4, 5, 7], "\(rest): a SKIP gap and a TIE continuation strike nothing (the tied note's onset already did)")
+        }
+        let rep = rpLine(8, 8) { $0.riffOnRest = .repeatLast }
+        let events = rpStrikes([rep], ranks: ranks, beats: 4)
+        let byColumn = Dictionary(uniqueKeysWithValues: events.map { (Int($0.column), Int($0.cellColumn)) })
+        XCTAssertEqual(byColumn[1], 0, "the hit on the rest at column 2 repeats column 1's note: it strikes THAT cell"); XCTAssertEqual(byColumn[3], 2); XCTAssertEqual(byColumn[6], 5)
+        XCTAssertEqual(byColumn[0], 0); XCTAssertEqual(byColumn[7], 7, "a real note still strikes its own column")
+        XCTAssertEqual(events.count, 8, "REPEAT strikes on every hit")
+    }
+    func testAdvStepStrikesOnlyOnHitsEvenThoughTheWalkMovesOnEveryStep() {
+        var l = rpLine(3, 8); l.riffAdvanceStep = true       // hits on steps 0, 3, 6 of 8; the walk reaches a new note on every step
+        let events = rpStrikes([l], beats: 4)
+        XCTAssertEqual(events.map { $0.onsetBeat }.map { ($0 * 4).rounded() / 4 }, [0, 1.5, 3])
+        XCTAssertEqual(events.map { Int($0.cellColumn) }, [0, 3, 6], "the notes under the hits; the notes reached on the rest steps (columns 1, 2, 4, 5) post no strike")
+    }
+
     func testRhythmPolishAWrappedHitBelongsToThePassItWrappedInto() {
         // E(3,8) TILT-fine +50 %: targets 2.5, 4.75, 7.0 steps. OFFSET 3 (rotate 5) carries them to 5.5, 7.75 and 2.0 on the bar, and a 0.6 fraction pushes the middle one past the end of the lap: 8.35 wraps to 0.35 step.
         // It plays 0.175 beat into THE SAME pass — the pass's first hit, rank 1 — not at the end of the previous one; the other two follow in time order (1.3 and 3.05 beats).

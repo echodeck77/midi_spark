@@ -710,6 +710,8 @@ final class Router {
     // these to a real 0...7 column / 1...8 rank.
     private var nvColumn = [Int8](repeating: -1, count: 4 * Router.noteViewRing)
     private var nvRank   = [Int8](repeating: -1, count: 4 * Router.noteViewRing)
+    /// RESTART TILES ferry (2026-10-22): the riff column whose NOTE this hit struck — `nvColumn` except on a REPEAT hit (which keeps posting its own rest column there, RIFF WALK §6.5) where it is the repeated note's column.
+    private var nvCellColumn = [Int8](repeating: -1, count: 4 * Router.noteViewRing)
     // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second ferry) — true exactly when `notes[0]` is genuinely
     // the riff's own resolved pitch for this hit (a real, non-rest riff rank; never FILL, which contributes
     // no distinct riff pitch per this ferry's own ruling) — lets the display layer (note box/summary label)
@@ -740,11 +742,11 @@ final class Router {
     /// is pre-capped at `noteViewMaxNotes` by every caller (ample for any realistic chord). Write-side
     /// `nvNew` is capped at the ring size (never over-counted), matching `focusNoteNew`'s own idiom
     /// exactly — the ring naturally keeps-newest/drops-oldest with no extra branching needed.
-    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, noteCount: Int, column: Int8 = -1, rank: Int8 = -1, hasRiffNote: Bool = false, withVels: Bool = false) {
+    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, noteCount: Int, column: Int8 = -1, rank: Int8 = -1, hasRiffNote: Bool = false, withVels: Bool = false, cellColumn: Int8 = -1) {
         guard lane >= 0, lane < 4 else { return }
         let slot = lane * Router.noteViewRing + nvHead[lane]
         nvOnsetBeat[slot] = onsetBeat; nvDurationBeat[slot] = durationBeat; nvKind[slot] = kind
-        nvColumn[slot] = column; nvRank[slot] = rank; nvHasRiffNote[slot] = hasRiffNote
+        nvColumn[slot] = column; nvRank[slot] = rank; nvHasRiffNote[slot] = hasRiffNote; nvCellColumn[slot] = cellColumn
         nvHostSeconds[slot] = (debugWindowHostSeconds > 0 && fBeatsPerSample > 0) ? debugWindowHostSeconds + (onsetBeat - fBeatPos) / fBeatsPerSample / fSampleRate : 0
         let nc = max(0, min(Router.noteViewMaxNotes, noteCount))
         nvNoteCount[slot] = UInt8(nc)
@@ -1721,6 +1723,8 @@ final class Router {
         /// PULSE ferry (2026-10-20, §1.3): the velocity each pitch in `notes` actually played with, parallel to `notes` (the value handed to `strikeChord`, after MIX VEL / FX VEL / ACCENT / SWELL / LISTEN
         /// DUCK and ACCENT, 1…127). `vels[0]` is the riff note's when `hasRiffNote`; the rest are the notes layer's (and mask CHORD extras'). Empty on the retired non-Euclideous sites.
         var vels: [UInt8] = []
+        /// RESTART TILES ferry (2026-10-22): the riff column whose note this hit struck — `column`, except on a REPEAT hit where it is the repeated note's column (`column` stays the hit's own rest seat). -1 = none.
+        var cellColumn: Int8 = -1
     }
     func drainEuclideousNoteViewEvents() -> [[EuclideousNoteViewEventSnapshot]] {
         var out: [[EuclideousNoteViewEventSnapshot]] = []
@@ -1736,7 +1740,7 @@ final class Router {
                 let cnt = Int(nvNoteCount[slot])
                 let notes = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvNotes[nbase + $0] }
                 let vels = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvVels[nbase + $0] }
-                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], hostSeconds: nvHostSeconds[slot], vels: vels))
+                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], hostSeconds: nvHostSeconds[slot], vels: vels, cellColumn: nvCellColumn[slot]))
             }
             out.append(events)
         }
@@ -5377,6 +5381,7 @@ final class Router {
                             var restEnd = 0
                             func tieOf(_ j: Int) -> Double { (notesPitchMask >> UInt16(j)) & 1 != 0 ? tieNotesExt : tieExt }
                             var wipeColumn: Int8 = -1, wipeRankOut: Int8 = -1
+                            var wipeCellColumn: Int8 = -1, repeatedColumn: Int8 = -1   // RESTART TILES: the column whose NOTE struck (the REPEAT lookback's column on a REPEAT hit, else the hit's own)
                             // FX TAB (ferry 2026-10-18): the page-level FX rows (a fixed-size, read-only snapshot — nothing here allocates) and THIS hit's decision
                             // from the one shared `euclideousFXApply`. `fx` stays empty (every row off) unless the lane plays its riff and a row has a cell for
                             // this column — so with every cell empty and BASE none every line below behaves exactly as before.
@@ -5537,6 +5542,7 @@ final class Router {
                                                 restEnd = 1
                                                 return false
                                             }
+                                            repeatedColumn = Int8(found.column)
                                             return strikeRiffRawRank(found.rank, repeating: true)
                                         }
                                     } else if let note0 = fxMoved
@@ -5551,7 +5557,7 @@ final class Router {
                                         // TRANSPOSE and OCT." RIFF WALK ferry §6.5: on a REPEAT hit this still
                                         // posts the hit's OWN (rest) column, `leapStep` — never the repeated one.
                                         let wr = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
-                                        if wr >= 1 && wr <= 8 { wipeColumn = Int8(leapStep); wipeRankOut = Int8(wr) }
+                                        if wr >= 1 && wr <= 8 { wipeColumn = Int8(leapStep); wipeRankOut = Int8(wr); wipeCellColumn = repeating && repeatedColumn >= 0 ? repeatedColumn : Int8(leapStep) }
                                     }
                                     return false
                                 }
@@ -5775,7 +5781,7 @@ final class Router {
                                         // substitute). Only -1/-1 when riff is off/FILL/SKIP-degraded this
                                         // tick, same as every other push site.
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieOf(0) > 0 ? 3 : 0, noteCount: nc,
-                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true)
+                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true, cellColumn: wipeCellColumn)
                                     }
                                 }
                                 return
@@ -5963,7 +5969,7 @@ final class Router {
                                     if nc > 0 {
                                         let (onset, duration) = nvTiming(repSpacing * pitchGate[0])   // NOTE VIEW's one duration: pitch 0's
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc,
-                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true)
+                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true, cellColumn: wipeCellColumn)
                                     }
                                 }
                                 cacheWholeSet()
@@ -6016,7 +6022,7 @@ final class Router {
                                 if nc > 0 {
                                     let (onset, duration) = nvTiming(gateBeatsWithTie(pitchGate[0], tieOf(0)))   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieOf(0) > 0 ? 3 : 0, noteCount: nc,
-                                                       column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true)
+                                                       column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true, cellColumn: wipeCellColumn)
                                 }
                             }
                             return

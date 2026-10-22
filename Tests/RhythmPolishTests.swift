@@ -313,10 +313,10 @@ final class RhythmPolishTests: XCTestCase {
     // MARK: 8 / 9. the restart tiles' state
 
     private func tileCfg(_ pulses: Int, _ steps: Int, dir: EuclidDir = .fwd, rhythm: [UInt8]? = nil, melody: [UInt8]? = nil, advanceStep: Bool = false, every: Int = 1,
-                         riffLength: Int = 8, riffDir: RiffDir = .forward) -> EuclideousWalkLaneConfig {
+                         riffLength: Int = 8, riffDir: RiffDir = .forward, stride: Int = 1, shift: Int = 0) -> EuclideousWalkLaneConfig {
         var l = EuclidLine(pulses: pulses, steps: steps, noteSel: .all)
         l.rate = .r1_8; l.direction = dir; l.restartRhythmBars = rhythm; l.restartMelodyPasses = melody
-        l.riffAdvanceStep = advanceStep; l.riffAdvanceEvery = every; l.riffLength = riffLength; l.riffDir = riffDir
+        l.riffAdvanceStep = advanceStep; l.riffAdvanceEvery = every; l.riffLength = riffLength; l.riffDir = riffDir; l.riffStride = stride; l.riffRotate = shift
         return euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
     }
     func testRhythmTileSweepAndTrack() {
@@ -352,34 +352,130 @@ final class RhythmPolishTests: XCTestCase {
         let pp = restartTileState(.rhythm, cfg: tileCfg(4, 9, dir: .pingpong), beat: 4.5, running: true)
         XCTAssertTrue(pp.continuous); XCTAssertEqual(pp.count, 18); XCTAssertEqual(pp.litFraction, 4.5 / 9, accuracy: 1e-9)
     }
-    func testMelodyTileUnitsTicksAndProgress() {
-        // E(5,8) at 1/8, riff of 8 columns FWD, ADV HIT, rhythm FREE, melody 2·1·1 (restarts at passes 0, 2 and 3 of every 4): a 4-beat pass holds 5 hits
-        let m = tileCfg(5, 8, melody: [2, 1, 1])
-        let at0 = restartTileState(.melody, cfg: m, beat: 0, running: true)
-        XCTAssertEqual(at0.count, 10, "two passes of 5 hits"); XCTAssertEqual(at0.tickMask, UInt16(1) << 7, "a tick after the 8th: the riff has walked its eight columns")
-        XCTAssertEqual(at0.progress!, 0, accuracy: 1e-9); XCTAssertEqual(at0.litCount, 1, "the hit on step 0 is under way")
-        let at8 = restartTileState(.melody, cfg: m, beat: 8, running: true)
-        XCTAssertEqual(at8.count, 5); XCTAssertEqual(at8.tickMask, 0, "5 hits never complete the 8-column cycle"); XCTAssertEqual(at8.progress!, 0, accuracy: 1e-9)
-        let at6 = restartTileState(.melody, cfg: m, beat: 6, running: true)
-        XCTAssertEqual(at6.progress!, 0.75, accuracy: 1e-9); XCTAssertEqual(at6.restartsInText, "next restart this pass")
-        // FREE melody: the riff's own cycle, lit to the position, no ticks, no sweep
-        let free = restartTileState(.melody, cfg: tileCfg(5, 8), beat: 0.6, running: true)
-        XCTAssertTrue(free.isFree); XCTAssertEqual(free.count, 8); XCTAssertEqual(free.tickMask, 0); XCTAssertNil(free.progress)
-        XCTAssertEqual(free.litCount, 1, "E(5,8) hits steps 0, 2, 4, 5, 7: at beat 0.6 only the hit on step 0 has played")
+
+    // MARK: RESTART TILES ferry — the MELODY track: one cell per riff note
+
+    /// The recording's lane: E(5,8) at 1/8 (hits on steps 0,2,4,5,7: beats 0, 1, 2, 2.5, 3.5 of every 4-beat pass), riff LEN 8, REV, ADV HIT, ADVANCE EVERY 2, rhythm 1 BAR.
+    private func recordingCfg(melody: [UInt8]?, every: Int = 2) -> EuclideousWalkLaneConfig { tileCfg(5, 8, rhythm: [1], melody: melody, every: every, riffDir: .reverse) }
+    private let recordingHitBeats: [Double] = [0, 1, 2, 2.5, 3.5, 4, 5, 6, 6.5, 7.5, 8, 9, 10, 10.5, 11.5, 12, 13, 14, 14.5, 15.5]
+
+    func testTheRecordedLaneShowsEightCellsInWalkOrderLitInTurnWithThreeGhosts() {
+        let cfg = recordingCfg(melody: [2])
+        let order = euclideousRiffCycleOrder(dir: .reverse, length: 8, stride: 1, shift: 0)
+        XCTAssertEqual((0..<8).map { order.column(ofCell: $0) + 1 }, [8, 7, 6, 5, 4, 3, 2, 1], "REV: the walk visits column 8 first")
+        XCTAssertEqual(order.period, 8)
+        // over one restart period (2 passes = 10 hits): cells 1–5 light in turn, each staying for the two hits that play it, and 3 are ghosts the whole time
+        for (k, beat) in recordingHitBeats.prefix(10).enumerated() {
+            let st = restartTileState(.melody, cfg: cfg, beat: beat + 0.1, running: true)
+            XCTAssertEqual(st.count, 8)
+            XCTAssertEqual(st.litCount, (k + 2) / 2, "after hit \(k + 1): hits 1–2 play cell 1, 3–4 cell 2, …")
+            XCTAssertEqual(st.ghostCount, 3, "hit \(k + 1): the walk can only reach 5 of 8 notes before the melody restart")
+            XCTAssertEqual(st.reachable, 5)
+            XCTAssertEqual(st.notesThisCycleText, "5 of 8 notes this cycle")
+            for i in 0..<8 { XCTAssertEqual(st.cell(i), UInt8(i < (k + 2) / 2 ? 1 : (i >= 5 ? 2 : 0)), "cell \(i + 1) after hit \(k + 1)") }
+        }
+        // the ghost count is the RIFF tab's NEVER PLAY count
+        let ro = euclideousRiffReadout(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: euclidCycleLen(cfg.dir, n: cfg.n), sub: cfg.sub, chains: cfg.chains, legacySpanBeats: cfg.spanBeats,
+                                       advanceStep: cfg.advanceStep, riffDir: cfg.riffDir, stride: cfg.stride, length: cfg.length, shift: cfg.rotate, every: cfg.every, seed: cfg.seed)
+        XCTAssertEqual(ro?.neverPlay.count, 3)
+        // the next period starts over: every cell clears and the first lights on its first hit
+        let again = restartTileState(.melody, cfg: cfg, beat: 8.1, running: true)
+        XCTAssertEqual(again.litCount, 1); XCTAssertEqual(again.ghostCount, 3)
+        // stopped: the structure (order and ghosts) stays at the beat, nothing lit, no sweep
+        let stopped = restartTileState(.melody, cfg: cfg, beat: 3.6, running: false)
+        XCTAssertEqual(stopped.litCount, 0); XCTAssertEqual(stopped.ghostCount, 3); XCTAssertNil(stopped.progress)
     }
-    func testMelodyTileOverSixteenUnitsIsOneBarWithProportionalTicks() {
-        // melody [4] = 20 hits, the riff's cycle 8: ticks at 8/20 and 16/20 of the bar
-        let m = restartTileState(.melody, cfg: tileCfg(5, 8, melody: [4]), beat: 0, running: true)
-        XCTAssertTrue(m.continuous); XCTAssertEqual(m.count, 20); XCTAssertEqual(m.tickEveryFraction!, 0.4, accuracy: 1e-12)
-        XCTAssertEqual(euclideousRestartTileContinuousTickXs(m, width: 100), [40, 80])
-        // ADV STEP counts steps: 4 passes × 8 = 32 units, a tick every 8 → at 4 pt minimum spacing a 20 pt bar keeps only the ones ≥ 4 pt apart (5, 10, 15 → all fine); 12 pt drops alternate ones
-        let st = restartTileState(.melody, cfg: tileCfg(5, 8, melody: [4], advanceStep: true), beat: 0, running: true)
-        XCTAssertEqual(st.count, 32)
-        XCTAssertEqual(euclideousRestartTileContinuousTickXs(st, width: 20), [5, 10, 15])
-        let dropped = euclideousRestartTileContinuousTickXs(st, width: 12)
-        XCTAssertEqual(dropped, [3, 9], "a tick within 4 pt of the one before it is dropped: 3 (kept), 6 (dropped), 9 (kept)")
-        // cell widths: sp2 between cells, a tick costs 4 pt
-        XCTAssertEqual(euclideousRestartTileCellWidth(count: 8, ticks: 0, width: 140.75), (140.75 - 14) / 8, accuracy: 1e-9)
-        XCTAssertEqual(euclideousRestartTileCellWidth(count: 10, ticks: 1, width: 140.75), (140.75 - 18 - 4) / 10, accuracy: 1e-9)
+    func testMelodyFreeShowsEveryNoteWithNoGhostsAndClearsAndRefillsAtTheWrap() {
+        let cfg = recordingCfg(melody: nil)
+        let at12 = restartTileState(.melody, cfg: cfg, beat: 12.1, running: true)   // hit 16 just played: ordinal 15, the walk's last step
+        XCTAssertEqual(at12.count, 8); XCTAssertEqual(at12.ghostCount, 0); XCTAssertEqual(at12.litCount, 8, "all 8 lit after 16 hits"); XCTAssertNil(at12.progress)
+        let at13 = restartTileState(.melody, cfg: cfg, beat: 13.1, running: true)   // hit 17: a new cycle
+        XCTAssertEqual(at13.litCount, 1, "cleared, with the first cell lit on hit 17"); XCTAssertEqual(at13.ghostCount, 0)
+        XCTAssertEqual(restartTileState(.melody, cfg: cfg, beat: 0.1, running: true).ghostCount, 0)
+    }
+    func testAWalkCycleThatWrapsInsideARestartClearsAndRefillsAndGhostsTheRest() {
+        // melody 4 PASS: 20 hits per period against a 16-hit walk cycle
+        let cfg = recordingCfg(melody: [4])
+        let first = restartTileState(.melody, cfg: cfg, beat: 12.1, running: true)
+        XCTAssertEqual(first.litCount, 8); XCTAssertEqual(first.ghostCount, 0, "the first cycle reaches every note")
+        let wrapped = restartTileState(.melody, cfg: cfg, beat: 13.1, running: true)   // hit 17
+        XCTAssertEqual(wrapped.litCount, 1, "cleared and refilled at hit 17")
+        XCTAssertEqual((0..<8).filter { wrapped.cell($0) == 2 }, [2, 3, 4, 5, 6, 7], "in the second cycle cells 3–8 are ghosts (only hits 17–20 remain: two notes)")
+        XCTAssertEqual(wrapped.reachable, 2)
+    }
+    func testPendulumShowsEachNoteOnceAndTheWayBackLightsExistingCells() {
+        let cfg = tileCfg(5, 8, riffLength: 4, riffDir: .pendulum)
+        let order = euclideousRiffCycleOrder(dir: .pendulum, length: 4, stride: 1, shift: 0)
+        XCTAssertEqual(order.period, 6, "0 1 2 3 2 1, then back to its start"); XCTAssertEqual(order.visited, 4)
+        XCTAssertEqual((0..<4).map { order.column(ofCell: $0) }, [0, 1, 2, 3])
+        // hits at beats 0, 1, 2, 2.5, 3.5, 4, 5: 1, 2, 3, 4 cells, then 4, 4 (the way back), then a new cycle: 1
+        XCTAssertEqual([0.0, 1, 2, 2.5, 3.5, 4, 5].map { restartTileState(.melody, cfg: cfg, beat: $0 + 0.1, running: true).litCount }, [1, 2, 3, 4, 4, 4, 1])
+        XCTAssertEqual(restartTileState(.melody, cfg: cfg, beat: 0.1, running: true).count, 4)
+        // PING-PONG repeats each end: 0 1 2 3 3 2 1 0 — a cycle of 8 walk steps, still 4 cells
+        let ping = euclideousRiffCycleOrder(dir: .pingpong, length: 4, stride: 1, shift: 0)
+        XCTAssertEqual(ping.period, 8); XCTAssertEqual(ping.visited, 4); XCTAssertEqual((0..<8).map { ping.distinctThrough(step: $0) }, [1, 2, 3, 4, 4, 4, 4, 4])
+    }
+    func testAdvStepLightsANoteReachedOnARestStep() {
+        // ADV STEP walks one riff position per STEP, hit or not: E(3,8) hits steps 0, 3, 6 — at beat 0.6 (step 1, a rest) the second note is lit already
+        let cfg = tileCfg(3, 8, advanceStep: true)
+        XCTAssertEqual(restartTileState(.melody, cfg: cfg, beat: 0.1, running: true).litCount, 1)
+        XCTAssertEqual(restartTileState(.melody, cfg: cfg, beat: 0.6, running: true).litCount, 2, "a note reached on a step with no hit still lights")
+        XCTAssertEqual(restartTileState(.melody, cfg: cfg, beat: 1.1, running: true).litCount, 3)
+    }
+    func testStrideLeavesSomeNotesNeverReachedAndShiftMovesTheWindow() {
+        let two = euclideousRiffCycleOrder(dir: .forward, length: 8, stride: 2, shift: 0)
+        XCTAssertEqual(two.period, 4); XCTAssertEqual(two.visited, 4)
+        XCTAssertEqual((0..<8).map { two.column(ofCell: $0) }, [0, 2, 4, 6, 1, 3, 5, 7], "the four visited columns first, then the ones the stride never reaches")
+        let shifted = euclideousRiffCycleOrder(dir: .forward, length: 4, stride: 1, shift: 4)
+        XCTAssertEqual((0..<4).map { shifted.column(ofCell: $0) }, [4, 5, 6, 7], "LEN 4 SHIFT 4 reads columns 5–8")
+        // under a melody chain the unreachable notes are ghosts; under FREE nothing is
+        let chain = restartTileState(.melody, cfg: tileCfg(5, 8, melody: [1], stride: 2), beat: 0.1, running: true)
+        XCTAssertEqual(chain.ghostCount, 4)
+        XCTAssertEqual(restartTileState(.melody, cfg: tileCfg(5, 8, stride: 2), beat: 0.1, running: true).ghostCount, 0)
+    }
+    func testRandomAndDrunkWalksRunInColumnOrderWithNoGhosts() {
+        // they cannot reach the Euclideous row (`euclideousRiffDirResolved` coerces both to FWD), but the order function handles them
+        for dir in [RiffDir.random, .drunk] {
+            let o = euclideousRiffCycleOrder(dir: dir, length: 8, stride: 1, shift: 0)
+            XCTAssertTrue(o.unpredictable); XCTAssertEqual((0..<8).map { o.column(ofCell: $0) }, Array(0..<8))
+            var cfg = tileCfg(5, 8, melody: [2]); cfg.riffDir = dir
+            XCTAssertEqual(restartTileState(.melody, cfg: cfg, beat: 0.1, running: true).ghostCount, 0, "no ghosts when the walk can't be predicted")
+        }
+        var line = EuclidLine(); line.riffDir = .random
+        XCTAssertEqual(line.euclideousRiffDirResolved, .forward); line.riffDir = .drunk; XCTAssertEqual(line.euclideousRiffDirResolved, .forward)
+    }
+
+    // MARK: strikes (the pulse feed's per-hit stream, keyed by cell)
+
+    func testAStrikeBrightensItsCellByTheSharedEnvelopeAndNeverTouchesAnother() {
+        let cc = euclideousRiffCycleOrder(dir: .reverse, length: 8, stride: 1, shift: 0).columnCells   // column 7 → cell 0, column 6 → cell 1, …
+        func strike(_ col: Int8, at t: Double, vel: UInt8 = 100) -> EuclideousPulseStrike { var s = EuclideousPulseStrike(onsetBeat: 0, onsetAt: t, riffVel: vel, notesVel: 0); s.cellColumn = col; return s }
+        let bank = euclideousRestartCellStrikes([strike(7, at: 10), strike(6, at: 9)], columnCells: cc, now: 10.05)
+        XCTAssertEqual(bank.mix(cell: 0, scale: 1, reduceMotion: false), euclideousPulseEnvelopes(velocity: 100, seconds: 0.05, scale: 1).f, accuracy: 1e-12)
+        XCTAssertGreaterThan(bank.mix(cell: 0, scale: 1, reduceMotion: false), 0.5, "just struck: bright")
+        XCTAssertLessThan(bank.mix(cell: 1, scale: 1, reduceMotion: false), 0.01, "a second-old strike has settled (τ 0.16 s)")
+        for i in 2..<8 { XCTAssertEqual(bank.mix(cell: i, scale: 1, reduceMotion: false), 0, "cell \(i) was never struck") }
+        // velocity scaling: a soft strike shows, but less; the youngest strike per cell wins (the same note again re-strikes its cell)
+        XCTAssertLessThan(euclideousRestartCellStrikes([strike(7, at: 10, vel: 30)], columnCells: cc, now: 10.05).mix(cell: 0, scale: 1, reduceMotion: false), bank.mix(cell: 0, scale: 1, reduceMotion: false))
+        let twice = euclideousRestartCellStrikes([strike(7, at: 9.5), strike(7, at: 10)], columnCells: cc, now: 10.05)
+        XCTAssertEqual(twice.mix(cell: 0, scale: 1, reduceMotion: false), bank.mix(cell: 0, scale: 1, reduceMotion: false), accuracy: 1e-12, "the cell strikes again on each hit and never moves on")
+        // the PULSE setting: OFF = nothing, SUBTLE = scaled; Reduce Motion keeps the glow, exactly as the strip's key strike does
+        XCTAssertEqual(bank.mix(cell: 0, scale: 0, reduceMotion: false), 0)
+        XCTAssertEqual(bank.mix(cell: 0, scale: 0.6, reduceMotion: false), euclideousPulseEnvelopes(velocity: 100, seconds: 0.05, scale: 0.6).f, accuracy: 1e-12)
+        XCTAssertEqual(bank.mix(cell: 0, scale: 1, reduceMotion: true), bank.mix(cell: 0, scale: 1, reduceMotion: false))
+        // not yet happened, a notes-only strike and a strike with no riff column draw nothing
+        var notesOnly = strike(7, at: 10); notesOnly.riffVel = 0
+        let none = euclideousRestartCellStrikes([strike(7, at: 11), notesOnly, strike(-1, at: 10)], columnCells: cc, now: 10.05)
+        for i in 0..<8 { XCTAssertEqual(none.mix(cell: i, scale: 1, reduceMotion: false), 0) }
+    }
+
+    // MARK: draw order
+
+    func testTheRestartTileDrawsBaseThenSweepThenTrackThenText() {
+        XCTAssertEqual(euclideousRestartTileLayerOrder, [.base, .sweep, .track, .text])
+        let order = euclideousRestartTileLayerOrder
+        XCTAssertLessThan(order.firstIndex(of: .sweep)!, order.firstIndex(of: .text)!, "the sweep (and its leading edge) never draws over the name, chain or unit")
+        XCTAssertLessThan(order.firstIndex(of: .track)!, order.firstIndex(of: .text)!)
+        XCTAssertLessThan(order.firstIndex(of: .base)!, order.firstIndex(of: .sweep)!)
     }
 }

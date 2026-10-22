@@ -9090,6 +9090,8 @@ func euclideousPulseFilter(_ effect: EuclideousPulseEffect, scale p: Double, red
 /// worked out ONCE when the event arrives from the dejittered beat anchor the comet dot reads — so a strike draws in the frame the dot reaches its tile, and keeps decaying in wall time even after the
 /// anchor stops advancing (a stopped transport re-anchors every poll). `riffVel` / `notesVel` are the velocities those layers played (0 = that layer didn't strike on this hit).
 struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Double; var riffVel: UInt8; var notesVel: UInt8; var rank: Int8 = -1; var column: Int8 = -1
+    /// RESTART TILES ferry (2026-10-22): the riff column whose NOTE this hit struck (`column`, except a REPEAT hit's repeated note) — the MELODY tile's cell for the strike. -1 = no riff note.
+    var cellColumn: Int8 = -1
     /// The comet tile this strike belongs to, resolved ONCE (`EuclideousPulseFeed.resolveTiles`) for the lane geometry `tileKey` names — the chain-aware mapping is not free, so it is not redone every frame. -1 = not resolved yet.
     var tile: Int16 = -1; var tileKey: Int = 0 }   // `rank` / `column`: the riff-grid row and column the engine reports for this hit (REPEAT's rank is the repeated note's); -1 = none
 
@@ -9114,7 +9116,7 @@ final class EuclideousPulseFeed {
             var notes: UInt8 = 0
             if ev.notes.count > first { for i in first..<ev.notes.count { notes = max(notes, vel(i)) } }
             let at = anchorAt.timeIntervalSinceReferenceDate + (ev.onsetBeat - anchorBeat) * secPerBeat
-            rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes, rank: ev.hasRiffNote ? ev.rank : -1, column: ev.hasRiffNote ? ev.column : -1))
+            rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes, rank: ev.hasRiffNote ? ev.rank : -1, column: ev.hasRiffNote ? ev.column : -1, cellColumn: ev.hasRiffNote ? ev.cellColumn : -1))
             if rings[lane].count > Self.ringCap { rings[lane].removeFirst(rings[lane].count - Self.ringCap) }
         }
     }
@@ -9736,27 +9738,33 @@ func euclideousRestartFlashLook(since seconds: Double, scale p: Double, reduceMo
                                       hot: decay)
 }
 
-// MARK: - RESTART TILES (RHYTHM POLISH ferry, 2026-10-22, §6) — the sweep and the progress track
+// MARK: - RESTART TILES (RHYTHM POLISH ferry, 2026-10-22, §6; the MELODY track rebuilt by the RESTART TILES ferry, 2026-10-22)
 
-/// §6.3 / §6.4 — where one restart tile stands at a beat: how far its fill has swept toward the next restart (`progress`), and the track under its text (`cells`, `ticks`). ONE pure function builds it for both tiles and
-/// the tests; it is the engine's own: the rhythm origin / next rhythm restart / pass start and index (§5 of the RHYTHM tab ferry), the melody origin and its next restart, the lane's real hit schedule
-/// (`euclideousChainHitsBefore`) and the riff's own cycle (`euclideousFXWalkPeriod` × EVERY). Fixed-size and allocation-free: the first 16 cells are two bits each in `cellBits`, the ticks one bit each in `tickMask`;
-/// a track with more than 16 cells is drawn as one continuous bar (`continuous`) from the fractions below.
+/// §6.3 / §6.4 — where one restart tile stands at a beat: how far its fill has swept toward the next restart (`progress`), and the track under its text. ONE pure function (`restartTileState`) builds it for both tiles, the editor's
+/// strips and the tests; it is the engine's own: the rhythm origin / next rhythm restart / pass start and index, the melody origin and its next restart, the lane's real hit schedule (`euclideousChainHitsBefore`) and the
+/// riff walk itself (`euclideousRiffColumn`'s own pieces, the per-tick core's `advOrd`). Fixed-size and allocation-free: the first 16 cells are two bits each in `cellBits`.
+/// RHYTHM: one cell per step slot of the lap; more than 16 ⇒ one continuous bar (`continuous`) from the fractions below. MELODY: one cell per riff NOTE (the riff's LEN, at most 8), in the order the walk first visits them.
 struct EuclideousRestartTileState: Equatable {
     static let cellCap = 16
     var kind: EuclideousRestartKind
     var isFree: Bool = true
     var progress: Double? = nil           // the sweep's fraction of the tile (nil: FREE, or the lane isn't running)
-    var count: Int = 0                    // step slots (RHYTHM) / riff units (MELODY) in the track
-    var cellBits: UInt32 = 0              // 2 bits per cell, cells 0…15: 0 unlit · 1 lit · 2 ghost (a slot this pass won't reach)
-    var tickMask: UInt16 = 0              // bit i: a tick sits in the gap after cell i (MELODY: where the riff completes its own cycle)
+    var count: Int = 0                    // step slots (RHYTHM) / riff notes (MELODY) in the track
+    var cellBits: UInt32 = 0              // 2 bits per cell, cells 0…15: 0 unlit · 1 lit · 2 ghost (a slot / note this pass won't reach)
     var continuous: Bool { count > EuclideousRestartTileState.cellCap }
     var litFraction: Double = 0           // continuous form: how much of the bar is lit
     var ghostFromFraction: Double? = nil  // continuous RHYTHM: the dashed tail starts here
-    var tickEveryFraction: Double? = nil  // continuous MELODY: a tick every this fraction of the bar
     var restartsIn: Int? = nil            // whole bars (RHYTHM) / passes (MELODY) until the next restart, rounded up; nil when FREE or not running
+    /// MELODY: the riff column → cell map (4 bits per column 0…7, 0xF = no cell) that a strike's column is looked up in, and how many of the cells the walk reaches this cycle before the next melody restart (all of them when FREE).
+    var columnCells: UInt32 = 0xFFFF_FFFF
+    var reachable: Int = 0
     func cell(_ i: Int) -> UInt8 { i >= 0 && i < 16 ? UInt8((cellBits >> UInt32(2 * i)) & 3) : 0 }
-    func hasTick(after i: Int) -> Bool { i >= 0 && i < 16 && tickMask & (UInt16(1) << UInt16(i)) != 0 }
+    /// The cell a strike on riff column `c` belongs to, nil when the track has none for it.
+    func cell(forColumn c: Int) -> Int? {
+        guard c >= 0, c < 8 else { return nil }
+        let v = Int((columnCells >> UInt32(4 * c)) & 0xF)
+        return v == 0xF ? nil : v
+    }
     var litCount: Int { (0..<min(count, 16)).filter { cell($0) == 1 }.count }
     var ghostCount: Int { (0..<min(count, 16)).filter { cell($0) == 2 }.count }
     /// §6.7 — the VoiceOver value while the lane runs: "next restart in 3 bars" / "in 2 passes", or "this bar" / "this pass" when it falls at the end of the current one. Empty when FREE or stopped.
@@ -9765,8 +9773,15 @@ struct EuclideousRestartTileState: Equatable {
         let unit = kind == .rhythm ? "bar" : "pass"
         return n <= 1 ? "next restart this \(unit)" : "next restart in \(n) \(unit == "bar" ? "bars" : "passes")"
     }
+    /// RESTART TILES §3.5 — what the editor's strip adds for MELODY: "5 of 8 notes this cycle" (the notes the walk reaches before the next melody restart). Empty for RHYTHM.
+    var notesThisCycleText: String { kind == .melody && count > 0 ? "\(reachable) of \(count) notes this cycle" : "" }
     mutating func setCell(_ i: Int, _ v: UInt32) { guard i >= 0, i < 16 else { return }; cellBits = (cellBits & ~(UInt32(3) << UInt32(2 * i))) | (v << UInt32(2 * i)) }
 }
+/// RESTART TILES §2 — what a restart tile draws, back to front. ONE list: the page builds the tile by walking it, so the order cannot drift from what the tests pin (the sweep and its leading edge never draw over the
+/// name, chain or unit). The tile's text sits on no backing, so nothing hides the sweep or track behind it.
+enum EuclideousRestartTileLayer: Hashable { case base, sweep, track, text }
+let euclideousRestartTileLayerOrder: [EuclideousRestartTileLayer] = [.base, .sweep, .track, .text]
+
 /// The beat of the next MELODY restart strictly after `beat` — the start of the next pass that begins one of the chain's links; nil when FREE.
 func euclideousNextMelodyRestart(after beat: Double, lapBeats: Double, barBeats: Double, rhythmChain: EuclideousRestartChain, melodyChain: EuclideousRestartChain) -> Double? {
     guard !melodyChain.isFree else { return nil }
@@ -9783,6 +9798,46 @@ func euclideousNextMelodyRestart(after beat: Double, lapBeats: Double, barBeats:
     }
     return euclideousPassStart(q - r + nextOffset, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)
 }
+
+/// RESTART TILES §1.2 / §1.3 — the riff's walk cycle as the MELODY tile's cells: cell i is the i-th DISTINCT riff column the walk visits from the start of a cycle (FWD LEN → 1 order, REV the other way, PEND / PING outward
+/// then back — a revisit adds no cell). A cycle is `period` walk steps (`euclideousFXWalkPeriod`: D ÷ gcd(D, STRIDE), D = LEN · 2·LEN−2 · 2·LEN) and ends where the walk returns to its start. The track always has LEN cells: columns
+/// the stride never visits follow the visited ones in window order (they are never reached). RAND / DRUNK can't reach the Euclideous row (`euclideousRiffDirResolved` coerces them to FWD) but are handled: column order, `unpredictable`.
+/// Fixed-size: 4 bits per column / cell / walk step.
+struct EuclideousRiffCycleOrder: Equatable {
+    var length = 1, period = 1, visited = 0
+    var unpredictable = false
+    var columnCells: UInt32 = 0xFFFF_FFFF     // column 0…7 → its cell (0xF = none)
+    var cellColumns: UInt32 = 0               // cell 0…7 → its column
+    var distinctBits: UInt64 = 0              // walk step 0…15 → how many distinct cells the walk has reached through that step (1…8)
+    func column(ofCell i: Int) -> Int { i >= 0 && i < 8 ? Int((cellColumns >> UInt32(4 * i)) & 0xF) : 0 }
+    func cell(ofColumn c: Int) -> Int? { guard c >= 0, c < 8 else { return nil }; let v = Int((columnCells >> UInt32(4 * c)) & 0xF); return v == 0xF ? nil : v }
+    func distinctThrough(step w: Int) -> Int { w < 0 ? 0 : Int((distinctBits >> UInt64(4 * min(15, w))) & 0xF) }
+}
+func euclideousRiffCycleOrder(dir: RiffDir, length: Int, stride: Int, shift: Int) -> EuclideousRiffCycleOrder {
+    var o = EuclideousRiffCycleOrder()
+    let L = max(1, min(8, length)), st = max(1, stride)
+    o.length = L
+    var count = 0
+    func assign(_ col: Int) { o.columnCells = (o.columnCells & ~(UInt32(0xF) << UInt32(4 * col))) | (UInt32(count) << UInt32(4 * col)); o.cellColumns |= UInt32(col) << UInt32(4 * count); count += 1 }
+    func assigned(_ col: Int) -> Bool { (o.columnCells >> UInt32(4 * col)) & 0xF != 0xF }
+    if dir == .random || dir == .drunk {
+        o.unpredictable = true; o.period = L
+        for i in 0..<L { assign(riffRotateStep(i, by: shift, steps: 8)); o.distinctBits |= UInt64(count) << UInt64(4 * i) }
+        o.visited = L
+        return o
+    }
+    let P = max(1, min(16, euclideousFXWalkPeriod(dir: dir, length: L, stride: st)))
+    o.period = P
+    for w in 0..<P {
+        let col = riffRotateStep(riffStepAt(dir, raw: w * st, steps: L, seed: 0), by: shift, steps: 8)
+        if !assigned(col) { assign(col) }
+        o.distinctBits |= UInt64(count) << UInt64(4 * w)
+    }
+    o.visited = count
+    for i in 0..<L { let col = riffRotateStep(i, by: shift, steps: 8); if !assigned(col) { assign(col) } }   // the stride never reaches these
+    return o
+}
+
 /// `beat` is the engine's MUSICAL beat. `running` false (stopped transport, or the lane isn't playing): the track keeps its structure at `beat` with nothing lit and no sweep.
 func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneConfig, beat: Double, running: Bool) -> EuclideousRestartTileState {
     var st = EuclideousRestartTileState(kind: kind)
@@ -9817,63 +9872,98 @@ func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneCo
     case .melody:
         let chain = c.chains.melody
         st.isFree = chain.isFree
+        let L = max(1, min(8, c.length))
+        let order = euclideousRiffCycleOrder(dir: c.riffDir, length: L, stride: c.stride, shift: c.rotate)
+        let every = max(1, c.every)
+        let cycleUnits = Int64(max(1, order.period * every))   // one full walk cycle, in hits (ADV HIT) or steps (ADV STEP)
+        st.count = L
+        st.columnCells = order.columnCells
         var cycleHits = 0
         for s in 0..<cycleLen where c.buf[euclidReadIndex(s, n: c.n, dir: c.dir)] { cycleHits += 1 }
         func unitsBefore(_ m: Int64) -> Int64 {
             c.advanceStep ? m : euclideousChainHitsBefore(m, rhythm: rhythm, barBeats: barBeats, sub: sub, buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, cycleHits: cycleHits)
         }
-        let period = max(1, euclideousFXWalkPeriod(dir: c.riffDir, length: c.length, stride: c.stride) * max(1, c.every))   // the riff's own cycle, in units
         let tickNow = Int64(((beat / sub) + eps).rounded(.down))
-        if chain.isFree {
-            // the riff's own cycle, lit up to the position within it (counted from beat 0, the FREE melody origin)
-            let played = max(0, unitsBefore(tickNow + 1) - unitsBefore(0))
-            st.count = period
-            let lit = (running && played > 0) ? Int((played - 1) % Int64(period)) + 1 : 0
-            for i in 0..<min(period, EuclideousRestartTileState.cellCap) where i < lit { st.setCell(i, 1) }
-            if st.continuous { st.litFraction = Double(lit) / Double(period) }
-        } else {
-            let originBeat = euclideousMelodyChainOrigin(beat: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm, melodyChain: chain)
-            guard let nextBeat = euclideousNextMelodyRestart(after: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm, melodyChain: chain) else { return st }
-            let oT = euclideousOriginTick(originBeat, sub: sub), nT = euclideousOriginTick(nextBeat, sub: sub)
-            let base = unitsBefore(oT)
-            let count = max(0, Int(unitsBefore(nT) - base))
-            let played = max(0, min(count, Int(unitsBefore(tickNow + 1) - base)))
-            st.count = count
-            for i in 0..<min(count, EuclideousRestartTileState.cellCap) where running && i < played { st.setCell(i, 1) }
-            if st.continuous {
-                st.litFraction = running ? Double(played) / Double(count) : 0
-                if period < count { st.tickEveryFraction = Double(period) / Double(count) }
+        let originBeat = chain.isFree ? 0 : euclideousMelodyChainOrigin(beat: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm, melodyChain: chain)
+        let oT = euclideousOriginTick(originBeat, sub: sub)
+        // The walk's ordinal NOW: the riff position the walk has reached — the current tick's under ADV STEP, the latest hit's (since the melody origin) under ADV HIT. None yet ⇒ nothing lit.
+        var ordNow: Int64 = -1
+        if tickNow >= oT {
+            if c.advanceStep {
+                ordNow = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: sub, tick: tickNow, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: true).advOrd
             } else {
-                var k = period
-                while k < count { st.tickMask |= UInt16(1) << UInt16(k - 1); k += period }   // after the unit that completes the riff's cycle (k ≤ 15 here)
+                var t = tickNow, scanned = 0
+                while t >= oT && scanned <= cycleLen * 4 + 16 {
+                    let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: sub, tick: t, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: false)
+                    if info.rawIsHit { ordNow = info.advOrd; break }
+                    t -= 1; scanned += 1
+                }
             }
+        }
+        let cycle = ordNow >= 0 ? ordNow / cycleUnits : 0                  // a new cycle (or a melody restart) starts this evaluation with every cell unlit and the first one lit
+        let c0 = cycle * cycleUnits
+        let wNow = ordNow >= 0 ? Int((ordNow - c0) / Int64(every)) : -1
+        let lit = running ? order.distinctThrough(step: min(wNow, order.period - 1)) : 0
+        var reachable = order.visited                                       // FREE: everything the walk visits (no ghosts)
+        if !chain.isFree, !order.unpredictable, let nextBeat = euclideousNextMelodyRestart(after: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm, melodyChain: chain) {
+            let nT = euclideousOriginTick(nextBeat, sub: sub)
+            let units = max(0, unitsBefore(nT) - unitsBefore(oT))           // units from the melody origin to the next melody restart
+            let lastOrd = min(c0 + cycleUnits - 1, units - 1)               // the last ordinal this cycle can reach before that restart
+            let wMax = lastOrd >= c0 ? Int((lastOrd - c0) / Int64(every)) : -1
+            reachable = order.distinctThrough(step: min(wMax, order.period - 1))
             if running {
                 st.progress = nextBeat > originBeat ? max(0, min(1, (beat - originBeat) / (nextBeat - originBeat))) : 0
                 st.restartsIn = max(1, Int(((nextBeat - beat) / lap - eps).rounded(.up)))
             }
         }
+        st.reachable = reachable
+        for i in 0..<min(L, EuclideousRestartTileState.cellCap) {
+            if i < lit { st.setCell(i, 1) }
+            else if !chain.isFree && !order.unpredictable && i >= reachable { st.setCell(i, 2) }   // a note this walk cycle won't reach before the next melody restart
+        }
     }
     return st
 }
-/// §6.4 — the track's geometry for `count` cells in a box `width` wide: each cell is `(width − 2 × (count − 1) − 4 × ticks) / count` (sp2 between items; a tick is 2 pt plus one more sp2 gap, so it costs 4 pt).
-func euclideousRestartTileCellWidth(count: Int, ticks: Int, width: CGFloat) -> CGFloat {
-    guard count > 0 else { return 0 }
-    return max(1, (width - 2 * CGFloat(count - 1) - 4 * CGFloat(ticks)) / CGFloat(count))
-}
-/// §6.4 — the continuous form's tick x positions across a `width` bar: a tick every `tickEveryFraction`, and one is dropped when it would sit within 4 pt of the one before it. Calls `body` per tick (no allocation).
-func euclideousRestartTileForEachContinuousTick(_ st: EuclideousRestartTileState, width: CGFloat, _ body: (CGFloat) -> Void) {
-    guard st.continuous, let every = st.tickEveryFraction, every > 0 else { return }
-    var f = every, lastX = -CGFloat.infinity
-    while f < 1 - 1e-9 {
-        let x = CGFloat(f) * width
-        if x - lastX >= 4 { body(x); lastX = x }
-        f += every
+
+/// RESTART TILES §1.5 — the latest strike on each MELODY cell, in fixed storage (16 slots: no allocation per frame). A strike is an event from the same per-hit stream the strip's strikes use (`EuclideousPulseFeed`), keyed by
+/// the cell of its riff column (`cellColumn` — a REPEAT hit's repeated note); TIE continuations, SKIP gaps, FX-tied and muted hits post no event, so they never appear. The look is the strip's key strike's: the shared envelope's
+/// flash `f` through the PULSE setting and Reduce Motion (`euclideousPulseFilter(.glow, …)`).
+struct EuclideousCellStrikeBank {
+    typealias V = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
+    typealias A = (Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Double)
+    private var vel: V = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    private var age: A = (-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1)   // seconds since the strike; < 0 = none
+    init() {}
+    /// Keeps the youngest strike per cell.
+    mutating func record(cell: Int, velocity: Int, seconds: Double) {
+        guard cell >= 0, cell < 16, velocity > 0, seconds >= 0 else { return }
+        let a: Double = withUnsafePointer(to: &age) { $0.withMemoryRebound(to: Double.self, capacity: 16) { $0[cell] } }
+        guard a < 0 || seconds < a else { return }
+        withUnsafeMutablePointer(to: &age) { $0.withMemoryRebound(to: Double.self, capacity: 16) { $0[cell] = seconds } }
+        withUnsafeMutablePointer(to: &vel) { $0.withMemoryRebound(to: UInt8.self, capacity: 16) { $0[cell] = UInt8(max(1, min(127, velocity))) } }
+    }
+    /// How far cell `cell`'s strike has brightened it toward #F2F4F7 (0…1): 0 when it has none, or PULSE is OFF.
+    func mix(cell: Int, scale p: Double, reduceMotion: Bool) -> Double {
+        guard cell >= 0, cell < 16 else { return 0 }
+        let a: Double = withUnsafePointer(to: age) { $0.withMemoryRebound(to: Double.self, capacity: 16) { $0[cell] } }
+        guard a >= 0 else { return 0 }
+        let v: UInt8 = withUnsafePointer(to: vel) { $0.withMemoryRebound(to: UInt8.self, capacity: 16) { $0[cell] } }
+        let env = euclideousPulseEnvelopes(velocity: Int(v), seconds: a, scale: p)
+        return euclideousPulseFilter(.glow, scale: p, reduceMotion: reduceMotion) == .off ? 0 : env.f
     }
 }
-func euclideousRestartTileContinuousTickXs(_ st: EuclideousRestartTileState, width: CGFloat) -> [CGFloat] {
-    var out: [CGFloat] = []
-    euclideousRestartTileForEachContinuousTick(st, width: width) { out.append($0) }
-    return out
+func euclideousRestartCellStrikes(_ strikes: [EuclideousPulseStrike], columnCells: UInt32, now: Double) -> EuclideousCellStrikeBank {
+    var bank = EuclideousCellStrikeBank()
+    for s in strikes where s.onsetAt <= now && s.riffVel > 0 && s.cellColumn >= 0 && s.cellColumn < 8 {
+        let v = Int((columnCells >> UInt32(4 * Int(s.cellColumn))) & 0xF)
+        if v != 0xF { bank.record(cell: v, velocity: Int(s.riffVel), seconds: now - s.onsetAt) }
+    }
+    return bank
+}
+/// §6.4 — the track's geometry for `count` cells in a box `width` wide: each cell is `(width − 2 × (count − 1)) / count` (sp2 between cells).
+func euclideousRestartTileCellWidth(count: Int, width: CGFloat) -> CGFloat {
+    guard count > 0 else { return 0 }
+    return max(1, (width - 2 * CGFloat(count - 1)) / CGFloat(count))
 }
 
 /// The restart tile's label for a tile `width` wide: "RHYTHM RESTART" / "MELODY RESTART" when it fits at 8 pt heavy mono (`EuclideousHeaderMetrics.monoAdvance` × 8 per character, 2 pt either side),

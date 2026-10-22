@@ -3264,8 +3264,9 @@ struct EuclideousPage: View {
 
     /// §6.1 — the two restart tiles (RHYTHM, MELODY), replacing the OUT A–D circles in the RHYTHM tab's lower-right row (§9 moves OUT to MIX). Each opens the shared restart editor (§6.2, holds both chains).
     /// RHYTHM POLISH ferry (2026-10-22) §1.4 / §6: one tile per row (the rate grid's two rows), each a sweep + progress track drawn from the pure `restartTileState` at the UI beat of ONE `TimelineView` for the pair (the
-    /// restart flash's timer, reused — the comet strip's own is private to `EuclidCometBar`; same 60 fps, same `anchor + elapsed × tempo` beat). Only a RUNNING lane sweeps or lights cells; stopped, the tracks keep their
-    /// structure at the transport's beat. The flash (`restartFlash`, `euclideousRestartFlashLook`, `RestartFlashPainter`) is no longer called from here — its code is kept.
+    /// restart flash's timer, reused — the comet strip's own is private to `EuclidCometBar`; same 60 fps, same `anchor + elapsed × tempo` beat). Only a RUNNING lane sweeps, lights cells or strikes; stopped, the tracks keep
+    /// their structure at the transport's beat. RESTART TILES ferry (2026-10-22): the MELODY track is one cell per riff note and each hit that plays a note strikes its cell (`euclideousRestartCellStrikes`, from the pulse feed).
+    /// The flash (`restartFlash`, `euclideousRestartFlashLook`, `RestartFlashPainter`) is no longer called from here — its code is kept.
     private func restartTilesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat, fullWidth: CGFloat) -> some View {
         let rhythm = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
         let melody = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
@@ -3273,11 +3274,14 @@ struct EuclideousPage: View {
         let cfg = riffWalkConfig(idx)
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !running || cfg == nil)) { tl in
             let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))   // the engine's musical beat (identity at 50 % swing): the restarts are on its bar lines
+            let melodyState = cfg.map { restartTileState(.melody, cfg: $0, beat: beat, running: running) }
+            let bank: EuclideousCellStrikeBank? = (running && melodyState != nil)
+                ? euclideousRestartCellStrikes(pulseFeed.strikes(lane: idx), columnCells: melodyState!.columnCells, now: tl.date.timeIntervalSinceReferenceDate) : nil
             VStack(spacing: sp4) {
                 restartTile(idx, chain: rhythm, name: "RHYTHM", unitSingular: "BAR", unitPlural: "bars", accent: accent, width: fullWidth, height: rowH,
-                            state: cfg.map { restartTileState(.rhythm, cfg: $0, beat: beat, running: running) })
+                            state: cfg.map { restartTileState(.rhythm, cfg: $0, beat: beat, running: running) }, strikes: nil)
                 restartTile(idx, chain: melody, name: "MELODY", unitSingular: "PASS", unitPlural: "passes", accent: accent, width: fullWidth, height: rowH,
-                            state: cfg.map { restartTileState(.melody, cfg: $0, beat: beat, running: running) })
+                            state: melodyState, strikes: bank)
             }
         }
         .frame(width: fullWidth, height: rowH * 2 + sp4)
@@ -3288,17 +3292,47 @@ struct EuclideousPage: View {
         return euclideousRestartFlashLook(since: since, scale: p, reduceMotion: reduceMotion)
     }
     /// One restart tile (§6.1/§6.2). A set chain: #22252C fill and a 1 pt lane100 inner border; FREE: #2A2D34, no border. ONE text line, its top 6 pt in, 10 pt either side, baseline-aligned: ↻ (8 pt) and "RHYTHM RESTART" /
-    /// "MELODY RESTART" (8 pt heavy, 0.1 em, #8A909A, truncating first) on the left; the chain (13 pt heavy, #F2F4F7 — FREE #AAB0BA) and its BAR / PASS unit on the right. The sweep and the track are the canvas on top.
+    /// "MELODY RESTART" (8 pt heavy, 0.1 em, #8A909A, truncating first) on the left; the chain (13 pt heavy, #F2F4F7 — FREE #AAB0BA) and its BAR / PASS unit on the right. RESTART TILES §2: the layers are walked in
+    /// `euclideousRestartTileLayerOrder` — base (fill + border), sweep, track, text — so the sweep never draws over the text.
     /// Built as an `AnyView` (the page's construction chain has almost no stack to spare in a debug build — see Docs/claude-playbook.md).
     private func restartTile(_ idx: Int, chain: EuclideousRestartChain, name: String, unitSingular: String, unitPlural: String, accent: Color, width: CGFloat, height: CGFloat,
-                             state: EuclideousRestartTileState?) -> AnyView {
-        let text = euclideousRestartChainText(chain)
-        let showUnit = !chain.isFree && chain.count <= 3
+                             state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {
         let control: EuclideousLockControl = name == "MELODY" ? .melodyRestart : .rhythmRestart
         return AnyView(ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 8).fill(chain.isFree ? Color(hex: 0x2A2D34) : Color(hex: 0x22252C))
-            if let state { EuclideousRestartTileCanvas(state: state, accent: accent, width: width, height: height, radius: 8) }
-            HStack(alignment: .lastTextBaseline, spacing: 0) {
+            ForEach(Array(euclideousRestartTileLayerOrder.enumerated()), id: \.offset) { _, layer in
+                restartTileLayer(layer, chain: chain, name: name, unitSingular: unitSingular, accent: accent, width: width, height: height, state: state, strikes: strikes)
+            }
+        }
+        .frame(width: width, height: height)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            restartEditorLane = idx
+            stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
+        }
+        .modifier(lockOutlineMod(idx, control, accent))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitSingular.lowercased(), unitPlural: unitPlural))
+        .accessibilityValue(lockSpoken(idx, control, state?.restartsInText ?? ""))
+        .accessibilityHint("Double-tap to edit"))
+    }
+    private func restartTileLayer(_ layer: EuclideousRestartTileLayer, chain: EuclideousRestartChain, name: String, unitSingular: String, accent: Color, width: CGFloat, height: CGFloat,
+                                  state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {
+        switch layer {
+        case .base:
+            return AnyView(RoundedRectangle(cornerRadius: 8).fill(chain.isFree ? Color(hex: 0x2A2D34) : Color(hex: 0x22252C))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(chain.isFree ? Color.clear : lane100(accent), lineWidth: 1))
+                .frame(width: width, height: height))
+        case .sweep:
+            guard let state else { return AnyView(EmptyView()) }
+            return AnyView(EuclideousRestartTileCanvas(part: .sweep, state: state, accent: accent, width: width, height: height, radius: 8))
+        case .track:
+            guard let state else { return AnyView(EmptyView()) }
+            return AnyView(EuclideousRestartTileCanvas(part: .track, state: state, accent: accent, width: width, height: height, radius: 8, strikes: strikes,
+                                                       pulseScale: euclideousPulseScale(level: pulseLevel), reduceMotion: reduceMotion))
+        case .text:
+            let text = euclideousRestartChainText(chain)
+            let showUnit = !chain.isFree && chain.count <= 3
+            return AnyView(HStack(alignment: .lastTextBaseline, spacing: 0) {
                 HStack(alignment: .lastTextBaseline, spacing: 3) {
                     Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A))
                     Text("\(name) RESTART").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
@@ -3316,19 +3350,8 @@ struct EuclideousPage: View {
                 .layoutPriority(1)
             }
             .padding(.horizontal, 10).padding(.top, 6)
+            .frame(width: width, height: height, alignment: .topLeading))
         }
-        .frame(width: width, height: height)
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(chain.isFree ? Color.clear : lane100(accent), lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            restartEditorLane = idx
-            stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
-        }
-        .modifier(lockOutlineMod(idx, control, accent))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitSingular.lowercased(), unitPlural: unitPlural))
-        .accessibilityValue(lockSpoken(idx, control, state?.restartsInText ?? ""))
-        .accessibilityHint("Double-tap to edit"))
     }
 
     /// §6.2 — the restart editor: both chains, each a FREE + 4-link row, a read-only 16-cell timeline and a hint line.
