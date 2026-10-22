@@ -241,7 +241,9 @@ struct DiagView: View {
             lines[i].enabled = euclideousLines[i].enabled
             if var m = lines[i].mask { m.enabled = euclideousLines[i].mask?.enabled ?? m.enabled; lines[i].mask = m }
         }
-        euclideousLines = lines
+        // LANE LOCK §9.2: restoring a step never moves a locked lane's lock fields (and the locks themselves are not in a step at all)
+        lines = euclideousLockMergeForUndo(restored: lines, current: euclideousLines, locked: euclideousLocks.map { $0.isLocked })
+        setEuclideousLines(lines)
         euclideousRiff = s.riff
         euclideousResetSpanBars = s.resetSpanBars
         euclideousKeyRoot = s.keyRoot
@@ -275,6 +277,96 @@ struct DiagView: View {
     func euclideousRedoAction() {
         guard let next = euclideousUndo.redo(current: euclideousSnapshot()) else { return }
         euclideousApply(next)
+    }
+
+    // MARK: LANE LOCK (ferry 2026-10-21) — the page's side of the snap back
+    /// The lanes a finger is on, and the revisions, straight to the render thread (BEFORE any publish, so "an edit is on its way" is true from the moment the document changes).
+    func pushLockLive() {
+        var held: UInt8 = 0
+        for i in 0..<4 where euclideousLockTouches[i] > 0 { held |= 1 << UInt8(i) }
+        au?.setEuclideousLockLive(held: held, revs: euclideousLockRevs)
+    }
+    func bumpLockRev(_ lane: Int) { euclideousLockRevs = EuclideousLockLive.bumped(euclideousLockRevs, lane: lane) }
+    /// THE one way the mirror of `euclideousLines` changes: a locked lane whose line changes gets its revision bumped, so the render thread never mistakes a stale snapshot for a settled one (6.4).
+    func setEuclideousLines(_ new: [EuclidLine]) {
+        let old = euclideousLines
+        for i in 0..<min(4, old.count, new.count) where old[i] != new[i] && euclideousLocks[i].isLocked { bumpLockRev(i) }
+        euclideousLines = new
+        pushLockLive()
+    }
+    /// A lock write (lock / capture / unlock / grid / a preset's locks arriving): the lane's revision moves with it, so the render thread drops any landed-snap override and reads the new snapshot.
+    func setEuclideousLocks(_ new: [EuclideousLaneLock], persist: Bool) {
+        for i in 0..<min(4, new.count, euclideousLocks.count) where new[i] != euclideousLocks[i] { bumpLockRev(i) }
+        euclideousLocks = new
+        if persist { au?.editDocument { $0.euclideousLocks = new } }
+        pushLockLive()
+    }
+    /// 6.8 / D3: the render thread has switched lane(s) back to L at a grid line — write L into the document as ONE change (no undo), ring the card. Called by the 30 Hz poll, at the head of every edit funnel (so an edit
+    /// after a snap lands on L, not on the stale deviated line) and when the page opens.
+    func applyLandedLockSnaps(ring: Bool = true) {
+        guard let au else { return }
+        let seq = au.pollEuclideousLockSnapSeq()
+        guard seq != euclideousLockAppliedSeq else { return }
+        var lines = euclideousLines
+        var changed = false
+        for lane in 0..<4 where EuclideousLockLive.rev(seq, lane: lane) != EuclideousLockLive.rev(euclideousLockAppliedSeq, lane: lane) {
+            guard lane < lines.count, euclideousLocks[lane].isLocked, let L = euclideousLocks[lane].state else { continue }
+            let before = lines[lane]
+            L.applied(to: &lines[lane])
+            if lines[lane] != before { changed = true }
+            if ring { euclideousLockRingStart[lane] = Date() }
+        }
+        euclideousLockAppliedSeq = seq
+        if changed {
+            setEuclideousLines(lines)
+            au.editDocument { $0.euclideousLines = lines }
+            buildPublishScene()
+        }
+    }
+    /// 6.5: the page is not running — there are no lines to wait for, so a deviated lane nobody is touching goes back to L at once.
+    func applyLockStoppedRule() {
+        guard !d.effectivePlaying, euclideousLocks.contains(where: { $0.isLocked }) else { return }
+        var lines = euclideousLines
+        var changed = false
+        for lane in 0..<4 where lane < lines.count {
+            guard euclideousLocks[lane].isLocked, let L = euclideousLocks[lane].state else { continue }
+            if euclideousLockSnapsNow(deviated: euclideousLockDeviated(line: lines[lane], from: L), held: euclideousLockTouches[lane] > 0, running: false) {
+                L.applied(to: &lines[lane]); changed = true
+                euclideousLockRingStart[lane] = Date()
+            }
+        }
+        if changed {
+            setEuclideousLines(lines)
+            au?.editDocument { $0.euclideousLines = lines }
+            buildPublishScene()
+        }
+    }
+    /// The lock card's / badge's commands (7.1–7.4): document writes with no undo step. Chains are pinned by the main-thread migration within a quarter second of a load, so L captured here is already on the chain model.
+    func lockCommand(_ lane: Int, _ cmd: EuclideousLockCommand) {
+        guard (0..<4).contains(lane), lane < euclideousLines.count else { return }
+        applyLandedLockSnaps()
+        var locks = euclideousLocks
+        let line = euclideousLines[lane]
+        switch cmd {
+        case .lock:
+            locks[lane] = EuclideousLaneLock.locking(line, grid: locks[lane].gridResolved)
+        case .capture:
+            locks[lane] = EuclideousLaneLock.locking(line, grid: locks[lane].gridResolved)   // L = what is playing now, lockOn true, nothing left to snap
+            euclideousLockRingStart[lane] = Date()
+        case .unlock:
+            locks[lane].on = false; locks[lane].state = nil                                      // what is playing stays, even if it was deviated
+        case .setGrid(let g):
+            locks[lane].grid = g
+        }
+        setEuclideousLocks(locks, persist: true)
+        buildPublishScene()
+    }
+    /// A finger goes down on / lifts from a lock-field control of `lane` (6.2). Several touches: held until the last lifts. At the lift, a stopped page puts the lane straight back (6.5).
+    func lockHeld(_ lane: Int, _ down: Bool) {
+        guard (0..<4).contains(lane) else { return }
+        euclideousLockTouches[lane] = max(0, euclideousLockTouches[lane] + (down ? 1 : -1))
+        pushLockLive()
+        if !down && euclideousLockTouches[lane] == 0 { applyLockStoppedRule() }
     }
     // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): `euclideousReceiver`/`onSetReceiver`/the old IN A/B/C/D
     // selector UI are REMOVED (§2.5 — MIDI mode now reads receivers 1 and 4 behind the scenes). The
@@ -364,6 +456,13 @@ struct DiagView: View {
     // The effective mask `latched | held` is what reaches the render thread (`BuildPage.buildPublishScene` → `MachineParams.soloMask` → `SnapParams.soloMask`).
     @State var euclideousSoloMask: UInt8 = 0
     @State var euclideousSoloHeld: UInt8 = 0
+    // LANE LOCK ferry (2026-10-21): the four lanes' locks (mirror of the document), the per-lane document revision byte (bumped by every write that changes a locked lane — the render thread compares it with the
+    // snapshot's to know an edit is on its way), how many touches are on each lane's lock-field controls (HELD while > 0), the landed-snap counters already applied to the document, and when each card last rang.
+    @State var euclideousLocks: [EuclideousLaneLock] = Array(repeating: EuclideousLaneLock(), count: 4)
+    @State var euclideousLockRevs: UInt32 = 0
+    @State var euclideousLockTouches: [Int] = [0, 0, 0, 0]
+    @State var euclideousLockAppliedSeq: UInt32 = 0
+    @State var euclideousLockRingStart: [Date?] = [nil, nil, nil, nil]
     // RANDOM MODE ferry (§6.1): one pending THROW/TWEAK/BACK/hold override per (lane, tab) — up to 3 per
     // lane in flight at once (§6.1's "one slot per card tab"), flat 12 slots (`euclideousRandomPendingSlot`).
     // UI-only, never saved, never undoable (§1.1). Mirrored straight to the render thread
@@ -851,7 +950,10 @@ struct DiagView: View {
         masterKey = au.uiMasterKey()
         sceneEmpty = au.uiScenes().map { $0.isEmpty }   // MULTI-SCENE strip occupancy + active
         activeSceneIdx = au.uiActiveScene()
+        euclideousLocks = au.uiEuclideousLocks()
         euclideousLines = au.uiEuclideousLines()
+        applyLandedLockSnaps(ring: false)   // LANE LOCK: a snap landed while the window was closed (the sound followed L at once) is written into the document now
+        pushLockLive()
         euclideousEnabled = au.uiEuclideousEnabled()
         euclideousRiff = au.uiEuclideousRiff()
         euclideousResetSpanBars = au.uiEuclideousResetSpanBars()
@@ -1146,10 +1248,12 @@ struct DiagView: View {
                                    },
                                    clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying, swing: Double(swing), beatsPerBar: meters.beatsPerBar),
                                    onEdit: { mutate in
-                                       euclideousRecordUndo(coalesceKey: "euclideous")
+                                       applyLandedLockSnaps()   // LANE LOCK: an edit after a snap lands on L
                                        var lines = euclideousLines
                                        mutate(&lines)
-                                       euclideousLines = lines
+                                       // LANE LOCK §9.2: a change that is only lock fields of locked lanes records no undo step (so one that would record at touch-down doesn't either)
+                                       if !euclideousLockChangeIsLockOnly(old: euclideousLines, new: lines, locks: euclideousLocks) { euclideousRecordUndo(coalesceKey: "euclideous") }
+                                       setEuclideousLines(lines)
                                        au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
                                        buildPublishScene()
                                    },
@@ -1173,14 +1277,18 @@ struct DiagView: View {
                                            euclideousUndo.record(s, coalesceKey: nil)
                                        }
                                    },
+                                   locks: euclideousLocks, lockRingStart: euclideousLockRingStart, lockHeld: euclideousLockTouches.map { $0 > 0 },
+                                   onLockCommand: { lane, cmd in lockCommand(lane, cmd) },
+                                   onLockHeld: { lane, down in lockHeld(lane, down) },
                                    // MIX TAB (2026-10-18 §4.3): one undo step per TOUCH. `onEdit`'s fixed key merges consecutive edits across
                                    // different touches, so a pad takes an explicit `coalesceKey: nil` checkpoint at the first value-changing write
                                    // of a touch (`newStep`) and none for the rest — the write itself is the SAME document + publish path.
                                    onEditStep: { newStep, mutate in
-                                       if newStep { euclideousRecordUndo(coalesceKey: nil) }
+                                       applyLandedLockSnaps()
                                        var lines = euclideousLines
                                        mutate(&lines)
-                                       euclideousLines = lines
+                                       if newStep && !euclideousLockChangeIsLockOnly(old: euclideousLines, new: lines, locks: euclideousLocks) { euclideousRecordUndo(coalesceKey: nil) }
+                                       setEuclideousLines(lines)
                                        au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
                                        buildPublishScene()
                                    },
@@ -1241,7 +1349,7 @@ struct DiagView: View {
                                        guard lane >= 0, lane < euclideousLines.count else { return }
                                        var lines = euclideousLines
                                        lines[lane].restartMask = mask
-                                       euclideousLines = lines
+                                       setEuclideousLines(lines)
                                        au?.editDocument { $0.euclideousLines = lines }
                                        buildPublishScene()
                                    },
@@ -1431,6 +1539,7 @@ struct DiagView: View {
                 if mp != euclideousMaskPositions { euclideousMaskPositions = mp }
                 let rlp = au.pollEuclideousRiffLivePool()
                 if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
+                applyLandedLockSnaps()   // LANE LOCK: a snap the render thread has landed is written into the document within a poll tick (30 Hz)
                 let lss = au.pollEuclideousLanesSeqStep()
                 if lss != euclideousLanesSeqStep { euclideousLanesSeqStep = lss }
                 let rss = au.pollEuclideousRiffsSeqStep()
@@ -1529,7 +1638,8 @@ struct DiagView: View {
             // tick, matching this same poll's own stated convention below. NOT gated on buildPersistTick's own
             // `activeTab == .build` (Euclideous opens from the persistent header, independent of the active tab).
             var euclideousResynced = false
-            let elv = au.uiEuclideousLines(); if elv != euclideousLines { euclideousLines = elv; euclideousResynced = true }
+            let elk = au.uiEuclideousLocks(); if elk != euclideousLocks { setEuclideousLocks(elk, persist: false); euclideousResynced = true }   // LANE LOCK: a preset load / session restore replaces the locks
+            let elv = au.uiEuclideousLines(); if elv != euclideousLines { setEuclideousLines(elv); euclideousResynced = true }
             let eev = au.uiEuclideousEnabled(); if eev != euclideousEnabled { euclideousEnabled = eev; euclideousResynced = true }
             let erf = au.uiEuclideousRiff(); if erf != euclideousRiff { euclideousRiff = erf; euclideousResynced = true }
             // EUCLIDEOUS PAGE REWORK (Paul 2026-10-07): every new global field MUST be resynced here too — this
@@ -1604,10 +1714,16 @@ struct DiagView: View {
                                                         legacyLen: euclideousLanesSeq.len, legacyCells: euclideousLanesSeq.cells,
                                                         sub: sub, n: n, dir: line.directionResolved, barBeats: nd.beatsPerBar)
                     euclideousPinRestartChains(&lines[i], .from(migrated.rhythm), .from(migrated.melody))
+                    // LANE LOCK: the pin is a main-thread stabilisation, not a user edit — if the lane is locked with its chains still unpinned in L, L is pinned the same way, so a pin is never "deviation"
+                    if euclideousLocks[i].isLocked, var st = euclideousLocks[i].state, !(st.restartRhythmBars != nil || st.restartMelodyPasses != nil) {
+                        st.restartRhythmBars = lines[i].restartRhythmBars; st.restartMelodyPasses = lines[i].restartMelodyPasses
+                        var locks = euclideousLocks; locks[i].state = st
+                        setEuclideousLocks(locks, persist: true)
+                    }
                     migratedAny = true
                 }
                 if migratedAny {
-                    euclideousLines = lines
+                    setEuclideousLines(lines)
                     au.editDocument { $0.euclideousLines = lines }
                     buildPublishScene()   // `euclideousResynced`'s own publish (above) already ran this tick — this block lands after it, so it republishes directly
                 }
@@ -1633,7 +1749,7 @@ struct DiagView: View {
                 if landedAny {
                     euclideousPendingRolls = rolls
                     au.setEuclideousPendingRolls(rolls)
-                    euclideousLines = lines
+                    setEuclideousLines(lines)
                     au.editDocument { $0.euclideousLines = lines }
                     buildPublishScene()
                 }
@@ -1932,6 +2048,8 @@ struct DiagView: View {
             // LANE SOLO: a page that goes away takes any finger-held solo with it — the render thread keeps only the LATCHED mask (a held bit it never heard released would otherwise stay on).
             euclideousSoloHeld = 0
             au?.setEuclideousSoloLive(euclideousSoloMask)
+            euclideousLockTouches = [0, 0, 0, 0]   // LANE LOCK: the same — a finger the page never saw lift must not hold a lane forever
+            pushLockLive()
         }        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
     }

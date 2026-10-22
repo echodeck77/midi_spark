@@ -371,6 +371,23 @@ final class LaneLockTests: XCTestCase {
         XCTAssertEqual(euclideousLockMergeForUndo(restored: restored, current: now, locked: [false, false, false, false])[1].pulses, base[1].pulses, "unlocked: undo reaches it as today")
     }
 
+    func testLockedLanesPhrase() {
+        XCTAssertEqual(euclideousLockedLanesPhrase([]), "")
+        XCTAssertEqual(euclideousLockedLanesPhrase([2]), "lane 3 locked")
+        XCTAssertEqual(euclideousLockedLanesPhrase([0, 2]), "lanes 1 and 3 locked")
+        XCTAssertEqual(euclideousLockedLanesPhrase([3, 0, 1]), "lanes 1, 2 and 4 locked")
+    }
+    func testGridTicksMarkTheBarLinesThatAreGridLines() {
+        // bar index 5 (beat 21): dot i is the line at the end of bar 5 + i, i.e. the line before bar index 6 + i
+        let t4 = euclideousLockTicks(grid: .bars4, beat: 21, barBeats: 4)
+        XCTAssertEqual(t4.count, 16)
+        XCTAssertEqual((0..<16).filter { t4[$0] }, [2, 6, 10, 14], "dot i is the line before bar 6 + i: the lines before bars 8, 12, 16, 20 are the 4-bar lines")
+        XCTAssertTrue(euclideousLockTicks(grid: .bar1, beat: 3, barBeats: 4).allSatisfy { $0 })
+        XCTAssertEqual(euclideousLockTicks(grid: .beat, beat: 3, barBeats: 4), [true, true, true, true], "one per beat of the next bar")
+        XCTAssertEqual(euclideousLockTicks(grid: .beat, beat: 3, barBeats: 3).count, 3)
+        XCTAssertEqual((0..<16).filter { euclideousLockTicks(grid: .bars16, beat: 0, barBeats: 4)[$0] }, [15], "16 BARS: only the end of bar 16")
+    }
+
     // MARK: the live words
     func testLiveWordPacking() {
         var revs: UInt32 = 0

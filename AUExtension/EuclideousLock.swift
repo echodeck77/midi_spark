@@ -484,3 +484,38 @@ func euclideousLockMergeForUndo(restored: [EuclidLine], current: [EuclidLine], l
     }
     return out
 }
+
+// MARK: - The page's commands, the grid ticks (4.7)
+
+/// What the lock card / badge ask the page's owner (the VC, which owns the document, the live words and the undo stack) to do. None of them is an undo step or a document edit beyond the lock fields.
+enum EuclideousLockCommand: Equatable {
+    case lock                         // 7.1: a tap on an unlocked lane's padlock — L = what the lane is now
+    case capture                      // 7.2: a hold (≥ 300 ms), locked or not — L = what is playing now, nothing left to snap
+    case unlock                       // 7.3: a tap on a locked lane's padlock or badge — what is playing stays
+    case setGrid(EuclideousLockGrid)  // 7.4: stored at once; the new grid's lines decide from the next one on
+}
+/// 4.7 — the strip of ticks under the rule line: one 4 pt dot per bar of the next 16 bars (one per beat of the next bar on the BEAT grid); true = the dot falls on one of the lane's grid lines. Dot `i` is the bar line at
+/// the END of bar `current + i`, so on 4 BARS every 4th dot (counted from bar 1) is lit.
+func euclideousLockTicks(grid: EuclideousLockGrid, beat: Double, barBeats: Double) -> [Bool] {
+    let bb = barBeats > 0 ? barBeats : 4
+    if grid == .beat { return Array(repeating: true, count: max(1, Int(bb.rounded(.up)))) }
+    let bar = Int((max(0, beat) / bb).rounded(.down))
+    return (1...16).map { (bar + $0) % grid.rawValue == 0 }
+}
+
+/// 9.2 — the undo funnel's question: did this change touch ONLY lock fields of locked lanes? Nothing changed ⇒ false (so a no-op edit records exactly as it always did); nothing locked ⇒ false (byte-identical to before
+/// the feature).
+func euclideousLockChangeIsLockOnly(old: [EuclidLine], new: [EuclidLine], locks: [EuclideousLaneLock]) -> Bool {
+    guard old != new, locks.contains(where: { $0.isLocked }) else { return false }
+    return !euclideousLockEditIsUndoable(old: old, new: new, locked: locks.map { $0.isLocked })
+}
+
+/// 2.4 — the header padlock's VoiceOver value when lanes are locked: "lane 1 locked", "lanes 1 and 3 locked", "lanes 1, 2 and 4 locked". `lanes` are 0-based.
+func euclideousLockedLanesPhrase(_ lanes: [Int]) -> String {
+    let n = lanes.sorted().map { String($0 + 1) }
+    switch n.count {
+    case 0: return ""
+    case 1: return "lane \(n[0]) locked"
+    default: return "lanes " + n.dropLast().joined(separator: ", ") + " and " + n.last! + " locked"
+    }
+}

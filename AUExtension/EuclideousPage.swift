@@ -755,6 +755,15 @@ struct EuclideousPage: View {
     // steps (one each). Only AVC owns `euclideousUndo`/`euclideousSnapshot`, so it builds the actual
     // `EuclideousUndoSnapshot` sequence and pushes it.
     var onRandomFinish: ([EuclideousRandomUndoEntry]) -> Void = { _ in }
+    // LANE LOCK ferry (2026-10-21): the four lanes' locks (the document's, mirrored by the VC), when each card last rang (a snap landed / a capture), which lanes a finger is on, and the two ways back to the VC —
+    // a lock command (lock / capture / unlock / grid: document writes, no undo) and a finger down / up on a lock-field control (the HELD word the render thread reads). Defaults leave the page exactly as before.
+    var locks: [EuclideousLaneLock] = Array(repeating: EuclideousLaneLock(), count: 4)
+    var lockRingStart: [Date?] = [nil, nil, nil, nil]
+    var lockHeld: [Bool] = [false, false, false, false]
+    var onLockCommand: (Int, EuclideousLockCommand) -> Void = { _, _ in }
+    var onLockHeld: (Int, Bool) -> Void = { _, _ in }
+    // LANE LOCK §1.1: page-local, ephemeral — not in the document, not an undo step, not saved. Never on together with random mode.
+    @State private var euclideousLockMode = false
     // MIX TAB (2026-10-18 §4.3): a lane edit that records ONE undo step per TOUCH. `onEdit`'s fixed coalesce key merges consecutive edits
     // across different touches into one step; a pad instead passes `newStep: true` on the first value-changing write of a touch (the VC
     // takes a `coalesceKey: nil` checkpoint) and `false` for the rest, so dragging is one step and two pads never flood the stack.
@@ -1663,20 +1672,21 @@ struct EuclideousPage: View {
                 .frame(width: box.width, height: box.height)
                 .offset(x: page.riff.minX, y: page.riff.minY)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
-                .allowsHitTesting(!euclideousRandomMode)
+                .allowsHitTesting(!euclideousRandomMode && !euclideousLockMode)
             sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)   // FX in portrait too: its columns match the riff grid's (same width)
                 .offset(x: page.seq.minX, y: page.seq.minY)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
-                .allowsHitTesting(!euclideousRandomMode)
+                .allowsHitTesting(!euclideousRandomMode && !euclideousLockMode)
             // RANDOM MODE §1.3: a tap ANYWHERE outside the four lane cards (header incl. the dice, margins,
             // gutters, the dimmed panels above) finishes — sits above the header/panels but below the lane
             // cards in z-order, so a card's own controls still get first claim on their own area, and
             // "tap the dice to finish" falls out of this for free (the dice is outside the lane cards too).
-            if euclideousRandomMode {
+            // LANE LOCK §1.3: lock mode finishes through this SAME layer (one finish handling, not a second): a tap on the header padlock, or anywhere off the four cards, ends it and nothing else happens.
+            if euclideousRandomMode || euclideousLockMode {
                 Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
-                    .onTapGesture { euclideousRandomFinish() }
+                    .onTapGesture { euclideousFinishActiveMode() }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Finish random mode, keeping what's playing")
+                    .accessibilityLabel(euclideousRandomMode ? "Finish random mode, keeping what's playing" : "Finish lock mode")
                     .accessibilityAddTraits(.isButton)
             }
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
@@ -1692,6 +1702,13 @@ struct EuclideousPage: View {
                     .frame(width: size.width, height: 14)
                     .position(x: size.width / 2, y: size.height - 1 - 7)
                     .allowsHitTesting(false)
+            } else if euclideousLockMode {
+                Text("TAP OFF THE LANE CARDS TO FINISH")   // §1.5: random mode's hint frame and type
+                    .font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
+                    .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).truncationMode(.tail)
+                    .frame(width: size.width, height: 14)
+                    .position(x: size.width / 2, y: size.height - 1 - 7)
+                    .allowsHitTesting(false)
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -1699,7 +1716,7 @@ struct EuclideousPage: View {
 
     /// §1.2: the riff panel + bottom-right panel sit under this wash while random mode is on.
     @ViewBuilder private func euclideousRandomPanelDim(cornerRadius: CGFloat) -> some View {
-        if euclideousRandomMode {
+        if euclideousRandomMode || euclideousLockMode {   // LANE LOCK §1.2: the same wash under lock mode
             RoundedRectangle(cornerRadius: cornerRadius).fill(Color(red: 12.0/255, green: 14.0/255, blue: 18.0/255, opacity: 0.62))
                 .allowsHitTesting(false)
         }
@@ -1765,7 +1782,40 @@ struct EuclideousPage: View {
             // RANDOM MODE ferry §2: the dice, sp8 after redo.
             Color.clear.frame(width: HM.sp8, height: 1)
             euclideousRandomDice(target: target)
+            // LANE LOCK ferry §2: the padlock, sp8 after the dice.
+            Color.clear.frame(width: HM.sp8, height: 1)
+            euclideousLockPadlock(target: target)
         }
+    }
+
+    // MARK: LANE LOCK — the padlock (§2) and the mode (§1)
+    private func euclideousLockPadlock(target: CGFloat) -> AnyView {
+        let on = euclideousLockMode
+        let lockedLanes = (0..<4).filter { $0 < locks.count && locks[$0].isLocked }
+        let any = !lockedLanes.isEmpty
+        let glyph = on || any ? "lock.fill" : "lock.open"
+        let glyphColor: Color = on ? Color(hex: 0x0D0F14) : (any ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+        return AnyView(ZStack {
+            RoundedRectangle(cornerRadius: 9)
+                .fill(on ? Color(hex: 0xDFE3EA) : Color.clear)
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
+                .frame(width: 36, height: 36)
+            Image(systemName: glyph).font(.system(size: 18, weight: .regular)).foregroundColor(glyphColor)
+        }
+        .frame(width: target, height: HM.rowH)
+        .contentShape(Rectangle())
+        .onTapGesture { euclideousLockMode = true }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Lock mode")
+        .accessibilityValue((on ? "on" : "off") + (any ? ", " + euclideousLockedLanesPhrase(lockedLanes) : ""))
+        .accessibilityHint("Shows the lane locks")
+        .accessibilityAddTraits(.isButton)
+        .ringToggleTrait())
+    }
+    /// §1.3: both modes end the same way — one finish handler for the page-wide tap layer.
+    private func euclideousFinishActiveMode() {
+        if euclideousRandomMode { euclideousRandomFinish() }
+        else if euclideousLockMode { euclideousLockMode = false }   // §1.6: finishing changes nothing in the document — every lock change was made when it was tapped
     }
 
     // MARK: RANDOM MODE — the dice (§2)
@@ -2396,6 +2446,8 @@ struct EuclideousPage: View {
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         if euclideousRandomMode {
             euclideousRandomLaneCard(idx, width: width, height: height)
+        } else if euclideousLockMode {
+            euclideousLockLaneCard(idx, width: width, height: height)
         } else {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
@@ -2706,6 +2758,20 @@ struct EuclideousPage: View {
             displayOverrideLine: partner,
             listenFollowLocked: partner != nil,
             topAlignLabelRow: true, endLabels: ("EARLY", "LATE")))
+    }
+
+    // MARK: LANE LOCK — the lane card in lock mode (§4)
+    private func euclideousLockLaneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
+        let accent = laneAccents[idx % laneAccents.count]
+        let lock = idx < locks.count ? locks[idx] : EuclideousLaneLock()
+        let autoRate = ArpRate.allCases.min(by: { abs($0.beats - clock.stepBeats) < abs($1.beats - clock.stepBeats) }) ?? .r1_16
+        return AnyView(EuclideousLockCardView(lane: idx, size: CGSize(width: width, height: height), accent: accent,
+                                              line: idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all), lock: lock, autoRate: autoRate,
+                                              held: idx < lockHeld.count && lockHeld[idx], running: clock.playing, tempo: clock.tempo, barBeats: clock.beatsPerBar,
+                                              beatAt: { walkTagBeat(at: $0) }, ringStart: idx < lockRingStart.count ? lockRingStart[idx] : nil, reduceMotion: reduceMotion,
+                                              onTap: { onLockCommand(idx, lock.isLocked ? .unlock : .lock) },
+                                              onHold: { onLockCommand(idx, .capture) },
+                                              onGrid: { onLockCommand(idx, .setGrid($0)) }))
     }
 
     // MARK: RANDOM MODE — the lane card's picture mode (§3)
