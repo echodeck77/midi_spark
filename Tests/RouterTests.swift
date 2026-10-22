@@ -12774,16 +12774,17 @@ final class RouterTests: XCTestCase {
                                           length: length, shift: 0, every: 1, seed: 0)
             return (r, euclideousRiffReadoutText(r, overBudget: r == nil))
         }
-        // "FWD, STRIDE 2, ADV HIT: 1 3 5 7; LINES UP EVERY 4 PASSES · 4 NEVER PLAY (2, 4, 6, 8)."
+        // "FWD, STRIDE 2, ADV HIT: 1 3 5 7; 4 NEVER PLAY (2, 4, 6, 8)." (the "LINES UP EVERY n PASSES"
+        // wording was removed 2026-10-22 — only the NEVER PLAY count still shows.)
         let (strideTwo, strideTwoText) = readout(riffDir: .forward, length: 8, stride: 2)
         XCTAssertEqual(strideTwo?.period, 4)
         XCTAssertEqual(strideTwo?.neverPlay, [1, 3, 5, 7], "0-based columns for 1-based 2, 4, 6, 8")
-        XCTAssertEqual(strideTwoText, "LINES UP EVERY 4 PASSES · 4 NEVER PLAY")
-        // "FWD, LEN 5, STRIDE 3, ADV HIT: 1 4 2 5 3; LINES UP EVERY PASS."
+        XCTAssertEqual(strideTwoText, " · 4 NEVER PLAY")
+        // "FWD, LEN 5, STRIDE 3, ADV HIT: 1 4 2 5 3." — nothing never plays, so the readout is now empty.
         let (lenFive, lenFiveText) = readout(riffDir: .forward, length: 5, stride: 3)
         XCTAssertEqual(lenFive?.period, 1)
         XCTAssertEqual(lenFive?.neverPlay, [], "LEN 5 STRIDE 3 visits every one of its own 5 columns")
-        XCTAssertEqual(lenFiveText, "LINES UP EVERY PASS")
+        XCTAssertEqual(lenFiveText, "")
     }
 
     /// §11 test 18: the pure layout function at the reference (contentAreaH 202, fullWidth 338.5) and at a

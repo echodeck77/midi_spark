@@ -377,7 +377,7 @@ final class LaneStripTests: XCTestCase {
 
     func testTheFooterPredictionAgreesWithTheEnginesWalkAtEveryAdvanceEvery() {
         for advanceStep in [false, true] {
-            for every in 1...4 {
+            for every in 1...8 {   // raised from 1...4, 2026-10-22
                 var l = exLine(every: every, advanceStep: advanceStep); l.riffRotate = 3; l.riffStride = 1
                 let f = fix(l)
                 let lapTicks = (lapStart..<(lapStart + 8)).filter { euclideousWalkTick(f.cfg, tick: $0).isHit }

@@ -6834,13 +6834,16 @@ final class EuclideousRiffReadoutCache {
     }
 }
 /// §7.5: the readout's own text. `overBudget` is true when `euclideousRiffReadout` itself returned nil.
+/// The "LINES UP EVERY n PASSES" wording is gone (Paul, 2026-10-22: "remove the labels that say things
+/// like 'lines up every n steps'") — only the NEVER PLAY count still shows, kept in its own amber split
+/// (a leading " · " with nothing before it, so `euclideousWalkReadoutText`'s existing split still paints
+/// it amber without needing its own change).
 func euclideousRiffReadoutText(_ r: EuclideousRiffReadout?, overBudget: Bool) -> String {
     if overBudget { return "CYCLE TOO LONG TO COUNT" }
     guard let r else { return "CYCLE TOO LONG TO COUNT" }
     if r.hitsPerCycle == 0 { return "NO HITS TO PLAY" }
-    let lines = r.period == 1 ? "LINES UP EVERY PASS" : "LINES UP EVERY \(r.period) PASSES"
-    guard r.neverPlay.count >= 1 else { return lines }
-    return "\(lines) · \(r.neverPlay.count) NEVER PLAY"
+    guard r.neverPlay.count >= 1 else { return "" }
+    return " · \(r.neverPlay.count) NEVER PLAY"
 }
 
 /// RIFF WALK ferry §1.5: every RIFF-tab frame, from the content width and the two zones' heights — the ONE

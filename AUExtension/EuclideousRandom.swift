@@ -372,7 +372,7 @@ func euclideousRandomTweakRiff(current: (dir: RiffDir, advanceStep: Bool, advanc
             tag = "\(euclideousRandomRiffDirShort(current.dir))→\(euclideousRandomRiffDirShort(dir))"
         case .every:
             let newEvery = Bool.random(using: &rng) ? current.advanceEvery + 1 : current.advanceEvery - 1
-            guard newEvery >= 1, newEvery <= 4 else { continue }
+            guard newEvery >= 1, newEvery <= 8 else { continue }   // raised from 4, 2026-10-22
             every = newEvery
             tag = "EVERY \(current.advanceEvery)→\(newEvery)"
         case .stride:

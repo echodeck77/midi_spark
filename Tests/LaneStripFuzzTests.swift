@@ -23,7 +23,7 @@ final class LaneStripFuzzTests: XCTestCase {
             l.direction = [.fwd, .bkw, .pingpong][rng.int(0...2)]
             l.riffDir = [.forward, .reverse, .pendulum, .pingpong][rng.int(0...3)]
             l.riffLength = rng.int(1...8); l.riffStride = rng.int(1...3); l.riffRotate = rng.int(0...7)
-            l.riffAdvanceEvery = rng.int(1...4); l.riffAdvanceStep = rng.bool(); l.riffOn = true
+            l.riffAdvanceEvery = rng.int(1...8); l.riffAdvanceStep = rng.bool(); l.riffOn = true
             l.riffOnRest = [.skip, .tie, .repeatLast][rng.int(0...2)]
             switch rng.int(0...3) { case 1: l.restartMelodyPasses = [1]; case 2: l.restartMelodyPasses = [2]; case 3: l.restartMelodyPasses = [1, 2]; default: break }
             if l.restartMelodyPasses != nil { l.restartRhythmBars = [] }   // FREE rhythm chain: a pass is one lap, so the footers' lap is the engine's pass

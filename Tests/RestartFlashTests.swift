@@ -16,7 +16,7 @@ final class RestartFlashTests: XCTestCase {
         l.direction = [.fwd, .bkw, .pingpong][rng.int(0...2)]
         l.riffDir = [.forward, .reverse, .pendulum, .pingpong][rng.int(0...3)]
         l.riffLength = rng.int(1...8); l.riffStride = rng.int(1...3); l.riffRotate = rng.int(0...7)
-        l.riffAdvanceEvery = rng.int(1...4); l.riffAdvanceStep = rng.bool(); l.riffOn = riff
+        l.riffAdvanceEvery = rng.int(1...8); l.riffAdvanceStep = rng.bool(); l.riffOn = riff
         return l
     }
     private func cfg(_ l: EuclidLine, span: Int = 0, swing: Double = 50) -> EuclideousWalkLaneConfig {

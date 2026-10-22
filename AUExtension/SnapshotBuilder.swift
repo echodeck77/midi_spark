@@ -759,7 +759,7 @@ enum SnapshotBuilder {
                                                                       // RIFF WALK ferry (2026-10-19): declared right after riffAdvanceStep in
                                                                       // Models.swift — threaded here for the exact same reason every field on
                                                                       // this call is: miss this spot and the field silently resets every render.
-                                                                      riffAdvanceEvery: $0.riffAdvanceEvery.map { clamp($0, 1, 4) },
+                                                                      riffAdvanceEvery: $0.riffAdvanceEvery.map { clamp($0, 1, 8) },
                                                                       melodyTranspose: $0.melodyTranspose.map { clamp($0, -7, 7) },
                                                                       customHits: $0.customHits,
                                                                       // RIFF/NOTES SPLIT (Paul 2026-10-13 ferry): the NOTES-tab layer's own 3 new fields —

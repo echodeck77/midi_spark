@@ -21,7 +21,7 @@ final class RiffGridArrowFuzzTests: XCTestCase {
             l.direction = [.fwd, .bkw][rng.int(0...1)]
             l.riffDir = [.forward, .reverse, .pendulum, .pingpong][rng.int(0...3)]
             l.riffLength = rng.int(1...8); l.riffStride = rng.int(1...3); l.riffRotate = rng.int(0...7)
-            l.riffAdvanceEvery = rng.int(1...4); l.riffAdvanceStep = rng.bool(); l.riffOn = true
+            l.riffAdvanceEvery = rng.int(1...8); l.riffAdvanceStep = rng.bool(); l.riffOn = true
             l.riffOnRest = [.skip, .tie, .repeatLast][rng.int(0...2)]
             let ranks = (0..<8).map { _ in rng.bool(0.35) ? 0 : rng.int(1...8) }
             guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { continue }

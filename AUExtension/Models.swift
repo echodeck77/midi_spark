@@ -449,9 +449,9 @@ struct EuclidLine: Codable, Equatable {
     // ADVANCE EVERY (RIFF WALK ferry 2026-10-19 §4.1, nil ⇒ 1, today's behaviour): the walk moves once
     // every N hits (ADV HIT) or steps (ADV STEP) instead of every one — see `euclideousRiffWalkStep`
     // (Derivations.swift) for the ordinal → walk-step formula every reader of the riff ordinal now goes
-    // through. Legal 1...4; clamp on decode.
+    // through. Legal 1...8 (raised from 1...4, 2026-10-22); clamp on decode.
     var riffAdvanceEvery: Int? = nil
-    var riffAdvanceEveryResolved: Int { max(1, min(4, riffAdvanceEvery ?? 1)) }
+    var riffAdvanceEveryResolved: Int { max(1, min(8, riffAdvanceEvery ?? 1)) }
     // TRANSPOSE (nil ⇒ 0, §2 default): a RANK-space shift (scale steps in KEY, chord/pool positions in
     // MIDI IN and CHORDS), applied AFTER INVERT and BEFORE resolving against the lane's source (§3.1,
     // §3.7) — wraps octave-up/down via the same `riffResolve(wrap: .fold)` every rank lookup already
@@ -774,7 +774,7 @@ extension EuclidLine {
         // RIFF WALK ferry §4.1/§4.3: clamp AT DECODE (unlike hitsRequested/offsetRequested, which clamp
         // only at the point of consumption) — test 20 requires a corrupt/out-of-range stored value to
         // read back already clamped, not merely produce a clamped RESOLVED value.
-        riffAdvanceEvery = (try c.decodeIfPresent(Int.self, forKey: .riffAdvanceEvery)).map { max(1, min(4, $0)) }
+        riffAdvanceEvery = (try c.decodeIfPresent(Int.self, forKey: .riffAdvanceEvery)).map { max(1, min(8, $0)) }
         riffShiftRequested = (try c.decodeIfPresent(Int.self, forKey: .riffShiftRequested)).map { max(0, min(7, $0)) }
         riffOctave = try c.decodeIfPresent(Int.self, forKey: .riffOctave)
         riffDir = try c.decodeIfPresent(RiffDir.self, forKey: .riffDir)

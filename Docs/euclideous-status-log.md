@@ -12,6 +12,27 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — RIFF tab: readout label removed, ADVANCE EVERY capped at 8 (was 4), direction row
+  chevrons, INV reads "Invert melody" (2026-10-22, Paul's own direct chat ask, no written spec;
+  Euclideous-scoped suite 729 green, full suite re-run since this touches Models.swift/
+  SnapshotBuilder.swift).** Four changes: (1) the WALK strip's readout no longer says "LINES UP EVERY n
+  PASSES" — `euclideousRiffReadoutText` (Derivations.swift) now returns only the " · n NEVER PLAY" part
+  (or "" when nothing never plays), with the VoiceOver sentence builder (`euclideousWalkVoiceOverValue`)
+  rewritten to match cleanly rather than leaving a bare "." where the removed wording used to sit. (2)
+  ADVANCE EVERY's cap raised 4→8 everywhere it was enforced: `EuclidLine.riffAdvanceEveryResolved`
+  (Models.swift), its decode-time clamp, the render-time snapshot clamp (`SnapshotBuilder.swift` — the
+  one that actually reaches the engine; missing this one would have silently capped anything above 4
+  back down before Router ever saw it), the EVERY stepper's own range and its VoiceOver
+  increment/decrement bounds, and TWEAK's internal `every` nudge bound (`EuclideousRandom.swift` — THROW
+  's own weighted pick still favours 1-4 by design, a judgment call, not extended to weight 5-8 equally).
+  Three fuzz tests widened their own `riffAdvanceEvery` generator range to 1...8 to actually exercise the
+  new ceiling. (3) PENDULUM removed from the riff tab's own direction row (still a real, working
+  `RiffDir` case elsewhere — an already-saved lane keeps walking it, THROW/TWEAK can still pick it — just
+  no longer offered on this one control); the remaining three now read as chevrons ("<"/"><"/">"),
+  matching the RHYTHM tab's own `directionRow` glyphs exactly (its colours already matched byte-for-byte
+  — only the label text changed). The now-unused `riffDirShortLabel` was deleted. (4) INV's visible label
+  now reads "Invert melody" (was "INV"), at 10pt (the house floor) since the longer text may truncate on
+  a narrow card — flagged, not verified on device.
 - **▶ EUCLIDEOUS — RANDOM MODE lane-box buttons ferry (2026-10-22, Paul's own direct chat ask, no written
   spec; branch `feature/random-mode-lane-box-buttons`; Euclideous-scoped suite 729 green, zero
   Derivations.swift/Router.swift touches so no full-suite re-run needed).** Four changes to the dice/lane

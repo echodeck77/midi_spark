@@ -17,6 +17,13 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### RIFF tab labels + ADVANCE EVERY cap (2026-10-22)
+- The WALK strip's readout line reads cleanly without "LINES UP EVERY n PASSES" — confirm it doesn't now look like something's missing where that text used to anchor the line.
+- EVERY pips (one dot per hit/step) at 8 don't look cramped or run together at a narrow card's column width (they're 2pt circles, 1pt apart — 8 of them is noticeably more than the old max of 4).
+- "Invert melody" at 10pt actually fits (or truncates acceptably) at the riff tab's real card width, now that the direction row is 4-way split instead of 5-way.
+- The three chevron buttons ("<"/"><"/">") on the riff tab read clearly as directions without the word labels, matching how the RHYTHM tab's own chevrons already read.
+- EVERY 5-8 sounds correct in AUM (no stuck notes, no doubled/dropped hits) — these values were reachable before only via a corrupt/out-of-range stored document; now they're a normal, UI-reachable setting.
+
 ### RANDOM MODE lane-box buttons (2026-10-22)
 - The dice's marching-ants dashed ring reads as "this is on" without being distracting at the header's small scale, in both header layouts (A/B/C).
 - The new PLAY/SOLO row on a picture-mode card looks and behaves exactly like normal mode's — tapping PLAY actually starts/stops that lane while rolling, tapping SOLO latches/holds exactly as it does outside random mode, and the row doesn't visually collide with the RHYTHM/RIFF/NOTES selector just below it.

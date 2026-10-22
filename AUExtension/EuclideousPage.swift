@@ -3775,17 +3775,9 @@ struct EuclideousPage: View {
     // RIFF TAB RETIRED (ferry 2026-10-10 §1.2) — `riffDirGrid`/`riffTabButton`/`euclideousNextOnRest`/
     // `riffDirPopupCard` deleted entire; confirmed by grep to have no remaining callers once `tabContent`'s
     // `.riff` case was removed. Direction/FREE-LOCK/INVERT/ON-REST selection now lives inline in the melody
-    // pop-up's own WALK section below. `riffDirShortLabel` (PEND/PING/RAND short labels) is KEPT — still used
-    // by the melody pop-up's DIRECTION row and by `noteViewLabelItems`'s own RIFF summary item.
-    /// Short direction labels (PEND/PING/RAND) — scoped to THIS page only, never touching the shared
-    /// `RiffDir.displayLabel` enum (that enum also serves the unrelated, regular chainable RIFF processor
-    /// elsewhere in the app).
-    private func riffDirShortLabel(_ d: RiffDir) -> String {
-        switch d {
-        case .forward: return "FWD"; case .reverse: return "REV"; case .pendulum: return "PEND"
-        case .pingpong: return "PING"; case .random: return "RAND"; case .drunk: return "DRUNK"
-        }
-    }
+    // pop-up's own WALK section below. `riffDirShortLabel` (PEND/PING/RAND short labels) was kept for the
+    // riff direction row's own word-label buttons; DELETED 2026-10-22 once that row switched to chevron
+    // glyphs ("<"/"><"/">") and dropped PENDULUM — confirmed by grep to have no remaining callers.
     /// §3.3's own help-text style (plain English, no jargon, under 60 characters) applied to each WALK
     /// direction — completes "Walk the riff <phrase>."
     private func riffDirHelpPhrase(_ d: RiffDir) -> String {
@@ -4282,7 +4274,12 @@ struct EuclideousPage: View {
             let rank = col < stepRanks.count ? stepRanks[col] : 0
             cols.append(rank < 1 ? "rest" : "\(col + 1)")
         }
-        var s = cols.joined(separator: ", ") + ", then round again. " + readoutText.capitalized.replacingOccurrences(of: "·", with: ".")
+        // readoutText (post-2026-10-22: no more "LINES UP EVERY n PASSES") is now either empty or
+        // " · n NEVER PLAY" — strip the separator rather than reusing the old capitalize-and-replace,
+        // which left an awkward bare "." where "LINES UP EVERY..." used to be.
+        let never = readoutText.replacingOccurrences(of: "·", with: "").trimmingCharacters(in: .whitespaces)
+        var s = cols.joined(separator: ", ") + ", then round again."
+        if !never.isEmpty { s += " " + never.capitalized + "." }
         if every >= 2 { s += ", each for \(every) \(every == 1 ? "hit" : "hits")" }
         return s
     }
@@ -4311,14 +4308,20 @@ struct EuclideousPage: View {
     /// here as the fifth, in the SAME style, replacing its old spot in the retired modes row). Tapping the
     /// lit direction turns the riff off (remembering it); tapping any other turns the riff on with that
     /// direction; INV is a plain toggle, independent of on/off, unchanged from its old behaviour.
+    /// Pendulum removed from this row (Paul, 2026-10-22) — still a real, working `RiffDir` case (an
+    /// already-saved lane keeps walking it; THROW/TWEAK can still pick it), just no longer offered here.
+    /// The remaining three read as chevrons — "<" / "><" / ">" — matching the RHYTHM tab's own direction
+    /// tabs exactly (`directionRow`'s glyphs, sizing and colours: `patternSelectedText`/
+    /// `patternUnselectedText`/`patternUnselectedFill` already equal `melodyButton`'s own "on"/"off"
+    /// colours byte-for-byte, so only the LABEL changes here, not the look it already had).
     private func riffDirectionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
-        let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
+        let dirs: [(RiffDir, String)] = [(.reverse, "<"), (.pingpong, "><"), (.forward, ">")]
         let curDir = line.euclideousRiffDirResolved
         let isRiff = line.riffOnResolved
         return HStack(spacing: 3) {
-            ForEach(dirs, id: \.self) { d in
+            ForEach(dirs, id: \.0) { d, glyph in
                 let lit = curDir == d
-                melodyButton(riffDirShortLabel(d), on: lit, accent: accent, height: 40, fontSize: 12, cornerRadius: 7,
+                melodyButton(glyph, on: lit, accent: accent, height: 40, fontSize: 13, cornerRadius: 7,
                              help: "How the riff walks. Tap the lit one to turn the riff off.", lane: idx, outline: lit && lockOn(idx, .riffDirection)) {
                     edit(idx) { l in
                         if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
@@ -4329,25 +4332,29 @@ struct EuclideousPage: View {
                 .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
                 .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lit && lockOn(idx, .riffDirection)))
             }
-            melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 12, cornerRadius: 7,
+            // Paul, 2026-10-22: "Change INV to read Invert melody" — the visible label itself, not just
+            // the spoken value (which already said as much via its own descriptive phrase). 10pt (the
+            // house floor — "nothing under 10pt," §4.6) rather than the chevrons' 13: "Invert melody" is
+            // long for this row's now-four-way split; it truncates rather than shrinks if a card is
+            // narrow, the same house rule every other label on this tab already accepts.
+            melodyButton("Invert melody", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 10, cornerRadius: 7,
                          help: "Flip the riff upside down in pitch", lane: idx, outline: lockOn(idx, .riffInvert)) { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
-                // §9.3: INV's own label doesn't itself say it inverts the riff, so it reads the descriptive
-                // phrase instead, with the toggle trait.
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Invert the riff")
+                .accessibilityLabel("Invert melody")
                 .accessibilityValue(lockSpoken(idx, .riffInvert, ""))
                 .accessibilityAddTraits(line.riffInvertResolved ? [.isButton, .isSelected] : .isButton)
         }
     }
     /// RIFF WALK ferry §1.3 Row B — "ADVANCE" / "EVERY" label, the EVERY stepper (§8), then HIT/STEP (§2.4:
-    /// read "HIT"/"STEP" at EVERY 1, "HITS"/"STEPS" at 2-4, so the row reads "ADVANCE EVERY 2 STEPS").
+    /// read "HIT"/"STEP" at EVERY 1, "HITS"/"STEPS" at 2-8 (raised from 2-4, 2026-10-22), so the row reads
+    /// "ADVANCE EVERY 2 STEPS").
     private func riffAdvanceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         let isRiff = line.riffOnResolved
         let every = line.riffAdvanceEveryResolved
         let plural = every >= 2
         return HStack(spacing: sp4) {
             riffRowLabel("ADVANCE", "EVERY").frame(width: layout.labelColumnWidth)
-            melodyStepper("EVERY", value: every, range: 1...4, width: layout.everyStepperWidth, showLabel: false,
+            melodyStepper("EVERY", value: every, range: 1...8, width: layout.everyStepperWidth, showLabel: false,
                          help: "The riff moves once every this many hits (or steps)", lane: idx, outline: lockOn(idx, .advanceEvery)) { v in
                 edit(idx) { $0.riffAdvanceEvery = v }
             }
@@ -4358,7 +4365,7 @@ struct EuclideousPage: View {
             .accessibilityValue(lockSpoken(idx, .advanceEvery, "\(every) \(line.riffAdvanceStepResolved ? (every == 1 ? "step" : "steps") : (every == 1 ? "hit" : "hits"))"))
             .accessibilityAdjustableAction { dir in
                 switch dir {
-                case .increment: edit(idx) { $0.riffAdvanceEvery = min(4, every + 1) }
+                case .increment: edit(idx) { $0.riffAdvanceEvery = min(8, every + 1) }
                 case .decrement: edit(idx) { $0.riffAdvanceEvery = max(1, every - 1) }
                 @unknown default: break
                 }
