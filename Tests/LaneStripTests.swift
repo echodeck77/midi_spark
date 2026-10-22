@@ -86,6 +86,11 @@ final class LaneStripTests: XCTestCase {
     }
     func testDrawsAsHitCoversHitAndGapNotRhythmRest() {
         XCTAssertTrue(euclideousStripDrawsAsHit(.hit)); XCTAssertTrue(euclideousStripDrawsAsHit(.gap)); XCTAssertFalse(euclideousStripDrawsAsHit(.rhythmRest))
+        // REPEAT is `.hit` with a hollow chip, never a 4th kind (§8 test 3's own "hit, REPEAT and gap")
+        // — confirmed via a real REPEAT hit, not just the bare `.hit` case above.
+        let h = hits(fix(exLine(onRest: .repeatLast)))
+        XCTAssertEqual(h[2].chip?.hollow, true, "step 3 is the REPEAT fixture's hollow chip")
+        XCTAssertTrue(euclideousStripDrawsAsHit(h[2].kind), "a REPEAT hit draws as a hit column too")
     }
     func testEveryChipClearsTheFloorBar() {
         for r in 1...8 {

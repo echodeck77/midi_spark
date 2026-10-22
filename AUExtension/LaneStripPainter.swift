@@ -165,7 +165,7 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         }
     }
 
-    // 4. the key row (a SHADOWing lane has none: the partner-colour band over this row stands in)
+    // 5. the key row (a SHADOWing lane has none: the partner-colour band over this row stands in)
     guard !d.shadowed else { return }
     for i in 0..<n where i < d.hits.count && d.hits[i].kind != .rhythmRest {
         let key = d.frames[i].key

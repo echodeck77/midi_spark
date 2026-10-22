@@ -8903,7 +8903,8 @@ enum EuclideousStripMetrics {
     static let restDotDiameter: CGFloat = 2
 }
 
-/// 7.2: a chip's top from its rank, in its column's own y: (8 − r) × `chipTravel` ÷ 7.
+/// LANE STRIP readability ferry §2.1/§6.1 (was riff/notes strip 7.2): a chip's top from its rank, in
+/// its column's own y: (8 − r) × `chipTravel` ÷ 7.
 func euclideousStripChipTop(rank: Int) -> CGFloat { CGFloat(8 - max(1, min(8, rank))) * EuclideousStripMetrics.chipTravel / 7 }
 
 /// LANE STRIP readability ferry §6.2: a hit column's floor bar — lane-coloured, full column width when
