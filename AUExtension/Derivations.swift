@@ -8865,6 +8865,13 @@ func euclideousPulseGeometryKey(n: Int, dir: EuclidDir, sub: Double, spanBeats: 
 // the comet dot) over a 14 pt KEY ROW (a key per hit, in the NOTES tab's key look, lit with the lane bar and the note's name when the notes will play on that hit). Every number below is
 // built from the footers', the arrow's and the notes functions that already exist — nothing here re-derives what the engine decides. Display only: nothing here reaches the engine,
 // the snapshot or the document. `LaneStripPainter.swift` only paints what these return.
+//
+// LANE STRIP readability ferry (2026-10-22): the Euclid pattern had gone quiet — a hit and a rhythm
+// rest read as the same grey, and the only lane colour on the whole strip was a 45% ring on a riff
+// gap. Each layer now has one job: rhythm = lane colour (a 24%-fill/70%-border hit column plus a
+// solid lane-coloured floor bar), riff = the white chips (nudged up so they never cover the floor
+// bar), notes = the grey key row (untouched). See `euclideousStripFloorBarFrame`/
+// `euclideousStripDrawsAsHit` below and `LaneStripPainter.swift`'s columns loop.
 
 enum EuclideousStripMetrics {
     static let trackH: CGFloat = 27, keyRowH: CGFloat = 14, rowGap: CGFloat = 3
@@ -8874,18 +8881,38 @@ enum EuclideousStripMetrics {
     static let chipLabelSize: CGFloat = 7, keyLabelSize: CGFloat = 7
     /// §1.2 / §3.2: a column narrower than this draws no chip label, a key narrower than this no key label.
     static let chipLabelFloor: CGFloat = 12, keyLabelFloor: CGFloat = 16
-    /// §1.2: a chip's top is (8 − r) × 18 ÷ 7 from its column's top, so rank 8 sits at 0 and rank 1 at 18 (a 9-tall chip then ends on the track's 27).
-    static let chipTravel: CGFloat = 18
+    /// LANE STRIP readability ferry §2.1/§6.1: a chip's top is (8 − r) × 2 from its column's top, so rank 8
+    /// sits at 0 and rank 1 at 14 (its 9-tall chip then ends at 23, 1 pt clear of the floor bar at 24).
+    /// Still expressed as `chipTravel ÷ 7` below (14 ÷ 7 = 2) so `euclideousStripChipTop`'s own formula
+    /// needs no change — only this one constant moved (was 18, giving (8−r)×18÷7 = flush with the 27pt track).
+    static let chipTravel: CGFloat = 14
     static let playheadFillAlpha = 0.14, playheadEdgeAlpha = 0.85, playheadEdgeW: CGFloat = 2
     /// §3.2: the lane bar is 2 tall, inset 3, its bottom 2 above the key's; below 100% CHANCE it is a 1 pt ring 3 tall.
+    /// (KEY ROW's own geometry — unrelated to, and deliberately not reused by, the readability ferry's floor bar below.)
     static let barH: CGFloat = 2, barInset: CGFloat = 3, barBottom: CGFloat = 2, ringH: CGFloat = 3
     static let mutedAlpha = 0.42
     /// The distance a playhead slides past the last column before the next pass starts it on the first: one column plus the 2 pt gap inside a group (the strip clips it to the step area).
     static let slideGap: CGFloat = 2
+    /// LANE STRIP readability ferry §1.1: a hit (or gap) column's lane-coloured fill/border.
+    static let hitFillAlpha = 0.24, hitBorderAlpha = 0.70, hitBorderW: CGFloat = 1.5
+    /// §1.1/§6.2: the floor bar — lane100 (opaque), 2 tall, inset 2 each side (full width under 6 pt wide),
+    /// its top 24 down from the column's own top (1 pt above the track's 27pt bottom edge).
+    static let floorBarH: CGFloat = 2, floorBarInset: CGFloat = 2, floorBarMinWidth: CGFloat = 6
+    static let floorBarTop: CGFloat = 24, floorBarRadius: CGFloat = 1
+    /// §1.2: a rhythm rest's one small dot — present, never blank.
+    static let restDotDiameter: CGFloat = 2
 }
 
-/// 7.2: a chip's top from its rank, in its column's own y: (8 − r) × 18 ÷ 7.
+/// 7.2: a chip's top from its rank, in its column's own y: (8 − r) × `chipTravel` ÷ 7.
 func euclideousStripChipTop(rank: Int) -> CGFloat { CGFloat(8 - max(1, min(8, rank))) * EuclideousStripMetrics.chipTravel / 7 }
+
+/// LANE STRIP readability ferry §6.2: a hit column's floor bar — lane-coloured, full column width when
+/// narrower than `floorBarMinWidth`, inset `floorBarInset` each side otherwise.
+func euclideousStripFloorBarFrame(column: CGRect) -> CGRect {
+    typealias M = EuclideousStripMetrics
+    let inset = column.width < M.floorBarMinWidth ? 0 : M.floorBarInset
+    return CGRect(x: column.minX + inset, y: column.minY + M.floorBarTop, width: max(0, column.width - 2 * inset), height: M.floorBarH)
+}
 
 /// 7.1: one step's frames in the strip's own coordinates: the track cell (y 0, 27 tall) and the key (y 30, 14 tall), both at the step's column x and width.
 struct EuclideousStripFrame: Equatable { var column: CGRect; var key: CGRect }
@@ -8910,10 +8937,14 @@ func euclideousStripMuteLook(muted: Bool) -> (opacity: Double, strikes: Bool) { 
 // ── the per-hit plan (7.3) ───────────────────────────────────────────────────────────────────────────────────────────────
 
 enum EuclideousStripColumnKind: Equatable {
-    case rhythmRest   // the rhythm has no hit here: dashed, present, never blank
-    case hit          // the rhythm hits: a dark cell (with a chip when the hit reads a riff note)
-    case gap          // a hit on a riff REST under SKIP / TIE (or a REPEAT that finds no note): the cell with a lane-colour inner ring and no chip
+    case rhythmRest   // the rhythm has no hit here: quiet, a small dot, present, never blank
+    case hit          // the rhythm hits: a lane-coloured column with a floor bar (with a chip when the hit reads a riff note)
+    case gap          // a hit on a riff REST under SKIP / TIE (or a REPEAT that finds no note): draws exactly like `.hit`, just with no chip
 }
+/// LANE STRIP readability ferry §6.3: whether a step's column draws lane-coloured (hit AND gap — REPEAT
+/// is encoded as `EuclideousStripChip.hollow`, not a fourth kind, so it's already covered here) vs a
+/// quiet rhythm rest. The one shared rule drawing and tests both call, so they can't disagree.
+func euclideousStripDrawsAsHit(_ kind: EuclideousStripColumnKind) -> Bool { kind != .rhythmRest }
 /// `rank` 1…8 is the WRITTEN rank the arrow's row rule uses (INV and TRANS never touch it); `column` is the riff column (1-based) the footer shows; `hollow` = a REPEAT hit (the repeated note's
 /// height, a dashed lane outline); `grey` = the riff is off and only one of PLAYS / RESTS is on (the chips show which hits the riff's columns decide).
 struct EuclideousStripChip: Equatable { var rank: Int; var column: Int; var hollow: Bool; var grey: Bool }

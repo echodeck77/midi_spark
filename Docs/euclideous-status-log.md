@@ -12,6 +12,37 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — LANE STRIP readability ferry: "the Euclid pattern readable at a glance" (2026-10-22,
+  ratified by Paul from a screen-recording review of the riff/notes strip ferry below; on branch
+  `fix/lane-strip-readability`; full macOS suite green, Euclideous-scoped subset re-run first).** The
+  strip had gone quiet — a hit column and a rhythm rest read as the same grey, and the only lane colour
+  anywhere on it was a 45% ring on a riff gap, so the eye read a scattered melody instead of a countable
+  rhythm. Each layer now has one job: **rhythm = lane colour** (a hit-OR-gap column gets a 24% lane fill,
+  a 1.5 pt 70%-lane border, and a solid lane-coloured FLOOR BAR 2 pt tall, inset 2, at y 24 — lined up
+  across the strip these comb out the Euclid spread at a glance; a riff gap now draws IDENTICALLY to a
+  hit, its old 45% ring deleted entirely, not replaced), **riff = the white chips** (nudged up — the
+  chip-top formula's one `chipTravel` constant moved 18→14, so `(8−r)×18÷7` becomes `(8−r)×2`: rank 1's
+  chip now ends at y 23, 1 pt clear of the floor bar, instead of flush with the track's 27 — no other
+  chip code changed), **notes = the grey key row** (untouched). A rhythm rest goes quiet: flat fill, no
+  dashed border, one small 2 pt dot instead. **ONE new shared rule**, `euclideousStripDrawsAsHit(kind)`
+  (Derivations.swift) — `kind != .rhythmRest` — both the painter and the tests call it, so REPEAT (which
+  is `EuclideousStripChip.hollow` on an ordinary `.hit`, never a 4th `EuclideousStripColumnKind` — the
+  ferry text's own wording suggested otherwise; reported, not a real discrepancy) and `.gap` fall out of
+  it for free. **ONE new frame function**, `euclideousStripFloorBarFrame(column:)` — full column width
+  under 6 pt, inset 2 otherwise. New floor-bar painting pass inserted between the playhead and the chips
+  (LaneStripPainter.swift) — the z-order the spec asked for (over the columns and the playhead, under
+  the chips). **Confirmed already satisfied, no change needed:** the playhead's fill/edge alphas were
+  already named, already-tunable `EuclideousStripMetrics` constants; the 42% LANES-mute/SOLO dim is ONE
+  group `.opacity()` wrapping the whole strip `Canvas`, so the new lane-coloured drawing dims correctly
+  automatically. **A naming trap avoided, not inherited:** `EuclideousStripMetrics` already had
+  `barH`/`barInset`/`barBottom`/`ringH` — these belong to the KEY ROW's own lit-bar/CHANCE-ring geometry,
+  untouched by this ferry; the new floor-bar constants are named `floorBar*` to avoid colliding with them.
+  `EuclideousStripPalette.hitColumn` (the old flat #28292D hit fill) is now dead code, deleted. **+5 tests**
+  (floor-bar frame insets/full-width fallback, the shared draws-as-hit rule, chip-vs-floor-bar clearance
+  for every rank 1-8, plus updated expected values in the two existing chip-top tests and new draws-as-hit
+  assertions folded into the example-lane and riff-off tests). **Device-owed:** every item in this entry
+  is a colour/size/legibility judgment — see `Docs/euclideous-device-verification-debt.md`'s new
+  subsection; nothing here was claimed verified on-device.
 - **▶ EUCLIDEOUS — RANDOM MODE ferry: "a dice in the header turns the four lane cards into throw/tweak
   pictures" (2026-10-21, ratified by Paul from the "Fourfold roll" design canvas — a text-only spec, no
   shared canvas; on branch `euclideous-random-mode`; iOS + macOS builds clean; full macOS suite 671 green

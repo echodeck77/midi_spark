@@ -57,12 +57,14 @@ final class LaneStripTests: XCTestCase {
 
     func testChipHeightsFollowTheRank() {
         XCTAssertEqual(euclideousStripChipTop(rank: 8), 0, accuracy: 0.01)
-        XCTAssertEqual(euclideousStripChipTop(rank: 1), 18, accuracy: 0.01)
-        XCTAssertEqual(euclideousStripChipTop(rank: 6), 5.14, accuracy: 0.01)
-        // a 9-tall chip at rank 1 ends on the track's last point (27); a column's chip is inset 2 each side
+        XCTAssertEqual(euclideousStripChipTop(rank: 1), 14, accuracy: 0.01)
+        XCTAssertEqual(euclideousStripChipTop(rank: 6), 4, accuracy: 0.01)
+        // LANE STRIP readability ferry: a 9-tall chip at rank 1 now ends at 23 — 1 pt clear of the floor
+        // bar at y 24..26 (it used to end flush with the track's 27, before the floor bar existed); a
+        // column's chip is inset 2 each side
         let col = CGRect(x: 10, y: 0, width: 25.63, height: 27)
         let chip = euclideousStripChipFrame(column: col, rank: 1)
-        XCTAssertEqual(chip.maxY, 27, accuracy: 0.01); XCTAssertEqual(chip.minX, 12); XCTAssertEqual(chip.width, 21.63, accuracy: 0.001); XCTAssertEqual(chip.height, 9)
+        XCTAssertEqual(chip.maxY, 23, accuracy: 0.01); XCTAssertEqual(chip.minX, 12); XCTAssertEqual(chip.width, 21.63, accuracy: 0.001); XCTAssertEqual(chip.height, 9)
     }
     func testTheLayoutIsATwentySevenPointTrackOverAFourteenPointKeyRowThreePointsApart() {
         let xs: [CGFloat] = [0, 27.6, 55.2]
@@ -74,6 +76,24 @@ final class LaneStripTests: XCTestCase {
         }
     }
 
+    // MARK: 1b. LANE STRIP readability ferry — the floor bar, the draws-as-hit rule, and chip clearance
+
+    func testFloorBarFrameInsetsOrGoesFullWidthWhenNarrow() {
+        let wide = euclideousStripFloorBarFrame(column: CGRect(x: 10, y: 0, width: 13, height: 27))
+        XCTAssertEqual(wide.minX, 12); XCTAssertEqual(wide.width, 9); XCTAssertEqual(wide.minY, 24); XCTAssertEqual(wide.height, 2)
+        let narrow = euclideousStripFloorBarFrame(column: CGRect(x: 10, y: 0, width: 5, height: 27))
+        XCTAssertEqual(narrow.minX, 10, "under the 6pt floor, the bar goes full width instead of insetting"); XCTAssertEqual(narrow.width, 5)
+    }
+    func testDrawsAsHitCoversHitAndGapNotRhythmRest() {
+        XCTAssertTrue(euclideousStripDrawsAsHit(.hit)); XCTAssertTrue(euclideousStripDrawsAsHit(.gap)); XCTAssertFalse(euclideousStripDrawsAsHit(.rhythmRest))
+    }
+    func testEveryChipClearsTheFloorBar() {
+        for r in 1...8 {
+            let bottom = euclideousStripChipTop(rank: r) + EuclideousStripMetrics.chipH
+            XCTAssertLessThanOrEqual(bottom, 23, "rank \(r) chip must clear the floor bar's own 24-26 band")
+        }
+    }
+
     // MARK: 2. the example lane's chips, gaps and rests
 
     func testTheExampleLanesChipsAndGapsInPassZero() {
@@ -81,12 +101,16 @@ final class LaneStripTests: XCTestCase {
         XCTAssertEqual(f.pass.prediction, [6, 8, 2, 3, 5], "the pass the footers show: the hits read columns 6, 8, 2, 3 and 5")
         let h = hits(f)
         XCTAssertEqual(h[0].chip, EuclideousStripChip(rank: 6, column: 6, hollow: false, grey: false), "step 1: a chip labelled 6 at rank 6's height (A♭3)")
-        XCTAssertEqual(euclideousStripChipTop(rank: h[0].chip!.rank), 5.14, accuracy: 0.01)
+        XCTAssertEqual(euclideousStripChipTop(rank: h[0].chip!.rank), 4, accuracy: 0.01)
         XCTAssertEqual(h[5].chip, EuclideousStripChip(rank: 8, column: 3, hollow: false, grey: false), "step 6: a chip labelled 3 at the top (C4)")
         XCTAssertEqual(euclideousStripChipTop(rank: h[5].chip!.rank), 0)
         for i in [2, 4, 7] { XCTAssertEqual(h[i].kind, .gap, "step \(i + 1) is a riff rest under SKIP: a gap"); XCTAssertNil(h[i].chip) }
         for i in [1, 3, 6] { XCTAssertEqual(h[i].kind, .rhythmRest, "step \(i + 1) is a dashed rhythm rest"); XCTAssertNil(h[i].chip); XCTAssertNil(h[i].key, "a rhythm rest has no key") }
         for i in [0, 5] { XCTAssertEqual(h[i].kind, .hit) }
+        // LANE STRIP readability ferry §8 test 4: steps 1,3,5,6,8 (hit or gap) all draw lane-coloured with
+        // a floor bar; steps 2,4,7 (rhythm rests) are the quiet dotted cells with none.
+        for i in [0, 2, 4, 5, 7] { XCTAssertTrue(euclideousStripDrawsAsHit(h[i].kind), "step \(i + 1) draws as a lane-coloured hit column") }
+        for i in [1, 3, 6] { XCTAssertFalse(euclideousStripDrawsAsHit(h[i].kind), "step \(i + 1) is a quiet rhythm rest") }
     }
     func testTheChipsReadTheWrittenRankNotTheSoundingOne() {
         // INV and TRANS change the sounding rank (the LANES roll draws that one); the arrow, and so the chip, keep the WRITTEN row
@@ -143,6 +167,8 @@ final class LaneStripTests: XCTestCase {
         XCTAssertEqual(grey[0].chip, EuclideousStripChip(rank: 6, column: 6, hollow: false, grey: true)); XCTAssertEqual(grey[5].chip, EuclideousStripChip(rank: 8, column: 3, hollow: false, grey: true))
         for i in [2, 4, 7] { XCTAssertNil(grey[i].chip); XCTAssertEqual(grey[i].kind, .hit, "with the riff off a rest hit is a plain hit, not a gap") }
         XCTAssertEqual([2, 4, 7].map { grey[$0].key?.plays }, [true, true, true], "the keys still show where the notes play")
+        // LANE STRIP readability ferry §8 test 5: the same five hit columns still draw as hit columns with the riff off.
+        for i in [0, 2, 4, 5, 7] { XCTAssertTrue(euclideousStripDrawsAsHit(grey[i].kind)) }
         // both on: no chips at all (the footers read nothing)
         let both = hits(f, riffPlays: false, grey: false, readRiff: false, notes: notes(.cycle, when: 0b11))
         for i in [0, 2, 4, 5, 7] { XCTAssertNil(both[i].chip); XCTAssertEqual(both[i].kind, .hit) }

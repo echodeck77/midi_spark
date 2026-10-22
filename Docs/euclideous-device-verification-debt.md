@@ -17,6 +17,15 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### LANE STRIP readability (2026-10-22)
+- Hits countable at a glance at 16 and 8 steps in all four lane colours (24% fill, 70% border, floor bar).
+- The 2 pt rest dot reads as "rest, present" without competing with the hits.
+- The riff contour still reads as the melody with ranks 2 pt apart.
+- The current chip separates from its lane-tinted column in all four lane colours.
+- The playhead band at 14% still reads as "now" over lane-tinted hit columns; tune its fill and edge alphas if not.
+- A 42%-dimmed strip reads as greyed out, distinct from a live lane, in all four lane colours.
+- Whether any real layout puts a column under 6 pt wide (the floor bar's full-width fallback) — not confirmed either way during source mapping, only on device.
+
 ### RANDOM MODE (2026-10-21)
 - Landings sound clean — no doubled or dropped hit — in AUM at 64 and 1024 buffers; also judge whether the ~150 ms safety margin before a bar/beat line feels too eager or too laggy.
 - The hold's switch on the beat feels immediate enough to compare by ear (touch-down → original, release → current).

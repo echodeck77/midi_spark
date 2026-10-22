@@ -1,5 +1,8 @@
 //  LaneStripPainter.swift
 //  The lane card's STRIP: a riff contour over a row of notes keys (ferry "a riff contour over a row of notes keys, in place of the comet", 2026-10-21).
+//  LANE STRIP readability ferry (2026-10-22): the rhythm is now lane colour (a hit column's 24%
+//  fill/70% border plus a solid floor bar), the riff stays the white chips, the notes stay the key
+//  row — each layer one job, so the Euclid spread counts at a glance again.
 //
 //  SwiftUI-only on purpose (GridUI seam rule: no UIKit, no AU frameworks), like `RiffArrowPainter.swift` / `NotesTabPainter.swift`: every frame, height, label, chip, key, playhead position and strike
 //  look comes from the pure functions in Derivations.swift (`euclideousStrip*`), so the drawing and the tests can never disagree. This file paints what those return, once per display frame
@@ -14,10 +17,10 @@ private extension Color {
 }
 
 enum EuclideousStripPalette {
-    /// The riff grid's empty cell (`riffGridCell`: white @ 8% over its panel — itself white @ 3.5% on the page ground (0.05, 0.055, 0.07)) as an opaque colour: ≈ #28292D. The ferry says #24262C; source wins.
-    static let hitColumn = Color(h: 0x28292D)
     /// The riff grid's note cell (white @ 85% over that panel): ≈ #DCDCDD. The ferry says #DFE3EA; source wins.
     static let noteChip = Color(h: 0xDCDCDD)
+    /// LANE STRIP readability ferry: a rhythm rest's own fill (unchanged) and its one dot's colour —
+    /// `restDash` painted a dashed BORDER before this ferry; now it fills a small dot instead (same hex).
     static let rhythmRest = Color(h: 0x1A1C21), restDash = Color(h: 0x3A3E47)
     static let greyChip = Color(h: 0x6B707A)
     static let ink = Color(h: 0x0D0F14)
@@ -87,22 +90,23 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
     let n = d.frames.count
     let dash = StrokeStyle(lineWidth: 1, dash: [3, 2])
 
-    // 1. the track: a dark cell per hit, a dashed one per rhythm rest, and a lane-colour inner ring on a gap
+    // 1. the track: a lane-coloured cell per hit (gap draws identically — no separate ring), a quiet dotted cell per rhythm rest
     for i in 0..<n {
         let col = d.frames[i].column
         let shape = RoundedRectangle(cornerRadius: M.columnRadius).path(in: col)
-        if i < d.hits.count, d.hits[i].kind != .rhythmRest {
-            ctx.fill(shape, with: .color(P.hitColumn))
-            if d.hits[i].kind == .gap {
-                ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - 0.5).path(in: col.insetBy(dx: 0.5, dy: 0.5)), with: .color(d.tint.opacity(0.45)), lineWidth: 1)
-            }
+        if i < d.hits.count, euclideousStripDrawsAsHit(d.hits[i].kind) {
+            ctx.fill(shape, with: .color(d.tint.opacity(M.hitFillAlpha)))
+            let inset = M.hitBorderW / 2
+            ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - inset).path(in: col.insetBy(dx: inset, dy: inset)),
+                       with: .color(d.tint.opacity(M.hitBorderAlpha)), lineWidth: M.hitBorderW)
         } else {
             ctx.fill(shape, with: .color(P.rhythmRest))
-            ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - 0.5).path(in: col.insetBy(dx: 0.5, dy: 0.5)), with: .color(P.restDash), style: dash)
+            let dotR = M.restDotDiameter / 2
+            ctx.fill(Path(ellipseIn: CGRect(x: col.midX - dotR, y: col.midY - dotR, width: M.restDotDiameter, height: M.restDotDiameter)), with: .color(P.restDash))
         }
     }
 
-    // 2. the playhead: one column wide, over the cells and under the chips, clipped to the step area
+    // 2. the playhead: one column wide, over the cells and under the floor bars/chips, clipped to the step area
     if let ph = d.playhead {
         let band = CGRect(x: ph.x, y: 0, width: ph.width, height: M.trackH)
         ctx.drawLayer { layer in
@@ -116,7 +120,14 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         }
     }
 
-    // 3. the chips
+    // 3. the floor bars: lane-coloured, over the columns and the playhead, under the chips — the even
+    // comb that makes the Euclid spread countable at a glance
+    for i in 0..<n where i < d.hits.count && euclideousStripDrawsAsHit(d.hits[i].kind) {
+        let bar = euclideousStripFloorBarFrame(column: d.frames[i].column)
+        ctx.fill(RoundedRectangle(cornerRadius: M.floorBarRadius).path(in: bar), with: .color(d.tint))
+    }
+
+    // 4. the chips
     for i in 0..<n where i < d.hits.count {
         guard let chip = d.hits[i].chip else { continue }
         let isCurrent = d.current == i && !chip.hollow && !chip.grey
