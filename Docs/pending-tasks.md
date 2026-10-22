@@ -5,6 +5,15 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — RHYTHM POLISH: prominent HITS, continuous OFFSET / TILT, FLIP HITS, sweeping restart tiles (2026-10-22; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "RHYTHM POLISH" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build).
+- [ ] DECIDE (Paul): TILT is not continuous at 0 — tilt 0 plays the Euclid positions {0,3,6}; any tilt ≠ 0 blends from the even spread {0,3.5,7}, so the first step off 0 jumps (the 3 % detent hides the first 3 %). Blending from the real Euclid positions instead is a one-function change (`euclidTiltPatternFine`) and would make it continuous — but it changes the shape of every tilted pattern, so not done unasked.
+- [ ] DECIDE (Paul): unrounded TILT is OPT-IN per lane (`tiltFine`, set by the new slider) so existing sessions sound as before. A lane you never touch keeps today's rounded TILT forever; say if you'd rather it flipped for everyone (a sound change for any stored `tilt ≠ 0`).
+- [ ] DECIDE (Paul): the HITS caption colours — the rule "75 % toward #F2F4F7" gives L1 #F2CDD0 (not the spec's #F7C1C1, which the rule cannot produce), L2 #CCE7F6, L3 #F2E7C9, L4 #D9EDD6. Say if you want #F7C1C1 for L1 literally (and how L2–L4 should then derive).
+- [ ] DECIDE (Paul): the HITS hero's block height uses box heights (36 + 2 + 10), not measured font heights; "tabular" = monospaced digits.
+- [ ] DECIDE (Paul): with a fractional OFFSET, BKW / PING-PONG put each hit in the box its START TIME falls in, which can be one box from where the integer pattern shows it; the unreached-step 42 % dim the ferry cites as existing is not in the code and was not added.
+- [ ] (noted) a 3-link chain ("2·1·1 PASS") truncates the tile label to "MELODY RE…" at 160.75 pt; the tiles' timer is the flash's (not the comet strip's, which is private).
+
 ## ★ EUCLIDEOUS — LANE LOCK: a padlock in the header; a locked lane snaps back on a quantised grid line (2026-10-21/22; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "LANE LOCK" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build and open lock mode).
 - [ ] DECIDE (Paul): the required BRAND width pushes the output rings off the lane gutter at the 1190 reference (they pin flush against BRAND, 17.19 pt right of centre; 10.86 pt in portrait). Accept, or shorten BRAND's wordmark / hide it in layout A?

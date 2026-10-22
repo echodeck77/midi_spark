@@ -5479,6 +5479,11 @@ enum EuclideousLaneCardMetrics {
     static func innerWidth(cardWidth: CGFloat) -> CGFloat { max(1, cardWidth - inset * 2) }
     static func contentAreaH(cardHeight: CGFloat) -> CGFloat { max(1, cardHeight - chromeH) }
 }
+/// RHYTHM POLISH §2.3 — FLIP HITS (INV renamed): the two printed lines and the VoiceOver label, one definition for the button and the tests.
+enum EuclideousFlipHits {
+    static let lines = ["FLIP", "HITS"]
+    static let accessibilityLabel = "Flip hits"
+}
 // MARK: - RHYTHM TAB GEOMETRY (RHYTHM POLISH ferry, 2026-10-22, §1) — the upper zone's right half is three rows (OFFSET, TILT, the direction row), the lower zone's right group two tiles
 
 /// Every number the RHYTHM tab's new arrangement needs, as pure functions of the lane card's size — in CARD coordinates (the reference card is 358.5 × 312: upper zone y 94–218, lower zone y 222–302) — so the views and the

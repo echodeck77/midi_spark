@@ -17,6 +17,14 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### RHYTHM POLISH (2026-10-22)
+- LAUNCH the DEBUG build from Xcode into AUM first (the 1 MB main-thread stack: the slider body closure grew ~0.9 KB, four new leaves of 1.3–3.5 KB); the RHYTHM tab must come up on all four lanes.
+- The 36 pt HITS number and its clamp, in all four lane colours: centred on the filled part, the "OF n" caption legible in the pale lane colour, 0 hits fully inside the tile (block at y 51–99 of 124), FOLLOW lane (42 %) still reads.
+- OFFSET and TILT at 38.67 tall: the drag feel, the 0.08-step and 3 % detents (do they feel like a magnet or a snag?), and EARLY / LATE fitting under the "TILT" label and the value (the line boxes overlap 4.3 pt, the ink should not touch).
+- FLIP HITS legible at 8 pt in a 38.8 pt button, on and off; the direction row's four buttons even.
+- The sweep: smooth at 60 and 120 Hz, the hard drop at the restart reading clearly, and not noisy with four lanes running; the border/fill of a set vs FREE tile.
+- The rhythm ghosts (dashed) and the melody ticks legible at 6 pt; a 3-link chain's label truncating to "MELODY RE…" reads acceptably.
+- A fractional OFFSET sounding as a clean shift (5 → 5.25: every hit a quarter of a step later), including under BKW (earlier) and PING-PONG, and the hit that wraps to the start of its pass; TILT unrounded (drag through a few %) with no zipper noise, and a locked lane snapping a fractional offset back.
 ### RIFF tab labels + ADVANCE EVERY cap (2026-10-22)
 - The WALK strip's readout line reads cleanly without "LINES UP EVERY n PASSES" — confirm it doesn't now look like something's missing where that text used to anchor the line.
 - EVERY pips (one dot per hit/step) at 8 don't look cramped or run together at a narrow card's column width (they're 2pt circles, 1pt apart — 8 of them is noticeably more than the old max of 4).

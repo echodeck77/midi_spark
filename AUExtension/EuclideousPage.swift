@@ -3227,7 +3227,7 @@ struct EuclideousPage: View {
     private func flipHitsButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         let on = line.patternMissResolved
         return AnyView(VStack(spacing: 1) {
-            Text("FLIP"); Text("HITS")
+            Text(EuclideousFlipHits.lines[0]); Text(EuclideousFlipHits.lines[1])
         }
         .font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64)
         .foregroundColor(on ? patternSelectedText : patternUnselectedText)
@@ -3239,7 +3239,7 @@ struct EuclideousPage: View {
         .modifier(lockOutlineMod(idx, .inv, accent))
         .euclideousHelp("Play on the empty steps instead of the hits")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Flip hits")
+        .accessibilityLabel(EuclideousFlipHits.accessibilityLabel)
         .accessibilityValue(lockSpoken(idx, .inv, on ? "on" : "off"))
         .ringToggleTrait())
     }

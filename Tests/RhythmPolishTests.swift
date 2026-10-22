@@ -297,12 +297,17 @@ final class RhythmPolishTests: XCTestCase {
                        "75 % toward #F2F4F7 in sRGB bytes. The ferry quotes L1 as #F7C1C1, which this rule cannot produce (0xF7 is above both ends' red) — reported")
     }
     func testFlipHitsIsTheSameToggleAsInv() {
+        var cellsScratch = [Bool](repeating: false, count: 16), microScratch = [Double](repeating: 0, count: 16)
         // behaviour is the lane's `patternMiss`; the pattern it makes is the engine's own (the 7-step lane's gaps)
         var l = EuclidLine(pulses: 3, steps: 7, noteSel: .all)
         let plain = euclideousBuildPattern(l).buf
         l.patternMiss = true
         let flipped = euclideousBuildPattern(l).buf
         XCTAssertEqual((0..<7).map { flipped[$0] }, (0..<7).map { !plain[$0] }, "FLIP HITS plays exactly the steps that did not hit")
+        XCTAssertEqual(EuclideousFlipHits.accessibilityLabel, "Flip hits"); XCTAssertEqual(EuclideousFlipHits.lines, ["FLIP", "HITS"])
+        // the same stream as INV had: a flipped lane renders the complement of the plain lane's hits
+        XCTAssertEqual(euclideousHitPatternInto(pulses: 3, steps: 7, rotate: 0, tilt: 0, fine: false, customHits: nil, patternMiss: true, cells: &cellsScratch, micro: &microScratch), 7)
+        XCTAssertEqual((0..<7).map { cellsScratch[$0] }, (0..<7).map { flipped[$0] })
     }
 
     // MARK: 8 / 9. the restart tiles' state
