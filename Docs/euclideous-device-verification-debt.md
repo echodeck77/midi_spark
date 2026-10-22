@@ -17,6 +17,14 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### RESTART TILES (2026-10-22)
+- LAUNCH the DEBUG build from Xcode into AUM first (new leaves `restartEditorStrip`, `restartTileLayer`, 2.8–3.3 KB each on the 1 MB main stack); the RHYTHM tab and the restart editor must come up on all four lanes.
+- Repeat strikes on one MELODY cell read as "the same note again", not as noise, with four lanes running (EVERY 2, ADV STEP, REPEAT on rest).
+- Clear and refill reads cleanly at the walk's wrap (the first cell lighting in the same frame the others clear), including at a melody restart.
+- Ghost cells (the dashed notes this walk cycle won't reach) legible at 6 pt in all four lane colours; the track's eight cells at 160.75 pt.
+- The restart editor's live strips at real size: sweep and track under each chain row, following a tapped link / + / FREE at once; no timeline, "BAR 1–16" or hint line left.
+- Dashed rests restored on the lane strip in all four lane colours (a rest column present beside the 24 %-fill hit columns, never a dot), at OFFSET 0 and with a fractional OFFSET.
+
 ### Random mode badge placement (2026-10-22)
 - Turning random mode on draws the thin "RANDOM" border and its badge ON THE RIFF GRID (top-left of the grid), nothing over the header; lock mode's dim washes the riff grid and the MIX | LANES | FX panel where they are (it was drawn at the page's top-left too).
 

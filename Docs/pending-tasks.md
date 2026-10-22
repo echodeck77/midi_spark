@@ -5,6 +5,13 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — RESTART TILES: the MELODY tile counts riff notes, the editor shows the tiles, rests stay dashed (2026-10-22; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "RESTART TILES" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build).
+- [ ] DECIDE (Paul): STRIDE above 1 can leave some notes never reached (FWD LEN 8 STRIDE 2 visits 4). The MELODY track still has LEN cells — visited ones first in walk order, then the never-visited ones (dashed ghosts under a melody chain, plain unlit under FREE). Say if you'd rather the track show only the visited notes.
+- [ ] DECIDE (Paul): the restart editor's sections start at y 38.67 / 119.33 at the reference card's 208-high editor (the ferry's 36 / 114 hold at a height of 200); the flexible gaps share the leftover height equally, as they always did, now through `euclideousRestartEditorLayout`.
+- [ ] DECIDE (Paul): REPEAT-on-rest strikes the REPEATED note's cell, which needed a new display-only NOTE VIEW field (`cellColumn`); the riff panel's arrow still flares the hit's own rest column.
+- [ ] (noted) RAND / DRUNK cannot reach the Euclideous row, so the "light as played, clear when all reached" fallback is not built — only the column-order, no-ghost cell order is.
+
 ## ★ EUCLIDEOUS — RHYTHM POLISH: prominent HITS, continuous OFFSET / TILT, FLIP HITS, sweeping restart tiles (2026-10-22; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "RHYTHM POLISH" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build).
 - [ ] DECIDE (Paul): TILT is not continuous at 0 — tilt 0 plays the Euclid positions {0,3,6}; any tilt ≠ 0 blends from the even spread {0,3.5,7}, so the first step off 0 jumps (the 3 % detent hides the first 3 %). Blending from the real Euclid positions instead is a one-function change (`euclidTiltPatternFine`) and would make it continuous — but it changes the shape of every tilted pattern, so not done unasked.
