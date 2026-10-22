@@ -233,4 +233,75 @@ final class RhythmPolishTests: XCTestCase {
         cl = euclideousHitLayoutInto(cells: cells, micro: [Double](repeating: 0, count: 8), fraction: 0, n: 8, dir: .bkw, outCells: &tc, outDelay: &td)
         XCTAssertEqual(euclideousHitBoxes(layoutCells: Array(tc[0..<cl]), n: 8, dir: .bkw), cells, "no fraction: the buffer itself")
     }
+
+    // MARK: 12. geometry
+
+    func testTheRhythmTabGeometryAtTheReferenceCard() {
+        let g = euclideousRhythmTabLayout(cardWidth: 358.5, cardHeight: 312)
+        // upper zone y 94–218, the right half at x 181.25, 167.25 wide: three rows, sp4 apart
+        XCTAssertEqual(g.offsetRow.minY, 94); XCTAssertEqual(g.tiltRow.minY, 136.6667, accuracy: 1e-3); XCTAssertEqual(g.directionRow.minY, 179.3333, accuracy: 1e-3)
+        for r in [g.offsetRow, g.tiltRow, g.directionRow] {
+            XCTAssertEqual(r.minX, 181.25, accuracy: 1e-9); XCTAssertEqual(r.width, 167.25, accuracy: 1e-9); XCTAssertEqual(r.height, 116.0 / 3, accuracy: 1e-9)
+        }
+        XCTAssertEqual(g.directionRow.maxY, 218, accuracy: 1e-9, "the three rows exactly fill the upper zone")
+        XCTAssertEqual(g.directionButtonW, 38.8125, accuracy: 1e-9)
+        XCTAssertEqual(g.hitsTile.height, 124); XCTAssertEqual(g.hitsTile.minX, 10); XCTAssertEqual(g.stepsTile.minX, g.hitsTile.maxX + 4, accuracy: 1e-9)
+        // lower zone y 222–302: the tiles sit in the rate grid's two rows (38 + 4 + 38)
+        XCTAssertEqual(g.rhythmTile.minY, 222); XCTAssertEqual(g.melodyTile.minY, 264); XCTAssertEqual(g.melodyTile.maxY, 302)
+        XCTAssertEqual(g.rhythmTile.height, 38); XCTAssertEqual(g.melodyTile.height, 38)
+        // SOURCE WINS (reported): the right group is x 187.75, 160.75 wide — (338.5 − 17) / 2 — not the ferry's 188.5 / 160
+        XCTAssertEqual(g.rhythmTile.minX, 187.75, accuracy: 1e-9); XCTAssertEqual(g.rhythmTile.width, 160.75, accuracy: 1e-9)
+        XCTAssertEqual(g.melodyTile.minX, g.rhythmTile.minX); XCTAssertEqual(g.melodyTile.width, g.rhythmTile.width)
+        XCTAssertEqual(g.rhythmTile.maxX, 348.5, accuracy: 1e-9, "the group still ends at the card's right inset")
+        XCTAssertEqual(g.rateGroup.height, g.melodyTile.maxY - g.rhythmTile.minY, accuracy: 1e-9, "the restart section is exactly the size of the rate section")
+    }
+    func testTheTilesAndRowsInEveryPageLayout() {
+        // The lane cards the page layout gives at the iPad sizes we ship to; every one keeps the structure: three equal right-half rows, two 38-tall tiles in the rate grid's rows.
+        var report: [String] = []
+        for size in [CGSize(width: 1366, height: 1024), CGSize(width: 1194, height: 834), CGSize(width: 1112, height: 834), CGSize(width: 1024, height: 768), CGSize(width: 834, height: 1194), CGSize(width: 768, height: 1024)] {
+            let pl = euclideousPageLayout(size: size)
+            let card = pl.lanes[0]
+            let g = euclideousRhythmTabLayout(cardWidth: card.width, cardHeight: card.height)
+            let upperH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: card.height) - 84
+            XCTAssertEqual(g.offsetRow.height, (upperH - 8) / 3, accuracy: 1e-9)
+            XCTAssertEqual(g.directionRow.maxY - g.offsetRow.minY, upperH, accuracy: 1e-9, "\(size): the three rows split the upper zone's height equally")
+            XCTAssertEqual(g.rhythmTile.height, 38); XCTAssertEqual(g.melodyTile.minY - g.rhythmTile.maxY, 4)
+            XCTAssertEqual(g.rhythmTile.width, (card.width - 20 - 17) / 2, accuracy: 1e-9)
+            report.append(String(format: "%.0f×%.0f: card %.2f×%.2f · tiles %.2f×38 · right rows %.2f tall · direction buttons %.2f", size.width, size.height, card.width, card.height, g.rhythmTile.width, g.offsetRow.height, g.directionButtonW))
+        }
+        print("RHYTHM POLISH tile sizes per layout:\n" + report.joined(separator: "\n"))
+    }
+    func testTheHitsHeroBlockSitsOnTheFilledPartAndClampsAtTheTopAndAboveTheLabel() {
+        typealias H = EuclideousHitsHero
+        let tileH: CGFloat = 124, labelTop = H.labelBackingTop(tileH: tileH)
+        XCTAssertEqual(H.blockH, 48); XCTAssertEqual(labelTop, 103, "the label's backing: 5 up from the bottom, 12 + 2 × 2 tall")
+        func top(_ hits: Int, of steps: Int) -> CGFloat { euclideousHitsHeroTop(tileH: tileH, fillFraction: Double(hits) / Double(steps)) }
+        // 0 hits: the lowest clamped position — 4 pt above the label's backing, fully inside the tile
+        XCTAssertEqual(top(0, of: 9), labelTop - 4 - H.blockH, accuracy: 1e-9); XCTAssertEqual(top(0, of: 9) + H.blockH, labelTop - 4)
+        XCTAssertLessThan(top(0, of: 9) + H.blockH, tileH)
+        // 1 of 9: the fill is still short (its centre is below the clamp), so it is clamped too
+        XCTAssertEqual(top(1, of: 9), labelTop - 4 - H.blockH, accuracy: 1e-9)
+        // a full tile: the centre of the filled part is the tile's, the block is centred on it and ≥ 6 pt below the top
+        let full = top(9, of: 9)
+        XCTAssertEqual(full, (6 + tileH) / 2 - H.blockH / 2, accuracy: 1e-9); XCTAssertGreaterThanOrEqual(full, 6)
+        // monotone: more hits never move the block down
+        var last = CGFloat.infinity
+        for h in 0...9 { let t = top(h, of: 9); XCTAssertLessThanOrEqual(t, last + 1e-9); last = t }
+        // a tile too short for both limits keeps the 6 pt top clearance
+        XCTAssertEqual(euclideousHitsHeroTop(tileH: 60, fillFraction: 0), 6)
+    }
+    func testTheHitsCaptionColoursArePaleLaneColours() {
+        let lanes: [(Double, Double, Double)] = [(0.95, 0.35, 0.35), (0.35, 0.75, 0.95), (0.95, 0.75, 0.25), (0.55, 0.85, 0.45)]
+        func hex(_ c: (r: Int, g: Int, b: Int)) -> String { String(format: "#%02X%02X%02X", c.r, c.g, c.b) }
+        XCTAssertEqual(lanes.map { hex(euclideousHitsCaptionRGB($0)) }, ["#F2CDD0", "#CCE7F6", "#F2E7C9", "#D9EDD6"],
+                       "75 % toward #F2F4F7 in sRGB bytes. The ferry quotes L1 as #F7C1C1, which this rule cannot produce (0xF7 is above both ends' red) — reported")
+    }
+    func testFlipHitsIsTheSameToggleAsInv() {
+        // behaviour is the lane's `patternMiss`; the pattern it makes is the engine's own (the 7-step lane's gaps)
+        var l = EuclidLine(pulses: 3, steps: 7, noteSel: .all)
+        let plain = euclideousBuildPattern(l).buf
+        l.patternMiss = true
+        let flipped = euclideousBuildPattern(l).buf
+        XCTAssertEqual((0..<7).map { flipped[$0] }, (0..<7).map { !plain[$0] }, "FLIP HITS plays exactly the steps that did not hit")
+    }
 }

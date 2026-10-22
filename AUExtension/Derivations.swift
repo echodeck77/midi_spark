@@ -3482,6 +3482,16 @@ func euclideousLapHitSteps(buf: [Bool], dir: EuclidDir = .fwd) -> [EuclidHitStep
     return out
 }
 
+/// RHYTHM POLISH: the same list read from a lane's TICK-SPACE layout (a lane with a fractional OFFSET and/or a fine TILT — `EuclideousWalkLaneConfig.buf`): `tick` is the layout's own cell, `bufIdx` the BOX that tick
+/// reads (`euclidReadIndex` with the lane's real step count and direction), i.e. the box the hit's start time falls in.
+func euclideousLapHitSteps(layoutCells: [Bool], n: Int, dir: EuclidDir) -> [EuclidHitStep] {
+    var out: [EuclidHitStep] = []
+    for raw in 0..<min(layoutCells.count, euclidCycleLen(dir, n: n)) where layoutCells[raw] {
+        out.append(EuclidHitStep(tick: raw, bufIdx: euclidReadIndex(raw, n: n, dir: dir)))
+    }
+    return out
+}
+
 /// Derives `euclideousRiffCyclePrediction`'s own `startOrd`/`drunkLive` inputs from the LIVE poll (the
 /// ordinal the walk's most recent hit advanced on, + DRUNK's own live position/ordinal) — the UI only ever
 /// polls "where is the walk right now," never "where did the current lap begin," so this reconstructs the
@@ -5469,6 +5479,81 @@ enum EuclideousLaneCardMetrics {
     static func innerWidth(cardWidth: CGFloat) -> CGFloat { max(1, cardWidth - inset * 2) }
     static func contentAreaH(cardHeight: CGFloat) -> CGFloat { max(1, cardHeight - chromeH) }
 }
+// MARK: - RHYTHM TAB GEOMETRY (RHYTHM POLISH ferry, 2026-10-22, §1) — the upper zone's right half is three rows (OFFSET, TILT, the direction row), the lower zone's right group two tiles
+
+/// Every number the RHYTHM tab's new arrangement needs, as pure functions of the lane card's size — in CARD coordinates (the reference card is 358.5 × 312: upper zone y 94–218, lower zone y 222–302) — so the views and the
+/// tests read the same figures. The views take their row heights and widths from the small functions below; `euclideousRhythmTabLayout` composes them into frames.
+struct EuclideousRhythmTabLayout: Equatable {
+    var offsetRow: CGRect, tiltRow: CGRect, directionRow: CGRect       // the right half, sp4 apart
+    var directionButtonW: CGFloat                                      // four equal buttons across `directionRow`, sp4 apart
+    var hitsTile: CGRect, stepsTile: CGRect                            // the left half's two columns (unchanged)
+    var rhythmTile: CGRect, melodyTile: CGRect                         // the lower zone's right group: two full-width rows of 38, sp4 apart
+    var rateGroup: CGRect                                              // the lower zone's left group (unchanged), for reference
+}
+enum EuclideousRhythmGeometry {
+    static let gap: CGFloat = 4, controlRowH: CGFloat = 38, controlBlockH: CGFloat = 80, dividerFootprint: CGFloat = 17
+    /// The three right-half rows split the upper zone's height equally (RHYTHM POLISH 1.2).
+    static func rightRowH(upperH: CGFloat) -> CGFloat { max(1, (upperH - gap * 2) / 3) }
+    /// Four equal direction buttons, sp4 apart, across the right half (1.3).
+    static func directionButtonW(rightHalfW: CGFloat) -> CGFloat { max(1, (rightHalfW - gap * 3) / 4) }
+    /// The two halves of the upper zone (sp4 apart) and of the lower control block (the 17 pt divider footprint between them).
+    static func upperHalfW(fullWidth: CGFloat) -> CGFloat { max(1, (fullWidth - gap) / 2) }
+    static func lowerHalfW(fullWidth: CGFloat) -> CGFloat { max(1, (fullWidth - dividerFootprint) / 2) }
+}
+func euclideousRhythmTabLayout(cardWidth: CGFloat, cardHeight: CGFloat) -> EuclideousRhythmTabLayout {
+    typealias G = EuclideousRhythmGeometry
+    let inset = EuclideousLaneCardMetrics.inset
+    let contentTop = inset + EuclideousLaneCardMetrics.cometRowH + EuclideousLaneCardMetrics.rowGap + EuclideousLaneCardMetrics.tabRowH + EuclideousLaneCardMetrics.rowGap
+    let fullW = EuclideousLaneCardMetrics.innerWidth(cardWidth: cardWidth)
+    let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: cardHeight)
+    let upperH = max(1, contentH - G.controlBlockH - G.gap)
+    let halfW = G.upperHalfW(fullWidth: fullW)
+    let rightX = inset + halfW + G.gap
+    let rowH = G.rightRowH(upperH: upperH)
+    let leftColW = max(1, (halfW - G.gap) / 2)
+    let lowerY = contentTop + upperH + G.gap
+    let lowerHalf = G.lowerHalfW(fullWidth: fullW)
+    let rightGroupX = inset + lowerHalf + G.dividerFootprint
+    return EuclideousRhythmTabLayout(
+        offsetRow: CGRect(x: rightX, y: contentTop, width: halfW, height: rowH),
+        tiltRow: CGRect(x: rightX, y: contentTop + rowH + G.gap, width: halfW, height: rowH),
+        directionRow: CGRect(x: rightX, y: contentTop + (rowH + G.gap) * 2, width: halfW, height: rowH),
+        directionButtonW: G.directionButtonW(rightHalfW: halfW),
+        hitsTile: CGRect(x: inset, y: contentTop, width: leftColW, height: upperH),
+        stepsTile: CGRect(x: inset + leftColW + G.gap, y: contentTop, width: leftColW, height: upperH),
+        rhythmTile: CGRect(x: rightGroupX, y: lowerY, width: lowerHalf, height: G.controlRowH),
+        melodyTile: CGRect(x: rightGroupX, y: lowerY + G.controlRowH + G.gap, width: lowerHalf, height: G.controlRowH),
+        rateGroup: CGRect(x: inset, y: lowerY, width: lowerHalf, height: G.controlBlockH))
+}
+
+/// RHYTHM POLISH 2.1 — the HITS tile's hero number: 36 pt, with "OF n" 2 pt under it in 8 pt, as one block centred on the FILLED part of the tile and clamped so it stays ≥ 6 pt below the tile's top and ≥ 4 pt above
+/// the HITS label's backing. At 0 hits the fill is a sliver at the bottom, so the block sits in its lowest clamped position (still fully inside the tile). The block's height is the three boxes' sum (the number's
+/// line box is its font size, the caption's 10 pt, 2 pt between) — a layout decision, flagged: it is not measured from the font.
+enum EuclideousHitsHero {
+    static let numberSize: CGFloat = 36, captionSize: CGFloat = 8, captionBox: CGFloat = 10, gap: CGFloat = 2
+    static let minTop: CGFloat = 6, labelClearance: CGFloat = 4
+    /// The HITS label ("HITS", 10 pt, 5 pt up from the tile's bottom) and its opaque backing (2 pt above and below the 12 pt line).
+    static let labelBottomInset: CGFloat = 5, labelBox: CGFloat = 12, labelBackingPad: CGFloat = 2
+    static var blockH: CGFloat { numberSize + gap + captionBox }
+    static func labelBackingTop(tileH: CGFloat) -> CGFloat { tileH - labelBottomInset - labelBox - labelBackingPad * 2 }
+}
+/// `fillFraction` is the slider's own 0…1 fill (`euclideousSliderFrac`); `trackInset` the slider's 6 pt travel inset. Returns the block's top y inside the tile.
+func euclideousHitsHeroTop(tileH: CGFloat, fillFraction: Double, trackInset: CGFloat = 6) -> CGFloat {
+    typealias H = EuclideousHitsHero
+    let travel = max(1, tileH - trackInset * 2)
+    let fillTop = trackInset + (1 - CGFloat(max(0, min(1, fillFraction)))) * travel      // the same mapping as the slider's `travelPos` (vertical)
+    let centre = (fillTop + tileH) / 2
+    let maxTop = H.labelBackingTop(tileH: tileH) - H.labelClearance - H.blockH
+    return max(H.minTop, min(maxTop, centre - H.blockH / 2))
+}
+/// RHYTHM POLISH 2.1 — the caption colour: the lane colour lightened to 75 % toward #F2F4F7, component by component in sRGB bytes (rounded). The spec names L1 as #F7C1C1; that cannot be reached by this rule
+/// (its red, 0xF7, is above both ends'), so L1 comes out #F2CDD0 — reported, not forced.
+func euclideousHitsCaptionRGB(_ base: (r: Double, g: Double, b: Double)) -> (r: Int, g: Int, b: Int) {
+    let t = (r: 242.0, g: 244.0, b: 247.0)
+    func mix(_ a: Double, _ b: Double) -> Int { Int((a * 255 * 0.25 + b * 0.75).rounded()) }
+    return (mix(base.r, t.r), mix(base.g, t.g), mix(base.b, t.b))
+}
+
 /// RHYTHM fixes §5.1 (2026-10-21) — what the restart editor shows at a given height, as ONE pure decision
 /// the view just reads (not re-derived inline), so a test can pin the exact 192/156/128pt thresholds the
 /// spec names without needing the (untestable) SwiftUI view itself.

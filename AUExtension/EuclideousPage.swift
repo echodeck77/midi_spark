@@ -237,6 +237,8 @@ struct EuclideousSlider: View {
     var lockActive: Bool = false
     var lockOutline: Color? = nil
     var onLockTouch: ((Bool) -> Void)? = nil
+    // RHYTHM POLISH (2026-10-22) §2.1: non-nil (the caption colour) turns the VERTICAL value text into the hero — the number at 36 pt in the middle of the filled part with "OF n" under it (HITS only); every other slider leaves it nil.
+    var heroCaption: Color? = nil
 
     @State private var lockDown = false
     @State private var snapshot: EuclidLine? = nil
@@ -386,7 +388,7 @@ struct EuclideousSlider: View {
                                 .foregroundColor(Color(hex: 0x8A909A))
                                 .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x22252C)))
                         }
-                        .padding(.horizontal, 8).padding(.bottom, 5)
+                        .padding(.horizontal, 8).padding(.bottom, 4)   // RHYTHM POLISH §1.5: 4 pt above the tile's bottom (was 5) now the rows are 38.67 tall
                     }
                     .allowsHitTesting(false)
                 }
@@ -405,7 +407,7 @@ struct EuclideousSlider: View {
                             .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
                             .padding(.top, 6)
-                    } else {
+                    } else if heroCaption == nil {
                         backed(
                             Text(euclideousSliderValueText(field, effectiveLine))
                                 .font(.system(size: 14, weight: .heavy, design: .monospaced))
@@ -420,6 +422,7 @@ struct EuclideousSlider: View {
                     )
                     .padding(.bottom, 5)
                 }
+                if let cap = heroCaption { heroBlock(cap, fill: curFrac) }
             }
             if helpActive {
                 Text(field.help).font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -521,6 +524,24 @@ struct EuclideousSlider: View {
             let target = euclideousSliderAccessibilityTarget(field, current: cur, increment: direction == .increment)
             onCommit { l in euclideousSliderCommit(field, &l, snapshot: line, newValue: target) }
         }
+    }
+
+    /// RHYTHM POLISH §2.1 — the hero: the value at 36 pt, "OF n" 2 pt under it in the lightened lane colour, centred horizontally, the block centred on the filled part and clamped (`euclideousHitsHeroTop`). Built as an
+    /// `AnyView` (the 1 MB extension stack — Docs/claude-playbook.md); never takes a touch.
+    private func heroBlock(_ cap: Color, fill: Double) -> AnyView {
+        let top = euclideousHitsHeroTop(tileH: height, fillFraction: fill)
+        return AnyView(VStack(spacing: 0) {
+            Color.clear.frame(height: top)
+            VStack(spacing: EuclideousHitsHero.gap) {
+                Text("\(effectiveLine.pulses)").font(.system(size: EuclideousHitsHero.numberSize, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).frame(height: EuclideousHitsHero.numberSize)
+                Text("OF \(effectiveLine.steps)").font(.system(size: EuclideousHitsHero.captionSize, weight: .heavy, design: .monospaced)).tracking(0.8)
+                    .foregroundColor(cap).lineLimit(1).frame(height: EuclideousHitsHero.captionBox)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(width: width, height: height)
+        .allowsHitTesting(false))
     }
 
     /// Long-press help (ferry Touch behaviour §10, literal): "restore the value from the touch-down
@@ -2451,11 +2472,15 @@ struct EuclideousPage: View {
         let grey = !shadowed && euclideousNotesGreyFooters(riffOn: line.riffOnResolved, notesLayerOn: layerOn, when: line.notesWhenResolved)
         let follow = euclideousEffectivePattern(lane: idx, lines: lines).flatMap { $0.followsPartner ? $0 : nil }
         let steps = follow?.n ?? max(2, min(16, line.steps))
-        let hitSteps = follow.map { euclideousLapHitSteps(buf: Array($0.buf.prefix($0.n)), dir: line.directionResolved) }
+        let walkCfg = riffWalkConfig(idx)
+        // RHYTHM POLISH: a lane with a fractional OFFSET and/or a fine TILT is predicted from the engine's TICK-SPACE layout (the walk config's), each hit in the box its start time falls in
+        let timed = walkCfg.flatMap { $0.timing.isNone ? nil : $0 }
+        let hitSteps = timed.map { euclideousLapHitSteps(layoutCells: $0.buf, n: steps, dir: line.directionResolved) }
+            ?? follow.map { euclideousLapHitSteps(buf: Array($0.buf.prefix($0.n)), dir: line.directionResolved) }
             ?? euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                       tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
                                       customHits: line.customHitsResolved(steps), dir: line.directionResolved)
-        let cfg = (playsRiff || grey || layerOn) ? riffWalkConfig(idx) : nil   // the walk's facts: the pass, REPEAT's lookback and the keys' count k need them; a plain lane needs none
+        let cfg = (playsRiff || grey || layerOn) ? walkCfg : nil   // the walk's facts: the pass, REPEAT's lookback and the keys' count k need them; a plain lane needs none
         var prediction: [Int]? = nil
         var lapStartTick: Int64? = nil
         if playsRiff || grey {
@@ -2606,7 +2631,7 @@ struct EuclideousPage: View {
                           // FOLLOW: the bar's cells must be the pattern that actually plays (the partner's), or the footer drawn
                           // inside them — and the cells themselves — disagree with the engine. They are drawn in the partner's
                           // colour, faded, and the comet sweeps at the partner's rate × the multiplier.
-                          patternOverride: followEff.map { Array($0.buf.prefix($0.n)) },
+                          patternOverride: laneTimingBoxes(idx, line) ?? followEff.map { Array($0.buf.prefix($0.n)) },
                           cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
                           rateBeatsOverride: followEff?.rateBeats,
                           restartChains: cardChains.isActive ? cardChains : nil,
@@ -2777,6 +2802,13 @@ struct EuclideousPage: View {
     }
     /// LISTEN/FOLLOW (§5 of an earlier ferry, carried over): HITS and TILT show the partner's values at 42% opacity and can't be dragged while following; OFFSET stays live. STEPS (no longer
     /// a slider) isn't part of this set either — the stepper has no FOLLOW treatment of its own today (device-owed, §16, not silently assumed).
+    /// RHYTHM POLISH §2.1: the HITS caption's colour — the lane colour 75 % toward #F2F4F7 (`euclideousHitsCaptionRGB`).
+    private func hitsCaptionColour(_ idx: Int) -> Color {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(laneAccents[idx % laneAccents.count]).getRed(&r, green: &g, blue: &b, alpha: &a)
+        let c = euclideousHitsCaptionRGB((Double(r), Double(g), Double(b)))
+        return Color(red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
+    }
     private func rhythmFollowPartner(_ line: EuclidLine) -> EuclidLine? {
         guard line.listenRhythmMode == .follow else { return nil }
         let p = line.listenRhythmPartnerResolved
@@ -2791,13 +2823,24 @@ struct EuclideousPage: View {
         .frame(width: halfW, height: rowHeight))
     }
     /// RESTART CHAINS ferry §1.3: the right half is TWO equal rows (OFFSET, TILT), each a full-width horizontal slider with its label row pinned to the top (§2.3/§2.4).
+    /// RHYTHM POLISH ferry (2026-10-22) §1.2: the right half is now THREE equal rows, sp4 apart — OFFSET, TILT and the direction row (the three directions + FLIP HITS) — each `(rowHeight − 8) / 3` tall (38.67 at the reference).
     private func rhythmRightHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, rowHeight: CGFloat) -> AnyView {
-        let rowH = max(1, (rowHeight - sp4) / 2)
+        let rowH = EuclideousRhythmGeometry.rightRowH(upperH: rowHeight)
         return AnyView(VStack(spacing: sp4) {
             rhythmOffsetRow(idx, line, accent, width: halfW, height: rowH)
             rhythmTiltRow(idx, line, accent, width: halfW, height: rowH)
+            directionFlipRow(idx, line, accent, width: halfW, height: rowH)
         }
         .frame(width: halfW, height: rowHeight))
+    }
+    /// §1.3: four equal buttons, sp4 apart — `<`, `><`, `>` (same styles, setters and selected state as ever) and FLIP HITS (§2.3).
+    private func directionFlipRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        let w = EuclideousRhythmGeometry.directionButtonW(rightHalfW: width)
+        return AnyView(HStack(spacing: sp4) {
+            directionRow(idx, line, accent, rowH: height).frame(width: w * 3 + sp4 * 2)
+            flipHitsButton(idx, line, accent, width: w, height: height)
+        }
+        .frame(width: width, height: height))
     }
     private func rhythmHitsSlider(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         let partner = rhythmFollowPartner(line)
@@ -2808,7 +2851,8 @@ struct EuclideousPage: View {
             onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
             displayOverrideLine: partner,
             listenFollowLocked: partner != nil,
-            lockActive: lockLocked(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx)))
+            lockActive: lockLocked(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx),
+            heroCaption: hitsCaptionColour(idx)))
     }
     private func rhythmStepsStepper(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         AnyView(EuclideousStepsStepper(
@@ -3068,7 +3112,7 @@ struct EuclideousPage: View {
     /// #aab0ba text (ferry §6, applied uniformly across this whole block, not just here).
     private func directionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         let order: [(EuclidDir, String)] = [(.bkw, "<"), (.pingpong, "><"), (.fwd, ">")]
-        return HStack(spacing: 3) {   // exact-dimensions ferry: 3 equal buttons, 3pt gaps (was sp4=4)
+        return HStack(spacing: sp4) {   // RHYTHM POLISH §1.3: the four buttons across the row (these three + FLIP HITS) are sp4 apart (was 3 pt between the three)
             ForEach(order, id: \.0) { dir, glyph in
                 let on = line.directionResolved == dir
                 Text(glyph).font(.system(size: 13, weight: .heavy, design: .monospaced))
@@ -3178,6 +3222,27 @@ struct EuclideousPage: View {
         .accessibilityLabel("Lane \(idx + 1) restarts: \(euclideousRestartAccessibleLabel(mask: mask, loopSteps: len))")
         .accessibilityHint("Double-tap for presets")
     }
+    /// RHYTHM POLISH ferry (2026-10-22) §2.3: INV is now FLIP HITS — "FLIP" over "HITS" on two lines (8 pt heavy, 0.08 em tracking, 1 pt apart, centred). The setter, undo and selected state are unchanged; VoiceOver says
+    /// "Flip hits" and it carries the page's toggle trait (INV carried none). The old `invButton` below is kept, unused.
+    private func flipHitsButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        let on = line.patternMissResolved
+        return AnyView(VStack(spacing: 1) {
+            Text("FLIP"); Text("HITS")
+        }
+        .font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64)
+        .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+        .frame(width: width, height: height)
+        .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+        .contentShape(Rectangle())
+        .modifier(laneTapMod(idx) { edit(idx) { $0.patternMiss = !on } })
+        .modifier(lockOutlineMod(idx, .inv, accent))
+        .euclideousHelp("Play on the empty steps instead of the hits")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Flip hits")
+        .accessibilityValue(lockSpoken(idx, .inv, on ? "on" : "off"))
+        .ringToggleTrait())
+    }
     private func invButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         let on = line.patternMissResolved
         return Text("INV").font(.system(size: 11, weight: .heavy, design: .monospaced))
@@ -3198,7 +3263,7 @@ struct EuclideousPage: View {
     /// §6.1 — the two restart tiles (RHYTHM, MELODY), replacing the OUT A–D circles in the RHYTHM tab's
     /// lower-right row (§9 moves OUT to MIX). Each opens the shared restart editor (§6.2, holds both chains).
     private func restartTilesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat, fullWidth: CGFloat) -> some View {
-        let tileW = max(1, (fullWidth - sp4) / 2)
+        let tileW = fullWidth   // RHYTHM POLISH §1.4: one tile per row, the group's full width
         let rhythm = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
         let melody = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
         // RESTART FLASH (2026-10-21): each tile flashes every time its lane restarts — at a chain restart, and (FREE) at its natural one: every pass for RHYTHM, the riff walk coming back to its first step for
@@ -3209,14 +3274,14 @@ struct EuclideousPage: View {
         let live = running && p > 0 && cfg != nil
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !live)) { tl in
             let beat = walkTagBeat(at: tl.date)
-            HStack(spacing: sp4) {
+            VStack(spacing: sp4) {
                 restartTile(idx, chain: rhythm, name: "RHYTHM", unitSingular: "BAR", unitPlural: "bars", accent: accent, width: tileW, height: rowH,
                             flash: restartFlash(.rhythm, cfg: cfg, beat: beat, live: live, scale: p))
                 restartTile(idx, chain: melody, name: "MELODY", unitSingular: "PASS", unitPlural: "passes", accent: accent, width: tileW, height: rowH,
                             flash: restartFlash(.melody, cfg: cfg, beat: beat, live: live, scale: p))
             }
         }
-        .frame(width: fullWidth, height: rowH)
+        .frame(width: fullWidth, height: rowH * 2 + sp4)
     }
     /// The flash of one tile at the UI beat `beat`: nil unless the lane runs, PULSE is on and a restart of this kind happened within the flash's life.
     private func restartFlash(_ kind: EuclideousRestartKind, cfg: EuclideousWalkLaneConfig?, beat: Double, live: Bool, scale p: Double) -> EuclideousRestartFlashLook? {
@@ -3755,16 +3820,7 @@ struct EuclideousPage: View {
     }
     private func patternOutHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, rowH: CGFloat, gap: CGFloat, blockH: CGFloat) -> AnyView {
         return AnyView(VStack(spacing: gap) {
-            HStack(spacing: 3) {   // exact-dimensions ferry: 3pt between the direction group and INV
-                directionRow(idx, line, accent, rowH: rowH).frame(maxWidth: .infinity)
-                invButton(idx, line, accent, rowH: rowH)
-                // RESET moved to the sequencer panel's own LANES tab (2026-10-14 ferry §2 literally places
-                // it there, at the start of each row) — the RHYTHM-tab placement here was a same-session
-                // judgment call that didn't survive a direct re-check against the ferry's own text; DIRECTION
-                // absorbs the freed width via its existing `.frame(maxWidth: .infinity)`.
-            }
-            // RESTART CHAINS ferry §1.4/§6.1: replaces the OUT A–D circles (moved to MIX, §9) with the two
-            // restart tiles.
+            // RHYTHM POLISH ferry (2026-10-22) §1.4: the direction row (and INV → FLIP HITS) moved up beside OFFSET and TILT; this group is now the two restart tiles, one full-width row each, matching the rate grid's rows.
             restartTilesRow(idx, line, accent, rowH: rowH, fullWidth: halfW)
         }
         .frame(width: halfW, height: blockH))
@@ -5995,6 +6051,12 @@ struct EuclideousPage: View {
                                             lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
                                             swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
         }
+    }
+    /// RHYTHM POLISH §3.1: for a lane with hit timing (a fractional OFFSET and/or a fine TILT), the step boxes with each hit in the box its START TIME falls in — nil for every other lane (the bar draws from the line as ever).
+    private func laneTimingBoxes(_ idx: Int, _ line: EuclidLine) -> [Bool]? {
+        guard let cfg = riffWalkConfig(idx), !cfg.timing.isNone else { return nil }
+        let n = euclideousEffectiveHitPattern(lane: idx, lines: lines)?.n ?? max(2, min(16, line.steps))
+        return euclideousHitBoxes(layoutCells: cfg.buf, n: n, dir: line.directionResolved)
     }
     /// RIFF WALK ferry §3/§7: one lane's walk config, unconditionally (the WALK strip and the mini-grid's
     /// dim rule need it regardless of `walkTagShows` — they're drawn even while the riff is off, at 42%).
