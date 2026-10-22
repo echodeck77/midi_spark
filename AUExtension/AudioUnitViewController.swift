@@ -1541,6 +1541,7 @@ struct DiagView: View {
                 let rlp = au.pollEuclideousRiffLivePool()
                 if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
                 applyLandedLockSnaps()   // LANE LOCK: a snap the render thread has landed is written into the document within a poll tick (30 Hz)
+                applyLockStoppedRule()   // LANE LOCK 6.5: a stopped page has no lines to wait for
                 let lss = au.pollEuclideousLanesSeqStep()
                 if lss != euclideousLanesSeqStep { euclideousLanesSeqStep = lss }
                 let rss = au.pollEuclideousRiffsSeqStep()

@@ -15009,6 +15009,13 @@ final class RouterTests: XCTestCase {
             }
         }
     }
+    // The in-flight safety valve: if the page's publish never arrives, the lane is held off its grid for at most a second, never forever.
+    func testLockAnEditThatNeverArrivesDoesNotHoldTheLaneOffItsGridForever() {
+        let L = lockLine(pulses: 3), B = lockLine(pulses: 5)
+        let locks = [EuclideousLaneLock.locking(L, grid: .beat), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+        let r = lockedRender([LockStep(beat: 0, lines: lockLanes(L)), LockStep(beat: 5.25, lines: lockLanes(B), snapRev: 0, liveRev: 1)], locks: locks, to: 9.9, frames: 1024)
+        XCTAssertEqual(r.landings.map { $0.beat }, [8], "lines 6 and 7 pass (in flight for 0.4 s and 0.9 s); beat 8 comes 1.4 s in and snaps")
+    }
     // 13 — random mode: a locked lane that has moved still snaps on its grid line while a throw is in flight on another lane (the engine has no notion of random mode: the two mechanisms don't touch).
     func testLockedLaneStillSnapsWhileARandomRollIsInFlightOnAnotherLane() {
         let L = lockLine(pulses: 3, sel: .low), B = lockLine(pulses: 5, sel: .low)

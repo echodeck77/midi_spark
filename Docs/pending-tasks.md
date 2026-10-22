@@ -5,6 +5,18 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — LANE LOCK: a padlock in the header; a locked lane snaps back on a quantised grid line (2026-10-21/22; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "LANE LOCK" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build and open lock mode).
+- [ ] DECIDE (Paul): the required BRAND width pushes the output rings off the lane gutter at the 1190 reference (they pin flush against BRAND, 17.19 pt right of centre; 10.86 pt in portrait). Accept, or shorten BRAND's wordmark / hide it in layout A?
+- [ ] DECIDE (Paul): the lock's landing is tick-exact (the hit ON the line plays L); RANDOM MODE's landing is still window-granular with a 150 ms margin (0.3 beat at 120 BPM). The new segment runner is generic — move random mode onto it (a small follow-up), or leave it?
+- [ ] DECIDE (Paul): a stopped page puts a deviated, un-touched locked lane straight back (spec 6.5), so editing a locked lane with the transport stopped never "sticks" past the lift.
+- [ ] DECIDE (Paul): the count-down's latency margin is 60 ms (`EuclideousLockMargin`); the render thread itself uses none — it checks "an edit is on its way" exactly (believed for at most 1 s). An edit made within tens of ms of a line can still be taken by the snap (it "snaps anyway", as asked).
+- [ ] DECIDE (Paul): bar 1 = the host's beat 0 (AUM's own bar numbering is not read); a mid-song time-signature change shifts the grid.
+- [ ] DECIDE (Paul): the comet bar's drags count as lock-field controls (they write the same fields); the lock card's RIFF row reads "RIFF OFF" when the riff is off (the spec gives no off text).
+- [ ] (noted) VoiceOver ", will snap back" is on sliders, STEPS, the riff/notes steppers and buttons, the riff direction row and the restart tiles; the rate/feel cells, RHYTHM direction cells, riff card, notes keys and strip still need it.
+- [ ] (noted) lane copy/paste, host automation of lane fields and MIDI learn of lane fields do not exist, so spec 3.4 / 6.7 hold by construction; the revision funnel (`setEuclideousLines`) would cover a future writer.
+- [ ] (noted) `LaneLockTests` + the twelve `RouterTests.testLock…` take ~2 min between them at buffer 64 (the scoped suite is slower for it).
+
 ## ★ EUCLIDEOUS — RANDOM MODE: the dice, THROW/TWEAK/BACK/KEEP, the hold, finish+undo (2026-10-21; `Docs/euclideous-status-log.md`)
 - [x] Adversarial review (2026-10-22) + all 24 confirmed findings fixed — see the status log's own
       "RANDOM MODE adversarial-review fix ferry" entry for the full list (the stuck-hold bug, zero hold

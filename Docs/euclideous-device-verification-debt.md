@@ -17,6 +17,17 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### LANE LOCK (2026-10-21/22)
+- LAUNCH the DEBUG build from Xcode into AUM first (the 1 MB main-thread stack; the page must come up), open lock mode with the padlock, then tap off the cards to finish: the finish never presses something underneath.
+- Snaps on the bar line sound clean in AUM at 64 and 1024 buffers — no doubled or dropped hit, no stuck notes — including the hit ON the downbeat after the line (the fill: lock a lane on 4 BARS, push HITS up and flip REV in bar 4, hear it return on bar 5's downbeat).
+- The BEAT grid's momentary buttons feel immediate (hold REV: reversed while the finger is down, back on the first beat after the lift); drags (OFFSET, HITS) move while dragging and snap back cleanly on the beat after the lift.
+- Snapping on a 2- or 4-bar line reads as "on the phrase"; the badge's count-in (a number of bars, then dots per beat in the last bar) is easy to follow by eye.
+- The badge's countdown and the dashed outlines read as "this will come back" without hiding values, in all four lane colours.
+- The tab row with the badge: tab labels still read, and the 34 pt badge (44 pt touch target) is comfortable to tap (unlock) and hold (lock what's playing, at 300 ms).
+- The lock card reads at a glance at ≈381 × 319 and ≈387 × 320 (summary rows, the SNAP BACK selector, the tick strip).
+- The header with the padlock: BRAND is 52 pt wider — the output rings now sit flush against it, right of the lane gutter (see pending-tasks) — and the header ladder (A / B / C) still fits at AUM's real window sizes.
+- Undo never moves a locked lane; save and reload brings the locks and their states back; a locked lane saved while deviated reopens at its locked state.
+- The stopped page: editing a locked lane with the transport stopped puts it straight back on release.
 ### LANE STRIP readability (2026-10-22)
 - Hits countable at a glance at 16 and 8 steps in all four lane colours (24% fill, 70% border, floor bar).
 - The 2 pt rest dot reads as "rest, present" without competing with the hits.

@@ -113,6 +113,9 @@ final class Router {
     private var lockSnapBeatsV = SIMD4<Double>(repeating: 0)
     var lockSnapBeats: [Double] { [lockSnapBeatsV[0], lockSnapBeatsV[1], lockSnapBeatsV[2], lockSnapBeatsV[3]] }
     private var lockPrevWindowEnd = 0.0
+    /// A safety valve: "an edit is on its way" is believed for at most a second — if the page's publish never arrives (a bug, a stalled main thread) the lane must not be held off its grid forever.
+    private var lockWindowSeconds = 0.0
+    private var lockInFlightFor = [Double](repeating: 0, count: 4)
     private var lockPrevValid = false
     private var lockFromStart = [Bool](repeating: false, count: 4)
     private var lockAtSplit = [Bool](repeating: false, count: 4)
@@ -135,13 +138,15 @@ final class Router {
             lockFromStart[lane] = false; lockAtSplit[lane] = false
             guard lane < locks.count, lane < lines.count, locks[lane].on, let L = locks[lane].state else { lockOverrideActive[lane] = false; continue }
             let snapRev = EuclideousLockLive.rev(revs, lane: lane)
+            let flightNow = spoken && EuclideousLockLive.rev(liveRevs, lane: lane) != snapRev
+            lockInFlightFor[lane] = flightNow ? lockInFlightFor[lane] + lockWindowSeconds : 0
             if lockOverrideActive[lane] {
                 if snapRev != lockOverrideRev[lane] { lockOverrideActive[lane] = false }   // a snapshot built after the page applied the snap (or after a user edit): it is authoritative again
                 else { lockFromStart[lane] = true; lockAnyActive = true; continue }
             }
             guard let g = euclideousLockLineIn(grid: locks[lane].grid, barBeats: beatsPerBar, after: windowStartBeat, through: windowEndBeat, inclusiveStart: discontinuity) else { continue }
             let held = (heldBits >> UInt8(lane)) & 1 != 0
-            let inFlight = spoken && EuclideousLockLive.rev(liveRevs, lane: lane) != snapRev
+            let inFlight = flightNow && lockInFlightFor[lane] < 1.0
             guard euclideousLockSnapsAtLine(deviated: euclideousLockDeviated(line: lines[lane], from: L), held: held, editInFlight: inFlight) else { continue }
             lockOverrideActive[lane] = true; lockOverrideRev[lane] = snapRev
             lockAtSplit[lane] = true
@@ -3233,6 +3238,7 @@ final class Router {
         // as the last Euclideous sweep saw it). The sweep inside the Euclideous row repeats this with the authoritative mask, so the snapshot-only path (no UI) is covered too.
         soloLiveWord = euclideousSoloLive
         lockLiveWord = euclideousLockLive    // LANE LOCK: the page's held lanes + revisions, read per window (planLocks)
+        lockWindowSeconds = sampleRate > 0 ? Double(frameCount) / sampleRate : 0
         if !frozen { cutSoloSilencedLanes(soloMask: soloMaskNow(snapshot: lastSnapshotSoloMask), atSample: windowStart, out: out) }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
