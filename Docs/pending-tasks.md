@@ -15,7 +15,7 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] DECIDE (Paul): the comet bar's drags count as lock-field controls (they write the same fields); the lock card's RIFF row reads "RIFF OFF" when the riff is off (the spec gives no off text).
 - [ ] (noted) VoiceOver ", will snap back" is on sliders, STEPS, the riff/notes steppers and buttons, the riff direction row and the restart tiles; the rate/feel cells, RHYTHM direction cells, riff card, notes keys and strip still need it.
 - [ ] (noted) lane copy/paste, host automation of lane fields and MIDI learn of lane fields do not exist, so spec 3.4 / 6.7 hold by construction; the revision funnel (`setEuclideousLines`) would cover a future writer.
-- [ ] (noted) `LaneLockTests` + the twelve `RouterTests.testLock…` take ~2 min between them at buffer 64 (the scoped suite is slower for it).
+- [ ] (noted) `LaneLockTests` + the thirteen `RouterTests.testLock…` take ~2 min between them at buffer 64 (the scoped suite is slower for it).
 
 ## ★ EUCLIDEOUS — RANDOM MODE: the dice, THROW/TWEAK/BACK/KEEP, the hold, finish+undo (2026-10-21; `Docs/euclideous-status-log.md`)
 - [x] Adversarial review (2026-10-22) + all 24 confirmed findings fixed — see the status log's own

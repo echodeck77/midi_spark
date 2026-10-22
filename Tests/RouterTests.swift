@@ -14797,7 +14797,7 @@ final class RouterTests: XCTestCase {
         st.euclideousNoteSource = .midi
         return SnapshotBuilder.build(from: st)
     }
-    private func lockedRender(_ steps: [LockStep], locks: [EuclideousLaneLock], to: Double, frames: UInt32, chord: [UInt8] = [60], tempo: Double = 120, rolls: [EuclideousPendingRoll?] = []) -> LockRun {
+    private func lockedRender(_ steps: [LockStep], locks: [EuclideousLaneLock], to: Double, frames: UInt32, chord: [UInt8] = [60], tempo: Double = 120, rolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots()) -> LockRun {
         let sr = 48_000.0
         let pool = NotePool(); for n in chord { pool.noteOn(n, velocity: 100, channel: 0) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
@@ -15024,9 +15024,10 @@ final class RouterTests: XCTestCase {
         let roll = EuclideousPendingRoll(tab: .rhythm, landingBeat: 6, steps: 8, pulses: 4, rotate: 0)
         let chord: [UInt8] = [60, 67]
         let frames: UInt32 = 256
+        var slots = EuclideousPendingRollSlots(); slots[3] = roll
         let ref = { (a: EuclidLine) in self.staticOnsets(self.lockLanes(a, other), to: 12, frames: 1024, chord: chord, note: 60) }
         let r = lockedRender([LockStep(beat: 0, lines: lockLanes(L, other)), LockStep(beat: 5.25, lines: lockLanes(B, other), snapRev: 1, liveRev: 1)],
-                             locks: locks, to: 11.9, frames: frames, chord: chord, rolls: [nil, nil, nil, roll])
+                             locks: locks, to: 11.9, frames: frames, chord: chord, rolls: slots)
         XCTAssertEqual(r.landings.map { $0.beat }, [8])
         assertOnsets(lockOnsets(r.e, note: 60), splice([(0, 5.25, ref(L)), (5.25, 8, ref(B)), (8, 12, ref(L))]), "the locked lane is back on its line with a roll landing on lane 2")
         XCTAssertNotEqual(lockOnsets(r.e, note: 67), staticOnsets(lockLanes(L, other), to: 12, frames: 1024, chord: chord, note: 67), "the other lane took its roll (it plays differently from the no-roll render)")

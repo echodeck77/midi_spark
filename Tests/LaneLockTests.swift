@@ -20,7 +20,7 @@ final class LaneLockTests: XCTestCase {
             ("restartRhythmBars", { $0.restartRhythmBars = [2] }), ("restartMelodyPasses", { $0.restartMelodyPasses = [4, 2] }),
             ("riffOn", { $0.riffOn = false }), ("riffDir", { $0.riffDir = .pendulum }), ("riffInvert", { $0.riffInvert = true }),
             ("riffAdvanceEvery", { $0.riffAdvanceEvery = 3 }), ("riffAdvanceStep", { $0.riffAdvanceStep = true }), ("riffOnRest", { $0.riffOnRest = .tie }),
-            ("riffLength", { $0.riffLength = 5 }), ("riffRotate", { $0.riffRotate = 2 }), ("riffShiftRequested", { $0.riffShiftRequested = 4 }),
+            ("riffLength", { $0.riffLength = 5 }), ("riffRotate", { $0.riffRotate = 2 }),   // riffShiftRequested is decode-only since the RIFF WINDOW ferry (resolves to riffRotate): still restored raw, no longer compared
             ("riffStride", { $0.riffStride = 3 }), ("melodyTranspose", { $0.melodyTranspose = 2 }),
             ("notesLitOrder", { $0.setLitOrder(EuclideousLitOrder.derived(litNotes: 0b0000_0101, top: false, top2: true)) }),
             ("notesOn", { $0.notesOn = false }), ("notesWhen", { $0.notesWhen = 0b10 }), ("notesChance", { $0.notesChance = 50 }),
@@ -394,6 +394,24 @@ final class LaneLockTests: XCTestCase {
         XCTAssertEqual(euclideousLockRiffTag(LaneLockFields(line: off), base: off), "RIFF OFF"); XCTAssertEqual(euclideousLockNotesTag(LaneLockFields(line: off), base: off), "NOTES OFF")
         var none = l; none.setLitOrder(EuclideousLitOrder())
         XCTAssertEqual(euclideousLockNotesTag(LaneLockFields(line: none), base: none), "NO NOTES LIT")
+    }
+    // 10 — capture: a hold (300 ms, the solo function's threshold; 299 is a tap) makes what is playing the locked state; a tap on a locked lane unlocks and keeps what is playing.
+    func testCaptureMakesWhatIsPlayingTheLockedStateAndTheThresholdIsTheSolosOwn() {
+        var l = EuclidLine(); l.pulses = 3
+        var lock = EuclideousLaneLock.locking(l, grid: .bars4)
+        l.pulses = 7; l.riffDir = .reverse
+        XCTAssertTrue(euclideousLockDeviated(line: l, from: lock.state!))
+        lock = EuclideousLaneLock.locking(l, grid: lock.gridResolved)   // what `lockCommand(.capture)` does
+        XCTAssertTrue(lock.isLocked); XCTAssertEqual(lock.gridResolved, .bars4, "capture keeps the grid")
+        XCTAssertFalse(euclideousLockDeviated(line: l, from: lock.state!), "nothing is left to snap")
+        XCTAssertTrue(euclideousLockChangedControls(from: lock.state!, to: l).isEmpty, "the outlines go")
+        var tap = EuclideousSoloPress(); tap.touchDown(at: 0)
+        XCTAssertEqual(tap.touchEnded(at: 0.299), .ended(latchToggles: true), "299 ms is a tap")
+        var hold = EuclideousSoloPress(); hold.touchDown(at: 0); hold.holdTimerFired()
+        XCTAssertTrue(hold.showsHeldLook, "the held look shows from 300 ms")
+        XCTAssertEqual(hold.touchEnded(at: 0.3), .ended(latchToggles: false), "a hold never toggles")
+        var unlocked = lock; unlocked.on = false; unlocked.state = nil   // what `lockCommand(.unlock)` does
+        XCTAssertFalse(unlocked.isLocked); XCTAssertEqual(unlocked.gridResolved, .bars4, "the grid is kept so relocking reuses it")
     }
     func testLockedLanesPhrase() {
         XCTAssertEqual(euclideousLockedLanesPhrase([]), "")

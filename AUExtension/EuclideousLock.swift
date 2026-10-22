@@ -209,7 +209,7 @@ struct LaneLockKey: Equatable {
     var chainRhythm: [UInt8]?, chainMelody: [UInt8]?
     var riffOn: Bool, riffDir: RiffDir, riffInvert: Bool
     var advanceEvery: Int, advanceStep: Bool, onRest: EuclidRiffOnRest
-    var length: Int, shift: Int, shiftRequested: Int, stride: Int, transpose: Int
+    var length: Int, shift: Int, stride: Int, transpose: Int
     var litOrder: EuclideousLitOrder
     var notesOn: Bool, notesWhen: UInt8, notesChance: Int, notesPlayAs: EuclidNotesPlayAs, notesReceived: Bool
 }
@@ -223,7 +223,7 @@ extension LaneLockFields {
                            chainRhythm: l.restartRhythmBars, chainMelody: l.restartMelodyPasses,
                            riffOn: l.riffOnResolved, riffDir: l.riffDirResolved, riffInvert: l.riffInvertResolved,
                            advanceEvery: l.riffAdvanceEveryResolved, advanceStep: l.riffAdvanceStepResolved, onRest: l.riffOnRestResolved,
-                           length: l.riffLengthResolved, shift: l.riffRotateResolved, shiftRequested: l.riffShiftRequestedResolved, stride: l.riffStrideResolved, transpose: l.melodyTransposeResolved,
+                           length: l.riffLengthResolved, shift: l.riffRotateResolved, stride: l.riffStrideResolved, transpose: l.melodyTransposeResolved,
                            litOrder: l.litOrderResolved,
                            notesOn: l.notesOnResolved, notesWhen: l.notesWhenResolved, notesChance: l.notesChanceResolved, notesPlayAs: l.notesPlayAsResolved, notesReceived: l.notesReceivedOnlyResolved)
     }
