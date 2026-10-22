@@ -14371,6 +14371,57 @@ final class RouterTests: XCTestCase {
         }
     }
 
+    // MARK: - RHYTHM POLISH ferry (2026-10-22) §8 test 1 — a second synthetic golden for what the presets and the six scenarios above do NOT cover: TILT ≠ 0 (the old ROUNDED path) crossed with every direction,
+    // OFFSET, FLIP HITS (patternMiss), FOLLOW, a rhythm chain and the riff on/off. Captured on origin/main e7b6da9, BEFORE the continuous OFFSET / TILT engine; with `offsetFraction` / `tiltFine` nil every one must
+    // keep rendering exactly this stream.
+    private func rhythmPolishScenarios() -> [GoldenScenario] {
+        func line(_ pulses: Int, _ steps: Int, _ rate: ArpRate, _ dir: EuclidDir, gate: Double = 0.6, vel: Int = 100, lit: UInt8 = 0, _ more: (inout EuclidLine) -> Void = { _ in }) -> EuclidLine {
+            var l = EuclidLine(target: 0, pulses: pulses, steps: steps)
+            l.gate = gate; l.velocityAbsolute = vel; l.rate = rate; l.useRiff = true; l.litNotes = lit; l.riffOn = true; l.sourceMode = .midi
+            l.riffLength = 8; l.notesOn = true; l.direction = dir; l.riffOnRest = .skip
+            more(&l); return l
+        }
+        let ranks = [1, 3, 0, 5, 2, 0, 8, 4]
+        var scenarios: [GoldenScenario] = []
+        for (name, dir) in [("FWD", EuclidDir.fwd), ("BKW", .bkw), ("PING-PONG", .pingpong)] {
+            let four = [
+                line(5, 8, .r1_8, dir) { $0.tilt = 0.4; $0.rotate = 3 },
+                line(3, 8, .r1_8, dir) { $0.tilt = -0.6; $0.rotate = 1 },
+                line(4, 7, .r1_8, dir, lit: 0b11) { $0.tilt = 0.25; $0.rotate = 5; $0.patternMiss = true },
+                line(6, 11, .r1_16, dir) { $0.tilt = -0.15; $0.rotate = 4 }
+            ]
+            scenarios.append(GoldenScenario(name: "TILT x OFFSET x \(name)", lines: four, ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false))
+        }
+        var follower = line(3, 8, .r1_8, .fwd) { $0.rotate = 2; $0.listenRhythmMode = .follow; $0.listenRhythmPartner = 0; $0.patternMiss = true }
+        follower.listenFollowMult = 0
+        let partner = line(5, 8, .r1_8, .bkw) { $0.tilt = 0.5; $0.rotate = 3 }
+        scenarios.append(GoldenScenario(name: "FOLLOW a TILTed OFFSET partner, FLIP", lines: [partner, follower], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false))
+        let chained = [line(5, 8, .r1_8, .fwd) { $0.tilt = 0.5; $0.rotate = 2; $0.restartRhythmBars = [1]; $0.restartMelodyPasses = [2] },
+                       line(4, 7, .r1_8, .pingpong) { $0.tilt = -0.5; $0.rotate = 3; $0.restartRhythmBars = [2]; $0.restartMelodyPasses = [3] }]
+        scenarios.append(GoldenScenario(name: "TILT x OFFSET with rhythm and melody chains", lines: chained, ranks: ranks, fx: EuclideousFX(), beats: 24, restartAt: [], maskOn: false))
+        let tied = [line(5, 8, .r1_8, .fwd, gate: 0.9) { $0.tilt = 0.35; $0.rotate = 1; $0.riffOnRest = .tie }, line(4, 8, .r1_8, .bkw) { $0.tilt = -0.35; $0.rotate = 6; $0.riffOnRest = .repeatLast }]
+        scenarios.append(GoldenScenario(name: "TILT x OFFSET with TIE and REPEAT", lines: tied, ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false))
+        return scenarios
+    }
+    /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main e7b6da9.
+    private let rhythmPolishGolden: [String: (UInt64, Int)] = [
+        "TILT x OFFSET x FWD": (5352633688982272725, 712),
+        "TILT x OFFSET x BKW": (15399358455468573405, 680),
+        "TILT x OFFSET x PING-PONG": (522207749321150981, 704),
+        "FOLLOW a TILTed OFFSET partner, FLIP": (6518221313930535797, 208),
+        "TILT x OFFSET with rhythm and melody chains": (15993422064495286957, 376),
+        "TILT x OFFSET with TIE and REPEAT": (727378462195434669, 256)
+    ]
+    func testTiltOffsetFlipFollowLanesRenderTheirGoldenNoteStreams() {
+        for sc in rhythmPolishScenarios() {
+            let got = goldenStreamHash(sc)
+            XCTAssertGreaterThan(got.ons, 0, "\(sc.name): the scenario must actually sound")
+            guard let want = rhythmPolishGolden[sc.name] else { XCTFail("no golden for \(sc.name): (\(got.hash), \(got.ons))"); continue }
+            XCTAssertEqual(got.ons, want.1, "\(sc.name): note-on count (hash \(got.hash))")
+            XCTAssertEqual(got.hash, want.0, "\(sc.name): the note-on/off/velocity stream must be bit-identical")
+        }
+    }
+
     // MARK: - LANE SOLO engine (ferry 2026-10-21, §8 tests 3-6 and 9; test 1 = the existing preset / synthetic-lane goldens, which run with the solo mask 0)
 
     /// Four lanes on their own buses (lane i → output A…D = cable 1…4), rate 1/8, E(i+2, 8), the riff over eight columns (every hit sounds a note), gate 50 %.
