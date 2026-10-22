@@ -355,6 +355,7 @@ struct DiagView: View {
             euclideousLockRingStart[lane] = Date()
         case .unlock:
             locks[lane].on = false; locks[lane].state = nil                                      // what is playing stays, even if it was deviated
+            euclideousLockTouches[lane] = 0                                                      // no finger is "held" on an unlocked lane (a touch counted before the unlock must not outlive it)
         case .setGrid(let g):
             locks[lane].grid = g
         }

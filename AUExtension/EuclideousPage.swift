@@ -232,7 +232,13 @@ struct EuclideousSlider: View {
     // §2.4: TILT's new EARLY/LATE end labels, drawn only when non-nil (every other field/call site stays
     // byte-identical). (leading, trailing) — RHYTHM tab passes ("EARLY", "LATE"); nothing else does.
     var endLabels: (String, String)? = nil
+    // LANE LOCK (2026-10-22): handled INSIDE the control rather than by wrapping modifiers — a `ModifiedContent<EuclideousSlider, …>` temporary would hold this ~4 KB view by value on the 1 MB debug stack.
+    // `lockActive` (its lane is locked) counts a finger on it as HELD (6.2); `lockOutline` (the lane colour) draws the dashed "differs from L" frame (5.4). Defaults leave the control exactly as it was.
+    var lockActive: Bool = false
+    var lockOutline: Color? = nil
+    var onLockTouch: ((Bool) -> Void)? = nil
 
+    @State private var lockDown = false
     @State private var snapshot: EuclidLine? = nil
     @State private var lastCommitted: Double? = nil
     @State private var helpActive = false
@@ -444,10 +450,13 @@ struct EuclideousSlider: View {
         // shape vertically can't perturb where a touch resolves along the travel axis, only widen where a
         // touch is still accepted as belonging to this slider at all.
         .contentShape(touchPad > 0 ? Path(CGRect(x: 0, y: -touchPad, width: width, height: height + touchPad * 2)) : Path(CGRect(x: 0, y: 0, width: width, height: height)))
+        .overlay { if let c = lockOutline { RoundedRectangle(cornerRadius: 10).stroke(c, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])).padding(-3).allowsHitTesting(false) } }
+        .onDisappear { if lockDown { lockDown = false; onLockTouch?(false) } }
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { g in
                     guard !edited, !listenFollowLocked else { return }   // ferry, literal: "touches elsewhere on a disabled TILT do nothing" / "[HITS/STEPS/TILT] can't be dragged" while following
+                    if lockActive && !lockDown { lockDown = true; onLockTouch?(true) }
                     if snapshot == nil {
                         snapshot = line
                         lastCommitted = euclideousSliderRange(field, line).value
@@ -470,6 +479,7 @@ struct EuclideousSlider: View {
                     }
                 }
                 .onEnded { g in
+                    if lockDown { lockDown = false; onLockTouch?(false) }
                     guard !edited, !listenFollowLocked else { return }
                     let start = startLocation ?? g.location
                     let totalMoved = hypot(g.location.x - start.x, g.location.y - start.y)
@@ -545,7 +555,13 @@ struct EuclideousStepsStepper: View {
     let height: CGFloat
     let onCommit: (_ newStep: Bool, _ mutate: @escaping (inout EuclidLine) -> Void) -> Void
     let onToggleValueBoxTap: () -> Void
+    // LANE LOCK (2026-10-22): see EuclideousSlider — inside the control, not wrapping modifiers. `lockMomentary` (locked on the BEAT grid): + and − act at touch-down (6.9).
+    var lockActive: Bool = false
+    var lockMomentary: Bool = false
+    var lockOutline: Color? = nil
+    var onLockTouch: ((Bool) -> Void)? = nil
 
+    @State private var lockDown = false
     @State private var dragStartLocation: CGPoint? = nil
     @State private var dragStartSteps: Int? = nil
     @State private var isDragging = false
@@ -564,14 +580,8 @@ struct EuclideousStepsStepper: View {
         let btnH: CGFloat = 36, gap: CGFloat = 4
         let valueBoxH = max(1, height - btnH * 2 - gap * 2)
         VStack(spacing: gap) {
-            Button(action: { commitSteps(line.steps < 2 ? 2 : min(16, line.steps + 1)) }) {
-                Image(systemName: "plus").font(.system(size: 14, weight: .heavy))
-                    .foregroundColor(plusEnabled ? Color(hex: 0xAAB0BA) : Color(hex: 0x4A4E57))
-                    .frame(width: width, height: btnH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
-            }
-            .disabled(!plusEnabled)
-            .accessibilityLabel("More steps, now \(line.steps)")
+            stepButton("plus", enabled: plusEnabled, height: btnH) { commitSteps(line.steps < 2 ? 2 : min(16, line.steps + 1)) }
+                .accessibilityLabel("More steps, now \(line.steps)")
             VStack(spacing: 2) {
                 Text("\(line.steps)").font(.system(size: 18, weight: .heavy, design: .monospaced))
                     .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
@@ -588,6 +598,7 @@ struct EuclideousStepsStepper: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
+                        if lockActive && !lockDown { lockDown = true; onLockTouch?(true) }
                         if dragStartLocation == nil {
                             dragStartLocation = g.location
                             dragStartSteps = line.steps
@@ -600,6 +611,7 @@ struct EuclideousStepsStepper: View {
                         commitSteps(max(2, min(16, base + delta)))
                     }
                     .onEnded { _ in
+                        if lockDown { lockDown = false; onLockTouch?(false) }
                         // §2.2: "a touch that became a drag never opens the picker" — only a plain tap (never exceeded 4pt) does.
                         if !isDragging { onToggleValueBoxTap() }
                         dragStartLocation = nil; dragStartSteps = nil; isDragging = false; firstWriteDone = false
@@ -614,16 +626,26 @@ struct EuclideousStepsStepper: View {
                 guard target != line.steps else { return }
                 onCommit(true) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(target)) }
             }
-            Button(action: { commitSteps(line.steps > 16 ? 16 : max(2, line.steps - 1)) }) {
-                Image(systemName: "minus").font(.system(size: 14, weight: .heavy))
-                    .foregroundColor(minusEnabled ? Color(hex: 0xAAB0BA) : Color(hex: 0x4A4E57))
-                    .frame(width: width, height: btnH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
-            }
-            .disabled(!minusEnabled)
-            .accessibilityLabel("Fewer steps, now \(line.steps)")
+            stepButton("minus", enabled: minusEnabled, height: btnH) { commitSteps(line.steps > 16 ? 16 : max(2, line.steps - 1)) }
+                .accessibilityLabel("Fewer steps, now \(line.steps)")
         }
         .frame(width: width, height: height)
+        .overlay { if let c = lockOutline { RoundedRectangle(cornerRadius: 10).stroke(c, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])).padding(-3).allowsHitTesting(false) } }   // LANE LOCK 5.4
+        .onDisappear { if lockDown { lockDown = false; onLockTouch?(false) } }
+    }
+    /// + / −: a plain Button on every lane that isn't locked; a locked lane gets a tap that counts the finger (6.2) — and on the BEAT grid acts at touch-down (6.9).
+    @ViewBuilder private func stepButton(_ glyph: String, enabled: Bool, height btnH: CGFloat, action: @escaping () -> Void) -> some View {
+        let face = Image(systemName: glyph).font(.system(size: 14, weight: .heavy))
+            .foregroundColor(enabled ? Color(hex: 0xAAB0BA) : Color(hex: 0x4A4E57))
+            .frame(width: width, height: btnH)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+        if lockActive {
+            face.contentShape(Rectangle())
+                .modifier(EuclideousLaneTap(locked: true, momentary: lockMomentary, onTouch: { onLockTouch?($0) }, action: { if enabled { action() } }))
+                .accessibilityAddTraits(.isButton)
+        } else {
+            Button(action: action) { face }.disabled(!enabled)
+        }
     }
 }
 
@@ -1681,37 +1703,43 @@ struct EuclideousPage: View {
             // gutters, the dimmed panels above) finishes — sits above the header/panels but below the lane
             // cards in z-order, so a card's own controls still get first claim on their own area, and
             // "tap the dice to finish" falls out of this for free (the dice is outside the lane cards too).
-            // LANE LOCK §1.3: lock mode finishes through this SAME layer (one finish handling, not a second): a tap on the header padlock, or anywhere off the four cards, ends it and nothing else happens.
-            if euclideousRandomMode || euclideousLockMode {
-                Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
-                    .onTapGesture { euclideousFinishActiveMode() }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(euclideousRandomMode ? "Finish random mode, keeping what's playing" : "Finish lock mode")
-                    .accessibilityAddTraits(.isButton)
-            }
+            modeFinishLayer(size)   // RANDOM MODE §1.3 / LANE LOCK §1.3: ONE finish handling for both modes (a helper returning AnyView: the page's debug stack)
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
             // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
             AnyView(laneCard(0, width: box.width, height: box.height)).offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
             AnyView(laneCard(1, width: box.width, height: box.height)).offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
             AnyView(laneCard(2, width: box.width, height: box.height)).offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
             AnyView(laneCard(3, width: box.width, height: box.height)).offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
-            if euclideousRandomMode {
-                Text("TAP OFF THE LANE CARDS TO FINISH · WHAT YOU HEAR IS KEPT")
-                    .font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
-                    .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).truncationMode(.tail)
-                    .frame(width: size.width, height: 14)
-                    .position(x: size.width / 2, y: size.height - 1 - 7)
-                    .allowsHitTesting(false)
-            } else if euclideousLockMode {
-                Text("TAP OFF THE LANE CARDS TO FINISH")   // §1.5: random mode's hint frame and type
-                    .font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
-                    .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).truncationMode(.tail)
-                    .frame(width: size.width, height: 14)
-                    .position(x: size.width / 2, y: size.height - 1 - 7)
-                    .allowsHitTesting(false)
-            }
+            modeHint(size)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .onChange(of: lockOverlayMask) { new in
+            for lane in 0..<4 {
+                let now = (new >> lane) & 1 == 1
+                if now != lockOverlayHeld[lane] { lockOverlayHeld[lane] = now; onLockHeld(lane, now) }
+            }
+        }
+    }
+
+    /// RANDOM MODE §1.3: a tap ANYWHERE outside the four lane cards (header incl. the dice and the padlock, margins, gutters, the dimmed panels) finishes — sits above the header/panels but below the lane cards in z-order,
+    /// so a card's own controls still get first claim on their own area. LANE LOCK §1.3: lock mode finishes through this SAME layer (not a second one); the touch is consumed.
+    private func modeFinishLayer(_ size: CGSize) -> AnyView {
+        guard euclideousRandomMode || euclideousLockMode else { return AnyView(EmptyView()) }
+        return AnyView(Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
+            .onTapGesture { euclideousFinishActiveMode() }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(euclideousRandomMode ? "Finish random mode, keeping what's playing" : "Finish lock mode")
+            .accessibilityAddTraits(.isButton))
+    }
+    /// The page-bottom hint of whichever mode is on (random mode 1.6's frame and type; lock mode 1.5's words).
+    private func modeHint(_ size: CGSize) -> AnyView {
+        guard euclideousRandomMode || euclideousLockMode else { return AnyView(EmptyView()) }
+        return AnyView(Text(euclideousRandomMode ? "TAP OFF THE LANE CARDS TO FINISH · WHAT YOU HEAR IS KEPT" : "TAP OFF THE LANE CARDS TO FINISH")
+            .font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
+            .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).truncationMode(.tail)
+            .frame(width: size.width, height: 14)
+            .position(x: size.width / 2, y: size.height - 1 - 7)
+            .allowsHitTesting(false))
     }
 
     /// §1.2: the riff panel + bottom-right panel sit under this wash while random mode is on.
@@ -2508,7 +2536,10 @@ struct EuclideousPage: View {
                           onStepsDelta: { d in edit(gestureLane) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
                           onAllRotateDelta: { d in euclideousApplyAllRhythmX(d) },
                           onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
-                          onDragState: { point, allRows in euclideousRhythmDragState(gestureLane, via: idx, point, allRows) },
+                          onDragState: { point, allRows in
+                              lockCometTouch(idx, lane: gestureLane, down: point != nil, all: allRows)   // LANE LOCK 6.2: a finger on the comet bar writes lock fields too
+                              euclideousRhythmDragState(gestureLane, via: idx, point, allRows)
+                          },
                           // WHOLE-CARD SELECTION HIGHLIGHT REMOVED (Paul: "remove the highlight that
                           // sometimes appears around the euclid lane boxes") — `onSelect` has no remaining
                           // effect anywhere on this page (confirmed by grep before removing the state it
@@ -2568,7 +2599,14 @@ struct EuclideousPage: View {
     }
 
     // MARK: RANDOM MODE — §7.3 the return highlight (visual only: no state, no undo, never blocks a touch)
+    /// (LANE LOCK 5.1 / 5.5 rides in this one overlay: the lock ring and the badge, outside the dimming above — the badge never dims — so the card's modifier chain gains nothing.)
     @ViewBuilder private func euclideousRandomReturnHighlight(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            euclideousRandomReturnHighlightBody(idx, width: width, height: height)
+            lockCardOverlays(idx, width: width, accent: laneAccents[idx % laneAccents.count])
+        }
+    }
+    @ViewBuilder private func euclideousRandomReturnHighlightBody(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         if let start = euclideousRandomReturnHighlightStart[idx] {
             let accent = laneAccents[idx % laneAccents.count]
             let durationSeconds = clock.playing && clock.tempo > 0 ? (2 * clock.beatsPerBar * 60.0 / clock.tempo) : 4.0
@@ -2727,7 +2765,8 @@ struct EuclideousPage: View {
             onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.hits, &$0) } },
             onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
             displayOverrideLine: partner,
-            listenFollowLocked: partner != nil))
+            listenFollowLocked: partner != nil,
+            lockActive: lockLocked(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
     private func rhythmStepsStepper(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         AnyView(EuclideousStepsStepper(
@@ -2736,7 +2775,8 @@ struct EuclideousPage: View {
             onToggleValueBoxTap: {
                 if stepsPickerLane == idx { stepsPickerLane = nil }
                 else { stepsPickerLane = idx; restartEditorLane = nil }
-            }))
+            },
+            lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .steps) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
     private func rhythmOffsetRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         AnyView(EuclideousSlider(
@@ -2745,7 +2785,8 @@ struct EuclideousPage: View {
             onCommit: { mutate in edit(idx, mutate) },
             onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.offset, &$0) } },
             onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
-            topAlignLabelRow: true))
+            topAlignLabelRow: true,
+            lockActive: lockLocked(idx), lockOutline: lockOn(idx, .offset) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
     private func rhythmTiltRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         let partner = rhythmFollowPartner(line)
@@ -2757,7 +2798,80 @@ struct EuclideousPage: View {
             onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
             displayOverrideLine: partner,
             listenFollowLocked: partner != nil,
-            topAlignLabelRow: true, endLabels: ("EARLY", "LATE")))
+            topAlignLabelRow: true, endLabels: ("EARLY", "LATE"),
+            lockActive: lockLocked(idx), lockOutline: lockOn(idx, .tilt) ? accent : nil, onLockTouch: lockTouch(idx)))
+    }
+
+    // MARK: LANE LOCK — the normal card's side (§5, §6)
+    private func lockOf(_ idx: Int) -> EuclideousLaneLock { idx < locks.count ? locks[idx] : EuclideousLaneLock() }
+    private func lockLocked(_ idx: Int) -> Bool { lockOf(idx).isLocked }
+    /// 6.9: a lane locked on the BEAT grid — its tap-controls act on touch-down. Everything else (an unlocked lane, a bar grid) behaves exactly as before.
+    private func lockMomentary(_ idx: Int) -> Bool { let l = lockOf(idx); return l.isLocked && l.gridResolved == .beat }
+    /// 5.4: the controls of lane `idx` whose value differs from its locked state — empty unless the lane is locked and has moved. One list (`euclideousLockChangedControls`), asked per control.
+    private func lockDiff(_ idx: Int) -> Set<EuclideousLockControl> {
+        let l = lockOf(idx)
+        guard l.isLocked, let st = l.state, idx < lines.count else { return [] }
+        return euclideousLockChangedControls(from: st, to: lines[idx])
+    }
+    private func lockOn(_ idx: Int, _ c: EuclideousLockControl) -> Bool { lockLocked(idx) && lockDiff(idx).contains(c) }
+    private func lockTouch(_ idx: Int) -> (Bool) -> Void { { down in onLockHeld(idx, down) } }
+    @State private var lockCometHeld: [[Int]] = [[], [], [], []]
+    @State private var lockOverlayHeld: [Bool] = [false, false, false, false]
+    /// A finger on lane `card`'s comet bar edits `lane`'s pattern (every lane for a two-finger gesture): the locked lanes among them count as held until it lifts — exactly the lanes counted at touch-down / when the gesture widened.
+    private func lockCometTouch(_ card: Int, lane: Int, down: Bool, all: Bool) {
+        guard card >= 0, card < lockCometHeld.count else { return }
+        if down {
+            for t in (all ? [0, 1, 2, 3] : [lane]) where lockLocked(t) && !lockCometHeld[card].contains(t) { lockCometHeld[card].append(t); onLockHeld(t, true) }
+        } else if !lockCometHeld[card].isEmpty {
+            let held = lockCometHeld[card]; lockCometHeld[card] = []
+            for t in held { onLockHeld(t, false) }
+        }
+    }
+    /// 6.2: "its STEPS picker or restart editor is open" (and the NOTES picker, which writes a lock field too) counts as a finger on the lane: opening is touch-down, closing is lift.
+    private var lockOverlayMask: Int {
+        (0..<4).reduce(0) { m, i in m | (((stepsPickerLane == i || restartEditorLane == i || notesPickerOpen.contains(i)) ? 1 : 0) << i) }
+    }
+    private func laneTapMod(_ idx: Int, _ action: @escaping () -> Void) -> EuclideousLaneTap {
+        EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: lockTouch(idx), action: action)
+    }
+    private func lockHoldMod(_ idx: Int) -> EuclideousLockHold { EuclideousLockHold(active: lockLocked(idx), onTouch: lockTouch(idx)) }
+    private func lockOutlineMod(_ idx: Int, _ c: EuclideousLockControl, _ accent: Color) -> EuclideousLockOutline {
+        EuclideousLockOutline(on: lockOn(idx, c), accent: accent)
+    }
+    private func lockTabDiffers(_ idx: Int, _ t: EuclideousLaneTab) -> Bool {
+        guard lockLocked(idx) else { return false }
+        let tab: EuclideousLockTab
+        switch t { case .rhythm: tab = .rhythm; case .riff: tab = .riff; case .notes: tab = .notes; case .listen: return false }
+        return euclideousLockChangedTabs(lockDiff(idx)).contains(tab)
+    }
+    /// The ring (5.5: once per snap / capture) and the badge (5.1) as ONE value in the card's modifier chain.
+    private func lockCardOverlays(_ idx: Int, width: CGFloat, accent: Color) -> AnyView {
+        AnyView(ZStack(alignment: .topLeading) {
+            EuclideousLockRing(start: idx < lockRingStart.count ? lockRingStart[idx] : nil, accent: accent, radius: 12, reduceMotion: reduceMotion)
+            lockBadge(idx, width: width)
+        })
+    }
+    private func tabDecor(_ idx: Int, _ t: EuclideousLaneTab, sel: Bool, _ accent: Color) -> AnyView {
+        AnyView(ZStack {
+            Rectangle().fill(sel ? lane100(accent) : patternUnselectedFill).frame(height: 2).frame(maxHeight: .infinity, alignment: .bottom)
+            lockTabDot(idx, t, lane100(accent)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        })
+    }
+    /// 5.4: the dot on a tab with a control that differs from L (6pt, 6pt from its trailing edge, 5pt from its top).
+    private func lockTabDot(_ idx: Int, _ t: EuclideousLaneTab, _ accent: Color) -> AnyView {
+        guard lockTabDiffers(idx, t) else { return AnyView(EmptyView()) }
+        return AnyView(Circle().fill(accent).frame(width: 6, height: 6).padding(.top, 5).padding(.trailing, 6).allowsHitTesting(false))
+    }
+    /// 5.1 / 5.2: the badge, drawn over the card (never dimmed) at the tab row's trailing end; none for an unlocked lane.
+    private func lockBadge(_ idx: Int, width: CGFloat) -> AnyView {
+        guard lockLocked(idx), let st = lockOf(idx).state, idx < lines.count else { return AnyView(EmptyView()) }
+        let accent = laneAccents[idx % laneAccents.count]
+        let touch = EuclideousLockBadge.touchFrame(cardWidth: width)
+        return AnyView(EuclideousLockBadgeView(lane: idx, accent: accent, deviated: euclideousLockDeviated(line: lines[idx], from: st), grid: lockOf(idx).gridResolved,
+                                               held: idx < lockHeld.count && lockHeld[idx], running: clock.playing, tempo: clock.tempo, barBeats: clock.beatsPerBar,
+                                               beatAt: { walkTagBeat(at: $0) },
+                                               onTap: { onLockCommand(idx, .unlock) }, onHold: { onLockCommand(idx, .capture) })
+            .offset(x: touch.minX, y: touch.minY))
     }
 
     // MARK: LANE LOCK — the lane card in lock mode (§4)
@@ -2839,7 +2953,8 @@ struct EuclideousPage: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .center).frame(height: rowH)
-                .overlay(Rectangle().fill(sel ? lane100(accent) : patternUnselectedFill).frame(height: 2), alignment: .bottom)
+                // LANE LOCK 5.4: the underline and — on a tab with a control that differs from L — a 6pt lane100 dot (6pt from its trailing edge, 5pt from its top), in ONE overlay
+                .overlay(tabDecor(idx, t, sel: sel, accent))
                 // RESTART CHAINS ferry §10.4: the RHYTHM tab chip no longer rings — lane cards have no OUT
                 // circles any more, so the pulse/trace now points at MIX (its OUT buttons, or the MIX tab
                 // chip), never at this per-lane tab row.
@@ -2851,6 +2966,8 @@ struct EuclideousPage: View {
                     if restartEditorLane == idx { restartEditorLane = nil }
                 }
             }
+            // LANE LOCK 5.1: a locked lane's badge sits at the trailing end (drawn over the card); the tabs share what is left by the same rule (equal width, spacing 4)
+            if lockLocked(idx) { Color.clear.frame(width: EuclideousLockBadge.size, height: 1) }
         }
     }
 
@@ -2912,9 +3029,10 @@ struct EuclideousPage: View {
                     .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                     .contentShape(Rectangle())
-                    .onTapGesture { edit(idx) { $0.direction = dir } }
+                    .modifier(laneTapMod(idx) { edit(idx) { $0.direction = dir } })
             }
         }
+        .modifier(lockOutlineMod(idx, .direction, accent))
     }
 
     /// INV (ferry §4/§6, literal): "INV replaces the HIT/GAPS pair as one toggle on the same parameter:
@@ -3019,7 +3137,8 @@ struct EuclideousPage: View {
             .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
             .contentShape(Rectangle())
-            .onTapGesture { edit(idx) { $0.patternMiss = !on } }
+            .modifier(laneTapMod(idx) { edit(idx) { $0.patternMiss = !on } })
+            .modifier(lockOutlineMod(idx, .inv, accent))
             .euclideousHelp("Play on the empty steps instead of the hits")
             .accessibilityLabel("Invert")
     }
@@ -3087,6 +3206,7 @@ struct EuclideousPage: View {
             restartEditorLane = idx
             stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
         }
+        .modifier(lockOutlineMod(idx, name == "MELODY" ? .melodyRestart : .rhythmRestart, accent))
         .accessibilityLabel(euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitSingular.lowercased(), unitPlural: unitPlural))
         .accessibilityHint("Double-tap to edit"))
     }
@@ -3459,13 +3579,24 @@ struct EuclideousPage: View {
     /// display already used) rather than writing anything on render. This is the most literal reading
     /// consistent with the ferry's own acceptance line "a preset saved before this change loads with the
     /// same rate" — an AUTO lane's stored nil survives untouched unless the user deliberately picks a cell.
-    private func patternControlBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat) -> some View {
+    private func patternControlBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat) -> AnyView {
+        // STACK DEPTH (LANE LOCK ferry, 2026-10-22): the rate half (a 3×2 grid + a feel column + the FOLLOW chips, every cell now with a lock tap modifier) and the right half are built by their OWN functions returning
+        // `AnyView`, so each one's temporaries die when it returns and this frame only ever holds two 8-byte values (the extension's 1 MB debug stack — Docs/claude-playbook.md).
         // Exact-dimensions ferry (2026-10-13): rowH 40→38 (two 38pt rows + 4pt gap = 80pt block,
         // matching the 118(sliders)+4(gap)+80(this block)=202 tab-content height exactly); halfW's
         // divider footprint corrected from 8 (a bare 1pt rule + 3.5pt either side) to 17 (1pt rule +
         // 8pt padding either side) — both halves land at the spec's own 154.5pt.
         let rowH: CGFloat = 38, gap: CGFloat = 4, blockH = rowH * 2 + gap
         let halfW = max(1, (fullWidth - 17) / 2)
+        return AnyView(HStack(spacing: 0) {
+            patternRateHalf(idx, line, accent, halfW: halfW, blockH: blockH, gap: gap)
+                .modifier(lockOutlineMod(idx, line.listenRhythmMode == .follow ? .followMult : .rate, accent))   // on the AnyView, so the big HStack's type is never copied under a wrapper
+            Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
+            patternOutHalf(idx, line, accent, halfW: halfW, rowH: rowH, gap: gap, blockH: blockH)
+        }
+        .frame(width: fullWidth, height: blockH))
+    }
+    private func patternRateHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, blockH: CGFloat, gap: CGFloat) -> AnyView {
         let feelColW: CGFloat = 36
         let gridGap: CGFloat = 3   // horizontal gap: across the 3 rate columns, and grid↔feel column
         let gridW = max(1, halfW - gridGap - feelColW)
@@ -3513,7 +3644,7 @@ struct EuclideousPage: View {
                                     .background(RoundedRectangle(cornerRadius: 7).fill(on && valid ? lane20(accent) : patternUnselectedFill))
                                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on && valid ? lane100(accent) : Color.clear, lineWidth: 1))
                                     .contentShape(Rectangle())
-                                    .onTapGesture { if valid { edit(idx) { $0.listenFollowMult = m } } }
+                                    .modifier(laneTapMod(idx) { if valid { edit(idx) { $0.listenFollowMult = m } } })
                             }
                         }
                     }
@@ -3544,7 +3675,7 @@ struct EuclideousPage: View {
                                     .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
                                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                                     .contentShape(Rectangle())
-                                    .onTapGesture { setRate(division: d) }
+                                    .modifier(laneTapMod(idx) { setRate(division: d) })
                             }
                         }
                     }
@@ -3558,7 +3689,7 @@ struct EuclideousPage: View {
                             .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : patternUnselectedFill))
                             .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                             .contentShape(Rectangle())
-                            .onTapGesture { setRate(feel: f) }
+                            .modifier(laneTapMod(idx) { setRate(feel: f) })
                             .accessibilityLabel(feelLabels[f])
                     }
                 }
@@ -3566,7 +3697,10 @@ struct EuclideousPage: View {
         }
         .frame(width: halfW, height: blockH)
 
-        let outHalf = VStack(spacing: gap) {
+        return AnyView(rateHalf)
+    }
+    private func patternOutHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, rowH: CGFloat, gap: CGFloat, blockH: CGFloat) -> AnyView {
+        return AnyView(VStack(spacing: gap) {
             HStack(spacing: 3) {   // exact-dimensions ferry: 3pt between the direction group and INV
                 directionRow(idx, line, accent, rowH: rowH).frame(maxWidth: .infinity)
                 invButton(idx, line, accent, rowH: rowH)
@@ -3579,14 +3713,7 @@ struct EuclideousPage: View {
             // restart tiles.
             restartTilesRow(idx, line, accent, rowH: rowH, fullWidth: halfW)
         }
-        .frame(width: halfW, height: blockH)
-
-        return HStack(spacing: 0) {
-            rateHalf
-            Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
-            outHalf
-        }
-        .frame(width: fullWidth, height: blockH)
+        .frame(width: halfW, height: blockH))
     }
 
     // RIFF TAB RETIRED (ferry 2026-10-10 §1.2) — `riffDirGrid`/`riffTabButton`/`euclideousNextOnRest`/
@@ -3641,7 +3768,8 @@ struct EuclideousPage: View {
     /// byte-identical. Text colours moved to the ferry's own exact hex ("ON: text #f2f4f7... OFF: text
     /// #aab0ba") — visually near-identical to the prior `.white`/`.white.opacity(0.55)`, but now the same
     /// literal constant this page already uses everywhere else (e.g. the NOTES VEL bar), not a separate guess.
-    @ViewBuilder private func melodyButton(_ label: String, on: Bool, accent: Color, height: CGFloat = 40, fontSize: CGFloat = 10, cornerRadius: CGFloat = 6, help: String? = nil, action: @escaping () -> Void) -> some View {
+    /// Returns `AnyView` (LANE LOCK ferry 2026-10-22): its caller's frame then holds 8 bytes per button instead of the whole modifier chain (the page's debug stack — Docs/claude-playbook.md).
+    private func melodyButton(_ label: String, on: Bool, accent: Color, height: CGFloat = 40, fontSize: CGFloat = 10, cornerRadius: CGFloat = 6, help: String? = nil, lane: Int? = nil, outline: Bool = false, action: @escaping () -> Void) -> AnyView {
         let base = Text(label).font(.system(size: fontSize, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
             .lineLimit(1)   // §4.6: nothing under 10pt — truncate, never shrink (no .minimumScaleFactor call at all, SwiftUI's own default already never scales below 1.0)
@@ -3649,8 +3777,10 @@ struct EuclideousPage: View {
             .background(RoundedRectangle(cornerRadius: cornerRadius).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
             .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
             .contentShape(Rectangle())
-            .onTapGesture(perform: action)
-        if let help { base.euclideousHelp(help) } else { base }
+            .modifier(EuclideousLockOutline(on: outline, accent: accent))   // LANE LOCK 5.4
+            .modifier(EuclideousLaneTap(locked: lane.map { lockLocked($0) } ?? false, momentary: lane.map { lockMomentary($0) } ?? false,   // LANE LOCK 6.2 / 6.9: a plain tap unless the lane is locked
+                                        onTouch: { if let lane { onLockHeld(lane, $0) } }, action: action))
+        if let help { return AnyView(base.euclideousHelp(help)) } else { return AnyView(base) }
     }
     /// One chip (default 69.5×34, `width` overridable — 2026-10-14 ferry widens the RIFF tab's own 4 steppers
     /// to 79.25 each so the row runs full width, which also widens the decorative end-zones 14→18pt per the
@@ -3659,8 +3789,8 @@ struct EuclideousPage: View {
     /// chip decreases; the RIGHT HALF increases — not just the glyph zones.
     /// `showLabel: false` (RIFF WALK ferry §8.1, the EVERY stepper): drops the key line, showing only the
     /// value, centred — every other call site keeps its label unchanged (the default is `true`).
-    @ViewBuilder private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, width: CGFloat = 69.5, showLabel: Bool = true, help: String? = nil,
-                                             height: CGFloat = 34, valueText shown: String? = nil, lowDisabled: Bool = false, highDisabled: Bool = false, wraps: Bool = false, onChange: @escaping (Int) -> Void) -> some View {
+    private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, width: CGFloat = 69.5, showLabel: Bool = true, help: String? = nil,
+                                             height: CGFloat = 34, valueText shown: String? = nil, lowDisabled: Bool = false, highDisabled: Bool = false, wraps: Bool = false, lane: Int? = nil, outline: Bool = false, onChange: @escaping (Int) -> Void) -> AnyView {   // AnyView: see melodyButton
         // NOTES TAB ferry (CHANCE): `height`, a text-valued stepper (25% / 50% / 75% / 100%) and a disabled look at either end — every default leaves the other callers exactly as they were.
         let w: CGFloat = width, h: CGFloat = height, arrowZone: CGFloat = 18
         let valueText = Text(shown ?? (unit != nil ? "\(euclideousSigned(value)) \(unit!)" : "\(value)"))
@@ -3686,15 +3816,18 @@ struct EuclideousPage: View {
             }
         }
         .frame(width: w, height: h)
+        .modifier(EuclideousLockOutline(on: outline, accent: lane.map { laneAccents[$0 % laneAccents.count] } ?? Color.clear))   // LANE LOCK 5.4
         .overlay(
             HStack(spacing: 0) {
                 Color.clear.contentShape(Rectangle())
-                    .onTapGesture { onChange(wraps && value <= range.lowerBound ? range.upperBound : max(range.lowerBound, value - 1)) }
+                    .modifier(EuclideousLaneTap(locked: lane.map { lockLocked($0) } ?? false, momentary: lane.map { lockMomentary($0) } ?? false,
+                                                onTouch: { if let lane { onLockHeld(lane, $0) } }, action: { onChange(wraps && value <= range.lowerBound ? range.upperBound : max(range.lowerBound, value - 1)) }))
                 Color.clear.contentShape(Rectangle())
-                    .onTapGesture { onChange(wraps && value >= range.upperBound ? range.lowerBound : min(range.upperBound, value + 1)) }
+                    .modifier(EuclideousLaneTap(locked: lane.map { lockLocked($0) } ?? false, momentary: lane.map { lockMomentary($0) } ?? false,
+                                                onTouch: { if let lane { onLockHeld(lane, $0) } }, action: { onChange(wraps && value >= range.upperBound ? range.lowerBound : min(range.upperBound, value + 1)) }))
             }
         )
-        if let help { base.euclideousHelp(help) } else { base }
+        if let help { return AnyView(base.euclideousHelp(help)) } else { return AnyView(base) }
     }
     private func melodySectionTitle(_ s: String) -> some View {
         Text(s).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
@@ -3775,7 +3908,7 @@ struct EuclideousPage: View {
         let shift = line.riffRotateResolved
         let w = stepperWidth ?? max(1, (fullWidth - 3 * sp4) / 4)
         return HStack(spacing: sp4) {
-            melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many riff columns, from SHIFT, the walk loops over") { v in
+            melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many riff columns, from SHIFT, the walk loops over", lane: idx, outline: lockOn(idx, .length)) { v in
                 edit(idx) { euclideousSetRiffLength(&$0, v) }   // RIFF WINDOW ferry: the ONE LEN setter — independent of SHIFT now, nothing to pin
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue("\(n)")
@@ -3789,7 +3922,7 @@ struct EuclideousPage: View {
             // RIFF WINDOW ferry (2026-10-21): SHIFT picks which riff column (1...8) the window starts at,
             // wrapping past column 8 back to column 1 — independent of LENGTH (LEN 4 SHIFT 4 reads columns
             // 5,6,7,8). `wraps: true` makes the ‹/› taps cycle 7→0 and 0→7 to match.
-            melodyStepper("SHIFT", value: shift, range: 0...7, width: w, help: "Which riff column the walk starts reading from, wrapping at 8", wraps: true) { v in
+            melodyStepper("SHIFT", value: shift, range: 0...7, width: w, help: "Which riff column the walk starts reading from, wrapping at 8", wraps: true, lane: idx, outline: lockOn(idx, .shift)) { v in
                 edit(idx) { euclideousSetRiffShift(&$0, v) }   // RIFF WINDOW ferry: the ONE SHIFT setter — wraps at 8, nothing to do with LEN
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Which riff column the walk starts reading from, wrapping at 8")
@@ -3801,7 +3934,7 @@ struct EuclideousPage: View {
                 @unknown default: break
                 }
             }
-            melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: w, help: "How many riff steps to move per note") { v in
+            melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: w, help: "How many riff steps to move per note", lane: idx, outline: lockOn(idx, .stride)) { v in
                 edit(idx) { $0.riffStride = v }
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue("\(line.riffStrideResolved)")
@@ -3812,7 +3945,7 @@ struct EuclideousPage: View {
                 @unknown default: break
                 }
             }
-            melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, width: w, help: "Shift every riff note up or down the pool") { v in
+            melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, width: w, help: "Shift every riff note up or down the pool", lane: idx, outline: lockOn(idx, .transpose)) { v in
                 edit(idx) { $0.melodyTranspose = v }
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Transpose").accessibilityValue(euclideousSigned(line.melodyTransposeResolved))
@@ -3927,7 +4060,8 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
         .contentShape(Rectangle())
-        .onTapGesture { edit(idx) { $0.riffOn = !($0.riffOnResolved) } }
+        .modifier(laneTapMod(idx) { edit(idx) { $0.riffOn = !($0.riffOnResolved) } })
+        .modifier(lockOutlineMod(idx, .riffOn, accent))
         .euclideousHelp("The riff as this lane plays it. Tap to turn the riff on or off.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel({
@@ -4127,7 +4261,7 @@ struct EuclideousPage: View {
             ForEach(dirs, id: \.self) { d in
                 let lit = curDir == d
                 melodyButton(riffDirShortLabel(d), on: lit, accent: accent, height: 40, fontSize: 12, cornerRadius: 7,
-                             help: "How the riff walks. Tap the lit one to turn the riff off.") {
+                             help: "How the riff walks. Tap the lit one to turn the riff off.", lane: idx, outline: lit && lockOn(idx, .riffDirection)) {
                     edit(idx) { l in
                         if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
                         else { l.riffOn = true; l.riffDir = d }
@@ -4137,7 +4271,7 @@ struct EuclideousPage: View {
                 .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
             }
             melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 12, cornerRadius: 7,
-                         help: "Flip the riff upside down in pitch") { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
+                         help: "Flip the riff upside down in pitch", lane: idx, outline: lockOn(idx, .riffInvert)) { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
                 // §9.3: INV's own label doesn't itself say it inverts the riff, so it reads the descriptive
                 // phrase instead, with the toggle trait.
                 .accessibilityElement(children: .ignore)
@@ -4154,7 +4288,7 @@ struct EuclideousPage: View {
         return HStack(spacing: sp4) {
             riffRowLabel("ADVANCE", "EVERY").frame(width: layout.labelColumnWidth)
             melodyStepper("EVERY", value: every, range: 1...4, width: layout.everyStepperWidth, showLabel: false,
-                         help: "The riff moves once every this many hits (or steps)") { v in
+                         help: "The riff moves once every this many hits (or steps)", lane: idx, outline: lockOn(idx, .advanceEvery)) { v in
                 edit(idx) { $0.riffAdvanceEvery = v }
             }
             // §9.4: ONE adjustable element — "1 hit"/"2 hits" or "1 step"/"3 steps" following ADV, swipe up/
@@ -4170,13 +4304,13 @@ struct EuclideousPage: View {
                 }
             }
             melodyButton(plural ? "HITS" : "HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
-                         help: "Move the riff only on sounding hits") { edit(idx) { $0.riffAdvanceStep = false } }
+                         help: "Move the riff only on sounding hits", lane: idx, outline: lockOn(idx, .advanceMode) && !line.riffAdvanceStepResolved) { edit(idx) { $0.riffAdvanceStep = false } }
                 .frame(width: layout.hitStepButtonWidth)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Advance by hits")
                 .accessibilityAddTraits(!line.riffAdvanceStepResolved ? [.isButton, .isSelected] : .isButton)
             melodyButton(plural ? "STEPS" : "STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
-                         help: "Move the riff on every step, not just hits") { edit(idx) { $0.riffAdvanceStep = true } }
+                         help: "Move the riff on every step, not just hits", lane: idx, outline: lockOn(idx, .advanceMode) && line.riffAdvanceStepResolved) { edit(idx) { $0.riffAdvanceStep = true } }
                 .frame(width: layout.hitStepButtonWidth)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Advance by steps")
@@ -4194,7 +4328,7 @@ struct EuclideousPage: View {
             ForEach([EuclidRiffOnRest.skip, .tie, .repeatLast], id: \.self) { r in
                 let selected = current == r
                 melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: selected, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
-                             help: riffOnRestHelpPhrase(r)) { edit(idx) { $0.riffOnRest = r } }
+                             help: riffOnRestHelpPhrase(r), lane: idx, outline: selected && lockOn(idx, .onRest)) { edit(idx) { $0.riffOnRest = r } }
                     .frame(width: layout.onRestButtonWidth)
                     // §9.5 / NOTES TAB §9.3: SKIP and TIE keep their plain labels; REPEAT reads "Repeat" with its own hint.
                     .accessibilityElement(children: .ignore)
@@ -4377,7 +4511,8 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(isOn ? lane100(accent) : Color(hex: 0x2A2D34)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(isOn ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
         .contentShape(Rectangle())
-        .onTapGesture { edit(idx) { $0.notesOn = !euclideousNotesLayerIsOn($0) } }   // flips what the strip SHOWS (on → off, off → on)
+        .modifier(laneTapMod(idx) { edit(idx) { $0.notesOn = !euclideousNotesLayerIsOn($0) } })   // flips what the strip SHOWS (on → off, off → on)
+        .modifier(lockOutlineMod(idx, .notesStrip, accent))
         .euclideousHelp("Turn the notes layer on or off. Lit notes are remembered.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Notes layer, \(isOn ? "on" : "off"), \(litCount) notes lit")
@@ -4393,11 +4528,11 @@ struct EuclideousPage: View {
             euclideousOctaveTrough(value: line.octaveResolved, accent: accent) { v in
                 edit(idx) { euclideousSetNotesOctave(&$0, v) }   // the ONE notes-octave setter (also switches the layer on) — shared with the MIX stepper
             }
-            melodyButton("TOP 2", on: line.top2LitResolved, accent: accent, help: "Play the second-highest note of the source on every hit, following chord changes.") {
+            melodyButton("TOP 2", on: line.top2LitResolved, accent: accent, help: "Play the second-highest note of the source on every hit, following chord changes.", lane: idx, outline: lockOn(idx, .noteKey(EuclideousLitOrder.topTwoPosition))) {
                 edit(idx) { euclideousToggleNotesTop2(&$0) }
             }
             .frame(width: 46)
-            melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest note of the source on every hit, following chord changes.") {
+            melodyButton("TOP", on: line.topLitResolved, accent: accent, help: "Play the highest note of the source on every hit, following chord changes.", lane: idx, outline: lockOn(idx, .noteKey(EuclideousLitOrder.topPosition))) {
                 edit(idx) { euclideousToggleNotesTop(&$0) }
             }
             .frame(width: 42)
@@ -4543,8 +4678,8 @@ struct EuclideousPage: View {
                                        pitchShift: 12 * max(-2, min(2, line.octaveResolved)), way: way, stepBeats: step, gapBeats: gap, lenBeats: len, legato: g >= 1.0,
                                        tempo: tempo, scale: euclideousPulseScale(level: pulseLevel))
     }
-    @ViewBuilder private func notesToggle(_ label: String, on: Bool, accent: Color, accessibility: String, hint: String, help: String, action: @escaping () -> Void) -> some View {
-        melodyButton(label, on: on, accent: accent, height: EuclideousNotesTabLayout.rowH, fontSize: 12, cornerRadius: 8, help: help, action: action)
+    @ViewBuilder private func notesToggle(_ label: String, on: Bool, accent: Color, accessibility: String, hint: String, help: String, lane: Int? = nil, outline: Bool = false, action: @escaping () -> Void) -> some View {
+        melodyButton(label, on: on, accent: accent, height: EuclideousNotesTabLayout.rowH, fontSize: 12, cornerRadius: 8, help: help, lane: lane, outline: outline, action: action)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibility)
             .accessibilityValue(on ? "on" : "off")
@@ -4598,7 +4733,8 @@ struct EuclideousPage: View {
                                     // ten keys' hit areas at the row's top-left (over the strip) and left the keys, TOP 2, TOP and the strip's left edge untappable.
                                     EuclideousNotesKeyView(spec: spec, accent: lane100(accent), size: lay.keys[p].size)
                                         .contentShape(Rectangle())
-                                        .onTapGesture { edit(idx) { euclideousToggleLitPosition(&$0, position: p) } }
+                                        .modifier(laneTapMod(idx) { edit(idx) { euclideousToggleLitPosition(&$0, position: p) } })
+                                        .modifier(lockOutlineMod(idx, .noteKey(p), accent))
                                         .accessibilityElement(children: .ignore)
                                         .accessibilityLabel(p < 8
                                             ? euclideousNotesRankKeyAccessibilityLabel(rank: p + 1, spokenNote: data.spoken[p].first, received: spec.received, lit: spec.lit, heldBack: spec.heldBack, place: spec.place)
@@ -4617,7 +4753,7 @@ struct EuclideousPage: View {
                         placed(lay.plays, in: lay.whenRow) {
                             notesToggle("PLAYS", on: plays, accent: accent, accessibility: euclideousNotesPlaysLabel,
                                         hint: euclideousNotesWhenHint(isOnlyOneOn: plays && !rests, riffOn: line.riffOnResolved),
-                                        help: "Play the lit notes on hits where the riff plays a note.") {
+                                        help: "Play the lit notes on hits where the riff plays a note.", lane: idx, outline: lockOn(idx, .notesWhen)) {
                                 guard !(plays && !rests) else { return }
                                 edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 }
                             }
@@ -4625,14 +4761,14 @@ struct EuclideousPage: View {
                         placed(lay.rests, in: lay.whenRow) {
                             notesToggle("RESTS", on: rests, accent: accent, accessibility: euclideousNotesRestsLabel,
                                         hint: euclideousNotesWhenHint(isOnlyOneOn: rests && !plays, riffOn: line.riffOnResolved),
-                                        help: "Play the lit notes on hits where the riff rests.") {
+                                        help: "Play the lit notes on hits where the riff rests.", lane: idx, outline: lockOn(idx, .notesWhen)) {
                                 guard !(rests && !plays) else { return }
                                 edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 }
                             }
                         }
                         placed(lay.chance, in: lay.whenRow) {
                             melodyStepper("CHANCE", value: chanceIdx, range: 0...3, width: lay.chance.width, help: "How many of the chosen hits the lit notes play.",
-                                          height: lay.chance.height, valueText: "\(chance)%", lowDisabled: chanceIdx == 0, highDisabled: chanceIdx == 3) { v in
+                                          height: lay.chance.height, valueText: "\(chance)%", lowDisabled: chanceIdx == 0, highDisabled: chanceIdx == 3, lane: idx, outline: lockOn(idx, .notesChance)) { v in
                                 guard v != chanceIdx else { return }
                                 edit(idx) { $0.notesChance = chanceStops[v] }
                             }
@@ -4653,6 +4789,7 @@ struct EuclideousPage: View {
                             EuclideousNotesPlayAsButtonView(way: way, list: data.list, accent: lane100(accent))
                                 .equatable()
                                 .contentShape(Rectangle())
+                                .modifier(lockOutlineMod(idx, .notesPlayAs, accent))
                                 .onTapGesture { notesPickerOpen.insert(idx) }
                                 .euclideousHelp("How the lit notes play on each hit it chooses.")
                                 .accessibilityElement(children: .ignore)
@@ -4667,7 +4804,7 @@ struct EuclideousPage: View {
                         placed(lay.soundLabel, in: lay.soundRow) { riffRowLabel("SOUND", "ONLY") }.accessibilityHidden(true)
                         placed(lay.received, in: lay.soundRow) {
                             notesToggle("RECEIVED", on: line.notesReceivedOnlyResolved, accent: accent, accessibility: euclideousNotesReceivedLabel, hint: euclideousNotesReceivedHint,
-                                        help: "Keep lit octave copies silent, so lit ranks join in as the held chord grows.") {
+                                        help: "Keep lit octave copies silent, so lit ranks join in as the held chord grows.", lane: idx, outline: lockOn(idx, .notesReceived)) {
                                 edit(idx) { $0.notesReceivedOnly = !$0.notesReceivedOnlyResolved }
                             }
                         }

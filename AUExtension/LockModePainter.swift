@@ -27,6 +27,7 @@ struct EuclideousLockPressable: View {
     let value: String
     let hint: String
     let holdActionName: String
+    var extraTapName: String? = nil   // the badge's spec'd custom action "Unlock" (the default activation is the same tap)
     let content: (_ heldLook: Bool) -> AnyView
     let onTap: () -> Void
     let onHold: () -> Void
@@ -69,7 +70,10 @@ struct EuclideousLockPressable: View {
             .accessibilityAddTraits(.isButton)
             .ringToggleTrait()
             .accessibilityAction { onTap() }
-            .accessibilityAction(named: holdActionName) { onHold() }
+            .accessibilityActions {
+                if let n = extraTapName { Button(n) { onTap() } }
+                Button(holdActionName) { onHold() }
+            }
     }
 
     private func finish(cancelled: Bool) {
@@ -269,5 +273,146 @@ struct EuclideousLockCardView: View {
             }.frame(maxWidth: .infinity))
         }
         return AnyView(TimelineView(.periodic(from: Date(), by: 0.25)) { tl in dots(tl.date) })
+    }
+}
+
+// MARK: - 5.4 the outline of a control that differs from L
+
+/// A 1.5 pt dashed lane100 frame (dash 4, gap 3), 3 pt outside the control, radius 10 — drawn on a control of the tab now showing whose value differs from the lane's locked state. Visual only: it never blocks a touch.
+struct EuclideousLockOutline: ViewModifier {
+    let on: Bool
+    let accent: Color
+    var radius: CGFloat = 10
+    func body(content: Content) -> some View {
+        content.overlay {
+            if on {
+                RoundedRectangle(cornerRadius: radius)
+                    .stroke(accent, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .padding(-3)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+extension View {
+    func lockOutline(_ on: Bool, accent: Color, radius: CGFloat = 10) -> some View { modifier(EuclideousLockOutline(on: on, accent: accent, radius: radius)) }
+}
+
+// MARK: - 6.2 / 6.9 held fingers and momentary buttons
+
+/// For a control that writes a lock field with a drag (a slider, the STEPS stepper, the comet bar): while the lane is LOCKED a simultaneous zero-distance drag counts a finger on it — the page's HELD word (6.2). An
+/// unlocked lane gets the bare control: nothing about a control changes until its lane is locked.
+struct EuclideousLockHold: ViewModifier {
+    let active: Bool
+    let onTouch: (Bool) -> Void
+    @State private var down = false
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .simultaneousGesture(DragGesture(minimumDistance: 0)
+                    .onChanged { _ in if !down { down = true; onTouch(true) } }
+                    .onEnded { _ in if down { down = false; onTouch(false) } })
+                .onDisappear { if down { down = false; onTouch(false) } }
+        } else { content }
+    }
+}
+/// For a control that acts on a TAP: an unlocked lane (or a locked one on a bar grid) gets exactly `.onTapGesture` as before — with a finger counted while locked (6.2) — and a lane locked on the BEAT grid gets the
+/// action at TOUCH-DOWN instead (6.9), so a tap is momentary: it sounds from the touch until the first beat after the lift. Lock and unlock never happen under a finger the page is counting (the count is reset by the VC).
+struct EuclideousLaneTap: ViewModifier {
+    let locked: Bool
+    let momentary: Bool
+    let onTouch: (Bool) -> Void
+    let action: () -> Void
+    @State private var down = false
+    func body(content: Content) -> some View {
+        if momentary {
+            content
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { _ in if !down { down = true; onTouch(true); action() } }
+                    .onEnded { _ in if down { down = false; onTouch(false) } })
+                .onDisappear { if down { down = false; onTouch(false) } }
+        } else if locked {
+            content
+                .onTapGesture(perform: action)
+                .simultaneousGesture(DragGesture(minimumDistance: 0)
+                    .onChanged { _ in if !down { down = true; onTouch(true) } }
+                    .onEnded { _ in if down { down = false; onTouch(false) } })
+                .onDisappear { if down { down = false; onTouch(false) } }
+        } else {
+            content.onTapGesture(perform: action)
+        }
+    }
+}
+
+// MARK: - 5.1 / 5.2 the badge on a locked lane's tab row
+
+/// The padlock badge: 34 × 34 at the trailing end of the tab row, a 44-tall touch target centred on it. Tap unlocks (7.3), a hold locks what's playing (7.2). At L it is a quiet outline; while the lane has moved it counts
+/// down to the line it will snap back on — a number of bars, then, in the last bar (and on the BEAT grid), one dot per beat left (more than 4: the number). It never dims.
+struct EuclideousLockBadgeView: View {
+    let lane: Int
+    let accent: Color
+    let deviated: Bool
+    let grid: EuclideousLockGrid
+    let held: Bool
+    let running: Bool
+    let tempo: Double
+    let barBeats: Double
+    let beatAt: (Date) -> Double
+    let onTap: () -> Void
+    let onHold: () -> Void
+    typealias P = EuclideousLockPalette
+
+    private func countdown(_ at: Date?) -> EuclideousLockCountdown? {
+        guard deviated else { return nil }
+        if held { return .held }
+        guard running else { return nil }
+        return euclideousLockCountdown(grid: grid, beat: beatAt(at ?? Date()), barBeats: barBeats, marginBeats: EuclideousLockMargin.beats(tempo: tempo), held: false)
+    }
+    private func spoken(_ c: EuclideousLockCountdown?) -> String {
+        guard deviated, let c else { return deviated ? "back on the next line" : "at its locked state" }
+        switch c {
+        case .held: return "back after you let go"
+        case .bars(let n): return "back in \(n) bars"
+        case .beats: return grid == .beat ? "back on the next beat" : "back this bar"
+        }
+    }
+    private func face(_ heldLook: Bool, _ c: EuclideousLockCountdown?) -> AnyView {
+        let fill: Color = heldLook ? P.heldFill : (deviated ? accent.opacity(0.2) : Color.clear)
+        let stroke: Color = deviated || heldLook ? accent : accent.opacity(0.6)
+        return AnyView(
+            ZStack {
+                RoundedRectangle(cornerRadius: 8).fill(fill)
+                if !heldLook { RoundedRectangle(cornerRadius: 8).inset(by: 0.5).stroke(stroke, lineWidth: 1) }
+                VStack(spacing: 2) {
+                    Image(systemName: "lock.fill").font(.system(size: deviated ? 12 : 14)).foregroundColor(heldLook ? P.ink : accent)
+                    if deviated, !heldLook, let c { indicator(c) }
+                }
+            }
+            .frame(width: 34, height: 34)
+            .transaction { $0.animation = nil }
+        )
+    }
+    private func indicator(_ c: EuclideousLockCountdown) -> AnyView {
+        switch c {
+        case .held: return AnyView(EmptyView())
+        case .bars(let n): return AnyView(Text("\(n)").font(.system(size: 9, weight: .heavy)).foregroundColor(P.text).lineLimit(1))
+        case .beats(let m):
+            if m > 4 { return AnyView(Text("\(m)").font(.system(size: 9, weight: .heavy)).foregroundColor(P.text).lineLimit(1)) }
+            return AnyView(HStack(spacing: 2) { ForEach(0..<m, id: \.self) { _ in Circle().fill(accent).frame(width: 3, height: 3) } }.frame(height: 9))
+        }
+    }
+    private func pressable(_ c: EuclideousLockCountdown?) -> AnyView {
+        AnyView(EuclideousLockPressable(label: "Lane \(lane + 1) locked", value: spoken(c), hint: "Double-tap to unlock", holdActionName: "Lock what's playing", extraTapName: "Unlock",
+                                        content: { heldLook in face(heldLook, c) }, onTap: onTap, onHold: onHold))
+    }
+    var body: some View {
+        Group {
+            if deviated && running && !held {
+                TimelineView(.periodic(from: Date(), by: 0.1)) { tl in pressable(countdown(tl.date)) }
+            } else {
+                pressable(countdown(nil))
+            }
+        }
+        .frame(width: 34, height: 44)
     }
 }
