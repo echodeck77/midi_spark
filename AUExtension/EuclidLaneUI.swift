@@ -154,6 +154,8 @@ struct EuclidLaneBox: View {
     // muted ⇒ byte-identical).
     var restartChains: EuclideousLaneRestartChains? = nil
     var mutedAt: ((Double) -> Bool)? = nil
+    /// LANE LOCK 5.3: the comet bar's dashed "will snap back" outline (a gesture on the bar wrote a lock field that differs from L). false (every other caller) ⇒ byte-identical.
+    var lockOutline: Bool = false
 
     var body: some View {
         let on = line.enabledResolved
@@ -189,6 +191,7 @@ struct EuclidLaneBox: View {
                 // bar gets the FULL `height` directly; non-compact keeps its original 6pt top+bottom padding
                 // derivation (56−12=44, unchanged for the regular BUILD-page editor).
                 .frame(height: compact ? max(20, height) : max(20, height - 12))
+                .lockOutline(lockOutline, accent: accent, radius: 8)
                 .overlay(alignment: .bottom) { if let t = listenShadowTint { Rectangle().fill(t).frame(height: 14).allowsHitTesting(false) } }
                 .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.1: the whole strip (cells, riff track, key row, playhead, the SHADOW band) once at 42 %
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)

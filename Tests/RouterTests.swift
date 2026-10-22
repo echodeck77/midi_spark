@@ -14787,21 +14787,23 @@ final class RouterTests: XCTestCase {
         let silent = lockLine(pulses: 0)
         return [a, b ?? silent, c ?? silent, silent]
     }
-    private func lockBox(_ lines: [EuclidLine], locks: [EuclideousLaneLock], revs: UInt32) -> SnapshotBox {
+    private func lockBox(_ lines: [EuclidLine], locks: [EuclideousLaneLock], revs: UInt32, fx: EuclideousFX? = nil, ranks: [Int]? = nil) -> SnapshotBox {
         var c = Machine(machineID: "gold", type: .euclid)
+        if let ranks { c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: ranks) }
         c.paramsA.euclidLines = lines
         c.paramsA.euclideousLocks = locks.isEmpty ? nil : locks
         c.paramsA.lockRevs = revs
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return sc }()])
         st.euclideousNoteSource = .midi
+        if let fx { st.euclideousFX = fx }
         return SnapshotBuilder.build(from: st)
     }
-    private func lockedRender(_ steps: [LockStep], locks: [EuclideousLaneLock], to: Double, frames: UInt32, chord: [UInt8] = [60], tempo: Double = 120, rolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots()) -> LockRun {
+    private func lockedRender(_ steps: [LockStep], locks: [EuclideousLaneLock], to: Double, frames: UInt32, chord: [UInt8] = [60], tempo: Double = 120, rolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(), fx: EuclideousFX? = nil, ranks: [Int]? = nil) -> LockRun {
         let sr = 48_000.0
         let pool = NotePool(); for n in chord { pool.noteOn(n, velocity: 100, channel: 0) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let boxes = steps.map { lockBox($0.lines, locks: locks, revs: $0.snapRev) }
+        let boxes = steps.map { lockBox($0.lines, locks: locks, revs: $0.snapRev, fx: fx, ranks: ranks) }
         let wb = Double(frames) * tempo / 60.0 / sr
         var beat = 0.0, ts = 0.0, w = 0, cur = 0
         var landings = [(window: Int, lane: Int, beat: Double)](), lastSeq: UInt32 = 0
@@ -15032,6 +15034,43 @@ final class RouterTests: XCTestCase {
         assertOnsets(lockOnsets(r.e, note: 60), splice([(0, 5.25, ref(L)), (5.25, 8, ref(B)), (8, 12, ref(L))]), "the locked lane is back on its line with a roll landing on lane 2")
         XCTAssertNotEqual(lockOnsets(r.e, note: 67), staticOnsets(lockLanes(L, other), to: 12, frames: 1024, chord: chord, note: 67), "the other lane took its roll (it plays differently from the no-roll render)")
         assertNothingSticks(r, "random mode alongside a lock")
+    }
+    // ADVERSARIAL REVIEW (2026-10-22): the landing across the engine's long-note machinery — a riff with rests under TIE / REPEAT, FX ratchets, TIE and a 95 % GATE, on a locked lane whose settings flip at random, with random holds
+    // and in-flight edits. A tied note's off and a ratchet's tail are scheduled from the OLD line before the line; they must still end on their own.
+    func testLockSnapAcrossTieRatchetAndGateNeverLeavesANoteSounding() {
+        var seed: UInt64 = 0xD1B54A32D192ED03
+        func rnd(_ n: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 33) % UInt64(n)) }
+        func fxLane(_ pulses: Int, _ onRest: EuclidRiffOnRest, dir: RiffDir, step: Bool) -> EuclidLine {
+            var l = EuclidLine(target: 0, pulses: pulses, steps: 8)
+            l.gate = 0.95; l.velocityAbsolute = 90; l.rate = .r1_8; l.useRiff = true; l.riffOn = true; l.sourceMode = .midi
+            l.riffLength = 8; l.notesOn = true; l.riffOnRest = onRest; l.riffDir = dir; l.riffAdvanceStep = step
+            l.setLitOrder(EuclideousLitOrder.derived(litNotes: 0b11, top: false, top2: false))
+            return l
+        }
+        let ranks = [1, 0, 3, 0, 5, 6, 0, 8]   // rests in the riff, so TIE / REPEAT have something to do
+        var fx = EuclideousFX()
+        for (r, c, v) in [(2, 1, 1), (2, 4, 1), (1, 2, 95), (1, 5, 95), (0, 3, 4), (0, 6, 3), (0, 0, 2)] { fx.cells[r * 8 + c] = Int8(v) }
+        fx.notePasses = 4
+        let L = fxLane(5, .tie, dir: .forward, step: false)
+        for frames: UInt32 in [64, 1024] {
+            for grid in [EuclideousLockGrid.beat, .bars2] {
+                let locks = [EuclideousLaneLock.locking(L, grid: grid), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+                var steps = [LockStep(beat: 0, lines: lockLanes(L))]
+                var rev: UInt32 = 0, beat = 0.0
+                while beat < 36 {
+                    beat += 0.1 + Double(rnd(40)) / 20
+                    let B = fxLane(1 + rnd(8), [.skip, .tie, .repeatLast][rnd(3)], dir: [.forward, .reverse, .pendulum, .pingpong][rnd(4)], step: rnd(2) == 0)
+                    rev = (rev + 1) & 0xFF
+                    let inFlight = rnd(5) == 0
+                    steps.append(LockStep(beat: beat, lines: lockLanes(rnd(4) == 0 ? L : B), snapRev: inFlight ? (rev &- 1) & 0xFF : rev, liveRev: rev, held: rnd(4) == 0 ? 1 : 0))
+                    if inFlight { steps.append(LockStep(beat: beat + 0.03, lines: steps.last!.lines, snapRev: rev, liveRev: rev, held: steps.last!.held)) }
+                }
+                let r = lockedRender(steps, locks: locks, to: 40, frames: frames, chord: [48, 51, 55], fx: fx, ranks: ranks)
+                assertNothingSticks(r, "TIE / ratchet / gate, buffer \(frames), grid \(grid)")
+                XCTAssertGreaterThan(r.e.ons.count, 20)
+                XCTAssertFalse(r.landings.isEmpty, "buffer \(frames), grid \(grid): the schedule must have produced snaps for this test to mean anything")
+            }
+        }
     }
     // The count-down's latency margin: how long the main→render path takes to build a snapshot (the page's side of it; the render side adds at most one buffer).
     func testLockSnapshotBuildTimeForTheMarginEstimate() {

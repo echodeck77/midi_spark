@@ -371,6 +371,26 @@ final class LaneLockTests: XCTestCase {
         XCTAssertEqual(euclideousLockMergeForUndo(restored: restored, current: now, locked: [false, false, false, false])[1].pulses, base[1].pulses, "unlocked: undo reaches it as today")
     }
 
+    /// The question the VC's undo funnel actually asks (`onEdit`/`onEditStep` call this wrapper, not the pure rule above): "did this change touch only lock fields of locked lanes?"
+    func testTheUndoFunnelsQuestionSkipsOnlyLockFieldEditsOfLockedLanes() {
+        let base = (0..<4).map { _ in EuclidLine() }
+        let one = EuclideousLaneLock.locking(base[1], grid: .bars4)
+        let locks = [EuclideousLaneLock(), one, EuclideousLaneLock(), EuclideousLaneLock()]
+        var lockField = base; lockField[1].pulses = 6; lockField[1].riffDir = .reverse
+        XCTAssertTrue(euclideousLockChangeIsLockOnly(old: base, new: lockField, locks: locks), "a locked lane's lock fields: no undo step")
+        var gate = base; gate[1].gate = 0.4
+        XCTAssertFalse(euclideousLockChangeIsLockOnly(old: base, new: gate, locks: locks), "MIX is not a lock field: records")
+        var both = base; both[1].pulses = 6; both[1].gate = 0.4
+        XCTAssertFalse(euclideousLockChangeIsLockOnly(old: base, new: both, locks: locks), "one undoable field in the same edit: records")
+        var other = base; other[2].pulses = 3
+        XCTAssertFalse(euclideousLockChangeIsLockOnly(old: base, new: other, locks: locks), "an unlocked lane records")
+        var twoLanes = base; twoLanes[1].pulses = 6; twoLanes[2].pulses = 3
+        XCTAssertFalse(euclideousLockChangeIsLockOnly(old: base, new: twoLanes, locks: locks), "a gesture across a locked and an unlocked lane records")
+        XCTAssertFalse(euclideousLockChangeIsLockOnly(old: base, new: base, locks: locks), "no change records as it always did")
+        XCTAssertFalse(euclideousLockChangeIsLockOnly(old: base, new: lockField, locks: (0..<4).map { _ in EuclideousLaneLock() }), "nothing locked: byte-identical to before the feature")
+        XCTAssertFalse(euclideousLockChangeIsLockOnly(old: base, new: lockField, locks: []), "no lock array yet (a fresh document): same")
+    }
+
     func testRandomModeOnALockedLaneAllowsNoRollsAndSaysWhy() {
         XCTAssertFalse(euclideousLockRandomAllowsRolls(laneLocked: true)); XCTAssertTrue(euclideousLockRandomAllowsRolls(laneLocked: false))
         XCTAssertEqual(euclideousLockRandomIdleCaption(laneLocked: true), "LOCKED · UNLOCK TO ROLL")

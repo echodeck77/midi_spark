@@ -18,6 +18,7 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 ## Open items
 
 ### LANE LOCK (2026-10-21/22)
+- (review 2026-10-22) The comet bar's dashed outline (drawn round the bar only, radius 8) reads clearly beside the SOLO button and doesn't clip at the card's top edge; with VoiceOver on, each outlined control (incl. direction, INV, rate cells, riff card, notes keys) ends its value with "will snap back"; with SWING above 0 on a quarter-note page step, a BEAT-grid snap at an odd beat may land a swing-width off the line (known limit).
 - LAUNCH the DEBUG build from Xcode into AUM first (the 1 MB main-thread stack; the page must come up), open lock mode with the padlock, then tap off the cards to finish: the finish never presses something underneath.
 - Snaps on the bar line sound clean in AUM at 64 and 1024 buffers — no doubled or dropped hit, no stuck notes — including the hit ON the downbeat after the line (the fill: lock a lane on 4 BARS, push HITS up and flip REV in bar 4, hear it return on bar 5's downbeat).
 - The BEAT grid's momentary buttons feel immediate (hold REV: reversed while the finger is down, back on the first beat after the lift); drags (OFFSET, HITS) move while dragging and snap back cleanly on the beat after the lift.

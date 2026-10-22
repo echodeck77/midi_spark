@@ -2569,7 +2569,8 @@ struct EuclideousPage: View {
                           cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
                           rateBeatsOverride: followEff?.rateBeats,
                           restartChains: cardChains.isActive ? cardChains : nil,
-                          mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) })
+                          mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) },
+                          lockOutline: lockOn(idx, .cometStrip))
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -3032,6 +3033,7 @@ struct EuclideousPage: View {
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                     .contentShape(Rectangle())
                     .modifier(laneTapMod(idx) { edit(idx) { $0.direction = dir } })
+                    .accessibilityValue(lockSpoken(idx, .direction, ""))
             }
         }
         .modifier(lockOutlineMod(idx, .direction, accent))
@@ -3143,6 +3145,7 @@ struct EuclideousPage: View {
             .modifier(lockOutlineMod(idx, .inv, accent))
             .euclideousHelp("Play on the empty steps instead of the hits")
             .accessibilityLabel("Invert")
+            .accessibilityValue(lockSpoken(idx, .inv, ""))
     }
 
     // MARK: - RESTART CHAINS (ferry 2026-10-19) — §6 tiles + editor, §3 STEPS picker
@@ -3648,6 +3651,7 @@ struct EuclideousPage: View {
                                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on && valid ? lane100(accent) : Color.clear, lineWidth: 1))
                                     .contentShape(Rectangle())
                                     .modifier(laneTapMod(idx) { if valid { edit(idx) { $0.listenFollowMult = m } } })
+                                    .accessibilityValue(lockSpoken(idx, .followMult, ""))
                             }
                         }
                     }
@@ -3679,6 +3683,7 @@ struct EuclideousPage: View {
                                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                                     .contentShape(Rectangle())
                                     .modifier(laneTapMod(idx) { setRate(division: d) })
+                                    .accessibilityValue(lockSpoken(idx, .rate, ""))
                             }
                         }
                     }
@@ -3694,6 +3699,7 @@ struct EuclideousPage: View {
                             .contentShape(Rectangle())
                             .modifier(laneTapMod(idx) { setRate(feel: f) })
                             .accessibilityLabel(feelLabels[f])
+                            .accessibilityValue(lockSpoken(idx, .rate, ""))
                     }
                 }
             }
@@ -3781,6 +3787,7 @@ struct EuclideousPage: View {
             .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
             .contentShape(Rectangle())
             .modifier(EuclideousLockOutline(on: outline, accent: accent))   // LANE LOCK 5.4
+            .accessibilityValue(euclideousLockAppendSnapWords("", outlined: outline))   // 5.6
             .modifier(EuclideousLaneTap(locked: lane.map { lockLocked($0) } ?? false, momentary: lane.map { lockMomentary($0) } ?? false,   // LANE LOCK 6.2 / 6.9: a plain tap unless the lane is locked
                                         onTouch: { if let lane { onLockHeld(lane, $0) } }, action: action))
         if let help { return AnyView(base.euclideousHelp(help)) } else { return AnyView(base) }
@@ -4067,6 +4074,7 @@ struct EuclideousPage: View {
         .modifier(lockOutlineMod(idx, .riffOn, accent))
         .euclideousHelp("The riff as this lane plays it. Tap to turn the riff on or off.")
         .accessibilityElement(children: .ignore)
+        .accessibilityValue(lockSpoken(idx, .riffOn, ""))
         .accessibilityLabel({
             guard isRiff else { return "Riff, off" }
             let pos = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1
@@ -4523,6 +4531,7 @@ struct EuclideousPage: View {
         .modifier(lockOutlineMod(idx, .notesStrip, accent))
         .euclideousHelp("Turn the notes layer on or off. Lit notes are remembered.")
         .accessibilityElement(children: .ignore)
+        .accessibilityValue(lockSpoken(idx, .notesStrip, ""))
         .accessibilityLabel("Notes layer, \(isOn ? "on" : "off"), \(litCount) notes lit")
     }
     /// The octave/TOP 2/TOP row — the shared octave trough (writing ONLY `octave`, independent of RIFF's own
@@ -4747,6 +4756,7 @@ struct EuclideousPage: View {
                                         .accessibilityLabel(p < 8
                                             ? euclideousNotesRankKeyAccessibilityLabel(rank: p + 1, spokenNote: data.spoken[p].first, received: spec.received, lit: spec.lit, heldBack: spec.heldBack, place: spec.place)
                                             : euclideousNotesTopKeyAccessibilityLabel(isTopTwo: p == EuclideousLitOrder.topTwoPosition, spokenNotes: data.spoken[p], lit: spec.lit, place: spec.place))
+                                        .accessibilityValue(lockSpoken(idx, .noteKey(p), ""))
                                         .accessibilityHint("Lights or unlights this note")
                                         .accessibilityAddTraits(.isButton)
                                         .ringToggleTrait()
