@@ -304,4 +304,77 @@ final class RhythmPolishTests: XCTestCase {
         let flipped = euclideousBuildPattern(l).buf
         XCTAssertEqual((0..<7).map { flipped[$0] }, (0..<7).map { !plain[$0] }, "FLIP HITS plays exactly the steps that did not hit")
     }
+
+    // MARK: 8 / 9. the restart tiles' state
+
+    private func tileCfg(_ pulses: Int, _ steps: Int, dir: EuclidDir = .fwd, rhythm: [UInt8]? = nil, melody: [UInt8]? = nil, advanceStep: Bool = false, every: Int = 1,
+                         riffLength: Int = 8, riffDir: RiffDir = .forward) -> EuclideousWalkLaneConfig {
+        var l = EuclidLine(pulses: pulses, steps: steps, noteSel: .all)
+        l.rate = .r1_8; l.direction = dir; l.restartRhythmBars = rhythm; l.restartMelodyPasses = melody
+        l.riffAdvanceStep = advanceStep; l.riffAdvanceEvery = every; l.riffLength = riffLength; l.riffDir = riffDir
+        return euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+    }
+    func testRhythmTileSweepAndTrack() {
+        // 8 × 1/8, restart every 2 bars (8 beats): the sweep is a quarter of the way at beat 2, back to 0 at the restart; 3 slots lit at beat 1.25 and nothing is ghosted (the pass fits the cycle)
+        let a = tileCfg(5, 8, rhythm: [2])
+        XCTAssertEqual(restartTileState(.rhythm, cfg: a, beat: 2, running: true).progress!, 0.25, accuracy: 1e-9)
+        XCTAssertEqual(restartTileState(.rhythm, cfg: a, beat: 8, running: true).progress!, 0, accuracy: 1e-9)
+        XCTAssertEqual(restartTileState(.rhythm, cfg: a, beat: 7.999, running: true).progress!, 7.999 / 8, accuracy: 1e-9, "full just before the restart, then it drops")
+        let a125 = restartTileState(.rhythm, cfg: a, beat: 1.25, running: true)
+        XCTAssertEqual(a125.count, 8); XCTAssertEqual(a125.litCount, 3); XCTAssertEqual(a125.ghostCount, 0)
+        XCTAssertEqual(a125.restartsInText, "next restart in 2 bars"); XCTAssertEqual(restartTileState(.rhythm, cfg: a, beat: 6.5, running: true).restartsInText, "next restart this bar")
+        // 7 × 1/8 (a 3.5-beat pass) with a bar restart: the second pass is cut after one step — at beat 3.6 one slot is lit and six are ghosts; in the next bar (4.1) it is one lit, six unlit
+        let b = tileCfg(7, 7, rhythm: [1])
+        let b36 = restartTileState(.rhythm, cfg: b, beat: 3.6, running: true)
+        XCTAssertEqual(b36.count, 7); XCTAssertEqual(b36.litCount, 1); XCTAssertEqual(b36.ghostCount, 6)
+        let b41 = restartTileState(.rhythm, cfg: b, beat: 4.1, running: true)
+        XCTAssertEqual(b41.litCount, 1); XCTAssertEqual(b41.ghostCount, 0)
+        // and the first pass of a bar fits (3.5 < 4): no ghosts, 2 lit at beat 0.6
+        XCTAssertEqual(restartTileState(.rhythm, cfg: b, beat: 0.6, running: true).ghostCount, 0)
+        // stopped: the structure stays (the ghosts), nothing lit, no sweep
+        let stopped = restartTileState(.rhythm, cfg: b, beat: 3.6, running: false)
+        XCTAssertEqual(stopped.ghostCount, 6); XCTAssertEqual(stopped.litCount, 0); XCTAssertNil(stopped.progress); XCTAssertEqual(stopped.restartsInText, "")
+        // FREE: lit cells (grey in the painter), no sweep, no ghosts — however the pass relates to the bar
+        let free = restartTileState(.rhythm, cfg: tileCfg(7, 7), beat: 3.6, running: true)
+        XCTAssertTrue(free.isFree); XCTAssertNil(free.progress); XCTAssertEqual(free.ghostCount, 0); XCTAssertGreaterThan(free.litCount, 0)
+        // the acceptance lane: 9 steps at 1/4 (a 9-beat pass), 1 BAR: the sweep crosses once per bar; 4 slots lit at beat 3.9 and 5 ghosts
+        var l = EuclidLine(pulses: 4, steps: 9, noteSel: .all); l.rate = .r1_4; l.restartRhythmBars = [1]; l.restartMelodyPasses = [2]
+        let acc = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        let s39 = restartTileState(.rhythm, cfg: acc, beat: 3.9, running: true)
+        XCTAssertEqual(s39.litCount, 4); XCTAssertEqual(s39.ghostCount, 5); XCTAssertEqual(s39.count, 9)
+        XCTAssertEqual(restartTileState(.rhythm, cfg: acc, beat: 4, running: true).progress!, 0, accuracy: 1e-9, "empties on the bar line")
+        // a lap over 16 slots (9 steps PING-PONG = 18) is one continuous bar
+        let pp = restartTileState(.rhythm, cfg: tileCfg(4, 9, dir: .pingpong), beat: 4.5, running: true)
+        XCTAssertTrue(pp.continuous); XCTAssertEqual(pp.count, 18); XCTAssertEqual(pp.litFraction, 4.5 / 9, accuracy: 1e-9)
+    }
+    func testMelodyTileUnitsTicksAndProgress() {
+        // E(5,8) at 1/8, riff of 8 columns FWD, ADV HIT, rhythm FREE, melody 2·1·1 (restarts at passes 0, 2 and 3 of every 4): a 4-beat pass holds 5 hits
+        let m = tileCfg(5, 8, melody: [2, 1, 1])
+        let at0 = restartTileState(.melody, cfg: m, beat: 0, running: true)
+        XCTAssertEqual(at0.count, 10, "two passes of 5 hits"); XCTAssertEqual(at0.tickMask, UInt16(1) << 7, "a tick after the 8th: the riff has walked its eight columns")
+        XCTAssertEqual(at0.progress!, 0, accuracy: 1e-9); XCTAssertEqual(at0.litCount, 1, "the hit on step 0 is under way")
+        let at8 = restartTileState(.melody, cfg: m, beat: 8, running: true)
+        XCTAssertEqual(at8.count, 5); XCTAssertEqual(at8.tickMask, 0, "5 hits never complete the 8-column cycle"); XCTAssertEqual(at8.progress!, 0, accuracy: 1e-9)
+        let at6 = restartTileState(.melody, cfg: m, beat: 6, running: true)
+        XCTAssertEqual(at6.progress!, 0.75, accuracy: 1e-9); XCTAssertEqual(at6.restartsInText, "next restart this pass")
+        // FREE melody: the riff's own cycle, lit to the position, no ticks, no sweep
+        let free = restartTileState(.melody, cfg: tileCfg(5, 8), beat: 0.6, running: true)
+        XCTAssertTrue(free.isFree); XCTAssertEqual(free.count, 8); XCTAssertEqual(free.tickMask, 0); XCTAssertNil(free.progress)
+        XCTAssertEqual(free.litCount, 1, "E(5,8) hits steps 0, 2, 4, 5, 7: at beat 0.6 only the hit on step 0 has played")
+    }
+    func testMelodyTileOverSixteenUnitsIsOneBarWithProportionalTicks() {
+        // melody [4] = 20 hits, the riff's cycle 8: ticks at 8/20 and 16/20 of the bar
+        let m = restartTileState(.melody, cfg: tileCfg(5, 8, melody: [4]), beat: 0, running: true)
+        XCTAssertTrue(m.continuous); XCTAssertEqual(m.count, 20); XCTAssertEqual(m.tickEveryFraction!, 0.4, accuracy: 1e-12)
+        XCTAssertEqual(euclideousRestartTileContinuousTickXs(m, width: 100), [40, 80])
+        // ADV STEP counts steps: 4 passes × 8 = 32 units, a tick every 8 → at 4 pt minimum spacing a 20 pt bar keeps only the ones ≥ 4 pt apart (5, 10, 15 → all fine); 12 pt drops alternate ones
+        let st = restartTileState(.melody, cfg: tileCfg(5, 8, melody: [4], advanceStep: true), beat: 0, running: true)
+        XCTAssertEqual(st.count, 32)
+        XCTAssertEqual(euclideousRestartTileContinuousTickXs(st, width: 20), [5, 10, 15])
+        let dropped = euclideousRestartTileContinuousTickXs(st, width: 12)
+        XCTAssertEqual(dropped, [3, 9], "a tick within 4 pt of the one before it is dropped: 3 (kept), 6 (dropped), 9 (kept)")
+        // cell widths: sp2 between cells, a tick costs 4 pt
+        XCTAssertEqual(euclideousRestartTileCellWidth(count: 8, ticks: 0, width: 140.75), (140.75 - 14) / 8, accuracy: 1e-9)
+        XCTAssertEqual(euclideousRestartTileCellWidth(count: 10, ticks: 1, width: 140.75), (140.75 - 18 - 4) / 10, accuracy: 1e-9)
+    }
 }

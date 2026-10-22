@@ -9731,6 +9731,146 @@ func euclideousRestartFlashLook(since seconds: Double, scale p: Double, reduceMo
                                       hot: decay)
 }
 
+// MARK: - RESTART TILES (RHYTHM POLISH ferry, 2026-10-22, §6) — the sweep and the progress track
+
+/// §6.3 / §6.4 — where one restart tile stands at a beat: how far its fill has swept toward the next restart (`progress`), and the track under its text (`cells`, `ticks`). ONE pure function builds it for both tiles and
+/// the tests; it is the engine's own: the rhythm origin / next rhythm restart / pass start and index (§5 of the RHYTHM tab ferry), the melody origin and its next restart, the lane's real hit schedule
+/// (`euclideousChainHitsBefore`) and the riff's own cycle (`euclideousFXWalkPeriod` × EVERY). Fixed-size and allocation-free: the first 16 cells are two bits each in `cellBits`, the ticks one bit each in `tickMask`;
+/// a track with more than 16 cells is drawn as one continuous bar (`continuous`) from the fractions below.
+struct EuclideousRestartTileState: Equatable {
+    static let cellCap = 16
+    var kind: EuclideousRestartKind
+    var isFree: Bool = true
+    var progress: Double? = nil           // the sweep's fraction of the tile (nil: FREE, or the lane isn't running)
+    var count: Int = 0                    // step slots (RHYTHM) / riff units (MELODY) in the track
+    var cellBits: UInt32 = 0              // 2 bits per cell, cells 0…15: 0 unlit · 1 lit · 2 ghost (a slot this pass won't reach)
+    var tickMask: UInt16 = 0              // bit i: a tick sits in the gap after cell i (MELODY: where the riff completes its own cycle)
+    var continuous: Bool { count > EuclideousRestartTileState.cellCap }
+    var litFraction: Double = 0           // continuous form: how much of the bar is lit
+    var ghostFromFraction: Double? = nil  // continuous RHYTHM: the dashed tail starts here
+    var tickEveryFraction: Double? = nil  // continuous MELODY: a tick every this fraction of the bar
+    var restartsIn: Int? = nil            // whole bars (RHYTHM) / passes (MELODY) until the next restart, rounded up; nil when FREE or not running
+    func cell(_ i: Int) -> UInt8 { i >= 0 && i < 16 ? UInt8((cellBits >> UInt32(2 * i)) & 3) : 0 }
+    func hasTick(after i: Int) -> Bool { i >= 0 && i < 16 && tickMask & (UInt16(1) << UInt16(i)) != 0 }
+    var litCount: Int { (0..<min(count, 16)).filter { cell($0) == 1 }.count }
+    var ghostCount: Int { (0..<min(count, 16)).filter { cell($0) == 2 }.count }
+    /// §6.7 — the VoiceOver value while the lane runs: "next restart in 3 bars" / "in 2 passes", or "this bar" / "this pass" when it falls at the end of the current one. Empty when FREE or stopped.
+    var restartsInText: String {
+        guard let n = restartsIn else { return "" }
+        let unit = kind == .rhythm ? "bar" : "pass"
+        return n <= 1 ? "next restart this \(unit)" : "next restart in \(n) \(unit == "bar" ? "bars" : "passes")"
+    }
+    mutating func setCell(_ i: Int, _ v: UInt32) { guard i >= 0, i < 16 else { return }; cellBits = (cellBits & ~(UInt32(3) << UInt32(2 * i))) | (v << UInt32(2 * i)) }
+}
+/// The beat of the next MELODY restart strictly after `beat` — the start of the next pass that begins one of the chain's links; nil when FREE.
+func euclideousNextMelodyRestart(after beat: Double, lapBeats: Double, barBeats: Double, rhythmChain: EuclideousRestartChain, melodyChain: EuclideousRestartChain) -> Double? {
+    guard !melodyChain.isFree else { return nil }
+    let P = Int64(melodyChain.total)
+    guard P > 0, lapBeats > 0 else { return nil }
+    let q = euclideousPassIndex(beat: beat, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)
+    let r = ((q % P) + P) % P
+    var nextOffset = P
+    var i = 0
+    while i < melodyChain.count {
+        let p = Int64(melodyChain.runningTotal(i))
+        if p > r { nextOffset = p; break }
+        i += 1
+    }
+    return euclideousPassStart(q - r + nextOffset, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythmChain)
+}
+/// `beat` is the engine's MUSICAL beat. `running` false (stopped transport, or the lane isn't playing): the track keeps its structure at `beat` with nothing lit and no sweep.
+func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneConfig, beat: Double, running: Bool) -> EuclideousRestartTileState {
+    var st = EuclideousRestartTileState(kind: kind)
+    let eps = 1e-9
+    let sub = c.sub
+    guard sub > 0, c.n > 0 else { return st }
+    let cycleLen = euclidCycleLen(c.dir, n: c.n)
+    let lap = Double(cycleLen) * sub
+    let barBeats = c.chains.barBeats
+    let rhythm = c.chains.rhythm
+    switch kind {
+    case .rhythm:
+        st.isFree = rhythm.isFree
+        let pass = euclideousPassIndex(beat: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm)
+        let passStart = euclideousPassStart(pass, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm)
+        let next: Double? = rhythm.isFree ? nil : euclideousNextRhythmRestart(after: beat, barBeats: barBeats, chain: rhythm)
+        let cur = max(0, min(cycleLen - 1, Int(((beat - passStart) / sub + eps).rounded(.down))))
+        st.count = cycleLen
+        for i in 0..<min(cycleLen, EuclideousRestartTileState.cellCap) {
+            if running && i <= cur { st.setCell(i, 1) }
+            else if let nx = next, passStart + Double(i) * sub >= nx - eps { st.setCell(i, 2) }   // a slot the pass won't reach before the next rhythm restart
+        }
+        if st.continuous {
+            st.litFraction = running ? max(0, min(1, (beat - passStart) / lap)) : 0
+            if let nx = next { let f = (nx - passStart) / lap; if f < 1 - eps { st.ghostFromFraction = max(0, f) } }
+        }
+        if let nx = next, running {
+            let origin = euclideousRhythmChainOrigin(beat: beat, barBeats: barBeats, chain: rhythm)
+            st.progress = nx > origin ? max(0, min(1, (beat - origin) / (nx - origin))) : 0
+            st.restartsIn = max(1, Int(((nx - beat) / barBeats - eps).rounded(.up)))
+        }
+    case .melody:
+        let chain = c.chains.melody
+        st.isFree = chain.isFree
+        var cycleHits = 0
+        for s in 0..<cycleLen where c.buf[euclidReadIndex(s, n: c.n, dir: c.dir)] { cycleHits += 1 }
+        func unitsBefore(_ m: Int64) -> Int64 {
+            c.advanceStep ? m : euclideousChainHitsBefore(m, rhythm: rhythm, barBeats: barBeats, sub: sub, buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, cycleHits: cycleHits)
+        }
+        let period = max(1, euclideousFXWalkPeriod(dir: c.riffDir, length: c.length, stride: c.stride) * max(1, c.every))   // the riff's own cycle, in units
+        let tickNow = Int64(((beat / sub) + eps).rounded(.down))
+        if chain.isFree {
+            // the riff's own cycle, lit up to the position within it (counted from beat 0, the FREE melody origin)
+            let played = max(0, unitsBefore(tickNow + 1) - unitsBefore(0))
+            st.count = period
+            let lit = (running && played > 0) ? Int((played - 1) % Int64(period)) + 1 : 0
+            for i in 0..<min(period, EuclideousRestartTileState.cellCap) where i < lit { st.setCell(i, 1) }
+            if st.continuous { st.litFraction = Double(lit) / Double(period) }
+        } else {
+            let originBeat = euclideousMelodyChainOrigin(beat: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm, melodyChain: chain)
+            guard let nextBeat = euclideousNextMelodyRestart(after: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm, melodyChain: chain) else { return st }
+            let oT = euclideousOriginTick(originBeat, sub: sub), nT = euclideousOriginTick(nextBeat, sub: sub)
+            let base = unitsBefore(oT)
+            let count = max(0, Int(unitsBefore(nT) - base))
+            let played = max(0, min(count, Int(unitsBefore(tickNow + 1) - base)))
+            st.count = count
+            for i in 0..<min(count, EuclideousRestartTileState.cellCap) where running && i < played { st.setCell(i, 1) }
+            if st.continuous {
+                st.litFraction = running ? Double(played) / Double(count) : 0
+                if period < count { st.tickEveryFraction = Double(period) / Double(count) }
+            } else {
+                var k = period
+                while k < count { st.tickMask |= UInt16(1) << UInt16(k - 1); k += period }   // after the unit that completes the riff's cycle (k ≤ 15 here)
+            }
+            if running {
+                st.progress = nextBeat > originBeat ? max(0, min(1, (beat - originBeat) / (nextBeat - originBeat))) : 0
+                st.restartsIn = max(1, Int(((nextBeat - beat) / lap - eps).rounded(.up)))
+            }
+        }
+    }
+    return st
+}
+/// §6.4 — the track's geometry for `count` cells in a box `width` wide: each cell is `(width − 2 × (count − 1) − 4 × ticks) / count` (sp2 between items; a tick is 2 pt plus one more sp2 gap, so it costs 4 pt).
+func euclideousRestartTileCellWidth(count: Int, ticks: Int, width: CGFloat) -> CGFloat {
+    guard count > 0 else { return 0 }
+    return max(1, (width - 2 * CGFloat(count - 1) - 4 * CGFloat(ticks)) / CGFloat(count))
+}
+/// §6.4 — the continuous form's tick x positions across a `width` bar: a tick every `tickEveryFraction`, and one is dropped when it would sit within 4 pt of the one before it. Calls `body` per tick (no allocation).
+func euclideousRestartTileForEachContinuousTick(_ st: EuclideousRestartTileState, width: CGFloat, _ body: (CGFloat) -> Void) {
+    guard st.continuous, let every = st.tickEveryFraction, every > 0 else { return }
+    var f = every, lastX = -CGFloat.infinity
+    while f < 1 - 1e-9 {
+        let x = CGFloat(f) * width
+        if x - lastX >= 4 { body(x); lastX = x }
+        f += every
+    }
+}
+func euclideousRestartTileContinuousTickXs(_ st: EuclideousRestartTileState, width: CGFloat) -> [CGFloat] {
+    var out: [CGFloat] = []
+    euclideousRestartTileForEachContinuousTick(st, width: width) { out.append($0) }
+    return out
+}
+
 /// The restart tile's label for a tile `width` wide: "RHYTHM RESTART" / "MELODY RESTART" when it fits at 8 pt heavy mono (`EuclideousHeaderMetrics.monoAdvance` × 8 per character, 2 pt either side),
 /// else just "RHYTHM" / "MELODY" — never a word cut in the middle (the ↻ beside the value still says "restart").
 func euclideousRestartTileLabel(name: String, width: CGFloat) -> String {
