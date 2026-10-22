@@ -222,17 +222,7 @@ struct EuclidLaneBox: View {
     /// call, not literal spec. Non-compact keeps the original SF-Symbol-on-translucent-fill button verbatim.
     @ViewBuilder private func playButton(on: Bool) -> some View {
         if compact {
-            ZStack {
-                if on {
-                    EuclidPlayTriangle().fill(accent).frame(width: 14, height: 18).offset(x: 4)
-                } else {
-                    Rectangle().fill(accent.opacity(0.4)).frame(width: 13, height: 13).offset(x: 4)
-                }
-            }
-            .frame(width: 44, height: 44)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
-            .contentShape(Rectangle())
-            .onTapGesture { onToggleEnabled() }
+            EuclidCompactPlayButton(on: on, accent: accent, onToggle: onToggleEnabled)
         } else {
             Image(systemName: on ? "play.fill" : "stop.fill")
                 .font(.system(size: 15, weight: .black))
@@ -242,6 +232,29 @@ struct EuclidLaneBox: View {
                 .contentShape(Rectangle())
                 .onTapGesture { onToggleEnabled() }   // its own tap wins over the cell's outer select-tap below, at this exact spot — standard SwiftUI nested-gesture precedence
         }
+    }
+}
+
+/// PLAY/STOP button (2026-10-13 ferry, compact only, literal): "CHIP fill, 9pt radius. The triangle is
+/// LANE-100, 14 wide × 18 tall, sitting 4pt right of centre." Extracted standalone (RANDOM MODE lane-box
+/// buttons ferry, 2026-10-22) so the picture-mode card can reuse this EXACT view rather than re-deriving
+/// its look — `EuclidLaneBox`'s own `playButton(on:)` now just calls this.
+struct EuclidCompactPlayButton: View {
+    let on: Bool
+    let accent: Color
+    let onToggle: () -> Void
+    var body: some View {
+        ZStack {
+            if on {
+                EuclidPlayTriangle().fill(accent).frame(width: 14, height: 18).offset(x: 4)
+            } else {
+                Rectangle().fill(accent.opacity(0.4)).frame(width: 13, height: 13).offset(x: 4)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle() }
     }
 }
 

@@ -40,6 +40,12 @@ struct EuclideousRandomCardView: View {
     let landingBeat: Double?
     /// LANE LOCK 9.1: a locked lane still shows its picture, selector and caption, but THROW and TWEAK draw at 40 % and take no input ("LOCKED · UNLOCK TO ROLL" replaces the idle caption).
     var laneLocked: Bool = false
+    /// Lane-box buttons ferry (2026-10-22): the SAME play/SOLO controls the normal-mode lane card has, top
+    /// left/right, matching normal mode's size and style exactly — `onToggleEnabled` reuses `EuclidLane
+    /// Box`'s own callback shape; `soloButtonView` IS the exact `AnyView` the normal card builds (same
+    /// `EuclideousSoloButton`/`EuclideousSoloPressable`, not a re-derived one).
+    let onToggleEnabled: () -> Void
+    let soloButtonView: AnyView
 
     private let inset: CGFloat = 10
 
@@ -53,9 +59,18 @@ struct EuclideousRandomCardView: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clockPlaying)) { tl in
             let beat = currentBeat(at: tl.date)
             VStack(spacing: 0) {
-                selectorRow.frame(height: 32).padding(.top, 10)
+                // Lane-box buttons ferry: PLAY top-left / SOLO top-right, the card's own 44pt row —
+                // same height/style as the normal lane card's step row, so the two modes read as one family.
+                HStack(spacing: 0) {
+                    EuclidCompactPlayButton(on: line.enabledResolved, accent: accent, onToggle: onToggleEnabled)
+                    Spacer(minLength: 0)
+                    soloButtonView
+                }
+                .frame(height: 44)
+                .padding(.top, 10)
+                selectorRow.frame(height: 32).padding(.top, 6)
                 Spacer(minLength: 2)
-                picture(beat: beat).frame(height: max(1, height - 58 - 96))
+                picture(beat: beat).frame(height: max(1, height - 58 - 96 - 50))
                     .padding(.horizontal, 8)   // + the VStack's own outer 10pt below = a flat 18pt net inset
                     .contentShape(Rectangle())
                     // §5.6: only while the selected tab has an undecided roll — a decided tab's picture isn't a hold target.

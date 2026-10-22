@@ -321,6 +321,19 @@ the same pipeline as any other row; it is not a special-cased render path.
   (§7) split each tab's "current roll's own original" (resets per KEEP) from a "session baseline" (captured once, the whole session) —
   undo records one step per kept card-tab, handed to AVC (`onRandomFinish`) since only it owns `euclideousUndo`/`euclideousSnapshot`.
   §7.3's return highlight is a simplified ring-fade + tag, not yet the full per-control glow the spec also names.
+  **Lane-box buttons ferry (2026-10-22, Paul's own direct ask — no written spec).** Four behavior changes:
+  the dice now draws a "marching ants" animated dashed ring while on (`euclideousMarchingAntsPhase`, a
+  wall-clock `TimelineView`, purely decorative — not the engine/render path); each picture-mode card gained
+  a 44pt PLAY (top-left, `EuclidCompactPlayButton` — extracted from `EuclidLaneBox.playButton(on:)`'s own
+  compact branch so both modes share the identical view, not a re-derived one) / SOLO (top-right, the exact
+  `soloButton(idx, accent)` the normal card already builds) row, matching normal mode's size/style exactly,
+  pushing the picture's own height budget down by 50pt; **tapping away from the lane cards no longer
+  finishes random mode** — `modeFinishLayer`/`modeHint`/`euclideousRandomPanelDim`'s dim-and-block are now
+  LOCK-mode-only (random mode shares none of that mechanism any more; only the dice itself ends it,
+  `euclideousRandomToggle`'s existing on→off branch, unchanged); the riff grid gets its own light,
+  non-blocking indicator while rolling (`euclideousRandomRiffGridOverlay` — a thin border + a small
+  "RANDOM" badge, a disclosed judgment call on the exact look, no design given). MIX/LANES/FX and the riff
+  grid stay fully interactive throughout random mode now.
 - **FX tab (2026-10-18).** Third tab of the sequencer panel (both orientations since the PAGE LAYOUT ferry, 2026-10-19 — in portrait the panel sits beside the riff
   panel at the same width, so its columns match the riff grid's; its six rows now SHARE the panel's height, `euclideousFXRowH`). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
   `SnapParams.euclideousFX` → Router. **ONE decision function** `euclideousFXApply` (Derivations.swift) decides what the rows do to a hit; the Router, the TIE

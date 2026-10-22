@@ -17,6 +17,14 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### RANDOM MODE lane-box buttons (2026-10-22)
+- The dice's marching-ants dashed ring reads as "this is on" without being distracting at the header's small scale, in both header layouts (A/B/C).
+- The new PLAY/SOLO row on a picture-mode card looks and behaves exactly like normal mode's — tapping PLAY actually starts/stops that lane while rolling, tapping SOLO latches/holds exactly as it does outside random mode, and the row doesn't visually collide with the RHYTHM/RIFF/NOTES selector just below it.
+- The picture's own height (now 50pt shorter) still fits each of the three pictures comfortably at the card's real frame.
+- With the riff grid and MIX/LANES/FX fully interactive during random mode now, confirm nothing about editing them while a roll is queued or held causes a visual/audio glitch (this was never exercised before, since those panels used to be blocked).
+- The riff grid's new "RANDOM" badge + border reads clearly without obscuring the grid's own labels/arrows, in all four lane colours' arrows underneath it.
+- Confirm tapping the riff grid or MIX/LANES/FX no longer accidentally finishes random mode (it shouldn't — only the dice does now) and that nothing on those panels now misinterprets input while a hold/landing is active.
+
 ### LANE LOCK (2026-10-21/22)
 - (review 2026-10-22) The comet bar's dashed outline (drawn round the bar only, radius 8) reads clearly beside the SOLO button and doesn't clip at the card's top edge; with VoiceOver on, each outlined control (incl. direction, INV, rate cells, riff card, notes keys) ends its value with "will snap back"; with SWING above 0 on a quarter-note page step, a BEAT-grid snap at an odd beat may land a swing-width off the line (known limit).
 - LAUNCH the DEBUG build from Xcode into AUM first (the 1 MB main-thread stack; the page must come up), open lock mode with the padlock, then tap off the cards to finish: the finish never presses something underneath.

@@ -1694,16 +1694,17 @@ struct EuclideousPage: View {
                 .frame(width: box.width, height: box.height)
                 .offset(x: page.riff.minX, y: page.riff.minY)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
-                .allowsHitTesting(!euclideousRandomMode && !euclideousLockMode)
+                .overlay(euclideousRandomRiffGridOverlay(cornerRadius: 12))
+                .allowsHitTesting(!euclideousLockMode)
             sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)   // FX in portrait too: its columns match the riff grid's (same width)
                 .offset(x: page.seq.minX, y: page.seq.minY)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
-                .allowsHitTesting(!euclideousRandomMode && !euclideousLockMode)
-            // RANDOM MODE §1.3: a tap ANYWHERE outside the four lane cards (header incl. the dice, margins,
-            // gutters, the dimmed panels above) finishes — sits above the header/panels but below the lane
-            // cards in z-order, so a card's own controls still get first claim on their own area, and
-            // "tap the dice to finish" falls out of this for free (the dice is outside the lane cards too).
-            modeFinishLayer(size)   // RANDOM MODE §1.3 / LANE LOCK §1.3: ONE finish handling for both modes (a helper returning AnyView: the page's debug stack)
+                .allowsHitTesting(!euclideousLockMode)
+            // LANE LOCK §1.3: a tap ANYWHERE outside the four lane cards (header incl. the padlock, margins,
+            // gutters, the dimmed panels above) finishes lock mode — sits above the header/panels but below
+            // the lane cards in z-order, so a card's own controls still get first claim on their own area.
+            // Random mode no longer finishes this way (lane-box buttons ferry, 2026-10-22).
+            modeFinishLayer(size)
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
             // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
             AnyView(laneCard(0, width: box.width, height: box.height)).offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
@@ -1721,20 +1722,22 @@ struct EuclideousPage: View {
         }
     }
 
-    /// RANDOM MODE §1.3: a tap ANYWHERE outside the four lane cards (header incl. the dice and the padlock, margins, gutters, the dimmed panels) finishes — sits above the header/panels but below the lane cards in z-order,
-    /// so a card's own controls still get first claim on their own area. LANE LOCK §1.3: lock mode finishes through this SAME layer (not a second one); the touch is consumed.
+    /// LANE LOCK §1.3: a tap ANYWHERE outside the four lane cards (header incl. the padlock, margins, gutters, the dimmed panels) finishes lock mode — sits above the header/panels but below the lane cards in z-order,
+    /// so a card's own controls still get first claim on their own area. Lane-box buttons ferry (2026-10-22): RANDOM MODE no longer finishes this way — Paul wants the riff grid/MIX/LANES/FX reachable while rolling, so
+    /// this layer (and the dim wash / hit-test block below) is lock-mode-only now; the dice itself is the only way to end random mode.
     private func modeFinishLayer(_ size: CGSize) -> AnyView {
-        guard euclideousRandomMode || euclideousLockMode else { return AnyView(EmptyView()) }
+        guard euclideousLockMode else { return AnyView(EmptyView()) }
         return AnyView(Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
             .onTapGesture { euclideousFinishActiveMode() }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(euclideousRandomMode ? "Finish random mode, keeping what's playing" : "Finish lock mode")
+            .accessibilityLabel("Finish lock mode")
             .accessibilityAddTraits(.isButton))
     }
-    /// The page-bottom hint of whichever mode is on (random mode 1.6's frame and type; lock mode 1.5's words).
+    /// The page-bottom hint for lock mode (1.5's words) — random mode no longer shows one (it has nothing
+    /// to say now that tapping away doesn't finish it).
     private func modeHint(_ size: CGSize) -> AnyView {
-        guard euclideousRandomMode || euclideousLockMode else { return AnyView(EmptyView()) }
-        return AnyView(Text(euclideousRandomMode ? "TAP OFF THE LANE CARDS TO FINISH · WHAT YOU HEAR IS KEPT" : "TAP OFF THE LANE CARDS TO FINISH")
+        guard euclideousLockMode else { return AnyView(EmptyView()) }
+        return AnyView(Text("TAP OFF THE LANE CARDS TO FINISH")
             .font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
             .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).truncationMode(.tail)
             .frame(width: size.width, height: 14)
@@ -1742,11 +1745,33 @@ struct EuclideousPage: View {
             .allowsHitTesting(false))
     }
 
-    /// §1.2: the riff panel + bottom-right panel sit under this wash while random mode is on.
+    /// §1.2: the riff panel + bottom-right panel sit under this wash while LOCK mode is on. Lane-box buttons
+    /// ferry (2026-10-22): random mode no longer dims or blocks these panels at all — see
+    /// `euclideousRandomRiffGridOverlay` for its own, non-blocking indicator on the riff grid only.
     @ViewBuilder private func euclideousRandomPanelDim(cornerRadius: CGFloat) -> some View {
-        if euclideousRandomMode || euclideousLockMode {   // LANE LOCK §1.2: the same wash under lock mode
+        if euclideousLockMode {
             RoundedRectangle(cornerRadius: cornerRadius).fill(Color(red: 12.0/255, green: 14.0/255, blue: 18.0/255, opacity: 0.62))
                 .allowsHitTesting(false)
+        }
+    }
+
+    /// Lane-box buttons ferry (2026-10-22): a light, NON-blocking indicator that random mode is on, over
+    /// the riff grid only (Paul: "Add a randomization mode/overlay to the riff grid") — a judgment call on
+    /// the exact look (a thin border + a small badge, in the dice's own "on" colours) since no design was
+    /// given; flag if it should look different.
+    @ViewBuilder private func euclideousRandomRiffGridOverlay(cornerRadius: CGFloat) -> some View {
+        if euclideousRandomMode {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .strokeBorder(Color(hex: 0xDFE3EA).opacity(0.4), lineWidth: 1.5)
+                .allowsHitTesting(false)
+                .overlay(alignment: .topLeading) {
+                    Text("RANDOM").font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
+                        .foregroundColor(Color(hex: 0x0D0F14)).lineLimit(1)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xDFE3EA)))
+                        .padding(8)
+                        .allowsHitTesting(false)
+                }
         }
     }
 
@@ -1840,10 +1865,12 @@ struct EuclideousPage: View {
         .accessibilityAddTraits(.isButton)
         .ringToggleTrait())
     }
-    /// §1.3: both modes end the same way — one finish handler for the page-wide tap layer.
+    /// §1.6: finishing changes nothing in the document — every lock change was made when it was tapped.
+    /// Lane-box buttons ferry (2026-10-22): random mode no longer uses this at all — tapping away from
+    /// the lane cards used to finish it, but Paul wants the riff grid/MIX/LANES/FX still reachable while
+    /// rolling, so only the dice itself (`euclideousRandomToggle`) ends random mode now.
     private func euclideousFinishActiveMode() {
-        if euclideousRandomMode { euclideousRandomFinish() }
-        else if euclideousLockMode { euclideousLockMode = false }   // §1.6: finishing changes nothing in the document — every lock change was made when it was tapped
+        euclideousLockMode = false
     }
 
     // MARK: RANDOM MODE — the dice (§2)
@@ -1857,6 +1884,17 @@ struct EuclideousPage: View {
             Image(systemName: "die.face.4")
                 .font(.system(size: 20, weight: .regular))
                 .foregroundColor(on ? Color(hex: 0x0D0F14) : headerMuted)
+            // A moving dotted ("marching ants") line around the dice while random mode is on — purely
+            // decorative, so a plain wall-clock TimelineView is fine (not the render/engine path
+            // architecture invariants govern; this never reaches the document or the snapshot).
+            if on {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+                    RoundedRectangle(cornerRadius: 11)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 3], dashPhase: euclideousMarchingAntsPhase(tl.date)))
+                        .foregroundColor(Color(hex: 0xDFE3EA))
+                        .frame(width: 40, height: 40)
+                }
+            }
         }
         .frame(width: target, height: HM.rowH)
         .contentShape(Rectangle())
@@ -1866,6 +1904,11 @@ struct EuclideousPage: View {
         .accessibilityValue(on ? "on" : "off")
         .accessibilityHint("Turns the lane cards into throw and tweak")
         .accessibilityAddTraits(.isButton)
+    }
+
+    /// The dice's marching-ants dash offset: one full [3,3] dash cycle (6pt) every half-second.
+    private func euclideousMarchingAntsPhase(_ date: Date) -> CGFloat {
+        CGFloat(date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.5) / 0.5) * -6
     }
 
     private func euclideousRandomToggle() {
@@ -2914,7 +2957,11 @@ struct EuclideousPage: View {
                                   clockPlaying: clock.playing, clockAnchor: clock.anchor, clockAnchorAt: clock.anchorAt,
                                   clockTempo: clock.tempo, clockBeatsPerBar: clock.beatsPerBar,
                                   landingBeat: slot < pendingRolls.count ? pendingRolls[slot]?.landingBeat : nil,
-                                  laneLocked: lockLocked(idx))
+                                  laneLocked: lockLocked(idx),
+                                  // Lane-box buttons ferry: the SAME callback/view the normal-mode card uses —
+                                  // not a second derivation of play/SOLO.
+                                  onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
+                                  soloButtonView: soloButton(idx, accent))
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
