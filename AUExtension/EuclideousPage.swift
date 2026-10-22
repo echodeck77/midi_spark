@@ -515,7 +515,7 @@ struct EuclideousSlider: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(listenFollowLocked ? "\(field.name), following" : (edited ? "\(field.name), edited" : field.name))
-        .accessibilityValue(edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, effectiveLine))
+        .accessibilityValue(euclideousLockAppendSnapWords(edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, effectiveLine), outlined: lockOutline != nil))
         .accessibilityAdjustableAction { direction in
             guard !edited, !listenFollowLocked else { return }
             let step = euclideousSliderAccessibilityStep(field)
@@ -617,7 +617,7 @@ struct EuclideousStepsStepper: View {
                         dragStartLocation = nil; dragStartSteps = nil; isDragging = false; firstWriteDone = false
                     }
             )
-            .accessibilityLabel("Steps, \(line.steps)")
+            .accessibilityLabel(euclideousLockAppendSnapWords("Steps, \(line.steps)", outlined: lockOutline != nil))
             .accessibilityHint("Double-tap to pick a length")
             .accessibilityAdjustableAction { direction in
                 // §6.2: each VoiceOver swipe is its own undo step, independent of firstWriteDone's
@@ -2815,6 +2815,8 @@ struct EuclideousPage: View {
     }
     private func lockOn(_ idx: Int, _ c: EuclideousLockControl) -> Bool { lockLocked(idx) && lockDiff(idx).contains(c) }
     private func lockTouch(_ idx: Int) -> (Bool) -> Void { { down in onLockHeld(idx, down) } }
+    /// 5.6: a control with an outline adds ", will snap back" to its spoken value.
+    private func lockSpoken(_ idx: Int, _ c: EuclideousLockControl, _ value: String) -> String { euclideousLockAppendSnapWords(value, outlined: lockOn(idx, c)) }
     @State private var lockCometHeld: [[Int]] = [[], [], [], []]
     @State private var lockOverlayHeld: [Bool] = [false, false, false, false]
     /// A finger on lane `card`'s comet bar edits `lane`'s pattern (every lane for a two-finger gesture): the locked lanes among them count as held until it lifts — exactly the lanes counted at touch-down / when the gesture widened.
@@ -2834,7 +2836,6 @@ struct EuclideousPage: View {
     private func laneTapMod(_ idx: Int, _ action: @escaping () -> Void) -> EuclideousLaneTap {
         EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: lockTouch(idx), action: action)
     }
-    private func lockHoldMod(_ idx: Int) -> EuclideousLockHold { EuclideousLockHold(active: lockLocked(idx), onTouch: lockTouch(idx)) }
     private func lockOutlineMod(_ idx: Int, _ c: EuclideousLockControl, _ accent: Color) -> EuclideousLockOutline {
         EuclideousLockOutline(on: lockOn(idx, c), accent: accent)
     }
@@ -2911,7 +2912,8 @@ struct EuclideousPage: View {
                                   onHoldEnded: { euclideousRandomHoldEnded(lane: idx) },
                                   clockPlaying: clock.playing, clockAnchor: clock.anchor, clockAnchorAt: clock.anchorAt,
                                   clockTempo: clock.tempo, clockBeatsPerBar: clock.beatsPerBar,
-                                  landingBeat: slot < pendingRolls.count ? pendingRolls[slot]?.landingBeat : nil)
+                                  landingBeat: slot < pendingRolls.count ? pendingRolls[slot]?.landingBeat : nil,
+                                  laneLocked: lockLocked(idx))
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
@@ -3208,6 +3210,7 @@ struct EuclideousPage: View {
         }
         .modifier(lockOutlineMod(idx, name == "MELODY" ? .melodyRestart : .rhythmRestart, accent))
         .accessibilityLabel(euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitSingular.lowercased(), unitPlural: unitPlural))
+        .accessibilityValue(lockSpoken(idx, name == "MELODY" ? .melodyRestart : .rhythmRestart, ""))
         .accessibilityHint("Double-tap to edit"))
     }
 
@@ -3911,7 +3914,7 @@ struct EuclideousPage: View {
             melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many riff columns, from SHIFT, the walk loops over", lane: idx, outline: lockOn(idx, .length)) { v in
                 edit(idx) { euclideousSetRiffLength(&$0, v) }   // RIFF WINDOW ferry: the ONE LEN setter — independent of SHIFT now, nothing to pin
             }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue("\(n)")
+            .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue(lockSpoken(idx, .length, "\(n)"))
             .accessibilityAdjustableAction { dir in
                 switch dir {
                 case .increment: edit(idx) { euclideousSetRiffLength(&$0, min(8, n + 1)) }
@@ -3926,7 +3929,7 @@ struct EuclideousPage: View {
                 edit(idx) { euclideousSetRiffShift(&$0, v) }   // RIFF WINDOW ferry: the ONE SHIFT setter — wraps at 8, nothing to do with LEN
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Which riff column the walk starts reading from, wrapping at 8")
-            .accessibilityValue("\(shift)")
+            .accessibilityValue(lockSpoken(idx, .shift, "\(shift)"))
             .accessibilityAdjustableAction { dir in
                 switch dir {
                 case .increment: edit(idx) { euclideousSetRiffShift(&$0, (shift + 1) % 8) }
@@ -3937,7 +3940,7 @@ struct EuclideousPage: View {
             melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: w, help: "How many riff steps to move per note", lane: idx, outline: lockOn(idx, .stride)) { v in
                 edit(idx) { $0.riffStride = v }
             }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue("\(line.riffStrideResolved)")
+            .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue(lockSpoken(idx, .stride, "\(line.riffStrideResolved)"))
             .accessibilityAdjustableAction { dir in
                 switch dir {
                 case .increment: edit(idx) { $0.riffStride = min(7, line.riffStrideResolved + 1) }
@@ -3948,7 +3951,7 @@ struct EuclideousPage: View {
             melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, width: w, help: "Shift every riff note up or down the pool", lane: idx, outline: lockOn(idx, .transpose)) { v in
                 edit(idx) { $0.melodyTranspose = v }
             }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Transpose").accessibilityValue(euclideousSigned(line.melodyTransposeResolved))
+            .accessibilityElement(children: .ignore).accessibilityLabel("Transpose").accessibilityValue(lockSpoken(idx, .transpose, euclideousSigned(line.melodyTransposeResolved)))
             .accessibilityAdjustableAction { dir in
                 switch dir {
                 case .increment: edit(idx) { $0.melodyTranspose = min(7, line.melodyTransposeResolved + 1) }
@@ -4269,6 +4272,7 @@ struct EuclideousPage: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
+                .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lit && lockOn(idx, .riffDirection)))
             }
             melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 12, cornerRadius: 7,
                          help: "Flip the riff upside down in pitch", lane: idx, outline: lockOn(idx, .riffInvert)) { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
@@ -4276,6 +4280,7 @@ struct EuclideousPage: View {
                 // phrase instead, with the toggle trait.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Invert the riff")
+                .accessibilityValue(lockSpoken(idx, .riffInvert, ""))
                 .accessibilityAddTraits(line.riffInvertResolved ? [.isButton, .isSelected] : .isButton)
         }
     }
@@ -4295,7 +4300,7 @@ struct EuclideousPage: View {
             // down changes it by one, matching how the values-row steppers read.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Advance every")
-            .accessibilityValue("\(every) \(line.riffAdvanceStepResolved ? (every == 1 ? "step" : "steps") : (every == 1 ? "hit" : "hits"))")
+            .accessibilityValue(lockSpoken(idx, .advanceEvery, "\(every) \(line.riffAdvanceStepResolved ? (every == 1 ? "step" : "steps") : (every == 1 ? "hit" : "hits"))"))
             .accessibilityAdjustableAction { dir in
                 switch dir {
                 case .increment: edit(idx) { $0.riffAdvanceEvery = min(4, every + 1) }
@@ -4308,12 +4313,14 @@ struct EuclideousPage: View {
                 .frame(width: layout.hitStepButtonWidth)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Advance by hits")
+                .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lockOn(idx, .advanceMode) && !line.riffAdvanceStepResolved))
                 .accessibilityAddTraits(!line.riffAdvanceStepResolved ? [.isButton, .isSelected] : .isButton)
             melodyButton(plural ? "STEPS" : "STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
                          help: "Move the riff on every step, not just hits", lane: idx, outline: lockOn(idx, .advanceMode) && line.riffAdvanceStepResolved) { edit(idx) { $0.riffAdvanceStep = true } }
                 .frame(width: layout.hitStepButtonWidth)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Advance by steps")
+                .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lockOn(idx, .advanceMode) && line.riffAdvanceStepResolved))
                 .accessibilityAddTraits(line.riffAdvanceStepResolved ? [.isButton, .isSelected] : .isButton)
         }
         .opacity(isRiff ? 1.0 : 0.42)
@@ -4333,6 +4340,7 @@ struct EuclideousPage: View {
                     // §9.5 / NOTES TAB §9.3: SKIP and TIE keep their plain labels; REPEAT reads "Repeat" with its own hint.
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(r == .repeatLast ? "Repeat" : r.rawValue.capitalized)
+                    .accessibilityValue(euclideousLockAppendSnapWords("", outlined: selected && lockOn(idx, .onRest)))
                     .accessibilityHint(r == .repeatLast ? "Plays the riff's previous note again" : "")
                     .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             }
@@ -4682,7 +4690,7 @@ struct EuclideousPage: View {
         melodyButton(label, on: on, accent: accent, height: EuclideousNotesTabLayout.rowH, fontSize: 12, cornerRadius: 8, help: help, lane: lane, outline: outline, action: action)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibility)
-            .accessibilityValue(on ? "on" : "off")
+            .accessibilityValue(euclideousLockAppendSnapWords(on ? "on" : "off", outlined: outline))
             .accessibilityHint(hint)
             .accessibilityAddTraits(.isButton)
             .ringToggleTrait()
@@ -4774,7 +4782,7 @@ struct EuclideousPage: View {
                             }
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("Chance")
-                            .accessibilityValue(euclideousNotesChanceValue(chance))
+                            .accessibilityValue(lockSpoken(idx, .notesChance, euclideousNotesChanceValue(chance)))
                             .accessibilityAdjustableAction { direction in
                                 let next = direction == .increment ? min(3, chanceIdx + 1) : max(0, chanceIdx - 1)
                                 guard next != chanceIdx else { return }
@@ -4794,7 +4802,7 @@ struct EuclideousPage: View {
                                 .euclideousHelp("How the lit notes play on each hit it chooses.")
                                 .accessibilityElement(children: .ignore)
                                 .accessibilityLabel(euclideousNotesPlayAsButtonLabel(way))
-                                .accessibilityValue(euclideousNotesPlayAsButtonValue(way))
+                                .accessibilityValue(lockSpoken(idx, .notesPlayAs, euclideousNotesPlayAsButtonValue(way)))
                                 .accessibilityHint(euclideousNotesPlayAsHint)
                                 .accessibilityAddTraits(.isButton)
                         }

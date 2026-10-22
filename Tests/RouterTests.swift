@@ -14797,7 +14797,7 @@ final class RouterTests: XCTestCase {
         st.euclideousNoteSource = .midi
         return SnapshotBuilder.build(from: st)
     }
-    private func lockedRender(_ steps: [LockStep], locks: [EuclideousLaneLock], to: Double, frames: UInt32, chord: [UInt8] = [60], tempo: Double = 120) -> LockRun {
+    private func lockedRender(_ steps: [LockStep], locks: [EuclideousLaneLock], to: Double, frames: UInt32, chord: [UInt8] = [60], tempo: Double = 120, rolls: [EuclideousPendingRoll?] = []) -> LockRun {
         let sr = 48_000.0
         let pool = NotePool(); for n in chord { pool.noteOn(n, velocity: 100, channel: 0) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
@@ -14810,6 +14810,7 @@ final class RouterTests: XCTestCase {
             let st = steps[cur]
             router.process(box: boxes[cur], pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: 4,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0,
+                           euclideousPendingRolls: rolls,
                            euclideousLockLive: locks.isEmpty ? 0 : EuclideousLockLive.word(held: st.held, revs: st.liveRev), out: e, diag: &diag)
             let seq = router.lockSnapSeqPacked
             if seq != lastSeq {
@@ -15007,6 +15008,22 @@ final class RouterTests: XCTestCase {
                 XCTAssertGreaterThan(r.e.ons.count, 20)
             }
         }
+    }
+    // 13 — random mode: a locked lane that has moved still snaps on its grid line while a throw is in flight on another lane (the engine has no notion of random mode: the two mechanisms don't touch).
+    func testLockedLaneStillSnapsWhileARandomRollIsInFlightOnAnotherLane() {
+        let L = lockLine(pulses: 3, sel: .low), B = lockLine(pulses: 5, sel: .low)
+        let other = lockLine(pulses: 2, rate: .r1_4, sel: .high)
+        let locks = [EuclideousLaneLock.locking(L, grid: .bars2), EuclideousLaneLock(), EuclideousLaneLock(), EuclideousLaneLock()]
+        let roll = EuclideousPendingRoll(tab: .rhythm, landingBeat: 6, steps: 8, pulses: 4, rotate: 0)
+        let chord: [UInt8] = [60, 67]
+        let frames: UInt32 = 256
+        let ref = { (a: EuclidLine) in self.staticOnsets(self.lockLanes(a, other), to: 12, frames: 1024, chord: chord, note: 60) }
+        let r = lockedRender([LockStep(beat: 0, lines: lockLanes(L, other)), LockStep(beat: 5.25, lines: lockLanes(B, other), snapRev: 1, liveRev: 1)],
+                             locks: locks, to: 11.9, frames: frames, chord: chord, rolls: [nil, nil, nil, roll])
+        XCTAssertEqual(r.landings.map { $0.beat }, [8])
+        assertOnsets(lockOnsets(r.e, note: 60), splice([(0, 5.25, ref(L)), (5.25, 8, ref(B)), (8, 12, ref(L))]), "the locked lane is back on its line with a roll landing on lane 2")
+        XCTAssertNotEqual(lockOnsets(r.e, note: 67), staticOnsets(lockLanes(L, other), to: 12, frames: 1024, chord: chord, note: 67), "the other lane took its roll (it plays differently from the no-roll render)")
+        assertNothingSticks(r, "random mode alongside a lock")
     }
     // The count-down's latency margin: how long the main→render path takes to build a snapshot (the page's side of it; the render side adds at most one buffer).
     func testLockSnapshotBuildTimeForTheMarginEstimate() {

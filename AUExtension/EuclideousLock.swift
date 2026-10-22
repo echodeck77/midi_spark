@@ -519,3 +519,13 @@ func euclideousLockedLanesPhrase(_ lanes: [Int]) -> String {
     default: return "lanes " + n.dropLast().joined(separator: ", ") + " and " + n.last! + " locked"
     }
 }
+
+/// 9.1 — random mode on a locked lane: THROW and TWEAK are off (the card still shows its picture, selector and caption); the idle caption becomes "LOCKED · UNLOCK TO ROLL".
+func euclideousLockRandomAllowsRolls(laneLocked: Bool) -> Bool { !laneLocked }
+func euclideousLockRandomIdleCaption(laneLocked: Bool) -> String { laneLocked ? "LOCKED · UNLOCK TO ROLL" : "THROW A NEW ONE · TWEAK WHAT'S PLAYING" }
+
+/// 5.6 — "A control with an outline adds ', will snap back' to its value": the spoken value with the words appended (just the words when there is no value).
+func euclideousLockAppendSnapWords(_ value: String, outlined: Bool) -> String {
+    guard outlined else { return value }
+    return value.isEmpty ? "will snap back" : value + ", will snap back"
+}

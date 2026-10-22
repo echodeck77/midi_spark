@@ -25,6 +25,7 @@ enum PresetStore {
     static func decode(_ data: Data) -> PluginState? {
         guard var doc = try? JSONDecoder().decode(PluginState.self, from: data) else { return nil }
         doc.migrateLegacyRoutingIfNeeded()       // old-schema presets → v3 on load (same as fullState)
+        doc.normalizeLocksAtLoad()               // LANE LOCK 3.5: a preset saved while a locked lane was deviated opens at its locked state
         return doc
     }
 

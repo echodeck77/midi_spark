@@ -300,22 +300,6 @@ extension View {
 
 // MARK: - 6.2 / 6.9 held fingers and momentary buttons
 
-/// For a control that writes a lock field with a drag (a slider, the STEPS stepper, the comet bar): while the lane is LOCKED a simultaneous zero-distance drag counts a finger on it — the page's HELD word (6.2). An
-/// unlocked lane gets the bare control: nothing about a control changes until its lane is locked.
-struct EuclideousLockHold: ViewModifier {
-    let active: Bool
-    let onTouch: (Bool) -> Void
-    @State private var down = false
-    func body(content: Content) -> some View {
-        if active {
-            content
-                .simultaneousGesture(DragGesture(minimumDistance: 0)
-                    .onChanged { _ in if !down { down = true; onTouch(true) } }
-                    .onEnded { _ in if down { down = false; onTouch(false) } })
-                .onDisappear { if down { down = false; onTouch(false) } }
-        } else { content }
-    }
-}
 /// For a control that acts on a TAP: an unlocked lane (or a locked one on a bar grid) gets exactly `.onTapGesture` as before — with a finger counted while locked (6.2) — and a lane locked on the BEAT grid gets the
 /// action at TOUCH-DOWN instead (6.9), so a tap is momentary: it sounds from the touch until the first beat after the lift. Lock and unlock never happen under a finger the page is counting (the count is reset by the VC).
 struct EuclideousLaneTap: ViewModifier {

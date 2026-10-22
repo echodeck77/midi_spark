@@ -28,7 +28,6 @@ struct EuclideousRandomCardView: View {
     let onKeep: () -> Void
     let onHoldBegan: () -> Void
     let onHoldEnded: () -> Void
-
     // §4.4 / §3.6: the live clock, for the RHYTHM picture's own playhead ring and the waiting caption's
     // beat-progress dots — the SAME host-beat extrapolation every other live view on this page uses
     // (`clock` in EuclideousPage), never a second clock formula (CLAUDE.md's own named recurring bug).
@@ -39,6 +38,8 @@ struct EuclideousRandomCardView: View {
     let clockBeatsPerBar: Double
     // This tab's own currently-queued roll landing beat, if any (nil when nothing's waiting).
     let landingBeat: Double?
+    /// LANE LOCK 9.1: a locked lane still shows its picture, selector and caption, but THROW and TWEAK draw at 40 % and take no input ("LOCKED · UNLOCK TO ROLL" replaces the idle caption).
+    var laneLocked: Bool = false
 
     private let inset: CGFloat = 10
 
@@ -216,7 +217,7 @@ struct EuclideousRandomCardView: View {
         let layerOff: Bool
         switch tab { case .riff: layerOff = !line.riffOnResolved; case .notes: layerOff = !euclideousNotesLayerIsOn(line); case .rhythm: layerOff = false }
         if layerOff { return tab == .notes ? "THE NOTES LAYER IS OFF · YOU WON'T HEAR THIS" : "THE RIFF LAYER IS OFF · YOU WON'T HEAR THIS" }
-        return "THROW A NEW ONE · TWEAK WHAT'S PLAYING"
+        return euclideousLockRandomIdleCaption(laneLocked: laneLocked)
     }
 
     private var captionColor: Color {
@@ -234,8 +235,8 @@ struct EuclideousRandomCardView: View {
 
     private var buttonRow: some View {
         HStack(spacing: 6) {
-            button("THROW", glyph: "die.face.4", tint: accent, action: onThrow, dashed: state.waiting == .throwing)
-            button("TWEAK", glyph: "waveform.path", tint: accent, action: onTweak, dashed: state.waiting == .tweaking)
+            button("THROW", glyph: "die.face.4", tint: accent, action: onThrow, dashed: state.waiting == .throwing, rollLocked: laneLocked)
+            button("TWEAK", glyph: "waveform.path", tint: accent, action: onTweak, dashed: state.waiting == .tweaking, rollLocked: laneLocked)
             if state.isUndecided {
                 button("BACK", glyph: "arrow.uturn.backward", tint: Color(hex: 0xAAB0BA), action: onBack, dashed: state.waiting == .back)
                 button("KEEP", glyph: "checkmark", tint: nil, action: onKeep, dashed: false, filled: true)
@@ -243,7 +244,7 @@ struct EuclideousRandomCardView: View {
         }
     }
 
-    private func button(_ title: String, glyph: String, tint: Color?, action: @escaping () -> Void, dashed: Bool, filled: Bool = false) -> some View {
+    private func button(_ title: String, glyph: String, tint: Color?, action: @escaping () -> Void, dashed: Bool, filled: Bool = false, rollLocked: Bool = false) -> some View {
         let labelColor = filled ? Color(hex: 0x0D0F14) : Color(hex: 0xF2F4F7)
         return Button(action: action) {
             HStack(spacing: 6) {
@@ -257,7 +258,9 @@ struct EuclideousRandomCardView: View {
             .overlay(dashed ? RoundedRectangle(cornerRadius: 10).strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [4, 3])).foregroundColor(accent).padding(1) : nil)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(buttonAccessibilityLabel(title))
+        .disabled(rollLocked)
+        .opacity(rollLocked ? 0.4 : 1)
+        .accessibilityLabel(buttonAccessibilityLabel(title) + (rollLocked ? ", locked" : ""))
     }
 
     private func buttonAccessibilityLabel(_ title: String) -> String {

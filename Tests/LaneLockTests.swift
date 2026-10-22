@@ -371,6 +371,30 @@ final class LaneLockTests: XCTestCase {
         XCTAssertEqual(euclideousLockMergeForUndo(restored: restored, current: now, locked: [false, false, false, false])[1].pulses, base[1].pulses, "unlocked: undo reaches it as today")
     }
 
+    func testRandomModeOnALockedLaneAllowsNoRollsAndSaysWhy() {
+        XCTAssertFalse(euclideousLockRandomAllowsRolls(laneLocked: true)); XCTAssertTrue(euclideousLockRandomAllowsRolls(laneLocked: false))
+        XCTAssertEqual(euclideousLockRandomIdleCaption(laneLocked: true), "LOCKED · UNLOCK TO ROLL")
+        XCTAssertEqual(euclideousLockRandomIdleCaption(laneLocked: false), "THROW A NEW ONE · TWEAK WHAT'S PLAYING")
+    }
+    func testSnapBackWordsAreAppendedToAnOutlinedControlsValue() {
+        XCTAssertEqual(euclideousLockAppendSnapWords("7 of 16", outlined: true), "7 of 16, will snap back")
+        XCTAssertEqual(euclideousLockAppendSnapWords("", outlined: true), "will snap back")
+        XCTAssertEqual(euclideousLockAppendSnapWords("7 of 16", outlined: false), "7 of 16")
+    }
+    func testASummaryIsSpokenAsOneSentence() {
+        var l = EuclidLine(); l.pulses = 3; l.steps = 16; l.rotate = 12; l.riffOn = true; l.riffDir = .pendulum; l.riffAdvanceStep = true; l.riffAdvanceEvery = 2
+        l.setLitOrder(EuclideousLitOrder.derived(litNotes: 0b111, top: false, top2: false)); l.notesPlayAs = .roll; l.notesWhen = 0b10
+        let f = LaneLockFields(line: l)
+        XCTAssertEqual(euclideousLockSummaryAccessibility(lane: 0, locked: true, fields: f, base: l), "Locked rhythm 3 of 16, offset 4; riff pendulum by step every 2; notes roll, 3 notes, on rests")
+        XCTAssertTrue(euclideousLockSummaryAccessibility(lane: 2, locked: false, fields: f, base: l).hasPrefix("Lane 3 would lock rhythm 3 of 16"))
+        XCTAssertEqual(euclideousLockRhythmTag(f, autoRate: .r1_16), "3 OF 16 · OFFSET 4 · 1/16")
+        XCTAssertEqual(euclideousLockRiffTag(f, base: l), "PEND · BY STEP ÷2")
+        XCTAssertEqual(euclideousLockNotesTag(f, base: l), "ROLL · 3 NOTES · ON RESTS")
+        var off = l; off.riffOn = false; off.notesOn = false
+        XCTAssertEqual(euclideousLockRiffTag(LaneLockFields(line: off), base: off), "RIFF OFF"); XCTAssertEqual(euclideousLockNotesTag(LaneLockFields(line: off), base: off), "NOTES OFF")
+        var none = l; none.setLitOrder(EuclideousLitOrder())
+        XCTAssertEqual(euclideousLockNotesTag(LaneLockFields(line: none), base: none), "NO NOTES LIT")
+    }
     func testLockedLanesPhrase() {
         XCTAssertEqual(euclideousLockedLanesPhrase([]), "")
         XCTAssertEqual(euclideousLockedLanesPhrase([2]), "lane 3 locked")
