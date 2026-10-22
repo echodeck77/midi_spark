@@ -685,9 +685,61 @@ struct EuclideousPendingRoll: Equatable {
 func euclideousRandomShouldApply(hostBeat: Double, landingBeat: Double) -> Bool { hostBeat >= landingBeat }
 
 /// §6.1: "one slot per card tab" — a lane can have THREE independent rolls in flight at once (one per tab),
-/// not one. The flat index every reader/writer of the pending-rolls array uses, so none can drift.
+/// not one. The flat index every reader/writer of the pending-rolls storage uses, so none can drift.
 @inline(__always)
 func euclideousRandomPendingSlot(lane: Int, tab: EuclideousRandomTab) -> Int { lane * 3 + tab.rawValue }
+
+/// Fixed-size (12-slot), VALUE-type-only storage for `euclideousPendingRolls`/`euclideousHoldOverrides` —
+/// the main-thread-writes/render-thread-reads hand-off these two channels use (Kernel's own doc comment).
+/// Deliberately NOT `[EuclideousPendingRoll?]`: a plain Array is a pointer to a class-backed, reference-
+/// counted heap buffer, so reassigning the WHOLE property from the main thread while the render thread
+/// concurrently reads it races on that buffer's OWN refcount — a genuine use-after-free hazard class
+/// under the wrong interleaving, not just a stale read, and a materially different risk than the plain
+/// scalar hand-off (`euclideousSoloLive`) this was modelled on. A tuple of 12 plain optionals has no
+/// shared heap buffer to race over at all: each side gets its own independent VALUE the instant it reads
+/// or assigns the property, so the worst case left is the same bounded staleness every other plain-var
+/// hand-off here already accepts (one render call seeing one slot's old value next to another's new one)
+/// — never a crash. Architecture invariant #3: "fixed-size storage only" on the render path.
+struct EuclideousPendingRollSlots: Equatable, Collection {
+    static let count = 12
+    private var slots: (EuclideousPendingRoll?, EuclideousPendingRoll?, EuclideousPendingRoll?, EuclideousPendingRoll?,
+                         EuclideousPendingRoll?, EuclideousPendingRoll?, EuclideousPendingRoll?, EuclideousPendingRoll?,
+                         EuclideousPendingRoll?, EuclideousPendingRoll?, EuclideousPendingRoll?, EuclideousPendingRoll?)
+        = (nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+    init() {}
+
+    // Collection, so `for roll in rolls` / `.contains(where:)` / `.firstIndex(...)` keep working exactly
+    // as they did against `[EuclideousPendingRoll?]` — index(after:) is the only Collection requirement
+    // not already covered by the stored properties below.
+    var startIndex: Int { 0 }
+    var endIndex: Int { Self.count }
+    func index(after i: Int) -> Int { i + 1 }
+
+    subscript(i: Int) -> EuclideousPendingRoll? {
+        get {
+            switch i {
+            case 0: return slots.0; case 1: return slots.1; case 2: return slots.2; case 3: return slots.3
+            case 4: return slots.4; case 5: return slots.5; case 6: return slots.6; case 7: return slots.7
+            case 8: return slots.8; case 9: return slots.9; case 10: return slots.10; case 11: return slots.11
+            default: return nil
+            }
+        }
+        set {
+            switch i {
+            case 0: slots.0 = newValue; case 1: slots.1 = newValue; case 2: slots.2 = newValue; case 3: slots.3 = newValue
+            case 4: slots.4 = newValue; case 5: slots.5 = newValue; case 6: slots.6 = newValue; case 7: slots.7 = newValue
+            case 8: slots.8 = newValue; case 9: slots.9 = newValue; case 10: slots.10 = newValue; case 11: slots.11 = newValue
+            default: break
+            }
+        }
+    }
+
+    static func == (a: EuclideousPendingRollSlots, b: EuclideousPendingRollSlots) -> Bool {
+        for i in 0..<count where a[i] != b[i] { return false }
+        return true
+    }
+}
 
 /// The displayed OFFSET ↔ stored `rotate` mirror — the EXACT formula `EuclidLine.offsetRequestedResolved`/
 /// `euclideousSliderCommit(.offset)` already use (Derivations.swift), reused rather than re-derived so a
@@ -772,9 +824,11 @@ struct EuclideousRandomUndoEntry {
 func euclideousRandomApplyTabFields(from original: EuclidLine, tab: EuclideousRandomTab, into line: inout EuclidLine) {
     switch tab {
     case .rhythm:
+        // Neither Throw/TweakRhythm ever touches the restart chains, so this undo/equality scope must
+        // not either — otherwise an unrelated chain edit made mid-session on the same lane would get
+        // smuggled into (or reverted by) this tab's own random-mode undo step.
         line.steps = original.steps; line.pulses = original.pulses; line.rotate = original.rotate
         line.hitsRequested = original.hitsRequested; line.offsetRequested = original.offsetRequested
-        line.restartRhythmBars = original.restartRhythmBars; line.restartMelodyPasses = original.restartMelodyPasses
     case .riff:
         line.riffDir = original.riffDir; line.riffInvert = original.riffInvert
         line.riffAdvanceEvery = original.riffAdvanceEvery; line.riffAdvanceStep = original.riffAdvanceStep

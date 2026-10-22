@@ -6,6 +6,11 @@ AND add its commit line to CLAUDE.md status. Terse by design — detail lives in
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
 ## ★ EUCLIDEOUS — RANDOM MODE: the dice, THROW/TWEAK/BACK/KEEP, the hold, finish+undo (2026-10-21; `Docs/euclideous-status-log.md`)
+- [x] Adversarial review (2026-10-22) + all 24 confirmed findings fixed — see the status log's own
+      "RANDOM MODE adversarial-review fix ferry" entry for the full list (the stuck-hold bug, zero hold
+      test coverage, the tab-resync gap, the simplified §4 pictures, caption/button bugs, and the
+      Array→fixed-size-struct data-race fix). Device items from that pass are their own new subsection in
+      `Docs/euclideous-device-verification-debt.md`.
 - [ ] DEVICE: see the "RANDOM MODE" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] DECIDE (Paul): the 150 ms landing-margin constant (before a bar/beat line) is a judgment call with no spec number behind it — retune once heard.
 - [ ] DECIDE (Paul): the hold has no minimum-duration threshold (switches from touch-down itself), unlike the 0.3 s hold used elsewhere on this page (output rings, SOLO) — confirm a bare touch-down was actually intended, not a hold timer.

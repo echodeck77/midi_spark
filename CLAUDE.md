@@ -296,7 +296,12 @@ the same pipeline as any other row; it is not a special-cased render path.
   (`euclideousRandomPendingSlot`), since a lane may have three independent rolls in flight at once — reaches the render thread via a
   direct `Kernel` property + a `Router.process()` parameter (the same plain hand-off `Kernel.euclideousSoloLive` already uses, not the
   Snapshot/SnapParams pipeline — `EuclidLine` is reused wholesale by the persisted document, so a stored field there would leak into the
-  save file). Router overrides exactly the three named argument groups at its one `runEuclidLine` call site; AVC's existing 4 Hz resync
+  save file). **Stored as `EuclideousPendingRollSlots`, not `[EuclideousPendingRoll?]`** (adversarial-review fix ferry, 2026-10-22): a
+  plain Array is a class-backed, refcounted heap buffer, so reassigning it from the main thread while the render thread concurrently
+  reads it races on the buffer's own refcount (a real use-after-free hazard class, not just a stale read, unlike the scalar
+  `euclideousSoloLive` precedent it was modelled on) — a tuple-backed, 12-slot, pure-value `Collection` has no heap buffer to race over,
+  satisfying invariant #3's "fixed-size storage only" literally. Same subscript/`Collection` API, so every call site reads identically.
+  Router overrides exactly the three named argument groups at its one `runEuclidLine` call site; AVC's existing 4 Hz resync
   loop commits a landed roll into the document (direct field writes + chain-pinning + nil-ing the requested fields, mirroring the AUTO-
   ramp precedent, never the STEPS setter) and clears its slot. Landing is decided once per render window, not per sample (this engine
   resolves a lane's pattern once per call; no mid-buffer split exists). The hold (§5.6) is a SEPARATE, higher-priority override channel

@@ -746,11 +746,11 @@ struct EuclideousPage: View {
     // RANDOM MODE ferry (§6): the live pending-roll array (AudioUnitViewController's own @State, never the
     // document) — read-only here; `onSetPendingRolls` queues a new one or clears a landed one. The commit
     // into `lines` itself happens on the VC's 4 Hz resync loop once a roll's landingBeat has passed.
-    var pendingRolls: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
-    var onSetPendingRolls: ([EuclideousPendingRoll?]) -> Void = { _ in }
+    var pendingRolls = EuclideousPendingRollSlots()
+    var onSetPendingRolls: (EuclideousPendingRollSlots) -> Void = { _ in }
     // §5.6: the hold's own higher-priority override, same shape, separate channel.
-    var holdOverrides: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
-    var onSetHoldOverrides: ([EuclideousPendingRoll?]) -> Void = { _ in }
+    var holdOverrides = EuclideousPendingRollSlots()
+    var onSetHoldOverrides: (EuclideousPendingRollSlots) -> Void = { _ in }
     // §7.2: random mode finished — the ordered, already-filtered list of kept card-tabs to record as undo
     // steps (one each). Only AVC owns `euclideousUndo`/`euclideousSnapshot`, so it builds the actual
     // `EuclideousUndoSnapshot` sequence and pushes it.
@@ -886,7 +886,7 @@ struct EuclideousPage: View {
     @State private var euclideousRandomHeldLane: Int? = nil
     // The deployment target (iOS 16) has no two-parameter `.onChange`, so the handler below diffs against
     // this itself to detect a slot's non-nil → nil landing transition.
-    @State private var euclideousRandomPrevPendingRolls: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
+    @State private var euclideousRandomPrevPendingRolls = EuclideousPendingRollSlots()
     // §5.6: the beat each in-flight hold's own override is scheduled to START at, keyed by pending-slot —
     // read back on release to decide "did the hold even start yet" (if not, cancel outright, nothing switches).
     @State private var euclideousRandomHoldStartBeat: [Int: Double] = [:]
@@ -897,6 +897,9 @@ struct EuclideousPage: View {
     @State private var euclideousRandomAwaitingFinishSlots: Set<Int>? = nil
     // §7.3: when each lane's return highlight started (visual only — no state, no undo).
     @State private var euclideousRandomReturnHighlightStart: [Int: Date] = [:]
+    // §6.8: the previous render's `lines`, to tell "our own landing wrote this field" apart from "something
+    // else did" — same two-parameter-`.onChange`-workaround idiom as `euclideousRandomPrevPendingRolls` above.
+    @State private var euclideousRandomPrevLines: [EuclidLine] = []
 
     // MARK: RANDOM MODE — actions (§5-§7). §7's full finishing/undo/return sequence is a later ferry step
     // (the status log/pending-tasks note which); `euclideousRandomFinish` here is §7.1's own drop/keep rule
@@ -951,10 +954,19 @@ struct EuclideousPage: View {
         var state = euclideousRandomRolls[lane][tab.rawValue]
         if state.decided { state.original = lines[lane]; state.decided = false }   // §6.6: a fresh roll's original is whatever was last decided (KEEP's own state, or the pre-session baseline)
         if state.sessionBaseline == nil { state.sessionBaseline = lines[lane] }     // §7.2: the ONE pre-session baseline, captured once, held for the whole session
-        if waiting != .back { state.goes += 1 }
+        // GOES increments on LANDING (`euclideousRandomHandlePendingRollsChange`), not here — §6.6: "each
+        // landing increments its GOES count." A second throw queued before the first lands only ever
+        // contributes one landing, so it must only ever contribute one GOES.
         state.tag = tag
         state.waiting = waiting
         euclideousRandomRolls[lane][tab.rawValue] = state
+    }
+
+    /// §5.4: a throw/tweak that found nothing legal to change — stamps `decidedAt` too (even when the tab
+    /// was already decided, the common case) so the caption's short display window picks it up either way.
+    private func euclideousRandomMarkNothingToChange(lane: Int, tab: EuclideousRandomTab) {
+        euclideousRandomRolls[lane][tab.rawValue].tag = "NOTHING TO CHANGE"
+        euclideousRandomRolls[lane][tab.rawValue].decidedAt = Date()
     }
 
     private func euclideousRandomThrow(lane: Int) {
@@ -978,7 +990,7 @@ struct EuclideousPage: View {
                            shift: l.riffShiftRequestedResolved, length: l.riffLengthResolved, hits: l.pulses, role: role)
             var rng = EuclideousRandomRNG(seed: euclideousRandomNextSeed())
             guard let r = euclideousRandomThrowRiff(current: current, writtenRanks: writtenRanks, others: euclideousRandomOtherLanes(except: lane), rng: &rng) else {
-                euclideousRandomRolls[lane][tab.rawValue].tag = "NOTHING TO CHANGE"
+                euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
                 return
             }
             euclideousRandomQueue(lane: lane, tab: .riff, waiting: .throwing, tag: r.tag) { roll in
@@ -993,7 +1005,7 @@ struct EuclideousPage: View {
             guard let r = euclideousRandomThrowNotes(role: role, current: current, riffOn: l.riffOnResolved, writtenRanks: writtenRanks,
                                                       length: l.riffLengthResolved, receivedOnly: l.notesReceivedOnlyResolved,
                                                       receivedCount: 0, rng: &rng) else {
-                euclideousRandomRolls[lane][tab.rawValue].tag = "NOTHING TO CHANGE"
+                euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
                 return
             }
             euclideousRandomQueue(lane: lane, tab: .notes, waiting: .throwing, tag: r.tag) { roll in
@@ -1011,7 +1023,7 @@ struct EuclideousPage: View {
             let current = (steps: l.steps, hits: l.pulses, offset: euclideousRandomDisplayedOffset(rotate: l.rotate, steps: l.steps), stepBeats: stepBeats, tilt: l.tiltResolved)
             var rng = EuclideousRandomRNG(seed: euclideousRandomNextSeed())
             let r = euclideousRandomTweakRhythm(current: current, others: euclideousRandomOtherLanes(except: lane), rng: &rng)
-            guard !r.tag.isEmpty else { euclideousRandomRolls[lane][tab.rawValue].tag = "NOTHING TO CHANGE"; return }
+            guard !r.tag.isEmpty else { euclideousRandomMarkNothingToChange(lane: lane, tab: tab); return }
             euclideousRandomQueue(lane: lane, tab: .rhythm, waiting: .tweaking, tag: r.tag) { roll in
                 roll.steps = r.steps; roll.pulses = r.hits
                 roll.rotate = euclideousRandomRotateFromDisplayed(offset: r.offset, steps: r.steps)
@@ -1023,7 +1035,7 @@ struct EuclideousPage: View {
                            shift: l.riffShiftRequestedResolved, length: l.riffLengthResolved, hits: l.pulses)
             var rng = EuclideousRandomRNG(seed: euclideousRandomNextSeed())
             guard let r = euclideousRandomTweakRiff(current: current, writtenRanks: writtenRanks, rng: &rng) else {
-                euclideousRandomRolls[lane][tab.rawValue].tag = "NOTHING TO CHANGE"; return
+                euclideousRandomMarkNothingToChange(lane: lane, tab: tab); return
             }
             euclideousRandomQueue(lane: lane, tab: .riff, waiting: .tweaking, tag: r.tag) { roll in
                 roll.riffDir = r.dir; roll.riffInvert = r.invert; roll.riffAdvanceEvery = r.advanceEvery
@@ -1038,7 +1050,7 @@ struct EuclideousPage: View {
             var rng = EuclideousRandomRNG(seed: euclideousRandomNextSeed())
             guard let r = euclideousRandomTweakNotes(role: role, current: current, allowed: allowed, riffOn: l.riffOnResolved,
                                                       writtenRanks: writtenRanks, length: l.riffLengthResolved, rng: &rng) else {
-                euclideousRandomRolls[lane][tab.rawValue].tag = "NOTHING TO CHANGE"; return
+                euclideousRandomMarkNothingToChange(lane: lane, tab: tab); return
             }
             euclideousRandomQueue(lane: lane, tab: .notes, waiting: .tweaking, tag: r.tag) { roll in
                 roll.notesLitOrder = r.litOrder; roll.notesWhen = r.when; roll.notesChance = r.chance; roll.notesPlayAs = r.playAs
@@ -1049,7 +1061,8 @@ struct EuclideousPage: View {
     /// §5.2: BACK — asks for the tab's original, landing like any other roll, replacing anything waiting.
     private func euclideousRandomBack(lane: Int) {
         let tab = euclideousRandomTab[lane]
-        guard let original = euclideousRandomRolls[lane][tab.rawValue].original else { return }
+        let state = euclideousRandomRolls[lane][tab.rawValue]
+        guard state.isUndecided, let original = state.original else { return }
         let nowBeat = clock.playing ? clock.anchor + Date().timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
         let margin = euclideousRandomLandingMarginBeats(tempo: clock.tempo)
         let landingBeat = euclideousRandomQueuedLandingBeat(running: clock.playing, currentBeat: nowBeat, barBeats: clock.beatsPerBar, marginBeats: margin)
@@ -1068,10 +1081,10 @@ struct EuclideousPage: View {
         var rolls = pendingRolls
         rolls[euclideousRandomPendingSlot(lane: lane, tab: tab)] = roll
         onSetPendingRolls(rolls)
-        var state = euclideousRandomRolls[lane][tab.rawValue]
-        state.waiting = .back
-        state.tag = ""
-        euclideousRandomRolls[lane][tab.rawValue] = state
+        var newState = state
+        newState.waiting = .back
+        newState.tag = ""
+        euclideousRandomRolls[lane][tab.rawValue] = newState
     }
 
     /// §5.3: KEEP — decided at once; the sound doesn't change, anything waiting on this tab is dropped.
@@ -1093,7 +1106,8 @@ struct EuclideousPage: View {
     /// via `state.isUndecided`, but this guards too in case a stray event slips through).
     private func euclideousRandomHoldBegan(lane: Int) {
         let tab = euclideousRandomTab[lane]
-        guard let original = euclideousRandomRolls[lane][tab.rawValue].original else { return }
+        let state = euclideousRandomRolls[lane][tab.rawValue]
+        guard state.isUndecided, let original = state.original else { return }
         let nowBeat = clock.playing ? clock.anchor + Date().timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
         let margin = euclideousRandomLandingMarginBeats(tempo: clock.tempo)
         let startBeat = euclideousRandomQueuedHoldBeat(running: clock.playing, currentBeat: nowBeat, marginBeats: margin)
@@ -1151,21 +1165,64 @@ struct EuclideousPage: View {
         }
     }
 
-    /// Detects a roll landing (its slot transitioning non-nil → nil in `pendingRolls`, which AVC's resync
-    /// loop does once it commits — Phase 3) to clear `waiting`, and for a landed BACK, to decide the tab.
-    private func euclideousRandomHandlePendingRollsChange(old: [EuclideousPendingRoll?], new: [EuclideousPendingRoll?]) {
+    /// ONE reconciliation step, called from BOTH `.onChange(of: pendingRolls)` and `.onChange(of: lines)` —
+    /// deliberately idempotent and order-independent (two separate onChange closures on different tracked
+    /// values have no documented relative firing order within the same SwiftUI update, so this must give
+    /// the same result no matter which one calls it, or calls it twice): it reads only the CURRENT prop
+    /// values (always fresh for this render, regardless of which onChange triggered it) against the single
+    /// pair of snapshots it alone owns and advances at the end, so a redundant second call in the same
+    /// render is a safe no-op (old == new on both by then).
+    ///
+    /// Two jobs: (1) a roll landing — its slot transitioning non-nil → nil in `pendingRolls`, which AVC's
+    /// resync loop does once it commits — clears `waiting`, bumps GOES (§6.6: on the landing, not the
+    /// press), and decides a landed BACK; (2) §6.8 — if a tab's own fields changed in `lines` WITHOUT that
+    /// landing mechanism (no slot was in flight for it before or after), something else wrote them (host
+    /// automation, MIDI learn, …) — that tab becomes decided at once, dropping anything waiting on it.
+    private func euclideousRandomReconcile() {
+        let oldPending = euclideousRandomPrevPendingRolls
+        let newPending = pendingRolls
+        let oldLines = euclideousRandomPrevLines
+        let newLines = lines
+
         var anyLanded = false
+        var landedSlots: Set<Int> = []
         for lane in 0..<4 {
             for tab in EuclideousRandomTab.allCases {
                 let slot = euclideousRandomPendingSlot(lane: lane, tab: tab)
-                guard slot < old.count, slot < new.count, old[slot] != nil, new[slot] == nil else { continue }
+                guard slot < oldPending.count, slot < newPending.count, oldPending[slot] != nil, newPending[slot] == nil else { continue }
+                landedSlots.insert(slot)
                 var state = euclideousRandomRolls[lane][tab.rawValue]
-                if state.waiting == .back { state.decided = true; state.decidedAt = Date() }
+                switch state.waiting {
+                case .back: state.decided = true; state.decidedAt = Date()
+                case .throwing, .tweaking: state.goes += 1   // §6.6: GOES counts the landing, not the press
+                case nil: break
+                }
                 state.waiting = nil
                 euclideousRandomRolls[lane][tab.rawValue] = state
                 anyLanded = true
             }
         }
+
+        if oldLines.count == 4, newLines.count == 4 {
+            for lane in 0..<4 where oldLines[lane] != newLines[lane] {
+                for tab in EuclideousRandomTab.allCases {
+                    let slot = euclideousRandomPendingSlot(lane: lane, tab: tab)
+                    guard !landedSlots.contains(slot) else { continue }   // that field change IS the landing just processed above
+                    var state = euclideousRandomRolls[lane][tab.rawValue]
+                    guard state.isUndecided else { continue }
+                    guard slot >= newPending.count || newPending[slot] == nil else { continue }   // something's queued for it right now — let it land normally
+                    guard !euclideousRandomTabFieldsEqual(oldLines[lane], newLines[lane], tab: tab) else { continue }   // only THIS tab's own fields matter
+                    if euclideousRandomHeldLane == lane { euclideousRandomHoldEnded(lane: lane) }
+                    state.decided = true
+                    state.decidedAt = Date()
+                    state.waiting = nil
+                    euclideousRandomRolls[lane][tab.rawValue] = state
+                }
+            }
+        }
+
+        euclideousRandomPrevPendingRolls = newPending
+        euclideousRandomPrevLines = newLines
         // §7.2: a finish deferred on one or more waiting BACKs completes once they've all landed.
         if anyLanded, euclideousRandomAwaitingFinishSlots != nil { euclideousRandomCheckAwaitingFinish() }
     }
@@ -1386,11 +1443,14 @@ struct EuclideousPage: View {
                         if !playing { DispatchQueue.main.asyncAfter(deadline: .now() + euclideousPulseMaxAge + 0.1) { pulseSettleTick &+= 1 } }
                     }
                     // RANDOM MODE ferry: detect a roll's landing (its slot going non-nil → nil) to clear
-                    // `waiting` and, for a landed BACK, decide the tab (§6.6/§5.2).
-                    .onChange(of: pendingRolls) { new in
-                        euclideousRandomHandlePendingRollsChange(old: euclideousRandomPrevPendingRolls, new: new)
-                        euclideousRandomPrevPendingRolls = new
-                    }
+                    // `waiting` and, for a landed BACK, decide the tab (§6.6/§5.2); and §6.8, an external
+                    // write deciding an undecided tab. Both triggers share ONE idempotent reconciliation
+                    // function — see its own doc comment for why.
+                    .onChange(of: pendingRolls) { _ in euclideousRandomReconcile() }
+                    .onChange(of: lines) { _ in euclideousRandomReconcile() }
+                    // §1.4: the view closing (or the host tearing it down) ends random mode as if finished,
+                    // keeping whatever's currently playing — the same path the dice-off tap uses.
+                    .onDisappear { if euclideousRandomMode { euclideousRandomFinish() } }
                 pageBody(geo.size)
                 // THE DRAG HUD — same floating-card pattern as the existing EUCLID editor's own HUD
                 // (BuildPage.swift's buildEuclidDragHUD/AudioUnitViewController.swift's root-ZStack
@@ -1734,6 +1794,9 @@ struct EuclideousPage: View {
         if euclideousRandomMode {
             euclideousRandomFinish()
         } else {
+            // §3.3: each card opens on its own normal tab (LISTEN maps to RHYTHM — rawValues 0/1/2 agree,
+            // 3 has no counterpart) rather than always defaulting to RHYTHM regardless of what was showing.
+            euclideousRandomTab = laneTab.map { EuclideousRandomTab(rawValue: $0.rawValue) ?? .rhythm }
             euclideousRandomMode = true
         }
     }
@@ -2653,18 +2716,22 @@ struct EuclideousPage: View {
         let state = euclideousRandomRolls[idx][tab.rawValue]
         let line = euclideousRandomEffectiveLine(lane: idx)
         let displayLine = euclideousRandomHeldLane == idx ? (state.original ?? line) : line
+        let slot = euclideousRandomPendingSlot(lane: idx, tab: tab)
         EuclideousRandomCardView(lane: idx, width: width, height: height, accent: accent, line: displayLine,
                                   riffRanks: effectiveGridRanks, tab: tab, state: state, holding: euclideousRandomHeldLane == idx,
                                   onSelectTab: { t in
+                                      if euclideousRandomHeldLane == idx { euclideousRandomHoldEnded(lane: idx) }   // release the OLD tab's render-thread override before switching
                                       euclideousRandomTab[idx] = t
-                                      if euclideousRandomHeldLane == idx { euclideousRandomHeldLane = nil }
                                   },
                                   onThrow: { euclideousRandomThrow(lane: idx) },
                                   onTweak: { euclideousRandomTweak(lane: idx) },
                                   onBack: { euclideousRandomBack(lane: idx) },
                                   onKeep: { euclideousRandomKeep(lane: idx) },
                                   onHoldBegan: { euclideousRandomHoldBegan(lane: idx) },
-                                  onHoldEnded: { euclideousRandomHoldEnded(lane: idx) })
+                                  onHoldEnded: { euclideousRandomHoldEnded(lane: idx) },
+                                  clockPlaying: clock.playing, clockAnchor: clock.anchor, clockAnchorAt: clock.anchorAt,
+                                  clockTempo: clock.tempo, clockBeatsPerBar: clock.beatsPerBar,
+                                  landingBeat: slot < pendingRolls.count ? pendingRolls[slot]?.landingBeat : nil)
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
@@ -3734,6 +3801,7 @@ struct EuclideousPage: View {
         let curStep = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1   // the live step only while the lane runs (as the WALK strip's ring)
         let isRiff = line.riffOnResolved
         let neverPlay = riffReadout(idx)?.neverPlay ?? []   // RIFF WALK ferry §2.1/§7.6
+        let window = euclideousRiffWindowColumns(length: len, shift: line.riffRotateResolved)   // RIFF WINDOW ferry (2026-10-21): the window wraps at 8, not always columns 1...LEN
         let cell = max(1, (size - 7) / 8)   // 8 cells + 7 gaps of 1pt
         return VStack(spacing: 1) {
             ForEach((1...8).reversed(), id: \.self) { rank in
@@ -3741,7 +3809,7 @@ struct EuclideousPage: View {
                     ForEach(0..<n, id: \.self) { col in
                         let raw = col < stepRanks.count ? stepRanks[col] : 0
                         let isHit = raw >= 1 && raw <= 8 && raw == rank
-                        let inWindow = col < len
+                        let inWindow = window.contains(col)
                         let isCur = col == curStep
                         RoundedRectangle(cornerRadius: 1.5)
                             .fill(riffMiniGridFill(isRiff: isRiff, isHit: isHit, isCur: isCur))
@@ -5474,10 +5542,28 @@ struct EuclideousPage: View {
     }
     private func riffLaneFrames(ranks: [Int], beat: Double, now: Double = Date().timeIntervalSinceReferenceDate) -> [RiffLaneFrame] {
         let spb = 60.0 / max(1.0, clock.tempo)
-        return (0..<4).compactMap { i in
-            guard i < lines.count, let cfg = riffWalkConfig(i) else { return nil }
-            let line = lines[i]
-            let riffOn = walkTagShows(i)
+        return (0..<4).compactMap { i -> RiffLaneFrame? in
+            guard i < lines.count else { return nil }
+            // §11.2: while this lane's picture is held, the riff panel follows the ORIGINAL it's playing,
+            // not the live (possibly still-undecided-roll) document — a one-off recompute bypassing
+            // `riffWalkConfig`'s memoised cache (only paid while a hold gesture is actually active).
+            let heldOriginal: EuclidLine? = (euclideousRandomMode && euclideousRandomHeldLane == i)
+                ? euclideousRandomRolls[i][euclideousRandomTab[i].rawValue].original : nil
+            let cfg: EuclideousWalkLaneConfig?
+            if let o = heldOriginal {
+                var subs = lines; subs[i] = o
+                let cyc = clock.stepBeats * Double(max(1, clock.cols))
+                cfg = euclideousWalkLaneConfig(lane: i, lines: subs, cyc: cyc, resetSpanBars: resetSpanBars,
+                                                lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
+                                                swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
+            } else {
+                cfg = riffWalkConfig(i)
+            }
+            guard let cfg else { return nil }
+            let line = heldOriginal ?? lines[i]
+            // `walkTagShows(i)`'s own test, inlined against the override-aware `line` above (that function
+            // reads `lines[i]` directly, which would bypass the held-original substitution).
+            let riffOn = line.riffOnResolved && line.listenPitchMode != .shadow
             let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
             let muted = !euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats)
             let flare = riffPulse(i, now: now)?.f ?? 0   // PULSE §4.1: velocity-scaled flash of the lane's latest riff strike (was the comet bar's step-based flare)

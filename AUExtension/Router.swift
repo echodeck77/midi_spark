@@ -2266,7 +2266,7 @@ final class Router {
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, heldCell: Int, tempo: Double,
-                             euclideousPendingRolls: [EuclideousPendingRoll?] = [], euclideousHoldOverrides: [EuclideousPendingRoll?] = [],
+                             euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(), euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                              out: MIDIEmitter?, diag: inout KernelDiag) {
             var cell = box.cells[effColumn * Snap.rows + r]
             if cell.machineIndex < 0 || cell.muted || cell.dormant { return }   // LADDER dormant
@@ -3043,8 +3043,8 @@ final class Router {
                  panic: Bool = false,
                  euclideousAllNotesOff: Bool = false,
                  euclideousSoloLive: UInt16 = 0,
-                 euclideousPendingRolls: [EuclideousPendingRoll?] = [],
-                 euclideousHoldOverrides: [EuclideousPendingRoll?] = [],
+                 euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
+                 euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  sceneFlush: Bool = false,
                  sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
@@ -4272,7 +4272,7 @@ final class Router {
                                   emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                   cycleBeats: Double = 0, chainDriver: Int = -1, tempo: Double = 120,
-                                  euclideousPendingRolls: [EuclideousPendingRoll?] = [], euclideousHoldOverrides: [EuclideousPendingRoll?] = [],
+                                  euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(), euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                                   out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)

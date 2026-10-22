@@ -95,6 +95,50 @@ project has been building this whole stretch.
   `waveform.path` (an approximation, not a custom one-period-sine path as literally specced); §7.3's
   simplified return highlight (above). **Out of scope, confirmed untouched:** the riff panel, MIX/LANES/
   FX, a throw-history, rolling LISTEN.
+- **▶ EUCLIDEOUS — RANDOM MODE adversarial-review fix ferry (2026-10-22, on branch
+  `fix/random-mode-adversarial-review`; full macOS suite 1935 green). Paul asked for an adversarial review
+  of the RANDOM MODE ferry above against its own spec text, then asked for every confirmed finding fixed.
+  24 findings fixed, ranked most-severe-first:** (1) **SEVERE** — switching a card's tab mid-hold left the
+  render-thread hold override stuck forever (`onSelectTab` never called `onHoldEnded`); fixed by releasing
+  the old tab's hold before switching. (2) Zero Router-level test coverage existed for
+  `euclideousHoldOverrides` despite a comment claiming otherwise — added `testHoldOverrideTakesPriority
+  OverAPendingRoll`/`testHoldReleaseFallsBackToTheStillPendingRoll`/`testHoldOverrideIsScopedToItsOwnLane
+  TabSlot` (RouterTests.swift). (3) `euclideousRandomTab` never resynced from the card's real `laneTab` on
+  entry (always opened on RHYTHM) — now seeded from it (LISTEN → RHYTHM) in `euclideousRandomToggle`.
+  (4) §4's RHYTHM/NOTES pictures were simplified without being flagged as such: added the RHYTHM picture's
+  live playhead ring + a `TimelineView` redraw clock (a FREE-pattern phase approximation, documented —
+  chains aren't modelled), the NOTES picture's CHANCE-drop dot state (3 states, not 2) and ROLL/RUN
+  per-hit dot spreading (`euclideousNotesWayPick` called directly for strike order). (5) THROW/TWEAK/BACK
+  button labels inherited the glyph's own tint instead of the spec'd #F2F4F7 (one `.foregroundColor` was
+  scoped to the whole HStack); "BACK TO THE ORIGINAL" caption was dead code (both ternary branches
+  returned "KEPT"); GOES counted button-presses, not landings (moved the increment into the landing
+  handler); §3.4's hold-instruction hint row was missing entirely (added, sharing space with new §3.6
+  beat-progress dots on the waiting caption); §5.4's "NOTHING TO CHANGE" caption never showed on an
+  already-decided tab (the common case) — now stamps `decidedAt` too so it shares the 8s display window.
+  §1.4 (view teardown finishes random mode) and §6.8 (an external write decides an undecided tab) were
+  unbuilt — both added, the latter via ONE idempotent `euclideousRandomReconcile()` called from both
+  `.onChange(of: pendingRolls)` and `.onChange(of: lines)` (deliberately order-independent: two separate
+  `.onChange` closures have no documented relative firing order, so the function must give the same
+  result regardless of which fires first or if both do). §11.2 (riff panel follows a held lane's
+  original) added via a one-off `euclideousWalkLaneConfig` recompute bypassing the shared cache, paid
+  only while a hold is active. VoiceOver added to the picture (a label per tab) and the hold ("Play the
+  original"/"Play the new one" custom actions, since VoiceOver can't long-press). The BACK/hold-began
+  guard checked `original != nil` instead of `state.isUndecided` (harmless today, fragile under a stray
+  double-fire near a KEEP). RHYTHM's undo/equality scope (`euclideousRandomApplyTabFields`) carried the
+  unrelated restart-chain fields — trimmed. **Architecture-level fix:** `euclideousPendingRolls`/
+  `euclideousHoldOverrides` were `[EuclideousPendingRoll?]` — a class-backed, refcounted Array reassigned
+  from the main thread while the render thread concurrently reads it races on the buffer's own refcount
+  (a real use-after-free hazard, not just staleness) — replaced with `EuclideousPendingRollSlots`, a
+  12-slot tuple-backed value type conforming to `Collection` (same subscript/iteration API, every call
+  site unchanged), satisfying invariant #3's "fixed-size storage only" literally. Threaded through
+  `Kernel`/`MidiSparkAudioUnit`/`Router`/`EuclideousPage`/`AudioUnitViewController`. See CLAUDE.md's
+  RANDOM MODE paragraph for the updated architecture note. Also fixed: the double-inset picture padding
+  (28pt net instead of the spec'd flat 18pt — one of the two nested paddings was 18 instead of 8), the
+  selector pill not spanning its row (now `.frame(maxWidth: .infinity)`), and the RIFF-off caption
+  dropping "THE…LAYER" from its wording. **Not fixed (reported, not actioned):** the riff-picture column
+  test will go stale once the separate, already-landed RIFF WINDOW ferry's SHIFT semantics are reflected
+  there (flagged as a follow-up, not a bug introduced by this ferry). **Device-owed, not yet verified:**
+  every visual/cosmetic fix above.
 - **▶ EUCLIDEOUS — RHYTHM tab fixes: restart-engine edges, STEPS, layout fallbacks, accessibility (2026-10-21,
   a follow-up correction ferry to the RHYTHM tab rebuild of 2026-10-19; on `main` directly, four commits
   `65eb372`/`0023f6e`/`2a01893`/`d78955b`; iOS builds clean; macOS Euclideous-scoped suite 698 green throughout;

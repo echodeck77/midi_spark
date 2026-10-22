@@ -140,16 +140,16 @@ final class Kernel {
     /// thread the instant a roll is queued or a hold starts/ends; read once per window). Never part of the
     /// document/SnapshotBox — the ferry's landing beat already carries a safety margin (the ferry text's own
     /// §6.1) comfortably wider than one render block, so this hand-off's staleness tolerance is harmless.
-    private var euclideousPendingRolls: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
-    func setEuclideousPendingRolls(_ rolls: [EuclideousPendingRoll?]) { euclideousPendingRolls = rolls }
+    private var euclideousPendingRolls = EuclideousPendingRollSlots()
+    func setEuclideousPendingRolls(_ rolls: EuclideousPendingRollSlots) { euclideousPendingRolls = rolls }
     /// §5.6 the hold — a SEPARATE, higher-priority override per (lane, tab): "a throw or tweak landing
     /// during a hold changes the current state; the original keeps playing until the hold ends" requires
     /// the normal pending roll above to keep landing on schedule, undisturbed, while this one additionally
     /// overrides what's actually heard. Same plain hand-off; the UI clears a slot itself (a one-shot main-
     /// thread timer at the release beat — §6's landing beats are never used past the point of application,
     /// so there is nothing for Router itself to clear).
-    private var euclideousHoldOverrides: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
-    func setEuclideousHoldOverrides(_ rolls: [EuclideousPendingRoll?]) { euclideousHoldOverrides = rolls }
+    private var euclideousHoldOverrides = EuclideousPendingRollSlots()
+    func setEuclideousHoldOverrides(_ rolls: EuclideousPendingRollSlots) { euclideousHoldOverrides = rolls }
     func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).

@@ -370,10 +370,10 @@ struct DiagView: View {
     // (`au.setEuclideousPendingRolls`, the same plain hand-off as `euclideousSoloHeld`'s own
     // `setEuclideousSoloLive`) the instant it changes; the 4 Hz resync loop below commits a landed roll's
     // fields into the document and clears its slot.
-    @State var euclideousPendingRolls: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
+    @State var euclideousPendingRolls = EuclideousPendingRollSlots()
     // §5.6: the hold's own higher-priority override — same shape, separate channel, never committed to the
     // document (the UI itself clears a slot once the hold ends, via a one-shot beat-aligned timer).
-    @State var euclideousHoldOverrides: [EuclideousPendingRoll?] = [EuclideousPendingRoll?](repeating: nil, count: 12)
+    @State var euclideousHoldOverrides = EuclideousPendingRollSlots()
     // FOURFOLD SETTINGS (2026-10-15 ferry): same live-mirror treatment as every field above.
     @State var euclideousMidiInChannelMask: UInt16 = 0xFFFF
     @State var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying

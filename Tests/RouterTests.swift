@@ -14637,6 +14637,8 @@ final class RouterTests: XCTestCase {
     private func runWithPendingRhythmRoll(landingBeat: Double, toBeats: Double, frames: UInt32) -> RecordingEmitter {
         let (box, pool) = euclideousRandomLandingFixture()
         let roll = EuclideousPendingRoll(tab: .rhythm, landingBeat: landingBeat, steps: 4, pulses: 4, rotate: 0)
+        var rolls = EuclideousPendingRollSlots()
+        rolls[euclideousRandomPendingSlot(lane: 0, tab: .rhythm)] = roll
         let e = RecordingEmitter()
         let router = Router()
         var diag = KernelDiag()
@@ -14646,7 +14648,7 @@ final class RouterTests: XCTestCase {
         while beat < toBeats {
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: 4,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0,
-                           euclideousPendingRolls: [roll], out: e, diag: &diag)
+                           euclideousPendingRolls: rolls, out: e, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
         return e
@@ -14678,5 +14680,96 @@ final class RouterTests: XCTestCase {
         // OLD (1-of-4) hits once at beat 0; NEW (4-of-4) then hits at 2 and 3 before the lap ends at 4.
         let e = runWithPendingRhythmRoll(landingBeat: 2, toBeats: 4, frames: 256)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "expected the beat-0 OLD hit plus NEW hits at beats 2 and 3")
+    }
+
+    // MARK: - RANDOM MODE §5.6 — the HOLD channel through the real Router, not just its beat-math helpers.
+    // `euclideousLandedRoll` (Router.swift) checks `euclideousHoldOverrides` FIRST, falling through to
+    // `euclideousPendingRolls` only when no hold is active for that slot — these tests exercise exactly
+    // that priority, and that the override is scoped to its own (lane, tab) slot, through a real
+    // `router.process()` call. (§13 tests 9-11's own comment claimed this coverage already existed here;
+    // it didn't — `euclideousHoldOverrides` had zero references in either test file before this.)
+
+    private func runWithHold(pending: EuclideousPendingRoll?, hold: EuclideousPendingRoll?, toBeats: Double, frames: UInt32 = 256) -> RecordingEmitter {
+        let (box, pool) = euclideousRandomLandingFixture()
+        var pendingRolls = EuclideousPendingRollSlots(), holdOverrides = EuclideousPendingRollSlots()
+        let slot = euclideousRandomPendingSlot(lane: 0, tab: .rhythm)
+        pendingRolls[slot] = pending
+        holdOverrides[slot] = hold
+        let e = RecordingEmitter()
+        let router = Router()
+        var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < toBeats {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: 4,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0,
+                           euclideousPendingRolls: pendingRolls, euclideousHoldOverrides: holdOverrides, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        return e
+    }
+
+    func testHoldOverrideTakesPriorityOverAPendingRoll() {
+        // Both land at beat 0 (immediate): the hold (4-of-4) must win over the pending roll (2-of-4) for
+        // as long as both are present — proving Router's own priority order, not just that either alone works.
+        let pending = EuclideousPendingRoll(tab: .rhythm, landingBeat: 0, steps: 4, pulses: 2, rotate: 0)
+        let hold = EuclideousPendingRoll(tab: .rhythm, landingBeat: 0, steps: 4, pulses: 4, rotate: 0)
+        // 3.9, not 4 (this file's own convention, e.g. testRandomModeRhythmLandingAtTheBarLineAcrossBufferSizes'
+        // "11.9, not 12"): stopping exactly on the 4-beat lap boundary risks the last window straddling into
+        // the NEXT lap's own beat-0 hit, over-counting by one.
+        let e = runWithHold(pending: pending, hold: hold, toBeats: 3.9)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "the hold's 4-of-4 must win every step of the bar, not the pending roll's 2-of-4")
+    }
+
+    func testHoldReleaseFallsBackToTheStillPendingRoll() {
+        // The hold ends (its slot cleared, as the UI's own one-shot timer does) while a pending roll for
+        // the SAME slot is still queued for a later beat: Router must fall through to it once it lands.
+        let (box, pool) = euclideousRandomLandingFixture()
+        let slot = euclideousRandomPendingSlot(lane: 0, tab: .rhythm)
+        var pendingRolls = EuclideousPendingRollSlots()
+        pendingRolls[slot] = EuclideousPendingRoll(tab: .rhythm, landingBeat: 4, steps: 4, pulses: 4, rotate: 0)
+        var holdOverrides = EuclideousPendingRollSlots()
+        holdOverrides[slot] = EuclideousPendingRoll(tab: .rhythm, landingBeat: 0, steps: 4, pulses: 0, rotate: 0)   // silent while held
+        let e = RecordingEmitter()
+        let router = Router()
+        var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0
+        let windowBeats = Double(256) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < 3.9 {   // still held: silent (0-of-4), the pending 4-of-4 hasn't landed yet either
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: 4,
+                           sampleRate: sr, timestampSample: ts, frameCount: 256, forceColumn: 0,
+                           euclideousPendingRolls: pendingRolls, euclideousHoldOverrides: holdOverrides, out: e, diag: &diag)
+            beat += windowBeats; ts += 256
+        }
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "the hold's 0-of-4 must silence the lane while it's active")
+        holdOverrides[slot] = nil   // the hold's release timer clearing its slot
+        while beat < 7.9 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: 4,
+                           sampleRate: sr, timestampSample: ts, frameCount: 256, forceColumn: 0,
+                           euclideousPendingRolls: pendingRolls, euclideousHoldOverrides: holdOverrides, out: e, diag: &diag)
+            beat += windowBeats; ts += 256
+        }
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "once the hold releases, the still-queued 4-of-4 pending roll must land normally")
+    }
+
+    func testHoldOverrideIsScopedToItsOwnLaneTabSlot() {
+        // A hold on lane 0's RHYTHM slot must not affect a pending roll sitting in a DIFFERENT slot
+        // (lane 0's own RIFF slot here) — proving the override is read per-slot, not globally.
+        let (box, pool) = euclideousRandomLandingFixture()
+        var pendingRolls = EuclideousPendingRollSlots(), holdOverrides = EuclideousPendingRollSlots()
+        let rhythmSlot = euclideousRandomPendingSlot(lane: 0, tab: .rhythm)
+        let riffSlot = euclideousRandomPendingSlot(lane: 0, tab: .riff)
+        XCTAssertNotEqual(rhythmSlot, riffSlot)
+        pendingRolls[rhythmSlot] = EuclideousPendingRoll(tab: .rhythm, landingBeat: 0, steps: 4, pulses: 4, rotate: 0)
+        holdOverrides[riffSlot] = EuclideousPendingRoll(tab: .riff, landingBeat: 0)   // a hold on an unrelated tab's slot
+        let e = RecordingEmitter()
+        let router = Router()
+        var diag = KernelDiag()
+        router.process(box: box, pool: pool, playing: true, beatPos: 0, tempo: 120, beatsPerBar: 4,
+                       sampleRate: 48_000, timestampSample: 0, frameCount: 256, forceColumn: 0,
+                       euclideousPendingRolls: pendingRolls, euclideousHoldOverrides: holdOverrides, out: e, diag: &diag)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 1, "the RIFF-slot hold must not block the RHYTHM slot's own landed pending roll")
     }
 }

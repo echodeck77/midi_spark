@@ -29,25 +29,58 @@ struct EuclideousRandomCardView: View {
     let onHoldBegan: () -> Void
     let onHoldEnded: () -> Void
 
+    // §4.4 / §3.6: the live clock, for the RHYTHM picture's own playhead ring and the waiting caption's
+    // beat-progress dots — the SAME host-beat extrapolation every other live view on this page uses
+    // (`clock` in EuclideousPage), never a second clock formula (CLAUDE.md's own named recurring bug).
+    let clockPlaying: Bool
+    let clockAnchor: Double
+    let clockAnchorAt: Date
+    let clockTempo: Double
+    let clockBeatsPerBar: Double
+    // This tab's own currently-queued roll landing beat, if any (nil when nothing's waiting).
+    let landingBeat: Double?
+
     private let inset: CGFloat = 10
 
+    private func currentBeat(at date: Date) -> Double {
+        clockPlaying ? clockAnchor + date.timeIntervalSince(clockAnchorAt) * clockTempo / 60.0 : clockAnchor
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            selectorRow.frame(height: 32).padding(.top, 10)
-            Spacer(minLength: 2)
-            picture.frame(height: max(1, height - 58 - 84))
-                .padding(.horizontal, 18)
-                .contentShape(Rectangle())
-                // §5.6: only while the selected tab has an undecided roll — a decided tab's picture isn't a hold target.
-                .modifier(EuclideousRandomHoldModifier(enabled: state.isUndecided, onBegan: onHoldBegan, onEnded: onHoldEnded))
-            caption.frame(height: 14).padding(.top, 6)
-            Spacer(minLength: 2)
-            buttonRow.frame(height: 44).padding(.bottom, 10)
+        // §9.1's own idiom: stay live while running, and idle (paused) when the transport is stopped —
+        // this card has no strike/settle feed of its own to extend that by, so it's a flat gate on `clockPlaying`.
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clockPlaying)) { tl in
+            let beat = currentBeat(at: tl.date)
+            VStack(spacing: 0) {
+                selectorRow.frame(height: 32).padding(.top, 10)
+                Spacer(minLength: 2)
+                picture(beat: beat).frame(height: max(1, height - 58 - 96))
+                    .padding(.horizontal, 8)   // + the VStack's own outer 10pt below = a flat 18pt net inset
+                    .contentShape(Rectangle())
+                    // §5.6: only while the selected tab has an undecided roll — a decided tab's picture isn't a hold target.
+                    .modifier(EuclideousRandomHoldModifier(enabled: state.isUndecided, onBegan: onHoldBegan, onEnded: onHoldEnded))
+                    // §5.7/§5.8: VoiceOver can't long-press, so the hold becomes two explicit named actions.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(pictureAccessibilityLabel)
+                    .accessibilityActions {
+                        if state.isUndecided {
+                            if holding {
+                                Button("Play the new one") { onHoldEnded() }
+                            } else {
+                                Button("Play the original") { onHoldBegan() }
+                            }
+                        }
+                    }
+                caption.frame(height: 14).padding(.top, 6)
+                HStack(spacing: 0) { hintRow; Spacer(minLength: 0); progressDots(beat: beat) }.frame(height: 10).padding(.top, 2)
+                Spacer(minLength: 2)
+                buttonRow.frame(height: 44).padding(.bottom, 10)
+            }
+            .padding(.horizontal, 10)
+            .frame(width: width, height: height)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(accent.opacity(holding ? 0.9 : 0.45), lineWidth: 1))
         }
-        .padding(.horizontal, 10)
-        .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(accent.opacity(holding ? 0.9 : 0.45), lineWidth: 1))
     }
 
     // MARK: §3.2 selector
@@ -59,10 +92,11 @@ struct EuclideousRandomCardView: View {
             Spacer(minLength: 8)
             HStack(spacing: 4) {
                 ForEach([EuclideousRandomTab.rhythm, .riff, .notes], id: \.rawValue) { t in
-                    segment(t)
+                    segment(t).frame(maxWidth: .infinity)
                 }
             }
             .padding(4)
+            .frame(maxWidth: .infinity)   // §3.2: spans the row (x after the circle to width − 10), not just its content
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
         }
     }
@@ -93,11 +127,63 @@ struct EuclideousRandomCardView: View {
 
     // MARK: §4 the picture
 
-    @ViewBuilder private var picture: some View {
+    @ViewBuilder private func picture(beat: Double) -> some View {
         switch tab {
-        case .rhythm: EuclideousRandomRhythmPicture(line: line, original: state.original, accent: accent)
+        case .rhythm: EuclideousRandomRhythmPicture(line: line, original: state.original, accent: accent, beat: beat)
         case .riff: EuclideousRandomRiffPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks)
-        case .notes: EuclideousRandomNotesPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks)
+        case .notes: EuclideousRandomNotesPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks, lane: lane)
+        }
+    }
+
+    /// §5.7: what the picture shows, spoken — since VoiceOver can't read a diagram.
+    private var pictureAccessibilityLabel: String {
+        switch tab {
+        case .rhythm:
+            let steps = max(2, min(16, line.steps))
+            let offset = euclideousRandomDisplayedOffset(rotate: line.rotate, steps: steps)
+            return "\(line.pulses) of \(steps) steps" + (offset > 0 ? ", offset \(offset)" : "")
+        case .riff:
+            let dirName: String
+            switch line.euclideousRiffDirResolved {
+            case .forward: dirName = "forward"
+            case .reverse: dirName = "reverse"
+            case .pendulum: dirName = "pendulum"
+            case .pingpong: dirName = "ping-pong"
+            case .random, .drunk: dirName = "forward"   // coerced to FWD (RIFF WALK ferry, 2026-10-13) — never actually resolved
+            }
+            return "Riff walk, \(dirName), length \(line.riffLengthResolved)"
+        case .notes:
+            let order = line.litOrderResolved
+            return order.count == 0 ? "No notes lit" : "\(order.count) notes lit"
+        }
+    }
+
+    // MARK: §3.6 beat-progress dots — one per beat of the bar the queued roll lands on, filled up to now.
+
+    @ViewBuilder private func progressDots(beat: Double) -> some View {
+        if state.waiting != nil, let landingBeat, clockBeatsPerBar >= 1 {
+            let bars = max(1, Int(clockBeatsPerBar.rounded()))
+            let barStart = landingBeat - clockBeatsPerBar
+            let filled = min(bars, max(0, Int((beat - barStart).rounded(.down)) + 1))
+            HStack(spacing: 3) {
+                ForEach(0..<bars, id: \.self) { i in
+                    Circle().fill(i < filled ? accent : Color.clear)
+                        .overlay(Circle().strokeBorder(accent, lineWidth: 1))
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .accessibilityHidden(true)
+        }
+    }
+
+    // MARK: §3.4 hint row — teaches the hold; only while the picture is actually a hold target.
+
+    @ViewBuilder private var hintRow: some View {
+        if state.isUndecided {
+            Text(holding ? "PLAYING THE ORIGINAL · LET GO FOR THE NEW ONE" : "HOLD THE PICTURE TO HEAR THE ORIGINAL")
+                .font(.system(size: 7.5, weight: .bold)).tracking(0.6)
+                .foregroundColor(holding ? accent : Color(hex: 0x5C626C))
+                .lineLimit(1).truncationMode(.tail)
         }
     }
 
@@ -112,25 +198,33 @@ struct EuclideousRandomCardView: View {
         if let w = state.waiting {
             switch w { case .throwing: return "THROWING · NEXT BAR"; case .tweaking: return "TWEAKING · NEXT BAR"; case .back: return "GOING BACK · NEXT BAR" }
         }
-        if holding { return "PLAYING THE ORIGINAL · LET GO FOR THE NEW ONE" }
+        // §3.4's own hint row carries the held-state message now — the caption keeps showing the roll's
+        // own tag underneath a hold, same as it does while not held.
         if state.isUndecided {
             var s = state.tag
             if state.goes >= 2 { s += "  ·  \(state.goes) GOES" }
             return s
         }
         if let decidedAt = state.decidedAt, Date().timeIntervalSince(decidedAt) < 8 {
-            return state.tag.isEmpty ? "KEPT" : "KEPT"
+            // §5.4: a throw/tweak that found nothing legal to change stamps `decidedAt` too (even on an
+            // already-decided tab, the common case), so it shares this same short display window instead
+            // of never showing at all. `euclideousRandomBack` clears `tag` to "" when it queues a BACK, so
+            // an empty tag otherwise always means that's what landed; KEEP never touches `tag`.
+            if state.tag == "NOTHING TO CHANGE" { return state.tag }
+            return state.tag.isEmpty ? "BACK TO THE ORIGINAL" : "KEPT"
         }
         let layerOff: Bool
         switch tab { case .riff: layerOff = !line.riffOnResolved; case .notes: layerOff = !euclideousNotesLayerIsOn(line); case .rhythm: layerOff = false }
-        if layerOff { return tab == .notes ? "THE NOTES LAYER IS OFF · YOU WON'T HEAR THIS" : "RIFF IS OFF · YOU WON'T HEAR THIS" }
+        if layerOff { return tab == .notes ? "THE NOTES LAYER IS OFF · YOU WON'T HEAR THIS" : "THE RIFF LAYER IS OFF · YOU WON'T HEAR THIS" }
         return "THROW A NEW ONE · TWEAK WHAT'S PLAYING"
     }
 
     private var captionColor: Color {
-        if state.waiting != nil || holding { return accent }
+        if state.waiting != nil { return accent }
         if state.isUndecided { return Color(hex: 0xF2F4F7) }
-        if let decidedAt = state.decidedAt, Date().timeIntervalSince(decidedAt) < 8 { return accent }
+        if let decidedAt = state.decidedAt, Date().timeIntervalSince(decidedAt) < 8 {
+            return state.tag == "NOTHING TO CHANGE" ? Color(hex: 0x8A909A) : accent
+        }
         let layerOff: Bool
         switch tab { case .riff: layerOff = !line.riffOnResolved; case .notes: layerOff = !euclideousNotesLayerIsOn(line); case .rhythm: layerOff = false }
         return layerOff ? Color(hex: 0xFFB454) : Color(hex: 0x8A909A)
@@ -150,13 +244,15 @@ struct EuclideousRandomCardView: View {
     }
 
     private func button(_ title: String, glyph: String, tint: Color?, action: @escaping () -> Void, dashed: Bool, filled: Bool = false) -> some View {
-        Button(action: action) {
+        let labelColor = filled ? Color(hex: 0x0D0F14) : Color(hex: 0xF2F4F7)
+        return Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: glyph).font(.system(size: state.isUndecided ? 16 : 18))
+                    .foregroundColor(filled ? Color(hex: 0x0D0F14) : (tint ?? Color(hex: 0xF2F4F7)))
                 Text(title).font(.system(size: 11, weight: .heavy)).tracking(0.9)
+                    .foregroundColor(labelColor)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .foregroundColor(filled ? Color(hex: 0x0D0F14) : (tint ?? Color(hex: 0xF2F4F7)))
             .background(RoundedRectangle(cornerRadius: 10).fill(filled ? accent : Color(hex: 0x2A2D34)))
             .overlay(dashed ? RoundedRectangle(cornerRadius: 10).strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [4, 3])).foregroundColor(accent).padding(1) : nil)
         }
@@ -211,6 +307,7 @@ struct EuclideousRandomRhythmPicture: View {
     let line: EuclidLine
     let original: EuclidLine?
     let accent: Color
+    let beat: Double
 
     var body: some View {
         GeometryReader { geo in
@@ -237,6 +334,14 @@ struct EuclideousRandomRhythmPicture: View {
                         .frame(width: pattern[i] ? 14 : 6, height: pattern[i] ? 14 : 6)
                         .position(p)
                 }
+                // §4.1/§4.4: the live playhead ring — a FREE-pattern phase (`floor(beat / stepBeats) mod
+                // steps`), the same base-case formula `euclideousLanePhase` reduces to with no restart
+                // chain/grid active. This picture carries no chain state at all (THROW/TWEAK never touch
+                // the chains), so a chained lane's picture shows this simplified phase, not its real one —
+                // an accepted, documented simplification, not a second "real" derivation.
+                Circle().strokeBorder(Color(hex: 0xF2F4F7), lineWidth: 2)
+                    .frame(width: 22, height: 22)
+                    .position(point(currentStep(steps: steps), steps: steps, cx: cx, cy: cy, r: r))
                 VStack(spacing: 3) {
                     Text("\(hits) / \(steps)").font(.system(size: 22, weight: .heavy)).foregroundColor(Color(hex: 0xF2F4F7))
                     Text(offset > 0 ? "OFFSET \(offset)" : "NO OFFSET").font(.system(size: 8.5, weight: .heavy)).tracking(1)
@@ -245,6 +350,13 @@ struct EuclideousRandomRhythmPicture: View {
                 .position(x: cx, y: cy)
             }
         }
+    }
+
+    private func currentStep(steps: Int) -> Int {
+        let stepBeats = line.rate?.beats ?? 0.5
+        guard stepBeats > 0, steps > 0 else { return 0 }
+        let raw = Int((beat / stepBeats).rounded(.down))
+        return ((raw % steps) + steps) % steps
     }
 
     private func point(_ i: Int, steps: Int, cx: CGFloat, cy: CGFloat, r: CGFloat) -> CGPoint {
@@ -336,6 +448,7 @@ struct EuclideousRandomNotesPicture: View {
     let original: EuclidLine?
     let accent: Color
     let riffRanks: [Int]
+    let lane: Int
 
     private let keyLabels = ["1", "2", "3", "4", "5", "6", "7", "8", "T2", "T"]
 
@@ -381,34 +494,47 @@ struct EuclideousRandomNotesPicture: View {
         }
     }
 
+    /// §4.3: THREE dot states (not two) — sounds (14pt, full accent), CHANCE-dropped (14pt, 35% accent —
+    /// PLAY AS would sound it but the fixed-seed roll dropped this hit), or never in the pattern (4pt,
+    /// dim). And ROLL/RUN spread their sounding dots within the column (3pt/6pt per strike-order place,
+    /// centred) instead of stacking them all at the column centre — the engine's own strike-order, via
+    /// `euclideousNotesWayPick` directly rather than the membership-only `Set` wrapper, which loses it.
     private func playPattern(order: EuclideousLitOrder, width: CGFloat, height: CGFloat) -> some View {
         let n = order.count
         let rows = min(8, max(1, n))
         let rowH = min(30, height / CGFloat(rows))
         let colW = width / 8
+        let way = line.notesPlayAsResolved
+        let chance = line.notesChanceResolved
+        var list = EuclideousNotesList()
+        for i in 0..<order.count { list.append(pitch: i, position: order[i], rank: 0) }
         return ZStack {
             ForEach(0..<8, id: \.self) { hitCol in
-                let k = hitCol
-                let list = euclideousRandomNotesPickListIndices(order: order, way: line.notesPlayAsResolved, k: k)
+                let pick = euclideousNotesWayPick(list: list, way: way, k: hitCol)
+                let strikeIndex: [Int: Int] = {
+                    var m: [Int: Int] = [:]
+                    for j in 0..<pick.count { m[pick[j]] = j }
+                    return m
+                }()
                 ForEach(0..<n, id: \.self) { row in
-                    let sounds = list.contains(row)
-                    Circle().fill(sounds ? accent : Color(hex: 0x2A2D34))
-                        .frame(width: sounds ? 14 : 4, height: sounds ? 14 : 4)
-                        .position(x: CGFloat(hitCol) * colW + colW / 2, y: CGFloat(row) * rowH + rowH / 2)
+                    let j = strikeIndex[row]
+                    let picked = j != nil
+                    let allowed = picked && euclideousNotesChanceAllows(chance: chance, lane: lane, h: Int64(hitCol))
+                    let dropped = picked && !allowed
+                    let dx: CGFloat = {
+                        guard let j else { return 0 }
+                        switch way {
+                        case .roll: return (CGFloat(j) - CGFloat(pick.count - 1) / 2) * 3
+                        case .run: return (CGFloat(j) - CGFloat(pick.count - 1) / 2) * 6
+                        default: return 0
+                        }
+                    }()
+                    Circle().fill(allowed ? accent : (dropped ? accent.opacity(0.35) : Color(hex: 0x2A2D34)))
+                        .frame(width: picked ? 14 : 4, height: picked ? 14 : 4)
+                        .position(x: CGFloat(hitCol) * colW + colW / 2 + dx, y: CGFloat(row) * rowH + rowH / 2)
                 }
             }
         }
         .frame(height: CGFloat(rows) * rowH)
     }
-}
-
-/// §4.3's play-pattern dots: which lit-order ROWS (not pitches — the picture has no pool to resolve against)
-/// a hit `k` sounds, via the engine's own `euclideousNotesWayPick` over a synthetic one-row-per-position list.
-func euclideousRandomNotesPickListIndices(order: EuclideousLitOrder, way: EuclidNotesPlayAs, k: Int) -> Set<Int> {
-    var list = EuclideousNotesList()
-    for i in 0..<order.count { list.append(pitch: i, position: order[i], rank: 0) }
-    let pick = euclideousNotesWayPick(list: list, way: way, k: k)
-    var out = Set<Int>()
-    for i in 0..<pick.count { out.insert(pick[i]) }
-    return out
 }

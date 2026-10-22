@@ -27,6 +27,14 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - Tapping off the lane cards (header, margins, gutters, the dimmed riff/bottom panels) reliably finishes and never also presses something underneath.
 - The riff panel + bottom-right panel's dim wash (rgba(12,14,18,0.62)) reads as "inert" without looking broken, in all four lane colours' pictures on top of it.
 
+### RANDOM MODE adversarial-review fixes (2026-10-22)
+- The RHYTHM picture's new live playhead ring (a FREE-pattern-phase approximation — it ignores restart chains) tracks believably against what's actually heard, at 64 and 1024 buffers.
+- The NOTES picture's new 3-state dot (sounds / CHANCE-dropped at 35% / never-in-pattern at 4pt) reads as three states, not two, in all four lane colours; the ROLL/RUN dot spreading (3pt/6pt per strike place) doesn't look like visual noise at 8 ranks.
+- The new §3.4 hint row ("HOLD THE PICTURE TO HEAR THE ORIGINAL" / "PLAYING THE ORIGINAL · LET GO FOR THE NEW ONE") is legible at 7.5pt beside the caption above it, and the two never collide.
+- The selector pill now spanning the full row width (instead of shrinking to its content) still looks balanced at the card's real width, not stretched.
+- VoiceOver: the picture's spoken label (per tab) and the "Play the original"/"Play the new one" custom actions actually surface in the rotor and behave like the touch hold (switches on activation, not after a delay).
+- The §6.8 external-write-decides-the-roll path (host automation/MIDI learn touching a field mid-roll) — no real device trigger exists yet for these specific fields, so this is logic-only verified; flag if a future ferry adds host automation to RHYTHM/RIFF/NOTES fields and this needs a real exercise.
+
 ### Restart tiles — labels and flash (2026-10-21)
 - The RHYTHM tab's two tiles read "RHYTHM RESTART" / "MELODY RESTART" and are legible at 8 pt; on a narrow card they fall back to "RHYTHM" / "MELODY".
 - The flash reads as "stylish" and in time: each tile flashes on the chain restarts you set and — on FREE — at the pattern's natural restart (RHYTHM: every pass; MELODY: the riff coming back to its first step, which is NOT every pass), in all four lane colours; the sweep, the rim glow and the spinning ↻ don't feel busy at fast rates (1/16 passes every ~1 s).
