@@ -2797,10 +2797,10 @@ enum EuclideousSliderField: Int, CaseIterable {
         case .velocity: return "How hard every hit strikes"
         }
     }
-    /// HITS/STEPS/OFFSET snap to one of a fixed count of whole values (band-snapped, ferry Touch
-    /// behaviour §3); TILT/GATE/VELOCITY are continuous across their range, rounded only for storage/
-    /// display (§5).
-    var isWhole: Bool { self == .hits || self == .steps || self == .offset }
+    /// HITS/STEPS snap to one of a fixed count of whole values (band-snapped, ferry Touch behaviour §3);
+    /// OFFSET (RHYTHM POLISH ferry, 2026-10-22), TILT, GATE and VELOCITY are continuous across their range, rounded only for storage/display (§5).
+    /// OFFSET and TILT also carry a detent at their natural points (`euclideousSliderValueAtDetented`).
+    var isWhole: Bool { self == .hits || self == .steps }
 }
 
 /// The field's current value (in its own natural units — NOT normalized) and its current valid range,
@@ -2829,7 +2829,8 @@ func euclideousSliderRange(_ field: EuclideousSliderField, _ line: EuclidLine) -
         let n = max(2, min(16, line.steps))
         let r = ((line.rotate % n) + n) % n
         let displayed = (n - r) % n
-        return (Double(displayed), 0, Double(n - 1))                // 0...STEPS-1
+        // RHYTHM POLISH (2026-10-22): the displayed offset is the whole part plus `offsetFraction`; the slider's top is still STEPS−1 (a fraction on the top value reads as the top).
+        return (min(Double(n - 1), Double(displayed) + line.offsetFractionResolved), 0, Double(n - 1))   // 0...STEPS-1
     case .tilt:
         return (line.tiltResolved, -1, 1)
     case .gate:
@@ -2879,6 +2880,27 @@ func euclideousSliderValueAt(_ field: EuclideousSliderField, _ line: EuclidLine,
 /// a second, separate value formula.
 func euclideousTiltDetentFrac(_ frac: Double) -> Double {
     abs(frac - 0.5) <= 0.06 ? 0.5 : frac
+}
+/// RHYTHM POLISH ferry (2026-10-22) §2.2 — the detents at the two controls' natural points, as pure functions of the VALUE (stateless: a drag within the radius reads as the point, one past it reads as itself, so "stays
+/// snapped until it moves past that distance" holds by construction). OFFSET snaps to a whole step within 0.08 of a step; TILT snaps to 0 within 3 % (±0.03 of the value — NOT of the travel, which the older
+/// `euclideousTiltDetentFrac` above measured as ±6 % of travel = ±12 % of the value; that one is no longer called).
+enum EuclideousDetent {
+    static let offsetStep = 0.08
+    static let tiltValue = 0.03
+}
+func euclideousOffsetDetent(_ v: Double) -> Double {
+    let r = v.rounded()
+    return abs(v - r) <= EuclideousDetent.offsetStep + 1e-9 ? r : v   // the epsilon makes the stated radius inclusive despite binary rounding (2.08 − 2 = 0.08000000000000007)
+}
+func euclideousTiltDetent(_ v: Double) -> Double { abs(v) <= EuclideousDetent.tiltValue + 1e-9 ? 0 : v }
+/// What a touch at `frac` commits, detents included — the ONE place the OFFSET / TILT detents are applied (the slider and the tests both call this).
+func euclideousSliderValueAtDetented(_ field: EuclideousSliderField, _ line: EuclidLine, frac: Double) -> Double {
+    let v = euclideousSliderValueAt(field, line, frac: frac)
+    switch field {
+    case .offset: return euclideousOffsetDetent(v)
+    case .tilt: return euclideousTiltDetent(v)
+    default: return v
+    }
 }
 
 /// Tick-mark positions (0...1 each, matching `euclideousSliderFrac`'s own convention) — ONLY HITS and
@@ -2936,15 +2958,23 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
         // quantity the slider's drag position computed; converting it back to the stored `rotate` needs
         // the same `(n - v) mod n` mirror applied in reverse (it's self-inverse, so the identical formula
         // undoes it exactly).
+        // RHYTHM POLISH (2026-10-22): the value is continuous now — its whole part is the old integer offset (a comet-bar drag past the ends still wraps, mod STEPS) and its fraction is `offsetFraction`
+        // (nil when the value is a whole step, so a whole offset stores exactly what it always did).
         let n = max(2, min(16, line.steps))
-        let v = Int(newValue.rounded())
+        let whole = newValue.rounded(.down)
+        let frac = newValue - whole
+        let v = Int(whole)
         let displayed = ((v % n) + n) % n
         let mirrored = (n - displayed) % n
         line.rotate = mirrored
         line.offsetRequested = displayed   // RESTART CHAINS ferry §2.5: what was actually asked for, surviving a later shorter STEPS
+        line.offsetFraction = frac < 1e-9 ? nil : min(frac, 1 - 1e-9)
     case .tilt:
         guard line.customHits == nil else { return }   // disabled on an edited pattern — defensive; the UI never drags this
-        line.tilt = max(-1, min(1, newValue))
+        // RHYTHM POLISH: writes both — `tilt` (an older build still reads it) and `tiltFine` (the opt-in for unrounded timing).
+        let t = max(-1, min(1, newValue))
+        line.tilt = t
+        line.tiltFine = t
     case .gate:
         let target = max(0.01, min(euclideousLaneGateMax, newValue))   // floor matches euclideousSliderRange's own lowered floor; the ceiling is 99% — a lane's gate is never legato (`euclideousLaneGateMax`)
         // MIX ferry §6.3: the layers PART at the first edit — pin the notes layer to the CURRENT gate before it changes (only on a
@@ -2975,8 +3005,8 @@ func euclideousSliderRevert(_ field: EuclideousSliderField, _ line: inout Euclid
     case .steps:
         line.steps = snapshot.steps; line.pulses = snapshot.pulses; line.rotate = snapshot.rotate; line.customHits = snapshot.customHits
         line.hitsRequested = snapshot.hitsRequested; line.offsetRequested = snapshot.offsetRequested
-    case .offset: line.rotate = snapshot.rotate; line.offsetRequested = snapshot.offsetRequested
-    case .tilt: line.tilt = snapshot.tilt
+    case .offset: line.rotate = snapshot.rotate; line.offsetRequested = snapshot.offsetRequested; line.offsetFraction = snapshot.offsetFraction
+    case .tilt: line.tilt = snapshot.tilt; line.tiltFine = snapshot.tiltFine
     case .gate:
         line.gate = snapshot.gate
         // A long-press revert is NOT an edit: if the touch-down commit parted the layers (pinned `notesGate` to the old GATE), put
@@ -2996,8 +3026,8 @@ func euclideousSliderRevert(_ field: EuclideousSliderField, _ line: inout Euclid
 func euclideousSliderDoubleTapDefault(_ field: EuclideousSliderField, _ line: inout EuclidLine) {
     switch field {
     case .hits, .steps: break
-    case .offset: line.rotate = 0
-    case .tilt: line.tilt = 0
+    case .offset: line.rotate = 0; line.offsetFraction = nil   // RHYTHM POLISH: double-tap clears the fraction too (it is an OFFSET writer)
+    case .tilt: line.tilt = 0; line.tiltFine = 0
     case .gate:
         if line.gateResolved != 0.9 { euclideousPinNotesLayer(&line, gate: true, velocity: false) }
         line.gate = 0.9
@@ -3015,9 +3045,16 @@ func euclideousSliderDoubleTapDefault(_ field: EuclideousSliderField, _ line: in
 /// GATE" clause.
 func euclideousSliderAccessibilityStep(_ field: EuclideousSliderField) -> Double {
     switch field {
-    case .gate, .tilt: return 0.01
+    case .gate: return 0.01
+    case .tilt: return 0.05   // RHYTHM POLISH (2026-10-22) §2.4: a TILT swipe moves 5 %
     default: return 1
     }
+}
+/// RHYTHM POLISH §2.4 — where an adjustable swipe lands: OFFSET goes to the next / previous WHOLE step (clearing any fraction: 5.25 → 6 up, 5 down; 5 → 6 / 4); every other field moves by its step.
+func euclideousSliderAccessibilityTarget(_ field: EuclideousSliderField, current cur: Double, increment: Bool) -> Double {
+    if field == .offset { return increment ? cur.rounded(.down) + 1 : cur.rounded(.up) - 1 }
+    let step = euclideousSliderAccessibilityStep(field)
+    return increment ? cur + step : cur - step
 }
 
 /// The slider's own compact value readout text — mirrors this page's existing display conventions (a
@@ -3030,12 +3067,15 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
     case .offset:
         // Shows the SAME mirrored quantity the slider's own fill position represents (euclideousSliderRange's
         // `.offset` case) — raw `rotate` would disagree with where the fill visibly sits.
+        // RHYTHM POLISH §2.2: "5" for a whole offset, "5.25" (two decimals) only when the fraction isn't 0.
         let n = max(2, min(16, line.steps))
         let r = ((line.rotate % n) + n) % n
-        return "\((n - r) % n)"
+        let whole = (n - r) % n
+        let f = line.offsetFractionResolved
+        return f < 0.005 ? "\(whole)" : String(format: "%.2f", Double(whole) + f)
     case .tilt:
         let pct = Int((line.tiltResolved * 100).rounded())
-        return pct == 0 ? "0" : (pct > 0 ? "+\(pct)%" : "−\(-pct)%")
+        return pct == 0 ? "0%" : (pct > 0 ? "+\(pct)%" : "−\(-pct)%")   // RHYTHM POLISH §2.2: a whole percent with a sign, zero as "0%"
     case .gate:
         return "\(Int((line.gateResolved * 100).rounded()))%"
     case .velocity:
@@ -3048,6 +3088,7 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
 /// threshold, not a near-100% approximation).
 func euclideousSliderAccessibilityValueText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
     let base = euclideousSliderValueText(field, line)
+    if field == .offset { return base == "1" ? "1 step" : "\(base) steps" }   // RHYTHM POLISH §2.4: "Offset 5.25 steps" — the fraction is spoken
     guard field == .gate, euclideousGateIsLegato(line.gateResolved) else { return base }
     return "\(base), legato"
 }

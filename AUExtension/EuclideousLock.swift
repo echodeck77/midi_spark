@@ -109,6 +109,7 @@ struct LaneLockFields: Codable {
     var customHits: [Bool]? = nil
     var hitsRequested: Int? = nil, offsetRequested: Int? = nil
     var tilt: Double? = nil
+    var offsetFraction: Double? = nil, tiltFine: Double? = nil   // RHYTHM POLISH: the continuous OFFSET / TILT fields lock with the controls that write them
     var rate: ArpRate? = nil
     var listenFollowMult: Int? = nil      // the FOLLOW multiplier chips sit on the RHYTHM tab, so they lock with it (a LISTEN field — listed per 3.1)
     var direction: EuclidDir? = nil
@@ -139,6 +140,8 @@ struct LaneLockFields: Codable {
         hitsRequested = (try? c.decodeIfPresent(Int.self, forKey: .hitsRequested)) ?? nil
         offsetRequested = (try? c.decodeIfPresent(Int.self, forKey: .offsetRequested)) ?? nil
         tilt = (try? c.decodeIfPresent(Double.self, forKey: .tilt)) ?? nil
+        offsetFraction = (try? c.decodeIfPresent(Double.self, forKey: .offsetFraction)) ?? nil
+        tiltFine = (try? c.decodeIfPresent(Double.self, forKey: .tiltFine)) ?? nil
         rate = (try? c.decodeIfPresent(ArpRate.self, forKey: .rate)) ?? nil
         listenFollowMult = (try? c.decodeIfPresent(Int.self, forKey: .listenFollowMult)) ?? nil
         direction = (try? c.decodeIfPresent(EuclidDir.self, forKey: .direction)) ?? nil
@@ -171,7 +174,7 @@ struct LaneLockFields: Codable {
     init(line l: EuclidLine) {
         steps = l.steps; pulses = l.pulses; rotate = l.rotate
         customHits = l.customHits; hitsRequested = l.hitsRequested; offsetRequested = l.offsetRequested
-        tilt = l.tilt; rate = l.rate; listenFollowMult = l.listenFollowMult; direction = l.direction; patternMiss = l.patternMiss
+        tilt = l.tilt; offsetFraction = l.offsetFraction; tiltFine = l.tiltFine; rate = l.rate; listenFollowMult = l.listenFollowMult; direction = l.direction; patternMiss = l.patternMiss
         restartRhythmBars = l.restartRhythmBars; restartMelodyPasses = l.restartMelodyPasses
         riffOn = l.riffOn; riffDir = l.riffDir; riffInvert = l.riffInvert
         riffAdvanceEvery = l.riffAdvanceEvery; riffAdvanceStep = l.riffAdvanceStep; riffOnRest = l.riffOnRest
@@ -187,7 +190,7 @@ struct LaneLockFields: Codable {
     func applied(to l: inout EuclidLine) {
         l.steps = steps; l.pulses = pulses; l.rotate = rotate
         l.customHits = customHits; l.hitsRequested = hitsRequested; l.offsetRequested = offsetRequested
-        l.tilt = tilt; l.rate = rate; l.listenFollowMult = listenFollowMult; l.direction = direction; l.patternMiss = patternMiss
+        l.tilt = tilt; l.offsetFraction = offsetFraction; l.tiltFine = tiltFine; l.rate = rate; l.listenFollowMult = listenFollowMult; l.direction = direction; l.patternMiss = patternMiss
         l.restartRhythmBars = restartRhythmBars; l.restartMelodyPasses = restartMelodyPasses
         l.riffOn = riffOn; l.riffDir = riffDir; l.riffInvert = riffInvert
         l.riffAdvanceEvery = riffAdvanceEvery; l.riffAdvanceStep = riffAdvanceStep; l.riffOnRest = riffOnRest
@@ -205,7 +208,8 @@ struct LaneLockKey: Equatable {
     var steps: Int, pulses: Int, rotate: Int
     var customHits: [Bool]?
     var hitsRequested: Int, offsetRequested: Int
-    var tilt: Double, rate: ArpRate?, followMult: Int, direction: EuclidDir, patternMiss: Bool
+    var tilt: Double, tiltIsFine: Bool, offsetFraction: Double
+    var rate: ArpRate?, followMult: Int, direction: EuclidDir, patternMiss: Bool
     var chainRhythm: [UInt8]?, chainMelody: [UInt8]?
     var riffOn: Bool, riffDir: RiffDir, riffInvert: Bool
     var advanceEvery: Int, advanceStep: Bool, onRest: EuclidRiffOnRest
@@ -219,7 +223,7 @@ extension LaneLockFields {
         applied(to: &l)
         return LaneLockKey(steps: l.steps, pulses: l.pulses, rotate: l.rotate, customHits: l.customHits,
                            hitsRequested: l.hitsRequestedResolved, offsetRequested: l.offsetRequestedResolved,
-                           tilt: l.tiltResolved, rate: l.rate, followMult: l.listenFollowMultResolved, direction: l.directionResolved, patternMiss: l.patternMissResolved,
+                           tilt: l.tiltResolved, tiltIsFine: l.tiltIsFine, offsetFraction: l.offsetFractionResolved, rate: l.rate, followMult: l.listenFollowMultResolved, direction: l.directionResolved, patternMiss: l.patternMissResolved,
                            chainRhythm: l.restartRhythmBars, chainMelody: l.restartMelodyPasses,
                            riffOn: l.riffOnResolved, riffDir: l.riffDirResolved, riffInvert: l.riffInvertResolved,
                            advanceEvery: l.riffAdvanceEveryResolved, advanceStep: l.riffAdvanceStepResolved, onRest: l.riffOnRestResolved,
@@ -335,8 +339,8 @@ func euclideousLockChangedControls(from locked: LaneLockFields, to line: EuclidL
     var s = Set<EuclideousLockControl>()
     if a.pulses != b.pulses || a.customHits != b.customHits { s.insert(.hits) }
     if a.steps != b.steps { s.insert(.steps) }
-    if a.rotate != b.rotate { s.insert(.offset) }
-    if a.tilt != b.tilt { s.insert(.tilt) }
+    if a.rotate != b.rotate || a.offsetFraction != b.offsetFraction { s.insert(.offset) }
+    if a.tilt != b.tilt || a.tiltIsFine != b.tiltIsFine { s.insert(.tilt) }
     if a.rate != b.rate { s.insert(.rate) }
     if a.followMult != b.followMult { s.insert(.followMult) }
     if a.direction != b.direction { s.insert(.direction) }

@@ -3620,7 +3620,7 @@ final class DerivationsTests: XCTestCase {
     }
     func testEuclideousSliderValueTextFormatting() {
         var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all, tilt: 0)
-        XCTAssertEqual(euclideousSliderValueText(.tilt, l), "0", "zero carries no sign")
+        XCTAssertEqual(euclideousSliderValueText(.tilt, l), "0%", "zero carries no sign (RHYTHM POLISH §2.2: a whole percent, so \"0%\")")
         l.tilt = 0.2
         XCTAssertEqual(euclideousSliderValueText(.tilt, l), "+20%")
         l.tilt = -0.3
@@ -3640,9 +3640,9 @@ final class DerivationsTests: XCTestCase {
         vel.velocityAbsolute = 127
         XCTAssertEqual(euclideousSliderLabelText(.velocity, vel), "VEL", "never LEGATO for any field but GATE")
     }
-    func testEuclideousSliderAccessibilityStepIsPercentForGateAndTiltOnly() {
+    func testEuclideousSliderAccessibilityStepIsPercentForGateAndFivePercentForTilt() {
         XCTAssertEqual(euclideousSliderAccessibilityStep(.gate), 0.01)
-        XCTAssertEqual(euclideousSliderAccessibilityStep(.tilt), 0.01)
+        XCTAssertEqual(euclideousSliderAccessibilityStep(.tilt), 0.05, "RHYTHM POLISH §2.4: a TILT swipe moves 5 %")
         XCTAssertEqual(euclideousSliderAccessibilityStep(.hits), 1)
         XCTAssertEqual(euclideousSliderAccessibilityStep(.velocity), 1)
     }

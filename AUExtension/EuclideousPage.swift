@@ -468,9 +468,8 @@ struct EuclideousSlider: View {
                     if moved > 4 { cancelHelpCheck() }
                     guard !helpActive else { return }
                     let len = horizontal ? width : height
-                    var f = frac(atTravel: horizontal ? g.location.x : g.location.y, length: len)
-                    if field == .tilt { f = euclideousTiltDetentFrac(f) }
-                    let v = euclideousSliderValueAt(field, line, frac: f)
+                    let f = frac(atTravel: horizontal ? g.location.x : g.location.y, length: len)
+                    let v = euclideousSliderValueAtDetented(field, line, frac: f)   // RHYTHM POLISH §2.2: OFFSET snaps to a whole step within 0.08, TILT to 0 within 3 %
                     // "NO CHANGE, NO COMMIT" (ferry Touch behaviour §6) — a touch landing on (or staying
                     // within) the band of the value it started at writes nothing.
                     if v != lastCommitted, let snap = snapshot {
@@ -518,9 +517,8 @@ struct EuclideousSlider: View {
         .accessibilityValue(euclideousLockAppendSnapWords(edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, effectiveLine), outlined: lockOutline != nil))
         .accessibilityAdjustableAction { direction in
             guard !edited, !listenFollowLocked else { return }
-            let step = euclideousSliderAccessibilityStep(field)
             let cur = euclideousSliderRange(field, line).value
-            let target = direction == .increment ? cur + step : cur - step
+            let target = euclideousSliderAccessibilityTarget(field, current: cur, increment: direction == .increment)
             onCommit { l in euclideousSliderCommit(field, &l, snapshot: line, newValue: target) }
         }
     }

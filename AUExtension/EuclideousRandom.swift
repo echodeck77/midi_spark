@@ -770,6 +770,7 @@ func euclideousRandomCommitPendingRoll(_ roll: EuclideousPendingRoll, into line:
         }
         line.steps = roll.steps; line.pulses = roll.pulses; line.rotate = roll.rotate
         line.hitsRequested = nil; line.offsetRequested = nil
+        line.offsetFraction = nil   // RHYTHM POLISH §4.1: a randomise sets rotate another way, so the fraction goes with it
     case .riff:
         line.riffDir = roll.riffDir; line.riffInvert = roll.riffInvert
         line.riffAdvanceEvery = roll.riffAdvanceEvery; line.riffAdvanceStep = roll.riffAdvanceStep
@@ -829,6 +830,7 @@ func euclideousRandomApplyTabFields(from original: EuclidLine, tab: EuclideousRa
         // smuggled into (or reverted by) this tab's own random-mode undo step.
         line.steps = original.steps; line.pulses = original.pulses; line.rotate = original.rotate
         line.hitsRequested = original.hitsRequested; line.offsetRequested = original.offsetRequested
+        line.offsetFraction = original.offsetFraction   // RHYTHM POLISH: BACK / undo restores the fraction the roll cleared
     case .riff:
         line.riffDir = original.riffDir; line.riffInvert = original.riffInvert
         line.riffAdvanceEvery = original.riffAdvanceEvery; line.riffAdvanceStep = original.riffAdvanceStep

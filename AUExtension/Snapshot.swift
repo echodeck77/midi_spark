@@ -471,7 +471,7 @@ extension SnapParams {
         // so a later STEPS change doesn't silently resurface a HITS/OFFSET value this ramp never asked for.
         case .euclidPulses: s.euclidPulses = ci(1, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].pulses = s.euclidPulses; s.euclidLines[0].hitsRequested = nil }
         case .euclidSteps:  s.euclidSteps = ci(2, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].steps = s.euclidSteps }
-        case .euclidRot:    s.euclidRot = ci(0, 15); if !s.euclidLines.isEmpty { s.euclidLines[0].rotate = s.euclidRot; s.euclidLines[0].offsetRequested = nil }
+        case .euclidRot:    s.euclidRot = ci(0, 15); if !s.euclidLines.isEmpty { s.euclidLines[0].rotate = s.euclidRot; s.euclidLines[0].offsetRequested = nil; s.euclidLines[0].offsetFraction = nil }
         case .glideRange:   s.glideRange = ci(1, 48)
         case .modMin:       s.modMin = ci(0, 127)
         case .modMax:       s.modMax = ci(0, 127)

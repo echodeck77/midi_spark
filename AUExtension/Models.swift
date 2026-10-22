@@ -389,7 +389,7 @@ struct EuclidLine: Codable, Equatable {
     // (positive) of its N-step cycle — see `euclidTiltPattern`'s own doc comment for the exact mechanism.
     // nil ⇒ 0 = no bias, byte-identical to before this field existed.
     var tilt: Double? = nil
-    var tiltResolved: Double { max(-1, min(1, tilt ?? 0)) }
+    var tiltResolved: Double { max(-1, min(1, tiltFine ?? tilt ?? 0)) }   // RHYTHM POLISH: the fine value wins; with `tiltFine` nil this is exactly the old `tilt` read
     // RIFF FREE/LOCK, INVERT, ON REST (Paul 2026-10-09 ferry, "three new per-lane riff options") — all three
     // ONLY ever read while `useRiffResolved` is true; otherwise inert, same as riffRotate/riffDir/etc. above.
     //
@@ -596,6 +596,20 @@ struct EuclidLine: Codable, Equatable {
     var notesLitOrder: [UInt8]? = nil {
         didSet { if let a = notesLitOrder, let o = EuclideousLitOrder(valid: a) { litNotes = o.rankMask; topLit = o.hasTop; top2Lit = o.hasTop2 } }
     }
+    // RHYTHM POLISH ferry (2026-10-22, §4) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. nil everywhere sounds exactly as before.
+    //  · `offsetFraction` (0..<1): the part of OFFSET between whole steps. Every hit plays that fraction of a step LATER (`euclideousHitDelaySteps`); the displayed offset is `offsetRequested + offsetFraction`. The STEPS
+    //    setter leaves it alone (4.2). nil ⇒ 0.
+    //  · `tiltFine` (−1…1): TILT as the slider last wrote it AND the opt-in for UNROUNDED timing. `tilt` was already a Double, but the engine rounds a tilted hit onto the step grid (`euclidTiltPattern`); stopping that for every
+    //    stored `tilt` would change how existing sessions sound, so a lane plays unrounded only when `tiltFine` is set (the TILT slider writes both fields, so an older build still reads `tilt`). nil ⇒ today's rounded TILT.
+    var offsetFraction: Double? = nil
+    var tiltFine: Double? = nil
+    /// `offsetFraction` as the engine reads it: 0 for nil / non-finite, else clamped into 0..<1.
+    var offsetFractionResolved: Double {
+        guard let f = offsetFraction, f.isFinite else { return 0 }
+        return max(0, min(1 - 1e-9, f))
+    }
+    /// TILT plays unrounded (continuous) on this lane — see `tiltFine`.
+    var tiltIsFine: Bool { tiltFine != nil }
     var notesWhenResolved: UInt8 { let w = (notesWhen ?? 0b11) & 0b11; return w == 0 ? 0b11 : w }
     var notesPlaysResolved: Bool { notesWhenResolved & 0b01 != 0 }
     var notesRestsResolved: Bool { notesWhenResolved & 0b10 != 0 }
@@ -823,6 +837,9 @@ extension EuclidLine {
         restartMelodyPasses = try c.decodeIfPresent([UInt8].self, forKey: .restartMelodyPasses)
         hitsRequested = try c.decodeIfPresent(Int.self, forKey: .hitsRequested)
         offsetRequested = try c.decodeIfPresent(Int.self, forKey: .offsetRequested)
+        // RHYTHM POLISH ferry (2026-10-22, §4.1): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset; clamped at decode.
+        offsetFraction = (try? c.decodeIfPresent(Double.self, forKey: .offsetFraction)).flatMap { $0 }.flatMap { $0.isFinite ? max(0, min(1 - 1e-9, $0)) : nil }
+        tiltFine = (try? c.decodeIfPresent(Double.self, forKey: .tiltFine)).flatMap { $0 }.flatMap { $0.isFinite ? max(-1, min(1, $0)) : nil }
         // NOTES TAB ferry (2026-10-19, §5): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset.
         let rawWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)).flatMap { $0 }
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)
