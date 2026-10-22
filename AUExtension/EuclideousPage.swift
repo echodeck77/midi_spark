@@ -1709,16 +1709,18 @@ struct EuclideousPage: View {
         return ZStack(alignment: .topLeading) {
             fourfoldHeader(g.hdr, containerW: g.containerW)
                 .offset(x: sp16, y: HM.topMargin)
+            // The overlays go on BEFORE the `.offset` (a SwiftUI `.offset` moves only the drawing: an overlay added after it is laid out at the UN-offset position — the "RANDOM" badge and its border
+            // appeared at the page's top-left, over the header, instead of on the riff grid; the lock dim had the same fault).
             riffGridView(box: box)
                 .frame(width: box.width, height: box.height)
-                .offset(x: page.riff.minX, y: page.riff.minY)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
                 .overlay(euclideousRandomRiffGridOverlay(cornerRadius: 12))
                 .allowsHitTesting(!euclideousLockMode)
+                .offset(x: page.riff.minX, y: page.riff.minY)
             sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)   // FX in portrait too: its columns match the riff grid's (same width)
-                .offset(x: page.seq.minX, y: page.seq.minY)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
                 .allowsHitTesting(!euclideousLockMode)
+                .offset(x: page.seq.minX, y: page.seq.minY)
             // LANE LOCK §1.3: a tap ANYWHERE outside the four lane cards (header incl. the padlock, margins,
             // gutters, the dimmed panels above) finishes lock mode — sits above the header/panels but below
             // the lane cards in z-order, so a card's own controls still get first claim on their own area.

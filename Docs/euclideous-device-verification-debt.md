@@ -17,6 +17,9 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### Random mode badge placement (2026-10-22)
+- Turning random mode on draws the thin "RANDOM" border and its badge ON THE RIFF GRID (top-left of the grid), nothing over the header; lock mode's dim washes the riff grid and the MIX | LANES | FX panel where they are (it was drawn at the page's top-left too).
+
 ### RHYTHM POLISH (2026-10-22)
 - LAUNCH the DEBUG build from Xcode into AUM first (the 1 MB main-thread stack: the slider body closure grew ~0.9 KB, four new leaves of 1.3–3.5 KB); the RHYTHM tab must come up on all four lanes.
 - The 36 pt HITS number and its clamp, in all four lane colours: centred on the filled part, the "OF n" caption legible in the pale lane colour, 0 hits fully inside the tile (block at y 51–99 of 124), FOLLOW lane (42 %) still reads.
