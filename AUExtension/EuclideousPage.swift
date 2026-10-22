@@ -3316,18 +3316,18 @@ struct EuclideousPage: View {
         .accessibilityHint("Double-tap to edit"))
     }
     private func restartTileLayer(_ layer: EuclideousRestartTileLayer, chain: EuclideousRestartChain, name: String, unitSingular: String, accent: Color, width: CGFloat, height: CGFloat,
-                                  state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {
+                                  radius: CGFloat = 8, trackCentred: Bool = false, state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {
         switch layer {
         case .base:
-            return AnyView(RoundedRectangle(cornerRadius: 8).fill(chain.isFree ? Color(hex: 0x2A2D34) : Color(hex: 0x22252C))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(chain.isFree ? Color.clear : lane100(accent), lineWidth: 1))
+            return AnyView(RoundedRectangle(cornerRadius: radius).fill(chain.isFree ? Color(hex: 0x2A2D34) : Color(hex: 0x22252C))
+                .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(chain.isFree ? Color.clear : lane100(accent), lineWidth: 1))
                 .frame(width: width, height: height))
         case .sweep:
             guard let state else { return AnyView(EmptyView()) }
-            return AnyView(EuclideousRestartTileCanvas(part: .sweep, state: state, accent: accent, width: width, height: height, radius: 8))
+            return AnyView(EuclideousRestartTileCanvas(part: .sweep, state: state, accent: accent, width: width, height: height, radius: radius))
         case .track:
             guard let state else { return AnyView(EmptyView()) }
-            return AnyView(EuclideousRestartTileCanvas(part: .track, state: state, accent: accent, width: width, height: height, radius: 8, strikes: strikes,
+            return AnyView(EuclideousRestartTileCanvas(part: .track, state: state, accent: accent, width: width, height: height, radius: radius, trackCentred: trackCentred, strikes: strikes,
                                                        pulseScale: euclideousPulseScale(level: pulseLevel), reduceMotion: reduceMotion))
         case .text:
             let text = euclideousRestartChainText(chain)
@@ -3354,17 +3354,15 @@ struct EuclideousPage: View {
         }
     }
 
-    /// §6.2 — the restart editor: both chains, each a FREE + 4-link row, a read-only 16-cell timeline and a hint line.
-    /// RHYTHM fixes §5.1 (2026-10-21): a progressive fallback, not a hard refuse-below-192 gate — the caller now
-    /// builds this at ANY height; it drops each section's timeline (+ its sp4) first (below 156pt), then each
-    /// section's hint line (+ its sp4) too (below 128pt), and only below that lets its own bottom edge clip.
+    /// §6.2 — the restart editor: both chains, each a FREE + 4-link row. RESTART TILES ferry (2026-10-22) §3: under each chain row, in place of the timeline, its axis label and the hint line (all gone), the TILE's own
+    /// live graphic — its sweep and its track (and, for MELODY, its strikes) from the same `restartTileState` — without the tile's text. The vertical layout comes from `euclideousRestartEditorLayout`
+    /// (the gaps are built from it, not left to flexible spacers), so the view and the tests read the same numbers.
     private func restartEditor(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat, lapBeats: Double) -> some View {
+        typealias M = EuclideousRestartEditorMetrics
         let rhythmChain = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
         let melodyChain = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
         let contentW = max(1, width - sp8 * 2)
-        let fallback = euclideousRestartEditorFallback(height: height)
-        let showTimeline = fallback.showTimeline
-        let showHint = fallback.showHint
+        let layout = euclideousRestartEditorLayout(width: width, height: height)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 (Text("RESTARTS").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48).foregroundColor(Color(hex: 0xAAB0BA))
@@ -3383,12 +3381,12 @@ struct EuclideousPage: View {
                 }
                 .accessibilityLabel("Close restarts")   // RHYTHM fixes §6.1 (2026-10-21): the spec's exact wording
             }
-            .frame(height: 20)
+            .frame(height: M.headerH)
             .padding(.leading, 4)
-            Spacer(minLength: sp4)
-            restartChainSection(idx, name: "RHYTHM", unitWord: "bar", chain: rhythmChain, rhythmChain: rhythmChain, accent: accent, isMelody: false, width: contentW, lapBeats: lapBeats, showTimeline: showTimeline, showHint: showHint)
-            Spacer(minLength: sp8)
-            restartChainSection(idx, name: "MELODY", unitWord: "pass", chain: melodyChain, rhythmChain: rhythmChain, accent: accent, isMelody: true, width: contentW, lapBeats: lapBeats, showTimeline: showTimeline, showHint: showHint)
+            Color.clear.frame(height: layout.gaps[0])
+            restartChainSection(idx, line, name: "RHYTHM", unitWord: "bar", chain: rhythmChain, accent: accent, isMelody: false, width: contentW)
+            Color.clear.frame(height: layout.gaps[1])
+            restartChainSection(idx, line, name: "MELODY", unitWord: "pass", chain: melodyChain, accent: accent, isMelody: true, width: contentW)
             Spacer(minLength: 0)
         }
         .padding(sp8)
@@ -3403,40 +3401,70 @@ struct EuclideousPage: View {
     private func euclideousRestartEditorSetChain(_ idx: Int, melody: Bool, links: [UInt8]) {
         edit(idx) { l in if melody { l.restartMelodyPasses = links } else { l.restartRhythmBars = links } }
     }
-    private func restartChainSection(_ idx: Int, name: String, unitWord: String, chain: EuclideousRestartChain, rhythmChain: EuclideousRestartChain, accent: Color, isMelody: Bool, width: CGFloat, lapBeats: Double, showTimeline: Bool, showHint: Bool) -> some View {
-        let labelW: CGFloat = 56
+    private func restartChainSection(_ idx: Int, _ line: EuclidLine, name: String, unitWord: String, chain: EuclideousRestartChain, accent: Color, isMelody: Bool, width: CGFloat) -> some View {
+        typealias M = EuclideousRestartEditorMetrics
         let btnGap: CGFloat = sp4
-        let btnsW = max(1, width - labelW - btnGap)
+        let btnsW = max(1, width - M.labelW - btnGap)
         let btnW = max(1, (btnsW - btnGap * 4) / 5)
-        let rowH: CGFloat = 38
         let isFree = chain.isFree
-        return VStack(alignment: .leading, spacing: sp4) {
-            HStack(spacing: btnGap) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(name).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.9).foregroundColor(Color(hex: 0xF2F4F7))
-                    Text("IN \(unitWord.uppercased())\(unitWord == "pass" ? "ES" : "S")").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
+        return VStack(alignment: .leading, spacing: M.gap) {
+            ForEach(Array(euclideousRestartEditorSectionParts.enumerated()), id: \.offset) { _, part in
+                switch part {
+                case .chainRow:
+                    HStack(spacing: btnGap) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(name).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.9).foregroundColor(Color(hex: 0xF2F4F7))
+                            Text("IN \(unitWord.uppercased())\(unitWord == "pass" ? "ES" : "S")").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
+                        }
+                        .padding(.leading, 4)
+                        .frame(width: M.labelW, height: M.rowH, alignment: .leading)
+                        Text("FREE").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
+                            .foregroundColor(isFree ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                            .frame(width: btnW, height: M.rowH)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(isFree ? lane20(accent) : Color(hex: 0x2A2D34)))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isFree ? lane100(accent) : Color.clear, lineWidth: 1))
+                            .contentShape(Rectangle())
+                            .onTapGesture { if !isFree { euclideousRestartEditorSetChain(idx, melody: isMelody, links: []) } }
+                            .accessibilityLabel("\(name.capitalized) restarts free")
+                        ForEach(0..<4, id: \.self) { slot in
+                            restartLinkSlot(idx, isMelody: isMelody, chain: chain, slot: slot, unitWord: unitWord, accent: accent, width: btnW, height: M.rowH)
+                        }
+                    }
+                case .strip:
+                    HStack(spacing: M.gap) {
+                        Color.clear.frame(width: M.labelW, height: M.stripH)   // the label column beside the strip stays empty
+                        restartEditorStrip(idx, line, name: name, unitWord: unitWord, chain: chain, accent: accent, isMelody: isMelody, width: max(1, width - M.labelW - M.gap))
+                    }
                 }
-                .padding(.leading, 4)
-                .frame(width: labelW, height: rowH, alignment: .leading)
-                Text("FREE").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-                    .foregroundColor(isFree ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
-                    .frame(width: btnW, height: rowH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(isFree ? lane20(accent) : Color(hex: 0x2A2D34)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(isFree ? lane100(accent) : Color.clear, lineWidth: 1))
-                    .contentShape(Rectangle())
-                    .onTapGesture { if !isFree { euclideousRestartEditorSetChain(idx, melody: isMelody, links: []) } }
-                    .accessibilityLabel("\(name.capitalized) restarts free")
-                ForEach(0..<4, id: \.self) { slot in
-                    restartLinkSlot(idx, isMelody: isMelody, chain: chain, slot: slot, unitWord: unitWord, accent: accent, width: btnW, height: rowH)
-                }
-            }
-            if showTimeline {
-                restartTimeline(chain: chain, rhythmChain: isMelody ? rhythmChain : chain, accent: accent, isMelody: isMelody, unitWord: unitWord, labelW: labelW, width: width, barBeats: clock.beatsPerBar, lapBeats: lapBeats)
-            }
-            if showHint {
-                restartHint(name: name, chain: chain, isMelody: isMelody, labelW: labelW, barBeats: clock.beatsPerBar, lapBeats: lapBeats)
             }
         }
+    }
+    /// RESTART TILES §3.2 — the section's live strip: the tile's base and border (radius 6), sweep, track (centred) and strikes, from the same pure `restartTileState` and the same strike bank as the tile, no text. It is built
+    /// from the CURRENT lines on every body evaluation, so a tap on a link, + or FREE redraws both the sweep and the track for the new chain in the same update. One static VoiceOver element (§3.5).
+    private func restartEditorStrip(_ idx: Int, _ line: EuclidLine, name: String, unitWord: String, chain: EuclideousRestartChain, accent: Color, isMelody: Bool, width: CGFloat) -> some View {
+        typealias M = EuclideousRestartEditorMetrics
+        let kind: EuclideousRestartKind = isMelody ? .melody : .rhythm
+        let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
+        let cfg = riffWalkConfig(idx)
+        let label = euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitWord, unitPlural: unitWord == "pass" ? "passes" : "bars")
+        let beatNow = lanesMusicalBeat(real: walkTagBeat(at: Date()))
+        let spoken = cfg.map { restartTileState(kind, cfg: $0, beat: beatNow, running: running) }
+        let value = [spoken?.restartsInText ?? "", isMelody ? (spoken?.notesThisCycleText ?? "") : ""].filter { !$0.isEmpty }.joined(separator: ", ")
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !running || cfg == nil)) { tl in
+            let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
+            let state = cfg.map { restartTileState(kind, cfg: $0, beat: beat, running: running) }
+            let bank: EuclideousCellStrikeBank? = (isMelody && running && state != nil)
+                ? euclideousRestartCellStrikes(pulseFeed.strikes(lane: idx), columnCells: state!.columnCells, now: tl.date.timeIntervalSinceReferenceDate) : nil
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(euclideousRestartTileLayerOrder.filter { $0 != .text }.enumerated()), id: \.offset) { _, layer in
+                    restartTileLayer(layer, chain: chain, name: name, unitSingular: unitWord, accent: accent, width: width, height: M.stripH, radius: M.stripRadius, trackCentred: true, state: state, strikes: bank)
+                }
+            }
+        }
+        .frame(width: width, height: M.stripH)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
     }
     private func restartLinkSlot(_ idx: Int, isMelody: Bool, chain: EuclideousRestartChain, slot: Int, unitWord: String, accent: Color, width: CGFloat, height: CGFloat) -> some View {
         let count = chain.count

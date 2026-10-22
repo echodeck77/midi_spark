@@ -478,4 +478,48 @@ final class RhythmPolishTests: XCTestCase {
         XCTAssertLessThan(order.firstIndex(of: .track)!, order.firstIndex(of: .text)!)
         XCTAssertLessThan(order.firstIndex(of: .base)!, order.firstIndex(of: .sweep)!)
     }
+
+    // MARK: RESTART TILES ferry — the restart editor
+
+    func testTheEditorHasNoTimelineAxisLabelOrHintAndItsStripsSitUnderTheChainRows() {
+        typealias M = EuclideousRestartEditorMetrics
+        XCTAssertEqual(euclideousRestartEditorSectionParts, [.chainRow, .strip], "a chain row and the tile's strip — nothing else: no timeline, no BAR 1–16, no hint (NO CHANGE and the melody-1 line included)")
+        XCTAssertEqual(M.sectionH, 70)
+        // The ferry's numbers: RHYTHM at y 36, MELODY at 114, the strips at x 68, 262.5 × 28, at y 78 and 156 — they hold at an editor height of 200 (the three gaps share 24 pt: 8 each)
+        let g = euclideousRestartEditorLayout(width: 338.5, height: 200)
+        XCTAssertEqual(g.gaps, [8, 8, 8])
+        XCTAssertEqual(g.sections.map { $0.minY }, [36, 114]); XCTAssertEqual(g.sections.map { $0.height }, [70, 70])
+        XCTAssertEqual(g.strips.map { $0.minX }, [68, 68]); XCTAssertEqual(g.strips.map { $0.width }, [262.5, 262.5]); XCTAssertEqual(g.strips.map { $0.height }, [28, 28])
+        XCTAssertEqual(g.strips.map { $0.minY }, [78, 156])
+        XCTAssertEqual(g.chainRows.map { $0.height }, [38, 38])
+        // at the reference card's 208-high editor (SOURCE: the flexible gaps share 32 − 12… each gap grows equally) the sections sit lower, each strip still sp4 under its chain row
+        let r = euclideousRestartEditorLayout(width: 338.5, height: 208)
+        XCTAssertEqual(r.gaps[0], 32.0 / 3, accuracy: 1e-9); XCTAssertEqual(r.sections[0].minY, 8 + 20 + 32.0 / 3, accuracy: 1e-9)
+        for i in 0..<2 { XCTAssertEqual(r.strips[i].minY, r.chainRows[i].maxY + 4, accuracy: 1e-9); XCTAssertEqual(r.sections[i].height, 70) }
+        XCTAssertEqual(r.strips[1].minX, 68); XCTAssertEqual(r.strips[1].width, 262.5)
+        // a short editor keeps every gap at its minimum (4, 8, 0)
+        XCTAssertEqual(euclideousRestartEditorLayout(width: 338.5, height: 176).gaps, [4, 8, 0])
+        // a few pt more than the minimums: the shares settle without ever going under one
+        let mid = euclideousRestartEditorLayout(width: 338.5, height: 196).gaps
+        XCTAssertEqual(mid.reduce(0, +), 20, accuracy: 1e-9); XCTAssertGreaterThanOrEqual(mid[1], 8); XCTAssertGreaterThanOrEqual(mid[0], 4)
+    }
+    func testAnEditToAChainChangesTheStripsStateInTheSameUpdate() {
+        // the strips are the tile's pure state built from the CURRENT lines — an edit through the editor's own mutation (a link tapped, + , FREE) changes both at once
+        var l = EuclidLine(pulses: 5, steps: 8, noteSel: .all); l.rate = .r1_8; l.riffAdvanceEvery = 2; l.riffDir = .reverse
+        func states(_ line: EuclidLine, beat: Double) -> (rhythm: EuclideousRestartTileState, melody: EuclideousRestartTileState) {
+            let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+            return (restartTileState(.rhythm, cfg: cfg, beat: beat, running: true), restartTileState(.melody, cfg: cfg, beat: beat, running: true))
+        }
+        let free = states(l, beat: 2.1)
+        XCTAssertTrue(free.rhythm.isFree); XCTAssertNil(free.rhythm.progress); XCTAssertNil(free.melody.progress)
+        l.restartRhythmBars = [2]           // "+": append a link (the editor's own mutation)
+        l.restartMelodyPasses = [2]
+        let set = states(l, beat: 2.1)
+        XCTAssertFalse(set.rhythm.isFree); XCTAssertEqual(set.rhythm.progress!, 2.1 / 8, accuracy: 1e-9, "the sweep follows the new chain immediately")
+        XCTAssertEqual(set.melody.ghostCount, 3, "and so does the track")
+        l.restartMelodyPasses = [4]         // a tap on the link: the next length
+        XCTAssertEqual(states(l, beat: 2.1).melody.ghostCount, 0, "4 passes = 20 hits, a full 16-hit cycle: no ghosts in the first cycle")
+        l.restartRhythmBars = []            // FREE
+        XCTAssertTrue(states(l, beat: 2.1).rhythm.isFree)
+    }
 }

@@ -5559,6 +5559,57 @@ func euclideousHitsCaptionRGB(_ base: (r: Double, g: Double, b: Double)) -> (r: 
     return (mix(base.r, t.r), mix(base.g, t.g), mix(base.b, t.b))
 }
 
+// MARK: - RESTART EDITOR LAYOUT (RESTART TILES ferry, 2026-10-22, §3) — each section is the chain row and the tile's own live strip
+
+/// What a restart-editor section holds, top to bottom. The timeline, its axis label ("BAR 1–16") and the hint line (every case of it, NO CHANGE and the melody-1 line included) are gone; the page builds each section
+/// by walking this list, so nothing else can appear. (`euclideousRhythmChainChangesNothing` stays: the migration still calls it — only its UI went.)
+enum EuclideousRestartEditorPart: Hashable { case chainRow, strip }
+let euclideousRestartEditorSectionParts: [EuclideousRestartEditorPart] = [.chainRow, .strip]
+enum EuclideousRestartEditorMetrics {
+    static let padding: CGFloat = 8, headerH: CGFloat = 20, labelW: CGFloat = 56, gap: CGFloat = 4
+    static let rowH: CGFloat = 38, stripH: CGFloat = 28, stripRadius: CGFloat = 6
+    static var sectionH: CGFloat { rowH + gap + stripH }                   // 70: the section is no taller than it was
+    /// The three flexible gaps (after the header, between the sections, after the last) — their minimums, as the editor's VStack always had them.
+    static let gapMins: [CGFloat] = [4, 8, 0]
+}
+struct EuclideousRestartEditorLayout: Equatable {
+    var sections: [CGRect]      // RHYTHM, MELODY — in the editor's own coordinates (0,0 = its top-left corner)
+    var chainRows: [CGRect]
+    var strips: [CGRect]
+    var gaps: [CGFloat]         // after the header · between the sections · after the last
+}
+/// The editor's vertical layout from its size. The three gaps share what the height leaves over equally, none under its minimum (the water-fill a SwiftUI stack of flexible spacers does) — and the page now
+/// builds the gaps from THIS, so the view cannot disagree with it. Section origins: 8 + 20 + gap₁ and again + 70 + gap₂. The strip sits sp4 below the chain row, x = 8 + 56 + 4 = 68, as wide as the content less the
+/// label column and its gap (262.5 at the reference 338.5-wide editor), 28 tall.
+func euclideousRestartEditorLayout(width: CGFloat, height: CGFloat) -> EuclideousRestartEditorLayout {
+    typealias M = EuclideousRestartEditorMetrics
+    let innerH = max(0, height - M.padding * 2)
+    var leftover = max(0, innerH - M.headerH - 2 * M.sectionH)
+    var gaps = M.gapMins
+    if leftover > M.gapMins.reduce(0, +) {   // otherwise every gap sits at its minimum (and the editor's own bottom edge clips)
+        var free = [true, true, true]
+        var settled = false
+        while !settled {
+            settled = true
+            let n = CGFloat(free.filter { $0 }.count)
+            guard n > 0 else { break }
+            let share = leftover / n
+            for i in 0..<3 where free[i] && share < M.gapMins[i] { free[i] = false; gaps[i] = M.gapMins[i]; leftover -= M.gapMins[i]; settled = false }
+            if settled { for i in 0..<3 where free[i] { gaps[i] = share } }
+        }
+    }
+    let contentW = max(1, width - M.padding * 2)
+    let y1 = M.padding + M.headerH + gaps[0]
+    let y2 = y1 + M.sectionH + gaps[1]
+    var sections: [CGRect] = [], rows: [CGRect] = [], strips: [CGRect] = []
+    for y in [y1, y2] {
+        sections.append(CGRect(x: M.padding, y: y, width: contentW, height: M.sectionH))
+        rows.append(CGRect(x: M.padding, y: y, width: contentW, height: M.rowH))
+        strips.append(CGRect(x: M.padding + M.labelW + M.gap, y: y + M.rowH + M.gap, width: max(1, contentW - M.labelW - M.gap), height: M.stripH))
+    }
+    return EuclideousRestartEditorLayout(sections: sections, chainRows: rows, strips: strips, gaps: gaps)
+}
+
 /// RHYTHM fixes §5.1 (2026-10-21) — what the restart editor shows at a given height, as ONE pure decision
 /// the view just reads (not re-derived inline), so a test can pin the exact 192/156/128pt thresholds the
 /// spec names without needing the (untestable) SwiftUI view itself.
