@@ -19,8 +19,7 @@ private extension Color {
 enum EuclideousStripPalette {
     /// The riff grid's note cell (white @ 85% over that panel): ≈ #DCDCDD. The ferry says #DFE3EA; source wins.
     static let noteChip = Color(h: 0xDCDCDD)
-    /// LANE STRIP readability ferry: a rhythm rest's own fill (unchanged) and its one dot's colour —
-    /// `restDash` painted a dashed BORDER before this ferry; now it fills a small dot instead (same hex).
+    /// A rhythm rest's fill and its dashed inner border (RESTART TILES ferry §4: restored — the readability ferry had made it a small dot; the numbers are `euclideousStripRestLook`).
     static let rhythmRest = Color(h: 0x1A1C21), restDash = Color(h: 0x3A3E47)
     static let greyChip = Color(h: 0x6B707A)
     static let ink = Color(h: 0x0D0F14)
@@ -90,7 +89,7 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
     let n = d.frames.count
     let dash = StrokeStyle(lineWidth: 1, dash: [3, 2])
 
-    // 1. the track: a lane-coloured cell per hit (gap draws identically — no separate ring), a quiet dotted cell per rhythm rest
+    // 1. the track: a lane-coloured cell per hit (gap draws identically — no separate ring), a dashed cell per rhythm rest
     for i in 0..<n {
         let col = d.frames[i].column
         let shape = RoundedRectangle(cornerRadius: M.columnRadius).path(in: col)
@@ -100,9 +99,12 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
             ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - inset).path(in: col.insetBy(dx: inset, dy: inset)),
                        with: .color(d.tint.opacity(M.hitBorderAlpha)), lineWidth: M.hitBorderW)
         } else {
+            // a rest: the quiet fill with a dashed inner border at the column's full size (RESTART TILES §4.1) — present, never blank, never a dot
+            let look = euclideousStripRestLook
             ctx.fill(shape, with: .color(P.rhythmRest))
-            let dotR = M.restDotDiameter / 2
-            ctx.fill(Path(ellipseIn: CGRect(x: col.midX - dotR, y: col.midY - dotR, width: M.restDotDiameter, height: M.restDotDiameter)), with: .color(P.restDash))
+            let inset = look.borderWidth / 2
+            ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - inset).path(in: col.insetBy(dx: inset, dy: inset)), with: .color(P.restDash),
+                       style: StrokeStyle(lineWidth: look.borderWidth, dash: look.dash))
         }
     }
 

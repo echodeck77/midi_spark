@@ -9259,9 +9259,17 @@ enum EuclideousStripMetrics {
     /// its top 24 down from the column's own top (1 pt above the track's 27pt bottom edge).
     static let floorBarH: CGFloat = 2, floorBarInset: CGFloat = 2, floorBarMinWidth: CGFloat = 6
     static let floorBarTop: CGFloat = 24, floorBarRadius: CGFloat = 1
-    /// §1.2: a rhythm rest's one small dot — present, never blank.
-    static let restDotDiameter: CGFloat = 2
+    /// RESTART TILES ferry (2026-10-22) §4: a rhythm rest is present, never blank, and never a dot — `euclideousStripRestLook` below.
 }
+/// RESTART TILES ferry §4.1 (restoring the LANE STRIP ferry's §1.1 after the readability ferry's dot): a rhythm rest column is #1A1C21 with a 1 pt dashed #3A3E47 INNER border (3 on, 2 off) at the column's full size. That is the
+/// whole look — there is no other mark, so there is nothing for a dot to be. Holds for every lane, every tab and every OFFSET: a column is a rest when no hit's start falls in it (polish §3.1).
+struct EuclideousStripRestLook: Equatable {
+    var fillHex: UInt32 = 0x1A1C21
+    var borderHex: UInt32 = 0x3A3E47
+    var borderWidth: CGFloat = 1
+    var dash: [CGFloat] = [3, 2]
+}
+let euclideousStripRestLook = EuclideousStripRestLook()
 
 /// LANE STRIP readability ferry §2.1/§6.1 (was riff/notes strip 7.2): a chip's top from its rank, in
 /// its column's own y: (8 − r) × `chipTravel` ÷ 7.
@@ -9298,7 +9306,7 @@ func euclideousStripMuteLook(muted: Bool) -> (opacity: Double, strikes: Bool) { 
 // ── the per-hit plan (7.3) ───────────────────────────────────────────────────────────────────────────────────────────────
 
 enum EuclideousStripColumnKind: Equatable {
-    case rhythmRest   // the rhythm has no hit here: quiet, a small dot, present, never blank
+    case rhythmRest   // the rhythm has no hit here: a dashed column (`euclideousStripRestLook`), present, never blank
     case hit          // the rhythm hits: a lane-coloured column with a floor bar (with a chip when the hit reads a riff note)
     case gap          // a hit on a riff REST under SKIP / TIE (or a REPEAT that finds no note): draws exactly like `.hit`, just with no chip
 }

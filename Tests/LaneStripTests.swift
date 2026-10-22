@@ -113,7 +113,7 @@ final class LaneStripTests: XCTestCase {
         for i in [1, 3, 6] { XCTAssertEqual(h[i].kind, .rhythmRest, "step \(i + 1) is a dashed rhythm rest"); XCTAssertNil(h[i].chip); XCTAssertNil(h[i].key, "a rhythm rest has no key") }
         for i in [0, 5] { XCTAssertEqual(h[i].kind, .hit) }
         // LANE STRIP readability ferry §8 test 4: steps 1,3,5,6,8 (hit or gap) all draw lane-coloured with
-        // a floor bar; steps 2,4,7 (rhythm rests) are the quiet dotted cells with none.
+        // a floor bar; steps 2,4,7 (rhythm rests) are the dashed cells with none (RESTART TILES §4: dashed again, never a dot).
         for i in [0, 2, 4, 5, 7] { XCTAssertTrue(euclideousStripDrawsAsHit(h[i].kind), "step \(i + 1) draws as a lane-coloured hit column") }
         for i in [1, 3, 6] { XCTAssertFalse(euclideousStripDrawsAsHit(h[i].kind), "step \(i + 1) is a quiet rhythm rest") }
     }
@@ -428,5 +428,33 @@ final class LaneStripTests: XCTestCase {
         print("LANE STRIP pure work: per body (hits+keys+labels, one lane) \(perBody * 1000) ms; per frame (arrow plan + current chip + playhead, one lane) \(perFrame * 1000) ms (sink \(sink))")
         XCTAssertLessThan(perBody, 0.01, "a lane's strip plan costs well under 10 ms even in a debug build")
         XCTAssertLessThan(perFrame, 0.01)
+    }
+
+    // MARK: RESTART TILES ferry §4 / test 11 — rests stay present as dashed columns
+
+    func testRestColumnsAreDashedColumnsAtOffsetZeroAndAtOffsetSevenPointTwoNine() {
+        let look = euclideousStripRestLook
+        XCTAssertEqual(look.fillHex, 0x1A1C21); XCTAssertEqual(look.borderHex, 0x3A3E47); XCTAssertEqual(look.borderWidth, 1); XCTAssertEqual(look.dash, [3, 2], "3 on, 2 off")
+        for (label, offset) in [("OFFSET 0", 0.0), ("OFFSET 7.29", 7.29)] {
+            var l = EuclidLine(pulses: 5, steps: 8, noteSel: .all); l.rate = .r1_16; l.useRiff = true; l.riffOn = true; l.sourceMode = .midi
+            euclideousSliderCommit(.offset, &l, snapshot: l, newValue: offset)
+            let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+            // what the page's strip plan does: a lane with timing is read from its tick-space layout, each hit in the box its start time falls in
+            let hitSteps = cfg.timing.isNone ? euclideousLapHitSteps(pulses: 5, steps: 8, rotate: l.rotate, tilt: 0, patternMiss: false, customHits: nil)
+                                              : euclideousLapHitSteps(layoutCells: cfg.buf, n: 8, dir: .fwd)
+            var pattern = [Bool](repeating: false, count: 8)
+            for h in hitSteps { pattern[h.bufIdx] = true }
+            let sts = euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: nil, riffRanksResolved: exRanks, anyLit: true)
+            let strip = euclideousStripHits(pattern: pattern, hitSteps: hitSteps, states: sts, ranks: exRanks, riffPlays: false, grey: false, onRest: .skip, cfg: cfg, lapStartTick: 0, notes: nil, keyLabels: true, name: name)
+            XCTAssertEqual(strip.count, 8)
+            XCTAssertEqual(pattern.filter { !$0 }.count, 3, "E(5,8) has three rests (\(label))")
+            for i in 0..<8 {
+                if pattern[i] { XCTAssertNotEqual(strip[i].kind, .rhythmRest, "\(label): column \(i + 1) holds a hit") }
+                else {
+                    XCTAssertEqual(strip[i].kind, .rhythmRest, "\(label): column \(i + 1) is a rest")
+                    XCTAssertFalse(euclideousStripDrawsAsHit(strip[i].kind)); XCTAssertNil(strip[i].chip); XCTAssertNil(strip[i].key, "a rest column is drawn as the dashed look and nothing else")
+                }
+            }
+        }
     }
 }
