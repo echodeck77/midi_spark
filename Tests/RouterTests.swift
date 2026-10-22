@@ -14422,6 +14422,147 @@ final class RouterTests: XCTestCase {
         }
     }
 
+    // MARK: - RHYTHM POLISH engine (ferry 2026-10-22, §8 tests 2, 4, 5, 6) — a hit's time is its step plus a fraction of a step
+
+    /// A lane for hit-timing tests: `pulses` of `steps` at 1/8 (a step = 0.5 beat, a pass of 8 steps = 4 beats), the riff on over ranks 1…8 so the NOTE names the hit's position in the walk.
+    private func rpLine(_ pulses: Int, _ steps: Int, dir: EuclidDir = .fwd, rotate: Int = 0, rate: ArpRate = .r1_8, gate: Double = 0.5, _ more: (inout EuclidLine) -> Void = { _ in }) -> EuclidLine {
+        var l = fxLine(gate: gate); l.pulses = pulses; l.steps = steps; l.rate = rate; l.direction = dir; l.rotate = rotate
+        more(&l); return l
+    }
+    private func rpOns(_ lines: [EuclidLine], ranks: [Int] = [1, 2, 3, 4, 5, 6, 7, 8], beats: Double, frames: UInt32 = 2048) -> [(beat: Double, note: UInt8)] {
+        fxOns(fxRun(fxBox(lines, ranks: ranks), beats: beats, frames: frames)).filter { $0.beat < beats - 0.01 }.map { ($0.beat, $0.note) }   // the window that ends the run can overshoot by a few ms: only hits before `beats`
+    }
+    private func assertBeats(_ got: [(beat: Double, note: UInt8)], _ want: [Double], _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(got.count, want.count, "\(msg): hit count (\(got.map { $0.beat }))", file: file, line: line)
+        for (g, w) in zip(got, want) { XCTAssertEqual(g.beat, w, accuracy: 1e-3, "\(msg)", file: file, line: line) }
+    }
+    func testRhythmPolishOffsetFractionPlaysEveryHitThatFractionOfAStepLaterAtEveryBufferSize() {
+        // E(3,8) here is {0,3,6}: beats 0, 1.5, 3.0 in a 4-beat pass
+        for frames: UInt32 in [64, 1024, 2048] {
+            let base = rpOns([rpLine(3, 8)], beats: 8, frames: frames)
+            assertBeats(base, [0, 1.5, 3, 4, 5.5, 7], "offset 0, buffer \(frames)")
+            var half = rpLine(3, 8); half.offsetFraction = 0.5
+            assertBeats(rpOns([half], beats: 8, frames: frames), [0.25, 1.75, 3.25, 4.25, 5.75, 7.25], "offset 0.5 plays every hit 0.25 beat later, buffer \(frames)")
+            // displayed offset 7.5 on 8 steps: the hits sit at 7.5, 2.5 and 5.5 steps — no wrap, they are simply shifted
+            var seven = rpLine(3, 8); euclideousSliderCommit(.offset, &seven, snapshot: seven, newValue: 7.5)
+            XCTAssertEqual(seven.offsetRequested, 7); XCTAssertEqual(seven.offsetFractionResolved, 0.5, accuracy: 1e-12)
+            assertBeats(rpOns([seven], beats: 8, frames: frames), [1.25, 2.75, 3.75, 5.25, 6.75, 7.75], "offset 7.5, buffer \(frames)")
+        }
+        // offset 2 with fraction 0 is today, byte for byte
+        var plain = rpLine(3, 8); euclideousSliderCommit(.offset, &plain, snapshot: plain, newValue: 2)
+        var zero = plain; zero.offsetFraction = 0
+        XCTAssertEqual(fxStream(fxRun(fxBox([plain]), beats: 16)), fxStream(fxRun(fxBox([zero]), beats: 16)))
+    }
+    func testRhythmPolishAFractionalPassCutShortByARhythmRestartPlaysNothingAtOrAfterTheRestartAndTheGapsAgree() {
+        // 7 steps at 1/8 = 3.5 beats a pass, a bar restart every 4 beats: the second pass is cut after one step. Fraction 0.6 = 0.3 beat.
+        var l = rpLine(7, 7); l.restartRhythmBars = [1]; l.offsetFraction = 0.6
+        let ranks = [1, 1, 1, 1, 1, 1, 1, 1]
+        let e = fxRun(fxBox([l], ranks: ranks), beats: 8)
+        let ons = fxOns(e).filter { $0.beat < 7.95 }
+        let want = [0.3, 0.8, 1.3, 1.8, 2.3, 2.8, 3.3, 3.8, 4.3, 4.8, 5.3, 5.8, 6.3, 6.8, 7.3, 7.8]
+        XCTAssertEqual(ons.map { $0.beat }.count, want.count, "\(ons.map { $0.beat })")
+        for (g, w) in zip(ons, want) { XCTAssertEqual(g.beat, w, accuracy: 1e-3) }
+        XCTAssertTrue(ons.filter { $0.beat > 3.85 && $0.beat < 4.25 }.isEmpty, "nothing plays between the cut pass's last hit (3.8) and the next bar's first (4.3)")
+        // gate length = GATE × the gap to the next hit, across the restart too: the hit at 3.8 is followed by 4.3, so its length is 0.5 × 0.5 beat
+        let sounding = Array(fxSoundings(e, 48).prefix(16))
+        XCTAssertEqual(sounding.count, 16)
+        for (i, snd) in sounding.enumerated().dropLast() {
+            guard let off = snd.off else { XCTFail("no off"); continue }
+            let gap = Double(sounding[i + 1].on - snd.on) / 24_000
+            XCTAssertEqual(Double(off - snd.on) / 24_000, 0.5 * gap, accuracy: 2e-3, "hit \(i): length = GATE × the gap to the next hit")
+        }
+        // …and the pure functions the roll / TIE / predictions use agree with it
+        let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        XCTAssertFalse(cfg.timing.isNone)
+        let cl = euclidCycleLen(cfg.dir, n: cfg.n)
+        XCTAssertEqual(euclideousNextChainHitGapBeats(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cl, sub: cfg.sub, tick: 7, cap: cl * 4, chains: cfg.chains, legacySpanBeats: cfg.spanBeats, timing: cfg.timing),
+                       0.5, accuracy: 1e-9, "the cut pass's last hit (tick 7) to the next bar's first (tick 8)")
+        XCTAssertEqual(euclideousWalkRealBeat(cfg, tick: 7), 3.8, accuracy: 1e-9); XCTAssertEqual(euclideousWalkRealBeat(cfg, tick: 8), 4.3, accuracy: 1e-9)
+    }
+    func testRhythmPolishBackwardsWithAFractionMovesTheFirstHitToTheEndOfThePassAndTheRiffFollowsTime() {
+        // BKW reads the buffer back to front, so the control's rightward fraction is EARLIER in time. Buffer hits {7,2,5} (offset 7) sit at ticks 0, 5, 2; half a step earlier puts the tick-0 hit
+        // at 7.5 steps (the end of the SAME pass) and the others at 1.5 and 4.5 — the riff walks in time order: 1st (0.75 beat) rank 1, 2nd (2.25) rank 2, 3rd (3.75) rank 3.
+        var l = rpLine(3, 8, dir: .bkw, rotate: 1)
+        assertBeats(rpOns([l], beats: 4), [0, 1, 2.5], "no fraction")
+        l.offsetFraction = 0.5
+        let ons = rpOns([l], beats: 4)
+        assertBeats(ons, [0.75, 2.25, 3.75], "BKW, fraction 0.5: every hit half a step EARLIER; the first wraps to the end of the pass")
+        XCTAssertEqual(ons.map { $0.note }, [48, 50, 52], "the walk's ordinals follow actual time, wrapped hit included")
+    }
+    func testRhythmPolishFineTiltPlaysTheUnroundedTimesAndNilKeepsTheRoundedOnes() {
+        // E(3,8), TILT +50 %: targets 2.5, 4.75, 7 steps. Rounded (today) they are steps 3, 5, 7; unrounded they play at 1.25, 2.375, 3.5 beats.
+        var rounded = rpLine(3, 8); rounded.tilt = 0.5
+        assertBeats(rpOns([rounded], beats: 4), [1.5, 2.5, 3.5], "tilt only (tiltFine nil): rounded, as always")
+        var fine = rounded; fine.tiltFine = 0.5
+        for frames: UInt32 in [64, 2048] { assertBeats(rpOns([fine], beats: 4, frames: frames), [1.25, 2.375, 3.5], "TILT-fine, buffer \(frames)") }
+        // the same lane read back by the roll's pure chain agrees with the Router
+        let cfg = euclideousWalkLaneConfig(lane: 0, lines: [fine], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        let roll = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 3.99, minGateBeats: 0.005) { col, _ in col + 1 }
+        XCTAssertEqual(roll.map { $0.beat }, [1.25, 2.375, 3.5].map { $0 }, "roll = Router")
+    }
+    func testRhythmPolishAWrappedHitBelongsToThePassItWrappedInto() {
+        // E(3,8) TILT-fine +50 %: targets 2.5, 4.75, 7.0 steps. OFFSET 3 (rotate 5) carries them to 5.5, 7.75 and 2.0 on the bar, and a 0.6 fraction pushes the middle one past the end of the lap: 8.35 wraps to 0.35 step.
+        // It plays 0.175 beat into THE SAME pass — the pass's first hit, rank 1 — not at the end of the previous one; the other two follow in time order (1.3 and 3.05 beats).
+        var l = rpLine(3, 8, rotate: 5); l.tilt = 0.5; l.tiltFine = 0.5; l.offsetFraction = 0.6
+        for frames: UInt32 in [64, 2048] {
+            let ons = rpOns([l], beats: 4, frames: frames)
+            assertBeats(ons, [0.175, 1.3, 3.05], "wrapped hit first, buffer \(frames)")
+            XCTAssertEqual(ons.map { $0.note }, [48, 50, 52])
+        }
+    }
+    func testRhythmPolishStressWithTransportRestartsFXAndTiesLeavesNothingSounding() {
+        var seed: UInt64 = 0xA24BAED4963EE407
+        func rnd(_ n: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 33) % UInt64(max(1, n))) }
+        let fx = fxCells([(0, 1, 3), (0, 4, 2), (1, 0, 50), (1, 3, 80), (2, 3, 1), (2, 6, 1), (3, 6, 120), (3, 4, 70)])
+        for trial in 0..<24 {
+            var lines: [EuclidLine] = []
+            for _ in 0..<(1 + rnd(3)) {
+                let steps = 3 + rnd(6)
+                var l = rpLine(1 + rnd(steps), steps, dir: [.fwd, .bkw, .pingpong][rnd(3)], rotate: rnd(steps), rate: [.r1_8, .r1_16][rnd(2)], gate: [0.5, 0.9, 0.99][rnd(3)])
+                l.offsetFraction = Double(rnd(99)) / 100
+                if rnd(2) == 0 { let t = Double(rnd(199) - 99) / 100; l.tilt = t; l.tiltFine = t }
+                l.riffOnRest = [.skip, .tie, .repeatLast][rnd(3)]
+                if rnd(3) == 0 { l.restartRhythmBars = [[1], [2]][rnd(2)] }
+                lines.append(l)
+            }
+            let e = fxRun(fxBox(lines, ranks: [1, 0, 3, 0, 5, 6, 0, 8], fx: fx), beats: 12, frames: [64, 1024][rnd(2)], restartAt: [3.3 + Double(rnd(40)) / 10])
+            assertNothingLeftSounding(e)
+            XCTAssertGreaterThan(e.ons.count, 5, "trial \(trial)")
+        }
+    }
+    func testRhythmPolishRouterAndRollAgreeOnEveryHitTimeAndLengthForRandomLanes() {
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        func rnd(_ n: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 33) % UInt64(max(1, n))) }
+        var compared = 0, withTiming = 0
+        for trial in 0..<60 {
+            let steps = 2 + rnd(8)
+            let dir: EuclidDir = [.fwd, .bkw, .pingpong][rnd(3)]
+            var l = rpLine(1 + rnd(steps), steps, dir: dir, rotate: rnd(steps), rate: [.r1_8, .r1_16, .r1_4][rnd(3)], gate: [0.3, 0.5, 0.8][rnd(3)])
+            if rnd(3) > 0 { l.offsetFraction = Double(1 + rnd(99)) / 100 }
+            if rnd(2) == 0 { let t = Double(rnd(199) - 99) / 100; l.tilt = t; l.tiltFine = t }
+            if rnd(4) == 0 { l.patternMiss = true }
+            if rnd(3) == 0 { l.restartRhythmBars = [[1], [2], [1, 2]][rnd(3)] }
+            if rnd(4) == 0 { l.riffOnRest = .tie }
+            let ranks = rnd(3) == 0 ? [1, 0, 3, 0, 5, 6, 0, 8] : [1, 2, 3, 4, 5, 6, 7, 8]
+            let e = fxRun(fxBox([l], ranks: ranks), beats: 15.9, frames: [64, 512, 2048][rnd(3)])
+            assertNothingLeftSounding(e)
+            let ons = e.ons.filter { $0.cable == 1 && Double($0.sample) / 24_000 < 15.8 }   // the run's last window overshoots 15.9 by a few ms; both sides compare only what is well inside it
+            guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { XCTFail("cfg"); continue }
+            if !cfg.timing.isNone { withTiming += 1 }
+            let roll = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 15.9, minGateBeats: 0.005) { col, _ in ranks[col] }
+            let sounding = roll.filter { $0.audible && $0.rank >= 1 && $0.beat < 15.8 }
+            XCTAssertEqual(sounding.count, ons.count, "trial \(trial): the roll's audible hits are exactly the Router's note-ons (\(l.pulses)/\(l.steps) \(dir) rot \(l.rotate) f \(l.offsetFraction ?? 0) tilt \(l.tiltFine ?? -9))")
+            for (r, on) in zip(sounding, ons) {
+                XCTAssertEqual(r.beat, Double(on.sample) / 24_000, accuracy: 0.01, "trial \(trial): hit beat")
+                if let off = e.offs.first(where: { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }) {
+                    XCTAssertEqual(r.gateBeats, Double(off.sample - on.sample) / 24_000, accuracy: 0.02, "trial \(trial): gate length at beat \(r.beat)")
+                    compared += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(compared, 300); XCTAssertGreaterThan(withTiming, 25, "the fuzz must actually exercise hit timing")
+    }
+
     // MARK: - LANE SOLO engine (ferry 2026-10-21, §8 tests 3-6 and 9; test 1 = the existing preset / synthetic-lane goldens, which run with the solo mask 0)
 
     /// Four lanes on their own buses (lane i → output A…D = cable 1…4), rate 1/8, E(i+2, 8), the riff over eight columns (every hit sounds a note), gate 50 %.

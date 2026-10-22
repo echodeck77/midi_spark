@@ -167,4 +167,70 @@ final class RhythmPolishTests: XCTestCase {
         var b = a; b.tiltFine = 0.4
         XCTAssertTrue(euclideousLockDeviated(line: b, from: LaneLockFields(line: a)))
     }
+
+    // MARK: 5. the hit layout — the builder and the buffer → tick-space mapping
+
+    /// With no fine TILT the one builder IS the pipeline the engine always ran, and with no fraction the tick layout IS `buf[readIndex(raw)]` with every delay 0.
+    func testTheBuilderAndTheLayoutReproduceTodayWhenThereIsNoTiming() {
+        var checked = 0
+        for steps in 2...16 {
+            for pulses in stride(from: 0, through: steps, by: max(1, steps / 4)) {
+                for rotate in [0, 1, steps - 1, steps + 2] {
+                    for tilt in [0.0, 0.3, -0.7, 1, -1] {
+                        for flip in [false, true] {
+                            var cells = [Bool](repeating: false, count: 16), micro = [Double](repeating: 9, count: 16)
+                            euclideousHitPatternInto(pulses: pulses, steps: steps, rotate: rotate, tilt: tilt, fine: false, customHits: nil, patternMiss: flip, cells: &cells, micro: &micro)
+                            var ref = [Bool](repeating: false, count: 16)
+                            euclidPatternInto(&ref, pulses: pulses, steps: steps, rotation: 0)
+                            if tilt != 0 { euclidTiltPattern(&ref, pulses: pulses, steps: steps, tilt: tilt) }
+                            euclidRotateBuffer(&ref, steps: steps, rotation: rotate)
+                            if flip { for i in 0..<steps { ref[i].toggle() } }
+                            XCTAssertEqual(Array(cells[0..<steps]), Array(ref[0..<steps]), "\(pulses)/\(steps) rot \(rotate) tilt \(tilt) flip \(flip)")
+                            XCTAssertTrue(micro[0..<steps].allSatisfy { $0 == 0 }, "rounded TILT carries no in-step positions")
+                            for dir in [EuclidDir.fwd, .bkw, .pingpong] {
+                                var tc = [Bool](repeating: false, count: 32), td = [Double](repeating: 0, count: 32)
+                                let cl = euclideousHitLayoutInto(cells: cells, micro: micro, fraction: 0, n: steps, dir: dir, outCells: &tc, outDelay: &td)
+                                XCTAssertEqual(cl, euclidCycleLen(dir, n: steps))
+                                for raw in 0..<cl {
+                                    XCTAssertEqual(tc[raw], cells[euclidReadIndex(raw, n: steps, dir: dir)], "\(dir) tick \(raw)")
+                                    XCTAssertEqual(td[raw], 0)
+                                }
+                                checked += 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(checked, 3000)
+    }
+    /// Whatever the fraction, direction and fine TILT: every buffer hit is played (twice under PING-PONG), no two share a cell, and a delay never leaves its cell.
+    func testTheLayoutNeverLosesDoublesOrOverlapsAHit() {
+        var seed: UInt64 = 42
+        func rnd(_ n: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 33) % UInt64(max(1, n))) }
+        for _ in 0..<3000 {
+            let steps = 2 + rnd(15), pulses = 1 + rnd(steps), dir = [EuclidDir.fwd, .bkw, .pingpong][rnd(3)]
+            let tilt = rnd(3) == 0 ? 0 : Double(rnd(199) - 99) / 100
+            var cells = [Bool](repeating: false, count: 16), micro = [Double](repeating: 0, count: 16)
+            euclideousHitPatternInto(pulses: pulses, steps: steps, rotate: rnd(steps), tilt: tilt, fine: rnd(4) != 0, customHits: nil, patternMiss: rnd(5) == 0, cells: &cells, micro: &micro)
+            let f = rnd(4) == 0 ? 0 : Double(rnd(199)) / 100        // up to 1.98: a FOLLOW lane adds its partner's fraction
+            var tc = [Bool](repeating: false, count: 32), td = [Double](repeating: 0, count: 32)
+            let cl = euclideousHitLayoutInto(cells: cells, micro: micro, fraction: f, n: steps, dir: dir, outCells: &tc, outDelay: &td)
+            let want = cells[0..<steps].filter { $0 }.count * (dir == .pingpong ? 2 : 1)
+            XCTAssertEqual(tc[0..<cl].filter { $0 }.count, want, "\(pulses)/\(steps) \(dir) f \(f) tilt \(tilt)")
+            for raw in 0..<cl { XCTAssertTrue(td[raw] >= 0 && td[raw] < 1, "delay \(td[raw])"); if !tc[raw] { XCTAssertEqual(td[raw], 0) } }
+        }
+    }
+    func testEveryHitIsDrawnInTheBoxItsStartTimeFallsIn() {
+        // FWD is the buffer; BKW with a fraction moves each hit one box (earlier in time = further right on the bar)
+        var tc = [Bool](repeating: false, count: 32), td = [Double](repeating: 0, count: 32)
+        let cells: [Bool] = [true, false, false, true, false, false, true, false]
+        var cl = euclideousHitLayoutInto(cells: cells, micro: [Double](repeating: 0, count: 8), fraction: 0.5, n: 8, dir: .fwd, outCells: &tc, outDelay: &td)
+        XCTAssertEqual(euclideousHitBoxes(layoutCells: Array(tc[0..<cl]), n: 8, dir: .fwd), cells, "a fraction under FWD leaves every hit in its own box")
+        cl = euclideousHitLayoutInto(cells: cells, micro: [Double](repeating: 0, count: 8), fraction: 0.5, n: 8, dir: .bkw, outCells: &tc, outDelay: &td)
+        XCTAssertEqual(euclideousHitBoxes(layoutCells: Array(tc[0..<cl]), n: 8, dir: .bkw), [false, true, false, false, true, false, false, true],
+                       "BKW: half a step earlier on the clock is the box to the right")
+        cl = euclideousHitLayoutInto(cells: cells, micro: [Double](repeating: 0, count: 8), fraction: 0, n: 8, dir: .bkw, outCells: &tc, outDelay: &td)
+        XCTAssertEqual(euclideousHitBoxes(layoutCells: Array(tc[0..<cl]), n: 8, dir: .bkw), cells, "no fraction: the buffer itself")
+    }
 }

@@ -3989,7 +3989,11 @@ func euclideousBuildPatternInto(_ L: EuclidLine, buf: inout [Bool]) -> Int {
     } else {
         let k = max(0, min(n, L.pulses))
         euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
-        if L.tiltResolved != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: L.tiltResolved) }
+        if L.tiltResolved != 0 {
+            // RHYTHM POLISH: a TILT-fine lane's cells are the step each hit STARTS in (the engine's), not the nearest step — cells only here, so nothing allocates.
+            if L.tiltIsFine { euclidTiltPatternFine(&buf, pulses: k, steps: n, tilt: L.tiltResolved) }
+            else { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: L.tiltResolved) }
+        }
     }
     euclidRotateBuffer(&buf, steps: n, rotation: L.rotate)
     if L.patternMissResolved { for i in 0..<n { buf[i].toggle() } }
@@ -4002,6 +4006,129 @@ func euclideousBuildPattern(_ L: EuclidLine) -> (buf: [Bool], n: Int) {
     var buf = [Bool](repeating: false, count: 16)
     let n = euclideousBuildPatternInto(L, buf: &buf)
     return (buf, n)
+}
+
+// MARK: - HIT TIMING (RHYTHM POLISH ferry, 2026-10-22, §5) — continuous OFFSET and TILT
+//
+// A hit's TIME inside a pass is its step plus a fraction of a step: OFFSET's fractional part shifts every hit later by that fraction (in the control's own sense — on the bar, to the right), and TILT, when the lane has
+// `tiltFine`, places each hit at its UNROUNDED position instead of the nearest step. Both are real-valued positions inside the lap, so they are worked out ONCE, here, in the lap's own TICK space (the order the engine plays
+// the pattern in — BKW and PING-PONG mirror a position, and the shift follows the control, not the clock): every tick cell either holds a hit or doesn't (`cells`) and a hit has a `delay` ∈ [0,1) steps into its cell.
+// Because a delay never leaves its cell, hits stay in time order, a pass is still a whole number of cells (a rhythm restart still lands on a cell boundary, so a hit can never be shifted past the restart that ends its
+// pass — spec 5.2 holds by construction), and every ordinal / footer / strip / riff-walk reader that counts CELLS is unchanged. Only the readers of a hit's TIME (the Router's strike, the gap to the next hit, the TIE
+// lookahead, the walk mirror's beat, the roll) read `EuclideousHitTiming`. A lane with no fraction and no fine TILT never reaches any of this: its cells are today's buffer, its timing `.none` — byte-identical.
+
+/// TILT without the rounding: the same positions as `euclidTiltPattern` (a linear blend from the even spread toward fully packed), but each hit lands in cell `floor(target)` with `frac(target)` reported through
+/// `micro(cell, fraction)` instead of being rounded to the nearest step. Distinct targets are ≥ 1 apart (the even spread is, and so is the packed one), so no two hits share a cell; the nudge is the same
+/// deterministic guard as the rounded version's and only fires on floating-point noise. The in-step positions go out through `micro(cell, fraction)` (non-escaping, so nothing allocates).
+func euclidTiltPatternFine(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double, micro: (Int, Double) -> Void) {
+    guard tilt != 0, k > 1, n > 1 else { return }
+    var count = 0
+    for i in 0..<n where i < buf.count && buf[i] { count += 1 }
+    guard count == k else { return }   // a mismatched/empty buf (caller error) — leave untouched rather than guess
+    let t = max(-1, min(1, tilt))
+    for i in 0..<n where i < buf.count { buf[i] = false }
+    for i in 0..<k {
+        let evenPos = Double(i) / Double(k - 1) * Double(n - 1)
+        let packedPos = t < 0 ? Double(i) : Double(n - k + i)
+        var target = evenPos + abs(t) * (packedPos - evenPos)
+        let nearest = target.rounded()
+        if abs(target - nearest) < 1e-9 { target = nearest }   // an exact step stays exact (t = ±1, a full pattern…)
+        var cell = max(0, min(n - 1, Int(target.rounded(.down))))
+        var frac = max(0, min(1 - 1e-12, target - Double(cell)))
+        while cell < buf.count && buf[cell] { cell = (cell + 1) % n; frac = 0 }   // bounded; only reachable through float noise
+        if cell < buf.count { buf[cell] = true }
+        micro(cell, frac)
+    }
+}
+/// The cells alone (no in-step positions) — what the render thread's partner lookups and the display need.
+func euclidTiltPatternFine(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double) {
+    euclidTiltPatternFine(&buf, pulses: k, steps: n, tilt: tilt, micro: { _, _ in })
+}
+/// `euclidRotateBuffer`'s twin for the per-cell in-step positions: the SAME cyclic shift, so a hit and its fraction move together.
+func euclidRotateMicro(_ m: inout [Double], steps n: Int, rotation rot: Int) {
+    guard n > 1, m.count >= n else { return }
+    let r = ((rot % n) + n) % n
+    guard r != 0 else { return }
+    func reverse(_ lo: Int, _ hi: Int) {
+        var l = lo, h = hi - 1
+        while l < h { m.swapAt(l, h); l += 1; h -= 1 }
+    }
+    reverse(0, r); reverse(r, n); reverse(0, n)
+}
+/// A lane's finished pattern in BUFFER space — HITS/TILT/hand edits → OFFSET (rotate) → FLIP — with the TILT-fine in-step positions (`micro`, 0 everywhere else; FLIP clears them: the flipped hits sit on step starts).
+/// The ONE builder behind the Router, the walk mirror, `euclideousBuildPatternInto` and the display, so the cells cannot drift apart. With `fine` false this is exactly the rounded pipeline the engine always ran.
+@discardableResult
+func euclideousHitPatternInto(pulses k: Int, steps n: Int, rotate: Int, tilt: Double, fine: Bool, customHits: [Bool]?, patternMiss: Bool,
+                              cells: inout [Bool], micro: inout [Double]) -> Int {
+    for i in 0..<n where i < micro.count { micro[i] = 0 }
+    if let custom = customHits, !custom.isEmpty {
+        for i in 0..<n { cells[i] = i < custom.count ? custom[i] : false }
+    } else {
+        euclidPatternInto(&cells, pulses: k, steps: n, rotation: 0)
+        if tilt != 0 {
+            if fine { euclidTiltPatternFine(&cells, pulses: k, steps: n, tilt: tilt, micro: { i, f in if i < micro.count { micro[i] = f } }) }
+            else { euclidTiltPattern(&cells, pulses: k, steps: n, tilt: tilt) }
+        }
+    }
+    euclidRotateBuffer(&cells, steps: n, rotation: rotate)
+    euclidRotateMicro(&micro, steps: n, rotation: rotate)
+    if patternMiss { for i in 0..<n { cells[i].toggle(); if i < micro.count { micro[i] = 0 } } }
+    return n
+}
+func euclideousBuildHitPatternInto(_ L: EuclidLine, cells: inout [Bool], micro: inout [Double]) -> Int {
+    let n = max(2, min(16, L.steps))
+    return euclideousHitPatternInto(pulses: max(0, min(n, L.pulses)), steps: n, rotate: L.rotate, tilt: L.tiltResolved, fine: L.tiltIsFine,
+                                    customHits: L.customHits, patternMiss: L.patternMissResolved, cells: &cells, micro: &micro)
+}
+
+/// Per-tick delays (steps into the tick's cell) of a lane's hits, in TICK space: `delay[raw]` for the hit read at tick `raw` (the engine's `raw`, 0..<cycleLen). Empty = no timing (every hit on its step).
+struct EuclideousHitTiming: Equatable {
+    var delay: [Double] = []
+    static let none = EuclideousHitTiming()
+    var isNone: Bool { delay.isEmpty }
+    @inline(__always) func delaySteps(raw: Int) -> Double { raw >= 0 && raw < delay.count ? delay[raw] : 0 }
+}
+
+/// BUFFER space → TICK space. Each hit of the buffer sits at `b + micro[b]` steps; `fraction` (OFFSET's fractional part, plus a FOLLOW partner's) pushes it right on the bar and the position wraps around the step
+/// count. A real position is then mapped to the lap's tick axis the way the direction reads the buffer — FWD as is; BKW mirrored (`n−1−x`); PING-PONG once forward and once mirrored (`2n−1−x`, the engine's own turn:
+/// each end sounds on two consecutive ticks) — wrapped into `0..<cycleLen`, and split into the tick cell (`floor`) and the delay in it (`frac`). With no fraction and no micro this reproduces
+/// `buf[euclidReadIndex(raw)]` exactly, with delay 0. A hit whose cell is already taken (only a PING-PONG turn, or float noise) moves to the next free cell on its step start — never dropped, never doubled.
+/// Writes `outCells[0..<cycleLen]` / `outDelay[0..<cycleLen]` (both ≥ 32 long) and returns `cycleLen`.
+@discardableResult
+func euclideousHitLayoutInto(cells: [Bool], micro: [Double], fraction f: Double, n: Int, dir: EuclidDir,
+                             outCells: inout [Bool], outDelay: inout [Double]) -> Int {
+    let cl = euclidCycleLen(dir, n: n)
+    for i in 0..<cl { outCells[i] = false; outDelay[i] = 0 }
+    let nD = Double(n), clD = Double(cl)
+    func place(_ u0: Double) {
+        var u = u0 - clD * (u0 / clD).rounded(.down)            // wrap into 0..<cycleLen
+        let nearest = u.rounded()
+        if abs(u - nearest) < 1e-9 { u = nearest }
+        if u >= clD { u -= clD }
+        var cell = max(0, min(cl - 1, Int(u.rounded(.down))))
+        var d = max(0, min(1 - 1e-12, u - Double(cell)))
+        var guardCount = 0
+        while outCells[cell] && guardCount < cl { cell = (cell + 1) % cl; d = 0; guardCount += 1 }
+        outCells[cell] = true
+        outDelay[cell] = d
+    }
+    for b in 0..<n where b < cells.count && cells[b] {
+        var x = Double(b) + (b < micro.count ? micro[b] : 0) + f
+        while x >= nD { x -= nD }
+        switch dir {
+        case .fwd: place(x)
+        case .bkw: place(nD - 1 - x)
+        case .pingpong: place(x); place(2 * nD - 1 - x)
+        }
+    }
+    return cl
+}
+/// The cells a lane's step boxes should show: each hit in the BOX its start time falls in (RHYTHM POLISH §3.1) — the tick cell mapped back through the direction. Same as the buffer for FWD; BKW / PING-PONG may move a
+/// hit one box when a fraction is set (a PING-PONG box lights if either of its two visits holds a hit).
+func euclideousHitBoxes(layoutCells: [Bool], n: Int, dir: EuclidDir) -> [Bool] {
+    var out = [Bool](repeating: false, count: n)
+    for raw in 0..<euclidCycleLen(dir, n: n) where raw < layoutCells.count && layoutCells[raw] { out[euclidReadIndex(raw, n: n, dir: dir)] = true }
+    return out
 }
 /// §8.3 — a rhythm chain's own restart beats inside `[windowStart, windowStart + windowBeats)`, walked
 /// forward via `euclideousNextRhythmRestart` from just before the window (the LANES mute window's read-only
@@ -4553,6 +4680,9 @@ struct EuclideousWalkLaneConfig {
     var lane: Int = 0
     var playsRiff: Bool = true
     var cyc: Double = 4
+    /// RHYTHM POLISH (2026-10-22): the hits' delays inside their tick cells (tick space) — `.none` for a lane with no fraction and no fine TILT. When it is set, `buf` / `n` / `dir` above are the lane's TICK-SPACE
+    /// layout (`euclideousHitLayoutInto`: n = the lap's tick count, dir = FWD) — exactly what the Router reads — so every engine-mirroring reader below sees the cells the engine plays.
+    var timing: EuclideousHitTiming = .none
 }
 
 /// What `Router.runEuclidLine`'s `passesListenRhythmFilter` reads for a WITH / GAPS lane, captured once: the PARTNER's own
@@ -4593,18 +4723,31 @@ let euclideousListenCellFade: Double = 0.75
 /// (`defaultRateBeats` stands in for a lane whose rate is unset, as everywhere in the UI's mirror).
 /// ONE function for the walk-tag mirror and the lane card, so neither can drift from the engine on its own.
 func euclideousEffectivePattern(lane: Int, lines: [EuclidLine], defaultRateBeats: Double = 0.25) -> (buf: [Bool], n: Int, followsPartner: Bool, rateBeats: Double)? {
+    guard let e = euclideousEffectiveHitPattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
+    return (e.buf, e.n, e.followsPartner, e.rateBeats)
+}
+/// `euclideousEffectivePattern` plus the lane's hit TIMING inputs (RHYTHM POLISH, 2026-10-22): the buffer-space in-step positions of a fine TILT and the total OFFSET fraction (a FOLLOW lane adds its partner's, whose
+/// own offset already rotates the shape it inherits). The cells are exactly the ones the Router builds.
+struct EuclideousEffectiveHitPattern {
+    var buf: [Bool]; var n: Int; var followsPartner: Bool; var rateBeats: Double
+    var micro: [Double]; var fraction: Double
+    var hasTiming: Bool { fraction > 0 || micro.contains { $0 != 0 } }
+}
+func euclideousEffectiveHitPattern(lane: Int, lines: [EuclidLine], defaultRateBeats: Double = 0.25) -> EuclideousEffectiveHitPattern? {
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
+    var cells = [Bool](repeating: false, count: 16), micro = [Double](repeating: 0, count: 16)
     if let followIdx = euclideousFollowPartner(lane: lane, lines: lines) {
-        // Mirrors Router: the partner's finished pattern + step count, then THIS lane's own OFFSET / INV on top.
-        let pb = euclideousBuildPattern(lines[followIdx])
-        var buf = pb.buf
-        euclidRotateBuffer(&buf, steps: pb.n, rotation: L.rotate)
-        if L.patternMissResolved { for i in 0..<pb.n { buf[i].toggle() } }
-        return (buf, pb.n, true, (lines[followIdx].rate?.beats ?? defaultRateBeats) * L.listenFollowRatioResolved)
+        // Mirrors Router: the partner's finished pattern + step count (+ its in-step positions and fraction), then THIS lane's own OFFSET / FLIP on top.
+        let n = euclideousBuildHitPatternInto(lines[followIdx], cells: &cells, micro: &micro)
+        euclidRotateBuffer(&cells, steps: n, rotation: L.rotate)
+        euclidRotateMicro(&micro, steps: n, rotation: L.rotate)
+        if L.patternMissResolved { for i in 0..<n { cells[i].toggle(); micro[i] = 0 } }
+        return EuclideousEffectiveHitPattern(buf: cells, n: n, followsPartner: true, rateBeats: (lines[followIdx].rate?.beats ?? defaultRateBeats) * L.listenFollowRatioResolved,
+                                             micro: micro, fraction: lines[followIdx].offsetFractionResolved + L.offsetFractionResolved)
     }
-    let b = euclideousBuildPattern(L)
-    return (b.buf, b.n, false, L.rate?.beats ?? defaultRateBeats)
+    let n = euclideousBuildHitPatternInto(L, cells: &cells, micro: &micro)
+    return EuclideousEffectiveHitPattern(buf: cells, n: n, followsPartner: false, rateBeats: L.rate?.beats ?? defaultRateBeats, micro: micro, fraction: L.offsetFractionResolved)
 }
 
 func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, resetSpanBars: Int,
@@ -4615,12 +4758,21 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
     let followIdx = L.listenRhythmPartnerResolved   // the rhythm partner of ANY listen mode (WITH/GAPS use it below)
-    guard let eff = euclideousEffectivePattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
-    let buf = eff.buf, n = eff.n
+    guard let eff = euclideousEffectiveHitPattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
+    // RHYTHM POLISH: a lane with timing (a fraction and/or a fine TILT) is read in TICK space — the layout the Router builds — with its per-tick delays; any other lane keeps the buffer it always had.
+    var buf = eff.buf, n = eff.n
+    var cfgDir = L.directionResolved
+    var timing = EuclideousHitTiming.none
+    if eff.hasTiming {
+        var tc = [Bool](repeating: false, count: 32), td = [Double](repeating: 0, count: 32)
+        let cl = euclideousHitLayoutInto(cells: eff.buf, micro: eff.micro, fraction: eff.fraction, n: eff.n, dir: L.directionResolved, outCells: &tc, outDelay: &td)
+        buf = Array(tc[0..<cl]); n = cl; cfgDir = .fwd
+        timing = EuclideousHitTiming(delay: Array(td[0..<cl]))
+    }
     let sub = eff.rateBeats
     // LANES GRID (2026-10-18): the lane's mute grid and restart masks, resolved EXACTLY as `Router.runEuclidLine` resolves them — from the
     // lane's own fields, or migrated from the old sequencer + reset against THIS lane's step and lap and the host's real bar.
-    let cycleLen = euclidCycleLen(L.directionResolved, n: n)
+    let cycleLen = euclidCycleLen(cfgDir, n: n)
     let g = euclideousLaneGridResolved(line: L, lane: lane, legacyOn: lanesSeqOn, legacyRate: lanesSeqRate, legacyLen: lanesSeqLen,
                                        legacyCells: lanesSeqCells ?? [Bool](repeating: true, count: 32), stepBeats: sub,
                                        passBeats: Double(cycleLen) * sub, beatsPerBar: beatsPerBar)
@@ -4646,7 +4798,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                             rateBeats: partner.rate?.beats ?? defaultRateBeats, spanBeats: engineSpan,
                                             epsilonBeats: 0.001 * (max(1, tempo) / 60.0))
     }
-    return EuclideousWalkLaneConfig(buf: buf, n: n, dir: L.directionResolved, sub: sub, spanBeats: spanBeats,
+    return EuclideousWalkLaneConfig(buf: buf, n: n, dir: cfgDir, sub: sub, spanBeats: spanBeats,
                                     grid: grid, chains: chains, muteCells: g.muteCells,
                                     muteUnitBeats: g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub), listen: listen,
                                     riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: L.riffLengthResolved,
@@ -4655,11 +4807,17 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                     swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats),
                                     riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
                                     invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved,
-                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc)
+                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc, timing: timing)
 }
 /// A tick's REAL onset beat — what the note-on is scheduled at (swing-warped), the time a tag must arrive.
 func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Double {
-    let m = Double(tick) * c.sub
+    // RHYTHM POLISH: a hit plays its delay into the tick's cell — the beat a tag must arrive at.
+    var steps = Double(tick)
+    if !c.timing.isNone {
+        let ph = euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats)
+        if ph.rawIsHit { steps += c.timing.delaySteps(raw: ph.raw) }
+    }
+    let m = steps * c.sub
     return c.swingA == 1 ? m : realOf(m, stepBeats: c.swingStepBeats, a: c.swingA)
 }
 
@@ -6603,12 +6761,15 @@ func euclideousLaneChainTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int,
 }
 /// The chain-era counterpart of `euclideousNextHitGapBeats`.
 func euclideousNextChainHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, cap: Int,
-                                    chains: EuclideousLaneRestartChains, legacySpanBeats: Double) -> Double {
+                                    chains: EuclideousLaneRestartChains, legacySpanBeats: Double, timing: EuclideousHitTiming = .none) -> Double {
     guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
+    // RHYTHM POLISH §5.2: the gap runs between the two hits' ACTUAL times — whole ticks plus the difference of their delays (a uniform fraction cancels).
+    let dThis = timing.isNone ? 0 : timing.delaySteps(raw: euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
+                                                                                    legacySpanBeats: legacySpanBeats).raw)
     var k = 1
     while k <= cap {
-        if euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick + Int64(k), chains: chains,
-                                    legacySpanBeats: legacySpanBeats).rawIsHit { return Double(k) * sub }
+        let ph = euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick + Int64(k), chains: chains, legacySpanBeats: legacySpanBeats)
+        if ph.rawIsHit { return (Double(k) + (timing.isNone ? 0 : timing.delaySteps(raw: ph.raw) - dThis)) * sub }
         k += 1
     }
     return Double(cap) * sub
@@ -6619,10 +6780,11 @@ func euclideousChainTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycle
                                       chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
                                       riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64, every: Int = 1, bound: Int? = nil,
                                       restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
+                                      timing: EuclideousHitTiming = .none,
                                       rankAt: (_ column: Int, _ beat: Double) -> Int) -> Double {
     euclideousChainTieExtensions(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats,
                                  advanceStep: advanceStep, riffDir: riffDir, stride: stride, length: length, rotate: rotate, seed: seed, every: every, bound: bound,
-                                 restTies: restTies, fxTie: fxTie, rankAt: rankAt, notesStrikes: nil).riff
+                                 restTies: restTies, fxTie: fxTie, timing: timing, rankAt: rankAt, notesStrikes: nil).riff
 }
 /// NOTES TAB ferry (2026-10-19) §8.4: the TIE lookahead, now with TWO answers. `riff` is the riff note's extension, exactly as before. `notes` is how far the notes the notes layer
 /// strikes on this hit carry on: they carry through the tied hits until the first TIED REST on which the notes layer itself strikes (it re-strikes there, so what it struck before ends
@@ -6632,11 +6794,16 @@ func euclideousChainTieExtensions(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
                                   chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
                                   riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64, every: Int = 1, bound: Int? = nil,
                                   restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
+                                  timing: EuclideousHitTiming = .none,
                                   rankAt: (_ column: Int, _ beat: Double) -> Int,
                                   notesStrikes: ((_ isRest: Bool, _ column: Int, _ beat: Double) -> Bool)?) -> (riff: Double, notes: Double) {
     var hitsAhead = 0
     var lastConsumed = 0
     var notesLast = 0
+    // RHYTHM POLISH §5.2: lengths are measured to the tied hit's ACTUAL time — whole ticks plus the difference of the two hits' delays; `rankAt` is asked at that time too.
+    let dThis = timing.isNone ? 0 : timing.delaySteps(raw: euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
+                                                                                    legacySpanBeats: legacySpanBeats).raw)
+    var lastDelay = 0.0, notesLastDelay = 0.0
     var notesStopped = notesStrikes == nil
     var j = 0
     // RIFF WALK ferry §5.5 (Euclideous row only — the retired/legacy fork passes no `bound`, keeping its
@@ -6652,13 +6819,14 @@ func euclideousChainTieExtensions(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
         let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains,
                                            legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
         guard info.rawIsHit else { continue }
+        let dJ = timing.isNone ? 0 : timing.delaySteps(raw: info.raw)
         // a melody restart always breaks the chain (§4.6: "no hit moves") — mirrors the old `locked &&`
         // guard exactly: only a non-FREE melody chain actually restarts periodically, so only then does
         // advOrd==0 mean "a restart just happened" rather than merely "the very first hit since beat 0."
         if !chains.melody.isFree, info.advOrd == 0 { break }
         hitsAhead += 1
         let column = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: length, stride: stride, shift: rotate, seed: seed)
-        let beatJ = Double(t) * sub
+        let beatJ = (Double(t) + dJ) * sub
         let writtenJ = rankAt(column, beatJ)
         let isRest = writtenJ < 1
         if isRest {
@@ -6667,11 +6835,12 @@ func euclideousChainTieExtensions(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
             guard fxTie(column, beatJ, writtenJ) else { break }
         }
         if let ns = notesStrikes, !notesStopped {
-            if ns(isRest, column, beatJ) { notesStopped = true } else { notesLast = j }
+            if ns(isRest, column, beatJ) { notesStopped = true } else { notesLast = j; notesLastDelay = dJ }
         }
-        lastConsumed = j
+        lastConsumed = j; lastDelay = dJ
     }
-    return (Double(lastConsumed) * sub, notesStrikes == nil ? Double(lastConsumed) * sub : Double(notesLast) * sub)
+    func ext(_ j: Int, _ d: Double) -> Double { j == 0 ? 0 : (Double(j) + (timing.isNone ? 0 : d - dThis)) * sub }
+    return (ext(lastConsumed, lastDelay), notesStrikes == nil ? ext(lastConsumed, lastDelay) : ext(notesLast, notesLastDelay))
 }
 
 /// RIFF WALK ferry (2026-10-19) §6.2: REPEAT's lookback — the column of the nearest EARLIER hit of this
@@ -7157,8 +7326,11 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         defer { tick += 1 }
         let w = euclideousWalkTick(c, tick: tick)
         guard w.strikes else { continue }
+        // RHYTHM POLISH: the hit sounds its delay into the cell — everything below is asked at THAT time, as the Router asks it.
+        let hitBeat = c.timing.isNone ? beat : beat + c.timing.delaySteps(raw: euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick,
+                                                                                                         chains: c.chains, legacySpanBeats: c.spanBeats).raw) * c.sub
         // The SAME decision the Router makes per hit (§2.3): the column the walk reads, the written rank there, the pass index, then `euclideousFXApply`.
-        let written = c.riffOn ? rankAt(w.playedStep, beat) : 0
+        let written = c.riffOn ? rankAt(w.playedStep, hitBeat) : 0
         var fxHit = EuclideousFXHit()
         if fxLive {
             let pass = laneHasNoteFX ? euclideousFXPassIndex(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid,
@@ -7174,7 +7346,7 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         }
         let g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
         let gap = euclideousNextChainHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
-                                                  chains: c.chains, legacySpanBeats: c.spanBeats)
+                                                  chains: c.chains, legacySpanBeats: c.spanBeats, timing: c.timing)
         var tie = 0.0
         if rank >= 1, c.onRest == .tie || laneHasTieFX {
             tie = euclideousChainTieExtensionBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains,
@@ -7184,17 +7356,18 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
                                                   fxTie: { col, _, r in
                                                       laneHasTieFX && euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: col, writtenRank: r, pass: 0).tie
                                                   },
+                                                  timing: c.timing,
                                                   rankAt: rankAt)
         }
-        let audible = euclideousLaneAudible(beat: beat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
+        let audible = euclideousLaneAudible(beat: hitBeat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
         let nStrikes = rank >= 1 && fxHit.ratch >= 2 ? euclideousFXRatchetCount(requested: fxHit.ratch, sub: c.sub, cyc: c.cyc) : 0
         if nStrikes >= 2 {
             let slot = c.sub / Double(nStrikes)
             let per = max(minGateBeats, slot * g)
             let last = tie > 0 ? max(per, (gap - Double(nStrikes - 1) * slot) + g * tie) : per
-            out.append(EuclideousRollHit(beat: beat, rank: max(0, rank), gateBeats: per, audible: audible, strikes: nStrikes, spacingBeats: slot, lastGateBeats: last))
+            out.append(EuclideousRollHit(beat: hitBeat, rank: max(0, rank), gateBeats: per, audible: audible, strikes: nStrikes, spacingBeats: slot, lastGateBeats: last))
         } else {
-            out.append(EuclideousRollHit(beat: beat, rank: max(0, rank), gateBeats: euclideousPitchGateBeats(gate: g, nextHitGapBeats: gap, tieExt: tie, minGateBeats: minGateBeats),
+            out.append(EuclideousRollHit(beat: hitBeat, rank: max(0, rank), gateBeats: euclideousPitchGateBeats(gate: g, nextHitGapBeats: gap, tieExt: tie, minGateBeats: minGateBeats),
                                          audible: audible))
         }
     }
