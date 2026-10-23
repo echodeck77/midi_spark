@@ -514,7 +514,10 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXAdjust(row: 0, current: nil, brush: 2, up: true), 2, "incrementing an empty cell turns it on at the brush")
         XCTAssertNil(euclideousFXAdjust(row: 0, current: nil, brush: 2, up: false)); XCTAssertNil(euclideousFXAdjust(row: 2, current: 1, brush: 1, up: true), "TIE isn't adjustable")
         XCTAssertEqual(euclideousFXAdjust(row: 1, current: 50, brush: 50, up: false), 45); XCTAssertNil(euclideousFXAdjust(row: 1, current: 95, brush: 50, up: true), "95 is the top"); XCTAssertEqual(euclideousFXAdjust(row: 1, current: 90, brush: 50, up: true), 95)
-        XCTAssertEqual(euclideousFXAdjust(row: 3, current: 100, brush: 100, up: true), 101)
+        // REVIEW FIX 2026-10-23: VEL and CC are 127 wide — a VoiceOver swipe moves them by 4 (the MIX pad's step), clamped at their ends
+        XCTAssertEqual(euclideousFXAdjust(row: 3, current: 100, brush: 100, up: true), 104); XCTAssertEqual(euclideousFXAdjust(row: 3, current: 100, brush: 100, up: false), 96)
+        XCTAssertEqual(euclideousFXAdjust(row: 3, current: 126, brush: 100, up: true), 127); XCTAssertNil(euclideousFXAdjust(row: 3, current: 127, brush: 100, up: true)); XCTAssertEqual(euclideousFXAdjust(row: 3, current: 3, brush: 100, up: false), 1, "VEL never reaches 0")
+        XCTAssertEqual(euclideousFXAdjust(row: 5, current: 64, brush: 64, up: true), 68); XCTAssertEqual(euclideousFXAdjust(row: 5, current: 2, brush: 64, up: false), 0, "CC reaches 0"); XCTAssertNil(euclideousFXAdjust(row: 5, current: 0, brush: 64, up: false))
     }
     func testSteppersNeverWrapAndBaseStepsThroughItsStops() {
         XCTAssertEqual(euclideousFXStepperStep(.passes, current: 4, up: true), 5); XCTAssertNil(euclideousFXStepperStep(.passes, current: 8, up: true)); XCTAssertNil(euclideousFXStepperStep(.passes, current: 2, up: false))
@@ -702,5 +705,54 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXTieColumns(fx, line: { var l = line; l.listenPitchMode = .shadow; return l }(), lane: 0), 0)
         let restRanks = [1, 0, 3, 4, 5, 6, 7, 8]
         XCTAssertTrue(euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: prediction.map { $0 + 1 }, riffRanksResolved: restRanks, fxTieColumns: 0b10).contains(.hitOnRest(riffStep: 2)))
+    }
+    // MARK: - REVIEW FIX ferry (2026-10-23): RATCH SHAPE, the idle-lane words
+    func testRatchShapeScalesTheStrikesAcrossTheHit() {
+        XCTAssertEqual((0..<4).map { euclideousRatchetStrikeScale(shape: 0, k: $0, n: 4) }, [1, 1, 1, 1], "FLAT")
+        XCTAssertEqual((0..<4).map { euclideousRatchetStrikeScale(shape: 1, k: $0, n: 4) }, [1, 0.65, 0.65, 0.65], "ACCENT: the first full, the rest at 65 %")
+        let fade = (0..<4).map { euclideousRatchetStrikeScale(shape: 2, k: $0, n: 4) }, ramp = (0..<4).map { euclideousRatchetStrikeScale(shape: 3, k: $0, n: 4) }
+        XCTAssertEqual(fade.first!, 1, accuracy: 1e-12); XCTAssertEqual(fade.last!, 0.45, accuracy: 1e-12); XCTAssertEqual(ramp.first!, 0.45, accuracy: 1e-12); XCTAssertEqual(ramp.last!, 1, accuracy: 1e-12)
+        for i in 1..<4 { XCTAssertLessThan(fade[i], fade[i - 1]); XCTAssertGreaterThan(ramp[i], ramp[i - 1]) }
+        for (a, b) in zip(fade.reversed(), ramp) { XCTAssertEqual(a, b, accuracy: 1e-12, "RAMP is FADE backwards") }
+        XCTAssertEqual(euclideousRatchetStrikeScale(shape: 2, k: 1, n: 2), 0.45, accuracy: 1e-12, "two strikes: full, then 45 %")
+        XCTAssertEqual(euclideousRatchetStrikeScale(shape: 2, k: 0, n: 1), 1, "one strike is no ratchet"); XCTAssertEqual(euclideousRatchetStrikeScale(shape: 9, k: 1, n: 4), 1, "an unknown shape is FLAT")
+        // velocities: FLAT returns the base untouched; everything stays in 1…127
+        XCTAssertEqual(euclideousRatchetStrikeVelocity(base: 90, shape: 0, k: 3, n: 4), 90)
+        XCTAssertEqual(euclideousRatchetStrikeVelocity(base: 127, shape: 3, k: 3, n: 4), 127); XCTAssertEqual(euclideousRatchetStrikeVelocity(base: 1, shape: 2, k: 3, n: 4), 1, "never 0")
+        XCTAssertEqual(euclideousRatchetStrikeVelocity(base: 100, shape: 1, k: 2, n: 3), 65)
+    }
+    func testRatchShapeStepperAndDocument() throws {
+        XCTAssertEqual(EuclideousRatchShape.allCases.map { $0.name }, ["FLAT", "ACCENT", "FADE", "RAMP"])
+        XCTAssertEqual(euclideousFXStepperKey(.shape), "SHAPE"); XCTAssertEqual(euclideousFXStepperValueText(.shape, value: 2), "FADE"); XCTAssertEqual(euclideousFXStepperDefault(.shape), 0)
+        XCTAssertEqual(euclideousFXStepperStep(.shape, current: 0, up: true), 1); XCTAssertNil(euclideousFXStepperStep(.shape, current: 3, up: true), "never wraps"); XCTAssertNil(euclideousFXStepperStep(.shape, current: 0, up: false))
+        XCTAssertEqual(euclideousFXStepperDrag(.shape, start: 0, travelUp: 24), 2, "12 pt a step, like PASSES"); XCTAssertEqual(euclideousFXStepperDrag(.shape, start: 1, travelUp: -500), 0); XCTAssertEqual(euclideousFXStepperDrag(.shape, start: 1, travelUp: 500), 3)
+        XCTAssertEqual(euclideousFXStepperSpoken(.shape, value: 3), "Ratchet shape, ramp up")
+        var fx = EuclideousFX()
+        euclideousFXSetStepper(&fx, .shape, value: 2); XCTAssertEqual(euclideousFXStepperValue(.shape, fx: fx), 2); euclideousFXSetStepper(&fx, .shape, value: 99); XCTAssertEqual(fx.ratchShape, 3, "clamped")
+        XCTAssertTrue(EuclideousFX().isInert); fx = EuclideousFX(); fx.ratchShape = 2; XCTAssertTrue(fx.isInert, "a shape alone plays nothing")
+        // the document: round-trips, a default document encodes exactly as before (no new key), an unreadable or out-of-range value clamps
+        fx.cells[0] = 3
+        let back = try JSONDecoder().decode(EuclideousFX.self, from: JSONEncoder().encode(fx)); XCTAssertEqual(back.ratchShape, 2); XCTAssertEqual(back, fx)
+        let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(EuclideousFX())) as! [String: Any]
+        XCTAssertNil(plain["ratchShape"], "a default document is byte-identical to before"); XCTAssertEqual(Set(plain.keys), ["lanes", "cells", "notePasses", "ccNumber", "ccBase"])
+        XCTAssertEqual(try JSONDecoder().decode(EuclideousFX.self, from: Data(#"{"ratchShape":9}"#.utf8)).ratchShape, 3)
+        XCTAssertEqual(try JSONDecoder().decode(EuclideousFX.self, from: Data(#"{"ratchShape":"x"}"#.utf8)).ratchShape, 0)
+        XCTAssertEqual(try JSONDecoder().decode(EuclideousFX.self, from: Data(#"{"lanes":[15,15,15,15,15,15]}"#.utf8)).ratchShape, 0, "an old document reads FLAT")
+    }
+    func testALaneNoFXRowCanActOnIsNamedAndSpokenAbout() {
+        var l = EuclidLine(); l.riffOn = true
+        XCTAssertNil(euclideousFXLaneIdleReason(l))
+        l.riffOn = false; XCTAssertEqual(euclideousFXLaneIdleReason(l), "its riff is off")
+        l.riffOn = true; l.listenPitchMode = .shadow; XCTAssertEqual(euclideousFXLaneIdleReason(l), "it is shadowing another lane")
+        l.riffOn = false; XCTAssertEqual(euclideousFXLaneIdleReason(l), "its riff is off", "riff off is the first thing to fix")
+        XCTAssertEqual(euclideousFXLaneButtonLabel(lane: 1, on: true), "Lane 2, plays this row", "an acting lane is spoken as before")
+        XCTAssertEqual(euclideousFXLaneButtonLabel(lane: 1, on: true, idleReason: "its riff is off"), "Lane 2, plays this row, but its riff is off, so no FX row acts on it")
+        // the FX decision itself is the authority: the reason is nil exactly when `euclideousFXApply` would act
+        for riffOn in [true, false] { for shadow in [true, false] {
+            var line = EuclidLine(); line.riffOn = riffOn; line.listenPitchMode = shadow ? .shadow : nil
+            var fx = EuclideousFX(); fx.cells[0] = 3
+            let acts = euclideousFXApply(fx, lane: 0, playsRiff: euclideousLanePlaysRiff(line), column: 0, writtenRank: 1, pass: 0).ratch != 0
+            XCTAssertEqual(euclideousFXLaneIdleReason(line) == nil, acts, "riff \(riffOn), shadow \(shadow)")
+        } }
     }
 }

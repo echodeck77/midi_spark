@@ -139,6 +139,8 @@ struct EuclideousFXPanel: View {
     let accents: [Color]
     /// LANE SOLO §6.5: lane i is solo-silenced — its dot on every rail and its button in the strip draw at 42 % (still live).
     let silenced: [Bool]
+    /// REVIEW FIX 2026-10-23: lane i's riff is off or it shadows a partner, so no FX row acts on it (`euclideousFXLaneIdleReason`) — its lane dots and buttons dim to the same 42 % (no stacking with solo) and VoiceOver says why. nil = acts.
+    let idleReasons: [String?]
     let previewText: String
     let previewColumn: Int?
     let brushes: [Int]
@@ -152,6 +154,9 @@ struct EuclideousFXPanel: View {
     let onStepper: (EuclideousFXStepper, Int, Bool) -> Void
     let onAdjust: (Int, Int, Bool) -> Void
     let onToggleCell: (Int, Int) -> Void
+
+    /// A lane's dots and button sit at 42 % when solo silences it OR no FX row can act on it — one dim, never both multiplied.
+    private func laneDimmed(_ lane: Int) -> Bool { (lane < silenced.count && silenced[lane]) || (lane < idleReasons.count && idleReasons[lane] != nil) }
 
     @State private var touch: EuclideousFXTouch? = nil
     @State private var touchStart: CGPoint? = nil     // a touch whose start differs from the one in flight is a NEW touch (a cancelled gesture may never call onEnded)
@@ -215,8 +220,8 @@ struct EuclideousFXPanel: View {
                             }
                         }
                         .frame(width: 4, height: 4)
-                        .opacity(lane < silenced.count && silenced[lane] ? EuclideousLaneDimStyle.opacity : 1)
-                        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: lane < silenced.count && silenced[lane])
+                        .opacity(laneDimmed(lane) ? EuclideousLaneDimStyle.opacity : 1)
+                        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: laneDimmed(lane))
                     }
                 }
             }
@@ -253,10 +258,10 @@ struct EuclideousFXPanel: View {
                             .overlay(RoundedRectangle(cornerRadius: 6).inset(by: 0.5).stroke(on ? c : Color.clear, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .opacity(lane < silenced.count && silenced[lane] ? EuclideousLaneDimStyle.opacity : 1)
-                    .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: lane < silenced.count && silenced[lane])
+                    .opacity(laneDimmed(lane) ? EuclideousLaneDimStyle.opacity : 1)
+                    .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: laneDimmed(lane))
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(euclideousFXLaneButtonLabel(lane: lane, on: on))
+                    .accessibilityLabel(euclideousFXLaneButtonLabel(lane: lane, on: on, idleReason: lane < idleReasons.count ? idleReasons[lane] : nil))
                     .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                     .ringToggleTrait()
                 }
@@ -265,7 +270,10 @@ struct EuclideousFXPanel: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(euclideousFXLaneGroupLabel(row: selectedRow, ccNumber: Int(fx.ccNumber)))
             Group {
-                if let d = row.stripDescription {
+                if row == .ratch {
+                    HStack(spacing: 4) { stepper(.shape) }
+                        .frame(width: max(0, layout.width - x0), height: EuclideousFXLayout.stripH, alignment: .leading)
+                } else if let d = row.stripDescription {
                     Text(d).font(heavyMono(8)).tracking(0.32).foregroundColor(P.caption).lineLimit(1).truncationMode(.tail)
                         .frame(width: max(0, layout.width - x0), height: EuclideousFXLayout.stripH, alignment: .leading)
                 } else if row == .note {

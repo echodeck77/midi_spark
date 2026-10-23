@@ -8173,6 +8173,7 @@ func euclideousFXDragValue(row: Int, start: Int, travelUp: CGFloat) -> Int {
     }
 }
 /// One step of VoiceOver's increment / decrement (§14.2): one value step; NOTE skips 0; an empty cell turns on at the brush when incremented. Nil = no change.
+let euclideousFXVoiceOverCoarseStep = 4
 func euclideousFXAdjust(row: Int, current: Int?, brush: Int, up: Bool) -> Int? {
     guard row != 2 else { return nil }
     guard let cur = current else { return up ? brush : nil }
@@ -8182,13 +8183,16 @@ func euclideousFXAdjust(row: Int, current: Int?, brush: Int, up: Bool) -> Int? {
         let j = i + (up ? 1 : -1)
         guard j >= 0, j < list.count else { return nil }
         next = list[j]
+    } else if row == 3 || row == 5 {
+        // VEL and CC are 127-wide: a swipe moves them by 4 (the MIX pad's VoiceOver step), not 1 — a drag still lands on every value
+        next = max(row == 3 ? 1 : 0, min(127, cur + (up ? euclideousFXVoiceOverCoarseStep : -euclideousFXVoiceOverCoarseStep)))
     } else {
         next = euclideousFXDragValue(row: row, start: cur, travelUp: (up ? 1 : -1) * euclideousFXPointsPerStep(row: row))
     }
     return next == cur ? nil : next
 }
 
-enum EuclideousFXStepper: Equatable { case passes, ccNumber, base }
+enum EuclideousFXStepper: Equatable { case passes, ccNumber, base, shape }   // `.shape` (REVIEW FIX 2026-10-23): the RATCH row's strike-velocity shape, FLAT · ACCENT · FADE · RAMP
 let euclideousFXBaseStops = [-1, 0, 32, 64, 96, 127]
 /// `‹` / `›`: PASSES and CC step by one, BASE through –, 0, 32, 64, 96, 127 (from a value in between, `›` goes to the next listed value up and `‹` to the next
 /// down). Nil at an end — the chevron is disabled and draws at 40% (§12.7: steppers never wrap).
@@ -8198,37 +8202,44 @@ func euclideousFXStepperStep(_ s: EuclideousFXStepper, current: Int, up: Bool) -
     case .ccNumber: let n = current + (up ? 1 : -1); return (0...119).contains(n) ? n : nil
     case .base:
         return up ? euclideousFXBaseStops.first { $0 > current } : euclideousFXBaseStops.last { $0 < current }
+    case .shape: let n = current + (up ? 1 : -1); return (0...(EuclideousRatchShape.allCases.count - 1)).contains(n) ? n : nil
     }
 }
 /// Dragging a stepper's value: PASSES 12pt per step, CC and BASE 2pt (BASE's – is one step below 0).
 func euclideousFXStepperDrag(_ s: EuclideousFXStepper, start: Int, travelUp: CGFloat) -> Int {
-    let steps = Int((travelUp / (s == .passes ? 12 : 2)).rounded())
+    let steps = Int((travelUp / (s == .passes || s == .shape ? 12 : 2)).rounded())
     switch s {
     case .passes: return max(2, min(8, start + steps))
     case .ccNumber: return max(0, min(119, start + steps))
     case .base: return max(-1, min(127, start + steps))
+    case .shape: return max(0, min(EuclideousRatchShape.allCases.count - 1, start + steps))
     }
 }
 /// The double-tap on a stepper's value: PASSES 4, CC 74, BASE –.
-func euclideousFXStepperDefault(_ s: EuclideousFXStepper) -> Int { s == .passes ? 4 : (s == .ccNumber ? 74 : -1) }
-func euclideousFXStepperKey(_ s: EuclideousFXStepper) -> String { s == .passes ? "PASSES" : (s == .ccNumber ? "CC" : "BASE") }
-func euclideousFXStepperValueText(_ s: EuclideousFXStepper, value: Int) -> String { s == .base && value < 0 ? "–" : "\(value)" }
-func euclideousFXStepperWidth(_ s: EuclideousFXStepper) -> CGFloat { s == .passes ? 100 : (s == .ccNumber ? 84 : 90) }
+func euclideousFXStepperDefault(_ s: EuclideousFXStepper) -> Int { s == .passes ? 4 : (s == .ccNumber ? 74 : (s == .shape ? 0 : -1)) }
+func euclideousFXStepperKey(_ s: EuclideousFXStepper) -> String { s == .passes ? "PASSES" : (s == .ccNumber ? "CC" : (s == .shape ? "SHAPE" : "BASE")) }
+func euclideousFXStepperValueText(_ s: EuclideousFXStepper, value: Int) -> String {
+    if s == .shape { return (EuclideousRatchShape(rawValue: value) ?? .flat).name }
+    return s == .base && value < 0 ? "–" : "\(value)"
+}
+func euclideousFXStepperWidth(_ s: EuclideousFXStepper) -> CGFloat { s == .passes ? 100 : (s == .ccNumber ? 84 : (s == .shape ? 116 : 90)) }
 func euclideousFXStepperSpoken(_ s: EuclideousFXStepper, value: Int) -> String {
     switch s {
     case .passes: return "Passes \(value)"
     case .ccNumber: return "Controller number \(value)"
     case .base: return "Base value \(value < 0 ? "none" : "\(value)")"
+    case .shape: return "Ratchet shape, \((EuclideousRatchShape(rawValue: value) ?? .flat).spoken)"
     }
 }
 func euclideousFXStepperValue(_ s: EuclideousFXStepper, fx: EuclideousFX) -> Int {
-    switch s { case .passes: return Int(fx.notePasses); case .ccNumber: return Int(fx.ccNumber); case .base: return Int(fx.ccBase) }
+    switch s { case .passes: return Int(fx.notePasses); case .ccNumber: return Int(fx.ccNumber); case .base: return Int(fx.ccBase); case .shape: return Int(fx.ratchShape) }
 }
 func euclideousFXSetStepper(_ fx: inout EuclideousFX, _ s: EuclideousFXStepper, value: Int) {
     switch s {
     case .passes: fx.notePasses = UInt8(max(2, min(8, value)))
     case .ccNumber: fx.ccNumber = UInt8(max(0, min(119, value)))
     case .base: fx.ccBase = value < 0 ? -1 : Int16(min(127, value))
+    case .shape: fx.ratchShape = UInt8(max(0, min(EuclideousRatchShape.allCases.count - 1, value)))
     }
 }
 
@@ -8364,7 +8375,15 @@ func euclideousFXRailLabel(row: Int, ccNumber: Int, mask: UInt8, selected: Bool)
 func euclideousFXLaneGroupLabel(row: Int, ccNumber: Int) -> String {
     "Lanes that play the \(EuclideousFXRow(rawValue: row)?.spokenName(ccNumber: ccNumber) ?? "") row"
 }
-func euclideousFXLaneButtonLabel(lane: Int, on: Bool) -> String { "Lane \(lane + 1), " + (on ? "plays this row" : "ignores this row") }
+func euclideousFXLaneButtonLabel(lane: Int, on: Bool, idleReason: String? = nil) -> String {
+    "Lane \(lane + 1), " + (on ? "plays this row" : "ignores this row") + (idleReason.map { ", but \($0), so no FX row acts on it" } ?? "")
+}
+/// REVIEW FIX 2026-10-23: the FX rows act only on a hit that PLAYS THE RIFF (`euclideousLanePlaysRiff`: the riff layer is on and the lane isn't SHADOWing a partner). A lane that doesn't gets its lane buttons and rail dots dimmed
+/// (the page's 42 %), and this is what VoiceOver says; nil = the lane's FX rows act.
+func euclideousFXLaneIdleReason(_ line: EuclidLine) -> String? {
+    if euclideousLanePlaysRiff(line) { return nil }
+    return line.riffOnResolved ? "it is shadowing another lane" : "its riff is off"
+}
 /// §14.2: "Note n, <name or rest>, <value>" — an empty cell ends with the row's name and "off".
 func euclideousFXCellLabel(row: Int, ccNumber: Int, column: Int, noteName: String?, value: Int?) -> String {
     let rowName = EuclideousFXRow(rawValue: row)?.spokenName(ccNumber: ccNumber) ?? ""

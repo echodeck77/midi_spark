@@ -13343,8 +13343,8 @@ final class RouterTests: XCTestCase {
         st.euclideousFX = fx
         return SnapshotBuilder.build(from: st)
     }
-    private func fxCells(_ cells: [(row: Int, col: Int, v: Int)], lanes: [Int: UInt8] = [:], passes: UInt8 = 4, ccNumber: UInt8 = 74, ccBase: Int16 = -1) -> EuclideousFX {
-        var fx = EuclideousFX()
+    private func fxCells(_ cells: [(row: Int, col: Int, v: Int)], lanes: [Int: UInt8] = [:], passes: UInt8 = 4, ccNumber: UInt8 = 74, ccBase: Int16 = -1, shape: UInt8 = 0) -> EuclideousFX {
+        var fx = EuclideousFX(); fx.ratchShape = shape
         for c in cells { fx.cells[c.row * 8 + c.col] = Int8(c.v) }
         for (r, m) in lanes { fx.lanes[r] = m }
         fx.notePasses = passes; fx.ccNumber = ccNumber; fx.ccBase = ccBase
@@ -13613,6 +13613,30 @@ final class RouterTests: XCTestCase {
             XCTAssertEqual(fxNotePassRanks(riffLength: len, melody: nil, lock: true).router, fxNotePassRanks(riffLength: len, melody: nil, lock: false).router, "riff length \(len): lock on or off, the same notes")
             XCTAssertEqual(fxNotePassRanks(riffLength: len, melody: [1], lock: true).router, fxNotePassRanks(riffLength: len, melody: [1], lock: false).router)
         }
+    }
+    func testFXRatchShapeSetsEachStrikesVelocityOnTheEchoRingPathAndTheInWindowPathAlike() {
+        // lane VELOCITY 90; RATCH 4 on column 0 (note 48). A slow step (1/4) defers every repeat to the echo ring; a fast one at a 4096-frame buffer strikes them all in-window.
+        for (rate, frames) in [(ArpRate.r1_4, UInt32(256)), (.r1_16, UInt32(4096)), (.r1_16, UInt32(128))] {
+            for shape in 0..<4 {
+                var l = fxLine(gate: 0.5, vel: 90); l.rate = rate; l.steps = 8; l.pulses = 8
+                let (e, _) = fxRunAt(fxBoxScene([l], fx: fxCells([(0, 0, 4)], shape: UInt8(shape)), stepRate: .r1_8), beats: 4, frames: frames, tempo: 120)
+                let first = e.ons.filter { $0.cable == 1 && $0.note == 48 && Double($0.sample) < rate.beats * 0.95 * 24_000 }.sorted { $0.sample < $1.sample }
+                XCTAssertEqual(first.count, 4, "\(rate.rawValue) buffer \(frames) shape \(shape)")
+                XCTAssertEqual(first.map { Int($0.vel) }, (0..<4).map { Int(euclideousRatchetStrikeVelocity(base: 90, shape: shape, k: $0, n: 4)) }, "\(rate.rawValue) buffer \(frames) shape \(shape): each strike at its own share")
+                if shape == 0 { XCTAssertTrue(first.allSatisfy { $0.vel == 90 }, "FLAT is today's sound") }
+            }
+        }
+        // the plain hits of the same run are untouched by the shape
+        var l = fxLine(gate: 0.5, vel: 90); l.rate = .r1_4; l.steps = 8; l.pulses = 8
+        let (e, _) = fxRunAt(fxBoxScene([l], fx: fxCells([(0, 0, 4)], shape: 3), stepRate: .r1_8), beats: 3, frames: 256, tempo: 120)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 && $0.note != 48 }.allSatisfy { $0.vel == 90 })
+    }
+    func testFXRatchShapeCarriesToATiedLastStrikeAndLeavesNothingSounding() {
+        var l = fxLine(gate: 0.5, vel: 100); l.rate = .r1_4; l.steps = 8; l.pulses = 8
+        let (e, _) = fxRunAt(fxBoxScene([l], fx: fxCells([(0, 0, 3), (2, 1, 1)], shape: 3), stepRate: .r1_8), beats: 3, frames: 256, tempo: 120)
+        let strikes = e.ons.filter { $0.cable == 1 && $0.note == 48 }.sorted { $0.sample < $1.sample }.prefix(3).map { Int($0.vel) }
+        XCTAssertEqual(Array(strikes), (0..<3).map { Int(euclideousRatchetStrikeVelocity(base: 100, shape: 3, k: $0, n: 3)) }, "RAMP: 45 → 72 → 100, the tied last strike at full")
+        assertNothingLeftSounding(e)
     }
     func testFXRatchWithATieOnAFastStepExtendsTheLastStrikeAtEveryBufferSizeAndLeavesNothingSounding() {
         // RATCH 4 on column 0 and TIE on column 1 at 1/16: the tied hit carries the LAST strike on; at a 4096-frame buffer the early strikes are in-window

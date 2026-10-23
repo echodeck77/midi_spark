@@ -6459,6 +6459,7 @@ struct EuclideousPage: View {
         let previewCol = euclideousFXPreviewColumn(touched: fxNotePreviewCol, fx: fx, ranks: ranks)
         return EuclideousFXPanel(layout: layout, fx: fx, selectedRow: fxSelectedRow, headers: headers, noteNames: noteNames, accents: laneAccents,
                                  silenced: (0..<4).map { soloSilenced($0) },   // LANE SOLO §6.5: the lane dots on each rail and the strip's lane buttons
+                                 idleReasons: (0..<4).map { $0 < lines.count ? euclideousFXLaneIdleReason(lines[$0]) : nil },   // REVIEW FIX 2026-10-23: lanes no FX row can act on (riff off / SHADOW) dim too
                                  previewText: euclideousFXNotePreviewText(fx: fx, touched: fxNotePreviewCol, ranks: ranks, pool: pool, name: name),
                                  previewColumn: previewCol, brushes: fxBrushes, playing: pulseLive,   // PULSE §8.1: the flash keeps animating for the 1.5 s after a stop
                                  flashAt: { date in
