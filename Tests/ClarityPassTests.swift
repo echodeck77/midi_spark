@@ -110,41 +110,32 @@ final class ClarityPassTests: XCTestCase {
             XCTAssertEqual(euclideousTabGlyph(tab: .notes, line: m, lane: 0).on, !euclideousMixLayerIsOff(m, notes: true))
         } }
     }
+    // LISTEN REBUILT (2026-10-23): the old 3-row/per-row-partner model is retired — one source lane drives
+    // the whole tab (RHYTHM COPY/FILL or PITCH SHADOW/ECHO/AVOID), and there is no ANY any more.
     func testListenGlyphIsTheSourceLanesColourAndOffWithNoSource() {
-        // lane 1 (index 0) FOLLOWing lane 2 (index 1): on, in lane 2's colour
-        let follow = lane { $0.listenRhythmMode = .follow; $0.listenRhythmPartner = 1 }
-        XCTAssertEqual(euclideousTabGlyph(tab: .listen, line: follow, lane: 0), EuclideousTabGlyph(shape: .circle, on: true, fill: .lane(1)))
+        // lane 1 (index 0) COPYing lane 2 (index 1): on, in lane 2's colour
+        let copy = lane { $0.listenRhythm = .copy; $0.listenSource = 1 }
+        XCTAssertEqual(euclideousTabGlyph(tab: .listen, line: copy, lane: 0), EuclideousTabGlyph(shape: .circle, on: true, fill: .lane(1)))
         // nothing lit: off
         XCTAssertFalse(euclideousTabGlyph(tab: .listen, line: EuclidLine(), lane: 0).on)
-        // a mode lit with no stored partner (an old / hand-made document): no source ⇒ off, though today's dot would have filled
-        let none = lane { $0.listenRhythmMode = .with }
-        XCTAssertFalse(euclideousTabGlyph(tab: .listen, line: none, lane: 0).on)
-        XCTAssertEqual(euclideousListenSource(none, lane: 0), .none)
-        // a partner that is the lane itself, or out of range, is no source either
-        XCTAssertEqual(euclideousListenSource(lane { $0.listenLevelMode = .duck; $0.listenLevelPartner = 0 }, lane: 0), .none)
-        XCTAssertEqual(euclideousListenSource(lane { $0.listenLevelMode = .duck; $0.listenLevelPartner = 7 }, lane: 0), .none)
+        XCTAssertEqual(euclideousListenSource(EuclidLine(), lane: 0), .none)
+        // OWN/OWN (the default) is no source either, even with a stored source lane
+        let own = lane { $0.listenSource = 2 }
+        XCTAssertEqual(euclideousListenSource(own, lane: 0), .none)
+        XCTAssertFalse(euclideousTabGlyph(tab: .listen, line: own, lane: 0).on)
     }
-    func testListenTakesTheFirstLitRowInTabOrderAndAnyIsTheQuarteredCircle() {
-        // RHYTHM beats PITCH beats LEVEL
-        let all = lane { $0.listenRhythmMode = .gaps; $0.listenRhythmPartner = 3; $0.listenPitchMode = .shadow; $0.listenPitchPartner = 2; $0.listenLevelMode = .accent; $0.listenLevelPartner = 1 }
-        XCTAssertEqual(euclideousListenSource(all, lane: 0), .lane(3))
-        let pitchLevel = lane { $0.listenPitchMode = .shadow; $0.listenPitchPartner = 2; $0.listenLevelMode = .accent; $0.listenLevelPartner = 1 }
-        XCTAssertEqual(euclideousListenSource(pitchLevel, lane: 0), .lane(2))
-        let levelOnly = lane { $0.listenLevelMode = .duck; $0.listenLevelPartner = 2 }
-        XCTAssertEqual(euclideousListenSource(levelOnly, lane: 0), .lane(2))
-        // a row with no valid partner is skipped: the next lit row decides
-        let skip = lane { $0.listenRhythmMode = .with; $0.listenLevelMode = .duck; $0.listenLevelPartner = 3 }
-        XCTAssertEqual(euclideousListenSource(skip, lane: 0), .lane(3))
-        // AVOID with ANY: any lane — the four-colour circle
-        let any = lane { $0.listenPitchMode = .avoid; $0.listenPitchPartnerAny = true }
-        XCTAssertEqual(euclideousListenSource(any, lane: 1), .any)
-        XCTAssertEqual(euclideousTabGlyph(tab: .listen, line: any, lane: 1), EuclideousTabGlyph(shape: .circle, on: true, fill: .anyLane))
-        // ANY only counts under AVOID (the stored flag is ignored under SHADOW) — that row then needs its specific partner
-        let shadow = lane { $0.listenPitchMode = .shadow; $0.listenPitchPartnerAny = true; $0.listenPitchPartner = 3 }
-        XCTAssertEqual(euclideousListenSource(shadow, lane: 0), .lane(3))
-        // a RHYTHM row ahead of an ANY row wins
-        let rhythmThenAny = lane { $0.listenRhythmMode = .follow; $0.listenRhythmPartner = 2; $0.listenPitchMode = .avoid; $0.listenPitchPartnerAny = true }
-        XCTAssertEqual(euclideousListenSource(rhythmThenAny, lane: 0), .lane(2))
+    func testListenSourceResolvesToAStoredOrDefaultLaneWhileFollowing() {
+        // PITCH SHADOW with a stored source: that lane
+        let shadow = lane { $0.listenPitch = .shadow; $0.listenSource = 2 }
+        XCTAssertEqual(euclideousListenSource(shadow, lane: 0), .lane(2))
+        // RHYTHM COPY alone is enough to be "following", same resolution
+        let fill = lane { $0.listenRhythm = .fill; $0.listenSource = 3 }
+        XCTAssertEqual(euclideousListenSource(fill, lane: 0), .lane(3))
+        // a source that is out of range, or the lane itself, falls back to the default partner (lane 2 for lane 1, else lane 1)
+        let outOfRange = lane { $0.listenPitch = .avoid; $0.listenSource = 9 }
+        XCTAssertEqual(euclideousListenSource(outOfRange, lane: 1), .lane(0))
+        let selfRef = lane { $0.listenPitch = .echo; $0.listenSource = 0 }
+        XCTAssertEqual(euclideousListenSource(selfRef, lane: 0), .lane(1))
     }
 
     // MARK: 5. the RHYTHM count and VoiceOver (2.3, 4.1)
@@ -159,6 +150,28 @@ final class ClarityPassTests: XCTestCase {
         euclideousSliderCommit(.hits, &l, snapshot: l, newValue: 7)
         XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: [l]), "7/12", "… and HITS")
     }
+    // LISTEN REBUILT §7.1: a borrowing RHYTHM shows the link ("← n") instead of a count; RIFF/NOTES show
+    // nothing unless paused, in which case the same link.
+    func testHeaderShowsTheLinkWhileBorrowedElseNothingOrTheCount() {
+        let source: EuclidLine = { var l = EuclidLine(); l.pulses = 3; l.steps = 8; return l }()
+        var follower = EuclidLine(); follower.pulses = 5; follower.steps = 16
+        follower.listenRhythm = .copy; follower.listenSource = 0
+        let lines = [source, follower]
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: lines), "3/8", "not borrowing: its own count")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: lines), "← 1", "COPYing lane 1 (index 0): the link, not its own 5/16")
+        XCTAssertNil(euclideousPausedTabHeaderText(tab: .riff, lane: 1, lines: lines), "RHYTHM borrowing alone doesn't pause RIFF")
+        XCTAssertNil(euclideousPausedTabHeaderText(tab: .notes, lane: 1, lines: lines))
+        var pitchLines = lines
+        pitchLines[1].listenPitch = .shadow; pitchLines[1].listenSource = 0
+        XCTAssertEqual(euclideousPausedTabHeaderText(tab: .riff, lane: 1, lines: pitchLines), "← 1")
+        XCTAssertEqual(euclideousPausedTabHeaderText(tab: .notes, lane: 1, lines: pitchLines), "← 1", "NOTES pauses alongside RIFF")
+        pitchLines[1].listenPitch = .echo
+        XCTAssertEqual(euclideousPausedTabHeaderText(tab: .riff, lane: 1, lines: pitchLines), "← 1", "ECHO pauses RIFF too")
+        pitchLines[1].listenPitch = .avoid
+        XCTAssertNil(euclideousPausedTabHeaderText(tab: .riff, lane: 1, lines: pitchLines), "AVOID does not pause RIFF")
+        XCTAssertNil(euclideousPausedTabHeaderText(tab: .rhythm, lane: 1, lines: lines), "no override for RHYTHM itself — it always has its own count/link")
+        XCTAssertNil(euclideousPausedTabHeaderText(tab: .riff, lane: 9, lines: lines), "out of range")
+    }
     func testTabAccessibilityLabelsAreTheSpecsWords() {
         var l = EuclidLine(); l.pulses = 5; l.steps = 16; l.riffOn = true; l.litNotes = 0
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: [l], lane: 0), "Rhythm, 5 of 16 hits")
@@ -168,10 +181,19 @@ final class ClarityPassTests: XCTestCase {
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, off")
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, lines: [l], lane: 0), "Notes, on")
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, off")
-        l.listenRhythmMode = .follow; l.listenRhythmPartner = 1
+        l.listenRhythm = .copy; l.listenSource = 1
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, on, following lane 2")
-        l.listenRhythmMode = nil; l.listenPitchMode = .avoid; l.listenPitchPartnerAny = true
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, on, following any lane")
+    }
+    // §7/§10: a paused RIFF/NOTES tab says so out loud too, not just via the header's sighted-only "← n".
+    func testPausedRiffAndNotesSayTheySayPausedAndWhoTheyFollow() {
+        var l = EuclidLine(); l.riffOn = true; l.litNotes = 0b1; l.notesOn = true
+        l.listenPitch = .shadow; l.listenSource = 2
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, paused, following lane 3")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, lines: [l], lane: 0), "Notes, paused, following lane 3")
+        l.listenPitch = .echo
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, paused, following lane 3", "ECHO pauses too")
+        l.listenPitch = .avoid
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, on", "AVOID doesn't pause RIFF")
     }
 
     // MARK: 6. MIX: four lane panels (3.1, 3.2, 3.3 — test 4)
@@ -248,42 +270,48 @@ final class ClarityPassTests: XCTestCase {
 
     // MARK: 6b. the review fixes (2026-10-23): FOLLOW lanes, OFF pads under a strike
 
-    private func followLines(partnerPulses: Int = 4, partnerSteps: Int = 8, ownPulses: Int = 3, ownSteps: Int = 16, flip: Bool = false) -> [EuclidLine] {
-        var partner = EuclidLine(pulses: partnerPulses, steps: partnerSteps, rotate: 0, noteSel: .all); partner.rate = .r1_8t
+    // LISTEN REBUILT (2026-10-23): COPY/FILL replace FOLLOW/WITH/GAPS — one source lane, and the follower's
+    // own rotate/invert no longer apply on top of a borrowed pattern (§7's "fully the lane's own or fully paused").
+    private func copyLines(sourcePulses: Int = 4, sourceSteps: Int = 8, ownPulses: Int = 3, ownSteps: Int = 16, mode: EuclideousListenRhythmMode = .copy) -> [EuclidLine] {
+        var source = EuclidLine(pulses: sourcePulses, steps: sourceSteps, rotate: 0, noteSel: .all); source.rate = .r1_8t
         var follower = EuclidLine(pulses: ownPulses, steps: ownSteps, rotate: 0, noteSel: .all); follower.rate = .r1_16
-        follower.listenRhythmMode = .follow; follower.listenRhythmPartner = 0
-        if flip { follower.patternMiss = true }
-        return [partner, follower]
+        follower.listenRhythm = mode; follower.listenSource = 0
+        return [source, follower]
     }
-    func testAFollowLanesTabCountIsThePatternThatPlaysNotItsOwnSliders() {
-        let lines = followLines()
-        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: lines), "4/8", "the partner counts its own HITS / STEPS")
-        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: lines), "4/8", "the follower plays the partner's 4 hits in 8 steps — not its own 3/16")
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: lines, lane: 1), "Rhythm, 4 of 8 hits")
+    func testACopyLanesTabCountIsThePatternThatPlaysNotItsOwnSliders() {
+        let lines = copyLines()
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: lines), "4/8", "the source counts its own HITS / STEPS")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: lines), "← 1", "the header shows the link while borrowing (§7.1), not a count")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: lines, lane: 1), "Rhythm, paused, following lane 1, 4 of 8 hits", "VoiceOver still reads the pattern that actually plays, and says it's paused (§10)")
         // the strip beside the tab draws exactly these cells
         let eff = euclideousEffectivePattern(lane: 1, lines: lines)!
         XCTAssertEqual(eff.n, 8); XCTAssertEqual(eff.buf.prefix(eff.n).filter { $0 }.count, 4); XCTAssertTrue(eff.followsPartner)
-        // OFFSET never changes the count; FLIP HITS on the follower turns the partner's 4 hits into 4 rests (8 − 4)
+        // the follower's own OFFSET/FLIP HITS have no effect at all while borrowing — COPY plays the source verbatim
         var rotated = lines; rotated[1].rotate = 3
-        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: rotated), "4/8")
-        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: followLines(flip: true)), "4/8", "8 steps, 4 hits flipped is 4 hits")
-        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: followLines(partnerPulses: 3, flip: true)), "5/8", "3 hits flipped is 5 hits: what the strip lights")
-        // WITH / GAPS keep the lane's own rhythm (euclideousFollowPartner): the sliders' numbers
-        var with = lines; with[1].listenRhythmMode = .with
-        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: with), "3/16")
-        // a partner index that does not exist falls back to the lane's own sliders
-        var missing = lines; missing[1].listenRhythmPartner = 3
-        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: missing), "3/16")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: rotated, lane: 1), "Rhythm, paused, following lane 1, 4 of 8 hits")
+        var flipped = lines; flipped[1].patternMiss = true
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: flipped, lane: 1), "Rhythm, paused, following lane 1, 4 of 8 hits", "FLIP HITS doesn't reach a borrowing lane any more")
+        // FILL takes the source's RESTS instead — the new model's own equivalent of "flip"
+        let filled = copyLines(mode: .fill)
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: filled, lane: 1), "Rhythm, paused, following lane 1, 4 of 8 hits", "4 hits in 8 steps ⇒ 4 rests, also 4")
+        let filled3 = copyLines(sourcePulses: 3, mode: .fill)
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: filled3, lane: 1), "Rhythm, paused, following lane 1, 5 of 8 hits", "3 hits flipped is 5 hits: what the strip lights")
+        // OWN keeps the lane's own rhythm: the sliders' numbers
+        var own = lines; own[1].listenRhythm = .own
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: own), "3/16")
+        // no other lane to borrow from falls back to the lane's own sliders
+        let single = [lines[1]]
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: single), "3/16")
         XCTAssertEqual(euclideousRhythmTabCount(lane: 7, lines: lines), "\(EuclidLine().pulses)/\(EuclidLine().steps)", "an out-of-range lane never crashes: it reads a fresh lane")
     }
-    func testAFollowLanesBeatGroupsAndDivisionAreItsPartners() {
-        let lines = followLines()   // the partner runs 1/8T (triplet), the follower's own rate is 1/16
+    func testACopyLanesBeatGroupsAndDivisionAreItsSources() {
+        let lines = copyLines()   // the source runs 1/8T (triplet), the follower's own rate is 1/16
         XCTAssertEqual(euclideousStripDivisionRate(lane: 0, lines: lines), .r1_8t)
-        XCTAssertEqual(euclideousStripDivisionRate(lane: 1, lines: lines), .r1_8t, "a FOLLOW lane plays the partner's pattern at the partner's rate")
+        XCTAssertEqual(euclideousStripDivisionRate(lane: 1, lines: lines), .r1_8t, "a COPY lane plays the source's pattern at the source's rate")
         XCTAssertEqual(euclidStepGroupSize(forRate: euclideousStripDivisionRate(lane: 1, lines: lines)), 3, "so its strip shades in threes")
-        var with = lines; with[1].listenRhythmMode = .with
-        XCTAssertEqual(euclideousStripDivisionRate(lane: 1, lines: with), .r1_16, "WITH keeps the lane's own division")
-        XCTAssertEqual(euclidStepGroupSize(forRate: euclideousStripDivisionRate(lane: 1, lines: with)), 4)
+        var own = lines; own[1].listenRhythm = .own
+        XCTAssertEqual(euclideousStripDivisionRate(lane: 1, lines: own), .r1_16, "OWN keeps the lane's own division")
+        XCTAssertEqual(euclidStepGroupSize(forRate: euclideousStripDivisionRate(lane: 1, lines: own)), 4)
         var unset = EuclidLine(); unset.rate = nil
         XCTAssertEqual(euclideousStripDivisionRate(lane: 0, lines: [unset]), .r1_16, "an unset rate reads 1/16, as everywhere in the UI mirror")
         XCTAssertEqual(euclideousStripDivisionRate(lane: 5, lines: [unset]), .r1_16)

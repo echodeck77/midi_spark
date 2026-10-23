@@ -13,8 +13,9 @@ private extension Color {
 struct EuclideousTabGlyphView: View {
     let shape: EuclideousGlyphShape
     let on: Bool
-    /// One colour fills the glyph; four (a LISTEN row set to ANY) fill a circle in quarters, the partner picker's own ANY dot.
-    let fills: [Color]
+    /// The one colour that fills the glyph (LISTEN REBUILT, 2026-10-23: the old 4-colour quartered-circle
+    /// case — a LISTEN row set to ANY — is retired; the new model has exactly one source lane).
+    let fill: Color
 
     /// §2.1: RIFF a 9 × 9 square, radius 2 (echoes a riff-grid cell) · NOTES a 6 × 12 bar, radius 1.5 (echoes a NOTES key) · LISTEN a 9 circle. §2.2: off = a 1.5 pt #AAB0BA inner outline.
     static let square = CGSize(width: 9, height: 9), bar = CGSize(width: 6, height: 12), circle = CGSize(width: 9, height: 9)
@@ -42,20 +43,8 @@ struct EuclideousTabGlyphView: View {
     @ViewBuilder private func drawn<S: InsettableShape>(_ s: S) -> some View {
         if !on {
             s.strokeBorder(Self.outline, lineWidth: Self.outlineWidth)
-        } else if fills.count >= 4, shape == .circle {
-            Canvas { ctx, sz in
-                let c = CGPoint(x: sz.width / 2, y: sz.height / 2), r = min(sz.width, sz.height) / 2
-                for i in 0..<4 {
-                    var p = Path()
-                    p.move(to: c)
-                    p.addArc(center: c, radius: r, startAngle: .degrees(Double(i) * 90 - 90), endAngle: .degrees(Double(i + 1) * 90 - 90), clockwise: false)
-                    p.closeSubpath()
-                    ctx.fill(p, with: .color(fills[i]))
-                }
-            }
-            .clipShape(Circle())
         } else {
-            s.fill(fills.first ?? Self.outline)
+            s.fill(fill)
         }
     }
 }

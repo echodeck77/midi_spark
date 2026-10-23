@@ -17,6 +17,17 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### LISTEN REBUILT (2026-10-23)
+- LAUNCH the DEBUG build from Xcode into AUM first (`listenPausedOverlay`/the RHYTHM-tab rate-grid rewrite are new/changed leaves on the 1 MB main stack).
+- The LISTEN tab's FOLLOW row chips, RHYTHM OWN/COPY/FILL row + its DELAY/FEEL/SPEED/DIRECTION panel, and PITCH OWN/SHADOW/ECHO/AVOID row + its INTERVAL/OCTAVE panel: legible and tappable at the real card width in all four lane colours; the panel's proportional shrink under pressure (down to its 30pt floor) actually looks acceptable rather than cramped.
+- The paused-card overlay (link glyph, "X FOLLOWS LANE n", explanatory line, GO TO LISTEN / USE MY OWN) over a borrowed RHYTHM/RIFF/NOTES tab: legible over the 18%-dim content behind it, both buttons easy to hit, GO TO LISTEN actually switches tab and USE MY OWN actually restores control.
+- The RHYTHM/RIFF/NOTES tab header's "← n" link glyph vs the normal count/glyph — reads clearly as "this is linked to another lane," not as a typo or a truncated number, at a narrow tab width.
+- COPY vs FILL sounding correct by ear (FILL audibly plays the gaps, not the hits) at DELAY > 0, a non-zero FEEL, and each SPEED setting (¼ ½ 1 2 4), including PING-PONG DIRECTION against a source lane that's itself running BKW.
+- ECHO sounding like a canon (the source's own line, played back in the source's own order) rather than a simple doubling — especially the handoff at a cycle boundary (does the last-completed cycle's tail audibly connect to the new cycle's head, or is there an audible gap/glitch?).
+- AVOID dropping EVERY colliding pitch class (not just the lowest) when a chord is held — listen for a note that should have been muted but wasn't.
+- VoiceOver: a RHYTHM/RIFF/NOTES tab reads "paused, following lane n" once (not duplicated); the LISTEN tab's mode buttons and SPEED/DIRECTION segments read their new labels correctly; the paused-card's two buttons are each individually reachable and actionable, not swallowed into one combined element.
+- An OLD session (saved before this ferry) that used FOLLOW, WITH, GAPS, SHADOW, AVOID, DUCK, or ACCENT loads with the stated migration mapping and SOUNDS the same as before (bar FOLLOW's own multiplier/rate wording, and DUCK/ACCENT, which have no replacement and will sound different) — listen for anything that migrated silently wrong.
+
 ### FOURFOLD REEL LINK (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM first (`headerUtilities` gained a child; `Scripts/debug-frame-sizes.py` against the FX-ferry build: its closure 3264 → 3344 B (+80 B) with the reel button as its own `AnyView` leaf (inline it was +624 B); the icon's own TimelineView body closure is 2.8 KB at render — the 1 MB stack only really answers on the iPad).
 - The tape icon sits between SWING and the gear; it reads dim when stopped and RED, breathing, with a pulsing dot while the host plays (and stays still under Reduce Motion). Tapping it opens the pass browser ABOVE the Fourfold page (not behind it), landscape.

@@ -52,6 +52,10 @@ final class LaneLockTests: XCTestCase {
             ("octave", { $0.octave = 1 }), ("riffOctave", { $0.riffOctave = -1 }), ("notesGate", { $0.notesGate = 0.4 }), ("notesVelocity", { $0.notesVelocity = 70 }),
             ("muteCells16", { $0.muteCells16 = 0x00FF }), ("muteUnit", { $0.muteUnit = 1 }), ("sourceMode", { $0.sourceMode = .midi }),
             ("listenRhythmMode", { $0.listenRhythmMode = .with }), ("listenPitchMode", { $0.listenPitchMode = .shadow }), ("listenLevelMode", { $0.listenLevelMode = .duck }),
+            // LISTEN REBUILT (2026-10-23): the nine new fields are not lock fields either — confirmed, not assumed.
+            ("listenSource", { $0.listenSource = 2 }), ("listenRhythm", { $0.listenRhythm = .copy }), ("listenDelay", { $0.listenDelay = 3 }),
+            ("listenFeel", { $0.listenFeel = 0.5 }), ("listenSpeed", { $0.listenSpeed = 1 }), ("listenDirection", { $0.listenDirection = .bkw }),
+            ("listenPitch", { $0.listenPitch = .echo }), ("listenInterval", { $0.listenInterval = 3 }), ("listenOctave", { $0.listenOctave = 1 }),
         ]
         let f0 = LaneLockFields(line: blank)
         for (name, m) in others {

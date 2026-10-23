@@ -72,7 +72,7 @@ struct EuclideousMixPad: View {
         HStack(spacing: 5) {
             Text(notes ? "NOTES" : "RIFF").font(heavyMono(EuclideousMixMetrics.labelSize)).tracking(1)
                 .foregroundColor(off ? EuclideousMixPalette.labelOff : EuclideousMixPalette.labelOn).lineLimit(1)
-            EuclideousTabGlyphView(shape: notes ? .bar : .square, on: !off, fills: [accent])
+            EuclideousTabGlyphView(shape: notes ? .bar : .square, on: !off, fill: accent)
         }
         .padding(.top, EuclideousMixMetrics.labelTop).padding(.leading, EuclideousMixMetrics.labelLeft)
         .allowsHitTesting(false)

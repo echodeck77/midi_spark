@@ -203,8 +203,9 @@ final class FXTabTests: XCTestCase {
         var l = EuclidLine(pulses: 3, steps: 8, riffOn: true)
         XCTAssertTrue(euclideousLanePlaysRiff(l))
         l.riffOn = false; XCTAssertFalse(euclideousLanePlaysRiff(l))
-        l.riffOn = true; l.listenPitchMode = .shadow; XCTAssertFalse(euclideousLanePlaysRiff(l), "SHADOW replaces the riff layer")
-        l.listenPitchMode = .avoid; XCTAssertTrue(euclideousLanePlaysRiff(l))
+        l.riffOn = true; l.listenPitch = .shadow; XCTAssertFalse(euclideousLanePlaysRiff(l), "SHADOW replaces the riff layer")
+        l.listenPitch = .echo; XCTAssertFalse(euclideousLanePlaysRiff(l), "ECHO replaces it too")
+        l.listenPitch = .avoid; XCTAssertTrue(euclideousLanePlaysRiff(l))
     }
     func testLitVelocityFollowsTheNotesVelBarOffset() {
         XCTAssertEqual(euclideousFXLitVelocity(fxVel: 110, notesVelocity: 90, velocityAbsolute: 100), 100, "VEL bar shows −10 ⇒ 110 − 10")
@@ -702,7 +703,7 @@ final class FXTabTests: XCTestCase {
         // a rest column stays a plain hit-on-rest; a lane with the riff off, a lane off the TIE row, and an SHADOW lane show nothing tied
         XCTAssertEqual(euclideousFXTieColumns(fx, line: { var l = line; l.riffOn = false; return l }(), lane: 0), 0)
         var off = fx; off.lanes[2] = 0b1110; XCTAssertEqual(euclideousFXTieColumns(off, line: line, lane: 0), 0); XCTAssertEqual(euclideousFXTieColumns(off, line: line, lane: 1), 0b10)
-        XCTAssertEqual(euclideousFXTieColumns(fx, line: { var l = line; l.listenPitchMode = .shadow; return l }(), lane: 0), 0)
+        XCTAssertEqual(euclideousFXTieColumns(fx, line: { var l = line; l.listenPitch = .shadow; return l }(), lane: 0), 0)
         let restRanks = [1, 0, 3, 4, 5, 6, 7, 8]
         XCTAssertTrue(euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: prediction.map { $0 + 1 }, riffRanksResolved: restRanks, fxTieColumns: 0b10).contains(.hitOnRest(riffStep: 2)))
     }

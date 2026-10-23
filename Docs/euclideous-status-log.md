@@ -18,6 +18,72 @@ project has been building this whole stretch.
   **Built.** RATCH SHAPE: `EuclideousFX.ratchShape` (additive, clamped, encoded only when non-default, so an old document is byte-identical), `EuclideousRatchShape` FLAT/ACCENT/FADE/RAMP, `euclideousRatchetStrikeScale`/`…Velocity` (ACCENT 100 % then 65 %, FADE 100 → 45 %, RAMP 45 → 100 %), a SHAPE stepper on the RATCH row of the FX tab (`EuclideousFXStepper.shape`; the row's description line gave way to it), applied to FX ratchets only (a mask RATCHET stays flat) on the echo-ring path (one tail per strike) and the in-window path alike. FX lane dots and buttons dim to 42 % (no stacking with solo) for a lane no row can act on — riff off or SHADOW, `euclideousFXLaneIdleReason`, spoken by VoiceOver; VoiceOver steps VEL and CC by 4.
   **Tests.** `RouterTests`: a fast-rate × buffer matrix (1/16 and 1/32, 120–180 BPM, n 2–4, buffers 64–4096: every strike sounds, on its slot ±3 samples, nothing left sounding), the default scene step no longer caps, the tempo cap and the 5 ms gate floor, a fast-step TIE, the flood budget (a legitimate heavy load never governed, an absurd one still is), roll-vs-Router NOTE equivalence across five restart-chain configurations × two riff lengths, melody-[1]-counts-laps, a stale `riffLock` changing nothing, the shaped velocities on both paths and on a tied last strike. `FXTabTests`: the cap, the pass function, the shape (scale, stepper, document codec), the idle reasons, VoiceOver steps. The old cap test (it pinned the scene-bar formula as intended) was rewritten.
   **Judgment calls** (all in `Docs/pending-tasks.md`): NOTE counts laps under melody [1]; the 10 ms floor and the 160 budget; the shape numbers; the stepper replaces the RATCH row's description line. **Not changed:** more than 4 strikes and per-strike masks (item 6, by Paul's ask); the roll draws spacing and gates but not velocities; nothing on the Euclideous page shows governor drops (HEALTH does). **DEBUG frames** (`Scripts/debug-frame-sizes.py`, base `3fafa14`): the new RATCH branch inline cost the FX strip's chain ≈ +0.9 KB; moving the row-specific tail into its own `AnyView` leaf (`stripTail`, 3680) took the strip's inner closures from 3392 / 2464 down to 1104 / 1472 — the chain is now smaller than before. A DEBUG launch on the iPad is still the only real check.
+- **▶ EUCLIDEOUS — LISTEN REBUILT ferry (2026-10-23, branch `feature/listen-tab-rebuild`; iOS build clean
+  throughout, full macOS suite green before merge): the LISTEN tab rebuilt from its 2026-10-14 model
+  (FOLLOW/WITH/GAPS rhythm, SHADOW/AVOID pitch, DUCK/ACCENT level, one partner per row) into a canon-style
+  model — ONE shared source lane for the whole tab, RHYTHM (OWN/COPY/FILL, + fugue controls DELAY/FEEL/
+  SPEED/DIRECTION on LISTEN itself), PITCH (OWN/SHADOW/ECHO/AVOID, + INTERVAL/OCTAVE), and "a tab is either
+  fully the lane's own or fully paused" — RHYTHM pauses whole under COPY/FILL, RIFF+NOTES pause whole under
+  SHADOW/ECHO. DUCK/ACCENT (LEVEL row) retired outright — no replacement; nothing in the new model touches
+  velocity. **Model (§8):** 9 new `EuclidLine` fields (`listenSource/listenRhythm/listenDelay/listenFeel/
+  listenSpeed/listenDirection/listenPitch/listenInterval/listenOctave`) — old fields kept decode-only
+  (hide, don't delete); `EuclidLine.migratedListen` runs once per old document at decode time (not the
+  main-thread-resync precedent — this migration is a pure field remap, no host-tempo context needed).
+  **AVOID+ANY migration (disclosed judgment call, no exact spec cell for it):** → the lane's own stored
+  specific partner if present, else the lowest-numbered other lane. **Engine (§3-§5, Router.swift):** COPY/
+  FILL replace FOLLOW/WITH/GAPS — `euclideousListenBorrowedHits` (COPY = source's hits, FILL = its rests),
+  `euclideousListenBorrowedIndex` (DIRECTION — FWD reads the source's own live order, BKW mirrors it,
+  PING-PONG reads the source's STORED order), DELAY (a buffer rotation), FEEL (a uniform micro-delay), SPEED
+  (direct `÷2^exponent` on the source's rate — NOT the old FOLLOW multiplier's inverse sense). SHADOW/ECHO/
+  AVOID read a new per-lane struck-pitch capture (`EuclideousEchoCycle`, plain pre-sized arrays — NOT the
+  tuple-`Collection` pattern, since this is pure render-thread-owned scratch state, never reassigned across
+  the main/render boundary) taken right after the riff+notes merge, before HIT-WIDE MASK/mute/solo — SHADOW
+  reads the CURRENT strike, ECHO replays the source's own line in order (current cycle, falling back to the
+  last completed one, wrapped), AVOID drops every colliding pitch by pitch CLASS (octave-ignored — Paul's
+  own clarifying decision — a real change from the old exact-note-number AVOID). `euclideousListenMoveByInterval`
+  is a fresh chromatic-pitch→scale-step mover for INTERVAL/OCTAVE (NOT a reuse of the old SHADOW's pool-rank
+  `riffResolve` trick, which only worked on a known rank — the new strike capture can hold MASK-mutated
+  pitches that aren't clean pool members). **A genuine, self-caught bug fixed before any test exercised it:**
+  both the Router and the walk-tag mirror were reading a borrowing lane's buffer through its own, unrelated
+  `direction` field A SECOND TIME on top of DIRECTION's own remap (masked in every test because the default
+  direction is FWD = identity) — fixed by forcing the lane's own direction to `.fwd` once DIRECTION has
+  already placed the cells in their final tick order, in both places. **UI (§2/§6/§7, EuclideousPage.swift):**
+  the whole old `listenTabContent`/partner-popup block replaced (FOLLOW row of lane chips, RHYTHM row +
+  COPY/FILL panel, PITCH row + SHADOW/ECHO panel, footer); a borrowed RHYTHM/RIFF/NOTES tab dims its own
+  content to 18% (`EuclideousListenPauseMetrics.dimOpacity`, was 42% under the old SHADOW-only banner) and
+  draws a paused-card overlay instead (link glyph, "X FOLLOWS LANE n", one explanatory line, GO TO LISTEN /
+  USE MY OWN buttons — own wording/look, not given literally, device-owed) — `listenPausedOverlay`, one
+  function shared by all three tabs. The RHYTHM tab header shows "← n" instead of its hits/steps count while
+  borrowed (Paul's own clarifying decision — extended to RIFF/NOTES too, which never had a header number
+  before, as a disclosed consistency call); `euclideousRhythmTabCount`/`euclideousPausedTabHeaderText`.
+  **Also found and fixed while auditing for stale old-model reads (none of these were in the original ferry
+  plan — found by grepping for the old field names after the "done" state looked too clean):** the RHYTHM
+  tab still had a live, fully-functional old FOLLOW-multiplier rate grid (÷8…×4) gated on `listenRhythmMode
+  == .follow` — a MIGRATED old session (which never clears the old fields, by design) would have shown it
+  ALONGSIDE the new pause overlay; deleted outright, RHYTHM's RATE grid is now always the lane's own plain
+  division/feel grid. Same bug class in the lane card's strip-dim (`listenPitchMode == .shadow` → now
+  SHADOW-or-ECHO via the resolved fields), two riff-arrow-visibility checks, and the HITS/TILT sliders'
+  old per-field "following" dim (retired — the new full-tab pause overlay already covers it). **VoiceOver
+  (§10):** `listenModeButton`/`listenSpeedControl`/`listenDirectionControl` gained real accessibility
+  (label + selected trait, matching this page's `notesToggle` precedent — the LISTEN tab's own steppers
+  stay unlabelled, matching this page's existing, unrelated `melodyStepper` convention, a disclosed
+  calibration choice, not an oversight); a paused tab's accessibility label now says "paused, following
+  lane n" (sighted users get the header's "← n", VoiceOver gets a sentence); the paused content itself is
+  `.accessibilityHidden` so VoiceOver can't navigate into dead controls under the overlay. **Tests:** a new
+  `Tests/ListenTabTests.swift` (~45 tests: model/migration round-trips incl. the AVOID+ANY case and a
+  hand-built cyclic old document; every §9 pure function incl. DIRECTION's three cases on COPY/FILL, ECHO's
+  current/last/rest pick, the chromatic mover's in/out-of-scale/octave-clamp cases, the layout's proportional
+  shrink); `RouterTests`' old FOLLOW/WITH/GAPS/SHADOW/AVOID/DUCK/ACCENT tests rewritten to COPY/FILL/SHADOW/
+  ECHO/AVOID (6) or deleted (3, no new-model equivalent — DUCK/ACCENT/the old WITH-GAPS walk-tag tests);
+  `DerivationsTests`/`ClarityPassTests`' FOLLOW-lane fixtures rewritten to COPY lanes, confirming a
+  borrowing lane's own OFFSET/FLIP HITS no longer apply on top (this doubles as the direction-bug's
+  regression test); `FXTabTests`/`LanesGridTests` fixed to drive the new fields (the old ones are silently
+  inert, not wrong, so these had gone quietly stale); `LaneLockTests` extended to confirm all 9 new fields
+  are NOT lock fields either. **Not done / discrepancy vs the plan, disclosed:** `euclideousListenFollowerPosition`
+  was built per spec §9.5 but the engine ended up using a simpler direct buffer-remap instead — the function
+  exists, tested, unused; DUCK/ACCENT's retirement and ANY's retirement are one-way (an old document loses
+  that specific behaviour on migration, not just its UI). Device-owed: see
+  `Docs/euclideous-device-verification-debt.md`'s new "LISTEN REBUILT" section.**
 - **▶ EUCLIDEOUS — FLOORS ferry (2026-10-23, branch `fix/page-floors-fallbacks`; iOS build clean after each
   of 5 areas, `Scripts/run-euclideous-tests.sh` green after each (790 → 793 as tests were added), full macOS
   suite run before merge; every new threshold's actual look/feel is device-owed): turns the page's

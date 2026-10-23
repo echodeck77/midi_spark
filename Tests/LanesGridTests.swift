@@ -694,7 +694,7 @@ final class LanesGridTests: XCTestCase {
     }
     func testStepGeometryIsWhatTheRoutersMirrorSees() {
         // `euclideousLaneStepGeometry` (read by the render thread's mute sweep and the page) must agree with `euclideousEffectivePattern` (the mirror of
-        // `runEuclidLine`'s own n / rate), including a FOLLOWing lane that ticks at its partner's rate × the multiplier over the partner's step count.
+        // `runEuclidLine`'s own n / rate), including a lane borrowing RHYTHM (COPY/FILL) that ticks at its source's rate ÷ 2^SPEED over the source's step count.
         var rng = Rng(state: 3)
         for _ in 0..<80 {
             var lines = (0..<4).map { _ -> EuclidLine in
@@ -704,7 +704,7 @@ final class LanesGridTests: XCTestCase {
                 return l
             }
             let follower = rng.int(0...3)
-            if rng.bool() { lines[follower].listenRhythmMode = .follow; lines[follower].listenRhythmPartner = (follower + 1) % 4; lines[follower].listenFollowMult = rng.int(-3...2) }
+            if rng.bool() { lines[follower].listenRhythm = rng.bool() ? .copy : .fill; lines[follower].listenSource = (follower + 1) % 4; lines[follower].listenSpeed = rng.int(-2...2) }
             for lane in 0..<4 {
                 let geo = euclideousLaneStepGeometry(lines: lines, lane: lane, defaultRateBeats: 0.25)
                 let eff = euclideousEffectivePattern(lane: lane, lines: lines)!

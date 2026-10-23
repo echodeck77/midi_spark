@@ -4398,77 +4398,12 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousSettingsSheetWidth(containerW: 343), 343, "narrow container: spans it")
     }
 
-    // MARK: - Walk tags follow-ups (2026-10-15): GAPS / WITH threads, the footer under LOCK + ADV STEP
+    // LISTEN REBUILT (2026-10-23): `testWalkTagWithAndGapsSplitTheLanesRawHitsAndLeaveTheOrdinalAlone` and
+    // `testWalkTagGapsLaneThreadsToItsNextStrikeNotToASilencedHit` deleted — WITH/GAPS's per-tick STRIKE
+    // filter (`EuclideousWalkListenFilter`) no longer exists; COPY/FILL already replace the buffer itself
+    // (`euclideousEffectiveHitPattern`), so every raw hit in the mirror's own buffer strikes, trivially
+    // (`euclideousWalkTick` just returns `strikes: info.rawIsHit` unconditionally now).
 
-    private func listenLines(_ mode: EuclideousRhythmMode, laneRate: ArpRate = .r1_8, partnerRate: ArpRate = .r1_8) -> [EuclidLine] {
-        var partner = EuclidLine(target: 0, pulses: 3, steps: 8, rate: partnerRate, useRiff: false, sourceMode: .midi)
-        partner.restartMask = 0
-        var lane = EuclidLine(target: 0, pulses: 5, steps: 8, rate: laneRate, useRiff: true, sourceMode: .midi)
-        lane.restartMask = 0; lane.listenRhythmMode = mode; lane.listenRhythmPartner = 0
-        return [partner, lane]
-    }
-    private func listenCfg(_ mode: EuclideousRhythmMode, laneRate: ArpRate = .r1_8, partnerRate: ArpRate = .r1_8) -> EuclideousWalkLaneConfig {
-        euclideousWalkLaneConfig(lane: 1, lines: listenLines(mode, laneRate: laneRate, partnerRate: partnerRate), cyc: 4, resetSpanBars: 0,
-                                 lanesSeqRate: .oneBar, lanesSeqLen: 8)!
-    }
-    // WITH and GAPS are exact complements on the lane's own raw hits, and neither changes the walk's ordinal (the engine counts
-    // every raw hit — "the lane keeps its own rhythm" — and only gates whether a tick STRIKES).
-    func testWalkTagWithAndGapsSplitTheLanesRawHitsAndLeaveTheOrdinalAlone() {
-        for (laneRate, partnerRate) in [(ArpRate.r1_8, ArpRate.r1_8), (.r1_16, .r1_8), (.r1_8, .r1_16)] {
-            let w = listenCfg(.with, laneRate: laneRate, partnerRate: partnerRate), g = listenCfg(.gaps, laneRate: laneRate, partnerRate: partnerRate)
-            XCTAssertNotNil(w.listen); XCTAssertNotNil(g.listen)
-            var withStrikes = 0, gapsStrikes = 0, raw = 0
-            for tick in Int64(0)..<128 {
-                let tw = euclideousWalkTick(w, tick: tick), tg = euclideousWalkTick(g, tick: tick)
-                XCTAssertEqual(tw.isHit, tg.isHit, "the raw pattern is the lane's own either way")
-                XCTAssertEqual(tw.advOrd, tg.advOrd, "tick \(tick): the filter never changes the walk ordinal")
-                XCTAssertEqual(tw.playedStep, tg.playedStep)
-                if tw.isHit {
-                    raw += 1
-                    XCTAssertNotEqual(tw.strikes, tg.strikes, "tick \(tick) (\(laneRate)/\(partnerRate)): exactly one of WITH / GAPS strikes a raw hit")
-                    if tw.strikes { withStrikes += 1 } else { gapsStrikes += 1 }
-                } else {
-                    XCTAssertFalse(tw.strikes); XCTAssertFalse(tg.strikes)
-                }
-            }
-            XCTAssertGreaterThan(withStrikes, 0, "\(laneRate)/\(partnerRate): WITH strikes somewhere (not vacuous)")
-            XCTAssertGreaterThan(gapsStrikes, 0, "\(laneRate)/\(partnerRate): GAPS strikes somewhere (not vacuous)")
-            XCTAssertEqual(withStrikes + gapsStrikes, raw)
-        }
-        // no filter: strikes == isHit
-        let plain = euclideousWalkLaneConfig(lane: 0, lines: listenLines(.gaps), cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
-        XCTAssertNil(plain.listen, "a lane with no WITH / GAPS mode has no filter")
-        for tick in Int64(0)..<64 { let t = euclideousWalkTick(plain, tick: tick); XCTAssertEqual(t.strikes, t.isHit) }
-    }
-    // THE FEATURE: a GAPS lane gets its thread to the next tick that will actually SOUND, not to a raw hit the filter will silence.
-    func testWalkTagGapsLaneThreadsToItsNextStrikeNotToASilencedHit() {
-        let cfg = listenCfg(.gaps)
-        var unfiltered = cfg; unfiltered.listen = nil
-        let ranks = [1, 2, 3, 4, 5, 6, 7, 8]
-        // two consecutive STRIKES with a silenced raw hit between them
-        var pair: (a: Int64, b: Int64)? = nil
-        var lastStrike: Int64? = nil, silencedSince = false
-        for tick in Int64(0)..<128 {
-            let t = euclideousWalkTick(cfg, tick: tick)
-            if t.isHit && !t.strikes { silencedSince = true }
-            if t.strikes {
-                if let a = lastStrike, silencedSince { pair = (a, tick); break }
-                lastStrike = tick; silencedSince = false
-            }
-        }
-        guard let (a, b) = pair else { return XCTFail("the scenario needs a strike, a silenced hit, then a strike") }
-        let beat = euclideousWalkRealBeat(cfg, tick: a) + 0.01
-        let spb = 0.5
-        let plan = euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb,
-                                         polledStep: euclideousWalkTick(cfg, tick: a).playedStep, running: true)
-        guard let plan, let dest = plan.dest, let next = plan.nextSeconds else { return XCTFail("a GAPS lane should get a thread (a destination + a scheduled arrival)") }
-        XCTAssertEqual(dest.step, euclideousWalkTick(cfg, tick: b).playedStep, "the thread ends at the step the next STRIKE lands on")
-        XCTAssertEqual(next, (euclideousWalkRealBeat(cfg, tick: b) - beat) * spb, accuracy: 1e-9, "…and arrives at that strike's onset")
-        // Ignoring the filter (the pre-fix behaviour) would have aimed at the silenced hit, sooner and at a different step.
-        let old = euclideousWalkTagPlan(cfg: unfiltered, ranks: ranks, beat: beat, secondsPerBeat: spb,
-                                        polledStep: euclideousWalkTick(cfg, tick: a).playedStep, running: true)
-        XCTAssertLessThan(old?.nextSeconds ?? .infinity, next, "the unfiltered scan would arrive earlier — at a note the engine never plays")
-    }
     // The footer must predict what the engine's walk plays under a restarting MELODY chain + ADV STEP even when the lap's
     // first hit is NOT on tick 0 (the engine feeds the walk the lap-local tick, leading rests included). A melody chain of
     // [1] restarts every pass — exactly old LOCK's own guarantee (§4.7) — so this (2026-10-19) sets the chain field
@@ -4501,51 +4436,56 @@ final class DerivationsTests: XCTestCase {
     }
 
 
-    // MARK: - FOLLOW lanes: bar + footer come from the pattern that actually plays (2026-10-15)
+    // MARK: - COPY/FILL lanes: bar + footer come from the pattern that actually plays (LISTEN REBUILT, 2026-10-23)
 
-    private func followLines(partnerSteps: Int = 7, partnerRotate: Int = 1, ownRotate: Int = 2, ownInvert: Bool = false, dir: EuclidDir = .fwd) -> [EuclidLine] {
-        var partner = EuclidLine(target: 0, pulses: 3, steps: partnerSteps, rate: .r1_8, useRiff: true, sourceMode: .midi)
-        partner.rotate = partnerRotate; partner.restartMask = 0
-        var follower = EuclidLine(target: 0, pulses: 2, steps: 8, rate: .r1_16, useRiff: true, sourceMode: .midi)   // its OWN 2-of-8 is irrelevant while following
-        follower.listenRhythmMode = .follow; follower.listenRhythmPartner = 0
-        follower.rotate = ownRotate; follower.restartMask = 0; follower.direction = dir
-        if ownInvert { follower.patternMiss = true }
-        return [partner, follower]
+    private func copyLines(sourceSteps: Int = 7, sourceRotate: Int = 1, mode: EuclideousListenRhythmMode = .copy, delay: Int = 0, direction: EuclidDir = .fwd, speed: Int = 0) -> [EuclidLine] {
+        var source = EuclidLine(target: 0, pulses: 3, steps: sourceSteps, rate: .r1_8, useRiff: true, sourceMode: .midi)
+        source.rotate = sourceRotate; source.restartMask = 0
+        var follower = EuclidLine(target: 0, pulses: 2, steps: 8, rate: .r1_16, useRiff: true, sourceMode: .midi)   // its OWN 2-of-8 is irrelevant while borrowing
+        follower.listenRhythm = mode; follower.listenSource = 0
+        follower.listenDelay = delay; follower.listenDirection = direction; follower.listenSpeed = speed
+        follower.restartMask = 0
+        return [source, follower]
     }
-    func testEffectivePatternOfAFollowLaneIsThePartnersWithItsOwnOffsetAndInvert() {
-        let lines = followLines(ownInvert: true)
+    // §7's "a tab is either fully the lane's own or fully paused" means a borrowing lane's own rotate/invert
+    // do NOT apply on top any more (unlike the old FOLLOW) — this also regression-tests the direction-
+    // double-application bug fixed in both Router.swift and this mirror (the lane's own `direction` field is
+    // never read a second time once DIRECTION/COPY have already placed the cells in their final tick order).
+    func testEffectivePatternOfACopyLaneIsTheSourcesFinishedPatternWithNoOffsetOrInvertOnTop() {
+        let lines = copyLines()
         guard let eff = euclideousEffectivePattern(lane: 1, lines: lines) else { return XCTFail("no pattern") }
         XCTAssertTrue(eff.followsPartner)
-        XCTAssertEqual(eff.n, 7, "the follower takes the partner's step count, not its own 8")
-        // by hand: the partner's finished pattern, then THIS lane's OFFSET, then its INV
-        let partner = euclideousBuildPattern(lines[0])
-        var expected = partner.buf
-        euclidRotateBuffer(&expected, steps: partner.n, rotation: 2)
-        for i in 0..<partner.n { expected[i].toggle() }
-        XCTAssertEqual(Array(eff.buf.prefix(eff.n)), Array(expected.prefix(partner.n)))
+        XCTAssertEqual(eff.n, 7, "the follower takes the source's step count, not its own 8")
+        // by hand: exactly the source's finished pattern — no rotate/invert of the follower's own on top
+        let source = euclideousBuildPattern(lines[0])
+        XCTAssertEqual(Array(eff.buf.prefix(eff.n)), Array(source.buf.prefix(source.n)))
         // …and it is NOT the follower's own 2-of-8
         let own = euclideousBuildPattern(lines[1])
         XCTAssertNotEqual(own.n, eff.n)
-        // a lane that is not following, or whose partner doesn't exist, plays its OWN pattern
+        // a lane that is not borrowing plays its OWN pattern
         let plain = euclideousEffectivePattern(lane: 0, lines: lines)!
         XCTAssertFalse(plain.followsPartner); XCTAssertEqual(plain.buf, euclideousBuildPattern(lines[0]).buf); XCTAssertEqual(plain.n, 7)
-        var dangling = lines; dangling[1].listenRhythmPartner = 9
-        XCTAssertFalse(euclideousEffectivePattern(lane: 1, lines: dangling)!.followsPartner)
+        // no OTHER lane exists to borrow from ⇒ not borrowing, even though RHYTHM is COPY
+        let single = [lines[1]]
+        XCTAssertNil(euclideousRhythmBorrowPartner(lane: 0, lines: single))
+        XCTAssertFalse(euclideousEffectivePattern(lane: 0, lines: single)!.followsPartner)
         XCTAssertNil(euclideousEffectivePattern(lane: 4, lines: lines))
     }
-    // The footer's hit ticks (what the bar's cells and bands are built from) == the engine mirror's hit ticks, for every direction.
-    func testFollowLanesFooterHitsAreTheTicksTheEngineActuallyPlays() {
+    // The footer's hit ticks (what the bar's cells and bands are built from) == the engine mirror's hit ticks, for every DIRECTION.
+    func testCopyLanesFooterHitsAreTheTicksTheEngineActuallyPlays() {
         for dir in [EuclidDir.fwd, .bkw, .pingpong] {
-            for partnerSteps in [7, 8, 5] {
-                let lines = followLines(partnerSteps: partnerSteps, ownRotate: 3, ownInvert: partnerSteps == 8, dir: dir)
+            for sourceSteps in [7, 8, 5] {
+                let lines = copyLines(sourceSteps: sourceSteps, direction: dir)
                 let eff = euclideousEffectivePattern(lane: 1, lines: lines)!
-                let hits = euclideousLapHitSteps(buf: Array(eff.buf.prefix(eff.n)), dir: dir)
+                // the borrowed buffer is ALREADY in its own final tick order (DIRECTION baked in by
+                // euclideousEffectiveHitPattern) — the mirror reads it FWD, exactly as Router's `cfgDir` fix does.
+                let hits = euclideousLapHitSteps(buf: Array(eff.buf.prefix(eff.n)), dir: .fwd)
                 let cfg = euclideousWalkLaneConfig(lane: 1, lines: lines, cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
-                let cycleLen = euclidCycleLen(dir, n: eff.n)
+                let cycleLen = euclidCycleLen(.fwd, n: eff.n)
                 let engineTicks = (0..<cycleLen).filter { euclideousWalkTick(cfg, tick: Int64($0)).isHit }
-                XCTAssertEqual(hits.map { $0.tick }, engineTicks, "\(dir) partner \(partnerSteps): footer hit ticks vs the engine's own")
+                XCTAssertEqual(hits.map { $0.tick }, engineTicks, "\(dir) source \(sourceSteps): footer hit ticks vs the engine's own")
                 XCTAssertFalse(hits.isEmpty)
-                // the bar has one cell per PARTNER step, so the footer must have exactly that many bands (the old code made 8)
+                // the bar has one cell per SOURCE step, so the footer must have exactly that many bands (the old code made 8)
                 let states = euclideousFooterStates(hitSteps: hits, lapSteps: eff.n, prediction: nil, riffRanksResolved: [], anyLit: true)
                 XCTAssertEqual(states.count, eff.n)
                 for i in 0..<eff.n { XCTAssertEqual(states[i] != .miss, hits.contains { $0.bufIdx == i }, "cell \(i)") }
@@ -4560,45 +4500,47 @@ final class DerivationsTests: XCTestCase {
     }
 
 
-    // MARK: - FOLLOW lanes: who is following, where their gestures go, how fast they sweep (2026-10-16)
+    // MARK: - COPY/FILL lanes: who is borrowing, where their gestures go, how fast they sweep (LISTEN REBUILT, 2026-10-23)
 
-    func testOnlyAValidFollowCountsAsFollowingAndItsGesturesGoToThePartner() {
-        var lines = followLines()
-        XCTAssertEqual(euclideousFollowPartner(lane: 1, lines: lines), 0)
-        XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 0, "a follower's bar gestures edit the lane it follows")
-        XCTAssertNil(euclideousFollowPartner(lane: 0, lines: lines), "the partner itself is not following anyone")
+    func testOnlyCopyOrFillCountsAsBorrowingAndItsGesturesGoToTheSource() {
+        var lines = copyLines()
+        XCTAssertEqual(euclideousRhythmBorrowPartner(lane: 1, lines: lines), 0)
+        XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 0, "a borrowing lane's bar gestures edit the lane it borrows from")
+        XCTAssertNil(euclideousRhythmBorrowPartner(lane: 0, lines: lines), "the source itself is not borrowing from anyone")
         XCTAssertEqual(euclideousRhythmGestureTarget(lane: 0, lines: lines), 0)
-        // WITH / GAPS keep the lane's OWN rhythm (they only gate it), so they are NOT following and edit themselves
-        for mode in [EuclideousRhythmMode.with, .gaps] {
-            lines[1].listenRhythmMode = mode
-            XCTAssertNil(euclideousFollowPartner(lane: 1, lines: lines), "\(mode)")
-            XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 1)
-        }
-        lines[1].listenRhythmMode = nil
-        XCTAssertNil(euclideousFollowPartner(lane: 1, lines: lines))
+        // FILL also counts as borrowing — unlike the old WITH/GAPS, COPY and FILL both replace the pattern wholesale
+        lines[1].listenRhythm = .fill
+        XCTAssertEqual(euclideousRhythmBorrowPartner(lane: 1, lines: lines), 0, "FILL")
+        XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 0)
+        // OWN keeps the lane's own rhythm — not borrowing, gestures edit itself
+        lines[1].listenRhythm = .own
+        XCTAssertNil(euclideousRhythmBorrowPartner(lane: 1, lines: lines))
+        XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 1)
+        lines[1].listenRhythm = nil
+        XCTAssertNil(euclideousRhythmBorrowPartner(lane: 1, lines: lines))
         // out of range
-        XCTAssertNil(euclideousFollowPartner(lane: 9, lines: lines))
+        XCTAssertNil(euclideousRhythmBorrowPartner(lane: 9, lines: lines))
         XCTAssertEqual(euclideousRhythmGestureTarget(lane: 9, lines: lines), 9)
     }
-    func testFollowLaneSweepsAtThePartnersRateTimesItsMultiplierExactlyAsTheEngineMirrorDoes() {
-        for exp in -3...2 {
-            var lines = followLines()
-            lines[1].listenFollowMult = exp
+    func testCopyLaneSweepsAtTheSourcesRateDividedByTwoToTheSpeedExactlyAsTheEngineMirrorDoes() {
+        for speed in -2...2 {
+            var lines = copyLines()
+            lines[1].listenSpeed = speed
             let eff = euclideousEffectivePattern(lane: 1, lines: lines)!
-            XCTAssertEqual(eff.rateBeats, ArpRate.r1_8.beats * pow(2.0, Double(-exp)), accuracy: 1e-12, "×2^\(exp)")
+            XCTAssertEqual(eff.rateBeats, ArpRate.r1_8.beats / pow(2.0, Double(speed)), accuracy: 1e-12, "÷2^\(speed)")
             let cfg = euclideousWalkLaneConfig(lane: 1, lines: lines, cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
             XCTAssertEqual(cfg.sub, eff.rateBeats, accuracy: 1e-12, "the comet and the engine mirror use ONE step length")
         }
-        // at ×1 the follower sweeps at the PARTNER's 1/8 — not the 1/16 it has stored for itself
-        let plain = followLines()
+        // at SPEED 0 the follower sweeps at the SOURCE's 1/8 — not the 1/16 it has stored for itself
+        let plain = copyLines()
         XCTAssertEqual(euclideousEffectivePattern(lane: 1, lines: plain)!.rateBeats, ArpRate.r1_8.beats)
         XCTAssertEqual(plain[1].rate?.beats, ArpRate.r1_16.beats, "(its own stored rate is different, so this is not just reading the lane's own field)")
-        // not following: the lane's own rate; an unset rate takes the default
-        var lines = followLines()
+        // not borrowing: the lane's own rate; an unset rate takes the default
+        var lines = copyLines()
         XCTAssertEqual(euclideousEffectivePattern(lane: 0, lines: lines)!.rateBeats, ArpRate.r1_8.beats)
         lines[0].rate = nil
         XCTAssertEqual(euclideousEffectivePattern(lane: 0, lines: lines, defaultRateBeats: 0.375)!.rateBeats, 0.375)
-        XCTAssertEqual(euclideousEffectivePattern(lane: 1, lines: lines, defaultRateBeats: 0.375)!.rateBeats, 0.375, "a follower whose partner has no rate takes the default × its multiplier")
+        XCTAssertEqual(euclideousEffectivePattern(lane: 1, lines: lines, defaultRateBeats: 0.375)!.rateBeats, 0.375, "a follower whose source has no rate takes the default ÷ 2^SPEED")
         XCTAssertTrue(euclideousListenCellFade > 0.5 && euclideousListenCellFade < 1, "slightly faded, still clearly lit")
     }
 

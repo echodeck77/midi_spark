@@ -4902,6 +4902,12 @@ final class Router {
                     // 'pattern cycle' is unchanged."
                     if patternMiss { for i in 0..<n { euclidBuf[i].toggle(); euclidMicro[i] = 0 } }   // FLIP: the flipped hits sit on step starts
                 }
+                // LISTEN REBUILT §3.4: `euclidBuf` for a COPY/FILL lane is ALREADY in its own final tick
+                // order (DIRECTION/listenDirection baked in by `euclideousListenBorrowedIndex` above) — the
+                // lane's own `direction` (a RHYTHM-tab control, paused while borrowing, §7) must NOT be
+                // applied a SECOND time by `cycleLen`/`isHitAt` below, or a lane that happened to have a
+                // non-FWD `direction` stored from before it started borrowing would silently double-mirror.
+                let dir = copyOrFillValid ? EuclidDir.fwd : dir
                 // RATE×ladder (Paul 2026-08-27): GRID = the fixed step grain (density lives here + K/N); SPAN re-syncs the
                 // pattern every N columns (FREE = 0 = free-run). Rate and loop decoupled — an odd N against an aligning
                 // span drifts then snaps back. (Was the WIDTH model `sub = spanWidth/n`, where SPAN just scaled the speed.)

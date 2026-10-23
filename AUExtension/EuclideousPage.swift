@@ -2495,8 +2495,10 @@ struct EuclideousPage: View {
     /// engine's own walk), the footers' states for it (`euclideousFooterStates`), then `euclideousStripHits` turns them into chips, gaps and keys. A FOLLOW lane plays its PARTNER's pattern and step count,
     /// so everything is predicted from that — the same finished buffer the engine and the step bar use (`euclideousEffectivePattern`).
     private func laneStripPlan(_ idx: Int, _ line: EuclidLine) -> EuclideousStripPlan {
-        let shadowed = line.listenPitchMode == .shadow
-        let layerOn = euclideousNotesLayerIsOn(line) && !shadowed   // a SHADOWing lane's own riff and lit notes are ignored entirely (LISTEN §6)
+        // LISTEN REBUILT (2026-10-23): SHADOW and ECHO both pause RIFF+NOTES whole (§7, §9.9's `borrowedTabs`) —
+        // so the strip's own riff/notes track is ignored under either, not SHADOW alone.
+        let shadowed = line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo
+        let layerOn = euclideousNotesLayerIsOn(line) && !shadowed   // a borrowing lane's own riff and lit notes are ignored entirely (LISTEN §6)
         let playsRiff = euclideousLanePlaysRiff(line)
         let grey = !shadowed && euclideousNotesGreyFooters(riffOn: line.riffOnResolved, notesLayerOn: layerOn, when: line.notesWhenResolved)
         let follow = euclideousEffectivePattern(lane: idx, lines: lines).flatMap { $0.followsPartner ? $0 : nil }
@@ -2595,11 +2597,11 @@ struct EuclideousPage: View {
             // LISTEN TAB: a FOLLOW lane PLAYS its partner's pattern, at the partner's rate — so its bar shows THAT (lit cells in the
             // partner's colour, faded; the comet sweeping at the partner's pace) and its bar gestures edit the PARTNER, the thing it
             // is following (2026-10-16). SHADOW keeps its footer-height partner-colour band (see `EuclidLaneBox`).
-            let followIdx = euclideousFollowPartner(lane: idx, lines: lines)
+            let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: lines)
             let gestureLane = euclideousRhythmGestureTarget(lane: idx, lines: lines)
             let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: lines) : nil
             let listenFollowTint: Color? = followIdx.map { laneAccents[$0 % laneAccents.count] }   // the partner's colour: the lit cells + the badge dot
-            let listenShadowTint: Color? = line.listenPitchMode == .shadow ? laneAccents[line.listenPitchPartnerResolved % laneAccents.count] : nil
+            let listenShadowTint: Color? = (line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo) ? laneAccents[line.listenSourceResolved(ownLane: idx) % laneAccents.count] : nil
             // LANES GRID: the lane's own grid, resolved exactly as the engine resolves it, so the card's comet / flashes follow the rhythm origin and a
             // lane the grid has muted dims. Both stay nil for a lane with no restart marks / no mute, leaving its card byte-identical.
             let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
@@ -2838,11 +2840,6 @@ struct EuclideousPage: View {
         let c = euclideousHitsCaptionRGB((Double(r), Double(g), Double(b)))
         return Color(red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
     }
-    private func rhythmFollowPartner(_ line: EuclidLine) -> EuclidLine? {
-        guard line.listenRhythmMode == .follow else { return nil }
-        let p = line.listenRhythmPartnerResolved
-        return p >= 0 && p < lines.count ? lines[p] : nil
-    }
     private func rhythmLeftHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, rowHeight: CGFloat) -> AnyView {
         let leftColW = max(1, (halfW - sp4) / 2)
         return AnyView(HStack(spacing: sp4) {
@@ -2871,15 +2868,16 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: height))
     }
+    // LISTEN REBUILT (2026-10-23): HITS/TILT no longer show a partner's value at reduced opacity while
+    // individually "following" — §7's "a tab is either fully the lane's own or fully paused" replaces that
+    // old per-slider dim with the RHYTHM tab's own full-tab pause overlay (`listenPausedOverlay`), which
+    // covers every control at once, including this one, whenever RHYTHM is COPY/FILL.
     private func rhythmHitsSlider(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
-        let partner = rhythmFollowPartner(line)
-        return AnyView(EuclideousSlider(
+        AnyView(EuclideousSlider(
             field: .hits, line: line, accent: accent, width: width, height: height, horizontal: false,
             onCommit: { mutate in edit(idx, mutate) },
             onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.hits, &$0) } },
             onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
-            displayOverrideLine: partner,
-            listenFollowLocked: partner != nil,
             lockActive: lockLocked(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx),
             heroCaption: hitsCaptionColour(idx)))
     }
@@ -2904,15 +2902,12 @@ struct EuclideousPage: View {
             lockActive: lockLocked(idx), lockOutline: lockOn(idx, .offset) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
     private func rhythmTiltRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
-        let partner = rhythmFollowPartner(line)
-        return AnyView(EuclideousSlider(
+        AnyView(EuclideousSlider(
             field: .tilt, line: line, accent: accent, width: width, height: height, horizontal: true,
             touchPad: 2,
             onCommit: { mutate in edit(idx, mutate) },
             onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.tilt, &$0) } },
             onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
-            displayOverrideLine: partner,
-            listenFollowLocked: partner != nil,
             topAlignLabelRow: true,
             // Floors ferry (2026-10-23): pure annotation, not the control — drops first as the row shrinks.
             endLabels: EuclideousRhythmGeometry.showsEndLabels(rowH: height) ? ("EARLY", "LATE") : nil,
@@ -3045,17 +3040,20 @@ struct EuclideousPage: View {
         let glyph = euclideousTabGlyph(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, line: line, lane: idx)
         let face = Font.system(size: 11, weight: .heavy, design: .monospaced)
         let name = Text(t.label).font(face).tracking(1).foregroundColor(sel ? patternSelectedText : patternUnselectedText)
-        let title: Text = t == .rhythm ? name + Text(" " + euclideousRhythmTabCount(lane: idx, lines: lines)).font(face).tracking(0).foregroundColor(lane100(accent)) : name
-        let fills: [Color] = {
+        // §7.1: RHYTHM always shows a count (its own hits/steps, or "← n" while borrowed); RIFF/NOTES show
+        // nothing UNLESS paused, in which case they show the same "← n" link.
+        let suffix: String? = t == .rhythm ? euclideousRhythmTabCount(lane: idx, lines: lines)
+            : euclideousPausedTabHeaderText(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .riff, lane: idx, lines: lines)
+        let title: Text = suffix.map { name + Text(" " + $0).font(face).tracking(0).foregroundColor(lane100(accent)) } ?? name
+        let fill: Color = {
             switch glyph.fill {
-            case .lane(let l): return [lane100(laneAccents[max(0, l) % laneAccents.count])]
-            case .anyLane: return laneAccents
+            case .lane(let l): return lane100(laneAccents[max(0, l) % laneAccents.count])
             }
         }()
         return AnyView(
             HStack(spacing: 5) {
                 title.lineLimit(1).truncationMode(.tail)
-                if glyph.shape != .none { EuclideousTabGlyphView(shape: glyph.shape, on: glyph.on, fills: fills) }
+                if glyph.shape != .none { EuclideousTabGlyphView(shape: glyph.shape, on: glyph.on, fill: fill) }
             }
             .opacity(glyph.shape != .none && !glyph.on ? 0.4 : 1)
         )
@@ -3104,24 +3102,33 @@ struct EuclideousPage: View {
             let patternBlockH: CGFloat = 80
             let upperH = max(1, contentAreaH - patternBlockH - sp4)
             let pickerEditorH = upperH + sp4 + patternBlockH
-            ZStack(alignment: .topLeading) {
-                VStack(spacing: sp4) {
-                    rhythmUpperZone(idx, line, accent, fullWidth: fullWidth, rowHeight: upperH)
-                    patternControlBlock(idx, line, accent, fullWidth: fullWidth)
-                }
-                // §1.5/§1.7: the picker and the restart editor cover both zones, full content width, from
-                // the top of the upper zone — only one of the two open at a time (§1.6). The STEPS picker
-                // keeps its own 192pt floor (unchanged, not in this ferry's scope); the restart editor now
-                // builds at ANY height and degrades itself (RHYTHM fixes §5.1 — see its own doc comment).
-                if stepsPickerLane == idx {
-                    if pickerEditorH >= 192 {
-                        stepsPicker(idx, line, accent, width: fullWidth, height: pickerEditorH)
+            // LISTEN REBUILT (2026-10-23): RHYTHM pauses whole under COPY/FILL (§7) — the same dim + paused-
+            // card overlay RIFF/NOTES use under SHADOW/ECHO.
+            let borrowed = euclideousRhythmBorrowPartner(lane: idx, lines: lines) != nil
+            ZStack {
+                ZStack(alignment: .topLeading) {
+                    VStack(spacing: sp4) {
+                        rhythmUpperZone(idx, line, accent, fullWidth: fullWidth, rowHeight: upperH)
+                        patternControlBlock(idx, line, accent, fullWidth: fullWidth)
                     }
-                } else if restartEditorLane == idx {
-                    let geo = euclideousLaneStepGeometry(lines: lines, lane: idx, defaultRateBeats: 0.25)
-                    let lapBeats = Double(geo.cycleLen) * geo.sub
-                    restartEditor(idx, line, accent, width: fullWidth, height: pickerEditorH, lapBeats: lapBeats)
+                    // §1.5/§1.7: the picker and the restart editor cover both zones, full content width, from
+                    // the top of the upper zone — only one of the two open at a time (§1.6). The STEPS picker
+                    // keeps its own 192pt floor (unchanged, not in this ferry's scope); the restart editor now
+                    // builds at ANY height and degrades itself (RHYTHM fixes §5.1 — see its own doc comment).
+                    if stepsPickerLane == idx {
+                        if pickerEditorH >= 192 {
+                            stepsPicker(idx, line, accent, width: fullWidth, height: pickerEditorH)
+                        }
+                    } else if restartEditorLane == idx {
+                        let geo = euclideousLaneStepGeometry(lines: lines, lane: idx, defaultRateBeats: 0.25)
+                        let lapBeats = Double(geo.cycleLen) * geo.sub
+                        restartEditor(idx, line, accent, width: fullWidth, height: pickerEditorH, lapBeats: lapBeats)
+                    }
                 }
+                .opacity(borrowed ? EuclideousListenPauseMetrics.dimOpacity : 1)
+                .allowsHitTesting(!borrowed)
+                .accessibilityHidden(borrowed)   // §10: VoiceOver skips the paused, non-interactive content entirely
+                if borrowed { listenPausedOverlay(idx, line, label: "RHYTHM", width: fullWidth, height: contentAreaH) { $0.listenRhythm = .own } }
             }
         case .riff:
             riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
@@ -3786,7 +3793,9 @@ struct EuclideousPage: View {
         let halfW = max(1, (fullWidth - 17) / 2)
         return AnyView(HStack(spacing: 0) {
             patternRateHalf(idx, line, accent, halfW: halfW, blockH: blockH, gap: gap)
-                .modifier(lockOutlineMod(idx, line.listenRhythmMode == .follow ? .followMult : .rate, accent))   // on the AnyView, so the big HStack's type is never copied under a wrapper
+                // LISTEN REBUILT (2026-10-23): the old `.followMult` lock control is retired along with FOLLOW
+                // itself — this grid is always the lane's own plain RATE now.
+                .modifier(lockOutlineMod(idx, .rate, accent))   // on the AnyView, so the big HStack's type is never copied under a wrapper
             Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
             patternOutHalf(idx, line, accent, halfW: halfW, rowH: rowH, gap: gap, blockH: blockH)
         }
@@ -3808,89 +3817,40 @@ struct EuclideousPage: View {
         func setRate(division: Int? = nil, feel: Int? = nil) {
             edit(idx) { $0.rate = euclideousRateFromDivisionFeel(division: division ?? curDiv, feel: feel ?? curFeel) }
         }
-        // LISTEN/FOLLOW (§5, adversarial-review fix): "the six rate cells become multipliers: ÷8 ÷4 ÷2
-        // on the top row, ×1 ×2 ×4 on the bottom row... a multiplier whose result would fall outside
-        // 1/1-1/32 is greyed... the three feel cells show the partner's feel at 42% opacity."
-        let followPartner: EuclidLine? = {
-            guard line.listenRhythmMode == .follow else { return nil }
-            let p = line.listenRhythmPartnerResolved
-            return p >= 0 && p < lines.count ? lines[p] : nil
-        }()
-        let multLabels: [[String]] = [["÷8", "÷4", "÷2"], ["×1", "×2", "×4"]]
-        let multExponents: [[Int]] = [[-3, -2, -1], [0, 1, 2]]
-        func multValid(_ mult: Int, partnerBeats: Double) -> Bool {
-            let result = partnerBeats * pow(2.0, Double(-mult))
-            return result >= ArpRate.r1_32.beats - 0.0001 && result <= ArpRate.r1_1.beats + 0.0001
-        }
-
+        // LISTEN REBUILT (2026-10-23): the old FOLLOW-mult rate grid (÷8…×4, reading the partner's rate) is
+        // retired along with FOLLOW itself — RHYTHM's own RATE always shows the lane's plain division/feel
+        // grid now, borrowing or not (SPEED/DIRECTION for a borrowing lane live on the LISTEN tab, §2.3).
         let rateHalf = HStack(spacing: gridGap) {
-            if let partner = followPartner {
-                let partnerBeats = partner.rate?.beats ?? autoRate.beats
-                let curMult = line.listenFollowMultResolved
-                VStack(spacing: gap) {
-                    ForEach(0..<2, id: \.self) { row in
-                        HStack(spacing: gridGap) {
-                            ForEach(0..<3, id: \.self) { col in
-                                let m = multExponents[row][col]
-                                let on = m == curMult
-                                let valid = multValid(m, partnerBeats: partnerBeats)
-                                Text(multLabels[row][col]).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                                    .foregroundColor(!valid ? patternUnselectedText.opacity(0.4) : (on ? patternSelectedText : patternUnselectedText))
-                                    .frame(width: cellW, height: cellH)
-                                    .background(RoundedRectangle(cornerRadius: 7).fill(on && valid ? lane20(accent) : patternUnselectedFill))
-                                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(on && valid ? lane100(accent) : Color.clear, lineWidth: 1))
-                                    .contentShape(Rectangle())
-                                    .modifier(laneTapMod(idx) { if valid { edit(idx) { $0.listenFollowMult = m } } })
-                                    .accessibilityValue(lockSpoken(idx, .followMult, ""))
-                            }
+            VStack(spacing: gap) {   // 4pt between the 2 rate-grid rows (ferry rule 2), not the 3pt column gap
+                ForEach(0..<2, id: \.self) { row in
+                    HStack(spacing: gridGap) {
+                        ForEach(0..<3, id: \.self) { col in
+                            let d = row * 3 + col
+                            let on = d == curDiv
+                            Text(divisionLabels[d]).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                                .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                                .frame(width: cellW, height: cellH)
+                                .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
+                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                                .contentShape(Rectangle())
+                                .modifier(laneTapMod(idx) { setRate(division: d) })
+                                .accessibilityValue(lockSpoken(idx, .rate, ""))
                         }
                     }
                 }
-                VStack(spacing: gridGap) {
-                    ForEach(0..<3, id: \.self) { f in
-                        let on = f == euclideousRateDivisionFeel(partner.rate ?? autoRate).1
-                        feelGlyph(f)
-                            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
-                            .frame(width: feelColW, height: feelBtnH)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : patternUnselectedFill))
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                            .accessibilityLabel(feelLabels[f])
-                    }
-                }
-                .opacity(0.42)
-                .allowsHitTesting(false)
-            } else {
-                VStack(spacing: gap) {   // 4pt between the 2 rate-grid rows (ferry rule 2), not the 3pt column gap
-                    ForEach(0..<2, id: \.self) { row in
-                        HStack(spacing: gridGap) {
-                            ForEach(0..<3, id: \.self) { col in
-                                let d = row * 3 + col
-                                let on = d == curDiv
-                                Text(divisionLabels[d]).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                                    .foregroundColor(on ? patternSelectedText : patternUnselectedText)
-                                    .frame(width: cellW, height: cellH)
-                                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
-                                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                                    .contentShape(Rectangle())
-                                    .modifier(laneTapMod(idx) { setRate(division: d) })
-                                    .accessibilityValue(lockSpoken(idx, .rate, ""))
-                            }
-                        }
-                    }
-                }
-                VStack(spacing: gridGap) {
-                    ForEach(0..<3, id: \.self) { f in
-                        let on = f == curFeel
-                        feelGlyph(f)
-                            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
-                            .frame(width: feelColW, height: feelBtnH)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : patternUnselectedFill))
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                            .contentShape(Rectangle())
-                            .modifier(laneTapMod(idx) { setRate(feel: f) })
-                            .accessibilityLabel(feelLabels[f])
-                            .accessibilityValue(lockSpoken(idx, .rate, ""))
-                    }
+            }
+            VStack(spacing: gridGap) {
+                ForEach(0..<3, id: \.self) { f in
+                    let on = f == curFeel
+                    feelGlyph(f)
+                        .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                        .frame(width: feelColW, height: feelBtnH)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : patternUnselectedFill))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                        .contentShape(Rectangle())
+                        .modifier(laneTapMod(idx) { setRate(feel: f) })
+                        .accessibilityLabel(feelLabels[f])
+                        .accessibilityValue(lockSpoken(idx, .rate, ""))
                 }
             }
         }
@@ -4568,6 +4528,8 @@ struct EuclideousPage: View {
     /// (card + WALK strip + direction row) + Row B (ADVANCE EVERY). Lower zone: ON REST row + values row.
     private func riffTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
+        // LISTEN REBUILT (2026-10-23): RIFF pauses whole under SHADOW or ECHO now (§9.9's `borrowedTabs`), not SHADOW alone.
+        let paused = line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo
         return ZStack {
             VStack(spacing: sp4) {
                 riffTopRow(idx, line, accent, layout: layout)
@@ -4577,24 +4539,64 @@ struct EuclideousPage: View {
                     .frame(height: layout.lowerRowHeight)
                     .opacity(line.riffOnResolved ? 1.0 : 0.42)
             }
-            .opacity(line.listenPitchMode == .shadow ? 0.42 : 1)
-            .allowsHitTesting(line.listenPitchMode != .shadow)
-            listenShadowingOverlay(line)
+            .opacity(paused ? EuclideousListenPauseMetrics.dimOpacity : 1)
+            .allowsHitTesting(!paused)
+            .accessibilityHidden(paused)
+            if paused { listenPausedOverlay(idx, line, label: "RIFF", width: fullWidth, height: contentAreaH) { $0.listenPitch = .own } }
         }
     }
-    /// §6 ("the lane's own riff and lit notes are ignored... drawn at 42% opacity, with 'SHADOWING RED'
-    /// ... centred over them"), shared by both `riffTabContent` and `notesTabContent` so the two tabs
-    /// can't independently drift on the exact text/colour. `nil` (not SHADOWing) draws nothing.
-    @ViewBuilder private func listenShadowingOverlay(_ line: EuclidLine) -> some View {
-        if line.listenPitchMode == .shadow {
-            let p = line.listenPitchPartnerResolved
-            let partnerAccent = laneAccents[p % laneAccents.count]
-            Text("SHADOWING \(listenLaneColourName(p))")
-                .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                .foregroundColor(partnerAccent)
-                .multilineTextAlignment(.center)
-                .allowsHitTesting(false)
+    /// §7 (LISTEN REBUILT, 2026-10-23): the opacity a borrowed tab's own content dims to underneath its
+    /// paused-card overlay (replaces the old SHADOW-only 0.42).
+    private enum EuclideousListenPauseMetrics { static let dimOpacity: Double = 0.18 }
+
+    /// §7.2 (LISTEN REBUILT, 2026-10-23): the paused-card overlay — a link glyph, "<LABEL> FOLLOWS LANE n",
+    /// one explanatory line, and two buttons (GO TO LISTEN / USE MY OWN) — drawn over a borrowed tab's own
+    /// content, which sits underneath at `EuclideousListenPauseMetrics.dimOpacity` and takes no touches
+    /// (§7: "a tab is either fully the lane's own or fully paused" — nothing partially live under here).
+    /// Shared by RHYTHM (COPY/FILL), RIFF and NOTES (SHADOW/ECHO) so none of the three can independently
+    /// drift on the exact wording/look. `useOwn` writes back whichever field this tab's row actually reads
+    /// (RHYTHM → `listenRhythm`, RIFF/NOTES → `listenPitch`).
+    private func listenPausedOverlay(_ idx: Int, _ line: EuclidLine, label: String, width: CGFloat, height: CGFloat, useOwn: @escaping (inout EuclidLine) -> Void) -> some View {
+        let source = line.listenSourceResolved(ownLane: idx)
+        let sourceAccent = laneAccents[source % laneAccents.count]
+        return VStack(spacing: 6) {
+            VStack(spacing: 6) {
+                Image(systemName: "link").font(.system(size: 16, weight: .bold)).foregroundColor(lane100(sourceAccent))
+                Text("\(label) FOLLOWS LANE \(source + 1)")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(lane100(sourceAccent))
+                    .multilineTextAlignment(.center).lineLimit(1)
+                Text("Set it back to OWN on LISTEN to use its own \(label.lowercased()) again.")
+                    .font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
+                    .multilineTextAlignment(.center).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            }
+            // Grouped into one spoken element (the icon alone has nothing to say); the two buttons below stay
+            // their own separately-focusable elements, not swallowed into this group.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(label) follows lane \(source + 1)")
+            HStack(spacing: 8) {
+                Text("GO TO LISTEN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(lane20(sourceAccent)))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(sourceAccent), lineWidth: 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture { if idx < laneTab.count { laneTab[idx] = .listen } }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Go to Listen")
+                    .accessibilityAddTraits(.isButton)
+                Text("USE MY OWN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(patternUnselectedText)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(patternUnselectedFill))
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit(idx, useOwn) }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Use my own \(label.lowercased())")
+                    .accessibilityAddTraits(.isButton)
+            }
         }
+        .padding(10)
+        .frame(width: width, height: height)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1A1C20).opacity(0.97)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(lane100(sourceAccent).opacity(0.4), lineWidth: 1))
     }
 
     // MARK: - NOTES TAB (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs") — lit notes/
@@ -4905,7 +4907,9 @@ struct EuclideousPage: View {
     /// the strip keeps its own look and the picker is not dimmed.
     private func notesTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let isOn = line.notesOnResolved
-        let shadowing = line.listenPitchMode == .shadow
+        // LISTEN REBUILT (2026-10-23): NOTES pauses whole under SHADOW or ECHO (§9.9's `borrowedTabs`, NOTES
+        // reads the riff far beyond one pitch, so it always pauses alongside RIFF — confirmed, not assumed).
+        let shadowing = line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo
         let lay = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
         let data = notesTabData(line)
         let way = line.notesPlayAsResolved
@@ -5026,9 +5030,10 @@ struct EuclideousPage: View {
                 }
                 .opacity(isOn ? 1.0 : 0.42)
             }
-            .opacity(shadowing ? 0.42 : 1)
+            .opacity(shadowing ? EuclideousListenPauseMetrics.dimOpacity : 1)
             .allowsHitTesting(!shadowing)
-            listenShadowingOverlay(line)
+            .accessibilityHidden(shadowing)
+            if shadowing { listenPausedOverlay(idx, line, label: "NOTES", width: fullWidth, height: contentAreaH) { $0.listenPitch = .own } }
             if notesPickerOpen.contains(idx) {
                 EuclideousNotesPickerView(layout: lay, current: way, list: data.list, accent: lane100(accent),
                                           onChoose: { w in
@@ -5209,7 +5214,7 @@ struct EuclideousPage: View {
     // shifting both would shift the follower TWICE. A follower inherits the move through its partner instead.
     private func euclideousApplyAllRhythmX(_ d: Int) {
         // §2.5: the all-lanes drag is also an OFFSET writer — stores the displayed (mirrored) offset too.
-        onEdit { lines in for i in lines.indices where euclideousFollowPartner(lane: i, lines: lines) == nil {
+        onEdit { lines in for i in lines.indices where euclideousRhythmBorrowPartner(lane: i, lines: lines) == nil {
             let n = max(2, min(16, lines[i].steps)); lines[i].rotate = ((lines[i].rotate - d) % n + n) % n
             let r = ((lines[i].rotate % n) + n) % n; lines[i].offsetRequested = (n - r) % n
         } }
@@ -5467,6 +5472,11 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(lit ? lane100(accent) : Color.clear, lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
+        // §10: one of a row of exclusive choices — label + hint read together, SELECTED when lit (matches
+        // `notesToggle`'s own accessibility shape elsewhere on this page).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name.capitalized), \(hint.lowercased())")
+        .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
     }
     /// §3's own ANY glyph: "a circle split into four quarters (red, blue, yellow, green, clockwise from
     /// the top)." Four quarter-pie wedges via `Path`, each a plain 90° arc from the lane's own accent.
@@ -5554,7 +5564,7 @@ struct EuclideousPage: View {
         }
         let disabled = euclideousListenDisabledSources(lane: idx, sources: sources)
         return HStack(spacing: gap) {
-            Text("FOLLOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading)
+            Text("FOLLOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             ForEach((0..<4).filter { $0 != idx }, id: \.self) { target in
                 listenFollowChip(idx, target: target, selected: source == target, disabled: disabled.contains(target), width: chipW, height: height)
             }
@@ -5567,7 +5577,7 @@ struct EuclideousPage: View {
         let btnW = max(1, (fullWidth - labelW - gap * 3) / 3)
         let mode = line.listenRhythmResolved
         return HStack(spacing: gap) {
-            Text("RHYTHM").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading)
+            Text("RHYTHM").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             listenModeButton(name: "OWN", hint: "ITS OWN HITS", lit: mode == .own, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenRhythm = .own } }
             listenModeButton(name: "COPY", hint: "ITS HITS", lit: mode == .copy, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenRhythm = .copy } }
             listenModeButton(name: "FILL", hint: "ITS GAPS", lit: mode == .fill, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenRhythm = .fill } }
@@ -5609,12 +5619,13 @@ struct EuclideousPage: View {
     }
     /// §2.3 line 2: SPEED, a five-way ×¼ ×½ ×1 ×2 ×4 segmented control over the exponent −2…+2.
     private func listenSpeedControl(_ idx: Int, _ line: EuclidLine, width: CGFloat, height: CGFloat) -> some View {
-        let order: [(Int, String)] = [(-2, "¼"), (-1, "½"), (0, "1"), (1, "2"), (2, "4")]
+        let order: [(Int, String, String)] = [(-2, "¼", "Quarter speed"), (-1, "½", "Half speed"), (0, "1", "Normal speed"), (1, "2", "Double speed"), (2, "4", "Quadruple speed")]
         let segW = max(1, (width - 4 * 3) / 5)
         return VStack(alignment: .leading, spacing: 2) {
             Text("SPEED · VS LANE \(line.listenSourceResolved(ownLane: idx) + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1)
+                .accessibilityHidden(true)
             HStack(spacing: 3) {
-                ForEach(order, id: \.0) { exp, glyph in
+                ForEach(order, id: \.0) { exp, glyph, spoken in
                     let on = line.listenSpeedResolved == exp
                     Text("×\(glyph)").font(.system(size: 11, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? patternSelectedText : patternUnselectedText)
@@ -5622,6 +5633,9 @@ struct EuclideousPage: View {
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color.white.opacity(0.14) : patternUnselectedFill))
                         .contentShape(Rectangle())
                         .onTapGesture { edit(idx) { $0.listenSpeed = exp } }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(spoken)
+                        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                 }
             }
         }
@@ -5630,12 +5644,13 @@ struct EuclideousPage: View {
     /// §2.3 line 2: DIRECTION — the SAME three chevrons the RHYTHM tab's own `directionRow` draws
     /// (< >< >), writing `listenDirection` instead of the lane's own `direction`.
     private func listenDirectionControl(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
-        let order: [(EuclidDir, String)] = [(.bkw, "<"), (.pingpong, "><"), (.fwd, ">")]
+        let order: [(EuclidDir, String, String)] = [(.bkw, "<", "Backward"), (.pingpong, "><", "Ping-pong"), (.fwd, ">", "Forward")]
         let segW = max(1, (width - 4 * 2) / 3)
         return VStack(alignment: .leading, spacing: 2) {
             Text("DIRECTION").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                .accessibilityHidden(true)
             HStack(spacing: 4) {
-                ForEach(order, id: \.0) { dir, glyph in
+                ForEach(order, id: \.0) { dir, glyph, spoken in
                     let on = line.listenDirectionResolved == dir
                     Text(glyph).font(.system(size: 13, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? patternSelectedText : patternUnselectedText)
@@ -5644,6 +5659,9 @@ struct EuclideousPage: View {
                         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                         .contentShape(Rectangle())
                         .onTapGesture { edit(idx) { $0.listenDirection = dir } }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(spoken)
+                        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                 }
             }
         }
@@ -5655,7 +5673,7 @@ struct EuclideousPage: View {
         let btnW = max(1, (fullWidth - labelW - gap * 4) / 4)
         let mode = line.listenPitchResolved
         return HStack(spacing: gap) {
-            Text("PITCH").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading)
+            Text("PITCH").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             listenModeButton(name: "OWN", hint: "ITS OWN RIFF", lit: mode == .own, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenPitch = .own } }
             listenModeButton(name: "SHADOW", hint: "ITS NOTE NOW", lit: mode == .shadow, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenPitch = .shadow } }
             listenModeButton(name: "ECHO", hint: "ITS LINE, IN TURN", lit: mode == .echo, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenPitch = .echo } }
@@ -5977,7 +5995,7 @@ struct EuclideousPage: View {
             let line = heldOriginal ?? lines[i]
             // `walkTagShows(i)`'s own test, inlined against the override-aware `line` above (that function
             // reads `lines[i]` directly, which would bypass the held-original substitution).
-            let riffOn = line.riffOnResolved && line.listenPitchMode != .shadow
+            let riffOn = euclideousLanePlaysRiff(line)
             let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
             let muted = !euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats)
             let flare = riffPulse(i, now: now)?.f ?? 0   // PULSE §4.1: velocity-scaled flash of the lane's latest riff strike (was the comet bar's step-based flare)
@@ -6125,7 +6143,7 @@ struct EuclideousPage: View {
     private func walkTagShows(_ i: Int) -> Bool {
         // LOOP SLOTS: there is only ONE grid now (the effective grid, §11.1) — the old "is the editing
         // tab the one actually playing" disagreement this guarded against no longer exists.
-        guard i < min(4, lines.count), lines[i].riffOnResolved, lines[i].listenPitchMode != .shadow else { return false }
+        guard i < min(4, lines.count), euclideousLanePlaysRiff(lines[i]) else { return false }
         return true
     }
     private func walkTagConfigs(suppress: Bool) -> [EuclideousWalkLaneConfig?] {

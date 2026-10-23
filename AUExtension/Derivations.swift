@@ -4666,8 +4666,6 @@ struct EuclideousWalkLaneConfig {
     /// The lane's mute grid (cells + cell length in beats), for the roll and the lane card. 0 length = always audible.
     var muteCells: UInt16 = 0xFFFF
     var muteUnitBeats: Double = 0
-    /// LISTEN WITH / GAPS: when set, a raw pattern hit only STRIKES if it passes the partner coincidence test. nil = no filter.
-    var listen: EuclideousWalkListenFilter? = nil
     var riffDir: RiffDir = .forward
     var stride: Int = 1
     var length: Int = 8
@@ -4700,49 +4698,49 @@ struct EuclideousWalkLaneConfig {
     var tempo: Double = 120
 }
 
-/// What `Router.runEuclidLine`'s `passesListenRhythmFilter` reads for a WITH / GAPS lane, captured once: the PARTNER's own
-/// finished pattern, direction and rate, the span the engine re-anchors the coincidence lookup on, and its tolerance.
-/// WITH strikes only when the partner has a hit at that tick; GAPS only when it has none.
-struct EuclideousWalkListenFilter {
-    var requireCoincide: Bool       // true = WITH, false = GAPS
-    var buf: [Bool]
-    var n: Int
-    var dir: EuclidDir
-    var rateBeats: Double
-    var spanBeats: Double           // the engine's `spanBeats` for this lane (NOT the mirror's own reset origin)
-    var epsilonBeats: Double        // 1ms in beats at the host tempo
-}
+// LISTEN REBUILT (2026-10-23): `EuclideousWalkListenFilter` (the old WITH/GAPS partner-coincidence test)
+// deleted — the new RHYTHM model has no per-tick FILTER concept at all; COPY/FILL already REPLACE
+// `EuclideousWalkLaneConfig.buf` itself (`euclideousEffectiveHitPattern`, above), so every tick that's a
+// hit in the mirror's own buffer genuinely strikes, matching the engine's own `let isHit = rawIsHit`
+// (Router.swift, no listen filter any more either).
 
-/// The partner lane index lane `lane` is FOLLOWing, or nil: only RHYTHM → FOLLOW with a partner that exists counts (WITH and
-/// GAPS keep the lane's own rhythm, so they are NOT following). The ONE definition the engine mirror, the lane card's look
-/// and its gestures all share.
-func euclideousFollowPartner(lane: Int, lines: [EuclidLine]) -> Int? {
-    guard lane >= 0, lane < lines.count, lines[lane].listenRhythmMode == .follow else { return nil }
-    let p = lines[lane].listenRhythmPartnerResolved
-    return p >= 0 && p < lines.count ? p : nil
+/// LISTEN REBUILT (2026-10-23): the source lane `lane`'s RHYTHM is borrowing from, or nil — RHYTHM COPY or
+/// FILL only (OWN keeps the lane's own rhythm — not borrowing); renamed from the old `euclideousFollowPartner`
+/// (FOLLOW-only) since COPY and FILL both borrow the pattern wholesale, identically. The ONE definition the
+/// engine mirror, the lane card's look and its gestures all share.
+func euclideousRhythmBorrowPartner(lane: Int, lines: [EuclidLine]) -> Int? {
+    guard lane >= 0, lane < lines.count else { return nil }
+    let L = lines[lane]
+    guard L.listenRhythmResolved == .copy || L.listenRhythmResolved == .fill else { return nil }
+    let p = L.listenSourceResolved(ownLane: lane)
+    return p >= 0 && p < lines.count && p != lane ? p : nil
 }
 /// The lane whose RHYTHM the lane's own bar gestures (drag up/down = HITS, left/right = OFFSET, pinch = STEPS) should edit: the
-/// partner it follows, else itself. A follower plays its partner's pattern, so the gesture edits what it is following.
+/// partner it's borrowing from, else itself. A borrowing lane plays its source's pattern, so the gesture edits what it's borrowing.
 func euclideousRhythmGestureTarget(lane: Int, lines: [EuclidLine]) -> Int {
-    euclideousFollowPartner(lane: lane, lines: lines) ?? lane
+    euclideousRhythmBorrowPartner(lane: lane, lines: lines) ?? lane
 }
-/// How faded a FOLLOW lane's lit cells are drawn (1 = full strength): the cells are the PARTNER's hits in the partner's colour,
-/// a little softer than a lane's own so they still read as "borrowed".
+/// How faded a borrowing lane's lit cells are drawn (1 = full strength): the cells are the SOURCE's hits in
+/// the source's colour, a little softer than a lane's own so they still read as "borrowed".
 let euclideousListenCellFade: Double = 0.75
 
 /// The pattern lane `lane` ACTUALLY plays, exactly as `Router.runEuclidLine` builds it: its own HITS/TILT/hand-edits/OFFSET/INV
-/// — or, when it is FOLLOWing a valid partner, the PARTNER's finished pattern and step count with THIS lane's own OFFSET and INV
-/// applied on top. `followsPartner` tells the UI whether the lane's own pulses/steps are the pattern at all: when they are not,
-/// anything drawn from them (the step bar's cells, its footer) would disagree with what sounds. `rateBeats` is the step length
-/// the engine ticks at — the lane's own rate, or the partner's × the FOLLOW multiplier — so the comet's sweep can match it
-/// (`defaultRateBeats` stands in for a lane whose rate is unset, as everywhere in the UI's mirror).
+/// — or, while RHYTHM is COPY/FILL, the SOURCE's finished pattern (COPY/FILL'd, remapped by DIRECTION, shifted by DELAY) and step
+/// count. UNLIKE the old FOLLOW, this lane's own OFFSET/INV do NOT apply on top (§7: "a tab is either fully the lane's own or
+/// fully paused" — matching the engine's own change, Router.swift's new RHYTHM block). `followsPartner` tells the UI whether the
+/// lane's own pulses/steps are the pattern at all: when they are not, anything drawn from them (the step bar's cells, its footer)
+/// would disagree with what sounds. `rateBeats` is the step length the engine ticks at — the lane's own rate, or the source's ÷
+/// 2^SPEED (`defaultRateBeats` stands in for a lane whose rate is unset, as everywhere in the UI's mirror).
 /// ONE function for the walk-tag mirror and the lane card, so neither can drift from the engine on its own.
 func euclideousEffectivePattern(lane: Int, lines: [EuclidLine], defaultRateBeats: Double = 0.25) -> (buf: [Bool], n: Int, followsPartner: Bool, rateBeats: Double)? {
     guard let e = euclideousEffectiveHitPattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
     return (e.buf, e.n, e.followsPartner, e.rateBeats)
 }
-/// `euclideousEffectivePattern` plus the lane's hit TIMING inputs (RHYTHM POLISH, 2026-10-22): the buffer-space in-step positions of a fine TILT and the total OFFSET fraction (a FOLLOW lane adds its partner's, whose
-/// own offset already rotates the shape it inherits). The cells are exactly the ones the Router builds.
+/// `euclideousEffectivePattern` plus the lane's hit TIMING inputs (RHYTHM POLISH, 2026-10-22, extended by
+/// LISTEN REBUILT's own FEEL): the buffer-space in-step positions (a fine TILT, or FEEL's uniform micro-
+/// delay while borrowing) and the total OFFSET fraction (0 while borrowing — DELAY/SPEED/DIRECTION replace
+/// that role; see `euclideousListenBorrowedIndex`/the engine's own comment on why OFFSET doesn't apply on
+/// top any more). The cells are exactly the ones the Router builds.
 struct EuclideousEffectiveHitPattern {
     var buf: [Bool]; var n: Int; var followsPartner: Bool; var rateBeats: Double
     var micro: [Double]; var fraction: Double
@@ -4752,14 +4750,23 @@ func euclideousEffectiveHitPattern(lane: Int, lines: [EuclidLine], defaultRateBe
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
     var cells = [Bool](repeating: false, count: 16), micro = [Double](repeating: 0, count: 16)
-    if let followIdx = euclideousFollowPartner(lane: lane, lines: lines) {
-        // Mirrors Router: the partner's finished pattern + step count (+ its in-step positions and fraction), then THIS lane's own OFFSET / FLIP on top.
-        let n = euclideousBuildHitPatternInto(lines[followIdx], cells: &cells, micro: &micro)
-        euclidRotateBuffer(&cells, steps: n, rotation: L.rotate)
-        euclidRotateMicro(&micro, steps: n, rotation: L.rotate)
-        if L.patternMissResolved { for i in 0..<n { cells[i].toggle(); micro[i] = 0 } }
-        return EuclideousEffectiveHitPattern(buf: cells, n: n, followsPartner: true, rateBeats: (lines[followIdx].rate?.beats ?? defaultRateBeats) * L.listenFollowRatioResolved,
-                                             micro: micro, fraction: lines[followIdx].offsetFractionResolved + L.offsetFractionResolved)
+    if let sourceIdx = euclideousRhythmBorrowPartner(lane: lane, lines: lines) {
+        // Mirrors Router's new COPY/FILL block exactly: the source's own pattern, COPY/FILL'd, remapped by
+        // DIRECTION (relative to the source's own live order) and shifted by DELAY (a buffer rotation).
+        let sourceLine = lines[sourceIdx]
+        var scratch = [Bool](repeating: false, count: 16), scratchMicro = [Double](repeating: 0, count: 16)
+        let sourceN = euclideousBuildHitPatternInto(sourceLine, cells: &scratch, micro: &scratchMicro)
+        var borrowed = [Bool](repeating: false, count: 16)
+        euclideousListenBorrowedHits(sourcePattern: scratch, n: sourceN, mode: L.listenRhythmResolved, into: &borrowed)
+        for k in 0..<sourceN {
+            let srcIdx = euclideousListenBorrowedIndex(followerRaw: k, n: sourceN, followerDirection: L.listenDirectionResolved, sourceDirection: sourceLine.directionResolved)
+            cells[k] = borrowed[srcIdx]
+        }
+        let n = sourceN
+        euclidRotateBuffer(&cells, steps: n, rotation: -L.listenDelayResolved)
+        if L.listenFeelResolved != 0 { for i in 0..<n where cells[i] { micro[i] = max(-0.5, min(0.5, L.listenFeelResolved * 0.5)) } }
+        let rateBeats = (sourceLine.rate?.beats ?? defaultRateBeats) / pow(2.0, Double(L.listenSpeedResolved))
+        return EuclideousEffectiveHitPattern(buf: cells, n: n, followsPartner: true, rateBeats: rateBeats, micro: micro, fraction: 0)
     }
     let n = euclideousBuildHitPatternInto(L, cells: &cells, micro: &micro)
     return EuclideousEffectiveHitPattern(buf: cells, n: n, followsPartner: false, rateBeats: L.rate?.beats ?? defaultRateBeats, micro: micro, fraction: L.offsetFractionResolved)
@@ -4772,15 +4779,17 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                               beatsPerBar: Double = 4, tempo: Double = 120) -> EuclideousWalkLaneConfig? {
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
-    let followIdx = L.listenRhythmPartnerResolved   // the rhythm partner of ANY listen mode (WITH/GAPS use it below)
     guard let eff = euclideousEffectiveHitPattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
     // RHYTHM POLISH: a lane with timing (a fraction and/or a fine TILT) is read in TICK space — the layout the Router builds — with its per-tick delays; any other lane keeps the buffer it always had.
     var buf = eff.buf, n = eff.n
-    var cfgDir = L.directionResolved
+    // LISTEN REBUILT §3.4: `eff.buf` for a borrowing lane (COPY/FILL) is ALREADY in its own final tick
+    // order (DIRECTION baked in by `euclideousEffectiveHitPattern`) — the lane's own `direction` must NOT
+    // read it a second time, matching the engine's own identical fix (Router.swift's `let dir = ...`).
+    var cfgDir = eff.followsPartner ? EuclidDir.fwd : L.directionResolved
     var timing = EuclideousHitTiming.none
     if eff.hasTiming {
         var tc = [Bool](repeating: false, count: 32), td = [Double](repeating: 0, count: 32)
-        let cl = euclideousHitLayoutInto(cells: eff.buf, micro: eff.micro, fraction: eff.fraction, n: eff.n, dir: L.directionResolved, outCells: &tc, outDelay: &td)
+        let cl = euclideousHitLayoutInto(cells: eff.buf, micro: eff.micro, fraction: eff.fraction, n: eff.n, dir: cfgDir, outCells: &tc, outDelay: &td)
         buf = Array(tc[0..<cl]); n = cl; cfgDir = .fwd
         timing = EuclideousHitTiming(delay: Array(td[0..<cl]))
     }
@@ -4802,20 +4811,9 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
         ? EuclideousLaneRestartChains(rhythm: .from(L.restartRhythmBars ?? []), melody: .from(L.restartMelodyPasses ?? []),
                                       barBeats: beatsPerBar, lapBeats: passBeats)
         : .off
-    // LISTEN WITH / GAPS: the engine's coincidence lookup uses ITS `spanBeats` — one full LANES lap when a mask is set,
-    // else the bars span — which differs from the mirror's own reset origin above, so it is captured separately.
-    var listen: EuclideousWalkListenFilter? = nil
-    if let mode = L.listenRhythmMode, mode != .follow, followIdx >= 0, followIdx < lines.count {
-        let partner = lines[followIdx]
-        let pb = euclideousBuildPattern(partner)
-        let engineSpan = grid.isActive ? Double(16 * grid.unitTicks) * sub : ladderSpan
-        listen = EuclideousWalkListenFilter(requireCoincide: mode == .with, buf: pb.buf, n: pb.n, dir: partner.directionResolved,
-                                            rateBeats: partner.rate?.beats ?? defaultRateBeats, spanBeats: engineSpan,
-                                            epsilonBeats: 0.001 * (max(1, tempo) / 60.0))
-    }
     return EuclideousWalkLaneConfig(buf: buf, n: n, dir: cfgDir, sub: sub, spanBeats: spanBeats,
                                     grid: grid, chains: chains, muteCells: g.muteCells,
-                                    muteUnitBeats: g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub), listen: listen,
+                                    muteUnitBeats: g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub),
                                     riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: L.riffLengthResolved,
                                     rotate: L.riffRotateResolved, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved,
                                     seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)), every: L.riffAdvanceEveryResolved,
@@ -4851,17 +4849,10 @@ func euclideousWalkTick(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Euclideou
     // chain of exactly [1] reproduces old LOCK's own re-anchoring with no special-casing (§4.7).
     let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, tick: tick,
                                        chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
-    // WITH / GAPS: the engine folds the partner check into the STRIKE decision only — `advOrd` still counts every raw hit of the
-    // lane's own pattern ("the lane keeps its own rhythm"), so a filtered tick advances the ordinal silently and the next strike
-    // lands further along the walk.
-    var strikes = info.rawIsHit
-    if info.rawIsHit, let f = c.listen {
-        let tickBeat = Double(tick) * c.sub
-        let coincides = euclideousListenPartnerHasHitAt(buf: f.buf, n: f.n, dir: f.dir, rateBeats: f.rateBeats, spanBeats: f.spanBeats,
-                                                         atBeat: tickBeat, epsilonBeats: f.epsilonBeats)
-        strikes = f.requireCoincide ? coincides : !coincides
-    }
-    return EuclideousWalkTick(isHit: info.rawIsHit, strikes: strikes, advOrd: info.advOrd, playedStep: euclideousWalkStep(c, ord: info.advOrd))
+    // LISTEN REBUILT: no per-tick filter any more — COPY/FILL already replaced `c.buf` itself (see
+    // `euclideousEffectiveHitPattern`), so every raw hit genuinely strikes, matching the engine's own
+    // `let isHit = rawIsHit` (Router.swift).
+    return EuclideousWalkTick(isHit: info.rawIsHit, strikes: info.rawIsHit, advOrd: info.advOrd, playedStep: euclideousWalkStep(c, ord: info.advOrd))
 }
 /// The riff step (0-based, post-SHIFT) the walk lands on at ordinal `ord` — RIFF WALK ferry §5.2: routed
 /// through `euclideousRiffColumn` (ordinal -> walk step w = floor(ord/EVERY) -> column), the ONE place
@@ -5889,24 +5880,20 @@ func euclideousNotesLayerIsOn(_ line: EuclidLine) -> Bool { line.notesOnResolved
 /// The four lane-card tabs, in tab order (the page's `EuclideousLaneTab` has the same raw values).
 enum EuclideousTabKind: Int, CaseIterable { case rhythm = 0, riff = 1, notes = 2, listen = 3 }
 enum EuclideousGlyphShape: Equatable { case none, square, bar, circle }
+// LISTEN REBUILT (2026-10-23): the old `.anyLane` case (the AVOID-ANY quartered circle) is retired — the
+// new model has exactly one source lane, never "any lane".
 enum EuclideousGlyphFill: Equatable {
     case lane(Int)   // that lane's lane100
-    case anyLane     // the four lane colours in quarters (the LISTEN partner picker's ANY dot)
 }
 struct EuclideousTabGlyph: Equatable { var shape: EuclideousGlyphShape; var on: Bool; var fill: EuclideousGlyphFill }
 
-/// What LISTEN is following: the first lit row in tab order (RHYTHM, PITCH, LEVEL) whose partner is a stored lane other than this one; an AVOID row set to ANY is "any lane". A lit row with no stored partner (an old
-/// or hand-made document — the pickers always store one) is no source at all, and so is a row pointing at its own lane.
-enum EuclideousListenSource: Equatable { case none, lane(Int), any }
+/// LISTEN REBUILT (2026-10-23): what LISTEN is following — the lane's one resolved source while RHYTHM or
+/// PITCH is anything but OWN (`isFollowingResolved`), else no source at all. There is no "ANY" any more
+/// (the new model has exactly one source lane for the whole tab, §2.1 — three chips, never an ANY option).
+enum EuclideousListenSource: Equatable { case none, lane(Int) }
 func euclideousListenSource(_ line: EuclidLine, lane: Int) -> EuclideousListenSource {
-    func specific(_ p: Int?) -> Int? { guard let p, (0..<4).contains(p), p != lane else { return nil }; return p }
-    if line.listenRhythmMode != nil, let p = specific(line.listenRhythmPartner) { return .lane(p) }
-    if line.listenPitchMode != nil {
-        if line.listenPitchPartnerAnyResolved { return .any }
-        if let p = specific(line.listenPitchPartner) { return .lane(p) }
-    }
-    if line.listenLevelMode != nil, let p = specific(line.listenLevelPartner) { return .lane(p) }
-    return .none
+    guard line.isFollowingResolved else { return .none }
+    return .lane(line.listenSourceResolved(ownLane: lane))
 }
 /// §5.3. `lane` is the lane the tab row belongs to (RIFF and NOTES fill in its colour).
 func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> EuclideousTabGlyph {
@@ -5917,7 +5904,6 @@ func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> 
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
         case .lane(let p): return EuclideousTabGlyph(shape: .circle, on: true, fill: .lane(p))
-        case .any:         return EuclideousTabGlyph(shape: .circle, on: true, fill: .anyLane)
         case .none:        return EuclideousTabGlyph(shape: .circle, on: false, fill: .lane(lane))
         }
     }
@@ -5925,27 +5911,58 @@ func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> 
 /// §2.3: the RHYTHM tab's "hits" and "steps" ("5/16"): the same two numbers the HITS and STEPS sliders print — except on a FOLLOW lane, which PLAYS its partner's pattern (so its own HITS/STEPS are not what the strip beside the tab shows):
 /// there it is the pattern that plays, from `euclideousEffectivePattern` (the partner's step count and hits, with this lane's own FLIP applied), the one function the lane card's strip and the engine mirror share.
 func euclideousRhythmTabCounts(lane: Int, lines: [EuclidLine]) -> (hits: String, steps: String) {
-    if euclideousFollowPartner(lane: lane, lines: lines) != nil, let e = euclideousEffectivePattern(lane: lane, lines: lines) {
+    if euclideousRhythmBorrowPartner(lane: lane, lines: lines) != nil, let e = euclideousEffectivePattern(lane: lane, lines: lines) {
         return ("\(e.buf.prefix(e.n).filter { $0 }.count)", "\(e.n)")
     }
     let line = lane >= 0 && lane < lines.count ? lines[lane] : EuclidLine()
     return (euclideousSliderValueText(.hits, line), euclideousSliderValueText(.steps, line))
 }
+/// §7.1 (LISTEN REBUILT, 2026-10-23): a borrowing lane's RHYTHM header shows the LINK instead of a count —
+/// "← n" (the source lane, 1-based) — since §7's "a tab is either fully the lane's own or fully paused"
+/// means the hits/steps number isn't the thing to show any more (`euclideousRhythmTabCounts`, above, still
+/// reads the real effective pattern for VoiceOver, which wants the actual number, not the link).
 func euclideousRhythmTabCount(lane: Int, lines: [EuclidLine]) -> String {
+    let line = lane >= 0 && lane < lines.count ? lines[lane] : EuclidLine()
+    if euclideousRhythmBorrowPartner(lane: lane, lines: lines) != nil {
+        return "← \(line.listenSourceResolved(ownLane: lane) + 1)"
+    }
     let c = euclideousRhythmTabCounts(lane: lane, lines: lines)
     return "\(c.hits)/\(c.steps)"
 }
-/// §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" / "Riff, off" · "Notes, on" / "Notes, off" · "Listen, on, following lane 2" / "Listen, off".
+/// §7.1: RIFF/NOTES's own header override while paused by SHADOW/ECHO (RIFF) or SHADOW/ECHO-with-NOTES-
+/// reading-the-riff (NOTES) — the same "← n" link RHYTHM's own override shows above; nil when that tab
+/// isn't paused (RIFF/NOTES have no number there otherwise — unlike RHYTHM, they never had one to begin
+/// with, so showing nothing is the right "no override" answer, not a fallback count).
+func euclideousPausedTabHeaderText(tab: EuclideousTabKind, lane: Int, lines: [EuclidLine]) -> String? {
+    guard lane >= 0, lane < lines.count, tab == .riff || tab == .notes else { return nil }
+    let line = lines[lane]
+    let b = euclideousListenBorrowedTabs(rhythm: line.listenRhythmResolved, pitch: line.listenPitchResolved, notesReadsRiff: true)
+    let paused = tab == .riff ? b.riff : b.notes
+    guard paused else { return nil }
+    return "← \(line.listenSourceResolved(ownLane: lane) + 1)"
+}
+/// §4.1/§10: "Rhythm, 5 of 16 hits" · "Riff, on" / "Riff, off" · "Notes, on" / "Notes, off" · "Listen, on, following lane 2" / "Listen, off".
+/// LISTEN REBUILT (2026-10-23): a RHYTHM/RIFF/NOTES tab that's PAUSED (borrowed whole, §7) says so out
+/// loud too — "paused, following lane n" — since the header's own "← n" (§7.1) is a sighted-only cue.
 func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine], lane: Int) -> String {
     let line = lane >= 0 && lane < lines.count ? lines[lane] : EuclidLine()
+    let source = line.listenSourceResolved(ownLane: lane)
     switch tab {
-    case .rhythm: let c = euclideousRhythmTabCounts(lane: lane, lines: lines); return "Rhythm, \(c.hits) of \(c.steps) hits"
-    case .riff:   return "Riff, " + (euclideousTabGlyph(tab: .riff, line: line, lane: lane).on ? "on" : "off")
-    case .notes:  return "Notes, " + (euclideousTabGlyph(tab: .notes, line: line, lane: lane).on ? "on" : "off")
+    case .rhythm:
+        let c = euclideousRhythmTabCounts(lane: lane, lines: lines)
+        if euclideousRhythmBorrowPartner(lane: lane, lines: lines) != nil {
+            return "Rhythm, paused, following lane \(source + 1), \(c.hits) of \(c.steps) hits"
+        }
+        return "Rhythm, \(c.hits) of \(c.steps) hits"
+    case .riff:
+        if euclideousPausedTabHeaderText(tab: .riff, lane: lane, lines: lines) != nil { return "Riff, paused, following lane \(source + 1)" }
+        return "Riff, " + (euclideousTabGlyph(tab: .riff, line: line, lane: lane).on ? "on" : "off")
+    case .notes:
+        if euclideousPausedTabHeaderText(tab: .notes, lane: lane, lines: lines) != nil { return "Notes, paused, following lane \(source + 1)" }
+        return "Notes, " + (euclideousTabGlyph(tab: .notes, line: line, lane: lane).on ? "on" : "off")
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
         case .lane(let p): return "Listen, on, following lane \(p + 1)"
-        case .any:         return "Listen, on, following any lane"
         case .none:        return "Listen, off"
         }
     }
@@ -7438,16 +7455,17 @@ func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGF
                                    valueStepperWidth: valueStepperWidth, underFloor: underFloor)
 }
 
-/// A Euclideous lane's step length, step count and lap length exactly as `Router.runEuclidLine` derives them — a FOLLOWing lane ticks at
-/// its partner's rate × the FOLLOW multiplier over the partner's step count. Reads fields only (no pattern is built), so the render
-/// thread's mute edge-detect sweep can use it before any lane runs. `defaultRateBeats` stands in for a lane with no rate of its own.
+/// A Euclideous lane's step length, step count and lap length exactly as `Router.runEuclidLine` derives them — a lane borrowing
+/// RHYTHM (COPY/FILL) ticks at its source's rate ÷ 2^SPEED over the source's own step count. Reads fields only (no pattern is
+/// built), so the render thread's mute edge-detect sweep can use it before any lane runs. `defaultRateBeats` stands in for a
+/// lane with no rate of its own.
 func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats: Double) -> (sub: Double, n: Int, cycleLen: Int) {
     guard lane >= 0, lane < lines.count else { return (defaultRateBeats, 8, 8) }
     let L = lines[lane]
     let n: Int, sub: Double
-    if let partner = euclideousFollowPartner(lane: lane, lines: lines) {
-        n = max(2, min(16, lines[partner].steps))
-        sub = (lines[partner].rate?.beats ?? defaultRateBeats) * L.listenFollowRatioResolved
+    if let source = euclideousRhythmBorrowPartner(lane: lane, lines: lines) {
+        n = max(2, min(16, lines[source].steps))
+        sub = (lines[source].rate?.beats ?? defaultRateBeats) / pow(2.0, Double(L.listenSpeedResolved))
     } else {
         n = max(2, min(16, L.steps))
         sub = L.rate?.beats ?? defaultRateBeats
@@ -7802,7 +7820,10 @@ func euclideousFXTieColumns(_ fx: EuclideousFX, line: EuclidLine, lane: Int) -> 
 }
 /// "The lane plays the riff": its riff layer is on and it isn't SHADOWing a partner (the shadow branch REPLACES the riff layer). The one definition the
 /// Router's gate, the roll and the walk tags share.
-func euclideousLanePlaysRiff(_ line: EuclidLine) -> Bool { line.riffOnResolved && line.listenPitchMode != .shadow }
+// LISTEN REBUILT: RIFF pauses under SHADOW OR ECHO now (both replace it entirely), not just SHADOW.
+func euclideousLanePlaysRiff(_ line: EuclidLine) -> Bool {
+    line.riffOnResolved && line.listenPitchResolved != .shadow && line.listenPitchResolved != .echo
+}
 
 /// §2.2/§2.3 — what the rows do to a hit on `lane` that reads riff `column` (0…7) whose WRITTEN rank (before INVERT and before the NOTE offset) is
 /// `writtenRank`; `pass` is the hit's NOTE pass index (7.2; only read when a NOTE cell applies). Applies only when (a) the row has the lane on, (b) the
@@ -9952,10 +9973,11 @@ func euclidGroupedBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidSte
 func euclidStepGroupSize(forRate rate: ArpRate) -> Int {
     euclideousRateDivisionFeel(rate).feel == 2 ? 3 : 4
 }
-/// The division the lane card's strip (and so its beat groups) runs on: the PARTNER's rate for a FOLLOW lane (it plays the partner's pattern at the partner's rate), else the lane's own; an unset rate reads 1/16 as everywhere
-/// in the UI's mirror. The one place the page's `EuclidLaneBox(rate:)` and the beat-group tests read it from.
+/// The division the lane card's strip (and so its beat groups) runs on: the SOURCE's rate while RHYTHM is borrowing (COPY/FILL), else
+/// the lane's own; an unset rate reads 1/16 as everywhere in the UI's mirror. The one place the page's `EuclidLaneBox(rate:)` and the
+/// beat-group tests read it from.
 func euclideousStripDivisionRate(lane: Int, lines: [EuclidLine]) -> ArpRate {
-    if let p = euclideousFollowPartner(lane: lane, lines: lines) { return lines[p].rate ?? .r1_16 }
+    if let p = euclideousRhythmBorrowPartner(lane: lane, lines: lines) { return lines[p].rate ?? .r1_16 }
     return lane >= 0 && lane < lines.count ? (lines[lane].rate ?? .r1_16) : .r1_16
 }
 /// The step columns a caller lays out: the Euclideous lane STRIP (CLARITY PASS) gets the even geometry, every other grouped caller the grouped one. One call site per use keeps the draw closures' DEBUG frames small.
