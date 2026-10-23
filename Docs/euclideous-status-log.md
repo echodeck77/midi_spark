@@ -85,6 +85,50 @@ project has been building this whole stretch.
   exists, tested, unused; DUCK/ACCENT's retirement and ANY's retirement are one-way (an old document loses
   that specific behaviour on migration, not just its UI). Device-owed: see
   `Docs/euclideous-device-verification-debt.md`'s new "LISTEN REBUILT" section.**
+- **▶ LISTEN REBUILT — adversarial-review fixes (2026-10-23, same branch, landed right after the ferry
+  above; targeted test runs only — RouterTests/ListenTabTests/ClarityPassTests/FXTabTests/LaneLockTests/
+  LanesGridTests/DerivationsTests/RestartChainsTests/EffectiveParamsTests, 1600+ tests, 0 failures; the full
+  suite was not run this pass, by explicit instruction; iOS build clean).** An adversarial review against the
+  RAW ferry text (recovered from the session transcript — not the plan paraphrase) found 10 issues; all fixed.
+  **Two real engine bugs.** (1) DELAY never implemented §3.6's "before the first DELAY steps of a transport
+  run have passed, it plays nothing" — the engine only ever cyclically rotated the borrowed buffer, so the
+  grace period sounded wrapped-around content from the end of the source's pattern instead of resting (and
+  threw ECHO's hit-rank counter off by exactly DELAY from the first bar). Fixed: a new
+  `euclideousListenTransportStartBeat` anchor, stamped on the transport's START edge only (`wasPlaying &&
+  !playing` already fired on both edges; the new `playing && !wasPlaying` branch inside it is additive), and
+  a `withinDelayGrace` gate folded into `isHit` itself — upstream of the riff walk / ECHO's
+  `euclideousEchoFollowerJ` counter, matching §11.8's own worked example (a true rest, not a muted-but-
+  counted hit: ECHO's hit rank must start at 0 on the first tick that actually sounds). (2) §3.5 ("the
+  follower's own RHYTHM RESTART and MELODY RESTART are not read while COPY or FILL is on") was violated —
+  `line.usesRestartChains` was read with no `copyOrFillValid` guard at all. The naive fix (force `.off`)
+  regressed `testShadowFollowsARhythmChainThatCutsThePassShort`, because §3.5 ALSO requires "the follower
+  restarts with every source restart" — a borrowing lane now reads the SOURCE's own chain fields instead of
+  its own, with `lapBeats` built from the follower's own already-SPEED-scaled `cycleLen`/`sub`, so the
+  source's real bar-based restart schedule drives the follower's phase while how many of the follower's own
+  laps fit between restarts still scales with SPEED. **The §7.2 paused-card overlay, rebuilt to match the
+  literal spec** (the first build, done without the raw text in hand, invented plausible-looking values
+  instead): title colour #F2F4F7 not lane-coloured; the exact per-mode explanatory sentence with live hit/
+  gap counts ("Copying its h of s hits...", "Filling its gaps: g of s steps...", "Playing its notes (SHADOW/
+  ECHO)...") at 13pt #D5D9E0, not a generic one-liner; buttons now a real 44pt tall; card padding sp16, fill
+  #24262C, border at 50% opacity; and "centred over" the dimmed body (`maxWidth`/`maxHeight`, hugging its own
+  content) instead of filling it. **Smaller, still real:** §7.1's "← n" header mark now reads the SOURCE
+  lane's colour (was the follower's own); the DELAY/FEEL steppers' `−`/`+` tap targets grow to the spec's
+  44×44 via the same overflow-`contentShape` technique the RHYTHM tab's own buttons already use (the drawn
+  glyph stays visually 16pt — too narrow a panel to draw 44pt without crowding the value out); OCTAVE/
+  INTERVAL's clamp (§6.3) now shifts by whole octaves (`euclideousListenOctaveClamp`) instead of a linear
+  `max(0,min(127,_))`, which changed pitch class at the boundary; a disabled FOLLOW chip is now genuinely
+  unfilled (was the same fill as an ordinary unselected chip). **Tests added:** the spec's own §11.8
+  "Paul's canvas case" ECHO+DELAY worked example (`testListenEchoFollowsTheSourcesOwnLineInOrderCanonStyle`/
+  `testListenShadowDoublesWhateverTheSourceIsPlayingRightNow`) — never built the first time, which is exactly
+  why the DELAY bug shipped undetected; a DELAY-grace-is-once-per-run regression test
+  (`testListenT3bDelayGraceIsOnlyAtTransportStartNotEveryLap`); a leftover-restart-chain regression test
+  (`testListenCopyIgnoresTheFollowersOwnLeftoverRestartChains`); a LISTEN-field stuck-note stress test
+  (`testListenStressCyclingModeSourceSpeedAndDirectionLeavesNothingSounding`, mirroring the NOTES layer's own
+  "cycling everything" shape). Two pre-existing tests corrected: `testListenT3CopyWithDelay` had encoded the
+  DELAY bug's wrong output as its expected value; `testMoveByIntervalClampsIntoTheLegalMidiRangeByWholeOctaves`
+  had encoded the linear-clamp bug's wrong output likewise. **Not done:** §3.5's resync is now correct for
+  the common "source has a chain, follower doesn't" case and the reverse, verified by the one regression test
+  above that actually exercises a chain; it has not been fuzzed against every SPEED/chain-length combination.
 - **▶ EUCLIDEOUS — FLOORS ferry (2026-10-23, branch `fix/page-floors-fallbacks`; iOS build clean after each
   of 5 areas, `Scripts/run-euclideous-tests.sh` green after each (790 → 793 as tests were added), full macOS
   suite run before merge; every new threshold's actual look/feel is device-owed): turns the page's
