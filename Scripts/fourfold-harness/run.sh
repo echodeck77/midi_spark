@@ -3,7 +3,7 @@
 #   sh Scripts/fourfold-harness/run.sh            # the Fourfold page, ~20 s of emulated host playing, then the console summary + a screenshot
 #   sh Scripts/fourfold-harness/run.sh --reel     # the page for 15 s, then the REEL pass browser (screenshot at ~25 s)
 #   sh Scripts/fourfold-harness/run.sh --golden   # the sound oracle: default doc + every factory preset, 32 bars each, a hash of every MIDI byte (diff against golden.txt after an engine change)
-# The source list is generated from project.yml's FourfoldAU excludes, so the harness can never drift from the real target. Output: build/fourfold-harness/ (gitignored).
+# The harness compiles Fourfold/Engine + Fourfold/UI + Fourfold/Shared — the same folders the real targets do. Output: build/fourfold-harness/ (gitignored).
 set -e
 cd "$(dirname "$0")/../.."
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
@@ -11,10 +11,8 @@ OUT="$PWD/build/fourfold-harness"; mkdir -p "$OUT"
 UDID=$(xcrun simctl list devices available | grep -m1 "iPad Pro 11-inch" | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
 [ -n "$UDID" ] || { echo "no 'iPad Pro 11-inch' simulator found"; exit 1; }
 python3 - "$PWD" "$OUT" <<'PY'
-import re, sys
+import sys
 root, out = sys.argv[1], sys.argv[2]
-yml = open(root + '/project.yml').read()
-excl = re.search(r'FourfoldEngine:.*?excludes: \["Info.plist", (.*?)\]\n', yml, re.S).group(1)
 open(out + '/project.yml', 'w').write(f'''name: FFHarness
 options:
   bundleIdPrefix: com.example
@@ -33,9 +31,8 @@ targets:
     type: application
     platform: iOS
     sources:
-      - path: {root}/AUExtension
-        excludes: ["Info.plist", {excl}]
       - path: {root}/Fourfold/Engine
+      - path: {root}/Fourfold/UI
       - path: {root}/Fourfold/Shared
       - path: {root}/Scripts/fourfold-harness/Harness
     dependencies:

@@ -10,191 +10,192 @@
 		021019A5AE17098B3B3FFD3E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20AB7B8688724B64F843182A /* Assets.xcassets */; };
 		0237DEC8D0623653E5BBC0DA /* EuclideousRandomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923F68D1FA979B5D22C2336D /* EuclideousRandomTests.swift */; };
 		0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */; };
+		05DAA79479B5AE2D667435E8 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD093523154373C2AAE660A /* DesignKit.swift */; };
 		082EDD25118D30F089077601 /* CellBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F82B632EB1561C42D3E6FEA /* CellBrowser.swift */; };
+		0C924EDD62DA8F1C8070ADC3 /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCBDE4866C54153107885AD8 /* RandomModePainter.swift */; };
 		0CA5387EFCABC08168C68BC7 /* FourfoldAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29E016452526AE786D501E59 /* FourfoldAppModel.swift */; };
 		0DC1F33573D8F053E3E50C71 /* BuildSceneLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99B22785F1E8193ABD24B932 /* BuildSceneLogicTests.swift */; };
 		0DC85821415CABE6E2AE13F2 /* SnapshotBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB638CF9CF505A6ABF3A9423 /* SnapshotBuilderTests.swift */; };
 		0E302DE68952B25FFD357045 /* ListenTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89867917AE363D25219BF74 /* ListenTabTests.swift */; };
 		0E4071D6AF3A8B196FDC6124 /* FourfoldAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 32B0370916996785351E85CE /* FourfoldAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		0EDF355EE85CAC32E7D12C9A /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */; };
 		0FE7446438ED46D7FC87AFC8 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17328D614B4463EECE452DA4 /* BuildModel.swift */; };
 		113044D12C85756D9F258C57 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
 		11389DE07A052AF31C5B1535 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
-		137FF97999B9BFE11C5AEB5C /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */; };
 		14001737F3526E61A6910D74 /* ManualView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB579E7A98D1755158B6B0DE /* ManualView.swift */; };
 		145EEF1854DA254EBDE44F89 /* BuildGridSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */; };
-		16F04D23A9BB2FBB54809DED /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */; };
-		1712EF7CBD6FF7598417E7A7 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */; };
 		180727125096C44442B220D3 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
 		1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */; };
+		1A20747CD8C5C94DB29A9532 /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */; };
 		1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */; };
+		1AD97DB35C6C3B45B70171A9 /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E82635E86506C99FF107FC8 /* NotesTabPainter.swift */; };
 		1CD11205DFE28DBF0E1C4396 /* PageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF035CA65CFDFF5CAA7ED84D /* PageLayoutTests.swift */; };
-		1D36D9234DF57EEAF47724A0 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA758F0453138D242FAEF87 /* LaneSoloPainter.swift */; };
 		1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */; };
+		1EE2A1AEE5092A07851CD9FE /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2CE4922DDE31C0061FDC98 /* LanesPanelPainter.swift */; };
 		204572430D6CE1EBADA36680 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */; };
 		20646456AFE103561CB819CE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
 		20B7E16CF5D05D33B7D449B7 /* FourfoldTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C5620118A9BC83A7A1E8DB0 /* FourfoldTransportTests.swift */; };
 		21A237E4460BF2277F6B5A03 /* FourfoldAppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */; };
-		22648DBC76952CE34E018DCC /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */; };
+		23FDD91646D014E1346B617E /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */; };
 		282189AB3D697A6FA80FB740 /* AcceptanceTuttiLengthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */; };
 		2862323D03259AC99DF87345 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
+		288852EBB8ACE59F90F4E572 /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */; };
 		28E1FCD3397792DBD86B8803 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */; };
 		2A13BA2CD92BDE358A0AD2BA /* AcceptanceGatesSpecialTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */; };
 		2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
-		2BF306D9BA76475B775ABEC3 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE84D11C4695B381242AD6D /* DesignKit.swift */; };
 		2DB0FD1A6F363FF7810DD7C8 /* FourfoldRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */; };
 		310545FAC5863CD3DAD77CC4 /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F4BE86660C760F3CD73866 /* Kernel.swift */; };
+		31D850833DB23E88DEC4FE99 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */; };
 		324E17FEE1D0032E38B664AA /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
+		329BAEB907A84059CF8FBFBD /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59DF6CD888C95040E34660D5 /* EuclideousLock.swift */; };
 		33085BD85D007CFA610CC934 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9093C469F102E1F2CCC6DF7D /* MidiFile.swift */; };
+		33257FF396680B09DBDBE620 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
 		3437F7ABE70D5C93E7A4D0C0 /* LaneSoloTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		35CB6DD7FC7A5B6F80092961 /* BuildSelfTestMetaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */; };
 		368706B54B23A18EAE705127 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9093C469F102E1F2CCC6DF7D /* MidiFile.swift */; };
 		36AE872430F7852DAEE6C3E0 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */; };
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
-		37B39275AF411F83F192797A /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCEE6C74F049EB1EFF2C285 /* FourfoldCompose.swift */; };
+		37D78CF29446E0E2853F8732 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2E5E0509868140ED8AECD5 /* OutputRingPainter.swift */; };
 		37F89ABAB74E1492496863CC /* AcceptanceGeneratorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */; };
-		39AD3E6D2CDD1D5A0A84A660 /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */; };
+		3A2F3B82A370A99A045A1502 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
 		3B87266EA4A929D67995CA66 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */; };
-		3D4512FF81314AE66E4634FC /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324D879C239B5A1451B258F /* WalkTagPainter.swift */; };
 		3E9FF95A517649C43ED0D955 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */; };
 		3FEBDAA999631F93DD5B17E7 /* FourfoldAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */; };
-		478068440223FBC075B4429C /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE84D11C4695B381242AD6D /* DesignKit.swift */; };
+		41875BF40905DAC179B9C3EF /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */; };
+		4261A727230CC73522219D98 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */; };
+		45EA80F454F84483E68A9DC2 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */; };
+		461FEB25F66378A168BACD53 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */; };
 		47C29EACF7E0D356CD7DADDF /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */; };
-		48095A92F2350F94EF697096 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */; };
+		4A2F4629204778337D64903F /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
 		4AAAD0D744835419AF120580 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FBCA687DA3D7C57F31B353 /* Derivations.swift */; };
 		4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */; };
 		4F1866D5173CD9DDB623E9A8 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */; };
 		4F7BB6013CA868EE5B545EEE /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C260460EAF19255196447 /* NotesTabTests.swift */; };
 		51142768E24F20693A5BFF40 /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
+		52285FEB6BDCD4E6215D40FA /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F380ACB5AA7EF62B0F677A8A /* SharedUIHelpers.swift */; };
 		535A1B2559F8F03BB5220091 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9400D76881E4F5F6EFFF6BF3 /* Emission.swift */; };
 		5378CBD9629BE30614DE2733 /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */; };
 		542020F81F4F52D34C16DF18 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD9084051F44A6CAA1CFDFA9 /* Models.swift */; };
+		54E1359ABAD90A7E9CD9C4BD /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11A47312E5B36EA267536F5 /* LockModePainter.swift */; };
 		5533EBEF2E9CE4295C52B55C /* manual-skeleton.md in Resources */ = {isa = PBXBuildFile; fileRef = 688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */; };
-		55A6F63012B25E80B26E7311 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */; };
-		56A5F84FC15C9C9F0302DABA /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA758F0453138D242FAEF87 /* LaneSoloPainter.swift */; };
 		58C0C039EB97E7DB0F167462 /* FourfoldEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41C41DF4A68365DC33446B95 /* FourfoldEngine.swift */; };
+		58D4D5B400586BB6CDEC53FB /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11A47312E5B36EA267536F5 /* LockModePainter.swift */; };
 		59AB6964C8403D8ECB724041 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */; };
 		5A1ECD0A184CC6B215ED8EFD /* FourfoldApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */; };
 		5A8A8BD8E9DBBC7033433590 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9400D76881E4F5F6EFFF6BF3 /* Emission.swift */; };
 		5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D181AD808BD18E8D2F085F /* FuzzTests.swift */; };
 		5B182C150ACB6B3B81425BB0 /* SceneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D364D224C3D245B4D5AE548 /* SceneFactory.swift */; };
 		5C648CAB6448DD80453069B0 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
-		5CA830CE49FA68DA70BCD467 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */; };
 		5CD10BE7CE98FDD633F57ACB /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
 		60B13494D15905651204BE24 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		61FD41E8AAFF6443AFC70C85 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDCE8A830228B93BE51322A /* SnapshotStore.swift */; };
-		6262446375117F9659C8E509 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */; };
-		6392BF53E35D2C5B5BABDB53 /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */; };
-		63C67B38882370FCD47E7365 /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AC546F65D94F67DC988CA8 /* RandomModePainter.swift */; };
 		66E87FCC147957D2D5BE9931 /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */; };
 		672E709B5A0D1591E9DDE621 /* LaneStripFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F2A9EB8BFA7038CE4C84B1 /* LaneStripFuzzTests.swift */; };
 		676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688828AD8E02A3FA163D3656 /* RouterTests.swift */; };
 		67A54484318BE306142EB54F /* BuildPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */; };
 		6857BAD7A3831FD984E990C8 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 5B3B1E8D15FD3E391FF50D3E /* Atomics */; };
-		6A0379DCCC77695424CA99E7 /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */; };
+		6A80FF3C35E374A0CDF78CB1 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 978929AD94B53C409F7F63AA /* LaneStripPainter.swift */; };
 		6B98CD09D9D422991069BB57 /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F4BE86660C760F3CD73866 /* Kernel.swift */; };
-		6BA55159CF01411CE47EE329 /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324D879C239B5A1451B258F /* WalkTagPainter.swift */; };
 		6DEFCE939DA93767F6EC18B7 /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB19F22BB8954057C891B07 /* SharedUIHelpers.swift */; };
-		6E1AEE066E94F9331D32B607 /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCEE6C74F049EB1EFF2C285 /* FourfoldCompose.swift */; };
 		6F18BF8AB71ADFDCB76024E4 /* RestartChainsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */; };
 		6F2E027AB498AA1556A6A690 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE84D11C4695B381242AD6D /* DesignKit.swift */; };
+		6F87BEE1EB3257DD5CC2B374 /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EAB2358FE85A312490A1FF /* ReelHeaderIcon.swift */; };
+		6FF9F3666DE68AB22E088D88 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */; };
 		700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8624A489A951D42AFB805E16 /* RackMatrix.swift */; };
 		705EB0F4C1F70D29C64AF28B /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523B1AEB32CCEF31AA60CCA9 /* Router.swift */; };
 		7258783B60191EF8E5A237BD /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
-		73AF5191DE941EDF82ED9ACF /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB19F22BB8954057C891B07 /* SharedUIHelpers.swift */; };
 		7415FBCBB571F428C4987AF5 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */; };
 		746E24079B190777EFA7AF96 /* RiffGridArrowFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FC04EA80539F56545C2F422 /* RiffGridArrowFuzzTests.swift */; };
-		74F07ECB3237BE1F66EA2C1F /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB19F22BB8954057C891B07 /* SharedUIHelpers.swift */; };
 		76200A32A504EA152B5EE00C /* FXTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */; };
 		76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */; };
 		773F692F8B836B1C245ED1F8 /* FourfoldMIDI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4156E25D4881F600935CB6A5 /* FourfoldMIDI.swift */; };
 		78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98149EBE4B9E76352A457113 /* DerivationsTests.swift */; };
-		7BAD95FB9FB50F0062C9E6BA /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */; };
+		7A16BFD5D61928B1E76A6DB0 /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B806162177B626AC22A5D /* WalkTagPainter.swift */; };
 		7BC45590A45ECF62AD2F08A1 /* AcceptanceRatchetStrumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8221885E2107EBA3F721C051 /* AcceptanceRatchetStrumTests.swift */; };
 		7BD70412B03E98F53058D7B1 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */; };
 		7D4F68EA5FCFB518C422FDAA /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
+		7DB4F2646E77BBDA02216FB1 /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EAB2358FE85A312490A1FF /* ReelHeaderIcon.swift */; };
 		7E76584B098A48CAE6F81A29 /* LaneLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16FA68D0E51F49F8F2A53556 /* LaneLockTests.swift */; };
 		7EA1C8DA4E957BD8D6316445 /* MigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BA15AAFC801CACFECA4085 /* MigrationTests.swift */; };
-		7EC7C89A7440435F73EFF962 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0FF4898E2B013BF63E6CE0 /* EuclideousPage.swift */; };
 		80358173C9B1DD2FF58E79F6 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */; };
+		8208BB44A8037D26B215F5F0 /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCBDE4866C54153107885AD8 /* RandomModePainter.swift */; };
 		838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
 		83AA7B12EA973469EB436ADD /* RiffPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5AB77F620263EEC9BCFE6A /* RiffPanelTests.swift */; };
 		8418D719517A4A7F501460A1 /* SceneFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */; };
-		84D46C9F19387FFA37C2FBC6 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */; };
 		85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2C4528E7A184FABB7EF270 /* EditPage.swift */; };
-		86A62D52A02809A2EFCDB0BD /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */; };
 		86DBDA072FBE5381278BC901 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
-		8A1483ED03B951F42650020A /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0FF4898E2B013BF63E6CE0 /* EuclideousPage.swift */; };
 		8B36597661635D9024755192 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9C65A7A6B7ACAE4F4E8194 /* RestartTilePainter.swift */; };
 		8BE64CF7DD07214318F1CA08 /* RhythmPolishTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408AF07FF1C6D11373D00D64 /* RhythmPolishTests.swift */; };
 		8C0A79D7C15CDA8D43AC7760 /* LanesGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A732F956AC8A9961E6F346F /* LanesGridTests.swift */; };
 		8CC40A50AE903C00870E629A /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
-		8E0ED8A2E601ED482C053E64 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */; };
+		8EAA21037E4D1C26EABF952F /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F380ACB5AA7EF62B0F677A8A /* SharedUIHelpers.swift */; };
 		8F5AC03CE96DCC71A372C070 /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
 		8F80DB58E5F66881A3E64023 /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */; };
-		8F8AF5F429D08AAF0C2FEC4C /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCEE6C74F049EB1EFF2C285 /* FourfoldCompose.swift */; };
-		900E2440863B2AE85B7380E3 /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */; };
 		9380473CD41B52BD940490C1 /* FourfoldRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */; };
+		955BA08A6B46B09D64ED0EB4 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */; };
 		965C21A77C376F3057CB4206 /* RestartFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C44DDB2035A6F3CE3FA8C /* RestartFlashTests.swift */; };
 		96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */; };
-		96EBBED6848B79BE8542AF38 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */; };
 		99988F247FD22A5143E99B8D /* FourfoldAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */; };
+		999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */; };
 		9A832AC171E5542BAD35793F /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */; };
 		9B202EF7465E2476A86573C2 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0504D981DD4BF1856C773AA7 /* MidiFile.swift */; };
 		9BAF886FF9516AB5F1598E24 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD9084051F44A6CAA1CFDFA9 /* Models.swift */; };
-		9CE5B19654AB79B7029297D3 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BD8A7AD9DA57CA503786525 /* MixPadPainter.swift */; };
 		9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */; };
 		9E72B64FD55D3542492F0113 /* GridSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CBF035AD049143522CAD057 /* GridSkin.swift */; };
-		9F7479C25D6DB9D495E7464F /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
-		A0934589B828E10585BA9D9D /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */; };
+		9EA52987FF34C515C43D3DA8 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */; };
+		9ECB09C3718DCEDA6647C48C /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
 		A32BADF736B242A3C559A098 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BD8A7AD9DA57CA503786525 /* MixPadPainter.swift */; };
 		A42C52017423FAE78A52DA9C /* CellLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5E253FF72BF5D6483D14FD /* CellLibraryStore.swift */; };
 		A562F349805997D49225F58F /* RoomsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CD05B6D166BF878367A888 /* RoomsPage.swift */; };
 		A5CDA0DEF652E37DAD464472 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */; };
 		A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
+		A606DB40A2135BB2DAB67042 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */; };
 		A71376B370E076CCB3B3A89E /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
 		A7CAEF8533A3A9FD91130FE8 /* BuildReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35E864C306383ECEE13CDAAD /* BuildReel.swift */; };
 		A7CDEB9BFEA39A8E05477A8E /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
-		A7E83E8B12295CDCD7B797F8 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9C65A7A6B7ACAE4F4E8194 /* RestartTilePainter.swift */; };
-		A8F6CD9B31C54126C0175399 /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */; };
 		AAC67FED0724903B425D060F /* FourfoldReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E30016BB623E045246A0488 /* FourfoldReel.swift */; };
 		AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AC95A67DE057A11667D1321C /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AC546F65D94F67DC988CA8 /* RandomModePainter.swift */; };
 		ADBAEFB6E37A6D1D54D35E3A /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */; };
-		AE4DC83E48214F769942C53E /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */; };
 		B0A256872F4F815905ADFEEF /* FourfoldTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */; };
 		B13A9536132FE6FC29F0FB14 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 195D20F3EE73A28BC7E22850 /* Atomics */; };
 		B4C9115BCC69FB671BDEAAB0 /* ClarityPassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F83DE6BC106F7FAAF5034BAB /* ClarityPassTests.swift */; };
 		B6CE33CA239BE671207C2E10 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
-		B77BE3AA0654F45F11E20524 /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */; };
-		B9519A1144C73715B7D7779D /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */; };
-		BC9C646144E66260CDB94440 /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */; };
+		BBF942FAE6FEC457D0351322 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE216B742656753132B6BF90 /* RestartFlashPainter.swift */; };
 		BDE29B3A43C5B4464DF6F208 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */; };
+		BEAA8CB5EC2ADCA841BE6066 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */; };
 		C09B7A16E54595BA2D6D5A3D /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */; };
 		C1046A4F98893FE82DF94B09 /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */; };
 		C166DF5660C355F1056946B2 /* Row8Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */; };
-		C2A159672CA30442DDE2F048 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */; };
 		C2B78F42CCC207F602D4937C /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324D879C239B5A1451B258F /* WalkTagPainter.swift */; };
-		C2D53C5340BBB53C082380EB /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCEE6C74F049EB1EFF2C285 /* FourfoldCompose.swift */; };
+		C3C3B35A98FEB15A880BEF2B /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
+		C4FC8D3D987668BF1C537345 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */; };
+		C51F6C7CA3B78101EE7826D8 /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B806162177B626AC22A5D /* WalkTagPainter.swift */; };
+		C5FAA70DAA2123BDE08E7E23 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE216B742656753132B6BF90 /* RestartFlashPainter.swift */; };
+		C7040C6E9599ECE99A704117 /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2CE4922DDE31C0061FDC98 /* LanesPanelPainter.swift */; };
 		C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */; };
 		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
 		C7DAE48CC80FCFF8549C1483 /* AcceptanceWeaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 507877300E0BD9FC880E2177 /* AcceptanceWeaveTests.swift */; };
+		CAD5208AFAFD119B887A0322 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
 		CB94FD3868B139E13FADBBE0 /* FourfoldSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */; };
+		CD4434757A2B48F725E628F4 /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59DF6CD888C95040E34660D5 /* EuclideousLock.swift */; };
+		CD888CC73ABF80F56B20C95F /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD093523154373C2AAE660A /* DesignKit.swift */; };
+		CE23C2F9BB42137FF4AE0EE5 /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */; };
+		CE97BD814E8D16F33DECB416 /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */; };
 		D03CA11E6C9141FC5159AA11 /* MidiSparkAudioUnit+CellLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6696EEB895A52FCBB9F0125 /* MidiSparkAudioUnit+CellLibrary.swift */; };
 		D1821FAD0A95396DCF2169C7 /* CellLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5E253FF72BF5D6483D14FD /* CellLibraryStore.swift */; };
-		D1DC1FF10278651EBCB14A4A /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */; };
 		D20C1B221B9267E4AD7971A5 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */; };
 		D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14036510EE49EB0BD7CE1E /* TestSessions.swift */; };
 		D2A032B560DA0D402529CB97 /* DiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */; };
 		D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */; };
 		D45C1A821793F49D844B14A5 /* RoomsLatticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */; };
+		D4BBF9E02862E0AD84905885 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */; };
 		D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */; };
+		D4CAF6ED943F404ECB85F9AE /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E82635E86506C99FF107FC8 /* NotesTabPainter.swift */; };
 		D561647D508BA5A188B6D44B /* MacroAuthoringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */; };
 		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
-		D568FCA8AC667FC3382FA7B0 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
 		D65F68826CE914624ED051EF /* DragDropPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CFDBBF6EDAEF5051E4DD83 /* DragDropPage.swift */; };
 		D68CF806B68E2CDFFDF5411B /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0504D981DD4BF1856C773AA7 /* MidiFile.swift */; };
 		D767C243D5F256253014F295 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0FF4898E2B013BF63E6CE0 /* EuclideousPage.swift */; };
@@ -202,6 +203,7 @@
 		D8E56D6903D836F0B80F29A0 /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */; };
 		D9216BAE1234A4B5C0B908FC /* AcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C3BD2C1AC32230B747C194 /* AcceptanceTests.swift */; };
 		D93A9E0C720E078D01E49E28 /* LaneStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */; };
+		DC037E862D4B214FFB1DF9E4 /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
 		DC948A6C41FBACF023BDC377 /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
 		DE89E4C93FDCA0C7DA420525 /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */; };
 		DFCB6B6D89E818DFDD3FEF71 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */; };
@@ -209,30 +211,27 @@
 		E179E0A771D947CC8C158800 /* BuildSceneLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A51673FFDFE583B72F5DAE /* BuildSceneLogic.swift */; };
 		E21AD093B1D437E674242AD2 /* MacroAuthoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */; };
 		E2328DE8513AA01051578B12 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FBCA687DA3D7C57F31B353 /* Derivations.swift */; };
-		E36E7FDEF13FC8672901362B /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */; };
 		E47ADB076660841D3EF573BD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523B1AEB32CCEF31AA60CCA9 /* Router.swift */; };
 		E4A4FB320ACDA110C13DC8B5 /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */; };
-		E5C26BB89C5963BF48396819 /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AC546F65D94F67DC988CA8 /* RandomModePainter.swift */; };
 		E6C108E83DC27EBB27958052 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */; };
 		E79F969969D54DA2CB4B2287 /* FourfoldReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E30016BB623E045246A0488 /* FourfoldReel.swift */; };
 		E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */; };
+		E8E25A44F9A7319F6683F04F /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 978929AD94B53C409F7F63AA /* LaneStripPainter.swift */; };
+		EA0F411C0669D4E76F8D4771 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */; };
 		EA12B8EA582FDBCD044746B9 /* MacroAuthoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */; };
-		EA6ECC1E954C81E096852CBA /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */; };
 		EBAECBA5B3E3F98B83E42E48 /* ReelDeckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */; };
 		ED3B41CB67B5883BFE0F07E1 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 651E122AE1C1D347649F79D7 /* Atomics */; };
 		EE31C6028B5FF7F317CCF8EE /* SceneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D364D224C3D245B4D5AE548 /* SceneFactory.swift */; };
-		EE83EE526EB63D41948611F6 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */; };
-		F08793B4DDBE26B8F1597D13 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BD8A7AD9DA57CA503786525 /* MixPadPainter.swift */; };
+		EFA19B272D01780F29C0E396 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2E5E0509868140ED8AECD5 /* OutputRingPainter.swift */; };
 		F0B13B4DB2556D694F05A5F3 /* BuildSceneLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A51673FFDFE583B72F5DAE /* BuildSceneLogic.swift */; };
 		F18A47A3B59F238F864F570D /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
 		F1B8743F87BCC3FA21CDD1B7 /* AutoPilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F760F9EC70B6E5E30769292C /* AutoPilot.swift */; };
 		F2F21606B58CB2B89E1673E8 /* FourfoldComposeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3013656B342AF8C903D00CEA /* FourfoldComposeTests.swift */; };
 		F44C0AA5D24B8529A62DBB10 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA758F0453138D242FAEF87 /* LaneSoloPainter.swift */; };
 		F4F9BFC240490952985029E3 /* ColourTypeSwitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3E9C0462983BB004D57666 /* ColourTypeSwitchTests.swift */; };
-		F67CA1A8FF22B550A4D6CD27 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9C65A7A6B7ACAE4F4E8194 /* RestartTilePainter.swift */; };
 		F6AD1CD7DE0E239B5C911317 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17328D614B4463EECE452DA4 /* BuildModel.swift */; };
 		F6EE573AB17BEB1885C87D5D /* AcceptanceArpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB6A38FE32EA7DF0350FFDB /* AcceptanceArpTests.swift */; };
-		F8549229D71DBC6DC31F952D /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */; };
+		F98AB3C003834E203E8A2A09 /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */; };
 		FDC4CCB5FA83EBBCF5518EFE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
 /* End PBXBuildFile section */
 
@@ -294,6 +293,8 @@
 		1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildModel.swift; sourceTree = "<group>"; };
 		1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripPainter.swift; sourceTree = "<group>"; };
 		1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFactoryTests.swift; sourceTree = "<group>"; };
+		1E82635E86506C99FF107FC8 /* NotesTabPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTabPainter.swift; sourceTree = "<group>"; };
+		1F2E5E0509868140ED8AECD5 /* OutputRingPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputRingPainter.swift; sourceTree = "<group>"; };
 		1FE84D11C4695B381242AD6D /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		20AB7B8688724B64F843182A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		21FBCA687DA3D7C57F31B353 /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
@@ -305,6 +306,7 @@
 		3013656B342AF8C903D00CEA /* FourfoldComposeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldComposeTests.swift; sourceTree = "<group>"; };
 		31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroAuthoring.swift; sourceTree = "<group>"; };
 		32B0370916996785351E85CE /* FourfoldAU.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FourfoldAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartTilePainter.swift; sourceTree = "<group>"; };
 		344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkApp.swift; sourceTree = "<group>"; };
 		35E864C306383ECEE13CDAAD /* BuildReel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildReel.swift; sourceTree = "<group>"; };
 		368C260460EAF19255196447 /* NotesTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTabTests.swift; sourceTree = "<group>"; };
@@ -319,12 +321,14 @@
 		440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGlyphPainter.swift; sourceTree = "<group>"; };
 		487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceFactoryLibraryTests.swift; sourceTree = "<group>"; };
 		4B5AB77F620263EEC9BCFE6A /* RiffPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffPanelTests.swift; sourceTree = "<group>"; };
-		4BCEE6C74F049EB1EFF2C285 /* FourfoldCompose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldCompose.swift; sourceTree = "<group>"; };
 		4C3D05D84CB3BB7FF47E7851 /* Dice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dice.swift; sourceTree = "<group>"; };
 		4CBF035AD049143522CAD057 /* GridSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSkin.swift; sourceTree = "<group>"; };
+		500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBrowser.swift; sourceTree = "<group>"; };
 		507877300E0BD9FC880E2177 /* AcceptanceWeaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceWeaveTests.swift; sourceTree = "<group>"; };
+		50EAB2358FE85A312490A1FF /* ReelHeaderIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelHeaderIcon.swift; sourceTree = "<group>"; };
 		523B1AEB32CCEF31AA60CCA9 /* Router.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Router.swift; sourceTree = "<group>"; };
 		56A2346CB2C876A900961902 /* Diag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diag.swift; sourceTree = "<group>"; };
+		59DF6CD888C95040E34660D5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
 		61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceTests.swift; sourceTree = "<group>"; };
 		64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldApp.swift; sourceTree = "<group>"; };
 		66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGeneratorsTests.swift; sourceTree = "<group>"; };
@@ -332,6 +336,7 @@
 		688828AD8E02A3FA163D3656 /* RouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouterTests.swift; sourceTree = "<group>"; };
 		688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "manual-skeleton.md"; sourceTree = "<group>"; };
 		6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
+		6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
 		7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildPage.swift; sourceTree = "<group>"; };
 		72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStoreTests.swift; sourceTree = "<group>"; };
 		72C3BD2C1AC32230B747C194 /* AcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTests.swift; sourceTree = "<group>"; };
@@ -342,7 +347,9 @@
 		7FC04EA80539F56545C2F422 /* RiffGridArrowFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffGridArrowFuzzTests.swift; sourceTree = "<group>"; };
 		80701821EB9AD6D1683D1DDD /* Router.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Router.swift; sourceTree = "<group>"; };
 		8221885E2107EBA3F721C051 /* AcceptanceRatchetStrumTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceRatchetStrumTests.swift; sourceTree = "<group>"; };
+		822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclidLaneUI.swift; sourceTree = "<group>"; };
 		84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrangementBar.swift; sourceTree = "<group>"; };
+		85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPage.swift; sourceTree = "<group>"; };
 		8624A489A951D42AFB805E16 /* RackMatrix.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RackMatrix.swift; sourceTree = "<group>"; };
 		88A51673FFDFE583B72F5DAE /* BuildSceneLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSceneLogic.swift; sourceTree = "<group>"; };
 		88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diag.swift; sourceTree = "<group>"; };
@@ -354,6 +361,7 @@
 		923F68D1FA979B5D22C2336D /* EuclideousRandomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandomTests.swift; sourceTree = "<group>"; };
 		9400D76881E4F5F6EFFF6BF3 /* Emission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Emission.swift; sourceTree = "<group>"; };
 		948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChaosDriver.swift; sourceTree = "<group>"; };
+		978929AD94B53C409F7F63AA /* LaneStripPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripPainter.swift; sourceTree = "<group>"; };
 		98149EBE4B9E76352A457113 /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
 		99B22785F1E8193ABD24B932 /* BuildSceneLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSceneLogicTests.swift; sourceTree = "<group>"; };
 		99D181AD808BD18E8D2F085F /* FuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzTests.swift; sourceTree = "<group>"; };
@@ -365,9 +373,14 @@
 		9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTelemetry.swift; sourceTree = "<group>"; };
 		A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildGridSelector.swift; sourceTree = "<group>"; };
 		A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelHeaderIcon.swift; sourceTree = "<group>"; };
+		A54B806162177B626AC22A5D /* WalkTagPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkTagPainter.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTabPainter.swift; sourceTree = "<group>"; };
+		A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGlyphPainter.swift; sourceTree = "<group>"; };
+		AA2CE4922DDE31C0061FDC98 /* LanesPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesPanelPainter.swift; sourceTree = "<group>"; };
 		AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTestMetaTests.swift; sourceTree = "<group>"; };
+		AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPresets.swift; sourceTree = "<group>"; };
+		AE216B742656753132B6BF90 /* RestartFlashPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashPainter.swift; sourceTree = "<group>"; };
 		AF035CA65CFDFF5CAA7ED84D /* PageLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLayoutTests.swift; sourceTree = "<group>"; };
 		AF2C4528E7A184FABB7EF270 /* EditPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPage.swift; sourceTree = "<group>"; };
 		AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclidLaneUI.swift; sourceTree = "<group>"; };
@@ -376,7 +389,9 @@
 		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
 		B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputRingPainter.swift; sourceTree = "<group>"; };
 		B324D879C239B5A1451B258F /* WalkTagPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkTagPainter.swift; sourceTree = "<group>"; };
+		B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldCompose.swift; sourceTree = "<group>"; };
 		B3CD05B6D166BF878367A888 /* RoomsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsPage.swift; sourceTree = "<group>"; };
+		B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffArrowPainter.swift; sourceTree = "<group>"; };
 		B505AD7C314653CD2DB395CD /* FourfoldViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldViewController.swift; sourceTree = "<group>"; };
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
 		B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripTests.swift; sourceTree = "<group>"; };
@@ -384,13 +399,16 @@
 		BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloTests.swift; sourceTree = "<group>"; };
 		C1F4BE86660C760F3CD73866 /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
 		C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldRootView.swift; sourceTree = "<group>"; };
+		C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPadPainter.swift; sourceTree = "<group>"; };
 		C6696EEB895A52FCBB9F0125 /* MidiSparkAudioUnit+CellLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MidiSparkAudioUnit+CellLibrary.swift"; sourceTree = "<group>"; };
 		C89867917AE363D25219BF74 /* ListenTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenTabTests.swift; sourceTree = "<group>"; };
 		CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPresets.swift; sourceTree = "<group>"; };
 		CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartChainsTests.swift; sourceTree = "<group>"; };
 		CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Row8Tests.swift; sourceTree = "<group>"; };
 		CD9084051F44A6CAA1CFDFA9 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXPanelPainter.swift; sourceTree = "<group>"; };
 		CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesPanelPainter.swift; sourceTree = "<group>"; };
+		CFD093523154373C2AAE660A /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CogPage.swift; sourceTree = "<group>"; };
 		D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGatesSpecialTests.swift; sourceTree = "<group>"; };
 		D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockModePainter.swift; sourceTree = "<group>"; };
@@ -401,6 +419,7 @@
 		DB3E9C0462983BB004D57666 /* ColourTypeSwitchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColourTypeSwitchTests.swift; sourceTree = "<group>"; };
 		DB638CF9CF505A6ABF3A9423 /* SnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilderTests.swift; sourceTree = "<group>"; };
 		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		DCBDE4866C54153107885AD8 /* RandomModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RandomModePainter.swift; sourceTree = "<group>"; };
 		DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTest.swift; sourceTree = "<group>"; };
 		DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilder.swift; sourceTree = "<group>"; };
 		DF9C44DDB2035A6F3CE3FA8C /* RestartFlashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashTests.swift; sourceTree = "<group>"; };
@@ -413,13 +432,17 @@
 		EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldSelfTest.swift; sourceTree = "<group>"; };
 		EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroAuthoringTests.swift; sourceTree = "<group>"; };
 		EEA758F0453138D242FAEF87 /* LaneSoloPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloPainter.swift; sourceTree = "<group>"; };
+		F11A47312E5B36EA267536F5 /* LockModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockModePainter.swift; sourceTree = "<group>"; };
 		F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridUI.swift; sourceTree = "<group>"; };
+		F380ACB5AA7EF62B0F677A8A /* SharedUIHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedUIHelpers.swift; sourceTree = "<group>"; };
 		F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFileTests.swift; sourceTree = "<group>"; };
 		F760F9EC70B6E5E30769292C /* AutoPilot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPilot.swift; sourceTree = "<group>"; };
 		F83DE6BC106F7FAAF5034BAB /* ClarityPassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClarityPassTests.swift; sourceTree = "<group>"; };
 		F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashPainter.swift; sourceTree = "<group>"; };
 		FB579E7A98D1755158B6B0DE /* ManualView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualView.swift; sourceTree = "<group>"; };
+		FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloPainter.swift; sourceTree = "<group>"; };
 		FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXPanelPainter.swift; sourceTree = "<group>"; };
+		FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousSettingsSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -535,8 +558,37 @@
 				E8F08893D569D87D0D5D52FD /* AU */,
 				BAEE0B160F0F5F8580982775 /* Engine */,
 				92FFB2337E7FDB7ECC093A8E /* Shared */,
+				579DBC9CBF245449D69C3E27 /* UI */,
 			);
 			path = Fourfold;
+			sourceTree = "<group>";
+		};
+		579DBC9CBF245449D69C3E27 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				CFD093523154373C2AAE660A /* DesignKit.swift */,
+				85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */,
+				FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */,
+				822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */,
+				CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */,
+				FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */,
+				AA2CE4922DDE31C0061FDC98 /* LanesPanelPainter.swift */,
+				978929AD94B53C409F7F63AA /* LaneStripPainter.swift */,
+				F11A47312E5B36EA267536F5 /* LockModePainter.swift */,
+				C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */,
+				1E82635E86506C99FF107FC8 /* NotesTabPainter.swift */,
+				1F2E5E0509868140ED8AECD5 /* OutputRingPainter.swift */,
+				500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */,
+				DCBDE4866C54153107885AD8 /* RandomModePainter.swift */,
+				50EAB2358FE85A312490A1FF /* ReelHeaderIcon.swift */,
+				AE216B742656753132B6BF90 /* RestartFlashPainter.swift */,
+				33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */,
+				B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */,
+				F380ACB5AA7EF62B0F677A8A /* SharedUIHelpers.swift */,
+				A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */,
+				A54B806162177B626AC22A5D /* WalkTagPainter.swift */,
+			);
+			path = UI;
 			sourceTree = "<group>";
 		};
 		5A12A22D394BAEFBD77AD6BB = {
@@ -580,7 +632,6 @@
 				009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */,
 				9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */,
 				AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */,
-				4BCEE6C74F049EB1EFF2C285 /* FourfoldCompose.swift */,
 				FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */,
 				4CBF035AD049143522CAD057 /* GridSkin.swift */,
 				F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */,
@@ -650,7 +701,11 @@
 				21FBCA687DA3D7C57F31B353 /* Derivations.swift */,
 				56A2346CB2C876A900961902 /* Diag.swift */,
 				9400D76881E4F5F6EFFF6BF3 /* Emission.swift */,
+				59DF6CD888C95040E34660D5 /* EuclideousLock.swift */,
+				AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */,
+				6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */,
 				E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */,
+				B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */,
 				C1F4BE86660C760F3CD73866 /* Kernel.swift */,
 				0504D981DD4BF1856C773AA7 /* MidiFile.swift */,
 				CD9084051F44A6CAA1CFDFA9 /* Models.swift */,
@@ -868,21 +923,21 @@
 			files = (
 				7BD70412B03E98F53058D7B1 /* BuildModel.swift in Sources */,
 				E2328DE8513AA01051578B12 /* Derivations.swift in Sources */,
-				2BF306D9BA76475B775ABEC3 /* DesignKit.swift in Sources */,
+				CD888CC73ABF80F56B20C95F /* DesignKit.swift in Sources */,
 				7258783B60191EF8E5A237BD /* Diag.swift in Sources */,
 				535A1B2559F8F03BB5220091 /* Emission.swift in Sources */,
-				D1DC1FF10278651EBCB14A4A /* EuclidLaneUI.swift in Sources */,
-				B9519A1144C73715B7D7779D /* EuclideousLock.swift in Sources */,
-				8A1483ED03B951F42650020A /* EuclideousPage.swift in Sources */,
-				9F7479C25D6DB9D495E7464F /* EuclideousPresets.swift in Sources */,
-				96EBBED6848B79BE8542AF38 /* EuclideousRandom.swift in Sources */,
-				A8F6CD9B31C54126C0175399 /* EuclideousSettingsSheet.swift in Sources */,
-				F8549229D71DBC6DC31F952D /* FXPanelPainter.swift in Sources */,
+				955BA08A6B46B09D64ED0EB4 /* EuclidLaneUI.swift in Sources */,
+				CD4434757A2B48F725E628F4 /* EuclideousLock.swift in Sources */,
+				4A2F4629204778337D64903F /* EuclideousPage.swift in Sources */,
+				33257FF396680B09DBDBE620 /* EuclideousPresets.swift in Sources */,
+				9EA52987FF34C515C43D3DA8 /* EuclideousRandom.swift in Sources */,
+				288852EBB8ACE59F90F4E572 /* EuclideousSettingsSheet.swift in Sources */,
+				CE23C2F9BB42137FF4AE0EE5 /* FXPanelPainter.swift in Sources */,
 				5A1ECD0A184CC6B215ED8EFD /* FourfoldApp.swift in Sources */,
 				0CA5387EFCABC08168C68BC7 /* FourfoldAppModel.swift in Sources */,
 				21A237E4460BF2277F6B5A03 /* FourfoldAppView.swift in Sources */,
 				99988F247FD22A5143E99B8D /* FourfoldAudioUnit.swift in Sources */,
-				8F8AF5F429D08AAF0C2FEC4C /* FourfoldCompose.swift in Sources */,
+				C3C3B35A98FEB15A880BEF2B /* FourfoldCompose.swift in Sources */,
 				58C0C039EB97E7DB0F167462 /* FourfoldEngine.swift in Sources */,
 				773F692F8B836B1C245ED1F8 /* FourfoldMIDI.swift in Sources */,
 				AAC67FED0724903B425D060F /* FourfoldReel.swift in Sources */,
@@ -891,29 +946,29 @@
 				76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */,
 				A7CDEB9BFEA39A8E05477A8E /* FourfoldTransportClock.swift in Sources */,
 				6B98CD09D9D422991069BB57 /* Kernel.swift in Sources */,
-				56A5F84FC15C9C9F0302DABA /* LaneSoloPainter.swift in Sources */,
-				8E0ED8A2E601ED482C053E64 /* LaneStripPainter.swift in Sources */,
-				7BAD95FB9FB50F0062C9E6BA /* LanesPanelPainter.swift in Sources */,
-				900E2440863B2AE85B7380E3 /* LockModePainter.swift in Sources */,
+				C4FC8D3D987668BF1C537345 /* LaneSoloPainter.swift in Sources */,
+				E8E25A44F9A7319F6683F04F /* LaneStripPainter.swift in Sources */,
+				1EE2A1AEE5092A07851CD9FE /* LanesPanelPainter.swift in Sources */,
+				54E1359ABAD90A7E9CD9C4BD /* LockModePainter.swift in Sources */,
 				9B202EF7465E2476A86573C2 /* MidiFile.swift in Sources */,
-				F08793B4DDBE26B8F1597D13 /* MixPadPainter.swift in Sources */,
+				BEAA8CB5EC2ADCA841BE6066 /* MixPadPainter.swift in Sources */,
 				9BAF886FF9516AB5F1598E24 /* Models.swift in Sources */,
-				E36E7FDEF13FC8672901362B /* NotesTabPainter.swift in Sources */,
-				0EDF355EE85CAC32E7D12C9A /* OutputRingPainter.swift in Sources */,
-				EA6ECC1E954C81E096852CBA /* PresetBrowser.swift in Sources */,
+				1AD97DB35C6C3B45B70171A9 /* NotesTabPainter.swift in Sources */,
+				37D78CF29446E0E2853F8732 /* OutputRingPainter.swift in Sources */,
+				1A20747CD8C5C94DB29A9532 /* PresetBrowser.swift in Sources */,
 				FDC4CCB5FA83EBBCF5518EFE /* PresetStore.swift in Sources */,
-				E5C26BB89C5963BF48396819 /* RandomModePainter.swift in Sources */,
-				6392BF53E35D2C5B5BABDB53 /* ReelHeaderIcon.swift in Sources */,
-				C2A159672CA30442DDE2F048 /* RestartFlashPainter.swift in Sources */,
-				A7E83E8B12295CDCD7B797F8 /* RestartTilePainter.swift in Sources */,
-				84D46C9F19387FFA37C2FBC6 /* RiffArrowPainter.swift in Sources */,
+				0C924EDD62DA8F1C8070ADC3 /* RandomModePainter.swift in Sources */,
+				7DB4F2646E77BBDA02216FB1 /* ReelHeaderIcon.swift in Sources */,
+				C5FAA70DAA2123BDE08E7E23 /* RestartFlashPainter.swift in Sources */,
+				A606DB40A2135BB2DAB67042 /* RestartTilePainter.swift in Sources */,
+				6FF9F3666DE68AB22E088D88 /* RiffArrowPainter.swift in Sources */,
 				705EB0F4C1F70D29C64AF28B /* Router.swift in Sources */,
-				73AF5191DE941EDF82ED9ACF /* SharedUIHelpers.swift in Sources */,
+				8EAA21037E4D1C26EABF952F /* SharedUIHelpers.swift in Sources */,
 				A5CDA0DEF652E37DAD464472 /* Snapshot.swift in Sources */,
 				BDE29B3A43C5B4464DF6F208 /* SnapshotBuilder.swift in Sources */,
 				E6C108E83DC27EBB27958052 /* SnapshotStore.swift in Sources */,
-				EE83EE526EB63D41948611F6 /* TabGlyphPainter.swift in Sources */,
-				3D4512FF81314AE66E4634FC /* WalkTagPainter.swift in Sources */,
+				461FEB25F66378A168BACD53 /* TabGlyphPainter.swift in Sources */,
+				7A16BFD5D61928B1E76A6DB0 /* WalkTagPainter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -948,7 +1003,6 @@
 				ADBAEFB6E37A6D1D54D35E3A /* EuclideousRandom.swift in Sources */,
 				D8E56D6903D836F0B80F29A0 /* EuclideousSettingsSheet.swift in Sources */,
 				47C29EACF7E0D356CD7DADDF /* FXPanelPainter.swift in Sources */,
-				C2D53C5340BBB53C082380EB /* FourfoldCompose.swift in Sources */,
 				9E72B64FD55D3542492F0113 /* GridSkin.swift in Sources */,
 				D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */,
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
@@ -992,47 +1046,47 @@
 			files = (
 				204572430D6CE1EBADA36680 /* BuildModel.swift in Sources */,
 				4AAAD0D744835419AF120580 /* Derivations.swift in Sources */,
-				478068440223FBC075B4429C /* DesignKit.swift in Sources */,
+				05DAA79479B5AE2D667435E8 /* DesignKit.swift in Sources */,
 				113044D12C85756D9F258C57 /* Diag.swift in Sources */,
 				5A8A8BD8E9DBBC7033433590 /* Emission.swift in Sources */,
-				48095A92F2350F94EF697096 /* EuclidLaneUI.swift in Sources */,
-				39AD3E6D2CDD1D5A0A84A660 /* EuclideousLock.swift in Sources */,
-				7EC7C89A7440435F73EFF962 /* EuclideousPage.swift in Sources */,
-				D568FCA8AC667FC3382FA7B0 /* EuclideousPresets.swift in Sources */,
-				5CA830CE49FA68DA70BCD467 /* EuclideousRandom.swift in Sources */,
-				BC9C646144E66260CDB94440 /* EuclideousSettingsSheet.swift in Sources */,
-				AE4DC83E48214F769942C53E /* FXPanelPainter.swift in Sources */,
+				23FDD91646D014E1346B617E /* EuclidLaneUI.swift in Sources */,
+				329BAEB907A84059CF8FBFBD /* EuclideousLock.swift in Sources */,
+				3A2F3B82A370A99A045A1502 /* EuclideousPage.swift in Sources */,
+				CAD5208AFAFD119B887A0322 /* EuclideousPresets.swift in Sources */,
+				45EA80F454F84483E68A9DC2 /* EuclideousRandom.swift in Sources */,
+				41875BF40905DAC179B9C3EF /* EuclideousSettingsSheet.swift in Sources */,
+				F98AB3C003834E203E8A2A09 /* FXPanelPainter.swift in Sources */,
 				3FEBDAA999631F93DD5B17E7 /* FourfoldAudioUnit.swift in Sources */,
-				6E1AEE066E94F9331D32B607 /* FourfoldCompose.swift in Sources */,
+				9ECB09C3718DCEDA6647C48C /* FourfoldCompose.swift in Sources */,
 				E79F969969D54DA2CB4B2287 /* FourfoldReel.swift in Sources */,
 				2DB0FD1A6F363FF7810DD7C8 /* FourfoldRootView.swift in Sources */,
 				B0A256872F4F815905ADFEEF /* FourfoldTelemetry.swift in Sources */,
 				51142768E24F20693A5BFF40 /* FourfoldTransportClock.swift in Sources */,
 				D8BD22D1CF5FD1970D2A1F25 /* FourfoldViewController.swift in Sources */,
 				310545FAC5863CD3DAD77CC4 /* Kernel.swift in Sources */,
-				1D36D9234DF57EEAF47724A0 /* LaneSoloPainter.swift in Sources */,
-				1712EF7CBD6FF7598417E7A7 /* LaneStripPainter.swift in Sources */,
-				86A62D52A02809A2EFCDB0BD /* LanesPanelPainter.swift in Sources */,
-				6A0379DCCC77695424CA99E7 /* LockModePainter.swift in Sources */,
+				31D850833DB23E88DEC4FE99 /* LaneSoloPainter.swift in Sources */,
+				6A80FF3C35E374A0CDF78CB1 /* LaneStripPainter.swift in Sources */,
+				C7040C6E9599ECE99A704117 /* LanesPanelPainter.swift in Sources */,
+				58D4D5B400586BB6CDEC53FB /* LockModePainter.swift in Sources */,
 				D68CF806B68E2CDFFDF5411B /* MidiFile.swift in Sources */,
-				9CE5B19654AB79B7029297D3 /* MixPadPainter.swift in Sources */,
+				D4BBF9E02862E0AD84905885 /* MixPadPainter.swift in Sources */,
 				542020F81F4F52D34C16DF18 /* Models.swift in Sources */,
-				16F04D23A9BB2FBB54809DED /* NotesTabPainter.swift in Sources */,
-				A0934589B828E10585BA9D9D /* OutputRingPainter.swift in Sources */,
-				B77BE3AA0654F45F11E20524 /* PresetBrowser.swift in Sources */,
+				D4CAF6ED943F404ECB85F9AE /* NotesTabPainter.swift in Sources */,
+				EFA19B272D01780F29C0E396 /* OutputRingPainter.swift in Sources */,
+				CE97BD814E8D16F33DECB416 /* PresetBrowser.swift in Sources */,
 				20646456AFE103561CB819CE /* PresetStore.swift in Sources */,
-				63C67B38882370FCD47E7365 /* RandomModePainter.swift in Sources */,
-				22648DBC76952CE34E018DCC /* ReelHeaderIcon.swift in Sources */,
-				6262446375117F9659C8E509 /* RestartFlashPainter.swift in Sources */,
-				F67CA1A8FF22B550A4D6CD27 /* RestartTilePainter.swift in Sources */,
-				55A6F63012B25E80B26E7311 /* RiffArrowPainter.swift in Sources */,
+				8208BB44A8037D26B215F5F0 /* RandomModePainter.swift in Sources */,
+				6F87BEE1EB3257DD5CC2B374 /* ReelHeaderIcon.swift in Sources */,
+				BBF942FAE6FEC457D0351322 /* RestartFlashPainter.swift in Sources */,
+				EA0F411C0669D4E76F8D4771 /* RestartTilePainter.swift in Sources */,
+				999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */,
 				E47ADB076660841D3EF573BD /* Router.swift in Sources */,
-				74F07ECB3237BE1F66EA2C1F /* SharedUIHelpers.swift in Sources */,
+				52285FEB6BDCD4E6215D40FA /* SharedUIHelpers.swift in Sources */,
 				7415FBCBB571F428C4987AF5 /* Snapshot.swift in Sources */,
 				C09B7A16E54595BA2D6D5A3D /* SnapshotBuilder.swift in Sources */,
 				4F1866D5173CD9DDB623E9A8 /* SnapshotStore.swift in Sources */,
-				137FF97999B9BFE11C5AEB5C /* TabGlyphPainter.swift in Sources */,
-				6BA55159CF01411CE47EE329 /* WalkTagPainter.swift in Sources */,
+				4261A727230CC73522219D98 /* TabGlyphPainter.swift in Sources */,
+				C51F6C7CA3B78101EE7826D8 /* WalkTagPainter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1077,7 +1131,7 @@
 				D20C1B221B9267E4AD7971A5 /* EuclideousRandom.swift in Sources */,
 				0237DEC8D0623653E5BBC0DA /* EuclideousRandomTests.swift in Sources */,
 				76200A32A504EA152B5EE00C /* FXTabTests.swift in Sources */,
-				37B39275AF411F83F192797A /* FourfoldCompose.swift in Sources */,
+				DC037E862D4B214FFB1DF9E4 /* FourfoldCompose.swift in Sources */,
 				F2F21606B58CB2B89E1673E8 /* FourfoldComposeTests.swift in Sources */,
 				8F5AC03CE96DCC71A372C070 /* FourfoldTransportClock.swift in Sources */,
 				20B7E16CF5D05D33B7D449B7 /* FourfoldTransportTests.swift in Sources */,
