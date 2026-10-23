@@ -2152,23 +2152,6 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(a.allSatisfy { $0.vel == 100 }, "euclid strikes at its own default VELOCITY control (100), ignoring the source chord's own 50/110 dynamics entirely")
         assertNothingLeftSounding(e)
     }
-    // The soundcheck path matches playback (Paul 2026-09-30): a stopped-transport AUDITION of an arp cell also plays
-    // at the VELOCITY control's level (100 default), ignoring the source chord's own dynamics — audition still
-    // matches playback, just under the new ARP velocity model (see testArpUsesVelocityControlIgnoringSource above).
-    func testAuditionUsesVelocityControlIgnoringSource() {
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
-        let pool = velChord([(60, 40), (67, 118)])
-        var ts = 0.0
-        for _ in 0..<10 {   // stopped transport, cell 0 (col 0·row 0) auditioned
-            router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: 48_000,
-                           timestampSample: ts, frameCount: 2048, audition: 0, out: e, diag: &diag)
-            ts += 2048
-        }
-        let vels = Set(e.ons.filter { $0.cable == 1 }.map { $0.vel })
-        XCTAssertFalse(vels.isEmpty, "the audition sounded")
-        XCTAssertTrue(vels.isSubset(of: [100]), "audition plays at the VELOCITY control's default (100), ignoring the source's 40/118 — got \(vels)")
-    }
     // THE PER-MACHINE MACHINE (user 2026-08-09, GLOBAL): a machine's `templateChain` drives EVERY cell of that machine
     // that has no per-cell override — the machine lives on the (document-global) MACHINE, not the cell.
     func testMachineTemplateChainDrivesAllItsCells() {
@@ -3056,169 +3039,16 @@ final class RouterTests: XCTestCase {
 
     // MARK: audition (§6.4 / delta §5)
 
-    /// Drive `windows` STOPPED render windows holding `target` (col*8+row), then optionally release
-    /// (target → −1). Audition's phase clock is driven by the advancing sample timestamp, not beatPos.
-    private func auditionRun(_ box: SnapshotBox, _ pool: NotePool, target: Int, windows: Int,
-                             into emitter: RecordingEmitter, releaseAtEnd: Bool = true,
-                             tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) {
-        let router = Router()
-        var diag = KernelDiag()
-        var ts = 0.0
-        for _ in 0..<windows {
-            router.process(box: box, pool: pool, playing: false, beatPos: 0, tempo: tempo,
-                           sampleRate: sr, timestampSample: ts, frameCount: frames, audition: target, out: emitter, diag: &diag)
-            ts += Double(frames)
-        }
-        if releaseAtEnd {
-            router.process(box: box, pool: pool, playing: false, beatPos: 0, tempo: tempo,
-                           sampleRate: sr, timestampSample: ts, frameCount: frames, audition: -1, out: emitter, diag: &diag)
-        }
-    }
 
-    func testAuditionArpSoundsWhileStoppedAndLeavesNothingStuck() {
-        // Hold an ARP cell (col 0, row 0) with a chord held, transport STOPPED → it arpeggiates.
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        auditionRun(b, chord([60, 64, 67]), target: 0, windows: 24, into: e)   // 0 = col0*8+row0
-        XCTAssertGreaterThan(e.ons.count, 0, "a held ARP should sound while stopped (audition)")
-        assertNothingLeftSounding(e)
-    }
 
-    func testAuditionWithNoHeldNotesIsSilent() {
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        auditionRun(b, NotePool(), target: 0, windows: 12, into: e)            // no keys held
-        XCTAssertTrue(e.events.isEmpty, "audition soundcheck is silent with no source notes")
-    }
 
-    func testAuditionOfEmptyCellIsSilent() {
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        auditionRun(b, chord([60, 64, 67]), target: 5 * 8 + 5, windows: 12, into: e)   // (col5,row5) empty
-        XCTAssertTrue(e.events.isEmpty, "auditioning an empty cell produces nothing")
-    }
 
-    func testAuditionRatchetSounds() {
-        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .ratchet
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        auditionRun(b, chord([60, 63, 67]), target: 0, windows: 24, into: e)
-        XCTAssertGreaterThan(e.ons.count, 0, "a held RATCHET re-strikes the chord while stopped")
-        assertNothingLeftSounding(e)
-    }
 
-    func testAuditionEmitsOnTheCellsBusAndAllCable() {
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.b]) }
-        let e = RecordingEmitter()
-        auditionRun(b, chord([60, 64, 67]), target: 0, windows: 24, into: e)
-        XCTAssertTrue(e.ons.contains { $0.cable == 2 }, "audition emits on the lit bus (B = cable 2)")
-        XCTAssertTrue(e.ons.contains { $0.cable == 0 }, "audition also emits on the ALL cable")
-        XCTAssertTrue(e.ons.allSatisfy { $0.cable == 0 || $0.cable == 2 }, "no emission on unlit buses")
-    }
 
-    func testTransportStartAutoReleasesAudition() {
-        // Hold an ARP audition, then start the transport: the transport-start edge must flush the
-        // audition voices (auto-release, §6.4) — nothing left sounding after a stop.
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        let router = Router(); var diag = KernelDiag()
-        let pool = chord([60, 64, 67]); let sr = 48_000.0; let frames: UInt32 = 2048
-        var ts = 0.0
-        for _ in 0..<10 {   // stopped + auditioning
-            router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, audition: 0, out: e, diag: &diag); ts += Double(frames)
-        }
-        XCTAssertGreaterThan(e.ons.count, 0)
-        // transport starts; audition target cleared as the UI would on auto-release
-        var beat = 0.0
-        for _ in 0..<40 {
-            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)
-            ts += Double(frames); beat += Double(frames) * 120 / 60 / sr
-        }
-        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)   // stop → flush
-        assertNothingLeftSounding(e)
-    }
 
-    func testAuditionHarmonizeExpandsAndSustains() {
-        // Chord-hold audition (v2): HARMONIZE previews the added voices, and sustains — each note is
-        // struck ONCE and held (not re-articulated every window).
-        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
-        cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [4, 7, 0]   // +4, +7, third off
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        auditionRun(b, chord([60]), target: 0, windows: 20, into: e)
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "root + intervals")
-        XCTAssertEqual(e.ons.filter { $0.cable == 0 }.count, 3, "sustained — each note struck once, not per window")
-        assertNothingLeftSounding(e)
-    }
 
-    func testAuditionChancePassesAllAtOneAndNoneAtZero() {
-        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
-        cs[gi].type = .chance
-        cs[gi].paramsA.probability = 1.0
-        let bAll = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let eAll = RecordingEmitter()
-        auditionRun(bAll, chord([60, 64, 67]), target: 0, windows: 12, into: eAll)
-        XCTAssertEqual(Set(eAll.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "p=1 sustains the whole chord")
-        assertNothingLeftSounding(eAll)
 
-        cs[gi].paramsA.probability = 0.0
-        let bNone = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let eNone = RecordingEmitter()
-        auditionRun(bNone, chord([60, 64, 67]), target: 0, windows: 12, into: eNone)
-        XCTAssertTrue(eNone.events.isEmpty, "p=0 auditions to silence (processor drops everything)")
-    }
 
-    func testAuditionChordHoldTracksHeldKeysLive() {
-        // The sustained preview must FOLLOW the keys: add one mid-hold → it sounds; release one → it
-        // stops, while the rest keep sounding. (an identity hold — nothing gates it.)
-        var cs = arpMachines(); cs[machineIDs.firstIndex(of: "gold")!].type = .empty
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        let router = Router(); var diag = KernelDiag()
-        let pool = NotePool(); let sr = 48_000.0; let frames: UInt32 = 2048
-        var ts = 0.0
-        func win() {
-            router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, audition: 0, out: e, diag: &diag)
-            ts += Double(frames)
-        }
-        pool.noteOn(60, velocity: 100, channel: 0); win(); win()
-        XCTAssertTrue(e.ons.contains { $0.note == 60 }, "held key sounds")
-        pool.noteOn(64, velocity: 100, channel: 0); win(); win()
-        XCTAssertTrue(e.ons.contains { $0.note == 64 }, "a key added mid-hold sounds")
-        pool.noteOff(60); win(); win()
-        XCTAssertTrue(e.offs.contains { $0.note == 60 }, "a key released mid-hold stops")
-        router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)   // release
-        assertNothingLeftSounding(e)
-    }
-
-    func testAuditionStrumRollsTheChordInThenSustains() {
-        // STRUM audition ROLLS the chord in over `spread` (not all at once), then sustains.
-        var cs = arpMachines(); let gi = machineIDs.firstIndex(of: "gold")!
-        cs[gi].type = .strum; cs[gi].paramsA.spread = 0.4   // wide roll → spans several windows
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let e = RecordingEmitter()
-        let router = Router(); var diag = KernelDiag()
-        let pool = chord([60, 64, 67]); let sr = 48_000.0; let frames: UInt32 = 2048
-        var ts = 0.0
-        func win() {
-            router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, audition: 0, out: e, diag: &diag)
-            ts += Double(frames)
-        }
-        win()
-        XCTAssertLessThan(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }).count, 3,
-                          "the chord rolls in — not every note sounds on the first window")
-        for _ in 0..<30 { win() }
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "all notes have rolled in")
-        router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
     // MARK: - EMITTER TOGGLES (§6a) — busEnabled gate at the emission boundary
 
@@ -3408,16 +3238,6 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(router.drainMarks()[0].count, 8, "…but the mark ring saturates at 8 per emitter")
     }
 
-    func testAuditionRespectsDisabledEmitter() {
-        // Cross-feature: audition a cell routed to a DISABLED emitter (B) → silent (the §6a gate is at
-        // the emission boundary, so audition respects it too).
-        let b = box(machines: arpMachines(), busEnabled: [true, false, true, true]) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.b])
-        }
-        let e = RecordingEmitter()
-        auditionRun(b, chord([60]), target: 0, windows: 12, into: e)
-        XCTAssertTrue(e.events.isEmpty, "audition of a cell routed to a disabled emitter is silent")
-    }
 
     // MARK: - VELOCITY OVERRIDE (§6a PERFORM) — momentary per-emitter flatten at the emission boundary
 
@@ -8809,59 +8629,14 @@ final class RouterTests: XCTestCase {
 
     // MARK: - PREVIEW / cell audition (Phase 2, Increment 1: ARP solo)
 
-    @discardableResult
-    private func runPreview(_ box: SnapshotBox, _ pool: NotePool,
-                            _ preview: (active: Bool, machineIndex: Int, filter: Int, busMask: UInt8, inputRow: Int),
-                            beats: Double, into e: RecordingEmitter, playing: Bool = true,
-                            tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) -> (Router, KernelDiag, Double) {
-        let router = Router(); var diag = KernelDiag()
-        let wb = Double(frames) * tempo / 60.0 / sr
-        var beat = 0.0, ts = 0.0
-        while beat < beats {
-            router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, preview: preview, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        return (router, diag, ts)
-    }
     private func boxWithBusEnabled(_ cs: [Machine], _ enabled: [Bool], _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: cs, scenes: [s]); st.busEnabled = enabled
         return SnapshotBuilder.build(from: st)
     }
 
-    // SOLO: a real bus-A ARP cell would sound on cable 1; with PREVIEW on bus B, ONLY the virtual cell
-    // emits (cable 2 + All), and the real cell is silenced.
-    func testPreviewSolosOnlyTheVirtualCell() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter()
-        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)   // preview → bus B
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "preview emits on bus B (cable 2)")
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "the real bus-A cell is SOLOED OUT")
-    }
 
-    // The virtual cell emits through its STAGED buses, respecting busEnabled — a disabled staged emitter is silent.
-    func testPreviewRespectsBusEnabled() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        let b = boxWithBusEnabled(arpMachines(), [false, true, true, true]) { _ in }   // bus A disabled
-        let e = RecordingEmitter()
-        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)   // preview → bus A (disabled)
-        XCTAssertEqual(e.ons.count, 0, "a disabled staged emitter stays silent under preview")
-    }
 
-    // Preview emits its arp over the source pool (receiver / OMNI input), and it works with a claim set
-    // (CLAIM bypassed — solo has no other-emitter context).
-    func testPreviewEmitsOverSourcePoolAndIgnoresClaim() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        var s = SceneState.empty()
-        var st = PluginState(machines: arpMachines(), scenes: [s]); st.claimEmitter = 0   // CLAIM on bus A
-        _ = s
-        let b = SnapshotBuilder.build(from: st)
-        let e = RecordingEmitter()
-        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)   // preview → bus B, claim on A
-        XCTAssertGreaterThan(e.ons.count, 0, "preview arps the source pool and is not blocked by CLAIM")
-    }
 
     // §item 11 INPUT CABLES: a cell whose receiver is sourced from CABLE 2 hears only cable-2 notes.
     // COG SIMPLIFICATION (2026-08-03): cables retired — even a receiver carrying a SAVED cable filter now hears
@@ -9224,112 +8999,17 @@ final class RouterTests: XCTestCase {
     //  `inputRow` is never read (grid-chaining retired → always source-fed), so the first duplicates
     //  testPreviewSolosOnlyTheVirtualCell and the second's "empty-parent fallback" is the only path — both vacuous.)
 
-    // 1c: a STRUM machine previews (source chord strummed) and releases clean.
-    func testPreviewStrumSoundsAndReleasesClean() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .strum)
-        let b = box(machines: cs) { _ in }
-        let e = RecordingEmitter()
-        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
-        XCTAssertGreaterThan(e.ons.count, 0, "strum preview strums the source chord")
-        var diag = KernelDiag()
-        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
-                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
-    // 1c: a chord-hold machine (HARMONIZE) previews (treated held chord, re-emitted per column) and releases clean.
-    func testPreviewChordHoldSoundsAndReleasesClean() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .harmonize)
-        let b = box(machines: cs) { _ in }
-        let e = RecordingEmitter()
-        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
-        XCTAssertGreaterThan(e.ons.count, 0, "harmonize preview holds the treated chord")
-        var diag = KernelDiag()
-        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
-                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
-    // STOPPED preview (transport stopped) — the desk-preview path. Every other preview test runs playing;
-    // this exercises previewStopped's free-clock arp over the source pool, and a clean release.
-    func testStoppedPreviewArpsSourcePoolAndReleasesClean() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        let b = box(machines: arpMachines()) { _ in }
-        let e = RecordingEmitter()
-        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1),
-                                         beats: 8, into: e, playing: false)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "stopped preview free-clock arps the source pool on bus B")
-        var diag = KernelDiag()
-        router.process(box: b, pool: chord([60, 64, 67]), playing: false, beatPos: 8, tempo: 120, sampleRate: 48_000,
-                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
-    // Stopped preview handles only the time-varying ARP path (a chord-hold machine's stopped preview is a later
-    // cut); a non-arp machine is silent when the transport is stopped.
-    func testStoppedPreviewNonArpMachineIsSilent() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .harmonize)
-        let b = box(machines: cs) { _ in }
-        let e = RecordingEmitter()
-        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e, playing: false)
-        XCTAssertEqual(e.ons.count, 0, "a chord-hold machine is silent under stopped preview")
-    }
 
-    // PLAYING preview, RATCHET: the virtual cell repeats the source chord on its staged bus, releasing clean.
-    func testPreviewRatchetSoundsAndReleasesClean() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .ratchet)
-        let b = box(machines: cs) { _ in }
-        let e = RecordingEmitter()
-        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "ratchet preview repeats the source chord on bus B")
-        var diag = KernelDiag()
-        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
-                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
     // PLAYING preview, RATCHET with ROW-FEED: the virtual ratchet cell reads row 0's sounding note (an arp cell),
     // repeating it on bus B while row 0's own cell is soloed out.
     // (testPreviewRatchetRowFeedReadsParentRow removed 2026-08-27: preview `inputRow` is inert (grid-chaining retired), so
     //  it duplicates testPreviewRatchetSoundsAndReleasesClean — a source-fed ratchet preview.)
 
-    // 1c: CHANCE chord-hold preview gates by probability — p=1 sounds the held chord, p=0 is silent.
-    func testPreviewChanceChordHoldGatesAndReleasesClean() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .chance); cs[gold].paramsA.probability = 1
-        let b = box(machines: cs) { _ in }
-        let e = RecordingEmitter()
-        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67], "chance p=1 holds the source chord on bus B")
-        var diag = KernelDiag()
-        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
-                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
-        assertNothingLeftSounding(e)
 
-        var cs0 = arpMachines(); cs0[gold] = Machine(machineID: "gold", type: .chance); cs0[gold].paramsA.probability = 0
-        let b0 = box(machines: cs0) { _ in }
-        let eNone = RecordingEmitter()
-        runPreview(b0, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: eNone)
-        XCTAssertEqual(eNone.ons.count, 0, "chance p=0 previews to silence")
-    }
-
-    // 1c: an identity chord-hold sustains the held chord on the staged bus, releasing clean.
-    func testPreviewIdentityChordHoldSustains() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        var cs = arpMachines(); cs[gold] = Machine(machineID: "gold", type: .empty)
-        let b = box(machines: cs) { _ in }
-        let e = RecordingEmitter()
-        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67], "an identity hold sustains the held chord on bus B")
-        var diag = KernelDiag()
-        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
-                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
     // COG SIMPLIFICATION (2026-08-03): cables are RETIRED — the render ALWAYS hears every cable (union), even if a
     // saved receiver still carries a restricted `cable` field (kept for decode-compat but ignored by the builder).
@@ -9487,17 +9167,6 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(notes(held: true).contains(60), "held: the un-shifted note is gone")
     }
 
-    // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
-    func testPreviewLeavesNothingStuckOnRelease() {
-        let gold = machineIDs.firstIndex(of: "gold")!
-        let b = box(machines: arpMachines()) { _ in }
-        let e = RecordingEmitter()
-        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
-        var diag = KernelDiag()      // release PREVIEW → the deactivation edge flushes
-        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
-                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
     // MARK: - receiver SOLO (receiver strip) — audible = ¬muted ∧ (soloSet = ∅ ∨ member)
 

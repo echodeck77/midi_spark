@@ -47,24 +47,6 @@ final class Kernel {
     var store: SnapshotStore?
     private(set) var diag = KernelDiag()
 
-    // AUDITION (§6.4 / delta §5) — SUPERSEDED, the writer is gone (Paul 2026-09-29): a press-hold "hear this
-    // processor alone while stopped" preview, replaced by the newer composeSceneMeta-based audition (which
-    // parks the machine as a real playing cell and runs it through the full engine). `auditionTarget` now
-    // never leaves its initial −1 — kept (not deleted) only because `Router.process`'s `audition:` parameter
-    // and the render-loop's own invariant checks still read it; unwinding that is a separate, deliberate pass.
-    private var auditionTarget: Int32 = -1
-    private var suppressAuditionNotes = false     // this render: audition replaces raw note passthrough
-    // (The reference-chord fallback was REMOVED 2026-08-23, Paul: a synthetic chord must never be part of the user experience.)
-
-    // PREVIEW / cell audition (Phase 2) — SUPERSEDED, the writer is gone (Paul 2026-09-29): the staged VIRTUAL
-    // cell was meant to render SOLO while PREVIEW was held; `setPreview`/`clearPreview` had zero UI callers
-    // (found alongside the AUDITION cleanup above — same "Phase 2" era, same fate). `previewActive` now never
-    // leaves false — kept only because the render loop still reads it (see the AUDITION note above).
-    private var previewActive = false
-    private var previewMachineIndex: Int32 = -1
-    private var previewFilter: Int32 = 0
-    private var previewBusMask: UInt8 = 0
-    private var previewInputRow: Int32 = -1
 
     // §5b COLUMN-SUBSET LAP: the held column keys (bit i = column i), set from the UI (PERFORM only),
     // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
@@ -163,7 +145,6 @@ final class Kernel {
     func flushVoices() { flushRequested = true }
     // MULTI-SCENE S2b: RESTART-the-pass — re-anchor the playing clock so the current moment becomes column 0.
     private var restartRequested = false
-    func restartPass() { restartRequested = true }
     // receiver strip LATCH (chord-hold): 4 FROZEN input pools + the armed mask. Each render, an armed
     // receiver captures the live filtered chord while fingers are down and FREEZES it when they lift (a NEW
     // chord replaces automatically — fingers-down re-captures); a fresh arm starts empty. The frozen pools
@@ -921,8 +902,6 @@ final class Kernel {
         // Audition (stopped only) REPLACES raw note passthrough when the held cell will sound — you hear
         // the processor alone (§6.4). Not auditioning / a cell that can't sound → notes still pass for
         // soundcheck. CC/PB/AT always pass. Computed once here so handleIncoming is cheap.
-        let audition = playing ? -1 : Int(auditionTarget)
-        suppressAuditionNotes = audition >= 0 && auditionCellSounds(box, audition)
 
         #if DEBUG
         drainChaosMIDI(playing: playing)   // CHAOS SIMULATED source: fold any injected notes into the real input path, this render
@@ -1085,7 +1064,7 @@ final class Kernel {
                         playing: rPlaying, beatPos: rBeat, tempo: tempo, beatsPerBar: beatsPerBar,
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
-                        frameCount: frameCount, audition: audition, laneMask: laneMask,
+                        frameCount: frameCount, laneMask: laneMask,
                         velOverride: velOverride, heldCell: Int(heldCell), soloEmitterMask: soloEmitterMask,
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputSemitone: inputSemitone, inputVelOverride: inputVelOverride,
                         emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
@@ -1097,7 +1076,6 @@ final class Kernel {
                         euclideousLockLive: euclideousLockLive,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
-                        preview: (previewActive, Int(previewMachineIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         focusCell: Int(focusCell),
                         out: partTap, diag: &diag)   // → partTap (part roll) → reelTap (reel) → liveEmitter
         router.snapshotEmitterSounding()   // §strips-done: capture the currently-sounding set (voices now reconciled)
@@ -1126,7 +1104,7 @@ final class Kernel {
         // is replaying (which REPLACES the output and SKIPS router.process → activeVoiceCount goes stale; the soft net
         // already exempts it, so the hard net must too).
         let producing = rPlaying || reel.state == .replaying
-        if silenceInvariantViolated(playing: producing, heldInput: pool.count, auditioning: audition >= 0,
+        if silenceInvariantViolated(playing: producing, heldInput: pool.count, auditioning: false,
                                     activeVoices: diag.activeVoiceCount, passthroughHeld: diag.passthroughHeld) {
             healStuckNotes(now: now, hardTrap: true, reasonCode: 1, diag: &diag)   // 1 = silence invariant (stopped); DEBUG traps into the corpse
             emptyInputSamples = 0
@@ -1140,12 +1118,12 @@ final class Kernel {
             // CR-18[extra]: reel REPLAY replaces the live output and SKIPS router.process, so diag.activeVoiceCount goes
             // stale — exempt the replay state from the leak net (else it false-fires "playing silence leak", bumping diag.panics).
             // ROW 8 FREEZE (Paul 2026-08-22): frozen = voices deliberately SUSTAIN with no emission → exempt it too.
-            let liveEmpty = playing && pool.count == 0 && effectiveLatchMask == 0 && audition < 0 && reel.state != .replaying && !box.freezeActive
+            let liveEmpty = playing && pool.count == 0 && effectiveLatchMask == 0 && reel.state != .replaying && !box.freezeActive
             emptyInputSamples = liveEmpty ? emptyInputSamples &+ Int64(frameCount) : 0
             let columnSamples = Int64(max(1.0, box.stepBeats * 60.0 / max(1.0, tempo) * sampleRate))
             let debounce = max(Int64(sampleRate), 4 &* columnSamples)   // ≥ 1 s AND ≥ 4 columns — never cuts a legit tail
             if playingSilenceLeak(playing: playing, liveInput: pool.count, latchArmed: effectiveLatchMask != 0,
-                                  auditioning: audition >= 0, emptyInputSamples: emptyInputSamples,
+                                  auditioning: false, emptyInputSamples: emptyInputSamples,
                                   debounceSamples: debounce, activeVoices: diag.activeVoiceCount,
                                   passthroughHeld: diag.passthroughHeld) {
                 healStuckNotes(now: now, hardTrap: false, reasonCode: 2, diag: &diag)   // 2 = playing silence leak (soft — no trap)
@@ -1189,16 +1167,6 @@ final class Kernel {
         #endif
     }
 
-    /// True when the audition target is a cell that WILL sound (occupied, non-muted, non-bypassed, with
-    /// lit buses) — audition then fully replaces the raw note passthrough. Must agree with the guard in
-    /// Router.auditionRender (both gate on the same condition; a bypassed/empty/unlit cell keeps
-    /// passthrough so the held chord is still audible).
-    private func auditionCellSounds(_ box: SnapshotBox, _ target: Int) -> Bool {
-        let col = target / Snap.rows, row = target % Snap.rows
-        guard col >= 0, col < Snap.maxCols, row >= 0, row < Snap.rows else { return false }
-        let cell = box.cells[col * Snap.rows + row]
-        return cell.machineIndex >= 0 && !cell.muted && !cell.bypassed && cell.busMask != 0
-    }
 
     // MARK: - incoming MIDI (source pool + passthrough)
 
@@ -1282,7 +1250,7 @@ final class Kernel {
         // into auditionSuppressing makes the gate treat every raw note as suppressed → mask 0 AND tracked want=false, so
         // its OFF also drops (no spurious note-off, no stuck note). System messages (isNote=false in the gate) still forward.
         var mask = passthroughGate.mask(statusByte: bytes[0], note: pNote, velocity: pVel,
-                                        playing: playing, auditionSuppressing: suppressAuditionNotes || previewActive || !noteMonitorPassthrough)
+                                        playing: playing, auditionSuppressing: !noteMonitorPassthrough)
         // receiver strip: passthrough FOLLOWS THE THRU PIP's receiver (default R1) — supersedes follows-R1.
         // A non-note event forwards only if the THRU receiver hears it (cable + channel); a note soundcheck is
         // mute-gated only; a MUTED THRU passes NOTHING (note soundcheck included). See `thruAudible`.

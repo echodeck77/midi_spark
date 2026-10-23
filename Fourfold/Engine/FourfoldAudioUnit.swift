@@ -465,12 +465,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
     /// Load a factory scene (Docs/factory-scenes.md) — same replace-and-resync path as a test session.
 
-    /// RESTART-the-pass (tap the active chip): re-anchor the playing clock so the current moment becomes column 0
-    /// ("take it from the top"), flushing the old pass's voices. A transport gesture — no document edit/rebuild.
-    func restartPass() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        kernel.restartPass()
-    }
     /// S3 trash: delete a scene. Refuses (returns false) the ACTIVE scene / empty / out-of-range — the UI shakes.
     @discardableResult func deleteScene(_ i: Int) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
