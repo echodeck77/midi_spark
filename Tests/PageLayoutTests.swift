@@ -184,7 +184,7 @@ final class PageLayoutTests: XCTestCase {
     func testRiffGridAtBothReferences() {
         // RIFF PANEL ferry (2026-10-19) §1: the tabs are 20 tall, the grid starts at y 34, four 8pt rails (41) sit under it — rows (box − 119) / 8 = 25 / 25.08.
         // (The layout ferry's own chrome was 77 and its pure height/rows pair is GONE: the panel's inside is laid out by `euclideousRiffPanelLayout`, once.)
-        XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH, 119)
+        XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH(), 119)
         let l = euclideousRiffPanelLayout(box: land.box), p = euclideousRiffPanelLayout(box: port.box)
         XCTAssertEqual(l.cellW, 37.83, accuracy: 0.01); XCTAssertEqual(l.rowH, 25, accuracy: 1e-9)
         XCTAssertEqual(p.cellW, 38.63, accuracy: 0.01); XCTAssertEqual(p.rowH, 25.08, accuracy: 0.01)
@@ -273,7 +273,11 @@ final class PageLayoutTests: XCTestCase {
         // drop to their compact floors (18/14), buying the pad back 12pt to 59 — cellW is untouched.
         XCTAssertEqual(g.padH, 59, accuracy: 1e-9); XCTAssertEqual(g.cellW, 74.75, accuracy: 1e-9)
         XCTAssertEqual(g.stepperH, 18, accuracy: 1e-9); XCTAssertEqual(g.outRowH, 14, accuracy: 1e-9)
-        XCTAssertEqual(euclideousRiffPanelLayout(box: CGSize(width: 355, height: 274)).rowH, 19.375, accuracy: 1e-9, "the new chrome (119) takes 42pt more than the old 77")
+        // Floors ferry: nominal rowH would be 19.375 (chrome 119) but that's under minRowH (24), so the tab
+        // row drops to its compact floor (14) and chrome shrinks to 113, buying rowH back to 20.125.
+        let miniRiffLayout = euclideousRiffPanelLayout(box: CGSize(width: 355, height: 274))
+        XCTAssertEqual(miniRiffLayout.rowH, 20.125, accuracy: 1e-9)
+        XCTAssertEqual(miniRiffLayout.tabRowH, 14, accuracy: 1e-9); XCTAssertEqual(miniRiffLayout.labelW, 30, accuracy: 1e-9, "cellW here (34.6) clears minCellW, so the label stays nominal")
         let r = euclideousRiffTabLayout(contentAreaH: 274 - 104, fullWidth: 335)
         XCTAssertEqual(r.rowAHeight, 44, accuracy: 1e-9, "RIFF's row A")
         // Floors ferry (2026-10-23): at this size, showing the WALK strip would leave only 2pt for the
@@ -284,7 +288,7 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertTrue(f.isSuperset(of: [.mixCellW, .mixPadH, .rhythmZones, .riffRowA]), "\(f)")
         XCTAssertFalse(f.contains(.riffDirectionRow), "the WALK-strip-drop fallback resolves this at 44pt, clear of the 32pt floor")
         XCTAssertFalse(f.contains(.mixPadHStop), "the fair-share fallback buys padH back to 59, clear of the 48pt stop-floor")
-        XCTAssertTrue(f.contains(.riffRows), "19.4 is under 24 now that the rails take 49pt"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
+        XCTAssertTrue(f.contains(.riffRows), "20.1 (even after the tab-row fair-share gives it back 0.75) is still under 24"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
         // windowed AUM panels
         let wl = euclideousPageLayout(size: CGSize(width: 900, height: 600))
         XCTAssertEqual(wl.headerKind, .b, "868 wide: B, boxes start at 111")

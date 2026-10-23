@@ -17,7 +17,7 @@ final class RiffPanelTests: XCTestCase {
 
     func testPanelLayoutAtTheLandscapeReference() {
         let l = euclideousRiffPanelLayout(box: landBox)
-        XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH, 119); XCTAssertEqual(EuclideousRiffPanelMetrics.railsH, 41)
+        XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH(), 119); XCTAssertEqual(EuclideousRiffPanelMetrics.railsH, 41)
         near(l.rowH, 25); near(l.cellW, 37.83); near(l.cellH, 25)
         near(l.tabFrame(0).minY, 8); near(l.tabFrame(0).maxY, 28); near(l.tabWidth, 88.17)
         near(l.tabFrame(1).minX - l.tabFrame(0).maxX, 4, "tabs are sp4 apart"); near(l.tabFrame(3).maxX, landBox.width - 8)
@@ -49,6 +49,28 @@ final class RiffPanelTests: XCTestCase {
         near(euclideousRiffPanelLayout(box: CGSize(width: 387, height: 316.67)).rowH, 24.71)
         XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 300)).contains(.riffRows))
         XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 380, height: 314.5)).contains(.riffRows))
+    }
+    // Floors ferry (2026-10-23): fair-share on both axes — the tab row (height) and the note-label column
+    // (width) each shrink to their own compact floor once the nominal split would leave the grid's own
+    // metric (rowH / cellW) under ITS floor, instead of staying fixed while the grid alone absorbs the squeeze.
+    func testTabRowFairShareDropsExactlyAtTheRowHeightFloor() {
+        // nominal rowH = (height − 119)/8; it equals minRowH (24) exactly at height 311 (the existing floor
+        // boundary above) — pick a box just below and just above that to pin the tab-row trigger itself.
+        let atFloor = euclideousRiffPanelLayout(box: CGSize(width: 380, height: 311))
+        XCTAssertEqual(atFloor.tabRowH, 20, accuracy: 1e-9); near(atFloor.rowH, 24)
+        let justUnder = euclideousRiffPanelLayout(box: CGSize(width: 380, height: 310.99))
+        XCTAssertEqual(justUnder.tabRowH, 14, accuracy: 1e-9, "nominal rowH 23.99875 < 24 triggers the compact tab row")
+        XCTAssertEqual(justUnder.rowH, 24.74875, accuracy: 1e-9, "chrome shrinks to 113, buying 6pt back")
+    }
+    func testNoteLabelColumnFairShareDropsExactlyAtTheCellWidthFloor() {
+        // euclideousRiffCellW's nominal cellW (label 30) hits minCellW (24) at maxWidth = 24*8 + 7*4 + 16 + 34 = 270.
+        let atFloor = euclideousRiffNoteLabelW(maxWidth: 270)
+        XCTAssertEqual(atFloor, 30, accuracy: 1e-9); XCTAssertEqual(euclideousRiffCellW(maxWidth: 270), 24, accuracy: 1e-9)
+        let justUnder = euclideousRiffNoteLabelW(maxWidth: 269.99)
+        XCTAssertEqual(justUnder, 20, accuracy: 1e-9, "nominal cellW drops a hair under 24, triggering the compact label")
+        XCTAssertEqual(euclideousRiffCellW(maxWidth: 269.99), 25.24875, accuracy: 1e-9, "the 10pt given back buys cellW back above 24, not just up to it")
+        // the panel's own layout resolves the same labelW for the same box.width, so the column and grid never disagree
+        XCTAssertEqual(euclideousRiffPanelLayout(box: CGSize(width: 269.99, height: 500)).labelW, 20, accuracy: 1e-9)
     }
 
     // MARK: 2. heading

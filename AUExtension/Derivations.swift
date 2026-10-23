@@ -5616,14 +5616,24 @@ func euclideousRestartEditorLayout(width: CGFloat, height: CGFloat) -> Euclideou
 enum EuclideousRiffPanelMetrics {
     static let padding: CGFloat = 8
     static let tabRowH: CGFloat = 20, tabGap: CGFloat = 4, tabToGrid: CGFloat = 6
+    /// Floors ferry (2026-10-23): the tab row's own fair-share floor — used once the nominal 20pt row
+    /// would leave the eight grid rows under `minRowH`, buying them 6pt back instead of staying fixed
+    /// while the grid alone absorbs the squeeze.
+    static let tabRowCompactH: CGFloat = 14
     static let labelW: CGFloat = 30, labelGap: CGFloat = 4, colGap: CGFloat = 4, rowGap: CGFloat = 4
+    /// Floors ferry: the note-label column's own fair-share floor, symmetric with `tabRowCompactH` but on
+    /// the width axis — used once the nominal 30pt label would leave `cellW` under `minCellW`.
+    static let labelCompactW: CGFloat = 20
     static let gridToRails: CGFloat = 8
     static let railH: CGFloat = 8, railGap: CGFloat = 3
     static var railsH: CGFloat { railH * 4 + railGap * 3 }          // 41
     /// The row-height floor the page REPORTS under (it is never enforced when drawing): a box at least 311 tall.
     static let minRowH: CGFloat = 24
-    /// Everything but the eight rows' own height: 8 + 20 + 6 + 7 × 4 + 8 + 41 + 8 = 119.
-    static var chromeH: CGFloat { padding + tabRowH + tabToGrid + rowGap * 7 + gridToRails + railsH + padding }
+    /// Floors ferry: `cellW`'s own floor — the width-axis fair-share trigger, chosen symmetric with `minRowH`.
+    static let minCellW: CGFloat = 24
+    /// Everything but the eight rows' own height, given a resolved tab-row height (nominal 20 by default):
+    /// 8 + tabRowH + 6 + 7 × 4 + 8 + 41 + 8 = 119 at nominal.
+    static func chromeH(tabRowH: CGFloat = tabRowH) -> CGFloat { padding + tabRowH + tabToGrid + rowGap * 7 + gridToRails + railsH + padding }
 }
 /// §1 / §8.1: the riff panel's inside, from the box the page function gives it. Every coordinate is in the panel's own space (0,0 = its top-left).
 struct EuclideousRiffPanelLayout: Equatable {
@@ -5631,16 +5641,21 @@ struct EuclideousRiffPanelLayout: Equatable {
     var box: CGSize
     /// The grid's column width — `euclideousRiffCellW`, the one function the FX tab's columns also use (so FX keeps lining up).
     var cellW: CGFloat
-    /// The nominal row height `(box height − 119) / 8`, NOT floored (a box under the floor is drawn at this value and reported).
+    /// The nominal row height `(box height − chromeH) / 8`, NOT floored (a box under the floor is drawn at this value and reported).
     var rowH: CGFloat
     /// The cell height the grid draws: the smaller of `rowH` and `cellW` (the grid has always kept its cells from being taller than wide).
     var cellH: CGFloat
+    /// Floors ferry: the note-label column's own fair-share-resolved width (nominal 30, or `labelCompactW`) — a pure
+    /// function of `box.width`, the same one `cellW` resolves from, so the column and the grid always agree.
+    var labelW: CGFloat
+    /// Floors ferry: the tab row's own fair-share-resolved height (nominal 20, or `tabRowCompactH`).
+    var tabRowH: CGFloat
     var belowFloor: Bool { rowH < M.minRowH }
     var tabWidth: CGFloat { (box.width - M.padding * 2 - M.tabGap * 3) / 4 }
-    func tabFrame(_ i: Int) -> CGRect { CGRect(x: M.padding + CGFloat(i) * (tabWidth + M.tabGap), y: M.padding, width: tabWidth, height: M.tabRowH) }
-    /// Column 0's left edge: padding + the note-label column + its gap = 42.
-    var firstColumnX: CGFloat { M.padding + M.labelW + M.labelGap }
-    var gridTop: CGFloat { M.padding + M.tabRowH + M.tabToGrid }                        // 34
+    func tabFrame(_ i: Int) -> CGRect { CGRect(x: M.padding + CGFloat(i) * (tabWidth + M.tabGap), y: M.padding, width: tabWidth, height: tabRowH) }
+    /// Column 0's left edge: padding + the note-label column + its gap.
+    var firstColumnX: CGFloat { M.padding + labelW + M.labelGap }
+    var gridTop: CGFloat { M.padding + tabRowH + M.tabToGrid }
     var gridSize: CGSize { CGSize(width: cellW * 8 + M.colGap * 7, height: cellH * 8 + M.rowGap * 7) }
     func columnLeft(_ c: Int) -> CGFloat { firstColumnX + CGFloat(c) * (cellW + M.colGap) }
     /// Row `r` counted from the top (rank 8 is row 0).
@@ -5649,14 +5664,17 @@ struct EuclideousRiffPanelLayout: Equatable {
     var railsTop: CGFloat { gridTop + gridSize.height + M.gridToRails }
     func railTop(_ lane: Int) -> CGFloat { railsTop + CGFloat(lane) * (M.railH + M.railGap) }
     /// The lane's number sits in the note-label column, right-aligned and centred on its rail.
-    func railNumberFrame(_ lane: Int) -> CGRect { CGRect(x: M.padding, y: railTop(lane), width: M.labelW, height: M.railH) }
+    func railNumberFrame(_ lane: Int) -> CGRect { CGRect(x: M.padding, y: railTop(lane), width: labelW, height: M.railH) }
     func railSegmentFrame(lane: Int, column: Int) -> CGRect { CGRect(x: columnLeft(column), y: railTop(lane), width: cellW, height: M.railH) }
 }
 func euclideousRiffPanelLayout(box: CGSize) -> EuclideousRiffPanelLayout {
     typealias M = EuclideousRiffPanelMetrics
     let cellW = euclideousRiffCellW(maxWidth: box.width)
-    let rowH = (box.height - M.chromeH) / 8
-    return EuclideousRiffPanelLayout(box: box, cellW: cellW, rowH: rowH, cellH: min(max(1, rowH), cellW))
+    let labelW = euclideousRiffNoteLabelW(maxWidth: box.width)
+    let nominalRowH = (box.height - M.chromeH()) / 8
+    let tabRowH = nominalRowH < M.minRowH ? M.tabRowCompactH : M.tabRowH
+    let rowH = (box.height - M.chromeH(tabRowH: tabRowH)) / 8
+    return EuclideousRiffPanelLayout(box: box, cellW: cellW, rowH: rowH, cellH: min(max(1, rowH), cellW), labelW: labelW, tabRowH: tabRowH)
 }
 
 /// The bottom-right panel's tab body (what LANES and FX are laid out in): the panel less sp8 padding all round, the 20pt tab row and the sp4 gap.
@@ -7902,11 +7920,25 @@ func euclideousFXPassIndex(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, s
     return euclideousFXFreePass(advOrd: euclideousRiffWalkStep(ordinal: info.advOrd, every: every), period: euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
 }
 
+/// Floors ferry: the note-label column's own fair-share-resolved width — nominal 30, dropping to
+/// `labelCompactW` (20) once the nominal split would leave `euclideousRiffCellW`'s result under
+/// `minCellW` (24, symmetric with the row axis's `minRowH`). A pure function of `maxWidth` alone, so every
+/// caller of `euclideousRiffCellW` below (the riff grid panel AND the FX tab, which shares that formula by
+/// design, §10.3) resolves to the identical label width for the identical width — the two grids' columns
+/// never drift out of alignment.
+func euclideousRiffNoteLabelW(maxWidth: CGFloat) -> CGFloat {
+    typealias M = EuclideousRiffPanelMetrics
+    let n: CGFloat = 8, sp4: CGFloat = 4, sp8: CGFloat = 8
+    let nominalGridW = max(1, maxWidth - (M.labelW + sp4))
+    let nominalCellW = max(1, (nominalGridW - sp8 * 2 - sp4 * (n - 1)) / n)
+    return nominalCellW < M.minCellW ? M.labelCompactW : M.labelW
+}
 /// The riff grid's own cell width (§10.3: "call the riff grid's own function, don't re-derive it"): the FX tab's columns and the riff grid's are the SAME numbers
-/// because both read this. `maxWidth` is the panel's outer width (the riff column); the 30pt note-label column, the sp4 gap and the sp8 padding on both
-/// sides are the grid's own.
+/// because both read this. `maxWidth` is the panel's outer width (the riff column); the note-label column (see `euclideousRiffNoteLabelW`), the sp4 gap and
+/// the sp8 padding on both sides are the grid's own.
 func euclideousRiffCellW(maxWidth: CGFloat) -> CGFloat {
-    let n: CGFloat = 8, label: CGFloat = 30, sp4: CGFloat = 4, sp8: CGFloat = 8
+    let n: CGFloat = 8, sp4: CGFloat = 4, sp8: CGFloat = 8
+    let label = euclideousRiffNoteLabelW(maxWidth: maxWidth)
     let gridW = max(1, maxWidth - (label + sp4))
     return max(1, (gridW - sp8 * 2 - sp4 * (n - 1)) / n)
 }

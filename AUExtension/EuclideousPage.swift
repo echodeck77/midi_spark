@@ -5743,7 +5743,7 @@ struct EuclideousPage: View {
     /// number, 6pt, then the mini icon at its TAB size (21.7 × 12.8). SOURCE DIFFERENCES (reported): there was no triangle in the restored four-riff row (it went
     /// with the looper tabs, 8a4337e) — in today's one-riff model the ACTIVE riff is the only one that plays, so it is drawn there, in the pre-looper row's colour
     /// for the active tab (ink); and the number stays 9pt heavy (the ferry text says 10) because source wins on an existing type size.
-    private func riffTabRow() -> some View {
+    private func riffTabRow(height: CGFloat = EuclideousRiffPanelMetrics.tabRowH) -> some View {
         HStack(spacing: EuclideousRiffPanelMetrics.tabGap) {
             ForEach(0..<4, id: \.self) { i in
                 let sel = i == max(0, min(3, activeRiff))
@@ -5761,7 +5761,7 @@ struct EuclideousPage: View {
                                  dotColor: sel ? ink.opacity(0.3) : Color(hex: 0x4A4E57),
                                  style: .tab)
                 }
-                .frame(maxWidth: .infinity).frame(height: EuclideousRiffPanelMetrics.tabRowH)
+                .frame(maxWidth: .infinity).frame(height: height)
                 .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle())
                 .onTapGesture { onSetActiveRiff(i) }
@@ -5834,10 +5834,10 @@ struct EuclideousPage: View {
             return euclideousAppendSilencedBySolo(euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted), silenced: f.soloSilenced)
         }
         return VStack(alignment: .leading, spacing: 0) {
-            riffTabRow()
+            riffTabRow(height: layout.tabRowH)
             Color.clear.frame(height: EuclideousRiffPanelMetrics.tabToGrid)
             HStack(spacing: sp4) {
-                riffNoteLabelColumn(pool: pool, source: source, cellH: cellH)
+                riffNoteLabelColumn(pool: pool, source: source, cellH: cellH, labelW: layout.labelW)
                 // DRAGGABLE (see `riffDragLastCell`'s own doc comment above): the matrix VStack carries no
                 // gesture of its own anymore — a single clear overlay, sized to its EXACT pixel footprint,
                 // sits on top and owns the one gesture for the whole grid, matching `sliderLane`'s own
@@ -6030,7 +6030,7 @@ struct EuclideousPage: View {
         }
         return out
     }
-    private func riffNoteLabelColumn(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat) -> some View {
+    private func riffNoteLabelColumn(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat, labelW: CGFloat) -> some View {
         // The names and their VoiceOver words are worked out ONCE per body; the TimelineView only decides which rows are lit this frame.
         let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
         let rows: [(rank: Int, label: String, hasNote: Bool, isReal: Bool, spoken: String)] = (1...8).reversed().map { rank in
@@ -6040,22 +6040,22 @@ struct EuclideousPage: View {
                     hasNote ? "Rank \(rank), \(euclideousAccessibleDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType))" : "Rank \(rank), no note")
         }
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
-            riffNoteLabelColumnBody(rows: rows, cellH: cellH, lights: riffNameLights(now: tl.date.timeIntervalSinceReferenceDate))
+            riffNoteLabelColumnBody(rows: rows, cellH: cellH, labelW: labelW, lights: riffNameLights(now: tl.date.timeIntervalSinceReferenceDate))
         }
     }
-    private func riffNoteLabelColumnBody(rows: [(rank: Int, label: String, hasNote: Bool, isReal: Bool, spoken: String)], cellH: CGFloat, lights: [Int: (colour: Color, f: Double)]) -> some View {
+    private func riffNoteLabelColumnBody(rows: [(rank: Int, label: String, hasNote: Bool, isReal: Bool, spoken: String)], cellH: CGFloat, labelW: CGFloat, lights: [Int: (colour: Color, f: Double)]) -> some View {
         // (the note names — octave-extended, real-vs-copy dimming, spelled relative to the held chord, "–" with nothing held — are built once in `riffNoteLabelColumn`; see the 2026-10-13 and 2026-10-14 notes in git history)
         return VStack(spacing: sp4) {
             ForEach(rows, id: \.rank) { row in
                 Text(row.label).font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(lights[row.rank]?.colour ?? (row.hasNote ? (row.isReal ? Color(hex: 0xDFE3EA) : Color(hex: 0xDFE3EA).opacity(0.55)) : Color(hex: 0x4A4E57)))
                     .shadow(color: lights[row.rank].map { $0.colour.opacity($0.f) } ?? .clear, radius: lights[row.rank].map { 5 * CGFloat($0.f) } ?? 0)
-                    .frame(width: riffLabelColW, height: cellH, alignment: .trailing)
+                    .frame(width: labelW, height: cellH, alignment: .trailing)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(row.spoken)
             }
         }
-        .frame(width: riffLabelColW)
+        .frame(width: labelW)
     }
     // riffSourceTabs REMOVED ENTIRE (Paul 2026-10-14: "move the midi in/chords/key control to the top
     // header bar and restyle") — superseded by `headerSourceGroup()` above; confirmed zero remaining call
