@@ -3010,42 +3010,36 @@ struct EuclideousPage: View {
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
 
+    /// CLARITY PASS §2: one tab's label (11 pt heavy, tracking 1) with its glyph after it (sp5), or — on RHYTHM — a space and "hits/steps" in lane100 (same face and size, no tracking). A single `Text` with
+    /// tail truncation, so a narrow tab loses the count before the label ("truncate, never shrink"). An OFF glyph tab (RIFF / NOTES / LISTEN) dims its label and glyph to 40 %, selected or not.
+    private func laneTabLabel(_ idx: Int, _ line: EuclidLine, _ t: EuclideousLaneTab, sel: Bool, accent: Color) -> AnyView {
+        let glyph = euclideousTabGlyph(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, line: line, lane: idx)
+        let face = Font.system(size: 11, weight: .heavy, design: .monospaced)
+        let name = Text(t.label).font(face).tracking(1).foregroundColor(sel ? patternSelectedText : patternUnselectedText)
+        let title: Text = t == .rhythm ? name + Text(" " + euclideousRhythmTabCount(line)).font(face).tracking(0).foregroundColor(lane100(accent)) : name
+        let fills: [Color] = {
+            switch glyph.fill {
+            case .lane(let l): return [lane100(laneAccents[max(0, l) % laneAccents.count])]
+            case .anyLane: return laneAccents
+            }
+        }()
+        return AnyView(
+            HStack(spacing: 5) {
+                title.lineLimit(1).truncationMode(.tail)
+                if glyph.shape != .none { EuclideousTabGlyphView(shape: glyph.shape, on: glyph.on, fills: fills) }
+            }
+            .opacity(glyph.shape != .none && !glyph.on ? 0.4 : 1)
+        )
+    }
+
     private func laneTabRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(EuclideousLaneTab.allCases, id: \.rawValue) { t in
                 let sel = (idx < laneTab.count ? laneTab[idx] : .rhythm) == t
-                // DOT (RIFF/NOTES SPLIT, third same-day ferry §1): RIFF/NOTES/MASK each carry their own
-                // dot again — filled (lane-coloured) while that layer is genuinely ON, hollow while off.
-                // RHYTHM never shows one (always "on"). All three share ONE rendering (below), replacing
-                // MASK's own previously-bespoke inline Circle so the three tabs can't drift onto two
-                // different dot looks.
-                let dotOn: Bool? = {
-                    switch t {
-                    case .rhythm: return nil
-                    case .riff: return line.riffOnResolved
-                    case .notes: return euclideousNotesLayerIsOn(line)   // on only while its switch is on AND a note is selected (shared with the NOTES strip and the MIX tab)
-                    // LISTEN (§1): "filled... when ANY row has a lit button, hollow otherwise."
-                    case .listen: return line.listenRhythmMode != nil || line.listenPitchMode != nil || line.listenLevelMode != nil
-                    }
-                }()
-                // VIEWS (2026-10-13 "lane card, exact dimensions" ferry, literal): "Labels are 11pt heavy
-                // with 1pt tracking, centred. The selected tab is TEXT, the others MUTED. A 2pt underline
-                // runs along each tab's bottom edge, the full width of the tab: LANE-100 for the selected
-                // tab, CHIP for the others." — a real change from before: EVERY tab now shows an underline
-                // (CHIP when unselected, not invisible), not just the active one.
-                HStack(spacing: 5) {
-                    Text(t.label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
-                        .foregroundColor(sel ? patternSelectedText : patternUnselectedText)
-                        .lineLimit(1)
-                    if let on = dotOn {
-                        // LANE-100 — 7×7, filled + a matching 1pt ring when on; a hollow 1.5pt MUTED ring
-                        // when off (so the dot's own presence still tells "this tab HAS an on/off state"
-                        // even while that state is currently off).
-                        Circle().fill(on ? lane100(accent) : Color.clear)
-                            .overlay(Circle().stroke(on ? lane100(accent) : Color(hex: 0xAAB0BA), lineWidth: on ? 1 : 1.5))
-                            .frame(width: 7, height: 7)
-                    }
-                }
+                // CLARITY PASS (2026-10-23) §2: RIFF/NOTES/LISTEN each carry a GLYPH (a square / an upright bar / a circle) where the round status dot used to sit — filled in a lane's colour while that tab's thing is ON
+                // (exactly what filled the dot: `euclideousTabGlyph`), a 1.5 pt outline and the label + glyph at 40 % while off; RHYTHM shows its "hits/steps" in lane100 instead. The underline and the LOCK dot
+                // are the overlay below, outside the dimmed content. (The label is its own AnyView-returning leaf, like the rest of this row — the 1 MB stack rule.)
+                laneTabLabel(idx, line, t, sel: sel, accent: accent)
                 .frame(maxWidth: .infinity, alignment: .center).frame(height: rowH)
                 // LANE LOCK 5.4: the underline and — on a tab with a control that differs from L — a 6pt lane100 dot (6pt from its trailing edge, 5pt from its top), in ONE overlay
                 .overlay(tabDecor(idx, t, sel: sel, accent))
@@ -3053,6 +3047,8 @@ struct EuclideousPage: View {
                 // circles any more, so the pulse/trace now points at MIX (its OUT buttons, or the MIX tab
                 // chip), never at this per-lane tab row.
                 .contentShape(Rectangle())
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(euclideousTabAccessibilityLabel(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, line: line, lane: idx))   // §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" · "Listen, on, following lane 2"
                 .onTapGesture {
                     if idx < laneTab.count { laneTab[idx] = t }
                     // §1.6: the STEPS picker and the restart editor both close when the card switches tab.

@@ -23,6 +23,7 @@
 		1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */; };
 		282189AB3D697A6FA80FB740 /* AcceptanceTuttiLengthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */; };
 		2862323D03259AC99DF87345 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
+		28E1FCD3397792DBD86B8803 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */; };
 		2A13BA2CD92BDE358A0AD2BA /* AcceptanceGatesSpecialTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */; };
 		2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		324E17FEE1D0032E38B664AA /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
@@ -179,6 +180,7 @@
 		3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkAudioUnit.swift; sourceTree = "<group>"; };
 		3EDCE8A830228B93BE51322A /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
 		408AF07FF1C6D11373D00D64 /* RhythmPolishTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RhythmPolishTests.swift; sourceTree = "<group>"; };
+		440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGlyphPainter.swift; sourceTree = "<group>"; };
 		487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceFactoryLibraryTests.swift; sourceTree = "<group>"; };
 		4B5AB77F620263EEC9BCFE6A /* RiffPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffPanelTests.swift; sourceTree = "<group>"; };
 		4C3D05D84CB3BB7FF47E7851 /* Dice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dice.swift; sourceTree = "<group>"; };
@@ -414,6 +416,7 @@
 				0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */,
 				08530382AAA337959EA7983D /* SnapshotBuilder.swift */,
 				3EDCE8A830228B93BE51322A /* SnapshotStore.swift */,
+				440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */,
 				7A14036510EE49EB0BD7CE1E /* TestSessions.swift */,
 				B324D879C239B5A1451B258F /* WalkTagPainter.swift */,
 			);
@@ -614,6 +617,7 @@
 				A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */,
 				838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */,
 				61FD41E8AAFF6443AFC70C85 /* SnapshotStore.swift in Sources */,
+				28E1FCD3397792DBD86B8803 /* TabGlyphPainter.swift in Sources */,
 				D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */,
 				C2B78F42CCC207F602D4937C /* WalkTagPainter.swift in Sources */,
 			);
