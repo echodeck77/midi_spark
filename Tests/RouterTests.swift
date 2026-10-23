@@ -13559,6 +13559,24 @@ final class RouterTests: XCTestCase {
             XCTAssertLessThan(Double(snd.off ?? 0) - Double(snd.on), 0.0125 * 48_000, "…and still ends inside its own slot")
         }
     }
+    func testFourLanesOfRatchetsOnOneOutputStaySoundingAndOnlyARunawayLoadIsGoverned() {
+        func lanes(rate: ArpRate, lit: UInt8) -> [EuclidLine] {
+            (0..<4).map { _ in var l = fxLine(gate: 0.5, litNotes: lit); l.rate = rate; l.steps = 8; l.pulses = 8; l.emitterMask = 0b0001; return l }
+        }
+        var every: [(Int, Int, Int)] = []; for c in 0..<8 { every.append((0, c, 4)) }
+        // 4 lanes × 1/16 (4 hits a beat) × RATCH 4 = 64 note-ons a beat on output A: the old 48-a-beat budget dropped a quarter of them (132 of 516 in the review's probe)
+        let ok = fxRunAt(fxBoxScene(lanes(rate: .r1_16, lit: 0), fx: fxCells(every), stepRate: .r1_8), beats: 8, frames: 512, tempo: 120)
+        XCTAssertEqual(ok.router.floodDropped, 0, "a legitimate heavy ratchet load is never governed")
+        let okCount = ok.e.ons.filter { $0.cable == 1 }.count
+        let okWant = 4 * 8 * 4 * 4   // 4 lanes × 8 beats × 4 hits × 4 strikes
+        XCTAssertGreaterThanOrEqual(okCount, okWant - 16, "…every strike of the four lanes sounds (less the run's last partial beat)")
+        // 4 lanes × 1/32 (8 hits a beat) × RATCH 4 with three lit notes riding every strike = 384 a beat: a runaway, still governed — by the Euclideous budget
+        let runaway = fxRunAt(fxBoxScene(lanes(rate: .r1_32, lit: 0b0000_0111), fx: fxCells(every), stepRate: .r1_8), beats: 4, frames: 512, tempo: 120)
+        XCTAssertGreaterThan(runaway.router.floodDropped, 0, "an absurd load still trips the governor")
+        var perBeat = [Int](repeating: 0, count: 4)
+        for ev in runaway.e.ons where ev.cable == 1 { let b = Int(ev.sample / 24_000); if b >= 0 && b < 4 { perBeat[b] += 1 } }
+        for (b, n) in perBeat.enumerated() { XCTAssertLessThanOrEqual(n, Router.euclideousFloodCapPerBeat + 4, "beat \(b): the budget holds (\(n) note-ons)") }
+    }
     func testFXRatchWithATieOnAFastStepExtendsTheLastStrikeAtEveryBufferSizeAndLeavesNothingSounding() {
         // RATCH 4 on column 0 and TIE on column 1 at 1/16: the tied hit carries the LAST strike on; at a 4096-frame buffer the early strikes are in-window
         for frames: UInt32 in [128, 1024, 4096] {

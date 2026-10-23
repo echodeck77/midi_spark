@@ -1292,7 +1292,11 @@ final class Router {
     // citizen at our wire beneath every synth's allocator floor. Offs are NEVER capped (no stuck notes). Bounded,
     // visible (the cog HEALTH counter), never silent-failing. Reset each beat + on transport reset.
     static let floodCapPerBeat = 48           // dev-tunable; ~48/beat/emitter ≈ 384 ev/s total @ 120bpm
+    // REVIEW FIX 2026-10-23: a Euclideous lane's strikes (its notes, and the echo-ring tails of its RATCH) count against their OWN, larger budget. Four lanes on one output at 1/16 with RATCH 4 is 64 note-ons a beat
+    // — legitimate, and 48 silently dropped a quarter of them (132 of 516 in a probe). The 8×8 engine keeps the original runaway protection: a separate counter, so neither starves the other.
+    static let euclideousFloodCapPerBeat = 160
     private var noteOnsThisBeat = [Int](repeating: 0, count: 4)
+    private var euclideousOnsThisBeat = [Int](repeating: 0, count: 4)
     private var lastGovBeat = Int.min
     private(set) var floodDropped = 0          // session total surfaced to HEALTH ("dropped N this session")
 
@@ -1337,7 +1341,7 @@ final class Router {
         prevFreezeActive = false   // ROW 8 FREEZE: a reset clears the sustain edge
         for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0; markCount[i] = 0; withheldCount[i] = 0; soundCount[i] = 0 }
         prevAudition = -1; auditionLastTick = -1
-        for i in 0..<4 { noteOnsThisBeat[i] = 0 }; lastGovBeat = Int.min   // FLOOD GOVERNOR: fresh budget on transport reset (floodDropped is a session total)
+        for i in 0..<4 { noteOnsThisBeat[i] = 0; euclideousOnsThisBeat[i] = 0 }; lastGovBeat = Int.min   // FLOOD GOVERNOR: fresh budget on transport reset (floodDropped is a session total)
         for i in overrides.indices { overrides[i] = .nan }
         for i in rampDurationSamples.indices { rampDurationSamples[i] = 0 }   // a reset drops any in-flight ramp too
         overrideGen = .max
@@ -2142,7 +2146,10 @@ final class Router {
         // overflow DROPS (counted, not silent-failing). Offs are never governed, so a dropped on never opens a voice.
         // Ordering matters: if the governor would drop this note, return -1 NOW — else MONO below closes the emitter's
         // holder for a note the governor then drops → the emitter goes silent for the beat. previewMode is exempt.
-        if !previewMode && noteOnsThisBeat[bus] >= Router.floodCapPerBeat { floodDropped &+= 1; return -1 }
+        if !previewMode {
+            let euclideous = euclideousStrikeLane >= 0
+            if euclideous ? euclideousOnsThisBeat[bus] >= Router.euclideousFloodCapPerBeat : noteOnsThisBeat[bus] >= Router.floodCapPerBeat { floodDropped &+= 1; return -1 }
+        }
         if bit(monoMask, bus) && !previewMode {
             var holder = -1
             for vv in voices where vv.active && !vv.silent && vv.bus == UInt8(bus) && vv.cable == UInt8(bus + 1) { holder = Int(vv.note); break }
@@ -2163,7 +2170,7 @@ final class Router {
         }
         // CONSUME the flood budget only once the note is going to sound (after MONO's suppression decision, so a
         // MONO-suppressed note doesn't eat the budget — behaviour-preserving for the non-flood case).
-        if !previewMode { noteOnsThisBeat[bus] &+= 1 }
+        if !previewMode { if euclideousStrikeLane >= 0 { euclideousOnsThisBeat[bus] &+= 1 } else { noteOnsThisBeat[bus] &+= 1 } }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
         if currentCellIndex >= 0 && currentCellIndex < Snap.cells {   // Snap.cells = 128 (was 64 — dropped the strike/note feed for cols 4–7, whose index ≥64)
@@ -3415,7 +3422,7 @@ final class Router {
         //      (held keys); the TRUE timeline — pass, swing — is unwarped (all off mNow). ----
         let mNow = musicalOf(beatPos, stepBeats: S, a: a)
         let govBeat = Int(beatPos.rounded(.down))                  // FLOOD GOVERNOR: reset the per-emitter budget each beat
-        if govBeat != lastGovBeat { lastGovBeat = govBeat; for i in 0..<4 { noteOnsThisBeat[i] = 0 } }
+        if govBeat != lastGovBeat { lastGovBeat = govBeat; for i in 0..<4 { noteOnsThisBeat[i] = 0; euclideousOnsThisBeat[i] = 0 } }
         let cycleBeats = Double(Snap.cols) * S
         let posInCycle = mNow - (mNow / cycleBeats).rounded(.down) * cycleBeats
         let trueColumn = min(Snap.cols - 1, max(0, Int(posInCycle / S)))
