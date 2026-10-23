@@ -9,6 +9,8 @@ AUM; FourStep adds a second, self-hosting target (see `Docs/standalone-plan.md`)
 
 ## Scope — read this before picking up any task
 
+**Naming (Paul, 2026-10-23): the standalone product is called "Fourfold".** "FourStep" below and in older docs is its earlier working name — same product. The plan of record is `Docs/standalone-plan.md`.
+
 **Euclideous/FourStep is the active goal. 8x8 State's wider grid/rooms/ferries/macros/scenes work
 is ON HOLD** — don't pick up new feature work there unless Paul explicitly asks for it. The two
 share ONE engine (Router/Kernel/Derivations/Models/Snapshot*/Emission) — touching that code for a

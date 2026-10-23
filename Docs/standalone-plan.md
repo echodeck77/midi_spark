@@ -1,43 +1,43 @@
-# Standalone app — plan (ACTIVE as of 2026-10-14 — FourStep)
+# Standalone app — plan (ACTIVE — Fourfold)
 
-STATUS CHANGED 2026-10-14: this is no longer a deferred milestone. Paul's
-decision: Euclideous ships as **FourStep**, a standalone AUv3 *and* standalone
-app, built as a SEPARATE Xcode target sharing the engine sources with
-MidiSpark/8x8 State (not a reskin of the existing target, not a fork of the
-engine — see CLAUDE.md's "Scope" section for how the two products relate).
-The three seam rules below are now LOAD-BEARING, not aspirational — every
-change to Router/Kernel/Emission should be checked against them, because a
-second host is being built on top of them, not hypothesised about.
+**Product name: Fourfold** (Paul, 2026-10-23). "FourStep" in older docs (and in CLAUDE.md) is the same product's earlier working name.
 
-## FourStep target — decisions needed before creating it (none of these exist
-## yet; this is the checklist for when the target is actually scaffolded)
+STATUS: this is no longer a deferred milestone (2026-10-14). Euclideous ships as **Fourfold**, a standalone AUv3 *and* a standalone app, built as SEPARATE Xcode targets that
+start by sharing the engine sources with MidiSpark/8x8 State and then take their own trimmed copy of the engine (see "Plan of record"). The three seam rules below are LOAD-BEARING,
+not aspirational: a second host is being built on top of them.
 
-- **Bundle ID.** `com.paulbarrett.FourStep[.AU]` is the default-by-convention
-  choice (same prefix as MidiSpark) unless Paul wants a distinct developer/
-  company identity for this release. Paul's call.
-- **`aumi` component subtype + manufacturer code.** MidiSpark's are `MSpk`/
-  `MSPK` and CLAUDE.md is emphatic those never change because saved AUM
-  sessions key on them — the same will be true the moment anyone saves a
-  FourStep session, so this is a ONE-WAY DOOR to get right before shipping,
-  not something to default quietly. Needs an explicit 4-char subtype (e.g.
-  `4Stp`/`FStp` — not yet chosen) and a decision on whether the manufacturer
-  code stays `MSPK` (same developer) or changes too.
-- **App identity.** Display name, icon, `CFBundleDisplayName` — independent of
-  MidiSpark's "8x8 State" branding; FourStep is its own product listing.
-- **Source sharing, per the rejected-alternative principle above (one engine
-  artifact, not two integration paths):** the new `FourStep`/`FourStepAU`
-  targets should point at the SAME `AUExtension/*.swift` engine files
-  (Router/Kernel/Derivations/Models/Snapshot*/Emission) via target membership,
-  exactly like MidiSparkAU does today — not a copy, not a framework (still
-  rejected, see "Explicitly not now" below). Open question, not yet decided:
-  does the FourStep AU target need `BuildPage.swift`/`RoomsPage.swift`/
-  `GridUI.swift`/`RackMatrix.swift` at all? Those are pure 8×8-grid-workbench
-  UI, structurally irrelevant to Euclideous (which only ever composes
-  `Snap.euclideousRow`) — likely excludable from that target's source list to
-  keep it lean, but this hasn't been audited or decided.
-- **The standalone APP side's own work (described below, still fully
-  unbuilt):** internal transport, CoreMIDI shell, silent render pump. Was
-  "later, when the milestone opens" — the milestone is now open.
+## PLAN OF RECORD (2026-10-23)
+
+### Decisions (made)
+- **Name / ids.** App `com.paulbarrett.Fourfold`, extension `com.paulbarrett.Fourfold.AU` (same pattern as `com.paulbarrett.MidiSpark[.AU]`; Paul accepted the recommendation).
+  AU component: type `aumi`, subtype `Frfd`, manufacturer `MSPK` (same developer). **ONE-WAY DOOR** — AUM keys saved sessions on (type, subtype, manufacturer); never change `Frfd` once anyone has saved a session.
+  MidiSpark's `MSpk`/`MSPK` are untouched. MIDI port names "All", "Out A"…"Out D" (the page already says MAIN OUT); exported files `Fourfold-*.mid`.
+- **The one link back to 8x8 State goes:** the settings sheet's WORKBENCH footer (`EuclideousSettingsSheet.swift`, wired through `EuclideousPage.onClose`). 8x8 State keeps its own Fourfold overlay until Paul says otherwise.
+- **Engine: share first, then copy-and-trim.** Trimming the shared engine in place would change 8x8 State (the product Paul runs in AUM today), so: Fourfold starts on the SAME `AUExtension/` engine files (target membership); once the LISTEN rebuild has landed and the
+  Fourfold-only scene composer exists, the engine is COPIED into Fourfold's own folder and trimmed there. 8x8 State keeps the original, frozen (it is on hold). From then on engine fixes go to one side only — acceptable while 8x8 is on hold.
+- **Host glue: copy-and-prune, not shared.** The Fourfold half of `DiagView` (AudioUnitViewController.swift: the 39 euclideous + 19 reel `@State`, the ~220-line `EuclideousPage(...)` callback block, the 30 Hz poll, undo, lane lock, presets) is ported into a new `FourfoldRootView`.
+  `DiagView` is not touched.
+- **Documents.** A new product starts clean: no migration of old sessions into Fourfold (sessions saved from Fourfold inside 8x8 State will not open in it unless an import is added later — Paul's call, not planned).
+
+### Evidence behind the engine decision (measured 2026-10-23, coverage run of the Euclideous test list + 87 tests from three files that list was missing)
+- Router: 3,143 of 7,494 runnable lines (42%) are never run by Fourfold's tests — ≈2,150 of them in whole functions only the 8x8 processors use (`emitDriverNote`, weave/tutti/strum/ratchet/length rows, column holds/recorder/glide, the superseded preview/audition code), ≈1,000 inside partly-used functions (the `process()` front end, `emitTickRow`, `emitOneBus`, and the six non-euclid generators in `emitGeneratorRow`).
+- Derivations 22% unrun (≈1,190 lines are 8x8: seal/emblem, clock-drawn phase, length columns…), Models 28% (8x8 factory scenes, migrations), Snapshot 24%, Emission 23% (DoorRing, PartRoll).
+- The big, hard code — `emitGeneratorRow`'s `.euclid` case (`runEuclidLine`, ≈2,500 lines) — IS Fourfold and is 90–100% exercised. Most of the engine's complexity is Fourfold's own, not unused features. Fourfold also carries >300 comments marking retired / legacy / decode-only code of its own.
+- NOT planned: replacing the 8x8 grid scaffolding (one pinned row, receiver 4, the scene/snapshot shape) with a Fourfold-native engine front end — a rewrite, 2+ weeks, high risk.
+- Unrun ≠ deletable until proven unreachable: the Fourfold-only composer (Step 1) guarantees only a `.euclid` cell can exist, which is what makes deleting the other processors provably safe. ≈150 lines INSIDE the Fourfold engine are unrun by any test (echo follower, rank inversion, `missNotesPool`…) — leave them alone.
+- Probe (compile-only, scratchpad): the Fourfold UI + engine + settings + presets compile with the 8x8 UI/host files (≈13.7k of 58.4k lines) excluded and four helpers shimmed.
+
+### Steps (each ends green: iOS build, the Fourfold test list, and the existing 8x8 targets unchanged)
+1. **Targets + composer** (branch `feature/fourfold-targets`). (a) Move the four helpers the Fourfold files need out of `GridUI.swift` (`Color(hex:)`, `EuclidDragHUDInfo`, `machineHueOverride`, `machineHexes`) into a small shared file; split the 8x8 `CellBrowser` out of `PresetBrowser.swift`; fence the cell-library API (`LibEntry`) and the `TestSessions` loader in `MidiSparkAudioUnit` so Fourfold need not compile them.
+   (b) `FourfoldCompose` (pure, Foundation-only): the ≈15 lines of `composeSceneMeta` that place the Euclideous cell, plus the chain; a test proves its scene equals `composeSceneMeta`'s for the same input. (c) `project.yml`: `Fourfold` (app) + `FourfoldAU` (extension, hand-maintained Info.plist with `Frfd`/`MSPK`) sharing `AUExtension/` minus an exclude list; a placeholder view. Exit: both build; the 8x8 targets still build; suite green.
+2. **FourfoldRootView + AU on device.** Port the host glue; WORKBENCH link removed; the reel as a standalone view (not another `extension DiagView`; carry the REEL LINK changes: "output" wording, pass length line, no RESTORE SETUP); presets; branding. Exit: Fourfold runs in AUM from the new extension.
+3. **App shell.** Internal transport (mach time → beat), silent render pump, CoreMIDI in/out (five virtual sources All/A–D), document save/restore, background audio, icon/launch. The app compiles the same sources and registers the AU under a private component description (in-process) — still ONE integration path (the AU class), not the rejected "drive the Kernel directly". Starts with a one-day device spike to confirm in-process hosting. Exit: plays and sends MIDI with no host.
+4. **Engine copy-and-trim** (after the LISTEN rebuild lands; can run alongside Step 3). Copy the engine into `Fourfold/Engine/`, point the Fourfold targets at the copy, then trim in small green steps: (A) dead/superseded code (audition/preview); (B) the non-euclid processors in Router and their Derivations helpers; (C) 8x8 Models/Snapshot/Emission pieces (MachineParams fields, factory scenes, migrations, DoorRing/PartRoll); (D) Fourfold's own retired/decode-only layers (new product ⇒ no old sessions); (E) a `FourfoldTests` target holding only Fourfold's tests (membership by file, no classifier). Each step: the golden 32-bar preset renders, stress and fuzz tests stay green; compare the coverage list before/after.
+5. **Release hygiene.** Docs renamed FourStep→Fourfold, in-app manual, TestFlight.
+
+### Not changed by this plan
+- `MidiSpark`/`MidiSparkAU`/`MidiSparkTests` and the 8x8 State UI. The existing aumi codes. `Scripts/classify_euclideous_tests.py` stays as the fast-run selector until Step 4(E) replaces it.
+
 
 ## The approach, decided: the app becomes MidiSpark's SECOND HOST
 
