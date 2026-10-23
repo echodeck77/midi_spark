@@ -269,28 +269,31 @@ struct EuclideousFXPanel: View {
             .offset(x: layout.firstColX)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(euclideousFXLaneGroupLabel(row: selectedRow, ccNumber: Int(fx.ccNumber)))
-            Group {
-                if row == .ratch {
-                    HStack(spacing: 4) { stepper(.shape) }
-                        .frame(width: max(0, layout.width - x0), height: EuclideousFXLayout.stripH, alignment: .leading)
-                } else if let d = row.stripDescription {
-                    Text(d).font(heavyMono(8)).tracking(0.32).foregroundColor(P.caption).lineLimit(1).truncationMode(.tail)
-                        .frame(width: max(0, layout.width - x0), height: EuclideousFXLayout.stripH, alignment: .leading)
-                } else if row == .note {
-                    HStack(spacing: 4) {
-                        stepper(.passes)
-                        Text(previewText).font(heavyMono(8)).tracking(0.32).foregroundColor(P.muted).lineLimit(1).truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(width: max(0, layout.width - x0), height: EuclideousFXLayout.stripH, alignment: .leading)
-                } else {
-                    HStack(spacing: 4) { stepper(.ccNumber); stepper(.base) }
-                        .frame(width: max(0, layout.width - x0), height: EuclideousFXLayout.stripH, alignment: .leading)
-                }
-            }
+            stripTail(row: row, x0: x0)
             .offset(x: x0)
         }
         .frame(width: layout.width, height: EuclideousFXLayout.stripH, alignment: .topLeading)
+    }
+
+    /// The strip's row-specific end (a description, or the row's steppers): its own AnyView-returning leaf so the strip's closure keeps the frame it had (the extension's 1 MB main stack — see `Scripts/debug-frame-sizes.py`). The RATCH row shows its SHAPE stepper (REVIEW FIX 2026-10-23).
+    private func stripTail(row: EuclideousFXRow, x0: CGFloat) -> AnyView {
+        let P = EuclideousFXPalette.self
+        let w = max(0, layout.width - x0)
+        if row == .ratch {
+            return AnyView(HStack(spacing: 4) { stepper(.shape) }.frame(width: w, height: EuclideousFXLayout.stripH, alignment: .leading))
+        } else if let d = row.stripDescription {
+            return AnyView(Text(d).font(heavyMono(8)).tracking(0.32).foregroundColor(P.caption).lineLimit(1).truncationMode(.tail)
+                .frame(width: w, height: EuclideousFXLayout.stripH, alignment: .leading))
+        } else if row == .note {
+            return AnyView(HStack(spacing: 4) {
+                stepper(.passes)
+                Text(previewText).font(heavyMono(8)).tracking(0.32).foregroundColor(P.muted).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: w, height: EuclideousFXLayout.stripH, alignment: .leading))
+        }
+        return AnyView(HStack(spacing: 4) { stepper(.ccNumber); stepper(.base) }
+            .frame(width: w, height: EuclideousFXLayout.stripH, alignment: .leading))
     }
 
     /// A stepper (§11.9/§12.7): 24 tall, chip fill, radius 6; `‹` and `›` are 20 × 24; between them the key and the value, baseline-aligned. The chevrons never

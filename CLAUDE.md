@@ -339,8 +339,15 @@ the same pipeline as any other row; it is not a special-cased render path.
 - **FX tab (2026-10-18).** Third tab of the sequencer panel (both orientations since the PAGE LAYOUT ferry, 2026-10-19 — in portrait the panel sits beside the riff
   panel at the same width, so its columns match the riff grid's; its six rows now SHARE the panel's height, `euclideousFXRowH`). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
   `SnapParams.euclideousFX` → Router. **ONE decision function** `euclideousFXApply` (Derivations.swift) decides what the rows do to a hit; the Router, the TIE
-  lookahead, the LANES roll and the flash all call it (VoiceOver reads the cells' values directly — there is no per-hit decision for it to make) — change the rule THERE. The NOTE pass index is `euclideousFXPassIndex` (a pure function of
-  the beat; LOCK in closed form). RATCH reuses the mask RATCHET's deferred-strike engine (`pushEchoTail`) with n exact; CC goes through `emitModCC(force:)`
+  lookahead, the LANES roll and the flash all call it (VoiceOver reads the cells' values directly — there is no per-hit decision for it to make) — change the rule THERE. The NOTE pass index is `euclideousFXNotePass` (REVIEW FIX 2026-10-23: the ONE
+  function the Router and the LANES roll both call, on the chain core — a riff cycle counted from the MELODY origin, or under a melody chain of exactly [1] (the old LOCK) a LAP; the retired masked-grid `euclideousFXPassIndex`/`euclideousFXLockPass`
+  stay, unused, and the hidden `riffLock` flag is no longer read for NOTE). RATCH reuses the mask RATCHET's deferred-strike engine (`pushEchoTail`) with n exact — **REVIEW FIX 2026-10-23, an adversarial review of this row:** repeats whose
+  time is still INSIDE the current render window strike directly (the echo ring is drained BEFORE the ticks, so a deferred in-window strike was skipped for ever: a slot shorter than the host buffer lost strikes — 1/16 n4 at 4096 frames lost 28 %,
+  1/32 n4 at 1024 lost 8 %; ROLL/RUN already did this); the strike cap is a TIME floor (`euclideousRatchetCap(sub:tempo:)`: no slot under 10 ms at the host tempo — it was 1/128 of the scene's grid bar, which at the document's default 1/2
+  step held a 1/16 lane to 2 strikes and a 1/16T or 1/32 lane to none); a ratchet note is never shorter than 5 ms; **RATCH SHAPE** (`EuclideousFX.ratchShape`, a SHAPE stepper on the RATCH row — FLAT · ACCENT · FADE · RAMP,
+  `euclideousRatchetStrikeVelocity`) shares the hit's velocity across the strikes (FX ratchets only; the mask RATCHET stays flat); and Euclideous strikes count against their OWN flood budget (`Router.euclideousFloodCapPerBeat` 160 a beat per output, a
+  separate counter from the 8×8 engine's 48 — four lanes of RATCH 4 at 1/16 on one output lost a quarter of their notes). The FX lane dots and buttons dim (and VoiceOver says why) for a lane no row can act on — riff off or SHADOW
+  (`euclideousFXLaneIdleReason`); VoiceOver steps VEL and CC by 4. CC goes through `emitModCC(force:)`
   with the notes' own channel stamp. The tab's columns come from `euclideousRiffCellW` — the riff grid's own function — and every UI number is a pure
   `euclideousFX*` function; `FXPanelPainter.swift` only paints them. A moved NOTE rank folds through `riffResolveExtended` (rank 0 is never a rest).
 - **ONE per-tick core (restart chains, 2026-10-19 — supersedes the LANES GRID ferry's own masked core).**

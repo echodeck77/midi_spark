@@ -5,6 +5,14 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — FX REVIEW FIXES: ratchet strikes, cap, flood budget, NOTE pass, RATCH SHAPE (2026-10-23; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "FX REVIEW FIXES" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build — the FX panel's strip gained a branch).
+- [ ] DECIDE (Paul): NOTE counts a LAP under a melody chain of exactly [1] and a riff cycle (from the melody origin) otherwise — the old LOCK rule, now a property of the chain. It makes NOTE move on a fresh [1] lane (it was inert there) and keeps migrated LOCK lanes sounding as they did; the cost is a second meaning of "pass" the NOTE row's bubble ("NOTE +1 A PASS") does not name. One line (`euclideousFXNotePass`) to flip.
+- [ ] DECIDE (Paul): the RATCH strike cap is now a 10 ms time floor at the host tempo (it was 1/128 of the scene's grid bar). The mask RATCHET shares it, so a mask RATCHET range that the old cap held down at the default 1/2 scene step now plays in full. `euclideousRatchetMinSlotSeconds`.
+- [ ] DECIDE (Paul): Euclideous strikes have their own flood budget (160 a beat per output, a separate counter; the 8×8 engine keeps 48). A strike beyond it is still dropped and counted in HEALTH — nothing on the Euclideous page shows the drops.
+- [ ] DECIDE (Paul): RATCH SHAPE's numbers — ACCENT 100 % then 65 %, FADE 100 % → 45 %, RAMP 45 % → 100 % — are my picks (`euclideousRatchetAccentRest`, `euclideousRatchetRampFloor`); the stepper sits on the RATCH row beside the lane buttons (the description line there is gone to make room).
+- [ ] (noted) NOT built (item 6, by your ask): more than 4 strikes, per-strike on/off masks. The roll mirror draws the strikes' spacing and gates, not their velocities.
+
 ## ★ EUCLIDEOUS — FLOORS: the page's size-diagnostic flags become real fallbacks on 5 tabs (2026-10-23; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "FLOORS ferry" lines in `Docs/euclideous-device-verification-debt.md` — every new compact-floor number is my own pick and needs a real-iPad look.
 - [ ] (noted) the WALK strip (RIFF tab) and the hint row (FX tab) disappear entirely below their own trigger rather than resizing — say if either should stay visible at the cost of its neighbours shrinking further instead.

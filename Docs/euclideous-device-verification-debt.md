@@ -17,6 +17,15 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### FX REVIEW FIXES (2026-10-23)
+- LAUNCH the DEBUG build from Xcode into AUM first (`EuclideousFXPanel.strip` gained a RATCH branch with a stepper; the lane buttons' modifiers changed).
+- RATCH at fast steps: a 1/32 lane with RATCH 4 at 1024 / 2048 buffers plays all four strikes, evenly spaced, every time; a 1/16 lane at 160+ BPM too — listen for dropouts that used to be there.
+- RATCH on a default session (scene step 1/2): a 1/16 lane with RATCH 3 / 4 plays 3 / 4 strikes (it played 2); a 1/16T or 1/32 lane ratchets (it did not).
+- RATCH SHAPE: ACCENT / FADE / RAMP read as a roll with a shape, not as noise; RAMP into the next step feels like a crescendo, FADE like a decay; the numbers (65 %, 45 %) are a first guess.
+- Four lanes on one output with RATCH 4 at 1/16 — no missing notes (they lost a quarter before).
+- NOTE row with a melody restart: the LANES roll's bars match what plays (a melody [2] returns the ladder with the riff); a melody [1] lane's NOTE row climbs a rung per lap.
+- The FX tab for a lane whose riff is off or that SHADOWs: its lane buttons and rail dots read as dimmed, and a VoiceOver swipe on a VEL / CC cell moves 4.
+
 ### FLOORS ferry (2026-10-23)
 - RIFF tab on a small/windowed AUM panel: the WALK strip actually disappearing (not just shrinking) when the direction row would otherwise be under 32pt, and the direction row's chevron/"Invert melody" buttons at their real, now-variable height.
 - RHYTHM tab: TILT's/OFFSET's "EARLY"/"LATE" end-labels dropping cleanly (no half-clipped text) below the new 28pt threshold, slider still fully usable without them.
