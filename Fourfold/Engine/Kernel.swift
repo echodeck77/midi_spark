@@ -156,7 +156,6 @@ final class Kernel {
     func setEuclideousLockLive(held: UInt8, revs: UInt32) { euclideousLockLive = EuclideousLockLive.word(held: held, revs: revs) }
     /// The snap seq the Router bumps each time a lock snap lands (one byte per lane) and the beats they landed at — the page polls these and applies the snap to the document (D3/D4).
     func euclideousLockSnapSeq() -> UInt32 { router.lockSnapSeqPacked }
-    func euclideousLockSnapBeats() -> [Double] { router.lockSnapBeats }
     func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).
@@ -500,10 +499,6 @@ final class Kernel {
     }
     func setMasterKill(_ on: Bool) { masterKill = on }
 
-    // §6a metering: read-and-clear per-emitter peak velocity + event count since the last call (UI poll).
-    func drainEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { router.drainMeters() }
-    func drainEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { router.drainMarks() }   // item 4 velocity marks
-    func drainWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { router.drainWithheld() }   // §6a the withheld tell
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { router.drainEmitterSounding() }   // §strips-done: hold-while-sounding
     func drainCellStrikes() -> [UInt8] { router.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity
     func drainCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { router.drainCellNotes() }   // NOTE-SWEEP: per-cell recent note-ons
@@ -553,12 +548,6 @@ final class Kernel {
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
     private var inputChannelMask = [UInt16](repeating: 0, count: 4)   // §MPE: channels (bit = ch-1) a receiver heard this window
-    func drainReceiverActivity() -> (peak: [UInt8], events: [UInt32], channels: [UInt16]) {
-        // FRESH copies — never capture the render-written buffers (COW-on-render + refcount race = the poll crash class).
-        var peak = [UInt8](repeating: 0, count: 4), events = [UInt32](repeating: 0, count: 4), channels = [UInt16](repeating: 0, count: 4)
-        for i in 0..<4 { peak[i] = inputPeak[i]; inputPeak[i] = 0; events[i] = inputEvents[i]; inputEvents[i] = 0; channels[i] = inputChannelMask[i]; inputChannelMask[i] = 0 }
-        return (peak, events, channels)
-    }
     // SOUNDING SNAPSHOT (duration): per receiver, the velocities of the notes CURRENTLY HELD in the pool that
     // pass its filter. Refreshed each render into a fixed buffer (display-only, best-effort like the meters);
     // the UI reads it so a held-chord line/mark shows WHILE the chord is down and vanishes on release. A muted
@@ -637,7 +626,6 @@ final class Kernel {
     // controller). The brief lock is a DELIBERATE debug-only exception to the no-locks-on-render invariant — this
     // code is `#if DEBUG`, never shipped.
     private let chaosMIDI = OSAllocatedUnfairLock(initialState: [(UInt8, UInt8, UInt8)]())
-    func chaosEnqueue(_ status: UInt8, _ d1: UInt8, _ d2: UInt8) { chaosMIDI.withLock { $0.append((status, d1, d2)) } }
     private func drainChaosMIDI(playing: Bool) {
         let batch = chaosMIDI.withLock { b -> [(UInt8, UInt8, UInt8)] in let c = b; b.removeAll(keepingCapacity: true); return c }
         for (s, d1, d2) in batch {

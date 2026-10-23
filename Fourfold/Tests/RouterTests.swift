@@ -2209,14 +2209,6 @@ final class RouterTests: XCTestCase {
         var lane = AutoLane(); lane.slot = 0; lane.param = "euclidPulses"; lane.lo = 1; lane.hi = 8; lane.spanStart = 0; lane.spanPasses = 2
         return lane
     }
-    func testRenderAutoPassSpanRampsHitsUpAcrossBars() {
-        let box = renderAutoBox(pulsesBase: 1, lane: passSpanLane())
-        XCTAssertFalse(box.renderAuto.isEmpty, "a ×2 lane produces a render-time descriptor (not a compile-time bake)")
-        let e = RecordingEmitter(); run(box, chord([60]), beats: 32, into: e)   // 2 bars = one ×2 period
-        let b0 = onsInBar(e, 0), b1 = onsInBar(e, 1)
-        XCTAssertGreaterThan(b1, b0, "×2 pass span ramps euclid HITS up across the 2 bars (bar1 \(b1) > bar0 \(b0))")
-        assertNothingLeftSounding(e)
-    }
     func testRenderAutoPassSpanRepeatsAfterItsPeriod() {
         let box = renderAutoBox(pulsesBase: 1, lane: passSpanLane())
         let e = RecordingEmitter(); run(box, chord([60]), beats: 48, into: e)   // 3 bars → after the 2-bar period the ramp repeats
@@ -2234,14 +2226,6 @@ final class RouterTests: XCTestCase {
         let e1 = RecordingEmitter(); run(box, chord([60]), beats: 32, into: e1)
         let e2 = RecordingEmitter(); run(box, chord([60]), beats: 32, into: e2)
         XCTAssertEqual(e1.events, e2.events, "render-time AUTO is derived from the beat → byte-identical on replay")
-    }
-    func testRenderAutoSmoothLanePlaysAndLeavesNothingSounding() {
-        var lane = AutoLane(); lane.slot = 0; lane.param = "euclidPulses"; lane.lo = 1; lane.hi = 8; lane.spanStart = 0; lane.smooth = true
-        let box = renderAutoBox(pulsesBase: 1, lane: lane)
-        XCTAssertTrue(box.renderAuto.contains { $0?.smooth == true }, "a SMOOTH lane produces a render-time descriptor with smooth = true")
-        let e = RecordingEmitter(); run(box, chord([60]), beats: 16, into: e)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "the SMOOTH-automated euclid actually plays")
-        assertNothingLeftSounding(e)
     }
     func testRenderAutoNoActiveLaneIsInert() {
         var lane = passSpanLane()

@@ -51,13 +51,6 @@ let euclidDragStepPt: CGFloat = 18
 // (The step-box geometry — `euclidBoxGeometry`, `EuclidStepGroupGeometry`, `euclidGroupedBoxGeometry`, `euclidStepGroupSize` — moved to Derivations.swift unchanged in the LANE STRIP ferry, 2026-10-21, so the strip's layout
 // tests reach the real frames. Same names, same bodies.)
 
-/// Builds the floating drag-HUD payload for a lane's gesture — a free function (not baked into
-/// `EuclidLaneBox` itself) so every caller constructs the SAME "ALL LANES" vs "LANE N" label the
-/// same way, without duplicating the logic at each call site.
-func euclidLaneDragHUDInfo(idx: Int, line: EuclidLine, point: CGPoint, allRows: Bool) -> EuclidDragHUDInfo {
-    EuclidDragHUDInfo(label: allRows ? "ALL LANES" : "LANE \(idx + 1)",
-                       primary: "\(line.pulses) HITS OUT OF \(line.steps)", secondary: "OFFSET BY \(line.rotate)", point: point)
-}
 
 /// One EUCLID lane: a PLAY/STOP icon beside the comet-bar step track. Explicitly parameterized
 /// (no implicit `self` reads into some enclosing giant view type) so it's callable from

@@ -238,17 +238,6 @@ func nearestLadderPos(_ ladder: [Int], _ idx: Int) -> Int {
     }
 }
 
-/// EUCLID's live position, as ONE continuous phase in [0, n) — SHARED by the real render path
-/// (Router.swift's `runEuclidLine`) and the GridUI comet-bar (Paul 2026-09-29 redesign), so a UI sweep can
-/// never read a different clock than the engine actually does — the RATCHET-PATTERN/DEST class of bug this
-/// project has hit twice before, where a UI re-derived a clock instead of calling the engine's own formula.
-/// `mTickBeat` must already be the swing-warped "musical" beat (via `musicalOf`), matching `iterateTicks`.
-func euclidPhase(mTickBeat: Double, sub: Double, spanBeats: Double, n: Int) -> Double {
-    let phaseBeat = spanBeats > 0 ? (mTickBeat - columnStart(mTickBeat, spanBeats)) : mTickBeat
-    let raw = phaseBeat / max(0.0001, sub)
-    let nD = Double(max(1, n))
-    return raw - nD * (raw / nD).rounded(.down)   // raw mod n, always in [0, n)
-}
 /// The comet bar's own raw tick count (Paul 2026-10-02: "reverse when BKW, back-and-forth on PING-PONG") —
 /// `euclidPhase` above always mods by `n`, which only ever shows PING-PONG's ascending half; this instead mods
 /// by the DIRECTION's real cycle length (`euclidCycleLen` — n for FWD/BKW, 2n for PING-PONG), matching the real
@@ -2011,26 +2000,6 @@ func holdOctaveShift(on: OnConfig, held: Bool) -> Int {
     (held && on.hold == .oct) ? (on.octUp ? 12 : -12) : 0
 }
 
-/// PLAY-FERRY LAUNCH (Paul 2026-09-09, Docs/PLAN-play-ferry-launch.md): the beat a launched ferry ANCHORS to for its
-/// START mode. SYNC ⇒ 0 (no anchor — the row stays transport-locked, today's behaviour). INSTANT ⇒ the tap beat itself
-/// (off-grid, from the part's top on tap). STEP/BEAT/PASS ⇒ the NEXT such boundary at or after the tap (quantized launch).
-/// The engine derives the row's column from (beat − anchor), so a non-zero anchor plays the part from column 0.
-/// `passBeats` = the part's loop length × its step (the PASS quantize unit). Pure so the launch math is unit-tested.
-func ferryLaunchAnchor(beat: Double, start: FerryStart, stepBeats: Double, passBeats: Double) -> Double {
-    switch start {
-    case .sync:    return 0
-    case .instant: return max(0, beat)
-    case .step:    return ferryNextBoundary(beat, max(0.01, stepBeats))
-    case .beat:    return ferryNextBoundary(beat, 1.0)
-    case .pass:    return ferryNextBoundary(beat, max(max(0.01, stepBeats), passBeats))
-    }
-}
-/// The next multiple of `unit` at or after `b` (a tap exactly on a boundary launches now, not a whole unit later).
-private func ferryNextBoundary(_ b: Double, _ unit: Double) -> Double {
-    guard unit > 0 else { return b }
-    let floorB = (b / unit).rounded(.down) * unit
-    return floorB >= b - 1e-9 ? floorB : floorB + unit
-}
 
 // MARK: - MPE detection (§ receiver property) — auto-detect the MPE controller for the cog-page indicator
 
@@ -3635,12 +3604,6 @@ func euclideousGlobalPoolExtended(sortedRaw: [Int]) -> [Int] {
     return Array(pool.prefix(8))
 }
 
-/// Euclideous's own global reset-span override (§2.2 history) — `resetSpanBars > 0` re-anchors every `cyc`
-/// beats; 0 = free-run. `cyc` is the session's own "one bar" beat length (already computed throughout
-/// Router.swift/this page for every other span calculation).
-func euclideousNoteViewSpanBeats(resetSpanBars: Int, cyc: Double) -> Double {
-    resetSpanBars > 0 ? Double(resetSpanBars) * cyc : 0
-}
 /// Reset-progress fraction (ferry "riff-cell wipes, reset progress on lane cards" §3.2) — 0 just after a
 /// reset, approaching 1 just before the next. Built on the SAME `columnStart` Router.swift itself uses to
 /// find the real reset boundary (`spanStart`, the DRUNK hard-reset trigger) — by construction, this can
@@ -4190,18 +4153,6 @@ func euclideousChainMelodyMarkBeats(melodyChain: EuclideousRestartChain, rhythmC
     }
     return out
 }
-/// §5.6/§6.2 — "a rhythm chain 'changes nothing' when it isn't FREE and every restart lands on a lap start
-/// of the free-running lane: every running total × barBeats, and C × barBeats, is a whole multiple of
-/// lapBeats (within the epsilon)." Drives the restart editor's amber hint line, nowhere in the engine
-/// itself (§5.6: "the engine doesn't special-case it").
-func euclideousRhythmChainChangesNothing(_ chain: EuclideousRestartChain, barBeats: Double, lapBeats: Double) -> Bool {
-    guard !chain.isFree, lapBeats > 0 else { return false }
-    let eps = 1e-6
-    func isWholeMultiple(_ beats: Double) -> Bool { let q = beats / lapBeats; return abs(q.rounded() - q) < eps }
-    guard isWholeMultiple(Double(chain.total) * barBeats) else { return false }
-    for i in 0..<chain.count where !isWholeMultiple(Double(chain.runningTotal(i)) * barBeats) { return false }
-    return true
-}
 /// §6.1/§6.2 — a chain's own display text ("2·1·1" or "FREE"), the ONE formatting both the tile and the
 /// editor read, so they can't drift. U+00B7 MIDDLE DOT joins links.
 func euclideousRestartChainText(_ chain: EuclideousRestartChain) -> String {
@@ -4216,23 +4167,6 @@ func euclideousRestartTileAccessibleLabel(name: String, chain: EuclideousRestart
     let parts = chain.links.map { "\($0)" }
     let joined = "\(parts[0]) \(unitPlural), then " + parts.dropFirst().joined(separator: ", then ")
     return "\(cap) restarts after \(joined), repeating"
-}
-/// §6.2 — the restart editor's 16-cell timeline for one chain, from `windowStartUnit` (a bar or pass number,
-/// whichever this chain counts in). Cell i is a mark (a restart falls there) and which of the two shades it
-/// draws (true = 26%, alternating at each mark after the window's own first cell, which always starts high).
-func euclideousRestartTimelineCells(chain: EuclideousRestartChain, windowStartUnit: Int) -> [(isMark: Bool, shadeHigh: Bool)] {
-    guard !chain.isFree else { return Array(repeating: (false, true), count: 16) }
-    let total = max(1, chain.total)
-    var out: [(isMark: Bool, shadeHigh: Bool)] = []
-    var shadeHigh = true
-    for i in 0..<16 {
-        let u = windowStartUnit + i
-        let r = ((u % total) + total) % total
-        let isMark = (0..<chain.count).contains { chain.runningTotal($0) == r }
-        if isMark, i > 0 { shadeHigh.toggle() }
-        out.append((isMark, shadeHigh))
-    }
-    return out
 }
 /// RESTART CHAINS ferry §3.2 — the STEPS picker's preview pattern for hypothetical length `n`: pure Euclid
 /// at `min(hitsRequested, n)` hits, the lane's own TILT, offset `min(offsetRequested, n-1)` and INV, built
@@ -4252,84 +4186,6 @@ func euclideousStepsPickerPreview(_ line: EuclidLine, length n: Int) -> [Bool] {
     euclidRotateBuffer(&buf, steps: steps, rotation: rotate)
     if line.patternMissResolved { for i in 0..<steps { buf[i].toggle() } }
     return buf
-}
-/// §5's own "coincide" test for WITH/GAPS: does the PARTNER's step pattern (not its sounding riff note —
-/// "whether or not it sounded... riff rests, mutes and the LANES grid don't change it," the ferry's own
-/// literal words) have a hit at (within `epsilonBeats` of) this exact beat? Pure, no allocation — a single
-/// nearest-tick lookup against the partner's own already-built pattern buffer.
-func euclideousListenPartnerHasHitAt(buf: [Bool], n: Int, dir: EuclidDir, rateBeats: Double, spanBeats: Double, atBeat: Double, epsilonBeats: Double) -> Bool {
-    guard n > 0, rateBeats > 0, !buf.isEmpty else { return false }
-    let phaseBeat = spanBeats > 0 ? (atBeat - columnStart(atBeat, spanBeats)) : atBeat
-    let spanOrigin = spanBeats > 0 ? columnStart(atBeat, spanBeats) : 0
-    let nearestLocalT = (phaseBeat / rateBeats).rounded()
-    let nearestBeat = spanOrigin + nearestLocalT * rateBeats
-    guard abs(nearestBeat - atBeat) <= epsilonBeats else { return false }
-    let cycleLen = euclidCycleLen(dir, n: n)
-    let raw = Int(((Int64(nearestLocalT) % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
-    return buf[euclidReadIndex(raw, n: n, dir: dir)]
-}
-/// The restart chains a lane's own fields resolve to — `.off` (both FREE) until `migrateRestartChains` (main thread) has pinned real ones, exactly as `Router.runEuclidLine` and the UI's
-/// walk mirror resolve them (`cycleLen` is the lane's lap in ticks, `sub` its tick in beats). Allocation-free (`EuclideousRestartChain.from` packs into a UInt32).
-func euclideousLaneRestartChains(for line: EuclidLine, cycleLen: Int, sub: Double, beatsPerBar: Double) -> EuclideousLaneRestartChains {
-    line.usesRestartChains
-        ? EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []), melody: .from(line.restartMelodyPasses ?? []), barBeats: beatsPerBar, lapBeats: Double(cycleLen) * sub)
-        : .off
-}
-/// §6's shared primitive for SHADOW and AVOID: the (rank, note) a lane with the given pattern/riff params
-/// is sounding AT this exact beat (`epsilonBeats` given — AVOID's coincidence check) or at its most recent
-/// real hit AT OR BEFORE this beat (`epsilonBeats` nil — SHADOW's "the note under the partner's walk arrow
-/// at that moment," which stays wherever it last struck between hits, mirroring the UI's own sticky
-/// marker). Resolves rank through the SAME INVERT→TRANSPOSE→source-pool pipeline `runEuclidLine`'s own
-/// riff layer uses — MASK (MIRROR/LEAP/CLIMB) is deliberately NOT applied, matching §6's own literal list
-/// ("after the partner's INV, TRANS and riff octave" — no mention of MASK). Bounded backward scan (same
-/// shape as this file's own forward TIE-lookahead idiom, just run in reverse) — no allocation, pure.
-///
-/// THE PARTNER'S WALK IS THE ENGINE'S OWN (fixed 2026-10-20). This used to re-derive the partner's riff ordinal by hand from the retired LOCK model — it knew nothing of ADVANCE EVERY, the
-/// RHYTHM / MELODY restart chains or the melody origin, so a SHADOW / AVOID lane whose partner had EVERY ≥ 2 or a restart chain followed a different column from the one the partner actually
-/// plays. It now asks the same two functions the Router, the TIE lookahead and the UI's walk mirror ask: `euclideousLaneChainTick` (the tick's hit / ordinal, from the partner's own chains,
-/// absolute tick) and `euclideousRiffColumn` (EVERY, direction, STRIDE, SHIFT) — so "the note under the partner's arrow" is, by construction, what its walk reads. `legacySpanBeats` is the
-/// machine-wide re-anchor (`ladderSpanBeats`), used only while the partner has no chain; the partner's own chains come from its own fields (`beatsPerBar` sizes their bar).
-/// STILL NOT FOLLOWED (disclosed): a partner that is itself FOLLOWing a third lane (its pattern here is its own), the partner's WITH / GAPS strike filter, and its ON REST modes
-/// (§6's own rule stands: a hit on a rest — REPEAT / TIE / FILL included — leaves the shadow resting).
-func euclideousListenPartnerNoteAt(
-    buf: [Bool], n: Int, dir: EuclidDir, rateBeats: Double, legacySpanBeats: Double, atBeat: Double, beatsPerBar: Double,
-    epsilonBeats: Double?, line: EuclidLine, ranks: [Int], poolCount: Int, poolAsc: (Int) -> Int
-) -> (rank: Int, note: Int)? {
-    guard n > 0, rateBeats > 0, !buf.isEmpty else { return nil }
-    let cycleLen = euclidCycleLen(dir, n: n)
-    let chains = euclideousLaneRestartChains(for: line, cycleLen: cycleLen, sub: rateBeats, beatsPerBar: beatsPerBar)
-    let advanceStep = line.riffAdvanceStepResolved
-    let localTExact = atBeat / rateBeats
-    var t: Int64
-    if let eps = epsilonBeats {
-        let nearest = localTExact.rounded()
-        guard abs(nearest * rateBeats - atBeat) <= eps else { return nil }
-        t = Int64(nearest)
-    } else {
-        t = Int64(localTExact.rounded(.down))
-    }
-    let startT = t
-    var scanned = 0
-    let cap = cycleLen * 4
-    let seed = UInt64(bitPattern: Int64(line.riffDirSeedResolved))
-    while scanned < cap {
-        let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: rateBeats, tick: t, chains: chains,
-                                           legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
-        if info.rawIsHit {
-            if epsilonBeats != nil && t != startT { return nil }   // AVOID's coincidence check never falls back to an earlier hit — only an exact match counts
-            let playedStep = euclideousRiffColumn(ordinal: info.advOrd, every: line.riffAdvanceEveryResolved, direction: line.euclideousRiffDirResolved,
-                                                  length: line.riffLengthResolved, stride: line.riffStrideResolved, shift: line.riffRotateResolved, seed: seed)
-            let rawRank = playedStep < ranks.count ? ranks[playedStep] : 0
-            guard rawRank >= 1 else { return nil }   // a rest — nothing sounding here
-            let invRank = line.riffInvertResolved ? (9 - rawRank) : rawRank
-            let transposedRank = invRank + line.melodyTransposeResolved
-            guard transposedRank >= 1, poolCount > 0, let note = riffResolve(rank: transposedRank, oct: line.riffOctaveResolved, n: poolCount, wrap: .fold, asc: poolAsc) else { return nil }
-            return (transposedRank, note)
-        }
-        t -= 1
-        scanned += 1
-    }
-    return nil
 }
 
 // ── ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26) ──────────────────────────────────────────────────
@@ -4534,30 +4390,7 @@ struct RoomsLatticeGeom: Equatable {
     var interiorTop: Double // y where the 8 interior rows begin (below the ▲PLAY door + header row)
     var interiorH: Double   // total height of the 8 interior rows (8 rows, 7 gaps)
 }
-/// Solve the room lattice for a content `height`. `nf` = the nav-door fraction of a cell (0.5). The cell
-/// is floored at 6 so a tiny/degenerate height can never produce a non-positive or NaN row (guards the
-/// GeometryReader's first zero-height layout pass). gap/pad default to the RoomsMetrics constants.
-func roomsLattice(height: Double, gap: Double = 3, pad: Double = 3, nf: Double = 0.5) -> RoomsLatticeGeom {
-    let c = max(6, (height - 2 * pad - 9 * gap) / (9 + nf))   // 9 full rows (door·nf + header + 8 interior counts as 8+nf) + the nf door
-    return RoomsLatticeGeom(ch: c,
-                            navH: c * nf,
-                            interiorTop: pad + c * nf + gap + c + gap,
-                            interiorH: c * 8 + gap * 7)
-}
 
-/// Rooms STAMP / COMMIT source priority (the SELECT grid). The live audition wins — it holds the card EDITS, with the
-/// register home already baked in (so transpose 0) — then the browsed library cell, then the aimed side-button's part
-/// row; nil if no source. Kept pure so the priority — the exact locus of the edit-not-carried bug (2026-08-29, where the
-/// stamp read the ORIGINAL library chain and dropped edits) — is unit-tested; BuildPage resolves the three candidates
-/// from @State and delegates here.
-func roomsStampSource(auditionEdited: [ProcessorSlot]?,
-                      libraryCell: (chain: [ProcessorSlot], transpose: Int)?,
-                      sideRow: (chain: [ProcessorSlot], transpose: Int)?) -> (chain: [ProcessorSlot], transpose: Int)? {
-    if let a = auditionEdited, !a.isEmpty { return (a, 0) }   // the live gsAud audition — edits + baked register home
-    if let c = libraryCell { return c }                       // the browsed library/dealt cell
-    if let s = sideRow { return s }                           // the aimed side-button's part row
-    return nil
-}
 
 // MARK: - RIFF-GRID WALK TAGS WITH THREADS (ferry "Riff-grid walk tags with threads", ratified by Paul 2026-10-15)
 //
@@ -6779,45 +6612,6 @@ func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: In
     return Double(cap) * sub
 }
 
-/// ON REST = TIE (§3.1's "tie computation"): how many beats the note struck at `tick` is held over the riff RESTS that follow, walking
-/// the lane's future HITS through the core so the answer agrees with what the Router will read at each of them — across a rhythm
-/// restart, a melody restart, and a window boundary with no mark on cell 0. A LOCK reset (the first hit after the riff's reference
-/// point) always breaks the chain. `rankAt(step, beat)` is the effective rank at a riff column at that hit's own beat. Bounded,
-/// allocation-free: at most `length` hits and `cycleLen × 4` ticks.
-func euclideousRiffTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
-                                     grid: EuclideousLaneRestartGrid, legacySpanBeats: Double, locked: Bool, advanceStep: Bool,
-                                     riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64,
-                                     restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
-                                     rankAt: (_ column: Int, _ beat: Double) -> Int) -> Double {
-    var hitsAhead = 0
-    var lastConsumed = 0
-    var j = 0
-    let cap = cycleLen * 4
-    while hitsAhead < length && j < cap {
-        j += 1
-        let t = tick + Int64(j)
-        let info = euclideousLaneTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, grid: grid,
-                                      legacySpanBeats: legacySpanBeats, locked: locked, advanceStep: advanceStep)
-        guard info.rawIsHit else { continue }
-        if locked && info.advOrd == 0 { break }                 // a locked lane's own reset always breaks the chain
-        hitsAhead += 1
-        let step = riffStepAt(riffDir, raw: Int(info.advOrd) * stride, steps: length, seed: seed)
-        let column = riffRotateStep(step, by: rotate, steps: length)
-        // FX TAB (2026-10-18): a future hit CONTINUES the chain when it is a TIED hit — a rest while ON REST is TIE (`restTies`), or a real-rank hit
-        // an FX TIE cell applies to (`fxTie`, decided by the shared `euclideousFXApply` at that hit's own beat). Anything else is a real note and breaks it.
-        // `restTies`/`fxTie` default to "rests tie, no FX", the pre-FX behaviour. `fxTie` is deliberately a NON-optional, non-escaping closure: an Optional closure
-        // parameter is implicitly escaping, which made the Router heap-allocate a context for it on every hit of a lane with TIE cells (render-thread allocation).
-        let beatJ = Double(t) * sub
-        let writtenJ = rankAt(column, beatJ)
-        if writtenJ < 1 {
-            guard restTies else { break }
-        } else {
-            guard fxTie(column, beatJ, writtenJ) else { break }
-        }
-        lastConsumed = j
-    }
-    return Double(lastConsumed) * sub
-}
 
 // ── RESTART CHAINS (ferry 2026-10-19) — REPLACES the masked rhythm/melody grid above as the engine's real
 // restart source. `EuclideousLaneRestartGrid`/`euclideousLanePhase`/`euclideousLaneTick`/

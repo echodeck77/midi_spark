@@ -51,27 +51,10 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // FREE-RUN CLOCK (Paul 2026-08-25): let the plugin run its own beat when the host transport is stopped + a note is held.
     func setFreeRunEnabled(_ b: Bool) { kernel.setFreeRunEnabled(b) }
     #if DEBUG
-    func chaosInjectMIDI(_ status: UInt8, _ d1: UInt8, _ d2: UInt8) { kernel.chaosEnqueue(status, d1, d2) }   // CHAOS SIMULATED source
-    func chaosSetActive(_ on: Bool) { kernel.chaosActive = on }                                               // gate the render-side oracle dump
     func chaosRoutingDump() -> String { kernel.chaosRoutingDump() }                                           // the chain-state dump @ suspicious silence
     #endif
-    func uiPass() -> Int { kernel.diag.pass }   // MULTI-SCENE S2c: the live pass, polled fast while a switch is armed
 
-    /// Read-only view of the active scene for the grid UI (main thread; value copy).
-    func uiScene() -> SceneState { document.activeSceneState }   // MULTI-SCENE: bounds-safe active scene
 
-    /// The single grid-edit path: mutate the active scene, then publish a fresh snapshot. MAIN
-    /// THREAD (SwiftUI actions already are). All UI edits — paint, clear, wiring — go through here,
-    /// so the render side sees them exactly as it sees a preset load. UI-only state (selection,
-    /// brush) never touches the document.
-    func editScene(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout SceneState) -> Void) {
-        guard !document.scenes.isEmpty else { return }   // K3 (2026-08-30): a decoded doc with scenes:[] would trap on scenes[0] — activeSceneResolved clamps the index but can't conjure a scene. Builders always make ≥1 + deleteScene refuses to empty, so unreachable today; a defensive guard on the main edit chokepoint.
-        // MODE ROW: inside a transactional EDIT session, individual edits publish for LIVE PREVIEW but defer
-        // their undo — the whole session records ONE step at APPLY (see beginEditSession/applyEditSession).
-        if record && sessionBaseline == nil { undoStack.record(document, coalesceKey: coalesceKey) }   // a6: snapshot BEFORE the mutation
-        mutate(&document.scenes[document.activeSceneResolved])   // MULTI-SCENE: edit the ACTIVE scene, bounds-safe
-        scheduleRebuild()
-    }
 
     /// Document-level edit path (busChannels, receivers, …) — same publish semantics as editScene.
     func editDocument(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout PluginState) -> Void) {
@@ -90,108 +73,11 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
     // (sessionActive / sessionDirty — the transactional-session status reads — were removed 2026-08-27, zero references.)
 
-    /// Open a session (idempotent — the FIRST selecting tap calls this; later taps are no-ops).
-    func beginEditSession() { if sessionBaseline == nil { sessionBaseline = document } }
-    /// Revert every staged change since the session opened and close it (nothing enters the undo stack).
-    func cancelEditSession() {
-        if let b = sessionBaseline { document = b; scheduleRebuild() }
-        sessionBaseline = nil
-    }
-    /// Commit the session: record the whole baseline→applied transition as one undo step, then close.
-    func applyEditSession() {
-        if let b = sessionBaseline, b != document { undoStack.record(b) }
-        sessionBaseline = nil
-    }
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) — per-cell processor CHAIN edits (cell-scoped, undoable via editScene)
 
-    /// The chain as it stands, materialising a 1-slot head from the referenced Machine the first time a cell with
-    /// no explicit chain is edited (so an untouched cell keeps rendering as its Machine's A face until then).
-    private func materializedChain(_ cell: Cell) -> [ProcessorSlot] {
-        if let p = cell.processors { return p }                                // per-cell override — incl. an explicit EMPTY chain (passthrough)
-        return machineTemplateChain(cell.machineID)                              // else the machine TEMPLATE → legacy A face (3-tier, matches the builder)
-    }
-    // MODE ROW — edit a MANUAL SELECTION SET (INSTRUCTIONS-edit-page-mode-row): apply the SAME operation to EACH
-    // selected cell's OWN config — so a mixed selection keeps its per-cell differences except where the edit touches.
-    func editCells(_ targets: [(col: Int, row: Int)], _ mutate: @escaping (inout Cell) -> Void) {
-        editScene { s in for t in targets { if var c = s.cellAt(t.col, t.row) { mutate(&c); s.setCell(t.col, t.row, c) } } }   // bounds-safe (stale/ragged positions)
-    }
-    func withChainCells(_ targets: [(col: Int, row: Int)], _ mutate: (inout [ProcessorSlot]) -> Void) {
-        // Materialise + mutate each target's chain OUTSIDE editScene — materializedChain reads `document`, and
-        // doing that inside editScene's `&document…` mutation would be an exclusive-access violation (crash).
-        var writes: [(col: Int, row: Int, chain: [ProcessorSlot])] = []
-        let scene = document.scenes[document.activeSceneResolved]
-        for t in targets {
-            guard let cell = scene.cellAt(t.col, t.row) else { continue }   // bounds-safe (stale/ragged positions) — was a raw subscript that trapped, unlike editCells (U1 fix 2026-08-27)
-            var chain = materializedChain(cell); mutate(&chain)
-            writes.append((t.col, t.row, chain))
-        }
-        editScene { s in for w in writes { if var c = s.cellAt(w.col, w.row) { c.processors = w.chain; s.setCell(w.col, w.row, c) } } }
-    }
-    func editSlotCells(_ targets: [(col: Int, row: Int)], slot: Int, _ mutate: (inout ProcessorSlot) -> Void) {
-        withChainCells(targets) { if slot < $0.count { mutate(&$0[slot]) } }
-    }
-    func setSlotTypeCells(_ targets: [(col: Int, row: Int)], slot: Int, _ type: ProcessorType) { editSlotCells(targets, slot: slot) { $0.type = type } }
-    func toggleSlotBypassCells(_ targets: [(col: Int, row: Int)], slot: Int) { editSlotCells(targets, slot: slot) { $0.bypassed.toggle() } }
-    func addSlotCells(_ targets: [(col: Int, row: Int)], type: ProcessorType = .empty) { withChainCells(targets) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
-    /// Remove a chain slot — ANY slot, incl. the head and the LAST one (user 2026-08-09: all processors are deletable).
-    /// Deleting the final slot leaves an EMPTY chain `[]` = the born-audible passthrough (the source flows untreated).
-    func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count { $0.remove(at: slot) } } }
 
-    // MARK: - MACHINE-OWNED chain (the per-machine machine — GLOBAL by construction: machines are document-level, and a
-    // cell with no per-cell override inherits its machine's `templateChain`, so every cell of the machine, in EVERY
-    // scene, renders the one machine. "You only ever edit machines." (user 2026-08-09: per-machine model, GLOBAL.)
-    private func machineTemplateChain(_ machineID: String) -> [ProcessorSlot] {
-        let c = document.machines.first { $0.machineID == machineID }
-        if let t = c?.templateChain, !t.isEmpty { return t }
-        return [ProcessorSlot(type: c?.type ?? .empty, params: c?.paramsA ?? MachineParams())]   // materialise the legacy A face on first edit
-    }
     private func passthroughTemplateSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .empty); s.bypassed = true; return s }   // all-bypassed ≡ empty ≡ passthrough
-    /// Does this machine carry its OWN stored chain? A nil templateChain falls back to the legacy A-face (an arp, for
-    /// the default machines) — BUILD reads this straight off `document` (NOT the polled `docMachines` mirror, which is
-    /// empty on first appear) to convert a bare machine to an explicit passthrough at load. (user 2026-08-12)
-    func machineHasStoredChain(_ machineID: String) -> Bool { document.machines.first { $0.machineID == machineID }?.templateChain != nil }
-    /// Mutate the machine's chain and clear the per-cell overrides of every cell of that machine (all scenes) so they
-    /// inherit it. An empty result stores a single bypassed slot = the born-audible passthrough (an empty template
-    /// would fall through to the legacy face). ONE undoable document edit.
-    /// The chain as DISPLAYED for a machine — a representative placed cell's RESOLVED chain (per-cell override →
-    /// template → legacy), so a machine-scoped edit is based on what the user sees, never the bare template. Without
-    /// this, adding/editing a slot re-read the template + cleared overrides → a per-cell arp config reverted (user
-    /// 2026-08-10). Falls back to the template/legacy face when the machine has no placed cell.
-    private func resolvedMachineChain(_ machineID: String) -> [ProcessorSlot] {
-        for s in document.scenes {
-            for col in s.cells {
-                for cell in col where cell?.machineID == machineID { if let cell { return materializedChain(cell) } }
-            }
-        }
-        return machineTemplateChain(machineID)
-    }
-    /// Store a machine's chain on its template (empty → a bypassed-EMPTY passthrough) + drop every matching cell's
-    /// per-cell override so all inherit the template — ONE editDocument = one undo record. (shared, 2026-08-15)
-    private func storeMachineChainClearingOverrides(_ machineID: String, _ chain: [ProcessorSlot]) {
-        let stored: [ProcessorSlot] = chain.isEmpty ? [passthroughTemplateSlot()] : chain
-        editDocument { doc in
-            if let ci = doc.machines.firstIndex(where: { $0.machineID == machineID }) { doc.machines[ci].templateChain = stored }
-            for si in doc.scenes.indices {
-                for c in doc.scenes[si].cells.indices {
-                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.machineID == machineID {
-                        doc.scenes[si].cells[c][r]?.processors = nil     // inherit the template (drop any stale override)
-                    }
-                }
-            }
-        }
-    }
-    func withChainMachine(_ machineID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
-        var chain = resolvedMachineChain(machineID)
-        mutate(&chain)
-        storeMachineChainClearingOverrides(machineID, chain)
-    }
-    /// Set a machine's chain to EXACTLY `chain` (empty → a bypassed-EMPTY passthrough) + clear every cell's override.
-    /// The UI computes `chain` from what's DISPLAYED (cellChain(editingCell)), so an edit never operates on a stale
-    /// representative cell → deleting the first of two slots leaves the other, not an empty box. (user 2026-08-10 bug.)
-    func setMachineChain(_ machineID: String, _ chain: [ProcessorSlot]) {
-        storeMachineChainClearingOverrides(machineID, chain)
-    }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
 
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
@@ -200,19 +86,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     private var undoStack = UndoStack<PluginState>()
     var uiCanUndo: Bool { undoStack.canUndo }
     var uiCanRedo: Bool { undoStack.canRedo }
-    @discardableResult func uiUndo() -> Bool {
-        guard let restored = undoStack.undo(current: document) else { return false }
-        document = restored; scheduleRebuild(); return true
-    }
-    @discardableResult func uiRedo() -> Bool {
-        guard let restored = undoStack.redo(current: document) else { return false }
-        document = restored; scheduleRebuild(); return true
-    }
-    // BUILD UNDO (Paul 2026-08-27): the BUILD page authors in VC @State, so its undo captures that @State PLUS a copy of
-    // the document (document-machine chain / receiver / rack edits also happen there). These let a BUILD snapshot round-trip
-    // the document without touching the transactional undoStack above. `restoreDocumentFromUndo` sets it WITHOUT recording.
-    func documentSnapshot() -> PluginState { document }
-    func restoreDocumentFromUndo(_ d: PluginState) { document = d; seedLatchArm(); scheduleRebuild() }
     /// The live document — for the EDIT page's SELECTION undo (which snapshots (selection, document) per select/
     /// deselect and restores both). Separate from the transactional undo stack above (which it never touches).
 
@@ -242,7 +115,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // PHASE 2 render-time AUTO (Paul 2026-09-04): the LIVE per-machine AUTO lanes, folded into the rendered doc so
     // SnapshotBuilder can build the render-time descriptors (×N passes / SMOOTH). nil ⇒ use the document's own.
     private var stagingAuto: [String: PartAutoMachine]? = nil
-    func setBuildAuto(_ a: [String: PartAutoMachine]?) { stagingAuto = a; scheduleRebuild() }
 
     /// The document the snapshot renders from — the real `document`, plus the BUILD staging grid override. Never
     /// used by encode/persist (those read `document`).
@@ -299,20 +171,9 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setVelOverride(_ bus: Int, _ value: Int?) { kernel.setVelOverride(bus, value) }
     func setEmitterVelKill(_ bus: Int, _ kill: Bool) { kernel.setEmitterVelKill(bus, kill) }   // §4b fader-kill
 
-    /// §6a metering: per-emitter peak velocity (0–127) + event count since the last poll (read-and-clear).
-    func pollEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainEmitterActivity() }
 
-    /// delta §9 item 11: per-receiver INPUT peak velocity + event count since the last poll (read-and-clear).
-    func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32], channels: [UInt16]) { kernel.drainReceiverActivity() }
-    func pollCellStrikes() -> [UInt8] { kernel.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity (col*Snap.rows+row)
-    func pollCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) { kernel.drainCellNotes() }   // NOTE-SWEEP: per-cell recent emitted note-ons
     func setFocusCell(_ cell: Int) { kernel.setFocusCell(cell) }   // FOCUS note-event feed: the machine's cell
-    func pollFocusNotes() -> (pitch: [UInt8], vel: [UInt8], beat: [Double], count: Int) { kernel.drainFocusNotes() }
     func pollCellSoundingVel() -> [UInt8] { kernel.pollCellSoundingVel() }   // per-cell SOUNDING velocity — the emitter fader's per-machine held floor (Paul 2026-09-07)
-    func pollCellSoundingNotes(_ cellIndex: Int) -> [UInt8] { kernel.cellSoundingNotes(cellIndex) }   // the processor editor's OUTPUT piano (Paul 2026-09-28)
-    func pollRowSoundingVoices() -> [[(note: UInt8, vel: UInt8, onBeat: Double)]] { kernel.rowSoundingVoices() }   // PART grid's live per-row piano-roll (Paul 2026-09-29)
-    func pollRiffDrunkPos(_ cellIndex: Int) -> Int { kernel.riffDrunkPosAt(cellIndex) }   // RIFF's DRUNK sweep, polled (Paul 2026-09-28)
-    func pollEuclidLineReady(_ cellIndex: Int) -> UInt8 { kernel.euclidLineReadyAt(cellIndex) }   // EUCLID beacon readiness bits, polled (Paul 2026-10-05)
     // PART ROLL (Paul 2026-09-02): the live per-part-cycle emitted-note capture for the part-page piano roll.
     func setPartRoll(active: Bool, cycleBeats: Double) { kernel.setPartRoll(active: active, cycleBeats: cycleBeats) }
     func pollPartRoll() -> [PartRollDeck.Note] { kernel.pollPartRoll() }
@@ -326,174 +187,16 @@ public class FourfoldAudioUnit: AUAudioUnit {
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannelsResolved }
 
-    /// delta §9 item 11: the four resolved receivers (nil-safe) for the editor's INPUT radio + the panel.
-    func uiReceivers() -> [Receiver] { document.receiversResolved }
-    func setReceiverChannel(_ i: Int, _ ch: Int) { editReceiver(i) { $0.channel = max(0, min(16, ch)) } }
-    // MULTI-CHANNEL (Paul 2026-08-21): a door hears an arbitrary channel SUBSET (16-bit mask). Toggle one channel (1–16),
-    // or set the whole mask (ALL = 0xFFFF, NONE = 0). Enables the door (so ALL/a channel un-blocks it).
-    func toggleReceiverChannel(_ i: Int, _ ch: Int) {
-        guard ch >= 1 && ch <= 16 else { return }
-        editReceiver(i) { r in r.channelMask = r.channelMaskResolved ^ (UInt16(1) << UInt16(ch - 1)); r.inputEnabled = true }
-    }
-    func setReceiverChannelMask(_ i: Int, _ mask: UInt16) { editReceiver(i) { $0.channelMask = mask; $0.inputEnabled = true } }
-    // setReceiverCable retired 2026-08-03 (COG SIMPLIFICATION — cables gone from the UI; the render hears all cables).
-    func toggleReceiverMute(_ i: Int)             { editReceiver(i) { $0.muted.toggle() } }
-    // INPUT ENABLE (the strip header): DISABLE stops the door listening (dark meter, latch sealed) — an armed
-    // latch keeps feeding the grid; a mute (below) is what stops the feed. Persisted, like mute.
-    func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
-    // KEYS EXCLUDE (Paul 2026-08-22): the complement door — subtract door `d`'s live notes (by pitch class) from this
-    // door's typed KEYS pool. -1 = OFF; never self. UI offers the three doors that aren't this one.
-    func setExcludeDoor(_ i: Int, _ d: Int) { editReceiver(i) { $0.excludeDoor = (d >= 0 && d <= 3 && d != i) ? d : -1 } }
-    func setReceiverExcludeMode(_ i: Int, _ m: ExcludeMode) { editReceiver(i) { $0.excludeMode = m } }     // §3: MINUS (complement) | ONLY (in-key)
-    func setReceiverExcludeReject(_ i: Int, _ r: ExcludeReject) { editReceiver(i) { $0.excludeReject = r } }  // §3: BLOCK (silence) | SNAP (nearest legal)
-    // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE radio. Sets doorMode + syncs the legacy latch fields for the 3
-    // existing modes (lossless downgrade). REPLAY/FILE store the mode only (their behaviour lands in stages 3/4).
-    func setDoorMode(_ i: Int, _ mode: DoorMode) {
-        editReceiver(i) { r in
-            r.doorMode = mode
-            switch mode {
-            case .latch: r.latchAdd = true;  r.latchPiano = false
-            case .hold:  r.latchAdd = false; r.latchPiano = false
-            case .keys:  r.latchPiano = true
-            case .scale: r.latchPiano = false   // SCALE derives its own pool (scaleNotes); the resolver keys off doorMode
-            case .chord: r.latchPiano = false   // CHORD derives its own pool (chordDoorNotes); the resolver keys off doorMode
-            case .thru, .replay, .file: break   // THRU can't arm (the resolvers key off doorMode), so the latch fields are moot
-            }
-        }
-    }
-    // THE SCALE DOOR (ratified §1): the picker sets root · scale · home-octave window; the derived pool feeds the KEYS pipeline.
-    // FOUR SCALE POOLS (Paul 2026-09-04): slot-aware setters write into `scalePools[slot]`; `setReceiverActiveScale` is the
-    // RADIO switch (live). `editReceiverScaleSlot` materializes the four concrete pools (from the resolver, migrating the
-    // legacy single scale into slot 0) before mutating, so no edit path diverges. The legacy flat setters below delegate to
-    // the ACTIVE slot (kept for any existing caller; new UI uses the slot setters directly).
-    private func editReceiverScaleSlot(_ i: Int, _ slot: Int, _ f: (inout ScalePool) -> Void) {
-        guard (0..<4).contains(slot) else { return }
-        editReceiver(i) { r in
-            var pools = r.scalePoolsResolved      // 4 concrete pools (migrates legacy single → slot 0)
-            f(&pools[slot])
-            r.scalePools = pools
-        }
-    }
-    func setReceiverActiveScale(_ i: Int, _ slot: Int) {
-        editReceiver(i) { r in
-            if r.scalePools == nil { r.scalePools = r.scalePoolsResolved }   // materialize so the radio + pools travel together
-            r.activeScale = max(0, min(3, slot))
-        }
-    }
-    func setReceiverScaleSlotRoot(_ i: Int, _ slot: Int, _ root: Int) { editReceiverScaleSlot(i, slot) { $0.root = (root % 12 + 12) % 12 } }
-    func setReceiverScaleSlotType(_ i: Int, _ slot: Int, _ type: ScaleType) { editReceiverScaleSlot(i, slot) { $0.type = type } }
-    func setReceiverScaleSlotBaseOct(_ i: Int, _ slot: Int, _ oct: Int) { editReceiverScaleSlot(i, slot) { $0.baseOct = max(0, min(8, oct)) } }
-    func setReceiverScaleSlotOctaves(_ i: Int, _ slot: Int, _ oct: Int) { editReceiverScaleSlot(i, slot) { $0.octaves = max(1, min(4, oct)) } }
-    private func activeScaleSlot(_ i: Int) -> Int {
-        let rs = document.receiversResolved
-        return (0..<rs.count).contains(i) ? rs[i].activeScaleResolved : 0
-    }
-    // THE CHORD DOOR = a chord SEQUENCER (Paul 2026-09-04): each of four instances IS a MachineParams (the CHORDS-processor
-    // config); the editor is the processor's own ProcessorBox, which hands back an edited Machine → we store its paramsA.
-    func setReceiverActiveChord(_ i: Int, _ slot: Int) {
-        editReceiver(i) { r in
-            if r.chordSeqs == nil { r.chordSeqs = r.chordSeqsResolved }   // materialize so the radio + seqs travel together
-            r.activeChord = max(0, min(3, slot))
-        }
-    }
-    func setReceiverChordSeq(_ i: Int, _ slot: Int, _ params: MachineParams) {
-        guard (0..<4).contains(slot) else { return }
-        editReceiver(i) { r in
-            var seqs = r.chordSeqsResolved
-            seqs[slot] = params
-            r.chordSeqs = seqs
-        }
-    }
-    func setReceiverScaleRoot(_ i: Int, _ root: Int) { setReceiverScaleSlotRoot(i, activeScaleSlot(i), root) }
-    func setReceiverScaleType(_ i: Int, _ type: ScaleType) { setReceiverScaleSlotType(i, activeScaleSlot(i), type) }
-    func setReceiverScaleBaseOct(_ i: Int, _ oct: Int) { setReceiverScaleSlotBaseOct(i, activeScaleSlot(i), oct) }
-    func setReceiverScaleOctaves(_ i: Int, _ oct: Int) { setReceiverScaleSlotOctaves(i, activeScaleSlot(i), oct) }
-    // REPLAY (stage 3): how much input history loops (1·2·4·8 passes).
-    func setReplayPasses(_ i: Int, _ passes: Int) { editReceiver(i) { $0.replayPasses = [1, 2, 4, 8].contains(passes) ? passes : 1 } }
     func toggleReplayCatch(_ i: Int) { kernel.toggleReplayCatch(i) }   // "LAST N" — capture+loop / release (config-sheets, Paul 2026-08-20)
     func replayEngaged() -> UInt8 { kernel.replayEngaged() }           // which REPLAY doors are actively looping
     func replayLoopRoll(door i: Int) -> [DoorRing.Note] { kernel.replayLoopRoll(door: i) }   // the engaged door's captured loop as duration notes
     func replayLoopLen(door i: Int) -> Double { kernel.replayLoopLen(door: i) }
     func replayLoopAnchor(door i: Int) -> Double { kernel.replayLoopAnchor(door: i) }   // the engaged loop's anchor beat (config-roll playhead sync, Paul 2026-08-26)
-    // FILE (config-sheets stage 4): decode a loaded .mid into the door's clip (stored on the document, copy-in). Sets the
-    // door to FILE mode. Returns false if the file didn't parse into notes. Large files are capped (doc-size guard).
-    @discardableResult func setDoorFile(_ i: Int, data: Data, name: String) -> Bool {
-        guard let (notes, loopBeats) = MidiFile.decode(data), loopBeats > 0 else { return false }
-        let capped = Array(notes.prefix(8192))
-        editReceiver(i) { $0.fileClip = capped; $0.fileLoopBeats = loopBeats; $0.fileName = name; $0.doorMode = .file }
-        return true
-    }
-    func clearDoorFile(_ i: Int) { editReceiver(i) { $0.fileClip = nil; $0.fileLoopBeats = nil; $0.fileName = nil } }
-    func toggleReceiverPianoNote(_ i: Int, _ note: Int) {   // pick/unpick a note on the on-screen keyboard
-        editReceiver(i) { var s = Set($0.pianoNotes ?? []); if s.contains(note) { s.remove(note) } else { s.insert(note) }; $0.pianoNotes = s.sorted() }
-    }
-    func clearReceiverPianoNotes(_ i: Int) { editReceiver(i) { $0.pianoNotes = [] } }
-    // RANGE (§2): the door's note window. Clamps to 0…127 and keeps lo ≤ hi so the window is never inverted.
-    func setReceiverRange(_ i: Int, lo: Int, hi: Int) {
-        let l = max(0, min(127, lo)), h = max(0, min(127, hi))
-        editReceiver(i) { $0.rangeLo = min(l, h); $0.rangeHi = max(l, h) }
-    }
-    // §MPE (cog page, 2026-07-xx — supersedes the 2026-07-25 "no UI, silent auto-detect" ruling): the mpeMerge
-    // field is now surfaced as an explicit per-receiver toggle, PLUS a live auto-detect indicator (mpeLikely).
-    private func editReceiver(_ i: Int, _ f: (inout Receiver) -> Void) {
-        guard (0..<4).contains(i) else { return }
-        editDocument { d in
-            if d.receivers == nil { d.receivers = d.receiversResolved }   // materialize before editing
-            f(&d.receivers![i])
-        }
-    }
 
-    /// delta §6a: the four emitter enable flags (nil/old docs ⇒ all-enabled), and the setter (persisted).
-    func uiBusEnabled() -> [Bool] { document.busEnabledResolved }
-    func setBusEnabled(_ i: Int, _ on: Bool) {
-        guard i >= 0, i < 4 else { return }
-        editDocument { d in
-            var e = d.busEnabled ?? [true, true, true, true]
-            while e.count < 4 { e.append(true) }
-            e[i] = on
-            d.busEnabled = e
-        }
-    }
 
-    /// THE RACK (design-the-rack §3): the four per-emitter "board in the signal path" gates (nil/old docs ⇒ all
-    /// ON), and the toggle (persisted, undoable). Lit ⇒ the emitter's armed treatments apply; off ⇒ raw wire (the
-    /// builder pre-ANDs this into claim/duck/alt). Distinct from LIVE (which silences the output entirely).
-    func uiRackMask() -> UInt8 { document.rackMaskResolved }          // the ACTIVE config's membership
-    func uiRackConfig() -> Int { document.rackActiveConfigResolved } // which of the 4 configs is live
-    // Toggle emitter `bus`'s board membership IN THE ACTIVE CONFIG. Writes rackConfigs[active] + keeps the legacy
-    // rackEnabledMask synced to the active config (lossless downgrade). (THE CONFIG SHEETS, Paul 2026-08-20)
-    func setRack(_ bus: Int, _ on: Bool) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var configs = d.rackConfigsResolved
-            let active = d.rackActiveConfigResolved
-            var m = configs[active]
-            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
-            configs[active] = m
-            d.rackConfigs = configs
-            d.rackActiveConfig = active
-            d.rackEnabledMask = m                                    // legacy mirror = the active config
-        }
-    }
-    // Switch the LIVE rack config (0…3). Syncs the legacy rackEnabledMask to the newly-live config.
-    func setRackConfig(_ i: Int) {
-        guard (0..<4).contains(i) else { return }
-        editDocument { d in
-            let configs = d.rackConfigsResolved
-            d.rackConfigs = configs
-            d.rackActiveConfig = i
-            d.rackEnabledMask = configs[i]                           // legacy mirror = the newly-live config
-        }
-    }
 
-    /// delta §6a CLAIM v2: MULTI-claim (persisted). `setClaim` toggles emitter `bus` in/out of the claim set
-    /// (buttons are no longer a radio — several light); `setClaimLeak` sets its 0…100 % bleed. The legacy
-    /// single `claimEmitter` field is kept in sync (lowest claimed bus) so an OLDER build downgrades cleanly.
-    func uiClaimMask() -> UInt8 { document.claimMaskResolved }
     // EUCLIDEOUS (Paul 2026-10-05): the standalone 4-lane instrument page's persisted config.
     func uiEuclideousLines() -> [EuclidLine] { document.euclideousLinesResolved }
-    func uiEuclideousEnabled() -> Bool { document.euclideousEnabledResolved }
-    func uiEuclideousReceiver() -> Int { document.euclideousReceiverResolved }
     func uiEuclideousRiff() -> EuclideousRiff { document.euclideousRiffResolved }   // EUCLIDEOUS's shared riff pattern (Paul 2026-10-06)
     // SEQUENCER PANEL (2026-10-14 ferry): four independently-stored riffs + per-lane reset's own LANES/RIFFS
     // step clocks. `uiEuclideousRiff()` above stays in place, decode-only — `riffsResolved` migrates it into
@@ -524,8 +227,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiEuclideousKeyType() -> ScaleType { document.euclideousKeyTypeResolved }
     func uiEuclideousNoteSource() -> EuclideousLaneSource { document.euclideousNoteSourceResolved }
     func uiEuclideousHoldLatchMode() -> EuclideousHoldLatchMode? { document.euclideousHoldLatchMode }   // HOLD/LATCH (2026-10-20): nil = off, no Resolved coercion needed
-    func uiEuclideousRiffSourceMidi() -> Bool { document.euclideousRiffSourceMidiResolved }
-    func uiEuclideousLanesSourceMidi() -> Bool { document.euclideousLanesSourceMidiResolved }
     func uiEuclideousMainOutMask() -> UInt8 { document.euclideousMainOutMaskResolved }
     func uiEuclideousSoloMask() -> UInt8 { document.euclideousSoloMaskResolved }
     /// LANE SOLO: the effective mask (latched | held) straight to the render thread — no snapshot in the way. Main thread.
@@ -538,13 +239,10 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setEuclideousLockLive(held: UInt8, revs: UInt32) { kernel.setEuclideousLockLive(held: held, revs: revs) }
     /// LANE LOCK: the Router's landed-snap counters (one byte per lane) and the beats they landed at — the page applies each landed snap to the document.
     func pollEuclideousLockSnapSeq() -> UInt32 { kernel.euclideousLockSnapSeq() }
-    func pollEuclideousLockSnapBeats() -> [Double] { kernel.euclideousLockSnapBeats() }
     func uiEuclideousLocks() -> [EuclideousLaneLock] { document.euclideousLocksResolved }
     // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
     func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }
-    func setEuclideousMidiInChannelMask(_ mask: UInt16) { editDocument { $0.euclideousMidiInChannelMask = mask } }
     func uiEuclideousHostStopBehavior() -> EuclideousHostStopBehavior { document.euclideousHostStopBehaviorResolved }
-    func setEuclideousHostStopBehavior(_ v: EuclideousHostStopBehavior) { editDocument { $0.euclideousHostStopBehavior = v } }
     // CHORDS BUTTON (Paul 2026-10-08): the page's own self-contained chord grid.
     func uiEuclideousChords() -> MachineParams { document.euclideousChordsResolved }
     /// Each of Euclideous's 4 lanes' own live riff-advance step index, polled on the SAME fast ~30fps cadence as
@@ -572,298 +270,32 @@ public class FourfoldAudioUnit: AUAudioUnit {
     /// step-clock "always runs" (§4), so the lit cell must track it live, not on the slower config-resync poll.
     func pollEuclideousLanesSeqStep() -> Int { kernel.euclideousLanesSeqStep() }
     func pollEuclideousRiffsSeqStep() -> Int { kernel.euclideousRiffsSeqStep() }
-    // `pollEuclideousPlayingRiffIndex()` forwarder deleted 2026-10-18 (adversarial review) — zero callers
-    // left once the ferry dropping the looper also dropped the editing-vs-playing distinction it served.
-    func uiClaimLeak() -> [Int] { document.claimLeakResolved }
-    func setClaim(_ bus: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            let m = d.claimMaskResolved ^ UInt8(1 << bus)
-            d.claimMask = m
-            d.claimEmitter = m == 0 ? nil : Int(m.trailingZeroBitCount)
-        }
-    }
-    func setClaimLeak(_ bus: Int, _ pct: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.claimLeak ?? d.claimLeakResolved
-            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
-            a[bus] = max(0, min(100, pct))
-            d.claimLeak = a
-        }
-    }
 
-    /// emitter role family: FLATTEN — activity ducking (persisted). `uiFlatten*` read; `setFlatten` toggles an
-    /// emitter into/out of the ducking set; `setFlattenAmount` sets its 0…100 % scale.
-    func uiFlattenMask() -> UInt8 { document.flattenMask ?? 0 }
-    func uiFlattenAmount() -> [Int] { document.flattenAmountResolved }
-    func setFlatten(_ bus: Int, _ on: Bool) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var m = d.flattenMask ?? 0
-            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
-            d.flattenMask = m
-        }
-    }
-    func setFlattenAmount(_ bus: Int, _ amount: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.flattenAmount ?? d.flattenAmountResolved
-            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
-            a[bus] = max(0, min(100, amount))
-            d.flattenAmount = a
-        }
-    }
 
-    /// THE RACK — CURVE (persisted): `setCurve` toggles emitter `bus`'s velocity re-map; `setCurveAmount` sets its
-    /// −100…100 bend (0 = linear, + harder, − softer). Rack-gated in the builder.
-    func uiCurveMask() -> UInt8 { document.curveMask ?? 0 }
-    func uiCurveAmount() -> [Int] { document.curveAmountResolved }
-    func setCurve(_ bus: Int, _ on: Bool) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var m = d.curveMask ?? 0
-            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
-            d.curveMask = m
-        }
-    }
-    func setCurveAmount(_ bus: Int, _ amount: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.curveAmount ?? d.curveAmountResolved
-            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
-            a[bus] = max(-100, min(100, amount))
-            d.curveAmount = a
-        }
-    }
 
-    /// THE RACK — FENCE (persisted): `setFence` toggles emitter `bus`'s range policy; `cycleFencePolicy` steps
-    /// DROP→CLAMP→FOLD→DROP; `setFenceLo`/`setFenceHi` set the window bounds (0…127). Rack-gated in the builder.
-    func uiFenceMask() -> UInt8 { document.fenceMask ?? 0 }
-    func uiFencePolicy() -> [Int] { document.fencePolicyResolved }
-    func uiFenceLo() -> [Int] { document.fenceLoResolved }
-    func uiFenceHi() -> [Int] { document.fenceHiResolved }
-    func setFence(_ bus: Int, _ on: Bool) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var m = d.fenceMask ?? 0
-            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
-            d.fenceMask = m
-            // FENCE UX (user 2026-08-05): a full-range window is a no-op, so on ENABLE seed a SENSIBLE default —
-            // policy CLAMP + window C2…C6 — so FENCE immediately, audibly acts (CLAMP pulls stray notes in rather
-            // than silently dropping them). Only when the window is still the full default (untouched).
-            if on {
-                let loFull = d.fenceLoResolved[bus] == 0, hiFull = d.fenceHiResolved[bus] == 127
-                if loFull && hiFull {
-                    var pol = d.fencePolicy ?? d.fencePolicyResolved; while pol.count < 4 { pol.append(0) }; pol[bus] = 1   // CLAMP
-                    var lo = d.fenceLo ?? d.fenceLoResolved; while lo.count < 4 { lo.append(0) }; lo[bus] = 36            // C2
-                    var hi = d.fenceHi ?? d.fenceHiResolved; while hi.count < 4 { hi.append(127) }; hi[bus] = 84         // C6
-                    d.fencePolicy = pol; d.fenceLo = lo; d.fenceHi = hi
-                }
-            }
-        }
-    }
-    func cycleFencePolicy(_ bus: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.fencePolicy ?? d.fencePolicyResolved
-            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
-            a[bus] = (max(0, min(2, a[bus])) + 1) % 3
-            d.fencePolicy = a
-        }
-    }
-    func setFenceLo(_ bus: Int, _ note: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.fenceLo ?? d.fenceLoResolved
-            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
-            a[bus] = max(0, min(127, note))
-            d.fenceLo = a
-        }
-    }
-    func setFenceHi(_ bus: Int, _ note: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.fenceHi ?? d.fenceHiResolved
-            if a.count < 4 { a += Array(repeating: 127, count: 4 - a.count) }
-            a[bus] = max(0, min(127, note))
-            d.fenceHi = a
-        }
-    }
 
-    /// THE RACK — MONO (persisted): `setMono` toggles emitter monophony; `cycleMonoPriority` steps LAST→LOW→HIGH.
-    func uiMonoMask() -> UInt8 { document.monoMask ?? 0 }
-    func uiMonoPriority() -> [Int] { document.monoPriorityResolved }
-    func setMono(_ bus: Int, _ on: Bool) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var m = d.monoMask ?? 0
-            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
-            d.monoMask = m
-        }
-    }
-    func cycleMonoPriority(_ bus: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.monoPriority ?? d.monoPriorityResolved
-            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
-            a[bus] = (max(0, min(2, a[bus])) + 1) % 3
-            d.monoPriority = a
-        }
-    }
 
-    /// THE RACK — POCKET (persisted): `setPocket` toggles the timing shift; `setPocketMs` sets −50…50 ms.
-    func uiPocketMask() -> UInt8 { document.pocketMask ?? 0 }
-    func uiPocketMs() -> [Int] { document.pocketMsResolved }
-    func setPocket(_ bus: Int, _ on: Bool) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var m = d.pocketMask ?? 0
-            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
-            d.pocketMask = m
-        }
-    }
-    func setPocketMs(_ bus: Int, _ ms: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.pocketMs ?? d.pocketMsResolved
-            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
-            a[bus] = max(-50, min(50, ms))
-            d.pocketMs = a
-        }
-    }
 
-    /// THE RACK — CONVERSATION (persisted): `setConvLead` sets/clears the LEAD (radio; passing the current lead
-    /// clears it); `cycleConvStance` steps a follower FREE→WITH→AGAINST.
-    func uiConvLead() -> Int { document.convLeadResolved }
-    func uiConvStance() -> [Int] { document.convStanceResolved }
-    func setConvLead(_ bus: Int) {
-        editDocument { d in
-            let cur = d.convLeadResolved
-            d.convLead = (cur == bus) ? -1 : ((0..<4).contains(bus) ? bus : -1)
-        }
-    }
-    func cycleConvStance(_ bus: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var a = d.convStance ?? d.convStanceResolved
-            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
-            a[bus] = (max(0, min(2, a[bus])) + 1) % 3
-            d.convStance = a
-        }
-    }
 
-    /// emitter role family: ALT — turn-taking group (persisted). `setAlt` toggles membership; `setAltCount`
-    /// sets an emitter's notes-per-turn (1…8).
-    func uiAltMask() -> UInt8 { document.altMask ?? 0 }
-    func uiAltCount() -> [Int] { document.altCountResolved }
-    func setAlt(_ bus: Int, _ on: Bool) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var m = d.altMask ?? 0
-            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
-            d.altMask = m
-        }
-    }
-    func setAltCount(_ bus: Int, _ count: Int) {
-        guard (0..<4).contains(bus) else { return }
-        editDocument { d in
-            var c = d.altCount ?? d.altCountResolved
-            if c.count < 4 { c += Array(repeating: 1, count: 4 - c.count) }
-            c[bus] = max(1, min(8, count))
-            d.altCount = c
-        }
-    }
-    /// TURNS hand-off mode (persisted, global): false = PER-MOMENT, true = PER-NOTE (exclusive, drop simultaneous).
-    func uiTurnsPerNote() -> Bool { document.turnsPerNoteResolved }
-    func setTurnsPerNote(_ on: Bool) { editDocument { $0.turnsPerNote = on } }
 
-    // MASTER PANEL. KEY = per-scene transpose (persisted); MUTE = global emission kill (persisted); the FADER
-    // = the momentary master velocity override (ephemeral kernel feed); PANIC = the one-shot hard flush.
-    private func activeSceneIndex() -> Int { document.activeSceneResolved }   // CR-8: activeScene is Optional now
-    func uiMasterKey() -> Int { document.scenes[activeSceneIndex()].masterKeyResolved }
-    func nudgeMasterKey(_ delta: Int) {
-        editDocument { d in
-            let i = d.activeSceneResolved
-            d.scenes[i].masterKey = max(-12, min(12, d.scenes[i].masterKeyResolved + delta))
-        }
-    }
-    func uiMasterMute() -> Bool { document.masterMute ?? false }
-    func setMasterMute(_ on: Bool) { editDocument { $0.masterMute = on } }
-    // LADDER MODE (exclusive columns). The on/off arm is document-level; the per-column chosen rung is scene state.
-    func uiLadderMode() -> Bool { document.ladderModeResolved }
-    func setLadderMode(_ on: Bool) { editDocument { $0.ladderMode = on } }
     func uiIgnoreAllNotesOff() -> Bool { document.ignoreAllNotesOffResolved }   // INPUT (Paul 2026-09-06): ignore a source's CC120/123 flood
     func setIgnoreAllNotesOff(_ on: Bool) { editDocument { $0.ignoreAllNotesOff = on } }
     /// The resolved active rung for a column (topmost-occupied default) — the UI lights it + dims the other rungs.
     func ladderActiveRow(_ col: Int) -> Int? { document.activeSceneState.ladderActiveRow(col) }
-    /// Commit a LADDER rung switch for a column. A PERFORMANCE action (record:false → not on the undo stack) that
-    /// rebuilds the snapshot; the render adopts/re-speaks at the next column boundary (no new render-thread concept).
-    func setActiveRow(_ col: Int, _ row: Int) {
-        guard col >= 0, col < 8 else { return }
-        editScene(record: false) { s in
-            var ar = s.activeRow ?? [Int?](repeating: nil, count: 8)
-            while ar.count < 8 { ar.append(nil) }
-            ar[col] = row
-            s.activeRow = ar
-        }
-    }
-    // ROW 8 (Paul 2026-08-22): the action strip. `uiRow8` = the authored cells (document); `uiRow8On` = the active
-    // scene's lit TOGGLE state. `setRow8On` is a PERFORMANCE write (record:false, scene-captured, rebuilds — the toggle
-    // engine FREEZE/HALFTIME reads it from the box). The ROW 8 authoring UI (+ `setRow8Cell`) was removed 2026-09-17
-    // as unreachable dead code; the cells/on-toggles + engine/persistence remain (a scene restore still calls setRow8On).
-    func uiRow8() -> [Row8Cell] { document.row8Resolved }
-    func uiRow8On() -> [Bool] { document.activeSceneState.row8OnResolved }
-    func setRow8On(_ i: Int, _ on: Bool) {
-        guard i >= 0, i < 8 else { return }
-        editScene(record: false) { s in
-            var o = s.row8On ?? [Bool](repeating: false, count: 8)
-            while o.count < 8 { o.append(false) }
-            o[i] = on
-            s.row8On = o
-        }
-    }
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
     func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
-    func masterPanic() { kernel.panic() }
     // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): same request/consume shape as masterPanic,
     // narrower scope (Euclideous's own row only — see Router.process's own consumption of the flag).
     func euclideousAllNotesOff() { kernel.euclideousAllNotesOffRequest() }
 
-    /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
-    /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
-    func uiThruReceiver() -> Int { document.thruReceiverResolved }
 
-    /// Read-only Machines (type + params) so the grid can render each cell's type glyph + params text.
-    func uiMachines() -> [Machine] { document.machines }
 
-    /// Switch a Machine's processor type, isolating transpose per type (spec revision). The type change is a
-    /// document edit; the restored transpose is pushed to the AUParameter tree (with the observer's rebuild
-    /// suppressed, like the load paths) so host/UI reflect the new type's value. (Morph params removed 2026-09-16.)
-    func setMachineType(_ index: Int, _ newType: ProcessorType) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard index >= 0, index < document.machines.count, document.machines[index].type != newType else { return }
-        undoStack.record(document)                              // a6: discrete type switch
-        document.machines[index].switchType(to: newType)
-        suppressRebuild = true
-        _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(document.machines[index].transpose)
-        suppressRebuild = false
-        scheduleRebuild()
-    }
 
-    /// Transpose (AUParameter 100+i) — set via the tree so the observer writes the document and host
-    /// automation reflects it.
-    func setMachineTranspose(_ index: Int, _ value: Int) {
-        _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(max(-24, min(24, value)))
-    }
 
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.
     func uiStepRateIndex() -> Int { StepRate.allCases.firstIndex(of: document.activeSceneState.stepRate) ?? 2 }
     func uiSwing() -> Int { document.activeSceneState.swing }
-    func setStepRateIndex(_ i: Int) {
-        _parameterTree.parameter(withAddress: ParamAddress.stepRate)?.value = AUValue(max(0, min(StepRate.allCases.count - 1, i)))
-    }
     func setSwing(_ v: Int) {
         _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(max(50, min(75, v)))
     }
@@ -1033,33 +465,11 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
     /// Load a factory scene (Docs/factory-scenes.md) — same replace-and-resync path as a test session.
 
-    // MARK: - MULTI-SCENE — the strip switches activeScene within one document (2026-07-27)
-    func uiScenes() -> [SceneState] { document.scenes }
-    func uiActiveScene() -> Int { document.activeSceneResolved }
-    /// SWITCH to a non-empty scene (immediate, v1). Arms a one-shot voice flush so the old scene's notes close
-    /// cleanly as the new scene's snapshot publishes (a generation change alone doesn't flush — no stuck notes).
-    func setActiveScene(_ i: Int) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard i >= 0, i < document.scenes.count, !document.scenes[i].isEmpty, i != document.activeSceneResolved else { return }
-        kernel.flushVoices()
-        editDocument { $0.switchScene(to: i) }
-    }
-    /// SAVE-HERE: write the ACTIVE scene into slot `i` (the "+" gesture). No flush — the playing scene is unchanged.
-    func saveSceneHere(_ i: Int) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        editDocument { $0.saveCurrentScene(toSlot: i) }
-    }
     /// RESTART-the-pass (tap the active chip): re-anchor the playing clock so the current moment becomes column 0
     /// ("take it from the top"), flushing the old pass's voices. A transport gesture — no document edit/rebuild.
     func restartPass() {
         dispatchPrecondition(condition: .onQueue(.main))
         kernel.restartPass()
-    }
-    /// S3 drag: MOVE (onto empty) / SWAP (onto occupied) — never overwrite. The active scene's CONTENT is
-    /// unchanged (it only moves slot), so no voice flush — the music plays on through a re-arrange.
-    func moveOrSwapScene(from a: Int, to b: Int) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        editDocument { $0.dragScene(from: a, to: b) }
     }
     /// S3 trash: delete a scene. Refuses (returns false) the ACTIVE scene / empty / out-of-range — the UI shakes.
     @discardableResult func deleteScene(_ i: Int) -> Bool {
@@ -1111,19 +521,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
         currentPresetName = name
         seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree (else host automation snaps a fresh note back to the OLD morph/transpose/macros)
-    }
-    /// DEBUG-ONLY dev-reload helper (AudioUnitViewController's `reloadFresh`): reset straight to a fresh
-    /// `makeInit()` document. NOT a named factory preset lookup — "INIT" is gone from `factoryPresetBuilders`
-    /// since the 2026-10-11 Euclideous-presets swap, but `makeInit()` itself is still the real fresh-instance
-    /// default (FourfoldAudioUnit's own `init`) and stays valid to reset to directly.
-    func resetToFreshInit() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        kernel.flushVoices()
-        editDocument { $0 = PluginState.makeInit() }
-        clearPendingBuild()
-        currentPresetName = ""
-        seedLatchArm()
-        suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()
     }
     /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
     func loadFactoryPreset(named name: String) {
@@ -1274,46 +671,18 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // BUILD pushes its single UNASSIGNED workshop part here (via setBuildUnassigned) so `fullState` saves it with the
     // document. Session-only side-field — the stored `document` is never mutated by it (the encode copy carries it).
     private var pendingBuildUnassigned: BuildUnassignedData? = nil
-    func setBuildUnassigned(_ d: BuildUnassignedData?) { pendingBuildUnassigned = d }
-    /// On load, hand BUILD the restored part ONCE (then clear it from the document so it isn't re-restored).
-    func consumeBuildUnassigned() -> BuildUnassignedData? {
-        let u = document.buildUnassigned
-        if u != nil { document.buildUnassigned = nil }   // not render-relevant → no rebuild; a plain one-shot transport
-        return u
-    }
     // SCENES V2 (Paul 2026-08-24): the DEPLOYED play-grid arrangements travel with the save, like the unassigned part.
     private var pendingBuildScenes: [BuildSceneSnapshot]? = nil
     private var pendingBuildScenesActive: Int? = nil
-    func setBuildScenes(_ scenes: [BuildSceneSnapshot]?, active: Int) { pendingBuildScenes = scenes; pendingBuildScenesActive = active }
-    /// On load, hand BUILD the restored scenes ONCE (then clear them so they aren't re-restored).
-    func consumeBuildScenes() -> (scenes: [BuildSceneSnapshot], active: Int)? {
-        guard let s = document.buildScenes, !s.isEmpty else { return nil }
-        let a = document.buildScenesActive ?? 0
-        document.buildScenes = nil; document.buildScenesActive = nil   // one-shot; not render-relevant
-        return (s, a)
-    }
     // THE ROOMS PLAY GRID (Paul 2026-08-30): the play columns + their multi-step passes travel with the save.
     private var pendingBuildPlayGrid: BuildPlayGridData? = nil
-    func setBuildPlayGrid(_ d: BuildPlayGridData?) { pendingBuildPlayGrid = d }
     /// Drop the OUTGOING session's stale BUILD pending fields on every load — the loaded doc carries its OWN (restored
     /// via consume*), so the next save doesn't re-encode the previous session's part/scenes/play grid over the new one
     /// (K2/CR-10, 2026-08-30: was applied only in `fullState.set`; the factory/preset/test load paths leaked pending).
     private func clearPendingBuild() { pendingBuildUnassigned = nil; pendingBuildScenes = nil; pendingBuildScenesActive = nil; pendingBuildPlayGrid = nil; pendingPartAuto = nil }
-    /// On load, hand BUILD the restored play grid ONCE (then clear it so it isn't re-restored).
-    func consumeBuildPlayGrid() -> BuildPlayGridData? {
-        let d = document.buildPlayGrid
-        if d != nil { document.buildPlayGrid = nil }   // not render-relevant → no rebuild; a one-shot transport
-        return d
-    }
     // PART AUTOMATION (Paul 2026-09-02): the per-machine AUTO lanes travel with the save. Baked at BUILD time (composeScene),
     // so it's not render-relevant — a plain pending/consume transport like the play grid (no rebuild).
     private var pendingPartAuto: [String: PartAutoMachine]? = nil
-    func setPartAuto(_ d: [String: PartAutoMachine]?) { pendingPartAuto = d }
-    func consumePartAuto() -> [String: PartAutoMachine]? {
-        let d = document.partAuto
-        if d != nil { document.partAuto = nil }
-        return d
-    }
 
     public override var fullState: [String: Any]? {
         get {
