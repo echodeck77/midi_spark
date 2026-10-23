@@ -43,6 +43,11 @@ EXCLUSIVE_FILES = {
     "ClarityPassTests.swift",
     "RestartFlashTests.swift",
     "RiffGridArrowFuzzTests.swift",
+    # Added 2026-10-23: a file that is in NONE of these lists is silently dropped from the fast run — these three were (87 tests).
+    # ReelDeckTests is shared recorder infra (it also holds the 8x8 DoorRing tests, ~0.5 s) but is Fourfold's REEL now.
+    "EuclideousRandomTests.swift",
+    "ListenTabTests.swift",
+    "ReelDeckTests.swift",
 }
 
 # Mixed files worth scanning function-by-function: the shared engine (Router/Derivations) plus
@@ -65,7 +70,7 @@ SKIP_FILES = {
     "AcceptanceTests.swift", "AcceptanceWeaveTests.swift", "AcceptanceGeneratorsTests.swift",
     "AcceptanceFactoryLibraryTests.swift", "RoomsLatticeTests.swift", "SceneFactoryTests.swift",
     "MacroAuthoringTests.swift", "ColourTypeSwitchTests.swift", "Row8Tests.swift",
-    "BuildSelfTestMetaTests.swift", "DiceTests.swift", "FuzzTests.swift",   # ReelDeckTests: out of this list 2026-10-23 — the reel is Fourfold's recorder now
+    "BuildSelfTestMetaTests.swift", "DiceTests.swift", "FuzzTests.swift",
     "MidiFileTests.swift", "PresetStoreTests.swift",
 }
 
@@ -191,6 +196,12 @@ def main():
         count = len(FUNC_RE.findall(open(path).read()))
         skipped_total += count
         summary.append(f"{fname}: SKIPPED ({count} tests, 8x8-State-only or product-agnostic infra)")
+
+    # A test file named in NONE of the three lists would be silently left out of the fast run (87 tests were, until 2026-10-23).
+    known = EXCLUSIVE_FILES | MIXED_FILES | SKIP_FILES
+    unclassified = sorted(f for f in os.listdir(TESTS_DIR) if f.endswith("Tests.swift") and f not in known)
+    for f in unclassified:
+        print(f"WARNING: {f} is in no list in classify_euclideous_tests.py — its tests are NOT in this run. Add it to EXCLUSIVE_FILES, MIXED_FILES or SKIP_FILES.", file=sys.stderr)
 
     if xctest_mode:
         for t in only_testing:
