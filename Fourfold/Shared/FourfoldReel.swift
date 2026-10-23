@@ -23,7 +23,7 @@ struct FourfoldShareSheet: UIViewControllerRepresentable {
 }
 
 struct FourfoldReelBrowser: View {
-    weak var au: MidiSparkAudioUnit?
+    weak var au: FourfoldAudioUnit?
     let size: CGSize
     /// The host transport (the root view's polled diagnostics): drives the replay playhead's extrapolation.
     let playing: Bool

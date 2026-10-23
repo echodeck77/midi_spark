@@ -12,10 +12,10 @@ import UIKit
 import os
 
 struct FourfoldRootView: View {
-    weak var au: MidiSparkAudioUnit?
+    weak var au: FourfoldAudioUnit?
     /// true in the standalone app: the app's own transport is the clock, so Fourfold must NOT free-run on its own while it is stopped (and the "when the host stops" setting is hidden). The AUv3 extension (a host drives it) leaves this false.
     let internalTransport: Bool
-    init(au: MidiSparkAudioUnit?, internalTransport: Bool = false) { self.au = au; self.internalTransport = internalTransport }
+    init(au: FourfoldAudioUnit?, internalTransport: Bool = false) { self.au = au; self.internalTransport = internalTransport }
 
     // ── host / display state ──
     static let hangLog = OSLog(subsystem: "com.paulbarrett.Fourfold", category: "hang")

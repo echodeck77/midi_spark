@@ -18,13 +18,13 @@ final class Host {
     var onsPerCable = [Int](repeating: 0, count: 5)
     var offsPerCable = [Int](repeating: 0, count: 5)
     var firstOns: [(Int64, UInt8, UInt8)] = []
-    let au: MidiSparkAudioUnit
+    let au: FourfoldAudioUnit
     let buf: AVAudioPCMBuffer
     var timer: Timer?
 
     init() {
         let d = AudioComponentDescription(componentType: kAudioUnitType_MIDIProcessor, componentSubType: 0x46726664, componentManufacturer: 0x4D53504B, componentFlags: 0, componentFlagsMask: 0)
-        au = try! MidiSparkAudioUnit(componentDescription: d, options: [])
+        au = try! FourfoldAudioUnit(componentDescription: d, options: [])
         let fmt = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 2)!
         buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 4096)!
         try? au.inputBusses[0].setFormat(fmt); try? au.outputBusses[0].setFormat(fmt)

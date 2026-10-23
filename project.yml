@@ -20,8 +20,9 @@ targetTemplates:
   FourfoldEngine:
     sources:
       - path: AUExtension
-        excludes: ["Info.plist", "ArrangementBar.swift", "AudioUnitViewController.swift", "AutoPilot.swift", "BuildGridSelector.swift", "BuildPage.swift", "BuildReel.swift", "BuildSelfTest.swift", "ChaosDriver.swift", "CogPage.swift", "DragDropPage.swift", "EditPage.swift", "GridSkin.swift", "GridUI.swift", "ManualView.swift", "RackMatrix.swift", "RoomsPage.swift", "MacroAuthoring.swift", "SceneFactory.swift", "BuildSceneLogic.swift", "Dice.swift", "CellLibraryStore.swift", "CellBrowser.swift", "MidiSparkAudioUnit+CellLibrary.swift", "TestSessions.swift"]
-      - path: Fourfold/Shared    # the Fourfold root view, reel browser, telemetry, transport clock, the AU class
+        excludes: ["Info.plist", "ArrangementBar.swift", "AudioUnitViewController.swift", "AutoPilot.swift", "BuildGridSelector.swift", "BuildPage.swift", "BuildReel.swift", "BuildSelfTest.swift", "ChaosDriver.swift", "CogPage.swift", "DragDropPage.swift", "EditPage.swift", "GridSkin.swift", "GridUI.swift", "ManualView.swift", "RackMatrix.swift", "RoomsPage.swift", "MacroAuthoring.swift", "SceneFactory.swift", "BuildSceneLogic.swift", "Dice.swift", "CellLibraryStore.swift", "CellBrowser.swift", "MidiSparkAudioUnit+CellLibrary.swift", "TestSessions.swift", "Router.swift", "Derivations.swift", "Models.swift", "Kernel.swift", "Snapshot.swift", "SnapshotBuilder.swift", "SnapshotStore.swift", "Emission.swift", "Diag.swift", "MidiSparkAudioUnit.swift", "MidiFile.swift", "PresetStore.swift", "BuildModel.swift"]
+      - path: Fourfold/Engine    # FOURFOLD'S OWN COPY of the engine (Step 4): the originals in AUExtension/ are excluded above and stay frozen for 8x8 State
+      - path: Fourfold/Shared    # the Fourfold root view, reel browser, telemetry, transport clock
     dependencies:
       - package: Atomics
         product: Atomics

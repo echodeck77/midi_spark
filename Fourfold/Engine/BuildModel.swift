@@ -1,0 +1,269 @@
+import Foundation
+
+// BUILD's PERSISTED workshop types. Moved here from BuildPage.swift (a SwiftUI extension outside the test target) so
+// they compile into the pure test target AND can be serialized into the document. (Paul 2026-08-16)
+
+// A PART — the workshop-level unit of the BUILD lifecycle (unassigned → built → staged → deployed). It owns its own
+// staging grid + variations, its cast selection, and its PART-OWNED I/O (one input door + a set of output emitters,
+// shared across every machine/cell of the part). `deployed` christens it (PART n) on first assignment to the play grid.
+// PLAY-FERRY LAUNCH (Paul 2026-09-09, Docs/PLAN-play-ferry-launch.md): a ferry IS a part, so its launch behaviour lives
+// on BuildPart. Two orthogonal axes (playback · trigger) + a start mode + a choke group. String-raw for stable persistence.
+enum FerryPlayback: String, Codable, Equatable { case loop, oneShot }   // stop at part end vs repeat (nil ⇒ .loop)
+enum FerryTrigger:  String, Codable, Equatable { case latch, spring }   // tap-on/tap-off vs hold-to-play (nil ⇒ .latch)
+// SYNC = stay locked to the transport (today's behaviour, NO launch anchor). The rest launch the part FROM ITS TOP at that
+// boundary via a per-ferry launch anchor (INSTANT = the tap moment = off-grid; STEP/BEAT/PASS quantize to the next boundary).
+enum FerryStart:    String, Codable, Equatable { case sync, instant, step, beat, pass }
+
+struct BuildPart: Codable, Equatable {
+    // §E 16-STEP (Paul 2026-09-02): the STAGING columns are now maxCols(16)-wide (was 8). `length` is the part's active
+    // width/loop 1…16 (nil ⇒ the 8-wide default → byte-identical). Old 8-col saves decode short + are padded on restore.
+    var stagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: Snap.rowsPerFerry), count: Snap.maxCols)
+    var stagingSel: [Int] = Array(repeating: -1, count: Snap.maxCols)
+    // MULTI-SELECT (Paul 2026-09-27, ferry-row-unification Stage 4): when `selMulti` is on, a column can sound more
+    // than one of the ferry's `Snap.rowsPerFerry` rows at once. `stagingMulti[c]` bits 0..<rowsPerFerry mark which rows
+    // sound in column c; nil/absent-per-column ⇒ derive as just the lead (`stagingSel[c]`) bit, so switching a ferry to
+    // MULTI never silences a column that hasn't been touched since. See `BuildSceneLogic.activeRungs`.
+    var stagingMulti: [UInt8]? = nil
+    var selMulti: Bool? = nil   // nil/false = SINGLE (today's exactly-one-rung-per-column) · true = MULTI
+    var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: Snap.rowsPerFerry)
+    var rowShade: [Double] = Array(repeating: 0, count: Snap.rowsPerFerry)
+    var rowUnder: [String?] = Array(repeating: nil, count: Snap.rowsPerFerry)   // one-machine-per-row: what a row REVERTS to when its machine is stamped elsewhere
+    var selID: String? = nil          // the cast selection BY ID (supports ephemeral machines)
+    var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global machine store
+    var castSlots: [Int: String] = [:] // §2 explicit slot→machineID placements for NON-default machines (long-press lands a machine on its pressed cell)
+    var receiver: Int = 0             // the PART's DEFAULT input door (R1–R4) — a row inherits it unless overridden
+    var emitters: Set<Bus> = [.a]     // the PART's DEFAULT output emitters — a row inherits it unless overridden
+    // PER-ROW I/O overrides (Paul 2026-08-18, additive-Optional): a nil array OR a nil entry = inherit the part default.
+    var rowReceiver: [Int?]? = nil
+    var rowEmitters: [Set<Bus>?]? = nil
+    var deployed: Bool = false        // christened (PART n) once deployed to the play grid
+    // PER-PART CLOCK (Paul 2026-08-19): the part is a TRACK — its own rate + loop length, so deployed parts play at
+    // independent tempos. Additive-Optional (old parts decode nil ⇒ the scene default rate + a full 8).
+    var rate: StepRate? = nil         // the part's step rate (nil ⇒ the scene default)
+    var length: Int? = nil            // the part's LOOP length in columns 1…8 (nil ⇒ 8; < 8 = a shorter loop, a future step)
+    // PART LOOP SELECTION (Paul 2026-09-26): play ONLY these columns, in the order they were ADDED — not sorted, not
+    // the whole part. nil/empty ⇒ play the whole part (today's behaviour). See BuildSceneLogic.loopColumnPlan.
+    var loopCols: [Int]? = nil
+    // PLAY-FERRY LAUNCH SETTINGS (Paul 2026-09-09): per-ferry identity + how it fires when performed. Additive-Optional →
+    // old parts decode nil ⇒ today's behaviour (unnamed · position hue · LOOP · LATCH · SYNC · no choke). These ride
+    // BuildPlayGridData.parts persistence for free. The launch ANCHOR itself is runtime (@State), NOT stored here.
+    var ferryName: String? = nil            // per-ferry label (nil ⇒ unnamed)
+    var ferryHue: UInt32? = nil             // display-hue override (nil ⇒ the position default playHexes[col])
+    var launchPlayback: FerryPlayback? = nil   // .oneShot | .loop  (nil ⇒ .loop)
+    var launchTrigger:  FerryTrigger?  = nil   // .spring  | .latch (nil ⇒ .latch)
+    var launchStart:    FerryStart?    = nil   // .sync/.instant/.step/.beat/.pass (nil ⇒ .sync = transport-locked)
+    var chokeGroup: Int? = nil              // 0/nil = OFF · 1…8 = mutually-exclusive launch group
+    // nil-safe resolvers (the engine + UI read these so a nil never means "special-case")
+    var launchPlaybackResolved: FerryPlayback { launchPlayback ?? .loop }
+    var launchTriggerResolved:  FerryTrigger  { launchTrigger  ?? .latch }
+    var launchStartResolved:    FerryStart    { launchStart    ?? .sync }
+    var chokeGroupResolved: Int { chokeGroup ?? 0 }   // 0 = OFF
+    var selMultiResolved: Bool { selMulti ?? false }   // MULTI-SELECT (2026-09-27); nil = SINGLE
+}
+
+// PART AUTOMATION (Paul 2026-09-02) — the AUTO lanes. Per machine, FIVE lanes; one is ACTIVE at a time (activeLane,
+// −1 = NONE/off). A lane picks a processor slot + a param and an EXTENT of grid cells (col*Snap.rows+row); the param
+// RAMPS across the extent (low→high, column→row order) over a per-param musical SUB-RANGE, baked per-cell at build
+// (rides the M2 substrate — the render is unchanged). `cells` is the extent SET (tap-toggle, Paul: no sliding).
+// Foundation-only + Codable so the automation travels with the document (additive-Optional on PluginState).
+struct AutoLane: Codable, Equatable {
+    var slot: Int = 0                       // the processor slot in the machine's chain
+    var param: String = ""                  // the param this lane automates ("" ⇒ the processor's pre-mapped useful default)
+    var cells: Set<Int> = []                // the cells (col*Snap.rows+row) in the automation's EXTENT; the RANGE is a ramp swept across them
+    // FROM → TO (Paul 2026-09-02): the sweep endpoints (the "before/after"). nil ⇒ the param's curated musical sub-range.
+    // The extent (cells) is WHERE; these are the value RANGE the ramp sweeps between (FROM at the first cell → TO at the last).
+    var lo: Double? = nil
+    var hi: Double? = nil
+    // SPAN (Paul 2026-09-02): LEGACY re-anchor-every-N-extent-cells. Superseded by spanStart/spanLen below; kept for decode.
+    var span: Int? = nil
+    // SPAN-ONLY (Paul 2026-09-04): the automation is now ONE contiguous span — a FROM→TO ramp over a run of COLUMNS that
+    // TILES across the row (period = spanLen). Replaces the punched `cells` extent (kept only for old-doc decode/migration).
+    var spanStart: Int? = nil   // the COLUMN the span begins at (nil ⇒ 0)
+    var spanLen:   Int? = nil   // span length in COLUMNS (nil ⇒ the part width = one sweep across the whole part)
+    // PHASE 2 (Paul 2026-09-04): a lane can span multiple BARS (×N passes) and/or ramp SMOOTHLY. Both are RENDER-TIME
+    // (the compile-time bake is one loop); the builder routes such a lane to the box's renderAuto instead of baking.
+    var spanPasses: Int? = nil  // ×N passes (2/4/8) — the ramp period is N part-loops; mutually exclusive with spanLen
+    var smooth: Bool = false    // SMOOTH: sample the ramp at each note's beat (continuous) vs STEP (one value per column)
+}
+
+// A machine's automation: which lane is ON (activeLane, −1 = NONE) + its five lanes. One active lane per machine (Paul).
+struct PartAutoMachine: Codable, Equatable {
+    var activeLane: Int = -1                // −1 = NONE (off) · 0–4 = the enabled lane (plays immediately)
+    var lanes: [AutoLane] = []              // up to 5 (padded on read)
+}
+
+// The single UNASSIGNED part saved WITH THE DOCUMENT (Paul 2026-08-16, "saving = committing"): the part plus the
+// EPHEMERAL machines it references (their machine + custom hue), so the half-built piece reconstructs on reload.
+// Canonical document machines are NOT bundled — they're always present. Persisted as an additive-Optional field on
+// PluginState, so old saves decode as nil (no migration break).
+struct BuildUnassignedData: Codable, Equatable {
+    var part: BuildPart
+    var machines: [Machine] = []          // the referenced EPHEMERAL machines (machineID + templateChain machine + defined)
+    var hues: [String: UInt32] = [:]    // ephemeral machine hues, id → packed RGB (machineHueOverride is session-only)
+    var idCounter: Int = 0              // the ephemeral "b<n>" counter high-water mark, so restored ids don't collide
+}
+
+// THE ROOMS PLAY GRID (Paul 2026-08-30) — the 8 INDEPENDENT play columns (their I/O + start state) plus
+// the MULTI-STEP PASSES a flattened part rides (colLen/colSteps/colRate + per-step I/O). Persisted like BuildUnassignedData:
+// it carries the EPHEMERAL machines it references (buildMachineReg is session-only) so a reload restores the passes AND their
+// machines. Before this the whole rooms play grid was in-memory → a fresh load lost it. Additive-Optional on PluginState.
+struct BuildPlayGridData: Codable, Equatable {
+    var colOn: [Bool] = Array(repeating: false, count: 8)
+    var colRecv: [Int] = Array(repeating: 0, count: 8)
+    var colEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)
+    var colLen: [Int] = Array(repeating: 1, count: 8)
+    var colSteps: [[String?]] = Array(repeating: [], count: 8)
+    var colRate: [StepRate?] = Array(repeating: nil, count: 8)
+    var colStepRecv: [[Int]] = Array(repeating: [], count: 8)
+    var colStepEmit: [[Set<Bus>]] = Array(repeating: [], count: 8)
+    var machines: [Machine] = []          // referenced EPHEMERAL machines (machineID + templateChain machine + transpose)
+    var hues: [String: UInt32] = [:]    // ephemeral machine hues (machineHueOverride is session-only)
+    var idCounter: Int = 0              // the "b<n>" high-water mark so restored ids don't collide
+    // PLAY-GRID FERRY EDITING (Paul 2026-09-05): each of the 64 cells can store a FULL BuildPart (part-backed) so a
+    // flatten round-trips losslessly through the bench; nil ⇒ select-backed (the machineID in `cells`) or empty. The
+    // persistent WORKING part is the bench's home for un-ferried WIP. Both additive-Optional → old docs decode to nil.
+    var playCellPart: [[BuildPart?]]? = nil   // 8×8 [col][row]; a part-backed cell's stored part
+    // THE PLAY FERRIES ARE PARTS (Paul 2026-09-08, AcceptanceCriteria-play-ferries-as-parts): each of the 8 ferries owns
+    // ONE full BuildPart (nil ⇒ an empty ferry). This SUPERSEDES the 8×8 `playCellPart`; additive-Optional → an old doc
+    // decodes `parts == nil` and migrates via `partsResolved` (below). Phase 1: the model + persistence only (invisible).
+    var parts: [BuildPart?]? = nil
+    // COMMITTED SELECT-GRID CELLS (Paul 2026-09-12): an edited SELECT cell pins a chain + colour + a generated hash NAME at
+    // its grid index (an override that wins over the dealt/library bank). Persisted so the edit survives save/reload and a
+    // re-deal. All additive-Optional → old docs decode nil. Index-keyed (Codable encodes [Int: …] as an array).
+    var gridSelChains: [Int: [ProcessorSlot]]? = nil
+    var gridSelHues: [Int: UInt32]? = nil
+    var gridSelNames: [Int: String]? = nil
+    // EMPTY-FERRY COLOUR ALLOCATION (Paul 2026-09-12): when a SELECT cell dragged onto a populated ferry would duplicate the
+    // colour of an EMPTY ferry, that empty ferry is re-allocated the displaced colour. Populated ferries carry their own hue
+    // on the part (ferryHue); this map only overrides EMPTY slots' positional base. Additive-Optional → old docs decode nil.
+    var ferryHueAlloc: [Int: UInt32]? = nil
+}
+extension BuildPlayGridData {   // decode-tolerant (the Macro/BuildUnassignedData pattern) — a field added later never fails an older save
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        colOn       = try c.decodeIfPresent([Bool].self, forKey: .colOn) ?? Array(repeating: false, count: 8)
+        colRecv     = try c.decodeIfPresent([Int].self, forKey: .colRecv) ?? Array(repeating: 0, count: 8)
+        colEmit     = try c.decodeIfPresent([Set<Bus>].self, forKey: .colEmit) ?? Array(repeating: [.a], count: 8)
+        colLen      = try c.decodeIfPresent([Int].self, forKey: .colLen) ?? Array(repeating: 1, count: 8)
+        colSteps    = try c.decodeIfPresent([[String?]].self, forKey: .colSteps) ?? Array(repeating: [], count: 8)
+        colRate     = try c.decodeIfPresent([StepRate?].self, forKey: .colRate) ?? Array(repeating: nil, count: 8)
+        colStepRecv = try c.decodeIfPresent([[Int]].self, forKey: .colStepRecv) ?? Array(repeating: [], count: 8)
+        colStepEmit = try c.decodeIfPresent([[Set<Bus>]].self, forKey: .colStepEmit) ?? Array(repeating: [], count: 8)
+        machines     = try c.decodeIfPresent([Machine].self, forKey: .machines) ?? []
+        hues        = try c.decodeIfPresent([String: UInt32].self, forKey: .hues) ?? [:]
+        idCounter   = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
+        playCellPart = try c.decodeIfPresent([[BuildPart?]].self, forKey: .playCellPart)   // PLAY-GRID FERRY EDITING (2026-09-05); nil = absent
+        parts        = try c.decodeIfPresent([BuildPart?].self, forKey: .parts)             // THE PLAY FERRIES ARE PARTS (2026-09-08); nil = absent → partsResolved migrates
+        gridSelChains = try c.decodeIfPresent([Int: [ProcessorSlot]].self, forKey: .gridSelChains)   // committed SELECT cells (2026-09-12); nil = absent
+        gridSelHues  = try c.decodeIfPresent([Int: UInt32].self, forKey: .gridSelHues)
+        gridSelNames = try c.decodeIfPresent([Int: String].self, forKey: .gridSelNames)
+        ferryHueAlloc = try c.decodeIfPresent([Int: UInt32].self, forKey: .ferryHueAlloc)   // empty-ferry colour reallocation (2026-09-12); nil = absent
+    }
+    /// THE 8 FERRY PARTS (Paul 2026-09-08), migration-aware: `parts` when present (padded/clamped to 8), else derived
+    /// from the legacy per-cell `playCellPart` — each ferry COLUMN's first part-backed cell — else all-nil. Always 8 slots.
+    var partsResolved: [BuildPart?] {
+        if let p = parts { var a = p; while a.count < 8 { a.append(nil) }; return Array(a.prefix(8)) }
+        if let pc = playCellPart {
+            return (0..<8).map { t in t < pc.count ? (pc[t].first(where: { $0 != nil }) ?? nil) : nil }
+        }
+        return Array(repeating: nil, count: 8)
+    }
+}
+
+// SCENES V2 (Paul 2026-08-12, Docs/scenes-v2-multigrids.md) — a SCENE = one PLAY-GRID ARRANGEMENT: which part sits in
+// each band, the flatten/copy content, the rung/mute/lane state, and the ROW 8 lit toggles. The PARTS, machines, casts,
+// doors + the master are SHARED across scenes (a scene arranges the same band; it never owns the musicians). v1 is an
+// IN-MEMORY switcher (not yet persisted with the document); switching is INSTANT (pass-quantized arm/blink = a follow-up).
+struct BuildSceneSnapshot: Codable, Equatable {
+    var row8On: [Bool]                 // the scene's lit ROW 8 toggles (FREEZE/HALFTIME/… state)
+    var name: String = ""
+}
+
+// DECODE-TOLERANT INITS (Paul 2026-08-27 housekeeping — the `Macro` pattern, Models.swift:890). These three BUILD
+// persistence types are the newest, fastest-churning SAVED types; synthesized Decodable THROWS on a MISSING non-Optional
+// key, so a field added AFTER a save shipped makes an older document fail to decode → the WHOLE PluginState decode throws
+// → the session silently resets to factory (the CR-8 data-loss class). This ALREADY bit `BuildPart.castSlots` (added
+// 2026-08-17, ONE DAY after buildUnassigned first persisted 2026-08-16 → every save in that window is currently un-loadable).
+// decodeIfPresent every field so a missing key falls back to its default instead of throwing. In EXTENSIONS so the
+// memberwise init + synthesized Encodable are preserved. Guards this whole class of type forever, not just castSlots.
+extension BuildPart {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        stagingCells = Snap.padCols(try c.decodeIfPresent([[String?]].self, forKey: .stagingCells) ?? [], Array(repeating: nil, count: Snap.rowsPerFerry))   // §E: pad an old 8-col save to 16
+        stagingSel   = Snap.padCols(try c.decodeIfPresent([Int].self, forKey: .stagingSel) ?? [], -1)
+        stagingMulti = try c.decodeIfPresent([UInt8].self, forKey: .stagingMulti)   // MULTI-SELECT (2026-09-27); nil = today (derive from stagingSel)
+        selMulti     = try c.decodeIfPresent(Bool.self, forKey: .selMulti)
+        rowChain     = try c.decodeIfPresent([[ProcessorSlot]].self, forKey: .rowChain) ?? Array(repeating: [], count: Snap.rowsPerFerry)
+        rowShade     = try c.decodeIfPresent([Double].self, forKey: .rowShade) ?? Array(repeating: 0, count: Snap.rowsPerFerry)
+        rowUnder     = try c.decodeIfPresent([String?].self, forKey: .rowUnder) ?? Array(repeating: nil, count: Snap.rowsPerFerry)
+        selID        = try c.decodeIfPresent(String.self, forKey: .selID)
+        cast         = try c.decodeIfPresent([String].self, forKey: .cast) ?? []
+        castSlots    = try c.decodeIfPresent([Int: String].self, forKey: .castSlots) ?? [:]
+        receiver     = try c.decodeIfPresent(Int.self, forKey: .receiver) ?? 0
+        emitters     = try c.decodeIfPresent(Set<Bus>.self, forKey: .emitters) ?? [.a]
+        rowReceiver  = try c.decodeIfPresent([Int?].self, forKey: .rowReceiver)
+        rowEmitters  = try c.decodeIfPresent([Set<Bus>?].self, forKey: .rowEmitters)
+        deployed     = try c.decodeIfPresent(Bool.self, forKey: .deployed) ?? false
+        rate         = try c.decodeIfPresent(StepRate.self, forKey: .rate)
+        length       = try c.decodeIfPresent(Int.self, forKey: .length)
+        loopCols     = try c.decodeIfPresent([Int].self, forKey: .loopCols)   // PART LOOP SELECTION (2026-09-26); nil = today
+        ferryName      = try c.decodeIfPresent(String.self, forKey: .ferryName)                 // PLAY-FERRY LAUNCH (2026-09-09); nil = today
+        ferryHue       = try c.decodeIfPresent(UInt32.self, forKey: .ferryHue)
+        launchPlayback = try c.decodeIfPresent(FerryPlayback.self, forKey: .launchPlayback)
+        launchTrigger  = try c.decodeIfPresent(FerryTrigger.self, forKey: .launchTrigger)
+        launchStart    = try c.decodeIfPresent(FerryStart.self, forKey: .launchStart)
+        chokeGroup     = try c.decodeIfPresent(Int.self, forKey: .chokeGroup)
+    }
+}
+extension BuildUnassignedData {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        part      = try c.decodeIfPresent(BuildPart.self, forKey: .part) ?? BuildPart()
+        machines   = try c.decodeIfPresent([Machine].self, forKey: .machines) ?? []
+        hues      = try c.decodeIfPresent([String: UInt32].self, forKey: .hues) ?? [:]
+        idCounter = try c.decodeIfPresent(Int.self, forKey: .idCounter) ?? 0
+    }
+}
+extension BuildSceneSnapshot {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        row8On            = try c.decodeIfPresent([Bool].self, forKey: .row8On) ?? Array(repeating: false, count: 8)
+        name              = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+    }
+}
+// AUTO-LANE persistence (Paul 2026-09-03 housekeeping, job 2): the same decode-tolerant guard as the BUILD types above.
+// partAuto rides PluginState as a `[String: PartAutoMachine]?` — a dictionary VALUE that throws propagates to the WHOLE
+// PluginState decode (session factory-reset, the CR-8 class). These are the NEWEST persisted types (added 2026-09-02) and
+// were synthesized-only; add the tolerant init NOW so a field added to either later never fails an older partAuto save.
+extension AutoLane {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        slot  = try c.decodeIfPresent(Int.self, forKey: .slot) ?? 0
+        param = try c.decodeIfPresent(String.self, forKey: .param) ?? ""
+        cells = try c.decodeIfPresent(Set<Int>.self, forKey: .cells) ?? []
+        lo    = try c.decodeIfPresent(Double.self, forKey: .lo)
+        hi    = try c.decodeIfPresent(Double.self, forKey: .hi)
+        span  = try c.decodeIfPresent(Int.self, forKey: .span)
+        spanStart = try c.decodeIfPresent(Int.self, forKey: .spanStart)
+        spanLen   = try c.decodeIfPresent(Int.self, forKey: .spanLen)
+        spanPasses = try c.decodeIfPresent(Int.self, forKey: .spanPasses)
+        smooth     = try c.decodeIfPresent(Bool.self, forKey: .smooth) ?? false
+        // MIGRATION (Paul 2026-09-04): a pre-span-only lane stored its extent in `cells`; derive a contiguous span from
+        // that column range so old automations survive the model switch. FROZEN to the literal 32 (Paul 2026-10-05,
+        // EUCLIDEOUS widened the LIVE Snap.rows to 33) — `cells` was encoded as `col * Snap.rows + row` under the
+        // ORIGINAL Snap.rows==32 regime this migration targets; reading it back against whatever Snap.rows happens
+        // to be TODAY would misinterpret a document saved before 2026-09-04 that has never been resaved since (a
+        // narrow, self-healing, non-destructive case — spanStart/spanLen get re-persisted going forward either way).
+        if spanStart == nil, spanLen == nil, !cells.isEmpty {
+            let cols = cells.map { $0 / 32 }
+            if let lo = cols.min(), let hi = cols.max() { spanStart = lo; spanLen = max(1, hi - lo + 1) }
+        }
+    }
+}
+extension PartAutoMachine {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        activeLane = try c.decodeIfPresent(Int.self, forKey: .activeLane) ?? -1
+        lanes      = try c.decodeIfPresent([AutoLane].self, forKey: .lanes) ?? []
+    }
+}

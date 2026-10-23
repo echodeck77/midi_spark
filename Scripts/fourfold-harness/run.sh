@@ -35,6 +35,7 @@ targets:
     sources:
       - path: {root}/AUExtension
         excludes: ["Info.plist", {excl}]
+      - path: {root}/Fourfold/Engine
       - path: {root}/Fourfold/Shared
       - path: {root}/Scripts/fourfold-harness/Harness
     dependencies:
