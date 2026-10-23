@@ -17,6 +17,17 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### FOURFOLD REEL LINK (2026-10-23)
+- LAUNCH the DEBUG build from Xcode into AUM first (`headerUtilities` gained a child; `Scripts/debug-frame-sizes.py` against the FX-ferry build: its closure 3264 → 3344 B (+80 B) with the reel button as its own `AnyView` leaf (inline it was +624 B); the icon's own TimelineView body closure is 2.8 KB at render — the 1 MB stack only really answers on the iPad).
+- The tape icon sits between SWING and the gear; it reads dim when stopped and RED, breathing, with a pulsing dot while the host plays (and stays still under Reduce Motion). Tapping it opens the pass browser ABOVE the Fourfold page (not behind it), landscape.
+- Header at your iPad's real width: still ONE row at 1190; check any narrower window (below a 1134-wide view the header goes to two rows — an iPad mini 6 at full width is 0.86 pt short).
+- Play a Fourfold session in AUM for a few passes, open REEL: passes are filed; tap one — it replays Fourfold's output (the live output is replaced while browsing); the roll's A–D bands match the lanes' MAIN OUT routing; CLOSE returns to the page and the live output resumes with nothing stuck.
+- The DOWNBEAT: a pass that starts on a hit shows that hit at the START of its own roll (it used to sit at the end of the previous pass's roll). Export a two-pass range and open it in a DAW — no doubled note-on at the first beat, no orphan note-off.
+- SAVE → share sheet appears over Fourfold (anchor is the workbench header's hidden view under the page); the lane (A–D) selection exports only those outputs.
+- The sidebar line `1 PASS = n BEATS` matches your clock (8 steps of the 8×8 step rate — Fourfold's lanes have their own rates, so a pass is a slice of time, not a lap); RESTORE SETUP is absent; the wording says "output".
+- Portrait: the browser shows ROTATE TO LANDSCAPE (as the 8×8 always did) — say if you want a portrait layout.
+- A very busy Fourfold session (four lanes at 1/32, chords, RATCH 3–4): does a pass keep its tail? (past ≈ 8k events a pass drops the end).
+
 ### FX REVIEW FIXES (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM first (`EuclideousFXPanel.strip` gained a RATCH branch with a stepper; the lane buttons' modifiers changed).
 - RATCH at fast steps: a 1/32 lane with RATCH 4 at 1024 / 2048 buffers plays all four strikes, evenly spaced, every time; a 1/16 lane at 160+ BPM too — listen for dropouts that used to be there.

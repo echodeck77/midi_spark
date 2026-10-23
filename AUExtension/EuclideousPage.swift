@@ -2174,13 +2174,7 @@ struct EuclideousPage: View {
                 .accessibilityLabel("Swing, \(swing == 50 ? "straight" : "\(swing)")").accessibilityAddTraits(.isButton).accessibilityAddTraits(swingPopupOpen ? .isSelected : [])
             // REEL (2026-10-23): the pass browser / MIDI recorder. Sits after SWING so presets and SWING keep their slots
             // (the swing popover's anchor below is unchanged); the gear stays last.
-            EuclideousReelIcon(recording: reelRecording)
-                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
-                .onTapGesture { closeAllOtherOverlays(); settingsOpen = false; onOpenReel() }   // §2.1: opening it closes the other overlays first
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(reelRecording ? "Reel, recording" : "Reel")
-                .accessibilityHint("Opens the pass browser to hear and save what Fourfold played")
-                .accessibilityAddTraits(.isButton)
+            reelHeaderButton(target: target)
             // FOURFOLD SETTINGS (2026-10-15 ferry §1): the × (xmark) LEAVES the header — its old job (back to
             // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES is now 4 icons (SWING joined
             // it 2026-10-17, REEL 2026-10-23 — `euclideousHeaderGroupWidths` carries the real count).
@@ -2195,6 +2189,18 @@ struct EuclideousPage: View {
                 }
                 .accessibilityLabel("Settings").accessibilityAddTraits(.isButton).accessibilityAddTraits(settingsOpen ? .isSelected : [])
         }
+    }
+    /// The REEL icon + its touch target. An `AnyView`-returning leaf like the page's other additions: it kept `headerUtilities`' DEBUG frame flat on the 1 MB extension stack (+0.6 KB inline, measured).
+    private func reelHeaderButton(target: CGFloat) -> AnyView {
+        AnyView(
+            EuclideousReelIcon(recording: reelRecording)
+                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
+                .onTapGesture { closeAllOtherOverlays(); settingsOpen = false; onOpenReel() }   // §2.1: opening it closes the other overlays first
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(reelRecording ? "Reel, recording" : "Reel")
+                .accessibilityHint("Opens the pass browser to hear and save what Fourfold played")
+                .accessibilityAddTraits(.isButton)
+        )
     }
     /// SWING popover (2026-10-17): the SAME compact scrim-less anchored-card chrome as `resetPopupCard`
     /// (reused, not reinvented). Range 50...75 matches `SceneState.swing` exactly (§4 v2.3) — dragging to

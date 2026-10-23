@@ -5,6 +5,13 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — FOURFOLD REEL LINK: the tape icon in the header, the pass browser over the page (2026-10-23; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "FOURFOLD REEL LINK" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul): the REEL icon widened UTILITIES by 44, so layout A (one-row header) needs a view ≥ 1133.86 wide (was 1089.86); an iPad mini 6 at its full 1133 pt is 0.86 pt short. Trim a metric (key pill 120 → 118?) or accept the two-row header below that.
+- [ ] DECIDE (Paul): the tape records only while the HOST transport plays; Fourfold's KEEP PLAYING free-run (host stopped) is not recorded. Fix = run the free-run clock block before the reel block in `Kernel` (shared render path).
+- [ ] DECIDE (Paul): the pass browser is landscape-only (rotate prompt in portrait); notes are coloured by machine hue not Euclid lane colour; exports are named `MidiSpark-*.mid`; no Fourfold "restore lanes" for a pass (RESTORE SETUP is hidden there).
+- [ ] DECIDE (Paul): `ReelDeck.histCap` is 8192 events/pass (8 MB). The worst case the Euclideous flood budget allows (160 note-ons a beat per output, ×2 offs, ×2 cable-0 copies) is still past it.
+
 ## ★ EUCLIDEOUS — FX REVIEW FIXES: ratchet strikes, cap, flood budget, NOTE pass, RATCH SHAPE (2026-10-23; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "FX REVIEW FIXES" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build — the FX panel's strip gained a branch).
 - [ ] DECIDE (Paul): NOTE counts a LAP under a melody chain of exactly [1] and a riff cycle (from the melody origin) otherwise — the old LOCK rule, now a property of the chain. It makes NOTE move on a fresh [1] lane (it was inert there) and keeps migrated LOCK lanes sounding as they did; the cost is a second meaning of "pass" the NOTE row's bubble ("NOTE +1 A PASS") does not name. One line (`euclideousFXNotePass`) to flip.

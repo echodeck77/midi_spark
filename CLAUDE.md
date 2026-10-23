@@ -381,7 +381,7 @@ the same pipeline as any other row; it is not a special-cased render path.
   it the moment a new one arrives; LATCH toggles each newly-risen note in/out of an accumulated pool and ignores
   note-off entirely; both reuse `NotePool.captureFiltered`/`latchAddStep` (the door LATCH/HOLD's own primitives,
   Derivations.swift) against a NEW Router-owned persistent pool (`euclideousHoldLatchPool`), gated to `.midi`
-  source only and reset on a mode switch or transport restart) · UTILITIES (presets, settings — a gear, not ×; see
+  source only and reset on a mode switch or transport restart) · UTILITIES (presets, SWING, REEL — the tape icon that opens the pass browser above this page, FOURFOLD REEL LINK 2026-10-23: `ReelHeaderIcon.swift`, the VC mounts `buildReelPopup` over the page, the sidebar says "output" and hides RESTORE SETUP; the tape files a hit exactly on a pass boundary at the head of ITS pass via `ReelDeck.recordNext`/`startPass(pass:)` — settings, a gear, not ×; see
   below). There is NO ON chip: the page always runs (`euclideousEnabledResolved` is always true; the stored field
   is decode-only). The A/B/C fit ladder, group widths and positions all come from ONE pure `euclideousHeaderLayout`
   (Derivations.swift) that the body layouts also read — change header metrics there, not in the views. **Ring TARGET repointed (restart-chains ferry, 2026-10-19):** a tap/hold's ring used to go around
