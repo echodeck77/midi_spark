@@ -7988,12 +7988,19 @@ struct EuclideousFXLayout: Equatable {
     static let labelW: CGFloat = 30, gap: CGFloat = 4, colGap: CGFloat = 4
     static let stripH: CGFloat = 24, headerH: CGFloat = 14, hintH: CGFloat = 16, rowGap: CGFloat = 4
     static let minRowH: CGFloat = 24, bandPad: CGFloat = 2
-    /// Everything but the six rows' own height: strip, 4, header, 4, five 4pt row gaps, 4, hint = 86.
+    /// Everything but the six rows' own height, WITH the hint row: strip, 4, header, 4, five 4pt row gaps, 4, hint = 86.
     static let fixedHeight: CGFloat = stripH + rowGap + headerH + rowGap + rowGap * 5 + rowGap + hintH
+    /// Floors ferry (2026-10-23): everything but the six rows' own height, with the hint row (and its own
+    /// preceding gap) dropped — strip, 4, header, 4, five 4pt row gaps = 66.
+    static let fixedHeightNoHint: CGFloat = stripH + rowGap + headerH + rowGap + rowGap * 5
     let width: CGFloat
     let height: CGFloat
     let cellW: CGFloat
     let rowH: CGFloat
+    /// Floors ferry: false once the nominal (hint-included) row height would fall under `minRowH` — the
+    /// hint (pure text, last in the view, not interactive) drops out to buy the six rows back height
+    /// before anything is forced to the hard 24pt clamp and overflows the panel.
+    var showHintRow: Bool = true
     var firstColX: CGFloat { Self.labelW + Self.gap }
     func colLeft(_ c: Int) -> CGFloat { firstColX + CGFloat(c) * (cellW + Self.colGap) }
     var headerTop: CGFloat { Self.stripH + Self.rowGap }
@@ -8012,10 +8019,22 @@ struct EuclideousFXLayout: Equatable {
 /// `width` is the panel CONTENT width (the panel's width − 16); the riff grid's `maxWidth` is that plus the grid's own 8pt padding on each side.
 func euclideousFXLayout(width: CGFloat, height: CGFloat) -> EuclideousFXLayout {
     let rowH = max(EuclideousFXLayout.minRowH, euclideousFXRowH(contentHeight: height))
-    return EuclideousFXLayout(width: width, height: height, cellW: euclideousRiffCellW(maxWidth: width + 16), rowH: rowH)
+    return EuclideousFXLayout(width: width, height: height, cellW: euclideousRiffCellW(maxWidth: width + 16), rowH: rowH, showHintRow: euclideousFXShowsHintRow(contentHeight: height))
+}
+/// Floors ferry: whether the hint row is showing for a content area of `contentHeight` — exactly the
+/// condition `euclideousFXRowH` uses below to decide whether to give back its reserved height.
+func euclideousFXShowsHintRow(contentHeight: CGFloat) -> Bool {
+    (contentHeight - EuclideousFXLayout.fixedHeight) / 6 >= EuclideousFXLayout.minRowH
 }
 /// The six rows' shared height for a content area of `contentHeight`, BEFORE the 24pt floor — what the page's floor list compares against 24.
-func euclideousFXRowH(contentHeight: CGFloat) -> CGFloat { (contentHeight - EuclideousFXLayout.fixedHeight) / 6 }
+/// Floors ferry: if the hint-included nominal would already fall under that floor, the hint row drops out
+/// first and this returns the height achievable without it reserved — only once THAT also falls short does
+/// the hard clamp in `euclideousFXLayout` take over.
+func euclideousFXRowH(contentHeight: CGFloat) -> CGFloat {
+    euclideousFXShowsHintRow(contentHeight: contentHeight)
+        ? (contentHeight - EuclideousFXLayout.fixedHeight) / 6
+        : (contentHeight - EuclideousFXLayout.fixedHeightNoHint) / 6
+}
 
 enum EuclideousFXTarget: Equatable { case rail(row: Int), cell(row: Int, col: Int) }
 /// §12.4: hit-test with the cellW and gap the grid draws with, each cell's area reaching 2pt into the gaps on every side (the gaps are 4: fully claimed).

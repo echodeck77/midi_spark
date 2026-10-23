@@ -166,7 +166,7 @@ struct EuclideousFXPanel: View {
             header
             ForEach(0..<6, id: \.self) { r in rail(r) }
             strip
-            hint
+            if layout.showHintRow { hint }
             cellGesture
             accessibilityCells
             bubbleView

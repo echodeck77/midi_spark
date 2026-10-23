@@ -404,6 +404,23 @@ final class FXTabTests: XCTestCase {
         // the spec's reference panel (410 wide): the strip stack is the same, cellW = (410 − 78) / 8
         XCTAssertEqual(euclideousFXLayout(width: 394, height: 280).cellW, (410 - 78) / 8.0, accuracy: 1e-9)
     }
+    // Floors ferry (2026-10-23): below the hint-included nominal's own 24pt floor, the hint row (pure text,
+    // last in the view, not interactive) drops out first, giving the six rows back its 20pt (16 + the gap
+    // before it) instead of them hitting the hard clamp — and overflowing the panel — any sooner than they
+    // have to. The trigger is nominal rowH itself, same one `.fxRows` already flags on.
+    func testHintRowDropsExactlyAtItsOwnNominalRowHeightFloor() {
+        let panelW: CGFloat = 416.9, w = panelW - 16
+        let atFloor = euclideousFXLayout(width: w, height: 230)
+        XCTAssertTrue(atFloor.showHintRow); XCTAssertEqual(atFloor.rowH, 24, accuracy: 1e-9, "nominal is exactly 24, not under it — no need to drop the hint")
+        let justUnder = euclideousFXLayout(width: w, height: 229.99)
+        XCTAssertFalse(justUnder.showHintRow)
+        XCTAssertEqual(justUnder.rowH, 27.33166666, accuracy: 1e-6, "without the hint's 20pt, nominal is comfortably back above 24 — no clamp needed either")
+        XCTAssertEqual(euclideousFXRowH(contentHeight: 229.99), 27.33166666, accuracy: 1e-6, "the page's own .fxRows floor check reads this, so it clears too")
+        XCTAssertFalse(euclideousFXShowsHintRow(contentHeight: 229.99))
+        // far enough under that even dropping the hint isn't enough: the hard 24pt clamp still applies, hint still gone
+        let deepUnder = euclideousFXLayout(width: w, height: 100)
+        XCTAssertFalse(deepUnder.showHintRow); XCTAssertEqual(deepUnder.rowH, 24, accuracy: 1e-9)
+    }
     func testHitTestClaimsTheGapsAndTheRails() {
         let l = euclideousFXLayout(width: 400, height: 280)
         for r in 0..<6 { for c in 0..<8 {
