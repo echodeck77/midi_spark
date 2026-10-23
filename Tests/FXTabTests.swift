@@ -232,14 +232,21 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(riffResolveExtended(rank: 8 + 3 * 7 + 7, oct: 0, n: 1, asc: { _ in 60 }), 60 + 12 * 35)
         XCTAssertEqual(riffResolveExtended(rank: 1 - 3 * 7 - 7, oct: 0, n: 1, asc: { _ in 60 }), 60 - 12 * 28, "rank 1 is lap 0, so rank −27 is lap −28")
     }
-    func testRatchetCapMatchesTheMasksRuleAndFXCountIsTheCellsN() {
-        XCTAssertEqual(euclideousRatchetCap(sub: 0.5, cyc: 4), 16)
-        XCTAssertEqual(euclideousRatchetCap(sub: 1.0 / 12, cyc: 4), 2, "1/32T over a 4-beat grid bar: 10.67 → clamps to ... 2")
-        XCTAssertEqual(euclideousRatchetCap(sub: 0.125, cyc: 16), 1, "a slow grid (16-beat bar) can leave no room")
-        XCTAssertEqual(euclideousFXRatchetCount(requested: 4, sub: 0.5, cyc: 4), 4, "never rolled, never clamped to a legal size: exactly n")
-        XCTAssertEqual(euclideousFXRatchetCount(requested: 3, sub: 0.5, cyc: 4), 3)
-        XCTAssertEqual(euclideousFXRatchetCount(requested: 4, sub: 0.125, cyc: 8), 2, "the cap lowers n to what fits")
-        XCTAssertEqual(euclideousFXRatchetCount(requested: 4, sub: 0.125, cyc: 16), 0, "cap 1 ⇒ a plain hit")
+    func testRatchetCapIsATimeFloorAtTheHostTempoAndFXCountIsTheCellsN() {
+        // REVIEW FIX 2026-10-23: a slot may be no shorter than 10 ms, whatever the scene's step rate is (it used to be 1/128 of the scene grid's bar)
+        XCTAssertEqual(euclideousRatchetMinSlotSeconds, 0.010)
+        XCTAssertEqual(euclideousRatchetCap(sub: 0.5, tempo: 120), 25, "a 1/8 step at 120 BPM is 250 ms")
+        XCTAssertEqual(euclideousRatchetCap(sub: 0.125, tempo: 120), 6, "1/32: 62.5 ms ÷ 10")
+        XCTAssertEqual(euclideousRatchetCap(sub: 1.0 / 12, tempo: 120), 4, "1/32T: 41.7 ms — room for 4")
+        XCTAssertEqual(euclideousRatchetCap(sub: 0.125, tempo: 300), 2, "300 BPM: a 1/32 is 25 ms")
+        XCTAssertEqual(euclideousRatchetCap(sub: 0.125, tempo: 600), 1, "600 BPM: no room — a plain hit")
+        XCTAssertEqual(euclideousRatchetCap(sub: 0.125, tempo: 0), 6, "a zero or unreadable tempo reads as 120, never divides by zero")
+        // the scene's step rate no longer matters: the same answer at any grid
+        XCTAssertEqual(euclideousFXRatchetCount(requested: 4, sub: 0.25, tempo: 120), 4, "1/16 holds a full 4 whatever the scene step is")
+        XCTAssertEqual(euclideousFXRatchetCount(requested: 4, sub: 0.5, tempo: 120), 4, "never rolled, never clamped to a legal size: exactly n")
+        XCTAssertEqual(euclideousFXRatchetCount(requested: 3, sub: 0.5, tempo: 120), 3)
+        XCTAssertEqual(euclideousFXRatchetCount(requested: 4, sub: 0.125, tempo: 300), 2, "the cap lowers n to what fits")
+        XCTAssertEqual(euclideousFXRatchetCount(requested: 4, sub: 0.125, tempo: 600), 0, "cap 1 ⇒ a plain hit")
     }
 
     // MARK: - the NOTE pass index (§7.2)

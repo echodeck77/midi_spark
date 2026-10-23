@@ -13493,6 +13493,84 @@ final class RouterTests: XCTestCase {
             XCTAssertEqual(fxSoundings(e, fxPoolNotes[0]).count, 4, "frames \(frames)")
         }
     }
+    // ── REVIEW FIX ferry (2026-10-23): ratchets at fast steps, large buffers, and the document's default step rate ──
+    /// `fxBox` with the scene's step rate and swing as parameters (the suite's own `fxBox` pins 1/8, which hid the cap's dependence on it).
+    private func fxBoxScene(_ lines: [EuclidLine], fx: EuclideousFX, stepRate: StepRate, swing: Int = 50, ranks: [Int] = [1, 2, 3, 4, 5, 6, 7, 8]) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: ranks)
+        c.paramsA.euclidLines = lines
+        var sc = SceneState.empty(); sc.stepRate = stepRate; sc.swing = swing
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi; st.euclideousFX = fx
+        return SnapshotBuilder.build(from: st)
+    }
+    /// `fxRun` at a chosen tempo, returning the router too (for the flood governor's drop count).
+    private func fxRunAt(_ box: SnapshotBox, beats: Double, frames: UInt32, tempo: Double) -> (e: RecordingEmitter, router: Router) {
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag(); let sr = 48_000.0
+        let p = chord(fxPoolNotes); var ts = 0.0
+        func beatNow() -> Double { ts * tempo / 60.0 / sr }
+        while beatNow() < beats {
+            router.process(box: box, pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            ts += Double(frames)
+        }
+        router.process(box: box, pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        return (e, router)
+    }
+    func testFXRatchStrikesAreCompleteAndEvenlySpacedAtEveryBufferSizeEvenWhenASlotIsShorterThanTheBuffer() {
+        // all 8 columns hit (8 steps, 8 pulses); RATCH on column 0 only = note 48, once every 8 steps. The slot (rate ÷ n) drops under the buffer length long before 4096 frames.
+        for (rate, tempo) in [(ArpRate.r1_16, 120.0), (.r1_16, 180.0), (.r1_32, 120.0)] {
+            for n in [2, 3, 4] {
+                var l = fxLine(gate: 0.5); l.rate = rate; l.steps = 8; l.pulses = 8
+                let spb = 48_000.0 * 60.0 / tempo
+                let lapBeats = 8 * rate.beats, slot = rate.beats / Double(n)
+                let hits = Int((13.9 / lapBeats).rounded(.down)) + 1            // ratcheted hits that start before beat 13.9
+                var want: [Double] = []
+                for h in 0..<hits { for k in 0..<n { let t = Double(h) * lapBeats + Double(k) * slot; if t < 13.9 { want.append(t * spb) } } }
+                for frames: UInt32 in [64, 512, 1024, 2048, 4096] {
+                    let (e, _) = fxRunAt(fxBoxScene([l], fx: fxCells([(0, 0, n)]), stepRate: .r1_8), beats: 15, frames: frames, tempo: tempo)
+                    let got = e.ons.filter { $0.cable == 1 && $0.note == 48 && Double($0.sample) < 13.9 * spb }.map { Double($0.sample) }.sorted()
+                    XCTAssertEqual(got.count, want.count, "\(rate.rawValue) n\(n) @\(Int(tempo)) BPM, buffer \(frames): every strike sounds")
+                    for (g, w) in zip(got, want) { XCTAssertEqual(g, w, accuracy: 3, "\(rate.rawValue) n\(n) @\(Int(tempo)), buffer \(frames): on its slot") }
+                    assertNothingLeftSounding(e)
+                }
+            }
+        }
+    }
+    func testFXRatchIsNotCappedByTheScenesDefaultStepRate() {
+        // the document's default scene step is 1/2 (a 16-beat grid bar): the old "1/128 of the grid bar" cap held a 1/16 lane to 2 strikes and a 1/16T or 1/32 lane to none
+        for stepRate in [StepRate.r1_2, .r1_4, .r1_8] {
+            for (rate, name) in [(ArpRate.r1_16, "1/16"), (.r1_16t, "1/16T"), (.r1_32, "1/32")] {
+                var l = fxLine(gate: 0.5); l.rate = rate; l.steps = 8; l.pulses = 8
+                let (e, _) = fxRunAt(fxBoxScene([l], fx: fxCells([(0, 0, 4)]), stepRate: stepRate), beats: 1, frames: 256, tempo: 120)
+                let first = e.ons.filter { $0.cable == 1 && $0.note == 48 && Double($0.sample) < rate.beats * 0.95 * 24_000 }.count
+                XCTAssertEqual(first, 4, "\(name) lane, RATCH 4, scene step \(stepRate.rawValue)")
+            }
+        }
+    }
+    func testFXRatchCapFollowsTheTempoAndGatesNeverFallUnderFiveMilliseconds() {
+        // 300 BPM: a 1/32 step is 25 ms, so RATCH 4 holds to 2 strikes (12.5 ms slots)
+        var l = fxLine(gate: 0.1); l.rate = .r1_32; l.steps = 8; l.pulses = 8
+        let (e, _) = fxRunAt(fxBoxScene([l], fx: fxCells([(0, 0, 4)]), stepRate: .r1_8), beats: 0.12, frames: 128, tempo: 300)
+        let s = fxSoundings(e, 48)
+        XCTAssertEqual(s.count, 2, "cap = floor(25 ms ÷ 10 ms) = 2")
+        for snd in s {
+            XCTAssertGreaterThanOrEqual(Double(snd.off ?? 0) - Double(snd.on), 0.005 * 48_000 - 2, "a 10% gate of a 12.5 ms slot is lifted to the 5 ms floor")
+            XCTAssertLessThan(Double(snd.off ?? 0) - Double(snd.on), 0.0125 * 48_000, "…and still ends inside its own slot")
+        }
+    }
+    func testFXRatchWithATieOnAFastStepExtendsTheLastStrikeAtEveryBufferSizeAndLeavesNothingSounding() {
+        // RATCH 4 on column 0 and TIE on column 1 at 1/16: the tied hit carries the LAST strike on; at a 4096-frame buffer the early strikes are in-window
+        for frames: UInt32 in [128, 1024, 4096] {
+            var l = fxLine(gate: 0.5); l.rate = .r1_16; l.steps = 8; l.pulses = 8
+            let (e, _) = fxRunAt(fxBoxScene([l], fx: fxCells([(0, 0, 4), (2, 1, 1)]), stepRate: .r1_8), beats: 3, frames: frames, tempo: 120)
+            let s = fxSoundings(e, 48).filter { Double($0.on) < 6_000 }       // the first ratcheted hit (beat 0 …)
+            XCTAssertEqual(s.count, 4, "buffer \(frames): four strikes")
+            XCTAssertGreaterThan(Double(s[3].off ?? 0) - Double(s[3].on), Double(s[2].off ?? 0) - Double(s[2].on) + 2_000, "buffer \(frames): the last strike is held through the tied step")
+            assertNothingLeftSounding(e)
+        }
+    }
+
     func testFXRatchedHitAfterALegatoHitClosesTheHeldNote() {
         // (legato from the lane's own gate 1.0 — the FX GATE row can no longer produce it; the held same-pitch note now runs from beat 0)
         let e = fxRun(fxBox([fxLine(gate: 1.0)], ranks: [1, 1, 1, 1, 1, 1, 1, 1], fx: fxCells([(0, 3, 2)])), beats: 5)

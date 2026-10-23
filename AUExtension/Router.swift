@@ -636,7 +636,7 @@ final class Router {
     /// roll), capped so no subdivision is shorter than 1/128 of a bar — nil when not ratcheting (mode
     /// isn't RATCHET, or this hit's own CHANCE roll didn't pass). Shared by the riff and NOTE-mode
     /// callers for the same reason `maskTransform` is — see its own doc comment.
-    private func maskRatchetReps(lineIndex: Int, rank: Int, mm: EuclidLineMask, maskedChancePassed: Bool, sub: Double, cyc: Double) -> Int? {
+    private func maskRatchetReps(lineIndex: Int, rank: Int, mm: EuclidLineMask, maskedChancePassed: Bool, sub: Double, tempo: Double) -> Int? {
         guard maskedChancePassed, mm.modeResolved == .ratchet else { return nil }
         let lo = min(mm.ratchetMinResolved, mm.ratchetMaxResolved), hi = max(mm.ratchetMinResolved, mm.ratchetMaxResolved)
         let span = hi - lo + 1
@@ -650,7 +650,7 @@ final class Router {
         // spirit — it's just reseeded with one more, fixed-per-hit term, not a behaviour change for it.
         let roll2 = splitmix64Mix(UInt64(bitPattern: euclideousMaskOrd[lineIndex]) &+ UInt64(lineIndex) &* 0xBF58476D1CE4E5B9 &+ UInt64(rank) &* 0x9E3779B97F4A7C15 &+ 0x2545F4914F6CDD1D)
         var nRep = lo + Int(roll2 % UInt64(span))
-        let cap = euclideousRatchetCap(sub: sub, cyc: cyc)   // the shared formula (FX RATCH reads the same one)
+        let cap = euclideousRatchetCap(sub: sub, tempo: tempo)   // the shared formula (FX RATCH reads the same one)
         nRep = min(nRep, cap)
         return nRep
     }
@@ -5896,8 +5896,8 @@ final class Router {
                                 emitModCC(cc: max(0, min(119, Int(fxAll.ccNumber))), value: ccv, busMask: ccBusMask, atSample: ccSample, out: out, force: true)
                             }
                             // FX RATCH (§3): n exactly (never rolled, never legal-size clamped), lowered only by the beat-width cap; REPLACES a mask RATCHET on the same hit.
-                            let fxRatchN = fx.ratch >= 2 ? euclideousFXRatchetCount(requested: fx.ratch, sub: sub, cyc: cyc) : 0
-                            var nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc)
+                            let fxRatchN = fx.ratch >= 2 ? euclideousFXRatchetCount(requested: fx.ratch, sub: sub, tempo: tempo) : 0
+                            var nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, tempo: tempo)
                             if fxRatchN >= 2 { nRep = fxRatchN }
                             // RUN (§7.4): its notes are never carried on legato and never stay open into the next hit — they take part in the reconcile as ordinary (below-100%) notes, so what the
                             // notes layer was holding legato ends here exactly as at a hit that doesn't continue it.
@@ -5936,28 +5936,49 @@ final class Router {
                                 // MIX TAB: each pitch's repeats use ITS OWN gate — `(sub / nRep) × pitchGate[j]`.
                                 let repSpacing = sub / Double(nRep)
                                 let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
+                                // RATCH SHAPE (REVIEW FIX 2026-10-23): only an FX ratchet is shaped; a mask RATCHET stays flat (nRep ≠ fxRatchN there).
+                                let ratchShape = fxRatchN >= 2 ? Int(fxAll.ratchShape) : 0
                                 for j in 0..<pitchCount {
-                                    let repGate = repSpacing * pitchGate[j]
-                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOverride)
+                                    // each repeat lasts its pitch's gate × its slot, never under the 5 ms floor (the slot itself is ≥ 10 ms: `euclideousRatchetCap`)
+                                    let repGate = max(minGateBeats5ms, repSpacing * pitchGate[j])
+                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: pitches[j],
+                                                explicitVel: euclideousRatchetStrikeVelocity(base: pitchVel[j], shape: ratchShape, k: 0, n: nRep), busOverride: busOverride)
                                     // A pitch outside MIDI 0…127 is dropped by `strikeChord` (strike 0); its deferred strikes must be dropped too — `UInt8(clamping:)` would turn a
                                     // very low pitch into note 0 and sound it (FX NOTE moves ranks far enough to reach this).
                                     guard nRep > 1, finalPitch(pitches[j], oct: 0) != nil else { continue }
-                                    if fxRatchN >= 2 && tieOf(j) > 0 {
-                                        // FX §5.4: a tie after a ratcheted hit extends the LAST strike; the earlier ones are unchanged. The last strike gets its own tail, held
-                                        // for the gap left to the next hit in full plus gate × the tie extension (§4.3, with the hit's effective gate).
-                                        if nRep > 2 {
-                                            pushEchoTail(onset: mTickBeat, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
-                                                         timeBeats: repSpacing, repeats: nRep - 2, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
+                                    let tieLast = fxRatchN >= 2 && tieOf(j) > 0
+                                    // FX §5.4: a tie after a ratcheted hit extends the LAST strike; the earlier ones are unchanged. The last strike is held for the gap left to the next hit in full plus gate × the tie extension (§4.3, with the hit's effective gate).
+                                    let lastGate = tieLast ? max(repGate, (nextHitGapBeats - Double(nRep - 1) * repSpacing) + pitchGate[j] * tieOf(j)) : repGate
+                                    func gateOf(_ k: Int) -> Double { tieLast && k == nRep - 1 ? lastGate : repGate }
+                                    func velOf(_ k: Int) -> UInt8 { euclideousRatchetStrikeVelocity(base: pitchVel[j], shape: ratchShape, k: k, n: nRep) }
+                                    // REPEATS INSIDE THIS WINDOW strike where they belong, now. The echo ring is drained at the top of a window, BEFORE the ticks run, so a deferred strike whose time is
+                                    // still inside this window would never be looked at again ("tau < lo": skipped) — a ratchet whose slot is shorter than the host buffer lost strikes (1/16 n4 at 4096 frames
+                                    // lost 28 %). ROLL / RUN already strike in-window repeats directly, for the same reason.
+                                    var k = 1
+                                    while k < nRep && mTickBeat + Double(k) * repSpacing < mWinEnd {
+                                        strikeChord(tau: mTickBeat + Double(k) * repSpacing, velScale: 1.0, gateBeats: gateOf(k), octave: 0, explicitNote: pitches[j], explicitVel: velOf(k), busOverride: busOverride)
+                                        k += 1
+                                    }
+                                    guard k < nRep else { continue }
+                                    // …the rest are DEFERRED strikes on the echo ring (the first one due is strike `k`: a tail's first repeat sits one `timeBeats` after its onset)
+                                    let lastRegular = tieLast ? nRep - 2 : nRep - 1          // the last strike a plain tail serves
+                                    if k <= lastRegular {
+                                        if ratchShape == 0 {
+                                            pushEchoTail(onset: mTickBeat + Double(k - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
+                                                         timeBeats: repSpacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                          gateBeats: repGate, cellIdx: currentCellIndex)
+                                        } else {
+                                            for m in k...lastRegular {   // a shaped ratchet: one tail per strike, each at its own velocity
+                                                pushEchoTail(onset: mTickBeat + Double(m - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(m), busMask: repBusMask,
+                                                             timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
+                                                             gateBeats: repGate, cellIdx: currentCellIndex)
+                                            }
                                         }
-                                        let lastGate = max(repGate, (nextHitGapBeats - Double(nRep - 1) * repSpacing) + pitchGate[j] * tieOf(j))
-                                        pushEchoTail(onset: mTickBeat + Double(nRep - 2) * repSpacing, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
+                                    }
+                                    if tieLast && k <= nRep - 1 {
+                                        pushEchoTail(onset: mTickBeat + Double(nRep - 2) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(nRep - 1), busMask: repBusMask,
                                                      timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                      gateBeats: lastGate, cellIdx: currentCellIndex)
-                                    } else {
-                                        pushEchoTail(onset: mTickBeat, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
-                                                     timeBeats: repSpacing, repeats: nRep - 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
-                                                     gateBeats: repGate, cellIdx: currentCellIndex)
                                     }
                                 }
                                 // NOTE VIEW covers strike 0 only — the deferred echo repeats don't push their
@@ -5965,7 +5986,7 @@ final class Router {
                                 // ("a downstream ECHO echoes only strike 0, not the ratchet copies").
                                 if nvSent {
                                     var nc = 0
-                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nc += 1 } }
+                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = euclideousRatchetStrikeVelocity(base: pitchVel[j], shape: ratchShape, k: 0, n: nRep); nc += 1 } }
                                     if nc > 0 {
                                         let (onset, duration) = nvTiming(repSpacing * pitchGate[0])   // NOTE VIEW's one duration: pitch 0's
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc,
@@ -6260,7 +6281,7 @@ final class Router {
                             // window at a time) before the next one opens. Each repeat's own length is a
                             // short, fixed 50% duty cycle of its own slot, independent of the lane's GATE
                             // value — a real silent gap regardless of how long/short GATE is set.
-                            if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: rank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
+                            if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: rank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, tempo: tempo) {
                                 let repGate = (sub / Double(nRep)) * 0.5
                                 let repSpacing = sub / Double(nRep)
                                 let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask
@@ -6422,7 +6443,7 @@ final class Router {
                             // requested gate length — a gate-length tweak alone could never fix this). Each
                             // repeat's own length is a short, fixed 50% duty cycle of its own slot,
                             // independent of `hitGate` entirely.
-                            if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: rank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, cyc: cyc) {
+                            if let nRep = maskRatchetReps(lineIndex: lineIndex, rank: rank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, tempo: tempo) {
                                 let repGate = (sub / Double(nRep)) * 0.5
                                 let repSpacing = sub / Double(nRep)
                                 let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOverride ?? bm) & p.mainOutMask

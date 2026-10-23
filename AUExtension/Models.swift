@@ -1119,6 +1119,7 @@ struct EuclideousFX: Equatable {
     var notePasses: UInt8 = 4        // NOTE row: PASSES, 2…8
     var ccNumber: UInt8 = 74         // CC row: controller 0…119 (120–127 are channel-mode messages, never sent)
     var ccBase: Int16 = -1           // CC row: BASE, −1 = none, else 0…127
+    var ratchShape: UInt8 = 0        // RATCH row: SHAPE (REVIEW FIX 2026-10-23) — 0 FLAT, 1 ACCENT, 2 FADE, 3 RAMP (`EuclideousRatchShape`); how a ratcheted hit's strikes share its velocity
 
     /// A row's legal cell value for a raw integer, or nil for "empty / unreadable". GATE rounds to the nearest 5 within 5…`gateMax` (95 — a stored 100 from an older session loads as 95); the ranged rows clamp;
     /// NOTE 0 is not a value; TIE has no value (any non-sentinel is "on").
@@ -1166,6 +1167,7 @@ struct EuclideousFX: Equatable {
         out.notePasses = UInt8(max(2, min(8, Int(notePasses))))
         out.ccNumber = UInt8(max(0, min(119, Int(ccNumber))))
         out.ccBase = ccBase < 0 ? -1 : Int16(min(127, Int(ccBase)))
+        out.ratchShape = UInt8(max(0, min(EuclideousRatchShape.allCases.count - 1, Int(ratchShape))))
         return out
     }
 }
@@ -1183,7 +1185,7 @@ private struct EuclideousFXLossyInt: Decodable {
     }
 }
 extension EuclideousFX: Codable {
-    enum CodingKeys: String, CodingKey { case lanes, cells, notePasses, ccNumber, ccBase }
+    enum CodingKeys: String, CodingKey { case lanes, cells, notePasses, ccNumber, ccBase, ratchShape }
     init(from decoder: Decoder) throws {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1197,6 +1199,7 @@ extension EuclideousFX: Codable {
         if let n = scalar(.notePasses) { raw.notePasses = UInt8(max(0, min(255, n))) }
         if let n = scalar(.ccNumber) { raw.ccNumber = UInt8(max(0, min(255, n))) }
         if let n = scalar(.ccBase) { raw.ccBase = Int16(max(-1, min(255, n))) }
+        if let n = scalar(.ratchShape) { raw.ratchShape = UInt8(max(0, min(255, n))) }
         self = raw.normalized()
     }
     func encode(to encoder: Encoder) throws {
@@ -1206,6 +1209,7 @@ extension EuclideousFX: Codable {
         try c.encode(Int(notePasses), forKey: .notePasses)
         try c.encode(Int(ccNumber), forKey: .ccNumber)
         try c.encode(Int(ccBase), forKey: .ccBase)
+        if ratchShape != 0 { try c.encode(Int(ratchShape), forKey: .ratchShape) }   // only when set: a default document encodes exactly as before
     }
 }
 struct EuclideousLanesSeq: Equatable {

@@ -4693,6 +4693,8 @@ struct EuclideousWalkLaneConfig {
     /// RHYTHM POLISH (2026-10-22): the hits' delays inside their tick cells (tick space) — `.none` for a lane with no fraction and no fine TILT. When it is set, `buf` / `n` / `dir` above are the lane's TICK-SPACE
     /// layout (`euclideousHitLayoutInto`: n = the lap's tick count, dir = FWD) — exactly what the Router reads — so every engine-mirroring reader below sees the cells the engine plays.
     var timing: EuclideousHitTiming = .none
+    /// REVIEW FIX 2026-10-23: the host tempo the RATCH strike cap measures against (a ratchet slot has a minimum duration in seconds, not a fraction of the scene's bar).
+    var tempo: Double = 120
 }
 
 /// What `Router.runEuclidLine`'s `passesListenRhythmFilter` reads for a WITH / GAPS lane, captured once: the PARTNER's own
@@ -4817,7 +4819,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                     swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats),
                                     riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
                                     invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved,
-                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc, timing: timing)
+                                    fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc, timing: timing, tempo: tempo)
 }
 /// A tick's REAL onset beat — what the note-on is scheduled at (swing-warped), the time a tag must arrive.
 func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Double {
@@ -7678,7 +7680,7 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
                                                   rankAt: rankAt)
         }
         let audible = euclideousLaneAudible(beat: hitBeat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
-        let nStrikes = rank >= 1 && fxHit.ratch >= 2 ? euclideousFXRatchetCount(requested: fxHit.ratch, sub: c.sub, cyc: c.cyc) : 0
+        let nStrikes = rank >= 1 && fxHit.ratch >= 2 ? euclideousFXRatchetCount(requested: fxHit.ratch, sub: c.sub, tempo: c.tempo) : 0
         if nStrikes >= 2 {
             let slot = c.sub / Double(nStrikes)
             let per = max(minGateBeats, slot * g)
@@ -7817,12 +7819,43 @@ func euclideousFXLitVelocity(fxVel v: Int, notesVelocity: Int, velocityAbsolute:
     return UInt8(max(1, min(127, v + off)))
 }
 
-/// The RATCH beat-width cap — the mask RATCHET's own rule, factored out so both read ONE formula: no strike slot shorter than 1/128 of the scene grid's bar
-/// (`cyc` = stepRate × columns, NOT the host bar), never below 1.
-func euclideousRatchetCap(sub: Double, cyc: Double) -> Int { max(1, Int(sub * 128.0 / max(0.0001, cyc))) }
+/// The shortest time between two strikes of a ratchet: below ~10 ms a synth's attack and the MIDI wire can't tell the strikes apart (and the flood governor starts to bite).
+let euclideousRatchetMinSlotSeconds = 0.010
+/// The RATCH strike cap — the mask RATCHET's rule and FX RATCH's, ONE formula: no strike slot shorter than `euclideousRatchetMinSlotSeconds` at the host tempo, never below 1.
+/// (It used to be "1/128 of the scene grid's bar" — `cyc` = the scene's stepRate × columns — which tied a ratchet to an unrelated 8×8-State setting: at the document's default 1/2 step a 1/16 lane
+/// was held to 2 strikes and a 1/16T or 1/32 lane to none. REVIEW FIX 2026-10-23.)
+func euclideousRatchetCap(sub: Double, tempo: Double) -> Int {
+    let bpm = tempo >= 1 ? tempo : 120   // a stopped or unreadable tempo reads as the default, never as 1 BPM (cap 750)
+    let minSlotBeats = euclideousRatchetMinSlotSeconds * bpm / 60.0
+    return max(1, Int(sub / minSlotBeats + 1e-9))
+}
+/// RATCH SHAPE (REVIEW FIX ferry 2026-10-23): how the strikes of an FX-ratcheted hit share the hit's velocity — FLAT every strike at the hit's own velocity (today's sound, the default), ACCENT the first at full and the rest at 65 %, FADE
+/// a straight fall from 100 % to 45 % across the strikes, RAMP the mirror image (a crescendo into the next step, 45 % → 100 %). One page-level setting (`EuclideousFX.ratchShape`), on the FX tab beside PASSES.
+enum EuclideousRatchShape: Int, CaseIterable {
+    case flat = 0, accent, fade, ramp
+    var name: String { switch self { case .flat: return "FLAT"; case .accent: return "ACCENT"; case .fade: return "FADE"; case .ramp: return "RAMP" } }
+    var spoken: String { switch self { case .flat: return "flat"; case .accent: return "accent first"; case .fade: return "fade"; case .ramp: return "ramp up" } }
+}
+let euclideousRatchetAccentRest = 0.65, euclideousRatchetRampFloor = 0.45
+/// Strike `k` (0-based, 0 = the hit itself) of `n`'s share of the hit's velocity.
+func euclideousRatchetStrikeScale(shape: Int, k: Int, n: Int) -> Double {
+    guard n >= 2, k >= 0, k < n else { return 1 }
+    let t = Double(k) / Double(n - 1)
+    switch EuclideousRatchShape(rawValue: shape) ?? .flat {
+    case .flat: return 1
+    case .accent: return k == 0 ? 1 : euclideousRatchetAccentRest
+    case .fade: return 1 - (1 - euclideousRatchetRampFloor) * t
+    case .ramp: return euclideousRatchetRampFloor + (1 - euclideousRatchetRampFloor) * t
+    }
+}
+/// The velocity strike `k` plays at: the hit's velocity × its share, rounded and kept in 1…127. FLAT returns `base` untouched (the byte-identical path).
+func euclideousRatchetStrikeVelocity(base: UInt8, shape: Int, k: Int, n: Int) -> UInt8 {
+    if shape == 0 { return base }
+    return UInt8(max(1, min(127, Int((Double(base) * euclideousRatchetStrikeScale(shape: shape, k: k, n: n)).rounded()))))
+}
 /// FX RATCH's strike count: exactly the cell's n (no roll, no legal-size clamp), lowered only by the cap; fewer than 2 strikes is a plain hit (0).
-func euclideousFXRatchetCount(requested n: Int, sub: Double, cyc: Double) -> Int {
-    let c = min(n, euclideousRatchetCap(sub: sub, cyc: cyc))
+func euclideousFXRatchetCount(requested n: Int, sub: Double, tempo: Double) -> Int {
+    let c = min(n, euclideousRatchetCap(sub: sub, tempo: tempo))
     return c >= 2 ? c : 0
 }
 
