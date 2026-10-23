@@ -830,6 +830,10 @@ final class Router {
     // reconcile either keeps it (matched by the new column) or closes it (dropped). Sized to the pool, reused.
     private var holdCandidate = [Bool](repeating: false, count: 128)
     private var wasPlaying = false
+    // LISTEN REBUILT fix (§3.6): the beat a fresh transport start landed on — DELAY counts "its own
+    // steps" from here, not from absolute beat 0, so a borrowing lane rests for its first DELAY steps of
+    // EVERY run, not just the ones that happen to fall at beat 0.
+    private var euclideousListenTransportStartBeat: Double = 0
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
     private var prevUniformFast = true   // CR-11: was the last render on the uniform clock? A live uniform↔multi switch isn't a flush, so the per-row trackers must be re-seeded on the change (else a stale prevEffColumnRow[r] skips a row's transition reconcile → phantom drone)
     // PER-PART CLOCK (Paul 2026-08-19): the multi-clock render path. Each ROW runs its own step rate, so its
@@ -3303,6 +3307,9 @@ final class Router {
 
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
+            // LISTEN REBUILT fix (§3.6): stamp the START-only edge (not the stop edge too) before
+            // `wasPlaying` below is overwritten — a borrowing lane's DELAY grace period reads this.
+            if playing && !wasPlaying { euclideousListenTransportStartBeat = beatPos }
             allNotesOff(atSample: renderSampleImmediate, out: out)
             resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             prevEffColumn = -1
@@ -4964,8 +4971,19 @@ final class Router {
                 // here is therefore only the brief window before that first resync tick lands (or a
                 // document built directly in a test, bypassing the AVC entirely) — FREE is a safe,
                 // allocation-free default for that window, not a silent, permanent behaviour change.
+                // LISTEN REBUILT fix (§3.5): "The follower's own RHYTHM RESTART and MELODY RESTART are not
+                // read while COPY or FILL is on" (a leftover/independently-set chain must not shift its
+                // phase) — AND "the follower restarts with every source restart" (×1/×2/×4) / "every 2nd or
+                // 4th source restart" (×½/×¼). Both land from the SAME substitution: a borrowing lane reads
+                // the SOURCE's own chain fields instead of its own, with `lapBeats` built from the
+                // FOLLOWER's own (already SPEED-scaled) `cycleLen`/`sub` — so the chain's bar-based restart
+                // schedule is unchanged (still the source's real restart moments) while how many of the
+                // follower's own laps fit between them scales with SPEED exactly as §3.5 describes.
+                // (Confirmed necessary, not just "safe to skip": `testShadowFollowsARhythmChainThatCutsThePassShort`
+                // regressed when this first tried plain `.off` — a COPY+SHADOW lane needs the source's real,
+                // chain-cut-short timing to sample the source's strikes at the right moments.)
                 if lineIndex < linesView.count {
-                    let line = linesView[lineIndex]
+                    let line = copyOrFillValid ? linesView[listenSource] : linesView[lineIndex]
                     if line.usesRestartChains {
                         chains = EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []),
                                                              melody: .from(line.restartMelodyPasses ?? []),
@@ -5034,9 +5052,16 @@ final class Router {
                     let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle since the rhythm origin (localT = cy·cycleLen + raw) — the MISS ordinal below reads it, and LISTEN REBUILT's ECHO cycle-roll (§4.2)
                     // LISTEN REBUILT (§3): COPY/FILL already REPLACED `euclidBuf` itself with the borrowed
                     // pattern above — there is no separate per-tick filter any more (unlike the old WITH/
-                    // GAPS, which filtered THIS lane's own rhythm against a coincidence test). `isHit` is
-                    // simply `rawIsHit`.
-                    let isHit = rawIsHit
+                    // GAPS, which filtered THIS lane's own rhythm against a coincidence test).
+                    // §3.6 fix: "before the first DELAY steps of a transport run have passed, it plays
+                    // nothing" — a TRUE rest (not a muted-but-still-counted hit, confirmed by §11.8's own
+                    // worked example: ECHO's hit rank j must start at 0 on the first tick that actually
+                    // sounds, not on the grace-period ticks), so this folds into `isHit` itself, upstream
+                    // of the riff walk / ECHO's `euclideousEchoFollowerJ` counter / everything else that
+                    // reads "was this tick a hit."
+                    let withinDelayGrace = copyOrFillValid && listenDelay > 0
+                        && (mTickBeat - euclideousListenTransportStartBeat) < Double(listenDelay) * sub - 1e-9
+                    let isHit = rawIsHit && !withinDelayGrace
                     // NOTE VIEW (Paul 2026-10-10 ferry) — two small helpers shared by all 4 push sites below.
                     // `finalPitch` replicates (not reuses — `strikeChord`'s `strikeOne` is a widely-shared
                     // closure, not Euclideous-specific, so threading a side-channel through it would be the

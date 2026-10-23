@@ -3899,9 +3899,18 @@ func euclideousListenEchoIndex(j: Int, currentCount: Int, lastCount: Int) -> Euc
 /// — built fresh (not a reuse of the old SHADOW's pool-rank `riffResolve` trick, §0's own finding: a strike
 /// can contain a MASK-mutated pitch — MIRROR/LEAP/CLIMB already baked in before capture — that isn't a
 /// clean pool member, so this must work for an ARBITRARY chromatic input, not just a known rank).
+/// §6.3, literal: "clamped to 0–127 BY OCTAVES (move up or down whole octaves until it fits)" — NOT a
+/// linear clamp (which would change the note's pitch class at the boundary instead of preserving it).
+/// Adversarial-review fix: `euclideousListenMoveByInterval` used to clamp with `max(0, min(127, _))`.
+func euclideousListenOctaveClamp(_ note: Int) -> Int {
+    var n = note
+    while n > 127 { n -= 12 }
+    while n < 0 { n += 12 }
+    return n
+}
 func euclideousListenMoveByInterval(note: Int, interval: Int, octave: Int, keyRoot: Int, scaleIntervals: [Int]) -> Int {
     let pcs = scaleIntervals.map { ((($0 + keyRoot) % 12) + 12) % 12 }.sorted()
-    guard !pcs.isEmpty else { return max(0, min(127, note + 12 * octave)) }
+    guard !pcs.isEmpty else { return euclideousListenOctaveClamp(note + 12 * octave) }
     let pc = ((note % 12) + 12) % 12
     let noteOctave = (note - pc) / 12
     let m = pcs.count
@@ -3912,7 +3921,7 @@ func euclideousListenMoveByInterval(note: Int, interval: Int, octave: Int, keyRo
     let wrapped = ((base % m) + m) % m
     let laps = (base - wrapped) / m
     let moved = (noteOctave + laps) * 12 + pcs[wrapped] + offset + 12 * octave
-    return max(0, min(127, moved))
+    return euclideousListenOctaveClamp(moved)
 }
 /// §4.3/§9.8: the 12-bit pitch-class mask of a strike (octave ignored, §4.3's own "my interpretation" —
 /// an exact note-number match only, like the old AVOID, is explicitly NOT what the new spec asks for).

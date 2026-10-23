@@ -11741,15 +11741,51 @@ final class RouterTests: XCTestCase {
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), "x..x..x.", "T1 COPY: blue inherits red's own 3-of-8 pattern exactly")
     }
+    // Adversarial-review fix (2026-10-23): §3.5 — "The follower's own RHYTHM RESTART and MELODY RESTART
+    // are not read while COPY or FILL is on." A leftover (or independently-set) chain on a borrowing lane
+    // must not shift its pattern phase — this must come out byte-identical to T1's plain COPY.
+    func testListenCopyIgnoresTheFollowersOwnLeftoverRestartChains() {
+        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0
+        blue.restartRhythmBars = [1]; blue.restartMelodyPasses = [2]
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(listenRhythmString(hits), "x..x..x.", "a borrowing lane's own restart chains must not apply — byte-identical to T1's plain COPY with no chain set")
+    }
     func testListenT2Fill() {
         var blue = listenBlueLine(); blue.listenRhythm = .fill; blue.listenSource = 0
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), ".xx.xx.x", "T2 FILL: blue plays exactly red's gaps (the complement of red's pattern)")
     }
+    // Adversarial-review fix (2026-10-23): this test used to expect "x.x..x.." (hits at 0,2,5 — a plain
+    // rotation, wrapping red's step-6 hit around to step 0). That was the BUG: §3.6 is explicit — "before
+    // the first DELAY steps of a transport run have passed, it plays nothing" — a TRUE rest, not whatever
+    // the wrapped-around rotation happens to contain. Corrected expectation: ticks 0-1 (< DELAY) are forced
+    // silent even though the rotated pattern would hit at tick 0; only ticks 2 and 5 actually sound.
     func testListenT3CopyWithDelay() {
         var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDelay = 2
         let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(listenRhythmString(hits), "x.x..x..", "T3 DELAY 2: red's hits (0,3,6) each shifted 2 steps later (wrapping) — 2,5,0")
+        XCTAssertEqual(listenRhythmString(hits), "..x..x..", "T3 DELAY 2, first lap: ticks 0-1 are the transport-start grace period (forced silent, §3.6) even though the rotated pattern (red's 0,3,6 shifted 2 later, wrapping) would hit at 0; only 2 and 5 actually sound")
+    }
+    // The grace period is a ONE-TIME thing at transport start (§3.6: "a transport RUN"), not reapplied
+    // every lap — a longer run must show the wrapped hit (tick 0 of lap 2, i.e. tick 8 overall) sounding
+    // once the lane is well past its first DELAY ticks.
+    func testListenT3bDelayGraceIsOnlyAtTransportStartNotEveryLap() {
+        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDelay = 2
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 5, 4, 3, 2, 1])
+        c.paramsA.euclidLines = [listenRedLine(), blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter(); let tempo = 110.0, sr = 48_000.0
+        // Two full laps (8 beats at 0.5 beat/step × 8 steps = 4 beats/lap) plus a hair, so lap 2's tick 0
+        // (absolute tick 8) is reached and finished sounding before the run stops.
+        run(SnapshotBuilder.build(from: st), chord(listenPoolCMinor), beats: 7.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
+        assertNothingLeftSounding(e)
+        let hits = e.ons.filter { $0.cable == 2 }.sorted { $0.sample < $1.sample }.map { ev -> Int in
+            let beat = Double(ev.sample) / sr * tempo / 60.0
+            return Int((beat / 0.5).rounded())   // absolute tick (0...15), NOT wrapped to a column — lap 2 must read 8, not 0
+        }
+        XCTAssertEqual(hits, [2, 5, 8, 10, 13], "lap 1: 2, 5 (0 suppressed by the grace period); lap 2 (ticks 8-15): all three of 8, 10, 13 sound — the grace period never reapplies")
     }
     func testListenT4CopyBackward() {
         var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDirection = .bkw
@@ -11770,6 +11806,38 @@ final class RouterTests: XCTestCase {
         blue.listenPitch = .avoid; blue.listenSource = 0   // AVOID is mute-only now — no MOVE action any more (§8.3)
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(hits.count, 0, "T6 AVOID: blue would play exactly what red plays at every hit — all of them dropped by pitch class")
+    }
+    /// §11.8, literal "Paul's canvas case" (adversarial-review fix — this exact example was never built as
+    /// a test the first time, which is why the DELAY grace-period bug above went undetected): source plays
+    /// C D E♭ F G E♭ D C on every step of 8. COPY DELAY 2 ECHO → steps 3-8 play C D E♭ F G E♭ (the SOURCE's
+    /// own strikes 0...5 in order — ECHO's hit rank starts at 0 on the first tick that actually SOUNDS, not
+    /// on the two grace-period ticks). SHADOW in the same setup plays E♭ F G E♭ D C (the source's own
+    /// strike at that SAME tick, same-time counts per §1.4).
+    private func listenEchoCanvasRun(pitch: EuclideousListenPitchMode) -> [(col: Int, note: UInt8, vel: UInt8)] {
+        let red = EuclidLine(target: 0, pulses: 8, steps: 8, velocityAbsolute: 100, rate: .r1_8, emitterMask: 0b0001, useRiff: true, riffOn: true, sourceMode: .midi)
+        var blue = EuclidLine(target: 0, pulses: 8, steps: 8, velocityAbsolute: 100, rate: .r1_8, emitterMask: 0b0010, useRiff: true, riffOn: true, sourceMode: .midi)
+        blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDelay = 2; blue.listenPitch = pitch
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 3, 2, 1])   // C D E♭ F G E♭ D C
+        c.paramsA.euclidLines = [red, blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter(); let tempo = 110.0, sr = 48_000.0
+        run(SnapshotBuilder.build(from: st), chord(listenPoolCMinor), beats: 3.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
+        assertNothingLeftSounding(e)
+        return e.ons.filter { $0.cable == 2 }.sorted { $0.sample < $1.sample }.map { ev in
+            let beat = Double(ev.sample) / sr * tempo / 60.0
+            return (Int((beat / 0.5).rounded()) % 8, ev.note, ev.vel)
+        }
+    }
+    func testListenEchoFollowsTheSourcesOwnLineInOrderCanonStyle() {
+        let hits = listenEchoCanvasRun(pitch: .echo)
+        XCTAssertEqual(hits.map { $0.note }, [36, 38, 39, 41, 43, 39], "ECHO: steps 3-8 play C D E♭ F G E♭ — the source's strikes 0...5, not a DELAY-shifted lookup")
+    }
+    func testListenShadowDoublesWhateverTheSourceIsPlayingRightNow() {
+        let hits = listenEchoCanvasRun(pitch: .shadow)
+        XCTAssertEqual(hits.map { $0.note }, [39, 41, 43, 39, 38, 36], "SHADOW: steps 3-8 double the source's OWN same-tick note — E♭ F G E♭ D C")
     }
     // LISTEN REBUILT (2026-10-23): `testListenT8LoopsGreyOutTheWholeCycle` (the OLD 3-row-partner greyed-
     // partners picker) and `testListenT9TurningFollowOffRestoresTheLanesOwnSettings` deleted — both test
@@ -14682,6 +14750,42 @@ final class RouterTests: XCTestCase {
             assertBeats(ons, [0.175, 1.3, 3.05], "wrapped hit first, buffer \(frames)")
             XCTAssertEqual(ons.map { $0.note }, [48, 50, 52])
         }
+    }
+    // §11.15/§14.5 (adversarial-review fix — this test never existed): cycling LISTEN's mode, source,
+    // SPEED, DIRECTION, DELAY and FEEL repeatedly, with long gates and a transport restart mid-run, must
+    // never leave a note stuck — the same "cycling everything" stress shape `testNotesStressCyclingEverything
+    // LeavesNothingSounding` already uses for the NOTES layer, applied to every `listen*` field instead.
+    func testListenStressCyclingModeSourceSpeedAndDirectionLeavesNothingSounding() {
+        let rhythms: [EuclideousListenRhythmMode] = [.own, .copy, .fill]
+        let pitches: [EuclideousListenPitchMode] = [.own, .shadow, .echo, .avoid]
+        let dirs: [EuclidDir] = [.fwd, .bkw, .pingpong]
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 512
+        let wb = Double(frames) * tempo / 60.0 / sr
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        var beat = 0.0, ts = 0.0
+        func linesFor(_ k: Int) -> [EuclidLine] {
+            let red = EuclidLine(target: 0, pulses: 5, steps: 8, gate: 0.99, velocityAbsolute: 100, rate: .r1_8, emitterMask: 0b0001, useRiff: true, riffOn: true, sourceMode: .midi)
+            var blue = EuclidLine(target: 0, pulses: 3, steps: 8, gate: 0.99, velocityAbsolute: 100, rate: .r1_8, emitterMask: 0b0010, useRiff: true, riffOn: true, sourceMode: .midi)
+            blue.listenRhythm = rhythms[k % rhythms.count]; blue.listenPitch = pitches[k % pitches.count]
+            blue.listenSource = 0; blue.listenSpeed = [-2, -1, 0, 1, 2][k % 5]
+            blue.listenDirection = dirs[k % dirs.count]; blue.listenDelay = k % 4
+            blue.listenFeel = Double(k % 3 - 1) * 0.3
+            return [red, blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
+        }
+        for k in 0..<60 {
+            let box = fxBox(linesFor(k))
+            if k % 9 == 8 {   // a transport restart in the middle of everything
+                router.process(box: box, pool: chord(listenPoolCMinor), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            for _ in 0..<8 {
+                router.process(box: box, pool: chord(listenPoolCMinor), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+        }
+        router.process(box: fxBox(linesFor(0)), pool: chord(listenPoolCMinor), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        XCTAssertGreaterThan(e.ons.count, 50)
     }
     func testRhythmPolishStressWithTransportRestartsFXAndTiesLeavesNothingSounding() {
         var seed: UInt64 = 0xA24BAED4963EE407

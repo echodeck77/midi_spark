@@ -3042,9 +3042,16 @@ struct EuclideousPage: View {
         let name = Text(t.label).font(face).tracking(1).foregroundColor(sel ? patternSelectedText : patternUnselectedText)
         // §7.1: RHYTHM always shows a count (its own hits/steps, or "← n" while borrowed); RIFF/NOTES show
         // nothing UNLESS paused, in which case they show the same "← n" link.
+        let tabKind = EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm
+        let borrowedMark = tabKind == .rhythm
+            ? euclideousRhythmBorrowPartner(lane: idx, lines: lines) != nil
+            : euclideousPausedTabHeaderText(tab: tabKind, lane: idx, lines: lines) != nil
         let suffix: String? = t == .rhythm ? euclideousRhythmTabCount(lane: idx, lines: lines)
-            : euclideousPausedTabHeaderText(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .riff, lane: idx, lines: lines)
-        let title: Text = suffix.map { name + Text(" " + $0).font(face).tracking(0).foregroundColor(lane100(accent)) } ?? name
+            : euclideousPausedTabHeaderText(tab: tabKind, lane: idx, lines: lines)
+        // §7.1: "← n" is drawn "in the SOURCE's lane100 at full strength" — only the ordinary hits/steps
+        // count (not borrowed) uses the card's own lane colour.
+        let suffixColor = borrowedMark ? lane100(laneAccents[line.listenSourceResolved(ownLane: idx) % laneAccents.count]) : lane100(accent)
+        let title: Text = suffix.map { name + Text(" " + $0).font(face).tracking(0).foregroundColor(suffixColor) } ?? name
         let fill: Color = {
             switch glyph.fill {
             case .lane(let l): return lane100(laneAccents[max(0, l) % laneAccents.count])
@@ -4549,13 +4556,32 @@ struct EuclideousPage: View {
     /// paused-card overlay (replaces the old SHADOW-only 0.42).
     private enum EuclideousListenPauseMetrics { static let dimOpacity: Double = 0.18 }
 
-    /// §7.2 (LISTEN REBUILT, 2026-10-23): the paused-card overlay — a link glyph, "<LABEL> FOLLOWS LANE n",
-    /// one explanatory line, and two buttons (GO TO LISTEN / USE MY OWN) — drawn over a borrowed tab's own
-    /// content, which sits underneath at `EuclideousListenPauseMetrics.dimOpacity` and takes no touches
-    /// (§7: "a tab is either fully the lane's own or fully paused" — nothing partially live under here).
-    /// Shared by RHYTHM (COPY/FILL), RIFF and NOTES (SHADOW/ECHO) so none of the three can independently
-    /// drift on the exact wording/look. `useOwn` writes back whichever field this tab's row actually reads
-    /// (RHYTHM → `listenRhythm`, RIFF/NOTES → `listenPitch`).
+    /// §7.2's own exact explanatory sentence, literal: RHYTHM names COPY's "h of s hits" or FILL's "g of s
+    /// steps" (g = s − h) before the shared DELAY/SPEED/DIRECTION-moved-to-LISTEN sentence; RIFF (and NOTES,
+    /// which pauses alongside it, §4.6/§9.9 — the spec gives no separate NOTES wording) names which of
+    /// SHADOW/ECHO is active before the shared INTERVAL/OCTAVE-moved-to-LISTEN sentence.
+    private func listenPausedExplanation(_ idx: Int, _ line: EuclidLine, label: String) -> String {
+        if label == "RHYTHM" {
+            let eff = euclideousEffectivePattern(lane: idx, lines: lines)
+            let steps = eff?.n ?? 0, hits = eff.map { e in e.buf.prefix(e.n).filter { $0 }.count } ?? 0
+            let first = line.listenRhythmResolved == .fill
+                ? "Filling its gaps: \(steps - hits) of \(steps) steps."
+                : "Copying its \(hits) of \(steps) hits."
+            return "\(first) Delay, speed and direction are on Listen. Your own rhythm is kept for when you stop following."
+        }
+        let mode = line.listenPitchResolved == .echo ? "ECHO" : "SHADOW"
+        return "Playing its notes (\(mode)). Interval and octave are on Listen. Your own riff is kept for when you stop following."
+    }
+    /// §7.2 (LISTEN REBUILT, 2026-10-23; adversarial-review fix — built without the literal spec text in
+    /// hand the first time, corrected against it here): the paused-card overlay — a link glyph (the
+    /// source's lane100), "<LABEL> FOLLOWS LANE n" (heavy, #F2F4F7 — NOT lane-coloured), one explanatory
+    /// line (13pt #D5D9E0, exact text per `listenPausedExplanation`), and two buttons at least 44pt tall
+    /// (GO TO LISTEN / USE MY OWN) — drawn over a borrowed tab's own content, which sits underneath at
+    /// `EuclideousListenPauseMetrics.dimOpacity` and takes no touches (§7: "a tab is either fully the
+    /// lane's own or fully paused"). Card: radius as the lane card's inner panels (12), #24262C fill, 1pt
+    /// border in the source's lane100 at 50%, padding sp16 — matching `listenRhythmPanel`/`listenPitchPanel`'s
+    /// own panel look exactly, per §2.3/§2.5's "same panel look as 2.3". `useOwn` writes back whichever
+    /// field this tab's row actually reads (RHYTHM → `listenRhythm`, RIFF/NOTES → `listenPitch`).
     private func listenPausedOverlay(_ idx: Int, _ line: EuclidLine, label: String, width: CGFloat, height: CGFloat, useOwn: @escaping (inout EuclidLine) -> Void) -> some View {
         let source = line.listenSourceResolved(ownLane: idx)
         let sourceAccent = laneAccents[source % laneAccents.count]
@@ -4563,11 +4589,11 @@ struct EuclideousPage: View {
             VStack(spacing: 6) {
                 Image(systemName: "link").font(.system(size: 16, weight: .bold)).foregroundColor(lane100(sourceAccent))
                 Text("\(label) FOLLOWS LANE \(source + 1)")
-                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(lane100(sourceAccent))
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
                     .multilineTextAlignment(.center).lineLimit(1)
-                Text("Set it back to OWN on LISTEN to use its own \(label.lowercased()) again.")
-                    .font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
-                    .multilineTextAlignment(.center).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Text(listenPausedExplanation(idx, line, label: label))
+                    .font(.system(size: 13, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0xD5D9E0))
+                    .multilineTextAlignment(.center).lineLimit(3).fixedSize(horizontal: false, vertical: true)
             }
             // Grouped into one spoken element (the icon alone has nothing to say); the two buttons below stay
             // their own separately-focusable elements, not swallowed into this group.
@@ -4575,7 +4601,7 @@ struct EuclideousPage: View {
             .accessibilityLabel("\(label) follows lane \(source + 1)")
             HStack(spacing: 8) {
                 Text("GO TO LISTEN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity).frame(height: 44)
                     .background(RoundedRectangle(cornerRadius: 7).fill(lane20(sourceAccent)))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(sourceAccent), lineWidth: 1))
                     .contentShape(Rectangle())
@@ -4584,7 +4610,7 @@ struct EuclideousPage: View {
                     .accessibilityLabel("Go to Listen")
                     .accessibilityAddTraits(.isButton)
                 Text("USE MY OWN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(patternUnselectedText)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity).frame(height: 44)
                     .background(RoundedRectangle(cornerRadius: 7).fill(patternUnselectedFill))
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx, useOwn) }
@@ -4593,10 +4619,13 @@ struct EuclideousPage: View {
                     .accessibilityAddTraits(.isButton)
             }
         }
-        .padding(10)
-        .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1A1C20).opacity(0.97)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(lane100(sourceAccent).opacity(0.4), lineWidth: 1))
+        .padding(sp16)
+        // §7.2: "one card CENTRED over them" — the card hugs its own content and centres in the tab body
+        // (the ZStack caller's default alignment), not a card that fills the whole body. `width`/`height`
+        // (the body's own size) only cap how wide it may grow.
+        .frame(maxWidth: min(width - sp16 * 2, 280), maxHeight: height)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x24262C)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(lane100(sourceAccent).opacity(0.5), lineWidth: 1))
     }
 
     // MARK: - NOTES TAB (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs") — lit notes/
@@ -5487,10 +5516,16 @@ struct EuclideousPage: View {
     /// heavy) centred 2pt apart. §3: "A stepper whose mode isn't lit is drawn at 42% opacity and doesn't
     /// respond."
     private func listenStepper(_ label: String, value: String, enabled: Bool, width: CGFloat, height: CGFloat, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> some View {
-        HStack(spacing: 0) {
+        // §2.3: "− and + are at least 44 × 44 hit areas" — the drawn glyph stays its visual 16pt width (the
+        // panel is too narrow to draw it at 44pt without crowding the value out), but the TAP target
+        // extends invisibly to 44×44, centred on the glyph — the same overflow-hit-area technique the
+        // RHYTHM tab's own restart buttons already use (adversarial-review fix: this was 16×height before).
+        let padH: CGFloat = max(0, 44 - 16) / 2, padV: CGFloat = max(0, 44 - height) / 2
+        let tapRect = CGRect(x: -padH, y: -padV, width: 16 + padH * 2, height: height + padV * 2)
+        return HStack(spacing: 0) {
             Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                 .frame(width: 16, height: height)
-                .contentShape(Rectangle()).onTapGesture { if enabled { onDec() } }
+                .contentShape(Rectangle().path(in: tapRect)).onTapGesture { if enabled { onDec() } }
             VStack(spacing: 2) {
                 Text(label).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                 // `.minimumScaleFactor` removed (adversarial-review fix) — every value this stepper shows
@@ -5500,7 +5535,7 @@ struct EuclideousPage: View {
             .frame(maxWidth: .infinity)
             Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                 .frame(width: 16, height: height)
-                .contentShape(Rectangle()).onTapGesture { if enabled { onInc() } }
+                .contentShape(Rectangle().path(in: tapRect)).onTapGesture { if enabled { onInc() } }
         }
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34)))
@@ -5543,7 +5578,9 @@ struct EuclideousPage: View {
         }
         .foregroundColor(disabled ? Color(hex: 0x7C828D) : (selected ? patternSelectedText : patternUnselectedText))
         .frame(maxWidth: .infinity).frame(height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(selected ? lane20(targetAccent) : patternUnselectedFill))
+        // §2.1: a disabled chip is "no fill" — not the same opaque fill a normal unselected chip gets
+        // (adversarial-review fix: this used `patternUnselectedFill` for both).
+        .background(RoundedRectangle(cornerRadius: 7).fill(selected ? lane20(targetAccent) : (disabled ? Color.clear : patternUnselectedFill)))
         .overlay(RoundedRectangle(cornerRadius: 7)
             .strokeBorder(selected ? lane100(targetAccent) : (disabled ? Color(hex: 0x3A3E47) : Color.clear),
                           style: StrokeStyle(lineWidth: 1, dash: disabled ? [3, 2] : [])))

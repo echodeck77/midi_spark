@@ -297,9 +297,14 @@ final class ListenTabTests: XCTestCase {
         // a 2nd up: the anchor (C) moves to D, the +1 semitone offset carries, giving D#(63).
         XCTAssertEqual(euclideousListenMoveByInterval(note: 61, interval: 1, octave: 0, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 63)
     }
+    // Adversarial-review fix (2026-10-23): §6.3, literal — "clamped to 0-127 BY OCTAVES (move up or down
+    // whole octaves until it fits)". This test used to expect a plain linear clamp (0 / 127), which was
+    // the bug: it changes the note's pitch class at the boundary instead of preserving it.
     func testMoveByIntervalClampsIntoTheLegalMidiRangeByWholeOctaves() {
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 3, interval: 0, octave: -3, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 0)
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 125, interval: 0, octave: 3, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 127)
+        // note 3, octave -3: 3 - 36 = -33 -> +12 three times -> 3 (NOT 0 -- the raw pitch class is preserved)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 3, interval: 0, octave: -3, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 3)
+        // note 125, octave +3: 125 + 36 = 161 -> -12 three times -> 125 (NOT 127)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 125, interval: 0, octave: 3, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 125)
     }
     func testAvoidMaskIsPitchClassOnlyOctaveIgnored() {
         let mask = euclideousListenAvoidMask(strike: [60])   // C4
