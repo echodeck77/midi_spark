@@ -154,7 +154,6 @@ targets:
       - path: AUExtension/PresetStore.swift  # PRESETS v1 — name sanitize + document round-trip (pure surface)
       - path: AUExtension/CellLibraryStore.swift  # the 8x8 cell library + LibEntry (split out of PresetStore.swift 2026-10-23, Fourfold Step 1a)
       - path: Fourfold/Engine/FourfoldCompose.swift   # FOURFOLD Step 1b: the Fourfold-only scene composer (Foundation-only)
-      - path: Fourfold/Shared/FourfoldTransportClock.swift   # FOURFOLD Step 3: the standalone app's internal transport + the CoreMIDI host-time stamp (Foundation-only)
       - path: AUExtension/Dice.swift         # THE DICE — chain generation + offline (Router-based) evaluation
       - path: AUExtension/EuclideousPresets.swift   # the 20 factory presets (Foundation-only) — the MIX ferry's preset-stream regression test renders them
       - path: AUExtension/BuildSelfTest.swift # in-app MIDI-output self-tests — validated off-device by the meta-test
@@ -164,6 +163,34 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.MidiSparkTests
+        CODE_SIGNING_ALLOWED: NO
+
+  # FOURFOLD's own off-device tests (Step 4): macOS, host-less, compiles Fourfold's engine COPY (Fourfold/Engine) — never the 8x8 originals. `Scripts/run-fourfold-tests.sh`.
+  FourfoldTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources:
+      - Fourfold/Tests
+      - path: Fourfold/Engine/Derivations.swift
+      - path: Fourfold/Engine/Models.swift
+      - path: Fourfold/Engine/Snapshot.swift
+      - path: Fourfold/Engine/SnapshotBuilder.swift
+      - path: Fourfold/Engine/Emission.swift
+      - path: Fourfold/Engine/MidiFile.swift
+      - path: Fourfold/Engine/Diag.swift
+      - path: Fourfold/Engine/Router.swift
+      - path: Fourfold/Engine/PresetStore.swift
+      - path: Fourfold/Engine/BuildModel.swift
+      - path: Fourfold/Engine/EuclideousRandom.swift
+      - path: Fourfold/Engine/EuclideousLock.swift
+      - path: Fourfold/Engine/EuclideousPresets.swift
+      - path: Fourfold/Engine/FourfoldCompose.swift
+      - path: Fourfold/Shared/FourfoldTransportClock.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.FourfoldTests
         CODE_SIGNING_ALLOWED: NO
 
 # Shared schemes (written to xcshareddata → tracked, always present). Without this, XcodeGen
@@ -202,3 +229,11 @@ schemes:
       config: Debug
       targets:
         - MidiSparkTests
+  FourfoldTests:
+    build:
+      targets:
+        FourfoldTests: [test]
+    test:
+      config: Debug
+      targets:
+        - FourfoldTests
