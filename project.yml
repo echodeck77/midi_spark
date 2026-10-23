@@ -92,6 +92,8 @@ targets:
       - path: AUExtension/Diag.swift        # KernelDiag (moved out of Kernel so Router is pure)
       - path: AUExtension/Router.swift      # the render engine — now Foundation-only, unit-testable
       - path: AUExtension/PresetStore.swift  # PRESETS v1 — name sanitize + document round-trip (pure surface)
+      - path: AUExtension/CellLibraryStore.swift  # the 8x8 cell library + LibEntry (split out of PresetStore.swift 2026-10-23, Fourfold Step 1a)
+      - path: AUExtension/FourfoldCompose.swift   # FOURFOLD Step 1b: the Fourfold-only scene composer (Foundation-only)
       - path: AUExtension/Dice.swift         # THE DICE — chain generation + offline (Router-based) evaluation
       - path: AUExtension/EuclideousPresets.swift   # the 20 factory presets (Foundation-only) — the MIX ferry's preset-stream regression test renders them
       - path: AUExtension/BuildSelfTest.swift # in-app MIDI-output self-tests — validated off-device by the meta-test

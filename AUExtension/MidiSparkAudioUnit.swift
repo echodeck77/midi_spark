@@ -194,46 +194,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
 
-    // MARK: - CELL MACHINE stage-4 — the CELL LIBRARY (named saved cells, reusable across sessions)
-
-    /// Save the cell at (col,row) to the library under `name` — "machine minus routing" (chain materialised +
-    /// source-shaping; routing/perform state stripped). Returns false if the slot is empty or the write fails.
-    // saveCellToLibrary RETIRED (Paul 2026-09-12 dead-code sweep — no caller; saveChainToLibrary is the live save path).
-    // BUILD-side save: a MACHINE's machine (chain) becomes a library cell (no grid cell needed). Routing stripped.
-    @discardableResult
-    func saveChainToLibrary(machineID: String, chain: [ProcessorSlot], name: String) -> Bool {
-        var c = Cell(machineID: machineID); c.processors = chain; c.buses = []
-        return CellLibraryStore.save(c, as: name)
-    }
-    // Browser rows for SAVED cells: name + chain processor types + star rating (loads each cell).
-    func libraryCellSummaries() -> [LibEntry] {
-        CellLibraryStore.list().map { name in
-            let c = CellLibraryStore.load(name)
-            return LibEntry(name: name, types: (c?.processors ?? []).map { $0.type }, stars: c?.starsResolved ?? 0)
-        }
-    }
-    // Browser rows for the read-only FACTORY set (curated star ratings).
-    func factoryLibrarySummaries() -> [LibEntry] {
-        CellLibraryStore.factory().map { LibEntry(name: $0.name, types: ($0.cell.processors ?? []).map { $0.type }, stars: $0.cell.starsResolved) }
-    }
-    // The CHEAP curated factory cells only (no Dice.factorySet). The grid-selector seeds the library with these INSTANTLY at
-    // startup, then appends the full set (incl. the slow Dice chains) via factoryLibrarySummaries in the background. (Paul 2026-09-11)
-    func handFactorySummaries() -> [LibEntry] {
-        CellLibraryStore.handFactory().map { LibEntry(name: $0.name, types: ($0.cell.processors ?? []).map { $0.type }, stars: $0.cell.starsResolved) }
-    }
-    // Re-rate a SAVED cell (0–5) and persist. Factory cells are read-only.
-    func setLibraryStars(_ name: String, _ stars: Int) {
-        guard var c = CellLibraryStore.load(name) else { return }
-        c.stars = max(0, min(5, stars)); CellLibraryStore.save(c, as: name)
-    }
-    func loadLibraryCell(name: String) -> Cell? { CellLibraryStore.load(name) }
-    func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }
-    // Resolve a factory cell by name — check the CHEAP hand cells FIRST so tapping one doesn't trigger the slow Dice build
-    // (Paul 2026-09-11); fall back to the full set for the Dice-generated names.
-    func factoryLibraryCell(name: String) -> Cell? {
-        CellLibraryStore.handFactory().first { $0.name == name }?.cell ?? CellLibraryStore.factory().first { $0.name == name }?.cell
-    }
-
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
     // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),
     // and the continuous transpose AUParameter is excluded for v1 (it bypasses these paths; the morph params were removed 2026-09-16).
@@ -1063,6 +1023,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         default: break
         }
     }
+    #if !FOURFOLD   // the canned 8x8 test sessions; Fourfold does not compile TestSessions.swift
     // MARK: - Test-session loading (docs/test-procedures.md; step 3 has no grid UI)
 
     /// DESTRUCTIVE by design: replaces the whole document, discarding whatever was loaded.
@@ -1083,6 +1044,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         suppressRebuild = false
         scheduleRebuild()
     }
+    #endif
 
     /// Load a factory scene (Docs/factory-scenes.md) — same replace-and-resync path as a test session.
 

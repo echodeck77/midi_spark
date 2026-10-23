@@ -46,6 +46,7 @@ EXCLUSIVE_FILES = {
     # Added 2026-10-23: a file that is in NONE of these lists is silently dropped from the fast run — these three were (87 tests).
     # ReelDeckTests is shared recorder infra (it also holds the 8x8 DoorRing tests, ~0.5 s) but is Fourfold's REEL now.
     "EuclideousRandomTests.swift",
+    "FourfoldComposeTests.swift",
     "ListenTabTests.swift",
     "ReelDeckTests.swift",
 }
