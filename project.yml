@@ -104,6 +104,7 @@ targets:
     sources:
       - path: AUExtension
         excludes: ["Info.plist", "ArrangementBar.swift", "AudioUnitViewController.swift", "AutoPilot.swift", "BuildGridSelector.swift", "BuildPage.swift", "BuildReel.swift", "BuildSelfTest.swift", "ChaosDriver.swift", "CogPage.swift", "DragDropPage.swift", "EditPage.swift", "GridSkin.swift", "GridUI.swift", "ManualView.swift", "RackMatrix.swift", "RoomsPage.swift", "MacroAuthoring.swift", "SceneFactory.swift", "BuildSceneLogic.swift", "Dice.swift", "CellLibraryStore.swift", "CellBrowser.swift", "MidiSparkAudioUnit+CellLibrary.swift", "TestSessions.swift"]
+      - path: Fourfold/Shared    # the Fourfold root view, reel browser and telemetry (shared with the Fourfold app target in Step 3)
       - path: Fourfold/AU
         excludes: ["Info.plist"]     # hand-maintained, like MidiSparkAU's: never let XcodeGen generate it (it would drop the aumi AudioComponents)
     dependencies:

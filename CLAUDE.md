@@ -214,6 +214,9 @@ the same pipeline as any other row; it is not a special-cased render path.
   BOTH products unless it is added to `FourfoldAU`'s `excludes` — a Fourfold build error naming a file that is 8x8-only means "add it to the exclude list" (or move the helper it needs to a shared file).
   Compile check: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MidiSpark.xcodeproj -scheme Fourfold -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
   (the same `xcodegen generate` rule applies). The plan, the order of the remaining steps and the engine-copy decision are in `Docs/standalone-plan.md`.
+  **Step 2 (2026-10-23):** `Fourfold/Shared/` holds the Fourfold root view (`FourfoldRootView` + its `FourfoldModel`, `FourfoldReelBrowser`, `FourfoldTelemetry`) — the Fourfold half of `DiagView`, copied and pruned; a
+  change to how the page is wired in 8x8 State's `DiagView` is NOT picked up here (and vice versa) until Step 4 settles it. State lives in ONE `ObservableObject` on purpose (60 closures × a copy of a big @State struct was a 214 KB Debug
+  stack frame on the extension's 1 MB main thread). **End-to-end check with no iPad:** `sh Scripts/fourfold-harness/run.sh [--reel]` — a simulator host that drives the AU and prints MIDI notes per cable (use it before and after the Step 4 engine trim).
 
 ## Current Euclideous state (hand-maintained — update when the real architecture changes,
 ## not on every fix; full history is `Docs/euclideous-status-log.md`)

@@ -24,7 +24,7 @@ struct EuclideousSettingsSheet: View {
     let containerH: CGFloat
     let headerBottomY: CGFloat
     let onCloseSheet: () -> Void
-    let onWorkbench: () -> Void   // §7.1: does exactly what × did — closes the sheet AND goes to the workbench
+    let onWorkbench: (() -> Void)?   // §7.1: does exactly what × did — closes the sheet AND goes to the 8x8 workbench. nil (Fourfold, 2026-10-23: there is no workbench) hides the link
 
     // MIDI IN (§3)
     let midiInMask: UInt16
@@ -341,15 +341,17 @@ struct EuclideousSettingsSheet: View {
             Text("FOURFOLD \(v) (\(b))").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9)
                 .foregroundColor(Color(hex: 0x8A909A))
             Spacer()
-            HStack(spacing: 2) {
-                Text("WORKBENCH").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9)
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+            if let onWorkbench {
+                HStack(spacing: 2) {
+                    Text("WORKBENCH").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9)
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                }
+                .foregroundColor(Color(hex: 0xAAB0BA))
+                .frame(minWidth: 44, minHeight: 32)
+                .contentShape(Rectangle())
+                .onTapGesture { onCloseSheet(); onWorkbench() }
+                .accessibilityLabel("Workbench").accessibilityAddTraits(.isButton)
             }
-            .foregroundColor(Color(hex: 0xAAB0BA))
-            .frame(minWidth: 44, minHeight: 32)
-            .contentShape(Rectangle())
-            .onTapGesture { onCloseSheet(); onWorkbench() }
-            .accessibilityLabel("Workbench").accessibilityAddTraits(.isButton)
         }
         .padding(.leading, 8)
         .frame(height: 16)

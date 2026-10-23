@@ -28,6 +28,14 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - VoiceOver: a RHYTHM/RIFF/NOTES tab reads "paused, following lane n" once (not duplicated); the LISTEN tab's mode buttons and SPEED/DIRECTION segments read their new labels correctly; the paused-card's two buttons are each individually reachable and actionable, not swallowed into one combined element.
 - An OLD session (saved before this ferry) that used FOLLOW, WITH, GAPS, SHADOW, AVOID, DUCK, or ACCENT loads with the stated migration mapping and SOUNDS the same as before (bar FOLLOW's own multiplier/rate wording, and DUCK/ACCENT, which have no replacement and will sound different) — listen for anything that migrated silently wrong.
 
+### FOURFOLD STEP 2 — the page in the extension (2026-10-23)
+- LAUNCH the DEBUG build from Xcode into AUM FIRST (the root view's frames were measured, not run on the iPad: `pageView` 214 → 9.7 KB, `slowPoll` 36.9 KB; the old 1 MB-stack crash was on a Debug launch).
+- "Fourfold: Fourfold" in AUM opens the real page (not the placeholder), in AUM's plugin window size; edit a lane, play: notes on the routed Out A–D ports (All carries everything); the 20 factory presets load AND are heard at once (`publish()` after load).
+- Settings sheet (gear): the footer has NO WORKBENCH link; 8x8 State's Fourfold settings sheet still has it and still returns to the workbench.
+- REEL: tap the tape icon → the browser opens above the page (landscape; portrait shows the rotate prompt), passes appear after a few bars of the host playing, tap a pass to hear it, SAVE opens the share sheet over the browser (the sheet is now presented by the browser itself, not by a hidden workbench view — check it appears), CLOSE resumes live.
+- Undo / redo, lane LOCK, SOLO, RANDOM, the key pop-up, SWING, the output rings: all copied code — exercise each once.
+- The pulse level starts at FULL (a new storage key), and the settings sheet's STRIKE PULSE row still changes it.
+
 ### FOURFOLD STEP 1 — targets (2026-10-23)
 - Install the `Fourfold` scheme from Xcode: AUM lists "Fourfold: Fourfold" as a MIDI processor (separately from "8x8 State"), it opens to the placeholder, and its MIDI outputs are named All / Out A–D. 8x8 State must still be listed and unchanged.
 

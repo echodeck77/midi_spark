@@ -1,6 +1,6 @@
 //  FourfoldViewController.swift
 //  FOURFOLD Step 1c (2026-10-23, Docs/standalone-plan.md): the Fourfold extension's principal class. Replaces AudioUnitViewController.swift (the 8x8 State host, DiagView), which the FourfoldAU target excludes.
-//  The UI is a placeholder until Step 2 ports the Fourfold half of DiagView into a FourfoldRootView.
+//  The UI is `FourfoldRootView` (Fourfold/Shared): the Fourfold half of DiagView, ported in Step 2.
 
 import CoreAudioKit
 import SwiftUI
@@ -29,23 +29,11 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 
     private func embedUI() {
         guard children.isEmpty else { return }
-        let host = UIHostingController(rootView: FourfoldPlaceholderView())
+        let host = UIHostingController(rootView: FourfoldRootView(au: audioUnit))
         addChild(host)
         host.view.frame = view.bounds
         host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(host.view)
         host.didMove(toParent: self)
-    }
-}
-
-struct FourfoldPlaceholderView: View {
-    var body: some View {
-        ZStack {
-            Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-            VStack(spacing: 12) {
-                Text("FOURFOLD").font(.system(size: 18, weight: .heavy, design: .monospaced)).tracking(8).foregroundColor(.white.opacity(0.9))
-                Text("The Fourfold page arrives in Step 2.").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            }
-        }
     }
 }

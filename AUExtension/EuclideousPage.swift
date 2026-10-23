@@ -865,7 +865,8 @@ struct EuclideousPage: View {
     let canRedo: Bool
     let onUndo: () -> Void
     let onRedo: () -> Void
-    let onClose: () -> Void
+    /// 8x8 State only: the settings sheet's WORKBENCH link goes back to the 8x8 workbench. nil (Fourfold, 2026-10-23) = no such link — there is no workbench to go back to.
+    var onClose: (() -> Void)? = nil
     /// The view's bottom safe-area inset (the home-indicator zone), read from the root `GeometryReader` in `DiagView` and passed in because the page is laid out on the
     /// view's FULL height (it ignores the bottom safe area, and a view whose frame sits inside the safe area reads its own inset as 0). The page's bottom margin is
     /// `max(16, inset)` (`EuclideousPageMetrics.bottomMargin`), so no box sits in that zone. 0 = nothing to avoid (the default).
@@ -1644,7 +1645,7 @@ struct EuclideousPage: View {
                         tab: $settingsTab, containerW: containerW, containerH: geo.size.height,
                         headerBottomY: HM.topMargin + hdr.height,
                         onCloseSheet: { settingsOpen = false },
-                        onWorkbench: { onClose() },
+                        onWorkbench: onClose,
                         midiInMask: midiInChannelMask, onSetMidiInMask: onSetMidiInChannelMask,
                         ignoreAllNotesOff: ignoreAllNotesOff, onSetIgnoreAllNotesOff: onSetIgnoreAllNotesOff,
                         laneMasks: euclideousLaneMasks(lines), mainOutMask: mainOutMask, soloSilenced: (0..<4).map { soloSilenced($0) }, busChannels: busChannels,
