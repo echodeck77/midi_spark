@@ -996,9 +996,44 @@ final class Router {
     // so one buffer safely serves all of them, even across several different partners in sequence (the
     // ANY-partner AVOID case loops over up to 3 lanes, each fully consumed before the next overwrites it).
     private var euclidListenScratch = [Bool](repeating: false, count: 16)
+    // LISTEN REBUILT (ferry 2026-10-23): a SECOND reused buffer, for the BORROWED (COPY/FILL) pattern
+    // before it's remapped into DIRECTION/DELAY order — `euclidListenScratch` above already holds the
+    // SOURCE's own raw pattern at that point, so COPY/FILL's own hit/rest flip needs a buffer of its own.
+    private var euclidListenBorrowed = [Bool](repeating: false, count: 16)
     private var burstBuf = [Double](repeating: 0, count: 16)
     private var tuttiRankBufA = [Int](repeating: 0, count: 128)
     private var tuttiRankBufB = [Int](repeating: 0, count: 128)
+    // LISTEN REBUILT §4.2 (ECHO): per-lane, two cycles (current + the last COMPLETED one) of up to 16
+    // strikes, each up to 9 pitches (matching the existing per-hit `pitches` struck-set's own cap) — pure
+    // render-thread-owned state, mutated in place, never reassigned wholesale and never touched by any
+    // other thread, so the cross-thread tuple-`Collection` precedent (`EuclideousPendingRollSlots`,
+    // built for data WRITTEN from the main thread and READ from this one) doesn't apply here; a plain
+    // pre-sized `Array`, mutated through `inout`/index access only, is the ALREADY-established pattern
+    // for exactly this shape of single-thread-owned fixed buffer (`euclidBuf`/`tuttiRankBufA` above).
+    private struct EuclideousEchoCycle {
+        var pitchCount = [Int](repeating: 0, count: 16)    // strike j's own pitch count (0 = never struck)
+        var pitches = [Int](repeating: 0, count: 16 * 9)   // strike j's pitches at [j*9 ..< j*9 + pitchCount[j]]
+        var count = 0                                       // how many of the 16 strike slots are filled so far
+        mutating func reset() { count = 0; for i in 0..<16 { pitchCount[i] = 0 } }
+        mutating func append(count pc: Int, from src: [Int]) {
+            guard count < 16 else { return }
+            let k = max(0, min(9, pc))
+            for i in 0..<k { pitches[count * 9 + i] = src[i] }
+            pitchCount[count] = k
+            count += 1
+        }
+        /// Allocation-free: calls `body` once per pitch of strike `j` (nothing if `j` is out of range or unstruck).
+        func forEachPitch(_ j: Int, _ body: (Int) -> Void) {
+            guard j >= 0, j < 16, j < count else { return }
+            for i in 0..<pitchCount[j] { body(pitches[j * 9 + i]) }
+        }
+    }
+    private var euclideousEchoCurrent = [EuclideousEchoCycle](repeating: EuclideousEchoCycle(), count: 4)
+    private var euclideousEchoLast = [EuclideousEchoCycle](repeating: EuclideousEchoCycle(), count: 4)
+    private var euclideousEchoCycleNum = [Int64](repeating: Int64.min, count: 4)
+    /// §4.2/§9.6: how many hits THIS lane (as a follower) has struck under ECHO so far this transport run —
+    /// "j, 0 for the first hit." Reset on every transport edge alongside the cycle buffers above.
+    private var euclideousEchoFollowerJ = [Int](repeating: 0, count: 4)
     private func fillSrcFromScratch() {
         srcNoteCount = 0
         let c = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
@@ -3289,6 +3324,10 @@ final class Router {
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             lockPrevValid = false; for i in 0..<4 { lockOverrideActive[i] = false }   // LANE LOCK: a fresh play starts at L (the page has applied it) — no override, and the first window may sit on a line
             wasPlaying = playing
+            // LISTEN REBUILT (ECHO, §4.2): a fresh play/stop drops every lane's captured strikes — no
+            // stale cycle from a previous run bleeds into the next one. Mirrors every sibling reset above
+            // (mutated in place, no re-allocation on the render thread).
+            for i in 0..<4 { euclideousEchoCurrent[i].reset(); euclideousEchoLast[i].reset(); euclideousEchoCycleNum[i] = Int64.min; euclideousEchoFollowerJ[i] = 0 }
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
             resetRecorderCapture(full: false)            // RECORDER: keep the committed loop across a stop→start; discard any partial capture
             flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: reset the CC on transport edges
@@ -4784,32 +4823,47 @@ final class Router {
                                 // this closure's own captured scope (this is a nested func inside
                                 // `process()`), so looking a partner's EuclidLine/pool up here directly is
                                 // simpler and cheaper than having the call site pre-build and pass it.
-                                listenRhythmMode: EuclideousRhythmMode? = nil, listenRhythmPartnerIdx: Int = -1, listenFollowRatio: Double = 1.0,
-                                listenLevelMode: EuclideousLevelMode? = nil, listenLevelPartnerIdx: Int = -1, listenLevelAmount: Double = 0.4,
-                                listenPitchMode: EuclideousPitchMode? = nil, listenPitchPartnerIdx: Int = -1, listenPitchPartnerAny: Bool = false,
-                                listenShadowInterval: Int = 0, listenShadowOctave: Int = 0, listenAvoidAction: EuclideousAvoidAction = .mute,
+                                // LISTEN REBUILT (ferry 2026-10-23): REPLACES every old listen* parameter above —
+                                // one shared SOURCE lane (-1 = none) for the whole tab instead of a partner per row.
+                                listenRhythm: EuclideousListenRhythmMode = .own, listenSource: Int = -1,
+                                listenDelay: Int = 0, listenFeel: Double = 0, listenSpeed: Int = 0, listenDirection: EuclidDir = .fwd,
+                                listenPitch: EuclideousListenPitchMode = .own, listenInterval: Int = 0, listenOctave: Int = 0,
                                 // RHYTHM POLISH (2026-10-22): OFFSET's fractional part and whether this lane's TILT plays unrounded (`tiltFine`).
                                 offsetFraction: Double = 0, tiltFine: Bool = false,
                                 tickFrom: Double = -Double.infinity, tickBefore: Double = Double.infinity) {   // LANE LOCK: the segment of the window this call plays (the default is all of it)
                 // LANE SOLO: every voice and echo tail this lane's hits open is stamped with the lane (Euclideous's own row only), so a solo can end exactly its notes.
                 euclideousStrikeLane = isEuclideousRow ? Int8(lineIndex) : -1
                 defer { euclideousStrikeLane = -1 }
-                // LISTEN/FOLLOW (§5): REPLACES this lane's own generation entirely — the finished pattern
-                // becomes the PARTNER's own (its OFFSET/TILT/INV/hand-edits already baked in by the SAME
-                // `euclideousBuildPattern` helper, called fresh on the partner's current `EuclidLine`), and
-                // `n` becomes the partner's own step count ("its step count"). This lane's own
-                // OFFSET/INV still apply AFTER this, on top of the inherited shape — see the
-                // `euclidRotateBuffer`/`patternMiss` calls immediately below, both left completely
-                // unconditional so they keep doing exactly that for a FOLLOWing lane too.
+                // LISTEN REBUILT §3 (COPY/FILL): REPLACES this lane's own generation entirely with the
+                // SOURCE's own finished pattern (its own OFFSET/TILT/INV already baked in, via the SAME
+                // `euclideousBuildHitPatternInto` FOLLOW used to read), remapped into DIRECTION's own
+                // order (§3.4/`euclideousListenBorrowedIndex` — FWD mirrors the source's own LIVE playback
+                // order, BKW reverses it, PING-PONG ping-pongs its STORED order) and shifted by DELAY (a
+                // buffer rotation: "position p shows what the borrowed pattern had at p−DELAY," §3.6).
+                // UNLIKE the old FOLLOW, this lane's own OFFSET/INV do NOT apply on top (§7: "a tab is
+                // either fully the lane's own or fully paused" — the old "still applies on top" was
+                // exactly the confusing half-overridden state this rebuild fixes).
                 let n: Int
-                // RHYTHM POLISH: the in-step TILT positions start at zero every call; a FOLLOW lane adds its partner's fraction (the partner's own offset already rotates the shape it inherits).
                 var offsetFractionTotal = offsetFraction
                 for i in 0..<16 { euclidMicro[i] = 0 }
-                let followPartnerValid = listenRhythmMode == .follow && listenRhythmPartnerIdx >= 0 && listenRhythmPartnerIdx < linesView.count
-                if followPartnerValid {
-                    n = euclideousBuildHitPatternInto(linesView[listenRhythmPartnerIdx], cells: &euclidListenScratch, micro: &euclidListenMicro)
-                    for i in 0..<n { euclidBuf[i] = euclidListenScratch[i]; euclidMicro[i] = euclidListenMicro[i] }
-                    offsetFractionTotal += linesView[listenRhythmPartnerIdx].offsetFractionResolved
+                let copyOrFillValid = (listenRhythm == .copy || listenRhythm == .fill) && listenSource >= 0 && listenSource < linesView.count && listenSource != lineIndex
+                var listenRhythmSourceRateBeats = rate
+                if copyOrFillValid {
+                    let sourceLine = linesView[listenSource]
+                    let sourceN = euclideousBuildHitPatternInto(sourceLine, cells: &euclidListenScratch, micro: &euclidListenMicro)
+                    euclideousListenBorrowedHits(sourcePattern: euclidListenScratch, n: sourceN, mode: listenRhythm, into: &euclidListenBorrowed)
+                    for k in 0..<sourceN {
+                        let srcIdx = euclideousListenBorrowedIndex(followerRaw: k, n: sourceN, followerDirection: listenDirection, sourceDirection: sourceLine.directionResolved)
+                        euclidBuf[k] = euclidListenBorrowed[srcIdx]
+                    }
+                    n = sourceN
+                    euclidRotateBuffer(&euclidBuf, steps: n, rotation: -listenDelay)
+                    // FEEL (§3.7): a uniform micro-delay across every borrowed hit — a disclosed
+                    // simplification of "applied exactly as TILT is today": TILT's own algorithm
+                    // redistributes hits generated fresh from (pulses, steps) and has no defined meaning
+                    // applied to an arbitrary externally-given (borrowed) pattern.
+                    if listenFeel != 0 { for i in 0..<n where euclidBuf[i] { euclidMicro[i] = max(-0.5, min(0.5, listenFeel * 0.5)) } }
+                    listenRhythmSourceRateBeats = sourceLine.rate?.beats ?? p.euclidRateBeats
                 } else {
                     n = max(2, min(16, nIn))
                     let k = p.euclidPulsesFromPool ? srcCount : max(0, min(n, kIn))   // POOL: K = held-note count
@@ -4836,18 +4890,18 @@ final class Router {
                             else { euclidTiltPattern(&euclidBuf, pulses: k, steps: n, tilt: tilt) }
                         }
                     }
+                    euclidRotateBuffer(&euclidBuf, steps: n, rotation: rotate)
+                    euclidRotateMicro(&euclidMicro, steps: n, rotation: rotate)
+                    // MISS = PATTERN INVERT (Paul 2026-10-10 ferry §2.2: "after HITS, TILT and OFFSET have produced
+                    // the pattern") — SUPERSEDES the old dual-voice hit/miss split entire. Flipping `euclidBuf` here,
+                    // once, before `cycleHits`/`isHitAt` below are ever read, makes every downstream hit-counting
+                    // consumer in this function — cycleHits/effHits/hitsUpTo/ord/the riff walk/the TIE lookahead —
+                    // automatically treat the inverted (now-sounding) steps as "hits," with no separate MISS branch
+                    // needed anywhere else. `euclidCycleLen` (LOCK's own pattern-cycle length) is a function of `n`/
+                    // `dir` alone, untouched by inverting the buffer's contents, matching ferry §2.3's "LOCK's
+                    // 'pattern cycle' is unchanged."
+                    if patternMiss { for i in 0..<n { euclidBuf[i].toggle(); euclidMicro[i] = 0 } }   // FLIP: the flipped hits sit on step starts
                 }
-                euclidRotateBuffer(&euclidBuf, steps: n, rotation: rotate)
-                euclidRotateMicro(&euclidMicro, steps: n, rotation: rotate)
-                // MISS = PATTERN INVERT (Paul 2026-10-10 ferry §2.2: "after HITS, TILT and OFFSET have produced
-                // the pattern") — SUPERSEDES the old dual-voice hit/miss split entire. Flipping `euclidBuf` here,
-                // once, before `cycleHits`/`isHitAt` below are ever read, makes every downstream hit-counting
-                // consumer in this function — cycleHits/effHits/hitsUpTo/ord/the riff walk/the TIE lookahead —
-                // automatically treat the inverted (now-sounding) steps as "hits," with no separate MISS branch
-                // needed anywhere else. `euclidCycleLen` (LOCK's own pattern-cycle length) is a function of `n`/
-                // `dir` alone, untouched by inverting the buffer's contents, matching ferry §2.3's "LOCK's
-                // 'pattern cycle' is unchanged."
-                if patternMiss { for i in 0..<n { euclidBuf[i].toggle(); euclidMicro[i] = 0 } }   // FLIP: the flipped hits sit on step starts
                 // RATE×ladder (Paul 2026-08-27): GRID = the fixed step grain (density lives here + K/N); SPAN re-syncs the
                 // pattern every N columns (FREE = 0 = free-run). Rate and loop decoupled — an odd N against an aligning
                 // span drifts then snaps back. (Was the WIDTH model `sub = spanWidth/n`, where SPAN just scaled the speed.)
@@ -4855,11 +4909,10 @@ final class Router {
                 // L.rate?.beats ?? p.euclidRateBeats) instead of this closure directly capturing the machine-wide
                 // field — lets each of Euclideous's 4 lines run its own rate; every existing non-Euclideous call
                 // resolves to the exact same machine-wide value as before, byte-identical.
-                // LISTEN/FOLLOW (§5, "taken from the partner: … its step length"): the follower's own rate
-                // becomes the partner's own rate × the multiplier — `listenFollowRatio` is already the
-                // correct 2^−exponent (×2 halves the step length, ÷2 doubles it; see
-                // `EuclidLine.listenFollowRatioResolved`'s own doc comment for the worked sign check).
-                let sub = followPartnerValid ? (linesView[listenRhythmPartnerIdx].rate?.beats ?? p.euclidRateBeats) * listenFollowRatio : rate
+                // LISTEN REBUILT §3.3 (SPEED): the follower's own step length is the SOURCE's own ÷ 2^SPEED,
+                // directly (`listenSpeed` IS the exponent — no sign inversion to remember, unlike the old
+                // FOLLOW's `listenFollowRatio`).
+                let sub = copyOrFillValid ? listenRhythmSourceRateBeats / pow(2.0, Double(listenSpeed)) : rate
                 // RESET SPAN (Paul 2026-10-08, §2.2): Euclideous's own GLOBAL reset-span control — resolved
                 // directly from `doc.euclideousResetSpanBarsResolved` into `p.euclideousResetSpanBars` (gated
                 // to Euclideous's own row in SnapshotBuilder, 0 for every other `.euclid` cell) — OVERRIDES the
@@ -4972,29 +5025,12 @@ final class Router {
                     let localT = ph.localT
                     let raw = ph.raw
                     let rawIsHit = ph.rawIsHit
-                    let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle since the rhythm origin (localT = cy·cycleLen + raw) — the MISS ordinal below reads it
-                    // LISTEN/WITH/GAPS (§5): "coincide" is checked at THIS exact tick's absolute beat
-                    // against the PARTNER's own step pattern (not its sounding riff note — "whether or
-                    // not it sounded... riff rests, mutes and the LANES grid don't change it," the
-                    // ferry's own literal words). A WITH-mismatch or a GAPS-match silences this tick as
-                    // if it were never a hit — `isHit` folds the check in directly, so every downstream
-                    // consumer (the strike decision) treats a filtered-out tick like a genuine pattern
-                    // rest. `hitsUpTo`/`cycleHits`/the riff walk below all read `euclidBuf`/`isHitAt`
-                    // directly, NOT `isHit` — so the PATTERN/ordinal math stays exactly this lane's own,
-                    // matching "the lane keeps its own rhythm" (only whether this tick actually STRIKES
-                    // is filtered, not the walk/ordinal that any riff on this lane depends on).
-                    let passesListenRhythmFilter: Bool = {
-                        guard rawIsHit, let mode = listenRhythmMode, mode != .follow,
-                              listenRhythmPartnerIdx >= 0, listenRhythmPartnerIdx < linesView.count else { return true }
-                        let partnerLine = linesView[listenRhythmPartnerIdx]
-                        let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
-                        let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
-                        let epsilonBeats = 0.001 * (tempo / 60.0)
-                        let coincides = euclideousListenPartnerHasHitAt(buf: euclidListenScratch, n: partnerN, dir: partnerLine.directionResolved,
-                                                                          rateBeats: partnerRate, spanBeats: spanBeats, atBeat: Double(tick) * sub, epsilonBeats: epsilonBeats)   // RHYTHM POLISH: the partner's CELL beat, not this hit's shifted time
-                        return mode == .with ? coincides : !coincides
-                    }()
-                    let isHit = rawIsHit && passesListenRhythmFilter
+                    let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle since the rhythm origin (localT = cy·cycleLen + raw) — the MISS ordinal below reads it, and LISTEN REBUILT's ECHO cycle-roll (§4.2)
+                    // LISTEN REBUILT (§3): COPY/FILL already REPLACED `euclidBuf` itself with the borrowed
+                    // pattern above — there is no separate per-tick filter any more (unlike the old WITH/
+                    // GAPS, which filtered THIS lane's own rhythm against a coincidence test). `isHit` is
+                    // simply `rawIsHit`.
+                    let isHit = rawIsHit
                     // NOTE VIEW (Paul 2026-10-10 ferry) — two small helpers shared by all 4 push sites below.
                     // `finalPitch` replicates (not reuses — `strikeChord`'s `strikeOne` is a widely-shared
                     // closure, not Euclideous-specific, so threading a side-channel through it would be the
@@ -5437,24 +5473,39 @@ final class Router {
                             // explicitly; a genuinely silent partner — never yet struck a real note within
                             // the bounded backward scan — is indistinguishable from "resting" and both
                             // correctly produce silence here).
-                            let shadowPartnerValid = listenPitchMode == .shadow && listenPitchPartnerIdx >= 0 && listenPitchPartnerIdx < linesView.count
-                            if shadowPartnerValid {
-                                let partnerLine = linesView[listenPitchPartnerIdx]
-                                if partnerLine.riffOnResolved {
-                                    let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
-                                    let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
-                                    if let hit = euclideousListenPartnerNoteAt(
-                                        buf: euclidListenScratch, n: partnerN, dir: partnerLine.directionResolved,
-                                        rateBeats: partnerRate, legacySpanBeats: ladderSpanBeats, atBeat: Double(tick) * sub, beatsPerBar: beatsPerBar, epsilonBeats: nil,
-                                        line: partnerLine, ranks: ranks, poolCount: thisLaneCount, poolAsc: { notes[$0].note }
-                                    ), let shadowNote = riffResolve(rank: hit.rank + listenShadowInterval,
-                                                                      oct: partnerLine.riffOctaveResolved + listenShadowOctave,
-                                                                      n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
-                                        hadRiffNote = true
-                                        riffRank = hit.rank; riffNote = shadowNote
-                                        addPitch(shadowNote, vel: UInt8(velocityAbsolute), gate: gate)
+                            // LISTEN REBUILT §4 (SHADOW/ECHO): REPLACE the riff+lit-notes layers below
+                            // entirely — both read the SOURCE's own captured STRIKE (§1.3), not a fresh
+                            // partner-note lookup: SHADOW takes its MOST RECENT strike (sticky — nothing
+                            // yet this run leaves the hit silent, §4.1); ECHO takes the strike ranked `j`
+                            // (this FOLLOWER's own hit count so far, §4.2/§9.6) against the source's
+                            // current cycle if it's reached that rank yet, else its last completed one.
+                            // Every resulting pitch moves by INTERVAL/OCTAVE (§6). The source's strike was
+                            // captured for EVERY lane, every hit, at the identical point in its OWN
+                            // pipeline (below) — so a chain (this lane's source following a THIRD lane)
+                            // just works, and a muted/solo-silenced source still drives this (§5.2).
+                            let shadowOrEchoValid = (listenPitch == .shadow || listenPitch == .echo) && listenSource >= 0 && listenSource < 4 && listenSource != lineIndex
+                            if shadowOrEchoValid {
+                                let notesBefore = pitchCount
+                                func strikeFrom(_ cycle: EuclideousEchoCycle, _ idx: Int) {
+                                    cycle.forEachPitch(idx) { note in
+                                        let moved = euclideousListenMoveByInterval(note: note, interval: listenInterval, octave: listenOctave,
+                                                                                    keyRoot: p.euclideousChordKeyRoot, scaleIntervals: p.euclideousChordKeyTones)
+                                        addPitch(moved, vel: UInt8(velocityAbsolute), gate: gate)
                                     }
                                 }
+                                if listenPitch == .shadow {
+                                    if euclideousEchoCurrent[listenSource].count > 0 { strikeFrom(euclideousEchoCurrent[listenSource], euclideousEchoCurrent[listenSource].count - 1) }
+                                    else if euclideousEchoLast[listenSource].count > 0 { strikeFrom(euclideousEchoLast[listenSource], euclideousEchoLast[listenSource].count - 1) }
+                                } else {
+                                    let j = euclideousEchoFollowerJ[lineIndex]
+                                    switch euclideousListenEchoIndex(j: j, currentCount: euclideousEchoCurrent[listenSource].count, lastCount: euclideousEchoLast[listenSource].count) {
+                                    case .current(let idx): strikeFrom(euclideousEchoCurrent[listenSource], idx)
+                                    case .last(let idx): strikeFrom(euclideousEchoLast[listenSource], idx)
+                                    case .rest: break
+                                    }
+                                    euclideousEchoFollowerJ[lineIndex] += 1
+                                }
+                                if pitchCount > notesBefore { hadRiffNote = true; riffRank = thisLaneCount; riffNote = pitches[notesBefore] }
                             } else if riffOn, thisLaneCount > 0 {
                                 let leapStep = (maskedChancePassed && mm.modeResolved == .leap)
                                     ? (((playedStep + mm.leapStepsResolved) % riffLength) + riffLength) % riffLength
@@ -5573,7 +5624,12 @@ final class Router {
                             var notesSlotBits: UInt64 = ~0         // nibble j = strike slot of pitch j (0xF = not a spread pitch); AVOID moves it with the pitch
                             // 7.2 / 8.3: the riff pitch a tied rest carries on is never struck again.
                             let heldRiffPitch = restEnd == 2 ? euclideousHeldRiffPitch[lineIndex] : -1
-                            if !shadowPartnerValid, notesOn, thisLaneCount > 0, litOrder.count > 0,
+                            // LISTEN REBUILT §9.9 (confirmed by this ferry's own §0 research): NOTES pauses
+                            // alongside RIFF whenever RIFF is borrowed — i.e. under SHADOW OR ECHO, not
+                            // just SHADOW — since the NOTES layer reads riff-grid data (the walk ordinal,
+                            // written ranks up to 1024 earlier hits, future columns for TIE) far beyond
+                            // "the hit's single struck riff pitch."
+                            if !shadowOrEchoValid, notesOn, thisLaneCount > 0, litOrder.count > 0,
                                euclideousNotesWhenChooses(when: notesWhen, isRestHit: ranks[playedStep] < 1) {
                                 let usesCount = euclideousNotesWayUsesCount(notesPlayAs)
                                 if usesCount || notesChance < 100 { notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick) }
@@ -5647,79 +5703,56 @@ final class Router {
                                                        tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
                                 return
                             }
-                            // LISTEN/AVOID (§6): checks EACH already-resolved pitch for a coincident collision
-                            // against the partner (or, with ANY, every OTHER lane) — MUTE drops it, MOVE tries
-                            // the next pool rank up, bounded to one full lap of the pool ("within one octave").
-                            // Scoped to the RIFF-sourced pitch (index 0, when `hadRiffNote` — the one pitch this
-                            // function tracks a RANK for); a colliding LIT note is always MUTEd, since there's
-                            // no tracked rank to MOVE it from — a disclosed simplification, not a silent gap.
-                            // "Same pitch" = the same MIDI note number — §6's own open "(My interpretation.)" on
-                            // cross-octave matching is resolved here as NO (an exact note-number match only),
-                            // the literal reading of the ferry's own stated rule.
-                            if listenPitchMode == .avoid {
-                                let epsilonBeats = 0.001 * (tempo / 60.0)
-                                func avoidCollides(_ note: Int, _ atBeat: Double) -> Bool {
-                                    func checks(_ other: EuclidLine) -> Bool {
-                                        guard other.riffOnResolved else { return false }
-                                        let patN = euclideousBuildPatternInto(other, buf: &euclidListenScratch)
-                                        let rate = other.rate?.beats ?? p.euclidRateBeats
-                                        guard let hit = euclideousListenPartnerNoteAt(buf: euclidListenScratch, n: patN, dir: other.directionResolved,
-                                                                                        rateBeats: rate, legacySpanBeats: ladderSpanBeats, atBeat: atBeat, beatsPerBar: beatsPerBar, epsilonBeats: epsilonBeats,
-                                                                                        line: other, ranks: ranks, poolCount: thisLaneCount, poolAsc: { notes[$0].note }) else { return false }
-                                        return hit.note == note
-                                    }
-                                    if listenPitchPartnerAny {
-                                        for j in 0..<linesView.count where j != lineIndex { if checks(linesView[j]) { return true } }
-                                        return false
-                                    }
-                                    guard listenPitchPartnerIdx >= 0, listenPitchPartnerIdx < linesView.count else { return false }
-                                    return checks(linesView[listenPitchPartnerIdx])
+                            // LISTEN REBUILT §4.3 (AVOID): drops EVERY already-resolved pitch (riff or lit —
+                            // not just the riff-sourced one, a real broadening vs the old AVOID) whose
+                            // PITCH CLASS (octave ignored, §4.3/§9.8) is in the source's most recent
+                            // strike. No MOVE any more — the new AVOID is mute-only by construction.
+                            if listenPitch == .avoid, listenSource >= 0, listenSource < 4, listenSource != lineIndex {
+                                var mask: UInt16 = 0
+                                if euclideousEchoCurrent[listenSource].count > 0 {
+                                    euclideousEchoCurrent[listenSource].forEachPitch(euclideousEchoCurrent[listenSource].count - 1) { mask |= UInt16(1) << UInt16((($0 % 12) + 12) % 12) }
+                                } else if euclideousEchoLast[listenSource].count > 0 {
+                                    euclideousEchoLast[listenSource].forEachPitch(euclideousEchoLast[listenSource].count - 1) { mask |= UInt16(1) << UInt16((($0 % 12) + 12) % 12) }
                                 }
-                                var i = 0
-                                while i < pitchCount {
-                                    if avoidCollides(pitches[i], mTickBeat) {
-                                        var moved = false
-                                        if listenAvoidAction == .move, i == 0, hadRiffNote, thisLaneCount > 0 {
-                                            for k in 1...thisLaneCount {
-                                                if let cand = riffResolve(rank: riffRank + k, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }), !avoidCollides(cand, mTickBeat) {
-                                                    pitches[0] = cand; moved = true; break
-                                                }
-                                            }
+                                if mask != 0 {
+                                    var i = 0
+                                    while i < pitchCount {
+                                        if euclideousListenAvoidDrops(note: pitches[i], mask: mask) {
+                                            pitches[i] = pitches[pitchCount - 1]; pitchVel[i] = pitchVel[pitchCount - 1]; pitchGate[i] = pitchGate[pitchCount - 1]
+                                            // NOTES TAB: the layer mark and the ROLL / RUN strike slot travel with the pitch that moved into slot i
+                                            let last = pitchCount - 1
+                                            notesPitchMask = (notesPitchMask & ~(UInt16(1) << UInt16(i))) | (((notesPitchMask >> UInt16(last)) & 1) << UInt16(i))
+                                            notesPitchMask &= ~(UInt16(1) << UInt16(last))
+                                            notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * i))) | (((notesSlotBits >> UInt64(4 * last)) & 0xF) << UInt64(4 * i))
+                                            notesSlotBits |= UInt64(0xF) << UInt64(4 * last)
+                                            pitchCount -= 1
+                                        } else {
+                                            i += 1
                                         }
-                                        if moved { i += 1; continue }
-                                        pitches[i] = pitches[pitchCount - 1]; pitchVel[i] = pitchVel[pitchCount - 1]; pitchGate[i] = pitchGate[pitchCount - 1]
-                                        // NOTES TAB: the layer mark and the ROLL / RUN strike slot travel with the pitch that moved into slot i
-                                        let last = pitchCount - 1
-                                        notesPitchMask = (notesPitchMask & ~(UInt16(1) << UInt16(i))) | (((notesPitchMask >> UInt16(last)) & 1) << UInt16(i))
-                                        notesPitchMask &= ~(UInt16(1) << UInt16(last))
-                                        notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * i))) | (((notesSlotBits >> UInt64(4 * last)) & 0xF) << UInt64(4 * i))
-                                        notesSlotBits |= UInt64(0xF) << UInt64(4 * last)
-                                        pitchCount -= 1
-                                    } else {
-                                        i += 1
                                     }
-                                }
-                                guard pitchCount > 0 else {
-                                    reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
-                                                           tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
-                                    return
+                                    guard pitchCount > 0 else {
+                                        reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                               tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOverride: busOverride)
+                                        return
+                                    }
                                 }
                             }
-                            // LISTEN/DUCK/ACCENT (§7): "on a hit that coincides with a partner hit" — reuses
-                            // the SAME coincidence definition WITH/GAPS use (the partner's own step pattern,
-                            // not its sounding note). Scales every pitch's already-resolved velocity, "after
-                            // the lane's own VEL."
-                            if let levelMode = listenLevelMode, listenLevelPartnerIdx >= 0, listenLevelPartnerIdx < linesView.count {
-                                let partnerLine = linesView[listenLevelPartnerIdx]
-                                let partnerN = euclideousBuildPatternInto(partnerLine, buf: &euclidListenScratch)
-                                let partnerRate = partnerLine.rate?.beats ?? p.euclidRateBeats
-                                let epsilonBeats = 0.001 * (tempo / 60.0)
-                                let coincides = euclideousListenPartnerHasHitAt(buf: euclidListenScratch, n: partnerN, dir: partnerLine.directionResolved,
-                                                                                  rateBeats: partnerRate, spanBeats: spanBeats, atBeat: Double(tick) * sub, epsilonBeats: epsilonBeats)   // RHYTHM POLISH: the partner's CELL beat, not this hit's shifted time
-                                if coincides {
-                                    let scale = levelMode == .duck ? (1.0 - listenLevelAmount) : (1.0 + listenLevelAmount)
-                                    for i in 0..<pitchCount { pitchVel[i] = UInt8(max(1, min(127, Int((Double(pitchVel[i]) * scale).rounded())))) }
+                            // LISTEN REBUILT §1.3/§5.2: capture THIS hit's finished strike — every pitch
+                            // just resolved (riff + notes + this lane's own AVOID, if any), before HIT-WIDE
+                            // MASK's CHORD/OCT/RATCHET-count/ACCENT-SWELL and before mute/solo — into this
+                            // lane's own ECHO buffer, for any OTHER lane that reads it as a SHADOW/ECHO/
+                            // AVOID source. EVERY lane captures, unconditionally: a muted/solo-silenced
+                            // lane still fully computes and captures (§5.2 — exactly how its walk/riff
+                            // position already keeps advancing underneath a silenced lane today). `cy`
+                            // (the floored cycle since the rhythm origin, computed above) is the cycle
+                            // boundary ECHO rolls on — "one pass of the source's pattern" (§1.5).
+                            if lineIndex >= 0, lineIndex < 4 {
+                                if cy != euclideousEchoCycleNum[lineIndex] {
+                                    euclideousEchoLast[lineIndex] = euclideousEchoCurrent[lineIndex]
+                                    euclideousEchoCurrent[lineIndex].reset()
+                                    euclideousEchoCycleNum[lineIndex] = cy
                                 }
+                                euclideousEchoCurrent[lineIndex].append(count: pitchCount, from: pitches)
                             }
 
                             // EUCLID MASK — REPEAT (Paul 2026-10-10 ferry §3, widened for this ferry): "holding
@@ -6660,7 +6693,14 @@ final class Router {
                 lockAnyActive = false; lockHasSplit = false
                 if isEuclideousRow { for i in 0..<4 { lockOverrideActive[i] = false } }
             }
-            let euclideousListenOrder = isEuclideousRow ? euclideousListenProcessingOrder(p.euclidLines) : Array(p.euclidLines.indices)
+            // LISTEN REBUILT: the new single-source processing order (§9.3) — a source is still always
+            // processed before any lane that depends on it, now also load-bearing for ECHO (§5.1), which
+            // (unlike every OLD mode) reads the source's actual per-hit CAPTURED strike, not a fresh
+            // re-derivation from its stored config.
+            let euclideousListenOrder = isEuclideousRow
+                ? euclideousListenProcessingOrder(sources: p.euclidLines.enumerated().map { $0.element.listenSourceResolved(ownLane: $0.offset) },
+                                                   rhythm: p.euclidLines.map { $0.listenRhythmResolved }, pitch: p.euclidLines.map { $0.listenPitchResolved })
+                : Array(p.euclidLines.indices)
             for lineIndex in euclideousListenOrder {
                 guard lineIndex < p.euclidLines.count else { continue }
                 // RANDOM MODE ferry (§6.1): "one slot per card tab" — a lane may have THREE independent
@@ -6749,13 +6789,12 @@ final class Router {
                               litOrder: notesRoll?.notesLitOrder ?? L.litOrderResolved, notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
                               notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,
                               notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
-                              // LISTEN (ferry 2026-10-14) — only Euclideous's own row ever has a non-nil
-                              // mode here (every other `.euclid` cell's `EuclidLine` never sets these
-                              // fields, so they resolve to the byte-identical "off" defaults below).
-                              listenRhythmMode: L.listenRhythmMode, listenRhythmPartnerIdx: L.listenRhythmPartnerResolved, listenFollowRatio: L.listenFollowRatioResolved,
-                              listenLevelMode: L.listenLevelMode, listenLevelPartnerIdx: L.listenLevelPartnerResolved, listenLevelAmount: L.listenLevelAmountResolved,
-                              listenPitchMode: L.listenPitchMode, listenPitchPartnerIdx: L.listenPitchPartnerResolved, listenPitchPartnerAny: L.listenPitchPartnerAnyResolved,
-                              listenShadowInterval: L.listenShadowIntervalResolved, listenShadowOctave: L.listenShadowOctaveResolved, listenAvoidAction: L.listenAvoidActionResolved,
+                              // LISTEN REBUILT (ferry 2026-10-23) — only Euclideous's own row ever has a
+                              // non-OWN mode here (every other `.euclid` cell's `EuclidLine` never sets
+                              // these fields, so they resolve to the byte-identical "off" defaults below).
+                              listenRhythm: L.listenRhythmResolved, listenSource: L.listenSourceResolved(ownLane: lineIndex),
+                              listenDelay: L.listenDelayResolved, listenFeel: L.listenFeelResolved, listenSpeed: L.listenSpeedResolved, listenDirection: L.listenDirectionResolved,
+                              listenPitch: L.listenPitchResolved, listenInterval: L.listenIntervalResolved, listenOctave: L.listenOctaveResolved,
                               // RHYTHM POLISH (2026-10-22): a landed rhythm roll replaces the lane's pattern (a randomise clears the fraction), TILT's unrounded marker rides the lane itself.
                               offsetFraction: rhythmRoll == nil ? L.offsetFractionResolved : 0, tiltFine: L.tiltIsFine,
                               tickFrom: tickFrom, tickBefore: tickBefore)

@@ -11701,13 +11701,16 @@ final class RouterTests: XCTestCase {
     /// Builds the 2-lane (+2 unused/silent) Euclideous cell, runs it for exactly one 8-step lap (forceColumn:
     /// 0, beats sized to 8 steps at 1/8 + a safety margin), and returns every note BLUE (cable 2) actually
     /// struck, in time order, each tagged with which 0-based column (of the shared 8-step grid) it landed on.
-    private func listenRun(_ red: EuclidLine, _ blue: EuclidLine) -> [(col: Int, note: UInt8, vel: UInt8)] {
+    private func listenRun(_ red: EuclidLine, _ blue: EuclidLine, keyRoot: Int? = nil, keyType: ScaleType? = nil) -> [(col: Int, note: UInt8, vel: UInt8)] {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 5, 4, 3, 2, 1])
         c.paramsA.euclidLines = [red, blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
         st.euclideousNoteSource = .midi
+        // LISTEN REBUILT (2026-10-23): §6's INTERVAL/OCTAVE read the page's own KEY pill — explicit here
+        // so a SHADOW/ECHO test's expected notes are easy to hand-verify against a named scale.
+        st.euclideousKeyRoot = keyRoot; st.euclideousKeyType = keyType
         let e = RecordingEmitter()
         let tempo = 110.0, sr = 48_000.0
         // 8 steps × 0.5 beat/step = 4 beats for one full lap. The riff-ordinal walk each lane rides is
@@ -11729,66 +11732,44 @@ final class RouterTests: XCTestCase {
         for h in hits { s[h.col] = "x" }
         return String(s)
     }
-    func testListenT1Follow() {
-        var blue = listenBlueLine(); blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0
+    // LISTEN REBUILT (2026-10-23): T1-T7 rewritten against the new single-source model. T3 (WITH) and T4
+    // (GAPS, as a rhythm FILTER) have no new-model equivalent (§8.3: WITH -> OWN, GAPS -> FILL as a
+    // REPLACEMENT not a filter) — replaced here with DELAY and BKW, the two genuinely new fugue controls
+    // §11's own test 4-6 ask for. T7 (DUCK/ACCENT) is deleted outright — the LEVEL row no longer exists.
+    func testListenT1Copy() {
+        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0
         let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(listenRhythmString(hits), "x..x..x.", "T1 FOLLOW: blue inherits red's own 3-of-8 pattern exactly")
+        XCTAssertEqual(listenRhythmString(hits), "x..x..x.", "T1 COPY: blue inherits red's own 3-of-8 pattern exactly")
     }
-    func testListenT2FollowPlusInvert() {
-        var blue = listenBlueLine(); blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0; blue.patternMiss = true
+    func testListenT2Fill() {
+        var blue = listenBlueLine(); blue.listenRhythm = .fill; blue.listenSource = 0
         let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(listenRhythmString(hits), ".xx.xx.x", "T2 FOLLOW+INV: blue plays exactly red's gaps (the complement of red's pattern)")
+        XCTAssertEqual(listenRhythmString(hits), ".xx.xx.x", "T2 FILL: blue plays exactly red's gaps (the complement of red's pattern)")
     }
-    func testListenT3With() {
-        var blue = listenBlueLine(); blue.listenRhythmMode = .with; blue.listenRhythmPartner = 0
+    func testListenT3CopyWithDelay() {
+        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDelay = 2
         let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(listenRhythmString(hits), "x.....x.", "T3 WITH: blue's own 4-of-8 hits, kept only where they coincide with red's 3-of-8")
+        XCTAssertEqual(listenRhythmString(hits), "x.x..x..", "T3 DELAY 2: red's hits (0,3,6) each shifted 2 steps later (wrapping) — 2,5,0")
     }
-    func testListenT4Gaps() {
-        var blue = listenBlueLine(); blue.listenRhythmMode = .gaps; blue.listenRhythmPartner = 0
+    func testListenT4CopyBackward() {
+        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDirection = .bkw
         let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(listenRhythmString(hits), "..x.x...", "T4 GAPS: blue's own 4-of-8 hits, kept only where they DON'T coincide with red's 3-of-8")
+        XCTAssertEqual(listenRhythmString(hits), ".x..x..x", "T4 BKW: red's own order (0,3,6) read back-to-front (6,3,0)")
     }
-    func testListenT5Shadow() {
+    func testListenT5ShadowMovesByIntervalInTheCurrentKey() {
+        // RHYTHM=COPY too, so blue's hits land EXACTLY on red's own (matching the old T5's own FOLLOW+SHADOW
+        // pairing) — each of blue's 3 hits then shadows red's strike from that SAME tick, in order.
+        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0
+        blue.listenPitch = .shadow; blue.listenInterval = 2   // a third up, in the explicit C MAJOR key below
+        let hits = listenRun(listenRedLine(), blue, keyRoot: 0, keyType: .major)
+        XCTAssertEqual(hits.map { $0.note }, [40, 41, 42], "T5 SHADOW+3RD (C major): red's C2/D2/E\u{266D}2 (36/38/39) each move a diatonic 3rd up to E2/F2/F\u{266F}2 (40/41/42)")
+    }
+    func testListenT6AvoidMutesEveryColliding() {
         var blue = listenBlueLine()
-        blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0
-        blue.listenPitchMode = .shadow; blue.listenPitchPartner = 0; blue.listenShadowInterval = 2   // 3RD
+        blue.pulses = 3   // "give blue exactly red's settings" — same 3-of-8 pattern, same riff/walk, so its own notes exactly collide with red's
+        blue.listenPitch = .avoid; blue.listenSource = 0   // AVOID is mute-only now — no MOVE action any more (§8.3)
         let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(hits.map { $0.note }, [39, 41, 43], "T5 SHADOW+3RD: red plays C2/D2/E\u{266D}2 (36/38/39) at its 3 hits; blue, a diatonic 3rd above each, plays E\u{266D}2/F2/G2 (39/41/43)")
-    }
-    func testListenT6AvoidMute() {
-        var blue = listenBlueLine()
-        blue.pulses = 3   // "give blue exactly red's settings" — same 3-of-8 pattern, same riff/walk
-        blue.listenPitchMode = .avoid; blue.listenPitchPartner = 0   // default action is MUTE
-        let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(hits.count, 0, "T6 AVOID/MUTE: blue would play exactly what red plays at every coincident hit — all of them MUTEd")
-    }
-    func testListenT6AvoidMove() {
-        var blue = listenBlueLine()
-        blue.pulses = 3
-        blue.listenPitchMode = .avoid; blue.listenPitchPartner = 0; blue.listenAvoidAction = .move
-        let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(hits.map { $0.note }, [38, 39, 41], "T6 AVOID/MOVE: red plays C2/D2/E\u{266D}2; blue MOVEs to the next free pool note up each time — D2/E\u{266D}2/F2 (38/39/41)")
-    }
-    func testListenT7DuckAndAccent() {
-        func run_(_ mode: EuclideousLevelMode) -> [Int: UInt8] {
-            var blue = listenBlueLine()   // blue's OWN 4-of-8 rhythm — no RHYTHM-row LISTEN at all
-            blue.listenLevelMode = mode; blue.listenLevelPartner = 0; blue.listenLevelAmount = 0.4
-            let hits = listenRun(listenRedLine(), blue)
-            var byCol: [Int: UInt8] = [:]
-            for h in hits { byCol[h.col] = h.vel }
-            return byCol
-        }
-        let duck = run_(.duck)
-        XCTAssertEqual(duck[0], 60, "T7 DUCK: step 1 (col 0) coincides with red — 100×(1−0.4)=60")
-        XCTAssertEqual(duck[2], 100, "T7 DUCK: step 3 (col 2) does not coincide with red — stays 100")
-        XCTAssertEqual(duck[4], 100, "T7 DUCK: step 5 (col 4) does not coincide with red — stays 100")
-        XCTAssertEqual(duck[6], 60, "T7 DUCK: step 7 (col 6) coincides with red — 100×(1−0.4)=60")
-        let accent = run_(.accent)
-        XCTAssertEqual(accent[0], 127, "T7 ACCENT: step 1 coincides — 100×1.4=140, capped to 127")
-        XCTAssertEqual(accent[2], 100, "T7 ACCENT: step 3 does not coincide — stays 100")
-        XCTAssertEqual(accent[4], 100, "T7 ACCENT: step 5 does not coincide — stays 100")
-        XCTAssertEqual(accent[6], 127, "T7 ACCENT: step 7 coincides — 100×1.4=140, capped to 127")
+        XCTAssertEqual(hits.count, 0, "T6 AVOID: blue would play exactly what red plays at every hit — all of them dropped by pitch class")
     }
     func testListenT8LoopsGreyOutTheWholeCycle() {
         // "with red FOLLOW blue, red is greyed out in all three of blue's partner pickers."
@@ -11830,11 +11811,15 @@ final class RouterTests: XCTestCase {
         func notes(_ cable: Int) -> [UInt8] { e.ons.filter { $0.cable == cable }.sorted { $0.sample < $1.sample }.map { $0.note } }
         return (notes(1), notes(2))
     }
+    // LISTEN REBUILT (2026-10-23): COPY (not just `blue = red`'s own already-matching rhythm) ties blue's
+    // hit timing exactly to red's, so SHADOW's "most recent strike" lookup lands on red's CURRENT hit at
+    // every one of blue's — these tests exercise the REAL mechanism across walk configurations, not a
+    // coincidence of blue/red sharing identical standalone settings.
     private func shadowOf(_ red: EuclidLine) -> EuclidLine {
-        var blue = red                                   // the same rhythm, rate and riff settings…
+        var blue = red
         blue.emitterMask = 0b0010
-        blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0
-        blue.listenPitchMode = .shadow; blue.listenPitchPartner = 0; blue.listenShadowInterval = 0; blue.listenShadowOctave = 0   // …a unison shadow
+        blue.listenRhythm = .copy; blue.listenSource = 0
+        blue.listenPitch = .shadow; blue.listenInterval = 0; blue.listenOctave = 0   // a unison shadow
         return blue
     }
     func testShadowFollowsAPartnerWithAdvanceEvery() {
@@ -11877,13 +11862,17 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(r.count, 8)
         XCTAssertEqual(b, r)
     }
-    func testAvoidMuteSeesThePartnersRealNoteWhenItHasAdvanceEvery() {
+    func testAvoidSeesThePartnersRealNoteWhenItHasAdvanceEvery() {
+        // LISTEN REBUILT: AVOID now reads the source's CAPTURED strike directly — there is no separate
+        // derivation left to disagree with the engine's real note (the old bug class this guarded against
+        // is structurally impossible now). Kept as a plain regression check that ADVANCE EVERY's grouping
+        // doesn't somehow let a colliding note through.
         var red = listenRedLine(); red.riffAdvanceEvery = 2
         var blue = red; blue.emitterMask = 0b0010
-        blue.listenPitchMode = .avoid; blue.listenPitchPartner = 0       // MUTE: blue would play exactly what red plays at every coincident hit
+        blue.listenPitch = .avoid; blue.listenSource = 0
         let (r, b) = listenBothNotes(red, blue, beats: 12)
         XCTAssertGreaterThanOrEqual(r.count, 8)
-        XCTAssertEqual(b.count, 0, "every hit collides with red's REAL note (EVERY 2 included), so all are muted — the old function computed a different note for red and let some through")
+        XCTAssertEqual(b.count, 0, "every hit collides with red's real note (EVERY 2 included), so all are dropped")
     }
     func testAShadowOfAPlainPartnerIsUnchanged() {
         // the baseline T5 path: no EVERY, no chains — the rewrite must reproduce the old answer exactly
@@ -11974,36 +11963,13 @@ final class RouterTests: XCTestCase {
     }
 
     // …and for a FOLLOWing lane, whose pattern, step count and rate are borrowed from its partner (× the multiplier).
-    func testWalkTagMirrorMatchesAFollowingLanesBorrowedPatternAndRate() {
-        let partner = EuclidLine(target: 0, pulses: 3, steps: 7, rate: .r1_8, useRiff: true, sourceMode: .midi)
-        var follower = EuclidLine(target: 0, pulses: 2, steps: 8, rate: .r1_16, useRiff: true, sourceMode: .midi)
-        follower.listenRhythmMode = .follow; follower.listenRhythmPartner = 0; follower.listenFollowMult = 1   // ×2: twice as fast as the partner
-        follower.riffDir = .pendulum
-        let lines = [partner, follower]
-        var seen = Set<Int64>()
-        for beats in [3.3, 7.7, 11.1] {
-            var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-            c.paramsA.euclidLines = lines
-            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                                 scenes: [{ var s = SceneState.empty()
-                                     s.stepRate = .r1_8
-                                     s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                     return s }()])
-            st.euclideousLanesSeqRate = .oneBar
-            let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0)
-            let cfg = euclideousWalkLaneConfig(lane: 1, lines: lines, cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
-            XCTAssertEqual(cfg.n, 7, "the follower takes the partner's step count")
-            XCTAssertEqual(cfg.sub, 0.25, accuracy: 1e-12, "…and its rate × 2")
-            let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, processedEnd = (beats / windowBeats).rounded(.up) * windowBeats   // whole windows are rendered
-            guard let last = euclideousWalkScanHits(cfg, beat: processedEnd - 1e-9, back: 1, ahead: 0).prev.first else { XCTFail("no hit"); continue }
-            let t = euclideousWalkTick(cfg, tick: last)
-            XCTAssertEqual(router.euclideousRiffPositions()[1], t.playedStep, "@\(beats): follower's played step")
-            XCTAssertEqual(router.euclideousRiffWalkState()[1], t.advOrd, "@\(beats): follower's walk ordinal")
-            seen.insert(t.advOrd)
-        }
-        XCTAssertGreaterThan(seen.count, 1)
-    }
+    // LISTEN REBUILT (2026-10-23): `testWalkTagMirrorMatchesAFollowingLanesBorrowedPatternAndRate`
+    // (FOLLOW-vs-mirror agreement) deleted — FOLLOW no longer exists. The walk-tag mirror itself
+    // (`euclideousFollowPartner`/`euclideousEffectiveHitPattern`/`euclideousWalkLaneConfig`, all read old
+    // LISTEN fields still) is NOT YET updated for COPY/FILL/SHADOW/ECHO — that's this ferry's own task #32
+    // (the UI phase: the riff panel's live arrow prediction and the lane card's step-bar fade/comet sweep
+    // read these same functions, so updating them is real UI-mirror work, not a quick patch here). An
+    // equivalent new-model test belongs there, once the mirror itself reads the new fields.
 
     // THE FERRY'S CORE CLAIM: a tag arrives "exactly at the advance's time: the note-on time". The mirror's predicted real
     // onset beat (swing included) must equal the engine's own emitted note-on sample, hit for hit.
@@ -12078,60 +12044,9 @@ final class RouterTests: XCTestCase {
     // MelodyChain` (above, in the LANES-GRID section) stands in for this test's real substance: the walk mirror
     // must never disagree with the real Router, now proven against chains instead of an arbitrary mask.
 
-    // WITH / GAPS lanes: the mirror must predict WHICH raw hits sound (the partner coincidence check), keep counting every raw
-    // hit in the walk ordinal, and still put every predicted onset on the engine's own note-on sample.
-    func testWalkTagMirrorMatchesWithAndGapsLanesInTheEngine() {
-        for (mode, laneRate, partnerRate) in [(EuclideousRhythmMode.gaps, ArpRate.r1_8, ArpRate.r1_8), (.with, .r1_8, .r1_8),
-                                              (.gaps, .r1_16, .r1_8), (.with, .r1_16, .r1_8)] {
-            var partner = EuclidLine(target: 0, pulses: 3, steps: 8, rate: partnerRate, useRiff: false, sourceMode: .midi)
-            partner.emitterMask = 0b0100   // the partner sounds on C so cable 1 (A) carries ONLY the listening lane
-            var lane = EuclidLine(target: 0, pulses: 5, steps: 8, rate: laneRate, useRiff: true, sourceMode: .midi)
-            lane.listenRhythmMode = mode; lane.listenRhythmPartner = 0; lane.riffDir = .pendulum
-            lane.noteSel = .low
-            let lines = [partner, lane]
-            for swing in [50, 62] {
-                var c = Machine(machineID: "gold", type: .euclid)
-                c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-                c.paramsA.euclidLines = lines
-                func box() -> SnapshotBox {
-                    var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                                         scenes: [{ var s = SceneState.empty()
-                                             s.stepRate = .r1_8; s.swing = swing
-                                             s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                             return s }()])
-                    st.euclideousLanesSeqRate = .oneBar
-                    st.euclideousNoteSource = .midi
-                    return SnapshotBuilder.build(from: st)
-                }
-                let held = chord([48, 50, 52, 53, 55, 57, 59, 60])   // 8 notes: every riff rank resolves to a real pitch
-                let cfg = euclideousWalkLaneConfig(lane: 1, lines: lines, cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8,
-                                                   swingPercent: Double(swing), stepBeats: 0.5)!
-                // 1) polled step + walk ordinal of the engine's last STRIKE
-                for beats in [3.3, 7.7, 11.1] {
-                    let router = runKeepingRouter(box(), held, beats: beats, into: RecordingEmitter(), forceColumn: 0)
-                    let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, end = (beats / windowBeats).rounded(.up) * windowBeats
-                    guard let last = euclideousWalkScanHits(cfg, beat: end - 1e-9, back: 1, ahead: 0).prev.first else { continue }
-                    let t = euclideousWalkTick(cfg, tick: last)
-                    XCTAssertEqual(router.euclideousRiffPositions()[1], t.playedStep, "\(mode) \(laneRate)/\(partnerRate) sw\(swing) @\(beats): step")
-                    XCTAssertEqual(router.euclideousRiffWalkState()[1], t.advOrd, "\(mode) \(laneRate)/\(partnerRate) sw\(swing) @\(beats): ordinal (raw hits still counted)")
-                }
-                // 2) predicted strike onsets == the engine's emitted note-on samples (one per strike)
-                let e = RecordingEmitter()
-                run(box(), held, beats: 15.9, into: e, forceColumn: 0)
-                var engineBeats: [Double] = []
-                for b in e.ons.filter({ $0.cable == 1 }).map({ Double($0.sample) / 48_000 * 120 / 60 }).sorted() where engineBeats.last.map({ b - $0 > 0.01 }) ?? true { engineBeats.append(b) }
-                let ticks = (0..<160).map { Int64($0) }
-                let predicted = ticks.filter { euclideousWalkTick(cfg, tick: $0).strikes }.map { euclideousWalkRealBeat(cfg, tick: $0) }.filter { $0 < 15.5 }
-                let silenced = ticks.filter { let t = euclideousWalkTick(cfg, tick: $0); return t.isHit && !t.strikes && euclideousWalkRealBeat(cfg, tick: $0) < 15.5 }
-                XCTAssertGreaterThan(silenced.count, 0, "\(mode): the filter genuinely silences some raw hits here (not vacuous)")
-                XCTAssertGreaterThan(engineBeats.count, 2, "\(mode): the engine played notes")
-                XCTAssertGreaterThanOrEqual(engineBeats.count, predicted.count, "\(mode) \(laneRate)/\(partnerRate) sw\(swing): engine plays at least every predicted strike")
-                for (i, b) in engineBeats.prefix(predicted.count).enumerated() {
-                    XCTAssertEqual(b, predicted[i], accuracy: 0.002, "\(mode) \(laneRate)/\(partnerRate) sw\(swing): strike \(i) — engine note-on vs predicted arrival (beats)")
-                }
-            }
-        }
-    }
+    // LISTEN REBUILT (2026-10-23): `testWalkTagMirrorMatchesWithAndGapsLanesInTheEngine` deleted — WITH and
+    // GAPS no longer exist (GAPS -> FILL has a new-model equivalent; WITH has none, §8.3). Same deferral as
+    // the FOLLOW mirror test above: the mirror itself is task #32's own scope.
 
     // MARK: - FERRY (2026-10-15, "Fourfold settings — a gear, one sheet, three tabs") §10 tests 2-4
 
@@ -14630,10 +14545,14 @@ final class RouterTests: XCTestCase {
             ]
             scenarios.append(GoldenScenario(name: "TILT x OFFSET x \(name)", lines: four, ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false))
         }
-        var follower = line(3, 8, .r1_8, .fwd) { $0.rotate = 2; $0.listenRhythmMode = .follow; $0.listenRhythmPartner = 0; $0.patternMiss = true }
-        follower.listenFollowMult = 0
+        // LISTEN REBUILT (2026-10-23): FOLLOW -> COPY. The follower's own rotate/patternMiss (FLIP) no
+        // longer apply on top while borrowing (§7: "a tab is either fully the lane's own or fully paused"
+        // — the old FOLLOW's "still applies on top" was exactly the half-overridden confusion this rebuild
+        // fixes), so they're left on the line (decode-only, inert) rather than deleted, to keep this
+        // scenario's shape close to its predecessor's.
+        var follower = line(3, 8, .r1_8, .fwd) { $0.rotate = 2; $0.listenRhythm = .copy; $0.listenSource = 0; $0.patternMiss = true }
         let partner = line(5, 8, .r1_8, .bkw) { $0.tilt = 0.5; $0.rotate = 3 }
-        scenarios.append(GoldenScenario(name: "FOLLOW a TILTed OFFSET partner, FLIP", lines: [partner, follower], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false))
+        scenarios.append(GoldenScenario(name: "COPY a TILTed OFFSET partner", lines: [partner, follower], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false))
         let chained = [line(5, 8, .r1_8, .fwd) { $0.tilt = 0.5; $0.rotate = 2; $0.restartRhythmBars = [1]; $0.restartMelodyPasses = [2] },
                        line(4, 7, .r1_8, .pingpong) { $0.tilt = -0.5; $0.rotate = 3; $0.restartRhythmBars = [2]; $0.restartMelodyPasses = [3] }]
         scenarios.append(GoldenScenario(name: "TILT x OFFSET with rhythm and melody chains", lines: chained, ranks: ranks, fx: EuclideousFX(), beats: 24, restartAt: [], maskOn: false))
@@ -14646,11 +14565,12 @@ final class RouterTests: XCTestCase {
         "TILT x OFFSET x FWD": (5352633688982272725, 712),
         "TILT x OFFSET x BKW": (15399358455468573405, 680),
         "TILT x OFFSET x PING-PONG": (522207749321150981, 704),
-        "FOLLOW a TILTed OFFSET partner, FLIP": (6518221313930535797, 208),
+        // LISTEN REBUILT (2026-10-23): recaptured fresh for "COPY a TILTed OFFSET partner" — see the scenario's own comment.
+        "COPY a TILTed OFFSET partner": (6788349491252245445, 256),
         "TILT x OFFSET with rhythm and melody chains": (15993422064495286957, 376),
         "TILT x OFFSET with TIE and REPEAT": (727378462195434669, 256)
     ]
-    func testTiltOffsetFlipFollowLanesRenderTheirGoldenNoteStreams() {
+    func testTiltOffsetCopyLanesRenderTheirGoldenNoteStreams() {
         for sc in rhythmPolishScenarios() {
             let got = goldenStreamHash(sc)
             XCTAssertGreaterThan(got.ons, 0, "\(sc.name): the scenario must actually sound")

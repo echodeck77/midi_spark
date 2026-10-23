@@ -1025,6 +1025,14 @@ struct EuclideousPage: View {
     private func euclideousRandomThrow(lane: Int) {
         let tab = euclideousRandomTab[lane]
         let l = lines[lane]
+        // LISTEN REBUILT §7.3: "nothing writes the lane's own rhythm or riff settings while borrowed: not
+        // the tab, not random mode, not MIDI or automation." THROW on a borrowed RHYTHM/RIFF/NOTES tab
+        // no-ops (§0's own research found no such guard existed under the old model — this is new).
+        let borrowed = euclideousListenBorrowedTabs(rhythm: l.listenRhythmResolved, pitch: l.listenPitchResolved, notesReadsRiff: true)
+        if (tab == .rhythm && borrowed.rhythm) || (tab == .riff && borrowed.riff) || (tab == .notes && borrowed.notes) {
+            euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
+            return
+        }
         switch tab {
         case .rhythm:
             let stepBeats = l.rate?.beats ?? 0.5
@@ -1070,6 +1078,12 @@ struct EuclideousPage: View {
     private func euclideousRandomTweak(lane: Int) {
         let tab = euclideousRandomTab[lane]
         let l = euclideousRandomEffectiveLine(lane: lane)
+        // LISTEN REBUILT §7.3: same borrowed-tab guard as THROW above.
+        let borrowed = euclideousListenBorrowedTabs(rhythm: l.listenRhythmResolved, pitch: l.listenPitchResolved, notesReadsRiff: true)
+        if (tab == .rhythm && borrowed.rhythm) || (tab == .riff && borrowed.riff) || (tab == .notes && borrowed.notes) {
+            euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
+            return
+        }
         switch tab {
         case .rhythm:
             let stepBeats = l.rate?.beats ?? 0.5

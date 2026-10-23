@@ -4122,15 +4122,17 @@ func euclideousListenEchoIndex(j: Int, currentCount: Int, lastCount: Int) -> Euc
     guard lastCount > 0 else { return .rest }
     return .last(j % lastCount)
 }
-/// §6.1-§6.3/§9.7: moves `note` by `interval` scale steps within the key (`keyRoot`/`keyType`), then by
-/// `octave` whole octaves, clamped into 0...127 by whole octaves (§6.3). A note already IN the scale moves
-/// that many scale degrees (wrapping octaves as needed); a note outside it anchors to the nearest scale
-/// degree AT OR BELOW it (§6.2) and keeps its own semitone offset above that degree through the move —
-/// built fresh (not a reuse of the old SHADOW's pool-rank `riffResolve` trick, §0's own finding: a strike
+/// §6.1-§6.3/§9.7: moves `note` by `interval` scale steps within the key (root `keyRoot`, its scale's own
+/// root-relative semitone intervals `scaleIntervals` — e.g. `ScaleType.intervals`, or the render thread's
+/// own already-resolved `p.euclideousChordKeyTones`, so this needs no `ScaleType` dependency at all), then
+/// by `octave` whole octaves, clamped into 0...127 by whole octaves (§6.3). A note already IN the scale
+/// moves that many scale degrees (wrapping octaves as needed); a note outside it anchors to the nearest
+/// scale degree AT OR BELOW it (§6.2) and keeps its own semitone offset above that degree through the move
+/// — built fresh (not a reuse of the old SHADOW's pool-rank `riffResolve` trick, §0's own finding: a strike
 /// can contain a MASK-mutated pitch — MIRROR/LEAP/CLIMB already baked in before capture — that isn't a
 /// clean pool member, so this must work for an ARBITRARY chromatic input, not just a known rank).
-func euclideousListenMoveByInterval(note: Int, interval: Int, octave: Int, keyRoot: Int, keyType: ScaleType) -> Int {
-    let pcs = keyType.intervals.map { ((($0 + keyRoot) % 12) + 12) % 12 }.sorted()
+func euclideousListenMoveByInterval(note: Int, interval: Int, octave: Int, keyRoot: Int, scaleIntervals: [Int]) -> Int {
+    let pcs = scaleIntervals.map { ((($0 + keyRoot) % 12) + 12) % 12 }.sorted()
     guard !pcs.isEmpty else { return max(0, min(127, note + 12 * octave)) }
     let pc = ((note % 12) + 12) % 12
     let noteOctave = (note - pc) / 12

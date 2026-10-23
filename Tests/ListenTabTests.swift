@@ -282,24 +282,24 @@ final class ListenTabTests: XCTestCase {
     }
     func testMoveByIntervalOnAnInScaleNoteMovesByScaleDegreesAndWrapsOctaves() {
         // C major, root 0. UNISON leaves a scale note untouched.
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: 0, keyRoot: 0, keyType: .major), 60)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: 0, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 60)
         // a third up: C(60) -> E(64).
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 2, octave: 0, keyRoot: 0, keyType: .major), 64)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 2, octave: 0, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 64)
         // a 2nd up from B(71, the scale's own top degree) wraps into the octave above: C(72).
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 71, interval: 1, octave: 0, keyRoot: 0, keyType: .major), 72)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 71, interval: 1, octave: 0, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 72)
         // OCTAVE stacks on top, in whole octaves.
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: 1, keyRoot: 0, keyType: .major), 72)
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: -1, keyRoot: 0, keyType: .major), 48)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: 1, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 72)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: -1, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 48)
     }
     func testMoveByIntervalOnAnOutOfScaleNoteAnchorsBelowAndKeepsItsOwnOffset() {
         // C#(61) in C major: UNISON leaves it exactly where it is (anchored to C, offset +1, interval 0 ⇒ still anchor+1).
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 61, interval: 0, octave: 0, keyRoot: 0, keyType: .major), 61)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 61, interval: 0, octave: 0, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 61)
         // a 2nd up: the anchor (C) moves to D, the +1 semitone offset carries, giving D#(63).
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 61, interval: 1, octave: 0, keyRoot: 0, keyType: .major), 63)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 61, interval: 1, octave: 0, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 63)
     }
     func testMoveByIntervalClampsIntoTheLegalMidiRangeByWholeOctaves() {
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 3, interval: 0, octave: -3, keyRoot: 0, keyType: .major), 0)
-        XCTAssertEqual(euclideousListenMoveByInterval(note: 125, interval: 0, octave: 3, keyRoot: 0, keyType: .major), 127)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 3, interval: 0, octave: -3, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 0)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 125, interval: 0, octave: 3, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 127)
     }
     func testAvoidMaskIsPitchClassOnlyOctaveIgnored() {
         let mask = euclideousListenAvoidMask(strike: [60])   // C4
