@@ -3977,6 +3977,197 @@ func euclideousListenBreakLoops(_ lines: [EuclidLine]) -> [EuclidLine] {
     return result
 }
 
+// ── LISTEN REBUILT (ferry 2026-10-23, "Fourfold Listen Tab") — §9 pure functions ──────────────────────────
+// REPLACES the whole section above: one shared SOURCE lane per follower (not one partner per row), so the
+// dependency graph is now a simple "functional graph" — every lane has AT MOST ONE outgoing edge (its own
+// source, and only while it's actually following something). The old functions above stay defined, still
+// called by the OLD UI toggle handlers (EuclideousPage.swift) and the OLD engine processing-order call site
+// (Router.swift) until those are rewired (tasks #31/#32 of this ferry) — deleted together with their call
+// sites then, not left half-migrated. `euclideousListenBreakLoops` above is the one exception: its single
+// caller (SnapshotBuilder) is updated in this same commit, since by the time that call runs, every line's
+// old fields have ALREADY been migrated into the new ones (the decoder's own migration, §8) — so the old
+// breaker is provably dead for that call site specifically, and replacing it there is low-risk/self-contained.
+
+/// §9.1: is this lane following anything at all right now?
+func euclideousListenIsFollowing(rhythm: EuclideousListenRhythmMode, pitch: EuclideousListenPitchMode) -> Bool {
+    rhythm != .own || pitch != .own
+}
+/// §9.2: does `lane` depend on `target`, directly or through a chain of sources? `sources[i]` is lane i's
+/// resolved source, or nil when lane i isn't following anything right now (so it has no outgoing edge at
+/// all) — bounded to `sources.count` hops, so a cycle that somehow slipped through can never hang this.
+func euclideousListenFollowsTransitively(lane: Int, target: Int, sources: [Int?]) -> Bool {
+    let n = sources.count
+    guard lane >= 0, lane < n, target >= 0, target < n else { return false }
+    var cur = lane
+    for _ in 0..<n {
+        guard let next = sources[cur] else { return false }
+        if next == target { return true }
+        cur = next
+    }
+    return false
+}
+/// §2.1: which other-lane chips must be disabled on `lane`'s FOLLOW row right now — itself, always; and
+/// any lane that (directly or transitively) already follows `lane`, since picking it as `lane`'s own
+/// source would close a cycle.
+func euclideousListenDisabledSources(lane: Int, sources: [Int?]) -> Set<Int> {
+    let n = sources.count
+    var disabled = Set<Int>([lane])
+    guard lane >= 0, lane < n else { return disabled }
+    for other in 0..<n where other != lane {
+        if euclideousListenFollowsTransitively(lane: other, target: lane, sources: sources) { disabled.insert(other) }
+    }
+    return disabled
+}
+/// §9.3/§5.1: a source is processed before any lane that depends on it RIGHT NOW — a lane with both rows
+/// OWN has no live dependency even if `sources[i]` still holds a stale value from a previous state.
+/// Kahn's algorithm on the (acyclic-by-construction — §9.2's own disabled-set check, used by the picker,
+/// prevents a cycle from ever being stored) single-source-per-lane graph. Falls back to index order for
+/// whatever's left if a cycle somehow slipped through anyway — never hangs, never silently drops a lane.
+func euclideousListenProcessingOrder(sources: [Int], rhythm: [EuclideousListenRhythmMode], pitch: [EuclideousListenPitchMode]) -> [Int] {
+    let n = sources.count
+    guard n > 0, rhythm.count == n, pitch.count == n else { return Array(0..<n) }
+    func dependency(_ i: Int) -> Int? {
+        guard euclideousListenIsFollowing(rhythm: rhythm[i], pitch: pitch[i]) else { return nil }
+        let s = sources[i]
+        return (s >= 0 && s < n && s != i) ? s : nil
+    }
+    var order: [Int] = []
+    var placed = Set<Int>()
+    while order.count < n {
+        var progressed = false
+        for i in 0..<n where !placed.contains(i) {
+            if let d = dependency(i), !placed.contains(d) { continue }
+            order.append(i); placed.insert(i); progressed = true
+        }
+        if !progressed { for i in 0..<n where !placed.contains(i) { order.append(i); placed.insert(i) }; break }
+    }
+    return order
+}
+/// §8.4: if a loaded document's LISTEN graph contains a cycle, the first lane (walking 1→4, i.e. index
+/// 0→3) found closing it has BOTH rows forced back to OWN. Runs AFTER migration (§8), so every line here
+/// is already on the new single-source model.
+func euclideousListenBreakLoopsOnTheNewModel(_ lines: [EuclidLine]) -> [EuclidLine] {
+    var result = lines
+    let n = min(4, lines.count)
+    guard n > 0 else { return result }
+    var sources = [Int?](repeating: nil, count: n)
+    for i in 0..<n {
+        let L = result[i]
+        guard euclideousListenIsFollowing(rhythm: L.listenRhythmResolved, pitch: L.listenPitchResolved) else { continue }
+        let s = L.listenSourceResolved(ownLane: i)
+        if s == i || s >= n || euclideousListenFollowsTransitively(lane: s, target: i, sources: sources) {
+            result[i].listenRhythm = .own; result[i].listenPitch = .own
+        } else {
+            sources[i] = s
+        }
+    }
+    return result
+}
+/// §3.1-§3.2/§9.4: COPY takes the source's hits; FILL takes its rests. `sourcePattern`/`n` is the
+/// source's own FINISHED pattern (its own OFFSET/TILT/INV already applied, exactly what its comet strip
+/// shows) — the caller builds it with `euclideousBuildHitPatternInto`, the same function FOLLOW used to
+/// read. Writes into `out` (sized ≥ n); returns n. `mode == .own` writes nothing meaningful (callers only
+/// ever reach this while actually COPY/FILL, per `borrowedTabs`/`isFollowing`).
+@discardableResult
+func euclideousListenBorrowedHits(sourcePattern: [Bool], n: Int, mode: EuclideousListenRhythmMode, into out: inout [Bool]) -> Int {
+    let nn = max(0, n)
+    for i in 0..<nn { out[i] = mode == .fill ? !sourcePattern[i] : sourcePattern[i] }
+    return nn
+}
+/// §3.4/§9.5 (inner step): the position (0..<n) in the BORROWED pattern a follower's own raw step counter
+/// `followerRaw` (an ever-increasing count since the follower itself started, already past DELAY) reads.
+/// FWD (>): exactly the order the source is playing its OWN pattern right now — `euclidReadIndex` with the
+/// SOURCE's own direction, fed the follower's raw counter directly (this IS "the source's live order,"
+/// read cheaply — the spec's own fallback, "if it can't be read cheaply, use stored order," is never
+/// needed). BKW (<): the reverse of that order (the raw counter mirrored within the SOURCE's own cycle
+/// length before the same read). PING-PONG (><): the source's STORED order (its own direction ignored,
+/// §3.4's explicit exception), ping-ponged on the follower's own raw counter directly.
+func euclideousListenBorrowedIndex(followerRaw: Int, n: Int, followerDirection: EuclidDir, sourceDirection: EuclidDir) -> Int {
+    guard n > 0 else { return 0 }
+    switch followerDirection {
+    case .pingpong:
+        let cyc = euclidCycleLen(.pingpong, n: n)
+        let raw = ((followerRaw % cyc) + cyc) % cyc
+        return euclidReadIndex(raw, n: n, dir: .pingpong)
+    case .fwd, .bkw:
+        let cyc = euclidCycleLen(sourceDirection, n: n)
+        var raw = ((followerRaw % cyc) + cyc) % cyc
+        if followerDirection == .bkw { raw = (cyc - 1 - raw + cyc) % cyc }
+        return euclidReadIndex(raw, n: n, dir: sourceDirection)
+    }
+}
+/// §3.3/§3.5/§3.6/§9.5: the follower's step index into the borrowed pattern at beat `beat` — nil ⇒ "not
+/// yet" (before DELAY steps of this transport run have passed, §3.6). `sourceStepBeats`/`n` are the
+/// source's own step length/pattern length; `startBeat` is the transport-start anchor (§3.5, "on transport
+/// start both start together") DELAY/SPEED count from, not absolute beat 0. `speed` is the EXPONENT
+/// (`listenSpeedResolved`) — the follower's own step length is the source's ÷ 2^speed (§3.3), directly, no
+/// sign inversion.
+func euclideousListenFollowerPosition(beat: Double, startBeat: Double, sourceStepBeats: Double, n: Int,
+                                       speed: Int, delay: Int, direction: EuclidDir, sourceDirection: EuclidDir) -> Int? {
+    guard n > 0, sourceStepBeats > 0 else { return nil }
+    let followerStepBeats = sourceStepBeats / pow(2.0, Double(speed))
+    guard followerStepBeats > 0, beat >= startBeat else { return nil }
+    let raw = Int(floor((beat - startBeat) / followerStepBeats)) - max(0, delay)
+    guard raw >= 0 else { return nil }
+    return euclideousListenBorrowedIndex(followerRaw: raw, n: n, followerDirection: direction, sourceDirection: sourceDirection)
+}
+/// §4.2/§9.6: which stored strike ECHO plays for a follower hit of rank `j` (0 for the first hit in its
+/// own pattern's stored order) — the source's CURRENT cycle if it has reached that many strikes yet, else
+/// its LAST completed cycle (wrapped by `j modulo lastCount` if `j` runs past it), else a rest (neither
+/// cycle has any strikes at all yet).
+enum EuclideousListenEchoPick: Equatable { case current(Int), last(Int), rest }
+func euclideousListenEchoIndex(j: Int, currentCount: Int, lastCount: Int) -> EuclideousListenEchoPick {
+    guard j >= 0 else { return .rest }
+    if j < currentCount { return .current(j) }
+    guard lastCount > 0 else { return .rest }
+    return .last(j % lastCount)
+}
+/// §6.1-§6.3/§9.7: moves `note` by `interval` scale steps within the key (`keyRoot`/`keyType`), then by
+/// `octave` whole octaves, clamped into 0...127 by whole octaves (§6.3). A note already IN the scale moves
+/// that many scale degrees (wrapping octaves as needed); a note outside it anchors to the nearest scale
+/// degree AT OR BELOW it (§6.2) and keeps its own semitone offset above that degree through the move —
+/// built fresh (not a reuse of the old SHADOW's pool-rank `riffResolve` trick, §0's own finding: a strike
+/// can contain a MASK-mutated pitch — MIRROR/LEAP/CLIMB already baked in before capture — that isn't a
+/// clean pool member, so this must work for an ARBITRARY chromatic input, not just a known rank).
+func euclideousListenMoveByInterval(note: Int, interval: Int, octave: Int, keyRoot: Int, keyType: ScaleType) -> Int {
+    let pcs = keyType.intervals.map { ((($0 + keyRoot) % 12) + 12) % 12 }.sorted()
+    guard !pcs.isEmpty else { return max(0, min(127, note + 12 * octave)) }
+    let pc = ((note % 12) + 12) % 12
+    let noteOctave = (note - pc) / 12
+    let m = pcs.count
+    let degree: Int, offset: Int
+    if let d = pcs.lastIndex(where: { $0 <= pc }) { degree = d; offset = pc - pcs[d] }
+    else { degree = m - 1; offset = pc - (pcs[m - 1] - 12) }   // below every degree THIS octave: anchor to the top degree of the octave below
+    let base = degree + interval
+    let wrapped = ((base % m) + m) % m
+    let laps = (base - wrapped) / m
+    let moved = (noteOctave + laps) * 12 + pcs[wrapped] + offset + 12 * octave
+    return max(0, min(127, moved))
+}
+/// §4.3/§9.8: the 12-bit pitch-class mask of a strike (octave ignored, §4.3's own "my interpretation" —
+/// an exact note-number match only, like the old AVOID, is explicitly NOT what the new spec asks for).
+func euclideousListenAvoidMask(strike: [Int]) -> UInt16 {
+    var m: UInt16 = 0
+    for note in strike { m |= UInt16(1) << UInt16(((note % 12) + 12) % 12) }
+    return m
+}
+/// §4.3/§9.8: does `mask` (from `euclideousListenAvoidMask`) require dropping `note`?
+func euclideousListenAvoidDrops(note: Int, mask: UInt16) -> Bool {
+    (mask >> UInt16(((note % 12) + 12) % 12)) & 1 != 0
+}
+/// §7.1/§9.9: which tabs pause while this lane is following. RHYTHM pauses under COPY/FILL; RIFF pauses
+/// under SHADOW/ECHO only (NOT AVOID — §4.3/§4.4 confirm AVOID plays the lane's OWN riff live, just drops
+/// colliding notes from it). NOTES pauses alongside RIFF whenever `notesReadsRiff` is true — confirmed
+/// true by this ferry's own §0 research (the NOTES layer reads the riff's walk ordinal, written-rank grid
+/// up to 1024 earlier hits for CHANCE, and future columns for TIE — far more than "the hit's single struck
+/// riff pitch" — so §4.6 always resolves to "NOTES pauses with RIFF" in this build; the parameter stays,
+/// matching the spec's own signature, for the one caller that supplies the real, confirmed answer).
+struct EuclideousListenBorrowedTabs: Equatable { var rhythm: Bool; var riff: Bool; var notes: Bool }
+func euclideousListenBorrowedTabs(rhythm: EuclideousListenRhythmMode, pitch: EuclideousListenPitchMode, notesReadsRiff: Bool) -> EuclideousListenBorrowedTabs {
+    let riffBorrowed = pitch == .shadow || pitch == .echo
+    return EuclideousListenBorrowedTabs(rhythm: rhythm == .copy || rhythm == .fill, riff: riffBorrowed, notes: riffBorrowed && notesReadsRiff)
+}
+
 /// A lane's own FINISHED hit pattern — HITS/TILT/customHits → OFFSET(rotate) → patternMiss-invert, in
 /// that exact order, mirroring `runEuclidLine`'s own inline pattern-build precisely (duplicated here, not
 /// shared, since the render-thread original mutates a REUSED scratch buffer in place for zero allocation,

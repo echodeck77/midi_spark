@@ -1155,6 +1155,9 @@ final class EffectiveParamsTests: XCTestCase {
         l.resetSteps = 4; l.restartMask = 0b0000_0101; l.listenRhythmMode = .gaps; l.listenRhythmPartner = 2; l.listenFollowMult = -1
         l.listenPitchMode = .avoid; l.listenPitchPartner = 1; l.listenPitchPartnerAny = true; l.listenShadowInterval = 3; l.listenShadowOctave = -1
         l.listenAvoidAction = .move; l.listenLevelMode = .accent; l.listenLevelPartner = 3; l.listenLevelAmount = 0.65
+        // LISTEN REBUILT (2026-10-23)
+        l.listenSource = 2; l.listenRhythm = .fill; l.listenDelay = 3; l.listenFeel = -0.2; l.listenSpeed = 1
+        l.listenDirection = .pingpong; l.listenPitch = .echo; l.listenInterval = -4; l.listenOctave = 2
         l.notesGate = 0.45; l.notesVelocity = 66
         l.muteCells16 = 0x0F3C; l.muteUnit = 3; l.restartRhythmMask16 = 0x0121; l.restartMelodyMask16 = 0x8040; l.restartUnit = 4   // LANES GRID
         l.restartRhythmBars = [2, 1]; l.restartMelodyPasses = [1]; l.hitsRequested = 5; l.offsetRequested = 3   // RESTART CHAINS (2026-10-19)

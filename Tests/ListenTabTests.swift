@@ -163,4 +163,157 @@ final class ListenTabTests: XCTestCase {
         // the old fields themselves stay decoded too (hide, don't delete — §0.2)
         XCTAssertEqual(line.listenPitchMode, .shadow); XCTAssertEqual(line.listenPitchPartner, 2)
     }
+
+    // MARK: 4. §9 pure functions
+
+    func testIsFollowingIsTrueWheneverEitherRowIsNotOwn() {
+        XCTAssertFalse(euclideousListenIsFollowing(rhythm: .own, pitch: .own))
+        XCTAssertTrue(euclideousListenIsFollowing(rhythm: .copy, pitch: .own))
+        XCTAssertTrue(euclideousListenIsFollowing(rhythm: .own, pitch: .shadow))
+        XCTAssertTrue(euclideousListenIsFollowing(rhythm: .fill, pitch: .avoid))
+    }
+    func testFollowsTransitivelyWalksTheChainAndStopsAtNil() {
+        // 0 -> 1 -> 2; 3 follows nothing.
+        let sources: [Int?] = [1, 2, nil, nil]
+        XCTAssertTrue(euclideousListenFollowsTransitively(lane: 0, target: 1, sources: sources))
+        XCTAssertTrue(euclideousListenFollowsTransitively(lane: 0, target: 2, sources: sources), "transitively, through lane 1")
+        XCTAssertFalse(euclideousListenFollowsTransitively(lane: 0, target: 3, sources: sources))
+        XCTAssertFalse(euclideousListenFollowsTransitively(lane: 2, target: 0, sources: sources), "2 follows nothing")
+        XCTAssertFalse(euclideousListenFollowsTransitively(lane: 3, target: 0, sources: sources))
+    }
+    func testFollowsTransitivelyIsBoundedAgainstAStrayCycle() {
+        // a cycle that should never be stored, but must not hang the walk if it somehow were.
+        let sources: [Int?] = [1, 0, nil, nil]
+        XCTAssertTrue(euclideousListenFollowsTransitively(lane: 0, target: 1, sources: sources))
+        XCTAssertFalse(euclideousListenFollowsTransitively(lane: 0, target: 2, sources: sources))
+    }
+    func testDisabledSourcesExcludesSelfAndAnythingThatAlreadyFollowsThisLane() {
+        // 1 -> 0 (lane 1 follows lane 0). Lane 0's own FOLLOW-row picker must disable lane 1 (picking it
+        // as lane 0's source would close the loop) and lane 0 itself.
+        let sources: [Int?] = [nil, 0, nil, nil]
+        let disabled = euclideousListenDisabledSources(lane: 0, sources: sources)
+        XCTAssertEqual(disabled, Set([0, 1]))
+        XCTAssertEqual(euclideousListenDisabledSources(lane: 2, sources: sources), Set([2]), "lane 2 has no followers — only itself is disabled")
+    }
+    func testProcessingOrderPutsASourceBeforeItsFollowerAndIgnoresAStaleSourceWhenOwn() {
+        // lane 1 copies lane 0's rhythm; lane 2 has a stale `source=1` but both its rows are OWN, so it
+        // has NO live dependency and may land anywhere relative to lane 1.
+        let order = euclideousListenProcessingOrder(sources: [0, 0, 1, 0], rhythm: [.own, .copy, .own, .own], pitch: [.own, .own, .own, .own])
+        XCTAssertEqual(order.count, 4)
+        XCTAssertLessThan(order.firstIndex(of: 0)!, order.firstIndex(of: 1)!, "lane 0 (the source) before lane 1 (the follower)")
+    }
+    func testProcessingOrderNeverHangsOnAStrayCycle() {
+        let order = euclideousListenProcessingOrder(sources: [1, 0, 0, 0], rhythm: [.copy, .copy, .own, .own], pitch: [.own, .own, .own, .own])
+        XCTAssertEqual(Set(order), Set(0...3), "every lane still appears exactly once")
+    }
+    func testBreakLoopsOnTheNewModelForcesTheFirstLaneThatClosesACycleBackToOwn() {
+        var lines = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        lines[0].listenRhythm = .copy; lines[0].listenSource = 1   // 0 -> 1
+        lines[1].listenPitch = .shadow; lines[1].listenSource = 0  // 1 -> 0, closing the loop
+        let fixed = euclideousListenBreakLoopsOnTheNewModel(lines)
+        XCTAssertEqual(fixed[0].listenRhythmResolved, .copy, "lane 0 (scanned first) is untouched — it didn't close anything yet")
+        XCTAssertEqual(fixed[1].listenRhythmResolved, .own); XCTAssertEqual(fixed[1].listenPitchResolved, .own, "lane 1's own edge is what closed the loop")
+    }
+    func testBreakLoopsOnTheNewModelLeavesAnAcyclicGraphUntouched() {
+        var lines = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        lines[1].listenRhythm = .copy; lines[1].listenSource = 0
+        lines[2].listenPitch = .echo; lines[2].listenSource = 1
+        let fixed = euclideousListenBreakLoopsOnTheNewModel(lines)
+        XCTAssertEqual(fixed[1].listenRhythmResolved, .copy); XCTAssertEqual(fixed[2].listenPitchResolved, .echo)
+    }
+    func testBorrowedHitsCopyTakesTheSourcesHitsFillTakesItsRests() {
+        let source = [true, false, true, false, false]
+        var out = [Bool](repeating: false, count: 5)
+        XCTAssertEqual(euclideousListenBorrowedHits(sourcePattern: source, n: 5, mode: .copy, into: &out), 5)
+        XCTAssertEqual(out, source)
+        XCTAssertEqual(euclideousListenBorrowedHits(sourcePattern: source, n: 5, mode: .fill, into: &out), 5)
+        XCTAssertEqual(out, [false, true, false, true, true])
+    }
+    func testBorrowedIndexForwardMirrorsTheSourcesOwnLiveOrderIncludingWhenTheSourceIsPendulum() {
+        // FWD: the follower's raw counter fed straight through the SOURCE's own direction function — a
+        // pendulum (PING-PONG) source gives a pendulum follower "for free," matching §3.4's own example.
+        for raw in 0..<8 {
+            XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: raw, n: 4, followerDirection: .fwd, sourceDirection: .pingpong),
+                            euclidReadIndex(raw % euclidCycleLen(.pingpong, n: 4), n: 4, dir: .pingpong), "raw \(raw)")
+        }
+        // a plain FWD source under a FWD follower is just identity.
+        for raw in 0..<4 {
+            XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: raw, n: 4, followerDirection: .fwd, sourceDirection: .fwd), raw)
+        }
+    }
+    func testBorrowedIndexBackwardReversesTheSourcesOrder() {
+        // source FWD, follower BKW: step 0 reads the source's LAST step, not its first.
+        XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: 0, n: 4, followerDirection: .bkw, sourceDirection: .fwd), 3)
+        XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: 3, n: 4, followerDirection: .bkw, sourceDirection: .fwd), 0)
+    }
+    func testBorrowedIndexPingPongUsesTheSourcesStoredOrderIgnoringItsLiveDirection() {
+        // even if the source is itself BKW, a PING-PONG follower ping-pongs the STORED (FWD) order.
+        XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: 0, n: 4, followerDirection: .pingpong, sourceDirection: .bkw), 0)
+        XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: 4, n: 4, followerDirection: .pingpong, sourceDirection: .bkw), 3, "the turn")
+        XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: 5, n: 4, followerDirection: .pingpong, sourceDirection: .bkw), 2, "bouncing back")
+    }
+    func testFollowerPositionIsNilBeforeTheDelayedStepsHaveElapsed() {
+        // sourceStepBeats 1, DELAY 2, SPEED x1: the follower's own raw step 0 and 1 are "not yet" (rawAfterDelay < 0).
+        XCTAssertNil(euclideousListenFollowerPosition(beat: 0, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 0, delay: 2, direction: .fwd, sourceDirection: .fwd))
+        XCTAssertNil(euclideousListenFollowerPosition(beat: 1, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 0, delay: 2, direction: .fwd, sourceDirection: .fwd))
+        XCTAssertEqual(euclideousListenFollowerPosition(beat: 2, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 0, delay: 2, direction: .fwd, sourceDirection: .fwd), 0,
+                       "the DELAYth step is the first one that plays (position 0 of the borrowed pattern)")
+    }
+    func testFollowerPositionAtDefaultsTracksTheSourceStepForStep() {
+        for raw in 0..<8 {
+            let beat = Double(raw) * 1.0
+            XCTAssertEqual(euclideousListenFollowerPosition(beat: beat, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 0, delay: 0, direction: .fwd, sourceDirection: .fwd),
+                           raw % 4, "defaults (delay 0, speed x1, fwd): sample-for-sample with the source")
+        }
+    }
+    func testFollowerPositionSpeedHalvesOrDoublesTheEffectiveStepLength() {
+        // SPEED x2 (exponent 1): follower step length is sourceStepBeats/2 — twice as many follower steps per source step.
+        XCTAssertEqual(euclideousListenFollowerPosition(beat: 0.5, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 1, delay: 0, direction: .fwd, sourceDirection: .fwd), 1)
+        // SPEED x1/2 (exponent -1): follower step length is sourceStepBeats*2 — half as many steps; beat 1 is still raw step 0.
+        XCTAssertEqual(euclideousListenFollowerPosition(beat: 1, startBeat: 0, sourceStepBeats: 1, n: 4, speed: -1, delay: 0, direction: .fwd, sourceDirection: .fwd), 0)
+        XCTAssertEqual(euclideousListenFollowerPosition(beat: 2, startBeat: 0, sourceStepBeats: 1, n: 4, speed: -1, delay: 0, direction: .fwd, sourceDirection: .fwd), 1)
+    }
+    func testEchoIndexPlaysTheCurrentCycleWhileItHasReachedThatRankElseTheLastOneElseRest() {
+        XCTAssertEqual(euclideousListenEchoIndex(j: 0, currentCount: 3, lastCount: 8), .current(0))
+        XCTAssertEqual(euclideousListenEchoIndex(j: 2, currentCount: 3, lastCount: 8), .current(2))
+        XCTAssertEqual(euclideousListenEchoIndex(j: 3, currentCount: 3, lastCount: 8), .last(3), "current hasn't reached rank 3 yet — falls back to the last completed cycle")
+        XCTAssertEqual(euclideousListenEchoIndex(j: 9, currentCount: 3, lastCount: 8), .last(1), "9 modulo the last cycle's own 8 strikes")
+        XCTAssertEqual(euclideousListenEchoIndex(j: 0, currentCount: 0, lastCount: 0), .rest, "neither cycle has struck anything yet")
+    }
+    func testMoveByIntervalOnAnInScaleNoteMovesByScaleDegreesAndWrapsOctaves() {
+        // C major, root 0. UNISON leaves a scale note untouched.
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: 0, keyRoot: 0, keyType: .major), 60)
+        // a third up: C(60) -> E(64).
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 2, octave: 0, keyRoot: 0, keyType: .major), 64)
+        // a 2nd up from B(71, the scale's own top degree) wraps into the octave above: C(72).
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 71, interval: 1, octave: 0, keyRoot: 0, keyType: .major), 72)
+        // OCTAVE stacks on top, in whole octaves.
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: 1, keyRoot: 0, keyType: .major), 72)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 0, octave: -1, keyRoot: 0, keyType: .major), 48)
+    }
+    func testMoveByIntervalOnAnOutOfScaleNoteAnchorsBelowAndKeepsItsOwnOffset() {
+        // C#(61) in C major: UNISON leaves it exactly where it is (anchored to C, offset +1, interval 0 ⇒ still anchor+1).
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 61, interval: 0, octave: 0, keyRoot: 0, keyType: .major), 61)
+        // a 2nd up: the anchor (C) moves to D, the +1 semitone offset carries, giving D#(63).
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 61, interval: 1, octave: 0, keyRoot: 0, keyType: .major), 63)
+    }
+    func testMoveByIntervalClampsIntoTheLegalMidiRangeByWholeOctaves() {
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 3, interval: 0, octave: -3, keyRoot: 0, keyType: .major), 0)
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 125, interval: 0, octave: 3, keyRoot: 0, keyType: .major), 127)
+    }
+    func testAvoidMaskIsPitchClassOnlyOctaveIgnored() {
+        let mask = euclideousListenAvoidMask(strike: [60])   // C4
+        XCTAssertTrue(euclideousListenAvoidDrops(note: 60, mask: mask)); XCTAssertTrue(euclideousListenAvoidDrops(note: 72, mask: mask), "C5 — same pitch class, different octave")
+        XCTAssertFalse(euclideousListenAvoidDrops(note: 61, mask: mask), "C# is a different pitch class")
+    }
+    func testBorrowedTabsRhythmPausesUnderCopyOrFillRiffPausesUnderShadowOrEchoNotAvoid() {
+        XCTAssertEqual(euclideousListenBorrowedTabs(rhythm: .copy, pitch: .own, notesReadsRiff: true), EuclideousListenBorrowedTabs(rhythm: true, riff: false, notes: false))
+        XCTAssertEqual(euclideousListenBorrowedTabs(rhythm: .fill, pitch: .own, notesReadsRiff: true), EuclideousListenBorrowedTabs(rhythm: true, riff: false, notes: false))
+        XCTAssertEqual(euclideousListenBorrowedTabs(rhythm: .own, pitch: .shadow, notesReadsRiff: true), EuclideousListenBorrowedTabs(rhythm: false, riff: true, notes: true))
+        XCTAssertEqual(euclideousListenBorrowedTabs(rhythm: .own, pitch: .echo, notesReadsRiff: true), EuclideousListenBorrowedTabs(rhythm: false, riff: true, notes: true))
+        XCTAssertEqual(euclideousListenBorrowedTabs(rhythm: .own, pitch: .avoid, notesReadsRiff: true), EuclideousListenBorrowedTabs(rhythm: false, riff: false, notes: false),
+                       "AVOID plays the lane's OWN riff live — it never pauses RIFF/NOTES")
+        XCTAssertEqual(euclideousListenBorrowedTabs(rhythm: .own, pitch: .shadow, notesReadsRiff: false), EuclideousListenBorrowedTabs(rhythm: false, riff: true, notes: false),
+                       "the parameter is honoured literally — only this build's one real caller supplies the confirmed `true`")
+    }
 }
