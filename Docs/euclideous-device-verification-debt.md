@@ -17,6 +17,18 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### CLARITY PASS (2026-10-23)
+- LAUNCH the DEBUG build from Xcode into AUM first (the lane tab row and the MIX tab were rebuilt; the DEBUG frames were compared against the previous build and the strip's draw closure is +16 bytes, `mixCell` −1.6 KB); the RHYTHM tab row and the MIX tab must come up on all four lanes.
+- Beat shading reads as countable blocks without looking busy at 8, 12 and 16 steps and under a triplet (groups of 3): #41454F / #30333A rests on the card ground, a 0-hit lane still showing every step.
+- Hit columns at 42 % / 30 % in all four lane colours: clearly hits, clearly lane, and the chips still read on them (computed: the white chip stays ≥ 2.8:1 and ΔE ≥ 38 from the lane column).
+- The current chip vs a 42 % lane column (spec 1.4): no border was added; the worst case is the red lane, group A, at the chip's top (2.79:1) — if it is not distinct enough on the iPad add the 1 pt #F2F4F7 inner border to the current chip only.
+- The 9 pt glyphs: square vs bar distinguishable at a glance beside the label; the 40 % off state reads as off, not broken; LISTEN's circle in the source lane's colour (and the four-colour circle for AVOID + ANY).
+- "RHYTHM n/m" at real tab widths — it truncates the count, not the label, on a narrow tab or a locked lane.
+- MIX lane panels (6 % tint, 35 % border) group the pads without adding clutter; the panels' 2×2 positions match the lane cards.
+- "VEL 100" / "90%" and the pad labels legible over the pad fill in all four lane colours; the label and the puck/extension lines crossing when VEL is high and GATE mid (label top-left, puck near it).
+- An OFF pad: the dashed outline, "OFF", the label and glyph (outline) legible; a tap does nothing; its stepper at 50 % still edits.
+- Solo a lane: the other lanes' whole MIX panels (tint, border, pads, steppers, OUT row) dim once to 42 %; and "OCT +1" with the 21 pt buttons at the real width.
+
 ### RESTART TILES (2026-10-22)
 - LAUNCH the DEBUG build from Xcode into AUM first (new leaves `restartEditorStrip`, `restartTileLayer`, 2.8–3.3 KB each on the 1 MB main stack); the RHYTHM tab and the restart editor must come up on all four lanes.
 - Repeat strikes on one MELODY cell read as "the same note again", not as noise, with four lanes running (EVERY 2, ADV STEP, REPEAT on rest).

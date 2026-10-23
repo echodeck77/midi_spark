@@ -5,6 +5,16 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — CLARITY PASS: beat-shaded step columns, tab glyphs, MIX lane panels (2026-10-23; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "CLARITY PASS" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build — the tab row's and MIX's leaves changed).
+- [ ] DECIDE (Paul): the 2 pt "leftover rule" under a short last group (7 steps in fours, etc.) was not named by the spec and stays, repositioned from the new even columns. The shading now shows the short group too, so the rule is redundant — drop it if you agree.
+- [ ] DECIDE (Paul): the 24 pt VEL strip is gone (its label and value moved), so the pad's plot spans the whole pad (`velStripW` = 0) and the puck's travel changed with it (x 7 … cellW−7). The spec said only "give that width back".
+- [ ] DECIDE (Paul): the panels' spacing makes every pad 6 pt narrower and 12 shorter (landscape 87.17 × 81.5 → 81.17 × 69.5), so the MIX legibility floors moved by the same amount (84 / 76 / 60 → 78 / 64 / 48) and the OCT stepper's buttons went 24 → 21 wide ("OCT +1" truncated to "OCT …" at the new width — found in a scratch render).
+- [ ] DECIDE (Paul): the pad readouts cannot sit as "VEL 100" / "GATE 90%" at ≈ 81 pt (they need ≈ 90 pt of text); by your ruling the words yield by width — at the reference width the pad shows "VEL 100" / "90%".
+- [ ] DECIDE (Paul): LISTEN has three independent rows, not one source lane: the circle takes the first lit row's lane (RHYTHM → PITCH → LEVEL), AVOID+ANY is the four-colour circle, a lit row with no stored partner draws off. A FOLLOW lane's beat groups follow its PARTNER's division (as the old grouping did), not the lane's own.
+- [ ] DECIDE (Paul): the readability pass's 1.5 pt 70 % hit border is gone and its floor bar stays on hits only (a gap is a rest grey + a ring, no bar); an OFF pad is now inert (it used to grey and still edit) — the OCT stepper under an off NOTES pad still edits AND still switches the notes layer on, so that tap re-enables the pad.
+- [ ] (noted) "RHYTHM 16/16" is ≈ 91 pt at 11 pt heavy mono; a tab is ≈ 87 pt (≈ 78 on a locked lane), so the count truncates there (tail, never the label). The spec's 4.2 wording was already true (the pad's label names the lane and layer).
+
 ## ★ EUCLIDEOUS — RESTART TILES: the MELODY tile counts riff notes, the editor shows the tiles, rests stay dashed (2026-10-22; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "RESTART TILES" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build).
 - [ ] DECIDE (Paul): STRIDE above 1 can leave some notes never reached (FWD LEN 8 STRIDE 2 visits 4). The MELODY track still has LEN cells — visited ones first in walk order, then the never-visited ones (dashed ghosts under a melody chain, plain unlit under FREE). Say if you'd rather the track show only the visited notes.
