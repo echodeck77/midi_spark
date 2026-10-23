@@ -4603,107 +4603,11 @@ final class DerivationsTests: XCTestCase {
     }
 
 
-    // MARK: - LISTEN: the partner (and per-mode settings) are REMEMBERED (2026-10-16)
-    // Paul: "when moving from listen to own or hits, it's resetting the thing it's listening to, so I have to rechoose it every
-    // time. Persist it." — turning a mode off, or swapping it for another mode in the same row, must never clear the partner.
-
-    private func fourLanes() -> [EuclidLine] { (0..<4).map { _ in EuclidLine(target: 0, pulses: 3, steps: 8, rate: .r1_8, useRiff: true, sourceMode: .midi) } }
-
-    func testRhythmPartnerSurvivesOffOnAndSwitchingBetweenFollowWithGaps() {
-        var lines = fourLanes()
-        lines = apply(lines, 0, euclideousListenToggleRhythm(lines, lane: 0, mode: .follow))
-        XCTAssertEqual(lines[0].listenRhythmMode, .follow); XCTAssertEqual(lines[0].listenRhythmPartner, 1, "first light: the auto-pick (next lane)")
-        lines[0].listenRhythmPartner = 3                                     // Paul picks lane 4 in the partner picker
-        lines[0].listenFollowMult = 2                                        // …and a ×4 multiplier
-        lines = apply(lines, 0, euclideousListenToggleRhythm(lines, lane: 0, mode: .follow))   // tap the lit mode: back to the lane's own rhythm
-        XCTAssertNil(lines[0].listenRhythmMode)
-        XCTAssertEqual(lines[0].listenRhythmPartner, 3, "turning the mode OFF remembers the partner")
-        XCTAssertEqual(lines[0].listenFollowMult, 2, "…and the FOLLOW multiplier")
-        for mode in [EuclideousRhythmMode.follow, .with, .gaps, .follow] {   // light it again, then swap modes within the row
-            lines = apply(lines, 0, euclideousListenToggleRhythm(lines, lane: 0, mode: mode))
-            XCTAssertEqual(lines[0].listenRhythmMode, mode)
-            XCTAssertEqual(lines[0].listenRhythmPartner, 3, "\(mode): the remembered partner comes back, no re-choosing")
-        }
-        XCTAssertEqual(lines[0].listenFollowMult, 2)
-    }
-    func testAnIllegalRememberedPartnerFallsBackToTheAutoPickAndNoValidLaneMeansItCannotLight() {
-        var lines = fourLanes()
-        lines[0].listenRhythmPartner = 3                                     // remembered (mode off)
-        lines[3].listenRhythmMode = .follow; lines[3].listenRhythmPartner = 1   // lane 4 now follows lane 2 → can't be FOLLOWed
-        XCTAssertEqual(euclideousListenPartnerToLight(lines, lane: 0, row: .rhythm), 1, "a lane that is itself following is greyed: fall back to the next valid lane")
-        // a loop: remembered level partner 3, but lane 4 now listens to lane 1's level → 3 reaches 0
-        lines = fourLanes()
-        lines[0].listenLevelPartner = 3
-        lines[3].listenLevelMode = .duck; lines[3].listenLevelPartner = 0
-        XCTAssertEqual(euclideousListenPartnerToLight(lines, lane: 0, row: .level), 1, "would close a loop: fall back")
-        // nothing valid: every other lane is itself following → can't light, line unchanged
-        lines = fourLanes()
-        for i in 1...3 { lines[i].listenRhythmMode = .follow; lines[i].listenRhythmPartner = 0 }
-        XCTAssertNil(euclideousListenToggleRhythm(lines, lane: 0, mode: .follow), "no valid partner: the mode can't be lit")
-        // a never-chosen partner is the plain auto-pick
-        XCTAssertEqual(euclideousListenPartnerToLight(fourLanes(), lane: 2, row: .pitch), 3)
-        // out of range
-        XCTAssertNil(euclideousListenPartnerToLight(fourLanes(), lane: 7, row: .rhythm))
-    }
-    func testPitchRowRemembersThePartnerAndAnyAndSwitchingToShadowDoesNotLoseThem() {
-        var lines = fourLanes()
-        lines = apply(lines, 0, euclideousListenTogglePitch(lines, lane: 0, mode: .avoid))
-        XCTAssertEqual(lines[0].listenPitchPartner, 1); XCTAssertFalse(lines[0].listenPitchPartnerAnyResolved)
-        lines[0].listenPitchPartner = 2                                       // pick lane 3…
-        lines[0].listenPitchPartnerAny = true                                 // …then choose ANY (the picker KEEPS the specific partner)
-        lines[0].listenAvoidAction = .move; lines[0].listenShadowInterval = 3; lines[0].listenShadowOctave = -1
-        XCTAssertTrue(lines[0].listenPitchPartnerAnyResolved)
-        // AVOID(ANY) → SHADOW: SHADOW needs a specific lane — it gets the remembered one — and ANY stops counting
-        lines = apply(lines, 0, euclideousListenTogglePitch(lines, lane: 0, mode: .shadow))
-        XCTAssertEqual(lines[0].listenPitchMode, .shadow); XCTAssertEqual(lines[0].listenPitchPartner, 2)
-        XCTAssertFalse(lines[0].listenPitchPartnerAnyResolved, "ANY means nothing for SHADOW")
-        XCTAssertEqual(euclideousListenEdges(lines)[0], [2], "…so a SHADOW lane depends on its ONE partner, not on every other lane")
-        // SHADOW → off → AVOID: ANY is restored, the specific partner is still there, and the per-mode settings never moved
-        lines = apply(lines, 0, euclideousListenTogglePitch(lines, lane: 0, mode: .shadow))
-        XCTAssertNil(lines[0].listenPitchMode)
-        XCTAssertEqual(lines[0].listenPitchPartner, 2); XCTAssertEqual(lines[0].listenPitchPartnerAny, true, "off remembers ANY")
-        lines = apply(lines, 0, euclideousListenTogglePitch(lines, lane: 0, mode: .avoid))
-        XCTAssertTrue(lines[0].listenPitchPartnerAnyResolved, "AVOID comes back as ANY")
-        XCTAssertEqual(lines[0].listenPitchPartner, 2)
-        XCTAssertEqual(lines[0].listenAvoidAction, .move); XCTAssertEqual(lines[0].listenShadowInterval, 3); XCTAssertEqual(lines[0].listenShadowOctave, -1)
-        // the resolved flag only ever counts while AVOID is lit
-        var l = EuclidLine(); l.listenPitchPartnerAny = true
-        XCTAssertFalse(l.listenPitchPartnerAnyResolved); l.listenPitchMode = .shadow; XCTAssertFalse(l.listenPitchPartnerAnyResolved)
-        l.listenPitchMode = .avoid; XCTAssertTrue(l.listenPitchPartnerAnyResolved)
-    }
-    func testRememberedAnyIsDroppedWhenItWouldNowCloseALoop() {
-        var lines = fourLanes()
-        lines[0].listenPitchPartner = 1; lines[0].listenPitchPartnerAny = true      // remembered, mode off
-        XCTAssertTrue(euclideousListenAnyIsLegal(lines, lane: 0))
-        lines[2].listenRhythmMode = .with; lines[2].listenRhythmPartner = 0          // lane 3 now listens to lane 1 → ANY (depends on lane 3) would loop
-        XCTAssertFalse(euclideousListenAnyIsLegal(lines, lane: 0))
-        lines = apply(lines, 0, euclideousListenTogglePitch(lines, lane: 0, mode: .avoid))
-        XCTAssertEqual(lines[0].listenPitchMode, .avoid)
-        XCTAssertEqual(lines[0].listenPitchPartnerAny, false, "the remembered ANY is no longer legal, so AVOID lights on its specific partner instead")
-        XCTAssertEqual(lines[0].listenPitchPartner, 1)
-    }
-    func testLevelRowRemembersThePartnerAcrossDuckAccentAndOff() {
-        var lines = fourLanes()
-        lines = apply(lines, 1, euclideousListenToggleLevel(lines, lane: 1, mode: .duck))
-        XCTAssertEqual(lines[1].listenLevelPartner, 2)
-        lines[1].listenLevelPartner = 0; lines[1].listenLevelAmount = 0.7
-        for mode in [EuclideousLevelMode.duck, .accent] {                   // DUCK off → ACCENT on → ACCENT off → DUCK on …
-            lines = apply(lines, 1, euclideousListenToggleLevel(lines, lane: 1, mode: mode))
-            lines = apply(lines, 1, euclideousListenToggleLevel(lines, lane: 1, mode: mode))
-        }
-        XCTAssertEqual(lines[1].listenLevelPartner, 0)
-        lines = apply(lines, 1, euclideousListenToggleLevel(lines, lane: 1, mode: .accent))
-        XCTAssertEqual(lines[1].listenLevelMode, .accent); XCTAssertEqual(lines[1].listenLevelPartner, 0, "swapping DUCK ↔ ACCENT keeps the partner")
-        XCTAssertEqual(lines[1].listenLevelAmount, 0.7)
-        // the three rows are independent: lighting one never touches another row's partner
-        lines[1].listenRhythmPartner = 3
-        lines = apply(lines, 1, euclideousListenToggleLevel(lines, lane: 1, mode: .accent))
-        XCTAssertEqual(lines[1].listenRhythmPartner, 3)
-    }
-    /// Applies a toggle's result to `lines[lane]` the way the page does (`edit(idx) { $0 = updated }`); nil = unchanged.
-    private func apply(_ lines: [EuclidLine], _ lane: Int, _ updated: EuclidLine?) -> [EuclidLine] {
-        var out = lines; if let updated { out[lane] = updated }; return out
-    }
+    // LISTEN REBUILT (2026-10-23): the old "partner remembered across off/on and mode-switches" section
+    // deleted wholesale — one shared source per lane (not a partner per row) has nothing left to
+    // "remember" the same way; `euclideousListenToggleRhythm`/`TogglePitch`/`ToggleLevel`,
+    // `euclideousListenPartnerToLight`/`AnyIsLegal`/`Edges` (all old 3-row-partner model) are now fully
+    // orphaned and deleted alongside their own tests here.
 
     // MARK: - LOOPER TABS (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16, §9)
     //

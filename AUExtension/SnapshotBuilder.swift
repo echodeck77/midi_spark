@@ -825,10 +825,9 @@ enum SnapshotBuilder {
         // which reads this SAME resolved `out.euclidLines`) carrying an un-processable cycle.
         // LISTEN REBUILT (2026-10-23): the new single-source model's own loop-breaker. Runs after every
         // line's old fields have already been migrated into the new ones (the decoder's own §8 migration),
-        // so only the new fields matter here — the old `euclideousListenBreakLoops` (Derivations.swift,
-        // still defined, still covered by its own RouterTests) is orphaned by this one change, pending
-        // deletion alongside the rest of the old LISTEN section once the UI/engine rewiring (tasks #31/#32
-        // of this ferry) removes its own, separate call sites too.
+        // so only the new fields matter here — the old `euclideousListenBreakLoops` and the rest of its
+        // 3-row-partner section are now deleted entirely (orphaned once the engine/UI rewiring removed
+        // their own, separate call sites, tasks #31/#32).
         out.euclidLines = euclideousListenBreakLoopsOnTheNewModel(out.euclidLines)
         out.euclideousRiff = { let r = p.euclideousRiff ?? EuclideousRiff(); var rr = r
             rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved

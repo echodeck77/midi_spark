@@ -3736,246 +3736,14 @@ func euclideousNoteViewWindowBars(fastestSub: Double, cyc: Double, trackW: CGFlo
     return 0.5
 }
 
-// ── EUCLIDEOUS LISTEN TAB (ferry 2026-10-14, "the LISTEN tab (lane relationships)") ─────────────────────
-// §4/§9: the partner-picker's loop/chain exclusion, the auto-pick-on-first-light default, the per-tick
-// processing order, and the preset-load loop-breaker. All pure, Foundation-only, and n-agnostic within
-// the fixed 4-lane bound (Euclideous always has exactly 4, but nothing here hardcodes that beyond the
-// `min(4, …)` guards every reader of `lines` already uses elsewhere in this file).
+// LISTEN REBUILT (ferry 2026-10-23): the old 3-row-partner-per-row LISTEN TAB section
+// (ferry 2026-10-14) that lived here — euclideousListenReaches/Edges/GreyedPartners/DefaultPartner/
+// PartnerToLight/AnyIsLegal/ToggleRhythm/TogglePitch/ToggleLevel/ProcessingOrder(old sig)/BreakLoops —
+// is deleted wholesale: every one of them lost its last production caller when the UI (this ferry's
+// task #32) and the engine (task #31) moved to the new single-source model, and their own dedicated
+// tests were removed alongside them (RouterTests.swift, DerivationsTests.swift). The new §9
+// equivalents follow immediately below.
 
-/// Whether `to` is reachable from `from` by following directed LISTEN edges (direct or transitive) — the
-/// one primitive both loop-detection (§4) and preset loop-breaking (§4's own "(My interpretation.)" rule)
-/// are built from. Iterative (not recursive) so a maliciously-cyclic `edges` array (one a bug elsewhere
-/// handed this function, not a case that should ever occur once the picker's own exclusion holds) can
-/// never stack-overflow — `visited` bounds the walk to at most `edges.count` nodes regardless.
-func euclideousListenReaches(_ edges: [[Int]], from: Int, to: Int) -> Bool {
-    if from == to { return true }
-    guard from >= 0, from < edges.count else { return false }
-    var visited = Set<Int>([from])
-    var frontier = [from]
-    while !frontier.isEmpty {
-        var next: [Int] = []
-        for n in frontier where n >= 0 && n < edges.count {
-            for t in edges[n] {
-                if t == to { return true }
-                if !visited.contains(t) { visited.insert(t); next.append(t) }
-            }
-        }
-        frontier = next
-    }
-    return false
-}
-/// Which of the 4 lanes' rows currently has a LIT partner edge, as an adjacency list — one entry per lane,
-/// each listing the lane(s) IT currently listens to. `excludeLane`/`excludeRow`, when given, omits that
-/// ONE row from the graph (used by the picker: the row being edited is about to be overwritten by
-/// whichever candidate gets picked, so testing a candidate against that row's OWN prior choice would be
-/// circular reasoning, not a real constraint). An AVOID row with ANY contributes an edge to EVERY OTHER
-/// lane, not zero edges (adversarial-review fix, 2026-10-15 — the ORIGINAL "ANY can never itself be the
-/// lane that closes a loop through one single edge" reasoning was wrong: if lane A has AVOID+ANY and
-/// lane B then picks A as ITS own FOLLOW/WITH/GAPS/SHADOW/DUCK/ACCENT partner, A→B [one of ANY's many
-/// edges] + B→A [the new pick] is a genuine 2-lane cycle, and the picker must grey A out of B's list to
-/// prevent it — exactly matching the multi-edge treatment `euclideousListenProcessingOrder`'s own,
-/// separate dependency computation already gives ANY, a few lines below).
-enum EuclideousListenRow { case rhythm, pitch, level }
-func euclideousListenEdges(_ lines: [EuclidLine], excludeLane: Int = -1, excludeRow: EuclideousListenRow? = nil) -> [[Int]] {
-    let n = min(4, lines.count)
-    var edges = [[Int]](repeating: [], count: n)
-    for i in 0..<n {
-        let L = lines[i]
-        if !(i == excludeLane && excludeRow == .rhythm), L.listenRhythmMode != nil {
-            let p = L.listenRhythmPartnerResolved
-            if p != i, p < n { edges[i].append(p) }
-        }
-        if !(i == excludeLane && excludeRow == .pitch), L.listenPitchMode != nil {
-            if L.listenPitchPartnerAnyResolved {
-                for j in 0..<n where j != i { edges[i].append(j) }
-            } else {
-                let p = L.listenPitchPartnerResolved
-                if p != i, p < n { edges[i].append(p) }
-            }
-        }
-        if !(i == excludeLane && excludeRow == .level), L.listenLevelMode != nil {
-            let p = L.listenLevelPartnerResolved
-            if p != i, p < n { edges[i].append(p) }
-        }
-    }
-    return edges
-}
-/// §4's partner-picker greying: every lane index that CAN'T be chosen as `lane`'s partner for `row` right
-/// now — itself, always; any lane that would close a loop (directly or through other lanes); and, FOLLOW/
-/// SHADOW only, any lane that is ITSELF currently following/shadowing something (checked one level only,
-/// per the ferry's own literal words — a candidate's OWN partner is never walked further up the chain).
-func euclideousListenGreyedPartners(_ lines: [EuclidLine], lane: Int, row: EuclideousListenRow) -> Set<Int> {
-    let n = min(4, lines.count)
-    var grey = Set<Int>([lane])
-    guard lane >= 0, lane < n else { return grey }
-    let edges = euclideousListenEdges(lines, excludeLane: lane, excludeRow: row)
-    for p in 0..<n where p != lane {
-        if euclideousListenReaches(edges, from: p, to: lane) { grey.insert(p) }
-    }
-    switch row {
-    case .rhythm: for p in 0..<n where lines[p].listenRhythmMode == .follow { grey.insert(p) }
-    case .pitch: for p in 0..<n where lines[p].listenPitchMode == .shadow { grey.insert(p) }
-    case .level: break
-    }
-    return grey
-}
-/// §4's own auto-pick when a mode is FIRST lit: the next lane after `lane`, in order 1→2→3→4 (wrapping),
-/// skipping anything `euclideousListenGreyedPartners` would grey out. `nil` ⇒ no lane is valid — the
-/// caller must not light the mode at all (the ferry's own literal rule).
-func euclideousListenDefaultPartner(_ lines: [EuclidLine], lane: Int, row: EuclideousListenRow) -> Int? {
-    let grey = euclideousListenGreyedPartners(lines, lane: lane, row: row)
-    for step in 1...3 {
-        let candidate = (lane + step) % 4
-        if !grey.contains(candidate) { return candidate }
-    }
-    return nil
-}
-/// The partner a row takes when its mode is LIT. The lane REMEMBERS the partner it last had on that row (a mode being switched
-/// off, or swapped for another mode of the same row, never clears it), so lighting a mode puts the same partner back — as long
-/// as it is still a legal choice (not greyed: not the lane itself, no loop, not a lane that is itself following/shadowing for
-/// FOLLOW/SHADOW rows). If it has become illegal, or the lane never chose one, the §4 auto-pick (next valid lane) applies.
-/// `nil` ⇒ no lane is valid, so the mode can't be lit (the ferry's own rule).
-func euclideousListenPartnerToLight(_ lines: [EuclidLine], lane: Int, row: EuclideousListenRow) -> Int? {
-    guard lane >= 0, lane < lines.count else { return nil }
-    let stored: Int?
-    switch row {
-    case .rhythm: stored = lines[lane].listenRhythmPartner
-    case .pitch: stored = lines[lane].listenPitchPartner
-    case .level: stored = lines[lane].listenLevelPartner
-    }
-    if let stored, stored >= 0, stored < min(4, lines.count), !euclideousListenGreyedPartners(lines, lane: lane, row: row).contains(stored) {
-        return stored
-    }
-    return euclideousListenDefaultPartner(lines, lane: lane, row: row)
-}
-/// Whether AVOID may use ANY for `lane` right now: ANY depends on EVERY other lane, so it is illegal if any other lane can
-/// already reach this one (the same test the preset-load loop-breaker uses).
-func euclideousListenAnyIsLegal(_ lines: [EuclidLine], lane: Int) -> Bool {
-    let n = min(4, lines.count)
-    guard lane >= 0, lane < n else { return false }
-    let edges = euclideousListenEdges(lines, excludeLane: lane, excludeRow: .pitch)
-    return !(0..<n).contains { $0 != lane && euclideousListenReaches(edges, from: $0, to: lane) }
-}
-/// Tapping a RHYTHM mode button: returns the lane's updated line, or nil when nothing should change (no valid partner).
-/// Tapping the lit mode turns the row OFF and the lane goes back to its own rhythm — its partner is REMEMBERED. Lighting a
-/// mode (from off, or switching FOLLOW/WITH/GAPS) restores the remembered partner when still legal.
-/// (Lighting FOLLOW still zeroes the lane's OWN offset, the LISTEN ferry's rule — see the status log.)
-func euclideousListenToggleRhythm(_ lines: [EuclidLine], lane: Int, mode: EuclideousRhythmMode) -> EuclidLine? {
-    guard lane >= 0, lane < lines.count else { return nil }
-    var L = lines[lane]
-    if L.listenRhythmMode == mode { L.listenRhythmMode = nil; return L }
-    guard let partner = euclideousListenPartnerToLight(lines, lane: lane, row: .rhythm) else { return nil }
-    L.listenRhythmMode = mode; L.listenRhythmPartner = partner
-    if mode == .follow { L.rotate = 0 }
-    return L
-}
-/// Tapping a PITCH mode button. Off keeps the partner AND the ANY flag. AVOID restores ANY if it was chosen and is still legal
-/// (it needs no specific partner); otherwise AVOID and SHADOW both need a specific, legal partner. SHADOW leaves the stored ANY
-/// untouched — it can't use ANY, and `listenPitchPartnerAnyResolved` ignores it unless AVOID is lit.
-func euclideousListenTogglePitch(_ lines: [EuclidLine], lane: Int, mode: EuclideousPitchMode) -> EuclidLine? {
-    guard lane >= 0, lane < lines.count else { return nil }
-    var L = lines[lane]
-    if L.listenPitchMode == mode { L.listenPitchMode = nil; return L }
-    let partner = euclideousListenPartnerToLight(lines, lane: lane, row: .pitch)
-    if mode == .avoid, L.listenPitchPartnerAny == true, euclideousListenAnyIsLegal(lines, lane: lane) {
-        L.listenPitchMode = mode
-        if let partner { L.listenPitchPartner = partner }
-        return L
-    }
-    guard let partner else { return nil }
-    L.listenPitchMode = mode; L.listenPitchPartner = partner
-    if mode == .avoid { L.listenPitchPartnerAny = false }
-    return L
-}
-/// Tapping a LEVEL mode button: off keeps the partner; lighting (from off, or DUCK ↔ ACCENT) restores it when still legal.
-func euclideousListenToggleLevel(_ lines: [EuclidLine], lane: Int, mode: EuclideousLevelMode) -> EuclidLine? {
-    guard lane >= 0, lane < lines.count else { return nil }
-    var L = lines[lane]
-    if L.listenLevelMode == mode { L.listenLevelMode = nil; return L }
-    guard let partner = euclideousListenPartnerToLight(lines, lane: lane, row: .level) else { return nil }
-    L.listenLevelMode = mode; L.listenLevelPartner = partner
-    return L
-}
-/// §9's per-tick processing order: a partner is always processed before any lane that listens to it.
-/// Kahn's algorithm on the (always-acyclic, by the picker's own construction) 4-node dependency graph. An
-/// ANY-partner AVOID row depends on every OTHER lane's own output, not one named partner — ordered after
-/// everything it could possibly depend on by construction (its dependency list IS "every other lane").
-/// Falls back to index order for whatever's left if a cycle somehow slipped through anyway (should not
-/// happen once `euclideousListenGreyedPartners` has been honoured everywhere a partner is ever set) —
-/// never hangs, never silently drops a lane.
-func euclideousListenProcessingOrder(_ lines: [EuclidLine]) -> [Int] {
-    let n = min(4, lines.count)
-    guard n > 0 else { return [] }
-    var deps = [[Int]](repeating: [], count: n)
-    for i in 0..<n {
-        let L = lines[i]
-        if L.listenRhythmMode != nil { let p = L.listenRhythmPartnerResolved; if p != i, p < n { deps[i].append(p) } }
-        if L.listenPitchMode != nil {
-            if L.listenPitchPartnerAnyResolved { for j in 0..<n where j != i { deps[i].append(j) } }
-            else { let p = L.listenPitchPartnerResolved; if p != i, p < n { deps[i].append(p) } }
-        }
-        if L.listenLevelMode != nil { let p = L.listenLevelPartnerResolved; if p != i, p < n { deps[i].append(p) } }
-    }
-    var order: [Int] = []
-    var placed = Set<Int>()
-    while order.count < n {
-        var progressed = false
-        for i in 0..<n where !placed.contains(i) {
-            if deps[i].allSatisfy({ placed.contains($0) }) { order.append(i); placed.insert(i); progressed = true }
-        }
-        if !progressed {
-            for i in 0..<n where !placed.contains(i) { order.append(i); placed.insert(i) }
-            break
-        }
-    }
-    return order
-}
-/// §4's own "(My interpretation.)" preset-load safety: if the loaded lines contain a loop anywhere in the
-/// LISTEN graph, switch off whichever row closes it. Scans lane index 0→3, RHYTHM→PITCH→LEVEL within each
-/// lane — a fixed, deterministic order, so a given broken preset always resolves the SAME way rather than
-/// depending on dictionary/array iteration happenstance.
-func euclideousListenBreakLoops(_ lines: [EuclidLine]) -> [EuclidLine] {
-    var result = lines
-    let n = min(4, lines.count)
-    guard n > 0 else { return result }
-    var edges = [[Int]](repeating: [], count: n)
-    for i in 0..<n {
-        if result[i].listenRhythmMode != nil {
-            let p = result[i].listenRhythmPartnerResolved
-            if p != i, p < n {
-                if euclideousListenReaches(edges, from: p, to: i) { result[i].listenRhythmMode = nil; result[i].listenRhythmPartner = nil }
-                else { edges[i].append(p) }
-            }
-        }
-        if result[i].listenPitchMode != nil {
-            if result[i].listenPitchPartnerAnyResolved {
-                // ANY depends on every OTHER lane (adversarial-review fix, 2026-10-15 — mirrors the
-                // identical fix in `euclideousListenEdges`): if any one of them can already reach `i`,
-                // adding `i`→that-lane (one of ANY's many implicit edges) would close a cycle, so break
-                // this lane's own PITCH row rather than let a loaded preset carry an undetected loop.
-                if (0..<n).contains(where: { j in j != i && euclideousListenReaches(edges, from: j, to: i) }) {
-                    result[i].listenPitchMode = nil; result[i].listenPitchPartner = nil; result[i].listenPitchPartnerAny = nil
-                } else {
-                    for j in 0..<n where j != i { edges[i].append(j) }
-                }
-            } else {
-                let p = result[i].listenPitchPartnerResolved
-                if p != i, p < n {
-                    if euclideousListenReaches(edges, from: p, to: i) { result[i].listenPitchMode = nil; result[i].listenPitchPartner = nil }
-                    else { edges[i].append(p) }
-                }
-            }
-        }
-        if result[i].listenLevelMode != nil {
-            let p = result[i].listenLevelPartnerResolved
-            if p != i, p < n {
-                if euclideousListenReaches(edges, from: p, to: i) { result[i].listenLevelMode = nil; result[i].listenLevelPartner = nil }
-                else { edges[i].append(p) }
-            }
-        }
-    }
-    return result
-}
 
 // ── LISTEN REBUILT (ferry 2026-10-23, "Fourfold Listen Tab") — §9 pure functions ──────────────────────────
 // REPLACES the whole section above: one shared SOURCE lane per follower (not one partner per row), so the
@@ -4168,6 +3936,49 @@ struct EuclideousListenBorrowedTabs: Equatable { var rhythm: Bool; var riff: Boo
 func euclideousListenBorrowedTabs(rhythm: EuclideousListenRhythmMode, pitch: EuclideousListenPitchMode, notesReadsRiff: Bool) -> EuclideousListenBorrowedTabs {
     let riffBorrowed = pitch == .shadow || pitch == .echo
     return EuclideousListenBorrowedTabs(rhythm: rhythm == .copy || rhythm == .fill, riff: riffBorrowed, notes: riffBorrowed && notesReadsRiff)
+}
+
+/// §2's own LISTEN tab layout: FOLLOW row, RHYTHM row (+ its panel when COPY/FILL), PITCH row (+ its panel
+/// when SHADOW/ECHO), footer. §2's own explicit instruction — UNLIKE this codebase's usual "never shrink,
+/// only report" house rule — is that rows may shrink PROPORTIONALLY, down to a 30pt floor each, when both
+/// panels are open at once don't fit the reference card; the footer (§2.6, "drop it if 2.1-2.5 need the
+/// space") is dropped FIRST, before anything else is asked to shrink. `fits` is false once the floor was
+/// ever needed — a device-owed judgment call on the exact ideal pixel values, like every other new layout
+/// threshold in this codebase.
+struct EuclideousListenTabLayout: Equatable {
+    var followRowH: CGFloat
+    var rhythmRowH: CGFloat
+    var rhythmPanelH: CGFloat    // 0 when RHYTHM is OWN — no space kept (§2.3)
+    var pitchRowH: CGFloat
+    var pitchPanelH: CGFloat     // 0 when PITCH is OWN or AVOID — no space kept (§2.5)
+    var showFooter: Bool
+    var footerH: CGFloat
+    var gap: CGFloat
+    var fits: Bool
+}
+func euclideousListenTabLayout(contentAreaH: CGFloat, rhythmPanelShown: Bool, pitchPanelShown: Bool) -> EuclideousListenTabLayout {
+    let gap: CGFloat = 8, floor: CGFloat = 30
+    let idealRow: CGFloat = 44, idealPanel: CGFloat = 44 * 2 + 8 * 3, idealFooter: CGFloat = 16
+    var mainIdeals: [CGFloat] = [idealRow, idealRow]   // FOLLOW, RHYTHM
+    if rhythmPanelShown { mainIdeals.append(idealPanel) }
+    mainIdeals.append(idealRow)   // PITCH
+    if pitchPanelShown { mainIdeals.append(idealPanel) }
+    let mainGaps = CGFloat(max(0, mainIdeals.count - 1)) * gap
+    let mainIdealTotal = mainIdeals.reduce(0, +) + mainGaps
+    let footerBudget = idealFooter + gap
+    let showFooter = mainIdealTotal + footerBudget <= contentAreaH
+    let budget = showFooter ? contentAreaH - footerBudget : contentAreaH
+    let scale = mainIdealTotal > mainGaps ? min(1, max(0, (budget - mainGaps) / (mainIdealTotal - mainGaps))) : 1
+    let heights = mainIdeals.map { max(floor, ($0 * scale).rounded()) }
+    var i = 0
+    func next() -> CGFloat { let h = heights[i]; i += 1; return h }
+    let followRowH = next(), rhythmRowH = next()
+    let rhythmPanelH = rhythmPanelShown ? next() : 0
+    let pitchRowH = next()
+    let pitchPanelH = pitchPanelShown ? next() : 0
+    return EuclideousListenTabLayout(followRowH: followRowH, rhythmRowH: rhythmRowH, rhythmPanelH: rhythmPanelH,
+                                      pitchRowH: pitchRowH, pitchPanelH: pitchPanelH,
+                                      showFooter: showFooter, footerH: showFooter ? idealFooter : 0, gap: gap, fits: scale >= 1)
 }
 
 /// A lane's own FINISHED hit pattern — HITS/TILT/customHits → OFFSET(rotate) → patternMiss-invert, in

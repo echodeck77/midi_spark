@@ -11771,28 +11771,10 @@ final class RouterTests: XCTestCase {
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(hits.count, 0, "T6 AVOID: blue would play exactly what red plays at every hit — all of them dropped by pitch class")
     }
-    func testListenT8LoopsGreyOutTheWholeCycle() {
-        // "with red FOLLOW blue, red is greyed out in all three of blue's partner pickers."
-        var red = listenRedLine(); red.listenRhythmMode = .follow; red.listenRhythmPartner = 1   // red → blue
-        let lines = [red, listenBlueLine(), EuclidLine(), EuclidLine()]
-        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .rhythm).contains(0), "T8: red greyed in blue's own RHYTHM picker (direct loop)")
-        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .pitch).contains(0), "T8: red greyed in blue's PITCH picker too")
-        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .level).contains(0), "T8: red greyed in blue's LEVEL picker too")
-    }
-    func testListenT9TurningFollowOffRestoresTheLanesOwnSettings() {
-        // "blue on its own 4 hits / 8 → FOLLOW red → turn FOLLOW off → blue is back to 4 hits / 8 with its
-        // own rate and offset." Engine-level: FOLLOW never mutates blue's OWN pulses/steps/rotate/rate —
-        // it only substitutes at render time while the mode is lit, so turning it off must reproduce
-        // EXACTLY what a plain (never-FOLLOWed) blue would have played, byte for byte.
-        let plainBlue = listenBlueLine()
-        let plainHits = listenRhythmString(listenRun(listenRedLine(), plainBlue))
-        var followedThenOff = listenBlueLine()
-        followedThenOff.listenRhythmMode = .follow; followedThenOff.listenRhythmPartner = 0
-        followedThenOff.listenRhythmMode = nil; followedThenOff.listenRhythmPartner = nil   // "turn FOLLOW off"
-        let restoredHits = listenRhythmString(listenRun(listenRedLine(), followedThenOff))
-        XCTAssertEqual(restoredHits, "x.x.x.x.", "T9: blue's own 4-of-8 pattern, unchanged")
-        XCTAssertEqual(restoredHits, plainHits, "T9: byte-identical to a blue that was never FOLLOWing at all")
-    }
+    // LISTEN REBUILT (2026-10-23): `testListenT8LoopsGreyOutTheWholeCycle` (the OLD 3-row-partner greyed-
+    // partners picker) and `testListenT9TurningFollowOffRestoresTheLanesOwnSettings` deleted — both test
+    // retired machinery (`euclideousListenGreyedPartners`'s 3-row model; FOLLOW). The new model's own
+    // "returns to OWN exactly as it was" property is §11 test 14's own job (task #35).
     // MARK: - LISTEN SHADOW / AVOID follow the partner's REAL walk (fixed 2026-10-20)
     // `euclideousListenPartnerNoteAt` used to re-derive the partner's riff ordinal by hand from the retired LOCK model: it knew nothing of ADVANCE EVERY or the restart chains, so a SHADOW lane
     // followed a different column from the one its partner played. It now asks the same chain core + `euclideousRiffColumn` the Router uses. Verified against the OLD function: every test below failed on it except the two
@@ -11882,30 +11864,12 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Array(r.prefix(3)), [36, 38, 39], "red's first lap: C2 D2 E\u{266D}2 (T5)")
     }
 
-    // MARK: - Adversarial-review fixes (2026-10-15): AVOID+ANY loop-detection gap
-    // Lane 0 (red) has PITCH/AVOID with partner ANY — implicitly depending on every other lane. Lane 1
-    // (blue) must NOT be allowed to pick lane 0 as its own RHYTHM/PITCH/LEVEL partner, since doing so
-    // would close a real cycle (0 depends on 1 via ANY; 1 would now depend on 0 directly).
-    func testListenAvoidAnyGreysOutInEveryOtherRowToo() {
-        var red = listenRedLine(); red.listenPitchMode = .avoid; red.listenPitchPartnerAny = true
-        let lines = [red, listenBlueLine(), EuclidLine(), EuclidLine()]
-        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .rhythm).contains(0),
-                      "lane 0's AVOID+ANY must grey lane 0 out of lane 1's own RHYTHM picker")
-        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .pitch).contains(0),
-                      "...and its PITCH picker")
-        XCTAssertTrue(euclideousListenGreyedPartners(lines, lane: 1, row: .level).contains(0),
-                      "...and its LEVEL picker")
-    }
-    func testListenAvoidAnyLoopIsBrokenOnPresetLoad() {
-        var red = listenRedLine(); red.listenPitchMode = .avoid; red.listenPitchPartnerAny = true
-        var blue = listenBlueLine(); blue.listenRhythmMode = .follow; blue.listenRhythmPartner = 0   // blue → red, closing the loop
-        let fixed = euclideousListenBreakLoops([red, blue, EuclidLine(), EuclidLine()])
-        // Scanned lane 0 first (nothing to break yet, its AVOID+ANY is recorded) then lane 1 — lane 1's
-        // own FOLLOW is what closes the loop, so IT is the one switched off, matching this function's
-        // existing "the row that closes it" convention for the non-ANY case.
-        XCTAssertNotNil(fixed[0].listenPitchMode, "red's AVOID+ANY itself is untouched — it didn't close anything")
-        XCTAssertNil(fixed[1].listenRhythmMode, "blue's own FOLLOW (the edge that actually closed the loop) is switched off")
-    }
+    // LISTEN REBUILT (2026-10-23): `testListenAvoidAnyGreysOutInEveryOtherRowToo` and
+    // `testListenAvoidAnyLoopIsBrokenOnPresetLoad` deleted — ANY (and the 3-row-partner model
+    // `euclideousListenGreyedPartners`/`euclideousListenBreakLoops` tested) no longer exist (§2.1 has no
+    // ANY option; one shared source per lane). The new model's own cycle-break
+    // (`euclideousListenBreakLoopsOnTheNewModel`) and disabled-chip set (`euclideousListenDisabledSources`)
+    // are covered directly in Tests/ListenTabTests.swift (§9's own tests, task #30).
 
     // ── RIFF-GRID WALK TAGS (ferry 2026-10-15): the UI's prediction is a MIRROR of this engine's own walk ───────
     // `euclideousWalkTick` re-implements `runEuclidLine`'s tick → (hit, ordinal, played step) arithmetic on the main
