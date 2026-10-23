@@ -538,6 +538,26 @@ struct EuclidLine: Codable, Equatable {
     var listenLevelPartner: Int? = nil
     // AMOUNT (§7): 0...1 in 0.05 steps, default 0.4 (40%) — shared by DUCK and ACCENT, per lane.
     var listenLevelAmount: Double? = nil
+    // LISTEN REBUILT (ferry 2026-10-23, "Fourfold Listen Tab", RATIFIED): REPLACES every field above — one
+    // shared source lane for the WHOLE tab (not one partner per row), RHYTHM (OWN/COPY/FILL) + fugue
+    // controls, PITCH (OWN/SHADOW/ECHO/AVOID) + INTERVAL/OCTAVE. WITH, DUCK/ACCENT/AMOUNT and AVOID's MOVE
+    // action are dropped outright — no new fields replace them. Every field above stays decodable
+    // (`EuclidLine.init(from:)` migrates old → new on first load, §8.3) and is never written again.
+    // Additive-Optional, same CR-8 reasoning as the block above: nil everywhere ⇒ byte-identical to a
+    // doc that never touched LISTEN at all.
+    var listenSource: Int? = nil
+    var listenRhythm: EuclideousListenRhythmMode? = nil      // .own/.copy/.fill
+    // DELAY (§3.6): 0...(source's own step count − 1), steps the follower runs behind. FEEL (§3.7): the
+    // follower's own TILT-style feel, −1...1. SPEED (§3.3): an EXPONENT of 2 (not FOLLOW's old, inverted
+    // ratio) — ×¼...×4 is −2...+2; the follower's own step length = the source's ÷ 2^exponent, directly,
+    // matching §3.3's own words ("÷½ makes each step twice as long") with no sign inversion to remember.
+    var listenDelay: Int? = nil
+    var listenFeel: Double? = nil
+    var listenSpeed: Int? = nil
+    var listenDirection: EuclidDir? = nil                     // relative to the SOURCE's own playback order (§3.4), not absolute
+    var listenPitch: EuclideousListenPitchMode? = nil         // .own/.shadow/.echo/.avoid
+    var listenInterval: Int? = nil                            // scale steps in the current key, −6...+6 (UNISON = 0)
+    var listenOctave: Int? = nil                              // −3...+3
     // MIX TAB (ferry 2026-10-18): the NOTES layer's OWN gate and velocity — lit notes, TOP and TOP2 — so the two layers are
     // independent per lane. APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. nil ⇒ today's behaviour:
     // `notesGate` nil reads the lane's GATE; `notesVelocity` nil reads clamp(VEL + notesVelOffset). The layers PART at the first
@@ -635,6 +655,55 @@ struct EuclidLine: Codable, Equatable {
         guard riffOn else { return 0b11 }
         switch onRest { case .skip, .tie: return 0b01; case .fill, .repeatLast: return 0b11 }
     }
+    /// LISTEN REBUILT migration (§8.3), run once per decode of a pre-rebuild document (the caller checks
+    /// `usesNewListen` first — a document already on the new model is never re-migrated). Pure, no host
+    /// context needed (unlike the restart-chains migration, which needs live tempo/bar length and so runs
+    /// on the main-thread resync loop instead) — safe to call straight from the decoder.
+    /// FOLLOW→COPY, GAPS→FILL, WITH→OWN (all per §8.3's own table). SHADOW/AVOID keep their names; AVOID's
+    /// old MOVE action has no new-model equivalent and is simply dropped (the new AVOID is mute-only).
+    /// DUCK/ACCENT/AMOUNT are dropped outright (the LEVEL row no longer exists). DELAY/FEEL/SPEED/DIRECTION
+    /// are explicitly left at their defaults (§8.3), never derived from the old `listenFollowMult`.
+    /// Old INTERVAL/OCTAVE carry straight across (clamped into the new, slightly narrower ±6 INTERVAL
+    /// range; OCTAVE's new ±3 range is wider than the old ±2, so nothing clips there) — reported as a real
+    /// difference, not a silent one, since old INTERVAL/OCTAVE already read a scale-step pool-rank shift,
+    /// which is what the new INTERVAL/OCTAVE mean too.
+    /// Source conflict (both old rows lit, pointing at different partners — a case the spec's own §8.3
+    /// table doesn't cover): RHYTHM's partner wins, matching the spec's own RHYTHM-before-PITCH ordering
+    /// throughout. AVOID+ANY (no new-model equivalent at all, §2.1 has no "ANY" option) maps to the lane's
+    /// own still-stored specific partner (remembered "through SHADOW/off" even while ANY was active) if one
+    /// exists, else the lowest-numbered other lane (§8.2's own existing default rule) — both disclosed
+    /// judgment calls, reported in the ferry's own §14.8 writeup, not asked.
+    static func migratedListen(rhythmMode: EuclideousRhythmMode?, rhythmPartner: Int?, pitchMode: EuclideousPitchMode?,
+                                pitchPartner: Int?, pitchPartnerAny: Bool?, shadowInterval: Int?, shadowOctave: Int?)
+        -> (source: Int?, rhythm: EuclideousListenRhythmMode?, pitch: EuclideousListenPitchMode?, interval: Int?, octave: Int?)? {
+        var source: Int? = nil
+        var rhythm: EuclideousListenRhythmMode? = nil
+        var pitch: EuclideousListenPitchMode? = nil
+        var interval: Int? = nil
+        var octave: Int? = nil
+        if let old = rhythmMode {
+            switch old {
+            case .follow: rhythm = .copy; source = max(0, min(3, rhythmPartner ?? 0))
+            case .gaps:   rhythm = .fill; source = max(0, min(3, rhythmPartner ?? 0))
+            case .with:   rhythm = .own
+            }
+        }
+        if let old = pitchMode {
+            switch old {
+            case .shadow:
+                pitch = .shadow
+                if source == nil { source = max(0, min(3, pitchPartner ?? 0)) }
+                interval = max(-6, min(6, shadowInterval ?? 0)); octave = shadowOctave
+            case .avoid:
+                pitch = .avoid
+                if source == nil {
+                    if pitchPartnerAny == true { source = pitchPartner ?? 0 } else { source = max(0, min(3, pitchPartner ?? 0)) }
+                }
+            }
+        }
+        guard rhythm != nil || pitch != nil else { return nil }
+        return (source, rhythm, pitch, interval, octave)
+    }
     var hitsRequestedResolved: Int { hitsRequested ?? pulses }
     /// The same mirrored-OFFSET quantity `euclideousSliderRange(.offset)` displays (Derivations.swift) —
     /// `(steps − rotate mod steps) mod steps` — so a fresh/unrequested lane's "remembered" OFFSET is exactly
@@ -667,6 +736,30 @@ struct EuclidLine: Codable, Equatable {
         let raw = max(0, min(1, listenLevelAmount ?? 0.4))
         return (raw / 0.05).rounded() * 0.05
     }
+    // LISTEN REBUILT resolved accessors. `listenSourceResolved` has no stored default of its own (§8.2
+    // "the lowest-numbered other lane" is a RESOLVED fallback, not something migration writes) — a lane
+    // that's never touched LISTEN stays nil/off regardless of what this would resolve to, since both rows
+    // read OWN unconditionally until one is actually lit.
+    func listenSourceResolved(ownLane: Int) -> Int {
+        if let s = listenSource, s >= 0, s < 4, s != ownLane { return s }
+        return ownLane == 0 ? 1 : 0
+    }
+    var listenRhythmResolved: EuclideousListenRhythmMode { listenRhythm ?? .own }
+    var listenDelayResolved: Int { max(0, listenDelay ?? 0) }   // upper-bounded live by the caller against the source's own step count (§3.6) — can't self-clamp without that
+    var listenFeelResolved: Double { max(-1, min(1, listenFeel ?? 0)) }
+    var listenSpeedResolved: Int { max(-2, min(2, listenSpeed ?? 0)) }
+    var listenSpeedRatioResolved: Double { pow(2.0, Double(listenSpeedResolved)) }
+    var listenDirectionResolved: EuclidDir { listenDirection ?? .fwd }
+    var listenPitchResolved: EuclideousListenPitchMode { listenPitch ?? .own }
+    var listenIntervalResolved: Int { max(-6, min(6, listenInterval ?? 0)) }
+    var listenOctaveResolved: Int { max(-3, min(3, listenOctave ?? 0)) }
+    /// True once any of the nine new-model fields has been written — the lane is then on the NEW model and
+    /// the old fields above no longer feed it (§8.3: migration runs only while this is false).
+    var usesNewListen: Bool {
+        listenSource != nil || listenRhythm != nil || listenDelay != nil || listenFeel != nil || listenSpeed != nil
+            || listenDirection != nil || listenPitch != nil || listenInterval != nil || listenOctave != nil
+    }
+    var isFollowingResolved: Bool { listenRhythmResolved != .own || listenPitchResolved != .own }
     var gateResolved: Double { gate ?? 0.9 }
     // NOT narrowed to ±2 here (Paul 2026-10-13 ferry, "Engine" rule 4) — `EuclidLine` is SHARED with the
     // regular, non-Euclideous BUILD-page EUCLID processor, whose own OCTAVE stepper reaches ±3 today
@@ -822,6 +915,23 @@ extension EuclidLine {
         listenLevelMode = try c.decodeIfPresent(EuclideousLevelMode.self, forKey: .listenLevelMode)
         listenLevelPartner = try c.decodeIfPresent(Int.self, forKey: .listenLevelPartner)
         listenLevelAmount = try c.decodeIfPresent(Double.self, forKey: .listenLevelAmount)
+        listenSource = try c.decodeIfPresent(Int.self, forKey: .listenSource)
+        listenRhythm = try c.decodeIfPresent(EuclideousListenRhythmMode.self, forKey: .listenRhythm)
+        listenDelay = try c.decodeIfPresent(Int.self, forKey: .listenDelay)
+        listenFeel = try c.decodeIfPresent(Double.self, forKey: .listenFeel)
+        listenSpeed = try c.decodeIfPresent(Int.self, forKey: .listenSpeed)
+        listenDirection = try c.decodeIfPresent(EuclidDir.self, forKey: .listenDirection)
+        listenPitch = try c.decodeIfPresent(EuclideousListenPitchMode.self, forKey: .listenPitch)
+        listenInterval = try c.decodeIfPresent(Int.self, forKey: .listenInterval)
+        listenOctave = try c.decodeIfPresent(Int.self, forKey: .listenOctave)
+        // LISTEN REBUILT migration (§8.3): only while this document hasn't touched the new model at all —
+        // a document already on it (even one row explicitly set back to OWN) is never re-migrated.
+        if !usesNewListen, let m = EuclidLine.migratedListen(rhythmMode: listenRhythmMode, rhythmPartner: listenRhythmPartner,
+                                                               pitchMode: listenPitchMode, pitchPartner: listenPitchPartner,
+                                                               pitchPartnerAny: listenPitchPartnerAny, shadowInterval: listenShadowInterval,
+                                                               shadowOctave: listenShadowOctave) {
+            listenSource = m.source; listenRhythm = m.rhythm; listenPitch = m.pitch; listenInterval = m.interval; listenOctave = m.octave
+        }
         // `velocityAbsolute` was the ONE stored field this decoder never read (it encoded, so a saved VEL was written to disk and
         // then silently reset to 100 on every load). Found by the MIX ferry's audit; decoding it is what makes a lane's VEL — and
         // the notes velocity pinned from it — survive a session or preset round trip.
@@ -923,6 +1033,11 @@ enum EuclideousRhythmMode: String, Codable, CaseIterable { case follow = "FOLLOW
 enum EuclideousPitchMode: String, Codable, CaseIterable { case shadow = "SHADOW", avoid = "AVOID" }
 enum EuclideousLevelMode: String, Codable, CaseIterable { case duck = "DUCK", accent = "ACCENT" }
 enum EuclideousAvoidAction: String, Codable, CaseIterable { case mute = "MUTE", move = "MOVE" }
+// LISTEN REBUILT enums (ferry 2026-10-23) — String-raw, matching every sibling enum on this struct. DIRECTION
+// reuses the existing `EuclidDir` (FWD/BKW/PING-PONG) rather than a new type (§2.3: "using the RHYTHM tab's
+// existing direction glyphs").
+enum EuclideousListenRhythmMode: String, Codable, CaseIterable { case own = "OWN", copy = "COPY", fill = "FILL" }
+enum EuclideousListenPitchMode: String, Codable, CaseIterable { case own = "OWN", shadow = "SHADOW", echo = "ECHO", avoid = "AVOID" }
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
 // persists by value, matching every other riff-adjacent enum's own convention (RiffDir, EuclidNoteSel, …).
 // REPEAT (RIFF WALK ferry 2026-10-19 §4.2): a hit on a rest plays the nearest earlier non-rest column's

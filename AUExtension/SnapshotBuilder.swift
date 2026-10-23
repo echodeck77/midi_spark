@@ -792,6 +792,12 @@ enum SnapshotBuilder {
                                                                       listenAvoidAction: $0.listenAvoidAction,
                                                                       listenLevelMode: $0.listenLevelMode, listenLevelPartner: $0.listenLevelPartner.map { clamp($0, 0, 3) },
                                                                       listenLevelAmount: $0.listenLevelAmount.map { clamp($0, 0, 1) },
+                                                                      // LISTEN REBUILT (2026-10-23): the nine new fields — same fresh-literal reason as every field above.
+                                                                      listenSource: $0.listenSource.map { clamp($0, 0, 3) }, listenRhythm: $0.listenRhythm,
+                                                                      listenDelay: $0.listenDelay.map { max(0, $0) }, listenFeel: $0.listenFeel.map { clamp($0, -1, 1) },
+                                                                      listenSpeed: $0.listenSpeed.map { clamp($0, -2, 2) }, listenDirection: $0.listenDirection,
+                                                                      listenPitch: $0.listenPitch, listenInterval: $0.listenInterval.map { clamp($0, -6, 6) },
+                                                                      listenOctave: $0.listenOctave.map { clamp($0, -3, 3) },
                                                                       // MIX TAB (2026-10-18): the notes layer's own gate/velocity — threaded here for the
                                                                       // same reason as every field above (a fresh literal silently resets anything missing).
                                                                       // notesGate clamps EXACTLY like `gate` (5%…100%) so the two layers agree at the low end.
