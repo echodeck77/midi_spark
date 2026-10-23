@@ -5855,6 +5855,66 @@ func euclideousNotesHaveSelection(_ line: EuclidLine) -> Bool {
 /// untouched: with nothing selected it never had a pitch to sound.
 func euclideousNotesLayerIsOn(_ line: EuclidLine) -> Bool { line.notesOnResolved && euclideousNotesHaveSelection(line) }
 
+// ── CLARITY PASS (2026-10-23) §2/§5.3: the lane card's tab glyphs ────────────────────────────────────────────────────────
+//
+// RIFF gets a square, NOTES an upright bar, LISTEN a circle; RHYTHM none. A glyph is filled in a lane's colour when its tab's thing is ON — exactly the condition that filled the old round dot (RIFF `riffOnResolved`, NOTES
+// `euclideousNotesLayerIsOn`, LISTEN a lit row) — and a 1.5 pt outline when off. The MIX pad's label wears the same glyph in the same state, and `euclideousMixLayerIsOff` is the ONE on/off both read.
+
+/// The four lane-card tabs, in tab order (the page's `EuclideousLaneTab` has the same raw values).
+enum EuclideousTabKind: Int, CaseIterable { case rhythm = 0, riff = 1, notes = 2, listen = 3 }
+enum EuclideousGlyphShape: Equatable { case none, square, bar, circle }
+enum EuclideousGlyphFill: Equatable {
+    case lane(Int)   // that lane's lane100
+    case anyLane     // the four lane colours in quarters (the LISTEN partner picker's ANY dot)
+}
+struct EuclideousTabGlyph: Equatable { var shape: EuclideousGlyphShape; var on: Bool; var fill: EuclideousGlyphFill }
+
+/// What LISTEN is following: the first lit row in tab order (RHYTHM, PITCH, LEVEL) whose partner is a stored lane other than this one; an AVOID row set to ANY is "any lane". A lit row with no stored partner (an old
+/// or hand-made document — the pickers always store one) is no source at all, and so is a row pointing at its own lane.
+enum EuclideousListenSource: Equatable { case none, lane(Int), any }
+func euclideousListenSource(_ line: EuclidLine, lane: Int) -> EuclideousListenSource {
+    func specific(_ p: Int?) -> Int? { guard let p, (0..<4).contains(p), p != lane else { return nil }; return p }
+    if line.listenRhythmMode != nil, let p = specific(line.listenRhythmPartner) { return .lane(p) }
+    if line.listenPitchMode != nil {
+        if line.listenPitchPartnerAnyResolved { return .any }
+        if let p = specific(line.listenPitchPartner) { return .lane(p) }
+    }
+    if line.listenLevelMode != nil, let p = specific(line.listenLevelPartner) { return .lane(p) }
+    return .none
+}
+/// §5.3. `lane` is the lane the tab row belongs to (RIFF and NOTES fill in its colour).
+func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> EuclideousTabGlyph {
+    switch tab {
+    case .rhythm: return EuclideousTabGlyph(shape: .none, on: true, fill: .lane(lane))
+    case .riff:   return EuclideousTabGlyph(shape: .square, on: !euclideousMixLayerIsOff(line, notes: false), fill: .lane(lane))
+    case .notes:  return EuclideousTabGlyph(shape: .bar, on: !euclideousMixLayerIsOff(line, notes: true), fill: .lane(lane))
+    case .listen:
+        switch euclideousListenSource(line, lane: lane) {
+        case .lane(let p): return EuclideousTabGlyph(shape: .circle, on: true, fill: .lane(p))
+        case .any:         return EuclideousTabGlyph(shape: .circle, on: true, fill: .anyLane)
+        case .none:        return EuclideousTabGlyph(shape: .circle, on: false, fill: .lane(lane))
+        }
+    }
+}
+/// §2.3: the RHYTHM tab's "hits/steps" ("5/16"), the same two numbers the HITS and STEPS sliders print.
+func euclideousRhythmTabCount(_ line: EuclidLine) -> String {
+    "\(euclideousSliderValueText(.hits, line))/\(euclideousSliderValueText(.steps, line))"
+}
+/// §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" / "Riff, off" · "Notes, on" / "Notes, off" · "Listen, on, following lane 2" / "Listen, off".
+func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> String {
+    switch tab {
+    case .rhythm: return "Rhythm, \(euclideousSliderValueText(.hits, line)) of \(euclideousSliderValueText(.steps, line)) hits"
+    case .riff:   return "Riff, " + (euclideousTabGlyph(tab: .riff, line: line, lane: lane).on ? "on" : "off")
+    case .notes:  return "Notes, " + (euclideousTabGlyph(tab: .notes, line: line, lane: lane).on ? "on" : "off")
+    case .listen:
+        switch euclideousListenSource(line, lane: lane) {
+        case .lane(let p): return "Listen, on, following lane \(p + 1)"
+        case .any:         return "Listen, on, following any lane"
+        case .none:        return "Listen, off"
+        }
+    }
+}
+
 /// Selecting a note ENABLES an off layer in the same tap ("one tap does both"): each toggle turns the layer's switch on if it was
 /// off, then flips that one selection. Starting from any off state (switch off, or nothing selected), selecting one note leaves the
 /// layer on. De-selecting a note never turns anything off by itself — the layer just reads off once the last one goes.
@@ -5922,20 +5982,66 @@ func euclideousMixGateStep(_ g: Double, longer: Bool) -> Double {
     return Double(max(1, min(Int(euclideousLaneGateMax * 100), pct))) / 100
 }
 
+// ── CLARITY PASS (2026-10-23) §3.5/§3.7: the pad's readouts, and an OFF pad that does nothing ─────────────────────────
+
+/// The pad's two bottom readouts: the velocity bottom-left, the gate bottom-right, both 10 pt. The spec's "VEL 100" and "GATE 90%" need ≈ 90 pt of text plus insets, and a pad is ≈ 81 pt wide, so the words yield to
+/// the numbers by pad width (Paul's ruling, 2026-10-23): "VEL 100" / "GATE 90%" when both fit, else "VEL 100" / "90%", else "100" / "90%". Nothing is ever truncated or shrunk. Glyph width is the same 0.62 × size
+/// approximation `euclideousMixVelocityNameFits` uses (a Foundation-only file has no font metrics); a 4 pt minimum gap and the 6 pt side insets are kept clear.
+struct EuclideousMixReadouts: Equatable { var velocity: String; var gate: String }
+func euclideousMixReadouts(padWidth: CGFloat, velocity: Int, gate: Double) -> EuclideousMixReadouts {
+    let m = EuclideousMixMetrics.self
+    let v = "\(velocity)", g = euclideousMixGateValueText(gate: gate)
+    let room = padWidth - 2 * m.readoutSide - 4
+    func width(_ s: String) -> CGFloat { CGFloat(s.count) * 0.62 * m.labelSize }
+    for form in [("VEL \(v)", "GATE \(g)"), ("VEL \(v)", g)] where width(form.0) + width(form.1) <= room {
+        return EuclideousMixReadouts(velocity: form.0, gate: form.1)
+    }
+    return EuclideousMixReadouts(velocity: v, gate: g)
+}
+/// §3.7: a pad whose layer is OFF takes no touch. These are the ONLY places a pad's closure writes a lane, so even a stale view cannot change a disabled pad's layer, velocity or gate (and nothing here ever turns the layer on).
+@discardableResult
+func euclideousMixPadWriteIfEnabled(_ line: inout EuclidLine, notes: Bool, gate: Double, velocity: Int) -> Bool {
+    guard !euclideousMixLayerIsOff(line, notes: notes) else { return false }
+    euclideousMixPadWrite(&line, notes: notes, gate: gate, velocity: velocity)
+    return true
+}
+@discardableResult
+func euclideousMixPadResetIfEnabled(_ line: inout EuclidLine, notes: Bool) -> Bool {
+    guard !euclideousMixLayerIsOff(line, notes: notes) else { return false }
+    euclideousMixPadReset(&line, notes: notes)
+    return true
+}
+/// A touch at `p` on a pad: its values from the point (§4.1), written only if the pad is enabled. Returns whether it wrote.
+@discardableResult
+func euclideousMixPadTouchWrite(_ line: inout EuclidLine, notes: Bool, at p: CGPoint, geometry: EuclideousMixPadGeometry) -> Bool {
+    let v = geometry.values(at: p)
+    return euclideousMixPadWriteIfEnabled(&line, notes: notes, gate: v.gate, velocity: v.velocity)
+}
+/// §3.7: the OFF pad's centred word and the OCT stepper's dim (50 %, and not at all while the lane is solo-silenced — the panel's own 42 % covers it, never 21 %).
+let euclideousMixOffWord = "OFF"
+func euclideousMixOffStepperOpacity(off: Bool, soloSilenced: Bool) -> Double { off && !soloSilenced ? 0.5 : 1 }
+
 // ── the grid (§2): one formula for the whole MIX area ────────────────────────────────────────────────────────────────
 
 enum EuclideousMixMetrics {
-    static let sp4: CGFloat = 4, sp8: CGFloat = 8
+    static let sp4: CGFloat = 4, sp8: CGFloat = 8, sp16: CGFloat = 16
     static let tabRowH: CGFloat = 20
     // RESTART CHAINS ferry §9.6: OCT shrinks from 28 to 24; §9.7 adds the 20pt OUT row under each lane's pair.
     static let stepperH: CGFloat = 24
     static let outRowH: CGFloat = 20
-    static let velStripW: CGFloat = 24
+    /// CLARITY PASS (2026-10-23) §3.3: the rotated VEL name and the value that filled this 24 pt left strip both moved (the label to the top-left, the value to the bottom-left readout), so the strip is
+    /// gone and the plot spans the whole pad. 0 keeps every formula that names the strip (plot, axes, puck origin, touch inverse) a single definition.
+    static let velStripW: CGFloat = 0
     static let gateStripH: CGFloat = 14
     static let puckInset: CGFloat = 7
+    /// CLARITY PASS §3.1/§3.2: a lane's panel — padding sp4, radius = the lane card's 12; panels sit sp16 apart both ways.
+    static let panelPad: CGFloat = 4, panelRadius: CGFloat = 12
+    /// CLARITY PASS §3.4/§3.5: the pad's label (10 pt heavy, inset 5 from the top / 6 from the left) and its readouts (10 pt, inset 4 from the bottom / 6 from the side).
+    static let labelTop: CGFloat = 5, labelLeft: CGFloat = 6, readoutBottom: CGFloat = 4, readoutSide: CGFloat = 6, labelSize: CGFloat = 10
     /// §9.3: below either, REPORT with the panel size — never shrink anything. PAGE LAYOUT ferry (2026-10-19) retired §9.3's STOP: below padH 60 MIX
     /// is still drawn, at the formula's values (never an empty panel); `floorPadH` is now only a flag the page's floor list raises.
-    static let minCellW: CGFloat = 84, minPadH: CGFloat = 76, floorPadH: CGFloat = 60
+    /// CLARITY PASS: the panels' padding and sp16 gaps cost every pad 6 pt of width and 12 of height at any size (84 → 78, 76 → 64, 60 → 48 move by exactly that), so the legibility floors keep the same headroom.
+    static let minCellW: CGFloat = 78, minPadH: CGFloat = 64, floorPadH: CGFloat = 48
 }
 /// The grid area (inside the panel's sp8 padding, below the 20pt tab row + sp8) for a panel of this size.
 func euclideousMixGridArea(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
@@ -5943,34 +6049,47 @@ func euclideousMixGridArea(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize 
            height: panelHeight - EuclideousMixMetrics.sp8 * 2 - EuclideousMixMetrics.tabRowH - EuclideousMixMetrics.sp8)
 }
 struct EuclideousMixGrid: Equatable {
+    /// `rowH` is a lane PANEL's height (CLARITY PASS: it was the row of cells' height), `padH` a pad's.
     var cellW: CGFloat, rowH: CGFloat, padH: CGFloat
     /// §2.8: this panel is too small for the ferry's legibility floors (reported, not shrunk).
     var belowFloors: Bool { cellW < EuclideousMixMetrics.minCellW || padH < EuclideousMixMetrics.minPadH }
-    /// A cell's origin from the grid area's top-leading corner: lane blocks sit 2×2 (lanes 1,2 on the top row, 3,4 below), each
-    /// block is RIFF then NOTES, sp4 apart; sp8 between blocks and between the rows.
-    func origin(lane: Int, notes: Bool) -> CGPoint {
-        let sp4 = EuclideousMixMetrics.sp4, sp8 = EuclideousMixMetrics.sp8
+    /// CLARITY PASS §3.1/§3.2: a lane panel = padding sp4, the RIFF pad, sp4, the NOTES pad, padding sp4.
+    var panelW: CGFloat { cellW * 2 + EuclideousMixMetrics.sp4 + EuclideousMixMetrics.panelPad * 2 }
+    var panelH: CGFloat { rowH }
+    /// A panel's origin from the grid area's top-leading corner: four panels in a 2×2 grid where the lane cards sit (lanes 1,2 on the top row, 3,4 below), sp16 apart both ways.
+    func panelOrigin(lane: Int) -> CGPoint {
         let col = lane % 2, row = (lane / 2) % 2
-        let blockX = CGFloat(col) * (cellW * 2 + sp4 + sp8)
-        return CGPoint(x: blockX + (notes ? cellW + sp4 : 0), y: CGFloat(row) * (rowH + sp8))
+        return CGPoint(x: CGFloat(col) * (panelW + EuclideousMixMetrics.sp16), y: CGFloat(row) * (panelH + EuclideousMixMetrics.sp16))
+    }
+    func panelFrame(lane: Int) -> CGRect { CGRect(origin: panelOrigin(lane: lane), size: CGSize(width: panelW, height: panelH)) }
+    /// A pad's origin from the grid area's top-leading corner (inside its panel's padding; RIFF then NOTES, sp4 apart).
+    func origin(lane: Int, notes: Bool) -> CGPoint {
+        let o = panelOrigin(lane: lane), pad = EuclideousMixMetrics.panelPad
+        return CGPoint(x: o.x + pad + (notes ? cellW + EuclideousMixMetrics.sp4 : 0), y: o.y + pad)
+    }
+    /// The lane's OUT A–D row: across the panel's inside width, sp4 under the OCT steppers.
+    func outRowFrame(lane: Int) -> CGRect {
+        let o = panelOrigin(lane: lane), pad = EuclideousMixMetrics.panelPad, sp4 = EuclideousMixMetrics.sp4
+        return CGRect(x: o.x + pad, y: o.y + pad + padH + sp4 + EuclideousMixMetrics.stepperH + sp4, width: panelW - pad * 2, height: EuclideousMixMetrics.outRowH)
     }
 }
-/// §9.1: cellW = (W − 16) / 4, rowH = (H − 8) / 2, padH = rowH − 52 (sp4 + the OCT stepper's 24 + sp4 + the
-/// OUT row's 20, all sitting under the pad now).
+/// CLARITY PASS §3.1/§3.2 (replacing §9.1's cellW = (W − 16) / 4, rowH = (H − 8) / 2): panelW = (W − 16) / 2 and panelH = (H − 16) / 2 (sp16 between panels), cellW = (panelW − 12) / 2 (sp4 padding both sides + sp4 between
+/// the pads), padH = panelH − 8 − 52 (the padding, then sp4 + the OCT stepper's 24 + sp4 + the OUT row's 20 under the pad). Against §9.1 that is exactly 6 pt narrower and 12 pt shorter, at any size.
 func euclideousMixGrid(width: CGFloat, height: CGFloat) -> EuclideousMixGrid {
-    let rowH = (height - EuclideousMixMetrics.sp8) / 2
-    let belowPad = EuclideousMixMetrics.sp4 + EuclideousMixMetrics.stepperH + EuclideousMixMetrics.sp4 + EuclideousMixMetrics.outRowH
-    return EuclideousMixGrid(cellW: (width - 16) / 4, rowH: rowH, padH: rowH - belowPad)
+    let m = EuclideousMixMetrics.self
+    let panelH = (height - m.sp16) / 2
+    let panelW = (width - m.sp16) / 2
+    let belowPad = m.sp4 + m.stepperH + m.sp4 + m.outRowH
+    return EuclideousMixGrid(cellW: (panelW - m.panelPad * 2 - m.sp4) / 2, rowH: panelH, padH: panelH - m.panelPad * 2 - belowPad)
 }
 
-/// The frame of one of a lane's four OUT A–D buttons, in the grid area's coordinates — the SAME numbers `mixOutRow` lays its HStack out with (the pair's width, sp4 gaps, 20pt tall, under the OCT stepper), so the PULSE glow
+/// The frame of one of a lane's four OUT A–D buttons, in the grid area's coordinates — the SAME numbers `mixOutRow` lays its HStack out with (the row's width, sp4 gaps, 20pt tall, under the OCT stepper), so the PULSE glow
 /// (§5.5) lands exactly on the button.
 func euclideousMixOutButtonFrame(grid: EuclideousMixGrid, lane: Int, button b: Int) -> CGRect {
     let sp4 = EuclideousMixMetrics.sp4
-    let riff = grid.origin(lane: lane, notes: false)
-    let pairW = grid.cellW * 2 + sp4
-    let btnW = max(1, (pairW - sp4 * 3) / 4)
-    return CGRect(x: riff.x + CGFloat(b) * (btnW + sp4), y: riff.y + grid.padH + sp4 + EuclideousMixMetrics.stepperH + sp4, width: btnW, height: EuclideousMixMetrics.outRowH)
+    let row = grid.outRowFrame(lane: lane)
+    let btnW = max(1, (row.width - sp4 * 3) / 4)
+    return CGRect(x: row.minX + CGFloat(b) * (btnW + sp4), y: row.minY, width: btnW, height: row.height)
 }
 
 // ── the pad (§3/§4): drawing geometry and touch-to-value are ONE definition ────────────────────────────────────────────
@@ -9260,6 +9379,13 @@ enum EuclideousStripMetrics {
     static let floorBarH: CGFloat = 2, floorBarInset: CGFloat = 2, floorBarMinWidth: CGFloat = 6
     static let floorBarTop: CGFloat = 24, floorBarRadius: CGFloat = 1
     /// RESTART TILES ferry (2026-10-22) §4: a rhythm rest is present, never blank, and never a dot — `euclideousStripRestLook` below.
+    /// CLARITY PASS (2026-10-23) §1: the columns are evenly spaced at today's within-group gap (no group gaps); beats are told apart by shading alternate groups. A rhythm rest is a SOLID fill (never dashed) —
+    /// #41454F in group A, #30333A in group B; a hit is the lane colour at 42 % (A) / 30 % (B); a gap (a hit on a riff rest) is the rest fill plus a 1 pt inner ring in the lane colour at 45 %.
+    /// (The readability pass's `hitFillAlpha`/`hitBorderAlpha`/`hitBorderW` above are no longer drawn — hide, don't delete.)
+    static let columnGap: CGFloat = 2
+    static let hitAlphaA = 0.42, hitAlphaB = 0.30
+    static let restHexA: UInt32 = 0x41454F, restHexB: UInt32 = 0x30333A
+    static let gapRingAlpha = 0.45, gapRingW: CGFloat = 1
 }
 /// RESTART TILES ferry §4.1 (restoring the LANE STRIP ferry's §1.1 after the readability ferry's dot): a rhythm rest column is #1A1C21 with a 1 pt dashed #3A3E47 INNER border (3 on, 2 off) at the column's full size. That is the
 /// whole look — there is no other mark, so there is nothing for a dot to be. Holds for every lane, every tab and every OFFSET: a column is a rest when no hit's start falls in it (polish §3.1).
@@ -9314,6 +9440,35 @@ enum EuclideousStripColumnKind: Equatable {
 /// is encoded as `EuclideousStripChip.hollow`, not a fourth kind, so it's already covered here) vs a
 /// quiet rhythm rest. The one shared rule drawing and tests both call, so they can't disagree.
 func euclideousStripDrawsAsHit(_ kind: EuclideousStripColumnKind) -> Bool { kind != .rhythmRest }
+
+// ── CLARITY PASS (2026-10-23) §1.3: what a column is filled with ──────────────────────────────────────────────────────────
+
+/// Beat groups alternate A, B, A, B from step 1 (§1.2). Display only: a group's size never changes timing.
+enum EuclideousStepGroupTone: Equatable { case a, b }
+/// §5.2: a step's group (A or B) from its 0-based index and the group size (`euclidStepGroupSize(forRate:)` — 3 under a triplet, else 4). A last group shorter than its size is simply short.
+func euclideousStepGroupTone(step: Int, groupSize: Int) -> EuclideousStepGroupTone {
+    (max(0, step) / max(1, groupSize)) % 2 == 0 ? .a : .b
+}
+enum EuclideousStripColumnFill: Equatable {
+    case lane(alpha: Double)   // the lane colour at this opacity over the card ground
+    case solid(hex: UInt32)
+}
+/// One column's whole look: its fill, the inner ring (alpha 0 = none), and whether the lane-coloured floor bar sits under it. Rest: solid, no ring, no bar. Hit: lane fill + the floor bar. Gap: the rest fill + a ring, no bar.
+struct EuclideousStripColumnLook: Equatable {
+    var fill: EuclideousStripColumnFill
+    var ringAlpha: Double
+    var ringWidth: CGFloat
+    var floorBar: Bool
+}
+func euclideousStripColumnLook(kind: EuclideousStripColumnKind, tone: EuclideousStepGroupTone) -> EuclideousStripColumnLook {
+    typealias M = EuclideousStripMetrics
+    let rest = EuclideousStripColumnFill.solid(hex: tone == .a ? M.restHexA : M.restHexB)
+    switch kind {
+    case .rhythmRest: return EuclideousStripColumnLook(fill: rest, ringAlpha: 0, ringWidth: 0, floorBar: false)
+    case .hit:        return EuclideousStripColumnLook(fill: .lane(alpha: tone == .a ? M.hitAlphaA : M.hitAlphaB), ringAlpha: 0, ringWidth: 0, floorBar: true)
+    case .gap:        return EuclideousStripColumnLook(fill: rest, ringAlpha: M.gapRingAlpha, ringWidth: M.gapRingW, floorBar: false)
+    }
+}
 /// `rank` 1…8 is the WRITTEN rank the arrow's row rule uses (INV and TRANS never touch it); `column` is the riff column (1-based) the footer shows; `hollow` = a REPEAT hit (the repeated note's
 /// height, a dashed lane outline); `grey` = the riff is off and only one of PLAYS / RESTS is on (the chips show which hits the riff's columns decide).
 struct EuclideousStripChip: Equatable { var rank: Int; var column: Int; var hollow: Bool; var grey: Bool }
@@ -9623,6 +9778,19 @@ func euclidGroupedBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidSte
 /// can't independently land on different group sizes for what's meant to be the same lane.
 func euclidStepGroupSize(forRate rate: ArpRate) -> Int {
     euclideousRateDivisionFeel(rate).feel == 2 ? 3 : 4
+}
+/// CLARITY PASS (2026-10-23) §1.1 — the lane strip's columns: NO group gaps. Every column takes today's within-group spacing (`EuclideousStripMetrics.columnGap`, 2 pt), evenly, and the width the 7 pt
+/// between-group gaps used to take is shared across the columns; `usableWidth` (the strip's overall frame) is unchanged. `xs[i] = i·(w + 2)`. The leftover rule's fields (`ruleX`/`ruleW`) are the grouped
+/// geometry's, recomputed from these columns: `g` only decides which trailing steps are the short last group (nil when `n` is an exact multiple). The MASK step bar keeps `euclidGroupedBoxGeometry`.
+func euclidEvenBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGroupGeometry {
+    guard n > 0 else { return EuclidStepGroupGeometry(stepW: 0, xs: [], ruleX: nil, ruleW: nil) }
+    let gap = EuclideousStripMetrics.columnGap
+    let w = max(0.5, (usableWidth - gap * CGFloat(n - 1)) / CGFloat(n))
+    let xs = (0..<n).map { CGFloat($0) * (w + gap) }
+    let leftover = n % max(1, g)
+    guard leftover != 0 else { return EuclidStepGroupGeometry(stepW: w, xs: xs, ruleX: nil, ruleW: nil) }
+    let x0 = xs[n - leftover]
+    return EuclidStepGroupGeometry(stepW: w, xs: xs, ruleX: x0, ruleW: xs[n - 1] + w - x0)
 }
 
 // MARK: - LANE SOLO (ferry 2026-10-21)

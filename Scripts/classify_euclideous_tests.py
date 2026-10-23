@@ -40,6 +40,7 @@ EXCLUSIVE_FILES = {
     "LaneSoloTests.swift",
     "LaneLockTests.swift",
     "RhythmPolishTests.swift",
+    "ClarityPassTests.swift",
     "RestartFlashTests.swift",
     "RiffGridArrowFuzzTests.swift",
 }

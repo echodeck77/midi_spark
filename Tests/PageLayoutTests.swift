@@ -125,19 +125,19 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(rp.onRestButtonWidth, 98.33, accuracy: 0.01); XCTAssertEqual(rp.valueStepperWidth, 88.75, accuracy: 0.01)
     }
     func testMixAtBothReferencesFillsTheBoxAndClearsItsFloors() {
-        for (p, areaW, areaH, cellW, rowH, padH, outW) in [(land, 364.67, 275.0, 87.17, 133.5, 81.5, 41.58), (port, 371.0, 275.67, 88.75, 133.83, 81.83, 42.38)] {
+        for (p, areaW, areaH, cellW, rowH, padH, outW) in [(land, 364.67, 275.0, 81.17, 129.5, 69.5, 38.58), (port, 371.0, 275.67, 82.75, 129.83, 69.83, 39.38)] {
             let area = euclideousMixGridArea(panelWidth: p.box.width, panelHeight: p.box.height)
             XCTAssertEqual(area.width, areaW, accuracy: 0.01); XCTAssertEqual(area.height, areaH, accuracy: 0.01)
             let g = euclideousMixGrid(width: area.width, height: area.height)
             XCTAssertEqual(g.cellW, cellW, accuracy: 0.01); XCTAssertEqual(g.rowH, rowH, accuracy: 0.01); XCTAssertEqual(g.padH, padH, accuracy: 0.01)
             XCTAssertFalse(g.belowFloors); XCTAssertGreaterThanOrEqual(g.padH, EuclideousMixMetrics.floorPadH)
-            XCTAssertEqual((g.cellW * 2 + 4 - 4 * 3) / 4, outW, accuracy: 0.01, "OUT buttons: four across a RIFF + NOTES pair, 4 apart")
-            // §9.5's fit rule: the VEL strip reads VEL (available 42.5 / 42.8 against the 44.8 "VELOCITY" needs)
+            XCTAssertEqual((g.cellW * 2 + 4 - 4 * 3) / 4, outW, accuracy: 0.01, "OUT buttons: four across the lane panel's inside width (a RIFF + NOTES pair), 4 apart")
+            // §9.5's fit rule (the rotated name it chose is gone since the CLARITY PASS, the pure function stays): VEL — 30.5 / 30.8 available against the 44.8 "VELOCITY" needs
             XCTAssertEqual(euclideousMixVelocityDisplayName(plotH: g.padH - EuclideousMixMetrics.gateStripH), "VEL")
         }
-        // the old portrait panel (393 × 248) is what drew nothing: padH 46 (< the 60 stop that no longer exists)
+        // the old portrait panel (393 × 248) is what drew nothing: padH 34 now (46 before the CLARITY PASS), under the 48 flag that is no longer a stop
         let old = euclideousMixGridArea(panelWidth: 393, panelHeight: 248)
-        XCTAssertEqual(euclideousMixGrid(width: old.width, height: old.height).padH, 46, accuracy: 1e-9)
+        XCTAssertEqual(euclideousMixGrid(width: old.width, height: old.height).padH, 34, accuracy: 1e-9)
     }
     func testRiffGridAtBothReferences() {
         // RIFF PANEL ferry (2026-10-19) §1: the tabs are 20 tall, the grid starts at y 34, four 8pt rails (41) sit under it — rows (box − 119) / 8 = 25 / 25.08.
@@ -227,7 +227,7 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(mini.box.width, 355, accuracy: 1e-9); XCTAssertEqual(mini.box.height, 274, accuracy: 1e-9)
         let area = euclideousMixGridArea(panelWidth: 355, panelHeight: 274)
         let g = euclideousMixGrid(width: area.width, height: area.height)
-        XCTAssertEqual(g.padH, 59, accuracy: 1e-9); XCTAssertEqual(g.cellW, 80.75, accuracy: 1e-9)
+        XCTAssertEqual(g.padH, 47, accuracy: 1e-9); XCTAssertEqual(g.cellW, 74.75, accuracy: 1e-9)   // CLARITY PASS: was 59 / 80.75
         XCTAssertEqual(euclideousRiffPanelLayout(box: CGSize(width: 355, height: 274)).rowH, 19.375, accuracy: 1e-9, "the new chrome (119) takes 42pt more than the old 77")
         let r = euclideousRiffTabLayout(contentAreaH: 274 - 104, fullWidth: 335)
         XCTAssertEqual(r.rowAHeight, 44, accuracy: 1e-9, "RIFF's row A")

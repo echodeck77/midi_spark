@@ -4749,23 +4749,24 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - MIX TAB (ferry 2026-10-18) §9 tests 1–4 (pure)
 
-    // RESTART CHAINS ferry §9.1/§16: a 401 × 264 grid area gives cellW 96.25, rowH 128, padH 76 (was 96 —
-    // OUT moving into MIX adds sp4 + the 24pt OCT stepper + sp4 + the 20pt OUT row under each pad) and the
-    // §2.7 origins (unchanged: the cells' own x/y origins don't move, only what sits below them does).
+    // CLARITY PASS (2026-10-23) §3.1/§3.2, replacing RESTART CHAINS §9.1/§16 (cellW 96.25, rowH 128, padH 76 at 401 × 264): four lane PANELS in a 2×2 grid, sp16 apart both ways, each padded sp4 around the
+    // RIFF and NOTES pads (sp4 apart), their OCT steppers and the lane's OUT row. A 401 × 264 area now gives panelW 192.5, panelH 124, cellW 90.25, padH 64 (6 narrower and 12 shorter than before).
     func testMixGridAtTheReferenceSizeAndItsCellOrigins() {
         let g = euclideousMixGrid(width: 401, height: 264)
-        XCTAssertEqual(g.cellW, 96.25, accuracy: 1e-9); XCTAssertEqual(g.rowH, 128, accuracy: 1e-9); XCTAssertEqual(g.padH, 76, accuracy: 1e-9)
-        XCTAssertFalse(g.belowFloors)
-        let xs: [CGFloat] = [0, 100.25, 204.5, 304.75], ys: [CGFloat] = [0, 136]
+        XCTAssertEqual(g.cellW, 90.25, accuracy: 1e-9); XCTAssertEqual(g.rowH, 124, accuracy: 1e-9); XCTAssertEqual(g.padH, 64, accuracy: 1e-9)
+        XCTAssertEqual(g.panelW, 192.5, accuracy: 1e-9); XCTAssertEqual(g.panelH, 124, accuracy: 1e-9)
+        XCTAssertFalse(g.belowFloors, "padH 64 is exactly the (shifted) floor, not under it")
+        let xs: [CGFloat] = [4, 98.25, 212.5, 306.75], ys: [CGFloat] = [4, 144]
         var want: [CGPoint] = []
         for row in 0..<2 { for col in 0..<2 { for notes in [false, true] { want.append(CGPoint(x: xs[col * 2 + (notes ? 1 : 0)], y: ys[row])) } } }
         var got: [CGPoint] = []
         for lane in 0..<4 { for notes in [false, true] { got.append(g.origin(lane: lane, notes: notes)) } }
         // order: lane 1 riff, lane 1 notes, lane 2 riff, lane 2 notes, then lanes 3 and 4
         for (i, (a, b)) in zip(got, want).enumerated() { XCTAssertEqual(a.x, b.x, accuracy: 1e-9, "cell \(i) x"); XCTAssertEqual(a.y, b.y, accuracy: 1e-9, "cell \(i) y") }
-        // the 8 cells + the OCT steppers + the OUT rows exactly tile the area: last cell's trailing edge = W, last row's bottom = H
-        XCTAssertEqual(got[7].x + g.cellW, 401, accuracy: 1e-9)
-        XCTAssertEqual(got[7].y + g.padH + 4 + EuclideousMixMetrics.stepperH + 4 + EuclideousMixMetrics.outRowH, 264, accuracy: 1e-9)
+        // the four panels exactly tile the area: last panel's trailing edge = W, bottom = H; the last pad ends one padding short of W, the last OUT row one padding short of H
+        XCTAssertEqual(g.panelFrame(lane: 3).maxX, 401, accuracy: 1e-9); XCTAssertEqual(g.panelFrame(lane: 3).maxY, 264, accuracy: 1e-9)
+        XCTAssertEqual(got[7].x + g.cellW, 401 - 4, accuracy: 1e-9)
+        XCTAssertEqual(got[7].y + g.padH + 4 + EuclideousMixMetrics.stepperH + 4 + EuclideousMixMetrics.outRowH, 264 - 4, accuracy: 1e-9)
         // the panel → grid area: the ferry's 417 × 308 panel is 401 × 264 inside its padding, tab row and gap
         let area = euclideousMixGridArea(panelWidth: 417, panelHeight: 308)
         XCTAssertEqual(area.width, 401); XCTAssertEqual(area.height, 264)
@@ -4774,27 +4775,28 @@ final class DerivationsTests: XCTestCase {
     // formula's values (the old 393 × 248 portrait panel, padH 46, is what used to draw nothing); the flags below are what the page's floor list raises.
     func testMixGridFlagsPanelsBelowTheLegibilityFloors() {
         let portrait = euclideousMixGrid(width: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).width, height: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).height)
-        XCTAssertEqual(portrait.padH, 46, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 46 < 76")
-        XCTAssertLessThan(portrait.padH, EuclideousMixMetrics.floorPadH, "…and below the 60pt flag too (no longer a stop)")
+        XCTAssertEqual(portrait.padH, 34, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 34 < 64 (CLARITY PASS: was 46 < 76)")
+        XCTAssertLessThan(portrait.padH, EuclideousMixMetrics.floorPadH, "…and below the 48pt flag too (no longer a stop)")
         let narrow = euclideousMixGridArea(panelWidth: 357.12, panelHeight: 333.5)
-        XCTAssertTrue(euclideousMixGrid(width: narrow.width, height: narrow.height).belowFloors, "1024-wide landscape: cellW 81.3 < 84")
+        XCTAssertTrue(euclideousMixGrid(width: narrow.width, height: narrow.height).belowFloors, "1024-wide landscape: cellW 75.3 < 78")
         let ok = euclideousMixGridArea(panelWidth: 416.88, panelHeight: 312.25)
         XCTAssertFalse(euclideousMixGrid(width: ok.width, height: ok.height).belowFloors)
     }
     // §9.2 — the pad maths: the three §3.5 points, the §3.6 ticks, and §4.1 inverting §3.5.
     func testMixPadPuckTicksAndTheTouchInverse() {
         let pad = EuclideousMixPadGeometry(cellW: 96.25, padH: 96)
-        XCTAssertEqual(pad.plotW, 72.25, accuracy: 1e-9); XCTAssertEqual(pad.plotH, 82, accuracy: 1e-9)
+        // CLARITY PASS: the 24 pt VEL strip is gone (its label and value moved), so the plot spans the whole pad: plotW 96.25 (was 72.25) and the puck travels x 7 … 89.25
+        XCTAssertEqual(pad.plotW, 96.25, accuracy: 1e-9); XCTAssertEqual(pad.plotH, 82, accuracy: 1e-9)
         func near(_ p: CGPoint, _ x: Double, _ y: Double, _ msg: String) { XCTAssertEqual(Double(p.x), x, accuracy: 0.01, msg); XCTAssertEqual(Double(p.y), y, accuracy: 0.01, msg) }
-        near(pad.puck(gate: 0.60, velocity: 104), 65.95, 19.31, "gate 60 / vel 104")
+        near(pad.puck(gate: 0.60, velocity: 104), 56.35, 19.31, "gate 60 / vel 104")
         near(pad.puck(gate: 1.00, velocity: 127), 89.25, 7, "100 / 127")
-        near(pad.puck(gate: 0.01, velocity: 1), 31.58, 74.46, "1 / 1")
-        XCTAssertEqual(pad.tickXs.map { Double($0) }.map { ($0 * 100).rounded() / 100 }, [45.56, 60.13, 74.69])
+        near(pad.puck(gate: 0.01, velocity: 1), 7.82, 74.46, "1 / 1")
+        XCTAssertEqual(pad.tickXs.map { Double($0) }.map { ($0 * 100).rounded() / 100 }, [27.56, 48.13, 68.69])
         XCTAssertEqual(pad.tickYs.map { Double($0) }, [58, 41, 24])
         // regions and axes (§3.3/§3.4)
-        XCTAssertEqual(pad.velStrip, CGRect(x: 0, y: 0, width: 24, height: 82)); XCTAssertEqual(pad.gateStrip, CGRect(x: 24, y: 82, width: 72.25, height: 14))
-        XCTAssertEqual(pad.plot, CGRect(x: 24, y: 0, width: 72.25, height: 82))
-        XCTAssertEqual(pad.yAxis, CGRect(x: 24, y: 0, width: 1, height: 82)); XCTAssertEqual(pad.xAxis, CGRect(x: 24, y: 82, width: 72.25, height: 1))
+        XCTAssertEqual(pad.velStrip, CGRect(x: 0, y: 0, width: 0, height: 82)); XCTAssertEqual(pad.gateStrip, CGRect(x: 0, y: 82, width: 96.25, height: 14))
+        XCTAssertEqual(pad.plot, CGRect(x: 0, y: 0, width: 96.25, height: 82))
+        XCTAssertEqual(pad.yAxis, CGRect(x: 0, y: 0, width: 1, height: 82)); XCTAssertEqual(pad.xAxis, CGRect(x: 0, y: 82, width: 96.25, height: 1))
         // §4.1 inverts §3.5 for EVERY gate 1…99 at velocities 1, 64 and 127 (100% — legato — is no longer offered; the far edge is 99%)
         for g in 1...99 { for v in [1, 64, 127] {
             let back = pad.values(at: pad.puck(gate: Double(g) / 100, velocity: v))
@@ -4804,7 +4806,7 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(pad.values(at: CGPoint(x: -50, y: 500)).gate, 0.01); XCTAssertEqual(pad.values(at: CGPoint(x: -50, y: 500)).velocity, 1)
         XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).gate, 0.99, "the far right edge is 99%, never legato"); XCTAssertEqual(pad.values(at: CGPoint(x: 900, y: -500)).velocity, 127)
         XCTAssertEqual(pad.values(at: pad.puck(gate: 1.0, velocity: 64)).gate, 0.99, "even a puck drawn at 100% reads back as 99%")
-        XCTAssertEqual(pad.values(at: CGPoint(x: 10, y: 40)).gate, 0.01, "a touch on the VEL strip still sets both values; its x clamps the gate to 1%")
+        XCTAssertEqual(pad.values(at: CGPoint(x: 2, y: 40)).gate, 0.01, "a touch left of the puck's travel still sets both values; its x clamps the gate to 1%")
     }
     // RESTART CHAINS ferry §9.4/§16, literal: at padH 76 (the new grid-derived reference, OUT moved into
     // MIX): plotH 62, left-axis ticks at y 43/31/19 (bottom ticks unchanged), and the three named puck points.
@@ -4812,10 +4814,10 @@ final class DerivationsTests: XCTestCase {
         let pad = EuclideousMixPadGeometry(cellW: 96.25, padH: 76)
         XCTAssertEqual(pad.plotH, 62, accuracy: 1e-9)
         func near(_ p: CGPoint, _ x: Double, _ y: Double, _ msg: String) { XCTAssertEqual(Double(p.x), x, accuracy: 0.01, msg); XCTAssertEqual(Double(p.y), y, accuracy: 0.01, msg) }
-        near(pad.puck(gate: 0.60, velocity: 104), 65.95, 15.69, "gate 60 / vel 104")
+        near(pad.puck(gate: 0.60, velocity: 104), 56.35, 15.69, "gate 60 / vel 104")
         near(pad.puck(gate: 1.00, velocity: 127), 89.25, 7, "100 / 127")
-        near(pad.puck(gate: 0.01, velocity: 1), 31.58, 54.62, "1 / 1")
-        XCTAssertEqual(pad.tickXs.map { Double($0) }.map { ($0 * 100).rounded() / 100 }, [45.56, 60.13, 74.69], "bottom-axis ticks unchanged")
+        near(pad.puck(gate: 0.01, velocity: 1), 7.82, 54.62, "1 / 1")
+        XCTAssertEqual(pad.tickXs.map { Double($0) }.map { ($0 * 100).rounded() / 100 }, [27.56, 48.13, 68.69], "bottom-axis ticks follow the strip-less plot (CLARITY PASS)")
         XCTAssertEqual(pad.tickYs.map { Double($0) }, [43, 31, 19])
     }
     // The pad's strip is always GATE and its spoken value plain — legato was removed from the XY box (2026-10-19). The RHYTHM slider's own label function is unchanged
