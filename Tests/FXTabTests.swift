@@ -249,6 +249,21 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXRatchetCount(requested: 4, sub: 0.125, tempo: 600), 0, "cap 1 ⇒ a plain hit")
     }
 
+    func testTheChainEraNotePassIsARiffCycleFromTheMelodyOriginOrALapUnderAMelodyChainOfOne() {
+        // 8 hits per cycle of a LENGTH-4 riff: ordinals 0…3 pass 0, 4…7 pass 1, …
+        for (ord, want) in [(0, 0), (3, 0), (4, 1), (11, 2), (16, 4)] as [(Int, Int)] {
+            XCTAssertEqual(euclideousFXNotePass(advOrd: Int64(ord), every: 1, riffDir: .forward, length: 4, stride: 1, melodyEveryPass: false, lapsSinceRhythmOrigin: 99), want, "ordinal \(ord)")
+        }
+        XCTAssertEqual(euclideousFXNotePass(advOrd: 5, every: 2, riffDir: .forward, length: 4, stride: 1, melodyEveryPass: false, lapsSinceRhythmOrigin: 0), 0, "EVERY 2: the walk step is 2, still pass 0")
+        XCTAssertEqual(euclideousFXNotePass(advOrd: 8, every: 2, riffDir: .pingpong, length: 4, stride: 1, melodyEveryPass: false, lapsSinceRhythmOrigin: 0), 0, "PING-PONG period 8: step 4 is pass 0")
+        // a melody chain of exactly [1]: the lap decides, whatever the ordinal says
+        for laps in [0, 1, 5] as [Int] {
+            XCTAssertEqual(euclideousFXNotePass(advOrd: 0, every: 1, riffDir: .forward, length: 4, stride: 1, melodyEveryPass: true, lapsSinceRhythmOrigin: Int64(laps)), laps)
+        }
+        XCTAssertEqual(euclideousFXNotePass(advOrd: 100, every: 1, riffDir: .forward, length: 4, stride: 1, melodyEveryPass: true, lapsSinceRhythmOrigin: -3), 0, "never negative")
+        XCTAssertTrue(EuclideousRestartChain.from([1]).isSingleLink1); XCTAssertFalse(EuclideousRestartChain.from([2]).isSingleLink1); XCTAssertFalse(EuclideousRestartChain.from([1, 1]).isSingleLink1); XCTAssertFalse(EuclideousRestartChain.free.isSingleLink1)
+    }
+
     // MARK: - the NOTE pass index (§7.2)
 
     private struct Rng {

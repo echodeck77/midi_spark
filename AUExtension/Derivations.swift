@@ -4653,8 +4653,7 @@ struct EuclideousWalkLaneConfig {
     var dir: EuclidDir
     var sub: Double                 // beats per tick (the lane's rate, × the FOLLOW multiplier)
     var spanBeats: Double = 0       // machine-wide RESET span in beats (the pre-grid re-anchor, used only while the grid has no mark); 0 = free-run
-    /// The lane's restart grid in its own ticks (LANES GRID, 2026-10-18) — kept ONLY for the FX tab's own closed-form
-    /// pass index (`euclideousFXPassIndex`, out of the restart-chains ferry's scope); every other reader below uses `chains`.
+    /// The lane's restart grid in its own ticks (LANES GRID, 2026-10-18) — the RETIRED masked model; since the 2026-10-23 review fix nothing reads it (the NOTE pass is `euclideousFXNotePass`, on `chains`). Kept: hide, don't delete.
     var grid: EuclideousLaneRestartGrid = .off
     /// RESTART CHAINS (ferry 2026-10-19): the lane's resolved rhythm/melody chains — what the walk mirror, the roll's
     /// gap/tie lookahead and the lap-start baseline actually read now. `.off` (both FREE) is the safe pre-migration
@@ -7653,9 +7652,7 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         let written = c.riffOn ? rankAt(w.playedStep, hitBeat) : 0
         var fxHit = EuclideousFXHit()
         if fxLive {
-            let pass = laneHasNoteFX ? euclideousFXPassIndex(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, grid: c.grid,
-                                                              legacySpanBeats: c.spanBeats, locked: c.locked, advanceStep: c.advanceStep,
-                                                              riffDir: c.riffDir, stride: c.stride, length: c.length, every: c.every) : 0
+            let pass = laneHasNoteFX ? euclideousFXNotePassForTick(c, tick: tick, advOrd: w.advOrd) : 0   // the Router's own function (REVIEW FIX 2026-10-23)
             fxHit = euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: w.playedStep, writtenRank: written, pass: pass)
         }
         if fxHit.tie { continue }                      // a tied hit does not strike: no bar of its own (the previous bar's length covers it)
@@ -7936,6 +7933,21 @@ private func euclideousLapStartsUpTo(_ x: Int64, rhythmMask: UInt16, unitTicks u
     }
     let wn = floorDiv(x, window)
     return wn * perWindow(window - 1) + perWindow(x - wn * window)
+}
+/// THE NOTE PASS INDEX, chain era (REVIEW FIX ferry 2026-10-23) — the ONE function the Router and the LANES roll both call, so the roll can no longer predict a NOTE offset the engine doesn't play (it read the RETIRED masked
+/// grid: with a melody chain of [2] the engine played ranks 1,1,1,1,2,2,2,2,1,… and the roll drew 1…4). A pass is a riff cycle counted from the MELODY origin (`advOrd`, the chain core's own ordinal: a melody restart returns
+/// the NOTE ladder to its first rung with the riff), EXCEPT under a melody chain of exactly [1] — the old LOCK, the riff restarting every lap — where every riff cycle would be pass 0 and the row could never move: there a pass is a
+/// LAP (`lapsSinceRhythmOrigin`, the core's `cy`), the old LOCK rule (FX §7.2), now a property of the chain itself instead of the hidden `riffLock` flag the Router used to read (which a migration never cleared and the UI could not edit).
+func euclideousFXNotePass(advOrd: Int64, every: Int, riffDir: RiffDir, length: Int, stride: Int, melodyEveryPass: Bool, lapsSinceRhythmOrigin: Int64) -> Int {
+    if melodyEveryPass { return Int(max(0, lapsSinceRhythmOrigin)) }
+    return euclideousFXFreePass(advOrd: euclideousRiffWalkStep(ordinal: advOrd, every: every), period: euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
+}
+/// The mirror's call of it for one tick: the chain core's phase for the lap, the walk tick for the ordinal.
+func euclideousFXNotePassForTick(_ c: EuclideousWalkLaneConfig, tick: Int64, advOrd: Int64) -> Int {
+    let cycleLen = euclidCycleLen(c.dir, n: c.n)
+    let ph = euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats)
+    let laps = floorDiv(ph.localT - Int64(ph.raw), Int64(max(1, cycleLen)))
+    return euclideousFXNotePass(advOrd: advOrd, every: c.every, riffDir: c.riffDir, length: c.length, stride: c.stride, melodyEveryPass: c.chains.melody.isSingleLink1, lapsSinceRhythmOrigin: laps)
 }
 /// The hit's NOTE pass index from the lane's per-tick core inputs — the one function the Router (FREE: it already holds `advOrd`; LOCK: it holds `localT`), the
 /// roll and the tests all use. FREE reads the core's ordinal; LOCK counts resets in closed form.

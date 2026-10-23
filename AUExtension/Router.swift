@@ -4889,11 +4889,6 @@ final class Router {
                     eN = cycleLen; eDir = .fwd
                     hitTiming = EuclideousHitTiming(delay: euclidTickDelay)
                 }
-                // RESTART CHAINS (2026-10-19): `restartGrid` (the old masked model) is kept ONLY for the FX
-                // tab's own closed-form pass-index math (`euclideousFXLockPass`/`euclideousFXPassIndex`,
-                // out of this ferry's scope — its own full test suite constructs `EuclideousLaneRestartGrid`
-                // values directly) — the real restart decision below reads `chains` instead.
-                var restartGrid = EuclideousLaneRestartGrid.off
                 var chains = EuclideousLaneRestartChains.off
                 var muteCells: UInt16 = 0xFFFF
                 var muteUnitBeats = 0.0
@@ -4925,7 +4920,6 @@ final class Router {
                                                        legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
                                                        legacyCells: p.euclideousLanesSeqCells, stepBeats: sub, passBeats: passBeats,
                                                        beatsPerBar: beatsPerBar)
-                    restartGrid = euclideousLaneRestartGrid(g, cycleLen: cycleLen)
                     muteCells = g.muteCells
                     muteUnitBeats = g.muteUnit.beats(stepBeats: sub, passBeats: passBeats)
                 }
@@ -5260,7 +5254,6 @@ final class Router {
                         // `raw` is always < cycleLen) — so `hitsUpTo - 1` IS exactly "position within the
                         // CURRENT lap," genuinely stateless, needing no new bookkeeping for any remaining
                         // direction — this is the WHOLE mechanism for FWD/REV/PEND/PING.
-                        let locked = riffLock
                         // ADVANCE (Paul 2026-10-10 ferry §3.5): HIT keeps today's hit-ordinal (`ord`/
                         // `hitsUpTo`); STEP advances on EVERY tick of this lane's own pattern, hit or
                         // miss — `localT` (the true monotonic per-tick count, already computed above)
@@ -5468,19 +5461,13 @@ final class Router {
                                     : playedStep
                                 let rawRank = leapStep < ranks.count ? ranks[leapStep] : 0
                                 // FX TAB §2.1/§2.2: `leapStep` IS the column this hit reads (riffStepAt, then SHIFT — the column the riff-grid marker shows) and `rawRank` its
-                                // WRITTEN rank (before INVERT, before the NOTE offset). The NOTE pass index comes from the core's own inputs: FREE the ordinal `advOrd`, LOCK the
-                                // closed-form count of lap starts since the melody origin.
+                                // WRITTEN rank (before INVERT, before the NOTE offset). The NOTE pass index comes from the core's own inputs: the ordinal `advOrd` (a melody chain of [1]: the lap).
                                 if fxLive {
-                                    // FX TAB (out of this ferry's scope): its own closed-form pass index stays on the OLD masked grid
-                                    // entirely (`restartGrid`, preserved unchanged) — `localT` above is now the CHAIN-era value and must
-                                    // never be reused here; a separate old-model phase is computed just for this LOCK branch.
+                                    // The NOTE pass index is the ONE chain-era function the LANES roll calls too (`euclideousFXNotePass`): a riff cycle from the melody origin, or — under a melody chain of exactly [1],
+                                    // the old LOCK — the lap (`cy`). It no longer reads the retired masked grid or the hidden `riffLock` flag (REVIEW FIX 2026-10-23).
                                     let notePass: Int = fxAll.rowHasCells(4, lane: lineIndex)
-                                        ? (locked ? euclideousFXLockPass(tick: tick, cycleLen: cycleLen, grid: restartGrid,
-                                                                         localT: euclideousLanePhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick,
-                                                                                                     grid: restartGrid, legacySpanBeats: ladderSpanBeats).localT)
-                                                  // RIFF WALK ferry §5.2 test 7: the FREE path now counts the WALK STEP, not the raw
-                                                  // ordinal, so every EVERY hit of a group shares the same NOTE pass/offset.
-                                                  : euclideousFXFreePass(advOrd: euclideousRiffWalkStep(ordinal: advOrd, every: riffAdvanceEvery), period: euclideousFXWalkPeriod(dir: riffDir, length: riffLength, stride: riffStride)))
+                                        ? euclideousFXNotePass(advOrd: advOrd, every: riffAdvanceEvery, riffDir: riffDir, length: riffLength, stride: riffStride,
+                                                               melodyEveryPass: chains.melody.isSingleLink1, lapsSinceRhythmOrigin: cy)
                                         : 0
                                     fx = euclideousFXApply(fxAll, lane: lineIndex, playsRiff: true, column: leapStep, writtenRank: rawRank, pass: notePass)
                                 }

@@ -13577,6 +13577,43 @@ final class RouterTests: XCTestCase {
         for ev in runaway.e.ons where ev.cable == 1 { let b = Int(ev.sample / 24_000); if b >= 0 && b < 4 { perBeat[b] += 1 } }
         for (b, n) in perBeat.enumerated() { XCTAssertLessThanOrEqual(n, Router.euclideousFloodCapPerBeat + 4, "beat \(b): the budget holds (\(n) note-ons)") }
     }
+    /// The NOTE offset (as a pool rank) each hit really plays, from the Router, and what the LANES roll predicts for the same lane (REVIEW FIX ferry 2026-10-23): one lane, every written rank 1, NOTE +1 on all eight columns.
+    private func fxNotePassRanks(riffLength: Int, melody: [UInt8]?, rhythm: [UInt8]? = nil, lock: Bool = false, beats: Double = 16) -> (router: [Int], roll: [Int]) {
+        var l = fxLine(gate: 0.5); l.steps = 4; l.pulses = 4; l.rate = .r1_4; l.riffLength = riffLength
+        l.restartMelodyPasses = melody; l.restartRhythmBars = rhythm; l.riffLock = lock
+        var cells: [(Int, Int, Int)] = []; for c in 0..<8 { cells.append((4, c, 1)) }
+        let fx = fxCells(cells, passes: 8)
+        let e = fxRun(fxBox([l], ranks: [1, 1, 1, 1, 1, 1, 1, 1], fx: fx), beats: beats, frames: 512)
+        let router = fxOns(e).filter { $0.beat < beats - 0.1 }.map { (fxPoolNotes.firstIndex(of: $0.note) ?? -1) + 1 }
+        let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, fx: fx)!
+        let roll = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: beats - 0.1, minGateBeats: 0.005, rankAt: { _, _ in 1 }).map { $0.rank }
+        return (router, roll)
+    }
+    func testFXNotePassTheLanesRollPredictsExactlyWhatTheRouterPlaysAcrossRestartChains() {
+        for (label, mel, rhy) in [("FREE", nil as [UInt8]?, nil as [UInt8]?), ("melody [1]", [1], nil), ("melody [2]", [2], nil), ("melody [3,1]", [3, 1], nil), ("rhythm [1] melody [2]", [2], [1])] {
+            for len in [4, 8] {
+                let r = fxNotePassRanks(riffLength: len, melody: mel, rhythm: rhy)
+                XCTAssertEqual(r.roll, r.router, "\(label), riff length \(len): the roll draws what sounds")
+                XCTAssertEqual(r.router.count, 16, "\(label), length \(len): sixteen hits in sixteen beats")
+            }
+        }
+    }
+    func testFXNotePassUnderAMelodyChainOfOneCountsLapsAndOtherwiseRiffCyclesFromTheMelodyOrigin() {
+        // lap = 4 hits, riff length 4 (a cycle = a lap), NOTE +1 on every column, PASSES 8
+        XCTAssertEqual(fxNotePassRanks(riffLength: 4, melody: nil).router, [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], "FREE: a pass per riff cycle")
+        XCTAssertEqual(fxNotePassRanks(riffLength: 4, melody: [2]).router, [1, 1, 1, 1, 2, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2], "melody [2]: a restart returns the NOTE ladder to its first rung with the riff")
+        XCTAssertEqual(fxNotePassRanks(riffLength: 4, melody: [1]).router, [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], "melody [1] (the old LOCK): every riff cycle would be pass 0, so a pass is a LAP — the row still climbs (it was inert)")
+        // a riff of 8 over a 4-hit lap: FREE climbs every 2 laps, melody [1] every lap
+        XCTAssertEqual(fxNotePassRanks(riffLength: 8, melody: nil).router, [1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2])
+        XCTAssertEqual(fxNotePassRanks(riffLength: 8, melody: [1]).router, [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4])
+    }
+    func testAStaleRiffLockNoLongerChangesTheNotePass() {
+        // `riffLock` is decode-only since the restart-chains ferry, but the Router still read it for NOTE — an invisible, uneditable switch
+        for len in [4, 8] {
+            XCTAssertEqual(fxNotePassRanks(riffLength: len, melody: nil, lock: true).router, fxNotePassRanks(riffLength: len, melody: nil, lock: false).router, "riff length \(len): lock on or off, the same notes")
+            XCTAssertEqual(fxNotePassRanks(riffLength: len, melody: [1], lock: true).router, fxNotePassRanks(riffLength: len, melody: [1], lock: false).router)
+        }
+    }
     func testFXRatchWithATieOnAFastStepExtendsTheLastStrikeAtEveryBufferSizeAndLeavesNothingSounding() {
         // RATCH 4 on column 0 and TIE on column 1 at 1/16: the tied hit carries the LAST strike on; at a 4096-frame buffer the early strikes are in-window
         for frames: UInt32 in [128, 1024, 4096] {
