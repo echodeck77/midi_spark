@@ -240,7 +240,7 @@ struct EuclideousMixOctaveStepper: View {
     private func button(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Image(systemName: symbol).font(.system(size: 12, weight: .heavy))
             .foregroundColor(!enabled ? EuclideousMixPalette.glyphDisabled : EuclideousMixPalette.glyph)
-            .frame(width: EuclideousMixMetrics.stepperH, height: EuclideousMixMetrics.stepperH)
+            .frame(width: EuclideousMixMetrics.stepperButtonW, height: EuclideousMixMetrics.stepperH)
             .contentShape(Rectangle())
             .onTapGesture { if enabled { action() } }
     }

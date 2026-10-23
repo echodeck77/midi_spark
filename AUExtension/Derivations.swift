@@ -6028,6 +6028,9 @@ enum EuclideousMixMetrics {
     static let tabRowH: CGFloat = 20
     // RESTART CHAINS ferry §9.6: OCT shrinks from 28 to 24; §9.7 adds the 20pt OUT row under each lane's pair.
     static let stepperH: CGFloat = 24
+    /// CLARITY PASS: the − / + buttons are 21 wide (they were 24): the panels' spacing makes every pad 6 pt narrower, and "OCT +1" (≈ 36 pt) must still fit between the buttons — 2 × 21 + 36 = 78, the shifted `minCellW`, exactly
+    /// the headroom 2 × 24 + 36 = 84 gave at the old floor. Without it a non-zero octave truncated to "OCT …" at the reference width (found in a scratch render). The buttons stay 24 tall.
+    static let stepperButtonW: CGFloat = 21, stepperCentreNeeds: CGFloat = 36
     static let outRowH: CGFloat = 20
     /// CLARITY PASS (2026-10-23) §3.3: the rotated VEL name and the value that filled this 24 pt left strip both moved (the label to the top-left, the value to the bottom-left readout), so the strip is
     /// gone and the plot spans the whole pad. 0 keeps every formula that names the strip (plot, axes, puck origin, touch inverse) a single definition.

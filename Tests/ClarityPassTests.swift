@@ -234,6 +234,17 @@ final class ClarityPassTests: XCTestCase {
         XCTAssertTrue(mini.floors.contains(.mixCellW) && mini.floors.contains(.mixPadH), "an 8.3-inch iPad mini's box still raises the flags")
     }
 
+    func testTheOctaveStepperStillFitsOctPlusItsValueBetweenItsButtonsAtEveryPadWidthTheFloorAllows() {
+        typealias M = EuclideousMixMetrics
+        XCTAssertGreaterThanOrEqual(M.minCellW - 2 * M.stepperButtonW, M.stepperCentreNeeds, "\"OCT +1\" fits at the floor, with the headroom the old 24 pt buttons gave at the old 84 floor")
+        XCTAssertEqual(M.minCellW - 2 * M.stepperButtonW, 84 - 2 * 24, "…the same headroom exactly")
+        for size in [landscapeRef, portraitRef] {
+            let box = euclideousPageLayout(size: size).box, a = euclideousMixGridArea(panelWidth: box.width, panelHeight: box.height)
+            XCTAssertGreaterThanOrEqual(euclideousMixGrid(width: a.width, height: a.height).cellW - 2 * M.stepperButtonW, M.stepperCentreNeeds)
+        }
+        XCTAssertEqual(M.stepperH, 24, "the buttons stay 24 tall")
+    }
+
     // MARK: 7. MIX: the pad's readouts (3.5) and the OFF pad (3.7 — test 5)
 
     func testReadoutsKeepTheirWordsOnlyWhileTheyFit() {
