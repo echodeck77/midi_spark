@@ -17,6 +17,14 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### FLOORS ferry (2026-10-23)
+- RIFF tab on a small/windowed AUM panel: the WALK strip actually disappearing (not just shrinking) when the direction row would otherwise be under 32pt, and the direction row's chevron/"Invert melody" buttons at their real, now-variable height.
+- RHYTHM tab: TILT's/OFFSET's "EARLY"/"LATE" end-labels dropping cleanly (no half-clipped text) below the new 28pt threshold, slider still fully usable without them.
+- MIX tab at a cramped panel size: the OCT stepper and OUT row visibly shrinking together (18pt/14pt) rather than the pad alone looking squeezed; "OCT +1" still legible at the compact stepper height.
+- Riff grid panel at a cramped box: the tab row (RIFF 1-4 selector) at its 14pt compact height — tap targets and the mini pattern icon still legible/hittable; the note-label column at its 20pt compact width — note names ("A♭3" etc.) not visibly colliding with the grid.
+- FX tab at a cramped panel: the hint row actually disappearing (not just truncating) once the six rows would otherwise hit their hard 24pt clamp; confirm the panel no longer visibly overflows its own bottom edge in the case that used to.
+- All five: confirm none of the new compact-floor NUMBERS (my own picks, chosen smaller than the existing floor so they bite only in genuinely cramped cases) look wrong on a real iPad at the sizes they're meant for — easy to retune once seen.
+
 ### CLARITY PASS (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM first (the lane tab row and the MIX tab were rebuilt; the DEBUG frames were compared against the previous build and the strip's draw closure is +16 bytes, `mixCell` −1.6 KB); the RHYTHM tab row and the MIX tab must come up on all four lanes.
 - Beat shading reads as countable blocks without looking busy at 8, 12 and 16 steps and under a triplet (groups of 3): #41454F / #30333A rests on the card ground, a 0-hit lane still showing every step.

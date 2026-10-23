@@ -5,6 +5,11 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ EUCLIDEOUS — FLOORS: the page's size-diagnostic flags become real fallbacks on 5 tabs (2026-10-23; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the "FLOORS ferry" lines in `Docs/euclideous-device-verification-debt.md` — every new compact-floor number is my own pick and needs a real-iPad look.
+- [ ] (noted) the WALK strip (RIFF tab) and the hint row (FX tab) disappear entirely below their own trigger rather than resizing — say if either should stay visible at the cost of its neighbours shrinking further instead.
+- [ ] (noted) Options 2–5 of the original scale-down investigation (size-class-aware layouts, a real `.minimumScaleFactor` escape hatch, `supportedViewConfigurations`, an AU host-size renegotiation) were not pursued — this ferry is Option 1 (fair-share + drop-decorative-only) only; revisit if fair-share alone proves insufficient on device.
+
 ## ★ EUCLIDEOUS — CLARITY PASS: beat-shaded step columns, tab glyphs, MIX lane panels (2026-10-23; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "CLARITY PASS" lines in `Docs/euclideous-device-verification-debt.md` (first: launch the DEBUG build — the tab row's and MIX's leaves changed).
 - [ ] DECIDE (Paul): the 2 pt "leftover rule" under a short last group (7 steps in fours, etc.) was not named by the spec and stays, repositioned from the new even columns. The shading now shows the short group too, so the rule is redundant — drop it if you agree.

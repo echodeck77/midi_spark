@@ -12,6 +12,57 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ EUCLIDEOUS — FLOORS ferry (2026-10-23, branch `fix/page-floors-fallbacks`; iOS build clean after each
+  of 5 areas, `Scripts/run-euclideous-tests.sh` green after each (790 → 793 as tests were added), full macOS
+  suite run before merge; every new threshold's actual look/feel is device-owed): turns the page's
+  size-diagnostic `EuclideousPageFloor` flags (Derivations.swift's own doc comment: "a flag, never a clamp")
+  into real fallback behaviour, following Option 1 of a scale-down investigation Paul approved ("1, please,
+  yes, go for it"). Convention, applied across 5 areas: where a box = (flexible primary content) + (fixed
+  chrome), the chrome gets its OWN small compact floor and shrinks too — "fair-share" — instead of the
+  primary content alone absorbing 100% of the squeeze; only genuinely non-interactive/decorative elements
+  (never a control with no alternate access) may drop out entirely, and only once fair-share is exhausted.
+  **Cleanup first:** deleted `EuclideousRestartEditorFallback`/`restartEditorTimelineFloor`/
+  `restartEditorHintFloor` and their tests — confirmed dead (a later RESTART TILES ferry replaced what it
+  used to gate with a fixed, unconditional layout; zero production callers remained).
+  **1. RIFF tab** (`EuclideousRiffTabLayout`): fixed a real, unconditional bug first — `directionButtonWidth`
+  divided by 5 slots though PENDULUM's removal left only 4 buttons on the direction row. Wired
+  `riffDirectionRow`/`riffAdvanceRow`/`riffOnRestRow`'s buttons to their layout's real resolved heights
+  (they'd been hardcoded 40/38/38 regardless of the box). New: below `directionRowHeight`'s existing 32pt
+  floor, the WALK strip ("display only, not interactive" per its own doc comment) drops out and the
+  direction row takes the whole of row A instead.
+  **2. RHYTHM tab**: TILT's/OFFSET's "EARLY"/"LATE" end-labels (pure annotation, not the slider itself) drop
+  below a new `EuclideousRhythmGeometry.endLabelsFloor` (28pt) on `rightRowH`.
+  **3. MIX tab**: the OCT stepper (24pt) and OUT row (20pt) used to stay fixed while the pad alone absorbed
+  a shrinking panel's loss. Now, if the nominal 52pt split would push `padH` under `minPadH` (64), both drop
+  together to compact floors (18/14), buying the pad back 12pt — delaying the lower, all-or-nothing
+  `floorPadH` (48) cliff. OUT row is never dropped outright (`mixOutRow` is the only place that edits a
+  lane's `emitterMask`).
+  **4. Riff grid panel**: added fair-share on BOTH axes — the tab row (height, 20→14 compact) once nominal
+  `rowH` would fall under the EXISTING `minRowH` (24); the note-label column (width, 30→20 compact) once
+  nominal `cellW` would fall under a NEW, symmetric `minCellW` (24). The label's fair-share lives in a new
+  `euclideousRiffNoteLabelW(maxWidth:)`, called FROM `euclideousRiffCellW` (not a separate path) — since the
+  FX tab calls that same `euclideousRiffCellW` to keep its own columns lined up with the riff grid's "by
+  construction" (§10.3), both resolve the identical label width for the identical width without needing to
+  touch FX's own call site at all.
+  **5. FX tab**: the only one of the five where the 24pt row floor was already a REAL clamp (`rowH = max(24,
+  …)`) — meaning a small enough panel didn't shrink the rows, it just overflowed past them, since the fixed
+  86pt chrome (strip+header+hint) never gave anything back. Now, below the hint-included nominal's own
+  24pt floor, the hint row (pure text, last in the view, non-interactive) drops and gives back its 20pt
+  (16 + its preceding gap) — in every case checked, enough on its own to clear 24 without the hard clamp
+  engaging at all. `euclideousFXRowH` (what the page's own `.fxRows` flag already read) applies the same
+  fallback internally, so the flag and the view never disagree.
+  **Verification note:** a concurrent CLARITY PASS ferry (merged to `main` before this branch started)
+  had already reworked MIX's own floors/metrics (78/64/48, `velStripW` 0, stepper buttons 21) — caught via
+  `git log` before implementing, so the MIX design (pad absorbs the loss) was re-verified fresh against
+  current code rather than against stale research. Every existing test that pinned a numeric value affected
+  by a fallback actually triggering at its reference box (MIX's 355×274/393×248 `padH`, the riff panel's
+  355×274 `rowH`) was traced by hand and updated with an explanation of the new value, never just overwritten.
+  **Judgment calls (flag per CLAUDE.md):** every new compact-floor NUMBER (RHYTHM's 28pt end-label floor;
+  MIX's 18/14; the riff panel's 14/20 and new 24pt `minCellW`; FX's hint-drop trigger) is my own pick, sized
+  smaller than the existing floor it sits below so it only bites in genuinely cramped cases — all device-owed.
+  The WALK strip and FX hint row disappearing entirely at their thresholds (not just resizing) is a real,
+  visible behaviour change, flagged in case either should stay visible at the cost of its neighbours
+  shrinking further instead.
 - **▶ EUCLIDEOUS — CLARITY PASS ferry (2026-10-23, branch `feature/clarity-pass`; iOS build clean, `ClarityPassTests` 21 new + the MIX / pad-geometry / page-layout tests moved to the new numbers, full macOS suite 2046 green; every look is device-owed): "beat-shaded step columns, tab headers that summarise, and MIX pads grouped by lane" (ratified from the "Fourfold clarity pass" canvas).** Display only — no engine, snapshot or document change. **§0.1 findings (file:line @ `5a49e2f`):**
   (a) *Strip columns.* `EuclidCometBar` (EuclidLaneUI.swift:347) is built `grouped: true` by the lane card (EuclideousPage.swift:2632) and lays its columns with `euclidGroupedBoxGeometry` (Derivations.swift:9604): **2 pt inside a group, 7 pt between**, `xs[i] = i·w + 2i + 5·⌊i/g⌋`. It runs at body scope (EuclidLaneUI.swift:365-373 — the rotate-drag `rotateStepPt`, the leftover-rule overlay :629-636) and again inside the Canvas (:442-447 → `euclideousStripLayout` :466-468 → `drawEuclideousStrip`, LaneStripPainter.swift:86). Group size = `euclidStepGroupSize(forRate:)` (Derivations.swift:9624): 3 when `euclideousRateDivisionFeel(rate).feel == 2` (triplet), else 4 — straight and dotted are 4 already; `rate` is the lane's own, or the PARTNER's for a FOLLOW lane (EuclideousPage.swift:2594). The MASK step bar (EuclideousPage.swift:5055-5068) shares that geometry and is a tab body — untouched.
   (b) *Tab-row dots* (EuclideousPage.swift:3022-3047, `laneTabRow` :3013): 7 × 7 Circle, 5 pt after the 11 pt heavy label (tracking 1); on = lane100 fill + 1 pt lane100 ring, off = clear + 1.5 pt #AAB0BA ring. On means: RIFF `riffOnResolved`; NOTES `euclideousNotesLayerIsOn` (Derivations.swift:5856 — switch on AND a note selected); LISTEN any of `listenRhythmMode`/`listenPitchMode`/`listenLevelMode` non-nil. RHYTHM has none.
