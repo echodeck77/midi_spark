@@ -58,6 +58,50 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(deck.loopCycle, 4.0, "the pinned pass keeps ITS cycle, not the live 8")
     }
 
+    // FOURFOLD REEL LINK (2026-10-23): a hit ON the pass boundary is emitted by the window that contains it — the LAST window of the old pass.
+    // It belongs to the next pass; filing it in the old one (wrapped to beat 0) doubled that pass's downbeat and exported the real one a pass early.
+    func testAnEventPastThePassBoundaryIsFiledAtTheHeadOfTheNextPassNotTheTail() {
+        let deck = ReelDeck(), sink = ReelRec(), tap = ReelTap()
+        tap.out = sink; tap.deck = deck; tap.recording = true
+        tap.cycleBeats = 4; tap.beatsPerSample = 0.001; tap.base = 3.9; tap.windowStart = 1000    // a window [3.9, 4.1): sample 1000 is beat 3.9, sample 1100 is beat 4.0
+        deck.cycleBeats = 4
+        deck.startPass(pass: 0)
+        tap.emit(sampleTime: 1050, cable: 1, 0x90, 60, 100)    // beat 3.95 — the old pass's last moments
+        tap.emit(sampleTime: 1100, cable: 1, 0x90, 62, 100)    // beat 4.0 — the next pass's downbeat
+        tap.emit(sampleTime: 1150, cable: 1, 0x80, 62, 0)      // beat 4.05 — its note-off, still in the straddling window
+        XCTAssertEqual(sink.events.count, 3, "the live output is untouched")
+        XCTAssertEqual(deck.curN, 1, "only the 3.95 event belongs to the pass being recorded")
+        XCTAssertEqual(deck.carryN, 2); XCTAssertEqual(deck.carryPass, 1)
+        deck.promote()
+        deck.startPass(pass: 1)
+        XCTAssertEqual(deck.curN, 2, "the new pass opens with its downbeat and that note's off")
+        XCTAssertEqual(deck.cur[0].beat, 0.0, accuracy: 1e-9); XCTAssertEqual(deck.cur[0].b1, 62)
+        XCTAssertEqual(deck.cur[1].beat, 0.05, accuracy: 1e-9); XCTAssertEqual(deck.cur[1].b0, 0x80)
+        XCTAssertEqual(deck.carryN, 0, "the carry is spent")
+        XCTAssertTrue(deck.selectPass(0))
+        let roll = deck.selectedRoll()
+        XCTAssertEqual(roll.count, 1, "pass 0 holds only its own note — pass 1's downbeat is no longer a stray at its start")
+        XCTAssertEqual(roll.first?.start ?? -1, 3.95, accuracy: 1e-9)
+    }
+    func testAHitComputedAHairUnderTheBoundaryStillGoesToTheNextPass() {
+        let deck = ReelDeck(), tap = ReelTap()
+        tap.deck = deck; tap.recording = true
+        tap.cycleBeats = 4; tap.beatsPerSample = 4.0 / 96_000.0; tap.base = 3.99; tap.windowStart = 95_760
+        deck.startPass(pass: 0)
+        tap.emit(sampleTime: 96_000 - 1, cable: 2, 0x90, 48, 90)       // a sample before the boundary: still pass 0
+        tap.emit(sampleTime: 96_000, cable: 2, 0x90, 50, 90)           // exactly on it (3.9999999… in floating point is the hazard)
+        XCTAssertEqual(deck.curN, 1); XCTAssertEqual(deck.carryN, 1)
+    }
+    func testACarryForAnotherPassIsDroppedAndNoArgumentStartPassDropsIt() {
+        let deck = ReelDeck()
+        deck.recordNext(pass: 5, beat: 0.1, cable: 1, 0x90, 60, 100)
+        deck.startPass(pass: 9)                                        // the transport jumped: that carry is for a pass that never began
+        XCTAssertEqual(deck.curN, 0); XCTAssertEqual(deck.carryN, 0)
+        deck.recordNext(pass: 3, beat: 0.2, cable: 1, 0x90, 60, 100)
+        deck.startPass()
+        XCTAssertEqual(deck.curN, 0, "no pass given = no seeding"); XCTAssertEqual(deck.carryN, 0)
+    }
+
     func testEmptyLoopReplaysNothing() {
         let deck = ReelDeck()
         let rec = ReelRec()

@@ -53,10 +53,12 @@ final class ReelDeck {
     // A single flat buffer (one allocation, off the render thread) sliced `histCap` events per pass; pass p lives in
     // slot `p % histCount` (so a passNo maps straight to its slot). `loop` remains the SELECTED pass (replay + export).
     // 64 passes kept, 32 per browser page (top 4 rows, 8×4) → the pass browser PAGINATES (Paul 2026-08-26). histCount×histCap
-    // is MEMORY-NEUTRAL vs the old 32×8192 (both = 262 144 event slots); 4096 events/pass stays above the flood-governor's
-    // worst-case ~3k/bar, so no new truncation. Bump these as a pair to keep memory constant.
+    // WAS memory-neutral vs the old 32×8192 (both 262 144 slots) at 4096 events/pass, above the 8×8 flood-governor's worst-case
+    // ~3k/bar. FOURFOLD REEL LINK (2026-10-23): a busy Fourfold pass (4 lanes of 1/32 chords with ratchets) measured past 4096
+    // and lost its tail silently, so the cap is 8192 — 64 × 8192 × 16 B = 8 MB of event slots (was 4 MB), allocated once off the
+    // render thread. Still a ceiling, not a guarantee: past it the overflow drops, exactly as `cap` already does.
     static let histCount = 64                                      // passes kept (2 browser pages of 32)
-    static let histCap = 4096                                      // events stored per pass (dense-pass overflow drops, as `cap` already does)
+    static let histCap = 8192                                      // events stored per pass (dense-pass overflow drops, as `cap` already does)
     private var hist = [Ev](repeating: Ev(), count: histCount * histCap)
     private var histLen = [Int](repeating: 0, count: histCount)    // events in each slot (0 = empty)
     private var histPassNo = [Int](repeating: -1, count: histCount)// absolute pass number stored in each slot
@@ -66,7 +68,30 @@ final class ReelDeck {
     func record(beat: Double, cable: UInt8, machine: UInt32 = 0, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         if curN < ReelDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, machine: machine); curN += 1 }
     }
-    func startPass() { curN = 0 }
+    /// Begin recording a new pass. `pass` (the Kernel's pass number for it) seeds the new pass with the events the tape set aside for it —
+    /// those the render emitted, for this pass's own first beats, in the LAST window of the pass before (see `recordNext`); a carry for any
+    /// other pass (a loop jump, a stop in between) is dropped. No argument = no seeding (and any carry is dropped).
+    func startPass(pass: Int? = nil) {
+        curN = 0
+        if let pass, pass == carryPass, carryN > 0 {
+            let n = min(carryN, ReelDeck.cap)
+            for i in 0..<n { cur[i] = carry[i] }
+            curN = n
+        }
+        carryN = 0; carryPass = Int.min
+    }
+    // FOURFOLD REEL LINK (2026-10-23) — THE PASS-BOUNDARY CARRY. The Kernel changes pass at the first window that STARTS in the new pass, but a
+    // hit sitting exactly ON the boundary (every downbeat hit, and nearly every Fourfold lane has one) is emitted by the window that CONTAINS the
+    // boundary — the last window of the OLD pass — so it used to be filed there, wrapped to beat 0, as a stray note at the old pass's start (its
+    // note-off then landed in the new pass: an orphan off, a doubled on, and a downbeat that exported a whole pass early). `ReelTap` now sets such
+    // events aside here, tagged with the pass they belong to, and `startPass(pass:)` files them at the head of that pass. Fixed storage, no allocation.
+    static let carryCap = 1024
+    private var carry = [Ev](repeating: Ev(), count: carryCap); private(set) var carryN = 0; private(set) var carryPass = Int.min
+    func recordNext(pass: Int, beat: Double, cable: UInt8, machine: UInt32 = 0, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+        if carryN > 0, carryPass != pass { carryN = 0 }
+        carryPass = pass
+        if carryN < ReelDeck.carryCap { carry[carryN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, machine: machine); carryN += 1 }
+    }
     /// A pass just finished: file it into the ring, and — unless a pass is PINNED (manually selected) — make it the loop.
     func promote() {
         let slot = passCounter % ReelDeck.histCount
@@ -100,7 +125,7 @@ final class ReelDeck {
             loop[loopN] = Ev(beat: off, cable: cable, b0: status, b1: note, b2: 0); loopN += 1
         }
     }
-    func clear() { curN = 0; loopN = 0; state = .off; passCounter = 0; selectedPassNo = -1; loopCycle = cycleBeats
+    func clear() { curN = 0; carryN = 0; carryPass = Int.min; loopN = 0; state = .off; passCounter = 0; selectedPassNo = -1; loopCycle = cycleBeats
         for i in 0..<ReelDeck.histCount { histLen[i] = 0; histPassNo[i] = -1; histCycle[i] = cycleBeats } }
 
     /// The `histCount` ring slots as pass numbers, OLDEST→NEWEST (the last index = the most recent completed pass; −1 =
@@ -265,8 +290,16 @@ final class ReelTap: MIDIEmitter {
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         if recording, cycleBeats > 0, let deck {
             var beat = base + Double(sampleTime - windowStart) * beatsPerSample
-            beat -= (beat / cycleBeats).rounded(.down) * cycleBeats           // → pass-relative
-            deck.record(beat: beat, cable: cable, machine: pendingMachine, b0, b1, b2)
+            // An event that sounds in the pass AFTER this window's (the window contains the boundary) belongs to that pass, not this one — see `ReelDeck.recordNext`.
+            // The 1e-6-beat nudge (≈ 0.03 sample) keeps a hit computed a hair under the boundary on its right side.
+            let windowPass = (base / cycleBeats).rounded(.down)
+            let eventPass = ((beat + 1e-6) / cycleBeats).rounded(.down)
+            if eventPass == windowPass + 1 {
+                deck.recordNext(pass: Int(eventPass), beat: max(0, beat - eventPass * cycleBeats), cable: cable, machine: pendingMachine, b0, b1, b2)
+            } else {
+                beat -= (beat / cycleBeats).rounded(.down) * cycleBeats       // → pass-relative
+                deck.record(beat: beat, cable: cable, machine: pendingMachine, b0, b1, b2)
+            }
         }
         out?.emit(sampleTime: sampleTime, cable: cable, b0, b1, b2)
     }

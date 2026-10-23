@@ -83,7 +83,7 @@ extension DiagView {
                 Text("REEL").font(.system(size: 24, weight: .heavy, design: .monospaced)).tracking(3).foregroundColor(buildCyan)
                 Text("PASS BROWSER").font(.system(size: 11, weight: .bold, design: .monospaced)).tracking(2).foregroundColor(buildDim)
             }
-            Text("Tap a pass to hear it. PAGE steps through the whole history; EXTEND grows the selection across passes (the roll and SAVE cover the range). Tap a lane to export just that emitter (none = the master mix).")
+            Text(reelInstructionText(fourfold: showEuclideous))
                 .font(.system(size: 11, weight: .medium)).foregroundColor(.white.opacity(0.55)).fixedSize(horizontal: false, vertical: true)
             Rectangle().fill(buildEdge).frame(height: 1)
             let visible = buildReelVisiblePasses()
@@ -109,6 +109,11 @@ extension DiagView {
                 buildReelStepBtn(back: false, enabled: rhi >= 0 && visible.contains { $0 > rhi }) { buildReelExtend(1) }
             }
             buildReelToggle(label: "REMOVE DUPLICATES", on: reelDedup) { reelDedup.toggle(); reelPage = Int.max }
+            if showEuclideous {                                                // FOURFOLD REEL LINK (2026-10-23): RESTORE SETUP re-deploys an 8×8 play-grid scene, which Fourfold doesn't have — say how long a pass is instead
+                Text(reelPassLengthText(beats: reelCycle))
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(buildDim)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
             Button { buildReelRestoreState() } label: {                        // #5 — restore the setup live during the pass + CLOSE the reel
                 Text(hasState ? "RESTORE SETUP · PASS \(reelSelPassNo + 1)" : "RESTORE SETUP")
                     .font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
@@ -116,6 +121,7 @@ extension DiagView {
                     .background(RoundedRectangle(cornerRadius: 6).fill(hasState ? Color(red: 0.85, green: 0.5, blue: 0.95).opacity(0.9) : buildCell))
                     .overlay(hasState ? nil : RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
             }.disabled(!hasState)
+            }
             Spacer()
             Button { buildReelExport() } label: {                             // SAVE the pass RANGE × the emitter selection → share sheet
                 Text(rlo >= 0 ? "SAVE \(selLabel) · \(laneLabel)" : "SAVE").font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)

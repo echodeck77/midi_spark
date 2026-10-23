@@ -333,9 +333,9 @@ final class LaneLockTests: XCTestCase {
         XCTAssertEqual(full.brand, 295.88, accuracy: 0.01); XCTAssertEqual(compact.brand, 181)
         let a = full.brand + full.outputs + full.notes + full.utilities + 3 * full.gap
         let b = full.brand + full.outputs + full.utilities + 2 * full.gap
-        XCTAssertEqual(a, 1057.86, accuracy: 0.01); XCTAssertEqual(b, 615.86, accuracy: 0.01)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1057.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 1057.9, isLandscape: true), .a)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 615.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 615.9, isLandscape: false), .b)
+        XCTAssertEqual(a, 1101.86, accuracy: 0.01); XCTAssertEqual(b, 659.86, accuracy: 0.01)   // FOURFOLD REEL LINK (2026-10-23): +44 — UTILITIES gained the REEL icon
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1101.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 1101.9, isLandscape: true), .a)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 659.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 659.9, isLandscape: false), .b)
         XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference still gets the one-row header")
     }
 

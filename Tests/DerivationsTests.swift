@@ -4127,6 +4127,20 @@ final class DerivationsTests: XCTestCase {
     }
     /// The x of the middle of the FOUR RINGS (not the OUTPUTS group): the group's x + the caption's lead + half the rings' span.
     private func ringsCentre(_ l: EuclideousHeaderLayout) -> CGFloat { l.outputs.x + l.widths.outputsLead + l.widths.ringsSpan / 2 }
+    // FOURFOLD REEL LINK (2026-10-23)
+    func testTheReelBrowserCopyNamesOutputsOnFourfoldAndEmittersOnTheWorkbench() {
+        let fourfold = reelInstructionText(fourfold: true), workbench = reelInstructionText(fourfold: false)
+        XCTAssertTrue(fourfold.contains("that output")); XCTAssertFalse(fourfold.contains("emitter"), "Fourfold has outputs A–D, not emitters")
+        XCTAssertTrue(workbench.contains("that emitter")); XCTAssertFalse(workbench.contains("output"))
+        XCTAssertEqual(fourfold.replacingOccurrences(of: "output", with: "emitter"), workbench, "otherwise the same sentence — one browser, two names")
+    }
+    func testThePassLengthLineReadsInBeats() {
+        XCTAssertEqual(reelPassLengthText(beats: 4), "1 PASS = 4 BEATS")
+        XCTAssertEqual(reelPassLengthText(beats: 1), "1 PASS = 1 BEAT")
+        XCTAssertEqual(reelPassLengthText(beats: 0.5), "1 PASS = 0.5 BEATS")
+        XCTAssertEqual(reelPassLengthText(beats: 2.6666666), "1 PASS = 2.67 BEATS", "a triplet-rate pass rounds to two places")
+        XCTAssertEqual(reelPassLengthText(beats: 0), "1 PASS = —"); XCTAssertEqual(reelPassLengthText(beats: .nan), "1 PASS = —")
+    }
     func testFourfoldGroupWidthsComeFromTheSameConstantsTheViewsDrawWith() {
         let f = euclideousHeaderGroupWidths(compact: false)
         let wordmark: CGFloat = 8 * 11 * 0.76          // 8 chars × 11pt × (0.6 advance + 0.16 tracking)
@@ -4140,17 +4154,17 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(f.outputs, caption + 4 + 132, accuracy: 1e-9)
         XCTAssertEqual(f.outputsLead, caption + 4, accuracy: 1e-9, "the caption + sp4 before the first ring's target")
         XCTAssertEqual(f.ringsSpan, 132, accuracy: 1e-9)
-        // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings): 2×t / 3×t before/after.
+        // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings): 2×t / 3×t before/after; FOURFOLD REEL LINK (2026-10-23) added the REEL icon — 4×t.
         // WIDENED 312→426 (2026-10-20, HOLD/LATCH header buttons): two fixed-width chips (48+54) + the sp4
         // gap between them + the sp8 before them = 114pt added after the key pill.
-        XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 132)
+        XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 176)
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
         // RANDOM MODE ferry (§2.2): "In layout C the dice target is 36 wide, like the other icon targets" — +8+36=44.
         // LANE LOCK ferry (§2.2): "In layout C the target is 36 wide, like the other icon targets" — the padlock adds another +8+36=44.
-        XCTAssertEqual(c.brand, 93 + 44 + 44); XCTAssertEqual(c.outputs, 120); XCTAssertEqual(c.utilities, 108)
+        XCTAssertEqual(c.brand, 93 + 44 + 44); XCTAssertEqual(c.outputs, 120); XCTAssertEqual(c.utilities, 144)
         XCTAssertEqual(c.outputsLead, 0, "layout C hides the caption: the group IS the rings")
-        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 337 + 44 + 44, "layout C's row 1")
+        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 337 + 44 + 44 + 36, "layout C's row 1 (+36: the REEL icon's compact target)")
         XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
     }
     // WIDENED from 1158 → 1300 (2026-10-17, UTILITIES grew from 2 to 3 icons — the SWING icon — so the
@@ -4160,15 +4174,16 @@ final class DerivationsTests: XCTestCase {
     // sits unclamped on its leading edge once the container is wide enough that the three utility icons don't push it left.
     // WIDENED again 1500 → 1750 (2026-10-20, HOLD/LATCH header buttons): NOTES grew 114pt, so it needs a
     // wider container before its unclamped position stops colliding with UTILITIES.
+    // WIDENED again 1750 → 1900 (FOURFOLD REEL LINK, 2026-10-23): UTILITIES gained the REEL icon (+44), so NOTES is only unclamped from ≈1870.
     func testFourfoldLayoutAAt1500PutsNotesOnTheRiffPanelAndRingsOnTheLaneGutter() {
-        let l = hdrLayout(1750, landscape: true)
+        let l = hdrLayout(1900, landscape: true)
         XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
-        let cols = pageFor(1750, landscape: true)
-        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1750, accuracy: 1e-9)
+        let cols = pageFor(1900, landscape: true)
+        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1900, accuracy: 1e-9)
         XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
         XCTAssertEqual(ringsCentre(l), cols.laneCentreX, accuracy: 1e-9, "the RINGS (not the caption-inclusive group) centred on the lane gutter (between lane columns 1 and 2)")
         XCTAssertNotEqual(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, "…so the caption-inclusive group is NOT what's centred")
-        assertHeaderInvariants(l, 1750, "A@1750")
+        assertHeaderInvariants(l, 1900, "A@1900")
     }
     // WIDENED from 868 → 900 (2026-10-17) for the SWING icon, then RENUMBERED to 960 and its story CHANGED
     // (2026-10-20, HOLD/LATCH header buttons): NOTES is now wider (426pt) than the rings' own upper-bound
@@ -4185,7 +4200,7 @@ final class DerivationsTests: XCTestCase {
     // `brand + gap` (flush against BRAND) rather than centring anywhere near the lane gutter — a DIFFERENT,
     // but equally real, way NOTES' extra width (426pt) still pushes the rings off-centre.
     func testFourfoldLayoutANotesClampPushesRingsToTheDegenerateBrandFallback() {
-        let w: CGFloat = 1062   // LANE LOCK ferry §2.2: A's floor rose 1006 → 1058 with the padlock
+        let w: CGFloat = 1106   // LANE LOCK ferry §2.2: A's floor rose 1006 → 1058 with the padlock; FOURFOLD REEL LINK: → 1102 with the REEL icon
         let full = euclideousHeaderGroupWidths(compact: false)
         let l = hdrLayout(w, landscape: true)
         let cols = pageFor(w, landscape: true)
@@ -4196,7 +4211,7 @@ final class DerivationsTests: XCTestCase {
         // The degenerate fallback: no room at all between BRAND and NOTES for the rings' own span, so
         // `headerClamp` returns its lower bound outright — rings sit flush against BRAND, not against NOTES.
         XCTAssertEqual(l.outputs.x, full.brand + full.gap, accuracy: 1e-9, "rings pinned flush against BRAND (the degenerate fallback), not centred")
-        assertHeaderInvariants(l, w, "A@1062")
+        assertHeaderInvariants(l, w, "A@1106")
     }
     func testFourfoldLayoutBAt600AndCAt343() {
         let b = hdrLayout(660, landscape: false)   // LANE LOCK ferry §2.2: B's floor rose ≈564 → ≈616 with the padlock, so 600 is C now
@@ -4208,15 +4223,16 @@ final class DerivationsTests: XCTestCase {
         // WIDENED again 380 → 430 (2026-10-20, HOLD/LATCH header buttons): NOTES grew to 426pt — now WIDER
         // than row 1's own floor (369, down from 377: ring-scaling shrank compact OUTPUTS 160→120) — so
         // NOTES' own row, not row 1, is what sets C's real floor now.
-        let c = hdrLayout(430, landscape: false)
+        // WIDENED again 430 → 470 (FOURFOLD REEL LINK, 2026-10-23): the REEL icon makes row 1 (461) wider than NOTES' row (426) again, so row 1 is C's floor.
+        let c = hdrLayout(470, landscape: false)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)
-        assertHeaderInvariants(c, 430, "C@430")
+        assertHeaderInvariants(c, 470, "C@470")
         // Row 1's OWN floor (brand+outputs+utilities): 369 now (was 377 before ring-scaling shrank compact
         // OUTPUTS 160→120) — no longer C's real floor (see the comment above: NOTES' own 426pt width is).
         // RANDOM MODE ferry §2.2: compact BRAND grew +44pt (the dice, compact-target-sized) — 369 → 413.
-        // LANE LOCK ferry §2.2: the padlock adds another +44 — 413 → 457.
-        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 457)
+        // LANE LOCK ferry §2.2: the padlock adds another +44 — 413 → 457. FOURFOLD REEL LINK (2026-10-23): the REEL icon adds one compact target, +36 — 457 → 493.
+        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 493)
         // a landscape page too narrow for A falls to B, never A.
         XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
         // portrait never uses A, however wide.

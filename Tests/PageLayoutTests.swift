@@ -255,8 +255,8 @@ final class PageLayoutTests: XCTestCase {
         // WIDENED 312→426 (2026-10-20, HOLD/LATCH header buttons) — NOTES' own width grew 114pt, so its
         // clamped x (which ends at the same point before UTILITIES either way) shifts left by exactly that.
         let l = headerFor(land, landscapeRef)
-        XCTAssertEqual(l.notes.x, 1158 - 132 - 16 - 426, accuracy: 1e-9)
-        XCTAssertEqual(l.notes.x, 584, accuracy: 1e-9, "today's x at 1190 (741.12 clamped to 584)")
+        XCTAssertEqual(l.notes.x, 1158 - 176 - 16 - 426, accuracy: 1e-9)   // FOURFOLD REEL LINK (2026-10-23): UTILITIES 132 → 176 (the REEL icon), so NOTES' clamped x is 44 further left
+        XCTAssertEqual(l.notes.x, 540, accuracy: 1e-9, "today's x at 1190 (741.12 clamped to 540)")
         XCTAssertLessThan(l.notes.x, land.riffLeadingX)
     }
 
@@ -264,8 +264,10 @@ final class PageLayoutTests: XCTestCase {
 
     func testFloorsAreFlaggedNotFixedAtTheOtherSizes() {
         // a guess at the 8.3-inch iPad mini's landscape plugin view: box 355 × 274
-        let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 636))
-        XCTAssertEqual(mini.headerKind, .a)
+        // FOURFOLD REEL LINK (2026-10-23): the REEL icon raised layout A's floor to a 1134-wide view, so a 1113-wide view now gets the two-row header (boxes start at 111, not 64): 47pt more height
+        // (636 → 683) keeps this guess's 355 × 274 box, which is what the floors below are about.
+        let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 683))
+        XCTAssertEqual(mini.headerKind, .b)
         XCTAssertEqual(mini.box.width, 355, accuracy: 1e-9); XCTAssertEqual(mini.box.height, 274, accuracy: 1e-9)
         let area = euclideousMixGridArea(panelWidth: 355, panelHeight: 274)
         let g = euclideousMixGrid(width: area.width, height: area.height)
@@ -294,8 +296,8 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(wl.headerKind, .b, "868 wide: B, boxes start at 111")
         XCTAssertEqual(wl.box.width, 284, accuracy: 1e-9); XCTAssertEqual(wl.box.height, 232.5, accuracy: 1e-9)
         XCTAssertTrue(Set(wl.floors).isSuperset(of: [.mixCellW, .mixPadHStop, .rhythmZones, .riffRows, .fxRows]), "\(wl.floors)")
-        let wp = euclideousPageLayout(size: CGSize(width: 650, height: 900))   // 600 → 650 (LANE LOCK ferry §2.2): B's floor rose ≈564 → ≈616, so a 600-wide portrait view is layout C now
-        XCTAssertEqual(wp.headerKind, .b); XCTAssertEqual(wp.box.width, 305, accuracy: 1e-9); XCTAssertEqual(wp.box.height, (900 - 111 - 32) / 3, accuracy: 1e-9)
+        let wp = euclideousPageLayout(size: CGSize(width: 700, height: 900))   // 600 → 650 (LANE LOCK ferry §2.2): B's floor rose ≈564 → ≈616 · 650 → 700 (FOURFOLD REEL LINK 2026-10-23): → ≈660, so a 650-wide portrait view is layout C now
+        XCTAssertEqual(wp.headerKind, .b); XCTAssertEqual(wp.box.width, 330, accuracy: 1e-9); XCTAssertEqual(wp.box.height, (900 - 111 - 32) / 3, accuracy: 1e-9)
         XCTAssertFalse(wp.floors.isEmpty)
         // each flag is exactly its threshold
         XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 295)).contains(.rhythmZones), "contentAreaH 191 < 192")

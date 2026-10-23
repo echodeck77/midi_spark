@@ -1438,6 +1438,8 @@ struct DiagView: View {
                                    },
                                    onSetPulseLevel: { pulseLevel = max(0, min(2, $0)) },   // PULSE §7.1: a device preference (@AppStorage), not the document — no undo, no publish
                                    onOpenPresets: openPresets,
+                                   reelRecording: d.playing && reelState != 2,   // the 8×8 header's own rule for the tape's red
+                                   onOpenReel: { reelShowPopup = true },
                                    canUndo: euclideousUndo.canUndo, canRedo: euclideousUndo.canRedo,
                                    onUndo: euclideousUndoAction, onRedo: euclideousRedoAction,
                                    onClose: { showEuclideous = false },
@@ -1455,6 +1457,10 @@ struct DiagView: View {
                     .onChange(of: geo.size) { s in print("EUCLIDEOUS root view size \(s) safeAreaInsets \(geo.safeAreaInsets)") }   // device check: compare with the page's own "page size" line (EuclideousPage)
                     .onAppear { print("EUCLIDEOUS root view size \(geo.size) safeAreaInsets \(geo.safeAreaInsets)") }
                     #endif
+                }
+                if showEuclideous && reelShowPopup {    // FOURFOLD REEL LINK (2026-10-23): the pass browser ABOVE the Fourfold page (the 8×8 workbench mounts it only when Fourfold is closed — `roomsSharedOverlays`); framed to the root `geo` like the page, for the same reason
+                    buildReelPopup(size: geo.size)
+                        .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
                     PresetBrowser(presets: presetList, factory: au?.factoryPresetNames() ?? [], current: currentPreset,

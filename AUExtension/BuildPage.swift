@@ -139,7 +139,7 @@ extension DiagView {
     // so the header MIDI IN/OUT/RACK/ROW 8/RECORD buttons + the strip spanners silently did nothing.)
     @ViewBuilder func roomsSharedOverlays(_ size: CGSize) -> some View {
         if buildStageEye, let slot = buildEditSlot { AnyView(buildStageEyeView(slot: slot, size: size)) }   // §4 stage eye (from the card's truth strips)
-        if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                             // the reel PASS BROWSER (header RECORD)
+        if reelShowPopup && !showEuclideous { AnyView(buildReelPopup(size: size)) }                          // the reel PASS BROWSER (header RECORD) — over Fourfold the VC mounts it itself, above the page
         if buildMidiConfigOpen { AnyView(buildMidiConfigSheet(size: size)) }                                 // MIDI INPUTS (strip spanner + header)
         if buildRackConfigOpen { AnyView(buildRackConfigSheet(size: size)) }                                 // THE RACK (header)
         if buildMidiOutConfigOpen { AnyView(buildMidiOutConfigSheet(size: size)) }                           // MIDI OUTPUTS (strip spanner + header)

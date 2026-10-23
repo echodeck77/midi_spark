@@ -856,6 +856,9 @@ struct EuclideousPage: View {
                                      // were only reachable by leaving this page; opens the SAME browser overlay
                                      // the main header already uses, which the VC renders as a sibling z-above
                                      // this one, so it's reachable without ever closing Euclideous.
+    /// FOURFOLD REEL LINK (2026-10-23): the tape icon in UTILITIES. `reelRecording` = the 8×8 header's own rule (host playing and not replaying); the VC mounts the pass browser above this page.
+    let reelRecording: Bool
+    let onOpenReel: () -> Void
     // UNDO/REDO (usability ferry §7.1): disabled (40% opacity) when there's nothing to undo/redo — driven by
     // the VC's own EuclideousUndoSnapshot stack (AudioUnitViewController.swift), not persisted here.
     let canUndo: Bool
@@ -1610,7 +1613,7 @@ struct EuclideousPage: View {
                 // inside this page). `headerH`/`containerW` recomputed via the SAME `pageGeometry` call the
                 // two layout functions already use (one formula, not a parallel derivation).
                 // SWING POPOVER (2026-10-17): anchored under the metronome icon — the UTILITIES group's
-                // middle (index 1 of 3) touch target. No frame-preference tracker needed (unlike the KEY
+                // second (index 1 of 4) touch target. No frame-preference tracker needed (unlike the KEY
                 // pill, which can land in several places): UTILITIES' own x and the icons' shared `target`
                 // width are already the ONE formula every other header view draws from.
                 if swingPopupOpen {
@@ -2146,7 +2149,7 @@ struct EuclideousPage: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    // MARK: UTILITIES — presets, swing, close (outline icons, one family with undo/redo)
+    // MARK: UTILITIES — presets, swing, reel, settings (outline icons, one family with undo/redo)
     private func headerUtilities(_ layout: EuclideousHeaderLayout) -> some View {
         let target = layout.compact ? HM.compactTarget : HM.target
         return HStack(spacing: 0) {
@@ -2169,9 +2172,18 @@ struct EuclideousPage: View {
                     swingPopupOpen.toggle()
                 }
                 .accessibilityLabel("Swing, \(swing == 50 ? "straight" : "\(swing)")").accessibilityAddTraits(.isButton).accessibilityAddTraits(swingPopupOpen ? .isSelected : [])
+            // REEL (2026-10-23): the pass browser / MIDI recorder. Sits after SWING so presets and SWING keep their slots
+            // (the swing popover's anchor below is unchanged); the gear stays last.
+            EuclideousReelIcon(recording: reelRecording)
+                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
+                .onTapGesture { closeAllOtherOverlays(); settingsOpen = false; onOpenReel() }   // §2.1: opening it closes the other overlays first
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(reelRecording ? "Reel, recording" : "Reel")
+                .accessibilityHint("Opens the pass browser to hear and save what Fourfold played")
+                .accessibilityAddTraits(.isButton)
             // FOURFOLD SETTINGS (2026-10-15 ferry §1): the × (xmark) LEAVES the header — its old job (back to
-            // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES is now 3 icons (the
-            // SWING icon above joined it 2026-10-17 — `euclideousHeaderGroupWidths` carries the real count).
+            // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES is now 4 icons (SWING joined
+            // it 2026-10-17, REEL 2026-10-23 — `euclideousHeaderGroupWidths` carries the real count).
             Image(systemName: "gearshape").font(.system(size: 18)).foregroundColor(settingsOpen ? Color(hex: 0x0D0F14) : headerDim)
                 .frame(width: 32, height: 32)
                 .background(RoundedRectangle(cornerRadius: 8).fill(settingsOpen ? Color(hex: 0xDFE3EA) : Color.clear))

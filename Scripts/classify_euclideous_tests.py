@@ -65,7 +65,7 @@ SKIP_FILES = {
     "AcceptanceTests.swift", "AcceptanceWeaveTests.swift", "AcceptanceGeneratorsTests.swift",
     "AcceptanceFactoryLibraryTests.swift", "RoomsLatticeTests.swift", "SceneFactoryTests.swift",
     "MacroAuthoringTests.swift", "ColourTypeSwitchTests.swift", "Row8Tests.swift",
-    "BuildSelfTestMetaTests.swift", "DiceTests.swift", "FuzzTests.swift", "ReelDeckTests.swift",
+    "BuildSelfTestMetaTests.swift", "DiceTests.swift", "FuzzTests.swift",   # ReelDeckTests: out of this list 2026-10-23 — the reel is Fourfold's recorder now
     "MidiFileTests.swift", "PresetStoreTests.swift",
 }
 

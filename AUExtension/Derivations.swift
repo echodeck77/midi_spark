@@ -5327,6 +5327,20 @@ struct EuclideousRingPress: Equatable {
     }
 }
 
+// MARK: - FOURFOLD REEL LINK (2026-10-23)
+/// The pass browser's instruction line. Fourfold's A–D are its MAIN OUT outputs, not 8×8 emitters, so the wording follows the page it was opened from.
+func reelInstructionText(fourfold: Bool) -> String {
+    let who = fourfold ? "output" : "emitter"
+    return "Tap a pass to hear it. PAGE steps through the whole history; EXTEND grows the selection across passes (the roll and SAVE cover the range). Tap a lane to export just that \(who) (none = the master mix)."
+}
+/// "1 PASS = 4 BEATS". A pass is eight steps of the global step rate (the 8×8 clock — Fourfold's lanes have their own rates, so a pass is a slice of time, not a lap of any lane).
+func reelPassLengthText(beats: Double) -> String {
+    guard beats.isFinite, beats > 0 else { return "1 PASS = —" }
+    let r = (beats * 100).rounded() / 100
+    let n = r == r.rounded() ? String(Int(r)) : String(r)
+    return "1 PASS = \(n) \(r == 1 ? "BEAT" : "BEATS")"
+}
+
 // ── layout ladder ───────────────────────────────────────────────────────────────────────────────────
 
 enum EuclideousHeaderMetrics {
@@ -5380,9 +5394,9 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     let brand = M.markSize + M.sp8 + (compact ? 0 : wordmarkW + M.sp16) + 4 * t + 2 * M.sp8
     let lead = compact ? 0 : captionW + M.sp4
     let outputs = lead + 4 * (compact ? M.compactRingPitch : M.ringPitch)
-    // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings), one `t`-wide touch target each.
+    // UTILITIES is 4 icons (REEL, 2026-10-23 · presets · SWING, 2026-10-17 · settings), one `t`-wide touch target each.
     return EuclideousHeaderGroupWidths(brand: brand, outputs: outputs, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth + M.sp8 + M.holdLatchWidth,
-                                       utilities: 3 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
+                                       utilities: 4 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
 }
 
 struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }

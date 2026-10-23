@@ -13517,6 +13517,86 @@ final class RouterTests: XCTestCase {
         router.process(box: box, pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         return (e, router)
     }
+    // MARK: - FOURFOLD REEL LINK (2026-10-23): Fourfold's output on the tape
+
+    /// Router → `ReelTap` → `ReelDeck` driven exactly as the Kernel drives them (`Kernel.swift` reel block): a pass is `8 × stepBeats × clockScale` beats, the deck files a pass when the next one starts, and the
+    /// tap stamps every EMITTED message pass-relative. `perPass` counts what the render emitted in each pass's windows (the Kernel's own attribution), so a test can ask "did the deck keep all of it".
+    private func fourfoldReel(_ box: SnapshotBox, beats: Double, frames: UInt32 = 512, tempo: Double = 120) -> (deck: ReelDeck, live: RecordingEmitter, perPass: [Int: Int], cycle: Double) {
+        let live = RecordingEmitter(), deck = ReelDeck(), tap = ReelTap(), router = Router(); var diag = KernelDiag()
+        let sr = 48_000.0, bps = tempo / 60.0 / sr
+        let cycle = Double(Snap.cols) * box.stepBeats * box.clockScale
+        let pool = chord(fxPoolNotes)
+        tap.out = live; tap.deck = deck
+        var lastPass = Int.min, fromStart = false, ts = 0.0
+        var perPass: [Int: Int] = [:]
+        while ts * bps < beats {
+            let beat = ts * bps
+            let pass = Int((beat / cycle).rounded(.down))
+            deck.cycleBeats = cycle
+            if pass != lastPass {
+                if fromStart { deck.promote() }
+                deck.startPass(pass: pass); lastPass = pass; fromStart = true
+            }
+            tap.recording = true; tap.base = beat; tap.beatsPerSample = bps; tap.cycleBeats = cycle; tap.windowStart = Int64(ts)
+            let before = live.events.count
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: tap, diag: &diag)
+            perPass[pass, default: 0] += live.events.count - before
+            ts += Double(frames)
+        }
+        return (deck, live, perPass, cycle)
+    }
+
+    func testFourfoldOutputIsFiledOnTheCablesItWasRoutedTo() {
+        // lane 1 → MAIN OUT A, lane 2 → MAIN OUT C; 1/8 scene rate ⇒ a 4-beat pass. 13 beats = three filed passes + the one in progress.
+        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0100)
+        let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
+        XCTAssertEqual(r.cycle, 4, accuracy: 1e-9)
+        let passes = r.deck.passNumbers().filter { $0 >= 0 }
+        XCTAssertEqual(passes, [0, 1, 2], "every completed pass is filed — the one still being played is not")
+        for p in passes {
+            XCTAssertTrue(r.deck.selectPass(p))
+            let roll = r.deck.selectedRoll()
+            XCTAssertFalse(roll.isEmpty, "pass \(p + 1) has notes")
+            XCTAssertEqual(Set(roll.map { Int($0.cable) }), [1, 3], "lane 1's notes sit on A (cable 1), lane 2's on C (cable 3), nothing on B or D")
+            let ex = r.deck.exportRangeEvents(fromPass: p, toPass: p, cables: [1, 2, 3, 4])
+            let ons = ex.events.filter { $0.b0 & 0xF0 == 0x90 }.count, offs = ex.events.filter { $0.b0 & 0xF0 == 0x80 }.count
+            XCTAssertEqual(ons, offs, "pass \(p + 1) exports every note-ON with its note-OFF — nothing stuck in the file")
+            XCTAssertEqual(ex.totalBeats, 4, accuracy: 1e-9)
+        }
+    }
+
+    func testFourfoldPassExportsOnlyTheSelectedOutputsAndConcatenatesAPassRange() {
+        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0010)
+        let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
+        let a = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [1])
+        let b = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [2])
+        XCTAssertFalse(a.events.isEmpty); XCTAssertFalse(b.events.isEmpty)
+        XCTAssertEqual(a.totalBeats, 8, accuracy: 1e-9, "two passes of four beats, concatenated")
+        XCTAssertTrue(a.events.allSatisfy { $0.b0 & 0x0F == 0 && $0.b1 >= 48 && $0.b1 <= 60 }, "only lane 1's notes (the pool's range) in A's file")
+        XCTAssertEqual(a.events.count, b.events.count, "two identical lanes on two outputs ⇒ two files of the same length")
+        let beats = a.events.map { $0.beat }
+        XCTAssertEqual(beats, beats.sorted(), "events come out in time order across the pass boundary")
+        XCTAssertGreaterThan(beats.last ?? 0, 4, "the second pass sits after the first")
+    }
+
+    func testABusyFourfoldPassKeepsEveryEventTheRenderEmitted() {
+        // four lanes, each on its own output, 1/32 hits (8 a beat), three lit notes on top of the riff note, every column ratcheted ×3: far more than one pass of the 8×8 ever sounds.
+        var lines: [EuclidLine] = []
+        for i in 0..<4 {
+            var l = fxLine(gate: 0.5, litNotes: 0b0000_0111); l.rate = .r1_32; l.steps = 16; l.pulses = 16; l.emitterMask = UInt8(1 << i)
+            lines.append(l)
+        }
+        let fx = fxCells((0..<8).map { (0, $0, 3) })
+        let r = fourfoldReel(fxBoxScene(lines, fx: fx, stepRate: .r1_8), beats: 13)
+        let passes = r.deck.passNumbers().filter { $0 >= 0 }
+        XCTAssertEqual(passes, [0, 1, 2])
+        let emitted = r.perPass[1] ?? 0
+        XCTAssertGreaterThan(emitted, 4096, "this load is past the old per-pass cap — the case the larger history exists for")
+        XCTAssertLessThanOrEqual(emitted, ReelDeck.histCap, "and still inside the new one, so the whole pass is kept")
+        let kept = r.deck.exportRangeEvents(fromPass: 1, toPass: 1, cables: [0, 1, 2, 3, 4]).events.count
+        XCTAssertEqual(kept, emitted, "the filed pass holds every event the render emitted in it — no tail lost")
+    }
+
     func testFXRatchStrikesAreCompleteAndEvenlySpacedAtEveryBufferSizeEvenWhenASlotIsShorterThanTheBuffer() {
         // all 8 columns hit (8 steps, 8 pulses); RATCH on column 0 only = note 48, once every 8 steps. The slot (rate ÷ n) drops under the buffer length long before 4096 frames.
         for (rate, tempo) in [(ArpRate.r1_16, 120.0), (.r1_16, 180.0), (.r1_32, 120.0)] {

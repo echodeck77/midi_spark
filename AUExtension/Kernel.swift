@@ -1032,7 +1032,7 @@ final class Kernel {
         if playing, reelPass != reelLastPass {                     // pass boundary
             if reelRecordFromStart && !reelFrozen { reel.promote() }   // file ONLY a pass recorded start→finish, uninterrupted by reel mode
             if reel.state == .armed { reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true) }   // armed→replaying (externalFlush also clears glide/mod — Finding 1: no process() edge here): flush the live WIRE/bypass monitor too (see above)
-            reel.startPass(); reelLastPass = reelPass
+            reel.startPass(pass: reelPass); reelLastPass = reelPass
             reelRecordFromStart = playing && !reelFrozen           // will the NEW pass record from its start? (partial/frozen passes never file)
         }
         if reelExitFlush { reelExitFlush = false; reelBlanketOff(out: liveEmitter) }

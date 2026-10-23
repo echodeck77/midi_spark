@@ -41,6 +41,7 @@
 		4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */; };
 		4F7BB6013CA868EE5B545EEE /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C260460EAF19255196447 /* NotesTabTests.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
+		5378CBD9629BE30614DE2733 /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */; };
 		5533EBEF2E9CE4295C52B55C /* manual-skeleton.md in Resources */ = {isa = PBXBuildFile; fileRef = 688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */; };
 		59AB6964C8403D8ECB724041 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */; };
 		5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D181AD808BD18E8D2F085F /* FuzzTests.swift */; };
@@ -217,6 +218,7 @@
 		9A732F956AC8A9961E6F346F /* LanesGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesGridTests.swift; sourceTree = "<group>"; };
 		9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousSettingsSheet.swift; sourceTree = "<group>"; };
 		A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildGridSelector.swift; sourceTree = "<group>"; };
+		A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelHeaderIcon.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTabPainter.swift; sourceTree = "<group>"; };
 		AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTestMetaTests.swift; sourceTree = "<group>"; };
@@ -407,6 +409,7 @@
 				6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */,
 				8624A489A951D42AFB805E16 /* RackMatrix.swift */,
 				B0AC546F65D94F67DC988CA8 /* RandomModePainter.swift */,
+				A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */,
 				F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */,
 				8A9C65A7A6B7ACAE4F4E8194 /* RestartTilePainter.swift */,
 				67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */,
@@ -608,6 +611,7 @@
 				1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */,
 				700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */,
 				AC95A67DE057A11667D1321C /* RandomModePainter.swift in Sources */,
+				5378CBD9629BE30614DE2733 /* ReelHeaderIcon.swift in Sources */,
 				80358173C9B1DD2FF58E79F6 /* RestartFlashPainter.swift in Sources */,
 				8B36597661635D9024755192 /* RestartTilePainter.swift in Sources */,
 				36AE872430F7852DAEE6C3E0 /* RiffArrowPainter.swift in Sources */,
