@@ -2,6 +2,7 @@
 # FOURFOLD simulator harness — builds a throwaway host app around the FourfoldAU sources, runs it on an iPad simulator, and prints what the AU sent per MIDI cable.
 #   sh Scripts/fourfold-harness/run.sh            # the Fourfold page, ~20 s of emulated host playing, then the console summary + a screenshot
 #   sh Scripts/fourfold-harness/run.sh --reel     # the page for 15 s, then the REEL pass browser (screenshot at ~25 s)
+#   sh Scripts/fourfold-harness/run.sh --golden   # the sound oracle: default doc + every factory preset, 32 bars each, a hash of every MIDI byte (diff against golden.txt after an engine change)
 # The source list is generated from project.yml's FourfoldAU excludes, so the harness can never drift from the real target. Output: build/fourfold-harness/ (gitignored).
 set -e
 cd "$(dirname "$0")/../.."
@@ -58,6 +59,12 @@ APP=$(find "$OUT/dd" -name FFHarness.app -path "*iphonesimulator*" | head -1)
 xcrun simctl terminate "$UDID" com.example.FFHarness 2>/dev/null || true
 xcrun simctl install "$UDID" "$APP"
 (xcrun simctl launch --console "$UDID" com.example.FFHarness "$@" > "$OUT/console.log" 2>&1 &)
+if [ "$1" = "--golden" ]; then
+  for i in $(seq 1 900); do grep -aq "GOLDEN ALL" "$OUT/console.log" && break; sleep 1; done
+  grep -a "^GOLDEN" "$OUT/console.log" | tee "$OUT/golden.txt"
+  echo "(compare with Scripts/fourfold-harness/golden.txt: diff Scripts/fourfold-harness/golden.txt $OUT/golden.txt)"
+  exit 0
+fi
 if [ "$1" = "--reel" ]; then sleep 26; else sleep 20; fi
 xcrun simctl io "$UDID" screenshot "$OUT/shot.png" >/dev/null 2>&1
 xcrun simctl terminate "$UDID" com.example.FFHarness 2>/dev/null || true
