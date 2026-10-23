@@ -151,27 +151,27 @@ final class ClarityPassTests: XCTestCase {
 
     func testRhythmTabCountTracksHitsAndSteps() {
         var l = EuclidLine(); l.pulses = 5; l.steps = 16
-        XCTAssertEqual(euclideousRhythmTabCount(l), "5/16")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: [l]), "5/16")
         l.pulses = 0; l.steps = 8
-        XCTAssertEqual(euclideousRhythmTabCount(l), "0/8")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: [l]), "0/8")
         euclideousSliderCommit(.steps, &l, snapshot: l, newValue: 12)
-        XCTAssertEqual(euclideousRhythmTabCount(l), "\(l.pulses)/12", "updates live with STEPS")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: [l]), "\(l.pulses)/12", "updates live with STEPS")
         euclideousSliderCommit(.hits, &l, snapshot: l, newValue: 7)
-        XCTAssertEqual(euclideousRhythmTabCount(l), "7/12", "… and HITS")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: [l]), "7/12", "… and HITS")
     }
     func testTabAccessibilityLabelsAreTheSpecsWords() {
         var l = EuclidLine(); l.pulses = 5; l.steps = 16; l.riffOn = true; l.litNotes = 0
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, line: l, lane: 0), "Rhythm, 5 of 16 hits")
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, line: l, lane: 0), "Riff, on")
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, line: l, lane: 0), "Notes, off")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: [l], lane: 0), "Rhythm, 5 of 16 hits")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, on")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, lines: [l], lane: 0), "Notes, off")
         l.riffOn = false; l.litNotes = 1
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, line: l, lane: 0), "Riff, off")
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, line: l, lane: 0), "Notes, on")
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, line: l, lane: 0), "Listen, off")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, off")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, lines: [l], lane: 0), "Notes, on")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, off")
         l.listenRhythmMode = .follow; l.listenRhythmPartner = 1
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, line: l, lane: 0), "Listen, on, following lane 2")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, on, following lane 2")
         l.listenRhythmMode = nil; l.listenPitchMode = .avoid; l.listenPitchPartnerAny = true
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, line: l, lane: 0), "Listen, on, following any lane")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, on, following any lane")
     }
 
     // MARK: 6. MIX: four lane panels (3.1, 3.2, 3.3 — test 4)
@@ -228,7 +228,7 @@ final class ClarityPassTests: XCTestCase {
         XCTAssertEqual(pg.cellW, 82.75, accuracy: 0.01); XCTAssertEqual(pg.padH, 69.83, accuracy: 0.01)
     }
     func testTheFloorsMoveByTheSpacingCostSoTheReferencesStillClearAndSmallPanelsStillFlag() {
-        XCTAssertEqual(EuclideousMixMetrics.minCellW, 78); XCTAssertEqual(EuclideousMixMetrics.minPadH, 64); XCTAssertEqual(EuclideousMixMetrics.floorPadH, 48)
+        XCTAssertEqual(EuclideousMixMetrics.minCellW, 79, "the pure −6 shift (78) plus the 1 pt \"OCT +1\" needs between 21 pt buttons"); XCTAssertEqual(EuclideousMixMetrics.minPadH, 64); XCTAssertEqual(EuclideousMixMetrics.floorPadH, 48)
         XCTAssertFalse(euclideousPageLayout(size: landscapeRef).floors.contains(.mixCellW)); XCTAssertFalse(euclideousPageLayout(size: portraitRef).floors.contains(.mixPadH))
         let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 636))
         XCTAssertTrue(mini.floors.contains(.mixCellW) && mini.floors.contains(.mixPadH), "an 8.3-inch iPad mini's box still raises the flags")
@@ -236,13 +236,66 @@ final class ClarityPassTests: XCTestCase {
 
     func testTheOctaveStepperStillFitsOctPlusItsValueBetweenItsButtonsAtEveryPadWidthTheFloorAllows() {
         typealias M = EuclideousMixMetrics
-        XCTAssertGreaterThanOrEqual(M.minCellW - 2 * M.stepperButtonW, M.stepperCentreNeeds, "\"OCT +1\" fits at the floor, with the headroom the old 24 pt buttons gave at the old 84 floor")
-        XCTAssertEqual(M.minCellW - 2 * M.stepperButtonW, 84 - 2 * 24, "…the same headroom exactly")
+        // "OCT" at 8 pt (0.64 tracking) 16.8 + 4 + "+1" at 13 pt 16.1 = 36.9, measured with the real font: the constant is that, rounded up
+        XCTAssertGreaterThanOrEqual(M.stepperCentreNeeds, 36.9)
+        XCTAssertGreaterThanOrEqual(M.minCellW - 2 * M.stepperButtonW, M.stepperCentreNeeds, "\"OCT +1\" fits at the floor")
         for size in [landscapeRef, portraitRef] {
             let box = euclideousPageLayout(size: size).box, a = euclideousMixGridArea(panelWidth: box.width, panelHeight: box.height)
-            XCTAssertGreaterThanOrEqual(euclideousMixGrid(width: a.width, height: a.height).cellW - 2 * M.stepperButtonW, M.stepperCentreNeeds)
+            XCTAssertGreaterThanOrEqual(euclideousMixGrid(width: a.width, height: a.height).cellW - 2 * M.stepperButtonW, M.stepperCentreNeeds + 2, "the references have 2+ pt to spare")
         }
         XCTAssertEqual(M.stepperH, 24, "the buttons stay 24 tall")
+    }
+
+    // MARK: 6b. the review fixes (2026-10-23): FOLLOW lanes, OFF pads under a strike
+
+    private func followLines(partnerPulses: Int = 4, partnerSteps: Int = 8, ownPulses: Int = 3, ownSteps: Int = 16, flip: Bool = false) -> [EuclidLine] {
+        var partner = EuclidLine(pulses: partnerPulses, steps: partnerSteps, rotate: 0, noteSel: .all); partner.rate = .r1_8t
+        var follower = EuclidLine(pulses: ownPulses, steps: ownSteps, rotate: 0, noteSel: .all); follower.rate = .r1_16
+        follower.listenRhythmMode = .follow; follower.listenRhythmPartner = 0
+        if flip { follower.patternMiss = true }
+        return [partner, follower]
+    }
+    func testAFollowLanesTabCountIsThePatternThatPlaysNotItsOwnSliders() {
+        let lines = followLines()
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: lines), "4/8", "the partner counts its own HITS / STEPS")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: lines), "4/8", "the follower plays the partner's 4 hits in 8 steps — not its own 3/16")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: lines, lane: 1), "Rhythm, 4 of 8 hits")
+        // the strip beside the tab draws exactly these cells
+        let eff = euclideousEffectivePattern(lane: 1, lines: lines)!
+        XCTAssertEqual(eff.n, 8); XCTAssertEqual(eff.buf.prefix(eff.n).filter { $0 }.count, 4); XCTAssertTrue(eff.followsPartner)
+        // OFFSET never changes the count; FLIP HITS on the follower turns the partner's 4 hits into 4 rests (8 − 4)
+        var rotated = lines; rotated[1].rotate = 3
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: rotated), "4/8")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: followLines(flip: true)), "4/8", "8 steps, 4 hits flipped is 4 hits")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: followLines(partnerPulses: 3, flip: true)), "5/8", "3 hits flipped is 5 hits: what the strip lights")
+        // WITH / GAPS keep the lane's own rhythm (euclideousFollowPartner): the sliders' numbers
+        var with = lines; with[1].listenRhythmMode = .with
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: with), "3/16")
+        // a partner index that does not exist falls back to the lane's own sliders
+        var missing = lines; missing[1].listenRhythmPartner = 3
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: missing), "3/16")
+        XCTAssertEqual(euclideousRhythmTabCount(lane: 7, lines: lines), "\(EuclidLine().pulses)/\(EuclidLine().steps)", "an out-of-range lane never crashes: it reads a fresh lane")
+    }
+    func testAFollowLanesBeatGroupsAndDivisionAreItsPartners() {
+        let lines = followLines()   // the partner runs 1/8T (triplet), the follower's own rate is 1/16
+        XCTAssertEqual(euclideousStripDivisionRate(lane: 0, lines: lines), .r1_8t)
+        XCTAssertEqual(euclideousStripDivisionRate(lane: 1, lines: lines), .r1_8t, "a FOLLOW lane plays the partner's pattern at the partner's rate")
+        XCTAssertEqual(euclidStepGroupSize(forRate: euclideousStripDivisionRate(lane: 1, lines: lines)), 3, "so its strip shades in threes")
+        var with = lines; with[1].listenRhythmMode = .with
+        XCTAssertEqual(euclideousStripDivisionRate(lane: 1, lines: with), .r1_16, "WITH keeps the lane's own division")
+        XCTAssertEqual(euclidStepGroupSize(forRate: euclideousStripDivisionRate(lane: 1, lines: with)), 4)
+        var unset = EuclidLine(); unset.rate = nil
+        XCTAssertEqual(euclideousStripDivisionRate(lane: 0, lines: [unset]), .r1_16, "an unset rate reads 1/16, as everywhere in the UI mirror")
+        XCTAssertEqual(euclideousStripDivisionRate(lane: 5, lines: [unset]), .r1_16)
+    }
+    func testAnOffPadTakesNoStrikeEffectAndAnOnPadDoes() {
+        var l = EuclidLine(); l.riffOn = true; l.litNotes = 0b1; l.notesOn = true
+        XCTAssertTrue(euclideousMixPadTakesStrike(l, notes: false)); XCTAssertTrue(euclideousMixPadTakesStrike(l, notes: true))
+        l.riffOn = false; l.notesOn = false
+        XCTAssertFalse(euclideousMixPadTakesStrike(l, notes: false), "a layer switched off while its last strike is still in the feed")
+        XCTAssertFalse(euclideousMixPadTakesStrike(l, notes: true))
+        var noSelection = EuclidLine(); noSelection.notesOn = true; noSelection.litNotes = 0; noSelection.topLit = false; noSelection.top2Lit = false
+        XCTAssertFalse(euclideousMixPadTakesStrike(noSelection, notes: true), "NOTES with nothing selected is off")
     }
 
     // MARK: 7. MIX: the pad's readouts (3.5) and the OFF pad (3.7 — test 5)

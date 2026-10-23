@@ -430,11 +430,12 @@ final class LaneStripTests: XCTestCase {
         XCTAssertLessThan(perFrame, 0.01)
     }
 
-    // MARK: RESTART TILES ferry §4 / test 11 — rests stay present as dashed columns
+    // MARK: RESTART TILES ferry §4 / test 11 — rests stay present (CLARITY PASS 2026-10-23: as solid grey columns, no longer dashed)
 
-    func testRestColumnsAreDashedColumnsAtOffsetZeroAndAtOffsetSevenPointTwoNine() {
+    func testRestColumnsArePresentRhythmRestsAtOffsetZeroAndAtOffsetSevenPointTwoNine() {
+        // the dashed look of the RESTART TILES ferry is retired (kept, unused): what a rest draws now is `euclideousStripColumnLook`'s solid grey, never a border
         let look = euclideousStripRestLook
-        XCTAssertEqual(look.fillHex, 0x1A1C21); XCTAssertEqual(look.borderHex, 0x3A3E47); XCTAssertEqual(look.borderWidth, 1); XCTAssertEqual(look.dash, [3, 2], "3 on, 2 off")
+        XCTAssertEqual(look.fillHex, 0x1A1C21); XCTAssertEqual(look.borderHex, 0x3A3E47); XCTAssertEqual(look.borderWidth, 1); XCTAssertEqual(look.dash, [3, 2], "the retired look's own numbers, unchanged")
         for (label, offset) in [("OFFSET 0", 0.0), ("OFFSET 7.29", 7.29)] {
             var l = EuclidLine(pulses: 5, steps: 8, noteSel: .all); l.rate = .r1_16; l.useRiff = true; l.riffOn = true; l.sourceMode = .midi
             euclideousSliderCommit(.offset, &l, snapshot: l, newValue: offset)
@@ -452,7 +453,12 @@ final class LaneStripTests: XCTestCase {
                 if pattern[i] { XCTAssertNotEqual(strip[i].kind, .rhythmRest, "\(label): column \(i + 1) holds a hit") }
                 else {
                     XCTAssertEqual(strip[i].kind, .rhythmRest, "\(label): column \(i + 1) is a rest")
-                    XCTAssertFalse(euclideousStripDrawsAsHit(strip[i].kind)); XCTAssertNil(strip[i].chip); XCTAssertNil(strip[i].key, "a rest column is drawn as the dashed look and nothing else")
+                    XCTAssertFalse(euclideousStripDrawsAsHit(strip[i].kind)); XCTAssertNil(strip[i].chip); XCTAssertNil(strip[i].key, "a rest column is drawn as its solid grey and nothing else")
+                    for tone in [EuclideousStepGroupTone.a, .b] {
+                        let drawn = euclideousStripColumnLook(kind: strip[i].kind, tone: tone)
+                        guard case .solid = drawn.fill else { return XCTFail("\(label): a rest draws a solid fill") }
+                        XCTAssertEqual(drawn.ringAlpha, 0, "never dashed or ringed"); XCTAssertFalse(drawn.floorBar)
+                    }
                 }
             }
         }

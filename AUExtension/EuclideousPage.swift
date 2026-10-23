@@ -2589,7 +2589,7 @@ struct EuclideousPage: View {
                           // border/fill around just this row (the step-bar area) — always `false` now; the
                           // selection indicator moved to a single outline around the ENTIRE card below.
                           selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
-                          clock: clock, rate: followIdx.map { lines[$0].rate ?? .r1_16 } ?? (line.rate ?? .r1_16), spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
+                          clock: clock, rate: euclideousStripDivisionRate(lane: idx, lines: lines), spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
                           // RHYTHM GESTURE CONTROLS (Paul 2026-10-14, re-enabled — mirrors MASK's own
                           // identical wiring, `maskStepBar` below, just targeting this lane's REAL
                           // pulses/rotate instead of its mask's): up adds hits, down removes, left/right
@@ -3016,7 +3016,7 @@ struct EuclideousPage: View {
         let glyph = euclideousTabGlyph(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, line: line, lane: idx)
         let face = Font.system(size: 11, weight: .heavy, design: .monospaced)
         let name = Text(t.label).font(face).tracking(1).foregroundColor(sel ? patternSelectedText : patternUnselectedText)
-        let title: Text = t == .rhythm ? name + Text(" " + euclideousRhythmTabCount(line)).font(face).tracking(0).foregroundColor(lane100(accent)) : name
+        let title: Text = t == .rhythm ? name + Text(" " + euclideousRhythmTabCount(lane: idx, lines: lines)).font(face).tracking(0).foregroundColor(lane100(accent)) : name
         let fills: [Color] = {
             switch glyph.fill {
             case .lane(let l): return [lane100(laneAccents[max(0, l) % laneAccents.count])]
@@ -3048,7 +3048,7 @@ struct EuclideousPage: View {
                 // chip), never at this per-lane tab row.
                 .contentShape(Rectangle())
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(euclideousTabAccessibilityLabel(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, line: line, lane: idx))   // §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" · "Listen, on, following lane 2"
+                .accessibilityLabel(euclideousTabAccessibilityLabel(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, lines: lines, lane: idx))   // §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" · "Listen, on, following lane 2"
                 .onTapGesture {
                     if idx < laneTab.count { laneTab[idx] = t }
                     // §1.6: the STEPS picker and the restart editor both close when the card switches tab.
@@ -6583,7 +6583,7 @@ struct EuclideousPage: View {
                     let line = lines[lane]
                     let accent = laneAccents[lane % laneAccents.count]
                     for notes in [false, true] {
-                        guard let s = pulseFeed.latestHappened(lane: lane, now: now, riff: !notes) else { continue }
+                        guard euclideousMixPadTakesStrike(line, notes: notes), let s = pulseFeed.latestHappened(lane: lane, now: now, riff: !notes) else { continue }   // CLARITY PASS §3.7: an OFF pad has no knob to swell
                         let age = now - s.onsetAt
                         guard age <= euclideousPulseMaxAge else { continue }
                         let v = euclideousMixPadValues(of: line, notes: notes)

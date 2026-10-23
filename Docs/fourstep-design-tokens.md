@@ -3,7 +3,7 @@
 What's actually in the shipped UI, not a proposal. Pull values from here first; when in doubt,
 the source file wins over this doc. A browsable version with live colour swatches lives at
 [the published artifact](https://claude.ai/code/artifact/02c30eff-1b28-4ef7-bb4b-9a3613824a9b) —
-this file is the durable copy; update this one, the artifact is a rendering of it.
+this file is the durable copy; update this one, the artifact is a rendering of it. **The artifact twin predates the CLARITY PASS (2026-10-23): it still shows the old "Step / hit cell" (#DFE3EA / dashed rest) and has no tab-glyph or MIX-lane-panel rows — this file is right, refresh the twin before handing it to anyone.**
 
 Two provenance tags are used throughout:
 - **\[verified]** — read directly from current source, with a file:line citation.

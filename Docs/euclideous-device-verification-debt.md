@@ -28,6 +28,10 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - "VEL 100" / "90%" and the pad labels legible over the pad fill in all four lane colours; the label and the puck/extension lines crossing when VEL is high and GATE mid (label top-left, puck near it).
 - An OFF pad: the dashed outline, "OFF", the label and glyph (outline) legible; a tap does nothing; its stepper at 50 % still edits.
 - Solo a lane: the other lanes' whole MIX panels (tint, border, pads, steppers, OUT row) dim once to 42 %; and "OCT +1" with the 21 pt buttons at the real width.
+- A FOLLOW lane: its RHYTHM tab shows the PARTNER's hits/steps (and its strip shades in the partner's division), not its own sliders' numbers; a WITH / GAPS lane still shows its own.
+- Switch a layer off right after it struck (a riff or notes pad mid-pattern): the OFF pad must show no ripple / flash / knob afterwards.
+- VoiceOver on the lane tab row and the MIX panels (never exercised): each tab reads its §4.1 sentence and a double-tap switches tab; the panels read lane by lane (riff pad, notes pad, OUT row); an OFF pad reads "Lane N riff, off" and offers no adjust.
+- "RHYTHM 10/16" … "16/16" (87.6 pt vs an 87.2 pt tab) truncates its last digit landscape; a locked lane truncates earlier. Look for whether that reads acceptably.
 
 ### RESTART TILES (2026-10-22)
 - LAUNCH the DEBUG build from Xcode into AUM first (new leaves `restartEditorStrip`, `restartTileLayer`, 2.8–3.3 KB each on the 1 MB main stack); the RHYTHM tab and the restart editor must come up on all four lanes.

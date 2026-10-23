@@ -5896,14 +5896,24 @@ func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> 
         }
     }
 }
-/// §2.3: the RHYTHM tab's "hits/steps" ("5/16"), the same two numbers the HITS and STEPS sliders print.
-func euclideousRhythmTabCount(_ line: EuclidLine) -> String {
-    "\(euclideousSliderValueText(.hits, line))/\(euclideousSliderValueText(.steps, line))"
+/// §2.3: the RHYTHM tab's "hits" and "steps" ("5/16"): the same two numbers the HITS and STEPS sliders print — except on a FOLLOW lane, which PLAYS its partner's pattern (so its own HITS/STEPS are not what the strip beside the tab shows):
+/// there it is the pattern that plays, from `euclideousEffectivePattern` (the partner's step count and hits, with this lane's own FLIP applied), the one function the lane card's strip and the engine mirror share.
+func euclideousRhythmTabCounts(lane: Int, lines: [EuclidLine]) -> (hits: String, steps: String) {
+    if euclideousFollowPartner(lane: lane, lines: lines) != nil, let e = euclideousEffectivePattern(lane: lane, lines: lines) {
+        return ("\(e.buf.prefix(e.n).filter { $0 }.count)", "\(e.n)")
+    }
+    let line = lane >= 0 && lane < lines.count ? lines[lane] : EuclidLine()
+    return (euclideousSliderValueText(.hits, line), euclideousSliderValueText(.steps, line))
+}
+func euclideousRhythmTabCount(lane: Int, lines: [EuclidLine]) -> String {
+    let c = euclideousRhythmTabCounts(lane: lane, lines: lines)
+    return "\(c.hits)/\(c.steps)"
 }
 /// §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" / "Riff, off" · "Notes, on" / "Notes, off" · "Listen, on, following lane 2" / "Listen, off".
-func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> String {
+func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine], lane: Int) -> String {
+    let line = lane >= 0 && lane < lines.count ? lines[lane] : EuclidLine()
     switch tab {
-    case .rhythm: return "Rhythm, \(euclideousSliderValueText(.hits, line)) of \(euclideousSliderValueText(.steps, line)) hits"
+    case .rhythm: let c = euclideousRhythmTabCounts(lane: lane, lines: lines); return "Rhythm, \(c.hits) of \(c.steps) hits"
     case .riff:   return "Riff, " + (euclideousTabGlyph(tab: .riff, line: line, lane: lane).on ? "on" : "off")
     case .notes:  return "Notes, " + (euclideousTabGlyph(tab: .notes, line: line, lane: lane).on ? "on" : "off")
     case .listen:
@@ -6017,6 +6027,8 @@ func euclideousMixPadTouchWrite(_ line: inout EuclidLine, notes: Bool, at p: CGP
     let v = geometry.values(at: p)
     return euclideousMixPadWriteIfEnabled(&line, notes: notes, gate: v.gate, velocity: v.velocity)
 }
+/// §3.7: an OFF pad shows no knob — so no strike effect (ripple, fill flash, puck swell) either, including the ≤ 1.5 s after its layer was switched off while the feed still holds the layer's last strike.
+func euclideousMixPadTakesStrike(_ line: EuclidLine, notes: Bool) -> Bool { !euclideousMixLayerIsOff(line, notes: notes) }
 /// §3.7: the OFF pad's centred word and the OCT stepper's dim (50 %, and not at all while the lane is solo-silenced — the panel's own 42 % covers it, never 21 %).
 let euclideousMixOffWord = "OFF"
 func euclideousMixOffStepperOpacity(off: Bool, soloSilenced: Bool) -> Double { off && !soloSilenced ? 0.5 : 1 }
@@ -6028,9 +6040,10 @@ enum EuclideousMixMetrics {
     static let tabRowH: CGFloat = 20
     // RESTART CHAINS ferry §9.6: OCT shrinks from 28 to 24; §9.7 adds the 20pt OUT row under each lane's pair.
     static let stepperH: CGFloat = 24
-    /// CLARITY PASS: the − / + buttons are 21 wide (they were 24): the panels' spacing makes every pad 6 pt narrower, and "OCT +1" (≈ 36 pt) must still fit between the buttons — 2 × 21 + 36 = 78, the shifted `minCellW`, exactly
-    /// the headroom 2 × 24 + 36 = 84 gave at the old floor. Without it a non-zero octave truncated to "OCT …" at the reference width (found in a scratch render). The buttons stay 24 tall.
-    static let stepperButtonW: CGFloat = 21, stepperCentreNeeds: CGFloat = 36
+    /// CLARITY PASS: the − / + buttons are 21 wide (they were 24): the panels' spacing makes every pad 6 pt narrower, and "OCT +1" must still fit between the buttons. Measured with the real font (11 pt-class heavy mono: "OCT" at 8 pt
+    /// with 0.64 tracking 16.8 + the 4 pt gap + "+1" at 13 pt 16.1 = 36.9) it needs 37; 2 × 21 + 37 = 79 is `minCellW`. (The old 24 pt buttons were also ≈ 1 pt short at the old 84 floor; the references have 2–4 pt to spare.)
+    /// Without the narrower buttons a non-zero octave truncated to "OCT …" at the reference width (found in a scratch render). The buttons stay 24 tall.
+    static let stepperButtonW: CGFloat = 21, stepperCentreNeeds: CGFloat = 37
     static let outRowH: CGFloat = 20
     /// CLARITY PASS (2026-10-23) §3.3: the rotated VEL name and the value that filled this 24 pt left strip both moved (the label to the top-left, the value to the bottom-left readout), so the strip is
     /// gone and the plot spans the whole pad. 0 keeps every formula that names the strip (plot, axes, puck origin, touch inverse) a single definition.
@@ -6043,8 +6056,9 @@ enum EuclideousMixMetrics {
     static let labelTop: CGFloat = 5, labelLeft: CGFloat = 6, readoutBottom: CGFloat = 4, readoutSide: CGFloat = 6, labelSize: CGFloat = 10
     /// §9.3: below either, REPORT with the panel size — never shrink anything. PAGE LAYOUT ferry (2026-10-19) retired §9.3's STOP: below padH 60 MIX
     /// is still drawn, at the formula's values (never an empty panel); `floorPadH` is now only a flag the page's floor list raises.
-    /// CLARITY PASS: the panels' padding and sp16 gaps cost every pad 6 pt of width and 12 of height at any size (84 → 78, 76 → 64, 60 → 48 move by exactly that), so the legibility floors keep the same headroom.
-    static let minCellW: CGFloat = 78, minPadH: CGFloat = 64, floorPadH: CGFloat = 48
+    /// CLARITY PASS: the panels' padding and sp16 gaps cost every pad 6 pt of width and 12 of height at any size, so the legibility floors move by that (84 → 78, 76 → 64, 60 → 48) — except the width floor is 79: the OCT stepper's
+    /// "OCT +1" measures 37 pt between its two 21 pt buttons (see `stepperCentreNeeds`), 1 pt more than the pure shift leaves.
+    static let minCellW: CGFloat = 79, minPadH: CGFloat = 64, floorPadH: CGFloat = 48
 }
 /// The grid area (inside the panel's sp8 padding, below the 20pt tab row + sp8) for a panel of this size.
 func euclideousMixGridArea(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
@@ -9781,6 +9795,12 @@ func euclidGroupedBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidSte
 /// can't independently land on different group sizes for what's meant to be the same lane.
 func euclidStepGroupSize(forRate rate: ArpRate) -> Int {
     euclideousRateDivisionFeel(rate).feel == 2 ? 3 : 4
+}
+/// The division the lane card's strip (and so its beat groups) runs on: the PARTNER's rate for a FOLLOW lane (it plays the partner's pattern at the partner's rate), else the lane's own; an unset rate reads 1/16 as everywhere
+/// in the UI's mirror. The one place the page's `EuclidLaneBox(rate:)` and the beat-group tests read it from.
+func euclideousStripDivisionRate(lane: Int, lines: [EuclidLine]) -> ArpRate {
+    if let p = euclideousFollowPartner(lane: lane, lines: lines) { return lines[p].rate ?? .r1_16 }
+    return lane >= 0 && lane < lines.count ? (lines[lane].rate ?? .r1_16) : .r1_16
 }
 /// The step columns a caller lays out: the Euclideous lane STRIP (CLARITY PASS) gets the even geometry, every other grouped caller the grouped one. One call site per use keeps the draw closures' DEBUG frames small.
 func euclidColumnGeometry(strip: Bool, n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGroupGeometry {
