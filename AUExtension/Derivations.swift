@@ -5465,16 +5465,8 @@ enum EuclideousPageMetrics {
 /// upper zone the rest = card height − 188).
 enum EuclideousLaneCardMetrics {
     static let inset: CGFloat = 10, rowGap: CGFloat = 6, cometRowH: CGFloat = 44, tabRowH: CGFloat = 28
-    /// RHYTHM's STEPS picker covers both zones and is built only when they reach this (`tabContent`); the
-    /// restart editor no longer has a hard floor — see `euclideousRestartEditorFallback` below (RHYTHM
-    /// fixes §5.1, 2026-10-21).
+    /// RHYTHM's STEPS picker covers both zones and is built only when they reach this (`tabContent`).
     static let rhythmZonesFloor: CGFloat = 192
-    /// RHYTHM fixes §5.1 — the restart editor's own progressive fallback thresholds: below this, each
-    /// section drops its 16-cell timeline (+ the sp4 after it); below `restartEditorHintFloor`, each
-    /// section drops its hint line too (+ the sp4 before it); below THAT, the editor still renders (the
-    /// same reduced content) and lets its own bottom edge clip rather than refusing to build at all.
-    static let restartEditorTimelineFloor: CGFloat = 156
-    static let restartEditorHintFloor: CGFloat = 128
     static var chromeH: CGFloat { cometRowH + tabRowH + inset * 2 + rowGap * 2 }
     static func innerWidth(cardWidth: CGFloat) -> CGFloat { max(1, cardWidth - inset * 2) }
     static func contentAreaH(cardHeight: CGFloat) -> CGFloat { max(1, cardHeight - chromeH) }
@@ -5497,6 +5489,11 @@ struct EuclideousRhythmTabLayout: Equatable {
 }
 enum EuclideousRhythmGeometry {
     static let gap: CGFloat = 4, controlRowH: CGFloat = 38, controlBlockH: CGFloat = 80, dividerFootprint: CGFloat = 17
+    /// Floors ferry (2026-10-23): TILT's EARLY/LATE end-labels already overlap the slider's own value text
+    /// by design at the 38.67pt reference row height (RHYTHM POLISH §1.5's own "4.3pt overlap, the ink
+    /// should not touch") — below this floor, that overlap would turn illegible rather than merely tight,
+    /// so the labels (pure annotation; TILT itself stays fully usable without them) drop out instead.
+    static let endLabelsFloor: CGFloat = 28
     /// The three right-half rows split the upper zone's height equally (RHYTHM POLISH 1.2).
     static func rightRowH(upperH: CGFloat) -> CGFloat { max(1, (upperH - gap * 2) / 3) }
     /// Four equal direction buttons, sp4 apart, across the right half (1.3).
@@ -5504,6 +5501,7 @@ enum EuclideousRhythmGeometry {
     /// The two halves of the upper zone (sp4 apart) and of the lower control block (the 17 pt divider footprint between them).
     static func upperHalfW(fullWidth: CGFloat) -> CGFloat { max(1, (fullWidth - gap) / 2) }
     static func lowerHalfW(fullWidth: CGFloat) -> CGFloat { max(1, (fullWidth - dividerFootprint) / 2) }
+    static func showsEndLabels(rowH: CGFloat) -> Bool { rowH >= endLabelsFloor }
 }
 func euclideousRhythmTabLayout(cardWidth: CGFloat, cardHeight: CGFloat) -> EuclideousRhythmTabLayout {
     typealias G = EuclideousRhythmGeometry
@@ -5610,15 +5608,6 @@ func euclideousRestartEditorLayout(width: CGFloat, height: CGFloat) -> Euclideou
     return EuclideousRestartEditorLayout(sections: sections, chainRows: rows, strips: strips, gaps: gaps)
 }
 
-/// RHYTHM fixes §5.1 (2026-10-21) — what the restart editor shows at a given height, as ONE pure decision
-/// the view just reads (not re-derived inline), so a test can pin the exact 192/156/128pt thresholds the
-/// spec names without needing the (untestable) SwiftUI view itself.
-struct EuclideousRestartEditorFallback: Equatable { var showTimeline: Bool; var showHint: Bool }
-func euclideousRestartEditorFallback(height: CGFloat) -> EuclideousRestartEditorFallback {
-    EuclideousRestartEditorFallback(showTimeline: height >= EuclideousLaneCardMetrics.restartEditorTimelineFloor,
-                                    showHint: height >= EuclideousLaneCardMetrics.restartEditorHintFloor)
-}
-
 /// The riff panel's chrome (RIFF PANEL ferry, 2026-10-19 §1): sp8 padding all round; the four riff tabs (20 tall); 6pt (a drawing value); the grid (the 30pt
 /// note-label column, a 4pt gap, then eight columns at `euclideousRiffCellW`'s width with 4pt gaps, and eight rows with 4pt gaps); sp8; the four lane rails
 /// (8 tall, 3 apart = 41); the bottom padding. 8 + 20 + 6 above the grid and 8 + 41 + 8 below it = 91, so the grid is box height − 91 tall and
@@ -5691,10 +5680,10 @@ func euclideousPageFloors(box: CGSize) -> [EuclideousPageFloor] {
     let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: box.height)
     if contentH < EuclideousLaneCardMetrics.rhythmZonesFloor { out.append(.rhythmZones) }
     let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: box.width))
-    if r.rowAHeight < 82 { out.append(.riffRowA) }
-    if r.directionRowHeight < 32 { out.append(.riffDirectionRow) }
-    if r.lowerRowHeight < 32 { out.append(.riffLowerRows) }
-    if r.directionButtonWidth < 40 { out.append(.riffDirectionButtons) }
+    if r.rowAHeight < EuclideousRiffTabFloors.rowAHeight { out.append(.riffRowA) }
+    if r.directionRowHeight < EuclideousRiffTabFloors.directionRowHeight { out.append(.riffDirectionRow) }
+    if r.lowerRowHeight < EuclideousRiffTabFloors.lowerRowHeight { out.append(.riffLowerRows) }
+    if r.directionButtonWidth < EuclideousRiffTabFloors.directionButtonWidth { out.append(.riffDirectionButtons) }
     let area = euclideousMixGridArea(panelWidth: box.width, panelHeight: box.height)
     let g = euclideousMixGrid(width: area.width, height: area.height)
     if g.cellW < EuclideousMixMetrics.minCellW { out.append(.mixCellW) }
@@ -6040,11 +6029,18 @@ enum EuclideousMixMetrics {
     static let tabRowH: CGFloat = 20
     // RESTART CHAINS ferry §9.6: OCT shrinks from 28 to 24; §9.7 adds the 20pt OUT row under each lane's pair.
     static let stepperH: CGFloat = 24
+    /// Floors ferry (2026-10-23): fair-share — the OCT stepper's own floor when the panel shrinks enough
+    /// that the nominal 52pt (stepper + OUT row + gaps) fixed subtraction would push the pad under its own
+    /// `minPadH`. Before this, the stepper and OUT row stayed fixed at nominal size forever while the pad
+    /// alone absorbed every pt of shrinkage. Button width (21) is unrelated and unchanged by this.
+    static let stepperCompactH: CGFloat = 18
     /// CLARITY PASS: the − / + buttons are 21 wide (they were 24): the panels' spacing makes every pad 6 pt narrower, and "OCT +1" must still fit between the buttons. Measured with the real font (11 pt-class heavy mono: "OCT" at 8 pt
     /// with 0.64 tracking 16.8 + the 4 pt gap + "+1" at 13 pt 16.1 = 36.9) it needs 37; 2 × 21 + 37 = 79 is `minCellW`. (The old 24 pt buttons were also ≈ 1 pt short at the old 84 floor; the references have 2–4 pt to spare.)
     /// Without the narrower buttons a non-zero octave truncated to "OCT …" at the reference width (found in a scratch render). The buttons stay 24 tall.
     static let stepperButtonW: CGFloat = 21, stepperCentreNeeds: CGFloat = 37
     static let outRowH: CGFloat = 20
+    /// Floors ferry: the OUT row's own floor, shrinking together with the stepper (see `stepperCompactH`).
+    static let outRowCompactH: CGFloat = 14
     /// CLARITY PASS (2026-10-23) §3.3: the rotated VEL name and the value that filled this 24 pt left strip both moved (the label to the top-left, the value to the bottom-left readout), so the strip is
     /// gone and the plot spans the whole pad. 0 keeps every formula that names the strip (plot, axes, puck origin, touch inverse) a single definition.
     static let velStripW: CGFloat = 0
@@ -6068,6 +6064,10 @@ func euclideousMixGridArea(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize 
 struct EuclideousMixGrid: Equatable {
     /// `rowH` is a lane PANEL's height (CLARITY PASS: it was the row of cells' height), `padH` a pad's.
     var cellW: CGFloat, rowH: CGFloat, padH: CGFloat
+    /// Floors ferry (2026-10-23): the OCT stepper's and OUT row's own RESOLVED heights — nominal
+    /// (24/20) normally, `stepperCompactH`/`outRowCompactH` (18/14) once giving them up buys the pad back
+    /// above its own floor. Replaces the two call sites that used to read the nominal metric directly.
+    var stepperH: CGFloat, outRowH: CGFloat
     /// §2.8: this panel is too small for the ferry's legibility floors (reported, not shrunk).
     var belowFloors: Bool { cellW < EuclideousMixMetrics.minCellW || padH < EuclideousMixMetrics.minPadH }
     /// CLARITY PASS §3.1/§3.2: a lane panel = padding sp4, the RIFF pad, sp4, the NOTES pad, padding sp4.
@@ -6087,7 +6087,7 @@ struct EuclideousMixGrid: Equatable {
     /// The lane's OUT A–D row: across the panel's inside width, sp4 under the OCT steppers.
     func outRowFrame(lane: Int) -> CGRect {
         let o = panelOrigin(lane: lane), pad = EuclideousMixMetrics.panelPad, sp4 = EuclideousMixMetrics.sp4
-        return CGRect(x: o.x + pad, y: o.y + pad + padH + sp4 + EuclideousMixMetrics.stepperH + sp4, width: panelW - pad * 2, height: EuclideousMixMetrics.outRowH)
+        return CGRect(x: o.x + pad, y: o.y + pad + padH + sp4 + stepperH + sp4, width: panelW - pad * 2, height: outRowH)
     }
 }
 /// CLARITY PASS §3.1/§3.2 (replacing §9.1's cellW = (W − 16) / 4, rowH = (H − 8) / 2): panelW = (W − 16) / 2 and panelH = (H − 16) / 2 (sp16 between panels), cellW = (panelW − 12) / 2 (sp4 padding both sides + sp4 between
@@ -6096,8 +6096,16 @@ func euclideousMixGrid(width: CGFloat, height: CGFloat) -> EuclideousMixGrid {
     let m = EuclideousMixMetrics.self
     let panelH = (height - m.sp16) / 2
     let panelW = (width - m.sp16) / 2
-    let belowPad = m.sp4 + m.stepperH + m.sp4 + m.outRowH
-    return EuclideousMixGrid(cellW: (panelW - m.panelPad * 2 - m.sp4) / 2, rowH: panelH, padH: panelH - m.panelPad * 2 - belowPad)
+    let innerH = panelH - m.panelPad * 2
+    // Floors ferry: fair-share — if the nominal 52pt split would leave the pad under `minPadH`, the
+    // stepper and OUT row drop to their own compact floors together (buying the pad back 12pt) instead
+    // of staying fixed while the pad alone absorbs the whole loss.
+    let nominalBelowPad = m.sp4 + m.stepperH + m.sp4 + m.outRowH
+    let useCompact = (innerH - nominalBelowPad) < m.minPadH
+    let stepperH = useCompact ? m.stepperCompactH : m.stepperH
+    let outRowH = useCompact ? m.outRowCompactH : m.outRowH
+    let belowPad = m.sp4 + stepperH + m.sp4 + outRowH
+    return EuclideousMixGrid(cellW: (panelW - m.panelPad * 2 - m.sp4) / 2, rowH: panelH, padH: innerH - belowPad, stepperH: stepperH, outRowH: outRowH)
 }
 
 /// The frame of one of a lane's four OUT A–D buttons, in the grid area's coordinates — the SAME numbers `mixOutRow` lays its HStack out with (the row's width, sp4 gaps, 20pt tall, under the OCT stepper), so the PULSE glow
@@ -7337,12 +7345,21 @@ func euclideousRiffReadoutText(_ r: EuclideousRiffReadout?, overBudget: Bool) ->
 /// pure function §1.3/§1.4/§1.6 describe. Reuses RHYTHM's own `patternBlockH`(80)/`upperH` split (§1.1: "the
 /// RIFF tab now fills them exactly") rather than the ferry's own literal 124/208 reference figures, which
 /// don't match the real `contentAreaH` formula — reported in the final write-up, not silently reconciled.
+/// Floors ferry (2026-10-23): the RIFF tab's own floors, named — were bare literals repeated here and in
+/// `euclideousPageFloors`. `directionButtonWidth`'s floor is also now genuinely reachable (see below).
+enum EuclideousRiffTabFloors {
+    static let rowAHeight: CGFloat = 82, directionRowHeight: CGFloat = 32, lowerRowHeight: CGFloat = 32, directionButtonWidth: CGFloat = 40
+}
 struct EuclideousRiffTabLayout: Equatable {
     var rowAHeight: CGFloat
     var rowBHeight: CGFloat
     var lowerRowHeight: CGFloat
     var rightColumnWidth: CGFloat
     var walkStripHeight: CGFloat
+    /// Floors ferry: false when showing the WALK strip (display only, not interactive — its own doc
+    /// comment) would leave the direction row under its own floor; the strip drops out and the direction
+    /// row (chevrons + Invert melody, all real controls) takes the whole of row A instead.
+    var showWalkStrip: Bool
     var directionRowHeight: CGFloat
     var directionButtonWidth: CGFloat
     var labelColumnWidth: CGFloat
@@ -7353,6 +7370,7 @@ struct EuclideousRiffTabLayout: Equatable {
     var underFloor: Bool   // §1.6's own floors: row A 82, direction row 32 tall, lower rows 32 tall, direction buttons 40 wide
 }
 func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGFloat = 4) -> EuclideousRiffTabLayout {
+    typealias F = EuclideousRiffTabFloors
     let patternBlockH: CGFloat = 80   // the SAME fixed constant RHYTHM's own lower block uses
     let upperH = max(1, contentAreaH - patternBlockH - sp4)
     let rowBHeight: CGFloat = 38
@@ -7361,17 +7379,22 @@ func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGF
     let cardWidth: CGFloat = 90
     let rightColumnWidth = max(1, fullWidth - cardWidth - sp4)
     let walkStripHeight: CGFloat = 38
-    let directionRowHeight = max(1, rowAHeight - sp4 - walkStripHeight)
-    let directionButtonWidth = max(1, (rightColumnWidth - 4 * sp4) / 5)
+    // Floors ferry: the WALK strip is the one non-interactive element on this row — drop it first.
+    let directionRowIfShown = max(1, rowAHeight - sp4 - walkStripHeight)
+    let showWalkStrip = directionRowIfShown >= F.directionRowHeight
+    let directionRowHeight = showWalkStrip ? directionRowIfShown : rowAHeight
+    // 4 buttons since PENDULUM was removed (2026-10-22) — was ÷5 over 4 gaps, stale since that removal.
+    let directionButtonWidth = max(1, (rightColumnWidth - 3 * sp4) / 4)
     let labelColumnWidth: CGFloat = 60
     let everyStepperWidth: CGFloat = 76
     let hitStepButtonWidth = max(1, (fullWidth - labelColumnWidth - everyStepperWidth - 3 * sp4) / 2)
     // NOTES TAB ferry §9.1: FILL left ON REST — three equal buttons (SKIP, TIE, REPEAT) sp4 apart after the label column and its gap: (fullWidth − 60 − 3·sp4) ÷ 3 = 88.83 at the 338.5 reference, 76 at 300.
     let onRestButtonWidth = max(1, (fullWidth - labelColumnWidth - 3 * sp4) / 3)
     let valueStepperWidth = max(1, (fullWidth - 3 * sp4) / 4)
-    let underFloor = rowAHeight < 82 || directionRowHeight < 32 || lowerRowHeight < 32 || directionButtonWidth < 40
+    let underFloor = rowAHeight < F.rowAHeight || directionRowHeight < F.directionRowHeight
+        || lowerRowHeight < F.lowerRowHeight || directionButtonWidth < F.directionButtonWidth
     return EuclideousRiffTabLayout(rowAHeight: rowAHeight, rowBHeight: rowBHeight, lowerRowHeight: lowerRowHeight,
-                                   rightColumnWidth: rightColumnWidth, walkStripHeight: walkStripHeight,
+                                   rightColumnWidth: rightColumnWidth, walkStripHeight: walkStripHeight, showWalkStrip: showWalkStrip,
                                    directionRowHeight: directionRowHeight, directionButtonWidth: directionButtonWidth,
                                    labelColumnWidth: labelColumnWidth, everyStepperWidth: everyStepperWidth,
                                    hitStepButtonWidth: hitStepButtonWidth, onRestButtonWidth: onRestButtonWidth,

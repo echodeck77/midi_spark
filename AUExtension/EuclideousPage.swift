@@ -2886,7 +2886,9 @@ struct EuclideousPage: View {
             onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
             displayOverrideLine: partner,
             listenFollowLocked: partner != nil,
-            topAlignLabelRow: true, endLabels: ("EARLY", "LATE"),
+            topAlignLabelRow: true,
+            // Floors ferry (2026-10-23): pure annotation, not the control — drops first as the row shrinks.
+            endLabels: EuclideousRhythmGeometry.showsEndLabels(rowH: height) ? ("EARLY", "LATE") : nil,
             lockActive: lockLocked(idx), lockOutline: lockOn(idx, .tilt) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
 
@@ -4397,12 +4399,17 @@ struct EuclideousPage: View {
         return HStack(spacing: sp4) {
             riffCard(idx, line, accent, width: 90, height: layout.rowAHeight)
             VStack(spacing: sp4) {
-                // §3.3: the strip dims itself per-cell (folding the riff-off state into its own single
-                // opacity decision) — NOT wrapped in an outer .opacity() here, which would compound with
-                // that per-cell dim (a bug an adversarial review caught: 0.42×0.42 ≈ 17.6% on a never-played
-                // step of an off lane, instead of the spec's own "the dims don't multiply" 42%).
-                riffWalkStrip(idx, line, accent, width: layout.rightColumnWidth, height: layout.walkStripHeight)
-                riffDirectionRow(idx, line, accent)
+                // Floors ferry (2026-10-23): the WALK strip is read-only ("display only, not interactive")
+                // — it drops out first when showing it would leave the direction row (real controls) under
+                // its own floor, per `layout.showWalkStrip`.
+                if layout.showWalkStrip {
+                    // §3.3: the strip dims itself per-cell (folding the riff-off state into its own single
+                    // opacity decision) — NOT wrapped in an outer .opacity() here, which would compound with
+                    // that per-cell dim (a bug an adversarial review caught: 0.42×0.42 ≈ 17.6% on a never-played
+                    // step of an off lane, instead of the spec's own "the dims don't multiply" 42%).
+                    riffWalkStrip(idx, line, accent, width: layout.rightColumnWidth, height: layout.walkStripHeight)
+                }
+                riffDirectionRow(idx, line, accent, height: layout.directionRowHeight)
                     .frame(height: layout.directionRowHeight)
                     .opacity(isRiff ? 1.0 : 0.42)
             }
@@ -4419,14 +4426,17 @@ struct EuclideousPage: View {
     /// tabs exactly (`directionRow`'s glyphs, sizing and colours: `patternSelectedText`/
     /// `patternUnselectedText`/`patternUnselectedFill` already equal `melodyButton`'s own "on"/"off"
     /// colours byte-for-byte, so only the LABEL changes here, not the look it already had).
-    private func riffDirectionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
+    /// `height` (Floors ferry, 2026-10-23): the buttons used to declare their own fixed 40pt regardless of
+    /// the row's real computed height, so shrinking the row did nothing but squeeze/overflow the HStack —
+    /// now they take the real height, so `EuclideousRiffTabFloors.directionRowHeight` means something.
+    private func riffDirectionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
         let dirs: [(RiffDir, String)] = [(.reverse, "<"), (.pingpong, "><"), (.forward, ">")]
         let curDir = line.euclideousRiffDirResolved
         let isRiff = line.riffOnResolved
         return HStack(spacing: 3) {
             ForEach(dirs, id: \.0) { d, glyph in
                 let lit = curDir == d
-                melodyButton(glyph, on: lit, accent: accent, height: 40, fontSize: 13, cornerRadius: 7,
+                melodyButton(glyph, on: lit, accent: accent, height: height, fontSize: 13, cornerRadius: 7,
                              help: "How the riff walks. Tap the lit one to turn the riff off.", lane: idx, outline: lit && lockOn(idx, .riffDirection)) {
                     edit(idx) { l in
                         if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
@@ -4442,7 +4452,7 @@ struct EuclideousPage: View {
             // house floor — "nothing under 10pt," §4.6) rather than the chevrons' 13: "Invert melody" is
             // long for this row's now-four-way split; it truncates rather than shrinks if a card is
             // narrow, the same house rule every other label on this tab already accepts.
-            melodyButton("Invert melody", on: line.riffInvertResolved, accent: accent, height: 40, fontSize: 10, cornerRadius: 7,
+            melodyButton("Invert melody", on: line.riffInvertResolved, accent: accent, height: height, fontSize: 10, cornerRadius: 7,
                          help: "Flip the riff upside down in pitch", lane: idx, outline: lockOn(idx, .riffInvert)) { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Invert melody")
@@ -4475,14 +4485,14 @@ struct EuclideousPage: View {
                 @unknown default: break
                 }
             }
-            melodyButton(plural ? "HITS" : "HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
+            melodyButton(plural ? "HITS" : "HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: layout.rowBHeight, fontSize: 11, cornerRadius: 7,
                          help: "Move the riff only on sounding hits", lane: idx, outline: lockOn(idx, .advanceMode) && !line.riffAdvanceStepResolved) { edit(idx) { $0.riffAdvanceStep = false } }
                 .frame(width: layout.hitStepButtonWidth)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Advance by hits")
                 .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lockOn(idx, .advanceMode) && !line.riffAdvanceStepResolved))
                 .accessibilityAddTraits(!line.riffAdvanceStepResolved ? [.isButton, .isSelected] : .isButton)
-            melodyButton(plural ? "STEPS" : "STEP", on: line.riffAdvanceStepResolved, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
+            melodyButton(plural ? "STEPS" : "STEP", on: line.riffAdvanceStepResolved, accent: accent, height: layout.rowBHeight, fontSize: 11, cornerRadius: 7,
                          help: "Move the riff on every step, not just hits", lane: idx, outline: lockOn(idx, .advanceMode) && line.riffAdvanceStepResolved) { edit(idx) { $0.riffAdvanceStep = true } }
                 .frame(width: layout.hitStepButtonWidth)
                 .accessibilityElement(children: .ignore)
@@ -4501,7 +4511,7 @@ struct EuclideousPage: View {
             riffRowLabel("ON REST", "IN RIFF").frame(width: layout.labelColumnWidth)
             ForEach([EuclidRiffOnRest.skip, .tie, .repeatLast], id: \.self) { r in
                 let selected = current == r
-                melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: selected, accent: accent, height: 38, fontSize: 11, cornerRadius: 7,
+                melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: selected, accent: accent, height: layout.lowerRowHeight, fontSize: 11, cornerRadius: 7,
                              help: riffOnRestHelpPhrase(r), lane: idx, outline: selected && lockOn(idx, .onRest)) { edit(idx) { $0.riffOnRest = r } }
                     .frame(width: layout.onRestButtonWidth)
                     // §9.5 / NOTES TAB §9.3: SKIP and TIE keep their plain labels; REPEAT reads "Repeat" with its own hint.
@@ -6557,7 +6567,7 @@ struct EuclideousPage: View {
                         .offset(x: o.x - panel.minX, y: o.y - panel.minY)
                         .accessibilitySortPriority(Double(3 - n))
                 }
-                mixOutRow(lane: lane, width: out.width, height: EuclideousMixMetrics.outRowH)
+                mixOutRow(lane: lane, width: out.width, height: grid.outRowH)
                     .accessibilityValue(euclideousAppendSilencedBySolo("", silenced: silenced))
                     .offset(x: out.minX - panel.minX, y: out.minY - panel.minY)
                     .accessibilitySortPriority(1)
@@ -6617,12 +6627,12 @@ struct EuclideousPage: View {
             EuclideousMixPad(cellW: grid.cellW, padH: grid.padH, gate: v.gate, velocity: v.velocity, accent: accent, off: off, notes: notes,
                              accessibilityLabelText: euclideousMixPadAccessibilityLabel(lane: lane, notes: notes, off: off),
                              onEditStep: { newStep, mutate in editStep(lane, newStep, mutate) })
-            EuclideousMixOctaveStepper(cellW: grid.cellW, octave: euclideousMixOctave(of: line, notes: notes), accent: accent,
+            EuclideousMixOctaveStepper(cellW: grid.cellW, height: grid.stepperH, octave: euclideousMixOctave(of: line, notes: notes), accent: accent,
                                        opacity: euclideousMixOffStepperOpacity(off: off, soloSilenced: soloSilenced(lane)),
                                        accessibilityLabelText: euclideousMixOctaveAccessibilityLabel(lane: lane, notes: notes),
                                        onSet: { o in edit(lane) { l in if notes { euclideousSetNotesOctave(&l, o) } else { euclideousSetRiffOctave(&l, o) } } })
         }
-        .frame(width: grid.cellW, height: grid.padH + sp4 + EuclideousMixMetrics.stepperH, alignment: .top)
+        .frame(width: grid.cellW, height: grid.padH + sp4 + grid.stepperH, alignment: .top)
         .accessibilityElement(children: .contain)
         .accessibilityValue(euclideousAppendSilencedBySolo("", silenced: soloSilenced(lane)))
     }

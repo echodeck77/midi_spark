@@ -118,11 +118,36 @@ final class PageLayoutTests: XCTestCase {
         }
         // widths: landscape content 360.67, portrait 367
         let rl = euclideousRiffTabLayout(contentAreaH: land.box.height - 104, fullWidth: land.box.width - 20)
-        XCTAssertEqual(rl.rightColumnWidth, 266.67, accuracy: 0.01); XCTAssertEqual(rl.directionButtonWidth, 50.13, accuracy: 0.01)
+        XCTAssertEqual(rl.rightColumnWidth, 266.67, accuracy: 0.01)
+        // Floors ferry (2026-10-23): 4 buttons over 3 gaps now (PENDULUM removed 2026-10-22; was ÷5 over 4 gaps, stale since then).
+        XCTAssertEqual(rl.directionButtonWidth, 63.67, accuracy: 0.01)
         XCTAssertEqual(rl.hitStepButtonWidth, 106.33, accuracy: 0.01); XCTAssertEqual(rl.onRestButtonWidth, 96.22, accuracy: 0.01); XCTAssertEqual(rl.valueStepperWidth, 87.17, accuracy: 0.01)
         let rp = euclideousRiffTabLayout(contentAreaH: port.box.height - 104, fullWidth: port.box.width - 20)
-        XCTAssertEqual(rp.directionButtonWidth, 51.4, accuracy: 0.01); XCTAssertEqual(rp.hitStepButtonWidth, 109.5, accuracy: 0.01)
+        XCTAssertEqual(rp.directionButtonWidth, 65.25, accuracy: 0.01); XCTAssertEqual(rp.hitStepButtonWidth, 109.5, accuracy: 0.01)
         XCTAssertEqual(rp.onRestButtonWidth, 98.33, accuracy: 0.01); XCTAssertEqual(rp.valueStepperWidth, 88.75, accuracy: 0.01)
+    }
+    /// Floors ferry (2026-10-23): the WALK strip (read-only) drops out exactly when showing it would leave
+    /// the direction row (real controls) under its own 32pt floor — never above, never below.
+    func testRiffTabWalkStripDropsExactlyAtTheDirectionRowFloor() {
+        // rowAHeight computed so that (rowAHeight - 4 - 38) lands exactly 1pt either side of the 32pt floor.
+        // rowAHeight = upperH - 4 - 38, upperH = contentAreaH - 80 - 4 → solve contentAreaH for each case.
+        func layout(rowAHeight target: CGFloat) -> EuclideousRiffTabLayout {
+            let upperH = target + 4 + 38
+            let contentAreaH = upperH + 80 + 4
+            return euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: 338.5)
+        }
+        let justAbove = layout(rowAHeight: 32 + 4 + 38 + 1)   // directionRowIfShown = 33
+        XCTAssertTrue(justAbove.showWalkStrip); XCTAssertEqual(justAbove.directionRowHeight, 33, accuracy: 0.01)
+        let justBelow = layout(rowAHeight: 32 + 4 + 38 - 1)   // directionRowIfShown = 31 → strip drops, direction row gets the whole row A
+        XCTAssertFalse(justBelow.showWalkStrip); XCTAssertEqual(justBelow.directionRowHeight, justBelow.rowAHeight, accuracy: 0.01)
+        XCTAssertGreaterThan(justBelow.directionRowHeight, 31, "dropping the strip must leave the direction row BETTER off, not merely unchanged")
+    }
+    /// Floors ferry (2026-10-23): TILT's EARLY/LATE end-labels — pure annotation, not the control — drop
+    /// out below their own floor, independent of (and tighter than) the inert `rhythmZonesFloor`(192).
+    func testRhythmEndLabelsDropBelowTheirOwnFloor() {
+        XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: 28))
+        XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: 38.67), "the reference row height")
+        XCTAssertFalse(EuclideousRhythmGeometry.showsEndLabels(rowH: 27.99))
     }
     func testMixAtBothReferencesFillsTheBoxAndClearsItsFloors() {
         for (p, areaW, areaH, cellW, rowH, padH, outW) in [(land, 364.67, 275.0, 81.17, 129.5, 69.5, 38.58), (port, 371.0, 275.67, 82.75, 129.83, 69.83, 39.38)] {
@@ -135,9 +160,26 @@ final class PageLayoutTests: XCTestCase {
             // §9.5's fit rule (the rotated name it chose is gone since the CLARITY PASS, the pure function stays): VEL — 30.5 / 30.8 available against the 44.8 "VELOCITY" needs
             XCTAssertEqual(euclideousMixVelocityDisplayName(plotH: g.padH - EuclideousMixMetrics.gateStripH), "VEL")
         }
-        // the old portrait panel (393 × 248) is what drew nothing: padH 34 now (46 before the CLARITY PASS), under the 48 flag that is no longer a stop
+        // the old portrait panel (393 × 248) is what drew nothing: nominal padH would be 34 (CLARITY PASS), but the
+        // fair-share fallback drops the stepper/OUT row to their compact floors and buys the pad back to 46.
         let old = euclideousMixGridArea(panelWidth: 393, panelHeight: 248)
-        XCTAssertEqual(euclideousMixGrid(width: old.width, height: old.height).padH, 34, accuracy: 1e-9)
+        let oldGrid = euclideousMixGrid(width: old.width, height: old.height)
+        XCTAssertEqual(oldGrid.padH, 46, accuracy: 1e-9)
+        XCTAssertEqual(oldGrid.stepperH, 18, accuracy: 1e-9); XCTAssertEqual(oldGrid.outRowH, 14, accuracy: 1e-9)
+    }
+    func testMixFairShareDropsTheStepperAndOutRowTogetherExactlyAtThePadFloor() {
+        // the fallback triggers when innerH − nominalBelowPad(52) < minPadH(64), i.e. innerH < 116 — pin both sides.
+        func gridFor(innerH: CGFloat) -> EuclideousMixGrid {
+            // innerH = (height − sp16)/2 − panelPad*2  ⇒  height = (innerH + panelPad*2) * 2 + sp16
+            let height = (innerH + EuclideousMixMetrics.panelPad * 2) * 2 + EuclideousMixMetrics.sp16
+            return euclideousMixGrid(width: 400, height: height)
+        }
+        let atFloor = gridFor(innerH: 116)
+        XCTAssertEqual(atFloor.stepperH, 24, accuracy: 1e-9); XCTAssertEqual(atFloor.outRowH, 20, accuracy: 1e-9)
+        XCTAssertEqual(atFloor.padH, 64, accuracy: 1e-9, "innerH 116 − nominal 52 = 64, exactly minPadH — nominal, not compact")
+        let justUnder = gridFor(innerH: 115.99)
+        XCTAssertEqual(justUnder.stepperH, 18, accuracy: 1e-9); XCTAssertEqual(justUnder.outRowH, 14, accuracy: 1e-9)
+        XCTAssertEqual(justUnder.padH, 115.99 - 40, accuracy: 1e-9, "compact belowPad is 40 (4+18+4+14), buying 12pt back")
     }
     func testRiffGridAtBothReferences() {
         // RIFF PANEL ferry (2026-10-19) §1: the tabs are 20 tall, the grid starts at y 34, four 8pt rails (41) sit under it — rows (box − 119) / 8 = 25 / 25.08.
@@ -227,12 +269,21 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(mini.box.width, 355, accuracy: 1e-9); XCTAssertEqual(mini.box.height, 274, accuracy: 1e-9)
         let area = euclideousMixGridArea(panelWidth: 355, panelHeight: 274)
         let g = euclideousMixGrid(width: area.width, height: area.height)
-        XCTAssertEqual(g.padH, 47, accuracy: 1e-9); XCTAssertEqual(g.cellW, 74.75, accuracy: 1e-9)   // CLARITY PASS: was 59 / 80.75
+        // Floors ferry: the nominal 52pt split would leave padH 47 (< minPadH 64), so the stepper/OUT row
+        // drop to their compact floors (18/14), buying the pad back 12pt to 59 — cellW is untouched.
+        XCTAssertEqual(g.padH, 59, accuracy: 1e-9); XCTAssertEqual(g.cellW, 74.75, accuracy: 1e-9)
+        XCTAssertEqual(g.stepperH, 18, accuracy: 1e-9); XCTAssertEqual(g.outRowH, 14, accuracy: 1e-9)
         XCTAssertEqual(euclideousRiffPanelLayout(box: CGSize(width: 355, height: 274)).rowH, 19.375, accuracy: 1e-9, "the new chrome (119) takes 42pt more than the old 77")
         let r = euclideousRiffTabLayout(contentAreaH: 274 - 104, fullWidth: 335)
         XCTAssertEqual(r.rowAHeight, 44, accuracy: 1e-9, "RIFF's row A")
+        // Floors ferry (2026-10-23): at this size, showing the WALK strip would leave only 2pt for the
+        // direction row, so it drops out and the direction row takes the whole of row A (44) instead —
+        // .riffDirectionRow no longer flags here, exactly the fallback's intended effect.
+        XCTAssertFalse(r.showWalkStrip); XCTAssertEqual(r.directionRowHeight, 44, accuracy: 1e-9)
         let f = Set(mini.floors)
-        XCTAssertTrue(f.isSuperset(of: [.mixCellW, .mixPadH, .mixPadHStop, .rhythmZones, .riffRowA, .riffDirectionRow]), "\(f)")
+        XCTAssertTrue(f.isSuperset(of: [.mixCellW, .mixPadH, .rhythmZones, .riffRowA]), "\(f)")
+        XCTAssertFalse(f.contains(.riffDirectionRow), "the WALK-strip-drop fallback resolves this at 44pt, clear of the 32pt floor")
+        XCTAssertFalse(f.contains(.mixPadHStop), "the fair-share fallback buys padH back to 59, clear of the 48pt stop-floor")
         XCTAssertTrue(f.contains(.riffRows), "19.4 is under 24 now that the rails take 49pt"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
         // windowed AUM panels
         let wl = euclideousPageLayout(size: CGSize(width: 900, height: 600))

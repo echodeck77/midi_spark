@@ -206,6 +206,9 @@ struct EuclideousMixPad: View {
 /// while the lane is solo-silenced — the panel's own 42 % covers it) and still edits.
 struct EuclideousMixOctaveStepper: View {
     let cellW: CGFloat
+    /// Floors ferry (2026-10-23): used to hardcode `EuclideousMixMetrics.stepperH` — now the caller's own
+    /// resolved height (nominal, or `stepperCompactH` once the fair-share fallback kicks in).
+    var height: CGFloat = EuclideousMixMetrics.stepperH
     let octave: Int
     let accent: Color
     var opacity: Double = 1
@@ -228,7 +231,7 @@ struct EuclideousMixOctaveStepper: View {
                 button("plus", enabled: plus != nil) { if let p = plus { onSet(p) } }
             }
         }
-        .frame(width: cellW, height: EuclideousMixMetrics.stepperH)
+        .frame(width: cellW, height: height)
         .opacity(opacity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabelText)

@@ -12796,7 +12796,8 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ref.rowAHeight, 76, accuracy: 0.01)
         XCTAssertEqual(ref.directionRowHeight, 34, accuracy: 0.01)
         XCTAssertEqual(ref.rightColumnWidth, 244.5, accuracy: 0.01)
-        XCTAssertEqual(ref.directionButtonWidth, 45.7, accuracy: 0.01)
+        // Floors ferry (2026-10-23): 4 buttons over 3 gaps now (PENDULUM removed 2026-10-22; was ÷5 over 4 gaps, stale since then).
+        XCTAssertEqual(ref.directionButtonWidth, 58.125, accuracy: 0.01)
         XCTAssertEqual(ref.onRestButtonWidth, 88.833, accuracy: 0.001, "three buttons (FILL left ON REST): (338.5 − 60 − 3·4) ÷ 3")
         XCTAssertEqual(ref.valueStepperWidth, 81.625, accuracy: 0.001)
         XCTAssertEqual(ref.hitStepButtonWidth, 95.25, accuracy: 0.01, "label 60 + gap + EVERY 76 + gap + HIT + gap + STEP = fullWidth, 3 gaps total")
@@ -12807,7 +12808,7 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(ref.underFloor, "the real formula puts row A at 76, under its own 82 floor, even at the reference — see §0.2's discrepancy")
 
         let narrow = euclideousRiffTabLayout(contentAreaH: 202, fullWidth: 300)
-        XCTAssertEqual(narrow.directionButtonWidth, (300 - 90 - 4 - 16) / 5, accuracy: 0.01)
+        XCTAssertEqual(narrow.directionButtonWidth, (300 - 90 - 4 - 12) / 4, accuracy: 0.01)
         XCTAssertEqual(narrow.hitStepButtonWidth, 76, accuracy: 0.01)
         XCTAssertEqual(narrow.onRestButtonWidth, 76, accuracy: 0.01, "NOTES TAB ferry: at a 300 pt content width the three ON REST buttons are 76 wide")
         XCTAssertEqual(narrow.valueStepperWidth, 72, accuracy: 0.01)

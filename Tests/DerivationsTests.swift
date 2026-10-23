@@ -4775,7 +4775,9 @@ final class DerivationsTests: XCTestCase {
     // formula's values (the old 393 × 248 portrait panel, padH 46, is what used to draw nothing); the flags below are what the page's floor list raises.
     func testMixGridFlagsPanelsBelowTheLegibilityFloors() {
         let portrait = euclideousMixGrid(width: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).width, height: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).height)
-        XCTAssertEqual(portrait.padH, 34, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 34 < 64 (CLARITY PASS: was 46 < 76)")
+        // Floors ferry: nominal padH would be 34, but the fair-share fallback drops the stepper/OUT row
+        // to their compact floors and buys the pad back to 46 — still under minPadH 64.
+        XCTAssertEqual(portrait.padH, 46, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 46 < 64")
         XCTAssertLessThan(portrait.padH, EuclideousMixMetrics.floorPadH, "…and below the 48pt flag too (no longer a stop)")
         let narrow = euclideousMixGridArea(panelWidth: 357.12, panelHeight: 333.5)
         XCTAssertTrue(euclideousMixGrid(width: narrow.width, height: narrow.height).belowFloors, "1024-wide landscape: cellW 75.3 < 78")
@@ -5034,21 +5036,6 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - §5.1/§5.3 restart editor fallback + touch areas (RHYTHM fixes, 2026-10-21)
 
-    /// The spec's own three heights (§8 test 10): 192 (everything shows), 156 (timeline just clears, hint
-    /// still shows), 128 (hint just clears) — plus one below all three to confirm it still renders (reduced
-    /// content, lets its own bottom edge clip) rather than refusing to build.
-    func testRestartEditorFallbackAtTheSpecsThreeHeights() {
-        XCTAssertEqual(euclideousRestartEditorFallback(height: 192), EuclideousRestartEditorFallback(showTimeline: true, showHint: true))
-        XCTAssertEqual(euclideousRestartEditorFallback(height: 156), EuclideousRestartEditorFallback(showTimeline: true, showHint: true))
-        XCTAssertEqual(euclideousRestartEditorFallback(height: 128), EuclideousRestartEditorFallback(showTimeline: false, showHint: true))
-        XCTAssertEqual(euclideousRestartEditorFallback(height: 100), EuclideousRestartEditorFallback(showTimeline: false, showHint: false), "below both floors: still a decision, not a refusal — the view builds the same reduced content and lets it clip")
-    }
-    func testRestartEditorFallbackThresholdEdges() {
-        XCTAssertFalse(euclideousRestartEditorFallback(height: 155.99).showTimeline)
-        XCTAssertTrue(euclideousRestartEditorFallback(height: 156).showTimeline)
-        XCTAssertFalse(euclideousRestartEditorFallback(height: 127.99).showHint)
-        XCTAssertTrue(euclideousRestartEditorFallback(height: 128).showHint)
-    }
     /// §5.3: the MIX OUT button's widened hit area (±2pt vertically) must never reach into the OCT
     /// stepper's own — there's exactly one `sp4` gap between them (`euclideousMixGrid`'s own `belowPad`
     /// layout), so a 2pt expansion each still leaves clearance. A regression guard on the real constants,
