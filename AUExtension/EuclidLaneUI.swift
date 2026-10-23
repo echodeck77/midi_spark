@@ -363,7 +363,8 @@ struct EuclidCometBar: View {
         // here, at body scope, only for the gesture's rotate-sensitivity below, which has no access to the Canvas's own local `size`.
         let usableOuter = max(1, width - insetL - insetR)
         let groupSize = euclidStepGroupSize(forRate: rate)
-        let groupGeo = grouped ? euclidGroupedBoxGeometry(n: n, g: groupSize, usableWidth: usableOuter) : nil
+        // CLARITY PASS (2026-10-23) §1.1: the Euclideous lane strip has NO group gaps (evenly spaced columns, the beat groups are shaded instead); every other caller keeps the grouped geometry
+        let groupGeo = grouped ? (strip != nil ? euclidEvenBoxGeometry(n: n, g: groupSize, usableWidth: usableOuter) : euclidGroupedBoxGeometry(n: n, g: groupSize, usableWidth: usableOuter)) : nil
         let boxGeo = euclidBoxGeometry(n: n, usableWidth: usableOuter)
         // STEP-GROUPS (2026-10-14 ferry): one shared step-position list for both the gesture's rotate-
         // sensitivity — `groupGeo` when grouped, else the plain
@@ -439,7 +440,7 @@ struct EuclidCometBar: View {
                 // formula the outer rotate-drag sensitivity/footer-accessibility overlay independently recompute
                 // from `width` (pinned equal to this Canvas's own `size.width` by the `.frame(width: width)` at
                 // the very end of this body) — can't drift apart.
-                let localGroupGeo = grouped ? euclidGroupedBoxGeometry(n: n, g: euclidStepGroupSize(forRate: rate), usableWidth: usable) : nil
+                let localGroupGeo = grouped ? (strip != nil ? euclidEvenBoxGeometry(n: n, g: euclidStepGroupSize(forRate: rate), usableWidth: usable) : euclidGroupedBoxGeometry(n: n, g: euclidStepGroupSize(forRate: rate), usableWidth: usable)) : nil
                 let (boxW, boxXs): (CGFloat, [CGFloat]) = {
                     if let g = localGroupGeo { return (g.stepW, g.xs) }
                     let (bw, gp, _) = euclidBoxGeometry(n: n, usableWidth: usable)
@@ -465,7 +466,7 @@ struct EuclidCometBar: View {
                 if let strip, stripLeg < strip.legs.count {
                     let xs: [CGFloat] = (0..<n).map { insetL + boxXs[$0] }
                     let playhead: EuclideousStripPlayhead? = running ? euclideousStripPlayhead(raw: cometRaw, n: n, dir: dir, xs: xs, columnW: boxW) : nil
-                    drawEuclideousStrip(&ctx, EuclideousStripFrameInput(hits: strip.legs[stripLeg].hits, shadowed: strip.shadowed, frames: euclideousStripLayout(xs: xs, columnW: boxW), tint: tint, playhead: playhead,
+                    drawEuclideousStrip(&ctx, EuclideousStripFrameInput(hits: strip.legs[stripLeg].hits, shadowed: strip.shadowed, frames: euclideousStripLayout(xs: xs, columnW: boxW), groupSize: euclidStepGroupSize(forRate: rate), tint: tint, playhead: playhead,
                                                                          areaMinX: insetL, areaMaxX: insetL + usable, current: stripCurrentStep,
                                                                          riffStrikes: stripStrikes.riff, noteStrikes: stripStrikes.notes, scale: pulseScale, reduceMotion: reduceMotion))
                     return

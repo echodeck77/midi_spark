@@ -1,8 +1,9 @@
 //  LaneStripPainter.swift
 //  The lane card's STRIP: a riff contour over a row of notes keys (ferry "a riff contour over a row of notes keys, in place of the comet", 2026-10-21).
-//  LANE STRIP readability ferry (2026-10-22): the rhythm is now lane colour (a hit column's 24%
-//  fill/70% border plus a solid floor bar), the riff stays the white chips, the notes stay the key
-//  row — each layer one job, so the Euclid spread counts at a glance again.
+//  LANE STRIP readability ferry (2026-10-22): each layer has one job — rhythm = lane colour, riff = the white
+//  chips, notes = the key row. CLARITY PASS (2026-10-23) §1: the rhythm's columns are evenly spaced (no group
+//  gaps) and shaded in alternating beat groups — a hit is the lane colour at 42 % / 30 %, a rest a solid grey,
+//  a gap a rest grey with a lane ring — with the floor bar kept on hits only.
 //
 //  SwiftUI-only on purpose (GridUI seam rule: no UIKit, no AU frameworks), like `RiffArrowPainter.swift` / `NotesTabPainter.swift`: every frame, height, label, chip, key, playhead position and strike
 //  look comes from the pure functions in Derivations.swift (`euclideousStrip*`), so the drawing and the tests can never disagree. This file paints what those return, once per display frame
@@ -19,7 +20,7 @@ private extension Color {
 enum EuclideousStripPalette {
     /// The riff grid's note cell (white @ 85% over that panel): ≈ #DCDCDD. The ferry says #DFE3EA; source wins.
     static let noteChip = Color(h: 0xDCDCDD)
-    /// A rhythm rest's fill and its dashed inner border (RESTART TILES ferry §4: restored — the readability ferry had made it a small dot; the numbers are `euclideousStripRestLook`).
+    /// The dashed rest look of the RESTART TILES ferry — no longer drawn since the CLARITY PASS (a rest is a solid grey from `euclideousStripColumnLook`); kept, hide-don't-delete.
     static let rhythmRest = Color(h: 0x1A1C21), restDash = Color(h: 0x3A3E47)
     static let greyChip = Color(h: 0x6B707A)
     static let ink = Color(h: 0x0D0F14)
@@ -55,6 +56,8 @@ struct EuclideousStripFrameInput {
     var hits: [EuclideousStripHit]
     var shadowed: Bool
     var frames: [EuclideousStripFrame]
+    /// CLARITY PASS §1.2: the beat group size (`euclidStepGroupSize(forRate:)` — 3 under a triplet, else 4); display only.
+    var groupSize: Int
     var tint: Color
     /// nil while the lane or the transport is stopped.
     var playhead: EuclideousStripPlayhead?
@@ -89,22 +92,20 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
     let n = d.frames.count
     let dash = StrokeStyle(lineWidth: 1, dash: [3, 2])
 
-    // 1. the track: a lane-coloured cell per hit (gap draws identically — no separate ring), a dashed cell per rhythm rest
+    // 1. the track (CLARITY PASS 2026-10-23 §1): an evenly spaced column per step, shaded in alternating beat groups (A, B, A, B from step 1 — 4 steps, 3 under a triplet) so you count blocks, not cells. A hit is the
+    // lane colour (42 % in group A, 30 % in B), a rhythm rest a SOLID grey (#41454F / #30333A — present, never dashed), a gap (a hit on a riff rest) its group's rest grey with a 1 pt lane ring at 45 %. All of it is
+    // `euclideousStripColumnLook`; this loop only paints what it returns.
     for i in 0..<n {
         let col = d.frames[i].column
         let shape = RoundedRectangle(cornerRadius: M.columnRadius).path(in: col)
-        if i < d.hits.count, euclideousStripDrawsAsHit(d.hits[i].kind) {
-            ctx.fill(shape, with: .color(d.tint.opacity(M.hitFillAlpha)))
-            let inset = M.hitBorderW / 2
-            ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - inset).path(in: col.insetBy(dx: inset, dy: inset)),
-                       with: .color(d.tint.opacity(M.hitBorderAlpha)), lineWidth: M.hitBorderW)
-        } else {
-            // a rest: the quiet fill with a dashed inner border at the column's full size (RESTART TILES §4.1) — present, never blank, never a dot
-            let look = euclideousStripRestLook
-            ctx.fill(shape, with: .color(P.rhythmRest))
-            let inset = look.borderWidth / 2
-            ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - inset).path(in: col.insetBy(dx: inset, dy: inset)), with: .color(P.restDash),
-                       style: StrokeStyle(lineWidth: look.borderWidth, dash: look.dash))
+        let look = euclideousStripColumnLook(kind: i < d.hits.count ? d.hits[i].kind : .rhythmRest, tone: euclideousStepGroupTone(step: i, groupSize: d.groupSize))
+        switch look.fill {
+        case .lane(let alpha): ctx.fill(shape, with: .color(d.tint.opacity(alpha)))
+        case .solid(let hex): ctx.fill(shape, with: .color(Color(h: hex)))
+        }
+        if look.ringAlpha > 0 {
+            let inset = look.ringWidth / 2
+            ctx.stroke(RoundedRectangle(cornerRadius: M.columnRadius - inset).path(in: col.insetBy(dx: inset, dy: inset)), with: .color(d.tint.opacity(look.ringAlpha)), lineWidth: look.ringWidth)
         }
     }
 
@@ -123,8 +124,8 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
     }
 
     // 3. the floor bars: lane-coloured, over the columns and the playhead, under the chips — the even
-    // comb that makes the Euclid spread countable at a glance
-    for i in 0..<n where i < d.hits.count && euclideousStripDrawsAsHit(d.hits[i].kind) {
+    // comb that makes the Euclid spread countable at a glance. On hits only (a gap reads as a rest the rhythm still hits: its ring is its mark).
+    for i in 0..<n where i < d.hits.count && euclideousStripColumnLook(kind: d.hits[i].kind, tone: .a).floorBar {
         let bar = euclideousStripFloorBarFrame(column: d.frames[i].column)
         ctx.fill(RoundedRectangle(cornerRadius: M.floorBarRadius).path(in: bar), with: .color(d.tint))
     }
