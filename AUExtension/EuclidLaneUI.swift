@@ -344,6 +344,9 @@ struct EuclidCometBar: View {
     let onAllHitsDelta: (Int) -> Void
     let onDragState: (CGPoint?, Bool) -> Void
 
+    /// A getter of its own so the optional plan (a big value) is only ever copied in this tiny frame, not in the deep draw closures (DEBUG stack, 1 MB).
+    private var hasStrip: Bool { strip != nil }
+
     var body: some View {
         let k = pulses
         let n = max(2, min(16, steps))
@@ -364,7 +367,7 @@ struct EuclidCometBar: View {
         let usableOuter = max(1, width - insetL - insetR)
         let groupSize = euclidStepGroupSize(forRate: rate)
         // CLARITY PASS (2026-10-23) §1.1: the Euclideous lane strip has NO group gaps (evenly spaced columns, the beat groups are shaded instead); every other caller keeps the grouped geometry
-        let groupGeo = grouped ? (strip != nil ? euclidEvenBoxGeometry(n: n, g: groupSize, usableWidth: usableOuter) : euclidGroupedBoxGeometry(n: n, g: groupSize, usableWidth: usableOuter)) : nil
+        let groupGeo = grouped ? euclidColumnGeometry(strip: hasStrip, n: n, g: groupSize, usableWidth: usableOuter) : nil
         let boxGeo = euclidBoxGeometry(n: n, usableWidth: usableOuter)
         // STEP-GROUPS (2026-10-14 ferry): one shared step-position list for both the gesture's rotate-
         // sensitivity — `groupGeo` when grouped, else the plain
@@ -440,7 +443,7 @@ struct EuclidCometBar: View {
                 // formula the outer rotate-drag sensitivity/footer-accessibility overlay independently recompute
                 // from `width` (pinned equal to this Canvas's own `size.width` by the `.frame(width: width)` at
                 // the very end of this body) — can't drift apart.
-                let localGroupGeo = grouped ? (strip != nil ? euclidEvenBoxGeometry(n: n, g: euclidStepGroupSize(forRate: rate), usableWidth: usable) : euclidGroupedBoxGeometry(n: n, g: euclidStepGroupSize(forRate: rate), usableWidth: usable)) : nil
+                let localGroupGeo = grouped ? euclidColumnGeometry(strip: hasStrip, n: n, g: euclidStepGroupSize(forRate: rate), usableWidth: usable) : nil
                 let (boxW, boxXs): (CGFloat, [CGFloat]) = {
                     if let g = localGroupGeo { return (g.stepW, g.xs) }
                     let (bw, gp, _) = euclidBoxGeometry(n: n, usableWidth: usable)

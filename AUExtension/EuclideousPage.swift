@@ -6517,43 +6517,57 @@ struct EuclideousPage: View {
         }
     }
 
-    /// THE MIX TAB (ferry 2026-10-18 §2, outputs moved here by the restart-chains ferry §9): eight cells in two
-    /// rows of two lane blocks — each lane's pair (RIFF leading, NOTES trailing) sits where that lane's CARD
-    /// sits (lanes 1,2 on the top row, 3,4 below). ONE formula (`euclideousMixGrid`): cellW = (W−16)/4,
-    /// rowH = (H−8)/2, padH = rowH−52 (§9.1). If a panel is too small for the legibility floors (cellW < 84,
-    /// padH < 76) nothing is shrunk: it is built to the formula and reported; below padH 60 (§9.3), MIX isn't
-    /// built for that layout at all (the shared row's own too-short-window guard already existed; 60 replaces
-    /// its old arbitrary 20).
+    /// THE MIX TAB (ferry 2026-10-18 §2, outputs moved here by the restart-chains ferry §9, regrouped by the CLARITY PASS 2026-10-23 §3): four lane PANELS in a 2×2 grid where the lane cards sit (lanes 1,2 on the top row,
+    /// 3,4 below), sp16 apart, each a lightly tinted box holding that lane's RIFF pad (leading) and NOTES pad, their OCT steppers and its A–D row. ONE formula (`euclideousMixGrid`): panelW = (W−16)/2,
+    /// panelH = (H−16)/2, cellW = (panelW−12)/2, padH = panelH−60. If a panel is too small for the legibility floors nothing is shrunk: it is built to the formula and reported
+    /// (PAGE LAYOUT ferry: MIX is never skipped for a small box).
     private func mixGrid(width: CGFloat, height: CGFloat) -> some View {
         let grid = euclideousMixGrid(width: width, height: height)
         return ZStack(alignment: .topLeading) {
             // PAGE LAYOUT ferry (2026-10-19) retired §9.3's STOP (below padH 60 MIX was not built at all — portrait's 248pt panel drew only its tab strip):
             // MIX is always drawn at the formula's values and the page's floor list reports a small box. The one guard left is geometric — a pad needs room for
-            // its 24pt VEL strip and 14pt GATE strip, or its plot would have a negative size.
+            // its 14pt GATE strip, or its plot would have a negative size. (CLARITY PASS: the 24pt VEL strip is gone.)
             if grid.cellW > EuclideousMixMetrics.velStripW, grid.padH > EuclideousMixMetrics.gateStripH {
-                ForEach(0..<8, id: \.self) { cell in
-                    let lane = cell / 2, notes = cell % 2 == 1
-                    let o = grid.origin(lane: lane, notes: notes)
-                    // §9.8: cell by cell, lanes 1–4, riff before notes, each pad before its stepper (handled by
-                    // `mixCell`'s own internal VStack order), then that lane's A–D row.
-                    mixCell(lane: lane, notes: notes, grid: grid)
-                        .offset(x: o.x, y: o.y)
-                        .accessibilitySortPriority(Double(100 - (lane * 3 + (notes ? 1 : 0))))
-                }
+                // CLARITY PASS §3: four lane PANELS in a 2×2 grid where the lane cards sit, sp16 apart; each one leaf (`mixLanePanel`, an AnyView — the 1 MB stack rule).
                 ForEach(0..<4, id: \.self) { lane in
-                    let riffOrigin = grid.origin(lane: lane, notes: false)
-                    let pairW = grid.cellW * 2 + EuclideousMixMetrics.sp4
-                    mixOutRow(lane: lane, width: pairW, height: EuclideousMixMetrics.outRowH)
-                        .opacity(soloSilenced(lane) ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.3: …and its OUT row
-                        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloSilenced(lane))
-                        .accessibilityValue(euclideousAppendSilencedBySolo("", silenced: soloSilenced(lane)))
-                        .offset(x: riffOrigin.x, y: riffOrigin.y + grid.padH + EuclideousMixMetrics.sp4 + EuclideousMixMetrics.stepperH + EuclideousMixMetrics.sp4)
-                        .accessibilitySortPriority(Double(100 - (lane * 3 + 2)))
+                    mixLanePanel(lane: lane, grid: grid)
+                        .accessibilitySortPriority(Double(100 - lane))
                 }
             }
         }
         .frame(width: width, height: height, alignment: .topLeading)
         .overlay(alignment: .topLeading) { mixPulseOverlay(grid: grid, width: width, height: height) }   // PULSE §5: ripple, fill flash, puck swell, OUT-button glow
+    }
+    /// CLARITY PASS §3.2/§3.8: one lane's panel — lane100 at 6 % with a 1 pt inner border at 35 % (the lane card's radius, 12), its RIFF and NOTES cells (pad + OCT stepper), then its A–D row across the panel's inside width.
+    /// A solo-silenced lane's whole panel (tint, border, pads, steppers, OUT row) dims once to the page's 42 %.
+    private func mixLanePanel(lane: Int, grid: EuclideousMixGrid) -> AnyView {
+        let accent = laneAccents[lane % laneAccents.count]
+        let panel = grid.panelFrame(lane: lane), out = grid.outRowFrame(lane: lane)
+        let silenced = soloSilenced(lane)
+        let radius = EuclideousMixMetrics.panelRadius
+        return AnyView(
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: radius).fill(lane100(accent).opacity(0.06))
+                RoundedRectangle(cornerRadius: radius).strokeBorder(lane100(accent).opacity(0.35), lineWidth: 1)
+                // cell by cell, riff before notes, each pad before its stepper (handled by `mixCell`'s own internal VStack order), then the lane's A–D row
+                ForEach(0..<2, id: \.self) { n in
+                    let notes = n == 1
+                    let o = grid.origin(lane: lane, notes: notes)
+                    mixCell(lane: lane, notes: notes, grid: grid)
+                        .offset(x: o.x - panel.minX, y: o.y - panel.minY)
+                        .accessibilitySortPriority(Double(3 - n))
+                }
+                mixOutRow(lane: lane, width: out.width, height: EuclideousMixMetrics.outRowH)
+                    .accessibilityValue(euclideousAppendSilencedBySolo("", silenced: silenced))
+                    .offset(x: out.minX - panel.minX, y: out.minY - panel.minY)
+                    .accessibilitySortPriority(1)
+            }
+            .frame(width: panel.width, height: panel.height, alignment: .topLeading)
+            .opacity(silenced ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.3 / CLARITY PASS §3.8: the whole panel, once
+            .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: silenced)
+            .offset(x: panel.minX, y: panel.minY)
+            .accessibilityElement(children: .contain)
+        )
     }
     /// PULSE §5: ONE overlay over the whole grid (one TimelineView, never one per pad): for each pad the lane's latest strike of ITS layer — the riff pad shows riff strikes, the notes pad notes-layer strikes (5.1) — and
     /// for each routed, main-out-on OUT button the lane's latest strike of either layer. Only strikes that have happened and are younger than 1.5 s are passed; the painter turns velocity and age into pixels.
@@ -6591,9 +6605,9 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: height, alignment: .topLeading)
     }
-    /// One cell: the pad (cellW × padH), sp4, the OCT stepper (cellW × 28). RIFF writes the lane's GATE/VEL through the RHYTHM sliders'
+    /// One cell: the pad (cellW × padH), sp4, the OCT stepper (cellW × 24). RIFF writes the lane's GATE/VEL through the RHYTHM sliders'
     /// own setters and `riffOctave` through the RIFF tab's OCT setter; NOTES writes `notesGate`/`notesVelocity` and `octave` through the
-    /// NOTES tab's octave setter. A layer that's off draws grey and still edits.
+    /// NOTES tab's octave setter. CLARITY PASS §3.7: a layer that's off is an inert OFF pad (no touch writes it) whose stepper dims to 50 % and still edits.
     @ViewBuilder private func mixCell(lane: Int, notes: Bool, grid: EuclideousMixGrid) -> some View {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let accent = laneAccents[lane % laneAccents.count]
@@ -6603,13 +6617,12 @@ struct EuclideousPage: View {
             EuclideousMixPad(cellW: grid.cellW, padH: grid.padH, gate: v.gate, velocity: v.velocity, accent: accent, off: off, notes: notes,
                              accessibilityLabelText: euclideousMixPadAccessibilityLabel(lane: lane, notes: notes, off: off),
                              onEditStep: { newStep, mutate in editStep(lane, newStep, mutate) })
-            EuclideousMixOctaveStepper(cellW: grid.cellW, octave: euclideousMixOctave(of: line, notes: notes), accent: accent, off: off,
+            EuclideousMixOctaveStepper(cellW: grid.cellW, octave: euclideousMixOctave(of: line, notes: notes), accent: accent,
+                                       opacity: euclideousMixOffStepperOpacity(off: off, soloSilenced: soloSilenced(lane)),
                                        accessibilityLabelText: euclideousMixOctaveAccessibilityLabel(lane: lane, notes: notes),
                                        onSet: { o in edit(lane) { l in if notes { euclideousSetNotesOctave(&l, o) } else { euclideousSetRiffOctave(&l, o) } } })
         }
         .frame(width: grid.cellW, height: grid.padH + sp4 + EuclideousMixMetrics.stepperH, alignment: .top)
-        .opacity(soloSilenced(lane) ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.3: the whole cell (pad, OCT stepper) — still live
-        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloSilenced(lane))
         .accessibilityElement(children: .contain)
         .accessibilityValue(euclideousAppendSilencedBySolo("", silenced: soloSilenced(lane)))
     }

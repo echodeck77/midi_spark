@@ -29,11 +29,15 @@ enum EuclideousMixPalette {
     static let offName = Color(h: 0x5C626C)
     static let offValue = Color(h: 0x8A909A)
     static let offGlyph = Color(h: 0x5C626C)
+    // CLARITY PASS (2026-10-23) §3.4/§3.7: the pad's label (on / off), the OFF word, and the colour of a readout's value.
+    static let labelOn = Color(h: 0xF2F4F7)
+    static let labelOff = Color(h: 0xAAB0BA)
 }
 
 private func heavyMono(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
 
-/// One pad: VEL strip (left), GATE strip (bottom), the plot with its puck. `gate` is a fraction (0.01…1), `velocity` 1…127.
+/// One pad: the plot with its puck, a label top-left ("RIFF" / "NOTES" + the tab's glyph), the VEL and GATE readouts along the bottom. `gate` is a fraction (0.01…1), `velocity` 1…127. CLARITY PASS (2026-10-23): the 24 pt VEL
+/// strip and its rotated name are gone, and a pad whose layer is OFF is an inert dashed outline marked OFF — it takes no touch and shows no knob.
 struct EuclideousMixPad: View {
     let cellW: CGFloat
     let padH: CGFloat
@@ -60,10 +64,55 @@ struct EuclideousMixPad: View {
     private func now() -> Double { Date().timeIntervalSinceReferenceDate }
 
     var body: some View {
+        if off { disabledBody } else { enabledBody }
+    }
+
+    /// §3.4: "RIFF" or "NOTES" then the tab's glyph in the same state, 10 pt heavy in the tab row's face and tracking, inset 5 from the top and 6 from the left. On: #F2F4F7; off: #AAB0BA.
+    private var padLabel: some View {
+        HStack(spacing: 5) {
+            Text(notes ? "NOTES" : "RIFF").font(heavyMono(EuclideousMixMetrics.labelSize)).tracking(1)
+                .foregroundColor(off ? EuclideousMixPalette.labelOff : EuclideousMixPalette.labelOn).lineLimit(1)
+            EuclideousTabGlyphView(shape: notes ? .bar : .square, on: !off, fills: [accent])
+        }
+        .padding(.top, EuclideousMixMetrics.labelTop).padding(.leading, EuclideousMixMetrics.labelLeft)
+        .allowsHitTesting(false)
+    }
+
+    /// §3.7: lane100 at 7 %, a 1.5 pt dashed (3 on, 2 off) lane100 inner border at 45 %, the pad's own radius; "OFF" centred (12 pt heavy, #AAB0BA, 2 pt tracking); the label as its off look. No fill area, edges or knob, no gesture:
+    /// a touch does nothing, so the pad's velocity and gate are kept as stored and the layer is never turned on from here. VoiceOver reads the label only ("Lane 1 riff, off").
+    private var disabledBody: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.07))
+            RoundedRectangle(cornerRadius: 6).strokeBorder(accent.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+            Text(euclideousMixOffWord).font(heavyMono(12)).tracking(2).foregroundColor(EuclideousMixPalette.labelOff).lineLimit(1)
+        }
+        .frame(width: cellW, height: padH)
+        .overlay(alignment: .topLeading) { padLabel }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabelText)
+    }
+
+    /// §3.5: "VEL 100" bottom-left, "GATE 90%" bottom-right, 10 pt, inset 4 from the bottom and 6 from the side; the words yield to the numbers by pad width (`euclideousMixReadouts`). The word is the quiet #8A909A, the number #F2F4F7.
+    private func readout(_ s: String) -> Text {
+        let font = heavyMono(EuclideousMixMetrics.labelSize)
+        guard let space = s.firstIndex(of: " ") else { return Text(s).font(font).foregroundColor(EuclideousMixPalette.value) }
+        return Text(String(s[..<space]) + " ").font(font).foregroundColor(EuclideousMixPalette.name) + Text(String(s[s.index(after: space)...])).font(font).foregroundColor(EuclideousMixPalette.value)
+    }
+    private var readouts: some View {
+        let r = euclideousMixReadouts(padWidth: cellW, velocity: velocity, gate: gate)
+        return HStack(spacing: 4) {
+            readout(r.velocity).lineLimit(1).fixedSize()
+            Spacer(minLength: 0)
+            readout(r.gate).lineLimit(1).fixedSize()
+        }
+        .padding(.horizontal, EuclideousMixMetrics.readoutSide).padding(.bottom, EuclideousMixMetrics.readoutBottom)
+        .frame(width: cellW, height: padH, alignment: .bottom)
+        .allowsHitTesting(false)
+    }
+
+    private var enabledBody: some View {
         let g = geo
-        let lane = off ? EuclideousMixPalette.offAccent : accent
-        let nameColour = off ? EuclideousMixPalette.offName : EuclideousMixPalette.name
-        let valueColour = off ? EuclideousMixPalette.offValue : EuclideousMixPalette.value
+        let lane = accent
         let puck = g.puck(gate: gate, velocity: velocity)
         let d: CGFloat = touching ? 16 : 12
         return ZStack(alignment: .topLeading) {
@@ -71,42 +120,20 @@ struct EuclideousMixPad: View {
             Canvas { ctx, _ in
                 ctx.fill(Path(roundedRect: g.track, cornerRadius: 6), with: .color(EuclideousMixPalette.track))
                 ctx.fill(Path(CGRect(x: g.plot.minX, y: puck.y, width: max(0, puck.x - g.plot.minX), height: max(0, g.plotH - puck.y))),
-                         with: .color(lane.opacity(off ? 0.16 : 0.20)))
+                         with: .color(lane.opacity(0.20)))
                 ctx.fill(Path(g.yAxis), with: .color(EuclideousMixPalette.axis)); ctx.fill(Path(g.xAxis), with: .color(EuclideousMixPalette.axis))
                 for x in g.tickXs { ctx.fill(Path(CGRect(x: x - 0.5, y: g.plotH - 4, width: 1, height: 4)), with: .color(EuclideousMixPalette.tick)) }
                 for y in g.tickYs { ctx.fill(Path(CGRect(x: g.plot.minX + 1, y: y - 0.5, width: 4, height: 1)), with: .color(EuclideousMixPalette.tick)) }
                 // extension lines (2pt, lane @30%): up from the puck to the top, right from the puck to the trailing edge
                 ctx.fill(Path(CGRect(x: puck.x - 1, y: 0, width: 2, height: max(0, puck.y))), with: .color(lane.opacity(0.30)))
                 ctx.fill(Path(CGRect(x: puck.x, y: puck.y - 1, width: max(0, g.cellW - puck.x), height: 2)), with: .color(lane.opacity(0.30)))
-                // value lines (2pt, lane): down from the puck to the axis, left from the puck to the VEL strip
+                // value lines (2pt, lane): down from the puck to the axis, left from the puck to the pad's leading edge
                 ctx.fill(Path(CGRect(x: puck.x - 1, y: puck.y, width: 2, height: max(0, g.plotH - puck.y))), with: .color(lane))
                 ctx.fill(Path(CGRect(x: g.plot.minX, y: puck.y - 1, width: max(0, puck.x - g.plot.minX), height: 2)), with: .color(lane))
             }
             .frame(width: cellW, height: padH)
-            // VEL strip text: the value (11pt, 14pt line box at y 3…17) and the name turned to read bottom-to-top
-            Text("\(velocity)").font(heavyMono(11)).monospacedDigit().foregroundColor(valueColour).lineLimit(1)
-                .frame(width: EuclideousMixMetrics.velStripW, height: 14).offset(x: 0, y: 3)
-            // The name (Paul 2026-10-18: "velocity"; RESTART CHAINS ferry §9.5: VELOCITY-or-VEL, never
-            // truncated): turned to read bottom-to-top, its bottom end at plotH − 4. Leading-aligned in its
-            // frame, so it hugs the bottom end.
-            let velName = euclideousMixVelocityDisplayName(plotH: g.plotH)
-            let nameLen = max(0, g.plotH - 4 - 17 - EuclideousMixMetrics.sp4)
-            Text(velName).font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(nameColour)
-                .lineLimit(1)
-                .frame(width: nameLen, alignment: .leading)
-                .rotationEffect(.degrees(-90))
-                .position(x: EuclideousMixMetrics.velStripW / 2, y: g.plotH - 4 - nameLen / 2)
-            // GATE strip text: name (truncates) from x 27, value (never truncates) ending 4pt from the trailing edge
-            HStack(spacing: 0) {   // no extra gap: the name only truncates if it would actually TOUCH the value (LEGATO fits at the reference width)
-                Text(euclideousMixGateName(gate: gate)).font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(nameColour)
-                    .lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 0)
-                Text(euclideousMixGateValueText(gate: gate)).font(heavyMono(11)).monospacedDigit().foregroundColor(valueColour).lineLimit(1).fixedSize()
-                    .layoutPriority(1)
-            }
-            .padding(.leading, 3).padding(.trailing, 4)
-            .frame(width: g.gateStrip.width, height: EuclideousMixMetrics.gateStripH)
-            .offset(x: g.gateStrip.minX, y: g.gateStrip.minY)
+            readouts
+            padLabel
             // the puck: a 12pt disc (16 while touched, with a glow) inside a 2pt #15161A ring; the size eases over 0.15 s
             ZStack {
                 Circle().fill(EuclideousMixPalette.puckRing).frame(width: d + 4, height: d + 4)
@@ -160,40 +187,41 @@ struct EuclideousMixPad: View {
     private func write(gate g: Double, velocity v: Int, newStepAlways: Bool) {
         let newStep = newStepAlways ? true : burst.nextWriteNeedsNewStep()
         let notes = notes
-        onEditStep(newStep) { l in euclideousMixPadWrite(&l, notes: notes, gate: g, velocity: v) }
+        onEditStep(newStep) { l in euclideousMixPadWriteIfEnabled(&l, notes: notes, gate: g, velocity: v) }   // §3.7: even a stale view cannot write an OFF pad
     }
     /// Double tap (§4.4): both values return to a new lane's GATE 90% / VEL 100, merged into the burst the first tap opened.
     private func reset() {
         if abs(gate - 0.9) < 1e-9, velocity == 100 { return }   // already there — nothing to undo
         let newStep = burst.nextWriteNeedsNewStep()
         let notes = notes
-        onEditStep(newStep) { l in euclideousMixPadReset(&l, notes: notes) }
+        onEditStep(newStep) { l in euclideousMixPadResetIfEnabled(&l, notes: notes) }
     }
     private func resetAlways() {
         let notes = notes
-        onEditStep(true) { l in euclideousMixPadReset(&l, notes: notes) }
+        onEditStep(true) { l in euclideousMixPadResetIfEnabled(&l, notes: notes) }
     }
 }
 
-/// The OCT stepper under each pad: − and + buttons (28 × 28) at the ends, "OCT" + the octave centred between them.
+/// The OCT stepper under each pad: − and + buttons (28 × 28) at the ends, "OCT" + the octave centred between them. CLARITY PASS (2026-10-23) §3.7: under an OFF pad it keeps its normal look at `opacity` 0.5 (the page passes 1
+/// while the lane is solo-silenced — the panel's own 42 % covers it) and still edits.
 struct EuclideousMixOctaveStepper: View {
     let cellW: CGFloat
     let octave: Int
     let accent: Color
-    let off: Bool
+    var opacity: Double = 1
     let accessibilityLabelText: String
     let onSet: (Int) -> Void
 
     var body: some View {
         let minus = euclideousMixOctaveNext(octave, up: false), plus = euclideousMixOctaveNext(octave, up: true)
-        let octaveColour: Color = off ? EuclideousMixPalette.offValue : (octave == 0 ? EuclideousMixPalette.value : accent)
+        let octaveColour: Color = octave == 0 ? EuclideousMixPalette.value : accent
         return ZStack {
             RoundedRectangle(cornerRadius: 6).fill(EuclideousMixPalette.stepper)
             HStack(spacing: 0) {
                 button("minus", enabled: minus != nil) { if let m = minus { onSet(m) } }
                 Spacer(minLength: 0)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("OCT").font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(off ? EuclideousMixPalette.offName : EuclideousMixPalette.name).lineLimit(1)
+                    Text("OCT").font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(EuclideousMixPalette.name).lineLimit(1)
                     Text(euclideousMixOctaveText(octave)).font(heavyMono(13)).monospacedDigit().foregroundColor(octaveColour).lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -201,6 +229,7 @@ struct EuclideousMixOctaveStepper: View {
             }
         }
         .frame(width: cellW, height: EuclideousMixMetrics.stepperH)
+        .opacity(opacity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabelText)
         .accessibilityValue(euclideousMixOctaveSpoken(octave))
@@ -210,7 +239,7 @@ struct EuclideousMixOctaveStepper: View {
     }
     private func button(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Image(systemName: symbol).font(.system(size: 12, weight: .heavy))
-            .foregroundColor(!enabled ? EuclideousMixPalette.glyphDisabled : (off ? EuclideousMixPalette.offGlyph : EuclideousMixPalette.glyph))
+            .foregroundColor(!enabled ? EuclideousMixPalette.glyphDisabled : EuclideousMixPalette.glyph)
             .frame(width: EuclideousMixMetrics.stepperH, height: EuclideousMixMetrics.stepperH)
             .contentShape(Rectangle())
             .onTapGesture { if enabled { action() } }

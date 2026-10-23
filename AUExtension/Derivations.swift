@@ -9779,6 +9779,10 @@ func euclidGroupedBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidSte
 func euclidStepGroupSize(forRate rate: ArpRate) -> Int {
     euclideousRateDivisionFeel(rate).feel == 2 ? 3 : 4
 }
+/// The step columns a caller lays out: the Euclideous lane STRIP (CLARITY PASS) gets the even geometry, every other grouped caller the grouped one. One call site per use keeps the draw closures' DEBUG frames small.
+func euclidColumnGeometry(strip: Bool, n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGroupGeometry {
+    strip ? euclidEvenBoxGeometry(n: n, g: g, usableWidth: usableWidth) : euclidGroupedBoxGeometry(n: n, g: g, usableWidth: usableWidth)
+}
 /// CLARITY PASS (2026-10-23) §1.1 — the lane strip's columns: NO group gaps. Every column takes today's within-group spacing (`EuclideousStripMetrics.columnGap`, 2 pt), evenly, and the width the 7 pt
 /// between-group gaps used to take is shared across the columns; `usableWidth` (the strip's overall frame) is unchanged. `xs[i] = i·(w + 2)`. The leftover rule's fields (`ruleX`/`ruleW`) are the grouped
 /// geometry's, recomputed from these columns: `g` only decides which trailing steps are the short last group (nil when `n` is an exact multiple). The MASK step bar keeps `euclidGroupedBoxGeometry`.
