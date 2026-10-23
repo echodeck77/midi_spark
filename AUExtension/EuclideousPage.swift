@@ -871,6 +871,8 @@ struct EuclideousPage: View {
     /// view's FULL height (it ignores the bottom safe area, and a view whose frame sits inside the safe area reads its own inset as 0). The page's bottom margin is
     /// `max(16, inset)` (`EuclideousPageMetrics.bottomMargin`), so no box sits in that zone. 0 = nothing to avoid (the default).
     var pageBottomInset: CGFloat = 0
+    /// false (the standalone Fourfold app): hides the settings sheet's "WHEN THE HOST STOPS" row — the app's own transport is the clock.
+    var showsHostStopBehavior: Bool = true
 
     // FOUR RIFFS (2026-10-18 ferry): the grid shows `riffs[activeRiff]` directly — no looper, no
     // beat-dependent derivation. Every lane reads this SAME array via `activeRiff`, so editing the
@@ -1651,7 +1653,7 @@ struct EuclideousPage: View {
                         laneMasks: euclideousLaneMasks(lines), mainOutMask: mainOutMask, soloSilenced: (0..<4).map { soloSilenced($0) }, busChannels: busChannels,
                         outputNames: outputNames, allOutputName: allOutputName, onSetBusChannel: onSetBusChannel,
                         onAllNotesOff: onAllNotesOff,
-                        hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior,
+                        hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior, showsHostStopBehavior: showsHostStopBehavior,
                         pulseLevel: pulseLevel, onSetPulseLevel: onSetPulseLevel
                     )
                     .padding(.horizontal, sp16)

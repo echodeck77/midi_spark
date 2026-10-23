@@ -13,7 +13,7 @@ python3 - "$PWD" "$OUT" <<'PY'
 import re, sys
 root, out = sys.argv[1], sys.argv[2]
 yml = open(root + '/project.yml').read()
-excl = re.search(r'FourfoldAU:.*?excludes: \["Info.plist", (.*?)\]\n', yml, re.S).group(1)
+excl = re.search(r'FourfoldEngine:.*?excludes: \["Info.plist", (.*?)\]\n', yml, re.S).group(1)
 open(out + '/project.yml', 'w').write(f'''name: FFHarness
 options:
   bundleIdPrefix: com.example

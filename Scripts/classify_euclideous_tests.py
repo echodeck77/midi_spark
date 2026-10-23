@@ -47,6 +47,7 @@ EXCLUSIVE_FILES = {
     # ReelDeckTests is shared recorder infra (it also holds the 8x8 DoorRing tests, ~0.5 s) but is Fourfold's REEL now.
     "EuclideousRandomTests.swift",
     "FourfoldComposeTests.swift",
+    "FourfoldTransportTests.swift",
     "ListenTabTests.swift",
     "ReelDeckTests.swift",
 }

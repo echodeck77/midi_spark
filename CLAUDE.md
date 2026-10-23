@@ -217,6 +217,9 @@ the same pipeline as any other row; it is not a special-cased render path.
   **Step 2 (2026-10-23):** `Fourfold/Shared/` holds the Fourfold root view (`FourfoldRootView` + its `FourfoldModel`, `FourfoldReelBrowser`, `FourfoldTelemetry`) — the Fourfold half of `DiagView`, copied and pruned; a
   change to how the page is wired in 8x8 State's `DiagView` is NOT picked up here (and vice versa) until Step 4 settles it. State lives in ONE `ObservableObject` on purpose (60 closures × a copy of a big @State struct was a 214 KB Debug
   stack frame on the extension's 1 MB main thread). **End-to-end check with no iPad:** `sh Scripts/fourfold-harness/run.sh [--reel]` — a simulator host that drives the AU and prints MIDI notes per cable (use it before and after the Step 4 engine trim).
+  **Step 3 (2026-10-23): the standalone app** — `Fourfold/App/`: `FourfoldEngine` (a silent `AVAudioEngine` source node pulls the AU's render block; `FourfoldTransportClock` — pure, tested — is the internal transport behind the AU's transport / musical-context blocks; the AU is built directly in-process),
+  `FourfoldMIDI` (five virtual CoreMIDI sources + input), `FourfoldAppModel` (session file = the AU's `fullState`), `FourfoldAppView` (transport bar over `FourfoldRootView(internalTransport: true)`, which turns free-run off so STOP is silent). Both Fourfold targets share the
+  `FourfoldEngine` template in project.yml (the exclude list lives there once). **`sh Scripts/fourfold-harness/app-test.sh`** runs the REAL app in the simulator and prints a self-test of the MIDI shell (notes out per cable, a note in, stop/restart closing notes, the session surviving a relaunch).
 
 ## Current Euclideous state (hand-maintained — update when the real architecture changes,
 ## not on every fix; full history is `Docs/euclideous-status-log.md`)

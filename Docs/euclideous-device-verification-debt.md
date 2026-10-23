@@ -28,6 +28,16 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - VoiceOver: a RHYTHM/RIFF/NOTES tab reads "paused, following lane n" once (not duplicated); the LISTEN tab's mode buttons and SPEED/DIRECTION segments read their new labels correctly; the paused-card's two buttons are each individually reachable and actionable, not swallowed into one combined element.
 - An OLD session (saved before this ferry) that used FOLLOW, WITH, GAPS, SHADOW, AVOID, DUCK, or ACCENT loads with the stated migration mapping and SOUNDS the same as before (bar FOLLOW's own multiplier/rate wording, and DUCK/ACCENT, which have no replacement and will sound different) — listen for anything that migrated silently wrong.
 
+### FOURFOLD STEP 3 — the standalone app (2026-10-23)
+- Install the `Fourfold` app. PLAY starts the page from the top; STOP silences it with nothing stuck; BPM − / + / slider changes tempo with no jump; the bar·beat readout follows. Launched stopped it plays NOTHING.
+- Its MIDI outputs "Fourfold All / Out A–D" appear in another app (AUM, a synth app, a DAW) and the notes land ON the grid — record a few bars and look at the spacing; this is the one thing the simulator could not show (it reports packet timestamps as "now"). Compare Out A against All: same notes.
+- MIDI IN: a keyboard (USB, Bluetooth or another app) plays into Fourfold with the source set to MIDI IN; HOLD / LATCH work; the app never feeds its own output back in.
+- Background: with PLAY running, switch to another app / lock the screen — it keeps playing and sending MIDI (UIBackgroundModes audio). Another app's audio is not ducked or stopped.
+- Interruptions: a phone call / Siri / unplugging headphones — the app recovers by itself and the bar position carries on rather than jumping.
+- Quit and relaunch: the lanes, riffs, FX, key — your session — come back; the tempo too.
+- Settings (gear) → CLOCK: no "WHEN THE HOST STOPS" row (only STRIKE PULSE).
+- The extension still works in AUM as before (the app and the extension are separate; the app does not touch AUM's).
+
 ### FOURFOLD STEP 2 — the page in the extension (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM FIRST (the root view's frames were measured, not run on the iPad: `pageView` 214 → 9.7 KB, `slowPoll` 36.9 KB; the old 1 MB-stack crash was on a Debug launch).
 - "Fourfold: Fourfold" in AUM opens the real page (not the placeholder), in AUM's plugin window size; edit a lane, play: notes on the routed Out A–D ports (All carries everything); the 20 factory presets load AND are heard at once (`publish()` after load).

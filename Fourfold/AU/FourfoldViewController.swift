@@ -6,11 +6,6 @@ import CoreAudioKit
 import SwiftUI
 import UIKit
 
-/// The shared engine class under Fourfold's own MIDI port names (the page calls them MAIN OUT A–D). Step 4 renames the class itself when the engine is copied.
-final class FourfoldAudioUnit: MidiSparkAudioUnit {
-    public override var midiOutputNames: [String] { ["All", "Out A", "Out B", "Out C", "Out D"] }
-}
-
 public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
     var audioUnit: FourfoldAudioUnit?
 

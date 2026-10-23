@@ -13,7 +13,9 @@ import os
 
 struct FourfoldRootView: View {
     weak var au: MidiSparkAudioUnit?
-    init(au: MidiSparkAudioUnit?) { self.au = au }
+    /// true in the standalone app: the app's own transport is the clock, so Fourfold must NOT free-run on its own while it is stopped (and the "when the host stops" setting is hidden). The AUv3 extension (a host drives it) leaves this false.
+    let internalTransport: Bool
+    init(au: MidiSparkAudioUnit?, internalTransport: Bool = false) { self.au = au; self.internalTransport = internalTransport }
 
     // ── host / display state ──
     static let hangLog = OSLog(subsystem: "com.paulbarrett.Fourfold", category: "hang")
@@ -357,7 +359,8 @@ struct FourfoldRootView: View {
                                                onOpenReel: { reelShowPopup = true },
                                                canUndo: euclideousUndo.canUndo, canRedo: euclideousUndo.canRedo,
                                                onUndo: euclideousUndoAction, onRedo: euclideousRedoAction,
-                                               pageBottomInset: geo.safeAreaInsets.bottom)
+                                               pageBottomInset: geo.safeAreaInsets.bottom,
+                                   showsHostStopBehavior: !internalTransport)
         )
     }
 
@@ -388,7 +391,7 @@ struct FourfoldRootView: View {
         }
         au?.setBuildStagingScene(FourfoldCompose.scene(chain: chain))
         // FREE-RUN: KEEP PLAYING runs Fourfold on its own clock while the host is stopped — gated off after the host stopped following a play (8x8's `buildHostHalted`: resumes when the host starts again).
-        au?.setFreeRunEnabled(euclideousHostStopBehavior == .keepPlaying && !hostHalted)
+        au?.setFreeRunEnabled(!internalTransport && euclideousHostStopBehavior == .keepPlaying && !hostHalted)   // the standalone app's transport is authoritative: STOP is silent
     }
     /// HOST TRANSPORT (8x8's `buildTransportEdge`): STOP halts free-run, START resumes it.
     func transportEdge(_ playing: Bool) {

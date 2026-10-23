@@ -45,6 +45,8 @@ struct EuclideousSettingsSheet: View {
     // CLOCK (§5)
     let hostStopBehavior: EuclideousHostStopBehavior
     let onSetHostStopBehavior: (EuclideousHostStopBehavior) -> Void
+    /// false (the standalone Fourfold app, 2026-10-23): the app's own transport is the clock, so "when the host stops" has no meaning and the row is not shown.
+    var showsHostStopBehavior: Bool = true
 
     // PULSE (ferry 2026-10-20, §7.1): a device-wide display preference — 0 OFF · 1 SUBTLE · 2 FULL — shown beside CLOCK's own row. Not in the document, no undo.
     let pulseLevel: Int
@@ -318,10 +320,12 @@ struct EuclideousSettingsSheet: View {
 
     private var clockTabContent: some View {
         VStack(spacing: 8) {
-            block(name: "WHEN THE HOST STOPS",
-                  description: "KEEP PLAYING runs Fourfold on its own clock while the host is stopped. STOP waits for the host.") {
-                segmented([("KEEP PLAYING", 104), ("STOP", 48)], selected: hostStopBehavior == .keepPlaying ? 0 : 1) { i in
-                    onSetHostStopBehavior(i == 0 ? .keepPlaying : .stop)
+            if showsHostStopBehavior {
+                block(name: "WHEN THE HOST STOPS",
+                      description: "KEEP PLAYING runs Fourfold on its own clock while the host is stopped. STOP waits for the host.") {
+                    segmented([("KEEP PLAYING", 104), ("STOP", 48)], selected: hostStopBehavior == .keepPlaying ? 0 : 1) { i in
+                        onSetHostStopBehavior(i == 0 ? .keepPlaying : .stop)
+                    }
                 }
             }
             // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows, MIX pads and OUT rings. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
