@@ -11926,14 +11926,14 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(seenSteps.count, 3, "…and different steps")
     }
 
-    // …and for a FOLLOWing lane, whose pattern, step count and rate are borrowed from its partner (× the multiplier).
+    // …and for a lane borrowing RHYTHM, whose pattern, step count and rate are borrowed from its source (÷ 2^SPEED).
     // LISTEN REBUILT (2026-10-23): `testWalkTagMirrorMatchesAFollowingLanesBorrowedPatternAndRate`
     // (FOLLOW-vs-mirror agreement) deleted — FOLLOW no longer exists. The walk-tag mirror itself
-    // (`euclideousFollowPartner`/`euclideousEffectiveHitPattern`/`euclideousWalkLaneConfig`, all read old
-    // LISTEN fields still) is NOT YET updated for COPY/FILL/SHADOW/ECHO — that's this ferry's own task #32
-    // (the UI phase: the riff panel's live arrow prediction and the lane card's step-bar fade/comet sweep
-    // read these same functions, so updating them is real UI-mirror work, not a quick patch here). An
-    // equivalent new-model test belongs there, once the mirror itself reads the new fields.
+    // (`euclideousRhythmBorrowPartner`/`euclideousEffectiveHitPattern`/`euclideousWalkLaneConfig`, renamed
+    // from `euclideousFollowPartner`) was rewritten for COPY/FILL — including the direction-double-
+    // application bug fixed in both the Router and this mirror — and its new-model equivalent test lives in
+    // `ClarityPassTests.testACopyLanesFooterHitsAreTheTicksTheEngineActuallyPlays`/
+    // `testACopyLanesBeatGroupsAndDivisionAreItsSources`, not here.
 
     // THE FERRY'S CORE CLAIM: a tag arrives "exactly at the advance's time: the note-on time". The mirror's predicted real
     // onset beat (swing included) must equal the engine's own emitted note-on sample, hit for hit.

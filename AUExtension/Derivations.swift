@@ -8419,9 +8419,11 @@ func euclideousFXLaneButtonLabel(lane: Int, on: Bool, idleReason: String? = nil)
 }
 /// REVIEW FIX 2026-10-23: the FX rows act only on a hit that PLAYS THE RIFF (`euclideousLanePlaysRiff`: the riff layer is on and the lane isn't SHADOWing a partner). A lane that doesn't gets its lane buttons and rail dots dimmed
 /// (the page's 42 %), and this is what VoiceOver says; nil = the lane's FX rows act.
+// LISTEN REBUILT (2026-10-23): a lane idles its riff under SHADOW OR ECHO now (`euclideousLanePlaysRiff`),
+// not SHADOW alone — the wording no longer names SHADOW specifically.
 func euclideousFXLaneIdleReason(_ line: EuclidLine) -> String? {
     if euclideousLanePlaysRiff(line) { return nil }
-    return line.riffOnResolved ? "it is shadowing another lane" : "its riff is off"
+    return line.riffOnResolved ? "its pitch follows another lane" : "its riff is off"
 }
 /// §14.2: "Note n, <name or rest>, <value>" — an empty cell ends with the row's name and "off".
 func euclideousFXCellLabel(row: Int, ccNumber: Int, column: Int, noteName: String?, value: Int?) -> String {

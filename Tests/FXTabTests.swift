@@ -744,13 +744,14 @@ final class FXTabTests: XCTestCase {
         var l = EuclidLine(); l.riffOn = true
         XCTAssertNil(euclideousFXLaneIdleReason(l))
         l.riffOn = false; XCTAssertEqual(euclideousFXLaneIdleReason(l), "its riff is off")
-        l.riffOn = true; l.listenPitchMode = .shadow; XCTAssertEqual(euclideousFXLaneIdleReason(l), "it is shadowing another lane")
+        l.riffOn = true; l.listenPitch = .shadow; XCTAssertEqual(euclideousFXLaneIdleReason(l), "its pitch follows another lane")
+        l.listenPitch = .echo; XCTAssertEqual(euclideousFXLaneIdleReason(l), "its pitch follows another lane", "ECHO idles it too")
         l.riffOn = false; XCTAssertEqual(euclideousFXLaneIdleReason(l), "its riff is off", "riff off is the first thing to fix")
         XCTAssertEqual(euclideousFXLaneButtonLabel(lane: 1, on: true), "Lane 2, plays this row", "an acting lane is spoken as before")
         XCTAssertEqual(euclideousFXLaneButtonLabel(lane: 1, on: true, idleReason: "its riff is off"), "Lane 2, plays this row, but its riff is off, so no FX row acts on it")
         // the FX decision itself is the authority: the reason is nil exactly when `euclideousFXApply` would act
         for riffOn in [true, false] { for shadow in [true, false] {
-            var line = EuclidLine(); line.riffOn = riffOn; line.listenPitchMode = shadow ? .shadow : nil
+            var line = EuclidLine(); line.riffOn = riffOn; line.listenPitch = shadow ? .shadow : .own
             var fx = EuclideousFX(); fx.cells[0] = 3
             let acts = euclideousFXApply(fx, lane: 0, playsRiff: euclideousLanePlaysRiff(line), column: 0, writtenRank: 1, pass: 0).ratch != 0
             XCTAssertEqual(euclideousFXLaneIdleReason(line) == nil, acts, "riff \(riffOn), shadow \(shadow)")
