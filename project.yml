@@ -70,6 +70,53 @@ targets:
         INFOPLIST_FILE: AUExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
 
+  # FOURFOLD (2026-10-23, Docs/standalone-plan.md Step 1c): the standalone Fourfold app + AUv3. Same engine/UI sources as MidiSparkAU (target membership) minus the 8x8 workbench; Step 4 copies the engine.
+  Fourfold:
+    type: application
+    platform: iOS
+    sources: [Fourfold/App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.Fourfold
+    info:
+      path: Fourfold/App/Info.plist
+      properties:
+        UILaunchScreen: {}
+        CFBundleDisplayName: "Fourfold"
+        # Must match Fourfold/AU/Info.plist's CFBundleShortVersionString (embedded-binary validation); that plist is hand-maintained, so bump BOTH together.
+        CFBundleShortVersionString: "0.1.0"
+        "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    dependencies:
+      - target: FourfoldAU
+        embed: true
+  FourfoldAU:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: AUExtension
+        excludes: ["Info.plist", "ArrangementBar.swift", "AudioUnitViewController.swift", "AutoPilot.swift", "BuildGridSelector.swift", "BuildPage.swift", "BuildReel.swift", "BuildSelfTest.swift", "ChaosDriver.swift", "CogPage.swift", "DragDropPage.swift", "EditPage.swift", "GridSkin.swift", "GridUI.swift", "ManualView.swift", "RackMatrix.swift", "RoomsPage.swift", "MacroAuthoring.swift", "SceneFactory.swift", "BuildSceneLogic.swift", "Dice.swift", "CellLibraryStore.swift", "CellBrowser.swift", "MidiSparkAudioUnit+CellLibrary.swift", "TestSessions.swift"]
+      - path: Fourfold/AU
+        excludes: ["Info.plist"]     # hand-maintained, like MidiSparkAU's: never let XcodeGen generate it (it would drop the aumi AudioComponents)
+    dependencies:
+      - package: Atomics
+        product: Atomics
+    # NOTE: no `info:` block here, for the same reason as MidiSparkAU.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.Fourfold.AU
+        INFOPLIST_FILE: Fourfold/AU/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) FOURFOLD"
+
   # Off-device unit tests for the pure engine core. macOS + host-less logic bundle → runs in
   # seconds with `xcodebuild test`, no simulator. Compiles the pure sources directly (they are
   # Foundation-only), so it does not link the iOS extension.
@@ -113,6 +160,18 @@ schemes:
     build:
       targets:
         MidiSpark: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  Fourfold:
+    build:
+      targets:
+        Fourfold: all
     run:
       config: Debug
     profile:

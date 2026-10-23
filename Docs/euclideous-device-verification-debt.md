@@ -28,6 +28,9 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 - VoiceOver: a RHYTHM/RIFF/NOTES tab reads "paused, following lane n" once (not duplicated); the LISTEN tab's mode buttons and SPEED/DIRECTION segments read their new labels correctly; the paused-card's two buttons are each individually reachable and actionable, not swallowed into one combined element.
 - An OLD session (saved before this ferry) that used FOLLOW, WITH, GAPS, SHADOW, AVOID, DUCK, or ACCENT loads with the stated migration mapping and SOUNDS the same as before (bar FOLLOW's own multiplier/rate wording, and DUCK/ACCENT, which have no replacement and will sound different) — listen for anything that migrated silently wrong.
 
+### FOURFOLD STEP 1 — targets (2026-10-23)
+- Install the `Fourfold` scheme from Xcode: AUM lists "Fourfold: Fourfold" as a MIDI processor (separately from "8x8 State"), it opens to the placeholder, and its MIDI outputs are named All / Out A–D. 8x8 State must still be listed and unchanged.
+
 ### FOURFOLD REEL LINK (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM first (`headerUtilities` gained a child; `Scripts/debug-frame-sizes.py` against the FX-ferry build: its closure 3264 → 3344 B (+80 B) with the reel button as its own `AnyView` leaf (inline it was +624 B); the icon's own TimelineView body closure is 2.8 KB at render — the 1 MB stack only really answers on the iPad).
 - The tape icon sits between SWING and the gear; it reads dim when stopped and RED, breathing, with a pulsing dot while the host plays (and stays still under Reduce Motion). Tapping it opens the pass browser ABOVE the Fourfold page (not behind it), landscape.

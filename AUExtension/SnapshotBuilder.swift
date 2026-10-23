@@ -474,6 +474,7 @@ enum SnapshotBuilder {
         // PHASE 2 (Paul 2026-09-04): render-time AUTO descriptors — one per machine with an ACTIVE ×N-passes or SMOOTH
         // lane whose param is render-supported (scalar). STEP/default spans are compile-time baked upstream (not here).
         var ra = [MachineAuto?](repeating: nil, count: machines.count)
+        #if !FOURFOLD   // 8x8 PART AUTOMATION (Fourfold has no partAuto, and does not compile BuildSceneLogic / MacroAuthoring); Step 4's engine copy deletes it
         for (cid, pa) in (doc.partAuto ?? [:]) {
             guard pa.activeLane >= 0, pa.activeLane < 5, pa.activeLane < pa.lanes.count,
                   let ci = machineIndexByID[cid], ci < doc.machines.count else { continue }
@@ -490,6 +491,7 @@ enum SnapshotBuilder {
                                 startCol: max(0, lane.spanStart ?? 0), spanCols: max(0, lane.spanLen ?? 0),
                                 passes: max(0, lane.spanPasses ?? 0), smooth: lane.smooth)
         }
+        #endif
         if ra.contains(where: { $0 != nil }) { box.renderAuto = ra }
         // PER-PARAM LFO (Docs/PLAN-param-lfo.md): the render pass runs only when a resolved cell proc actually carries one.
         box.hasParamLFO = box.cells.contains { $0.procs.contains { !$0.paramLFOs.isEmpty } }

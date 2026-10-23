@@ -208,13 +208,12 @@ the same pipeline as any other row; it is not a special-cased render path.
 - Device testing is manual: the human runs from Xcode onto the iPad and verifies in AUM.
   You cannot hear anything. When behaviour needs verification, say exactly what to check
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
-- **FourStep target — not yet created; none of the below is scaffolded.** See
-  `Docs/standalone-plan.md`'s checklist for the open decisions (bundle ID, `aumi` subtype/
-  manufacturer code, app identity, which engine sources the new targets share, whether
-  `BuildPage.swift`/`RoomsPage.swift`/`GridUI.swift`/`RackMatrix.swift` are excluded from
-  the new AU target). When it IS created, this section needs its own compile/test commands
-  (mirroring the two above, with `FourStep`/`FourStepAU` schemes) — don't assume the
-  existing commands cover it.
+- **Fourfold targets (Step 1, 2026-10-23) — `Fourfold` (app) + `FourfoldAU` (extension), in the same `project.yml`.** They share `AUExtension/` by target membership minus an exclude list (the 8x8
+  workbench UI/host, BuildSceneLogic, Dice, MacroAuthoring, SceneFactory, the cell library, TestSessions) plus `Fourfold/AU` (hand-maintained `Info.plist`: `aumi`/`Frfd`/`MSPK` — a one-way door — and a
+  placeholder view controller) and `Fourfold/App`. The extension compiles with `FOURFOLD` defined (two temporary `#if !FOURFOLD` fences in shared files). A NEW `AUExtension/*.swift` file is compiled into
+  BOTH products unless it is added to `FourfoldAU`'s `excludes` — a Fourfold build error naming a file that is 8x8-only means "add it to the exclude list" (or move the helper it needs to a shared file).
+  Compile check: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MidiSpark.xcodeproj -scheme Fourfold -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
+  (the same `xcodegen generate` rule applies). The plan, the order of the remaining steps and the engine-copy decision are in `Docs/standalone-plan.md`.
 
 ## Current Euclideous state (hand-maintained — update when the real architecture changes,
 ## not on every fix; full history is `Docs/euclideous-status-log.md`)
