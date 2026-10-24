@@ -65,12 +65,18 @@ final class LaneLockTests: XCTestCase {
         }
     }
     func testAnEditThatIsPutBackIsNotADeviation() {
-        // HITS 3 → 7 → 3 leaves hitsRequested at 3 where it was nil: the lane sounds and reads as before, so it is not deviated.
+        // HITS 3 → 7 → 3, in ONE continuous drag session (GESTURE PREDICTABILITY fix, 2026-10-24: the
+        // real UI reuses the SAME touch-down snapshot for every tick of a drag — EuclideousSlider's own
+        // `snapshot` @State, captured once — so this test must too; re-snapshotting the already-7-hit
+        // intermediate, as two independent one-shot commits would, has no "exact round-trip" guarantee,
+        // only a single frozen-snapshot session does) leaves hitsRequested at 3 where it was nil: the
+        // lane sounds and reads as before, so it is not deviated.
         var l = EuclidLine(); l.pulses = 3
         let locked = LaneLockFields(line: l)
-        euclideousSliderCommit(.hits, &l, snapshot: l, newValue: 7)
+        let snap = l
+        euclideousSliderCommit(.hits, &l, snapshot: snap, newValue: 7)
         XCTAssertTrue(euclideousLockDeviated(line: l, from: locked))
-        euclideousSliderCommit(.hits, &l, snapshot: l, newValue: 3)
+        euclideousSliderCommit(.hits, &l, snapshot: snap, newValue: 3)
         XCTAssertFalse(euclideousLockDeviated(line: l, from: locked))
         // …and writing L back restores the stored form exactly (hitsRequested nil again).
         locked.applied(to: &l)

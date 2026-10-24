@@ -2617,6 +2617,24 @@ func euclidRebuildPattern(_ snapshot: [Bool], targetCount: Int) -> [Bool] {
     }
     return buf
 }
+/// GESTURE PREDICTABILITY ferry (2026-10-24): the "current unrotated hit array" HITS and TILT both
+/// snapshot at touch-down and pure-recompute from — generalizes the hand-edited-pattern case above
+/// (`snapshot.customHitsResolved(n)`) to EVERY lane, hand-edited or not. A still-pure lane has no
+/// `customHits` yet, so this builds the same unrotated (pre-OFFSET, pre-FLIP) Bjorklund+tilt buffer
+/// `euclideousBuildPatternInto` builds for its own "else" branch — the ONE other place this exact
+/// sequence (pulses → tilt) is built, duplicated here (not shared) because that function also applies
+/// rotation/FLIP, which neither HITS' nor TILT's snapshot wants. Pure; always returns exactly `n` entries.
+func euclideousSnapshotHits(_ line: EuclidLine, n: Int) -> [Bool] {
+    if let custom = line.customHitsResolved(n) { return custom }
+    var buf = [Bool](repeating: false, count: n)
+    let k = max(0, min(n, line.pulses))
+    euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
+    if line.tiltResolved != 0 {
+        if line.tiltIsFine { euclidTiltPatternFine(&buf, pulses: k, steps: n, tilt: line.tiltResolved) }
+        else { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: line.tiltResolved) }
+    }
+    return buf
+}
 /// The rest position nearest the MIDDLE of the longest circular run of consecutive rests — ties broken by
 /// the earliest (lowest-index) widest gap found walking from the first hit. An all-rest buffer has no
 /// "gap between hits" yet (nothing to bisect) — starts at step 0 by convention. Pure.
@@ -2655,6 +2673,18 @@ func euclidMostCrowdedHit(_ buf: [Bool]) -> Int? {
     return best
 }
 
+// GESTURE PREDICTABILITY fix (2026-10-24): blend FROM each hit's REAL current position (`hits[i]`),
+// not a theoretical even-spread formula (`evenPos = i/(k-1)*(n-1)`, the old blend-from term — deleted,
+// it does not equal the real Euclidean positions in general, e.g. E(3,8) = {0,3,6} but evenPos gives
+// {0,3.5,7}). The old code was discontinuous at tilt=0: the function returns early there (buf stays the
+// real pattern), but the INSTANT tilt left 0 the blend jumped to start from evenPos instead — reported
+// 2026-10-22, never fixed until now. Blending from the real position makes the t→0 limit equal the real
+// position by construction (continuous), AND makes this function correct for ANY starting buf, not just
+// a fresh Bjorklund one — needed so TILT can bias an already gap-filled (customHits) pattern too.
+// The "strictly increasing, no collision" proof is unaffected: `hits` is sorted (built by scanning in
+// order), `packedPos` is `i` or `n-k+i` (consecutive integers either way), and a convex combination (the
+// SAME weight `t` at every `i`) of two independently strictly-increasing sequences is itself strictly
+// increasing — so the collision nudge below stays a rare float-noise safety net, not a real path.
 func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double) {
     guard tilt != 0, k > 1, n > 1 else { return }
     var hits: [Int] = []
@@ -2664,11 +2694,11 @@ func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: D
     var used = Set<Int>()
     var placed: [Int] = []
     for i in 0..<hits.count {
-        let evenPos = Double(i) / Double(k - 1) * Double(n - 1)   // today's tilt=0 placement
+        let startPos = Double(hits[i])   // where this hit REALLY is right now
         // Blend toward whichever end `t`'s sign points at — the OTHER end never enters the computation,
         // so a pattern can never accidentally lean the wrong way from a sign error.
         let packedPos = t < 0 ? Double(i) : Double(n - k + i)     // fully early (i) or fully late (n−k+i)
-        let target = evenPos + abs(t) * (packedPos - evenPos)
+        let target = startPos + abs(t) * (packedPos - startPos)
         var pos = Int(target.rounded())
         pos = max(0, min(n - 1, pos))
         while used.contains(pos) { pos = (pos + 1) % n }   // deterministic collision nudge — bounded: ≤ n iterations total across all k placements
@@ -2800,7 +2830,10 @@ enum EuclideousSliderField: Int, CaseIterable {
     /// HITS/STEPS snap to one of a fixed count of whole values (band-snapped, ferry Touch behaviour §3);
     /// OFFSET (RHYTHM POLISH ferry, 2026-10-22), TILT, GATE and VELOCITY are continuous across their range, rounded only for storage/display (§5).
     /// OFFSET and TILT also carry a detent at their natural points (`euclideousSliderValueAtDetented`).
-    var isWhole: Bool { self == .hits || self == .steps }
+    // GESTURE PREDICTABILITY fix (2026-10-24): OFFSET rejoins HITS/STEPS as whole-number/band-snapped —
+    // reverses the RHYTHM POLISH ferry's continuous OFFSET (2026-10-22). Per-step is what "the drag always
+    // matches the gesture" means for a slider whose only job is sliding whole hits around a whole-step ring.
+    var isWhole: Bool { self == .hits || self == .steps || self == .offset }
 }
 
 /// The field's current value (in its own natural units — NOT normalized) and its current valid range,
@@ -2826,11 +2859,13 @@ func euclideousSliderRange(_ field: EuclideousSliderField, _ line: EuclidLine) -
         // engine/model change, no effect on any other reader of `rotate`); only this ONE slider's own
         // value↔rotate correspondence is inverted, so dragging right (raising the displayed value) now
         // LOWERS rotate, which moves hits right — drag left moves them left, matching the report exactly.
+        // GESTURE PREDICTABILITY fix (2026-10-24): back to a plain whole step — reverses RHYTHM POLISH's
+        // continuous OFFSET (2026-10-22). `offsetFractionResolved` is always 0 now (decode-tolerant dead
+        // field), so this is just the mirrored whole-step value again.
         let n = max(2, min(16, line.steps))
         let r = ((line.rotate % n) + n) % n
         let displayed = (n - r) % n
-        // RHYTHM POLISH (2026-10-22): the displayed offset is the whole part plus `offsetFraction`; the slider's top is still STEPS−1 (a fraction on the top value reads as the top).
-        return (min(Double(n - 1), Double(displayed) + line.offsetFractionResolved), 0, Double(n - 1))   // 0...STEPS-1
+        return (Double(displayed), 0, Double(n - 1))   // 0...STEPS-1
     case .tilt:
         return (line.tiltResolved, -1, 1)
     case .gate:
@@ -2881,23 +2916,25 @@ func euclideousSliderValueAt(_ field: EuclideousSliderField, _ line: EuclidLine,
 func euclideousTiltDetentFrac(_ frac: Double) -> Double {
     abs(frac - 0.5) <= 0.06 ? 0.5 : frac
 }
-/// RHYTHM POLISH ferry (2026-10-22) §2.2 — the detents at the two controls' natural points, as pure functions of the VALUE (stateless: a drag within the radius reads as the point, one past it reads as itself, so "stays
-/// snapped until it moves past that distance" holds by construction). OFFSET snaps to a whole step within 0.08 of a step; TILT snaps to 0 within 3 % (±0.03 of the value — NOT of the travel, which the older
-/// `euclideousTiltDetentFrac` above measured as ±6 % of travel = ±12 % of the value; that one is no longer called).
+/// RHYTHM POLISH ferry (2026-10-22) §2.2 — TILT's own detent at its natural point, as a pure function of
+/// the VALUE (stateless: a drag within the radius reads as the point, one past it reads as itself, so
+/// "stays snapped until it moves past that distance" holds by construction): snaps to 0 within 3 %
+/// (±0.03 of the value — NOT of the travel, which the older `euclideousTiltDetentFrac` above measured as
+/// ±6 % of travel = ±12 % of the value; that one is no longer called). OFFSET's own detent
+/// (`euclideousOffsetDetent`, snapping within 0.08 of a whole step) is RETIRED along with continuous
+/// OFFSET (GESTURE PREDICTABILITY fix, 2026-10-24) — `isWhole`'s band-snapped touch mapping already
+/// returns an exact integer, so there is nothing left for a detent to do.
 enum EuclideousDetent {
-    static let offsetStep = 0.08
     static let tiltValue = 0.03
 }
-func euclideousOffsetDetent(_ v: Double) -> Double {
-    let r = v.rounded()
-    return abs(v - r) <= EuclideousDetent.offsetStep + 1e-9 ? r : v   // the epsilon makes the stated radius inclusive despite binary rounding (2.08 − 2 = 0.08000000000000007)
-}
 func euclideousTiltDetent(_ v: Double) -> Double { abs(v) <= EuclideousDetent.tiltValue + 1e-9 ? 0 : v }
-/// What a touch at `frac` commits, detents included — the ONE place the OFFSET / TILT detents are applied (the slider and the tests both call this).
+/// What a touch at `frac` commits, detents included — the ONE place TILT's detent is applied (the slider
+/// and the tests both call this). GESTURE PREDICTABILITY fix (2026-10-24): OFFSET no longer detents —
+/// it's whole-number/band-snapped again (`isWhole`), so `euclideousSliderValueAt` already returns an
+/// exact integer; a detent has nothing left to do for it.
 func euclideousSliderValueAtDetented(_ field: EuclideousSliderField, _ line: EuclidLine, frac: Double) -> Double {
     let v = euclideousSliderValueAt(field, line, frac: frac)
     switch field {
-    case .offset: return euclideousOffsetDetent(v)
     case .tilt: return euclideousTiltDetent(v)
     default: return v
     }
@@ -2929,12 +2966,13 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
     case .hits:
         let steps = max(2, min(16, line.steps))
         let target = max(0, min(steps, Int(newValue.rounded())))
-        if let snap = snapshot.customHitsResolved(steps) {
-            // EDITED PATTERN (ferry §7, literal): rebuild from the FROZEN touch-down snapshot, not the
-            // live (possibly already-rebuilt-this-drag) buffer — a pure function of (snapshot, target),
-            // so re-landing on the starting count reproduces the exact original pattern, not a drifted one.
-            line.customHits = euclidRebuildPattern(snap, targetCount: target)
-        }
+        // GESTURE PREDICTABILITY fix (2026-10-24): ALWAYS rebuild from the frozen touch-down snapshot —
+        // not just on an already hand-edited lane — so a pure lane's existing hits never jump to an
+        // unrelated Bjorklund layout when the count changes; only the minimal gap-fill/crowd-removal
+        // moves. `euclideousSnapshotHits` resolves the snapshot's own customHits if set, else the fresh
+        // unrotated Bjorklund+tilt buffer it would otherwise have rendered — a pure function of
+        // (snapshot, target), so re-landing on the starting count reproduces the exact original pattern.
+        line.customHits = euclidRebuildPattern(euclideousSnapshotHits(snapshot, n: steps), targetCount: target)
         line.pulses = target   // kept in sync regardless, so every OTHER reader of `pulses` needs no changes
         line.hitsRequested = target   // RESTART CHAINS ferry §2.5: what was actually asked for, surviving a later shorter STEPS
     case .steps:
@@ -2958,23 +2996,27 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
         // quantity the slider's drag position computed; converting it back to the stored `rotate` needs
         // the same `(n - v) mod n` mirror applied in reverse (it's self-inverse, so the identical formula
         // undoes it exactly).
-        // RHYTHM POLISH (2026-10-22): the value is continuous now — its whole part is the old integer offset (a comet-bar drag past the ends still wraps, mod STEPS) and its fraction is `offsetFraction`
-        // (nil when the value is a whole step, so a whole offset stores exactly what it always did).
+        // GESTURE PREDICTABILITY fix (2026-10-24): back to a plain whole-step rotation — reverses RHYTHM
+        // POLISH's continuous OFFSET (2026-10-22). `newValue` is already a whole number (`isWhole`'s
+        // band-snapped touch mapping); a comet-bar drag past the ends still wraps, mod STEPS, as ever.
         let n = max(2, min(16, line.steps))
-        let whole = newValue.rounded(.down)
-        let frac = newValue - whole
-        let v = Int(whole)
+        let v = Int(newValue.rounded())
         let displayed = ((v % n) + n) % n
         let mirrored = (n - displayed) % n
         line.rotate = mirrored
         line.offsetRequested = displayed   // RESTART CHAINS ferry §2.5: what was actually asked for, surviving a later shorter STEPS
-        line.offsetFraction = frac < 1e-9 ? nil : min(frac, 1 - 1e-9)
     case .tilt:
-        guard line.customHits == nil else { return }   // disabled on an edited pattern — defensive; the UI never drags this
-        // RHYTHM POLISH: writes both — `tilt` (an older build still reads it) and `tiltFine` (the opt-in for unrounded timing).
+        // GESTURE PREDICTABILITY fix (2026-10-24): TILT is now a snapshot+reshape gesture, exactly like
+        // HITS — `newValue` is THIS gesture's own blend amount (−1…1, 0 = identity), applied to the
+        // FROZEN touch-down snapshot's real positions (`euclideousSnapshotHits`, which already resolves
+        // an existing hand-edited/HITS-reshaped pattern too — TILT now biases it rather than disabling
+        // on it). Writes `customHits`; `tilt`/`tiltFine` are retired on the write side (decode-only —
+        // see `EuclidLine.offsetFractionResolved`'s sibling comment in Models.swift).
+        let steps = max(2, min(16, line.steps))
         let t = max(-1, min(1, newValue))
-        line.tilt = t
-        line.tiltFine = t
+        var buf = euclideousSnapshotHits(snapshot, n: steps)
+        euclidTiltPattern(&buf, pulses: max(0, min(steps, snapshot.pulses)), steps: steps, tilt: t)
+        line.customHits = buf
     case .gate:
         let target = max(0.01, min(euclideousLaneGateMax, newValue))   // floor matches euclideousSliderRange's own lowered floor; the ceiling is 99% — a lane's gate is never legato (`euclideousLaneGateMax`)
         // MIX ferry §6.3: the layers PART at the first edit — pin the notes layer to the CURRENT gate before it changes (only on a
@@ -3005,8 +3047,8 @@ func euclideousSliderRevert(_ field: EuclideousSliderField, _ line: inout Euclid
     case .steps:
         line.steps = snapshot.steps; line.pulses = snapshot.pulses; line.rotate = snapshot.rotate; line.customHits = snapshot.customHits
         line.hitsRequested = snapshot.hitsRequested; line.offsetRequested = snapshot.offsetRequested
-    case .offset: line.rotate = snapshot.rotate; line.offsetRequested = snapshot.offsetRequested; line.offsetFraction = snapshot.offsetFraction
-    case .tilt: line.tilt = snapshot.tilt; line.tiltFine = snapshot.tiltFine
+    case .offset: line.rotate = snapshot.rotate; line.offsetRequested = snapshot.offsetRequested
+    case .tilt: line.customHits = snapshot.customHits   // GESTURE PREDICTABILITY fix (2026-10-24): TILT's commit writes customHits now, not tilt/tiltFine
     case .gate:
         line.gate = snapshot.gate
         // A long-press revert is NOT an edit: if the touch-down commit parted the layers (pinned `notesGate` to the old GATE), put
@@ -3019,15 +3061,15 @@ func euclideousSliderRevert(_ field: EuclideousSliderField, _ line: inout Euclid
     }
 }
 
-/// Double-tap reset (ferry §9: "same defaults as the pads had") — mirrors the OLD per-pad double-tap
-/// exactly: the old TILT/HITS pad only ever reset TILT (never HITS); the old OFFSET/STEPS pad only ever
-/// reset OFFSET/rotate (never STEPS) — so HITS and STEPS have NO double-tap action here either, by the
-/// same precedent, not an oversight.
+/// Double-tap reset — GESTURE PREDICTABILITY fix (2026-10-24): HITS and TILT now both write `customHits`
+/// (resp. always, and once touched), so double-tap on EITHER is the one revert-to-pure-Euclid gesture
+/// (replacing the old TILT-only "EDITED chip" tap zone, now removed). STEPS still has none (unchanged;
+/// its own existing "changing STEPS reverts to pure Euclid" rule already covers it, ferry §8).
 func euclideousSliderDoubleTapDefault(_ field: EuclideousSliderField, _ line: inout EuclidLine) {
     switch field {
-    case .hits, .steps: break
-    case .offset: line.rotate = 0; line.offsetFraction = nil   // RHYTHM POLISH: double-tap clears the fraction too (it is an OFFSET writer)
-    case .tilt: line.tilt = 0; line.tiltFine = 0
+    case .steps: break
+    case .hits, .tilt: line.customHits = nil
+    case .offset: line.rotate = 0
     case .gate:
         if line.gateResolved != 0.9 { euclideousPinNotesLayer(&line, gate: true, velocity: false) }
         line.gate = 0.9
@@ -3067,12 +3109,12 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
     case .offset:
         // Shows the SAME mirrored quantity the slider's own fill position represents (euclideousSliderRange's
         // `.offset` case) — raw `rotate` would disagree with where the fill visibly sits.
-        // RHYTHM POLISH §2.2: "5" for a whole offset, "5.25" (two decimals) only when the fraction isn't 0.
+        // GESTURE PREDICTABILITY fix (2026-10-24): a plain whole step again — reverses RHYTHM POLISH's
+        // two-decimal fractional display (2026-10-22).
         let n = max(2, min(16, line.steps))
         let r = ((line.rotate % n) + n) % n
         let whole = (n - r) % n
-        let f = line.offsetFractionResolved
-        return f < 0.005 ? "\(whole)" : String(format: "%.2f", Double(whole) + f)
+        return "\(whole)"
     case .tilt:
         let pct = Int((line.tiltResolved * 100).rounded())
         return pct == 0 ? "0%" : (pct > 0 ? "+\(pct)%" : "−\(-pct)%")   // RHYTHM POLISH §2.2: a whole percent with a sign, zero as "0%"
@@ -3088,7 +3130,7 @@ func euclideousSliderValueText(_ field: EuclideousSliderField, _ line: EuclidLin
 /// threshold, not a near-100% approximation).
 func euclideousSliderAccessibilityValueText(_ field: EuclideousSliderField, _ line: EuclidLine) -> String {
     let base = euclideousSliderValueText(field, line)
-    if field == .offset { return base == "1" ? "1 step" : "\(base) steps" }   // RHYTHM POLISH §2.4: "Offset 5.25 steps" — the fraction is spoken
+    if field == .offset { return base == "1" ? "1 step" : "\(base) steps" }   // whole steps only again (GESTURE PREDICTABILITY, 2026-10-24)
     guard field == .gate, euclideousGateIsLegato(line.gateResolved) else { return base }
     return "\(base), legato"
 }
@@ -4040,20 +4082,25 @@ func euclideousBuildPattern(_ L: EuclidLine) -> (buf: [Bool], n: Int) {
 // pass — spec 5.2 holds by construction), and every ordinal / footer / strip / riff-walk reader that counts CELLS is unchanged. Only the readers of a hit's TIME (the Router's strike, the gap to the next hit, the TIE
 // lookahead, the walk mirror's beat, the roll) read `EuclideousHitTiming`. A lane with no fraction and no fine TILT never reaches any of this: its cells are today's buffer, its timing `.none` — byte-identical.
 
-/// TILT without the rounding: the same positions as `euclidTiltPattern` (a linear blend from the even spread toward fully packed), but each hit lands in cell `floor(target)` with `frac(target)` reported through
-/// `micro(cell, fraction)` instead of being rounded to the nearest step. Distinct targets are ≥ 1 apart (the even spread is, and so is the packed one), so no two hits share a cell; the nudge is the same
-/// deterministic guard as the rounded version's and only fires on floating-point noise. The in-step positions go out through `micro(cell, fraction)` (non-escaping, so nothing allocates).
+/// TILT without the rounding: the same positions as `euclidTiltPattern` (a linear blend from each hit's
+/// REAL current position toward fully packed — GESTURE PREDICTABILITY fix, 2026-10-24, see that
+/// function's own doc comment), but each hit lands in cell `floor(target)` with `frac(target)` reported
+/// through `micro(cell, fraction)` instead of being rounded to the nearest step. Distinct targets are
+/// ≥ 1 apart (the real starting positions are, being distinct integers; so is the packed end), so no two
+/// hits share a cell; the nudge is the same deterministic guard as the rounded version's and only fires
+/// on floating-point noise. The in-step positions go out through `micro(cell, fraction)` (non-escaping,
+/// so nothing allocates).
 func euclidTiltPatternFine(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double, micro: (Int, Double) -> Void) {
     guard tilt != 0, k > 1, n > 1 else { return }
-    var count = 0
-    for i in 0..<n where i < buf.count && buf[i] { count += 1 }
-    guard count == k else { return }   // a mismatched/empty buf (caller error) — leave untouched rather than guess
+    var hits: [Int] = []
+    for i in 0..<n where i < buf.count && buf[i] { hits.append(i) }
+    guard hits.count == k else { return }   // a mismatched/empty buf (caller error) — leave untouched rather than guess
     let t = max(-1, min(1, tilt))
     for i in 0..<n where i < buf.count { buf[i] = false }
     for i in 0..<k {
-        let evenPos = Double(i) / Double(k - 1) * Double(n - 1)
+        let startPos = Double(hits[i])   // where this hit REALLY is right now
         let packedPos = t < 0 ? Double(i) : Double(n - k + i)
-        var target = evenPos + abs(t) * (packedPos - evenPos)
+        var target = startPos + abs(t) * (packedPos - startPos)
         let nearest = target.rounded()
         if abs(target - nearest) < 1e-9 { target = nearest }   // an exact step stays exact (t = ±1, a full pattern…)
         var cell = max(0, min(n - 1, Int(target.rounded(.down))))

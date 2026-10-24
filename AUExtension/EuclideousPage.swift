@@ -213,13 +213,11 @@ struct EuclideousSlider: View {
     // call site that omits this param fail to compile, confirmed by the real build before landing on `var`.
     let onCommit: (@escaping (inout EuclidLine) -> Void) -> Void
     let onDoubleTap: () -> Void
-    let onRevertToEuclid: () -> Void
     // LISTEN/FOLLOW (§5, adversarial-review fix, 2026-10-15): "HITS, STEPS and TILT show the partner's
     // values at 42% opacity and can't be dragged" — `displayOverrideLine` (the partner's own EuclidLine,
     // when FOLLOW is lit for this lane) makes every display computation below read the PARTNER's value
     // instead of this line's own; `listenFollowLocked` (true for exactly those 3 fields while following)
-    // dims the whole slider and disables its gesture/double-tap/accessibility-adjust, mirroring the
-    // EXISTING `edited` mechanism's own disable-the-gesture shape rather than inventing a second one.
+    // dims the whole slider and disables its gesture/double-tap/accessibility-adjust.
     // Both default nil/false — every pre-existing call site (every OTHER field, every non-Euclideous
     // caller — there are none, but the principle holds) is byte-identical.
     var displayOverrideLine: EuclidLine? = nil
@@ -247,6 +245,11 @@ struct EuclideousSlider: View {
     @State private var helpWorkItem: DispatchWorkItem? = nil
     @State private var startLocation: CGPoint? = nil
     @State private var lastShortTapAt: Date? = nil
+    // GESTURE PREDICTABILITY fix (2026-10-24): TILT has no persisted amount any more (it reshapes
+    // `customHits` instead) — this is its ONLY live readout, the finger's own current blend amount,
+    // non-nil only between touch-down and release. nil the rest of the time, including right after
+    // release (the plan's own flagged behaviour change: "0 at rest ... returns to 0 on release").
+    @State private var liveTiltAmount: Double? = nil
 
     private let inset: CGFloat = 6
 
@@ -266,14 +269,19 @@ struct EuclideousSlider: View {
         return horizontal ? Double((clamped - inset) / travel) : Double(1 - (clamped - inset) / travel)
     }
 
-    /// TILT disabled on a hand-edited pattern (ferry, literal): "EDITED pattern: TILT is disabled."
-    /// FOLLOW (§5) takes priority over this when both would apply to the same field — a FOLLOWing
-    /// lane's own hand edits are moot (its generation is replaced entirely), so the slider should read
-    /// as locked-to-the-partner, not as "EDITED," while following.
-    private var edited: Bool { field == .tilt && line.customHits != nil && !listenFollowLocked }
     /// §5: display FROM the partner while locked, otherwise this line's own value — the one switch every
     /// display computation below reads through, so the two can never independently drift.
     private var effectiveLine: EuclidLine { displayOverrideLine ?? line }
+    /// GESTURE PREDICTABILITY fix (2026-10-24): TILT's own value-text/fill read THIS instead of
+    /// `effectiveLine` directly — the live drag amount while a finger is down (`liveTiltAmount`), so the
+    /// number and the fill visibly track the gesture; `effectiveLine` unchanged (0, or a legacy pre-ferry
+    /// session's own stale `tilt`, since nothing live writes that field any more) the rest of the time.
+    private var displayLine: EuclidLine {
+        guard field == .tilt, let live = liveTiltAmount else { return effectiveLine }
+        var l = effectiveLine
+        l.tilt = live
+        return l
+    }
 
     /// A small opaque backing — the colour of the EMPTY track, so the value/label text reads as sitting
     /// on an island the fill/value-line never crosses (2026-10-14 fixes-after-build ferry §4): GATE at 90%
@@ -287,7 +295,7 @@ struct EuclideousSlider: View {
     }
 
     var body: some View {
-        let curFrac = euclideousSliderFrac(field, effectiveLine)
+        let curFrac = euclideousSliderFrac(field, displayLine)
         ZStack {
             Canvas { ctx, size in
                 ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 8), with: .color(Color(hex: 0x22252C)))
@@ -303,20 +311,15 @@ struct EuclideousSlider: View {
                 }
                 /// A thin 2pt edge/centre LINE across the cross-axis, centred at one travel-axis coordinate.
                 func edgeLine(_ p: CGFloat) -> CGRect { bar(p - 1, p + 1) }
-                if !edited {
-                    // TICKS (ferry, literal): "1pt high, 5pt long, at the left edge of the track" — HITS/
-                    // OFFSET only. Rotated for a horizontal track: 1pt wide, 5pt long, at the BOTTOM edge.
-                    for tf in euclideousSliderTickFracs(field, effectiveLine) {
-                        let tp = pos(tf)
-                        let tick: CGRect = horizontal ? CGRect(x: tp - 0.5, y: size.height - 5, width: 1, height: 5)
-                                                       : CGRect(x: 0, y: tp - 0.5, width: 5, height: 1)
-                        ctx.fill(Path(tick), with: .color(Color(hex: 0x4A4E57)))
-                    }
+                // TICKS (ferry, literal): "1pt high, 5pt long, at the left edge of the track" — HITS/
+                // OFFSET only. Rotated for a horizontal track: 1pt wide, 5pt long, at the BOTTOM edge.
+                for tf in euclideousSliderTickFracs(field, effectiveLine) {
+                    let tp = pos(tf)
+                    let tick: CGRect = horizontal ? CGRect(x: tp - 0.5, y: size.height - 5, width: 1, height: 5)
+                                                   : CGRect(x: 0, y: tp - 0.5, width: 5, height: 1)
+                    ctx.fill(Path(tick), with: .color(Color(hex: 0x4A4E57)))
                 }
-                if edited {
-                    // DISABLED (ferry, literal): "no fill, a grey centre edge."
-                    ctx.fill(Path(edgeLine(len / 2)), with: .color(.white.opacity(0.25)))
-                } else if field == .tilt {
+                if field == .tilt {
                     // BIPOLAR (ferry, literal): "the fill runs from the centre line to the value" — up
                     // for positive / down for negative when vertical, left/right when horizontal.
                     // "A centre tick is always visible."
@@ -350,22 +353,11 @@ struct EuclideousSlider: View {
                             .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
                     )
                     Spacer(minLength: 4)
-                    if edited {
-                        // THE EDITED CHIP (ferry, literal): "LANE-20 fill, LANE-100 border, 10pt... in
-                        // the value position." Its own hit area is the overlay below, not this label.
-                        // Already opaque-backed by its own fill — no additional text backing needed.
-                        Text("EDITED").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
-                    } else {
-                        backed(
-                            Text(euclideousSliderValueText(field, effectiveLine))
-                                .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                                .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §1.8: truncate, never shrink — no .minimumScaleFactor anywhere
-                        )
-                    }
+                    backed(
+                        Text(euclideousSliderValueText(field, displayLine))
+                            .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                            .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §1.8: truncate, never shrink — no .minimumScaleFactor anywhere
+                    )
                 }
                 .padding(.horizontal, 10)
                 // §2.3: RHYTHM's new OFFSET/TILT frames pin this row 9pt below the tile's top instead of centring it.
@@ -397,19 +389,9 @@ struct EuclideousSlider: View {
                     // Exact-dimensions ferry (2026-10-13): value text 14pt heavy TEXT, 6pt from the
                     // slider's top edge; label 10pt MUTED, 5pt from the bottom — no longer vertically
                     // centred as a pair, each pinned to its own edge via the Spacer between them.
-                    if edited {
-                        // THE EDITED CHIP (ferry, literal): "LANE-20 fill, LANE-100 border, 10pt... in the
-                        // value position." Its own hit area is the overlay below, not this label. Already
-                        // opaque-backed by its own fill — no additional text backing needed.
-                        Text("EDITED").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent, lineWidth: 1))
-                            .padding(.top, 6)
-                    } else if heroCaption == nil {
+                    if heroCaption == nil {
                         backed(
-                            Text(euclideousSliderValueText(field, effectiveLine))
+                            Text(euclideousSliderValueText(field, displayLine))
                                 .font(.system(size: 14, weight: .heavy, design: .monospaced))
                                 .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §1.8: truncate, never shrink — no .minimumScaleFactor anywhere
                         )
@@ -458,7 +440,7 @@ struct EuclideousSlider: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { g in
-                    guard !edited, !listenFollowLocked else { return }   // ferry, literal: "touches elsewhere on a disabled TILT do nothing" / "[HITS/STEPS/TILT] can't be dragged" while following
+                    guard !listenFollowLocked else { return }   // ferry, literal: "[HITS/STEPS/TILT] can't be dragged" while following
                     if lockActive && !lockDown { lockDown = true; onLockTouch?(true) }
                     if snapshot == nil {
                         snapshot = line
@@ -473,6 +455,7 @@ struct EuclideousSlider: View {
                     let len = horizontal ? width : height
                     let f = frac(atTravel: horizontal ? g.location.x : g.location.y, length: len)
                     let v = euclideousSliderValueAtDetented(field, line, frac: f)   // RHYTHM POLISH §2.2: OFFSET snaps to a whole step within 0.08, TILT to 0 within 3 %
+                    if field == .tilt { liveTiltAmount = v }   // GESTURE PREDICTABILITY: the live readout tracks every touch position, not just a changed-band commit
                     // "NO CHANGE, NO COMMIT" (ferry Touch behaviour §6) — a touch landing on (or staying
                     // within) the band of the value it started at writes nothing.
                     if v != lastCommitted, let snap = snapshot {
@@ -482,12 +465,12 @@ struct EuclideousSlider: View {
                 }
                 .onEnded { g in
                     if lockDown { lockDown = false; onLockTouch?(false) }
-                    guard !edited, !listenFollowLocked else { return }
+                    guard !listenFollowLocked else { return }
                     let start = startLocation ?? g.location
                     let totalMoved = hypot(g.location.x - start.x, g.location.y - start.y)
                     let wasShortTap = totalMoved <= 4 && !helpActive
                     cancelHelpCheck()
-                    snapshot = nil; lastCommitted = nil; startLocation = nil; helpActive = false
+                    snapshot = nil; lastCommitted = nil; startLocation = nil; helpActive = false; liveTiltAmount = nil
                     if wasShortTap {
                         if let last = lastShortTapAt, Date().timeIntervalSince(last) <= 0.35 {
                             // DOUBLE-TAP (ferry §9): applied LAST, after whatever each individual tap's own
@@ -505,21 +488,11 @@ struct EuclideousSlider: View {
                     }
                 }
         )
-        .overlay(alignment: horizontal ? .trailing : .top) {
-            if edited {
-                // THE EDITED CHIP'S hit area (ferry, literal): "covers the top half of the slider" —
-                // the TRAILING half (right) when horizontal, the natural rotation of "top" (the positive-
-                // value end) for a track whose positive direction now runs left→right instead of bottom→top.
-                Color.clear.frame(width: horizontal ? width / 2 : width, height: horizontal ? height : height / 2)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onRevertToEuclid() }
-            }
-        }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(listenFollowLocked ? "\(field.name), following" : (edited ? "\(field.name), edited" : field.name))
-        .accessibilityValue(euclideousLockAppendSnapWords(edited ? "double-tap to revert" : euclideousSliderAccessibilityValueText(field, effectiveLine), outlined: lockOutline != nil))
+        .accessibilityLabel(listenFollowLocked ? "\(field.name), following" : field.name)
+        .accessibilityValue(euclideousLockAppendSnapWords(euclideousSliderAccessibilityValueText(field, displayLine), outlined: lockOutline != nil))
         .accessibilityAdjustableAction { direction in
-            guard !edited, !listenFollowLocked else { return }
+            guard !listenFollowLocked else { return }
             let cur = euclideousSliderRange(field, line).value
             let target = euclideousSliderAccessibilityTarget(field, current: cur, increment: direction == .increment)
             onCommit { l in euclideousSliderCommit(field, &l, snapshot: line, newValue: target) }
@@ -2880,7 +2853,6 @@ struct EuclideousPage: View {
             field: .hits, line: line, accent: accent, width: width, height: height, horizontal: false,
             onCommit: { mutate in edit(idx, mutate) },
             onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.hits, &$0) } },
-            onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
             lockActive: lockLocked(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx),
             heroCaption: hitsCaptionColour(idx)))
     }
@@ -2900,7 +2872,6 @@ struct EuclideousPage: View {
             touchPad: 2,
             onCommit: { mutate in edit(idx, mutate) },
             onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.offset, &$0) } },
-            onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
             topAlignLabelRow: true,
             lockActive: lockLocked(idx), lockOutline: lockOn(idx, .offset) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
@@ -2910,7 +2881,6 @@ struct EuclideousPage: View {
             touchPad: 2,
             onCommit: { mutate in edit(idx, mutate) },
             onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.tilt, &$0) } },
-            onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
             topAlignLabelRow: true,
             // Floors ferry (2026-10-23): pure annotation, not the control — drops first as the row shrinks.
             endLabels: EuclideousRhythmGeometry.showsEndLabels(rowH: height) ? ("EARLY", "LATE") : nil,

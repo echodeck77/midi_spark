@@ -14538,10 +14538,13 @@ final class RouterTests: XCTestCase {
         return (h, e.ons.count)
     }
     /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main 612c365, before the DYNAMICS ferry changed anything.
+    /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main 612c365, before the DYNAMICS ferry changed anything.
+    /// RECAPTURED 2026-10-24 (GESTURE PREDICTABILITY fix) for the 3 scenarios using TILT ("four lanes, …" — the shared `four` array's third lane sets `tilt`) — `euclidTiltPattern`'s blend-origin fix (task #37 of
+    /// this ferry) legitimately moves those hits; the other 3 scenarios' hashes are confirmed byte-identical to before (no TILT involved, no regression).
     private let syntheticGolden: [String: (UInt64, Int)] = [
-        "four lanes, no FX": (2369415864824715333, 800),
-        "four lanes, FX ratch/gate/tie/vel": (15251175310064653733, 1008),
-        "four lanes, FX, transport restarts": (18130081851072502405, 2072),
+        "four lanes, no FX": (4068765348271271109, 800),
+        "four lanes, FX ratch/gate/tie/vel": (11102418996473893157, 1008),
+        "four lanes, FX, transport restarts": (11572454118939066333, 2072),
         "muted lane with lit notes": (3312976233490713525, 208),
         "mask ACCENT": (5253426162309938749, 128),
         "mask SWELL": (13038166893529998973, 104)
@@ -14593,14 +14596,21 @@ final class RouterTests: XCTestCase {
         return scenarios
     }
     /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main e7b6da9.
+    /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main e7b6da9.
+    /// RECAPTURED 2026-10-24 (GESTURE PREDICTABILITY fix): every scenario here sets `tilt` directly, so
+    /// `euclidTiltPattern`'s blend-origin fix (task #37 of this ferry) legitimately moves every one of
+    /// these hits — all 6 hashes changed. "TILT x OFFSET with TIE and REPEAT" also gained 8 note-ons
+    /// (256→264): the fix moves which step each hit lands on, so a few hits that used to land on a REST
+    /// column (producing a tied/no-strike note) now land on a real column instead (REPEAT strikes it) —
+    /// an expected, correctness-fix-driven shift, not a new bug (flagged, device-unconfirmed since this
+    /// scenario was never meant to be heard).
     private let rhythmPolishGolden: [String: (UInt64, Int)] = [
-        "TILT x OFFSET x FWD": (5352633688982272725, 712),
-        "TILT x OFFSET x BKW": (15399358455468573405, 680),
-        "TILT x OFFSET x PING-PONG": (522207749321150981, 704),
-        // LISTEN REBUILT (2026-10-23): recaptured fresh for "COPY a TILTed OFFSET partner" — see the scenario's own comment.
-        "COPY a TILTed OFFSET partner": (6788349491252245445, 256),
-        "TILT x OFFSET with rhythm and melody chains": (15993422064495286957, 376),
-        "TILT x OFFSET with TIE and REPEAT": (727378462195434669, 256)
+        "TILT x OFFSET x FWD": (18016000875586379301, 712),
+        "TILT x OFFSET x BKW": (6484648759782209733, 680),
+        "TILT x OFFSET x PING-PONG": (7247123961553642797, 704),
+        "COPY a TILTed OFFSET partner": (13131927017422207805, 256),
+        "TILT x OFFSET with rhythm and melody chains": (10753800559965395357, 376),
+        "TILT x OFFSET with TIE and REPEAT": (14603576823142171141, 264)
     ]
     func testTiltOffsetCopyLanesRenderTheirGoldenNoteStreams() {
         for sc in rhythmPolishScenarios() {
@@ -14626,34 +14636,37 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(got.count, want.count, "\(msg): hit count (\(got.map { $0.beat }))", file: file, line: line)
         for (g, w) in zip(got, want) { XCTAssertEqual(g.beat, w, accuracy: 1e-3, "\(msg)", file: file, line: line) }
     }
-    func testRhythmPolishOffsetFractionPlaysEveryHitThatFractionOfAStepLaterAtEveryBufferSize() {
+    /// GESTURE PREDICTABILITY fix (2026-10-24): `offsetFractionResolved` is always 0 now — an old decoded
+    /// session's own stale fraction (or one poked directly, bypassing the UI) plays IDENTICALLY to the
+    /// same lane with no fraction at all, at every buffer size. Replaces this test's own former premise
+    /// (a stored fraction shifting every hit later), which is retired along with continuous OFFSET.
+    func testOffsetFractionIsFullyInertNowAtEveryBufferSize() {
         // E(3,8) here is {0,3,6}: beats 0, 1.5, 3.0 in a 4-beat pass
         for frames: UInt32 in [64, 1024, 2048] {
             let base = rpOns([rpLine(3, 8)], beats: 8, frames: frames)
             assertBeats(base, [0, 1.5, 3, 4, 5.5, 7], "offset 0, buffer \(frames)")
             var half = rpLine(3, 8); half.offsetFraction = 0.5
-            assertBeats(rpOns([half], beats: 8, frames: frames), [0.25, 1.75, 3.25, 4.25, 5.75, 7.25], "offset 0.5 plays every hit 0.25 beat later, buffer \(frames)")
-            // displayed offset 7.5 on 8 steps: the hits sit at 7.5, 2.5 and 5.5 steps — no wrap, they are simply shifted
-            var seven = rpLine(3, 8); euclideousSliderCommit(.offset, &seven, snapshot: seven, newValue: 7.5)
-            XCTAssertEqual(seven.offsetRequested, 7); XCTAssertEqual(seven.offsetFractionResolved, 0.5, accuracy: 1e-12)
-            assertBeats(rpOns([seven], beats: 8, frames: frames), [1.25, 2.75, 3.75, 5.25, 6.75, 7.75], "offset 7.5, buffer \(frames)")
+            assertBeats(rpOns([half], beats: 8, frames: frames), [0, 1.5, 3, 4, 5.5, 7], "a stored fraction no longer shifts anything, buffer \(frames)")
         }
-        // offset 2 with fraction 0 is today, byte for byte
+        // offset 2, fraction poked directly — still byte for byte identical to no fraction at all
         var plain = rpLine(3, 8); euclideousSliderCommit(.offset, &plain, snapshot: plain, newValue: 2)
-        var zero = plain; zero.offsetFraction = 0
-        XCTAssertEqual(fxStream(fxRun(fxBox([plain]), beats: 16)), fxStream(fxRun(fxBox([zero]), beats: 16)))
+        var withFraction = plain; withFraction.offsetFraction = 0.9
+        XCTAssertEqual(fxStream(fxRun(fxBox([plain]), beats: 16)), fxStream(fxRun(fxBox([withFraction]), beats: 16)))
     }
-    func testRhythmPolishAFractionalPassCutShortByARhythmRestartPlaysNothingAtOrAfterTheRestartAndTheGapsAgree() {
-        // 7 steps at 1/8 = 3.5 beats a pass, a bar restart every 4 beats: the second pass is cut after one step. Fraction 0.6 = 0.3 beat.
-        var l = rpLine(7, 7); l.restartRhythmBars = [1]; l.offsetFraction = 0.6
+    /// GESTURE PREDICTABILITY fix (2026-10-24): the `offsetFraction` half of this test's own name is
+    /// retired along with continuous OFFSET (see `testOffsetFractionIsFullyInertNowAtEveryBufferSize`) —
+    /// the restart-cuts-a-pass-short behaviour itself is unchanged and still worth pinning on its own.
+    func testAPassCutShortByARhythmRestartPlaysNothingAtOrAfterTheRestartAndTheGapsAgree() {
+        // 7 steps at 1/8 = 3.5 beats a pass, a bar restart every 4 beats: the second pass is cut after one step.
+        var l = rpLine(7, 7); l.restartRhythmBars = [1]
         let ranks = [1, 1, 1, 1, 1, 1, 1, 1]
         let e = fxRun(fxBox([l], ranks: ranks), beats: 8)
         let ons = fxOns(e).filter { $0.beat < 7.95 }
-        let want = [0.3, 0.8, 1.3, 1.8, 2.3, 2.8, 3.3, 3.8, 4.3, 4.8, 5.3, 5.8, 6.3, 6.8, 7.3, 7.8]
+        let want = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5]
         XCTAssertEqual(ons.map { $0.beat }.count, want.count, "\(ons.map { $0.beat })")
         for (g, w) in zip(ons, want) { XCTAssertEqual(g.beat, w, accuracy: 1e-3) }
-        XCTAssertTrue(ons.filter { $0.beat > 3.85 && $0.beat < 4.25 }.isEmpty, "nothing plays between the cut pass's last hit (3.8) and the next bar's first (4.3)")
-        // gate length = GATE × the gap to the next hit, across the restart too: the hit at 3.8 is followed by 4.3, so its length is 0.5 × 0.5 beat
+        XCTAssertTrue(ons.filter { $0.beat > 3.55 && $0.beat < 3.95 }.isEmpty, "nothing plays between the cut pass's last hit (3.5) and the next bar's first (4.0)")
+        // gate length = GATE × the gap to the next hit, across the restart too
         let sounding = Array(fxSoundings(e, 48).prefix(16))
         XCTAssertEqual(sounding.count, 16)
         for (i, snd) in sounding.enumerated().dropLast() {
@@ -14663,32 +14676,40 @@ final class RouterTests: XCTestCase {
         }
         // …and the pure functions the roll / TIE / predictions use agree with it
         let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
-        XCTAssertFalse(cfg.timing.isNone)
+        XCTAssertTrue(cfg.timing.isNone, "no fraction and no fine TILT any more ⇒ no timing layer at all")
         let cl = euclidCycleLen(cfg.dir, n: cfg.n)
         XCTAssertEqual(euclideousNextChainHitGapBeats(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cl, sub: cfg.sub, tick: 7, cap: cl * 4, chains: cfg.chains, legacySpanBeats: cfg.spanBeats, timing: cfg.timing),
                        0.5, accuracy: 1e-9, "the cut pass's last hit (tick 7) to the next bar's first (tick 8)")
-        XCTAssertEqual(euclideousWalkRealBeat(cfg, tick: 7), 3.8, accuracy: 1e-9); XCTAssertEqual(euclideousWalkRealBeat(cfg, tick: 8), 4.3, accuracy: 1e-9)
+        XCTAssertEqual(euclideousWalkRealBeat(cfg, tick: 7), 3.5, accuracy: 1e-9); XCTAssertEqual(euclideousWalkRealBeat(cfg, tick: 8), 4.0, accuracy: 1e-9)
     }
-    func testRhythmPolishBackwardsWithAFractionMovesTheFirstHitToTheEndOfThePassAndTheRiffFollowsTime() {
-        // BKW reads the buffer back to front, so the control's rightward fraction is EARLIER in time. Buffer hits {7,2,5} (offset 7) sit at ticks 0, 5, 2; half a step earlier puts the tick-0 hit
-        // at 7.5 steps (the end of the SAME pass) and the others at 1.5 and 4.5 — the riff walks in time order: 1st (0.75 beat) rank 1, 2nd (2.25) rank 2, 3rd (3.75) rank 3.
+    /// GESTURE PREDICTABILITY fix (2026-10-24): this test's own former premise — BKW mirrors a
+    /// fractional OFFSET shift so it reads as EARLIER in time, wrapping the first hit to the end of the
+    /// pass — is retired along with continuous OFFSET (`offsetFractionResolved` is always 0 now). A
+    /// stored fraction, even poked directly bypassing the UI, has NO effect any more, BKW included.
+    func testOffsetFractionIsInertWithDirectionAndRotationToo() {
         var l = rpLine(3, 8, dir: .bkw, rotate: 1)
         assertBeats(rpOns([l], beats: 4), [0, 1, 2.5], "no fraction")
         l.offsetFraction = 0.5
         let ons = rpOns([l], beats: 4)
-        assertBeats(ons, [0.75, 2.25, 3.75], "BKW, fraction 0.5: every hit half a step EARLIER; the first wraps to the end of the pass")
-        XCTAssertEqual(ons.map { $0.note }, [48, 50, 52], "the walk's ordinals follow actual time, wrapped hit included")
+        assertBeats(ons, [0, 1, 2.5], "a stored fraction no longer shifts anything, BKW included")
+        XCTAssertEqual(ons.map { $0.note }, [48, 50, 52], "the walk's ordinals follow actual time")
     }
+    /// GESTURE PREDICTABILITY fix (2026-10-24): `euclidTiltPattern`/`Fine` now blend from each hit's REAL
+    /// current position, not the old theoretical evenPos formula (`testTiltBlendsFromTheRealPositionsNot
+    /// AnEvenSpreadFormula` in RhythmPolishTests pins the primitive itself) — these expected beats are
+    /// recomputed from the fix: E(3,8) = {0,3,6}, TILT +50% blends toward the packed-late end {5,6,7},
+    /// giving targets 2.5, 4.5, 6.5 steps (real + 0.5×(packed−real)). Rounded (away from zero), that's
+    /// steps 3, 5, 7 — unchanged from before the fix, since i=0's real and old-evenPos origins both
+    /// happen to be 0 here. Unrounded, the fine builder keeps the .5 at steps 2.5, 4.5, 6.5.
     func testRhythmPolishFineTiltPlaysTheUnroundedTimesAndNilKeepsTheRoundedOnes() {
-        // E(3,8), TILT +50 %: targets 2.5, 4.75, 7 steps. Rounded (today) they are steps 3, 5, 7; unrounded they play at 1.25, 2.375, 3.5 beats.
         var rounded = rpLine(3, 8); rounded.tilt = 0.5
         assertBeats(rpOns([rounded], beats: 4), [1.5, 2.5, 3.5], "tilt only (tiltFine nil): rounded, as always")
         var fine = rounded; fine.tiltFine = 0.5
-        for frames: UInt32 in [64, 2048] { assertBeats(rpOns([fine], beats: 4, frames: frames), [1.25, 2.375, 3.5], "TILT-fine, buffer \(frames)") }
+        for frames: UInt32 in [64, 2048] { assertBeats(rpOns([fine], beats: 4, frames: frames), [1.25, 2.25, 3.25], "TILT-fine, buffer \(frames)") }
         // the same lane read back by the roll's pure chain agrees with the Router
         let cfg = euclideousWalkLaneConfig(lane: 0, lines: [fine], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
         let roll = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 3.99, minGateBeats: 0.005) { col, _ in col + 1 }
-        XCTAssertEqual(roll.map { $0.beat }, [1.25, 2.375, 3.5].map { $0 }, "roll = Router")
+        XCTAssertEqual(roll.map { $0.beat }, [1.25, 2.25, 3.25], "roll = Router")
     }
     // MARK: - RESTART TILES ferry (2026-10-22): the strike events that feed the MELODY tile's cells
 
@@ -14741,13 +14762,16 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(events.map { Int($0.cellColumn) }, [0, 3, 6], "the notes under the hits; the notes reached on the rest steps (columns 1, 2, 4, 5) post no strike")
     }
 
-    func testRhythmPolishAWrappedHitBelongsToThePassItWrappedInto() {
-        // E(3,8) TILT-fine +50 %: targets 2.5, 4.75, 7.0 steps. OFFSET 3 (rotate 5) carries them to 5.5, 7.75 and 2.0 on the bar, and a 0.6 fraction pushes the middle one past the end of the lap: 8.35 wraps to 0.35 step.
-        // It plays 0.175 beat into THE SAME pass — the pass's first hit, rank 1 — not at the end of the previous one; the other two follow in time order (1.3 and 3.05 beats).
-        var l = rpLine(3, 8, rotate: 5); l.tilt = 0.5; l.tiltFine = 0.5; l.offsetFraction = 0.6
+    /// GESTURE PREDICTABILITY fix (2026-10-24): this test's own former premise — a 0.6 OFFSET fraction
+    /// pushing a TILT-fine hit past the end of the lap so it wraps into the NEXT pass — is retired along
+    /// with continuous OFFSET (there is no fraction left to push anything past a boundary). Rewritten to
+    /// pin the surviving, still-relevant half: TILT-fine + ROTATE together, blending from the real
+    /// positions (GESTURE PREDICTABILITY's OWN fix to `euclidTiltPattern`/`Fine`), through the rotate.
+    func testFineTiltWithRotateBlendsFromTheRealPositionsThroughTheRotation() {
+        var l = rpLine(3, 8, rotate: 5); l.tilt = 0.5; l.tiltFine = 0.5
         for frames: UInt32 in [64, 2048] {
             let ons = rpOns([l], beats: 4, frames: frames)
-            assertBeats(ons, [0.175, 1.3, 3.05], "wrapped hit first, buffer \(frames)")
+            assertBeats(ons, [0.75, 2.75, 3.75], "TILT-fine + rotate, buffer \(frames)")
             XCTAssertEqual(ons.map { $0.note }, [48, 50, 52])
         }
     }
@@ -14815,6 +14839,10 @@ final class RouterTests: XCTestCase {
             let steps = 2 + rnd(8)
             let dir: EuclidDir = [.fwd, .bkw, .pingpong][rnd(3)]
             var l = rpLine(1 + rnd(steps), steps, dir: dir, rotate: rnd(steps), rate: [.r1_8, .r1_16, .r1_4][rnd(3)], gate: [0.3, 0.5, 0.8][rnd(3)])
+            // GESTURE PREDICTABILITY fix (2026-10-24): `offsetFraction` is inert now (`offsetFractionResolved`
+            // is always 0) — still poked here, unconditionally consuming the same `rnd` draws so the rest of
+            // this trial's randomization is unchanged, as a standing regression guard that a decode-tolerant
+            // stale fraction never desyncs Router-vs-roll agreement even under heavy fuzzing.
             if rnd(3) > 0 { l.offsetFraction = Double(1 + rnd(99)) / 100 }
             if rnd(2) == 0 { let t = Double(rnd(199) - 99) / 100; l.tilt = t; l.tiltFine = t }
             if rnd(4) == 0 { l.patternMiss = true }
@@ -14837,7 +14865,10 @@ final class RouterTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThan(compared, 300); XCTAssertGreaterThan(withTiming, 25, "the fuzz must actually exercise hit timing")
+        // GESTURE PREDICTABILITY fix (2026-10-24): `offsetFraction` no longer contributes to `withTiming`
+        // (it's inert), so only the `tiltFine` branch above (~half the trials) can set it any more —
+        // threshold lowered from the old dual-contributor count to match (observed 11 at this seed).
+        XCTAssertGreaterThan(compared, 300); XCTAssertGreaterThan(withTiming, 5, "the fuzz must actually exercise hit timing")
     }
 
     // MARK: - LANE SOLO engine (ferry 2026-10-21, §8 tests 3-6 and 9; test 1 = the existing preset / synthetic-lane goldens, which run with the solo mask 0)

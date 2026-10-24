@@ -621,13 +621,16 @@ struct EuclidLine: Codable, Equatable {
     //    setter leaves it alone (4.2). nil ⇒ 0.
     //  · `tiltFine` (−1…1): TILT as the slider last wrote it AND the opt-in for UNROUNDED timing. `tilt` was already a Double, but the engine rounds a tilted hit onto the step grid (`euclidTiltPattern`); stopping that for every
     //    stored `tilt` would change how existing sessions sound, so a lane plays unrounded only when `tiltFine` is set (the TILT slider writes both fields, so an older build still reads `tilt`). nil ⇒ today's rounded TILT.
+    //    GESTURE PREDICTABILITY fix (2026-10-24): BOTH `tilt` and `tiltFine` are now decode-only — the TILT slider
+    //    reshapes `customHits` instead (Derivations.swift's `euclideousSliderCommit(.tilt,...)`); nothing live writes
+    //    either field any more, but an already-decoded non-nil value still biases a lane with no `customHits` set,
+    //    exactly as before (hide, don't delete) — only a NEW gesture no longer produces one.
     var offsetFraction: Double? = nil
     var tiltFine: Double? = nil
-    /// `offsetFraction` as the engine reads it: 0 for nil / non-finite, else clamped into 0..<1.
-    var offsetFractionResolved: Double {
-        guard let f = offsetFraction, f.isFinite else { return 0 }
-        return max(0, min(1 - 1e-9, f))
-    }
+    /// GESTURE PREDICTABILITY fix (2026-10-24): always 0 — reverses RHYTHM POLISH's continuous OFFSET
+    /// (2026-10-22) outright, per Paul's explicit ask. `offsetFraction` itself stays decode-tolerant
+    /// (hide, don't delete); nothing live writes a non-nil value into it any more.
+    var offsetFractionResolved: Double { 0 }
     /// TILT plays unrounded (continuous) on this lane — see `tiltFine`.
     var tiltIsFine: Bool { tiltFine != nil }
     var notesWhenResolved: UInt8 { let w = (notesWhen ?? 0b11) & 0b11; return w == 0 ? 0b11 : w }

@@ -206,7 +206,12 @@ struct LaneLockFields: Codable {
 /// What a set of lock fields RESOLVES to, read through the lane's own resolved accessors (`base` supplies the legacy fields a few of them migrate from) — the thing equality and the control-change list compare.
 struct LaneLockKey: Equatable {
     var steps: Int, pulses: Int, rotate: Int
-    var customHits: [Bool]?
+    // GESTURE PREDICTABILITY fix (2026-10-24): the RESOLVED pattern content (what actually plays —
+    // `euclideousSnapshotHits`, same helper HITS/TILT's own commit snapshots from), never the raw
+    // optional. HITS/TILT now both write `customHits` even on a still-pure lane (so a round-trip drag
+    // back to the start can leave it non-nil but content-identical to the fresh Bjorklund shape it
+    // replaced) — comparing the raw field would read that as a deviation when nothing audible changed.
+    var customHits: [Bool]
     var hitsRequested: Int, offsetRequested: Int
     var tilt: Double, tiltIsFine: Bool, offsetFraction: Double
     var rate: ArpRate?, followMult: Int, direction: EuclidDir, patternMiss: Bool
@@ -221,7 +226,8 @@ extension LaneLockFields {
     func key(base: EuclidLine = EuclidLine()) -> LaneLockKey {
         var l = base
         applied(to: &l)
-        return LaneLockKey(steps: l.steps, pulses: l.pulses, rotate: l.rotate, customHits: l.customHits,
+        return LaneLockKey(steps: l.steps, pulses: l.pulses, rotate: l.rotate,
+                           customHits: euclideousSnapshotHits(l, n: max(2, min(16, l.steps))),
                            hitsRequested: l.hitsRequestedResolved, offsetRequested: l.offsetRequestedResolved,
                            tilt: l.tiltResolved, tiltIsFine: l.tiltIsFine, offsetFraction: l.offsetFractionResolved, rate: l.rate, followMult: l.listenFollowMultResolved, direction: l.directionResolved, patternMiss: l.patternMissResolved,
                            chainRhythm: l.restartRhythmBars, chainMelody: l.restartMelodyPasses,
@@ -337,10 +343,23 @@ func euclideousLockChangedControls(from locked: LaneLockFields, to line: EuclidL
     let a = locked.key(base: line), b = LaneLockFields(line: line).key(base: line)
     guard a != b else { return [] }
     var s = Set<EuclideousLockControl>()
-    if a.pulses != b.pulses || a.customHits != b.customHits { s.insert(.hits) }
+    // GESTURE PREDICTABILITY fix (2026-10-24): TILT now reshapes `customHits` too (no longer only HITS).
+    // `pulses`, `steps` and the legacy `tilt`/`tiltIsFine` fields are each still an independent,
+    // UNAMBIGUOUS trigger on their own (a live gesture never touches another control's axis: HITS's
+    // commit never writes `tilt`; TILT's never writes `pulses`; STEPS changing the RESOLVED array's own
+    // LENGTH — `euclideousSnapshotHits`'s `n` — is not a hits/tilt edit at all). Only when ALL THREE
+    // agree with L but the RESOLVED `customHits` content still differs — `LaneLockKey.customHits` folds
+    // a nil lane's own tilt bias into its resolved shape, so a PURE legacy-tilt-field edit (no
+    // `customHits` on either side) already shows up via the `tilt` axis and must not double-fire here —
+    // is the difference attributable ONLY to a live HITS-or-TILT gesture, and the stored array alone
+    // can't say which, so it marks BOTH.
+    if a.pulses != b.pulses { s.insert(.hits) }
     if a.steps != b.steps { s.insert(.steps) }
     if a.rotate != b.rotate || a.offsetFraction != b.offsetFraction { s.insert(.offset) }
     if a.tilt != b.tilt || a.tiltIsFine != b.tiltIsFine { s.insert(.tilt) }
+    if a.pulses == b.pulses, a.steps == b.steps, a.tilt == b.tilt, a.tiltIsFine == b.tiltIsFine, a.customHits != b.customHits {
+        s.insert(.hits); s.insert(.tilt)
+    }
     if a.rate != b.rate { s.insert(.rate) }
     if a.followMult != b.followMult { s.insert(.followMult) }
     if a.direction != b.direction { s.insert(.direction) }

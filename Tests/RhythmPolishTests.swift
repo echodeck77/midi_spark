@@ -44,18 +44,14 @@ final class RhythmPolishTests: XCTestCase {
         XCTAssertNil(out?[1].offsetFraction); XCTAssertNil(out?[1].tiltFine)
     }
 
-    // MARK: 3. the STEPS setter keeps the fraction (and the §2.5 example still holds with fraction 0)
+    // MARK: 3. the STEPS setter keeps the §2.5 requested-offset memory
 
-    func testAStepsChangeKeepsOffsetFractionAndTheRequestedMemory() {
-        var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
-        euclideousSliderCommit(.offset, &l, snapshot: l, newValue: 5.25)
-        XCTAssertEqual(l.offsetRequested, 5); XCTAssertEqual(l.offsetFractionResolved, 0.25, accuracy: 1e-12)
-        euclideousSliderCommit(.steps, &l, snapshot: l, newValue: 6)
-        XCTAssertEqual(l.offsetFractionResolved, 0.25, accuracy: 1e-12, "STEPS keeps offsetFraction as it is (4.2)")
-        XCTAssertEqual(euclideousSliderRange(.offset, l).value, 5, "at 6 steps the slider tops out at STEPS−1 = 5; the stored fraction is untouched")
-        euclideousSliderCommit(.steps, &l, snapshot: l, newValue: 8)
-        XCTAssertEqual(euclideousSliderRange(.offset, l).value, 5.25, accuracy: 1e-9, "growing back restores the offset left behind, fraction included")
-        // §2.5's example with fraction 0: offset 7 on 8 steps, shrink to 4, grow back → 7 again
+    /// GESTURE PREDICTABILITY fix (2026-10-24): the fraction half of this test (RHYTHM POLISH §4.2 — a
+    /// STEPS change kept `offsetFraction` untouched) is retired outright along with continuous OFFSET —
+    /// `offsetFraction` is never written any more, so there is nothing left to preserve. The §2.5
+    /// "requested offset survives a shrink-then-grow of STEPS" memory itself is unrelated to this ferry
+    /// and still holds exactly as before.
+    func testAStepsChangeKeepsTheOffsetRequestedMemory() {
         var e = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
         euclideousSliderCommit(.offset, &e, snapshot: e, newValue: 7)
         XCTAssertNil(e.offsetFraction)
@@ -65,67 +61,103 @@ final class RhythmPolishTests: XCTestCase {
         XCTAssertEqual(euclideousSliderRange(.offset, e).value, 7)
     }
 
-    // MARK: 2.2 / 2.4 — OFFSET and TILT as continuous controls
+    // MARK: 2.2 / 2.4 — OFFSET and TILT, reverted to whole-step-only / snapshot+reshape (GESTURE
+    // PREDICTABILITY fix, 2026-10-24 — see that ferry's own tests further down and in DerivationsTests)
 
-    func testOffsetCommitsItsWholePartAndItsFractionAndReadsThemBack() {
+    /// Reverses RHYTHM POLISH's own continuous OFFSET (§2.2) outright, per Paul's explicit ask — OFFSET
+    /// is whole-step/band-snapped again, with no fraction, ever, regardless of what's dragged in.
+    func testOffsetIsWholeStepOnlyAgain() {
         var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
         euclideousSliderCommit(.offset, &l, snapshot: l, newValue: 5.25)
-        XCTAssertEqual(l.rotate, 3, "the integer offset is stored as it always was: (8 − 5) % 8")
+        XCTAssertEqual(l.rotate, 3, "the integer offset is stored as it always was: (8 − 5) % 8 — the .25 is simply dropped")
         XCTAssertEqual(l.offsetRequested, 5)
-        XCTAssertEqual(euclideousSliderValueText(.offset, l), "5.25")
-        XCTAssertEqual(euclideousSliderAccessibilityValueText(.offset, l), "5.25 steps")
-        euclideousSliderCommit(.offset, &l, snapshot: l, newValue: 5)
-        XCTAssertNil(l.offsetFraction, "a whole offset stores no fraction")
+        XCTAssertNil(l.offsetFraction, "OFFSET's commit never writes a fraction any more")
         XCTAssertEqual(euclideousSliderValueText(.offset, l), "5")
+        XCTAssertEqual(euclideousSliderAccessibilityValueText(.offset, l), "5 steps")
         euclideousSliderCommit(.offset, &l, snapshot: l, newValue: 1)
         XCTAssertEqual(euclideousSliderAccessibilityValueText(.offset, l), "1 step")
-        // a comet-bar drag past the ends still wraps (mod STEPS) and keeps the fraction
-        euclideousSliderCommit(.offset, &l, snapshot: l, newValue: 8.25)
-        XCTAssertEqual(l.offsetRequested, 0); XCTAssertEqual(l.offsetFractionResolved, 0.25, accuracy: 1e-12)
-        // 7.5 on 8 steps is representable in the model (the slider tops out at 7)
-        l.offsetFraction = 0.5; l.offsetRequested = 7; l.rotate = 1
-        XCTAssertEqual(euclideousSliderRange(.offset, l).value, 7, "the slider's range tops out at STEPS−1")
-        XCTAssertEqual(euclideousSliderValueText(.offset, l), "7.50")
+        // an old decoded session's own stale fraction no longer shows or plays — retired on the read side too
+        l.offsetFraction = 0.5
+        XCTAssertEqual(l.offsetFractionResolved, 0, "offsetFractionResolved is always 0 now")
+        XCTAssertEqual(euclideousSliderValueText(.offset, l), "1", "the stale fraction is never displayed")
     }
-    func testOffsetDoubleTapRevertAndTheTopOfTheTrack() {
+    func testOffsetDoubleTapRevertsToZeroAndTheRangeIsWholeStepBandSnapped() {
         var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
         let snap = l
-        euclideousSliderCommit(.offset, &l, snapshot: snap, newValue: 4.4)
+        euclideousSliderCommit(.offset, &l, snapshot: snap, newValue: 4)
         euclideousSliderRevert(.offset, &l, snapshot: snap)
-        XCTAssertNil(l.offsetFraction); XCTAssertEqual(l.rotate, 0)
-        euclideousSliderCommit(.offset, &l, snapshot: snap, newValue: 4.4)
+        XCTAssertEqual(l.rotate, 0)
+        euclideousSliderCommit(.offset, &l, snapshot: snap, newValue: 4)
         euclideousSliderDoubleTapDefault(.offset, &l)
-        XCTAssertNil(l.offsetFraction, "double-tap clears the fraction too — it is an OFFSET writer"); XCTAssertEqual(l.rotate, 0)
-        // value ↔ position: a continuous mapping against the existing 0…STEPS−1 track
-        XCTAssertEqual(euclideousSliderValueAt(.offset, l, frac: 0.5), 3.5, accuracy: 1e-12)
+        XCTAssertEqual(l.rotate, 0)
+        // GESTURE PREDICTABILITY fix: OFFSET is whole-number/band-snapped again (`isWhole`), not a
+        // continuous linear mapping — a touch anywhere in a value's own band reads as that exact integer.
+        XCTAssertEqual(euclideousSliderValueAt(.offset, l, frac: 0.5), 4, "band-snapped: frac 0.5 of 8 bands lands on band 4")
         XCTAssertEqual(euclideousSliderValueAt(.offset, l, frac: 1), 7); XCTAssertEqual(euclideousSliderValueAt(.offset, l, frac: 0), 0)
     }
-    func testTiltWritesBothFieldsAndShowsAWholePercent() {
+    /// TILT no longer writes `tilt`/`tiltFine` at all — it snapshots the lane's own current pattern and
+    /// reshapes `customHits`, exactly like HITS. Full coverage (pure-lane snapshot, an already-edited
+    /// pattern, revert) lives in DerivationsTests; this pins the value-TEXT side only (still read from
+    /// `tiltResolved`, so an untouched/legacy lane's own stale `tilt` still displays truthfully).
+    func testTiltValueTextStillReadsTiltResolvedButCommitNeverWritesIt() {
         var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
         euclideousSliderCommit(.tilt, &l, snapshot: l, newValue: 0.404)
-        XCTAssertEqual(l.tilt, 0.404); XCTAssertEqual(l.tiltFine, 0.404); XCTAssertTrue(l.tiltIsFine)
-        XCTAssertEqual(euclideousSliderValueText(.tilt, l), "+40%")
-        euclideousSliderCommit(.tilt, &l, snapshot: l, newValue: -0.124)
-        XCTAssertEqual(euclideousSliderValueText(.tilt, l), "−12%")
-        let snap = l
-        euclideousSliderDoubleTapDefault(.tilt, &l)
-        XCTAssertEqual(l.tilt, 0); XCTAssertEqual(l.tiltFine, 0); XCTAssertEqual(euclideousSliderValueText(.tilt, l), "0%")
-        euclideousSliderRevert(.tilt, &l, snapshot: snap)
-        XCTAssertEqual(l.tilt, -0.124); XCTAssertEqual(l.tiltFine, -0.124)
-        // a fresh lane's value text, and the pre-existing "tilt only" lane keeps reading as it did (rounded timing)
+        XCTAssertNil(l.tilt); XCTAssertNil(l.tiltFine)
+        XCTAssertNotNil(l.customHits, "TILT's commit writes customHits instead")
+        XCTAssertEqual(euclideousSliderValueText(.tilt, l), "0%", "nothing persists an amount any more — reads as rest (0%) right after release")
+        // a pre-existing "tilt only" (pre-ferry) lane keeps reading its own stored value truthfully
         var old = EuclidLine(pulses: 3, steps: 8, noteSel: .all); old.tilt = 0.3
         XCTAssertFalse(old.tiltIsFine); XCTAssertEqual(euclideousSliderValueText(.tilt, old), "+30%")
     }
 
-    // MARK: 7. the detents
-
-    func testTheOffsetDetentSnapsWithin008OfAWholeStepAndReleasesPastIt() {
-        XCTAssertEqual(euclideousOffsetDetent(2.08), 2); XCTAssertEqual(euclideousOffsetDetent(1.92), 2)
-        XCTAssertEqual(euclideousOffsetDetent(2.0801), 2.0801, accuracy: 1e-12); XCTAssertEqual(euclideousOffsetDetent(2.5), 2.5)
-        XCTAssertEqual(euclideousOffsetDetent(0.05), 0); XCTAssertEqual(euclideousOffsetDetent(6.95), 7)
-        // stateless: moving back inside the radius re-snaps, moving out reads as itself
-        XCTAssertEqual([2.0, 2.04, 2.09, 2.2, 2.09, 2.04].map(euclideousOffsetDetent), [2, 2, 2.09, 2.2, 2.09, 2])
+    // GESTURE PREDICTABILITY fix (2026-10-24): `euclidTiltPattern`/`Fine` used to blend from a theoretical
+    // even-spread formula instead of each hit's REAL position — discontinuous at tilt=0 (reported
+    // 2026-10-22, "a one-function change... not done"). These pin the fix: the blend must start exactly
+    // where the hits really are, for both the rounded and the fine builder, and for an ALREADY non-Euclidean
+    // starting buffer (not just a fresh Bjorklund one) — the second half of why this fix matters here.
+    func testTiltBlendsFromTheRealPositionsNotAnEvenSpreadFormula() {
+        // E(3,8) = {0,3,6}; the OLD evenPos formula for k=3,n=8 is {0, 3.5, 7} — a visibly different pattern.
+        func hitPositions(_ k: Int, _ n: Int, _ tilt: Double) -> [Int] {
+            var buf = [Bool](repeating: false, count: n)
+            euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
+            euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt)
+            return (0..<n).filter { buf[$0] }
+        }
+        XCTAssertEqual(hitPositions(3, 8, 0), [0, 3, 6], "tilt 0 is the real Euclidean pattern")
+        // Continuity: a TINY tilt away from 0 must round back onto the SAME real positions, in both
+        // directions — the old evenPos-based code jumped to {0,4,7}-ish here even at tilt 0.0001.
+        XCTAssertEqual(hitPositions(3, 8, 0.0001), [0, 3, 6], "a tiny positive tilt doesn't jump the pattern")
+        XCTAssertEqual(hitPositions(3, 8, -0.0001), [0, 3, 6], "a tiny negative tilt doesn't jump the pattern")
+        // Smoothness: sweeping tilt in small steps, no single hit (by rank) ever jumps by more than one
+        // step between adjacent samples — true for the fix (a continuous blend), false for the old formula
+        // (which could relocate every hit at once, the instant tilt left exactly 0).
+        var prev = hitPositions(3, 8, -1)
+        var step = -1.0
+        while step <= 1.0001 {
+            let cur = hitPositions(3, 8, step)
+            XCTAssertEqual(cur.count, prev.count)
+            for (a, b) in zip(cur, prev) { XCTAssertLessThanOrEqual(abs(a - b), 1, "tilt \(step): a hit moved more than one step from its immediate neighbour sample") }
+            prev = cur
+            step += 0.05
+        }
+        // The fine (continuous) builder: the SAME check, reading `micro` so tilt 0 has none and a tiny
+        // tilt reports a tiny fraction (not a relocation to a completely different cell).
+        var buf = [Bool](repeating: false, count: 8), micro = [Double](repeating: 0, count: 8)
+        euclidPatternInto(&buf, pulses: 3, steps: 8, rotation: 0)
+        euclidTiltPatternFine(&buf, pulses: 3, steps: 8, tilt: 0.0001, micro: { i, f in micro[i] = f })
+        XCTAssertEqual((0..<8).filter { buf[$0] }, [0, 3, 6], "a tiny tilt keeps the fine builder on the real cells too")
+        XCTAssertTrue(micro.allSatisfy { $0 < 0.01 }, "and the in-cell fractions stay tiny, not jumped to a different blend entirely")
+        // Blending from an ALREADY non-Euclidean buffer (e.g. a gap-filled HITS pattern) must bias FROM
+        // those real positions too, not silently fall back to treating it as fresh Bjorklund.
+        var custom = [Bool](repeating: false, count: 8)
+        for i in [1, 2, 5] { custom[i] = true }   // not E(3,8) — a hand/gap-filled shape
+        euclidTiltPattern(&custom, pulses: 3, steps: 8, tilt: 0.0001)
+        XCTAssertEqual((0..<8).filter { custom[$0] }, [1, 2, 5], "a tiny tilt on a non-Euclidean buffer still starts from ITS real positions")
     }
+
+    // MARK: 7. the detents (OFFSET's own, and its test, are RETIRED along with continuous OFFSET —
+    // GESTURE PREDICTABILITY fix, 2026-10-24 — `euclideousOffsetDetent` is deleted, not just unused)
+
     func testTheTiltDetentSnapsWithin3PercentOfZero() {
         XCTAssertEqual(euclideousTiltDetent(0.03), 0); XCTAssertEqual(euclideousTiltDetent(-0.03), 0); XCTAssertEqual(euclideousTiltDetent(0.0), 0)
         XCTAssertEqual(euclideousTiltDetent(0.0301), 0.0301); XCTAssertEqual(euclideousTiltDetent(-0.5), -0.5)
@@ -151,21 +183,35 @@ final class RhythmPolishTests: XCTestCase {
 
     // MARK: LANE LOCK — the two fields lock with the controls that write them
 
-    func testALockHoldsTheFractionAndTheFineTilt() {
+    /// GESTURE PREDICTABILITY fix (2026-10-24): `offsetFraction` is now fully inert for lock comparisons
+    /// (`offsetFractionResolved` is always 0) — even poking the raw field directly no longer reads as a
+    /// deviation. `tilt`/`tiltIsFine` still matter on their own only for a legacy pre-ferry lane with no
+    /// `customHits` involved; a LIVE TILT gesture deviates via `customHits` instead (next test).
+    func testOffsetFractionIsInertAndLegacyTiltFieldsStillDeviateLockComparison() {
         var l = EuclidLine(pulses: 3, steps: 8, rotate: 2, noteSel: .all)
         let locked = LaneLockFields(line: l)
         XCTAssertFalse(euclideousLockDeviated(line: l, from: locked))
         l.offsetFraction = 0.3
-        XCTAssertTrue(euclideousLockDeviated(line: l, from: locked), "a fractional OFFSET is a deviation")
-        XCTAssertEqual(euclideousLockChangedControls(from: locked, to: l), [.offset, .cometStrip])
-        var back = l; locked.applied(to: &back)
-        XCTAssertNil(back.offsetFraction, "the snap restores it exactly")
+        XCTAssertFalse(euclideousLockDeviated(line: l, from: locked), "offsetFraction never deviates any more — offsetFractionResolved is always 0")
         l.offsetFraction = nil; l.tilt = 0.4; l.tiltFine = 0.4
-        XCTAssertTrue(euclideousLockDeviated(line: l, from: locked))
+        XCTAssertTrue(euclideousLockDeviated(line: l, from: locked), "a legacy lane's own tilt/tiltFine fields still deviate when no customHits is involved")
         // flipping only the rounded/unrounded marker (same value) is a deviation too: it sounds different
         var a = EuclidLine(pulses: 3, steps: 8, noteSel: .all); a.tilt = 0.4
         var b = a; b.tiltFine = 0.4
         XCTAssertTrue(euclideousLockDeviated(line: b, from: LaneLockFields(line: a)))
+    }
+    /// A live TILT (or HITS) gesture now deviates — and is attributed — through `customHits`, the ONLY
+    /// thing either writes; since the stored array alone can't say which gesture produced it, BOTH
+    /// controls show as changed (`euclideousLockChangedControls`'s own disclosed judgment call).
+    func testATiltGestureDeviatesAndIsAttributedToBothHitsAndTiltViaCustomHits() {
+        let l0 = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
+        let locked = LaneLockFields(line: l0)
+        var l = l0
+        euclideousSliderCommit(.tilt, &l, snapshot: l0, newValue: 0.6)
+        XCTAssertTrue(euclideousLockDeviated(line: l, from: locked))
+        XCTAssertEqual(euclideousLockChangedControls(from: locked, to: l), [.hits, .tilt, .cometStrip])
+        var back = l; locked.applied(to: &back)
+        XCTAssertEqual(back.customHits, locked.customHits, "the snap restores the locked representation exactly")
     }
 
     // MARK: 5. the hit layout — the builder and the buffer → tick-space mapping

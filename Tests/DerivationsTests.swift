@@ -523,17 +523,24 @@ final class DerivationsTests: XCTestCase {
         var late = euclidPattern(pulses: k, steps: n); euclidTiltPattern(&late, pulses: k, steps: n, tilt: 1)
         XCTAssertEqual(late, (0..<n).map { $0 >= n - k }, "tilt=+1 must cram all K hits into the LAST K steps, exactly")
     }
-    func testEuclidTiltPatternAtHalfTiltLandsExactlyHalfwayBetweenEvenAndPacked() {
-        // K=3/N=10, tilt=0.5, worked by hand from the formula itself (evenPos + |t|×(packedLate−evenPos)),
-        // not from the OLD power-curve (which would NOT produce these values — the discriminating point of
-        // this test): hit0 evenPos=0, packedLate=10−3+0=7 → 0+0.5×7=3.5→4. hit1 evenPos=1/2×9=4.5,
-        // packedLate=8 → 4.5+0.5×3.5=6.25→6. hit2 evenPos=9, packedLate=9 (coincide at the last hit for
-        // this K/N) → 9. No collisions (4,6,9 are distinct), so no nudging enters the picture either.
+    /// GESTURE PREDICTABILITY fix (2026-10-24): blends from each hit's REAL current position now, not
+    /// the old theoretical even-spread formula this test's own name and worked comment described — see
+    /// `euclidTiltPattern`'s own doc comment, and `testTiltBlendsFromTheRealPositionsNotAnEvenSpreadFormula`
+    /// (RhythmPolishTests) for the fix's own dedicated coverage. Recomputed here from the REAL E(3,10)
+    /// positions instead of evenPos: tilt=0.5 must still land each hit exactly halfway between its real
+    /// starting position and fully-packed-late — the defining property of a LINEAR blend survives the fix.
+    func testEuclidTiltPatternAtHalfTiltLandsExactlyHalfwayBetweenRealAndPacked() {
         let k = 3, n = 10
         var buf = euclidPattern(pulses: k, steps: n)
+        let real = buf.enumerated().filter { $0.element }.map { $0.offset }
         euclidTiltPattern(&buf, pulses: k, steps: n, tilt: 0.5)
         let positions = buf.enumerated().filter { $0.element }.map { $0.offset }
-        XCTAssertEqual(positions, [4, 6, 9], "tilt=0.5 must land each hit exactly halfway between its even-spread and fully-packed-late position — the defining property of a LINEAR blend")
+        let wantHalfway = (0..<k).map { i -> Double in
+            let packedLate = Double(n - k + i)
+            return Double(real[i]) + 0.5 * (packedLate - Double(real[i]))
+        }
+        XCTAssertEqual(positions.map(Double.init), wantHalfway.map { $0.rounded() },
+                        "tilt=0.5 must land each hit exactly halfway between its REAL starting position and fully-packed-late — the defining property of a LINEAR blend")
     }
     // ROTATION DECOUPLING (Paul 2026-10-11: "the offset makes tilt look indecipherable... maybe this could
     // adjust to offset") — `euclidRotateBuffer` must reproduce `euclidPatternInto`'s OWN internal rotation
@@ -3523,11 +3530,18 @@ final class DerivationsTests: XCTestCase {
         euclideousSliderCommit(.hits, &line, snapshot: snap, newValue: 1)
         XCTAssertEqual(line.customHits, snap.customHits, "dragging back to the starting count restores the pattern exactly")
     }
-    func testEuclideousSliderCommitHitsOnAPurePatternJustSetsPulses() {
+    func testEuclideousSliderCommitHitsOnAPurePatternAlsoGapFillsIntoCustomHits() {
+        // GESTURE PREDICTABILITY fix (2026-10-24): a PURE lane now ALSO gap-fills into `customHits` (not
+        // just `pulses`) — so an existing hit never jumps to an unrelated Bjorklund layout when HITS
+        // changes; only the minimal gap-fill/crowd-removal moves. The snapshot's own fresh unrotated
+        // buffer IS what `euclidPatternInto` would have generated anyway (nothing edited it yet), so the
+        // result must equal rebuilding from THAT buffer, not an independently-regenerated one.
         var line = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
         euclideousSliderCommit(.hits, &line, snapshot: line, newValue: 5)
         XCTAssertEqual(line.pulses, 5)
-        XCTAssertNil(line.customHits, "no hand-edited pattern ⇒ stays pure Euclid, only pulses changes")
+        var fresh = [Bool](repeating: false, count: 8)
+        euclidPatternInto(&fresh, pulses: 3, steps: 8, rotation: 0)
+        XCTAssertEqual(line.customHits, euclidRebuildPattern(fresh, targetCount: 5))
     }
     func testEuclideousSliderCommitStepsRevertsAnEditedPatternOnlyWhenItActuallyChanges() {
         let edited = EuclidLine(pulses: 2, steps: 4, noteSel: .all, customHits: [true, false, true, false])
@@ -3564,11 +3578,44 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(boxIndex(displayedOffset: 2), (boxIndex(displayedOffset: 0) + 2) % 8,
                         "dragging right (raising the displayed value by 2) moves the hit 2 boxes to the right")
     }
-    func testEuclideousSliderCommitTiltIsANoOpOnAnEditedPattern() {
-        let edited = EuclidLine(pulses: 1, steps: 2, noteSel: .all, tilt: 0, customHits: [true, false])
+    func testEuclideousSliderCommitTiltReshapesAnAlreadyEditedPatternInsteadOfBeingDisabled() {
+        // GESTURE PREDICTABILITY fix (2026-10-24): TILT no longer refuses an already hand-edited/HITS-
+        // reshaped pattern — it biases it instead (the AskUserQuestion decision: "loosen the rule so
+        // TILT keeps working"), writing `customHits` and never touching `line.tilt`/`tiltFine` at all
+        // (retired on the write side).
+        let hits: [Bool] = [true, false, false, true, false, false, true, false]   // a hand-placed E(3,8)-shaped pattern
+        let edited = EuclidLine(pulses: 3, steps: 8, noteSel: .all, customHits: hits)
         var line = edited
         euclideousSliderCommit(.tilt, &line, snapshot: edited, newValue: 0.8)
-        XCTAssertEqual(line.tilt, 0, "defensive guard — the UI never drags a disabled TILT, but the commit itself must still refuse")
+        XCTAssertEqual(line.tilt, edited.tilt, "tilt/tiltFine are retired on the write side — never touched any more")
+        var expected = hits
+        euclidTiltPattern(&expected, pulses: 3, steps: 8, tilt: 0.8)
+        XCTAssertEqual(line.customHits, expected, "blends from the edited pattern's own real positions, the same primitive a pure lane's TILT uses")
+        XCTAssertNotEqual(line.customHits, edited.customHits, "sanity: the bias actually did something at t=0.8")
+    }
+    /// GESTURE PREDICTABILITY fix (2026-10-24): a still-pure lane's TILT drag also reshapes into
+    /// `customHits` — the shared snapshot helper (`euclideousSnapshotHits`) builds the SAME fresh
+    /// unrotated Bjorklund buffer `euclideousBuildPatternInto` would have rendered, so biasing it from
+    /// there matches biasing the live render path exactly.
+    func testEuclideousSliderCommitTiltOnAPureLaneBiasesItsOwnFreshBjorklundBuffer() {
+        let line0 = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
+        var line = line0
+        euclideousSliderCommit(.tilt, &line, snapshot: line0, newValue: -1)
+        var fresh = [Bool](repeating: false, count: 8)
+        euclidPatternInto(&fresh, pulses: 3, steps: 8, rotation: 0)
+        euclidTiltPattern(&fresh, pulses: 3, steps: 8, tilt: -1)
+        XCTAssertEqual(line.customHits, fresh)
+        XCTAssertNil(line.tilt, "never written — stays whatever the snapshot had (nil here)")
+    }
+    /// GESTURE PREDICTABILITY fix (2026-10-24): TILT's commit now writes `customHits`, so its revert
+    /// restores THAT, not `tilt`/`tiltFine` (which it never touches any more).
+    func testEuclideousSliderRevertOnTiltRestoresCustomHits() {
+        let before = EuclidLine(pulses: 3, steps: 8, noteSel: .all, customHits: [true, false, false, true, false, false, true, false])
+        var line = before
+        euclideousSliderCommit(.tilt, &line, snapshot: before, newValue: 0.6)
+        XCTAssertNotEqual(line.customHits, before.customHits, "sanity: the drag actually changed something")
+        euclideousSliderRevert(.tilt, &line, snapshot: before)
+        XCTAssertEqual(line.customHits, before.customHits)
     }
     func testEuclideousSliderRevertRestoresOnlyTheOwnedField() {
         let before = EuclidLine(pulses: 2, steps: 8, rotate: 1, noteSel: .all)
@@ -3610,11 +3657,18 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNil(line.offsetRequested)
     }
     func testEuclideousSliderDoubleTapDefaults() {
-        var line = EuclidLine(pulses: 3, steps: 8, rotate: 4, noteSel: .all, gate: 0.3, velocityAbsolute: 40, tilt: 0.5)
-        euclideousSliderDoubleTapDefault(.hits, &line); XCTAssertEqual(line.pulses, 3, "HITS has no double-tap default, matching the old pad's own behaviour")
-        euclideousSliderDoubleTapDefault(.steps, &line); XCTAssertEqual(line.steps, 8, "STEPS likewise has none")
+        // GESTURE PREDICTABILITY fix (2026-10-24): HITS and TILT's double-tap is now the shared revert-
+        // to-pure-Euclid gesture (clearing `customHits`), replacing the old TILT-only `tilt = 0` reset
+        // and HITS' old no-op — the EDITED chip's single-tap zone they used to need is gone.
+        var line = EuclidLine(pulses: 3, steps: 8, rotate: 4, noteSel: .all, gate: 0.3, velocityAbsolute: 40,
+                               customHits: [true, false, true, false, true, false, true, false])
+        euclideousSliderDoubleTapDefault(.steps, &line); XCTAssertEqual(line.steps, 8, "STEPS still has no double-tap default")
+        euclideousSliderDoubleTapDefault(.hits, &line)
+        XCTAssertNil(line.customHits, "HITS' double-tap now reverts a reshaped pattern to pure Euclid")
+        line.customHits = [true, false, true, false, true, false, true, false]
+        euclideousSliderDoubleTapDefault(.tilt, &line)
+        XCTAssertNil(line.customHits, "and so does TILT's")
         euclideousSliderDoubleTapDefault(.offset, &line); XCTAssertEqual(line.rotate, 0)
-        euclideousSliderDoubleTapDefault(.tilt, &line); XCTAssertEqual(line.tilt, 0)
         euclideousSliderDoubleTapDefault(.gate, &line); XCTAssertEqual(line.gate, 0.9)
         euclideousSliderDoubleTapDefault(.velocity, &line); XCTAssertEqual(line.velocityAbsolute, 100)
     }
