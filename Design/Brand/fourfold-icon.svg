@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Fourfold app icon, Canon. Full-bleed square: iOS applies its own corner mask. -->
+  <rect width="1024" height="1024" fill="#15161A"/>
+  <g id="lane-1" fill="#F25959">
+    <rect x="195" y="295" width="130" height="92" rx="46"/>
+    <rect x="411" y="295" width="202" height="92" rx="46"/>
+  </g>
+  <g id="lane-2" fill="#59BFF2">
+    <rect x="267" y="409" width="130" height="92" rx="46"/>
+    <rect x="483" y="409" width="202" height="92" rx="46"/>
+  </g>
+  <g id="lane-3" fill="#F2BF40">
+    <rect x="339" y="523" width="130" height="92" rx="46"/>
+    <rect x="555" y="523" width="202" height="92" rx="46"/>
+  </g>
+  <g id="lane-4" fill="#8CD973">
+    <rect x="411" y="637" width="130" height="92" rx="46"/>
+    <rect x="627" y="637" width="202" height="92" rx="46"/>
+  </g>
+  <g id="rests" fill="#41454F">
+    <circle cx="368" cy="341" r="11"/>
+    <circle cx="440" cy="455" r="11"/>
+    <circle cx="512" cy="569" r="11"/>
+    <circle cx="584" cy="683" r="11"/>
+  </g>
+</svg>

@@ -54,6 +54,7 @@
 		33257FF396680B09DBDBE620 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
 		3437F7ABE70D5C93E7A4D0C0 /* LaneSoloTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
+		359665078124DA148FE39039 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */; };
 		35CB6DD7FC7A5B6F80092961 /* BuildSelfTestMetaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */; };
 		368706B54B23A18EAE705127 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9093C469F102E1F2CCC6DF7D /* MidiFile.swift */; };
 		36AE872430F7852DAEE6C3E0 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */; };
@@ -473,6 +474,7 @@
 		CFD093523154373C2AAE660A /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CogPage.swift; sourceTree = "<group>"; };
 		D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGatesSpecialTests.swift; sourceTree = "<group>"; };
+		D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockModePainter.swift; sourceTree = "<group>"; };
 		D4B004FB0FED39A5E1961BD8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D67906574F7AC7903958AF3B /* RiffPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffPanelTests.swift; sourceTree = "<group>"; };
@@ -823,6 +825,7 @@
 		C36917845A7A71A6D8E2A936 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */,
 				64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */,
 				29E016452526AE786D501E59 /* FourfoldAppModel.swift */,
 				7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */,
@@ -943,6 +946,7 @@
 			buildConfigurationList = CBCA1FB4F7A5FF31EAD78864 /* Build configuration list for PBXNativeTarget "Fourfold" */;
 			buildPhases = (
 				082F3E443A8C376557CDE39B /* Sources */,
+				A41BD98782224EED0EF1F086 /* Resources */,
 				92013BC969BB13383E3632A2 /* Frameworks */,
 				6818F562DF1A2DB939465ACD /* Embed Foundation Extensions */,
 			);
@@ -1027,6 +1031,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				021019A5AE17098B3B3FFD3E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A41BD98782224EED0EF1F086 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				359665078124DA148FE39039 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
