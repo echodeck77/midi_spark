@@ -460,3 +460,4 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 - Settings sheet (gear, MIDI IN/MAIN OUT/CLOCK tabs)
 - Presets
 - Engine/audio (anything that passed its tests but needs an ear, not an eye)
+- **Fourfold Step 4 (engine copy-and-trim, 2026-10-24):** the Fourfold AU in AUM and the standalone app on the iPad must sound EXACTLY as before the trim — the golden proves 21 documents byte-identical, but it has no MIDI input, host transport edges, reel, lane lock or HOLD/LATCH: play a chord through MIDI IN, start/stop the host, toggle HOLD and LATCH, lock a lane, record + replay a reel pass, change a MAIN OUT channel mid-note and mute a lane mid-hold, and listen for a stuck or missing note.

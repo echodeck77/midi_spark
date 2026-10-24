@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — STEP 4 engine copy-and-trim (2026-10-24; `Docs/euclideous-status-log.md`, plan in `Docs/standalone-plan.md`)
+- [ ] DEVICE: see the "Fourfold Step 4" line in `Docs/euclideous-device-verification-debt.md` (an ear pass: MIDI in, host start/stop, HOLD/LATCH, lane lock, reel, a mute mid-hold).
+- [ ] TRIM, left: `Models.swift` (3.3k) still holds the 8x8 document (scenes of many cells, `Receiver` doors, `Row8Cell`, macros, factory scenes, migrations); `Derivations.swift` (8.1k) still has helpers the Fourfold UI never reaches; Fourfold's own retired / decode-only layers (plan item D). Method: delete by reachability (callers) then compile; prune only tests of things the copy no longer has — and audit `prune.py`'s removed TEST HELPERS (a removed helper silently takes every test that used it).
+- [ ] LOOK (Step 5, accessibility): `euclideousStripAccessibilityValue`, `euclideousStripMuteLook`, `euclideousStripDrawsAsHit`, `euclideousLaneIsDimmed`, `euclideousLapStartOrdinal` were documented as shared "one rule" functions but had no production caller (before the trim, too) — check the lane strip's VoiceOver value and the dim rule are wired where they should be.
+- [ ] DECIDE (Paul): `Scripts/classify_euclideous_tests.py` is only the 8x8 fast-run selector now; keep for 8x8 or retire.
+
 ## ★ EUCLIDEOUS — LISTEN REBUILT: canon-style LISTEN tab — COPY/FILL rhythm, SHADOW/ECHO/AVOID pitch, borrowed tabs pause whole (2026-10-23; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the new "LISTEN REBUILT" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] DECIDE (Paul): DUCK/ACCENT (the old LEVEL row) is retired outright with no replacement — a migrated old document that used either loses that velocity behaviour entirely, not just its UI slot.
