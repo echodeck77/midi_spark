@@ -519,4 +519,13 @@ final class RhythmPolishTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(rowH, 1, "\(size)")
         }
     }
+
+    // iPad MINI fix (2026-10-24): TILT's EARLY / LATE captions sit on an opaque backing at the tile's bottom; below ≈ 36.7 pt of tile height it erases the lower half of "TILT" and "0%". The arithmetic is in the code's comment; this pins it.
+    func testTheEndCaptionsDropOutBeforeTheirBackingCanErasetheLabelRow() {
+        let labelRowInkBottom = 9.0 + 16.0 / 2 + 9.0 / 2        // 9 pt inset, half the 16 pt value line, half a 9 pt digit
+        let needed = labelRowInkBottom + 1 + 10 + 4             // 1 pt clear, the caption's 10 pt box, its 4 pt bottom inset
+        XCTAssertGreaterThanOrEqual(Double(EuclideousRhythmGeometry.endLabelsFloor), needed - 0.01, "the floor must clear the label row's ink")
+        XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: 38.67), "the reference tile keeps its captions")
+        XCTAssertFalse(EuclideousRhythmGeometry.showsEndLabels(rowH: 34), "the iPad mini's ≈ 31–34 pt tile drops them instead of overprinting")
+    }
 }

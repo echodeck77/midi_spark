@@ -218,13 +218,14 @@ struct EuclideousMixOctaveStepper: View {
     var body: some View {
         let minus = euclideousMixOctaveNext(octave, up: false), plus = euclideousMixOctaveNext(octave, up: true)
         let octaveColour: Color = octave == 0 ? EuclideousMixPalette.value : accent
+        let caption = euclideousMixOctaveCaption(cellW: cellW)   // the number is the point: a narrow pad shortens or drops "OCT", never the number
         return ZStack {
             RoundedRectangle(cornerRadius: 6).fill(EuclideousMixPalette.stepper)
             HStack(spacing: 0) {
                 button("minus", enabled: minus != nil) { if let m = minus { onSet(m) } }
                 Spacer(minLength: 0)
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("OCT").font(heavyMono(8)).tracking(0.08 * 8).foregroundColor(EuclideousMixPalette.name).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: caption == .full ? 4 : 2) {
+                    if caption != .none { Text("OCT").font(heavyMono(8)).tracking((caption == .full ? 0.08 : 0.02) * 8).foregroundColor(EuclideousMixPalette.name).lineLimit(1) }
                     Text(euclideousMixOctaveText(octave)).font(heavyMono(13)).monospacedDigit().foregroundColor(octaveColour).lineLimit(1)
                 }
                 Spacer(minLength: 0)

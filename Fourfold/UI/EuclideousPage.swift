@@ -3018,6 +3018,9 @@ struct EuclideousPage: View {
         // count (not borrowed) uses the card's own lane colour.
         let suffixColor = borrowedMark ? lane100(laneAccents[line.listenSourceResolved(ownLane: idx) % laneAccents.count]) : lane100(accent)
         let title: Text = suffix.map { name + Text(" " + $0).font(face).tracking(0).foregroundColor(suffixColor) } ?? name
+        // A tab too narrow for "RHYTHM 5/16" (the iPad mini; a locked lane's badge) used to cut the NUMBER ("5/…"). The count is what the tab is for, so the word gives way first: "RHY 5/16". (Nothing shrinks.)
+        let shortTitle: Text? = (t == .rhythm && suffix != nil)
+            ? Text("RHY").font(face).tracking(1).foregroundColor(sel ? patternSelectedText : patternUnselectedText) + Text(" " + suffix!).font(face).tracking(0).foregroundColor(suffixColor) : nil
         let fill: Color = {
             switch glyph.fill {
             case .lane(let l): return lane100(laneAccents[max(0, l) % laneAccents.count])
@@ -3025,7 +3028,14 @@ struct EuclideousPage: View {
         }()
         return AnyView(
             HStack(spacing: 5) {
-                title.lineLimit(1).truncationMode(.tail)
+                if let shortTitle {
+                    ViewThatFits(in: .horizontal) {
+                        title.lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                        shortTitle.lineLimit(1).truncationMode(.tail)
+                    }
+                } else {
+                    title.lineLimit(1).truncationMode(.tail)
+                }
                 if glyph.shape != .none { EuclideousTabGlyphView(shape: glyph.shape, on: glyph.on, fill: fill) }
             }
             .opacity(glyph.shape != .none && !glyph.on ? 0.4 : 1)

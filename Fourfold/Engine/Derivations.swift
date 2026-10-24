@@ -3628,7 +3628,9 @@ enum EuclideousRhythmGeometry {
     /// by design at the 38.67pt reference row height (RHYTHM POLISH §1.5's own "4.3pt overlap, the ink
     /// should not touch") — below this floor, that overlap would turn illegible rather than merely tight,
     /// so the labels (pure annotation; TILT itself stays fully usable without them) drop out instead.
-    static let endLabelsFloor: CGFloat = 28
+    static let endLabelsFloor: CGFloat = 37
+    // (2026-10-24, from the iPad mini screenshots) 37, not 28: the label/value row is pinned 9 pt below the tile's top, so its ink ends about 21.7 pt down (9 + half the 16 pt value line + half a 9 pt digit);
+    // the captions' OPAQUE backing is a 10 pt box 4 pt above the bottom — it must start at least a point below that ink: 21.7 + 1 + 10 + 4 = 36.7. On a ≈31–34 pt tile (the mini in portrait) it erased the lower half of "TILT" and "0%".
     /// The three right-half rows split the upper zone's height equally (RHYTHM POLISH 1.2).
     static func rightRowH(upperH: CGFloat) -> CGFloat { max(1, (upperH - gap * 2) / 3) }
     /// Four equal direction buttons, sp4 apart, across the right half (1.3).
@@ -4143,6 +4145,9 @@ enum EuclideousMixMetrics {
     /// with 0.64 tracking 16.8 + the 4 pt gap + "+1" at 13 pt 16.1 = 36.9) it needs 37; 2 × 21 + 37 = 79 is `minCellW`. (The old 24 pt buttons were also ≈ 1 pt short at the old 84 floor; the references have 2–4 pt to spare.)
     /// Without the narrower buttons a non-zero octave truncated to "OCT …" at the reference width (found in a scratch render). The buttons stay 24 tall.
     static let stepperButtonW: CGFloat = 21, stepperCentreNeeds: CGFloat = 37
+    /// (2026-10-24, from the iPad mini screenshots) Below `stepperCentreNeeds` the caption used to be drawn anyway and the NUMBER got the ellipsis ("OCT …" — the mini's pads leave 35.5 pt). The number is the point, so the caption gives way first:
+    /// first a TIGHT caption (2 pt gap, tracking 0.16 — saves ≈ 3.3 pt, needs 34), and below that no caption at all (the stepper is still named for VoiceOver).
+    static let stepperCentreNeedsTight: CGFloat = 34
     static let outRowH: CGFloat = 20
     /// Floors ferry: the OUT row's own floor, shrinking together with the stepper (see `stepperCompactH`).
     static let outRowCompactH: CGFloat = 14
@@ -4166,6 +4171,13 @@ func euclideousMixGridArea(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize 
     CGSize(width: panelWidth - EuclideousMixMetrics.sp8 * 2,
            height: panelHeight - EuclideousMixMetrics.sp8 * 2 - EuclideousMixMetrics.tabRowH - EuclideousMixMetrics.sp8)
 }
+/// How much of "OCT +1" the stepper can draw between its buttons for a pad of width `cellW` (see `EuclideousMixMetrics.stepperCentreNeedsTight`).
+enum EuclideousMixOctaveCaption: Equatable { case full, tight, none }
+func euclideousMixOctaveCaption(cellW: CGFloat) -> EuclideousMixOctaveCaption {
+    let centre = cellW - 2 * EuclideousMixMetrics.stepperButtonW
+    return centre >= EuclideousMixMetrics.stepperCentreNeeds ? .full : (centre >= EuclideousMixMetrics.stepperCentreNeedsTight ? .tight : .none)
+}
+
 struct EuclideousMixGrid: Equatable {
     /// `rowH` is a lane PANEL's height (CLARITY PASS: it was the row of cells' height), `padH` a pad's.
     var cellW: CGFloat, rowH: CGFloat, padH: CGFloat

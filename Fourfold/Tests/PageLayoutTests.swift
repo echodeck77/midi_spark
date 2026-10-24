@@ -145,9 +145,10 @@ final class PageLayoutTests: XCTestCase {
     /// Floors ferry (2026-10-23): TILT's EARLY/LATE end-labels — pure annotation, not the control — drop
     /// out below their own floor, independent of (and tighter than) the inert `rhythmZonesFloor`(192).
     func testRhythmEndLabelsDropBelowTheirOwnFloor() {
-        XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: 28))
+        let floor = EuclideousRhythmGeometry.endLabelsFloor   // 37 since the iPad-mini fix (was 28 — below ≈ 36.7 pt the captions' backing erased the label row's lower half)
+        XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: floor))
         XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: 38.67), "the reference row height")
-        XCTAssertFalse(EuclideousRhythmGeometry.showsEndLabels(rowH: 27.99))
+        XCTAssertFalse(EuclideousRhythmGeometry.showsEndLabels(rowH: floor - 0.01))
     }
     func testMixFairShareDropsTheStepperAndOutRowTogetherExactlyAtThePadFloor() {
         // the fallback triggers when innerH − nominalBelowPad(52) < minPadH(64), i.e. innerH < 116 — pin both sides.

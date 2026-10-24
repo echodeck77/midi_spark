@@ -380,4 +380,28 @@ final class ClarityPassTests: XCTestCase {
         XCTAssertEqual(viaRiff, direct, "the guarded write is the old write for an enabled pad")
         XCTAssertTrue(euclideousMixPadResetIfEnabled(&line, notes: true)); XCTAssertEqual(line.notesVelocityResolved, 100)
     }
+
+    // iPad MINI fix (2026-10-24): the OCT stepper gave the number the ellipsis ("OCT …") when its pad was ~1.5 pt too narrow; the CAPTION gives way instead.
+    func testTheOctaveCaptionShortensThenDropsBeforeTheNumberEverTruncates() {
+        let w = EuclideousMixMetrics.stepperButtonW
+        XCTAssertEqual(euclideousMixOctaveCaption(cellW: 2 * w + EuclideousMixMetrics.stepperCentreNeeds), .full)
+        XCTAssertEqual(euclideousMixOctaveCaption(cellW: 2 * w + EuclideousMixMetrics.stepperCentreNeeds - 0.1), .tight)
+        XCTAssertEqual(euclideousMixOctaveCaption(cellW: 2 * w + EuclideousMixMetrics.stepperCentreNeedsTight), .tight)
+        XCTAssertEqual(euclideousMixOctaveCaption(cellW: 2 * w + EuclideousMixMetrics.stepperCentreNeedsTight - 0.1), .none)
+    }
+
+    /// Every iPad the app ships to, both orientations: the real MIX pad width leaves room for the NUMBER ("+1" is 16.1 pt at 13 pt) and keeps at least the tight caption.
+    func testEveryShippedIPadKeepsTheOctaveNumberAndItsCaption() {
+        let screens: [(CGFloat, CGFloat)] = [(744, 1133), (820, 1180), (834, 1194), (1024, 1366), (1032, 1376)]   // mini, iPad / Air 11, Pro 11, Air 13, Pro 13 (points)
+        for (w, h) in screens { for size in [CGSize(width: w, height: h), CGSize(width: h, height: w)] {
+            let box = euclideousPageLayout(size: size).seq
+            let area = euclideousMixGridArea(panelWidth: box.width, panelHeight: box.height)
+            let g = euclideousMixGrid(width: area.width, height: area.height)
+            let centre = g.cellW - 2 * EuclideousMixMetrics.stepperButtonW
+            XCTAssertGreaterThanOrEqual(centre, 16.5, "\(size): the octave number must fit between the buttons")
+            // the iPad mini in PORTRAIT (pad 74 pt, 32 pt between the buttons) is the one screen that drops the word: "−  +1  +" is self-explanatory and VoiceOver still says "octave"
+            if size == CGSize(width: 744, height: 1133) { XCTAssertEqual(euclideousMixOctaveCaption(cellW: g.cellW), .none, "mini portrait: \(g.cellW) pt") }
+            else { XCTAssertNotEqual(euclideousMixOctaveCaption(cellW: g.cellW), .none, "\(size): the caption survives (pad \(g.cellW) pt)") }
+        } }
+    }
 }
