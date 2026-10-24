@@ -12,6 +12,58 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ FOURFOLD — CHORDS GRID ferry (2026-10-24, branch `chords-grid-ferry`; 1,114 FourfoldTests green, golden harness
+  byte-identical, iOS builds).** Ratified spec: `claude/ferry-chords-grid.md`. Rebuilt the Euclideous CHORDS pop-up
+  (`Fourfold/UI/EuclideousPage.swift`'s `chordsPopupCard`, `Fourfold/Engine/{Models,Derivations,Snapshot,
+  SnapshotBuilder}.swift`) — lands in Fourfold only (confirmed with Paul: `AUExtension/` is frozen; Fourfold's trimmed
+  engine has no chord-door/`pianoMask` code at all and the `.chords:` processor-stage case is unreachable dead code,
+  so §1.5/§9's "don't break the 8×8 processor/door" is a real invariant only via test 7's byte-identity check, not a
+  live AUExtension concern). **MODEL:** `PluginState.euclideousChordSets: [MachineParams]?` (4) + `activeChordSet:
+  Int?` replace the single `euclideousChords` grid — a LAZY/computed migration (no eager mutating pass at load: a
+  legacy document that's never touched never materializes the array at all, resolving byte-identically through
+  `euclideousChordsResolved`; the first edit, `setEuclideousChordSet`, is what "migrates" it in place).
+  `MachineParams.chordsColours: [Int]?` (0 none, 1-6 = `ChordColour`'s 7/9/6/ADD9/SUS2/SUS4). `chordsDegreesResolved16()`/
+  `chordsColoursResolved16()` are ALWAYS 16 entries (padding copies the LAST stored column, per §1.2's literal text —
+  not a CARRY sentinel), so shrinking STEPS then growing it back restores the hidden columns exactly; the existing
+  `chordsDegreesResolved(steps:)` stays untouched for SnapshotBuilder's own steps-windowed render read. **ENGINE:**
+  4 new degree codes (8-11) for the borrowed rows, on top of the untouched 0-6 diatonic / 7 REST / -1 CARRY encoding.
+  `euclideousBorrowedTriad`/`…Seventh`/`…RowLabel`/`…RowForcesFlat` (§5.2's fixed semitone tables, minor-key V·IV·♭II·
+  vii° vs major-key ♭VII·iv·♭VI·II) and `euclideousChordTones`/`euclideousChordNameSuffix`/`euclideousChordName` (§5.3-
+  5.5) — the name classifier reads the ACTUAL resulting intervals, not which colour produced them, so a diminished
+  triad plus a "6" names "°7" (the same pitch as a real diminished 7th) per the spec's own explicit rule. All 16 of
+  §5.6's worked cases pass exactly. `chordSeqNotes` gained the new degree/colour branch internally — gated so
+  `chordsColours == nil`/degrees 0-7 (every pre-ferry caller) take the OLD `diatonicChord(voicing:spread:)` path,
+  byte-identical (regression test + golden harness both confirm). Extracted `euclideousChordsPlayingColumn` so the UI
+  reads the SAME beat→column formula the engine uses (§6.1) — this codebase's own named recurring bug class, applied
+  to a brand-new panel instead of an existing one. **LAYOUT:** `EuclideousChordsPopupLayout`/`euclideousChordsPopupLayout`
+  — ONE pure function for every frame (title/tabs/steps-rate/18-row grid incl. the wider divider gap/playhead/pool),
+  with `belowRowFloor`/`belowCellFloor` flags (§2.5/§2.6) rather than a silent clamp; neither trips at Paul's two
+  reference page sizes at STEPS 1/8/16. Also fixed the real bug from Paul's screenshot: the old card's
+  `.frame(maxHeight:)` had no `alignment:`, defaulting to `.center` and pushing the title down inside the near-full-
+  height box — one-line fix (`alignment: .top`), independent of the rebuild. **UI:** 18 rows (7 diatonic + 4 borrowed
+  + REST + divider + 6 colour), chord rows unconditional-write (matches the plain CHORDS processor's own rule), colour
+  rows light-and-clear-others/tap-again-to-clear, dimmed 42% (still tappable) on a REST column; 4 tabs reusing the
+  riff tabs' exact look/sizing, long-press COPY/PASTE/CLEAR; title row's live chord name + 6% wash/3pt playhead bar,
+  both reading the one shared column formula; 8-rank pool strip via the existing `euclideousGlobalPoolExtended` +
+  rank-naming function, with a column-hold preview (§7.3). VoiceOver per §8, including the grid's column-major
+  traversal order (§8.4 — restructured the `ForEach` nesting to column-outer/row-inner; cell POSITIONS are unchanged,
+  since they come from absolute layout offsets, not ZStack child order). **SIMPLIFIED FROM THE LITERAL SPEC (Paul's
+  own call, mid-build): §4.4's "queue a tab switch to land at the playing tab's next column boundary" is DROPPED —
+  "I only want the chords tab to be switched manually when a user clicks it." Tapping a tab switches it immediately;
+  `activeChordSet` is now BOTH which tab plays AND which tab the popup edits, so §4.6/§4.7's "shown vs. playing can
+  differ"/"EDITING X · PLAYING Y" title text never apply. This also means the heavier alternative this ferry
+  considered — a new Kernel-held pending-switch slot + a `Router.process()` parameter, modelled on the RANDOM MODE
+  ferry's apply-at-a-beat plumbing — was never built.** **JUDGMENT CALLS, flagged for Paul:** (1) borrowed-row degree
+  codes are 8-11 (REST stays 7, per §1.3's literal "after the diatonic seven... REST keeps its encoding"); (2) the 5
+  non-heptatonic `ScaleType`s (pentatonic ×2, blues, wholeTone, chromatic) have no scale-stepped third, so
+  `euclideousScaleIsMinor` falls back to the MAJOR-key borrowed-row table for all of them — the borrowed chords'
+  own TONES are unaffected either way (§5.2's table is fixed-semitone, not scale-derived), only which 4 rows are
+  offered; (3) `EuclideousChordsPopupMetrics.labelW` (36) and the title/steps-rate row heights (22/26) are REASONED
+  estimates, not measured on a device (Derivations.swift is Foundation-only, no real text measurement — mirrors the
+  riff panel's own `labelW` precedent of a fixed nominal constant); (4) the pool strip's "colour tone" dashed-border
+  mark is inferred as "any pool rank ≥ 4" (the plain triad is always ranks 1-3) rather than a literal per-tone
+  colour flag, since the engine doesn't tag individual tones by origin. **DEVICE-OWED:** see
+  `Docs/euclideous-device-verification-debt.md`'s new "CHORDS GRID" lines.
 - **▶ FOURFOLD — ADVERSARIAL-REVIEW FIXES (2026-10-24, branch `feature/restore-tests`; 1,083 FourfoldTests green, golden identical, simulator app test passes, iOS builds).** A coverage run of the pre-trim commit (`4b1f08c`, in a scratch worktree) against `main` — the plan's own "compare the coverage list before/after", never run during Step 4 — showed 137 surviving functions had lost 466 lines of coverage and ≥23 functions the page calls had none (the pruning tool deleted whole tests when one helper they used stopped compiling). Fixed: the 23 are back to full coverage (20 baseline tests brought back — about half rewritten against the live functions because the original also called a retired one — plus 5 new for functions no baseline test named: the strip's spoken hits phrase and live suffix, the NOTES key toggle, MIX pad write/reset, the lock countdown); 9 vacuous tests deleted and 1 re-pointed at real Euclid lanes; reel exports renamed `Fourfold-*.mid`; and 63 dead private symbols deleted (rack/receiver state in Router and Kernel that nothing read — `reach.py`/`props.py` match names across files, so a same-named symbol elsewhere had hidden them). Method note for the next trim: after any test pruning, re-run the coverage comparison and list functions that went to zero — a green suite proves nothing about what it no longer runs.
 - **▶ EUCLIDEOUS — RHYTHM gesture predictability: OFFSET back to per-step, TILT fixed + unified with HITS (2026-10-24, branch `fix/rhythm-gesture-predictability`; iOS build clean; full macOS suite green before landing; all visuals — the live TILT thumb's reset-to-centre feel, HITS staying visually stable across a density drag, OFFSET's restored 1:1 feel — are device-owed). Paul: the RHYTHM tab's gestures didn't feel predictable — OFFSET's continuous fraction (RHYTHM POLISH, 2026-10-22) is reverted outright; TILT could land in the wrong place (a real bug, previously flagged in that ferry's own report-back as a DECIDE item and never fixed); and dragging HITS could jump existing hits to an unrelated Bjorklund layout instead of the minimal gap-fill the codebase already had a primitive for (`euclidRebuildPattern`, gated to only fire on an already hand-edited pattern). Paul's own framing: "the gestures are controlling the hit locations on-screen as opposed to setting numerical values. Make the number fit the intent."
   **THE FIX (`euclidTiltPattern`/`Fine`, Derivations.swift):** blends each hit from its REAL current position (`Double(hits[i])`) instead of a theoretical even-spread formula (`evenPos = i/(k-1)*(n-1)`, now deleted) — the old code was discontinuous at tilt=0 (the function returns early there, leaving the real pattern, but the INSTANT tilt left 0 the blend jumped to start from `evenPos` instead, e.g. E(3,8)={0,3,6} but `evenPos`={0,3.5,7}). Blending from the real position makes the t→0 limit equal the real position by construction (continuous) AND makes the function correct for ANY starting buffer, not just a fresh Bjorklund one — the second half of why this matters: it lets TILT bias an already gap-filled (HITS-edited) pattern too. The "strictly increasing, no collision" safety net is unaffected (a convex combination of two independently strictly-increasing sequences is itself strictly increasing).

@@ -392,7 +392,18 @@ the same pipeline as any other row; it is not a special-cased render path.
   only on `AudioUnitViewController`'s main-thread resync loop, never from `Router`.
 - **Source.** One page-level selector — MIDI IN / CHORDS (a self-contained degree-matrix+rate
   chord generator, no 8×8-grid receiver dependency) / KEY (a scale pool). No per-lane source, no
-  dependency on the wider receiver/door graph.
+  dependency on the wider receiver/door graph. **CHORDS GRID ferry (Fourfold only, 2026-10-24):**
+  the CHORDS popup now holds FOUR independently-stored progressions (`PluginState.euclideousChordSets`
+  + `activeChordSet`, replacing the single `euclideousChords` grid, which stays decode-only) in tabs
+  styled like the riff tabs; tapping a tab switches it immediately (Paul: manual-only, no queue-to-
+  next-column-boundary). Each grid is 18 rows — the 7 diatonic degrees, 4 BORROWED rows (minor-key
+  V·IV·♭II·vii°, major-key ♭VII·iv·♭VI·II, §5.2's fixed semitone tables, new degree codes 8–11) and
+  REST, then a divider and 6 CHORD-COLOUR rows (7·9·6·ADD9·SUS2·SUS4, `MachineParams.chordsColours`,
+  one per column, exclusive) — on top of a scale/colour-aware chord-NAME title and an 8-rank pool
+  strip. `chordSeqNotes`/`diatonicChord` stay byte-identical for every pre-ferry caller (colours
+  empty, degrees 0–7) — confirmed by test and the golden harness. `AUExtension/`'s own single-grid
+  popup is untouched (frozen, 8×8 State on hold); see `Docs/euclideous-status-log.md` for the full
+  ferry writeup and `Docs/euclideous-device-verification-debt.md` for what's still device-owed.
 - **Header (Fourfold, 2026-10-15).** Four groups: BRAND (mark, FOURFOLD, undo/redo — ↶/↷ bounded 50-deep, scoped to
   Euclideous's own fields only) · OUTPUTS (four output RINGS = MAIN OUT A–D, 75% scale since 2026-10-20 —
   `EuclideousHeaderMetrics.outputRingScale`, rendered at natural size then `.scaleEffect`-shrunk, same technique as

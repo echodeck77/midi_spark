@@ -2605,13 +2605,19 @@ struct EuclideousPage: View {
                 Rectangle().fill(Color(hex: 0x2A2D34))
                     .frame(width: layout.gridWidth - EuclideousChordsPopupMetrics.labelW - EuclideousChordsPopupMetrics.sp4, height: 1)
                     .offset(x: EuclideousChordsPopupMetrics.labelW + EuclideousChordsPopupMetrics.sp4, y: layout.dividerY - gridTop)
+                // Row LABELS, drawn once (their own loop; not part of §8.4's column-ordered traversal).
                 ForEach(0..<18, id: \.self) { r in
                     let label = euclideousChordsRowLabel(row: r, scaleTones: keyType.intervals, minorKey: minorKey)
-                    let rowY = layout.rowTop(r) - gridTop
                     Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
                         .frame(width: EuclideousChordsPopupMetrics.labelW, height: layout.rowH, alignment: .leading)
-                        .offset(x: 0, y: rowY)
-                    ForEach(0..<steps, id: \.self) { c in
+                        .offset(x: 0, y: layout.rowTop(r) - gridTop)
+                }
+                // §8.4: VoiceOver reads the grid BY COLUMN — column-outer, row-inner (purely an iteration-order
+                // choice; every cell's own POSITION still comes from its absolute layout.columnLeft/rowTop, so
+                // this reorder changes nothing visually).
+                ForEach(0..<steps, id: \.self) { c in
+                    ForEach(0..<18, id: \.self) { r in
+                        let rowY = layout.rowTop(r) - gridTop
                         chordsCell(row: r, column: c, degrees: degrees, colours: colours, steps: steps, isPlayingColumn: c == playingCol)
                             .frame(width: layout.cellW, height: layout.rowH)
                             .offset(x: layout.columnLeft(c), y: rowY)

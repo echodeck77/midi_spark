@@ -59,6 +59,25 @@ If something fails: which step, what you saw, and for a crash the line Xcode pri
 - Double-tap on HITS or TILT now reverts to pure Euclid (replacing the old TILT-only "EDITED chip" tap zone) — confirm the gesture is discoverable and feels like "reset," not accidental.
 - Scope note: this ferry's fix lives ONLY in `AUExtension/` (MidiSpark/8x8 State's engine copy, which Euclideous's reserved row rides) — Fourfold's forked engine copy (`Fourfold/Engine`) was NOT touched and does not get this fix; port it there too if Fourfold should feel the same way.
 
+### CHORDS GRID (2026-10-24 ferry — four tabs, borrowed/colour rows, playhead, pool strip)
+- 18 rows at 16 columns: still comfortable to tap at the real card size (`EuclideousChordsPopupMetrics.labelW`/
+  row heights are REASONED estimates, not measured — confirm the label column (36pt) actually fits "♭VII"/"ADD9"/
+  "SUS4" without truncating, and that the title/steps-rate row heights (22/26) match what actually renders).
+- The 6% column wash and the 3pt playhead bar: legible against both lit and unlit cells, moving cleanly in time
+  with the engine (no visible lag against the audible chord change).
+- The 22×12 chord-tab icon and the step count on a 20pt tab: legible at that size, and the icon's marks actually
+  line up with which rows are lit on the real grid below it.
+- Tapping a tab switches the chord progression AT ONCE, with no stuck or doubled notes at the switch instant —
+  this is a deliberate simplification (Paul, 2026-10-24: manual-only switching, no queue-to-next-boundary), so
+  an audible retrigger glitch right at the tap is accepted behaviour, not a bug; confirm it's not WORSE than that
+  (e.g. no hang, no silence).
+- The colour chords (7/9/6/ADD9/SUS2/SUS4) heard as named, through VOICING/SPREAD, on both diatonic and borrowed
+  rows, in both a minor and a major KEY.
+- The pool strip's "colour tone" dashed border (inferred as "any rank ≥ 4" — see the status log's judgment-call
+  #4) actually lines up with the tones a colour added, not the plain triad.
+- §7.3's column-hold preview (press a grid cell, the pool strip follows that column instead of the playing one):
+  confirm the gesture doesn't fight the cell's own tap-to-set, and releases cleanly back to the playing column.
+
 ### LISTEN REBUILT (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM first (`listenPausedOverlay`/the RHYTHM-tab rate-grid rewrite are new/changed leaves on the 1 MB main stack).
 - The LISTEN tab's FOLLOW row chips, RHYTHM OWN/COPY/FILL row + its DELAY/FEEL/SPEED/DIRECTION panel, and PITCH OWN/SHADOW/ECHO/AVOID row + its INTERVAL/OCTAVE panel: legible and tappable at the real card width in all four lane colours; the panel's proportional shrink under pressure (down to its 30pt floor) actually looks acceptable rather than cramped.

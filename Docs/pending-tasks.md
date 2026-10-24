@@ -5,6 +5,13 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — CHORDS GRID: four progression tabs, borrowed chords, chord colours, playhead, pool strip (2026-10-24; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the new "CHORDS GRID" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul): confirmed mid-build — §4.4's queue-to-next-column-boundary switch was dropped for immediate/manual switching only; say if you'd rather have the sample-accurate queued version after all (it would need a new Kernel-level mechanism, modelled on the RANDOM MODE ferry's apply-at-a-beat plumbing).
+- [ ] DECIDE (Paul): the 5 non-heptatonic scales (major/minor pentatonic, blues, whole-tone, chromatic) have no scale-stepped third, so the borrowed-row picker (§3.2) falls back to the MAJOR-key table for all of them — say if minor pentatonic/blues specifically should read as the minor table instead.
+- [ ] (noted) `EuclideousChordsPopupMetrics.labelW`/title-row/steps-rate-row heights are reasoned estimates, not measured (Derivations.swift can't do real text measurement) — device-owed, listed above.
+- [ ] (noted) Fourfold-only: this does NOT touch `AUExtension/`'s own single-grid CHORDS popup (8x8 State is frozen/on hold) — the two popups now have genuinely different feature sets, not just different line numbers.
+
 ## ★ EUCLIDEOUS — RHYTHM gesture predictability: OFFSET per-step, TILT fixed + unified with HITS (2026-10-24; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the "GESTURE PREDICTABILITY" lines in `Docs/euclideous-device-verification-debt.md` — the live TILT thumb's reset-to-centre feel is the one part of this ferry with no concrete mock.
 - [ ] DECIDE (Paul): a lane locked then edited on EITHER HITS or TILT now shows the dashed "differs from L" frame on BOTH tiles (the stored `customHits` array alone can't say which gesture moved it) — a disclosed trade-off, not a bug; say if a single-control attribution (even if occasionally wrong) would read better on-device.
