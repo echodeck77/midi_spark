@@ -740,6 +740,40 @@ func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones 
 }
 
 
+/// `diatonicChord` without the arrays: writes the (at most five) ascending notes into `out` and returns how many. Same notes, same order.
+func diatonicChordInto(_ out: inout [Int], degree deg: Int, scaleTones: [Int], rootNote: Int, voicing: ChordVoicing = .triad, spread: ChordSpread = .close) -> Int {
+    let n = scaleTones.count
+    guard n > 0, out.count >= 5 else { return 0 }
+    let count = voicing == .triad ? 3 : (voicing == .seventh ? 4 : 5)   // triad · + the 7th · + the 7th and 9th (stacked thirds, as `diatonicChord` builds them)
+    for i in 0..<count {
+        let k = deg + 2 * i
+        out[i] = rootNote + scaleTones[((k % n) + n) % n] + 12 * Int(floor(Double(k) / Double(n)))
+    }
+    if spread == .open && count >= 3 { out[1] += 12 }
+    for i in 0..<count { out[i] = max(0, min(127, out[i])) }
+    for i in 1..<count {                                             // ascending insertion sort (≤ 5 notes)
+        let x = out[i]; var j = i - 1
+        while j >= 0 && out[j] > x { out[j + 1] = out[j]; j -= 1 }
+        out[j + 1] = x
+    }
+    return count
+}
+/// `chordSeqNotes` for the render thread: the same notes written into `out` (room for at least 5), the count returned — 0 on a REST. It runs once per render window under the CHORDS note source, and the array form made about six heap
+/// allocations each time. PATTERN mode (the only one Fourfold's CHORDS source ever builds) is allocation-free; WALK / FOLLOW, which it never reaches, go through the array form.
+func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?) -> Int {
+    guard p.chordsMode == .pattern else {
+        let a = chordSeqNotes(beat: m, p, keyRoot: root, keyTones: scaleTones, followNote: followNote)
+        let c = min(a.count, out.count); for i in 0..<c { out[i] = a[i] }
+        return c
+    }
+    let rateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
+    let step = Int((m / rateBeats).rounded(.down))
+    let steps = max(1, min(16, p.chordsSteps))
+    let (deg, rest) = chordsDegreeAt(step: step, count: steps, rotate: p.chordsRotate) { $0 < p.chordsDegrees.count ? p.chordsDegrees[$0] : -1 }
+    guard !rest else { return 0 }
+    return diatonicChordInto(&out, degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread)   // already clamped to 0…127, so `chordSeqNotes`'s final filter removes nothing
+}
+
 /// The next degree in a functional random WALK (SPEC-chords-stage §1 WALK — "the gravity dice"): SEEDED (replay-exact, no
 /// accumulated state — the caller passes the step ordinal as `seed`), weighted by tonal gravity. From `prev` (0…6) the draw
 /// favours resolution — V/vii° pull to I, I opens outward, ii/IV wander toward the dominant. Returns 0…6. Pure/testable.
@@ -1530,9 +1564,12 @@ enum PlaceHoldDecision: Equatable { case allowed, blockedColumnUsed }
 /// hold the previous chord) · 0…6 = degree I…vii · 7 = REST (explicit silence). CARRY scans back to the last real degree
 /// (wrapping the 8-step loop once); an all-carry matrix ⇒ REST. `rotate` strides the matrix. Returns (degree, isRest). Pure.
 func chordsDegreeAt(step: Int, degrees: [Int], rotate: Int) -> (degree: Int, rest: Bool) {
-    let n = degrees.count
+    chordsDegreeAt(step: step, count: degrees.count, rotate: rotate) { degrees[$0] }
+}
+/// The rule itself, over an `n`-column matrix read through `element` (so the render thread need not build an array of the matrix first).
+func chordsDegreeAt(step: Int, count n: Int, rotate: Int, element: (Int) -> Int) -> (degree: Int, rest: Bool) {
     guard n > 0 else { return (0, true) }
-    func at(_ s: Int) -> Int { degrees[((s + rotate) % n + n) % n] }
+    func at(_ s: Int) -> Int { element(((s + rotate) % n + n) % n) }
     let here = at(step)
     if here == 7 { return (0, true) }                       // explicit REST
     if here >= 0 { return (here, false) }                   // a real degree
@@ -1727,7 +1764,8 @@ func euclidMostCrowdedHit(_ buf: [Bool]) -> Int? {
     return best
 }
 
-func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double) {
+/// The plain statement of the TILT rule (arrays and a Set). `euclidTiltPattern` is its allocation-free form for the render thread and must agree with it (`RhythmPolishTests`); this one also covers n > 64.
+func euclidTiltPatternReference(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double) {
     guard tilt != 0, k > 1, n > 1 else { return }
     var hits: [Int] = []
     for i in 0..<n where i < buf.count && buf[i] { hits.append(i) }
@@ -1749,6 +1787,27 @@ func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: D
     }
     for i in 0..<n where i < buf.count { buf[i] = false }
     for p in placed where p < buf.count { buf[p] = true }
+}
+/// TILT, allocation-free (it runs on the render thread every window for a tilted lane): the same placement as `euclidTiltPatternReference`, with the set of used positions kept in one 64-bit mask instead of a Set and two arrays.
+/// More than 64 steps (the engine never builds one — a lane has at most 16) falls back to the reference.
+func euclidTiltPattern(_ buf: inout [Bool], pulses k: Int, steps n: Int, tilt: Double) {
+    guard tilt != 0, k > 1, n > 1 else { return }
+    guard n <= 64 else { euclidTiltPatternReference(&buf, pulses: k, steps: n, tilt: tilt); return }
+    var hitCount = 0
+    for i in 0..<n where i < buf.count && buf[i] { hitCount += 1 }
+    guard hitCount == k else { return }   // a mismatched/empty buf (caller error) — leave untouched rather than guess
+    let t = max(-1, min(1, tilt))
+    var used: UInt64 = 0
+    for i in 0..<hitCount {
+        let evenPos = Double(i) / Double(k - 1) * Double(n - 1)
+        let packedPos = t < 0 ? Double(i) : Double(n - k + i)
+        let target = evenPos + abs(t) * (packedPos - evenPos)
+        var pos = Int(target.rounded())
+        pos = max(0, min(n - 1, pos))
+        while used & (UInt64(1) << UInt64(pos)) != 0 { pos = (pos + 1) % n }
+        used |= UInt64(1) << UInt64(pos)
+    }
+    for i in 0..<n where i < buf.count { buf[i] = used & (UInt64(1) << UInt64(i)) != 0 }
 }
 /// Cyclically shifts an already-built pattern buffer by `rotation` steps — the EXACT same read-index
 /// convention `euclidPatternInto`'s own `rotation` parameter already applies internally
@@ -2694,6 +2753,28 @@ func euclideousListenProcessingOrder(sources: [Int], rhythm: [EuclideousListenRh
         if !progressed { for i in 0..<n where !placed.contains(i) { order.append(i); placed.insert(i) }; break }
     }
     return order
+}
+/// The render thread's form of `euclideousListenProcessingOrder`: the same order (Kahn's algorithm, lanes taken in index order on each pass; a cycle falls back to index order for what is left), written into `order[0..<count]` and
+/// returning count, with a bitmask instead of a Set and no arrays built from the lanes — the original, called every window, made about eight heap allocations. `ListenTabTests` checks the two agree on every combination of sources and modes.
+func euclideousListenProcessingOrderInto(_ order: inout [Int], lines: [EuclidLine]) -> Int {
+    let n = min(lines.count, order.count, 32)
+    guard n > 0 else { return 0 }
+    var placed: UInt32 = 0, count = 0
+    while count < n {
+        var progressed = false
+        for i in 0..<n where placed & (1 << UInt32(i)) == 0 {
+            if euclideousListenIsFollowing(rhythm: lines[i].listenRhythmResolved, pitch: lines[i].listenPitchResolved) {
+                let s = lines[i].listenSourceResolved(ownLane: i)
+                if s >= 0 && s < n && s != i && placed & (1 << UInt32(s)) == 0 { continue }   // its source is not placed yet: wait
+            }
+            order[count] = i; count += 1; placed |= 1 << UInt32(i); progressed = true
+        }
+        if !progressed {
+            for i in 0..<n where placed & (1 << UInt32(i)) == 0 { order[count] = i; count += 1; placed |= 1 << UInt32(i) }
+            break
+        }
+    }
+    return count
 }
 /// §8.4: if a loaded document's LISTEN graph contains a cycle, the first lane (walking 1→4, i.e. index
 /// 0→3) found closing it has BOTH rows forced back to OWN. Runs AFTER migration (§8), so every line here
@@ -5327,6 +5408,24 @@ func euclideousChainTieExtensions(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
                                   timing: EuclideousHitTiming = .none,
                                   rankAt: (_ column: Int, _ beat: Double) -> Int,
                                   notesStrikes: ((_ isRest: Bool, _ column: Int, _ beat: Double) -> Bool)?) -> (riff: Double, notes: Double) {
+    if let ns = notesStrikes {
+        return euclideousChainTieExtensionsCore(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats, advanceStep: advanceStep,
+                                                riffDir: riffDir, stride: stride, length: length, rotate: rotate, seed: seed, every: every, bound: bound, restTies: restTies, fxTie: fxTie,
+                                                timing: timing, rankAt: rankAt, hasNotesStrikes: true, notesStrikes: ns)
+    }
+    return euclideousChainTieExtensionsCore(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats, advanceStep: advanceStep,
+                                            riffDir: riffDir, stride: stride, length: length, rotate: rotate, seed: seed, every: every, bound: bound, restTies: restTies, fxTie: fxTie,
+                                            timing: timing, rankAt: rankAt, hasNotesStrikes: false, notesStrikes: { _, _, _ in false })
+}
+/// The body of `euclideousChainTieExtensions`, with the notes callback NON-optional. An optional closure parameter is an escaping one, so a call site passing a closure that captured a `var` had to heap-allocate boxes for it on every
+/// hit (the render thread, invariant 3); the Router calls this form directly. `hasNotesStrikes` is the old "notesStrikes != nil".
+func euclideousChainTieExtensionsCore(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                                      chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                                      riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64, every: Int = 1, bound: Int? = nil,
+                                      restTies: Bool = true, fxTie: (_ column: Int, _ beat: Double, _ writtenRank: Int) -> Bool = { _, _, _ in false },
+                                      timing: EuclideousHitTiming = .none,
+                                      rankAt: (_ column: Int, _ beat: Double) -> Int,
+                                      hasNotesStrikes: Bool, notesStrikes: (_ isRest: Bool, _ column: Int, _ beat: Double) -> Bool) -> (riff: Double, notes: Double) {
     var hitsAhead = 0
     var lastConsumed = 0
     var notesLast = 0
@@ -5334,7 +5433,7 @@ func euclideousChainTieExtensions(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
     let dThis = timing.isNone ? 0 : timing.delaySteps(raw: euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
                                                                                     legacySpanBeats: legacySpanBeats).raw)
     var lastDelay = 0.0, notesLastDelay = 0.0
-    var notesStopped = notesStrikes == nil
+    var notesStopped = !hasNotesStrikes
     var j = 0
     // RIFF WALK ferry §5.5 (Euclideous row only — the retired/legacy fork passes no `bound`, keeping its
     // own original `length`-based cap byte-identical): the lookahead must reach the end of any run of tied
@@ -5364,13 +5463,13 @@ func euclideousChainTieExtensions(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
         } else {
             guard fxTie(column, beatJ, writtenJ) else { break }
         }
-        if let ns = notesStrikes, !notesStopped {
-            if ns(isRest, column, beatJ) { notesStopped = true } else { notesLast = j; notesLastDelay = dJ }
+        if hasNotesStrikes, !notesStopped {
+            if notesStrikes(isRest, column, beatJ) { notesStopped = true } else { notesLast = j; notesLastDelay = dJ }
         }
         lastConsumed = j; lastDelay = dJ
     }
     func ext(_ j: Int, _ d: Double) -> Double { j == 0 ? 0 : (Double(j) + (timing.isNone ? 0 : d - dThis)) * sub }
-    return (ext(lastConsumed, lastDelay), notesStrikes == nil ? ext(lastConsumed, lastDelay) : ext(notesLast, notesLastDelay))
+    return (ext(lastConsumed, lastDelay), !hasNotesStrikes ? ext(lastConsumed, lastDelay) : ext(notesLast, notesLastDelay))
 }
 
 /// RIFF WALK ferry (2026-10-19) §6.2: REPEAT's lookback — the column of the nearest EARLIER hit of this

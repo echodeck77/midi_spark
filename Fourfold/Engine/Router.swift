@@ -686,8 +686,9 @@ final class Router {
             for i in 0..<pitchCount[j] { body(pitches[j * 9 + i]) }
         }
     }
-    private var euclideousEchoCurrent = [EuclideousEchoCycle](repeating: EuclideousEchoCycle(), count: 4)
-    private var euclideousEchoLast = [EuclideousEchoCycle](repeating: EuclideousEchoCycle(), count: 4)
+    // Four DISTINCT instances (`repeating:` would share one set of inner arrays across all four, and the first write to each would copy them on the render thread).
+    private var euclideousEchoCurrent = (0..<4).map { _ in EuclideousEchoCycle() }
+    private var euclideousEchoLast = (0..<4).map { _ in EuclideousEchoCycle() }
     private var euclideousEchoCycleNum = [Int64](repeating: Int64.min, count: 4)
     /// §4.2/§9.6: how many hits THIS lane (as a follower) has struck under ECHO so far this transport run —
     /// "j, 0 for the first hit." Reset on every transport edge alongside the cycle buffers above.
@@ -725,6 +726,40 @@ final class Router {
     // grid keeps reading the single shared `srcNoteBuf`/`srcNoteCount` exactly as before this feature.
     private var globalSrcBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     private var globalSrcCount = 0
+    private var euclideousListenOrderScratch = [Int](repeating: 0, count: 32)   // the LISTEN processing order for the row being emitted (see `euclideousListenProcessingOrderInto`)
+    // Per-hit working arrays, allocated ONCE here. They used to be `[T](repeating:count:)` locals — a heap allocation each, per hit, on the render thread (invariant 3). `takeScratch` moves one out (so it is uniquely owned and
+    // writes never copy) and re-zeroes it; the caller's `defer` puts it back. Never nested: a hit takes each at most once, and no hit runs inside another.
+    private var chordPoolScratch = [Int](repeating: 0, count: 8)   // the CHORDS note source's chord, built once per window (`chordSeqNotesInto`)
+    private var hitRanks = [Int](repeating: 0, count: 8)
+    private var hitPitches = [Int](repeating: 0, count: 9)
+    private var hitPitchVel = [UInt8](repeating: 0, count: 9)
+    private var hitPitchGate = [Double](repeating: 0, count: 9)
+    private var hitCachedPitches = [Int](repeating: 0, count: 9)
+    private var hitCachedVels = [UInt8](repeating: 0, count: 9)
+    private var hitCachedGates = [Double](repeating: 0, count: 9)
+    private var hitMaskBuf = [Bool](repeating: false, count: 16)
+    private var legatoMatched = [Int](repeating: -1, count: 9)
+    private var legatoNewPitch = [Int8](repeating: -1, count: 9)
+    private var legatoNewOwn = [Int16](repeating: -1, count: 9)
+    private var legatoNewAll = [Int16](repeating: -1, count: 9)
+    @inline(__always) private func takeScratch<T>(_ store: inout [T], count: Int, filledWith value: T) -> [T] {
+        var a: [T] = []
+        swap(&a, &store)
+        if a.count != count { a = [T](repeating: value, count: count); return a }   // only if a scratch was ever not handed back; allocates, never crashes
+        for i in 0..<count { a[i] = value }
+        return a
+    }
+    /// In-place, stable, ascending sort of `globalSrcBuf[0..<n]` by note. `globalSrcBuf[0..<n].sort` copies the slice into a fresh array first — a heap allocation on the render thread, once per window. Insertion sort: n is a handful of
+    /// notes (at most 128), and a strict `>` keeps equal notes in their arrival order, exactly what the stable stdlib sort did.
+    private func sortGlobalSrc(_ n: Int) {
+        guard n > 1 else { return }
+        for i in 1..<n {
+            let x = globalSrcBuf[i]
+            var j = i - 1
+            while j >= 0 && globalSrcBuf[j].note > x.note { globalSrcBuf[j + 1] = globalSrcBuf[j]; j -= 1 }
+            globalSrcBuf[j + 1] = x
+        }
+    }
     private func fillGlobalSrcFromPool(_ pool: NotePool, chanMask: UInt16) {
         globalSrcCount = 0
         let c = pool.srcCount(chanMask: chanMask, cableMask: 0b1111)
@@ -732,7 +767,7 @@ final class Router {
             let n = pool.srcAscending(k, chanMask: chanMask, cableMask: 0b1111)
             globalSrcBuf[globalSrcCount] = (Int(n), pool.velocity(n)); globalSrcCount += 1
         }
-        globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }   // ferry rule: "sort low to high" — MIDI's held-note order isn't guaranteed ascending
+        sortGlobalSrc(globalSrcCount)   // ferry rule: "sort low to high" — MIDI's held-note order isn't guaranteed ascending
     }
     // TICK DEDUP, keyed per (row, slot) not just per row (Paul 2026-10-05, fixing the timing smear investigated
     // and left open on 2026-10-03: "`lastTick[row]` is a SINGLE scalar SHARED across every line on this row —
@@ -1308,7 +1343,7 @@ final class Router {
                            onSample: Int64, offSample: Int64,
                            windowEnd: Int64, velocity: UInt8 = 96,
                            out: MIDIEmitter?, diag: inout KernelDiag,
-                           onVoiceOpened: ((Int) -> Void)? = nil, euclideousLegato: Bool = false) {
+                           onVoiceOpened: (Int) -> Void = { _ in }, euclideousLegato: Bool = false) {
         var lastCh: UInt8 = 0
         var mask = busMask
         while mask != 0 {
@@ -1328,7 +1363,7 @@ final class Router {
     @discardableResult
     private func emitOneBus(_ bus: Int, note: UInt8, velocity: UInt8,
                             onSample: Int64, offSample: Int64, windowEnd: Int64, out: MIDIEmitter?,
-                            onVoiceOpened: ((Int) -> Void)? = nil, euclideousLegato: Bool = false) -> Int {
+                            onVoiceOpened: (Int) -> Void = { _ in }, euclideousLegato: Bool = false) -> Int {
         guard bit(busEnabledMask, bus) else { return -1 }
         // THE FLOOD GOVERNOR: a hard per-emitter budget per beat; overflow DROPS (counted, not silent-failing). Offs are never governed, so a dropped on never opens a voice.
         let euclideous = euclideousStrikeLane >= 0
@@ -1337,11 +1372,11 @@ final class Router {
         let ch = (busChannels[bus] &- 1) & 15   // the bus stamp (1–16 → 0–15 wire)
         let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
                             onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato)
-        if own >= 0 { onVoiceOpened?(own) }
+        if own >= 0 { onVoiceOpened(own) }
         if own >= 0 && offSample <= windowEnd { closeVoice(own, atSample: offSample, out: out) }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
                             onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato)
-        if all >= 0 { onVoiceOpened?(all) }
+        if all >= 0 { onVoiceOpened(all) }
         if all >= 0 && offSample <= windowEnd { closeVoice(all, atSample: offSample, out: out) }
         return Int(ch)
     }
@@ -1900,7 +1935,7 @@ final class Router {
         // per-lane loop — byte-identical for every other caller (ARP/RIFF/BURST/the lone-driver `.euclid` path
         // elsewhere in the grid). Only the Euclideous per-line HIT/MISS pick calls below pass a real value
         // (that lane's own resolved pool), so a chord can no longer be picked from the wrong lane's notes.
-        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil, srcOverride: ArraySlice<(note: Int, vel: UInt8)>? = nil, onVoiceOpened: ((Int) -> Void)? = nil, euclideousLegato: Bool = false) {
+        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil, srcOverride: ArraySlice<(note: Int, vel: UInt8)>? = nil, onVoiceOpened: (Int) -> Void = { _ in }, euclideousLegato: Bool = false) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): `gateBeats == .infinity` is Euclideous legato's own
             // "open-ended, I'll close it myself later" sentinel — `tau + .infinity` would otherwise feed a
@@ -1963,7 +1998,8 @@ final class Router {
             func isLegatoPitch(_ j: Int) -> Bool { !isRatchetThisHit && j < gates.count && euclideousGateIsLegato(gates[j]) }
             let base = lineIndex * 9
             let oldCount = euclideousLegatoCount[lineIndex]
-            var matchedOldIndexForNew = [Int](repeating: -1, count: 9)   // new-set index j → which OLD tracked index i (or -1)
+            var matchedOldIndexForNew = takeScratch(&legatoMatched, count: 9, filledWith: -1)   // new-set index j → which OLD tracked index i (or -1)
+            defer { legatoMatched = matchedOldIndexForNew }
 
             for i in 0..<oldCount {
                 let trackedPitch = Int(euclideousLegatoPitch[base + i])
@@ -1987,7 +2023,8 @@ final class Router {
             }
 
             var legatoMask: UInt16 = 0
-            var newPitch = [Int8](repeating: -1, count: 9), newOwn = [Int16](repeating: -1, count: 9), newAll = [Int16](repeating: -1, count: 9)
+            var newPitch = takeScratch(&legatoNewPitch, count: 9, filledWith: -1), newOwn = takeScratch(&legatoNewOwn, count: 9, filledWith: -1), newAll = takeScratch(&legatoNewAll, count: 9, filledWith: -1)
+            defer { legatoNewPitch = newPitch; legatoNewOwn = newOwn; legatoNewAll = newAll }
             var tracked = 0
             for j in 0..<pitchCount where isLegatoPitch(j) {
                 legatoMask |= UInt16(1) << UInt16(j)
@@ -2049,10 +2086,10 @@ final class Router {
             let chordPoolRateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
             func fillChordPool(atBeat m: Double) {
                 chordPoolStep = Int((m / chordPoolRateBeats).rounded(.down))
-                let chordNotes = chordSeqNotes(beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
-                globalSrcCount = min(globalSrcBuf.count, chordNotes.count)
-                for k in 0..<globalSrcCount { globalSrcBuf[k] = (chordNotes[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
-                globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }
+                let chordCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+                globalSrcCount = min(globalSrcBuf.count, chordCount)
+                for k in 0..<globalSrcCount { globalSrcBuf[k] = (chordPoolScratch[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
+                sortGlobalSrc(globalSrcCount)
             }
             func refreshChordPool(atBeat m: Double) {
                 guard isEuclideousRow, p.euclideousNoteSourceResolved == .chords else { return }
@@ -2086,14 +2123,14 @@ final class Router {
                     // elsewhere in this codebase), just ONE octave's worth now, not two.
                     let root = ((p.euclideousChordKeyRoot % 12) + 12) % 12
                     let base = 3 * 12 + 12   // baseOct 3 → MIDI 48 (C3), the C-1 convention `scaleNotes` itself uses
-                    var keyNotes: [Int] = []
-                    for iv in p.euclideousChordKeyTones {
+                    // Written straight into the pool buffer (a temporary `[Int]` of the tones, and the slice copy `sort` makes, were two heap allocations per window on the render thread).
+                    var keyCount = 0
+                    for iv in p.euclideousChordKeyTones where keyCount < globalSrcBuf.count {
                         let n = base + root + iv
-                        if n >= 0 && n <= 127 { keyNotes.append(n) }
+                        if n >= 0 && n <= 127 { globalSrcBuf[keyCount] = (n, 100); keyCount += 1 }
                     }
-                    globalSrcCount = min(globalSrcBuf.count, keyNotes.count)
-                    for k in 0..<globalSrcCount { globalSrcBuf[k] = (keyNotes[k], 100) }
-                    globalSrcBuf[0..<globalSrcCount].sort { $0.note < $1.note }
+                    globalSrcCount = keyCount
+                    sortGlobalSrc(globalSrcCount)
                 case .midi:
                     if p.globalSrcChanMaskSet {
                         // LITERALLY LIVE (Paul 2026-10-09, two rounds, now page-level not per-lane): `pool` here
@@ -2537,9 +2574,10 @@ final class Router {
                             if isEuclideousRow {
                                 let n = euclideousLastSoundedCount[lineIndex]
                                 if n > 0 {
-                                    var cachedPitches = [Int](repeating: 0, count: n)
-                                    var cachedVels = [UInt8](repeating: 0, count: n)
-                                    var cachedGates = [Double](repeating: 0, count: n)
+                                    var cachedPitches = takeScratch(&hitCachedPitches, count: 9, filledWith: 0)
+                                    var cachedVels = takeScratch(&hitCachedVels, count: 9, filledWith: 0)
+                                    var cachedGates = takeScratch(&hitCachedGates, count: 9, filledWith: 0)
+                                    defer { hitCachedPitches = cachedPitches; hitCachedVels = cachedVels; hitCachedGates = cachedGates }
                                     for i in 0..<n {
                                         cachedPitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i])
                                         cachedVels[i] = euclideousLastSoundedVels[lineIndex * 9 + i]
@@ -2618,7 +2656,8 @@ final class Router {
                             euclideousMaskOrd[lineIndex] += 1
                             let maskN = max(2, min(16, mm.stepsResolved))
                             let maskK = max(0, min(maskN, mm.pulsesResolved))
-                            var maskBuf = [Bool](repeating: false, count: maskN)
+                            var maskBuf = takeScratch(&hitMaskBuf, count: 16, filledWith: false)   // maskN ≤ 16; `euclidPatternInto` writes only [0, maskN) and `maskBuf[maskPos]` reads inside it
+                            defer { hitMaskBuf = maskBuf }
                             euclidPatternInto(&maskBuf, pulses: maskK, steps: maskN, rotation: mm.rotate ?? 0)
                             let maskOrdNow = euclideousMaskOrd[lineIndex]
                             let maskPos = Int((maskOrdNow - 1) % Int64(maskN))
@@ -2775,7 +2814,8 @@ final class Router {
                             // thread bookkeeping of any kind (§6.4: the render thread never records; the
                             // main thread owns the loop and publishes it the ordinary way).
                             let euclideousLiveGridRanksForHit = p.euclideousLiveGrid.ranksResolved
-                            var ranks = [Int](repeating: 0, count: 8)
+                            var ranks = takeScratch(&hitRanks, count: 8, filledWith: 0)
+                            defer { hitRanks = ranks }
                             for col in 0..<8 {
                                 ranks[col] = euclideousLooperEffectiveRank(column: col, beat: mTickBeat, liveGrid: euclideousLiveGridRanksForHit,
                                                                             active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
@@ -2792,11 +2832,13 @@ final class Router {
                             // `pitchVel` is the per-pitch velocity sibling (RIFF/NOTES SPLIT): first-insertion-
                             // wins, same as pitch dedup itself, which is what gives "riff wins on a pitch
                             // collision" for free — the riff layer's own `addPitch` call always runs first.
-                            var pitches = [Int](repeating: 0, count: 9)
-                            var pitchVel = [UInt8](repeating: 0, count: 9)
+                            var pitches = takeScratch(&hitPitches, count: 9, filledWith: 0)
+                            var pitchVel = takeScratch(&hitPitchVel, count: 9, filledWith: 0)
+                            defer { hitPitches = pitches; hitPitchVel = pitchVel }
                             // MIX TAB (2026-10-18): `pitchGate` is the per-pitch GATE sibling to `pitchVel` — same fixed 9-slot storage, same
                             // first-insertion-wins (so on a collision the RIFF pitch's gate wins, exactly as its velocity already does).
-                            var pitchGate = [Double](repeating: 0, count: 9)
+                            var pitchGate = takeScratch(&hitPitchGate, count: 9, filledWith: 0)
+                            defer { hitPitchGate = pitchGate }
                             // NOTES TAB (2026-10-19, §8.3-§8.4): the per-pitch TIE extension — the riff note carries on through every tied rest (`tieExt`), the notes layer's notes only up to
                             // the first tied rest the notes layer strikes on (`tieNotesExt`). `notesPitchMask` bit j marks a pitch the notes layer added (no allocation); `tieOf(j)` is what
                             // every strike below reads.
@@ -2851,9 +2893,9 @@ final class Router {
                             // cells; a REST ties only while ON REST is TIE (`restTies`), an FX-tied real-rank hit is decided by the shared `euclideousFXApply` at that hit's beat.
                             // NOTES TAB (§8.4): it answers twice — the riff note's extension, and how far the notes layer's notes carry on (`notesStrikes` is the notes layer's own decision at
                             // each tied rest it scans, worked forward from this hit's count).
-                            func tieLookaheads(notesStrikes: ((_ isRest: Bool, _ column: Int, _ beat: Double) -> Bool)?) -> (riff: Double, notes: Double) {
+                            func tieLookaheads(hasNotesStrikes: Bool, notesStrikes: (_ isRest: Bool, _ column: Int, _ beat: Double) -> Bool) -> (riff: Double, notes: Double) {   // non-escaping: no heap context for what the caller's closure captures
                                 guard riffOnRest == .tie || fxTieLane else { return (0, 0) }
-                                return euclideousChainTieExtensions(
+                                return euclideousChainTieExtensionsCore(
                                     buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
                                     legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep,
                                     riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed, every: riffAdvanceEvery,
@@ -2867,7 +2909,7 @@ final class Router {
                                                                        passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
                                                                        events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
                                     },
-                                    notesStrikes: notesStrikes)
+                                    hasNotesStrikes: hasNotesStrikes, notesStrikes: notesStrikes)
                             }
                             // LISTEN/SHADOW (§6): REPLACES the riff+lit-notes layers below entirely — "the
                             // lane's own riff and lit notes are ignored." Resolves the partner's own most
@@ -3087,7 +3129,7 @@ final class Router {
                                 var scanH = notesH + 1
                                 let ext: (riff: Double, notes: Double)
                                 if notesStruck > 0 {
-                                    ext = tieLookaheads(notesStrikes: { isRest, _, _ in
+                                    ext = tieLookaheads(hasNotesStrikes: true, notesStrikes: { isRest, _, _ in
                                         var strikes = false
                                         if euclideousNotesWhenChooses(when: notesWhen, isRestHit: isRest), euclideousNotesChanceAllows(chance: notesChance, lane: lineIndex, h: scanH) {
                                             if isRest {
@@ -3100,7 +3142,7 @@ final class Router {
                                         return strikes
                                     })
                                 } else {
-                                    ext = tieLookaheads(notesStrikes: nil)
+                                    ext = tieLookaheads(hasNotesStrikes: false, notesStrikes: { _, _, _ in false })
                                 }
                                 tieExt = ext.riff; tieNotesExt = ext.notes
                             }
@@ -3157,7 +3199,9 @@ final class Router {
                             // boundary ECHO rolls on — "one pass of the source's pattern" (§1.5).
                             if lineIndex >= 0, lineIndex < 4 {
                                 if cy != euclideousEchoCycleNum[lineIndex] {
-                                    euclideousEchoLast[lineIndex] = euclideousEchoCurrent[lineIndex]
+                                    // A swap, not `last = current`: the copy shared both inner arrays, so the reset right after had to duplicate them (two heap allocations on the render thread at every cycle boundary). What `last` ends up
+                                    // holding is the same; `current`'s stale pitch slots are never read past its `count`.
+                                    swap(&euclideousEchoLast[lineIndex], &euclideousEchoCurrent[lineIndex])
                                     euclideousEchoCurrent[lineIndex].reset()
                                     euclideousEchoCycleNum[lineIndex] = cy
                                 }
@@ -4056,11 +4100,12 @@ final class Router {
             // processed before any lane that depends on it, now also load-bearing for ECHO (§5.1), which
             // (unlike every OLD mode) reads the source's actual per-hit CAPTURED strike, not a fresh
             // re-derivation from its stored config.
-            let euclideousListenOrder = isEuclideousRow
-                ? euclideousListenProcessingOrder(sources: p.euclidLines.enumerated().map { $0.element.listenSourceResolved(ownLane: $0.offset) },
-                                                   rhythm: p.euclidLines.map { $0.listenRhythmResolved }, pitch: p.euclidLines.map { $0.listenPitchResolved })
-                : Array(p.euclidLines.indices)
-            for lineIndex in euclideousListenOrder {
+            // Allocation-free: the order is built into a Router-owned scratch (the arrays-and-Set form allocated about eight times per window).
+            let euclideousListenCount: Int
+            if isEuclideousRow { euclideousListenCount = euclideousListenProcessingOrderInto(&euclideousListenOrderScratch, lines: p.euclidLines) }
+            else { euclideousListenCount = min(p.euclidLines.count, euclideousListenOrderScratch.count); for i in 0..<euclideousListenCount { euclideousListenOrderScratch[i] = i } }
+            for listenSlot in 0..<euclideousListenCount {
+                let lineIndex = euclideousListenOrderScratch[listenSlot]
                 guard lineIndex < p.euclidLines.count else { continue }
                 // RANDOM MODE ferry (§6.1): "one slot per card tab" — a lane may have THREE independent
                 // pending THROW/TWEAK/BACK/hold overrides in flight at once, each at its own `landingBeat`,

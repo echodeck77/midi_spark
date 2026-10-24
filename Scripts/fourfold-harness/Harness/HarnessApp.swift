@@ -6,6 +6,70 @@
 import SwiftUI
 import AVFoundation
 import AudioToolbox
+import Darwin
+
+// MARK: - allocation watch (--alloc)
+// The render path must not allocate (CLAUDE.md invariant 3). This hooks libmalloc's `malloc_logger` — the callback every malloc / free / realloc in the process goes through — and counts the ones made by the render block's own thread
+// while `allocWatchThread` is set (the harness sets it around `renderBlock` and nowhere else). Everything here is preallocated plain memory: the hook itself must not allocate.
+private let allocFrameDepth = 14, allocLogCap = 512
+// All hook state is raw preallocated memory behind `let` pointers: a Debug build's exclusivity check on a global `var` allocates (swift_beginAccess → TLS context), which would re-enter this very hook.
+private let allocState = UnsafeMutablePointer<Int>.allocate(capacity: 4)   // 0 watched mach thread (0 = off) · 1 allocations · 2 frees · 3 stacks logged
+private let allocStacks = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: allocLogCap * allocFrameDepth)
+private let allocSizes = UnsafeMutablePointer<UInt>.allocate(capacity: allocLogCap)
+private let allocScratch = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: allocFrameDepth)
+
+private let mallocHook: @convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void = { type, a1, a2, a3, result, skip in
+    let st = allocState
+    let me = st[0]
+    guard me != 0, Int(pthread_mach_thread_np(pthread_self())) == me else { return }
+    if type & 4 != 0 { st[2] += 1 }                                      // MALLOC_LOG_TYPE_DEALLOCATE (a realloc is both)
+    if type & 2 != 0 {                                                    // MALLOC_LOG_TYPE_ALLOCATE
+        st[1] += 1
+        let logged = st[3]
+        if logged < allocLogCap {
+            st[0] = 0                                                     // backtrace() must not be counted (or recurse)
+            let n = Int(backtrace(allocScratch, Int32(allocFrameDepth)))
+            let base = logged * allocFrameDepth
+            for i in 0..<allocFrameDepth { allocStacks[base + i] = i < n ? allocScratch[i] : nil }
+            allocSizes[logged] = (type & 4 != 0) ? a3 : a2
+            st[3] = logged + 1
+            st[0] = me
+        }
+    }
+}
+
+enum AllocWatch {
+    static func install() -> Bool {
+        allocState.initialize(repeating: 0, count: 4)
+        _ = backtrace(allocScratch, Int32(allocFrameDepth))               // warm backtrace's own lazy state
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger") else { return false }   // RTLD_DEFAULT
+        sym.assumingMemoryBound(to: (@convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void)?.self).pointee = mallocHook
+        return true
+    }
+    static func begin() { allocState[0] = Int(pthread_mach_thread_np(pthread_self())) }
+    static func end() { allocState[0] = 0 }
+    static func reset() { allocState[1] = 0; allocState[2] = 0; allocState[3] = 0 }
+    static var counts: (allocs: Int, frees: Int) { (allocState[1], allocState[2]) }
+    /// One line per distinct allocating call stack: "xN size=… frame <- frame …" with raw symbol names (the script pipes them through swift-demangle).
+    static func report(prefix: String) {
+        var seen: [String: (Int, UInt, String)] = [:], order: [String] = []
+        for i in 0..<allocState[3] {
+            var names: [String] = [], offs: [String] = []
+            for j in 0..<allocFrameDepth {
+                guard let f = allocStacks[i * allocFrameDepth + j] else { break }
+                var info = Dl_info()
+                if dladdr(f, &info) != 0 {
+                    names.append(info.dli_sname.map { String(cString: $0) } ?? "?")
+                    // frames inside the harness's own image: offset from its load address, for `atos` (run.sh --alloc resolves them to file:line)
+                    if let fname = info.dli_fname, String(cString: fname).contains("FFHarness"), let base = info.dli_fbase { offs.append(String(UInt(bitPattern: f) - UInt(bitPattern: base), radix: 16)) }
+                } else { names.append("?") }
+            }
+            let key = names.dropFirst(2).prefix(9).joined(separator: " <- ")
+            if let e = seen[key] { seen[key] = (e.0 + 1, e.1, e.2) } else { seen[key] = (1, allocSizes[i], offs.joined(separator: ",")); order.append(key) }
+        }
+        for k in order { fputs("\(prefix) STACK x\(seen[k]!.0) size=\(seen[k]!.1) OFFS=\(seen[k]!.2) \(k)\n", stderr) }
+    }
+}
 
 /// A tiny emulated HOST: supplies the transport / musical-context blocks, receives the MIDI output blocks, and pulls the AU's render block from a timer.
 final class Host {
@@ -21,6 +85,7 @@ final class Host {
     let au: FourfoldAudioUnit
     let buf: AVAudioPCMBuffer
     var timer: Timer?
+    var watching = false     // --alloc: the MIDI block does nothing but count (the harness's own bookkeeping must not look like the AU's allocation)
 
     init() {
         let d = AudioComponentDescription(componentType: kAudioUnitType_MIDIProcessor, componentSubType: 0x46726664, componentManufacturer: 0x4D53504B, componentFlags: 0, componentFlagsMask: 0)
@@ -38,6 +103,7 @@ final class Host {
         }
         au.midiOutputEventBlock = { [unowned self] t, cable, len, bytes in
             self.eventCount += 1
+            if self.watching { return noErr }
             func mix(_ v: UInt64) { self.hash = (self.hash ^ v) &* 0x100000001b3 }
             mix(UInt64(cable)); mix(UInt64(bitPattern: Int64(t) &- Int64(self.baseSample)))
             for i in 0..<len { mix(UInt64(bytes[i])) }
@@ -54,7 +120,10 @@ final class Host {
         var flags = AudioUnitRenderActionFlags()
         var ts = AudioTimeStamp(); ts.mSampleTime = sampleTime; ts.mFlags = .sampleTimeValid
         buf.frameLength = frames
-        _ = au.renderBlock(&flags, &ts, frames, 0, buf.mutableAudioBufferList, nil)
+        let list = buf.mutableAudioBufferList, block = au.renderBlock
+        if watching { AllocWatch.begin() }
+        _ = block(&flags, &ts, frames, 0, list, nil)
+        if watching { AllocWatch.end() }
         sampleTime += Double(frames)
     }
     func start() {
@@ -108,13 +177,60 @@ extension Host {
     }
 }
 
+extension Host {
+    /// The allocation audit: warm the default document unwatched (one-time lazy initialisation is not what this measures), then for the default document and every factory preset render 32 bars under a held chord with the allocation
+    /// watch on around the render block only — including the transport-start edge and the stop edge — and print what the render thread allocated.
+    func allocAudit() {
+        timer?.invalidate()
+        guard AllocWatch.install() else { fputs("ALLOC UNAVAILABLE: no malloc_logger symbol in this process\n", stderr); exit(2) }
+        // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
+        let sourceRuns = ["(default) CHORDS", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH"]
+        var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
+        var totalAllocs = 0, totalFrees = 0, dirty = 0
+        func step(_ i: Int) {
+            if i == names.count {
+                fputs("ALLOC ALL: documents=\(names.count) allocations=\(totalAllocs) frees=\(totalFrees) documentsThatAllocated=\(dirty)\n", stderr)
+                exit(totalAllocs == 0 ? 0 : 1)
+            }
+            let name = names[i]
+            watching = false
+            playing = false; for _ in 0..<8 { render(480) }
+            if name.hasPrefix("(default)") {
+                au.resetToFreshInit()
+                if name.contains("CHORDS") { au.editDocument { $0.euclideousNoteSource = .chords } }
+                if name.contains("MIDI IN") { au.editDocument { $0.euclideousNoteSource = .midi } }
+                if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
+                if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }
+            } else { au.loadFactoryPreset(named: name) }
+            publishDocument()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+                for _ in 0..<8 { render(480) }
+                baseSample = sampleTime
+                hold([60, 64, 67]); playing = true
+                if i == 0 { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // the unwatched warm-up lap
+                eventCount = 0; AllocWatch.reset(); watching = true
+                for _ in 0..<6400 { render(480) }
+                playing = false; for _ in 0..<8 { render(480) }
+                watching = false
+                let (a, f) = AllocWatch.counts
+                fputs("ALLOC \(name): events=\(eventCount) allocations=\(a) frees=\(f)\n", stderr)
+                if a > 0 { dirty += 1; AllocWatch.report(prefix: "ALLOC \(name):") }
+                totalAllocs += a; totalFrees += f
+                release([60, 64, 67])
+                DispatchQueue.main.async { step(i + 1) }
+            }
+        }
+        step(0)
+    }
+}
+
 let host = Host()
 
 struct Switcher: View {
     @State var showReel = false
     var body: some View {
         Group {
-            if CommandLine.arguments.contains("--golden") {
+            if CommandLine.arguments.contains("--golden") || CommandLine.arguments.contains("--alloc") {
                 Color.black         // golden mode: NO page — its 4 Hz poll edits the document (restart-chain pinning) and would race the steps below
             } else if showReel {
                 GeometryReader { geo in FourfoldReelBrowser(au: host.au, size: geo.size, playing: true, tempo: 120, onClose: { showReel = false }) }
@@ -130,6 +246,7 @@ struct Switcher: View {
     init() {
         setvbuf(stdout, nil, _IONBF, 0)
         if CommandLine.arguments.contains("--golden") { DispatchQueue.main.async { host.golden() }; return }
+        if CommandLine.arguments.contains("--alloc") { DispatchQueue.main.async { host.allocAudit() }; return }
         host.start(); fputs("HOST started\n", stderr)
     }
     var body: some Scene { WindowGroup { Switcher() } }

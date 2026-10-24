@@ -202,6 +202,26 @@ final class ListenTabTests: XCTestCase {
         XCTAssertEqual(order.count, 4)
         XCTAssertLessThan(order.firstIndex(of: 0)!, order.firstIndex(of: 1)!, "lane 0 (the source) before lane 1 (the follower)")
     }
+    /// The render thread calls the allocation-free `…Into` form; the array-and-Set form stays as the plain statement of the rule. They must agree on every graph — including strays and cycles.
+    func testTheAllocationFreeProcessingOrderMatchesTheOriginalOnRandomGraphs() {
+        var g = SystemRandomNumberGenerator()
+        let rhythms: [EuclideousListenRhythmMode?] = [nil, .own, .copy, .fill], pitches: [EuclideousListenPitchMode?] = [nil, .own, .shadow, .echo, .avoid]
+        var scratch = [Int](repeating: 0, count: 32)
+        var withDependencies = 0
+        for _ in 0..<20_000 {
+            var lines = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+            for i in 0..<4 {
+                lines[i].listenRhythm = rhythms.randomElement(using: &g)!; lines[i].listenPitch = pitches.randomElement(using: &g)!
+                lines[i].listenSource = [nil, 0, 1, 2, 3, 7, -1].randomElement(using: &g)!
+            }
+            let expected = euclideousListenProcessingOrder(sources: lines.enumerated().map { $0.element.listenSourceResolved(ownLane: $0.offset) },
+                                                           rhythm: lines.map { $0.listenRhythmResolved }, pitch: lines.map { $0.listenPitchResolved })
+            let n = euclideousListenProcessingOrderInto(&scratch, lines: lines)
+            XCTAssertEqual(Array(scratch[0..<n]), expected, "lines: \(lines.map { ($0.listenRhythm as Any, $0.listenPitch as Any, $0.listenSource as Any) })")
+            if expected != [0, 1, 2, 3] { withDependencies += 1 }
+        }
+        XCTAssertGreaterThan(withDependencies, 1000, "the fuzz must actually reorder lanes often, or it proves nothing")
+    }
     func testProcessingOrderNeverHangsOnAStrayCycle() {
         let order = euclideousListenProcessingOrder(sources: [1, 0, 0, 0], rhythm: [.copy, .copy, .own, .own], pitch: [.own, .own, .own, .own])
         XCTAssertEqual(Set(order), Set(0...3), "every lane still appears exactly once")

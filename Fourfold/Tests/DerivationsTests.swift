@@ -2733,11 +2733,56 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclidPattern(pulses: 3, steps: 8, rotation: 1), (0..<8).map { base[($0 + 1) % 8] }, "rotation cycles the pattern")
     }
     // TILT (Paul 2026-10-08): "bias the distribution of hits to the left or right."
+    /// The CHORDS note source runs the allocation-free `…Into` form every render window; `chordSeqNotes` stays as the plain statement. Same notes for every key, scale, voicing, spread, matrix, rotation and beat.
+    func testTheAllocationFreeChordGeneratorMatchesChordSeqNotes() {
+        var g = SystemRandomNumberGenerator()
+        let scales: [[Int]] = ScaleType.allCases.map { $0.intervals }
+        var out = [Int](repeating: 0, count: 8)
+        var rests = 0, chords = 0
+        for _ in 0..<20_000 {
+            var p = SnapParams()
+            p.chordsMode = .pattern
+            p.chordsSteps = Int.random(in: 1...16, using: &g)
+            p.chordsDegrees = (0..<Int.random(in: 0...16, using: &g)).map { _ in Int.random(in: -1...7, using: &g) }
+            p.chordsVoicing = ChordVoicing.allCases.randomElement(using: &g)!; p.chordsSpread = ChordSpread.allCases.randomElement(using: &g)!
+            p.chordsRotate = Int.random(in: -20...20, using: &g); p.chordsRateBeats = [0, 1, 2, 4, 0.5].randomElement(using: &g)!
+            let tones = scales.randomElement(using: &g)!, root = Int.random(in: -12...23, using: &g), beat = Double.random(in: -8...400, using: &g)
+            let expected = chordSeqNotes(beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil)
+            let n = chordSeqNotesInto(&out, beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil)
+            XCTAssertEqual(Array(out[0..<n]), expected, "beat \(beat) root \(root) \(p.chordsVoicing) \(p.chordsSpread)")
+            if expected.isEmpty { rests += 1 } else { chords += 1 }
+        }
+        XCTAssertGreaterThan(rests, 500); XCTAssertGreaterThan(chords, 5000)
+        var w = SnapParams(); w.chordsMode = .walk
+        XCTAssertEqual(Array(out[0..<chordSeqNotesInto(&out, beat: 9, w, keyRoot: 0, keyTones: scales[0], followNote: nil)]), chordSeqNotes(beat: 9, w, keyRoot: 0, keyTones: scales[0], followNote: nil), "WALK falls back to the array form")
+    }
     func testEuclidTiltPatternIsANoOpAtZero() {
         var buf = euclidPattern(pulses: 3, steps: 8)
         let before = buf
         euclidTiltPattern(&buf, pulses: 3, steps: 8, tilt: 0)
         XCTAssertEqual(buf, before, "tilt=0 must be byte-identical to not calling this at all")
+    }
+    /// The render thread runs the bitmask form; the Set-and-arrays form stays as the plain statement of the rule. Every K, N, tilt and (hand-edited, not-Euclid) pattern must come out the same — including patterns whose hit count does not match K.
+    func testTheAllocationFreeTiltAgreesWithTheReferenceOnEveryShape() {
+        var g = SystemRandomNumberGenerator()
+        var changed = 0
+        for _ in 0..<30_000 {
+            let n = Int.random(in: 2...64, using: &g), k = Int.random(in: 0...n, using: &g)
+            var a = euclidPattern(pulses: k, steps: n)
+            if Bool.random(using: &g) { for i in 0..<n where Int.random(in: 0..<6, using: &g) == 0 { a[i].toggle() } }   // a hand-edited pattern: hit count may no longer equal K
+            if Bool.random(using: &g) { a += [Bool](repeating: true, count: Int.random(in: 0...3, using: &g)) }          // a buffer longer than the lane's steps
+            let tilt = [0.0, -1, -0.5, 0.25, 0.7, 1, Double.random(in: -1.5...1.5, using: &g)].randomElement(using: &g)!
+            var fast = a, ref = a
+            euclidTiltPattern(&fast, pulses: k, steps: n, tilt: tilt)
+            euclidTiltPatternReference(&ref, pulses: k, steps: n, tilt: tilt)
+            XCTAssertEqual(fast, ref, "k \(k) n \(n) tilt \(tilt)")
+            if fast != a { changed += 1 }
+        }
+        XCTAssertGreaterThan(changed, 5000, "the fuzz must actually move hits, or it proves nothing")
+        var big = [Bool](repeating: false, count: 70); for i in stride(from: 0, to: 70, by: 7) { big[i] = true }
+        var bigRef = big
+        euclidTiltPattern(&big, pulses: 10, steps: 70, tilt: 0.6); euclidTiltPatternReference(&bigRef, pulses: 10, steps: 70, tilt: 0.6)
+        XCTAssertEqual(big, bigRef, "more than 64 steps falls back to the reference")
     }
     func testEuclidTiltPatternPreservesExactHitCount() {
         for (k, n) in [(3, 8), (5, 8), (2, 16), (7, 16), (1, 8)] {
