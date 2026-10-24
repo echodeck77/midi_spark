@@ -48,6 +48,16 @@ Nothing in Fourfold has run on a device yet: everything so far is simulator + un
 
 If something fails: which step, what you saw, and for a crash the line Xcode prints. Don't try to fix it on the device.
 
+### GESTURE PREDICTABILITY (2026-10-24)
+- LAUNCH the DEBUG build from Xcode into AUM first (`EuclideousSlider`'s tilt branch gained a new ephemeral `@State`; the EDITED chip overlay was removed — a changed leaf on the 1 MB main stack).
+- TILT's live-drag feel: the thumb now starts at 0/centre every touch and RETURNS to 0 on release (no persistent −1…+1 readout any more) — the single part of this ferry Paul hasn't seen a concrete mock of. Confirm it reads as "a gesture that nudges the pattern" rather than "a broken/reset slider."
+- TILT visibly reshaping an already HITS-edited (gap-filled) pattern, instead of being disabled/showing an EDITED chip — drag TILT on a lane whose HITS has been dragged away from its pure count and confirm the hits visibly bias toward one end.
+- OFFSET's restored 1:1 whole-step drag feel (band-snapped again, no fractional creep) — confirm a drag tracks the finger exactly one step at a time, matching the pre-RHYTHM-POLISH feel Paul is asking to get back.
+- HITS: dragging the count up and down should visibly keep existing hits in place (only the minimal add/remove), even on a lane that's never been hand-edited — confirm it doesn't "feel" like it still jumps.
+- LANE LOCK: since HITS and TILT now share one representation (`customHits`), a lane locked then edited on EITHER control shows the dashed "differs from L" frame on BOTH the HITS and TILT tiles (the stored array alone can't say which gesture moved it) — confirm this doesn't read as a bug on-device; it's a disclosed, deliberate trade-off, not an oversight.
+- Double-tap on HITS or TILT now reverts to pure Euclid (replacing the old TILT-only "EDITED chip" tap zone) — confirm the gesture is discoverable and feels like "reset," not accidental.
+- Scope note: this ferry's fix lives ONLY in `AUExtension/` (MidiSpark/8x8 State's engine copy, which Euclideous's reserved row rides) — Fourfold's forked engine copy (`Fourfold/Engine`) was NOT touched and does not get this fix; port it there too if Fourfold should feel the same way.
+
 ### LISTEN REBUILT (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM first (`listenPausedOverlay`/the RHYTHM-tab rate-grid rewrite are new/changed leaves on the 1 MB main stack).
 - The LISTEN tab's FOLLOW row chips, RHYTHM OWN/COPY/FILL row + its DELAY/FEEL/SPEED/DIRECTION panel, and PITCH OWN/SHADOW/ECHO/AVOID row + its INTERVAL/OCTAVE panel: legible and tappable at the real card width in all four lane colours; the panel's proportional shrink under pressure (down to its 30pt floor) actually looks acceptable rather than cramped.
