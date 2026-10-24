@@ -3904,6 +3904,58 @@ func reelPassLengthText(beats: Double) -> String {
     return "1 PASS = \(n) \(r == 1 ? "BEAT" : "BEATS")"
 }
 
+// MARK: - REEL PHASE 0 (2026-10-25): export names, why SAVE is unavailable, and the "older passes dropped" notice (Docs/reel-redesign-plan.md)
+/// "All" / "A" … from the kernel's "Fourfold-All.mid" / "Fourfold-A.mid" (the kernel still names its files that way; the browser re-names them for the user).
+func reelExportLabel(kernelName: String) -> String {
+    var n = kernelName
+    if n.hasSuffix(".mid") { n.removeLast(4) }
+    if n.hasPrefix("Fourfold-") { n.removeFirst("Fourfold-".count) }
+    return n.isEmpty ? "Reel" : n
+}
+/// "pass 8" or "passes 8-9" — the browser shows passes 1-based, the engine numbers them from 0.
+func reelPassSpanText(lo: Int, hi: Int) -> String {
+    let a = min(lo, hi) + 1, b = max(lo, hi) + 1
+    return a == b ? "pass \(a)" : "passes \(a)-\(b)"
+}
+/// One file, named for what is in it: "Fourfold 2026-10-25 14-52-07 passes 8-9 A.mid". The stamp is the moment of the SAVE (the same for every file it writes, so they sort together in Files); plain characters only, so no app downstream chokes on the name.
+func reelExportFileName(stamp: String, lo: Int, hi: Int, label: String) -> String {
+    "Fourfold \(stamp) \(reelPassSpanText(lo: lo, hi: hi)) \(label).mid"
+}
+/// "2026-10-25 14-52-07" in the given calendar's time zone (no colons: a file name).
+func reelExportStamp(_ date: Date, timeZone: TimeZone = .current) -> String {
+    var cal = Calendar(identifier: .gregorian); cal.timeZone = timeZone
+    let c = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+    func two(_ v: Int?) -> String { let x = v ?? 0; return x < 10 ? "0\(x)" : "\(x)" }
+    return "\(c.year ?? 0)-\(two(c.month))-\(two(c.day)) \(two(c.hour))-\(two(c.minute))-\(two(c.second))"
+}
+/// A name that does not exist yet: the same name with " 2", " 3" … before the extension if it does (two SAVEs of the same selection in the same second).
+func reelUniqueFileName(_ name: String, exists: (String) -> Bool) -> String {
+    guard exists(name) else { return name }
+    let base = name.hasSuffix(".mid") ? String(name.dropLast(4)) : name
+    var n = 2
+    while exists("\(base) \(n).mid") { n += 1 }
+    return "\(base) \(n).mid"
+}
+struct ReelExportAvailability: Equatable { var ok: Bool; var reason: String? }
+/// Whether SAVE can do anything, and if not WHY — in one short line. `outputCounts` = notes per output A–D in the selected range; `lanes` = the outputs ticked for export (empty = the master mix).
+func reelExportAvailability(anyPass: Bool, selected: Bool, outputCounts: [Int], lanes: Set<Int>) -> ReelExportAvailability {
+    guard anyPass else { return ReelExportAvailability(ok: false, reason: "Nothing recorded yet.") }
+    guard selected else { return ReelExportAvailability(ok: false, reason: "Tap a pass to choose what to save.") }
+    func count(_ i: Int) -> Int { i >= 0 && i < outputCounts.count ? outputCounts[i] : 0 }
+    if lanes.isEmpty {
+        return outputCounts.reduce(0, +) > 0 ? ReelExportAvailability(ok: true, reason: nil) : ReelExportAvailability(ok: false, reason: "No notes in these passes.")
+    }
+    let withNotes = lanes.filter { count($0) > 0 }
+    if !withNotes.isEmpty { return ReelExportAvailability(ok: true, reason: nil) }
+    let names = lanes.sorted().map { ["A", "B", "C", "D"][min(3, max(0, $0))] }
+    return ReelExportAvailability(ok: false, reason: "Nothing on \(names.joined(separator: ", ")) in these passes.")
+}
+/// "Passes 1-7 have dropped off the tape." — the ring keeps only the newest 64; the oldest one still held being number n (1-based) means the n-1 before it are gone. nil while nothing has been dropped.
+func reelDroppedPassesNotice(passNumbers: [Int]) -> String? {
+    guard let first = passNumbers.filter({ $0 >= 0 }).min(), first > 0 else { return nil }
+    return first == 1 ? "Pass 1 has dropped off the tape." : "Passes 1-\(first) have dropped off the tape."
+}
+
 // ── layout ladder ───────────────────────────────────────────────────────────────────────────────────
 
 enum EuclideousHeaderMetrics {

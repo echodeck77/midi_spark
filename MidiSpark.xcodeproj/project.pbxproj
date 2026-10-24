@@ -205,6 +205,7 @@
 		C166DF5660C355F1056946B2 /* Row8Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */; };
 		C2B78F42CCC207F602D4937C /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324D879C239B5A1451B258F /* WalkTagPainter.swift */; };
 		C3C3B35A98FEB15A880BEF2B /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
+		C4B21D64133FF65C1D73F27A /* ReelExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */; };
 		C4FC8D3D987668BF1C537345 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */; };
 		C51F6C7CA3B78101EE7826D8 /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B806162177B626AC22A5D /* WalkTagPainter.swift */; };
 		C5FAA70DAA2123BDE08E7E23 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE216B742656753132B6BF90 /* RestartFlashPainter.swift */; };
@@ -546,6 +547,7 @@
 		FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloPainter.swift; sourceTree = "<group>"; };
 		FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXPanelPainter.swift; sourceTree = "<group>"; };
 		FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousSettingsSheet.swift; sourceTree = "<group>"; };
+		FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelExportTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -677,6 +679,7 @@
 				99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */,
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
 				CD57513582FB79CA7D0105B1 /* ReelDeckTests.swift */,
+				FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */,
 				86B78244085974D781CC1A40 /* RestartChainsTests.swift */,
 				5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */,
 				9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */,
@@ -1319,6 +1322,7 @@
 				5CE639FE1C31C52CF9452B0C /* PresetStoreTests.swift in Sources */,
 				692A1708CCCE988100850092 /* PulseTests.swift in Sources */,
 				4B21837C9071EE11D566D760 /* ReelDeckTests.swift in Sources */,
+				C4B21D64133FF65C1D73F27A /* ReelExportTests.swift in Sources */,
 				F5391EF8DBE567DE296CEB8D /* RestartChainsTests.swift in Sources */,
 				7BE01E23EE11445214726AD3 /* RestartFlashTests.swift in Sources */,
 				DDF0A418083AE1978744004D /* RhythmPolishTests.swift in Sources */,

@@ -176,12 +176,26 @@ struct FourfoldReelBrowser: View {
             Text(reelPassLengthText(beats: reelCycle))                                // 1 PASS = n BEATS (RESTORE SETUP re-deploys an 8×8 scene — Fourfold has none)
                 .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(ffDim)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            // REEL PHASE 0 (2026-10-25, REEL-1): the ring keeps only the newest 64 passes; say so instead of letting the oldest quietly vanish.
+            if let dropped = reelDroppedPassesNotice(passNumbers: reelPassNumbers) {
+                Text(dropped).font(.system(size: 10, weight: .semibold)).foregroundColor(Color(red: 1.0, green: 0.71, blue: 0.33)).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Spacer()
+            // REEL PHASE 0 (REEL-6): SAVE used to do nothing, silently, with no selection or an empty output. It now says why it cannot.
+            let avail = reelExportAvailability(anyPass: anyPass, selected: rlo >= 0, outputCounts: reelOutputCounts(), lanes: reelExportLanes)
+            if let why = avail.reason {
+                Text(why).font(.system(size: 11, weight: .medium)).foregroundColor(.white.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Button { reelExport() } label: {                             // SAVE the pass RANGE × the emitter selection → share sheet
                 Text(rlo >= 0 ? "SAVE \(selLabel) · \(laneLabel)" : "SAVE").font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
-                    .foregroundColor(rlo >= 0 || anyPass ? .black : ffDim).frame(maxWidth: .infinity).padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(ffCyan.opacity(0.9)))
+                    .foregroundColor(avail.ok ? .black : ffDim).frame(maxWidth: .infinity).padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(avail.ok ? ffCyan.opacity(0.9) : ffCell))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(avail.ok ? Color.clear : ffEdge, lineWidth: 1))
             }
+            .disabled(!avail.ok)
+            .accessibilityHint(avail.reason ?? "Writes the selected passes as MIDI files.")
             Button { onClose() } label: {
                 Text("CLOSE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(ffDim)
                     .frame(maxWidth: .infinity).padding(.vertical, 10)
@@ -303,6 +317,9 @@ struct FourfoldReelBrowser: View {
             HStack(spacing: 3) {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 8, weight: .bold)).foregroundColor(selected ? hue : hue.opacity(0.4))
                 Text(["A", "B", "C", "D"][lane]).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(selected ? 1 : 0.8))
+                if reelSelPassNo >= 0 || reelSelLoPass >= 0 {   // how many notes this output holds in the selection (an output with none cannot be saved)
+                    Text("\(notes.count)").font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(ffDim)
+                }
             }.padding(.leading, 4)
         }
         .overlay(selected ? RoundedRectangle(cornerRadius: 3).stroke(hue, lineWidth: 1.5) : nil)   // SELECTED emitter — highlighted for export (Paul 2026-08-26)
@@ -313,7 +330,7 @@ struct FourfoldReelBrowser: View {
     // EXPORT the selected pass RANGE × the selected emitter LANES (Paul 2026-08-26). No lane selected ⇒ the MASTER (A–D sum).
     private func reelExport() {
         let (lo, hi) = reelExportRange()
-        guard lo >= 0, hi >= 0 else { return }
+        guard lo >= 0, hi >= 0, reelExportAvailability(anyPass: reelPassNumbers.contains { $0 >= 0 }, selected: true, outputCounts: reelOutputCounts(), lanes: reelExportLanes).ok else { return }
         var mask: UInt8 = 0; for l in reelExportLanes where l >= 0 && l < 4 { mask |= (1 << UInt8(l)) }
         let files = au?.reelExportRangeFiles(fromPass: lo, toPass: hi, emitterMask: mask) ?? []
         guard !files.isEmpty else { return }
@@ -323,14 +340,24 @@ struct FourfoldReelBrowser: View {
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Reel exports", isDirectory: true)
             if (try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)) != nil { dir = docs }
         }
+        // REEL PHASE 0 (REEL-5): every file used to be "Fourfold-A.mid", so the second SAVE overwrote the first. Now each is named for its time, passes and output, and an existing name is never reused.
+        let stamp = reelExportStamp(Date())
         var urls: [URL] = []
         for f in files {
-            let url = dir.appendingPathComponent(f.name)
+            let wanted = reelExportFileName(stamp: stamp, lo: lo, hi: hi, label: reelExportLabel(kernelName: f.name))
+            let name = reelUniqueFileName(wanted, exists: { FileManager.default.fileExists(atPath: dir.appendingPathComponent($0).path) })
+            let url = dir.appendingPathComponent(name)
             if (try? f.data.write(to: url)) != nil { urls.append(url) }
         }
         guard !urls.isEmpty else { return }
         reelShareURLs = urls
         reelShowShare = true
+    }
+    /// Notes per output A–D in what is selected now (the roll holds the selected pass, or the whole range).
+    private func reelOutputCounts() -> [Int] {
+        var c = [0, 0, 0, 0]
+        for n in reelRoll where n.cable >= 1 && n.cable <= 4 { c[Int(n.cable) - 1] += 1 }
+        return c
     }
     // The pass range to export/highlight: the [lo,hi] set by ◀/▶, else the single selected pass. (pass numbers)
     private func reelExportRange() -> (Int, Int) {
