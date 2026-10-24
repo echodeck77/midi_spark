@@ -5,6 +5,7 @@ import SwiftUI
 
 @main
 struct FourfoldApp: App {
+    init() { PresetStore.useDocumentsFolder = true }   // before anything reads the preset list — see `PresetStore.useDocumentsFolder`
     var body: some Scene {
         WindowGroup { FourfoldAppView() }
     }

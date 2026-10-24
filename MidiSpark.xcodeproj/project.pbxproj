@@ -107,6 +107,7 @@
 		60B13494D15905651204BE24 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		61AEB546B89196E0A3E9EF07 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
 		61FD41E8AAFF6443AFC70C85 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDCE8A830228B93BE51322A /* SnapshotStore.swift */; };
+		636A60432C298D2FA586D43B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 510B7145E7932E23ADB4D23D /* PrivacyInfo.xcprivacy */; };
 		66E87FCC147957D2D5BE9931 /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */; };
 		672E709B5A0D1591E9DDE621 /* LaneStripFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F2A9EB8BFA7038CE4C84B1 /* LaneStripFuzzTests.swift */; };
 		676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688828AD8E02A3FA163D3656 /* RouterTests.swift */; };
@@ -164,6 +165,7 @@
 		955BA08A6B46B09D64ED0EB4 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */; };
 		965C21A77C376F3057CB4206 /* RestartFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C44DDB2035A6F3CE3FA8C /* RestartFlashTests.swift */; };
 		96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */; };
+		98438A098C9E21AEC8237627 /* FourfoldBluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */; };
 		99988F247FD22A5143E99B8D /* FourfoldAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */; };
 		999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */; };
 		9A832AC171E5542BAD35793F /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */; };
@@ -242,6 +244,7 @@
 		D8E56D6903D836F0B80F29A0 /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */; };
 		D9216BAE1234A4B5C0B908FC /* AcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C3BD2C1AC32230B747C194 /* AcceptanceTests.swift */; };
 		D93A9E0C720E078D01E49E28 /* LaneStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */; };
+		DAB9F977278EB2DED19030F6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4F3AA481367944D3FFA6FECD /* PrivacyInfo.xcprivacy */; };
 		DC037E862D4B214FFB1DF9E4 /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
 		DC948A6C41FBACF023BDC377 /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
 		DDF0A418083AE1978744004D /* RhythmPolishTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */; };
@@ -386,9 +389,11 @@
 		4C3D05D84CB3BB7FF47E7851 /* Dice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dice.swift; sourceTree = "<group>"; };
 		4CBF035AD049143522CAD057 /* GridSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSkin.swift; sourceTree = "<group>"; };
 		4F27CCA1D229CE4863430480 /* FourfoldTapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTapTests.swift; sourceTree = "<group>"; };
+		4F3AA481367944D3FFA6FECD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBrowser.swift; sourceTree = "<group>"; };
 		507877300E0BD9FC880E2177 /* AcceptanceWeaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceWeaveTests.swift; sourceTree = "<group>"; };
 		50EAB2358FE85A312490A1FF /* ReelHeaderIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelHeaderIcon.swift; sourceTree = "<group>"; };
+		510B7145E7932E23ADB4D23D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		523B1AEB32CCEF31AA60CCA9 /* Router.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Router.swift; sourceTree = "<group>"; };
 		54A2360C33B73BDF7D5D05DD /* FourfoldMonkeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldMonkeyTests.swift; sourceTree = "<group>"; };
 		5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashTests.swift; sourceTree = "<group>"; };
@@ -436,6 +441,7 @@
 		8BD8A7AD9DA57CA503786525 /* MixPadPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPadPainter.swift; sourceTree = "<group>"; };
 		9093C469F102E1F2CCC6DF7D /* MidiFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFile.swift; sourceTree = "<group>"; };
 		91BA15AAFC801CACFECA4085 /* MigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationTests.swift; sourceTree = "<group>"; };
+		91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldBluetoothMIDIView.swift; sourceTree = "<group>"; };
 		923F68D1FA979B5D22C2336D /* EuclideousRandomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandomTests.swift; sourceTree = "<group>"; };
 		9240C6CA393EE4F4B6FD09AB /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
 		9400D76881E4F5F6EFFF6BF3 /* Emission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Emission.swift; sourceTree = "<group>"; };
@@ -863,12 +869,14 @@
 				64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */,
 				29E016452526AE786D501E59 /* FourfoldAppModel.swift */,
 				7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */,
+				91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */,
 				41C41DF4A68365DC33446B95 /* FourfoldEngine.swift */,
 				88CB15CBF16CD2853E91702B /* FourfoldLinkSettingsView.swift */,
 				4156E25D4881F600935CB6A5 /* FourfoldMIDI.swift */,
 				EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */,
 				5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */,
 				D7FF4747235BE7D3D8815C2A /* Info.plist */,
+				4F3AA481367944D3FFA6FECD /* PrivacyInfo.xcprivacy */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -877,6 +885,7 @@
 			isa = PBXGroup;
 			children = (
 				B505AD7C314653CD2DB395CD /* FourfoldViewController.swift */,
+				510B7145E7932E23ADB4D23D /* PrivacyInfo.xcprivacy */,
 			);
 			path = AU;
 			sourceTree = "<group>";
@@ -938,6 +947,7 @@
 			buildConfigurationList = ACE2247D3DDBFCE68FF09449 /* Build configuration list for PBXNativeTarget "FourfoldAU" */;
 			buildPhases = (
 				6EF5EA80E1538F3527BAB9C3 /* Sources */,
+				08717429AB432855BCD4BCD7 /* Resources */,
 				13313FE45E913BC57A28880E /* Frameworks */,
 			);
 			buildRules = (
@@ -1098,6 +1108,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		08717429AB432855BCD4BCD7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				636A60432C298D2FA586D43B /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		532E50EB7994010F1BEDC377 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1111,6 +1129,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				359665078124DA148FE39039 /* Assets.xcassets in Resources */,
+				DAB9F977278EB2DED19030F6 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1145,6 +1164,7 @@
 				0CA5387EFCABC08168C68BC7 /* FourfoldAppModel.swift in Sources */,
 				21A237E4460BF2277F6B5A03 /* FourfoldAppView.swift in Sources */,
 				99988F247FD22A5143E99B8D /* FourfoldAudioUnit.swift in Sources */,
+				98438A098C9E21AEC8237627 /* FourfoldBluetoothMIDIView.swift in Sources */,
 				C3C3B35A98FEB15A880BEF2B /* FourfoldCompose.swift in Sources */,
 				58C0C039EB97E7DB0F167462 /* FourfoldEngine.swift in Sources */,
 				251EEE0C781BF90AFBB9B99F /* FourfoldLinkSettingsView.swift in Sources */,
@@ -1594,12 +1614,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Fourfold/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
@@ -1732,12 +1754,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Fourfold/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
@@ -1799,6 +1823,7 @@
 		F6EE589E4C232CDF3EE5EAD6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Fourfold/AU/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -1807,6 +1832,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold.AU;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
@@ -1817,6 +1843,7 @@
 		FC5A02F9F6552278F4658838 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Fourfold/AU/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -1825,6 +1852,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold.AU;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";

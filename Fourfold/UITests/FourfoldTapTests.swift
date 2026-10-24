@@ -163,6 +163,29 @@ final class FourfoldTapTests: XCTestCase {
         gone(app.buttons["MAIN OUT"].firstMatch, "the settings sheet after Close")
     }
 
+    func testTheBluetoothMIDIScreenOpensAndCloses() {
+        let app = XCUIApplication.fresh()
+        need(app.buttons["Bluetooth MIDI devices"], "the Bluetooth MIDI button in the transport bar").tap()
+        need(app.buttons["Done"], "the Bluetooth MIDI sheet's Done button").tap()
+        gone(app.buttons["Done"], "the Bluetooth MIDI sheet after Done")
+        need(app.buttons["Play"], "the transport bar again")
+    }
+
+    /// Saved presets are kept in the app's Documents folder (Files app > On My iPad > Fourfold > Presets). Environment KEEP=1 (xcodebuild `TEST_RUNNER_KEEP=1`) skips the clean-up so a script can look at the file.
+    func testASavedPresetIsListedAndKeptInDocuments() {
+        let app = XCUIApplication.fresh()
+        app.buttons["Presets"].tap()
+        let name = app.textFields.firstMatch
+        need(name, "the preset name field").tap()
+        name.typeText("UITest Preset\n")   // the return key also puts the keyboard away, which would otherwise cover the list
+        app.buttons["Save preset"].tap()
+        need(app.buttons["UITest Preset"], "the saved preset in the YOUR PRESETS list")
+        if ProcessInfo.processInfo.environment["KEEP"] == nil {
+            app.buttons["Delete UITest Preset"].tap(); app.buttons["Confirm delete UITest Preset"].tap()
+            gone(app.buttons["UITest Preset"], "the preset after deleting it")
+        }
+    }
+
     func testLockAndRandomModeToggleOnAndOff() {
         let app = XCUIApplication.fresh()
         let random = need(app.buttons["Random mode"], "the dice")

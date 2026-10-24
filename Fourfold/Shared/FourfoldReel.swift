@@ -317,7 +317,12 @@ struct FourfoldReelBrowser: View {
         var mask: UInt8 = 0; for l in reelExportLanes where l >= 0 && l < 4 { mask |= (1 << UInt8(l)) }
         let files = au?.reelExportRangeFiles(fromPass: lo, toPass: hi, emitterMask: mask) ?? []
         guard !files.isEmpty else { return }
-        let dir = FileManager.default.temporaryDirectory
+        // In the standalone app the exports are kept in Documents/Reel exports (visible in the Files app, like the presets); in the AU extension they stay temporary — its container is invisible.
+        var dir = FileManager.default.temporaryDirectory
+        if PresetStore.useDocumentsFolder {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Reel exports", isDirectory: true)
+            if (try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)) != nil { dir = docs }
+        }
         var urls: [URL] = []
         for f in files {
             let url = dir.appendingPathComponent(f.name)

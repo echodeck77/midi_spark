@@ -54,4 +54,22 @@ final class PresetStoreTests: XCTestCase {
     }
 
 
+
+    /// Presets saved before the app kept them in Documents come along, once, and never overwrite one already there.
+    func testMoveAllMovesPresetFilesAndNeverOverwrites() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("PresetMove-\(UUID().uuidString)", isDirectory: true)
+        let old = root.appendingPathComponent("old"), new = root.appendingPathComponent("new")
+        try fm.createDirectory(at: old, withIntermediateDirectories: true); try fm.createDirectory(at: new, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        for n in ["a", "b", "c"] { try Data(n.utf8).write(to: old.appendingPathComponent("\(n).\(PresetStore.ext)")) }
+        try Data("keep".utf8).write(to: old.appendingPathComponent("notes.txt"))                          // not a preset: stays
+        try Data("mine".utf8).write(to: new.appendingPathComponent("b.\(PresetStore.ext)"))               // already there: wins
+        XCTAssertEqual(PresetStore.moveAll(from: old, to: new), 2)
+        XCTAssertEqual(try Data(contentsOf: new.appendingPathComponent("b.\(PresetStore.ext)")), Data("mine".utf8))
+        XCTAssertTrue(fm.fileExists(atPath: new.appendingPathComponent("a.\(PresetStore.ext)").path))
+        XCTAssertTrue(fm.fileExists(atPath: old.appendingPathComponent("b.\(PresetStore.ext)").path), "the one that was not moved is left where it was")
+        XCTAssertTrue(fm.fileExists(atPath: old.appendingPathComponent("notes.txt").path))
+        XCTAssertEqual(PresetStore.moveAll(from: old, to: new), 0, "nothing left to move")
+    }
 }

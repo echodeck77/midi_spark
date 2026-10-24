@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Fourfold privacy manifest (2026-10-24). No tracking, no data collected, no network. It declares the two "required reason" APIs the code uses:
+     UserDefaults — CA92.1 (read/write the app's OWN settings: the saved tempo, the PULSE level, the session key);
+     system boot time — 35F9.1 (mach_absolute_time / ProcessInfo.systemUptime, only to measure time elapsed between events inside the app: audio/MIDI timestamps and animation clocks).
+     The AU extension carries the same file (Fourfold/AU/PrivacyInfo.xcprivacy). If a new API from Apple's required-reason list is ever used (file timestamps, disk space, active keyboards), add its category HERE and there. -->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

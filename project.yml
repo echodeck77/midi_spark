@@ -29,6 +29,10 @@ targetTemplates:
     settings:
       base:
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) FOURFOLD"
+        # ONE version for the app AND its embedded AU extension (App Store validation wants them to agree): MARKETING_VERSION is the user-visible version, CURRENT_PROJECT_VERSION the build
+        # number that must go up on every upload. Both plists read these two (`$(MARKETING_VERSION)`); `sh Scripts/bump-build.sh` raises the build number.
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
 targets:
   MidiSpark:
     type: application
@@ -111,8 +115,16 @@ targets:
       properties:
         UILaunchScreen: {}
         CFBundleDisplayName: "Fourfold"
-        # Must match Fourfold/AU/Info.plist's CFBundleShortVersionString (embedded-binary validation); that plist is hand-maintained, so bump BOTH together.
-        CFBundleShortVersionString: "0.1.0"
+        # Version + build come from MARKETING_VERSION / CURRENT_PROJECT_VERSION above (the AU's hand-maintained plist reads the same two), so the app and the extension cannot disagree.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # RELEASE SETTINGS (2026-10-24): the app uses no encryption beyond what the OS provides (answers export compliance on every upload) · Music category in the App Store ·
+        # the Documents folder is visible in the Files app (presets, reel MIDI exports) · Bluetooth MIDI pairing (the screen is in the transport bar; CoreMIDI needs this string to scan).
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.music
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSBluetoothAlwaysUsageDescription: "Fourfold uses Bluetooth to connect Bluetooth MIDI keyboards and controllers."
         # STANDALONE (Step 3): a silent audio engine is the app's render thread and keeps it running in the background (FourfoldEngine); CoreMIDI needs no permission on iOS.
         UIBackgroundModes: [audio]
         "UISupportedInterfaceOrientations~ipad":

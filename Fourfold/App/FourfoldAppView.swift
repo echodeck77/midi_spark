@@ -7,6 +7,7 @@ import UIKit
 struct FourfoldAppView: View {
     @StateObject private var model = FourfoldAppModel()
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showBluetooth = false
     private let autosave = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     #if FOURFOLD_LINK   // ABLETON LINK is OFF until after release — see `Docs/standalone-plan.md` "Ableton Link" for the switch
     // ABLETON LINK (2026-10-24 ferry): tap the LINK button toggles it like PLAY; a long-press opens
@@ -89,6 +90,8 @@ struct FourfoldAppView: View {
                 .tint(accent).frame(maxWidth: 260)
                 .accessibilityHidden(true)
 
+            bluetoothButton
+
             #if FOURFOLD_LINK
             linkButton
             #endif
@@ -129,6 +132,25 @@ struct FourfoldAppView: View {
         .accessibilityHint("Double-tap to turn Link on or off. Long-press for Link settings.")
     }
     #endif
+
+    /// Opens Apple's Bluetooth MIDI pairing screen (a sheet, in a navigation bar with Done — the way CoreAudioKit wants it shown).
+    private var bluetoothButton: some View {
+        Button { showBluetooth = true } label: {
+            Image(systemName: "antenna.radiowaves.left.and.right").font(.system(size: 14, weight: .bold)).foregroundColor(dim)
+                .frame(width: 44, height: 36)
+                .background(RoundedRectangle(cornerRadius: 8).fill(panel))
+        }
+        .accessibilityLabel("Bluetooth MIDI devices")
+        .accessibilityHint("Opens the screen for pairing a Bluetooth MIDI keyboard or controller.")
+        .sheet(isPresented: $showBluetooth) {   // on the button itself: SwiftUI before iOS 16 keeps only the last .sheet on one view
+            NavigationView {
+                FourfoldBluetoothMIDIView()
+                    .navigationTitle("Bluetooth MIDI").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showBluetooth = false } } }
+            }
+            .navigationViewStyle(.stack)
+        }
+    }
 
     private func stepButton(_ symbol: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {

@@ -31,11 +31,32 @@ enum PresetStore {
 
     // MARK: - file I/O (extension sandbox — thin FileManager calls, device-verified)
 
+    /// The standalone app turns this on at launch: its Documents folder is visible in the Files app (`UIFileSharingEnabled`), so saved presets live there and can be backed up, copied and shared. The AU extension (its container is
+    /// invisible whatever we do) and the unit tests keep Application Support.
+    static var useDocumentsFolder = false
+    private static var movedToDocuments = false
     static var directory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("Presets", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Presets", isDirectory: true)
+        guard useDocumentsFolder else {
+            try? fm.createDirectory(at: appSupport, withIntermediateDirectories: true)
+            return appSupport
+        }
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Presets", isDirectory: true)
+        try? fm.createDirectory(at: docs, withIntermediateDirectories: true)
+        if !movedToDocuments { movedToDocuments = true; moveAll(from: appSupport, to: docs) }   // presets saved before the app moved to Documents come along, once
+        return docs
+    }
+    /// Moves every preset file in `old` into `new` unless a file of that name is already there; returns how many moved.
+    @discardableResult
+    static func moveAll(from old: URL, to new: URL) -> Int {
+        let fm = FileManager.default
+        var n = 0
+        for f in (try? fm.contentsOfDirectory(at: old, includingPropertiesForKeys: nil)) ?? [] where f.pathExtension == ext {
+            let target = new.appendingPathComponent(f.lastPathComponent)
+            if !fm.fileExists(atPath: target.path), (try? fm.moveItem(at: f, to: target)) != nil { n += 1 }
+        }
+        return n
     }
     static func fileURL(for name: String) -> URL {
         directory.appendingPathComponent(sanitize(name)).appendingPathExtension(ext)
