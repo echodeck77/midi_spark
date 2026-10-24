@@ -193,8 +193,10 @@ If something fails: which step, what you saw, and for a crash the line Xcode pri
 - The restart editor's live strips at real size: sweep and track under each chain row, following a tapped link / + / FREE at once; no timeline, "BAR 1–16" or hint line left.
 - Dashed rests restored on the lane strip in all four lane colours (a rest column present beside the 24 %-fill hit columns, never a dot), at OFFSET 0 and with a fractional OFFSET.
 
-### Random mode badge placement (2026-10-22)
-- Turning random mode on draws the thin "RANDOM" border and its badge ON THE RIFF GRID (top-left of the grid), nothing over the header; lock mode's dim washes the riff grid and the MIX | LANES | FX panel where they are (it was drawn at the page's top-left too).
+### RANDOM MODE animation/timing review (2026-10-24)
+- STRIKE FEEDBACK (new): with a lane playing in random mode, each picture flashes on a hit — the RHYTHM picture's playhead ring gets a lane-colour halo + a thicker ring, the RIFF picture's walk path brightens/thickens, the NOTES picture's lit keys glow — all velocity-scaled and fading on the SAME PULSE curve as the rest of the page. Confirm it reads as "a hit sounded," is in time with what's heard (at 64 and 1024 buffers), and isn't distractingly busy on a dense pattern; also confirm the glows fade out over ~1.5 s after STOP rather than freezing or vanishing instantly.
+- THE WAITING BORDER MARCHES (changed): after THROW or TWEAK (while it's queued to land), that button's dashed border now scrolls ("marching ants") at the same rate as the dice's own ring, instead of sitting static — confirm the two read as the same "pending" signal and the motion isn't jittery at the button's small size.
+- THE HOLD NOW HAS A 0.3 s THRESHOLD (changed): hearing the original by holding the picture now requires holding ~0.3 s (matching the output rings / SOLO / lock-capture), not a bare touch-down — confirm it feels deliberate (a quick tap on the picture does nothing), the switch to the original is crisp once it fires, and releasing returns to the new one cleanly with nothing stuck.
 
 ### RHYTHM POLISH (2026-10-22)
 - LAUNCH the DEBUG build from Xcode into AUM first (the 1 MB main-thread stack: the slider body closure grew ~0.9 KB, four new leaves of 1.3–3.5 KB); the RHYTHM tab must come up on all four lanes.

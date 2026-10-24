@@ -12,6 +12,34 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ FOURFOLD — RANDOM MODE animation/timing review (2026-10-24, branch `random-mode-polish`; 1,130 FourfoldTests
+  green (+3), golden harness byte-identical, Fourfold builds, app-test clean).** Paul asked for a review of random
+  mode's images/animation/timing. Two research passes (the live Fourfold code + the ferry history) found the timing
+  mechanics sound — no clock drift, every animated value a pure function of wall time with exactly one call site, no
+  duplicated formulas (the bug class this codebase watches for doesn't appear). Three things changed, four left as-is
+  on Paul's call: **(1) STRIKE FEEDBACK — the real gap.** Random mode was the ONE place on the page with no
+  velocity-scaled strike feedback at all (it never read `euclideousPulse*`); the three pictures now flash on a hit via
+  the SAME envelope every other surface uses — the RHYTHM playhead ring gets a lane-colour halo + `euclideousPulseRing
+  Stroke` thickening, the RIFF walk path brightens/thickens, the NOTES lit keys glow — computed ONCE in the card body
+  (`latestHappened` → `euclideousPulseEnvelopes(...).f`, riff layer for RHYTHM/RIFF, notes layer for NOTES) and handed
+  to each picture as a plain 0…1, keeping "this file only paints." The card's own `TimelineView` now gates on
+  `pulseLive` (not a flat `clockPlaying`), so a hit's glow fades over the 1.5 s settle after STOP instead of freezing;
+  the playhead still freezes correctly because `currentBeat` returns the frozen anchor when stopped, so the extra
+  settle frames only fade glows, they don't move the playhead. **(2) The THROW/TWEAK "waiting to land" border was a
+  STATIC dash** while the dice's own "pending" ring marched — now both march, sharing one pure function:
+  `euclideousMarchingAntsPhase` moved from a page-private func to a free Derivations.swift function, generalized with a
+  `period:` parameter (the dash array's sum — 6 for the dice's `[3,3]`, 7 for the border's `[4,3]`) so the loop seams
+  invisibly; the border has its own always-running `TimelineView` (a queued roll is still pending with the transport
+  stopped, exactly as the dice keeps crawling then). **(3) The picture hold switched from bare touch-down** — a
+  disclosed divergence from the page's 0.3 s hold convention (output rings / SOLO / lock-capture) — **now gated on
+  `EuclideousRingPress.holdSeconds` (0.3 s)**, via the same hold-task + drag-gesture shape `EuclideousSoloPressable`
+  uses, minus the tap branch (the picture has no tap action). **LEFT AS-IS on Paul's call:** §7.3's return highlight
+  stays the simplified whole-card ring+tag (not the full per-control glow — "reads as 'these moved' without the full
+  build"); the TWEAK glyph stays the `waveform.path` SF Symbol (not the custom one-period-sine path); the 150 ms
+  landing margin stays (revisit after a device session). +3 tests (`euclideousMarchingAntsPhase`: continuous sawtooth,
+  period = dash sum). UI-only, no engine/render change — golden harness byte-identical confirms it. DEVICE-OWED: see
+  `Docs/euclideous-device-verification-debt.md`'s new "RANDOM MODE animation/timing review" lines (all three changes
+  are visual/feel, no test-target reach).
 - **▶ FOURFOLD — SMALL-WINDOW FALLBACK (2026-10-24, branch `small-window-fallback`; 1,127 FourfoldTests green (+13
   new), golden harness byte-identical, `Fourfold` builds, app-test.sh clean at normal size).** Investigation (same
   session) found neither the plugin (`FourfoldAU`, hosted in AUM) nor the standalone app had ANY defense against a

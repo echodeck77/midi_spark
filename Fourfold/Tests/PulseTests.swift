@@ -231,4 +231,21 @@ final class PulseTests: XCTestCase {
         print("PULSE pure work WITH a restart chain: first frame \(firstFrame * 1000) ms, steady state \(perFrame * 1000) ms per frame (sink \(sink))")
         XCTAssertLessThan(perFrame, 0.004); XCTAssertLessThan(firstFrame, 0.05)
     }
+
+    // MARK: marching ants (random mode's dice ring + THROW/TWEAK waiting border share this)
+    func testMarchingAntsPhaseIsAContinuousSawtoothOverOneDashCyclePerHalfSecond() {
+        let ref = Date(timeIntervalSinceReferenceDate: 0)
+        // At t=0 the phase is 0; at the end of a cycle it has travelled one full `period` (negative direction).
+        near(euclideousMarchingAntsPhase(ref), 0)
+        near(euclideousMarchingAntsPhase(Date(timeIntervalSinceReferenceDate: 0.25)), -3, 1e-9, "halfway through the 0.5 s cycle = half of the default 6pt period")
+        // Just before the seam it's nearly a full -6; it wraps back to ~0 at the seam (continuous loop, no jump in the dash).
+        XCTAssertEqual(euclideousMarchingAntsPhase(Date(timeIntervalSinceReferenceDate: 0.499)), -5.988, accuracy: 0.001)
+        near(euclideousMarchingAntsPhase(Date(timeIntervalSinceReferenceDate: 0.5)), 0, 1e-9, "one full cycle later = back to 0")
+    }
+    func testMarchingAntsPeriodMatchesTheDashArraysSumSoTheLoopSeamsInvisibly() {
+        // The dice's [3,3] dash sums to 6 (the default); the THROW/TWEAK border's [4,3] sums to 7.
+        let quarterCycle = Date(timeIntervalSinceReferenceDate: 0.125)   // a quarter of the 0.5 s cycle
+        near(euclideousMarchingAntsPhase(quarterCycle, period: 6), -1.5)
+        near(euclideousMarchingAntsPhase(quarterCycle, period: 7), -1.75)
+    }
 }

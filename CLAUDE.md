@@ -371,6 +371,17 @@ the same pipeline as any other row; it is not a special-cased render path.
   non-blocking indicator while rolling (`euclideousRandomRiffGridOverlay` — a thin border + a small
   "RANDOM" badge, a disclosed judgment call on the exact look, no design given). MIX/LANES/FX and the riff
   grid stay fully interactive throughout random mode now.
+  **Animation/timing review (2026-10-24).** Three refinements, all UI-only (golden harness byte-identical):
+  (1) the three pictures now FLASH on a strike via the shared PULSE envelope (`latestHappened` →
+  `euclideousPulseEnvelopes(...).f`, computed once in the card body, handed to each picture as a 0…1 glow —
+  RHYTHM playhead-ring halo, RIFF path brighten, NOTES key glow), closing the one gap where random mode had
+  no velocity-scaled strike feedback; the card's `TimelineView` now rides `pulseLive` so glows fade over the
+  1.5 s settle after STOP (the playhead still freezes — `currentBeat` returns the frozen anchor). (2) The
+  THROW/TWEAK "waiting to land" border now MARCHES like the dice ring — `euclideousMarchingAntsPhase` is now a
+  shared free fn in Derivations.swift with a `period:` parameter (dash-array sum: 6 for the dice's `[3,3]`, 7
+  for the border's `[4,3]`). (3) The picture hold is now gated on `EuclideousRingPress.holdSeconds` (0.3 s,
+  the page's hold convention) instead of bare touch-down. Left as-is on Paul's call: §7.3's simplified return
+  highlight, the `waveform.path` TWEAK glyph, the 150 ms landing margin.
 - **FX tab (2026-10-18).** Third tab of the sequencer panel (both orientations since the PAGE LAYOUT ferry, 2026-10-19 — in portrait the panel sits beside the riff
   panel at the same width, so its columns match the riff grid's; its six rows now SHARE the panel's height, `euclideousFXRowH`). ONE document field `PluginState.euclideousFX` (`EuclideousFX`, additive-Optional, clamping Codable) →
   `SnapParams.euclideousFX` → Router. **ONE decision function** `euclideousFXApply` (Derivations.swift) decides what the rows do to a hit; the Router, the TIE

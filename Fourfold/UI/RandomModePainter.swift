@@ -38,6 +38,16 @@ struct EuclideousRandomCardView: View {
     let clockBeatsPerBar: Double
     // This tab's own currently-queued roll landing beat, if any (nil when nothing's waiting).
     let landingBeat: Double?
+    // STRIKE FEEDBACK (2026-10-24 review): the SAME PULSE feed the rest of the page reads, so the pictures
+    // flash on a hit the way every other surface does (header rings, riff arrows, MIX, the comet strip) —
+    // the review found random mode was the one place with no velocity-scaled strike feedback at all.
+    // The card computes the two layers' glow once (riff / notes) and hands each picture a plain 0…1 value,
+    // keeping "this file only paints": the pictures never touch the feed themselves.
+    let pulseFeed: EuclideousPulseFeed
+    let pulseScale: Double
+    /// Stays true for 1.5 s after the transport stops (`EuclideousPage.pulseLive`) so the last strikes fade
+    /// out rather than freezing — the card's own clock now rides this instead of a flat `clockPlaying` gate.
+    let pulseLive: Bool
     /// LANE LOCK 9.1: a locked lane still shows its picture, selector and caption, but THROW and TWEAK draw at 40 % and take no input ("LOCKED · UNLOCK TO ROLL" replaces the idle caption).
     var laneLocked: Bool = false
     /// Lane-box buttons ferry (2026-10-22): the SAME play/SOLO controls the normal-mode lane card has, top
@@ -52,11 +62,25 @@ struct EuclideousRandomCardView: View {
         clockPlaying ? clockAnchor + date.timeIntervalSince(clockAnchorAt) * clockTempo / 60.0 : clockAnchor
     }
 
+    /// The flash `f` (§1, τ0.16 — the main visible decay) of this lane's latest strike on a layer, scaled by
+    /// its velocity, `now` seconds on; 0 when nothing's fading. The exact envelope every other PULSE surface
+    /// reads (`euclideousFXFlashCells`, the MIX pads, the comet strip), never a second curve.
+    private func strikeGlow(now: Double, riff: Bool) -> Double {
+        guard let s = pulseFeed.latestHappened(lane: lane, now: now, riff: riff) else { return 0 }
+        let vel = riff ? Int(s.riffVel) : Int(s.notesVel)
+        return euclideousPulseEnvelopes(velocity: vel, seconds: now - s.onsetAt, scale: pulseScale).f
+    }
+
     var body: some View {
-        // §9.1's own idiom: stay live while running, and idle (paused) when the transport is stopped —
-        // this card has no strike/settle feed of its own to extend that by, so it's a flat gate on `clockPlaying`.
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clockPlaying)) { tl in
+        // §9.1's own idiom via `pulseLive`: stay live while running AND for the 1.5 s strike-settle window
+        // after a stop, then idle — so a hit's glow fades out instead of freezing (the strike-feedback review,
+        // 2026-10-24). The playhead itself still freezes correctly: `currentBeat` returns the frozen anchor when
+        // stopped, so these extra settle-window frames only fade the glows, they don't move the playhead.
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !pulseLive)) { tl in
             let beat = currentBeat(at: tl.date)
+            let now = tl.date.timeIntervalSinceReferenceDate
+            let riffGlow = strikeGlow(now: now, riff: true)
+            let notesGlow = strikeGlow(now: now, riff: false)
             VStack(spacing: 0) {
                 // Lane-box buttons ferry: PLAY top-left / SOLO top-right, the card's own 44pt row —
                 // same height/style as the normal lane card's step row, so the two modes read as one family.
@@ -69,7 +93,7 @@ struct EuclideousRandomCardView: View {
                 .padding(.top, 10)
                 selectorRow.frame(height: 32).padding(.top, 6)
                 Spacer(minLength: 2)
-                picture(beat: beat).frame(height: max(1, height - 58 - 96 - 50))
+                picture(beat: beat, riffGlow: riffGlow, notesGlow: notesGlow).frame(height: max(1, height - 58 - 96 - 50))
                     .padding(.horizontal, 8)   // + the VStack's own outer 10pt below = a flat 18pt net inset
                     .contentShape(Rectangle())
                     // §5.6: only while the selected tab has an undecided roll — a decided tab's picture isn't a hold target.
@@ -134,11 +158,11 @@ struct EuclideousRandomCardView: View {
 
     // MARK: §4 the picture
 
-    @ViewBuilder private func picture(beat: Double) -> some View {
+    @ViewBuilder private func picture(beat: Double, riffGlow: Double, notesGlow: Double) -> some View {
         switch tab {
-        case .rhythm: EuclideousRandomRhythmPicture(line: line, original: state.original, accent: accent, beat: beat)
-        case .riff: EuclideousRandomRiffPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks)
-        case .notes: EuclideousRandomNotesPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks, lane: lane)
+        case .rhythm: EuclideousRandomRhythmPicture(line: line, original: state.original, accent: accent, beat: beat, strikeGlow: riffGlow)
+        case .riff: EuclideousRandomRiffPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks, strikeGlow: riffGlow)
+        case .notes: EuclideousRandomNotesPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks, lane: lane, strikeGlow: notesGlow)
         }
     }
 
@@ -261,12 +285,27 @@ struct EuclideousRandomCardView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: 10).fill(filled ? accent : Color(hex: 0x2A2D34)))
-            .overlay(dashed ? RoundedRectangle(cornerRadius: 10).strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [4, 3])).foregroundColor(accent).padding(1) : nil)
+            // The "waiting to land" border now MARCHES, matching the dice's own marching-ants ring (the
+            // same "something is pending" signal) — `euclideousMarchingAntsPhase` with period 7 for this
+            // [4,3] dash. Its own always-running TimelineView (never paused): the roll is still pending
+            // even with the transport stopped, exactly as the dice ring keeps crawling then.
+            .overlay(waitingBorder(dashed))
         }
         .buttonStyle(.plain)
         .disabled(rollLocked)
         .opacity(rollLocked ? 0.4 : 1)
         .accessibilityLabel(buttonAccessibilityLabel(title) + (rollLocked ? ", locked" : ""))
+    }
+
+    @ViewBuilder private func waitingBorder(_ dashed: Bool) -> some View {
+        if dashed {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [4, 3], dashPhase: euclideousMarchingAntsPhase(tl.date, period: 7)))
+                    .foregroundColor(accent)
+                    .padding(1)
+            }
+        }
     }
 
     private func buttonAccessibilityLabel(_ title: String) -> String {
@@ -293,20 +332,52 @@ private extension EuclideousRandomRollState {
     func isUndecidedFor(_ t: EuclideousRandomTab) -> Bool { original != nil }
 }
 
-/// §5.6: touch-down/touch-up on the picture, gated on `enabled` (an undecided roll). No minimum-duration
-/// threshold — read literally, the spec's hold switches from touch-down itself, unlike the 0.3 s hold this
-/// codebase uses elsewhere for the output rings/SOLO buttons (flagged in the ferry report).
+/// §5.6: hold the picture to hear the original (gated on `enabled`, an undecided roll). HOLD, not touch-down:
+/// `onBegan` fires only after the finger has been down `EuclideousRingPress.holdSeconds` (0.3 s), matching the
+/// output rings / SOLO / lock-capture convention everywhere else on this page — the review 2026-10-24 brought
+/// this into line (it used to switch from touch-down itself, a disclosed divergence from that convention). The
+/// 0.3 s hold-task + drag-gesture shape is the SAME one `EuclideousSoloPressable` uses, minus the tap branch
+/// (the picture has no tap action — only the hold).
 private struct EuclideousRandomHoldModifier: ViewModifier {
     let enabled: Bool
     let onBegan: () -> Void
     let onEnded: () -> Void
+    @State private var holdTask: Task<Void, Never>? = nil
+    @State private var began = false
+    @GestureState private var touching = false
+
     func body(content: Content) -> some View {
         if enabled {
-            content.onLongPressGesture(minimumDuration: 0.0001, maximumDistance: 1000,
-                                        pressing: { down in down ? onBegan() : onEnded() }, perform: {})
+            content
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .updating($touching) { _, t, _ in t = true }
+                        .onChanged { _ in
+                            guard holdTask == nil, !began else { return }
+                            holdTask = Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: UInt64(EuclideousRingPress.holdSeconds * 1_000_000_000))
+                                guard !Task.isCancelled else { return }
+                                began = true
+                                onBegan()
+                            }
+                        }
+                        .onEnded { _ in finish() }
+                )
+                // A cancelled touch (scrolled off, interrupted) never fires `onEnded`; end it here so the hold
+                // can't stick on. Deferred one turn so it can't race ahead of `onEnded`.
+                .onChange(of: touching) { t in
+                    guard !t else { return }
+                    Task { @MainActor in if holdTask != nil || began { finish() } }
+                }
+                .onDisappear { finish() }
         } else {
             content
         }
+    }
+
+    private func finish() {
+        holdTask?.cancel(); holdTask = nil
+        if began { began = false; onEnded() }
     }
 }
 
@@ -317,6 +388,8 @@ struct EuclideousRandomRhythmPicture: View {
     let original: EuclidLine?
     let accent: Color
     let beat: Double
+    /// 0…1 flash of this lane's latest rhythm (riff-layer) strike — the playhead ring flares on a hit.
+    var strikeGlow: Double = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -348,9 +421,19 @@ struct EuclideousRandomRhythmPicture: View {
                 // chain/grid active. This picture carries no chain state at all (THROW/TWEAK never touch
                 // the chains), so a chained lane's picture shows this simplified phase, not its real one —
                 // an accepted, documented simplification, not a second "real" derivation.
-                Circle().strokeBorder(Color(hex: 0xF2F4F7), lineWidth: 2)
+                // The playhead ring flares on a strike: a soft lane-colour halo behind it (fading with the
+                // flash f) and a brighter, thicker ring — the header output rings' own `euclideousPulseRing
+                // Stroke` curve (2.5 + 2.5·f), so the two read as the same "a hit sounded" language.
+                let pt = point(currentStep(steps: steps), steps: steps, cx: cx, cy: cy, r: r)
+                if strikeGlow > 0.01 {
+                    Circle().fill(accent.opacity(0.5 * strikeGlow))
+                        .frame(width: 22 + 26 * strikeGlow, height: 22 + 26 * strikeGlow)
+                        .blur(radius: 4)
+                        .position(pt)
+                }
+                Circle().strokeBorder(Color(hex: 0xF2F4F7), lineWidth: euclideousPulseRingStroke(f: strikeGlow))
                     .frame(width: 22, height: 22)
-                    .position(point(currentStep(steps: steps), steps: steps, cx: cx, cy: cy, r: r))
+                    .position(pt)
                 VStack(spacing: 3) {
                     Text("\(hits) / \(steps)").font(.system(size: 22, weight: .heavy)).foregroundColor(Color(hex: 0xF2F4F7))
                     Text(offset > 0 ? "OFFSET \(offset)" : "NO OFFSET").font(.system(size: 8.5, weight: .heavy)).tracking(1)
@@ -391,6 +474,8 @@ struct EuclideousRandomRiffPicture: View {
     let original: EuclidLine?
     let accent: Color
     let riffRanks: [Int]
+    /// 0…1 flash of this lane's latest riff strike — the walk path brightens on a hit.
+    var strikeGlow: Double = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -413,7 +498,9 @@ struct EuclideousRandomRiffPicture: View {
                         .stroke(Color(hex: 0x4A4E57).opacity(0.7), lineWidth: 1.5)
                 }
                 let pts = points(for: line, h: h, colW: colW)
-                path(for: line, h: h, colW: colW).stroke(accent.opacity(0.55), lineWidth: 2.5)
+                // The walk path brightens + thickens on a strike (flash f), fading back to its resting look —
+                // same velocity-scaled cue as the rhythm ring, on the riff's own path.
+                path(for: line, h: h, colW: colW).stroke(accent.opacity(0.55 + 0.45 * strikeGlow), lineWidth: 2.5 + 2 * strikeGlow)
                 ForEach(0..<pts.count, id: \.self) { i in
                     let sounds = pts[i].1
                     Circle()
@@ -458,6 +545,8 @@ struct EuclideousRandomNotesPicture: View {
     let accent: Color
     let riffRanks: [Int]
     let lane: Int
+    /// 0…1 flash of this lane's latest notes-layer strike — the lit keys brighten on a hit.
+    var strikeGlow: Double = 0
 
     private let keyLabels = ["1", "2", "3", "4", "5", "6", "7", "8", "T2", "T"]
 
@@ -488,8 +577,10 @@ struct EuclideousRandomNotesPicture: View {
                 let lit = currentSet.contains(pos)
                 let changed = original != nil && (currentSet.contains(pos) != originalSet.contains(pos))
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(lit ? accent.opacity(0.25) : Color(hex: 0x22252C))
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(lit ? accent : Color.clear, lineWidth: 1))
+                    // A lit key brightens on a notes strike (flash f): its fill and border lift toward full
+                    // accent and fade back — the notes layer's own "a note sounded" cue, scaled by velocity.
+                    RoundedRectangle(cornerRadius: 6).fill(lit ? accent.opacity(0.25 + 0.4 * strikeGlow) : Color(hex: 0x22252C))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(lit ? accent.opacity(0.7 + 0.3 * strikeGlow) : Color.clear, lineWidth: 1 + strikeGlow))
                         .overlay(changed ? RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0xF2F4F7), lineWidth: 2) : nil)
                     VStack(spacing: 2) {
                         Text(keyLabels[pos]).font(.system(size: 10, weight: .heavy)).foregroundColor(lit ? Color(hex: 0xF2F4F7) : Color(hex: 0x5C626C))

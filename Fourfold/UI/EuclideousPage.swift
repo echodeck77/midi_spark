@@ -1969,11 +1969,6 @@ struct EuclideousPage: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    /// The dice's marching-ants dash offset: one full [3,3] dash cycle (6pt) every half-second.
-    private func euclideousMarchingAntsPhase(_ date: Date) -> CGFloat {
-        CGFloat(date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.5) / 0.5) * -6
-    }
-
     private func euclideousRandomToggle() {
         if euclideousRandomMode {
             euclideousRandomFinish()
@@ -3319,6 +3314,7 @@ struct EuclideousPage: View {
                                   clockPlaying: clock.playing, clockAnchor: clock.anchor, clockAnchorAt: clock.anchorAt,
                                   clockTempo: clock.tempo, clockBeatsPerBar: clock.beatsPerBar,
                                   landingBeat: slot < pendingRolls.count ? pendingRolls[slot]?.landingBeat : nil,
+                                  pulseFeed: pulseFeed, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
                                   laneLocked: lockLocked(idx),
                                   // Lane-box buttons ferry: the SAME callback/view the normal-mode card uses —
                                   // not a second derivation of play/SOLO.

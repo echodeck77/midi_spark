@@ -7655,6 +7655,15 @@ let euclideousNotesWayOrder: [EuclidNotesPlayAs] = [.chord, .roll, .run, .cycle,
 func euclideousPulseScale(level: Int) -> Double { level == 0 ? 0 : (level == 1 ? 0.6 : 1) }
 let euclideousPulseMaxAge: Double = 1.5
 
+/// RANDOM MODE "marching ants": the dash OFFSET for a scrolling dashed stroke, one full dash cycle every
+/// `secondsPerCycle`. `period` is the dash array's own sum (so the loop seams invisibly): the dice ring's
+/// `[3,3]` is 6; the THROW/TWEAK waiting border's `[4,3]` is 7. ONE function so the two "something is
+/// pending" signals scroll at the same rate and can't drift — a pure function of wall-clock time, nothing
+/// retained. Negative so it scrolls the conventional direction.
+func euclideousMarchingAntsPhase(_ date: Date, period: CGFloat = 6, secondsPerCycle: Double = 0.5) -> CGFloat {
+    CGFloat(date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: secondsPerCycle) / secondsPerCycle) * -period
+}
+
 /// 1.1: how much a note of velocity `v` (1…127) shows — a soft note still registers: vis = 0.2 + 0.8 × (v ÷ 127)^1.3.
 func euclideousPulseVis(_ v: Int) -> Double { 0.2 + 0.8 * pow(Double(max(0, min(127, v))) / 127.0, 1.3) }
 
