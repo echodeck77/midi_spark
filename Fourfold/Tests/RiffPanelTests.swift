@@ -390,4 +390,23 @@ final class RiffPanelTests: XCTestCase {
         _ = cache.readout(lane: 2, cfg: overBudget); let c1 = cache.computeCount; _ = cache.readout(lane: 2, cfg: overBudget)
         XCTAssertEqual(cache.computeCount, c1)
     }
+
+    func testPanelLayoutAtTheLandscapeReference() {
+        let l = euclideousRiffPanelLayout(box: landBox)
+        XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH(), 119); XCTAssertEqual(EuclideousRiffPanelMetrics.railsH, 41)
+        near(l.rowH, 25); near(l.cellW, 37.83); near(l.cellH, 25)
+        near(l.gridTop, 34)
+        for r in 0..<8 { near(l.rowTop(r), 34 + 29 * CGFloat(r), "row \(r)") }
+        near(l.rowTop(7) + l.cellH, 262, "the last row ends at y 262")
+        for c in 0..<8 { near(l.columnLeft(c), 42 + 41.83 * CGFloat(c), "column \(c)", accuracy: 0.05) }
+        for (k, y) in [270.0, 281, 292, 303].enumerated() { near(l.railTop(k), CGFloat(y), "rail \(k)"); near(l.railSegmentFrame(lane: k, column: 0).height, 8) }
+        near(l.railTop(3) + 8 + 8, landBox.height, "the rails end at the bottom padding")
+        near(l.railNumberFrame(0).width, 30); near(l.railNumberFrame(0).minX, 8)
+        near(l.railSegmentFrame(lane: 2, column: 5).minX, l.columnLeft(5)); near(l.railSegmentFrame(lane: 2, column: 5).width, l.cellW)
+        XCTAssertFalse(l.belowFloor)
+        // rank 8 is the top row, rank 1 the bottom
+        near(l.cellFrame(column: 0, rank: 8).minY, 34); near(l.cellFrame(column: 0, rank: 1).minY, l.rowTop(7))
+        // FX keeps lining up: the column width is still the riff grid's own function
+        XCTAssertEqual(l.cellW, euclideousRiffCellW(maxWidth: landBox.width))
+    }
 }

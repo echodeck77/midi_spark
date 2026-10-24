@@ -1379,16 +1379,6 @@ struct EuclideousPage: View {
     // 8×8 grid, not Euclideous-specific data) gets its own anchored popover off a third UTILITIES icon, the
     // same "one overlay at a time" family as `settingsOpen`/`keyPopupOpen`/`chordsPopupOpen` below.
     @State private var swingPopupOpen = false
-    // PER-STEP RESTART MARKS (2026-10-15 ferry, "per-step restart points on the LANES tab" §4): which lanes
-    // currently have their RESET box held — a Set, not a single Int, because §4.3 explicitly allows "two
-    // RESET boxes held → both lanes in edit mode" simultaneously. The matching touch-down timestamp + the
-    // lane's own mask AT touch-down (keyed the same way) are what §4.6's quick-tap/long-hold split reads: a
-    // release counts as "a quick tap" only if it was short AND the mask is back to exactly what it was at
-    // touch-down — comparing the actual resolved mask, not a separate dirty flag, so it can't go stale if a
-    // toggle is ever added on a path that forgets to set a flag.
-    @State private var restartEditLanes: Set<Int> = []
-    @State private var restartEditTouchDown: [Int: Date] = [:]
-    @State private var restartEditOriginalMask: [Int: UInt8] = [:]
     // RESTART CHAINS (ferry 2026-10-19 §1.6): "Which is open is UI state: not saved, not undoable" — exactly
     // one of the STEPS picker (§3) and the restart editor (§6.2) open at a time, per lane; opening either
     // closes the other on that SAME lane (both close on a tab switch too, handled where `laneTab` is set).
@@ -1469,14 +1459,6 @@ struct EuclideousPage: View {
     private let sp8: CGFloat = 8     // gap between lane cards; padding inside every card/panel, all 4 sides
     private let sp16: CGFloat = 16   // page margins; gap between header / lane grid / riff panel
 
-    // --- TYPE SCALE: `padValueSize` is still the NOTE VIEW pad-readout size. `padSubtitleSize` (the old
-    // shared pad-readout/tab-label pair) was retired 2026-10-13 — the 2026-10-13 "exact dimensions" ferry
-    // gives the tab row its own literal 11pt, no longer pinned to a shared constant (the two numbers just
-    // happen to still agree). `padHeadingSize` (the old pad edge-axis-label size) and its own fit-check
-    // `euclideousAxisLabelFits` were retired 2026-10-12 alongside the pads themselves (usability ferry, six
-    // vertical sliders) — the sliders name their own field directly on their face (`EuclideousSliderField.
-    // name`, a plain always-full-length label; there's no edge-label fit problem left to solve).
-    private let padValueSize: CGFloat = 13
 
     /// Edits ONE line by index — the shared mutation path every per-lane control below goes through.
     private func edit(_ idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) {
@@ -1690,10 +1672,8 @@ struct EuclideousPage: View {
     // content (202) — separated by two 6pt gaps: 44+6+28+6+202 = 286, matching exactly.
     private let cardInset: CGFloat = EuclideousLaneCardMetrics.inset   // PAGE LAYOUT ferry: the four lane-card rows live in Derivations.swift now,
     private let cardRowGap: CGFloat = EuclideousLaneCardMetrics.rowGap // so the page's floor list and the card draw from the same numbers
-    private let footerBandH: CGFloat = 14
     private let cometRowH: CGFloat = EuclideousLaneCardMetrics.cometRowH
     private let tabRowH: CGFloat = EuclideousLaneCardMetrics.tabRowH
-    private let contentLineH: CGFloat = 36
 
     // MARK: - THE PAGE (PAGE LAYOUT ferry, ratified 2026-10-19: "six equal boxes in both orientations, portrait fits the view, MIX fills in portrait")
     //
@@ -2745,16 +2725,6 @@ struct EuclideousPage: View {
     private func soloButton(_ idx: Int, _ accent: Color) -> AnyView {
         AnyView(EuclideousSoloPressable(lane: idx, accent: accent, latched: (soloMask >> UInt8(idx)) & 1 != 0,
                                         onDown: { onSoloDown(idx) }, onUp: { onSoloUp(idx, $0) }))
-    }
-    /// §8: "FOLLOW: the count box shows the inherited step count, with an 8pt dot in the partner's
-    /// LANE-100 3pt below the number." `dotTint` nil (every other state) ⇒ byte-identical to before.
-    private func stepCountBadge(_ n: Int, dotTint: Color? = nil) -> some View {
-        VStack(spacing: 3) {
-            Text("\(n)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
-            if let dotTint { Circle().fill(dotTint).frame(width: 8, height: 8) }
-        }
-        .frame(width: stepCountBadgeTotalWidth, height: 44)
-        .background(RoundedRectangle(cornerRadius: 9).fill(patternUnselectedFill))
     }
 
     // MARK: - COLOUR HIERARCHY (this ferry §4): "lane colour is currently used at full strength in about
@@ -3816,18 +3786,6 @@ struct EuclideousPage: View {
     // are left in place, unused, rather than deleted — likely needed again if that spec restores them.
 
     // MARK: - MELODY TAB CONTENT (Paul 2026-10-13, TWO ferries same day) — Notes row (8 equal buttons) ·
-    // Octave row (segmented −2…+2 + TOP/TOP2) · Riff block (strip + WALK/MODES/VALUES rows).
-    //
-    // SUPERSEDED BY THE SECOND, SAME-DAY "lit notes plus the riff" FERRY — the FIRST ferry's own
-    // "Behaviour rule 1: the mode is the selection" (one choice at a time, NOTE xor RIFF) is EXPLICITLY
-    // RETIRED: "lit notes" (any of the 8 rank buttons + TOP/TOP2) and "the riff" (on/off) are now two
-    // INDEPENDENT, ADDITIVE layers — both can sound on the same hit. Tapping a note/TOP/TOP2 button only
-    // ever toggles ITS OWN bit (`litNotes`/`topLit`/`top2Lit`); tapping the RIFF strip or a WALK direction
-    // button only ever toggles `riffOn`; every OTHER riff control (INV/LOCK/ADV/REST/LEN/NUDGE/STRIDE/
-    // TRANS) changes its own setting live and never touches `riffOn`. The riff rows (WALK/MODES/VALUES,
-    // NOT the strip itself, NOT the notes/octave rows) dim to 42% only while the riff is off — notes stay
-    // fully live/visible regardless (rule 7: "Lit notes never dim them").
-    private static let rankNoteSel: [EuclidNoteSel] = [.n1, .n2, .n3, .n4, .n5, .n6, .n7, .n8]
     /// VALUES row: four stepper chips, LEN · NUDGE (the old SHIFT, relabelled per an earlier ferry — same
     /// `riffRotate` field, same 0...(LEN-1) range) · STRIDE · TRANS, 3pt gaps (2026-10-13 ferry §5). Per ferry
     /// §6, none of these turn the riff on or off. FIX 3 (2026-10-14 ferry): was a narrower, centred row (4×

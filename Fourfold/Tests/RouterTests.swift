@@ -257,14 +257,6 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    func testMutedCellEmitsNothing() {
-        var cell = Cell(machineID: "gold"); cell.muted = true
-        let b = box(machines: arpMachines()) { $0.cells[0][0] = cell }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.events.isEmpty, "a muted cell (§6.2) produces no MIDI on any cable")
-    }
-
     // MARK: audition (§6.4 / delta §5)
 
 
@@ -285,16 +277,6 @@ final class RouterTests: XCTestCase {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: cs, scenes: [s]); st.busEnabled = busEnabled
         return SnapshotBuilder.build(from: st)
-    }
-
-    func testDisabledEmitterIsSilentOnItsCableAndAll() {
-        // Cell → bus B only, with B disabled: nothing on cable 2 (B) or cable 0 (All).
-        let b = box(machines: arpMachines(), busEnabled: [true, false, true, true]) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.b])
-        }
-        let e = RecordingEmitter()
-        run(b, chord([60]), beats: 16, into: e)
-        XCTAssertTrue(e.events.isEmpty, "a disabled emitter produces nothing on its own cable OR All")
     }
 
 
@@ -334,44 +316,6 @@ final class RouterTests: XCTestCase {
         return SnapshotBuilder.build(from: st)
     }
 
-    func testMutedClaimantStillReservesItsPitches() {
-        // A claimant whose EMITTER TOGGLE is off makes no sound itself, yet still claims: the pitch it
-        // would hold is suppressed on B (a silent reservation — sidechain-style). No wire from A, no stuck.
-        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // col 0, row 0 → A reserves 60 (muted)
-            s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // col 0, row 1 → B would hold 60
-            return s }()])
-        st.claimEmitter = 0
-        st.busEnabled = [false, true, true, true]                 // A muted
-        let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60]), beats: 16, into: e)
-        XCTAssertTrue(e.events.filter { $0.cable == 1 }.isEmpty, "the muted claimant emits nothing on its own cable")
-        XCTAssertTrue(e.ons.filter { $0.cable == 2 && $0.note == 60 }.isEmpty, "B still yields 60 to the muted claimant")
-        assertNothingLeftSounding(e)
-    }
-
-    func testMutedClaimantReservesShortNotesAcrossCells() {
-        // M2 regression: a MUTED claimant running a FAST arp still reserves its pitches — the persistent
-        // silent ghost is no longer immediate-closed, so a same-pitch non-claimant cell yields even at speed.
-        var cs = arpMachines()
-        cs[machineIDs.firstIndex(of: "gold")!].paramsA.rate = .r1_32
-        cs[machineIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_32
-        var st = PluginState(machines: cs, scenes: [{ var s = SceneState.empty()
-            for c in 0..<8 {
-                s.cells[c][0] = Cell(machineID: "gold", buses: [.a])   // muted claimant
-                s.cells[c][1] = Cell(machineID: "cyan", buses: [.b])
-            }
-            return s }()])
-        st.claimEmitter = 0
-        st.busEnabled = [false, true, true, true]   // A muted
-        let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60]), beats: 16, into: e)
-        XCTAssertTrue(e.events.filter { $0.cable == 1 }.isEmpty, "muted claimant is silent")
-        XCTAssertTrue(e.ons.filter { $0.cable == 2 && $0.note == 60 }.isEmpty,
-                      "B still yields to the muted claimant's fast reservation (M2)")
-        assertNothingLeftSounding(e)
-    }
-
     // MARK: - CLAIM v2 (§6a) — MULTI-claim (SHARED tier) + LEAK %
 
     /// Build a box with an explicit claim MASK + optional per-claimant LEAK (bypassing the legacy single field).
@@ -380,17 +324,6 @@ final class RouterTests: XCTestCase {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: cs, scenes: [s]); st.claimMask = mask; st.claimLeak = leak
         return SnapshotBuilder.build(from: st)
-    }
-
-    func testMultiClaimLeakZeroStillFullySuppresses() {
-        // Regression: a claim with LEAK 0 is exactly v1 — the non-claimant is silent, no shadow.
-        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0b0001, leak: [0, 0, 0, 0]) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
-        }
-        let e = RecordingEmitter()
-        run(b, chord([60]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 2 }.isEmpty, "LEAK 0 ⇒ hard suppression (v1 behaviour)")
-        assertNothingLeftSounding(e)
     }
 
     // MARK: - THE RACK (design-the-rack §3) — the two-tier gate: RACK off ⇒ raw wire regardless of the matrix
@@ -410,17 +343,6 @@ final class RouterTests: XCTestCase {
     // (testFanOutTreeEmitsThreeDerivedStreams removed 2026-08-27: GRID-CHAINING retired — `inputRow` is render-inert
     //  (resolvedParent is hardcoded −1), so the "derived fan-out streams" never existed; the children sound only because
     //  they read the source pool. The test passed for the wrong reason.)
-
-    func testMutedReceiverSilencesItsSubscribers() {
-        // delta §9 item 11: a MIDI-IN cell subscribed to a MUTED receiver reads an empty pool → silence.
-        var st = PluginState(machines: arpMachines(), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-            return s }()])
-        st.receivers = [Receiver(name: "1", channel: 0, muted: true), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.events.isEmpty, "a muted receiver feeds its subscribers nothing")
-    }
 
     // (testBackwardTapDownwardReferenceEmits + testProcBFullMorphsToBFaceUnderAlt + testProcBSwapFlipsTypeUnderAlt removed
     //  2026-08-27: all three guard RETIRED features that pass for the wrong reason. Backward-tap = grid-chaining (`inputRow`
@@ -2925,17 +2847,6 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)   // the actual claim under test: nothing is left stuck, whatever the exact onset timing
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "sanity: the lines are actually sounding, not accidentally silent")
     }
-    // §cell-edit F CHOP render path: a cell whose every slice is MUTED emits nothing (the render reads muteMask).
-    func testChopMuteMaskSilencesEveryNote() {
-        let cs = arpMachines()
-        let b = box(machines: cs) { $0.cells[0][0] = {
-            var c = Cell(machineID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]
-            c.chop = Chop(mainMask: 0xFF, altMask: 0, muteMask: 0xFF, altDest: [])   // every slice muted (overrides main)
-            return c }() }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "chop muteMask over every slice → the whole column is silent")
-        assertNothingLeftSounding(e)
-    }
 
     /// Run `b` for a few windows on a DIRECT router (so the caller can inspect drainCellStrikes /
     /// snapshotCellSounding afterwards — the shared `run` helper's router is not exposed), holding `pool`.
@@ -2976,20 +2887,6 @@ final class RouterTests: XCTestCase {
 
 
 
-
-    // A DISABLED door that isn't armed is a closed, empty room: no live pass-through, silent.
-    func testDisabledReceiverNotArmedIsSilent() {
-        var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(machines: arpMachines(), scenes: [s])
-        var r1 = Receiver(name: "1"); r1.inputEnabled = false
-        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        let live = NotePool(); live.noteOn(60, velocity: 100, channel: 0, cable: 1); live.rebuildSorted()
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        run(b, live, beats: 8, into: e)
-        XCTAssertEqual(e.ons.count, 0, "a disabled door with no latch hears nothing — no live pass-through")
-    }
 
 
 
@@ -3340,48 +3237,9 @@ final class RouterTests: XCTestCase {
         return last.filter { $0.value == 0x90 }.keys.sorted()
     }
 
-    func testMonoLeavesNoStuckNotes() {
-        var s = SceneState.empty()
-        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])
-        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s]); st.monoMask = 0b0001
-        let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 16, into: e)
-        assertNothingLeftSounding(e)
-    }
-
     // MARK: - THE RACK — POCKET (per-emitter timing feel)
 
     // MARK: - WIRE ARTICULATION — same-note overlap on one emitter (design ASK 2026-08-05)
-
-    /// AUDIT B2: releasing the chord under a SINGLE-COLUMN lap must close the legato drone immediately — not strand
-    /// it (immortal, offSample .max) until the ~1s Kernel self-heal. A k=1 lap pins effColumn, so the column-change
-    /// reconcile never fires; the fix runs the reconcile when the lap's pool empties. Transport stays PLAYING (no
-    /// stop-flush) so the test isolates the release, not the stop.
-    func testSingleColumnLapReleaseClosesDrone() {
-        var s = SceneState.empty()
-        s.cells[0][0] = Cell(machineID: "gold", buses: [.a])       // a LEGATO drone → A (immortal hold, offSample .max)
-        var gold = holdMachine("gold"); gold.paramsA.phase = .legato
-        let cs = machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }
-        let box = SnapshotBuilder.build(from: PluginState(machines: cs, scenes: [s]))
-        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
-        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
-        let windowBeats = Double(frames) * tempo / 60.0 / sr
-        var beat = 0.0, ts = 0.0
-        let held = chord([60])
-        for _ in 0..<4 {                                          // hold the chord under a k=1 lap on column 0
-            router.process(box: box, pool: held, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, laneMask: 0b1, out: e, diag: &diag)
-            beat += windowBeats; ts += Double(frames)
-        }
-        let empty = NotePool()
-        for _ in 0..<4 {                                          // RELEASE (empty pool), lap still on, still PLAYING
-            router.process(box: box, pool: empty, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, laneMask: 0b1, out: e, diag: &diag)
-            beat += windowBeats; ts += Double(frames)
-        }
-        assertNothingLeftSounding(e)                             // the drone closed from the release, not a stop/self-heal
-        XCTAssertTrue(router.quiescent, "no voice/refcount left after a k=1-lap key release")
-    }
 
     // MARK: - THE RACK — CONVERSATION (LEAD / STANCE)
 
@@ -7764,5 +7622,31 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThanOrEqual(emitted, ReelDeck.histCap, "and still inside the new one, so the whole pass is kept")
         let kept = r.deck.exportRangeEvents(fromPass: 1, toPass: 1, cables: [0, 1, 2, 3, 4]).events.count
         XCTAssertEqual(kept, emitted, "the filed pass holds every event the render emitted in it — no tail lost")
+    }
+
+
+    // A disabled OUTPUT (MAIN OUT) is silent on its own cable AND on All, while a lane routed to an enabled output keeps sounding. (Re-pointed at real Euclid lanes: the
+    // 8x8 version put ARP cells in a Euclid-only engine and passed because nothing ever sounded.)
+    func testADisabledOutputIsSilentOnItsCableAndAllWhileAnEnabledOnesLaneStillSounds() {
+        func render(busEnabled: [Bool]) -> RecordingEmitter {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            c.paramsA.euclidLines = [fxLine(emitter: 0b0001), fxLine(emitter: 0b0010)]   // lane 1 → A, lane 2 → B
+            var sc = SceneState.empty(); sc.stepRate = .r1_8
+            sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+            st.euclideousNoteSource = .midi; st.busEnabled = busEnabled
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord(fxPoolNotes), beats: 8, into: e, forceColumn: 0)
+            assertNothingLeftSounding(e)
+            return e
+        }
+        let all = render(busEnabled: [true, true, true, true])
+        XCTAssertFalse(all.ons.filter { $0.cable == 1 }.isEmpty, "control: lane 1 sounds on A")
+        XCTAssertFalse(all.ons.filter { $0.cable == 2 }.isEmpty, "control: lane 2 sounds on B")
+        let bOff = render(busEnabled: [true, false, true, true])
+        XCTAssertTrue(bOff.events.filter { $0.cable == 2 }.isEmpty, "a disabled output produces nothing on its own cable")
+        XCTAssertFalse(bOff.ons.filter { $0.cable == 1 }.isEmpty, "the enabled output's lane still sounds")
+        XCTAssertEqual(bOff.ons.filter { $0.cable == 0 }.count, bOff.ons.filter { $0.cable == 1 }.count, "…and All carries ONLY what the enabled output played")
     }
 }

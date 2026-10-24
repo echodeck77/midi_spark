@@ -281,8 +281,6 @@ func effectiveType(_ c: SnapMachine) -> ProcessorType { c.a.type }
 
 
 
-// RATCHET (§3): repeats per step — quantized to a LEGAL count (2/3/4/6/8).
-private let ratchetLegalRepeats = [2, 3, 4, 6, 8]   // file-scope so effectiveRepeats doesn't rebuild it every call (refactor 2026-09-03)
 
 
 

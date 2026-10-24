@@ -630,4 +630,20 @@ final class FXTabTests: XCTestCase {
             XCTAssertEqual(euclideousFXLaneIdleReason(line) == nil, acts, "riff \(riffOn), shadow \(shadow)")
         } }
     }
+
+    func testHitTestClaimsTheGapsAndTheRails() {
+        let l = euclideousFXLayout(width: 400, height: 280)
+        for r in 0..<6 { for c in 0..<8 {
+            let rect = l.cellRect(row: r, col: c)
+            XCTAssertEqual(euclideousFXHit(x: rect.midX, y: rect.midY, layout: l), .cell(row: r, col: c))
+            XCTAssertEqual(euclideousFXHit(x: rect.minX - 1.9, y: rect.minY - 1.9, layout: l), .cell(row: r, col: c), "2pt into the gaps on every side")
+            XCTAssertEqual(euclideousFXHit(x: rect.maxX + 1.9, y: rect.maxY + 1.9, layout: l), .cell(row: r, col: c))
+        }
+            XCTAssertEqual(euclideousFXHit(x: 10, y: l.cellRect(row: r, col: 0).midY, layout: l), .rail(row: r))
+        }
+        XCTAssertNil(euclideousFXHit(x: 100, y: l.headerTop + 2, layout: l), "the header is not a target")
+        XCTAssertNil(euclideousFXHit(x: l.colLeft(7) + l.cellW + 2.5, y: l.rowTop(0) + 5, layout: l))
+        // a stroke past either end keeps painting the edge cell
+        XCTAssertEqual(euclideousFXColumn(x: -50, layout: l, clamped: true), 0); XCTAssertEqual(euclideousFXColumn(x: 5000, layout: l, clamped: true), 7)
+    }
 }

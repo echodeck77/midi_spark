@@ -493,4 +493,30 @@ final class RhythmPolishTests: XCTestCase {
         XCTAssertEqual(euclideousHitPatternInto(pulses: 3, steps: 7, rotate: 0, tilt: 0, fine: false, customHits: nil, patternMiss: true, cells: &cellsScratch, micro: &microScratch), 7)
         XCTAssertEqual((0..<7).map { cellsScratch[$0] }, (0..<7).map { flipped[$0] })
     }
+
+    func testTheRightHalfRowsAndDirectionButtonsAtTheReferenceCard() {
+        // the reference card's upper zone is 116 pt tall and its right half 167.25 pt wide (RHYTHM POLISH §1.2–1.3): three equal rows and four equal buttons, sp4 apart
+        let gap = EuclideousRhythmGeometry.gap
+        XCTAssertEqual(gap, 4)
+        let rowH = EuclideousRhythmGeometry.rightRowH(upperH: 116)
+        XCTAssertEqual(rowH, 36, accuracy: 1e-9); XCTAssertEqual(rowH * 3 + gap * 2, 116, accuracy: 1e-9, "three rows and two gaps fill the upper zone exactly")
+        let bw = EuclideousRhythmGeometry.directionButtonW(rightHalfW: 167.25)
+        XCTAssertEqual(bw, 38.8125, accuracy: 1e-9); XCTAssertEqual(bw * 4 + gap * 3, 167.25, accuracy: 1e-9, "four buttons and three gaps fill the right half exactly")
+        // degenerate sizes never go to zero or negative (a layout must not trap or collapse)
+        XCTAssertEqual(EuclideousRhythmGeometry.rightRowH(upperH: 0), 1); XCTAssertEqual(EuclideousRhythmGeometry.directionButtonW(rightHalfW: 0), 1)
+        // TILT's EARLY/LATE labels drop out below the row-height floor and not above it
+        XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: EuclideousRhythmGeometry.endLabelsFloor))
+        XCTAssertFalse(EuclideousRhythmGeometry.showsEndLabels(rowH: EuclideousRhythmGeometry.endLabelsFloor - 0.01))
+    }
+
+    func testTheRightHalfRowsFillTheUpperZoneInEveryPageLayout() {
+        // The lane cards the page layout gives at the iPad sizes we ship to: the three rows always split the upper zone's height equally, whatever the card height.
+        for size in [CGSize(width: 1366, height: 1024), CGSize(width: 1194, height: 834), CGSize(width: 1112, height: 834), CGSize(width: 1024, height: 768), CGSize(width: 834, height: 1194), CGSize(width: 768, height: 1024)] {
+            let card = euclideousPageLayout(size: size).lanes[0]
+            let upperH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: card.height) - 84
+            let rowH = EuclideousRhythmGeometry.rightRowH(upperH: upperH)
+            if upperH > 3 * EuclideousRhythmGeometry.gap { XCTAssertEqual(rowH * 3 + EuclideousRhythmGeometry.gap * 2, upperH, accuracy: 1e-9, "\(size): the three rows split the upper zone equally") }
+            XCTAssertGreaterThanOrEqual(rowH, 1, "\(size)")
+        }
+    }
 }

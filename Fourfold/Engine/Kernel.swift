@@ -52,22 +52,6 @@ final class Kernel {
     // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
     private var laneMask: UInt16 = 0
     func setLaneMask(_ mask: UInt16) { laneMask = mask }
-    // emitter strip: the additive foot SOLO set (bits A–D).
-    private var soloEmitterMask: UInt8 = 0
-    // receiver strip: the additive input SOLO set (bits R1–R4), ephemeral. Cleared by the UI on stop / EDIT.
-    private var soloReceiverMask: UInt8 = 0
-    // receiver strip: per-receiver ±octave nudge (−3…+3), packed one signed byte each. Ephemeral (weather).
-    private var inputOctave: UInt32 = 0
-    // receiver strip: per-receiver ±semitone NOTE nudge (−12…+12), packed one signed byte each. Composes with octave.
-    private var inputSemitone: UInt32 = 0
-    // receiver strip: the momentary-absolute INPUT-velocity override (the slider's ride), packed byte per
-    // receiver (0 = none, 1–127 = flatten). Ephemeral; the UI springs it back to 0 on slider release.
-    private var inputVelOverride: UInt32 = 0
-    // emitter strip: per-emitter output ±octave nudge (−3…+3), packed one signed byte each. Ephemeral (weather).
-    private var emitterOctave: UInt32 = 0
-    // master panel: the momentary master velocity FADER (0 = none, 1–127 = force over all output). Ephemeral;
-    // the UI springs it back on release. Plus PANIC — a one-shot all-notes-off + voice flush, hang-kit-logged.
-    private var masterVelOverride: UInt8 = 0
     private var panicRequested = false
     func panic() { panicRequested = true }
     // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): a one-shot request the render thread consumes,
@@ -107,15 +91,6 @@ final class Kernel {
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).
     private var flushRequested = false
     func flushVoices() { flushRequested = true }
-    // receiver strip LATCH (chord-hold): 4 FROZEN input pools + the armed mask. Each render, an armed
-    // receiver captures the live filtered chord while fingers are down and FREEZES it when they lift (a NEW
-    // chord replaces automatically — fingers-down re-captures); a fresh arm starts empty. The frozen pools
-    // survive snapshot rebuilds (ephemeral kernel state), so a MUTE silences but does not clear them.
-    // omniRead = true: the FROZEN pools (LATCH/REPLAY/FILE) are door-filtered at capture, so the grid cells read them
-    // WHOLE — a later channel/range edit can't drop the frozen notes (the "replay stops when I disable the input
-    // channel" bug, Paul 2026-08-23). See NotePool.omniRead.
-    private let latchedPools: [NotePool] = (0..<4).map { _ in let p = NotePool(); p.omniRead = true; return p }
-    private var latchArmMask: UInt8 = 0
     // PIANO LATCH is SELF-ARMING: a door in PIANO mode with picked notes latches WITHOUT the separate LATCH lock —
     // the on-screen notes ARE the pool (there's no live chord to capture, so nothing to "arm"). `effectiveLatchMask`
     // = the lock's `latchArmMask` OR'd with every PIANO door that has notes; it is what the Router + metering + the
@@ -125,7 +100,6 @@ final class Kernel {
     // its cells read the looped pool, live input flows only into the ring). Empty replayMask ⇒ zero effect (byte-
     // identical for every existing doc). ⚠ DEVICE EAR OWED — the audible loop can't be verified off-device.
     private let doorRings = [DoorRing(), DoorRing(), DoorRing(), DoorRing()]
-    private var replayPasses = [UInt8](repeating: 1, count: 4)
     // MANUAL CATCH (Paul 2026-08-20): a REPLAY door records continuously but only LOOPS after the user presses "LAST N"
     // — that captures the last N passes as a fixed loop and ENGAGES it (press again = release, back to live input).
     private var replayEngagedMask: UInt8 = 0        // which REPLAY doors are actively looping (ephemeral)
@@ -144,14 +118,8 @@ final class Kernel {
     private var freeRunEmptyStreak: Int64 = 0   // samples the effective-held set has read empty while free-run is active — the debounce so a momentary blink doesn't stop the clock + restart the pass at column 0 (Paul 2026-09-07)
     func setFreeRunEnabled(_ b: Bool) { freeRunEnabled = b }   // main-thread bool write; a torn read is benign (one late block)
 
-    // TWO LATCH MODES: per-receiver ADD flag (from the box) + preallocated rising-edge state (ADD only).
-    private var latchAddMask: UInt8 = 0
 
 
-    // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
-    // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
-    // on slider release. Single main-thread writer + render read of an aligned UInt32 = race-safe.
-    private var velOverride: UInt32 = 0
 
     // Reused 3-byte scratch for passthrough forwarding — avoids a heap allocation per incoming MIDI event
     // on the render thread (invariant 3), mirroring LiveMIDIEmitter's scratch. Single render thread,
@@ -186,18 +154,7 @@ final class Kernel {
     // `euclideousPlayingRiffIndex()` forwarder deleted 2026-10-18 (adversarial review) — zero callers
     // left once the ferry dropping the looper also dropped the editing-vs-playing distinction it served.
 
-    // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
-    // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
-    private var receiverChannels: [UInt8] = [0, 0, 0, 0]
-    private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // §item 11: cable bitmasks (for metering)
-    private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]                       // RANGE (§2): note window for the latch capture (upstream of latch)
-    private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
     private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-emitter stamp channels (for the re-stamp forward)
-    private var pianoNotes: [[UInt8]] = [[], [], [], []]                      // PIANO LATCH: per-door chosen notes
-    private var receiverExcludeDoor: [Int8] = [-1, -1, -1, -1]                // KEY FILTER: per door, the reference door whose pitch classes filter its pool (-1 = OFF)
-    private var receiverExcludeOnly: UInt8 = 0                                // KEY FILTER §3: bit i = door i INTERSECTS (ONLY) vs subtracts (MINUS) the reference
-    private var receiverExcludeSnap: UInt8 = 0                                // KEY FILTER §3: bit i = door i SNAPS out-of-set notes vs BLOCKs them
-    private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
     private var ignoreAllNotesOff = true     // INPUT (Paul 2026-09-06): mirror of box.ignoreAllNotesOff — suppress a source's CC120/123 wiping the live pool
     // NOTE MONITOR (Paul 2026-08-29): raw held notes are NOT echoed to the output — a CELL is the sole note source, so a
     // fresh instance (nothing selected) is SILENT. Default OFF; kept as a flag so a soundcheck toggle can re-enable it.
@@ -253,11 +210,11 @@ final class Kernel {
         var files: [(name: String, data: Data)] = []
         if emitterMask == 0 {   // MASTER — the A–D sum
             let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: [1, 2, 3, 4])
-            if !evs.isEmpty { files.append((name: "MidiSpark-All.mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
+            if !evs.isEmpty { files.append((name: "Fourfold-All.mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
         } else {                // the SELECTED emitter stems
             for (i, letter) in ["A", "B", "C", "D"].enumerated() where (emitterMask & (1 << UInt8(i))) != 0 {
                 let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: [UInt8(i + 1)])
-                if !evs.isEmpty { files.append((name: "MidiSpark-\(letter).mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
+                if !evs.isEmpty { files.append((name: "Fourfold-\(letter).mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
             }
         }
         return files
@@ -566,7 +523,7 @@ final class Kernel {
         diag.activeVoiceCount = 0; diag.passthroughHeld = 0
         #if DEBUG
         if hardTrap && Self.hardTrapOnStuckNote {                        // DEBUG ONLY (never the crackle build): build the corpse + crash into it
-            let dump = "MidiSpark STUCK-NOTE (reason \(reasonCode)): voices=[\(router.stuckVoiceFingerprint())] "
+            let dump = "Fourfold STUCK-NOTE (reason \(reasonCode)): voices=[\(router.stuckVoiceFingerprint())] "
                      + "echoes=[\(passthroughGate.heldFingerprint())]"
             assertionFailure(dump)
         }

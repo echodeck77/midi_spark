@@ -311,4 +311,20 @@ final class NotesTabTests: XCTestCase {
         XCTAssertEqual(euclideousNotesKeyRowGroupLabel, "Lit notes: the riff grid\u{2019}s eight rows, then the top two received notes")
         for way in EuclidNotesPlayAs.allCases { XCTAssertNotNil(euclideousNotesWayDescriptions[way]); XCTAssertTrue(euclideousNotesWayOrder.contains(way)) }
     }
+
+    // NOTES TAB §2.11 — a tap lights a key at the END of the lit order, unlights it, and turns an OFF layer on
+    func testTappingAKeyLightsItAtTheEndUnlightsItAndTurnsAnOffLayerOn() {
+        var l = EuclidLine(); l.setLitOrder(EuclideousLitOrder()); l.notesOn = false
+        euclideousToggleLitPosition(&l, position: 2)
+        XCTAssertTrue(l.notesOnResolved, "a tap on an off layer also turns it on")
+        XCTAssertEqual(l.litOrderResolved.array, [2])
+        euclideousToggleLitPosition(&l, position: 5); XCTAssertEqual(l.litOrderResolved.array, [2, 5], "lighting adds to the END")
+        euclideousToggleLitPosition(&l, position: 2); XCTAssertEqual(l.litOrderResolved.array, [5], "tapping a lit key unlights it")
+        euclideousToggleLitPosition(&l, position: 2); XCTAssertEqual(l.litOrderResolved.array, [5, 2], "lighting it again puts it at the end")
+        euclideousToggleLitPosition(&l, position: EuclideousLitOrder.topTwoPosition); euclideousToggleLitPosition(&l, position: EuclideousLitOrder.topPosition)
+        XCTAssertEqual(l.litOrderResolved.array, [5, 2, 8, 9], "TOP 2 and TOP are positions 8 and 9")
+        let before = l
+        euclideousToggleLitPosition(&l, position: -1); euclideousToggleLitPosition(&l, position: 10)
+        XCTAssertEqual(l, before, "a position outside 0…9 changes nothing")
+    }
 }

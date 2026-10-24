@@ -439,4 +439,32 @@ final class LaneLockTests: XCTestCase {
         XCTAssertEqual(EuclideousLockLive.rev(r, lane: 2), 1, "a revision wraps inside its own byte")
         XCTAssertEqual(EuclideousLockLive.rev(r, lane: 3), 0, "…without touching its neighbour")
     }
+
+    // MARK: 4 — bars and beats left
+    func testBarsAndBeatsLeftEqualTheBarLinesToTheNextLine() {
+        for g in EuclideousLockGrid.allCases {
+            var x = 0.0
+            while x < 64 {
+                let line = next(g, x)
+                // an independent count of bar lines in (x, line]
+                var bars = 0, b = (x / 4).rounded(.down) * 4 + 4
+                while b <= line + 1e-9 { bars += 1; b += 4 }
+                let beats = max(1, Int((line - x - 1e-9).rounded(.up)))
+                let c = euclideousLockCountdown(grid: g, beat: x, barBeats: 4, marginBeats: m, held: false)
+                if g == .beat {
+                    XCTAssertEqual(c, .beats(beats), "BEAT at \(x)")
+                } else {
+                    let n = max(1, bars)
+                    XCTAssertEqual(c, n <= 1 ? .beats(beats) : .bars(n), "\(g) at \(x): bars until the last one, then beats")
+                }
+                x += 0.25
+            }
+        }
+        XCTAssertEqual(euclideousLockCountdown(grid: .bars4, beat: 3, barBeats: 4, marginBeats: m, held: true), .held, "held → no number, the lane waits for a lift")
+    }
+
+    func testRandomModeOnALockedLaneSaysWhy() {
+        XCTAssertEqual(euclideousLockRandomIdleCaption(laneLocked: true), "LOCKED · UNLOCK TO ROLL")
+        XCTAssertEqual(euclideousLockRandomIdleCaption(laneLocked: false), "THROW A NEW ONE · TWEAK WHAT'S PLAYING")
+    }
 }

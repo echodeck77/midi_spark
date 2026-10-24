@@ -47,7 +47,6 @@ struct EuclideousRandomCardView: View {
     let onToggleEnabled: () -> Void
     let soloButtonView: AnyView
 
-    private let inset: CGFloat = 10
 
     private func currentBeat(at date: Date) -> Double {
         clockPlaying ? clockAnchor + date.timeIntervalSince(clockAnchorAt) * clockTempo / 60.0 : clockAnchor

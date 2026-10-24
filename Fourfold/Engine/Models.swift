@@ -2252,7 +2252,6 @@ struct Receiver: Codable, Equatable {
     // away harmlessly since Codable ignores unknown keys; a doc from that few-hour window re-seeds the default progressions.)
     var chordSeqs: [MachineParams]? = nil
     var activeChord: Int? = nil
-    var activeChordResolved: Int { max(0, min(3, activeChord ?? 0)) }
     var chordSeqsResolved: [MachineParams] {
         guard let s = chordSeqs else { return Receiver.defaultChordSeqs }
         var out = Array(s.prefix(4)); while out.count < 4 { out.append(MachineParams()) }; return out
@@ -2809,7 +2808,7 @@ struct PluginState: Codable, Equatable {
         if let s = euclideousNoteSource { return s }
         let legacy = euclideousLinesResolved.map { $0.sourceModeResolved }
         if Set(legacy).count > 1 {
-            FileHandle.standardError.write("MidiSpark: Euclideous lanes disagree on legacy per-lane source (\(legacy)) — migrating to lane 1's (\(legacy[0]))\n".data(using: .utf8) ?? Data())
+            FileHandle.standardError.write("Fourfold: Euclideous lanes disagree on legacy per-lane source (\(legacy)) — migrating to lane 1's (\(legacy[0]))\n".data(using: .utf8) ?? Data())
         }
         return legacy[0]
     }
@@ -3068,7 +3067,7 @@ struct PluginState: Codable, Equatable {
                 }
             }
             if droppedSrcMix > 0 {
-                print("MidiSpark: migrated v2 document to graph routing; dropped +SRC on \(droppedSrcMix) cell(s) (no v3 equivalent).")
+                print("Fourfold: migrated v2 document to graph routing; dropped +SRC on \(droppedSrcMix) cell(s) (no v3 equivalent).")
             }
             formatVersion = 3
         }
@@ -3094,7 +3093,7 @@ struct PluginState: Codable, Equatable {
             migrated += 1
         }
         if migrated > 0 {
-            print("MidiSpark: migrated \(migrated) Machine pair(s) into internal procB (delta item 8).")
+            print("Fourfold: migrated \(migrated) Machine pair(s) into internal procB (delta item 8).")
         }
         formatVersion = 5
     }
@@ -3123,7 +3122,7 @@ struct PluginState: Codable, Equatable {
             while recs.count < 4 { recs.append(Receiver(name: "\(recs.count + 1)")) }   // pad to 4 (OMNI)
             receivers = recs
             if overflow > 0 {
-                print("MidiSpark: synthesized receivers; \(overflow) overflow input channel(s) collapsed to Receiver 1.")
+                print("Fourfold: synthesized receivers; \(overflow) overflow input channel(s) collapsed to Receiver 1.")
             }
             formatVersion = max(formatVersion, 4)
         }

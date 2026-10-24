@@ -2880,4 +2880,58 @@ final class DerivationsTests: XCTestCase {
         XCTAssertFalse(euclideousEffectivePattern(lane: 0, lines: single)!.followsPartner)
         XCTAssertNil(euclideousEffectivePattern(lane: 4, lines: lines))
     }
+
+    /// Cross-check against the SAME footer-prediction primitive the UI uses (`euclideousLapHitSteps`) — a
+    /// real, rotated+tilted pattern, across all 3 Euclideous directions, confirming the new gap function can
+    /// never silently disagree with what the step footers themselves predict (per the ferry's own "use the
+    /// same prediction the step footers use"; the footer-mirror functions have a documented history of
+    /// drifting from the real engine, so this is a standing regression guard, not a one-off sanity check).
+     // The lap's hit list (what the strip, the footers and the LANES roll all read): ticks strictly increase and stay inside one cycle, for every direction.
+    func testLapHitStepsAreStrictlyIncreasingTicksInsideOneCycleForEveryDirection() {
+        for dir in [EuclidDir.fwd, .bkw, .pingpong] {
+            let hits = euclideousLapHitSteps(pulses: 3, steps: 8, rotate: 2, tilt: 0.3, patternMiss: false, customHits: nil, dir: dir)
+            let cycleLen = euclidCycleLen(dir, n: 8)
+            XCTAssertFalse(hits.isEmpty, "\(dir)")
+            for i in 1..<hits.count { XCTAssertGreaterThan(hits[i].tick, hits[i - 1].tick, "\(dir): hit \(i)") }
+            XCTAssertTrue(hits.allSatisfy { $0.tick >= 0 && $0.tick < cycleLen }, "\(dir): inside one cycle")
+            XCTAssertEqual(hits.count, dir == .pingpong ? 6 : 3, "\(dir): PING-PONG visits each hit twice")
+        }
+    }
+
+    // span ladder ×8 reach (an untested edge).
+    func testSpanLadder64Reach() {
+        XCTAssertEqual(spanLadderBeats(64, S: 0.5, row: 4.0), 32.0, "×8 = 8 rows")
+    }
+
+    // SPAN LADDER (Paul 2026-08-22 §3): the WIDTH-in-beats dial. Endpoints CELL(1)=S and ROW(8)=rowBeats are the
+    // byte-identical legacy anchors; 2·3·4·6 = N columns; 16/32 = ×2/×4 the row (the multi-bar polymeter spans — never
+    // reached by the 1-bar Router integration tests, so proven directly here).
+    func testSpanLadderBeatsCoversEveryRung() {
+        let S = 0.5, row = 4.0
+        XCTAssertEqual(spanLadderBeats(1, S: S, row: row), S, "CELL = one column (S)")
+        XCTAssertEqual(spanLadderBeats(8, S: S, row: row), row, "ROW = the whole row (rowBeats)")
+        XCTAssertEqual(spanLadderBeats(3, S: S, row: row), 1.5, "3 columns = 3·S")
+        XCTAssertEqual(spanLadderBeats(6, S: S, row: row), 3.0, "6 columns = 6·S")
+        XCTAssertEqual(spanLadderBeats(16, S: S, row: row), 8.0, "×2 = 2 rows")
+        XCTAssertEqual(spanLadderBeats(32, S: S, row: row), 16.0, "×4 = 4 rows")
+        XCTAssertEqual(spanLadderBeats(0, S: S, row: row), S, "sub-1 clamps to CELL")
+    }
+
+    // The pad's strip is always GATE and its spoken value plain — legato was removed from the XY box (2026-10-19). The RHYTHM slider's own label function is unchanged
+    // (a raw 1.0 would still read LEGATO there) but nothing can set a lane's gate that high any more.
+    func testMixGateNameIsAlwaysGateAndTheSpokenValueNeverSaysLegato() {
+        var l = EuclidLine(); l.gate = 1.0
+        XCTAssertEqual(euclideousSliderLabelText(.gate, l), "LEGATO", "the slider's own pure label function is untouched")
+        XCTAssertTrue(euclideousGateIsLegato(1.0)); XCTAssertFalse(euclideousGateIsLegato(0.99), "the engine's legato predicate is untouched (the FX GATE row uses it)")
+        XCTAssertEqual(euclideousMixGateValueText(gate: 0.6), "60%"); XCTAssertEqual(euclideousMixGateValueText(gate: 0.99), "99%")
+        XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 0.6, velocity: 104), "gate 60 percent, velocity 104")
+        XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 0.99, velocity: 127), "gate 99 percent, velocity 127")
+        XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 1.0, velocity: 127), "gate 100 percent, velocity 127", "no \"legato\" suffix, even for a raw 1.0")
+        XCTAssertEqual(euclideousMixPadAccessibilityLabel(lane: 0, notes: false, off: false), "Lane 1 riff")
+        XCTAssertEqual(euclideousMixPadAccessibilityLabel(lane: 3, notes: true, off: true), "Lane 4 notes, off")
+        XCTAssertEqual(euclideousMixOctaveAccessibilityLabel(lane: 1, notes: true), "Lane 2 notes octave")
+        XCTAssertEqual(euclideousMixVelocityStep(126, up: true), 127); XCTAssertEqual(euclideousMixVelocityStep(100, up: true), 104); XCTAssertEqual(euclideousMixVelocityStep(2, up: false), 1)
+        XCTAssertEqual(euclideousMixGateStep(0.6, longer: true), 0.65, accuracy: 1e-12); XCTAssertEqual(euclideousMixGateStep(0.98, longer: true), 0.99, accuracy: 1e-12); XCTAssertEqual(euclideousMixGateStep(0.99, longer: true), 0.99, accuracy: 1e-12)
+        XCTAssertEqual(euclideousMixGateStep(0.03, longer: false), 0.01, accuracy: 1e-12)
+    }
 }

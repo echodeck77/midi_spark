@@ -190,47 +190,7 @@ final class Router {
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
     private var prevBusEnabledMask: UInt8 = 0b1111   // edge: a bus going enabled→disabled closes its notes
-    // §6a PERFORM velocity override (momentary absolute, ephemeral). Packed: byte i = emitter i's forced
-    // velocity, 0 = no override, 1–127 = flatten every new note-on to this value. Scalar so the
-    // main-write/render-read stays race-safe (an aligned UInt32, like heldColumns).
-    private var velOverride: UInt32 = 0
-    // §6a CLAIM v2 (persisted, MULTI-claim SHARED tier): bit i set ⇒ emitter i claims. A NON-claimant emitting
-    // a PITCH CLASS (note % 12) sounding on ANY claimant is suppressed (own cable + its All copy) — claimants
-    // own that harmony, others get the residue; claimants never suppress each other. Suppress, never defer.
-    private var claimMask: UInt8 = 0
-    // §6a CLAIM v2 LEAK %: per-claimant bleed. When a non-claimant yields a claimed pitch class, it passes at
-    // this scaled velocity instead of falling silent (0 = full suppression = v1). Multi-claim = the MIN leak
-    // among the claimants sounding that class wins (the strictest shadow).
-    private var claimLeak: [UInt8] = [0, 0, 0, 0]
-    // emitter role family: FLATTEN — activity ducking. While a FLATTEN emitter (bit set) has anything
-    // sounding, OTHER emitters' NEW note-ons are velocity-scaled by that emitter's amount. Persisted; refreshed
-    // from the box each render. Stateless — a pure query of the live voice table at admission time.
-    private var flattenMask: UInt8 = 0
-    private var flattenAmount: [UInt8] = [0, 0, 0, 0]
-    // THE RACK — CURVE (design-the-rack §6): per-emitter output-velocity re-map. `curveMask` = which emitters
-    // curve; `curveAmount` = −100…100 (0 = linear, + boosts low velocities = harder, − softens). Rack-gated in
-    // the builder. Applied per note-on in emitOneBus (a pure transform of the outgoing velocity).
-    private var curveMask: UInt8 = 0
-    private var curveAmount: [Int8] = [0, 0, 0, 0]
-    // THE RACK — FENCE (design-the-rack §6): per-emitter note-RANGE policy on the OUTPUT note. `fenceMask` = which
-    // emitters fence; policy 0 DROP · 1 CLAMP · 2 FOLD; lo/hi = the window. Rack-gated in the builder.
-    private var fenceMask: UInt8 = 0
-    private var fencePolicy: [UInt8] = [0, 0, 0, 0]
-    private var fenceLo: [UInt8] = [0, 0, 0, 0]
-    private var fenceHi: [UInt8] = [127, 127, 127, 127]
-    // THE RACK — MONO (design-the-rack §6): per-emitter monophony. A new note-on STEALS the emitter's current note
-    // per PRIORITY (0 LAST always · 1 LOW keeps the lower · 2 HIGH keeps the higher). Scan-based (no tracker to
-    // clean up): the current holder is read live from the voice table, so transport/column flushes stay unaware.
-    private var monoMask: UInt8 = 0
-    private var monoPriority: [UInt8] = [0, 0, 0, 0]
-    // THE RACK — POCKET (design-the-rack §6): per-emitter timing shift (samples, from ±ms), applied to a note's
-    // on/off before opening its voices (both shift equally → duration preserved; clamped into the render window).
-    private var pocketMask: UInt8 = 0
     private var renderStart: Int64 = 0   // this render window's first sample — POCKET can't push a note before it
-    // THE RACK — CONVERSATION (design-the-rack §6): one LEAD emitter; a follower's STANCE admits its NEW notes only
-    // WITH the lead's sound (1) or AGAINST its silences (2). A live query of the lead's voices, like FLATTEN/CLAIM.
-    private var convLead: Int = -1
-    private var convStance: [UInt8] = [0, 0, 0, 0]
     // HOCKET (wire-as-source v1): the sample of the most recent REAL note-on on each emitter (A–D) — the "when the wire
     // struck" edge that TRADE reads. Updated in openVoice; reset to a far-past sentinel on transport/flush edges so a
     // stale onset can't false-trigger. Read-only from HOCKET's tick (same live-query model as CONVERSATION's L1 caveat).
@@ -242,14 +202,7 @@ final class Router {
     // off in time (A this moment, B the next) instead of splitting simultaneously (user 2026-08-04). `altMomentIndex`
     // % len picks the holder. previewMode bypasses (no role context).
     private var altMask: UInt8 = 0
-    // Preallocated to its max (4 buses × 8 count = 32) so `rebuildAltSequence`'s append loop never reallocates on
-    // the render thread — even the first window that grows it (audit B5). removeAll(keepingCapacity:) holds it.
-    private var turnsPerNote = false         // TURNS mode: true = PER-NOTE exclusive (drop a simultaneous group note)
-    // master panel: per-scene KEY (transpose, from the box), global MUTE (from the box), and the ephemeral
-    // master velocity FADER (from process(), like the emitter override) — all applied in emitOneBus.
-    private var masterKey: Int = 0
     private var masterMute = false
-    private var masterVelOverride: UInt8 = 0
     // FERRY (2026-10-14 §3, "sequencer step length") — the host's REAL bar length in beats, set once per
     // render from `process()`'s new `beatsPerBar` parameter. Default 4.0 (common time) matches every
     // existing caller/test that doesn't pass it, including the whole pre-existing Euclideous test suite
@@ -276,8 +229,6 @@ final class Router {
     private var curBox: SnapshotBox?                  // this render's box — so openVoice can read the sounding machine's DISPLAY hue to tag the reel (Paul 2026-08-19)
     private var currentCellIndex: Int = -1
     private var fBeatPos: Double = 0, fBeatsPerSample: Double = 0, fWindowStart: Int64 = 0   // this render's beat conversion (set in process)
-    private var dealE1 = 0, dealE2 = 1, dealN1 = 1, dealN2 = 1
-    private var dealMode: DealMode = .overTime
     // RIFF DIRECTION = DRUNK (Paul 2026-09-28): the walk position persists per grid cell — same class as DEAL/ALT
     // above (a genuinely accumulated value; the codebase's architecture review, Docs/codebase-review-2026-08-16.md
     // finding A1, already flags this class as a known, disclosed limitation — not replay-exact across a mid-phrase
@@ -816,27 +767,7 @@ final class Router {
     // in [colStart, mWinStart)) fires once instead of being dropped at the boundary. (Paul 2026-08-18)
     private var lastGenStep = [Int64](repeating: Int64.min, count: Snap.rows)
     private var soloEmitterMask: UInt8 = 0
-    // receiver strip: the additive input SOLO set (bits R1–R4). While non-empty, a cell whose receiver is
-    // NOT a member falls silent — `audible = ¬muted ∧ (soloSet=∅ ∨ member)`. Row-fed cells (recv −1) reach
-    // this through their root MIDI-IN cell in parentSoundingNote. Ephemeral (cleared on stop / EDIT).
-    private var soloReceiverMask: UInt8 = 0
-    private func soloSilenced(_ cell: SnapCell) -> Bool {
-        soloReceiverMask != 0 && cell.resolvedReceiver >= 0 && (soloReceiverMask & (1 << UInt8(cell.resolvedReceiver))) == 0
-    }
-    // receiver strip: an ephemeral ±octave nudge per receiver (−3…+3), packed one signed byte each. Composes
-    // with the cell's machine transpose at the per-cell transpose local (a PLAYING control; 0 in stopped
-    // audition). A note pushed past 0…127 by the sum is dropped by the per-emit guard (intended).
-    private var inputOctave: UInt32 = 0
-    private var inputSemitone: UInt32 = 0                    // receiver strip: per-receiver ±semitone NOTE nudge (composes with octave)
-    // receiver strip: the momentary-absolute INPUT-velocity override (the slider's ride), packed byte per
-    // receiver (0 = none). Flattens a receiver's subscribers at the wire. `currentInputRecv` is the receiver
-    // of the cell being articulated (render is single-threaded, so one field suffices) — read in emitOneBus.
-    private var inputVelOverride: UInt32 = 0
     private var currentInputRecv: Int8 = -1
-    // emitter strip: an ephemeral ±octave nudge per emitter (−3…+3), packed one signed byte each. Applied at
-    // the emission boundary to the OUTGOING note (the receiver OCT's output-side mirror); a note pushed past
-    // 0…127 is dropped. Cleared on stop.
-    private var emitterOctave: UInt32 = 0
     // receiver strip LATCH: while a receiver is armed (bit set), its subscribers read a FROZEN pool (the
     // captured chord) instead of the live one — the Kernel maintains the frozen pools + hands them in.
     private var latchMask: UInt8 = 0
@@ -853,15 +784,6 @@ final class Router {
     private let euclideousHoldLatchPool = NotePool()
     private var euclideousHoldLatchPrevHeld = [Bool](repeating: false, count: 128)
     private var euclideousHoldLatchPrevMode: EuclideousHoldLatchMode? = nil
-    // INPUT ADMISSION: this render's per-receiver channel/cable/range filter (mute+disable already folded into
-    // receiverChannels) + the no-machine LIVE WIRE mask. Read from the box each render. (The door-level BYPASS mask/dest
-    // that once lived here was retired 2026-08-25; only passEmitterMask remains.)
-    private var receiverChannels: [UInt8] = [0, 0, 0, 0]
-    private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]
-    private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]
-    private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
-    private var receiverScaleRoot: [Int] = [-1, -1, -1, -1]       // CHORDS C2b#1: per-receiver declared scale root (−1 = not a scale door), this render
-    private var receiverScaleType: [ScaleType] = [.major, .major, .major, .major]
     /// The pool a cell reads: its receiver's frozen LATCH pool when armed (which STILL feeds while the door is
     /// disabled — the point of "close the door, keep the room"); else, if the door is DISABLED (not listening),
     /// nothing; else the live pool. A row-fed cell (recv −1) always reads live (its root's latch reaches it via

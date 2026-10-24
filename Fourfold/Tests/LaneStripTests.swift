@@ -365,4 +365,63 @@ final class LaneStripTests: XCTestCase {
 
     // MARK: RESTART TILES ferry §4 / test 11 — rests stay present (CLARITY PASS 2026-10-23: as solid grey columns, no longer dashed)
 
+
+    func testRestColumnsArePresentRhythmRestsAtOffsetZeroAndAtOffsetSevenPointTwoNine() {
+        // what a rest draws is `euclideousStripColumnLook`'s solid grey, never a border
+        for (label, offset) in [("OFFSET 0", 0.0), ("OFFSET 7.29", 7.29)] {
+            var l = EuclidLine(pulses: 5, steps: 8, noteSel: .all); l.rate = .r1_16; l.useRiff = true; l.riffOn = true; l.sourceMode = .midi
+            euclideousSliderCommit(.offset, &l, snapshot: l, newValue: offset)
+            let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+            // what the page's strip plan does: a lane with timing is read from its tick-space layout, each hit in the box its start time falls in
+            let hitSteps = cfg.timing.isNone ? euclideousLapHitSteps(pulses: 5, steps: 8, rotate: l.rotate, tilt: 0, patternMiss: false, customHits: nil)
+                                              : euclideousLapHitSteps(layoutCells: cfg.buf, n: 8, dir: .fwd)
+            var pattern = [Bool](repeating: false, count: 8)
+            for h in hitSteps { pattern[h.bufIdx] = true }
+            let sts = euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: nil, riffRanksResolved: exRanks, anyLit: true)
+            let strip = euclideousStripHits(pattern: pattern, hitSteps: hitSteps, states: sts, ranks: exRanks, riffPlays: false, grey: false, onRest: .skip, cfg: cfg, lapStartTick: 0, notes: nil, keyLabels: true, name: name)
+            XCTAssertEqual(strip.count, 8)
+            XCTAssertEqual(pattern.filter { !$0 }.count, 3, "E(5,8) has three rests (\(label))")
+            for i in 0..<8 {
+                if pattern[i] { XCTAssertNotEqual(strip[i].kind, .rhythmRest, "\(label): column \(i + 1) holds a hit") }
+                else {
+                    XCTAssertEqual(strip[i].kind, .rhythmRest, "\(label): column \(i + 1) is a rest")
+                    XCTAssertNil(strip[i].chip); XCTAssertNil(strip[i].key, "a rest column is drawn as its solid grey and nothing else")
+                    for tone in [EuclideousStepGroupTone.a, .b] {
+                        let drawn = euclideousStripColumnLook(kind: strip[i].kind, tone: tone)
+                        guard case .solid = drawn.fill else { return XCTFail("\(label): a rest draws a solid fill") }
+                        XCTAssertEqual(drawn.ringAlpha, 0, "never dashed or ringed"); XCTAssertFalse(drawn.floorBar)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: VoiceOver (6.1) — the strip is ONE element whose value reads each hit in step order
+    func testTheSpokenHitsPhraseReadsEachHitInStepOrderAndSkipsRhythmRests() {
+        let rank: (Int) -> String? = { $0 == 3 ? "E 4" : nil }
+        let pitch: (Int) -> String = { "pitch \($0)" }
+        func phrase(_ h: [EuclideousStripHit]) -> String { euclideousStripHitsPhrase(hits: h, spokenRank: rank, spokenPitch: pitch) }
+        var hits = [EuclideousStripHit](repeating: EuclideousStripHit(), count: 6)   // every column a rhythm rest
+        XCTAssertEqual(phrase(hits), "no hits")
+        hits[0] = EuclideousStripHit(kind: .hit, chip: EuclideousStripChip(rank: 3, column: 6, hollow: false, grey: false))
+        hits[2] = EuclideousStripHit(kind: .gap)
+        hits[3] = EuclideousStripHit(kind: .hit)
+        hits[4] = EuclideousStripHit(kind: .hit, chip: EuclideousStripChip(rank: 3, column: 2, hollow: true, grey: false))
+        hits[5] = EuclideousStripHit(kind: .hit, chip: EuclideousStripChip(rank: 1, column: 1, hollow: false, grey: true),
+                                     key: EuclideousStripKey(plays: true, chanceRing: false, label: nil, picked: [67, 60, 64]))
+        XCTAssertEqual(phrase(hits),
+                       "step 1, riff column 6, E 4; step 3, rest in the riff; step 4, hit; step 5, rest in the riff, repeats E 4; step 6, riff column 1, notes play pitch 60 and 2 more",
+                       "rests (steps 2) are skipped; a grey chip names no note; several notes name the lowest and count the rest")
+        // a repeat of a rank nothing speaks falls back to words; one picked note is named alone; a key that does not play adds nothing
+        hits = [EuclideousStripHit(kind: .hit, chip: EuclideousStripChip(rank: 7, column: 1, hollow: true, grey: false), key: EuclideousStripKey(plays: true, chanceRing: true, label: nil, picked: [72])),
+                EuclideousStripHit(kind: .hit, key: EuclideousStripKey(plays: false, chanceRing: false, label: nil, picked: [60]))]
+        XCTAssertEqual(phrase(hits), "step 1, rest in the riff, repeats the note before, notes play pitch 72; step 2, hit")
+    }
+
+    func testTheLivePartOfTheSpokenValueFollowsTheClockAndTheMute() {
+        XCTAssertEqual(euclideousStripAppendLive("step 1, hit", onStep: nil, muted: false), "step 1, hit")
+        XCTAssertEqual(euclideousStripAppendLive("step 1, hit", onStep: 5, muted: false), "step 1, hit; on step 5")
+        XCTAssertEqual(euclideousStripAppendLive("step 1, hit", onStep: nil, muted: true), "step 1, hit, silent at this step")
+        XCTAssertEqual(euclideousStripAppendLive("step 1, hit", onStep: 2, muted: true), "step 1, hit; on step 2, silent at this step")
+    }
 }

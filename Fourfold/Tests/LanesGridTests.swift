@@ -382,4 +382,31 @@ final class LanesGridTests: XCTestCase {
             XCTAssertFalse(euclideousLaneRestartGrid(v.grid, cycleLen: v.cycleLen).isActive, "no restart: the engine's grid path is not in force")
         }
     }
+
+    func testMaskedResetCellOfAnEmptyMaskIsNilForEveryBeat() {
+        for beat in [-5.0, 0, 0.3, 17, 1000.7] {
+            XCTAssertNil(euclideousMaskedResetCell(beat: beat, cellBeats: 0.75, mask: 0, cells: 16))
+        }
+    }
+
+    func testMaskedResetCellIsAlwaysACellTheMaskSetsAndNeverAfterTheBeat() {
+        let masks: [UInt16] = [1, 1 << 5, 0b1010_0101_0000_0001, 0xFFFF, 1 << 15, (1 << 3) | (1 << 4)]
+        for mask in masks { for cb in [0.25, 0.75, 1.0, 4.0] {
+            for k in stride(from: -40.0, through: 90.0, by: 0.37) {
+                let beat = k * cb
+                let cell = euclideousMaskedResetCell(beat: beat, cellBeats: cb, mask: mask, cells: 16)!
+                let slot = ((cell % 16) + 16) % 16   // the pick is an ABSOLUTE cell number (negative before beat 0); its slot in the 16-cell window must be set
+                XCTAssertNotEqual(mask & (UInt16(1) << UInt16(slot)), 0, "mask \(mask) cb \(cb) beat \(beat): the pick is a SET cell")
+                if beat >= 0 { XCTAssertLessThanOrEqual(Double(cell) * cb, beat + 1e-9, "never a restart that is still in the future (playback starts at beat 0; before it the answer is the previous window's periodic image)") }
+            }
+        } }
+    }
+
+    // MARK: - accessibility words (§7)
+    func testAccessibilityLabelsAreTheSpecsWords() {
+        XCTAssertEqual(euclideousLanesMuteCellLabel(lane: 0, cell: 4, sounding: true), "Lane 1 cell 5, sounding")
+        XCTAssertEqual(euclideousLanesMuteCellLabel(lane: 3, cell: 0, sounding: false), "Lane 4 cell 1, muted")
+        XCTAssertEqual(euclideousLanesRateBoxLabel(lane: 2, unit: "PASS"), "Lane 3 cell size PASS")
+        XCTAssertEqual(euclideousLanesRestartHint, "TOP ROW = RHYTHM RESTART. BOTTOM ROW = MELODY RESTART.")
+    }
 }

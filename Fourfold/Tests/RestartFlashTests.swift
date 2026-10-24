@@ -26,4 +26,46 @@ final class RestartFlashTests: XCTestCase {
 
 
 
+
+    private func chain(_ links: [Int]) -> EuclideousRestartChain {
+        var c = EuclideousRestartChain(); for (i, l) in links.enumerated() { c.packed |= UInt32(l) << UInt32(8 * i) }; return c
+    }
+
+    // MARK: RHYTHM — the LANES panel's rhythm restart marks, against a brute-force restatement
+    func testRhythmRestartMarksAreExactlyTheChainsRunningTotalsRepeatedEveryCycle() {
+        var rng = Rng(s: 0xA11CE)
+        for _ in 0..<300 {
+            let links = (0..<rng.int(1...4)).map { _ in [1, 2, 3, 4, 6, 8][rng.int(0...5)] }
+            let c = chain(links), barBeats = [3.0, 4.0, 6.0][rng.int(0...2)]
+            let total = links.reduce(0, +)
+            let start = Double(rng.int(0...300)) / 4, len = Double(rng.int(40...400)) / 2
+            var want: [Double] = []
+            for m in 0..<400 {
+                var run = 0
+                for l in links {
+                    let beat = Double(m * total + run) * barBeats
+                    if beat >= start - 1e-9 && beat < start + len - 1e-9 { want.append(beat) }
+                    run += l
+                }
+            }
+            let got = euclideousChainRhythmMarkBeats(chain: c, barBeats: barBeats, windowStart: start, windowBeats: len)
+            XCTAssertEqual(got.count, want.count, "links \(links) bar \(barBeats) window \(start)+\(len)")
+            for (g, w) in zip(got, want.sorted()) { XCTAssertEqual(g, w, accuracy: 1e-9) }
+        }
+        XCTAssertTrue(euclideousChainRhythmMarkBeats(chain: .free, barBeats: 4, windowStart: 0, windowBeats: 100).isEmpty, "FREE has no marks")
+    }
+
+    // MARK: MELODY — the restarting passes' start beats
+    func testMelodyRestartMarksAreThePassStartsTheChainRestartsOn() {
+        // rhythm FREE ⇒ pass q starts at q × lap. Melody [1]: every pass restarts. Melody [2,1]: passes 0, 2 of every 3.
+        let lap = 2.0
+        let every = euclideousChainMelodyMarkBeats(melodyChain: chain([1]), rhythmChain: .free, barBeats: 4, lapBeats: lap, windowStart: 0, windowBeats: 20)
+        XCTAssertEqual(every, stride(from: 0.0, to: 20.0, by: lap).map { $0 })
+        let two = euclideousChainMelodyMarkBeats(melodyChain: chain([2, 1]), rhythmChain: .free, barBeats: 4, lapBeats: lap, windowStart: 0, windowBeats: 20)
+        XCTAssertEqual(two, [0, 4, 6, 10, 12, 16, 18])
+        XCTAssertTrue(euclideousChainMelodyMarkBeats(melodyChain: .free, rhythmChain: .free, barBeats: 4, lapBeats: lap, windowStart: 0, windowBeats: 20).isEmpty, "FREE has no marks")
+        // a window that starts mid-way sees only the marks inside it
+        let late = euclideousChainMelodyMarkBeats(melodyChain: chain([2, 1]), rhythmChain: .free, barBeats: 4, lapBeats: lap, windowStart: 7, windowBeats: 8)
+        XCTAssertEqual(late, [10, 12])
+    }
 }

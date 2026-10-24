@@ -696,7 +696,7 @@ struct FourfoldRootView: View {
             lastStuckPanics = nd.panics
             let why = nd.stuckReason == 1 ? "silence invariant violated (stopped)"
                     : nd.stuckReason == 2 ? "playing silence leak (no source)" : "stuck note"
-            os_log(.fault, log: FourfoldRootView.hangLog, "MidiSpark STUCK-NOTE: %{public}s — voices=%d echoes=%d panics=%llu",
+            os_log(.fault, log: FourfoldRootView.hangLog, "Fourfold STUCK-NOTE: %{public}s — voices=%d echoes=%d panics=%llu",
                    why, nd.stuckVoices, nd.stuckEchoes, nd.panics)
         }
         // BUG FIX (Paul 2026-09-29, "playhead jitters when stopped"): was `playing: nd.playing` (HOST-only) — during

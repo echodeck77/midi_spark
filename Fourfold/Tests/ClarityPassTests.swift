@@ -340,4 +340,44 @@ final class ClarityPassTests: XCTestCase {
         XCTAssertEqual(euclideousMixPadAccessibilityLabel(lane: 2, notes: true, off: false), "Lane 3 notes")
         XCTAssertEqual(euclideousMixPadAccessibilityValue(gate: 0.6, velocity: 104), "gate 60 percent, velocity 104")
     }
+
+    func testRestHitAndGapLooksPerGroup() {
+        typealias M = EuclideousStripMetrics
+        let restA = euclideousStripColumnLook(kind: .rhythmRest, tone: .a), restB = euclideousStripColumnLook(kind: .rhythmRest, tone: .b)
+        XCTAssertEqual(restA.fill, .solid(hex: 0x41454F)); XCTAssertEqual(restB.fill, .solid(hex: 0x30333A))
+        XCTAssertEqual(restA.ringAlpha, 0); XCTAssertFalse(restA.floorBar, "a rest is solid, present and unmarked — never dashed")
+        let hitA = euclideousStripColumnLook(kind: .hit, tone: .a), hitB = euclideousStripColumnLook(kind: .hit, tone: .b)
+        XCTAssertEqual(hitA.fill, .lane(alpha: 0.42)); XCTAssertEqual(hitB.fill, .lane(alpha: 0.30))
+        XCTAssertEqual(hitA.ringAlpha, 0, "the readability pass's 70 % border is gone"); XCTAssertTrue(hitA.floorBar); XCTAssertTrue(hitB.floorBar)
+        for tone in [EuclideousStepGroupTone.a, .b] {
+            let gap = euclideousStripColumnLook(kind: .gap, tone: tone), rest = euclideousStripColumnLook(kind: .rhythmRest, tone: tone)
+            XCTAssertEqual(gap.fill, rest.fill, "a gap is its group's rest fill …")
+            XCTAssertEqual(gap.ringAlpha, 0.45); XCTAssertEqual(gap.ringWidth, 1, "… plus a 1 pt ring at 45 %"); XCTAssertFalse(gap.floorBar)
+        }
+        XCTAssertEqual(M.columnGap, M.slideGap, "the playhead's slide past the last column keeps matching the column gap")
+    }
+
+    func testADisabledPadWriteChangesNoStateAtAll() {
+        for notes in [false, true] {
+            var line = EuclidLine()
+            line.riffOn = false; line.notesOn = false; line.litNotes = 0b1
+            line.gate = 0.6; line.velocityAbsolute = 90; line.notesGate = 0.7; line.notesVelocity = 80
+            XCTAssertTrue(euclideousMixLayerIsOff(line, notes: notes))
+            let before = line
+            XCTAssertFalse(euclideousMixPadWriteIfEnabled(&line, notes: notes, gate: 0.2, velocity: 20)); XCTAssertFalse(euclideousMixPadResetIfEnabled(&line, notes: notes))
+            XCTAssertEqual(line, before, "the layer switch, velocity and gate are all unchanged")
+            XCTAssertEqual(euclideousMixLayerIsOff(line, notes: notes), true, "… and it never turned the layer on")
+        }
+    }
+
+    func testAnEnabledPadStillWritesExactlyAsBefore() {
+        var line = EuclidLine(); line.riffOn = true; line.litNotes = 0b1; line.notesOn = true
+        XCTAssertTrue(euclideousMixPadWriteIfEnabled(&line, notes: true, gate: 0.5, velocity: 64))
+        XCTAssertEqual(line.notesGateResolved, 0.5, accuracy: 0.011); XCTAssertEqual(line.notesVelocityResolved, 64)
+        var viaRiff = line, direct = line
+        XCTAssertTrue(euclideousMixPadWriteIfEnabled(&viaRiff, notes: false, gate: 0.4, velocity: 70))
+        euclideousMixPadWrite(&direct, notes: false, gate: 0.4, velocity: 70)
+        XCTAssertEqual(viaRiff, direct, "the guarded write is the old write for an enabled pad")
+        XCTAssertTrue(euclideousMixPadResetIfEnabled(&line, notes: true)); XCTAssertEqual(line.notesVelocityResolved, 100)
+    }
 }

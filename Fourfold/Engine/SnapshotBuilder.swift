@@ -155,7 +155,7 @@ enum SnapshotBuilder {
                 // main-thread-only, never embedded on the render path the way `EuclidLine` itself is).
                 if r == Snap.euclideousRow {
                     for (i, L) in doc.euclideousLinesResolved.enumerated() where L.litMigrationNeedsWarning {
-                        FileHandle.standardError.write("MidiSpark: Euclideous lane \(i + 1) had an unexpected legacy noteSel — migrating to 1 lit\n".data(using: .utf8) ?? Data())
+                        FileHandle.standardError.write("Fourfold: Euclideous lane \(i + 1) had an unexpected legacy noteSel — migrating to 1 lit\n".data(using: .utf8) ?? Data())
                     }
                 }
                 // EUCLIDEOUS CHORDS (Paul 2026-10-08): resolve the page's own chord grid into the SHARED

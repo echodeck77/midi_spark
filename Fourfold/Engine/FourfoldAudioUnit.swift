@@ -292,7 +292,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // MARK: - Five MIDI outputs — the load-bearing line (§7b/§8). AUM shows these as five sources.
     // delta §7b: FIVE cables — All (0) carries every emitter channel-distinguished; A–D (1–4) each
     // carry their own stream. Static; serves single-cable and multi-out hosts simultaneously.
-    // Labels kept short (AUM prepends "MidiSpark @Mn:n "); "All" sorts before the "Emit ·" group in
+    // Labels kept short (AUM prepends the plugin name); "All" sorts before the "Emit ·" group in
     // AUM's alphabetical list, instead of landing between A and C.
     public override var midiOutputNames: [String] {
         ["All", "Out A", "Out B", "Out C", "Out D"]   // cables 0–4 (the page calls the outputs MAIN OUT A–D)
