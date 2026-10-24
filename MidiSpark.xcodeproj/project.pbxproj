@@ -117,6 +117,7 @@
 		6B98CD09D9D422991069BB57 /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F4BE86660C760F3CD73866 /* Kernel.swift */; };
 		6DEFCE939DA93767F6EC18B7 /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB19F22BB8954057C891B07 /* SharedUIHelpers.swift */; };
 		6F18BF8AB71ADFDCB76024E4 /* RestartChainsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */; };
+		6F1D77AA7FBFF46117E4E73E /* SmallWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAA9A1C1F8528FD067B3F6CF /* SmallWindowTests.swift */; };
 		6F2E027AB498AA1556A6A690 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE84D11C4695B381242AD6D /* DesignKit.swift */; };
 		6F87BEE1EB3257DD5CC2B374 /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EAB2358FE85A312490A1FF /* ReelHeaderIcon.swift */; };
 		6FF9F3666DE68AB22E088D88 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */; };
@@ -480,6 +481,7 @@
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
 		B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripTests.swift; sourceTree = "<group>"; };
 		BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTuttiLengthTests.swift; sourceTree = "<group>"; };
+		BAA9A1C1F8528FD067B3F6CF /* SmallWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmallWindowTests.swift; sourceTree = "<group>"; };
 		BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloTests.swift; sourceTree = "<group>"; };
 		BC6819599CED217146F91C04 /* ListenTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenTabTests.swift; sourceTree = "<group>"; };
 		BD247D9F8C873B8151A15B97 /* Fourfold-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Fourfold-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -675,6 +677,7 @@
 				42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */,
 				D67906574F7AC7903958AF3B /* RiffPanelTests.swift */,
 				678E167D4A16C39447DC29C1 /* RouterTests.swift */,
+				BAA9A1C1F8528FD067B3F6CF /* SmallWindowTests.swift */,
 				CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */,
 			);
 			path = Tests;
@@ -1303,6 +1306,7 @@
 				5E970B6C60B8B0AF78C866B7 /* RiffPanelTests.swift in Sources */,
 				CBBC295B11E91C7833E213C7 /* Router.swift in Sources */,
 				7A38F150DFE99F651004F657 /* RouterTests.swift in Sources */,
+				6F1D77AA7FBFF46117E4E73E /* SmallWindowTests.swift in Sources */,
 				23F778EA380308B2D22F1CE0 /* Snapshot.swift in Sources */,
 				A30E4B4E80A4AAA15D91D659 /* SnapshotBuilder.swift in Sources */,
 				E7784ECA8F44A813DF1AB6BE /* SnapshotBuilderTests.swift in Sources */,

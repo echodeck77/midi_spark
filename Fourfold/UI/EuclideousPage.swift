@@ -1489,6 +1489,14 @@ struct EuclideousPage: View {
 
     var body: some View {
         GeometryReader { geo in
+            // SMALL-WINDOW FALLBACK (2026-10-24 ferry): below `euclideousPageTooSmall`'s threshold, skip
+            // the real page ENTIRELY — no popups, no HUD, nothing interactive — and show a scaled-down,
+            // non-interactive mockup of it instead (`tooSmallFallback`). Everything below this `else` is
+            // UNCHANGED from before this ferry (deliberately left at its original indentation — Swift's
+            // brace-delimited scoping doesn't require re-indenting an untouched block to nest it correctly).
+            if euclideousPageTooSmall(geo.size) {
+                tooSmallFallback(geo.size)
+            } else {
             // ORIENTATION (Paul 2026-10-08, ferry §3): recomputed from the view's OWN live bounds every time
             // SwiftUI re-lays-out (host rotation, AUM windowed ↔ full-screen, split-view resize, …) — never a
             // cached/fixed assumption. Landscape = strictly wider than tall (`euclideousPageLayout` owns the chooser).
@@ -1666,10 +1674,39 @@ struct EuclideousPage: View {
             .onPreferenceChange(EuclideousRiffTabFramePreferenceKey.self) { if let f = $0 { riffKeyTabFrame = f } }
             .onPreferenceChange(EuclideousChordsSegmentFramePreferenceKey.self) { if let f = $0 { chordsSegmentFrame = f } }
             .onPreferenceChange(EuclideousResetChipFramePreferenceKey.self) { resetChipFrames = $0 }
+            }   // end SMALL-WINDOW FALLBACK else branch
         }
         #if DEBUG
         .onChange(of: wipeEvents) { evs in logWalkTagHits(evs) }
         #endif
+    }
+    /// SMALL-WINDOW FALLBACK (2026-10-24 ferry): the real `pageBody`, rendered at a fixed reference size
+    /// and scaled down to fit — the actual live view tree (header, lane cards, riff grid, sequencer
+    /// panel), not a separate illustration, so it's recognisably the real app, just small. Non-interactive
+    /// (tiny controls must not be tappable) with a short, unmistakable message on top.
+    private func tooSmallFallback(_ size: CGSize) -> some View {
+        let l = euclideousTooSmallLayout(size: size)
+        return ZStack(alignment: .topLeading) {
+            Color(red: 0.05, green: 0.055, blue: 0.07).ignoresSafeArea()
+            pageBody(l.reference)
+                .frame(width: l.reference.width, height: l.reference.height, alignment: .topLeading)
+                .scaleEffect(l.scale, anchor: .topLeading)
+                .offset(x: l.origin.x, y: l.origin.y)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            VStack(spacing: 10) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 28, weight: .bold))
+                Text("RESIZE TO CONTINUE").font(.system(size: 14, weight: .heavy, design: .monospaced)).tracking(1.5)
+            }
+            .foregroundColor(.white.opacity(0.9))
+            .padding(20)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.65)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+            .position(x: size.width / 2, y: size.height / 2)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Window too small. Resize to continue.")
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
     // (riffMarkerPointsRight / updateRiffMarkers REMOVED — superseded by the stateless walk-tag plan; see the

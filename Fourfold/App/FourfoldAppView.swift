@@ -2,6 +2,7 @@
 //  FOURFOLD Step 3 (2026-10-23): the standalone app's window — a slim TRANSPORT BAR (what AUM's transport is to the plugin: PLAY/STOP, tempo, bar/beat) above the same `FourfoldRootView` the extension shows.
 
 import SwiftUI
+import UIKit
 
 struct FourfoldAppView: View {
     @StateObject private var model = FourfoldAppModel()
@@ -35,6 +36,17 @@ struct FourfoldAppView: View {
             }
         }
         .preferredColorScheme(.dark)
+        // SMALL-WINDOW FALLBACK (2026-10-24 ferry): a best-effort ask, NOT the real defense — Apple's own
+        // docs call `sizeRestrictions` "a preference, not a guarantee" (it can still let the window go
+        // smaller, and on some iPadOS versions resets to 0). `euclideousPageTooSmall`'s scaled fallback
+        // inside EuclideousPage is what actually handles a window that ends up small anyway; this just
+        // reduces how often that fallback is needed. No AppDelegate/SceneDelegate exists in this app and
+        // none is added for this one property — grabbing the connected scene directly is simpler.
+        .onAppear {
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                scene.sizeRestrictions?.minimumSize = CGSize(width: 760, height: 480)
+            }
+        }
         .onChange(of: scenePhase) { phase in if phase != .active { model.saveState() } }
         .onReceive(autosave) { _ in model.saveState() }
         #if FOURFOLD_LINK

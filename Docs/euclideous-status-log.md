@@ -12,6 +12,41 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ FOURFOLD — SMALL-WINDOW FALLBACK (2026-10-24, branch `small-window-fallback`; 1,127 FourfoldTests green (+13
+  new), golden harness byte-identical, `Fourfold` builds, app-test.sh clean at normal size).** Investigation (same
+  session) found neither the plugin (`FourfoldAU`, hosted in AUM) nor the standalone app had ANY defense against a
+  small window: `preferredContentSize` (`FourfoldViewController.swift:21`, `CGSize(760,480)`) is a one-time load hint
+  hosts can ignore; `euclideousPageLayout`'s own house rule is "a box under a legibility floor is drawn at the
+  formula's values and reported, never shrunk" (`Derivations.swift`), and that report is a `#if DEBUG` console print,
+  invisible to a real user; `UIRequiresFullScreen` was deliberately dropped project-wide in September (Apple was
+  about to start ignoring it and requiring orientation support), so Split View/Slide Over/Stage Manager can all hand
+  the standalone app a small window with zero existing minimum-size code anywhere (no `AppDelegate`/`SceneDelegate`
+  at all). **Scope: Fourfold only** (not `AUExtension`/`MidiSpark`/8×8 State — frozen, separate forked copy; flagged
+  as a port candidate if Paul wants parity there). **NEW, coarser tier below the existing per-panel `floors` system**
+  (floors are untouched — a merely-cramped panel still renders for real, unshrunk, exactly as before): two new pure
+  functions in `Derivations.swift` — `euclideousPageTooSmall(_:)` (below `CGSize(760,480)` landscape / `(480,760)`
+  portrait — reusing the plugin's OWN `preferredContentSize` hint as the line) and `euclideousTooSmallLayout(size:)`
+  (picks the landscape 1190×726 or portrait 814×1102 reference size — `PageLayoutTests.swift`'s own "Paul's two
+  reference screenshots" — and computes a uniform scale-to-fit + centering offset). `EuclideousPage.swift`'s `body`
+  branches right before the existing `pageBody(geo.size)` call: below threshold, `tooSmallFallback(_:)` renders the
+  REAL `pageBody` at the fixed reference size, `.scaleEffect`'d down to fit (not a separate mockup — the actual live
+  view tree, so it reads as the real app, just small), non-interactive (`.allowsHitTesting(false)`, avoiding
+  mis-taps on tiny controls) with a "RESIZE TO CONTINUE" card on top; above threshold, everything is byte-for-byte
+  unchanged (the existing ~140-line ZStack of popups/HUD/lane cards was wrapped via a minimal 2-insertion `if/else`
+  at the `GeometryReader` level — Swift's brace-delimited scoping doesn't require re-indenting an untouched block to
+  nest it correctly, so that block's own source lines are literally untouched). One change in `Fourfold/UI/
+  EuclideousPage.swift` covers BOTH the plugin and the standalone app, since both instantiate the same view.
+  **Standalone app also gets a best-effort OS-level ask** (`FourfoldAppView.swift`, `.onAppear`): `UIWindowScene.
+  sizeRestrictions.minimumSize = CGSize(760,480)` — Apple's documented (if "a preference, not a guarantee")
+  iOS-16+ replacement for the removed `UIRequiresFullScreen`; no AppDelegate/SceneDelegate added for this one
+  property, grabbing the connected scene directly from `.onAppear` instead. 10 new tests (`SmallWindowTests.swift`)
+  cover the threshold's exact boundary in both orientations, confirm the documented "windowed AUM panel" case
+  (900×600) stays ABOVE this new threshold (continues to hit the existing per-panel floors, unshrunk, as designed —
+  only the genuinely-tiny documented case, 355×274, trips the new tier), scale/centering correctness, and
+  degenerate-size safety (no negative/NaN scale). DEVICE-OWED (no test-target reach for `EuclideousPage.swift`, as
+  always): see `Docs/euclideous-device-verification-debt.md`'s new "SMALL-WINDOW FALLBACK" section — the actual
+  visual legibility of the shrunk mockup + whether `sizeRestrictions` is honored at all can only be checked with a
+  real AUM window resize / Split View, which nothing in this repo's simulator harness can drive.
 - **▶ FOURFOLD — ABLETON LINK sync (2026-10-24, branch `ableton-link-sync`; 1,114 FourfoldTests green, golden harness
   byte-identical, `Fourfold`/`MidiSpark` both build, app-test.sh clean launch with the Link button visible).** Standalone
   app only (confirmed with Paul) — LinkKit (the iOS-specific C SDK, `ABLLink.h`; NOT the GPL-licensed open-source
