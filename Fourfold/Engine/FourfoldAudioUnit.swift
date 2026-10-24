@@ -208,8 +208,9 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
     func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }
     func uiEuclideousHostStopBehavior() -> EuclideousHostStopBehavior { document.euclideousHostStopBehaviorResolved }
-    // CHORDS BUTTON (Paul 2026-10-08): the page's own self-contained chord grid.
-    func uiEuclideousChords() -> MachineParams { document.euclideousChordsResolved }
+    // CHORDS GRID ferry (2026-10-24): 4 independently-stored progressions + which one plays/is edited.
+    func uiEuclideousChordSets() -> [MachineParams] { document.euclideousChordSetsResolved }
+    func uiActiveChordSet() -> Int { document.activeChordSetResolved }
     /// Each of Euclideous's 4 lanes' own live riff-advance step index, polled on the SAME fast ~30fps cadence as
     /// `pollEuclideousLineReady` below (not the slow ~4Hz config-resync timer) — this is a per-hit, responsive
     /// indicator, not config.

@@ -999,6 +999,48 @@ func euclideousChordsPopupLayout(box: CGSize, steps: Int) -> EuclideousChordsPop
     return EuclideousChordsPopupLayout(box: box, steps: n, gridH: gridH, rowH: rowH, cellW: cellW)
 }
 
+/// §2.4: grid row `r` (0...17)'s DEGREE CODE for the 12 chord rows (0...11: diatonic 0...6, borrowed
+/// codes 8...11 at rows 7...10, REST at row 11), or nil for a colour row (12...17, which has no degree).
+func euclideousChordsRowDegree(_ row: Int) -> Int? {
+    switch row {
+    case 0...6: return row
+    case 7...10: return row + 1
+    case 11: return 7
+    default: return nil
+    }
+}
+/// The inverse of `euclideousChordsRowDegree` for 0...11 (a stored degree's own grid row) — nil for CARRY
+/// (-1) or anything out of range, which never reaches the matrix as a BRIGHT value anyway.
+func euclideousChordsDegreeRow(_ degree: Int) -> Int? {
+    switch degree {
+    case 0...6: return degree
+    case 7: return 11
+    case 8...11: return degree - 1
+    default: return nil
+    }
+}
+/// §4.3: like `euclideousChordsDegreeRow`, but for the TAB ICON specifically, where "REST draws nothing"
+/// (unlike the grid itself, which draws REST as its own lit row) — degree 7 returns nil here only.
+func euclideousChordsTabIconRow(_ degree: Int) -> Int? {
+    degree == 7 ? nil : euclideousChordsDegreeRow(degree)
+}
+/// §2.4/§3.2/§3.3: the row LABEL at grid row `r` — the diatonic quality label (0...6), the fixed borrowed
+/// label (7...10, §5.2), "REST" (11), or the colour name (12...17, §3.3's 7/9/6/ADD9/SUS2/SUS4 order,
+/// `ChordColour`'s own case order minus `.none`).
+func euclideousChordsRowLabel(row: Int, scaleTones: [Int], minorKey: Bool) -> String {
+    switch row {
+    case 0...6: return degreeLabel(degree: row, scaleTones: scaleTones)
+    case 7...10: return euclideousBorrowedRowLabel(row: row - 7, minorKey: minorKey)
+    case 11: return "REST"
+    case 12: return "7"
+    case 13: return "9"
+    case 14: return "6"
+    case 15: return "ADD9"
+    case 16: return "SUS2"
+    case 17: return "SUS4"
+    default: return ""
+    }
+}
 
 
 // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, identity at 50 (a = 1)

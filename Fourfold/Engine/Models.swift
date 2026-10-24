@@ -3319,7 +3319,9 @@ struct EuclideousUndoSnapshot: Equatable {
     var resetSpanBars: Int
     var keyRoot: Int
     var keyType: ScaleType
-    var chords: MachineParams
+    // CHORDS GRID ferry (2026-10-24) replaced the single `chords` grid with 4 progressions + which plays.
+    var chordSets: [MachineParams]
+    var activeChordSet: Int
     // ONE GLOBAL RIFF/NOTE SOURCE (Paul 2026-10-12, second same-day ferry) — undoable like every other
     // page-level setting here (play/stop and MAIN OUT are the only two explicit exceptions, enforced at
     // restore time, not at this snapshot's own shape).

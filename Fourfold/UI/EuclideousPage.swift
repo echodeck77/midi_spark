@@ -775,12 +775,15 @@ struct EuclideousPage: View {
     // LANE SOLO (2026-10-21): the latched solo mask (saved) and the held one (a finger down; UI only). `soloEffective` is what every dim and the engine use.
     let soloMask: UInt8
     let soloHeld: UInt8
-    // CHORDS BUTTON (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a chord
-    // grid with rate control... base this on the existing chord grid used on the chord door." Stored/edited
-    // exactly like the chord door's own chord sequencer — a plain MachineParams, only its chords* fields ever
-    // touched — via the SAME generic mutate-closure convention every other page-level control here uses.
-    let chords: MachineParams
-    let onEditChords: (@escaping (inout MachineParams) -> Void) -> Void
+    // CHORDS GRID ferry (Paul 2026-10-24): 4 independently-stored progressions ("tabs"), replacing the single
+    // grid the CHORDS BUTTON ferry (2026-10-08) first added. `activeChordSet` is BOTH which tab plays AND
+    // which tab this popup edits — Paul: "I only want the chords tab to be switched manually when a user
+    // clicks it" (no queue-to-next-column-boundary). `onEditChordSet` mutates one set by index; `onSwitchChordSet`
+    // changes which one is active, immediately.
+    let chordSets: [MachineParams]
+    let activeChordSet: Int
+    let onEditChordSet: (Int, @escaping (inout MachineParams) -> Void) -> Void
+    let onSwitchChordSet: (Int) -> Void
     let clock: EuclidLiveClock
     let onEdit: (@escaping (inout [EuclidLine]) -> Void) -> Void
     // RANDOM MODE ferry (§6): the live pending-roll array (AudioUnitViewController's own @State, never the
@@ -1396,6 +1399,12 @@ struct EuclideousPage: View {
     // once, in which case the popup falls back to centre (handled at the render site).
     @State private var riffKeyTabFrame: CGRect? = nil
     @State private var chordsPopupOpen = false
+    // CHORDS GRID ferry (2026-10-24) §4.6: the riff tabs' own long-press COPY/PASTE/CLEAR pattern, mirrored
+    // for the 4 chord-set tabs (`riffTabMenuLane`/`riffClipboard` are the riff tabs' own separate state).
+    @State private var chordsTabMenuIndex: Int? = nil
+    @State private var chordsClipboard: MachineParams? = nil
+    // Holding a finger on a grid cell shows that column's pool instead of the playing one (§7.3).
+    @State private var chordsHeldColumn: Int? = nil
     // FOURFOLD HEADER (2026-10-15): the selected CHORDS segment's frame (the chord grid anchors under it), the output ring
     // currently HELD (§4.7, nil = none) and the last tapped output's PULSE (§7.1). Each ring's own tap-vs-hold press state
     // lives INSIDE `EuclideousRingPressable` (one instance per ring), not here.
@@ -1559,6 +1568,13 @@ struct EuclideousPage: View {
                         .onTapGesture { riffTabMenuLane = nil }
                         .zIndex(3)
                     riffTabMenuCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                }
+                // CHORDS GRID ferry §4.6: the chord-set tabs' own long-press menu, same shape as the riff tabs'.
+                if let idx = chordsTabMenuIndex {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { chordsTabMenuIndex = nil }
+                        .zIndex(3)
+                    chordsTabMenuCard(idx).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
                 }
                 if keyPopupOpen {
                     // ANCHORED POPOVER, now UNDER THE KEY PILL (Fourfold header ferry §6.2): a non-dimming full-screen
@@ -2222,6 +2238,7 @@ struct EuclideousPage: View {
     /// every pop-up on this page toggles fully independently today, confirmed by reading each one first.
     private func closeAllOtherOverlays() {
         keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false; riffTabMenuLane = nil
+        chordsTabMenuIndex = nil
     }
 
     // MARK: LANE SIDE of the output cues (§10) — pulse (after a tap) and trace (while held)
@@ -2366,78 +2383,43 @@ struct EuclideousPage: View {
     // (Derivations.swift, already free/shared) — in a bespoke grid modelled closely on `riffGridView`'s own
     // tap-to-set pattern a few hundred lines below, not on the private `stateMatrixRadio` (which also drags in
     // live-playhead/pulse-glow/E-BRUSH machinery this page's scoped-down popup doesn't need).
+    /// CHORDS GRID ferry (Paul 2026-10-24): rebuilt from the single-grid pop-up (CHORDS BUTTON ferry,
+    /// 2026-10-08) per claude/ferry-chords-grid.md — four progression tabs (§4), borrowed-chord + colour rows
+    /// (§3), a playhead + chord name (§6) and a pool strip (§7). Every frame comes from
+    /// `euclideousChordsPopupLayout` (Derivations.swift) — nothing here re-derives a size. Tapping a tab
+    /// switches it immediately (Paul, 2026-10-24: "I only want the chords tab to be switched manually when a
+    /// user clicks it") — no queue-to-next-column-boundary, so "shown" and "playing" are always the same tab.
+    private var chordsActiveSet: Int { max(0, min(3, activeChordSet)) }
+    private var chordsActive: MachineParams { let i = chordsActiveSet; return i < chordSets.count ? chordSets[i] : MachineParams() }
     private func chordsPopupCard(_ size: CGSize) -> some View {
+        let chords = chordsActive
         let steps = chords.chordsStepsResolved
-        let degrees = chords.chordsDegreesResolved(steps: steps)
-        let rows = Array(0...7)   // 0...6 = degrees I...vii, 7 = REST — matches the regular CHORDS processor's own matrix exactly
-        let cellGap: CGFloat = 3
-        let rowLabelW: CGFloat = 64
+        let degrees = chords.chordsDegreesResolved16()
+        let colours = chords.chordsColoursResolved16()
+        let minorKey = euclideousScaleIsMinor(keyType.intervals)
         let maxW = min(640, size.width - 32)
-        let cellW = max(18, (maxW - 32 - rowLabelW - cellGap * CGFloat(max(1, steps) - 1)) / CGFloat(max(1, steps)))
-        let cellH: CGFloat = 24
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("CHORDS").font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
-                Spacer()
-                Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.5))
-                    .contentShape(Rectangle()).onTapGesture { chordsPopupOpen = false }
-            }
-            HStack(spacing: 14) {
-                HStack(spacing: 6) {
-                    Text("STEPS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    chordsStepStepper("−") { onEditChords { $0.chordsSteps = max(1, steps - 1) } }
-                    Text("\(steps)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).frame(minWidth: 20)
-                    chordsStepStepper("+") { onEditChords { $0.chordsSteps = min(16, steps + 1) } }
-                }
-                HStack(spacing: 6) {
-                    Text("RATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    HStack(spacing: 2) {
-                        ForEach(StepRate.allCases, id: \.self) { r in
-                            let on = chords.chordsRateResolved == r
-                            // §6.1's 10pt floor (this re-check pass): dropped the `.minimumScaleFactor(0.6)`
-                            // that used to sit here — it never actually triggered (StepRate's longest raw
-                            // value, "1/2.", is 4 chars, well under this 34pt box at 10pt) but COULD have
-                            // rendered as small as 6pt if it ever had, a live violation of the floor rather
-                            // than a safe no-op; removing it costs nothing since it was never load-bearing.
-                            Text(r.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                                .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1)
-                                .frame(width: 34, height: 24)
-                                .background(RoundedRectangle(cornerRadius: 5).fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
-                                .contentShape(Rectangle())
-                                .onTapGesture { onEditChords { $0.chordsRate = r } }
-                        }
-                    }
-                }
-            }
-            VStack(spacing: cellGap) {
-                ForEach(rows, id: \.self) { opt in
-                    HStack(spacing: cellGap) {
-                        Text(opt == 7 ? "REST" : degreeLabel(degree: opt, scaleTones: keyType.intervals))
-                            .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
-                            .frame(width: rowLabelW, alignment: .leading)
-                        ForEach(0..<steps, id: \.self) { c in
-                            let cell = chordsMatrixCell(degrees, step: c, steps: steps)
-                            let on = cell.bright == opt
-                            let dimOn = !on && cell.faint == opt
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(on ? Color.white.opacity(0.9) : (dimOn ? Color.white.opacity(0.22) : Color.white.opacity(0.06)))
-                                .frame(width: cellW, height: cellH)
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: 1))
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    // Matches the regular CHORDS processor's own set: closure exactly — an
-                                    // unconditional write, no tap-again-to-clear (REST is its own explicit row).
-                                    onEditChords { p in
-                                        var a = p.chordsDegreesResolved(steps: steps)
-                                        if c < a.count { a[c] = opt }
-                                        p.chordsDegrees = a
-                                    }
-                                }
-                        }
-                    }
-                }
-            }
+        let contentBox = CGSize(width: maxW - 40, height: (size.height - 60) - 40)
+        let layout = euclideousChordsPopupLayout(box: contentBox, steps: steps)
+        return ZStack(alignment: .topLeading) {
+            chordsTitleRow(chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
+                .frame(width: contentBox.width, height: EuclideousChordsPopupMetrics.titleRowH, alignment: .leading)
+            chordsTabRow()
+                .frame(width: contentBox.width, height: EuclideousChordsPopupMetrics.tabRowH)
+                .offset(y: layout.tabRowTop)
+            chordsStepsRateRow(chords: chords, steps: steps)
+                .frame(height: EuclideousChordsPopupMetrics.stepsRateRowH, alignment: .leading)
+                .offset(y: layout.stepsRateRowTop)
+            chordsGrid(layout: layout, chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
+                .frame(width: layout.gridWidth, height: layout.gridH, alignment: .topLeading)
+                .offset(y: layout.gridTop)
+            chordsPlayheadBar(layout: layout, chords: chords, steps: steps)
+                .frame(width: layout.gridWidth, height: EuclideousChordsPopupMetrics.playheadBarH, alignment: .leading)
+                .offset(y: layout.playheadBarTop)
+            chordsPoolStrip(layout: layout, chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
+                .frame(width: layout.gridWidth, height: EuclideousChordsPopupMetrics.poolStripH, alignment: .leading)
+                .offset(y: layout.poolStripTop)
         }
+        .frame(width: contentBox.width, height: contentBox.height, alignment: .topLeading)
         .padding(20)
         .frame(width: maxW)
         // CHORDS GRID ferry §2.2: top-align — a `.frame(maxHeight:)` with no `alignment:` defaults to .center,
@@ -2447,11 +2429,312 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
+
+    /// §6.1/§6.3: the title row — "CHORDS", the live chord name, and the close button. §6.1's own rule: read
+    /// `euclideousChordsPlayingColumn` ONLY, never a second derivation. §6.4: stopped, no wash/bar and the
+    /// name shows the column the next PLAY would start on (the same formula, at the frozen anchor beat).
+    private func chordsTitleRow(chords: MachineParams, degrees: [Int], colours: [Int], steps: Int, minorKey: Bool) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+            let beat = walkTagBeat(at: tl.date)
+            let col = chordsPlayingColumn(beat: beat, chords: chords, steps: steps)
+            let (name, _) = chordsNameAndIsRest(column: col, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
+            HStack(spacing: 0) {
+                Text("CHORDS").font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+                Text(" \u{00B7} ").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                Text(name).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Spacer()
+                Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.5))
+                    .contentShape(Rectangle()).onTapGesture { chordsPopupOpen = false }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Chords, \(name)")
+        }
+    }
+    /// §6.1: beat → column, via the ONE shared formula (`euclideousChordsPlayingColumn`). §6.4's "the column
+    /// the next play would start on" IS the beat-floor formula's own answer when stopped (the frozen anchor
+    /// beat still floors to a column) — no second branch needed for the stopped case.
+    private func chordsPlayingColumn(beat: Double, chords: MachineParams, steps: Int) -> Int {
+        let rotate = ((chords.chordsRotate ?? 0) % max(1, steps) + max(1, steps)) % max(1, steps)
+        let col = euclideousChordsPlayingColumn(beat: beat, rateBeats: chords.chordsRateResolved.beats)
+        return ((col + rotate) % max(1, steps) + max(1, steps)) % max(1, steps)
+    }
+    /// The chord NAME at a given on-screen COLUMN (not the carry-resolved engine column — the grid is the
+    /// authored score, so this reads the column's own bright/faint value exactly like `chordsMatrixCell`
+    /// does for the cells themselves), plus whether that column is a rest (§3.3/§6.3's "REST" display).
+    private func chordsNameAndIsRest(column c: Int, degrees: [Int], colours: [Int], steps: Int, minorKey: Bool) -> (String, Bool) {
+        guard steps > 0 else { return ("REST", true) }
+        let (deg, rest) = chordsDegreeAt(step: c, degrees: Array(degrees.prefix(steps)), rotate: 0)
+        if rest { return ("REST", true) }
+        guard let src = chordsSourceStepAt(step: c, degrees: Array(degrees.prefix(steps)), rotate: 0) else { return ("REST", true) }
+        let colour = src < colours.count ? colours[src] : 0
+        let tones = euclideousChordTones(degree: deg, colour: colour, scaleTones: keyType.intervals, rootNote: 48 + keyRoot, minorKey: minorKey, spread: .close)
+        let flat: Bool
+        if deg >= 8 { flat = euclideousBorrowedRowForcesFlat(row: deg - 8, minorKey: minorKey) }
+        else { flat = euclideousKeyIsFlat(((keyRoot % 12) + 12) % 12, scaleType: keyType) }
+        let rootNote: Int
+        if deg >= 8 { rootNote = (48 + keyRoot) + euclideousBorrowedTriad(row: deg - 8, minorKey: minorKey)[0] }
+        else { let n = keyType.intervals.count; rootNote = n > 0 ? (48 + keyRoot) + keyType.intervals[((deg % n) + n) % n] : 48 + keyRoot }
+        return (euclideousChordName(tones: tones, rootNote: rootNote, flatSpelling: flat), false)
+    }
+
+    /// §4.1-§4.3: four chord-set tabs, the exact riff-tab look (`riffTabRow`'s own sizing/fills/colours).
+    /// §4.2: playing triangle (only the active tab has one, since switching is immediate) · number · chord
+    /// icon · step count. §4.4: tap switches immediately; §4.6: long-press opens COPY/PASTE/CLEAR.
+    private func chordsTabRow() -> some View {
+        HStack(spacing: EuclideousRiffPanelMetrics.tabGap) {
+            ForEach(0..<4, id: \.self) { i in
+                let sel = i == chordsActiveSet
+                let ink = Color(hex: 0x0D0F14)
+                let set = i < chordSets.count ? chordSets[i] : MachineParams()
+                HStack(spacing: 0) {
+                    if sel {
+                        RiffPlayTriangle().fill(ink).frame(width: 5, height: 6)
+                        Color.clear.frame(width: 3, height: 1)
+                    }
+                    Text("\(i + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
+                    Color.clear.frame(width: 4, height: 1)
+                    chordsTabIcon(degrees: set.chordsDegreesResolved16(), steps: set.chordsStepsResolved,
+                                  color: sel ? ink : Color(hex: 0xDFE3EA))
+                    Color.clear.frame(width: 6, height: 1)
+                    Text("\(set.chordsStepsResolved)").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: 0xAAB0BA))
+                }
+                .frame(maxWidth: .infinity).frame(height: EuclideousChordsPopupMetrics.tabRowH)
+                .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+                .contentShape(Rectangle())
+                .onTapGesture { onSwitchChordSet(i) }
+                .onLongPressGesture(minimumDuration: 0.5) { chordsTabMenuIndex = i }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Progression \(i + 1), \(set.chordsStepsResolved) steps\(sel ? ", playing" : "")")
+            }
+        }
+    }
+    /// §4.3: 22x12, one mark per column at its chord row (0...11 — `euclideousChordsTabIconRow`; REST draws
+    /// nothing; colour rows aren't drawn here at all, this icon shows DEGREE only).
+    private func chordsTabIcon(degrees: [Int], steps: Int, color: Color) -> some View {
+        let n = max(1, steps)
+        let colPitch: CGFloat = 22.0 / CGFloat(n)
+        return Canvas { ctx, _ in
+            for c in 0..<n where c < degrees.count {
+                guard let row = euclideousChordsTabIconRow(degrees[c]) else { continue }
+                let rect = CGRect(x: CGFloat(c) * colPitch, y: CGFloat(row) * 1.0, width: max(1, colPitch - 0.4), height: 0.8)
+                ctx.fill(Path(rect), with: .color(color))
+            }
+        }
+        .frame(width: 22, height: 12)
+    }
+    private func chordsTabMenuCard(_ idx: Int) -> some View {
+        func row(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+            Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundColor(enabled ? .white.opacity(0.85) : .white.opacity(0.3))
+                .frame(maxWidth: .infinity).frame(height: 36)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle())
+                .onTapGesture { if enabled { action() } }
+        }
+        return VStack(spacing: 8) {
+            Text("PROGRESSION \(idx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            row("COPY") {
+                chordsClipboard = idx < chordSets.count ? chordSets[idx] : nil
+                chordsTabMenuIndex = nil
+            }
+            row("PASTE", enabled: chordsClipboard != nil) {
+                guard let c = chordsClipboard else { return }
+                onEditChordSet(idx) { $0 = c }
+                chordsTabMenuIndex = nil
+            }
+            row("CLEAR") {
+                onEditChordSet(idx) { $0 = MachineParams() }
+                chordsTabMenuIndex = nil
+            }
+        }
+        .padding(16).frame(width: 180)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
+
+    private func chordsStepsRateRow(chords: MachineParams, steps: Int) -> some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 6) {
+                Text("STEPS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                chordsStepStepper("\u{2212}") { onEditChordSet(chordsActiveSet) { $0.chordsSteps = max(1, steps - 1) } }
+                Text("\(steps)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).frame(minWidth: 20)
+                chordsStepStepper("+") { onEditChordSet(chordsActiveSet) { $0.chordsSteps = min(16, steps + 1) } }
+            }
+            HStack(spacing: 6) {
+                Text("RATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                HStack(spacing: 2) {
+                    ForEach(StepRate.allCases, id: \.self) { r in
+                        let on = chords.chordsRateResolved == r
+                        Text(r.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1)
+                            .frame(width: 34, height: 24)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
+                            .contentShape(Rectangle())
+                            .onTapGesture { onEditChordSet(chordsActiveSet) { $0.chordsRate = r } }
+                    }
+                }
+            }
+        }
+    }
     private func chordsStepStepper(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
             .frame(width: 26, height: 26)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+
+    /// §2.4/§3: 18 rows (7 diatonic + 4 borrowed + REST, a divider, then 6 colour rows) x `steps` columns.
+    /// §3.1: chord rows (0...11) are an unconditional write, as the plain CHORDS processor's own matrix
+    /// already does. §3.3: colour rows (12...17) light-and-clear-others / tap-again-to-clear; in a REST
+    /// column they draw at 42% but stay tappable and keep their stored value.
+    private func chordsGrid(layout: EuclideousChordsPopupLayout, chords: MachineParams, degrees: [Int], colours: [Int], steps: Int, minorKey: Bool) -> some View {
+        let gridTop = layout.gridTop
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+            let beat = walkTagBeat(at: tl.date)
+            let playingCol = clock.playing ? chordsPlayingColumn(beat: beat, chords: chords, steps: steps) : -1
+            ZStack(alignment: .topLeading) {
+                if playingCol >= 0 && playingCol < steps {
+                    Rectangle().fill(Color.white.opacity(0.06))
+                        .frame(width: layout.cellW, height: layout.rowTop(11) + layout.rowH - gridTop)
+                        .offset(x: layout.columnLeft(playingCol))
+                }
+                // §2.4: the 1pt divider line, across the cell columns only (not the label column).
+                Rectangle().fill(Color(hex: 0x2A2D34))
+                    .frame(width: layout.gridWidth - EuclideousChordsPopupMetrics.labelW - EuclideousChordsPopupMetrics.sp4, height: 1)
+                    .offset(x: EuclideousChordsPopupMetrics.labelW + EuclideousChordsPopupMetrics.sp4, y: layout.dividerY - gridTop)
+                ForEach(0..<18, id: \.self) { r in
+                    let label = euclideousChordsRowLabel(row: r, scaleTones: keyType.intervals, minorKey: minorKey)
+                    let rowY = layout.rowTop(r) - gridTop
+                    Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
+                        .frame(width: EuclideousChordsPopupMetrics.labelW, height: layout.rowH, alignment: .leading)
+                        .offset(x: 0, y: rowY)
+                    ForEach(0..<steps, id: \.self) { c in
+                        chordsCell(row: r, column: c, degrees: degrees, colours: colours, steps: steps, isPlayingColumn: c == playingCol)
+                            .frame(width: layout.cellW, height: layout.rowH)
+                            .offset(x: layout.columnLeft(c), y: rowY)
+                            // §7.3: a finger down on ANY cell shows that column's pool instead of the playing one.
+                            .onLongPressGesture(minimumDuration: 0.001, maximumDistance: 50,
+                                                pressing: { pressing in chordsHeldColumn = pressing ? c : (chordsHeldColumn == c ? nil : chordsHeldColumn) },
+                                                perform: {})
+                    }
+                }
+            }
+        }
+    }
+    @ViewBuilder private func chordsCell(row r: Int, column c: Int, degrees: [Int], colours: [Int], steps: Int, isPlayingColumn: Bool) -> some View {
+        let isColourRow = r >= 12
+        let (_, isRest) = chordsDegreeAt(step: c, degrees: Array(degrees.prefix(max(1, steps))), rotate: 0)
+        let playingSuffix = isPlayingColumn ? ", playing" : ""
+        if isColourRow {
+            let colourVal = r - 11   // row 12 -> ChordColour.seventh(1) ... row 17 -> .sus4(6)
+            let on = c < colours.count && colours[c] == colourVal
+            RoundedRectangle(cornerRadius: 4)
+                .fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.06))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: 1))
+                .opacity(isRest ? 0.42 : 1)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onEditChordSet(chordsActiveSet) { p in
+                        var a = p.chordsColoursResolved16()
+                        if c < a.count { a[c] = (a[c] == colourVal ? 0 : colourVal) }
+                        p.chordsColours = a
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Column \(c + 1), \(euclideousChordsRowLabel(row: r, scaleTones: keyType.intervals, minorKey: euclideousScaleIsMinor(keyType.intervals))), \(on ? "on" : "off")\(playingSuffix)")
+        } else if let deg = euclideousChordsRowDegree(r) {
+            let cell = chordsMatrixCell(Array(degrees.prefix(16)), step: c, steps: steps)
+            let on = cell.bright == deg
+            let dimOn = !on && cell.faint == deg
+            RoundedRectangle(cornerRadius: 4)
+                .fill(on ? Color.white.opacity(0.9) : (dimOn ? Color.white.opacity(0.22) : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: 1))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Matches the regular CHORDS processor's own set: an unconditional write, no
+                    // tap-again-to-clear (REST is its own explicit row) — §3.1, literal.
+                    onEditChordSet(chordsActiveSet) { p in
+                        var a = p.chordsDegreesResolved16()
+                        if c < a.count { a[c] = deg }
+                        p.chordsDegrees = a
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Column \(c + 1), \(euclideousChordsRowLabel(row: r, scaleTones: keyType.intervals, minorKey: euclideousScaleIsMinor(keyType.intervals))), \(on ? "selected" : "not selected")\(playingSuffix)")
+        } else {
+            EmptyView()
+        }
+    }
+
+    /// §6.2/§6.4: the playing-column wash (drawn by the grid itself reading the SAME column) + the 3pt bar
+    /// underneath. No wash/bar while stopped.
+    private func chordsPlayheadBar(layout: EuclideousChordsPopupLayout, chords: MachineParams, steps: Int) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+            let beat = walkTagBeat(at: tl.date)
+            let col = clock.playing ? chordsPlayingColumn(beat: beat, chords: chords, steps: steps) : -1
+            ZStack(alignment: .topLeading) {
+                if col >= 0 && col < steps {
+                    RoundedRectangle(cornerRadius: 1.5).fill(Color(hex: 0xDFE3EA))
+                        .frame(width: layout.cellW, height: EuclideousChordsPopupMetrics.playheadBarH)
+                        .offset(x: layout.columnLeft(col))
+                }
+            }
+        }
+    }
+
+    /// §7: eight rank chips splitting the grid's width, showing the pool of the PLAYING column (or the held
+    /// column, §7.3, while a finger is down on a grid cell).
+    private func chordsPoolStrip(layout: EuclideousChordsPopupLayout, chords: MachineParams, degrees: [Int], colours: [Int], steps: Int, minorKey: Bool) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+            let beat = walkTagBeat(at: tl.date)
+            let playingCol = clock.playing ? chordsPlayingColumn(beat: beat, chords: chords, steps: steps) : chordsPlayingColumn(beat: clock.anchor, chords: chords, steps: steps)
+            let shownCol = chordsHeldColumn ?? playingCol
+            let (deg, rest) = steps > 0 ? chordsDegreeAt(step: shownCol, degrees: Array(degrees.prefix(steps)), rotate: 0) : (0, true)
+            let src = steps > 0 ? chordsSourceStepAt(step: shownCol, degrees: Array(degrees.prefix(steps)), rotate: 0) : nil
+            let colour = (src.map { $0 < colours.count ? colours[$0] : 0 }) ?? 0
+            let tones = rest ? [] : euclideousChordTones(degree: deg, colour: colour, scaleTones: keyType.intervals, rootNote: 48 + keyRoot, minorKey: minorKey, spread: .close)
+            let pool = euclideousGlobalPoolExtended(sortedRaw: tones)
+            let chipW = (layout.gridWidth - EuclideousMixMetrics.sp4 * 7) / 8
+            let rootPc = tones.isEmpty ? -1 : ((tones[0] % 12) + 12) % 12
+            HStack(spacing: EuclideousMixMetrics.sp4) {
+                ForEach(0..<8, id: \.self) { i in
+                    let rank = i + 1
+                    let note = i < pool.count ? UInt8(max(0, min(127, pool[i]))) : nil
+                    let isRoot = note.map { Int($0) % 12 == rootPc } ?? false
+                    let isColourTone = note != nil && i >= 3 && colour != 0   // the 3-note triad's own ranks are 1-3; anything added by a colour is rank 4+
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08))
+                        if let note {
+                            VStack(spacing: 2) {
+                                Text("\(rank)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                                    .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 4).padding(.top, 3)
+                                Spacer()
+                                Text(euclideousDisplayNoteName(note, source: .chords, pool: pool.map { UInt8(max(0, min(127, $0))) }, keyRoot: keyRoot, keyType: keyType))
+                                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                                Spacer()
+                            }
+                        } else {
+                            Text("\u{2013}").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        if isRoot {
+                            Rectangle().fill(Color(hex: 0xDFE3EA)).frame(height: 2)
+                                .padding(.horizontal, 4)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                        }
+                        if isColourTone {
+                            RoundedRectangle(cornerRadius: 6).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(Color(hex: 0xAAB0BA))
+                        }
+                    }
+                    .frame(width: chipW, height: EuclideousChordsPopupMetrics.poolStripH)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(rest ? "Pool, rest" : "Pool, column \(shownCol + 1)")
+        }
     }
 
     // LANE-CARD RESET-PROGRESS BACKGROUND FILL REMOVED (Paul 2026-10-12: "remove... the Euclid control

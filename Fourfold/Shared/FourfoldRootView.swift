@@ -76,7 +76,11 @@ struct FourfoldRootView: View {
     var euclideousHoldOverrides: EuclideousPendingRollSlots { get { m.euclideousHoldOverrides } nonmutating set { m.euclideousHoldOverrides = newValue } }
     var euclideousMidiInChannelMask: UInt16 { get { m.euclideousMidiInChannelMask } nonmutating set { m.euclideousMidiInChannelMask = newValue } }
     var euclideousHostStopBehavior: EuclideousHostStopBehavior { get { m.euclideousHostStopBehavior } nonmutating set { m.euclideousHostStopBehavior = newValue } }
-    var euclideousChords: MachineParams { get { m.euclideousChords } nonmutating set { m.euclideousChords = newValue } }
+    // CHORDS GRID ferry (2026-10-24): 4 independently-stored progressions replace the single `euclideousChords`
+    // grid above. `activeChordSet` is BOTH which tab plays AND which tab the popup edits — Paul, 2026-10-24:
+    // "I only want the chords tab to be switched manually when a user clicks it" (no queue-to-next-boundary).
+    var euclideousChordSets: [MachineParams] { get { m.euclideousChordSets } nonmutating set { m.euclideousChordSets = newValue } }
+    var euclideousActiveChordSet: Int { get { m.euclideousActiveChordSet } nonmutating set { m.euclideousActiveChordSet = newValue } }
 
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
     private let meterTimer = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
@@ -157,13 +161,21 @@ struct FourfoldRootView: View {
                                                // euclideousReceiver was handled when ITS control was dropped.
                                                mainOutMask: euclideousMainOutMask,
                                                soloMask: euclideousSoloMask, soloHeld: euclideousSoloHeld,
-                                               chords: euclideousChords,
-                                               onEditChords: { mutate in
-                                                   euclideousRecordUndo(coalesceKey: "euclideousChords")
-                                                   var c = euclideousChords
-                                                   mutate(&c)
-                                                   euclideousChords = c
-                                                   au?.editDocument(coalesceKey: "euclideousChords") { $0.euclideousChords = c }
+                                               chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
+                                               onEditChordSet: { idx, mutate in
+                                                   euclideousRecordUndo(coalesceKey: "euclideousChordSet\(idx)")
+                                                   var sets = euclideousChordSets
+                                                   guard idx >= 0, idx < sets.count else { return }
+                                                   mutate(&sets[idx])
+                                                   euclideousChordSets = sets
+                                                   au?.editDocument(coalesceKey: "euclideousChordSet\(idx)") { $0.setEuclideousChordSet(idx, sets[idx]) }
+                                                   publish()
+                                               },
+                                               onSwitchChordSet: { idx in
+                                                   guard idx != euclideousActiveChordSet else { return }
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   euclideousActiveChordSet = idx
+                                                   au?.editDocument { $0.activeChordSet = idx }
                                                    publish()
                                                },
                                                clock: EuclidLiveClock(stepBeats: stepBeats, cols: Snap.cols, anchor: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, playing: d.effectivePlaying, swing: Double(swing), beatsPerBar: meters.beatsPerBar),
@@ -419,7 +431,8 @@ struct FourfoldRootView: View {
         euclideousMidiInChannelMask = au.uiEuclideousMidiInChannelMask()
         euclideousHostStopBehavior = au.uiEuclideousHostStopBehavior()
         ignoreAllNotesOff = au.uiIgnoreAllNotesOff()
-        euclideousChords = au.uiEuclideousChords()
+        euclideousChordSets = au.uiEuclideousChordSets()
+        euclideousActiveChordSet = au.uiActiveChordSet()
         euclideousRiffs = au.uiEuclideousRiffs()
         euclideousActiveRiff = au.uiEuclideousActiveRiff()
         euclideousLanesSeq = au.uiEuclideousLanesSeq()
@@ -464,7 +477,8 @@ struct FourfoldRootView: View {
     // ── undo / redo / lane lock (copied from DiagView) ──
     func euclideousSnapshot() -> EuclideousUndoSnapshot {
         EuclideousUndoSnapshot(lines: euclideousLines, riff: euclideousRiff, resetSpanBars: euclideousResetSpanBars,
-                                keyRoot: euclideousKeyRoot, keyType: euclideousKeyType, chords: euclideousChords,
+                                keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
+                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
                                 noteSource: euclideousNoteSource,
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                 lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
@@ -493,7 +507,8 @@ struct FourfoldRootView: View {
         euclideousResetSpanBars = s.resetSpanBars
         euclideousKeyRoot = s.keyRoot
         euclideousKeyType = s.keyType
-        euclideousChords = s.chords
+        euclideousChordSets = s.chordSets
+        euclideousActiveChordSet = s.activeChordSet
         euclideousNoteSource = s.noteSource
         euclideousRiffs = s.riffs
         euclideousActiveRiff = s.activeRiff
@@ -503,7 +518,8 @@ struct FourfoldRootView: View {
         euclideousHoldLatchMode = s.holdLatchMode
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
-            $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType; $0.euclideousChords = s.chords
+            $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType
+            $0.euclideousChordSets = s.chordSets; $0.activeChordSet = s.activeChordSet
             $0.euclideousNoteSource = s.noteSource
             $0.riffs = s.riffs; $0.activeRiff = s.activeRiff
             $0.euclideousLanesSeqOn = s.lanesSeq.on; $0.euclideousLanesSeqRate = s.lanesSeq.rate
@@ -681,7 +697,8 @@ struct FourfoldRootView: View {
         let esol = au.uiEuclideousSoloMask(); if esol != euclideousSoloMask { euclideousSoloMask = esol; au.setEuclideousSoloLive(euclideousSoloEffective(latched: esol, held: euclideousSoloHeld)); euclideousResynced = true }   // LANE SOLO: a preset load / session restore replaces it
         let emicm = au.uiEuclideousMidiInChannelMask(); if emicm != euclideousMidiInChannelMask { euclideousMidiInChannelMask = emicm; euclideousResynced = true }
         let ehsb = au.uiEuclideousHostStopBehavior(); if ehsb != euclideousHostStopBehavior { euclideousHostStopBehavior = ehsb; euclideousResynced = true }
-        let echd = au.uiEuclideousChords(); if echd != euclideousChords { euclideousChords = echd; euclideousResynced = true }
+        let echd = au.uiEuclideousChordSets(); if echd != euclideousChordSets { euclideousChordSets = echd; euclideousResynced = true }
+        let eacs = au.uiActiveChordSet(); if eacs != euclideousActiveChordSet { euclideousActiveChordSet = eacs; euclideousResynced = true }
         let ens = au.uiEuclideousNoteSource(); if ens != euclideousNoteSource { euclideousNoteSource = ens; euclideousResynced = true }
         let ehlm = au.uiEuclideousHoldLatchMode(); if ehlm != euclideousHoldLatchMode { euclideousHoldLatchMode = ehlm; euclideousResynced = true }
         // SEQUENCER PANEL (2026-10-14 ferry) — same checklist discipline as the 6 lines just above.
@@ -834,5 +851,6 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots()
     @Published var euclideousMidiInChannelMask: UInt16 = 0xFFFF
     @Published var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying
-    @Published var euclideousChords: MachineParams = MachineParams()
+    @Published var euclideousChordSets: [MachineParams] = [MachineParams(), MachineParams(), MachineParams(), MachineParams()]
+    @Published var euclideousActiveChordSet: Int = 0
 }

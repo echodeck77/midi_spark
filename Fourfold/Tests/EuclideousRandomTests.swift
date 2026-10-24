@@ -239,7 +239,7 @@ final class EuclideousRandomTests: XCTestCase {
         lane1Original.riffDir = .forward
         var settled = EuclideousUndoSnapshot(lines: [lane0, EuclidLine(), EuclidLine(), EuclidLine()],
                                               riff: EuclideousRiff(), resetSpanBars: 0, keyRoot: 0, keyType: .major,
-                                              chords: MachineParams(), noteSource: .midi, riffs: [], activeRiff: 0,
+                                              chordSets: [MachineParams(), MachineParams(), MachineParams(), MachineParams()], activeChordSet: 0, noteSource: .midi, riffs: [], activeRiff: 0,
                                               lanesSeq: EuclideousLanesSeq(), riffsSeq: EuclideousRiffsSeq())
         settled.lines[1].riffDir = .reverse   // "kept" new state for lane 1's RIFF tab
 
@@ -261,7 +261,7 @@ final class EuclideousRandomTests: XCTestCase {
     func testUndoSequenceBuilderEmptyForNoEntries() {
         let settled = EuclideousUndoSnapshot(lines: [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()],
                                               riff: EuclideousRiff(), resetSpanBars: 0, keyRoot: 0, keyType: .major,
-                                              chords: MachineParams(), noteSource: .midi, riffs: [], activeRiff: 0,
+                                              chordSets: [MachineParams(), MachineParams(), MachineParams(), MachineParams()], activeChordSet: 0, noteSource: .midi, riffs: [], activeRiff: 0,
                                               lanesSeq: EuclideousLanesSeq(), riffsSeq: EuclideousRiffsSeq())
         XCTAssertEqual(euclideousRandomUndoSequence(settled: settled, entries: []).count, 0)
     }

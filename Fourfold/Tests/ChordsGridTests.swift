@@ -352,3 +352,38 @@ final class ChordsGridLayoutTests: XCTestCase {
         }
     }
 }
+
+final class ChordsGridRowMappingTests: XCTestCase {
+
+    func testRowDegreeRoundTripsForAllTwelveChordRows() {
+        for row in 0...11 {
+            guard let deg = euclideousChordsRowDegree(row) else { return XCTFail("row \(row)") }
+            XCTAssertEqual(euclideousChordsDegreeRow(deg), row, "row \(row) degree \(deg)")
+        }
+    }
+
+    func testColourRowsHaveNoDegree() {
+        for row in 12...17 { XCTAssertNil(euclideousChordsRowDegree(row)) }
+    }
+
+    func testTabIconRestRowDiffersFromGridRestRow() {
+        XCTAssertEqual(euclideousChordsDegreeRow(7), 11, "the grid itself draws REST as row 11")
+        XCTAssertNil(euclideousChordsTabIconRow(7), "but the tab icon draws nothing for REST (§4.3)")
+    }
+
+    func testCarryNeverMapsToARow() {
+        XCTAssertNil(euclideousChordsDegreeRow(-1))
+        XCTAssertNil(euclideousChordsTabIconRow(-1))
+    }
+
+    func testRowLabelsMatchTheMinorAndMajorKeyTables() {
+        let cMinor = ScaleType.naturalMinor.intervals
+        XCTAssertEqual(euclideousChordsRowLabel(row: 7, scaleTones: cMinor, minorKey: true), "V")
+        XCTAssertEqual(euclideousChordsRowLabel(row: 10, scaleTones: cMinor, minorKey: true), "vii\u{00B0}")
+        XCTAssertEqual(euclideousChordsRowLabel(row: 11, scaleTones: cMinor, minorKey: true), "REST")
+        XCTAssertEqual(euclideousChordsRowLabel(row: 15, scaleTones: cMinor, minorKey: true), "ADD9")
+        let cMajor = ScaleType.major.intervals
+        XCTAssertEqual(euclideousChordsRowLabel(row: 7, scaleTones: cMajor, minorKey: false), "\u{266D}VII")
+        XCTAssertEqual(euclideousChordsRowLabel(row: 0, scaleTones: cMajor, minorKey: false), "I", "diatonic rows still use degreeLabel")
+    }
+}
