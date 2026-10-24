@@ -84,14 +84,6 @@ final class LaneStripTests: XCTestCase {
         let narrow = euclideousStripFloorBarFrame(column: CGRect(x: 10, y: 0, width: 5, height: 27))
         XCTAssertEqual(narrow.minX, 10, "under the 6pt floor, the bar goes full width instead of insetting"); XCTAssertEqual(narrow.width, 5)
     }
-    func testDrawsAsHitCoversHitAndGapNotRhythmRest() {
-        XCTAssertTrue(euclideousStripDrawsAsHit(.hit)); XCTAssertTrue(euclideousStripDrawsAsHit(.gap)); XCTAssertFalse(euclideousStripDrawsAsHit(.rhythmRest))
-        // REPEAT is `.hit` with a hollow chip, never a 4th kind (§8 test 3's own "hit, REPEAT and gap")
-        // — confirmed via a real REPEAT hit, not just the bare `.hit` case above.
-        let h = hits(fix(exLine(onRest: .repeatLast)))
-        XCTAssertEqual(h[2].chip?.hollow, true, "step 3 is the REPEAT fixture's hollow chip")
-        XCTAssertTrue(euclideousStripDrawsAsHit(h[2].kind), "a REPEAT hit draws as a hit column too")
-    }
     func testEveryChipClearsTheFloorBar() {
         for r in 1...8 {
             let bottom = euclideousStripChipTop(rank: r) + EuclideousStripMetrics.chipH
@@ -101,22 +93,6 @@ final class LaneStripTests: XCTestCase {
 
     // MARK: 2. the example lane's chips, gaps and rests
 
-    func testTheExampleLanesChipsAndGapsInPassZero() {
-        let f = fix(exLine())
-        XCTAssertEqual(f.pass.prediction, [6, 8, 2, 3, 5], "the pass the footers show: the hits read columns 6, 8, 2, 3 and 5")
-        let h = hits(f)
-        XCTAssertEqual(h[0].chip, EuclideousStripChip(rank: 6, column: 6, hollow: false, grey: false), "step 1: a chip labelled 6 at rank 6's height (A♭3)")
-        XCTAssertEqual(euclideousStripChipTop(rank: h[0].chip!.rank), 4, accuracy: 0.01)
-        XCTAssertEqual(h[5].chip, EuclideousStripChip(rank: 8, column: 3, hollow: false, grey: false), "step 6: a chip labelled 3 at the top (C4)")
-        XCTAssertEqual(euclideousStripChipTop(rank: h[5].chip!.rank), 0)
-        for i in [2, 4, 7] { XCTAssertEqual(h[i].kind, .gap, "step \(i + 1) is a riff rest under SKIP: a gap"); XCTAssertNil(h[i].chip) }
-        for i in [1, 3, 6] { XCTAssertEqual(h[i].kind, .rhythmRest, "step \(i + 1) is a dashed rhythm rest"); XCTAssertNil(h[i].chip); XCTAssertNil(h[i].key, "a rhythm rest has no key") }
-        for i in [0, 5] { XCTAssertEqual(h[i].kind, .hit) }
-        // LANE STRIP readability ferry §8 test 4: steps 1,3,5,6,8 (hit or gap) all draw lane-coloured with
-        // a floor bar; steps 2,4,7 (rhythm rests) are the dashed cells with none (RESTART TILES §4: dashed again, never a dot).
-        for i in [0, 2, 4, 5, 7] { XCTAssertTrue(euclideousStripDrawsAsHit(h[i].kind), "step \(i + 1) draws as a lane-coloured hit column") }
-        for i in [1, 3, 6] { XCTAssertFalse(euclideousStripDrawsAsHit(h[i].kind), "step \(i + 1) is a quiet rhythm rest") }
-    }
     func testTheChipsReadTheWrittenRankNotTheSoundingOne() {
         // INV and TRANS change the sounding rank (the LANES roll draws that one); the arrow, and so the chip, keep the WRITTEN row
         var l = exLine(); l.riffInvert = true; l.melodyTranspose = 2
@@ -165,23 +141,6 @@ final class LaneStripTests: XCTestCase {
 
     // MARK: 4. the riff off
 
-    func testRiffOffGreyChipsOnlyWhenWhenIsOneSided() {
-        let f = fix(exLine(riffOn: false))
-        // WHEN RESTS only: the footers show as they would with the riff on, grey — chips on the hits that read a note (steps 1 and 6), none on the rest hits
-        let grey = hits(f, riffPlays: false, grey: true, notes: notes(.cycle))
-        XCTAssertEqual(grey[0].chip, EuclideousStripChip(rank: 6, column: 6, hollow: false, grey: true)); XCTAssertEqual(grey[5].chip, EuclideousStripChip(rank: 8, column: 3, hollow: false, grey: true))
-        for i in [2, 4, 7] { XCTAssertNil(grey[i].chip); XCTAssertEqual(grey[i].kind, .hit, "with the riff off a rest hit is a plain hit, not a gap") }
-        XCTAssertEqual([2, 4, 7].map { grey[$0].key?.plays }, [true, true, true], "the keys still show where the notes play")
-        // LANE STRIP readability ferry §8 test 5: the same five hit columns still draw as hit columns with the riff off.
-        for i in [0, 2, 4, 5, 7] { XCTAssertTrue(euclideousStripDrawsAsHit(grey[i].kind)) }
-        // both on: no chips at all (the footers read nothing)
-        let both = hits(f, riffPlays: false, grey: false, readRiff: false, notes: notes(.cycle, when: 0b11))
-        for i in [0, 2, 4, 5, 7] { XCTAssertNil(both[i].chip); XCTAssertEqual(both[i].kind, .hit) }
-        XCTAssertEqual([0, 2, 4, 5, 7].map { both[$0].key?.plays }, [true, true, true, true, true])
-        // riff on but SHADOWED (riffPlays false, nothing grey): no chips, no gaps
-        let shadow = hits(f, riffPlays: false, grey: false)
-        for i in [0, 2, 4, 5, 7] { XCTAssertNil(shadow[i].chip); XCTAssertEqual(shadow[i].kind, .hit) }
-    }
 
     // MARK: 5. REPEAT
 
@@ -323,10 +282,6 @@ final class LaneStripTests: XCTestCase {
 
     // MARK: 9. muting and the strikes
 
-    func testAMutedLanesStripDimsTo42PercentAndMakesNoStrikes() {
-        XCTAssertEqual(euclideousStripMuteLook(muted: true).opacity, 0.42); XCTAssertFalse(euclideousStripMuteLook(muted: true).strikes)
-        XCTAssertEqual(euclideousStripMuteLook(muted: false).opacity, 1); XCTAssertTrue(euclideousStripMuteLook(muted: false).strikes)
-    }
     func testStrikesSplitByLayerAndMapToTheirStepsLooks() {
         var s = EuclideousPulseStrike(onsetBeat: 1, onsetAt: 100, riffVel: 100, notesVel: 0); s.tile = 0
         var t = EuclideousPulseStrike(onsetBeat: 2, onsetAt: 101, riffVel: 0, notesVel: 70); t.tile = 2
@@ -355,23 +310,6 @@ final class LaneStripTests: XCTestCase {
 
     // MARK: VoiceOver
 
-    func testTheVoiceOverValueReadsEachHitThenWherePlayingThenMuted() {
-        let f = fix(exLine())
-        let h = hits(f, notes: notes(.cycle))
-        func spokenRank(_ r: Int) -> String? { r == 6 ? "A flat 3" : (r == 8 ? "C 4" : nil) }
-        func spokenPitch(_ p: Int) -> String { p == 60 ? "C 4" : (p == 55 ? "G 3" : "A flat 3") }
-        let v = euclideousStripAccessibilityValue(hits: h, spokenRank: spokenRank, spokenPitch: spokenPitch, onStep: nil, muted: false)
-        XCTAssertEqual(v, "step 1, riff column 6, A flat 3; step 3, rest in the riff, notes play C 4; step 5, rest in the riff, notes play G 3; step 6, riff column 3, C 4; step 8, rest in the riff, notes play A flat 3")
-        XCTAssertTrue(euclideousStripAccessibilityValue(hits: h, spokenRank: spokenRank, spokenPitch: spokenPitch, onStep: 5, muted: false).hasSuffix("; on step 5"))
-        let muted = euclideousStripAccessibilityValue(hits: h, spokenRank: spokenRank, spokenPitch: spokenPitch, onStep: 5, muted: true)
-        XCTAssertTrue(muted.hasSuffix("; on step 5, silent at this step"))
-        let chord = euclideousStripAccessibilityValue(hits: hits(f, notes: notes(.chord)), spokenRank: spokenRank, spokenPitch: spokenPitch, onStep: nil, muted: false)
-        XCTAssertTrue(chord.contains("step 3, rest in the riff, notes play G 3 and 2 more"), chord)
-        XCTAssertEqual(euclideousStripAccessibilityValue(hits: [EuclideousStripHit()], spokenRank: spokenRank, spokenPitch: spokenPitch, onStep: nil, muted: false), "no hits")
-        // REPEAT reads the repeated note
-        let rep = hits(fix(exLine(onRest: .repeatLast)))
-        XCTAssertTrue(euclideousStripAccessibilityValue(hits: rep, spokenRank: spokenRank, spokenPitch: spokenPitch, onStep: nil, muted: false).contains("step 3, rest in the riff, repeats A flat 3"))
-    }
 
     // MARK: the footers' prediction and ADVANCE EVERY (the defect this ferry's chips would have inherited)
 
@@ -392,11 +330,6 @@ final class LaneStripTests: XCTestCase {
         XCTAssertEqual(euclideousRiffCyclePrediction(hitSteps: hs, advanceStep: false, dir: .forward, stride: 1, length: 8, rotate: 2, seed: 0, startOrd: 3),
                        euclideousRiffCyclePrediction(hitSteps: hs, advanceStep: false, dir: .forward, stride: 1, length: 8, rotate: 2, seed: 0, startOrd: 3, every: 1))
         XCTAssertEqual(euclideousRiffCyclePrediction(hitSteps: hs, advanceStep: false, dir: .forward, stride: 1, length: 8, rotate: 0, seed: 0, startOrd: 0, every: 2), [1, 1, 2, 2, 3], "EVERY 2 holds each note for two hits")
-    }
-    func testTheFooterPassCarriesTheLapsAbsoluteTick() {
-        let f = fix(exLine())
-        XCTAssertEqual(f.pass.lapStartTick, lapStart)
-        XCTAssertEqual(f.pass.startOrd, euclideousLapStartOrdinal(cfg: f.cfg, beat: Double(lapStart) * f.cfg.sub + 0.01))
     }
 
     // MARK: cost
@@ -432,35 +365,4 @@ final class LaneStripTests: XCTestCase {
 
     // MARK: RESTART TILES ferry §4 / test 11 — rests stay present (CLARITY PASS 2026-10-23: as solid grey columns, no longer dashed)
 
-    func testRestColumnsArePresentRhythmRestsAtOffsetZeroAndAtOffsetSevenPointTwoNine() {
-        // the dashed look of the RESTART TILES ferry is retired (kept, unused): what a rest draws now is `euclideousStripColumnLook`'s solid grey, never a border
-        let look = euclideousStripRestLook
-        XCTAssertEqual(look.fillHex, 0x1A1C21); XCTAssertEqual(look.borderHex, 0x3A3E47); XCTAssertEqual(look.borderWidth, 1); XCTAssertEqual(look.dash, [3, 2], "the retired look's own numbers, unchanged")
-        for (label, offset) in [("OFFSET 0", 0.0), ("OFFSET 7.29", 7.29)] {
-            var l = EuclidLine(pulses: 5, steps: 8, noteSel: .all); l.rate = .r1_16; l.useRiff = true; l.riffOn = true; l.sourceMode = .midi
-            euclideousSliderCommit(.offset, &l, snapshot: l, newValue: offset)
-            let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
-            // what the page's strip plan does: a lane with timing is read from its tick-space layout, each hit in the box its start time falls in
-            let hitSteps = cfg.timing.isNone ? euclideousLapHitSteps(pulses: 5, steps: 8, rotate: l.rotate, tilt: 0, patternMiss: false, customHits: nil)
-                                              : euclideousLapHitSteps(layoutCells: cfg.buf, n: 8, dir: .fwd)
-            var pattern = [Bool](repeating: false, count: 8)
-            for h in hitSteps { pattern[h.bufIdx] = true }
-            let sts = euclideousFooterStates(hitSteps: hitSteps, lapSteps: 8, prediction: nil, riffRanksResolved: exRanks, anyLit: true)
-            let strip = euclideousStripHits(pattern: pattern, hitSteps: hitSteps, states: sts, ranks: exRanks, riffPlays: false, grey: false, onRest: .skip, cfg: cfg, lapStartTick: 0, notes: nil, keyLabels: true, name: name)
-            XCTAssertEqual(strip.count, 8)
-            XCTAssertEqual(pattern.filter { !$0 }.count, 3, "E(5,8) has three rests (\(label))")
-            for i in 0..<8 {
-                if pattern[i] { XCTAssertNotEqual(strip[i].kind, .rhythmRest, "\(label): column \(i + 1) holds a hit") }
-                else {
-                    XCTAssertEqual(strip[i].kind, .rhythmRest, "\(label): column \(i + 1) is a rest")
-                    XCTAssertFalse(euclideousStripDrawsAsHit(strip[i].kind)); XCTAssertNil(strip[i].chip); XCTAssertNil(strip[i].key, "a rest column is drawn as its solid grey and nothing else")
-                    for tone in [EuclideousStepGroupTone.a, .b] {
-                        let drawn = euclideousStripColumnLook(kind: strip[i].kind, tone: tone)
-                        guard case .solid = drawn.fill else { return XCTFail("\(label): a rest draws a solid fill") }
-                        XCTAssertEqual(drawn.ringAlpha, 0, "never dashed or ringed"); XCTAssertFalse(drawn.floorBar)
-                    }
-                }
-            }
-        }
-    }
 }

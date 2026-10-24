@@ -200,10 +200,6 @@ final class ReelDeck {
         }
         return out
     }
-    /// The loop's events on the given cables (for EXPORT). cables: {1,2,3,4} = the A–D sum; {n} = one emitter. (Paul 2026-08-18)
-    func exportEvents(cables: Set<UInt8>) -> [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] {
-        (0..<loopN).compactMap { cables.contains(loop[$0].cable) ? (loop[$0].beat, loop[$0].b0, loop[$0].b1, loop[$0].b2) : nil }
-    }
     /// EXPORT a RANGE of passes as ONE phrase (Paul 2026-08-26): concatenate every NON-EMPTY pass in [lo, hi] back-to-back,
     /// each pass's beats offset by the cumulative length of the passes before it — so a phrase longer than one pass
     /// (input twice a bar → two passes) exports whole, and a note held across a boundary reunites (its ON in pass N,
@@ -321,8 +317,6 @@ final class DoorRing {
     // Reused scratch for notesSoundingAt (Paul 2026-09-01 refactor): it's a per-render call (Kernel.updateLatchedPools for
     // every engaged REPLAY/FILE door) — hoist its two 128-slot tables off the stack to avoid a per-render heap alloc
     // (invariant 3). Render-thread-only (loopRoll, the 4 Hz reader, uses its own local dict), reset at the top of each call.
-    private var soundVelScratch = [Int16](repeating: -1, count: 128)
-    private var soundChanScratch = [UInt8](repeating: 0, count: 128)
 
     /// Append a live note event at absolute `beat` (evict-oldest when full). CHANNEL-PRESERVING (Paul 2026-08-22): the
     /// note's incoming channel is recorded so replay re-emits it on its ORIGINAL channel — matching the live latch
@@ -360,22 +354,10 @@ final class DoorRing {
         }
     }
     func clearLoop() { loopN = 0; loopLen = 0 }
-    /// Drop the recorded HISTORY (not the captured loop). The ring records at ABSOLUTE host beats in arrival order, and
-    /// both `capture`/`notesSoundingAt` assume arrival order == ascending beat. A transport stop→start or a host loop/seek
-    /// makes new events record at beats that overlap/go backward vs the resident history → a garbled, mis-phased capture.
-    /// Clear the history on those beat discontinuities so recording restarts monotone. (Paul 2026-08-23)
-    func clearHistory() { head = 0; count = 0 }
     /// The oldest recorded event's beat (+∞ if empty) — so a capture can CLAMP its length to the history actually
     /// available and not prepend silent passes when < N passes have been played (Paul 2026-08-23).
     var oldestBeat: Double { count > 0 ? ordered(0).beat : .infinity }
 
-    /// Load from PARALLEL arrays (the box's SnapFileClip carries them) — no allocation, so it's safe to call on the
-    /// render thread when the FILE clip changes. Arrays are the same length; caller guarantees ordering. (Paul 2026-08-20)
-    func loadLoopParallel(beats: [Double], notes: [UInt8], vels: [UInt8], ons: [Bool], lengthBeats: Double) {
-        loopN = 0; loopLen = max(0, lengthBeats)
-        let n = min(beats.count, min(notes.count, min(vels.count, ons.count)))
-        for k in 0..<n where loopN < DoorRing.cap { loop[loopN] = Ev(beat: beats[k], note: notes[k], vel: vels[k], on: ons[k]); loopN += 1 }
-    }
 
     /// The captured loop as drawable NOTES WITH DURATION (Paul 2026-08-23): pair each note-on with its next off; a note
     /// still open at the loop end closes at `loopLen`. Drives the config-sheet REPLAY piano roll so it reflects EXACTLY
@@ -383,35 +365,4 @@ final class DoorRing {
     /// buffer); `loop` is a fixed-size value array written only on capture, so a main-thread read at 4 Hz is safe off the
     /// render thread (a torn read during a re-capture → a benign garbled bar for one frame). Mirrors ReelDeck.selectedRoll.
     struct Note: Equatable { var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var chan: UInt8 }
-    func loopRoll() -> [Note] {
-        var out: [Note] = []
-        var open = [Int: (start: Double, vel: UInt8, chan: UInt8)]()   // key = note number
-        for i in 0..<loopN {
-            let e = loop[i]
-            if e.on && e.vel > 0 { open[Int(e.note)] = (e.beat, e.vel, e.chan) }
-            else if let o = open.removeValue(forKey: Int(e.note)) {
-                out.append(Note(note: e.note, vel: o.vel, start: o.start, end: max(o.start, e.beat), chan: o.chan))
-            }
-        }
-        for (n, o) in open { out.append(Note(note: UInt8(n), vel: o.vel, start: o.start, end: max(o.start, loopLen), chan: o.chan)) }   // still sounding at loop end → hold to length
-        return out
-    }
-    /// The notes SOUNDING at loop `phase` ∈ [0, loopLen): each note's LAST on/off at or before `phase` wins (on ⇒
-    /// sounding). Events are time-ordered (recorded in arrival order). Writes into `outNote`/`outVel`, returns the count.
-    @discardableResult func notesSoundingAt(_ phase: Double, outNote: inout [UInt8], outVel: inout [UInt8], outChan: inout [UInt8]) -> Int {
-        // Mutate the reused instance scratch DIRECTLY (a local `var` copy would trigger COW = the alloc we're avoiding).
-        for i in 0..<128 { soundVelScratch[i] = -1; soundChanScratch[i] = 0 }   // -1 = not sounding
-        for i in 0..<loopN {
-            let e = loop[i]
-            if e.beat > phase { break }
-            if e.note < 128 {
-                if e.on && e.vel > 0 { soundVelScratch[Int(e.note)] = Int16(e.vel); soundChanScratch[Int(e.note)] = e.chan } else { soundVelScratch[Int(e.note)] = -1 }
-            }
-        }
-        var k = 0
-        for n in 0..<128 where soundVelScratch[n] >= 0 && k < outNote.count {
-            outNote[k] = UInt8(n); outVel[k] = UInt8(soundVelScratch[n]); if k < outChan.count { outChan[k] = soundChanScratch[n] }; k += 1
-        }
-        return k
-    }
 }

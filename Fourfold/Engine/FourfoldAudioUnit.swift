@@ -51,7 +51,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // FREE-RUN CLOCK (Paul 2026-08-25): let the plugin run its own beat when the host transport is stopped + a note is held.
     func setFreeRunEnabled(_ b: Bool) { kernel.setFreeRunEnabled(b) }
     #if DEBUG
-    func chaosRoutingDump() -> String { kernel.chaosRoutingDump() }                                           // the chain-state dump @ suspicious silence
     #endif
 
 
@@ -84,8 +83,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),
     // and the continuous transpose AUParameter is excluded for v1 (it bypasses these paths; the morph params were removed 2026-09-16).
     private var undoStack = UndoStack<PluginState>()
-    var uiCanUndo: Bool { undoStack.canUndo }
-    var uiCanRedo: Bool { undoStack.canRedo }
     /// The live document — for the EDIT page's SELECTION undo (which snapshots (selection, document) per select/
     /// deselect and restores both). Separate from the transactional undo stack above (which it never touches).
 
@@ -150,45 +147,16 @@ public class FourfoldAudioUnit: AUAudioUnit {
         return temp
     }
 
-    /// §9 item 1 ON HOLD: the grid cell (col*8+row, −1 = none) currently press-held in PERFORM — its ON HOLD
-    /// treatment overlays while held. Ephemeral, never persisted; the UI clears it (−1) on release / stop / EDIT.
-    func setHoldCell(_ cell: Int) { kernel.setHoldCell(cell) }
-
-    /// emitter strip: the additive foot SOLO set (bits A–D).
-    func setSoloEmitterMask(_ mask: UInt8) { kernel.setSoloEmitterMask(mask) }
-    func setSoloReceiverMask(_ mask: UInt8) { kernel.setSoloReceiverMask(mask) }   // receiver strip: input SOLO set
-    func setInputOctave(_ recv: Int, _ oct: Int) { kernel.setInputOctave(recv, oct) }   // receiver strip: ±octave nudge
-    func setInputSemitone(_ recv: Int, _ n: Int) { kernel.setInputSemitone(recv, n) }   // receiver strip: ±semitone NOTE nudge
-    func setInputVelOverride(_ recv: Int, _ value: Int?) { kernel.setInputVelOverride(recv, value) }   // receiver strip: slider
-    func setLatchArm(_ mask: UInt8) { kernel.setLatchArm(mask); document.latchArmMask = mask }   // live arm + PERSIST the intent so a saved session reopens engaged (Paul 2026-08-27). Direct doc write (no rebuild/undo) — the render reads the arm via the live kernel path, this field is for fullState only.
-    func latchArm() -> UInt8 { kernel.latchArm() }                 // the UI polls this to RE-DERIVE the arm after a view rebuild (else it's lost)
-    private func seedLatchArm() { kernel.setLatchArm(document.latchArmMask ?? 0) }   // on a document LOAD/restore, seed the kernel's live arm from the persisted mask
-    func setEmitterOctave(_ bus: Int, _ oct: Int) { kernel.setEmitterOctave(bus, oct) }   // emitter strip: output ±octave
-
-    /// §6a PERFORM velocity override: force emitter `bus` (0…3 = A…D) to `value` (1–127) for every new
-    /// note-on while its slider is touched; pass `nil` to spring back to natural velocity on release.
-    /// Ephemeral, never persisted — the momentary "whisper/slam a bus" gesture, not the parked scale-fader.
-    func setVelOverride(_ bus: Int, _ value: Int?) { kernel.setVelOverride(bus, value) }
-    func setEmitterVelKill(_ bus: Int, _ kill: Bool) { kernel.setEmitterVelKill(bus, kill) }   // §4b fader-kill
 
 
-    func setFocusCell(_ cell: Int) { kernel.setFocusCell(cell) }   // FOCUS note-event feed: the machine's cell
-    func pollCellSoundingVel() -> [UInt8] { kernel.pollCellSoundingVel() }   // per-cell SOUNDING velocity — the emitter fader's per-machine held floor (Paul 2026-09-07)
-    // PART ROLL (Paul 2026-09-02): the live per-part-cycle emitted-note capture for the part-page piano roll.
-    func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes (latch-aware meter)
-    func pollReceiverSoundingNotes() -> [[UInt8]] { kernel.pollReceiverSoundingNotes() }   // PITCHES held per door (REPLAY roll)
-    func pollReceiverLiveHeld() -> UInt8 { kernel.pollReceiverLiveHeld() }       // the header dot: bit i = a LIVE accepted note is held (scalar, race-safe)
+
+
     // pollEmitterMarks/pollWithheldMarks/pollEmitterSounding (UI mark-feed forwarders) RETIRED 2026-09-12 — no caller.
     // (The kernel drains they wrapped stay: drainEmitterSounding et al. are exercised directly by RouterTests.)
 
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannelsResolved }
 
-    func toggleReplayCatch(_ i: Int) { kernel.toggleReplayCatch(i) }   // "LAST N" — capture+loop / release (config-sheets, Paul 2026-08-20)
-    func replayEngaged() -> UInt8 { kernel.replayEngaged() }           // which REPLAY doors are actively looping
-    func replayLoopRoll(door i: Int) -> [DoorRing.Note] { kernel.replayLoopRoll(door: i) }   // the engaged door's captured loop as duration notes
-    func replayLoopLen(door i: Int) -> Double { kernel.replayLoopLen(door: i) }
-    func replayLoopAnchor(door i: Int) -> Double { kernel.replayLoopAnchor(door: i) }   // the engaged loop's anchor beat (config-roll playhead sync, Paul 2026-08-26)
 
 
 
@@ -276,10 +244,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
     func uiIgnoreAllNotesOff() -> Bool { document.ignoreAllNotesOffResolved }   // INPUT (Paul 2026-09-06): ignore a source's CC120/123 flood
     func setIgnoreAllNotesOff(_ on: Bool) { editDocument { $0.ignoreAllNotesOff = on } }
-    /// The resolved active rung for a column (topmost-occupied default) — the UI lights it + dims the other rungs.
-    func ladderActiveRow(_ col: Int) -> Int? { document.activeSceneState.ladderActiveRow(col) }
-    func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
-    func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
     // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): same request/consume shape as masterPanic,
     // narrower scope (Euclideous's own row only — see Router.process's own consumption of the flag).
     func euclideousAllNotesOff() { kernel.euclideousAllNotesOffRequest() }
@@ -461,13 +425,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
     /// Load a factory scene (Docs/factory-scenes.md) — same replace-and-resync path as a test session.
 
-    /// S3 trash: delete a scene. Refuses (returns false) the ACTIVE scene / empty / out-of-range — the UI shakes.
-    @discardableResult func deleteScene(_ i: Int) -> Bool {
-        dispatchPrecondition(condition: .onQueue(.main))
-        var ok = false
-        editDocument { ok = $0.deleteScene(i) }
-        return ok
-    }
 
     // MARK: - PRESETS v1 (§3): whole-document named files (PresetStore), surfaced through BOTH our in-plugin
     // browser AND the standard AUv3 user-preset API (so AUM et al. list them in their own preset menu). One
@@ -509,7 +466,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
         }
         clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
-        seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree (else host automation snaps a fresh note back to the OLD morph/transpose/macros)
     }
     /// The fresh-instance default document (`PluginState.makeInit()`); the harness's "(default)" golden entry loads it.
@@ -519,7 +475,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
         editDocument { $0 = PluginState.makeInit() }
         clearPendingBuild()
         currentPresetName = ""
-        seedLatchArm()
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()
     }
     /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
@@ -569,7 +524,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
         }
         clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)
-        seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree
     }
     private func presetNumber(for name: String) -> Int {
@@ -700,7 +654,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
                 clearPendingBuild()   // CR-10/K2: the loaded doc carries its OWN BUILD state (via consume*) — drop the outgoing session's stale pending so the next save doesn't re-encode it over the restored doc
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
                                                      // session restore must not strand the outgoing document's voices
-                seedLatchArm()                       // restore the persisted door-arm intent (Paul 2026-08-27)
                 suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false   // CR-7: mirror the restored doc into the param tree
                 scheduleRebuild()
             }

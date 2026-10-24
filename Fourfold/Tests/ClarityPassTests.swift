@@ -72,22 +72,6 @@ final class ClarityPassTests: XCTestCase {
 
     // MARK: 3. what a column is filled with (1.3)
 
-    func testRestHitAndGapLooksPerGroup() {
-        typealias M = EuclideousStripMetrics
-        let restA = euclideousStripColumnLook(kind: .rhythmRest, tone: .a), restB = euclideousStripColumnLook(kind: .rhythmRest, tone: .b)
-        XCTAssertEqual(restA.fill, .solid(hex: 0x41454F)); XCTAssertEqual(restB.fill, .solid(hex: 0x30333A))
-        XCTAssertEqual(restA.ringAlpha, 0); XCTAssertFalse(restA.floorBar, "a rest is solid, present and unmarked — never dashed")
-        let hitA = euclideousStripColumnLook(kind: .hit, tone: .a), hitB = euclideousStripColumnLook(kind: .hit, tone: .b)
-        XCTAssertEqual(hitA.fill, .lane(alpha: 0.42)); XCTAssertEqual(hitB.fill, .lane(alpha: 0.30))
-        XCTAssertEqual(hitA.ringAlpha, 0, "the readability pass's 70 % border is gone"); XCTAssertTrue(hitA.floorBar); XCTAssertTrue(hitB.floorBar)
-        for tone in [EuclideousStepGroupTone.a, .b] {
-            let gap = euclideousStripColumnLook(kind: .gap, tone: tone), rest = euclideousStripColumnLook(kind: .rhythmRest, tone: tone)
-            XCTAssertEqual(gap.fill, rest.fill, "a gap is its group's rest fill …")
-            XCTAssertEqual(gap.ringAlpha, 0.45); XCTAssertEqual(gap.ringWidth, 1, "… plus a 1 pt ring at 45 %"); XCTAssertFalse(gap.floorBar)
-        }
-        XCTAssertTrue(euclideousStripDrawsAsHit(.gap) && euclideousStripDrawsAsHit(.hit) && !euclideousStripDrawsAsHit(.rhythmRest), "chips and keys still follow the rhythm hitting")
-        XCTAssertEqual(M.columnGap, M.slideGap, "the playhead's slide past the last column keeps matching the column gap")
-    }
 
     // MARK: 4. the tab glyphs (5.3)
 
@@ -341,33 +325,6 @@ final class ClarityPassTests: XCTestCase {
             let words = (r.velocity.hasPrefix("VEL") ? 1 : 0) + (r.gate.hasPrefix("GATE") ? 2 : 0)
             XCTAssertLessThanOrEqual(words, last, "width \(w)"); last = words
         }
-    }
-    func testADisabledPadTouchChangesNoStateAtAll() {
-        let geo = EuclideousMixPadGeometry(cellW: 81.17, padH: 69.5)
-        for notes in [false, true] {
-            var line = EuclidLine()
-            line.riffOn = false; line.notesOn = false; line.litNotes = 0b1
-            line.gate = 0.6; line.velocityAbsolute = 90; line.notesGate = 0.7; line.notesVelocity = 80
-            XCTAssertTrue(euclideousMixLayerIsOff(line, notes: notes))
-            let before = line
-            for p in [CGPoint(x: 10, y: 10), CGPoint(x: 70, y: 5), CGPoint(x: 40, y: 40), CGPoint(x: -5, y: 900)] {
-                XCTAssertFalse(euclideousMixPadTouchWrite(&line, notes: notes, at: p, geometry: geo), "a touch on an OFF pad writes nothing")
-            }
-            XCTAssertFalse(euclideousMixPadWriteIfEnabled(&line, notes: notes, gate: 0.2, velocity: 20)); XCTAssertFalse(euclideousMixPadResetIfEnabled(&line, notes: notes))
-            XCTAssertEqual(line, before, "the layer switch, velocity and gate are all unchanged")
-            XCTAssertEqual(euclideousMixLayerIsOff(line, notes: notes), true, "… and it never turned the layer on")
-        }
-    }
-    func testAnEnabledPadStillWritesExactlyAsBefore() {
-        let geo = EuclideousMixPadGeometry(cellW: 81.17, padH: 69.5)
-        var line = EuclidLine(); line.riffOn = true; line.litNotes = 0b1; line.notesOn = true
-        XCTAssertTrue(euclideousMixPadTouchWrite(&line, notes: true, at: geo.puck(gate: 0.5, velocity: 64), geometry: geo))
-        XCTAssertEqual(line.notesGateResolved, 0.5, accuracy: 0.011); XCTAssertEqual(line.notesVelocityResolved, 64)
-        var viaRiff = line, direct = line
-        XCTAssertTrue(euclideousMixPadWriteIfEnabled(&viaRiff, notes: false, gate: 0.4, velocity: 70))
-        euclideousMixPadWrite(&direct, notes: false, gate: 0.4, velocity: 70)
-        XCTAssertEqual(viaRiff, direct, "the guarded write is the old write for an enabled pad")
-        XCTAssertTrue(euclideousMixPadResetIfEnabled(&line, notes: true)); XCTAssertEqual(line.notesVelocityResolved, 100)
     }
     func testOffStepperDimsToHalfExceptUnderSolo() {
         XCTAssertEqual(euclideousMixOffStepperOpacity(off: true, soloSilenced: false), 0.5)

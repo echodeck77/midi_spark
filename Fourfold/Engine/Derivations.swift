@@ -29,29 +29,6 @@ import Foundation
 /// The shared spelling of the `(beat / S).rounded(.down) * S` idiom the Router's emit paths repeat. Pure/testable.
 @inline(__always) func columnStart(_ beat: Double, _ S: Double) -> Double { (beat / S).rounded(.down) * S }
 
-/// A reset re-anchor ORIGIN that itself re-synchronizes at a bounded OUTER loop boundary (2026-10-14 ferry
-/// §5: "the count restarts when the sequence loops, so the marks stay fixed") — found missing by a self-
-/// audit against the ferry's raw text: the first build re-anchored the EUCLID pattern's own reset purely
-/// from absolute beat 0 (`columnStart(beat, resetSteps*stepBeats)`), which only coincidentally matches the
-/// on-screen restart marks when the LANES sequencer's own LEN happens to be a multiple of `resetSteps` (true
-/// for every default combination, since LEN defaults to 8 and 1/2/4/8 all divide it evenly) — it silently
-/// diverges from the marks for any OTHER LEN. This generalizes the re-anchor to ALSO wrap at a genuine outer
-/// loop: within one lap of `loopSteps` sequencer steps, a restart happens at local step 0, `resetSteps`,
-/// `2×resetSteps`, … (never crossing into the next lap even if `resetSteps` doesn't divide `loopSteps`
-/// evenly), and a NEW lap always starts fresh at local step 0 regardless of where the previous lap's own
-/// restart cycle had reached — exactly matching the UI's own restart-mark rule (`step % resetSteps == 0`
-/// for `step` in `0..<loopSteps`), so the two can no longer silently disagree. `loopSteps <= 0` means "no
-/// outer loop" — degenerates to the ORIGINAL, unbounded `columnStart(beat, Double(resetSteps)*stepBeats)`
-/// exactly (every OTHER reset path — the legacy bars-count/span-ladder ones — keeps that unbounded shape,
-/// untouched, since neither has a LEN concept to re-anchor against).
-func euclideousLoopedResetOrigin(beat: Double, stepBeats: Double, resetSteps: Int, loopSteps: Int) -> Double {
-    guard stepBeats > 0, resetSteps > 0 else { return 0 }
-    let absStep = Int((beat / stepBeats).rounded(.down))
-    let lapStartStep = loopSteps > 0 ? (absStep / loopSteps) * loopSteps : 0
-    let stepsSinceLap = absStep - lapStartStep
-    let restartStep = lapStartStep + (stepsSinceLap / resetSteps) * resetSteps
-    return Double(restartStep) * stepBeats
-}
 
 /// "Every N" as an 8-bit stamp (2026-10-15 ferry §1.2): bits 0, N, 2N, … below 8 set; N ≤ 0 ⇒ empty (OFF).
 /// The ONLY place a preset number becomes a mask — `EuclidLine.restartMaskResolved`'s own fallback and the
@@ -64,40 +41,7 @@ func euclideousStampMask(_ n: Int) -> UInt8 {
     return m
 }
 
-/// Generalises `euclideousLoopedResetOrigin` to an arbitrary per-step restart mask (2026-10-15 ferry, "per-
-/// step restart points on the LANES tab" §2.1). Bit s (0..<loopSteps) set ⇒ the lane restarts at the start
-/// of sequencer step s. Only bits below `loopSteps` take effect (§1.3) — masked here, so no caller can forget
-/// to. "No restart point yet this lap" (no set bit at or before the current lap-local step) means the lane
-/// is STILL running from the PREVIOUS lap's last restart point, not lap-start — so a mask with no mark on
-/// step 0 does NOT re-anchor the lane when the sequence loops. This can return a NEGATIVE origin in the very
-/// first lap (there is no "previous lap" yet, same as the ferry's own worked example) — plain arithmetic,
-/// every caller handles it exactly like any other beat-0-relative origin, no special-casing. Deliberately a
-/// plain `while` scan over at most 8 bits rather than a `Range` built from `local` — `local` can itself be
-/// negative for a beat before the transport's bar 1 (the same truncating-division quirk already present in
-/// `euclideousLoopedResetOrigin` above, reused here on purpose, §2.1's "reuse the existing flooring exactly"),
-/// and `0...local` with a negative `local` is a Swift trap, not a quiet no-op.
-func euclideousMaskedResetOrigin(beat: Double, stepBeats: Double, mask: UInt8, loopSteps: Int) -> Double {
-    // LANES GRID (2026-10-18): the 8-bit form is now a wrapper over the 16-cell `euclideousMaskedResetOrigin(beat:cellBeats:mask:cells:)`
-    // below (same flooring, same arithmetic) — kept for the old per-step restart mask and its tests.
-    guard stepBeats > 0, loopSteps > 0 else { return 0 }
-    return euclideousMaskedResetOrigin(beat: beat, cellBeats: stepBeats, mask: UInt16(mask), cells: min(8, loopSteps))
-}
 
-/// Which step index (0..<columns) a finger sliding off the RESET box lands on, given an X offset measured
-/// from the box's OWN local left edge (2026-10-15 ferry §4.4, "one-thumb shortcut... hit-test with the same
-/// cell-width and gap formula the grid draws with"). `labelW` is the RESET box's own width; the gap to its
-/// right, and between every pair of cells after it, is the same `gap`. A touch still inside the box, in a
-/// gap, or past the last cell misses (nil) — "lifting anywhere else does nothing" (§4.4).
-func euclideousRestartStepHitTest(localX: CGFloat, labelW: CGFloat, gap: CGFloat, cellW: CGFloat, columns: Int) -> Int? {
-    guard cellW > 0, columns > 0 else { return nil }
-    let x = localX - labelW - gap
-    guard x >= 0 else { return nil }
-    let period = cellW + gap
-    let step = Int((x / period).rounded(.down))
-    guard step >= 0, step < columns else { return nil }
-    let withinCellX = x - CGFloat(step) * period
-    return withinCellX <= cellW ? step : nil
-}
 
 /// The RESET box's own label (2026-10-15 ferry §3), pure, derived from the lane's effective mask (bits below
 /// `loopSteps` only). Tests N = 1, 2, 4, 8 in that order against the mask restricted to `loopSteps` — first
@@ -115,17 +59,6 @@ func euclideousRestartLabel(mask: UInt8, loopSteps: Int) -> EuclideousRestartLab
     }
     let count = (0..<8).filter { (effective & (1 << $0)) != 0 }.count
     return EuclideousRestartLabel(value: "\(count)", unit: "PTS")
-}
-/// The RESET box's VoiceOver phrasing (2026-10-15 ferry §4.9): "every N steps" / "off" / "k custom points" —
-/// reuses `euclideousRestartLabel`'s own stamp-detection so the spoken and on-screen labels can never disagree
-/// about what the mask resolves to, just phrased in full words instead of a compact value/unit pair.
-func euclideousRestartAccessibleLabel(mask: UInt8, loopSteps: Int) -> String {
-    let label = euclideousRestartLabel(mask: mask, loopSteps: loopSteps)
-    switch label.unit {
-    case "OFF": return "off"
-    case "STEP": return "every \(label.value) steps"
-    default: return "\(label.value) custom points"
-    }
 }
 
 /// The LANES/RIFFS sequencer's own 0..<len step index at `beat` (2026-10-14 ferry, "sequencer panel, four
@@ -193,38 +126,11 @@ func euclideousLooperEffectiveRank(column: Int, beat: Double, liveGrid: [Int],
 // (stored as 16/32). The pattern anchors at the row origin and repeats every N columns → polymeter at processor grain
 // (odd N against the 8-column row). CELL = 1, ROW = 8 are the byte-identical endpoints (S and the row/bar width).
 let spanLadderValues = [1, 2, 3, 4, 6, 8, 16, 32]
-func spanLadderLabel(_ n: Int) -> String { n == 16 ? "×2" : (n == 32 ? "×4" : "\(n)") }
 // ArpPattern.allCases is a COMPUTED property → it heap-allocates a fresh array on every access. The arp render path
 // reads it per tick (arpPick + emitArpRow), which violates invariant 3 (no render-path allocation). Cache it once (the
 // same idiom as spanLadderValues/rtcCoinSizes). Order = declaration order = patternIndex (SnapshotBuilder maps a stored
 // index via firstIndex(of:)), so indexing the cache is byte-identical to indexing allCases. (efficiency 2026-08-29)
 let arpPatternCases = ArpPattern.allCases
-/// The ArpPattern at a stored patternIndex, clamped to UP for an out-of-range index — the render-path reader.
-@inline(__always) func arpPatternAt(_ i: Int) -> ArpPattern { i >= 0 && i < arpPatternCases.count ? arpPatternCases[i] : .up }
-/// The ARP RATE ladder the LFO is allowed to sweep, given an IGNORE mask (bit0 normal · bit1 dotted · bit2 triplet).
-/// ArpRate.allCases is DECLARED as [6 normal · 6 dotted · 6 triplet] (family = index / 6), but a dotted/triplet rate
-/// musically falls BETWEEN two adjacent normal rates (e.g. 1/4T and 1/8D both sit between 1/8 and 1/4 in actual
-/// tempo) — so the ladder is sorted by ACTUAL DURATION (`.beats`, slow→fast), not by declaration block. Paul
-/// 2026-09-26: a raw block-ordered ladder made a FROM→TO sweep between two normal rates (the common case — FROM
-/// defaults to the arp's own base rate) NEVER reach dotted/triplet even when "included", because both endpoints sat
-/// in the same contiguous block of ladder POSITIONS — the interleaved families were included in the SET but never
-/// crossed in POSITION SPACE. Tempo-sorting makes ladder position a true proxy for musical position, so any
-/// included rate that lies between the two endpoints (by tempo) is now genuinely visited. Never empty (an all-ignore
-/// mask keeps normal). Paul 2026-09-16 (LFO rate-family ignore).
-func arpRateAllowedLadder(ignore mask: Int) -> [Int] {
-    let m = (mask & 0b111) == 0b111 ? 0b110 : (mask & 0b111)   // all-ignore → keep normal (mirrors rateIgnoreResolved)
-    let kept: [Int] = (0..<18).filter { (m & (1 << ($0 / 6))) == 0 }
-    let out: [Int] = kept.sorted { Snap.arpRateBeats[$0] > Snap.arpRateBeats[$1] }   // slow → fast, by real duration (not declaration block); Snap.arpRateBeats is a cached static, no render-path alloc
-    return out.isEmpty ? Array(0..<6) : out
-}
-/// The POSITION in `ladder` of the rung nearest to `idx` (a raw 0…17 rate index) — snaps a FROM/TO endpoint onto the
-/// allowed ladder so an ignored-family endpoint maps to the closest kept rate. Paul 2026-09-16.
-func nearestLadderPos(_ ladder: [Int], _ idx: Int) -> Int {
-    guard !ladder.isEmpty else { return 0 }
-    var best = 0, bestD = Int.max
-    for (p, v) in ladder.enumerated() { let d = abs(v - idx); if d < bestD { bestD = d; best = p } }
-    return best
-}
 /// The span's WIDTH in beats: 1 = one column (S) · 8 = the whole row (`rowBeats`, byte-identical to the old ROW —
 /// honours a short loop) · ×2/×4 = 2/4 rows · 2·3·4·6 = N columns (the polymeter spans). Pure.
 @inline(__always) func spanLadderBeats(_ n: Int, S: Double, row rowBeats: Double) -> Double {
@@ -377,32 +283,6 @@ func clockDrawnGlideEndpoints(_ i: Int, ratios: [Double], glide: [Bool], steps: 
 @inline(__always) func clockDrawnGlideFullAdvance(from: Double, to: Double, rateBeats: Double) -> Double {
     to >= from ? to * rateBeats : (from + to) / 2 * rateBeats
 }
-/// The exact inverse of `clockDrawnGlideAdvance` — given a target local-time advance `r` (0…the column's full
-/// contribution), returns how far into the column (0…`rateBeats`) that is. DECELERATING: the single straight-ramp
-/// quadratic (the `+` root — the rate is always positive throughout, so `columnAdvance` is strictly monotonic and
-/// exactly one root lies in range). ACCELERATING: the same two-segment solve, unchanged. No iteration either way.
-@inline(__always) func clockDrawnGlideAdvanceInverse(_ r: Double, from: Double, to: Double, rateBeats T: Double) -> Double {
-    guard T > 0 else { return 0 }
-    func solveQuadratic(_ a: Double, _ b: Double, _ target: Double) -> Double {
-        guard abs(a) > 1e-12 else { return b > 0 ? target / b : 0 }
-        let disc = max(0, b * b + 4 * a * target)
-        return (-b + disc.squareRoot()) / (2 * a)
-    }
-    guard to >= from else {
-        let t = solveQuadratic((to - from) / (2 * T), from, r)
-        return max(0, min(T, t))
-    }
-    let P = clockDrawnGlideShape(from: from, to: to)
-    let half = T / 2
-    let posHalf = half * (from + P) / 2
-    let rest = T - half
-    if r <= posHalf {
-        let t = solveQuadratic((P - from) / (2 * half), from, r)
-        return max(0, min(half, t))
-    }
-    let tp = solveQuadratic((to - P) / (2 * rest), P, r - posHalf)
-    return max(half, min(T, half + tp))
-}
 /// A resolved lane's per-column ratio, wrapping (both `i` and the array length may be negative/short — `posMod`
 /// handles both). Shared by every function below so the wrap rule can't drift between them.
 @inline(__always) func clockDrawnRatioAt(_ i: Int, ratios: [Double], steps: Int) -> Double { ratios[posMod(posMod(i, steps), ratios.count)] }
@@ -454,43 +334,6 @@ func clockDrawnPhase(_ beat: Double, ratios: [Double], glide: [Bool], steps: Int
     return originBeat + fullLaps * lapAdvance + partial + currentAdvance
 }
 
-/// The exact inverse of `clockDrawnPhase` (Paul 2026-09-26, driver retiming — THE feature: "a grid with a variable
-/// number of steps, each step a mutually exclusive speed, and another row on the same grid for glide", wired to
-/// retime a driver's own tick generation, not just a downstream fold consumer's math). Given a LOCAL beat that
-/// grid produced (relative to a KNOWN `originBeat` — see `Router.driverClockBeat`, which computes it once per
-/// tick-search window so every candidate tick agrees on the same span-anchor), recover the REAL beat that
-/// produced it. A SET column inverts linearly; a GLIDE column inverts the closed-form quadratic (the
-/// antiderivative of a linear rate ramp, via the quadratic formula — the `+` root, since a column's own rate is
-/// always positive throughout its span, so `columnAdvance` is strictly monotonic and exactly one root lies in
-/// [0, rateBeats]). Both closed-form: a bounded O(steps) walk to find the column, then one algebraic solve — no
-/// iteration, no numerical search, matching the "derived, never accumulated" invariant.
-func clockDrawnPhaseInverse(_ localBeat: Double, originBeat: Double, ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double) -> Double {
-    guard steps > 0, rateBeats > 0, !ratios.isEmpty else { return localBeat }
-    let lapBeats = Double(steps) * rateBeats
-    var lapAdvance = 0.0; for i in 0..<steps { lapAdvance += clockDrawnColumnAdvance(i, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats) }
-    guard lapAdvance > 0 else { return originBeat }
-    let localOffset = localBeat - originBeat
-    let fullLaps = (localOffset / lapAdvance).rounded(.down)
-    var remainder = localOffset - fullLaps * lapAdvance          // in [0, lapAdvance)
-    var col = steps - 1
-    var partial = 0.0
-    for i in 0..<steps {
-        let adv = clockDrawnColumnAdvance(i, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats)
-        if remainder < partial + adv || i == steps - 1 { col = i; break }
-        partial += adv
-    }
-    remainder -= partial                                        // local advance WITHIN this column, ≥ 0
-    let withinCol: Double
-    if clockDrawnIsGlide(col, glide: glide) {
-        let (from, to) = clockDrawnGlideEndpoints(col, ratios: ratios, glide: glide, steps: steps)
-        withinCol = clockDrawnGlideAdvanceInverse(remainder, from: from, to: to, rateBeats: rateBeats)
-    } else {
-        let rate = clockDrawnRatioAt(col, ratios: ratios, steps: steps)
-        withinCol = rate > 0 ? remainder / rate : 0
-    }
-    let clampedWithin = max(0, min(rateBeats, withinCol))
-    return originBeat + fullLaps * lapBeats + Double(col) * rateBeats + clampedWithin
-}
 
 // KILL STEP (Paul 2026-09-26, sibling to CLOCK) — a single row of `steps` on/off switches (default 8): a DISABLED
 // step is removed from the downstream timeline entirely; the ENABLED steps repeat to fill the space (an even split
@@ -549,50 +392,8 @@ func killStepPhase(_ beat: Double, columnMap: [Int], columnsPerLap: Int, steps: 
     return originBeat + Double(value) * rateBeats + withinCol
 }
 
-/// The inverse of `killStepPhase`. Since the forward map DELETES dropped columns from local time (a genuine gap,
-/// unlike CLOCK's everywhere-invertible ratio warp) and can additionally FREEZE on a paused one, a local beat that
-/// lands on a step index that never occurs — routine, not an edge case, since a downstream driver's own tick grid
-/// runs at ITS rate, generally not KILL STEP's — has no real beat that produced it. POLICY (documented, not a bug,
-/// unchanged from before): snap it FORWARD to the start of the next real occurrence, so a tick that would have
-/// spoken during a dropped step instead speaks promptly once real content resumes — "downstream jumps past that
-/// step," read from the receiving end. `firstSlot[step]` (SnapshotBuilder) is the table's FIRST slot for that step,
-/// or −1 if the step is DROP (never occurs). Whenever the local beat DOES land on a real occurrence, the inverse is
-/// exact — `killStepPhase(killStepPhaseInverse(v, …), …) == v` at those points, same guarantee as before.
-func killStepPhaseInverse(_ localBeat: Double, originBeat: Double, columnMap: [Int], columnsPerLap: Int, firstSlot: [Int], steps: Int, rateBeats: Double) -> Double {
-    guard steps > 0, rateBeats > 0, columnsPerLap > 0 else { return localBeat }
-    let localOffset = localBeat - originBeat
-    let valueD = (localOffset / rateBeats).rounded(.down)
-    let withinCol = localOffset - valueD * rateBeats              // in [0, rateBeats)
-    let value = Int(valueD)
-    let lap = Int((Double(value) / Double(steps)).rounded(.down))
-    let e = value - lap * steps                                   // posMod(value, steps), in [0, steps)
-    var s = e, best = -1
-    while s < steps { if s < firstSlot.count && firstSlot[s] >= 0 { best = s; break }; s += 1 }   // the smallest real step AT/AFTER e within this lap…
-    let n = best >= 0 ? lap * columnsPerLap + firstSlot[best] : (lap + 1) * columnsPerLap          // …else snap to the next lap's first real slot
-    return originBeat + Double(n) * rateBeats + withinCol
-}
 
-/// THE DRIFT READOUT (Paul 2026-09-26, "honesty replaces the guarantee" — NARROWED same day by the elastic-landing
-/// fix, then narrowed AGAIN to accelerating-only once that fix proved audibly unsafe for decelerations — see
-/// `clockDrawnGlideAdvance`'s doc): a DRAWN lane's net time gained/lost per full lap, in BEATS (positive ⇒ the lane
-/// runs ahead of grid time; negative ⇒ behind). Zero exactly when the lane's per-column CHECKPOINT values (each
-/// glide column's own interpolated `to`, per `clockDrawnGlideEndpoints` — a mid-span glide reads its own slice, not
-/// the span's final target) average to 1 across the lap. An ACCELERATING glide step no longer contributes any
-/// extra drift purely from CHOOSING glide over SET (`clockDrawnColumnAdvance` makes those byte-identical); a
-/// DECELERATING glide step still can — this readout is the honest way to see it, exactly as it always was for that
-/// direction. So a lane can show non-zero drift either because it's genuinely, deliberately authored to run faster/
-/// slower than real time on average, OR because it contains a decelerating glide — the readout doesn't distinguish
-/// the two, same as before this whole "in sync" fix existed. Pure.
-func clockDrawnDriftPerLap(_ ratios: [Double], glide: [Bool], steps: Int, rateBeats: Double) -> Double {
-    guard steps > 0, !ratios.isEmpty else { return 0 }
-    var lapAdvance = 0.0
-    for i in 0..<steps { lapAdvance += clockDrawnColumnAdvance(i, ratios: ratios, glide: glide, steps: steps, rateBeats: rateBeats) }
-    return lapAdvance - Double(steps) * rateBeats
-}
 
-/// Piano-roll LANE for a MIDI note: C2…C6 (36…84) → 0…1, clamped. Shared by the perform-grid + BUILD-grid piano-roll
-/// faces so the pitch→lane mapping never drifts between them. (Paul 2026-08-19)
-@inline(__always) func rollLaneForPitch(_ note: Int) -> Double { clamp(Double(note - 36) / 48.0, 0, 1) }
 
 /// The splitmix64 finalizing avalanche — mixes a seed into a well-distributed 64-bit hash. Shared by the
 /// loop-consistent RANDOM arp position and the per-note CHANCE gate so the two can't drift.
@@ -606,90 +407,12 @@ func clockDrawnDriftPerLap(_ ratios: [Double], glide: [Bool], steps: Int, rateBe
 
 // MARK: - THE MOD PROCESSOR (CC generator, delta) — pure, beat-derived, replay-safe shape values.
 
-/// The unipolar [0,1] value of a CC shape at `phase` (0…1 through the LFO period). SINE = (1+sin)/2 · RAMP = the
-/// phase (rising saw) · S&H = a value HELD for the whole cycle, seeded by (column, cc, cycleIndex) so it's
-/// REPLAY-SAFE (same beat → same value; no free-running state). Pure.
-@inline(__always)
-func modUnipolar(_ shape: ModShape, phase: Double, column: Int, cc: Int, cycleIndex: Int) -> Double {
-    let p = positiveFract(phase)
-    switch shape {
-    case .sine:     return (1 + sin(2 * Double.pi * p)) / 2
-    case .triangle: return 1 - abs(2 * p - 1)                 // 0 → 1 → 0 (peak at mid-cycle)
-    case .square:   return p < 0.5 ? 1 : 0
-    case .ramp:     return p
-    case .sampleHold:
-        let seed = (UInt64(bitPattern: Int64(cycleIndex)) &* 0x9E3779B97F4A7C15)
-                 ^ (UInt64(column & 0xFF) &<< 8) ^ UInt64(cc & 0x7F)
-        return Double(splitmix64Mix(seed) >> 11) / Double(UInt64(1) << 53)   // [0,1)
-    }
-}
-/// QUANTIZE (design-cc-stage §14①): snap a 0…127 CC value to `levels` evenly-spaced steps — bit-crush for control
-/// (stepped filter sweeps from any source). levels ≤ 1 = off (identity). Pure. (Paul 2026-09-09.)
-@inline(__always)
-func modQuantizeValue(_ value: Int, levels: Int) -> Int {
-    guard levels >= 2 else { return value }
-    let n = Double(min(32, levels) - 1)                       // e.g. 4 levels → points at 0, 42, 85, 127
-    let idx = (Double(value) / 127.0 * n).rounded()           // nearest level index
-    return max(0, min(127, Int((idx / n * 127.0).rounded())))
-}
 // (paramLFOValue REMOVED 2026-09-16 — the depth/phase/quantize LFO model it computed was retired in the FROM→TO editor
 //  redesign; the live engine now sweeps via modUnipolar + from/to interpolation in Router.applyParamLFO. Was test-only.)
 
-/// FOLLOW (CC-stage §1) — the unipolar [0,1] the CC tracks from the sounding material. COUNT = held-note count /8 ·
-/// REGISTER = mean pitch mapped C1…C7 · VEL = mean velocity /127 · DENSITY = a busyness proxy (pool fullness, v1). Pure.
-@inline(__always)
-func modFollowUnipolar(_ what: ModFollow, count: Int, meanNote: Double, meanVel: Double) -> Double {
-    switch what {
-    case .count:    return Swift.min(1, Double(count) / 8.0)
-    case .register: return count == 0 ? 0 : Swift.max(0, Swift.min(1, (meanNote - 24) / 72.0))   // C1(24)…C7(96)
-    case .vel:      return count == 0 ? 0 : Swift.max(0, Swift.min(1, meanVel / 127.0))
-    case .density:  return Swift.min(1, Double(count) / 8.0)   // v1 proxy = pool fullness (true event-rate density = a follow-up)
-    }
-}
 
-/// STEPS (CC-stage §1) — the unipolar value at `phase` (0…1) across the 8-step pattern. STEP holds each step; SMOOTH
-/// interpolates to the next (wrapping). Pure.
-@inline(__always)
-func modStepsUnipolar(_ steps: [Int], phase: Double, smooth: Bool) -> Double {
-    let n = steps.count                                   // 8 (PERIOD/ROW), 16 (ROW×2) or 32 (ROW×4)
-    guard n >= 1 else { return 0 }
-    let p = positiveFract(phase) * Double(n)
-    let i = Swift.min(n - 1, Int(p)); let frac = p - Double(i)
-    let a = Double(steps[i]) / 127.0
-    if !smooth { return a }
-    let b = Double(steps[(i + 1) % n]) / 127.0
-    return a + (b - a) * frac
-}
 
-/// The common name of a CC number (the CC-stage §1 "named dozen"), or nil for an unnamed controller. Pure/testable;
-/// drives the labelled CC picker ("74 · CUTOFF").
-func ccName(_ n: Int) -> String? {
-    switch n {
-    case 1:  return "MOD WHEEL"
-    case 2:  return "BREATH"
-    case 5:  return "PORTA TIME"
-    case 7:  return "VOLUME"
-    case 10: return "PAN"
-    case 11: return "EXPRESSION"
-    case 64: return "SUSTAIN"
-    case 65: return "PORTAMENTO"
-    case 71: return "RESONANCE"
-    case 72: return "RELEASE"
-    case 73: return "ATTACK"
-    case 74: return "CUTOFF"
-    case 91: return "REVERB"
-    case 93: return "CHORUS"
-    default: return nil
-    }
-}
 
-/// CONTROLLER ROUTING (v1): the union emitter mask (A–D) an incoming controller forwards to — the OR of the
-/// CONTROLLERS masks of every door that HEARS it (channel + cable). Pure/testable.
-func controllerForwardMask(hearing: [Bool], masks: [UInt8]) -> UInt8 {
-    var m: UInt8 = 0
-    for i in 0..<min(hearing.count, masks.count) where hearing[i] { m |= masks[i] }
-    return m & 0b1111
-}
 
 /// True if a status byte is a channel CONTROLLER we re-route (CC · Program Change · Channel Pressure/AT · Pitch Bend).
 /// Poly-pressure (0xA0) is parked with MPE. Pure.
@@ -700,45 +423,10 @@ func isForwardableController(_ status: UInt8) -> Bool {
 
 // MARK: - GLIDE (notes→pitch-bend translator) — pure math.
 
-/// The 14-bit pitch-bend value (0…16383, 8192 = centre) for `semitones` of bend within a ±`range`-semitone span.
-/// Clamped to the wheel's limits. Pure. (GLIDE / the future BEND stage.)
-@inline(__always)
-func glideBend14(semitones: Double, range: Int) -> Int {
-    let r = Double(max(1, range))
-    let frac = max(-1, min(1, semitones / r))
-    return max(0, min(16383, Int((8192.0 + frac * 8191.0).rounded())))
-}
 
-/// TRUE when a glide target is beyond the bend RANGE from the anchor → the note must RE-ANCHOR (or clamp). Pure.
-@inline(__always)
-func glideNeedsReanchor(target: Int, anchor: Int, range: Int) -> Bool { abs(target - anchor) > range }
 
-/// GLIDE SYNTH mode (Paul 2026-08-22): map the glide TIME (beats) to a CC5 portamento-time value (0…127). Synth-
-/// specific in reality, so this is a reasonable first-pass linear scaling (0.25 beat → ~6, ≥5.3 beats → 127). Pure.
-func glideSynthCCTime(_ beats: Double) -> Int { max(0, min(127, Int((beats * 24.0).rounded()))) }
 
-/// The "standard" resting value of a CC — what a MOD target reverts to when ABANDONED (the CC# swept past it). Volume
-/// / expression / cutoff → full · pan / balance → centre · everything else → off. Pure. (So sweeping the target knob
-/// past CC7 doesn't leave the synth's volume knocked down — user 2026-08-10.)
-func ccDefault(_ cc: Int) -> Int {
-    switch cc {
-    case 7, 11: return 127   // volume · expression
-    case 74:    return 127   // cutoff / brightness — full = filter effectively off
-    case 8, 10: return 64    // balance · pan — centre
-    default:    return 0
-    }
-}
 
-/// STRIKE (CC-stage §1, v1 per-ENTRY) — an ATTACK→RELEASE envelope, `t` beats since the trigger (column entry).
-/// Rises 0→1 over `attack`, falls 1→0 over `release`, then rests at 0. Pure.
-@inline(__always)
-func modStrikeUnipolar(t: Double, attack: Double, release: Double) -> Double {
-    guard t >= 0 else { return 0 }
-    let a = Swift.max(0.001, attack), r = Swift.max(0.001, release)
-    if t < a { return t / a }
-    let d = t - a
-    return d < r ? 1 - d / r : 0
-}
 
 
 // MARK: - The source pool (§2.5): omni, keyed by note number
@@ -773,17 +461,6 @@ final class NotePool {
         playedCount = 0
     }
 
-    /// A VALUE snapshot of the held state (Paul 2026-09-03) — for the OFFLINE part-roll render: the caller clones the live
-    /// pool on the main thread (a benign torn read of the flat UInt8 arrays, the 2026-08-10 class) and runs a fresh Router
-    /// against the stable copy, so a mid-run change on the render thread can't garble the pass.
-    func clone() -> NotePool {
-        let p = NotePool()
-        p.omniRead = omniRead
-        for i in 0..<128 { p.vel[i] = vel[i]; p.chan[i] = chan[i]; p.cbl[i] = cbl[i]; p.order[i] = order[i] }
-        p.count = count; p.playedCount = playedCount
-        p.rebuildSorted()
-        return p
-    }
 
     func noteOn(_ note: UInt8, velocity: UInt8, channel: UInt8, cable: UInt8 = 0) {
         let n = Int(note)
@@ -865,29 +542,7 @@ final class NotePool {
         return 255
     }
 
-    /// BYPASS: the held velocity of a note (0 = not held). Public read for the Router's direct-injection pass.
-    func heldVelocity(_ note: UInt8) -> UInt8 { vel[Int(note)] }
-    func heldChannel(_ note: UInt8) -> UInt8 { chan[Int(note)] }   // §3 key filter reads these to preserve a remapped note's origin
-    func heldCable(_ note: UInt8) -> UInt8 { cbl[Int(note)] }
 
-    /// ALL sounding notes' pitch classes (no filter) — the reference set when a door's OWN pool IS the key reference (a
-    /// SCALE / KEYS / latched door's frozen pool). Pure; no sort needed (reads vel[] directly). (ratified §3)
-    func pitchClassMaskAll() -> UInt16 {
-        var m: UInt16 = 0
-        for n in 0..<128 where vel[n] != 0 { m |= UInt16(1) << UInt16(n % 12) }
-        return m
-    }
-    /// KEYS EXCLUDE (Paul 2026-08-22): the 12-bit PITCH-CLASS mask of the notes currently held on a door's filter —
-    /// the complement door subtracts these from its typed set. Pure. Requires rebuildSorted() first (like srcCount).
-    func pitchClassMask(chanMask: UInt16, cableMask: Int, noteLo: UInt8, noteHi: UInt8) -> UInt16 {
-        var m: UInt16 = 0
-        let c = srcCount(chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
-        for k in 0..<c {
-            let n = srcAscending(k, chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
-            if n <= 127 { m |= UInt16(1) << UInt16(Int(n) % 12) }
-        }
-        return m
-    }
     /// Count of held notes passing the filter.
     func srcCount(filter: UInt8, cableMask: Int = 0b1111) -> Int {
         if filter == 0 && cableMask == 0b1111 { return count }
@@ -907,42 +562,6 @@ final class NotePool {
         return 255
     }
 
-    /// The k-th press-order held note passing the filter (k in 0..<srcCount). 255 if out of range.
-    func srcPlayed(_ k: Int, filter: UInt8, cableMask: Int = 0b1111) -> UInt8 {
-        if filter == 0 && cableMask == 0b1111 { return k < playedCount ? order[k] : 255 }
-        var seen = 0
-        for i in 0..<playedCount where matches(order[i], filter, cableMask) {
-            if seen == k { return order[i] }
-            seen += 1
-        }
-        return 255
-    }
-    // RANGE (§2): press-order read within a note window — the AS-PLAYED arp variant (press order preserved).
-    func srcPlayed(_ k: Int, filter: UInt8, cableMask: Int, noteLo: UInt8, noteHi: UInt8) -> UInt8 {
-        var seen = 0
-        for i in 0..<playedCount where matches(order[i], filter, cableMask) {
-            let note = order[i]; guard note >= noteLo && note <= noteHi else { continue }
-            if seen == k { return note }; seen += 1
-        }
-        return 255
-    }
-    // MULTI-CHANNEL (Paul 2026-08-23): the AS-PLAYED reads by a channel MASK — so an arp honours a door's multi-channel
-    // subset on LIVE input (not just the legacy single channel). chanMask 0xFFFF = OMNI.
-    func srcPlayed(_ k: Int, chanMask: UInt16, cableMask: Int = 0b1111) -> UInt8 {
-        var seen = 0
-        for i in 0..<playedCount where matchesMask(order[i], chanMask, cableMask) {
-            if seen == k { return order[i] }; seen += 1
-        }
-        return 255
-    }
-    func srcPlayed(_ k: Int, chanMask: UInt16, cableMask: Int, noteLo: UInt8, noteHi: UInt8) -> UInt8 {
-        var seen = 0
-        for i in 0..<playedCount where matchesMask(order[i], chanMask, cableMask) {
-            let note = order[i]; guard note >= noteLo && note <= noteHi else { continue }
-            if seen == k { return note }; seen += 1
-        }
-        return 255
-    }
 
     // §item 11: convenience readers — pull BOTH filter fields (channel + cable) off a SnapCell in one
     // place, so the render loop's ~dozen source-pick sites can't drift the (inputChannel, inputCableMask)
@@ -1059,19 +678,6 @@ final class NotePool {
         }
         rebuildSorted()
     }
-    /// The 128-bit MASK of admitted notes (lo = notes 0…63, hi = 64…127), filtered exactly like `captureFiltered`. Used by
-    /// HOLD to detect a NEW chord by note IDENTITY (added/removed notes) rather than count — so a same-size swap or a
-    /// within-block release+restrike is caught. (Paul 2026-08-31.)
-    func admittedMask(chanMask: UInt16, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127) -> (UInt64, UInt64) {
-        var lo: UInt64 = 0, hi: UInt64 = 0
-        for i in 0..<count {
-            let note = sorted[i]
-            if note >= noteLo && note <= noteHi && matchesMask(note, chanMask, cableMask) {
-                if note < 64 { lo |= UInt64(1) << UInt64(note) } else { hi |= UInt64(1) << UInt64(note - 64) }
-            }
-        }
-        return (lo, hi)
-    }
     func latchAddStep(from live: NotePool, chanMask: UInt16, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127, prevHeld: inout [Bool]) {
         for n in 0..<128 {
             let note = UInt8(n)
@@ -1084,37 +690,9 @@ final class NotePool {
         }
         rebuildSorted()
     }
-    /// ADDITIVE filtered copy — merge `src`'s admitted notes INTO this pool WITHOUT clearing it (unlike captureFiltered).
-    /// Plays LIVE input alongside a FROZEN source: for KEYS/REPLAY/FILE the door's enabled channels feed the grid ON TOP
-    /// of the loop/clip/keyboard (Paul 2026-08-23). Channel-preserving; a pitch already present is overwritten by live
-    /// (last-writer, harmless — the pool is note-indexed, so a duplicate is one entry either way). Rebuilds the sorted view.
-    func mergeFiltered(from src: NotePool, chanMask: UInt16, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127) {
-        for i in 0..<src.count {
-            let note = src.sorted[i]
-            if note >= noteLo && note <= noteHi && src.matchesMask(note, chanMask, cableMask) {
-                noteOn(note, velocity: src.vel[Int(note)], channel: src.chan[Int(note)], cable: src.cbl[Int(note)])
-            }
-        }
-        rebuildSorted()
-    }
 }
 
 enum HoldCapture { case replace, union, keep }
-/// HOLD's per-render capture decision (PURE, so it's testable off-device — the Kernel just wires it to the live/frozen pools).
-/// Given the PREVIOUS admitted note set, the CURRENT admitted set, and whether a release is pending (`releasing`), decide:
-///   • REPLACE — a NEW chord: a note ADDED after a RELEASE (a removal this render OR a pending one) → freeze the current set.
-///   • UNION   — the same chord still FORMING: an add with no release → accumulate (staggered/rolled onset builds up).
-///   • KEEP    — no note added → hold the frozen chord.
-/// Returns the action + the new `releasing` flag. Catches a same-size SWAP and a within-block release+restrike (both change
-/// the SET even when the COUNT is unchanged). LIMITATION: a LEGATO change where the new chord fully sounds BEFORE the old is
-/// released (no removal precedes the add) is indistinguishable from adding to the chord → UNION (documented). (Paul 2026-08-31.)
-func holdCaptureDecision(prevLo: UInt64, prevHi: UInt64, curLo: UInt64, curHi: UInt64, releasing: Bool) -> (action: HoldCapture, releasing: Bool) {
-    let removed = (prevLo & ~curLo) != 0 || (prevHi & ~curHi) != 0
-    let added   = (curLo & ~prevLo) != 0 || (curHi & ~prevHi) != 0
-    let rel = releasing || removed
-    if added { return (rel ? .replace : .union, false) }
-    return (.keep, rel)
-}
 
 /// THE SCALE DOOR pool (ratified spec §1): every note of `type` rooted at `root` (0=C…11=B), realized ascending across
 /// `octaves` octaves from the home octave `baseOct` (baseOct 3 → C3 = MIDI 48, the C-1 convention). Out-of-MIDI notes
@@ -1134,53 +712,7 @@ func scaleNotes(root: Int, type: ScaleType, baseOct: Int, octaves: Int) -> [Int]
     return out                                                  // already ascending + distinct (intervals rise within an octave; octaves step by 12)
 }
 
-/// The allocation-free core of POOL-STEP (§2): the pool as a 12-bit PITCH-CLASS mask (`pitchClassMaskAll`). Degree
-/// arithmetic over the set bits; O(12), no allocation — safe on the render path. Empty mask ⇒ semitone fallback.
-func poolStepMask(_ note: Int, steps: Int, pcMask: UInt16) -> Int {
-    let k = pcMask.nonzeroBitCount
-    guard k > 0 else { return max(0, min(127, note + steps)) }
-    let pc = ((note % 12) + 12) % 12
-    let baseOct = (note - pc) / 12                                  // note = baseOct*12 + pc
-    var i = -1, rank = 0                                            // pc's DEGREE index among the set bits
-    for b in 0..<12 where (pcMask >> UInt16(b)) & 1 != 0 { if b == pc { i = rank }; rank += 1 }
-    if i < 0 {                                                      // FOLD: anchor at the nearest set pitch class (down ties before up)
-        var best = 0, bestDist = 99, r = 0
-        for b in 0..<12 where (pcMask >> UInt16(b)) & 1 != 0 {
-            let d = min((((b - pc) % 12) + 12) % 12, (((pc - b) % 12) + 12) % 12)
-            if d < bestDist { bestDist = d; best = r }
-            r += 1
-        }
-        i = best
-    }
-    let target = i + steps
-    let deg = ((target % k) + k) % k
-    let octShift = Int((Double(target) / Double(k)).rounded(.down))
-    var pcOut = 0, r = 0                                            // the deg-th set pitch class
-    for b in 0..<12 where (pcMask >> UInt16(b)) & 1 != 0 { if r == deg { pcOut = b; break }; r += 1 }
-    return max(0, min(127, baseOct * 12 + pcOut + octShift * 12))
-}
 
-/// The 12-bit PITCH-CLASS mask of a declared key (root + scale) — the reference set for a KEY-referenced AVOID/LOCK stage.
-/// Pure/testable. (2026-08-31)
-func scalePitchClassMask(root: Int, scale: ScaleType) -> UInt16 {
-    var m: UInt16 = 0
-    for iv in scale.intervals { m |= UInt16(1) << UInt16((((root + iv) % 12) + 12) % 12) }
-    return m
-}
-/// Widen a 12-bit pitch-class mask by ±`semis` semitones — every set class ALSO marks its neighbours. AVOID's "CLASHES":
-/// don't just dodge the reference's exact notes, dodge the ones a semitone (ic1, semis 1) or tone (ic2, semis 2) away that
-/// clash with it. semis 0 = unchanged. Pure/testable. (2026-08-31)
-func widenClashMask(_ mask: UInt16, semis: Int) -> UInt16 {
-    guard mask != 0, semis > 0 else { return mask }
-    var out = mask
-    for pc in 0..<12 where (mask >> UInt16(pc)) & 1 != 0 {
-        for d in 1...semis {
-            out |= UInt16(1) << UInt16((pc + d) % 12)
-            out |= UInt16(1) << UInt16((pc + 12 - (d % 12)) % 12)
-        }
-    }
-    return out
-}
 // MARK: - CHORDS (ratified 2026-09-01) — diatonic progressions DERIVED from a key by rank arithmetic. Pure core.
 
 /// The CHORDS voicing/spread (SPEC-chords-stage §1).
@@ -1278,48 +810,8 @@ func degreeLabel(degree deg: Int, scaleTones: [Int]) -> String {
     }
 }
 
-/// THE KEY FILTER (ratified scale-door §3): map an input note through a reference PITCH-CLASS set. `only` = keep only the
-/// set's classes (ONLY / intersection — in-key) vs drop them (MINUS / complement). `snap` = an out-of-set note remaps to the
-/// NEAREST legal note (SNAP — the jam-proof keyboard) vs drops (BLOCK — the strict gate). Returns the note (possibly
-/// remapped), or nil to drop. Pitch-class (mod 12), octave-independent. Pure/testable; no allocation.
-func keyFilterNote(_ note: Int, refMask: UInt16, only: Bool, snap: Bool) -> Int? {
-    if refMask == 0 { return only ? nil : note }                // empty reference: ONLY admits nothing (the tell), MINUS excludes nothing
-    func allowed(_ n: Int) -> Bool {
-        let inSet = (refMask >> UInt16(((n % 12) + 12) % 12)) & 1 != 0
-        return only ? inSet : !inSet
-    }
-    if allowed(note) { return note }
-    guard snap else { return nil }                              // BLOCK
-    for d in 1...12 {                                           // SNAP: the nearest legal note (down ties before up)
-        if note - d >= 0 && allowed(note - d) { return note - d }
-        if note + d <= 127 && allowed(note + d) { return note + d }
-    }
-    return nil
-}
 
-/// ECHO IN-KEY WALK: advance from `note` to the NEXT note whose pitch class is in `refMask` — ALWAYS a genuinely
-/// different note (never returns `note` even if already in-key, unlike keyFilterNote's snap-to-nearest-or-stay).
-/// dir > 0 = up, dir < 0 = down; dir == 0 or refMask == 0 ⇒ nil (hold — no legal move, mirrors echoPitch==0
-/// meaning "no movement" in flat mode). Cross-octave (mod 12), bounded to 0...127 — the range bound itself caps
-/// iteration count, no separate counter needed. Pure/testable; no allocation.
-func nextInKeyNote(_ note: Int, refMask: UInt16, dir: Int) -> Int? {
-    guard refMask != 0, dir != 0 else { return nil }
-    let step = dir > 0 ? 1 : -1
-    var n = note + step
-    while n >= 0 && n <= 127 {
-        if (refMask >> UInt16(n % 12)) & 1 != 0 { return n }
-        n += step
-    }
-    return nil
-}
 
-/// MIDI note number → name: pitch class + a NON-NEGATIVE octave (note 0 = C0 … note 127 = G10) — the range
-/// display never shows a "-1" octave (user 2026-08-03). Shared by the cog RANGE chips, the strip header's range
-/// summary, and tests — one source so the naming can't drift.
-func midiNoteName(_ n: UInt8) -> String {
-    let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-    return "\(names[Int(n) % 12])\(Int(n) / 12)"
-}
 
 // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, identity at 50 (a = 1)
 
@@ -1455,188 +947,23 @@ func chopSlice(_ mBeat: Double, columnBeats S: Double) -> Int {
     return min(7, max(0, Int(frac * 8)))
 }
 
-/// TUTTI PATTERN — the GLOBAL slice index of an onset at `mBeat`, at `sliceBeats` per slice (so an authored pattern
-/// walks continuously across columns rather than resetting). A pure function of musical position → replay-exact.
-func tuttiSliceOf(_ mBeat: Double, sliceBeats: Double) -> Int {
-    guard sliceBeats > 0 else { return 0 }
-    return Int((mBeat / sliceBeats).rounded(.down))
-}
 
-/// TUTTI PATTERN — the ascending-rank indices a slice STATE emits + their octave shift (semitones). `count` = the
-/// held set size (rank 0 = lowest … count−1 = highest). REST → none; the ±oct variants shift the emitted pitch. Pure.
-// Fill `buf[0..<rankCount]` with the slice's ranks (indices into the sorted chord) — no-alloc form for the render hot
-// loop. Returns (rankCount, octave). The array `tuttiSliceRanks` below wraps it for the tests.
-func tuttiSliceRanksInto(_ buf: inout [Int], _ state: TuttiSlice, count: Int) -> (rankCount: Int, octave: Int) {
-    guard count > 0, buf.count >= count else { return (0, 0) }
-    switch state {
-    case .all:        for i in 0..<count { buf[i] = i }; return (count, 0)
-    case .low:        buf[0] = 0; return (1, 0)
-    case .high:       buf[0] = count - 1; return (1, 0)
-    case .top2:       if count >= 2 { buf[0] = count - 2; buf[1] = count - 1; return (2, 0) }; buf[0] = 0; return (1, 0)
-    case .bot2:       if count >= 2 { buf[0] = 0; buf[1] = 1; return (2, 0) }; buf[0] = 0; return (1, 0)
-    case .lowOct:     buf[0] = 0; return (1, 12)
-    case .allDownOct: for i in 0..<count { buf[i] = i }; return (count, -12)
-    case .rest:       return (0, 0)
-    }
-}
-func tuttiSliceRanks(_ state: TuttiSlice, count: Int) -> (ranks: [Int], octave: Int) {
-    var buf = [Int](repeating: 0, count: max(1, count))
-    let (n, oct) = tuttiSliceRanksInto(&buf, state, count: count)
-    return (Array(buf[0..<n]), oct)
-}
 
 // MARK: - LENGTH (Paul 2026-08-05): per-slice GATE override — 8 slices of the STEP, PASS/MUTE/SHORT/LONG
 
-/// The note-on events (musical on/off beats) for ONE column's 8 slices — the STANDALONE re-articulator. PASS
-/// sustains/TIES (no re-attack while ringing; resumes with a fresh sustain after silence), MUTE silences (and cuts a
-/// ringing note), SHORT is staccato (5–95% of a slice), LONG rings (0.25 slice … the STEP end). Pure + window-
-/// independent (recomputed per column from `colStart`); every off is capped at the column end (nothing rings past the
-/// step — the envelope law). `rotate` shifts which painted slice maps to which time-slice.
-// No-alloc form for the render hot loop: fill a caller-owned `buf` (≥ 8) with the events, return the count (≤ 8, since at
-// most one event is appended per slice). Router binds a reused `lenEventBuf`; the array wrapper below is for the tests.
-@discardableResult func lengthColumnEventsInto(_ buf: inout [(on: Double, off: Double)], slices: [LenState], rotate: Int,
-                                               shortFrac: Double, longFrac: Double, colStart: Double, S: Double) -> Int {
-    guard S > 0, !slices.isEmpty, buf.count >= 8 else { return 0 }
-    let sliceLen = S / 8
-    let colEnd = colStart + S
-    let sf = max(0.05, min(0.95, shortFrac)), lf = max(0.0, min(1.0, longFrac))
-    let eps = sliceLen * 1e-6
-    var n = 0
-    var lastIdx = -1
-    var lastOff = -Double.greatestFiniteMagnitude
-    for s in 0..<8 {
-        let tau = colStart + Double(s) * sliceLen
-        let sliceEnd = tau + sliceLen
-        let state = slices[((s + rotate) % slices.count + slices.count) % slices.count]
-        switch state {
-        case .mute:
-            if lastOff > tau + eps { buf[lastIdx].off = tau; lastOff = tau }           // cut a ringing note at the rest
-        case .short:
-            if lastOff > tau + eps { buf[lastIdx].off = tau }                          // a re-attack cuts the prior ring
-            let off = min(colEnd, tau + sf * sliceLen)
-            buf[n] = (tau, off); lastIdx = n; n += 1; lastOff = off
-        case .long:
-            if lastOff > tau + eps { buf[lastIdx].off = tau }
-            let longLen = 0.25 * sliceLen + lf * max(0, (colEnd - tau) - 0.25 * sliceLen)
-            let off = min(colEnd, tau + longLen)
-            buf[n] = (tau, off); lastIdx = n; n += 1; lastOff = off
-        case .pass:
-            if lastOff >= tau - eps {                                                  // still ringing → TIE (extend, no re-attack)
-                let newOff = min(colEnd, max(lastOff, sliceEnd)); buf[lastIdx].off = newOff; lastOff = newOff
-            } else {                                                                   // silence behind → resume, sustained
-                let off = min(colEnd, sliceEnd); buf[n] = (tau, off); lastIdx = n; n += 1; lastOff = off
-            }
-        }
-    }
-    return n
-}
-func lengthColumnEvents(slices: [LenState], rotate: Int, shortFrac: Double, longFrac: Double,
-                        colStart: Double, S: Double) -> [(on: Double, off: Double)] {
-    var buf = [(on: Double, off: Double)](repeating: (0, 0), count: 8)
-    let n = lengthColumnEventsInto(&buf, slices: slices, rotate: rotate, shortFrac: shortFrac, longFrac: longFrac, colStart: colStart, S: S)
-    return Array(buf[0..<n])
-}
 
 /// LENGTH — the per-onset gate decision for the DOWNSTREAM case (LENGTH after a driver: each existing onset gets its
 /// gate replaced by the slice it lands in — no new notes). MUTE = drop, PASS = keep the driver's own off, SHORT/LONG =
 /// a new off beat (capped at the step end). Pure.
 enum LengthGate: Equatable { case drop, keep, overrideOff(Double) }
-func lengthGateFor(_ state: LenState, onset: Double, shortFrac: Double, longFrac: Double, S: Double) -> LengthGate {
-    guard S > 0 else { return .keep }
-    let colStart = columnStart(onset, S), colEnd = colStart + S, sliceLen = S / 8
-    switch state {
-    case .mute: return .drop
-    case .pass: return .keep
-    case .short: return .overrideOff(min(colEnd, onset + max(0.05, min(0.95, shortFrac)) * sliceLen))
-    case .long:
-        let lf = max(0.0, min(1.0, longFrac))
-        return .overrideOff(min(colEnd, onset + 0.25 * sliceLen + lf * max(0, (colEnd - onset) - 0.25 * sliceLen)))
-    }
-}
 
 // MARK: - BURST family (Paul 2026-08-19): PATTERN carry-span + COIN chance
 
-/// A rotated, safe read of an 8-slice BURST pattern (loaded docs may carry <8 → REST).
-@inline(__always)
-func burstSliceAt(_ slices: [BurstSlice], _ i: Int, rotate: Int) -> BurstSlice {
-    guard !slices.isEmpty else { return .rest }
-    let j = (((i - rotate) % 8) + 8) % 8
-    return j < slices.count ? slices[j] : .rest
-}
-/// The SPAN of a burst launched at slice `i` — 1 (the burst slice) + the run of contiguous CARRY slices after it.
-/// A carry with no preceding burst (or a rest) contributes nothing; the roll's strikes+curve stretch over this many
-/// slices. (Paul 2026-08-19: CARRY = span-stretch, not gate-ring.)
-@inline(__always)
-func burstCarryRun(_ slices: [BurstSlice], at i: Int, rotate: Int, count: Int = 8) -> Int {
-    guard burstSliceAt(slices, i, rotate: rotate) == .burst else { return 0 }   // burstSliceAt tiles mod-8, so this walks a >8-slice rate-driven pattern
-    var run = 1
-    while i + run < count && burstSliceAt(slices, i + run, rotate: rotate) == .carry { run += 1 }
-    return run
-}
-/// Whether this STEP fires a burst under COIN — seeded, deterministic per step, salted apart from RATCHET/CHANCE.
-@inline(__always)
-func burstCoinFires(step: Int, chance: Double) -> Bool {
-    if chance >= 1 { return true }
-    if chance <= 0 { return false }
-    let h = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x9E3779B97F4A7C15 &+ 0x1D8E4E27C47D124F)
-    return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < chance
-}
 
 // MARK: - RATCHET COIN (Paul 2026-08-16): a seeded per-STEP roll — ratchet-or-plain, and the burst count
 
-/// Whether this STEP ratchets (vs a plain single hit). DETERMINISTIC per step index (a hash — loop-consistent,
-/// replay-exact, salted apart from CHANCE/TUTTI). `chance` = P(ratchet).
-@inline(__always)
-func rtcCoinRatchets(step: Int, chance: Double) -> Bool {
-    if chance >= 1 { return true }
-    if chance <= 0 { return false }
-    let h = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x9E3779B97F4A7C15 &+ 0xA5A5A5A5A5A5A5A5)
-    return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < chance
-}
-/// The burst count for a ratcheting step, a seeded pick in [lo, hi] (clamped, lo≤hi). Deterministic per step.
-@inline(__always)
-func rtcCoinCount(step: Int, lo: Int, hi: Int) -> Int {
-    let l = max(1, min(lo, hi)), h = max(l, max(lo, hi))
-    if l == h { return l }
-    let x = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x2545F4914F6CDD1D &+ 0x1234567898765432)
-    return l + Int(x % UInt64(h - l + 1))
-}
-/// COIN — the FIRE decision (Paul 2026-08-26 ②③④): does this step ratchet, after REFIRE GAP + QUOTA + velocity-odds?
-/// FAST PATH: gap=0 & quota=0 ⇒ `rtcCoinRatchets(step, chance·velFactor)` (byte-identical when velFactor==1). Otherwise a
-/// bounded, deterministic SCAN of the coin from the ROW START (the 8-step pass) — replay-exact, NO accumulated state
-/// ("derived, never accumulated"). GAP: a fire suppresses the next N steps. QUOTA: at most `quota` fires per row.
-/// v1: gap + quota reset per 8-step row (a fire on step 7 doesn't reach step 8 — a negligible boundary edge).
-@inline(__always)
-func rtcCoinFires(step s: Int, chance: Double, gap: Int, quota: Int, velFactor: Double) -> Bool {
-    let eff = chance * velFactor
-    if gap <= 0 && quota <= 0 { return rtcCoinRatchets(step: s, chance: eff) }
-    let rowStart = (s >= 0 ? (s / 8) : ((s - 7) / 8)) * 8   // floor-div to the row origin (handles negative steps)
-    var lastFire = Int.min / 2, fired = 0
-    var t = rowStart
-    while t <= s {
-        var f = rtcCoinRatchets(step: t, chance: eff)
-        if gap > 0 && t - lastFire <= gap { f = false }          // REFIRE GAP
-        if quota > 0 && fired >= quota { f = false }             // QUOTA cap
-        if f { lastFire = t; fired += 1 }
-        if t == s { return f }
-        t += 1
-    }
-    return false
-}
 /// COIN — SIZE WEIGHTS (Paul 2026-08-26 ①): the roll SIZES the dice can pick, and their odds (the drawn distribution).
 let rtcCoinSizes = [2, 3, 4, 6, 8]
-/// A seeded WEIGHTED pick over 2·3·4·6·8 by `weights` (bar heights). Deterministic per step (same salt as rtcCoinCount).
-/// An empty/all-zero weight vector never reaches here (the engine falls back to LO/HI); guarded anyway.
-@inline(__always)
-func rtcCoinSize(step: Int, weights: [Int]) -> Int {
-    let n = min(rtcCoinSizes.count, weights.count)
-    var total = 0; for i in 0..<n { total += max(0, weights[i]) }
-    guard total > 0 else { return rtcCoinSizes[0] }
-    let x = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x2545F4914F6CDD1D &+ 0x1234567898765432)
-    var pick = Int(x % UInt64(total))
-    for i in 0..<n { pick -= max(0, weights[i]); if pick < 0 { return rtcCoinSizes[i] } }
-    return rtcCoinSizes[n - 1]
-}
 
 /// RIFF (SPEC-riff-processor §1): the note a stencil RANK strikes against the held pool (sorted ascending, cell-filtered).
 /// rank 1 = the lowest held note … N = the highest. A rank BEYOND the held count wraps per `wrap`: FOLD (wrap + octave up,
@@ -1665,17 +992,6 @@ func riffNote(rank: Int, oct: Int, pool: NotePool, for cell: SnapCell, wrap: Rif
 
 // MARK: - WEAVE (Paul 2026-08-07): a rank-clocked polyrhythm driver — each rank ticks on its own clock
 
-/// The tick spacing (beats per tick) for `rank` (0 = bass) at a MODE and BASE clock. LADDER halves per rank
-/// (base÷2^r → 1/4·1/8·1/16…); HARMONIC divides by rank+1 ((r+1)× as fast → 1:2:3:4, pitch ratios as time ratios).
-/// Pure; clamped to a sane floor so a deep rank can't tick per-sample. Replay-exact (a function of rank + base only).
-func weaveRate(mode: WeaveMode, baseBeats: Double, rank: Int) -> Double {
-    let r = max(0, rank)
-    switch mode {
-    case .ladder:   return max(0.03125, baseBeats / pow(2, Double(r)))
-    case .harmonic: return max(0.03125, baseBeats / Double(r + 1))
-    case .drawn, .euclid: return max(0.03125, baseBeats)   // these modes drive their own clock in the emitter; this is only a fallback
-    }
-}
 
 /// §cell-edit D — the contiguous [start, len) window of the ASCENDING source list a chord-split selects.
 /// ALL = the whole list; TOP n = the n highest (a suffix); BOTTOM n = the n lowest (a prefix); RANGE = the
@@ -1716,183 +1032,11 @@ func lapColumn(laneMask: UInt16, absoluteStep: Int, trueColumn: Int) -> Int {
 
 // MARK: - ARP phase (§3.5): pattern index at a tick, per phase mode
 
-/// The pattern index at this tick per PHASE mode. All pure functions of position — derived, never
-/// accumulated (§7), so tempo/loop/relocate stay drift-free.
-///  · RETRIG — restarts at each step (column) boundary.
-///  · LEGATO — counts from the run's first column (snapshot-precomputed runStartColumn), so a
-///    multi-column run of one Machine continues the pattern; a gap restarts it.
-///  · FREE   — free-running from the origin; successive passes land on different slices.
-@inline(__always)
-func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
-                cycleBeats: Double, phase: ArpPhase, runStartColumn: Int8) -> Int64 {
-    switch phase {
-    case .free:
-        return tick
-    case .retrig:
-        let colStart = (mTickBeat / S).rounded(.down) * S
-        return tick - Int64((colStart / arpBeats).rounded())
-    case .legato:
-        let passStart = (mTickBeat / cycleBeats).rounded(.down) * cycleBeats
-        let rs = runStartColumn >= 0 ? Int(runStartColumn)
-                                     : Int(((mTickBeat - passStart) / S).rounded(.down))
-        let runStart = passStart + Double(rs) * S
-        return tick - Int64((runStart / arpBeats).rounded())
-    }
-}
 
 // MARK: - ARP pattern selection (§3)
 
-/// The base note (pre-this-cell-transpose) a source-reading ARP picks at pattern index `phaseIndex`,
-/// for the given PATTERN over `octaves`. `filter` (delta §7) restricts the source pool to one input
-/// channel (0 = OMNI). All patterns are pure functions of position (loop-consistent). Chord changes
-/// never reset the index. Returns -1 for an empty (filtered) pool. No channel is returned — past the
-/// input filter notes carry no channel (delta §7); emission stamps the bus channel.
-func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
-                   pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
-                   noteLo: UInt8 = 0, noteHi: UInt8 = 127, seed: UInt64 = 0) -> Int {
-    arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool,
-            filter: filter, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi, seed: seed).note
-}
 
-/// The arp source pick AND the picked note's velocity (user 2026-08-09: processors inherit velocity from their
-/// input source). Velocity is OCTAVE-INVARIANT — it comes from the underlying HELD note, so an octave-arped copy
-/// keeps the source dynamic. Returns (-1, 0) when the pool is empty.
-func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
-             pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
-             noteLo: UInt8 = 0, noteHi: UInt8 = 127,
-             octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0,
-             velocity: Double = 100, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
-    // Legacy single-channel `filter` → channel MASK, byte-identical (0 → OMNI 0xFFFF · n → bit n−1) — then the mask body.
-    let mask: UInt16 = filter == 0 ? 0xFFFF : (filter >= 1 && filter <= 16 ? (UInt16(1) << UInt16(filter - 1)) : 0)
-    return arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool,
-                   chanMask: mask, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi,
-                   octDown: octDown, randomAnchor: randomAnchor, seed: seed,
-                   velocity: velocity, velTilt: velTilt)
-}
-// MULTI-CHANNEL arp source pick (Paul 2026-08-23): filter the source by a channel MASK so an arp honours a door's
-// multi-channel subset on LIVE input (the `for: cell` path passes cell.inputChanMask; a frozen omniRead pool passes OMNI).
-func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
-             pool: NotePool, chanMask: UInt16, cableMask: Int = 0b1111,
-             noteLo: UInt8 = 0, noteHi: UInt8 = 127,
-             octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0,
-             // ARP VELOCITY · VELOCITY TILT (Paul 2026-09-30, revised same day): `velocity` is an ABSOLUTE value
-             // 1…100 — the picked note's own input velocity is IGNORED entirely, every arp note plays at exactly
-             // this level; `velTilt` then favours the top (+) or bottom (−) of the pool by the note's ASCENDING-POOL
-             // RANK, applied on top of that fixed base — reuses `strumVelocity`'s own tilt formula verbatim (the
-             // exact chanceTilt/velTilt/bipolarSlider convention), not a second tilt implementation.
-             velocity: Double = 100, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
-    // RANGE (§2): arps admit only in-window source notes (vel window intentionally NOT applied to arps — unchanged).
-    let fullRange = noteLo <= 0 && noteHi >= 127
-    let count = fullRange ? pool.srcCount(chanMask: chanMask, cableMask: cableMask)
-                          : pool.srcCount(chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
-    guard count > 0 else { return (-1, 0) }
-    let span = count * max(1, octaves)
-    let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
-    let pat = arpPatternAt(Int(pattern))   // cached cases — no per-tick allocation (was ArpPattern.allCases)
 
-    let pos: Int
-    switch pat {
-    case .up:
-        pos = asc
-    case .down:
-        pos = span - 1 - asc
-    case .upDown:
-        // triangle, no repeated top/bottom: 0…span-1…1, period 2(span-1)
-        let period = max(1, 2 * (span - 1))
-        let tri = Int(((phaseIndex % Int64(period)) + Int64(period)) % Int64(period))
-        pos = tri < span ? tri : period - tri
-    case .random:
-        // RANDOM ANCHOR (Paul 2026-08-22): each CYCLE (span steps = one full pool×oct traversal) OPENS on the anchor —
-        // asc==0 is the wrap → the lowest (1) / highest (2) ascending position; the rest shuffle (seeded, loop-consistent).
-        if randomAnchor != 0 && asc == 0 {
-            pos = randomAnchor == 1 ? 0 : span - 1
-        } else {
-            let h = splitmix64Mix(UInt64(bitPattern: phaseIndex) &+ 0x9E3779B97F4A7C15)   // deterministic hash of the tick → position (loop-consistent, not accumulated)
-            if randomAnchor != 0 && span > 1 {
-                // ANCHOR EXCLUDED (Paul 2026-09-13): the anchor note sounds once (at the cycle wrap); the rest of the cycle
-                // shuffles only the OTHER span−1 positions, so the anchor never repeats inside the random pool. LO skips
-                // pos 0 (→ 1…span−1) · HI skips pos span−1 (→ 0…span−2). Octave copies of the anchor pitch stay in the pool
-                // (they're different notes), only the exact anchored note is held out.
-                let r = Int(h % UInt64(span - 1))
-                pos = randomAnchor == 1 ? (1 + r) : r
-            } else {
-                pos = Int(h % UInt64(span))
-            }
-        }
-    case .randomOnce:
-        // RANDOM ONCE (Paul 2026-09-16): a FIXED shuffled order, rolled from a PERSISTED seed and repeated EVERY cycle —
-        // unlike .random, which re-hashes the absolute tick so each cycle differs. The position depends ONLY on the within-
-        // cycle index `asc` (0…span-1) and the seed, so every loop is identical, and different machines/seeds shuffle
-        // differently. Same seeded-hash style as .random (not a strict permutation — a position may repeat, matching how
-        // .random already behaves), just cycle-stable. No accumulation, no allocation (invariant 2/3).
-        pos = Int(splitmix64Mix(UInt64(bitPattern: Int64(asc)) &+ seed) % UInt64(span))
-    case .asPlayed:
-        pos = asc   // ascending through the press sequence (below), not the sorted set
-    case .altLo, .altHi:
-        // ALT (Paul 2026-09-13): a pedal note alternates with each OTHER position. ALT LO pedals the lowest and walks the
-        // others ascending → 1,2,1,3,1,4… ; ALT HI mirrors it — pedals the highest and walks the others descending. The
-        // "others" span the octaves too (they're just the higher/lower span positions). Cycle length = 2·(span−1).
-        let L = max(1, 2 * (span - 1))
-        let s = Int(((phaseIndex % Int64(L)) + Int64(L)) % Int64(L))
-        let loPos = (s % 2 == 0) ? 0 : (s + 1) / 2      // 0,1,0,2,0,3,… — low pedal + ascending others
-        pos = (pat == .altLo) ? loPos : (span - 1 - loPos)   // ALT HI = the mirror (high pedal + descending others)
-    }
-
-    // AS-PLAYED reads the press-order list; every other pattern reads the sorted list. Both filtered (+ RANGE window).
-    // `rank` is captured once (the same index used to fetch the note) so the VELOCITY TILT below reuses it directly —
-    // for every pattern except AS-PLAYED this is the note's ASCENDING-POOL rank (0 = lowest); for AS-PLAYED it's the
-    // PRESS-order index instead (srcPlayed, not srcAscending), an honest minor difference for that one mode rather
-    // than a second, more expensive pitch-sort lookup just to keep the tilt "pitch-pure" everywhere.
-    let rank = pos % count
-    let note: Int
-    if pat == .asPlayed {
-        note = Int(fullRange ? pool.srcPlayed(rank, chanMask: chanMask, cableMask: cableMask)
-                             : pool.srcPlayed(rank, chanMask: chanMask, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi))
-    } else {
-        // CR-18[extra] DECISION: the ARP walk reads the whole (channel/cable/RANGE-filtered) pool — the cell's VELOCITY
-        // WINDOW (velLo/velHi pinned 0…127 here) and its CHORD SPLIT are INTENTIONALLY NOT applied to the arp, unlike
-        // HOLD/STRUM/RATCHET. Long-standing (the vel-window omission is documented elsewhere); to punch holes in an arp's
-        // pool by register/velocity, chain a SPLIT stage before the ARP. Documented, not changed (would alter every arp).
-        note = Int(fullRange ? pool.srcAscending(rank, chanMask: chanMask, cableMask: cableMask)
-                             : pool.srcAscending(rank, chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi))
-    }
-    guard note >= 0 && note <= 127 else { return (-1, 0) }
-    // OCT DIRECTION — PATTERN orders WITHIN a lap; this orders the LAPS. REDEFINED (Paul 2026-09-30, a deliberate
-    // behaviour change — was "start at the top octave, descend TO the held keys," never going below them): now
-    // symmetric with UP — lap 0 always opens AT the held register (octIdx 0 ⇒ oct 0); UP ascends from there
-    // (oct = +octIdx), DOWN descends BELOW it (oct = −octIdx). No new range handling needed: every call site
-    // already re-checks the FINAL `note + 12*oct` against 0…127 before emitting (unchanged — the same check that
-    // already silently drops an UP note pushed above 127 equally drops a DOWN note pushed below 0).
-    let octIdx = pos / count
-    let oct = octDown ? -octIdx : octIdx
-    // VELOCITY (Paul 2026-09-30, revised same day): `velocity` is the note's ENTIRE velocity — the input note's own
-    // velocity (`pool.velocity`) is deliberately never read here anymore; every arp note plays at exactly the dialed
-    // level, then TILT shapes it by pool rank — reuses `strumVelocity` verbatim, keyed on `rank`/`count` (the exact
-    // ascending-pool index just used to fetch `note`).
-    let base = clampVel(Int(velocity.rounded()))
-    let vel = strumVelocity(index: rank, count: count, tilt: velTilt, base: Int(base))
-    return (note + 12 * oct, vel)
-}
-
-/// §item 11 convenience — same as above, reading the (channel + cable) filter straight off a SnapCell
-/// so the render loop's arp source-picks can't drift the pairing. The preview/audition paths keep the
-/// explicit-`filter:` form (they force a source, not the cell's).
-func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell,
-                   octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0) -> Int {
-    arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool, for: cell, octDown: octDown, randomAnchor: randomAnchor, seed: seed).note
-}
-func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell,
-             octDown: Bool = false, randomAnchor: Int = 0, seed: UInt64 = 0,
-             velocity: Double = 100, velTilt: Double = 0) -> (note: Int, vel: UInt8) {
-    // MULTI-CHANNEL (Paul 2026-08-23): filter by the cell's channel MASK (was the legacy single `inputChannel` — which is
-    // OMNI for a multi-channel-masked door, so an arp ignored the mask on live input). omniRead FROZEN pool → skip the
-    // door filter entirely (channel/cable/range applied at capture; see NotePool.omniRead).
-    arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
-            pool: pool, chanMask: pool.omniRead ? 0xFFFF : cell.inputChanMask, cableMask: pool.omniRead ? 0b1111 : Int(cell.inputCableMask),
-            noteLo: pool.omniRead ? 0 : cell.inputRangeLo, noteHi: pool.omniRead ? 127 : cell.inputRangeHi,   // RANGE (§2)
-            octDown: octDown, randomAnchor: randomAnchor, seed: seed,
-            velocity: velocity, velTilt: velTilt)
-}
 
 // MARK: - Processor dispatch (§3/§4)
 
@@ -1905,15 +1049,6 @@ enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, eu
 
 // MARK: - Receiver channel match (delta §9 item 11)
 
-/// Does a receiver with `filter` (0 = OMNI, 1–16) hear a note arriving on wire `channel` (0–15)?
-/// Wire channel = filter − 1. Used for input metering attribution (and mirrors NotePool's source filter).
-@inline(__always) func receiverHears(filter: UInt8, channel: UInt8) -> Bool {
-    filter == 0 || filter == channel + 1
-}
-// MULTI-CHANNEL (Paul 2026-08-21): does a door's channel SUBSET hear this channel? (bit c = channel c+1.)
-@inline(__always) func receiverHearsMask(_ chanMask: UInt16, channel: UInt8) -> Bool {
-    (chanMask & (UInt16(1) << UInt16(channel))) != 0
-}
 
 /// INPUT CABLES admission (§item 11): does a receiver whose cable BITMASK is `mask` (bit i = cable i+1)
 /// hear an event arriving on `eventCable` (1–4)? ANY = all bits set. An out-of-range/unknown cable (0 or
@@ -1924,28 +1059,7 @@ enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, eu
     return (mask & (1 << (eventCable - 1))) != 0
 }
 
-/// The THRU-pip passthrough gate (receiver strip): may a passthrough event forward, following the THRU
-/// receiver (its `filter`/`cableMask`)? A MUTED THRU (filter ≥ mutedSourceFilter) blocks EVERYTHING — the
-/// note soundcheck included. A non-note event (CC/PB/AT) additionally requires the THRU receiver's
-/// cable+channel admission; a note (stopped-transport soundcheck) is mute-gated only. Supersedes the
-/// hardwired follows-R1 rule — same behaviour, now aimed by the movable pip.
-@inline(__always) func thruAudible(isNote: Bool, isSystem: Bool, filter: UInt8, cableMask: Int, eventCable: Int, channel: UInt8) -> Bool {
-    if filter >= Snap.mutedSourceFilter { return false }        // muted THRU passes nothing
-    if isNote { return true }                                   // note soundcheck: mute-gated only
-    // SYSTEM messages (0xF0–0xFF: clock/start/stop/SysEx/active-sensing) are channel-LESS — their status low nibble
-    // is a sub-type, not a channel. Cable-gate them (a legitimate port distinction) but NEVER channel-filter, else a
-    // non-OMNI THRU pip would silently swallow transport/clock. (audit 2026-08-05 B1.)
-    if isSystem { return receiverHearsCable(mask: cableMask, eventCable: eventCable) }
-    return receiverHearsCable(mask: cableMask, eventCable: eventCable) && receiverHears(filter: filter, channel: channel)
-}
 
-/// UI peak-hold decay (delta §6a metering): a level fading linearly from `peak` to 0 over `hold`
-/// seconds since `since`. Shared by the RECEIVERS input meters and the EMITTERS output meters — the
-/// UI owns the decay (the engine feed is read-and-clear). Clamped ≥ 0 so a stale timestamp reads dark.
-func peakHoldLevel(peak: Double, since: Date, now: Date, hold: Double = 0.15) -> Double {
-    guard hold > 0 else { return 0 }
-    return max(0, peak * (1 - now.timeIntervalSince(since) / hold))
-}
 
 // MARK: - ON ARRIVE (§9 item 1) — temporal treatments as PURE derivations of the arrival counter
 
@@ -1984,24 +1098,11 @@ func onSceneAudible(_ on: OnConfig, pass: Int) -> Bool {
 // release; LATCH (3c) will keep it until §5c HOLD. These are the alt/octave treatments (3a); FREEZE /
 // MORPH-SCRUB / SLICE-CYCLE follow in 3b.
 
-/// ON HOLD = ALT: flip the held cell to its B-state while held.
-func holdAlt(base: Bool, on: OnConfig, held: Bool) -> Bool {
-    (held && on.hold == .alt) ? !base : base
-}
 
-/// ON HOLD = OCT: shift the held cell's notes an octave (± per octUp) while held; 0 otherwise.
-func holdOctaveShift(on: OnConfig, held: Bool) -> Int {
-    (held && on.hold == .oct) ? (on.octUp ? 12 : -12) : 0
-}
 
 
 // MARK: - MPE detection (§ receiver property) — auto-detect the MPE controller for the cog-page indicator
 
-/// A receiver is likely fed by an MPE controller when its recent note-ons spanned ≥2 distinct channels — MPE
-/// spreads each note to its own member channel, an ordinary source uses one. `channelMask` bit i = channel i
-/// (0-based) heard this window. Pure — drives the per-receiver MPE-detected light (a single-channel receiver
-/// never trips it, so detection is meaningful only under OMNI / MPE-merge).
-func mpeLikely(channelMask: UInt16) -> Bool { channelMask.nonzeroBitCount >= 2 }
 
 // MARK: - UMP (MIDI 2.0 / eventList) → legacy 3-byte MIDI (§item 11 INPUT CABLES — the eventList path)
 
@@ -2078,55 +1179,9 @@ func cellMode(type: ProcessorType, bypassed: Bool) -> CellMode {
 
 // MARK: - HARMONIZE (§3): expand one note into itself + up to 3 transposed voices
 
-/// The notes a HARMONIZE cell emits for one input `base` note: the root, then each non-zero interval
-/// (−24…+24 st), clamped to MIDI range and de-duplicated (a unison/collision would just refcount).
-/// Returns count; fills `out` (caller-sized ≥ 4). `scaledVel` gives each voice's velocity: the root
-/// at `baseVel`, added voices scaled by `velScale`. Pure — no allocation (caller owns the buffer).
-@inline(__always)
-func harmonizeVoices(base: Int, intervals: (Int8, Int8, Int8),
-                     into out: inout [Int], vel baseVel: UInt8, velScale: Double,
-                     vels: inout [UInt8], poolMask: UInt16 = 0) -> Int {
-    var n = 0
-    func add(_ note: Int, _ v: UInt8) {
-        guard note >= 0 && note <= 127 else { return }
-        for i in 0..<n where out[i] == note { return }    // de-dup (unison → single voice)
-        out[n] = note; vels[n] = v; n += 1
-    }
-    add(base, baseVel)                                     // root at full velocity
-    let addedVel = clampVel(Int((Double(baseVel) * velScale).rounded()))
-    // §2 POOL-STEP: a non-zero poolMask makes each interval a DEGREE step up the pool (the diatonic third, in key), else semitones.
-    for iv in [intervals.0, intervals.1, intervals.2] where iv != 0 { add(poolMask != 0 ? poolStepMask(base, steps: Int(iv), pcMask: poolMask) : base + Int(iv), addedVel) }
-    return n
-}
 
 // MARK: - CHANCE (§3): deterministic per-note-on probability gate
 
-/// Whether a note-on at musical beat `beat` for `note` passes a `probability` (0…1) gate. DETERMINISTIC
-/// — a pure hash of (position, note), NOT a live RNG — so it is loop-consistent: loop the host and the
-/// same notes drop; play forward and each position re-rolls. The off follows its on's fate (§3): the
-/// caller simply doesn't emit either when this returns false. Beat is quantized to a 1/64 grid so
-/// buffer-alignment jitter can't change a note's fate mid-flight.
-@inline(__always)
-func chancePasses(beat: Double, note: Int, probability: Double) -> Bool {
-    if probability >= 1 { return true }
-    if probability <= 0 { return false }
-    let q = Int64((beat * 64).rounded())
-    let h = splitmix64Mix(UInt64(bitPattern: q) &* 0x9E3779B97F4A7C15 &+ UInt64(bitPattern: Int64(note &* 2654435761)))
-    return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < probability
-}
-/// CHANCE with POOL-AWARENESS (user 2026-08-11), folding into the seeded `chancePasses`:
-/// • CONSTANT-DENSITY: keep roughly a CONSTANT NUMBER of notes regardless of chord size — per-note p = min(1, prob·8/N)
-///   (so a big chord thins to ~prob·8 notes, a small one passes). • WEIGHT/tilt (−1…1): bias which notes survive by
-///   their RANK (0 = bottom … 1 = top); +tilt favours the TOP notes, −tilt the BOTTOM.
-func chancePassesPool(beat: Double, note: Int, rank: Int, count: Int, probability: Double, tilt: Double, constantDensity: Bool) -> Bool {
-    var p = probability
-    if constantDensity && count > 0 { p = min(1.0, probability * 8.0 / Double(count)) }
-    if tilt != 0 && count > 1 {
-        let f = Double(rank) / Double(count - 1)      // 0 (bottom) … 1 (top)
-        p = max(0, min(1, p + tilt * (f - 0.5)))
-    }
-    return chancePasses(beat: beat, note: note, probability: p)
-}
 
 
 /// RIFF TIE LOOKAHEAD FIX (Paul 2026-09-28): the stencil step a non-DRUNK direction mode plays at absolute tick
@@ -2151,35 +1206,6 @@ func riffStepAt(_ dir: RiffDir, raw: Int, steps: Int, seed: UInt64) -> Int {
     }
 }
 
-/// MELODY TAB — RIFF MARKS ON THE NOTE BUTTONS (Paul 2026-10-13 ferry, Notes-row rule 6 + Riff-block item 1,
-/// "the mini contour follows live edits"): every rank (1...8) this lane's walk can EVER land on, across every
-/// direction/stride/rotate/length/INVERT/TRANSPOSE combination — so the Notes row can mark "the riff might
-/// strike this button" without predicting WHEN. Walks a generously-bounded ordinal range (large enough to
-/// guarantee full coverage for any LEN≤8/STRIDE≤7/direction combination — no need to derive an exact minimal
-/// period per direction, this is cheap and main-thread-only, never on the render path) through the EXACT same
-/// walk→rank pipeline `runEuclidLine` itself uses (`riffStepAt` → `riffRotateStep` → rank lookup → INVERT →
-/// TRANSPOSE, in that order — mirrors Router.swift's own sequence precisely, so a mark can never show a rank
-/// the engine wouldn't actually reach). DRUNK is not reachable here (removed from Euclideous's own WALK
-/// directions by this same ferry) — `riffStepAt`'s `.drunk` case is never passed `dir` by any caller of this
-/// function, so `seed` is always 0 and genuinely unused for every real direction.
-func euclideousRiffReachableRanks(dir: RiffDir, length: Int, stride: Int, rotate: Int, ranks: [Int], invert: Bool, transpose: Int) -> Set<Int> {
-    guard length > 0, !ranks.isEmpty else { return [] }
-    var out = Set<Int>()
-    for ord in 0..<(2 * 8 * 7) {
-        let walkPos = riffStepAt(dir, raw: ord * stride, steps: length, seed: 0)
-        // RIFF WINDOW ferry (2026-10-21): SHIFT wraps at the riff's 8 columns, not at LENGTH — see
-        // `euclideousRiffColumn`'s own comment for why. Mirrored here so a short-LENGTH lane's marks agree
-        // with what the engine can actually reach.
-        let playedStep = riffRotateStep(walkPos, by: rotate, steps: 8)
-        guard playedStep < ranks.count else { continue }
-        let rawRank = ranks[playedStep]
-        guard rawRank >= 1 else { continue }   // rest — never reaches a note button
-        let invRank = invert ? 9 - rawRank : rawRank
-        let transposedRank = invRank + transpose
-        if transposedRank >= 1 && transposedRank <= 8 { out.insert(transposedRank) }
-    }
-    return out
-}
 
 /// RIFF/NOTES SPLIT (Paul's third same-day ferry) — the RIFF tab's own mini-grid thumbnail (a static 8×8
 /// preview, not a live walk) needs "what rank does STEP i show," independent of direction/stride/rotate
@@ -2251,154 +1277,24 @@ func euclideousRiffWindowColumns(length: Int, shift: Int) -> Set<Int> {
 
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
 
-/// Whether a step is TUTTI (the whole set passes) vs SOLO (one note). DETERMINISTIC per STEP — a pure hash of the
-/// step INDEX only (no per-note term), so the whole set shares one fate and it's loop-consistent like `chancePasses`.
-/// `step` is the column-step index derived from musical position (replay-exact); `balance` = P(TUTTI).
-@inline(__always)
-func tuttiIsTutti(step: Int, balance: Double) -> Bool {
-    if balance >= 1 { return true }
-    if balance <= 0 { return false }
-    let h = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x9E3779B97F4A7C15 &+ 0xD1B54A32D192ED03)   // step-only seed, salted apart from chance
-    return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < balance
-}
 
-/// The surviving rank on a SOLO step, by PICK, over `count` ascending ranks (0 = LOW … count−1 = HIGH). LOW/HIGH are
-/// fixed; RANDOM is a seeded per-step pick; CYCLE walks the solo one rank per step. Pure + deterministic per `step`.
-@inline(__always)
-func tuttiSoloRank(step: Int, count: Int, pick: TuttiPick) -> Int {
-    guard count > 1 else { return 0 }
-    switch pick {
-    case .low:    return 0
-    case .high:   return count - 1
-    case .random: return Int(splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x2545F4914F6CDD1D &+ 0x9E3779B97F4A7C15) % UInt64(count))
-    case .cycle:  return ((step % count) + count) % count
-    }
-}
 
 // MARK: - STRUM (§3): stagger a chord's onsets over `spread`, with a timing curve and velocity tilt
 
-/// The onset delay (in beats, 0…spread) for strum position `j` of `count` notes. curve 0 = even
-/// spacing; curve>0 bunches the early notes then opens out; curve<0 the reverse (exp = 2^curve, so
-/// ±1 → ×2 / ÷2 of the linear fraction). ASSUMPTION: this curve shape is a feel choice — tune freely.
-@inline(__always)
-func strumOffset(index j: Int, count: Int, spread: Double, curve: Double, normalize: Bool = true) -> Double {
-    guard count > 1 else { return 0 }
-    let frac = Double(j) / Double(count - 1)              // 0 (first) … 1 (last)
-    let shaped = pow(frac, pow(2.0, curve))              // curve 0 → linear
-    // §3 SPREAD NORMALIZE (pool-aware-family, honorable): normalize (default) → the rake spans `spread`
-    // beats regardless of the pool size (three notes or six, the same width). PER-NOTE (off) → `spread`
-    // is a reference 4-note rake's TOTAL, so the gap between adjacent onsets is fixed and the rake WIDENS
-    // with the pool (clamped ≤ 1 beat so a big chord can't overrun its column).
-    let width = normalize ? spread : min(1.0, (spread / 3.0) * Double(count - 1))
-    return width * shaped
-}
 
-/// Velocity for strum position `j`. tilt 0 = flat at base; tilt>0 crescendos across the strum
-/// (first softer, last louder), tilt<0 decrescendos. ASSUMPTION: linear tilt around the base.
-@inline(__always)
-func strumVelocity(index j: Int, count: Int, tilt: Double, base: Int) -> UInt8 {
-    guard count > 1 else { return clampVel(base) }
-    let frac = Double(j) / Double(count - 1)              // 0 … 1
-    let scale = 1 + tilt * (frac - 0.5)                  // [1 − tilt/2 … 1 + tilt/2]
-    return clampVel(Int((Double(base) * scale).rounded()))
-}
 
-/// Which SORTED-pool index strum position `j` maps to, per direction. ALTERNATE flips per pass
-/// (position-derived, drift-free): even passes strum UP, odd passes DOWN.
-@inline(__always)
-func strumSortedIndex(position j: Int, count: Int, direction: StrumDir, pass: Int) -> Int {
-    let up: Bool
-    switch direction {
-    case .up:        up = true
-    case .down:      up = false
-    case .alternate: up = (((pass % 2) + 2) % 2) == 0
-    }
-    return up ? j : (count - 1 - j)
-}
 
 // MARK: - RATCHET velocity ramp (§3)
 
-/// Velocity for ratchet repeat `index` of `count`. ramp 0 = flat at base; ramp 1 = crescendo from
-/// ~silent up to base (first hit softest, last full). ASSUMPTION: crescendo direction — flip if the
-/// feel should accent the first hit instead.
-@inline(__always)
-func ratchetVelocity(base: Int, ramp: Double, index: Int, count: Int) -> UInt8 {
-    guard count > 1 else { return clampVel(base) }
-    let frac = Double(index) / Double(count - 1)          // 0 (first) … 1 (last)
-    let scale = (1.0 - ramp) + ramp * frac                // ramp 0 → 1; ramp 1 → frac
-    return clampVel(Int((Double(base) * scale).rounded()))
-}
 
 // MARK: - Authoring: PLACE per-hold one-per-column (/btw ⑥)
 
 enum PlaceHoldDecision: Equatable { case allowed, blockedColumnUsed }
 
-/// /btw ⑥ — during a single PLACE hold at most ONE cell may be placed per column. A FRESH tap in a
-/// column that already holds a cell placed THIS hold is BLOCKED (release + re-hold to stack a second in
-/// that column). Re-tapping a cell this hold already placed is NOT a fresh place (it toggles the cell
-/// off), so callers pass `retoggle: true` and it is always allowed. Pure so the column rule is
-/// unit-testable independent of the SwiftUI hold state. Applies to taps, row chevrons, AND strokes.
-func placeHoldDecision(placedColumns: Set<Int>, retoggle: Bool, col: Int) -> PlaceHoldDecision {
-    if retoggle { return .allowed }
-    return placedColumns.contains(col) ? .blockedColumnUsed : .allowed
-}
 
 // MARK: - Visual overhaul: EMBLEMS (cells & machine desk, AcceptanceCriteria 2026-07-29)
 
-/// ONE static glyph per processor type — the "emblem" drawn on the cell face + the desk title. Placeholder
-/// SF Symbol names this wave (the drawn artwork is a separate asset job). Pure so the mapping is testable.
-func emblemSymbol(_ t: ProcessorType) -> String {
-    switch t {
-    case .arp:       return "chart.line.uptrend.xyaxis"   // the climb
-    case .ratchet:   return "bolt.fill"                   // the burst
-    case .empty:     return "square.dashed"               // the sentinel — never shown as a real card
-    case .strum:     return "fanblades.fill"              // the fan
-    case .chance:    return "die.face.5.fill"             // the die
-    case .tutti:     return "die.face.6.fill"             // the set-die (SOLO vs the whole band)
-    case .length:    return "ruler"                        // the measured duration
-    case .weave:     return "square.stack.3d.up.fill"      // interlocking layers — the rank clocks
-    case .split:     return "square.split.2x1"             // keep a slice of the set
-    case .harmonize: return "circle.hexagongrid.fill"     // the bloom
-    case .echo:      return "repeat"                       // the tail
-    case .euclid:    return "circle.grid.cross"            // the K-of-N grid
-    case .burst:     return "wind"                         // the accelerating gust
-    case .cascade:   return "arrow.down.right.and.arrow.up.left.circle"   // the incremental reveal
-    case .drone:     return "waveform.path"               // the sustained pad
-    case .shift:     return "arrow.right.to.line"         // the nudge
-    case .humanize:  return "hand.draw"                   // the human hand
-    case .mod:       return "dial.medium"                 // the CC generator (a control dial)
-    case .glide:     return "point.topleft.down.to.point.bottomright.curvepath"   // the slide
-    case .octave:    return "arrow.up.arrow.down"           // UTILITY — octave shift
-    case .transpose: return "arrow.up.and.down.text.horizontal"   // UTILITY — semitone shift
-    case .channel:   return "cable.connector"              // UTILITY — output channel override
-    case .nudge:     return "arrow.left.and.right"         // UTILITY — time offset
-    case .velocity:  return "chart.bar.fill"               // DYNAMICS — per-step velocity lane (accents)
-    case .dest:      return "arrow.triangle.branch"        // ROUTING — per-step emitter (the hocket)
-    case .deal:      return "rectangle.split.2x1"          // ROUTING — deal notes across two emitters
-    case .recorder:  return "record.circle"                // TIME — the looper-in-a-chain (record + replay)
-    case .clock:     return "clock.arrow.2.circlepath"      // TIME — a placeable pattern-clock transform
-    case .killStep:  return "square.slash"                  // TIME — a step row that removes disabled steps from the downstream timeline
-    case .euclidMask: return "line.3.horizontal.decrease.circle"   // DYNAMICS — a K-of-N mask FILTERING a driven rhythm (distinct from EUCLID's own grid glyph)
-    case .muteMatrix: return "speaker.slash"               // ROUTING — per-step part-muting (the gate grid)
-    case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
-    case .tap:       return "arrow.turn.up.right"          // ROUTING — the mid-chain send (the stream turns off to a parallel wire)
-    case .hocket:    return "ear"                           // DRIVER — listens to a wire; plays in its gaps / trades with it
-    case .avoid:     return "hand.raised"                   // FILTER — the per-note pitch filter (avoid clashes / lock to key)
-    case .chords:    return "pianokeys"                     // HARMONY — the derived diatonic progression
-    }
-}
 
-/// VELOCITY (Paul 2026-09-07): the velocity OVERRIDE for step `col` of the per-step lane. Returns nil = PASSTHROUGH
-/// (leave the note's own velocity untouched). A step marked in `pass` (pass[col] != 0), or `col` out of the drawn
-/// `steps`, is passthrough; otherwise the lane value clamped to a legal note velocity 1…127 (never a vel-0 note-on,
-/// which would read as a note-off — a MODIFIER must not silence). `col` wraps the drawn length. Pure/testable.
-func velLaneStep(lane: [Int], pass: [Int], steps: Int, col: Int) -> Int? {
-    guard steps > 0 else { return nil }
-    let c = ((col % steps) + steps) % steps
-    if c < pass.count && pass[c] != 0 { return nil }   // explicit PASSTHROUGH step
-    guard c < lane.count else { return nil }
-    return max(1, min(127, lane[c]))                    // the override
-}
 
 /// CHORDS PATTERN (SPEC-chords-stage §2): the DEGREE at grid step `step` from the drawn matrix. −1 = CARRY (empty column →
 /// hold the previous chord) · 0…6 = degree I…vii · 7 = REST (explicit silence). CARRY scans back to the last real degree
@@ -2474,11 +1370,6 @@ func chordsWalkDegreeAt(step: Int, seed: UInt64) -> Int {
     let rot = ((rotation % n) + n) % n
     for i in 0..<n { let src = (i + rot) % n; buf[i] = (src * k) % n < k }   // hit at step 0, rotated
     return n
-}
-func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
-    var buf = [Bool](repeating: false, count: max(1, min(64, steps)))
-    let n = euclidPatternInto(&buf, pulses: pulses, steps: steps, rotation: rotation)
-    return Array(buf[0..<n])
 }
 /// TILT (Paul 2026-10-08, REDESIGNED 2026-10-11): "a TILT control to bias the distribution of hits to the
 /// left or right" — reshapes an already-built K-of-N pattern so the K hits cluster toward the START
@@ -2671,13 +1562,6 @@ func euclidRotateBuffer(_ buf: inout [Bool], steps n: Int, rotation rot: Int) {
 // dereferences this ONE array, so removing it here is the complete fix.
 let euclideousNoteSelCycle: [EuclidNoteSel] = [.all, .n1, .n2, .n3, .n4, .n5, .n6, .n7, .n8, .low, .high, .bottom2, .top2, .cycle]
 
-/// Steps an `EuclidNoteSel` by `delta` positions through `euclideousNoteSelCycle`, wrapping.
-func euclideousStepNoteSel(_ cur: EuclidNoteSel, by delta: Int) -> EuclidNoteSel {
-    let list = euclideousNoteSelCycle
-    let i = list.firstIndex(of: cur) ?? 0
-    let n = list.count
-    return list[((i + delta) % n + n) % n]
-}
 
 // euclideousNextRate (a plain tap-to-advance 18-case cycle) REMOVED 2026-10-06 — Paul: "I hate the current
 // control and want a pop-up"; EuclideousPage's own ratePopupCard lets the user pick a rate directly instead
@@ -2804,14 +1688,6 @@ func euclideousSliderValueAt(_ field: EuclideousSliderField, _ line: EuclidLine,
     return r.lo + f * (r.hi - r.lo)
 }
 
-/// TILT's centre detent (ferry Touch behaviour §4, literal): "within ±6% of the travel around the
-/// centre, the value is exactly 0." `frac` is the raw 0...1 touch position (0.5 = dead-centre); returns
-/// the detented fraction, still 0...1, which the caller then feeds through the ordinary TILT range
-/// mapping (−1...1) via `euclideousSliderValueAt` as normal — a pure pre-step on the touch position, not
-/// a second, separate value formula.
-func euclideousTiltDetentFrac(_ frac: Double) -> Double {
-    abs(frac - 0.5) <= 0.06 ? 0.5 : frac
-}
 /// RHYTHM POLISH ferry (2026-10-22) §2.2 — the detents at the two controls' natural points, as pure functions of the VALUE (stateless: a drag within the radius reads as the point, one past it reads as itself, so "stays
 /// snapped until it moves past that distance" holds by construction). OFFSET snaps to a whole step within 0.08 of a step; TILT snaps to 0 within 3 % (±0.03 of the value — NOT of the travel, which the older
 /// `euclideousTiltDetentFrac` above measured as ±6 % of travel = ±12 % of the value; that one is no longer called).
@@ -3228,39 +2104,6 @@ func euclideousAccessibleDisplayNoteName(_ n: UInt8, source: EuclideousLaneSourc
     return euclideousAccessibleRelativeNoteName(n, pool: pool)
 }
 
-// ── FERRY §2: RIFF-GRID ARROWS MOVE LATE ────────────────────────────────────────────────────────────────
-//
-// ROOT CAUSE (confirmed by reading, not guessed): the riff-tab thumbnail reads `riffPositions[idx]` directly
-// in the view body — a plain, reactive read, current as of whatever SwiftUI render the ~30fps AU poll last
-// triggered. The grid's own arrow (`riffMarker`, a retained `@State` — genuinely needed, since a TIE/SKIP
-// rest must hold the PREVIOUS marker rather than jump, which a pure read of current state alone can't
-// express) was instead re-derived by a SECOND, independent 20Hz `Timer` — two unsynchronized wall-clock
-// timers, with no phase coordination between them, so the arrow lagged the already-current `riffPositions`
-// by up to one 20Hz period (50ms) on a quiet render, and considerably more whenever the RunLoop was busy
-// around a bar line (several of the 20Hz timer's own ticks coalescing/delaying, "several things changing
-// together... arrows of different lanes jump on the same frame even when their hits were 0.3s apart" —
-// exactly what an unrelated, independently-scheduled timer falling behind under load looks like). FIX: the
-// timer is removed; the view now re-derives `riffMarker` via `.onChange` on the SAME `riffPositions`/
-// `wipeEvents`/`playingRiffIndex` state the thumbnail/footer already read reactively — "the same per-lane
-// current riff step... on the same display tick," literally. The MATH below was always correct (it's the
-// SAME per-lane step `updateRiffMarkers` already ran) — extracted to a pure function purely so the "no
-// delay of any kind is built into the math itself" half of this fix is unit-testable; the TIMING half (did
-// the view actually call this promptly) has no test-target reach and stays device-owed, as it always has
-// for anything in EuclideousPage.swift.
-/// One lane's next `riffMarker` value, given its current value and this render's live inputs. Not riff-on →
-/// nil. Position out of range → unchanged (hold). A real rank at this position → jump there. A rest with a
-/// matching fresh FILL event → jump there (that's where sound was actually produced). A rest with nothing
-/// new → unchanged — rests are explicitly OUT OF SCOPE for this fix (Paul is deciding that separately).
-func euclideousRiffMarkerStep(current: (col: Int, row: Int)?, riffOn: Bool, riffPosition: Int,
-                               resolved: [Int], wipeEvent: Router.EuclideousNoteViewEventSnapshot?) -> (col: Int, row: Int)? {
-    guard riffOn else { return nil }
-    guard riffPosition >= 0, riffPosition < 8 else { return current }
-    let col = riffPosition
-    let rank = col < resolved.count ? resolved[col] : 0
-    if rank != 0 { return (col, rank) }
-    if let wipeEvent, wipeEvent.column == Int8(col), wipeEvent.rank >= 1 { return (col, Int(wipeEvent.rank)) }
-    return current
-}
 
 // ── FERRY §4: LANE OUTPUT CHIP WHEN MAIN OUT IS OFF ─────────────────────────────────────────────────────
 enum EuclideousLaneOutChipStyle: Equatable { case filled, hollowDashed, plain }
@@ -3274,46 +2117,6 @@ func euclideousLaneOutChipStyle(routed: Bool, mainOn: Bool) -> EuclideousLaneOut
     return mainOn ? .filled : .hollowDashed
 }
 
-/// EXPLAIN SILENCE (usability ferry §2, literal priority order): the first applicable reason a lane that's
-/// nominally "playing" can't actually produce a note right now, or nil when it genuinely can (nothing to
-/// explain — the note box falls through to its normal content). HIT-vs-GAPS (0 HITS / NO GAPS) is checked
-/// regardless of riff mode, since riff still rides on the SAME underlying K/N pattern to decide WHEN to
-/// advance — a 0-hit or fully-packed-under-GAPS pattern produces no trigger ticks for a riff walk either,
-/// not just for a plain strike. EMPTY RIFF is the one check that's riff-specific on top of that.
-///
-/// "NO NOTES HELD" is GONE (one global riff/note source ferry, 2026-10-12, "Live states" rule — "per-lane
-/// note boxes keep their existing silent-state messages for every other cause but stop explaining this
-/// one"): the per-lane box used to check the line's OWN (now decode-only) `sourceModeResolved`, which is
-/// doubly wrong post-migration — every untouched line defaults to `.key`, not `.midi`, so this check would
-/// almost never fire correctly even if kept; and the cause it used to explain is now explained ONCE, at the
-/// page level, by the riff grid's own "HOLD NOTES TO PLAY" banner (`riffGridView`'s `midiEmpty` branch) — a
-/// per-lane repeat of the identical message would be noise, not information, now that it's a single global
-/// condition rather than 4 independent per-lane ones.
-func euclideousSilenceReason(line: EuclidLine, mainOutMask: UInt8, riffAllRest: Bool) -> String? {
-    guard line.enabledResolved else { return "STOPPED" }
-    let emitterMask = line.emitterMask ?? 0
-    guard emitterMask != 0 else { return "NO OUTPUT" }
-    guard (emitterMask & mainOutMask) != 0 else { return "MAIN OUT OFF" }
-    if line.patternMissResolved {
-        if line.pulses >= line.steps { return "NO GAPS" }
-    } else {
-        if line.pulses <= 0 { return "0 HITS" }
-    }
-    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second ferry): reads `riffOnResolved` now, not the stale
-    // `useRiffResolved` — that accessor still derives from the OLD, now-unread `melodyMode`/legacy `useRiff`
-    // chain, which no longer reflects whether a lane's riff is genuinely on once the new MELODY tab writes
-    // `riffOn` directly (a real divergence, not just a rename — caught before shipping).
-    if line.riffOnResolved && riffAllRest { return "EMPTY RIFF" }
-    // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry), Elsewhere-on-the-page §1: "nothing
-    // lit and the riff off" is a NEW silent state — nothing is wired to produce a note at all (neither
-    // layer has anything to resolve), distinct from EMPTY RIFF (riff on, but its own pool is exhausted).
-    // RIFF/NOTES SPLIT (third same-day ferry): the notes layer can now ALSO be switched off entirely
-    // (`notesOnResolved`, independent of whether anything is still lit/remembered underneath it) — a
-    // lane with riff off AND the notes layer off is silent regardless of what's lit, the direct
-    // generalization of the prior "nothing lit" check to the new master switch.
-    if !line.riffOnResolved && (!line.notesOnResolved || (line.litNotesResolved == 0 && !line.topLitResolved && !line.top2LitResolved)) { return "NO NOTES" }
-    return nil
-}
 
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
 /// without a live `EuclideousPage` render. Deliberately mirrors the REAL render path's own hit-test exactly
@@ -3566,100 +2369,6 @@ func euclideousGlobalPoolExtended(sortedRaw: [Int]) -> [Int] {
     return Array(pool.prefix(8))
 }
 
-/// Reset-progress fraction (ferry "riff-cell wipes, reset progress on lane cards" §3.2) — 0 just after a
-/// reset, approaching 1 just before the next. Built on the SAME `columnStart` Router.swift itself uses to
-/// find the real reset boundary (`spanStart`, the DRUNK hard-reset trigger) — by construction, this can
-/// never visually disagree with when the engine actually resets. `spanBeats <= 0` (RESET SPAN off) ⇒ 0,
-/// the caller's own job to additionally hide the fill entirely in that case (§3.3).
-func euclideousResetProgress(liveBeat: Double, spanBeats: Double) -> Double {
-    guard spanBeats > 0 else { return 0 }
-    return max(0, min(1, (liveBeat - columnStart(liveBeat, spanBeats)) / spanBeats))
-}
-/// Whole bars remaining until the next reset (ferry §4.1: "IN n... counting down 8, 7, ... 1 for an
-/// 8-bar span"), clamped to `1...resetSpanBars` so it reads `resetSpanBars` at the instant a window
-/// starts and never displays 0. `cyc` is one bar in beats (the same quantity `spanBeats` was built from).
-func euclideousResetBarsRemaining(liveBeat: Double, spanBeats: Double, cyc: Double, resetSpanBars: Int) -> Int {
-    guard spanBeats > 0, cyc > 0 else { return 0 }
-    let elapsed = liveBeat - columnStart(liveBeat, spanBeats)
-    return max(1, min(resetSpanBars, Int(((spanBeats - elapsed) / cyc).rounded(.up))))
-}
-/// Is the tick at absolute beat `tickBeat` a hit, under the exact same span-re-anchor + direction-read rules
-/// `Router.runEuclidLine` applies to every real tick? `buf` is this lane's own pattern (the function above).
-func euclideousNoteViewIsHit(buf: [Bool], tickBeat: Double, sub: Double, spanBeats: Double, dir: EuclidDir) -> Bool {
-    guard !buf.isEmpty, sub > 0 else { return false }
-    let n = buf.count
-    let cycleLen = euclidCycleLen(dir, n: n)
-    let phaseBeat = spanBeats > 0 ? (tickBeat - columnStart(tickBeat, spanBeats)) : tickBeat
-    let localT = Int64((phaseBeat / sub).rounded(.down))
-    let raw = Int(((localT % Int64(cycleLen)) + Int64(cycleLen)) % Int64(cycleLen))
-    return buf[euclidReadIndex(raw, n: n, dir: dir)]
-}
-/// 2026-10-13 ferry ("GATE follows the rhythm"): the beat GAP from `fromBeat` (exclusive) to the lane's own
-/// NEXT real pattern hit — the SAME phaseBeat/columnStart reset-wrap `euclideousNoteViewIsHit` uses, so a
-/// RESET SPAN boundary crossing between the two is honoured automatically: stepping forward in ABSOLUTE beat
-/// and re-deriving the local tick from scratch at each candidate naturally reflects any span boundary crossed,
-/// with no separate reset check. Deliberately takes `n` EXPLICITLY rather than delegating to
-/// `euclideousNoteViewIsHit` (which derives its own modulus from `buf.count`) — caught by an RTCDEBUG trace,
-/// not guessed: the render thread's real `euclidBuf` is a FIXED 16-slot scratch array (Router.swift, `private
-/// var euclidBuf = [Bool](repeating: false, count: 16)`), so `buf.count` is almost always LARGER than the
-/// lane's own real step count — delegating would silently wrap the cycle at 16 (or whatever the scratch
-/// buffer's true allocated size is) instead of at the lane's own `n`, finding the wrong "next hit" entirely
-/// for any `n` short of that allocation (an 8-step lane's own wrap at tick 8 read as a REST, since position 8
-/// in the 16-slot buffer is unrelated padding, not the lane's own step 0 repeating). Deliberately MASK-
-/// OBLIVIOUS (ferry §1.3: "mask probability doesn't change the gap... measured to the next PATTERN hit, even
-/// if the mask then mutes that hit") — `buf` carries only the rhythm's own hit/rest shape (post RHYTHM-INV/
-/// hand-edit/rotate/tilt, exactly as the live engine already builds it), nothing mask-related. Bounded at
-/// `cap` ticks — deliberately reuses `riffTieExtensionBeats`'s own `cycleLen * 4` cap (not the ferry's literal
-/// "bounded at 16 steps") so the two forward-scans this result is later combined with (`nextHitGap + tieExt`)
-/// share one consistent bound, a disclosed judgment call. Returns `cap * sub` (not 0) if nothing is found
-/// within the bound, so an all-rest/degenerate pattern still yields a usable, generous gap rather than a
-/// zero-length note.
-/// `mask`/`loopStepBeats`/`loopSteps` (mask 0 / the other two 0, byte-identical for every pre-existing call
-/// site): opt in to the SAME masked reset origin `euclideousMaskedResetOrigin` uses, for the one caller whose
-/// `spanBeats` came from a step-counted (LEN-bounded) per-lane reset rather than a bar-counted one — otherwise
-/// this lookahead's own re-anchor prediction would silently disagree with the corrected per-hit origin above.
-/// 2026-10-15 ferry ("per-step restart points," §2.3 "one formula... the TIE lookahead takes the mask instead
-/// of resetSteps"): previously this REVERSE-DERIVED a step count from `(spanBeats / loopStepBeats).rounded()`
-/// — a trick that only worked because every caller's `spanBeats` was literally `N × loopStepBeats` for one of
-/// the four clean "every N" presets. An arbitrary hand-placed mask has no such N (two different masks with the
-/// same POPULATION COUNT round-trip to the same wrong N through that division), so the mask is now threaded
-/// through directly and `euclideousMaskedResetOrigin` is called on it exactly like the per-hit origin above —
-/// no second derivation, matching §2.3 literally.
-func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, sub: Double, spanBeats: Double, fromBeat: Double, cap: Int) -> Double {
-    // LANES GRID (2026-10-18): a thin wrapper over the tick-based core form below (no restart grid; `spanBeats` is the pre-grid re-anchor).
-    // The per-lane restart-mask parameters this used to take are gone — a restart is the grid's job now, and the Router calls the core form.
-    guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
-    return euclideousNextHitGapBeats(buf: buf, n: n, dir: dir, cycleLen: euclidCycleLen(dir, n: n), sub: sub,
-                                     tick: Int64((fromBeat / sub).rounded()), cap: cap, grid: .off, legacySpanBeats: spanBeats)
-}
-/// §2.1/§3.3 (Paul 2026-10-11: flipped to match a piano roll's own reading direction, the note more
-/// visible for sitting against the strip's own note box instead of tucked off the far edge): a mark's
-/// on-screen X, `trackW` (just entered, far right) ... 0 (the playhead, LEFT edge), moving continuously
-/// as `nowBeat` advances — `nil` once it's outside the visible window entirely (either hasn't entered
-/// yet, or — per §3.3, "remove each mark once it has passed the playhead" — has already played). `age`
-/// is beats-until-this-tick-plays (positive = still approaching, 0 = playing exactly now, negative =
-/// already played) — the mark's position is `trackW` scaled by how much of the window `age` still has
-/// left to consume (age==windowBeats ⇒ trackW/far right; age==0 ⇒ 0/the playhead on the left).
-func euclideousNoteViewMarkX(tickBeat: Double, nowBeat: Double, windowBeats: Double, trackW: CGFloat) -> CGFloat? {
-    guard windowBeats > 0 else { return nil }
-    let age = tickBeat - nowBeat
-    guard age >= 0, age <= windowBeats else { return nil }
-    return trackW * CGFloat(age / windowBeats)
-}
-/// §2.3, literal: "2 bars... if the fastest playing lane's steps would be less than 6pt apart, reduce the
-/// window to 1 bar, then ½ bar." Picks the LARGEST of {2, 1, 0.5} bars that still clears the 6pt/step floor,
-/// falling back to 0.5 (the stated floor — no further reduction below it) if even that doesn't clear it.
-/// `fastestSub` is the smallest `rate.beats` among the lanes actually being shown (callers exclude disabled
-/// lanes first, per §2.6 — a stopped lane draws no marks, so its own rate shouldn't drive the shared window).
-func euclideousNoteViewWindowBars(fastestSub: Double, cyc: Double, trackW: CGFloat) -> Double {
-    for bars in [2.0, 1.0, 0.5] {
-        let windowBeats = bars * cyc
-        guard windowBeats > 0 else { continue }
-        let pxPerStep = trackW * CGFloat(fastestSub / windowBeats)
-        if pxPerStep >= 6 || bars == 0.5 { return bars }
-    }
-    return 0.5
-}
 
 // LISTEN REBUILT (ferry 2026-10-23): the old 3-row-partner-per-row LISTEN TAB section
 // (ferry 2026-10-14) that lived here — euclideousListenReaches/Edges/GreyedPartners/DefaultPartner/
@@ -3789,21 +2498,6 @@ func euclideousListenBorrowedIndex(followerRaw: Int, n: Int, followerDirection: 
         return euclidReadIndex(raw, n: n, dir: sourceDirection)
     }
 }
-/// §3.3/§3.5/§3.6/§9.5: the follower's step index into the borrowed pattern at beat `beat` — nil ⇒ "not
-/// yet" (before DELAY steps of this transport run have passed, §3.6). `sourceStepBeats`/`n` are the
-/// source's own step length/pattern length; `startBeat` is the transport-start anchor (§3.5, "on transport
-/// start both start together") DELAY/SPEED count from, not absolute beat 0. `speed` is the EXPONENT
-/// (`listenSpeedResolved`) — the follower's own step length is the source's ÷ 2^speed (§3.3), directly, no
-/// sign inversion.
-func euclideousListenFollowerPosition(beat: Double, startBeat: Double, sourceStepBeats: Double, n: Int,
-                                       speed: Int, delay: Int, direction: EuclidDir, sourceDirection: EuclidDir) -> Int? {
-    guard n > 0, sourceStepBeats > 0 else { return nil }
-    let followerStepBeats = sourceStepBeats / pow(2.0, Double(speed))
-    guard followerStepBeats > 0, beat >= startBeat else { return nil }
-    let raw = Int(floor((beat - startBeat) / followerStepBeats)) - max(0, delay)
-    guard raw >= 0 else { return nil }
-    return euclideousListenBorrowedIndex(followerRaw: raw, n: n, followerDirection: direction, sourceDirection: sourceDirection)
-}
 /// §4.2/§9.6: which stored strike ECHO plays for a follower hit of rank `j` (0 for the first hit in its
 /// own pattern's stored order) — the source's CURRENT cycle if it has reached that many strikes yet, else
 /// its LAST completed cycle (wrapped by `j modulo lastCount` if `j` runs past it), else a rest (neither
@@ -3847,13 +2541,6 @@ func euclideousListenMoveByInterval(note: Int, interval: Int, octave: Int, keyRo
     let laps = (base - wrapped) / m
     let moved = (noteOctave + laps) * 12 + pcs[wrapped] + offset + 12 * octave
     return euclideousListenOctaveClamp(moved)
-}
-/// §4.3/§9.8: the 12-bit pitch-class mask of a strike (octave ignored, §4.3's own "my interpretation" —
-/// an exact note-number match only, like the old AVOID, is explicitly NOT what the new spec asks for).
-func euclideousListenAvoidMask(strike: [Int]) -> UInt16 {
-    var m: UInt16 = 0
-    for note in strike { m |= UInt16(1) << UInt16(((note % 12) + 12) % 12) }
-    return m
 }
 /// §4.3/§9.8: does `mask` (from `euclideousListenAvoidMask`) require dropping `note`?
 func euclideousListenAvoidDrops(note: Int, mask: UInt16) -> Bool {
@@ -3915,46 +2602,6 @@ func euclideousListenTabLayout(contentAreaH: CGFloat, rhythmPanelShown: Bool, pi
                                       showFooter: showFooter, footerH: showFooter ? idealFooter : 0, gap: gap, fits: scale >= 1)
 }
 
-/// A lane's own FINISHED hit pattern — HITS/TILT/customHits → OFFSET(rotate) → patternMiss-invert, in
-/// that exact order, mirroring `runEuclidLine`'s own inline pattern-build precisely (duplicated here, not
-/// shared, since the render-thread original mutates a REUSED scratch buffer in place for zero allocation,
-/// while this is a plain value return for LISTEN's own on-demand partner lookups — called at most a
-/// handful of times per lane per render WINDOW, not per-tick, so the allocation here is bounded and
-/// harmless, matching this file's own existing per-tick small-array precedent, e.g. MASK's `maskBuf`).
-/// Deliberately does NOT replicate `p.euclidPulsesFromPool` (the regular, non-Euclideous HITS-FROM-POOL
-/// override) — Euclideous's own UI has no control for it and never sets it, so every real caller is
-/// unaffected; a hand-edited doc that somehow combined the two is an unreached, disclosed edge case.
-/// The no-allocation form (adversarial-review fix, 2026-10-15): writes into a CALLER-OWNED, reused
-/// buffer (sized >=16, matching `euclidBuf`/every other fixed scratch buffer in this codebase) instead
-/// of allocating+returning a fresh array — this is the form the render thread must call. Reads
-/// `L.customHits` RAW, never `.customHitsResolved`, which pads/allocates a fresh array of its own — the
-/// identical raw-passthrough-with-manual-bounds-check idiom `runEuclidLine`'s own (non-LISTEN) pattern
-/// build already uses for this exact field, so this function can never allocate regardless of caller.
-func euclideousBuildPatternInto(_ L: EuclidLine, buf: inout [Bool]) -> Int {
-    let n = max(2, min(16, L.steps))
-    if let custom = L.customHits, !custom.isEmpty {
-        for i in 0..<n { buf[i] = i < custom.count ? custom[i] : false }
-    } else {
-        let k = max(0, min(n, L.pulses))
-        euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
-        if L.tiltResolved != 0 {
-            // RHYTHM POLISH: a TILT-fine lane's cells are the step each hit STARTS in (the engine's), not the nearest step — cells only here, so nothing allocates.
-            if L.tiltIsFine { euclidTiltPatternFine(&buf, pulses: k, steps: n, tilt: L.tiltResolved) }
-            else { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: L.tiltResolved) }
-        }
-    }
-    euclidRotateBuffer(&buf, steps: n, rotation: L.rotate)
-    if L.patternMissResolved { for i in 0..<n { buf[i].toggle() } }
-    return n
-}
-/// Convenience value-returning wrapper for non-render-thread callers (UI code, tests), where a fresh
-/// array is harmless. The render path must call `euclideousBuildPatternInto` directly against a reused
-/// buffer instead (see its own doc comment) — never this wrapper, which allocates on every call.
-func euclideousBuildPattern(_ L: EuclidLine) -> (buf: [Bool], n: Int) {
-    var buf = [Bool](repeating: false, count: 16)
-    let n = euclideousBuildPatternInto(L, buf: &buf)
-    return (buf, n)
-}
 
 // MARK: - HIT TIMING (RHYTHM POLISH ferry, 2026-10-22, §5) — continuous OFFSET and TILT
 //
@@ -4150,48 +2797,7 @@ func euclideousStepsPickerPreview(_ line: EuclidLine, length n: Int) -> [Bool] {
     return buf
 }
 
-// ── ARP EUCLID MASK (SPEC-arp-euclid-mask, ratified 2026-08-26) ──────────────────────────────────────────────────
-// Pure per-step helpers over a Bjorklund K-of-N mask (SAME formula as euclidPatternInto). No allocation — safe in the
-// render hot loop. `step` is the global arp-tick index. K == N ⇒ every step a hit (mask OFF) → callers short-circuit.
-@inline(__always) func euclidMaskHit(_ step: Int, k: Int, n n0: Int, rotate: Int) -> Bool {
-    let n = max(1, min(64, n0)); let kk = max(0, min(n, k))
-    if kk >= n { return true }
-    let i = ((step % n) + n) % n
-    let src = (i + (((rotate % n) + n) % n)) % n
-    return (src * kk) % n < kk
-}
-/// The hits STRICTLY BEFORE `step` — WAIT's walk index (the walk advances only on hits). K hits per N steps.
-@inline(__always) func euclidMaskHitsBefore(_ step: Int, k: Int, n n0: Int, rotate: Int) -> Int {
-    let n = max(1, min(64, n0)); let kk = max(1, min(n, k))
-    let s = ((step % n) + n) % n; let laps = (step - s) / n
-    var within = 0; for i in 0..<s where euclidMaskHit(i, k: kk, n: n, rotate: rotate) { within += 1 }
-    return laps * kk + within
-}
-/// The consecutive NON-HIT steps AFTER `step` until the next hit — TIE's gate-extension span (≤ N−1, since K ≥ 1).
-@inline(__always) func euclidMaskTieRun(_ step: Int, k: Int, n n0: Int, rotate: Int) -> Int {
-    let n = max(1, min(64, n0)); var g = 0
-    while g < n && !euclidMaskHit(step + g + 1, k: k, n: n, rotate: rotate) { g += 1 }
-    return g
-}
 
-/// BURST — the fractional positions (0…<1 of the step) of a `count`-strike roll. `curve` bends the spacing:
-/// 0 = even, +1 = ACCELERATE (gaps shrink → strikes bunch late), −1 = DECELERATE (gaps grow → bunch early).
-/// The first strike is always at 0 (step entry). Pure/testable.
-// Fill `buf[0..<c]` with the roll's fractional positions (c = the resolved strike count) — no-alloc form for the render
-// hot loop. Returns c. The array `burstFractions` below wraps it for the tests.
-@discardableResult func burstFractionsInto(_ buf: inout [Double], count: Int, curve: Double) -> Int {
-    let c = max(1, min(16, count))
-    guard buf.count >= c else { return 0 }
-    if c == 1 { buf[0] = 0; return 1 }
-    let gamma = pow(2.0, -max(-1.0, min(1.0, curve)))     // +1 → 0.5 (accel) · 0 → 1 (even) · −1 → 2 (decel)
-    for i in 0..<c { buf[i] = pow(Double(i) / Double(c), gamma) }
-    return c
-}
-func burstFractions(count: Int, curve: Double) -> [Double] {
-    var buf = [Double](repeating: 0, count: max(1, min(16, count)))
-    let c = burstFractionsInto(&buf, count: count, curve: curve)
-    return Array(buf[0..<c])
-}
 
 // MARK: - THE SEAL (the derived cell face) — Docs/AcceptanceCriteria/AcceptanceCriteria-seal-face.md
 // A maze/route glyph on a 3×3 lattice, generated from the behavioural-config hash. Same config ⇒ same seal
@@ -4212,29 +2818,6 @@ private struct SealKey: Encodable {
     let cs: ChordSplit?        // source-shaping: chord split
     let vw: VelWindow?         // source-shaping: velocity window
     let ch: SealChopKey?       // output chop (nil when the cell has no chop, per twin equality)
-}
-/// The RESOLVED chain a cell actually plays: its per-cell override, else the machine's TEMPLATE, else the machine's
-/// A face. The seal must hash THIS — a template/A-face cell has NIL `processors`, so its machine comes from the
-/// machine; hashing raw nil made every such cell (the DEFAULT arc + most factory presets) share ONE seal. (Same
-/// 3-tier resolution as SnapshotBuilder / AU.materializedChain.) Pure.
-func resolvedCellChain(_ cell: Cell, machines: [Machine]) -> [ProcessorSlot] {
-    if let p = cell.processors { return p }                              // per-cell OVERRIDE (incl. an explicit [] passthrough)
-    let c = machines.first { $0.machineID == cell.machineID }
-    if let t = c?.templateChain, !t.isEmpty { return t }                 // machine TEMPLATE
-    return [ProcessorSlot(type: c?.type ?? .empty, params: c?.paramsA ?? MachineParams())]   // legacy A face
-}
-/// A 32-bit FNV-1a over the JSON (sorted keys) of the behavioural config. Same config ⇒ same value on every
-/// device (document-visible truth); config-twins (regardless of machine) share it. Pure/testable. §1 contract.
-/// Hashes the RESOLVED chain (needs `machines`) so template/A-face cells reflect their machine's machine.
-func sealHash(_ cell: Cell, machines: [Machine]) -> UInt32 {
-    let chopKey = cell.chop.map { SealChopKey(m: $0.mainMask, a: $0.altMask, mu: $0.muteMask, alt: $0.altDest.map { $0.cable }.sorted()) }
-    let key = SealKey(p: resolvedCellChain(cell, machines: machines), ir: cell.inputReceiver, irow: cell.inputRow,
-                      b: cell.buses.map { $0.cable }.sorted(), cs: cell.chordSplit, vw: cell.velWindow, ch: chopKey)
-    let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
-    guard let data = try? enc.encode(key) else { return 0 }
-    var h: UInt32 = 2166136261                                   // FNV-1a offset basis
-    for byte in data { h = (h ^ UInt32(byte)) &* 16777619 }      // ×FNV prime, wrapping
-    return h
 }
 
 /// The seal's step PRNG — a mulberry32 seeded by the config hash (the mockup's `rnd`). Every seal decision
@@ -4260,45 +2843,6 @@ struct SealGeometry: Equatable {
     var coilNode: Int              // index of the node the coil straddles, or −1 for no coil (≤1 coil, ever)
 }
 
-/// Generate the seal from the config hash (INSTRUCTIONS §2): START on the lattice, take ≤4 orthogonal MOVES
-/// (reject immediate backtrack `dir==last^1` + out-of-bounds, ≤8 tries each), flag CORNERS from one hash word,
-/// and add at most one COIL (iff hash%4==0) astride a mid-route node. Pure — same hash ⇒ identical geometry.
-func sealGeometry(_ hash: UInt32) -> SealGeometry {
-    var rng = SealRNG(s: hash)
-    let dx = [1, -1, 0, 0], dy = [0, 0, 1, -1]      // dir 0/1 = ±x, 2/3 = ±y → opposite = dir^1 (backtrack test)
-    // START on a LEFT/RIGHT edge, then a FORCED horizontal move inward — so the route ALWAYS spans across the
-    // lattice and (with bbox-fit rendering) fills the full LENGTH instead of hugging one side (user request).
-    let startLeft = rng.next(mod: 2) == 0
-    var x = startLeft ? 0 : 2, y = rng.next(mod: 3)
-    var nodes = [SIMD2(Double(x), Double(y))]
-    var lastDir = startLeft ? 0 : 1
-    x += dx[lastDir]; y += dy[lastDir]
-    nodes.append(SIMD2(Double(x), Double(y)))
-    for _ in 0..<3 {                                 // up to 3 further free moves → ≤5 nodes
-        var moved = false
-        for _ in 0..<8 {                             // ≤8 rejection tries per move
-            let dir = rng.next(mod: 4)
-            if dir == (lastDir ^ 1) { continue }     // reject immediate backtrack
-            let nx = x + dx[dir], ny = y + dy[dir]
-            if nx < 0 || nx > 2 || ny < 0 || ny > 2 { continue }   // reject out-of-bounds
-            x = nx; y = ny; lastDir = dir
-            nodes.append(SIMD2(Double(x), Double(y)))
-            moved = true
-            break
-        }
-        if !moved { break }                          // boxed in → stop routing early
-    }
-    let round = rng.next()                           // one hash word governs every corner
-    var arc = [Bool](repeating: false, count: nodes.count)
-    if nodes.count > 2 {
-        for i in 1..<(nodes.count - 1) { arc[i] = (round >> UInt32(i)) & 1 == 1 }   // interior node i: arc iff bit set
-    }
-    var coilNode = -1
-    if hash % 4 == 0 && nodes.count > 2 {            // at most one coil, on a mid-route node (index 1…len-2)
-        coilNode = 1 + rng.next(mod: nodes.count - 2)
-    }
-    return SealGeometry(nodes: nodes, arcAtNode: arc, coilNode: coilNode)
-}
 
 /// The seal's nodes NORMALISED to unit fractions [0,1]² by FITTING the route's bounding box (independent x/y
 /// scale), so the glyph fills the full LENGTH + height wherever the route sits on the lattice — no hugging one
@@ -4310,35 +2854,6 @@ struct SealFit: Equatable {
     var rangeY: Double               // lattice y-extent
 }
 
-/// The cell-face TRIGGER glyph — deviation-shown. The bottom-right glyph comes from the ON-TAP action; a
-/// non-default ON-HOLD action rings it. Both default ⇒ nil (no mark). Placeholder SF Symbols. Pure/testable.
-func triggerTapGlyph(_ t: OnTap) -> String? {
-    switch t {
-    case .none:   return nil
-    case .alt:    return "arrow.left.arrow.right"   // ⇄ flip
-    case .mute:   return "speaker.slash.fill"
-    case .solo:   return "headphones"
-    case .fill:   return "square.grid.3x3.fill"
-    case .replay: return "arrow.clockwise"          // ↻ replay
-    }
-}
-func triggerHoldGlyph(_ h: OnHold) -> String? {
-    switch h {
-    case .none:       return nil
-    case .alt:        return "arrow.left.arrow.right"
-    case .freeze:     return "snowflake"            // ❄ freeze
-    case .sliceCycle: return "rectangle.split.3x1"
-    case .morphScrub: return "slider.horizontal.3"
-    case .oct:        return "arrow.up.arrow.down"  // ↑/↓ octave
-    }
-}
-/// The single bottom-right mark: (glyph, ring). Tap sets the glyph; a hold rings it. Hold-only shows the hold
-/// glyph, ringed. Both default ⇒ nil. Never more than two marks (a glyph + its ring).
-func triggerMark(_ on: OnConfig) -> (glyph: String, ring: Bool)? {
-    if let t = triggerTapGlyph(on.tap) { return (t, triggerHoldGlyph(on.hold) != nil) }
-    if let h = triggerHoldGlyph(on.hold) { return (h, true) }
-    return nil
-}
 
 // MARK: - THE ROOM LATTICE (rooms interface, Docs/INSTRUCTIONS-layout-lattice.md)
 //
@@ -4386,69 +2901,13 @@ enum EuclideousTagMetrics {
     static let pollLagGraceSeconds: Double = 0.150
 }
 
-/// 1 at (or above) the reference 42.5 × 29pt block; smaller blocks scale the whole tag (and its seat insets)
-/// down proportionally so a corner tag can never overflow its own block. Not part of the ratified spec — the spec
-/// only gives the reference size — so it is a no-op wherever the spec's numbers apply.
-func euclideousTagScale(blockW: CGFloat, blockH: CGFloat) -> CGFloat {
-    max(0.1, min(1, min(blockW / EuclideousTagMetrics.refBlockW, blockH / EuclideousTagMetrics.refBlockH)))
-}
 
-/// The lane's tag seat inside a block, relative to the block's top-left. Lane 0 top-left, 1 top-right, 2
-/// bottom-left, 3 bottom-right (the lane-card grid's own corners). Reference block: red (2,2.5), blue (22.5,2.5),
-/// yellow (2,15.5), green (22.5,15.5), each 18 × 11.
-func euclideousTagRect(lane: Int, blockW: CGFloat, blockH: CGFloat) -> CGRect {
-    let s = euclideousTagScale(blockW: blockW, blockH: blockH)
-    let w = EuclideousTagMetrics.tagW * s, h = EuclideousTagMetrics.tagH * s
-    let ix = EuclideousTagMetrics.insetX * s, iy = EuclideousTagMetrics.insetY * s
-    let l = posMod(lane, 4)
-    let right = (l == 1 || l == 3), bottom = (l == 2 || l == 3)
-    return CGRect(x: right ? blockW - ix - w : ix, y: bottom ? blockH - iy - h : iy, width: w, height: h)
-}
-func euclideousTagCentre(lane: Int, blockW: CGFloat, blockH: CGFloat) -> CGPoint {
-    let r = euclideousTagRect(lane: lane, blockW: blockW, blockH: blockH)
-    return CGPoint(x: r.midX, y: r.midY)
-}
-/// Centre of `lane`'s seat on the block at (`col` 0…7, `rank` 1…8; rank 8 is the top row), in the riff grid's
-/// own coordinate space (top-left of the matrix = origin).
-func euclideousTagSeatCentre(lane: Int, col: Int, rank: Int, cellW: CGFloat, cellH: CGFloat, gap: CGFloat) -> CGPoint {
-    let c = euclideousTagCentre(lane: lane, blockW: cellW, blockH: cellH)
-    return CGPoint(x: CGFloat(col) * (cellW + gap) + c.x, y: CGFloat(8 - rank) * (cellH + gap) + c.y)
-}
 
-/// CSS-style cubic-bezier easing (x → y) through (0,0),(x1,y1),(x2,y2),(1,1) — the ferry's ease-out is
-/// (0.2, 0.8, 0.2, 1). Solves x(t) = x by bisection (x(t) is monotonic for these control points).
-func euclideousCubicBezierEase(_ x1: Double, _ y1: Double, _ x2: Double, _ y2: Double, _ x: Double) -> Double {
-    if x <= 0 { return 0 }
-    if x >= 1 { return 1 }
-    func b(_ t: Double, _ p1: Double, _ p2: Double) -> Double { let u = 1 - t; return 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t }
-    var lo = 0.0, hi = 1.0, t = x
-    for _ in 0..<48 {
-        let v = b(t, x1, x2)
-        if abs(v - x) < 1e-10 { break }
-        if v < x { lo = t } else { hi = t }
-        t = (lo + hi) / 2
-    }
-    return b(t, y1, y2)
-}
-func euclideousTagEase(_ u: Double) -> Double { euclideousCubicBezierEase(0.2, 0.8, 0.2, 1, u) }
 
-/// Seconds a flight takes: 80ms, or half the time since the lane's previous advance if that is shorter.
-func euclideousTagFlightDuration(previousAdvance p: Double?, nextAdvance h: Double) -> Double {
-    guard let p else { return EuclideousTagMetrics.flightMaxSeconds }
-    return max(0, min(EuclideousTagMetrics.flightMaxSeconds, (h - p) / 2))
-}
 enum EuclideousTagPhase: Equatable {
     case seated                    // on its seat, thread showing (from the previous advance until departure)
     case inFlight(raw: Double)     // travelling; raw is linear 0…1 over the flight, un-eased
     case landed                    // at/after the scheduled advance — the caller re-plans from here
-}
-/// All times in seconds on one clock. Departure = next − duration; arrival = next (the advance's scheduled time).
-func euclideousTagPhase(now: Double, previousAdvance p: Double?, nextAdvance h: Double) -> EuclideousTagPhase {
-    let d = euclideousTagFlightDuration(previousAdvance: p, nextAdvance: h)
-    let depart = h - d
-    if now < depart { return .seated }
-    if now < h { return .inFlight(raw: d > 0 ? (now - depart) / d : 1) }
-    return .landed
 }
 
 // ── the engine mirror ───────────────────────────────────────────────────────────────────────────────
@@ -4878,36 +3337,6 @@ struct EuclideousThreadGeometry: Equatable {
     var hollowDot: Bool
     var isWrap: Bool
 }
-/// nil = no thread (nothing scheduled, or a zero-length move: the destination is the current seat).
-func euclideousThreadGeometry(lane: Int, plan: EuclideousWalkTagPlan, cellW: CGFloat, cellH: CGFloat, gap: CGFloat) -> EuclideousThreadGeometry? {
-    guard let d = plan.dest else { return nil }
-    if d.step == plan.seatStep && d.rank == plan.seatRank { return nil }
-    let from = euclideousTagSeatCentre(lane: lane, col: plan.seatStep, rank: plan.seatRank, cellW: cellW, cellH: cellH, gap: gap)
-    let to = euclideousTagSeatCentre(lane: lane, col: d.step, rank: d.rank, cellW: cellW, cellH: cellH, gap: gap)
-    guard plan.isWrap else {
-        return EuclideousThreadGeometry(segments: [EuclideousThreadSegment(from: from, to: to)], dot: to, hollowDot: d.isRest, isWrap: false)
-    }
-    let pitch = cellW + gap, over = EuclideousTagMetrics.wrapOvershoot
-    let rightEdge = CGFloat(plan.visitedMax) * pitch + cellW + over
-    let leftEdge = CGFloat(plan.visitedMin) * pitch - over
-    let exitX = plan.facingRight ? rightEdge : leftEdge
-    let entryX = plan.facingRight ? leftEdge : rightEdge
-    return EuclideousThreadGeometry(segments: [EuclideousThreadSegment(from: from, to: CGPoint(x: exitX, y: from.y)),
-                                               EuclideousThreadSegment(from: CGPoint(x: entryX, y: to.y), to: to)],
-                                    dot: to, hollowDot: d.isRest, isWrap: true)
-}
-/// Where the tag is, and how opaque, `raw` (0…1, linear) of the way through a flight. A straight move eases along
-/// the one line; a wrap travels the exit piece fading out over the first half, then the entry piece fading back in.
-func euclideousTagFlightPose(_ g: EuclideousThreadGeometry, raw: Double) -> (centre: CGPoint, opacity: Double) {
-    func lerp(_ s: EuclideousThreadSegment, _ e: Double) -> CGPoint {
-        CGPoint(x: s.from.x + (s.to.x - s.from.x) * CGFloat(e), y: s.from.y + (s.to.y - s.from.y) * CGFloat(e))
-    }
-    let r = max(0, min(1, raw))
-    if !g.isWrap || g.segments.count < 2 { return (lerp(g.segments[0], euclideousTagEase(r)), 1) }
-    if r <= 0.5 { let u = r * 2; return (lerp(g.segments[0], euclideousTagEase(u)), 1 - u) }
-    let u = (r - 0.5) * 2
-    return (lerp(g.segments[1], euclideousTagEase(u)), u)
-}
 
 struct EuclideousTagDrawing: Equatable {
     var centre: CGPoint
@@ -4916,33 +3345,6 @@ struct EuclideousTagDrawing: Equatable {
     var scaleX: Double                           // 1 normally; sweeps 1 → 0 → −1 across a turn
     var opacity: Double
     var thread: EuclideousThreadGeometry?        // only while seated with a move scheduled
-}
-/// One lane, one instant: the plan's time offsets are already relative to "now" (landed ≤ 0 < next).
-func euclideousTagDrawing(lane: Int, plan: EuclideousWalkTagPlan, cellW: CGFloat, cellH: CGFloat, gap: CGFloat) -> EuclideousTagDrawing {
-    let seat = euclideousTagSeatCentre(lane: lane, col: plan.seatStep, rank: plan.seatRank, cellW: cellW, cellH: cellH, gap: gap)
-    var out = EuclideousTagDrawing(centre: seat, hollow: plan.seatIsRest, pointsRight: plan.facingRight, scaleX: 1, opacity: 1, thread: nil)
-    guard let nextS = plan.nextSeconds else { return out }
-    let geo = euclideousThreadGeometry(lane: lane, plan: plan, cellW: cellW, cellH: cellH, gap: gap)
-    // TURN: on landing, a horizontal flip about the tag's own centre — begins 20ms after arrival, lasts 100ms. A fast
-    // lane can set off again before the flip is done, so it carries on through the flight rather than snapping.
-    if plan.turned, let landed = plan.landedSeconds {
-        let since = -landed
-        if since < EuclideousTagMetrics.turnDelaySeconds + EuclideousTagMetrics.turnSeconds {
-            out.pointsRight = !plan.facingRight   // still the old way round until the flip completes
-            if since >= EuclideousTagMetrics.turnDelaySeconds {
-                out.scaleX = 1 - 2 * (since - EuclideousTagMetrics.turnDelaySeconds) / EuclideousTagMetrics.turnSeconds
-            }
-        }
-    }
-    switch euclideousTagPhase(now: 0, previousAdvance: plan.landedSeconds, nextAdvance: nextS) {
-    case .seated:
-        out.thread = geo
-    case .inFlight(let raw):
-        if let geo { let pose = euclideousTagFlightPose(geo, raw: raw); out.centre = pose.centre; out.opacity = pose.opacity }
-    case .landed:
-        break
-    }
-    return out
 }
 
 // MARK: - FOURFOLD HEADER (ferry "Fourfold header", approved by Paul 2026-10-15)
@@ -5312,35 +3714,7 @@ enum EuclideousRhythmGeometry {
     static func rightRowH(upperH: CGFloat) -> CGFloat { max(1, (upperH - gap * 2) / 3) }
     /// Four equal direction buttons, sp4 apart, across the right half (1.3).
     static func directionButtonW(rightHalfW: CGFloat) -> CGFloat { max(1, (rightHalfW - gap * 3) / 4) }
-    /// The two halves of the upper zone (sp4 apart) and of the lower control block (the 17 pt divider footprint between them).
-    static func upperHalfW(fullWidth: CGFloat) -> CGFloat { max(1, (fullWidth - gap) / 2) }
-    static func lowerHalfW(fullWidth: CGFloat) -> CGFloat { max(1, (fullWidth - dividerFootprint) / 2) }
     static func showsEndLabels(rowH: CGFloat) -> Bool { rowH >= endLabelsFloor }
-}
-func euclideousRhythmTabLayout(cardWidth: CGFloat, cardHeight: CGFloat) -> EuclideousRhythmTabLayout {
-    typealias G = EuclideousRhythmGeometry
-    let inset = EuclideousLaneCardMetrics.inset
-    let contentTop = inset + EuclideousLaneCardMetrics.cometRowH + EuclideousLaneCardMetrics.rowGap + EuclideousLaneCardMetrics.tabRowH + EuclideousLaneCardMetrics.rowGap
-    let fullW = EuclideousLaneCardMetrics.innerWidth(cardWidth: cardWidth)
-    let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: cardHeight)
-    let upperH = max(1, contentH - G.controlBlockH - G.gap)
-    let halfW = G.upperHalfW(fullWidth: fullW)
-    let rightX = inset + halfW + G.gap
-    let rowH = G.rightRowH(upperH: upperH)
-    let leftColW = max(1, (halfW - G.gap) / 2)
-    let lowerY = contentTop + upperH + G.gap
-    let lowerHalf = G.lowerHalfW(fullWidth: fullW)
-    let rightGroupX = inset + lowerHalf + G.dividerFootprint
-    return EuclideousRhythmTabLayout(
-        offsetRow: CGRect(x: rightX, y: contentTop, width: halfW, height: rowH),
-        tiltRow: CGRect(x: rightX, y: contentTop + rowH + G.gap, width: halfW, height: rowH),
-        directionRow: CGRect(x: rightX, y: contentTop + (rowH + G.gap) * 2, width: halfW, height: rowH),
-        directionButtonW: G.directionButtonW(rightHalfW: halfW),
-        hitsTile: CGRect(x: inset, y: contentTop, width: leftColW, height: upperH),
-        stepsTile: CGRect(x: inset + leftColW + G.gap, y: contentTop, width: leftColW, height: upperH),
-        rhythmTile: CGRect(x: rightGroupX, y: lowerY, width: lowerHalf, height: G.controlRowH),
-        melodyTile: CGRect(x: rightGroupX, y: lowerY + G.controlRowH + G.gap, width: lowerHalf, height: G.controlRowH),
-        rateGroup: CGRect(x: inset, y: lowerY, width: lowerHalf, height: G.controlBlockH))
 }
 
 /// RHYTHM POLISH 2.1 — the HITS tile's hero number: 36 pt, with "OF n" 2 pt under it in 8 pt, as one block centred on the FILLED part of the tile and clamped so it stays ≥ 6 pt below the tile's top and ≥ 4 pt above
@@ -5466,7 +3840,6 @@ struct EuclideousRiffPanelLayout: Equatable {
     var tabRowH: CGFloat
     var belowFloor: Bool { rowH < M.minRowH }
     var tabWidth: CGFloat { (box.width - M.padding * 2 - M.tabGap * 3) / 4 }
-    func tabFrame(_ i: Int) -> CGRect { CGRect(x: M.padding + CGFloat(i) * (tabWidth + M.tabGap), y: M.padding, width: tabWidth, height: tabRowH) }
     /// Column 0's left edge: padding + the note-label column + its gap.
     var firstColumnX: CGFloat { M.padding + labelW + M.labelGap }
     var gridTop: CGFloat { M.padding + tabRowH + M.tabToGrid }
@@ -5611,14 +3984,6 @@ func euclideousExtraPitchGate(hadRiffNote: Bool, gate: Double, notesGate: Double
 
 // ── the NOTES VEL bar becomes a view of `notesVelocity` relative to VEL (§6.4) ────────────────────────────────────────
 
-/// What the bar shows: clamp(notesVelocity − VEL, −64, 64).
-func euclideousNotesVelBarValue(_ line: EuclidLine) -> Int { max(-64, min(64, line.notesVelocityResolved - line.velocityAbsoluteResolved)) }
-/// Writing an offset `o` stores notesVelocity = clamp(VEL + o, 1, 127). Nothing writes `notesVelOffset` any more (it stays decodable).
-func euclideousNotesVelBarWrite(_ line: inout EuclidLine, offset o: Int) {
-    line.notesVelocity = max(1, min(127, line.velocityAbsoluteResolved + max(-64, min(64, o))))
-}
-/// The bar's double tap stores VEL into notesVelocity (offset 0).
-func euclideousNotesVelBarDoubleTap(_ line: inout EuclidLine) { line.notesVelocity = line.velocityAbsoluteResolved }
 
 // ── octave: ONE setter per layer, shared by the RIFF/NOTES tabs and the MIX stepper ──────────────────────────────────
 
@@ -5772,15 +4137,6 @@ func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine]
     }
 }
 
-/// Selecting a note ENABLES an off layer in the same tap ("one tap does both"): each toggle turns the layer's switch on if it was
-/// off, then flips that one selection. Starting from any off state (switch off, or nothing selected), selecting one note leaves the
-/// layer on. De-selecting a note never turns anything off by itself — the layer just reads off once the last one goes.
-func euclideousToggleNotesKey(_ line: inout EuclidLine, rank: Int) {
-    guard (1...8).contains(rank) else { return }
-    euclideousToggleLitPosition(&line, position: rank - 1)
-}
-func euclideousToggleNotesTop(_ line: inout EuclidLine) { euclideousToggleLitPosition(&line, position: EuclideousLitOrder.topPosition) }
-func euclideousToggleNotesTop2(_ line: inout EuclidLine) { euclideousToggleLitPosition(&line, position: EuclideousLitOrder.topTwoPosition) }
 /// NOTES TAB ferry §2.11: a tap lights or unlights a key through the lit ORDER — lighting adds it to the END, unlighting takes it out, lighting it again later puts it at
 /// the end. Positions 0-7 are ranks 1-8, 8 is TOP 2, 9 is TOP. One edit, so one undo step; and — as before — a tap on an off layer also turns it on.
 func euclideousToggleLitPosition(_ line: inout EuclidLine, position: Int) {
@@ -5796,34 +4152,12 @@ func euclideousToggleLitPosition(_ line: inout EuclidLine, position: Int) {
 /// The name turned along the pad's VEL strip. Upper-case like every other label on the page (GATE, LEGATO, OCT).
 let euclideousMixVelocityName = "VELOCITY"
 let euclideousMixVelocityNameShort = "VEL"
-/// RESTART CHAINS ferry §9.5 — "keep VELOCITY when it fits between the bottom of the value's 14pt line box
-/// (y 17) plus sp4 and the strip's bottom inset (plotH − 4)... otherwise show VEL. Work the fit out from the
-/// font metrics the view draws with. It never truncates." Replaces the OLD `euclideousMixVelocityNameLength`
-/// truncate-to-fit mechanism (MIX §3.12, superseded here) with a genuine two-way word choice. A real UIFont/
-/// NSFont measurement isn't available to this Foundation-only, macOS-test-linkable file (CLAUDE.md: the
-/// macOS test target links no UIKit/AppKit) — approximated from the SAME heavy-monospaced-8pt/0.08em-
-/// tracking metrics `MixPadPainter.swift` actually draws with (a heavy monospaced glyph at size S runs
-/// roughly 0.62×S wide; SwiftUI's `.tracking` adds its own amount after every character, last included).
-/// Calibrated against the ferry's own literal example — "VELOCITY fits at padH 96 but not at 76" — which
-/// this reproduces exactly; not independently verified at every other size (device-owed, §16).
-func euclideousMixVelocityNameFits(plotH: CGFloat) -> Bool {
-    let available = plotH - 4 - 17 - EuclideousMixMetrics.sp4
-    let fontSize: CGFloat = 8, glyphWidth = 0.62 * fontSize, tracking = 0.08 * fontSize
-    let needed = CGFloat(euclideousMixVelocityName.count) * (glyphWidth + tracking)
-    return available >= needed
-}
-/// The display word for the current pad height — "VELOCITY" when it fits, else the never-truncating "VEL".
-func euclideousMixVelocityDisplayName(plotH: CGFloat) -> String {
-    euclideousMixVelocityNameFits(plotH: plotH) ? euclideousMixVelocityName : euclideousMixVelocityNameShort
-}
 func euclideousMixPadAccessibilityLabel(lane: Int, notes: Bool, off: Bool) -> String { "Lane \(lane + 1) \(notes ? "notes" : "riff")" + (off ? ", off" : "") }
 func euclideousMixOctaveAccessibilityLabel(lane: Int, notes: Bool) -> String { "Lane \(lane + 1) \(notes ? "notes" : "riff") octave" }
 
 // ── gate / velocity text (both layers share the RHYTHM tab's rules) ───────────────────────────────────────────────────
 
 private func euclideousGateProbe(_ gate: Double) -> EuclidLine { var l = EuclidLine(); l.gate = gate; return l }
-/// The strip's name: always GATE — the pad no longer offers legato (see `euclideousLaneGateMax`), so it never says LEGATO.
-func euclideousMixGateName(gate: Double) -> String { EuclideousSliderField.gate.name }
 /// The strip's value: "<n>%".
 func euclideousMixGateValueText(gate: Double) -> String { euclideousSliderValueText(.gate, euclideousGateProbe(gate)) }
 /// "gate 60 percent, velocity 104" — plain percent, no "legato" (the pad can't set it).
@@ -5867,12 +4201,6 @@ func euclideousMixPadResetIfEnabled(_ line: inout EuclidLine, notes: Bool) -> Bo
     guard !euclideousMixLayerIsOff(line, notes: notes) else { return false }
     euclideousMixPadReset(&line, notes: notes)
     return true
-}
-/// A touch at `p` on a pad: its values from the point (§4.1), written only if the pad is enabled. Returns whether it wrote.
-@discardableResult
-func euclideousMixPadTouchWrite(_ line: inout EuclidLine, notes: Bool, at p: CGPoint, geometry: EuclideousMixPadGeometry) -> Bool {
-    let v = geometry.values(at: p)
-    return euclideousMixPadWriteIfEnabled(&line, notes: notes, gate: v.gate, velocity: v.velocity)
 }
 /// §3.7: an OFF pad shows no knob — so no strike effect (ripple, fill flash, puck swell) either, including the ≤ 1.5 s after its layer was switched off while the feed still holds the layer's last strike.
 func euclideousMixPadTakesStrike(_ line: EuclidLine, notes: Bool) -> Bool { !euclideousMixLayerIsOff(line, notes: notes) }
@@ -6193,16 +4521,6 @@ private func euclideousMaskedResetPick(absCell: Int, mask: UInt16, cells: Int, f
     if bestAtOrBeforeLocal >= 0 { return (lapStartCell, bestAtOrBeforeLocal, false, n) }
     return (lapStartCell, highestSet, true, n)
 }
-/// §2.3 — the restart ORIGIN (beat) for a 16-cell (or `cells`-cell) mask. Empty mask → 0 (free-runs from beat 0). A set bit `s` at
-/// or before the beat's cell → that window's start + s × cellBeats; no mark yet this window → the PREVIOUS window's last mark (a
-/// NEGATIVE origin in the first window — plain arithmetic, every caller handles it like any other beat-0-relative origin).
-func euclideousMaskedResetOrigin(beat: Double, cellBeats: Double, mask: UInt16, cells: Int) -> Double {
-    guard let p = euclideousMaskedResetPick(beat: beat, cellBeats: cellBeats, mask: mask, cells: cells) else { return 0 }
-    let lapStart = Double(p.lapStartCell) * cellBeats
-    if !p.carried { return lapStart + Double(p.s) * cellBeats }
-    let lapBeats = Double(p.n) * cellBeats
-    return lapStart - lapBeats + Double(p.s) * cellBeats
-}
 /// The same origin as an ABSOLUTE CELL INDEX (nil when the mask is empty) — what the melody-ordinal arithmetic subtracts, in exact
 /// integers, to place one origin relative to the other.
 func euclideousMaskedResetCell(beat: Double, cellBeats: Double, mask: UInt16, cells: Int) -> Int? {
@@ -6427,30 +4745,6 @@ struct EuclideousLanePhase: Equatable {
     var cellO: Int          // rhythm origin cell (0 when the rhythm mask is empty: it free-runs from beat 0)
     var cellM: Int          // melody origin cell (0 when the melody mask is empty)
 }
-/// The cheap half of the core — enough to know whether a tick is a hit (the gap scan and the roll's first pass use only this).
-/// `legacySpanBeats` is the pre-grid re-anchor (the bar-ladder / machine-wide span) and applies only when the grid has no marks.
-func euclideousLanePhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
-                         grid: EuclideousLaneRestartGrid, legacySpanBeats: Double) -> EuclideousLanePhase {
-    var localT: Int64
-    var cellO = 0, cellM = 0
-    let gridOn = grid.isActive
-    if gridOn {
-        let u = Int64(grid.unitTicks)
-        let absCell = Int(floorDiv(tick, u))
-        if grid.rhythmMask != 0 { cellO = euclideousMaskedResetCell(absCell: absCell, mask: grid.rhythmMask) ?? 0 }
-        if grid.melodyMask != 0 { cellM = euclideousMaskedResetCell(absCell: absCell, mask: grid.melodyMask) ?? 0 }
-        localT = tick - Int64(cellO) * u
-    } else {
-        // The pre-grid arithmetic, verbatim (a tick's beat → the span re-anchor → the floored tick count).
-        let tickBeat = Double(tick) * sub
-        let phaseBeat = legacySpanBeats > 0 ? (tickBeat - columnStart(tickBeat, legacySpanBeats)) : tickBeat
-        localT = Int64((phaseBeat / sub).rounded(.down))
-    }
-    let cl = Int64(max(1, cycleLen))
-    let raw = Int(((localT % cl) + cl) % cl)
-    return EuclideousLanePhase(localT: localT, raw: raw, rawIsHit: buf[euclidReadIndex(raw, n: n, dir: dir)],
-                               gridOn: gridOn, cellO: cellO, cellM: cellM)
-}
 
 /// Hits in the first `m` ticks of the lane's cyclic pattern (any integer `m`; the pattern repeats every `cycleLen` ticks and extends
 /// backwards the same way). The building block of every ordinal below.
@@ -6462,44 +4756,6 @@ private func euclideousPatternHits(_ m: Int64, buf: [Bool], n: Int, dir: EuclidD
     var s = 0
     while s < r { if buf[euclidReadIndex(s, n: n, dir: dir)] { pre += 1 }; s += 1 }
     return q * Int64(cycleHits) + Int64(pre)
-}
-/// Hits in ABSOLUTE ticks `[0, nTicks)` of the lane's real schedule — which follows the RHYTHM restarts, so each segment between two
-/// marks starts the pattern afresh. The schedule is periodic in the 16-cell window (every window has the same marks), so this is
-/// `windows × hitsPerWindow + the partial window`, the partial one a walk over at most 17 segments.
-private func euclideousScheduleHits(_ nTicks: Int64, rhythmMask: UInt16, unitTicks: Int, buf: [Bool], n: Int, dir: EuclidDir,
-                                    cycleLen: Int, cycleHits: Int) -> Int64 {
-    func pat(_ m: Int64) -> Int64 { euclideousPatternHits(m, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits) }
-    guard rhythmMask != 0 else { return pat(nTicks) }
-    let u = Int64(unitTicks)
-    let window = 16 * u
-    /// Hits in window-relative ticks [0, r), 0 ≤ r ≤ window.
-    func inWindow(_ r: Int64) -> Int64 {
-        guard r > 0 else { return 0 }
-        var highest = 0, first = -1
-        for s in 0..<16 where (rhythmMask >> UInt16(s)) & 1 != 0 { highest = s; if first < 0 { first = s } }
-        var total: Int64 = 0
-        // the segment carried over from the previous window: cells [0, first) running from the previous window's last mark
-        if first > 0 {
-            let origin = Int64(highest - 16) * u
-            let hi = min(Int64(first) * u, r)
-            if hi > 0 { total += pat(hi - origin) - pat(0 - origin) }
-        }
-        var s = first
-        while s >= 0 && s < 16 {
-            var next = s + 1
-            while next < 16 && (rhythmMask >> UInt16(next)) & 1 == 0 { next += 1 }
-            let lo = Int64(s) * u
-            if lo >= r { break }
-            let hi = min(Int64(next) * u, r)
-            let origin = lo
-            total += pat(hi - origin) - pat(lo - origin)
-            s = next
-        }
-        return total
-    }
-    let q = floorDiv(nTicks, window)
-    let rem = nTicks - q * window
-    return q * inWindow(window) + inWindow(rem)
 }
 
 /// What one tick of a lane IS, beyond where it sits: the cycle count and in-cycle hit rank (the legacy `cy` / `hitsUpTo`), and the
@@ -6513,66 +4769,7 @@ struct EuclideousLaneTickInfo: Equatable {
     var ord: Int64          // hits since the RHYTHM origin (the pre-grid `ord`) — what a plain NOTE-mode pick (CYCLE / RANDOM) walks
     var advOrd: Int64       // the ordinal fed to the riff walk (counted from the MELODY origin)
 }
-/// The per-tick core. `tick` is the lane's absolute tick (a tick sits at beat `tick × sub`); `cycleLen` is `euclidCycleLen(dir, n)`.
-/// Without a grid mark this is exactly the pre-grid arithmetic: `ord`/`advOrd` from the single (span) origin. With one, the rhythm
-/// origin phases the pattern and the melody origin sets where the riff ordinal counts from:
-///   · FREE — hits (HIT advance) or ticks (STEP advance) since the melody origin, on the schedule that really sounded;
-///   · LOCK — the same, but counted from the LATER of the melody origin and the start of the current Euclid lap (which is anchored
-///     to the rhythm origin), so a lap boundary still re-anchors the riff exactly as before.
-/// Both marks on the same cell reproduce the old single restart (the melody origin then equals the rhythm origin).
-func euclideousLaneTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
-                        grid: EuclideousLaneRestartGrid, legacySpanBeats: Double,
-                        locked: Bool, advanceStep: Bool) -> EuclideousLaneTickInfo {
-    let ph = euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats)
-    let cl = Int64(max(1, cycleLen))
-    let cy = (ph.localT - Int64(ph.raw)) / cl
-    var hitsUpTo = 0
-    var s = 0
-    while s <= ph.raw { if buf[euclidReadIndex(s, n: n, dir: dir)] { hitsUpTo += 1 }; s += 1 }
-    var cycleHits = 0
-    s = 0
-    while s < cycleLen { if buf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }; s += 1 }
-    let advOrd: Int64
-    let ord = cy * Int64(max(1, cycleHits)) + Int64(hitsUpTo - 1)
-    if !ph.gridOn || ph.cellM == ph.cellO {
-        // one shared origin (no marks, or both origins on the same cell): exactly the pre-grid single-restart arithmetic
-        advOrd = advanceStep ? (locked ? Int64(ph.raw) : ph.localT) : (locked ? Int64(hitsUpTo - 1) : ord)
-    } else {
-        let u = Int64(grid.unitTicks)
-        let jM = Int64(ph.cellM - ph.cellO) * u                 // the melody origin, in ticks relative to the rhythm origin
-        let ref = locked ? max(cy * cl, jM) : jM
-        if advanceStep {
-            advOrd = ph.localT - ref
-        } else {
-            let upTo = euclideousPatternHits(ph.localT + 1, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
-            if ref >= 0 {
-                advOrd = upTo - euclideousPatternHits(ref, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits) - 1
-            } else {
-                // the melody origin lies BEFORE the current rhythm segment: add the hits of the segments between the two origins
-                func scheduleAt(_ cell: Int) -> Int64 {
-                    euclideousScheduleHits(Int64(cell) * u, rhythmMask: grid.rhythmMask, unitTicks: grid.unitTicks, buf: buf, n: n, dir: dir,
-                                           cycleLen: cycleLen, cycleHits: cycleHits)
-                }
-                advOrd = upTo + (scheduleAt(ph.cellO) - scheduleAt(ph.cellM)) - 1
-            }
-        }
-    }
-    return EuclideousLaneTickInfo(localT: ph.localT, raw: ph.raw, rawIsHit: ph.rawIsHit, cy: cy, hitsUpTo: hitsUpTo, ord: ord, advOrd: advOrd)
-}
 
-/// The beat gap from `tick` (exclusive) to the lane's NEXT real pattern hit — the same core, so a restart (either kind of mark falls
-/// on the rhythm origin) between the two is honoured. Bounded at `cap` ticks; returns `cap × sub` when nothing is found.
-func euclideousNextHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, cap: Int,
-                               grid: EuclideousLaneRestartGrid, legacySpanBeats: Double) -> Double {
-    guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
-    var k = 1
-    while k <= cap {
-        if euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick + Int64(k), grid: grid,
-                               legacySpanBeats: legacySpanBeats).rawIsHit { return Double(k) * sub }
-        k += 1
-    }
-    return Double(cap) * sub
-}
 
 
 // ── RESTART CHAINS (ferry 2026-10-19) — REPLACES the masked rhythm/melody grid above as the engine's real
@@ -7326,30 +5523,6 @@ func euclideousLanesStrokeHit(x: CGFloat, y: CGFloat, lane: Int, layout: Euclide
 /// mark there (carried over from the previous window, §2.3) is DASHED up to the first mark; a row with no marks is ONE dashed run around
 /// all 16 cells.
 struct EuclideousLanesRun: Equatable { var start: Int; var end: Int; var dashed: Bool }
-func euclideousLanesRuns(mask: UInt16) -> [EuclideousLanesRun] {
-    let marks = (0..<16).filter { (mask >> UInt16($0)) & 1 != 0 }
-    guard let first = marks.first else { return [EuclideousLanesRun(start: 0, end: 16, dashed: true)] }
-    var runs: [EuclideousLanesRun] = []
-    if first > 0 { runs.append(EuclideousLanesRun(start: 0, end: first, dashed: true)) }
-    for (k, m) in marks.enumerated() { runs.append(EuclideousLanesRun(start: m, end: k + 1 < marks.count ? marks[k + 1] : 16, dashed: false)) }
-    return runs
-}
-/// §4.8 — the beats at which a lane's restart marks fall inside `[windowStart, windowStart + windowBeats)`: each mark repeats every restart
-/// period (16 restart units), so the MUTE tab (whose window is 16 MUTE units) shows them wherever they land.
-func euclideousLanesMarkBeats(mask: UInt16, restartUnitBeats: Double, windowStart: Double, windowBeats: Double) -> [Double] {
-    guard mask != 0, restartUnitBeats > 0, windowBeats > 0 else { return [] }
-    let period = 16 * restartUnitBeats
-    var out: [Double] = []
-    var k = Int((windowStart / period).rounded(.down))
-    while Double(k) * period < windowStart + windowBeats {
-        for c in 0..<16 where (mask >> UInt16(c)) & 1 != 0 {
-            let b = Double(k) * period + Double(c) * restartUnitBeats
-            if b >= windowStart - 1e-9 && b < windowStart + windowBeats - 1e-9 { out.append(b) }
-        }
-        k += 1
-    }
-    return out
-}
 
 /// §5 — every edit the panel makes to a lane, as one value. Applying one FIRST pins all five grid fields from the lane's resolved view
 /// (so a pre-feature lane's migrated values become its stored values, whatever the old fields hold later), then writes.
@@ -7405,9 +5578,6 @@ func euclideousLaneGridView(lines: [EuclidLine], lane: Int, legacy: EuclideousLa
 
 // ── accessibility + legend words (§7, §4.10) ───────────────────────────────────────────────────────────────────────────
 func euclideousLanesMuteCellLabel(lane: Int, cell: Int, sounding: Bool) -> String { "Lane \(lane + 1) cell \(cell + 1), \(sounding ? "sounding" : "muted")" }
-func euclideousLanesRestartCellLabel(lane: Int, cell: Int, melody: Bool, set: Bool) -> String {
-    "Lane \(lane + 1) cell \(cell + 1) \(melody ? "melody" : "rhythm") restart, \(set ? "set" : "not set")"
-}
 func euclideousLanesRateBoxLabel(lane: Int, unit: String) -> String { "Lane \(lane + 1) cell size \(unit)" }
 let euclideousLanesRestartHint = "TOP ROW = RHYTHM RESTART. BOTTOM ROW = MELODY RESTART."
 
@@ -7499,12 +5669,6 @@ func euclideousRollBarY(rank: Int, laneH: CGFloat) -> CGFloat {
     return (4 + CGFloat(8 - min(8, rank)) * 5) * scale
 }
 
-// ── the footer's lap baseline and the comet's phase, from the same core (§2.5, §2.8) ──────────────────────────────────
-/// The riff ordinal the CURRENT rhythm lap's first hit reads — the footer's baseline, taken from the core with BOTH origins instead of
-/// being reverse-derived from the polled ordinal (which a melody restart would break). The lap is the one containing the latest tick at or
-/// before `beat`; nil if the pattern has no hit. Restarts that fall INSIDE the lap are not foreseen (the prediction stays oblivious to
-/// them, §2.8), exactly as before.
-func euclideousLapStartOrdinal(cfg c: EuclideousWalkLaneConfig, beat: Double) -> Int64? { euclideousLapStart(cfg: c, beat: beat)?.ordinal }
 /// LANE STRIP ferry: the same lap, with the ABSOLUTE tick of its first step (raw 0) as well — a hit of the shown pass sits at `lapStartTick + hit.tick`, which is how the strip asks the notes
 /// functions (k, the hit ordinal) and REPEAT's lookback about that hit.
 func euclideousLapStart(cfg c: EuclideousWalkLaneConfig, beat: Double) -> (lapStartTick: Int64, ordinal: Int64)? {
@@ -7520,19 +5684,6 @@ func euclideousLapStart(cfg c: EuclideousWalkLaneConfig, beat: Double) -> (lapSt
         return (lapStart, ord)
     }
     return nil
-}
-/// The comet's continuous position in its cycle at `beat`, measured from the RHYTHM origin — the lane card's comet and hit flashes read this
-/// (instead of the legacy span re-anchor), so they agree with the pattern the engine is really playing across a restart.
-func euclideousLaneCometRaw(beat: Double, n: Int, dir: EuclidDir, sub: Double, grid: EuclideousLaneRestartGrid, legacySpanBeats: Double) -> Double {
-    guard sub > 0, n > 0 else { return 0 }
-    let cycleLen = euclidCycleLen(dir, n: n)
-    let ticks = beat / sub
-    let tick = Int64(ticks.rounded(.down))
-    let buf = [Bool](repeating: false, count: max(1, n))
-    let ph = euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats)
-    let raw = Double(ph.localT) + (ticks - Double(tick))
-    let cl = Double(cycleLen)
-    return raw - cl * (raw / cl).rounded(.down)
 }
 /// RESTART CHAINS (ferry 2026-10-19): the chain-era counterpart of `euclideousLaneCometRaw` above — the ONLY real call
 /// site (the lane card's comet sweep, `EuclidLaneUI.swift`) now reads this instead; the old grid-based function stays
@@ -7692,52 +5843,6 @@ func euclideousFXWalkPeriod(dir: RiffDir, length: Int, stride: Int) -> Int {
 func euclideousFXFreePass(advOrd: Int64, period: Int) -> Int {
     Int(floorDiv(advOrd, Int64(max(1, period))))
 }
-/// LOCK: `p` = the number of LOCK resets — Euclid lap starts — strictly AFTER the melody origin and at or before this tick. A lap starts at every multiple of
-/// `cycleLen` ticks from the RHYTHM origin, and a rhythm mark starts a fresh lap. In CLOSED FORM (never a loop over laps): the rhythm segments repeat every
-/// 16 restart cells, so `L(x)` (lap starts ≤ x) is whole windows × lap starts per window + a walk over at most 17 segments.
-func euclideousFXLockPass(tick: Int64, cycleLen: Int, grid: EuclideousLaneRestartGrid, localT: Int64) -> Int {
-    let cl = Int64(max(1, cycleLen))
-    guard grid.isActive else { return Int(floorDiv(localT, cl)) }          // one origin (the legacy span or beat 0): laps since it
-    let u = Int64(grid.unitTicks)
-    let absCell = Int(floorDiv(tick, u))
-    let cellM = grid.melodyMask != 0 ? (euclideousMaskedResetCell(absCell: absCell, mask: grid.melodyMask) ?? 0) : 0
-    let m = Int64(cellM) * u                                               // the melody origin, in absolute ticks
-    if grid.rhythmMask == 0 { return Int(floorDiv(tick, cl) - floorDiv(m, cl)) }   // the rhythm origin is beat 0: laps at multiples of cl
-    return Int(euclideousLapStartsUpTo(tick, rhythmMask: grid.rhythmMask, unitTicks: u, cycleLen: cl) - euclideousLapStartsUpTo(m, rhythmMask: grid.rhythmMask, unitTicks: u, cycleLen: cl))
-}
-/// L(x): lap starts at or before absolute tick `x`, relative to a consistent baseline (only DIFFERENCES are meaningful). Segments are the rhythm marks'
-/// own (the carried segment before the window's first mark runs from the previous window's last mark); a segment starting at `a` has lap starts at `a + k·cl`.
-private func euclideousLapStartsUpTo(_ x: Int64, rhythmMask: UInt16, unitTicks u: Int64, cycleLen cl: Int64) -> Int64 {
-    let window = 16 * u
-    var first = -1, last = -1
-    for c in 0..<16 where (rhythmMask >> UInt16(c)) & 1 != 0 { if first < 0 { first = c }; last = c }
-    guard first >= 0 else { return floorDiv(x, cl) }
-    /// lap starts at a + k·cl (k ≥ 0) inside [lo, hi], where the segment began at `a`
-    func inSegment(a: Int64, lo: Int64, hi: Int64) -> Int64 {
-        guard hi >= lo else { return 0 }
-        let jmax = floorDiv(hi - a, cl)
-        let jmin: Int64 = lo > a ? -floorDiv(a - lo, cl) : 0              // ceil((lo − a) / cl)
-        return max(0, jmax - jmin + 1)
-    }
-    /// lap starts per window and within window-relative ticks [0, r]
-    func perWindow(_ r: Int64) -> Int64 {
-        var total: Int64 = 0
-        let firstP = Int64(first) * u
-        total += inSegment(a: Int64(last - 16) * u, lo: 0, hi: min(r, firstP - 1))          // the carried segment
-        var c = first
-        while c >= 0 && c < 16 {
-            var next = c + 1
-            while next < 16 && (rhythmMask >> UInt16(next)) & 1 == 0 { next += 1 }
-            let a = Int64(c) * u
-            if a > r { break }
-            total += inSegment(a: a, lo: a, hi: min(r, Int64(next) * u - 1))
-            c = next
-        }
-        return total
-    }
-    let wn = floorDiv(x, window)
-    return wn * perWindow(window - 1) + perWindow(x - wn * window)
-}
 /// THE NOTE PASS INDEX, chain era (REVIEW FIX ferry 2026-10-23) — the ONE function the Router and the LANES roll both call, so the roll can no longer predict a NOTE offset the engine doesn't play (it read the RETIRED masked
 /// grid: with a melody chain of [2] the engine played ranks 1,1,1,1,2,2,2,2,1,… and the roll drew 1…4). A pass is a riff cycle counted from the MELODY origin (`advOrd`, the chain core's own ordinal: a melody restart returns
 /// the NOTE ladder to its first rung with the riff), EXCEPT under a melody chain of exactly [1] — the old LOCK, the riff restarting every lap — where every riff cycle would be pass 0 and the row could never move: there a pass is a
@@ -7752,21 +5857,6 @@ func euclideousFXNotePassForTick(_ c: EuclideousWalkLaneConfig, tick: Int64, adv
     let ph = euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats)
     let laps = floorDiv(ph.localT - Int64(ph.raw), Int64(max(1, cycleLen)))
     return euclideousFXNotePass(advOrd: advOrd, every: c.every, riffDir: c.riffDir, length: c.length, stride: c.stride, melodyEveryPass: c.chains.melody.isSingleLink1, lapsSinceRhythmOrigin: laps)
-}
-/// The hit's NOTE pass index from the lane's per-tick core inputs — the one function the Router (FREE: it already holds `advOrd`; LOCK: it holds `localT`), the
-/// roll and the tests all use. FREE reads the core's ordinal; LOCK counts resets in closed form.
-func euclideousFXPassIndex(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, grid: EuclideousLaneRestartGrid,
-                           legacySpanBeats: Double, locked: Bool, advanceStep: Bool, riffDir: RiffDir, stride: Int, length: Int, every: Int = 1) -> Int {
-    if locked {
-        let ph = euclideousLanePhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats)
-        return euclideousFXLockPass(tick: tick, cycleLen: cycleLen, grid: grid, localT: ph.localT)
-    }
-    let info = euclideousLaneTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, grid: grid, legacySpanBeats: legacySpanBeats,
-                                  locked: false, advanceStep: advanceStep)
-    // RIFF WALK ferry §5.2 test 7: the FREE path counts the WALK STEP, not the raw ordinal, so every EVERY
-    // hit of a group gets the same NOTE pass/offset — the LOCK path above is untouched (out of this ferry's
-    // scope, per the restart-chains ferry's own precedent).
-    return euclideousFXFreePass(advOrd: euclideousRiffWalkStep(ordinal: info.advOrd, every: every), period: euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
 }
 
 /// Floors ferry: the note-label column's own fair-share-resolved width — nominal 30, dropping to
@@ -7857,7 +5947,6 @@ struct EuclideousFXLayout: Equatable {
     func rowTop(_ r: Int) -> CGFloat { rowsTop + CGFloat(r) * (rowH + Self.rowGap) }
     var hintTop: CGFloat { rowTop(5) + rowH + Self.rowGap }
     func cellRect(row: Int, col: Int) -> CGRect { CGRect(x: colLeft(col), y: rowTop(row), width: cellW, height: rowH) }
-    func railRect(row: Int) -> CGRect { CGRect(x: 0, y: rowTop(row), width: Self.labelW, height: rowH) }
     /// The selected row's band (§11.4): 4pt wider than the content on each side (it starts at the panel's x 4), 2pt taller above and below the row.
     func bandRect(row: Int) -> CGRect {
         CGRect(x: -4, y: rowTop(row) - Self.bandPad, width: width + 8, height: rowH + Self.bandPad * 2)
@@ -8739,16 +6828,6 @@ func euclideousNotesHitOrdinal(buf: [Bool], w: EuclideousNotesWalk, tick: Int64)
     euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: tick, chains: w.chains,
                             legacySpanBeats: w.legacySpanBeats, advanceStep: false).advOrd
 }
-/// 6.1: the riff column the lane's walk reads at the hit on `tick`, and whether its WRITTEN rank is a rest — worked out whether or not the riff layer is on. INVERT, TRANSPOSE,
-/// an FX NOTE offset, the mask's rank modes and ON REST never change it.
-func euclideousNotesRiffColumn(buf: [Bool], w: EuclideousNotesWalk, tick: Int64) -> Int {
-    let info = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: tick, chains: w.chains,
-                                       legacySpanBeats: w.legacySpanBeats, advanceStep: w.advanceStep)
-    return euclideousRiffColumn(ordinal: info.advOrd, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed)
-}
-func euclideousNotesIsRestHit(buf: [Bool], w: EuclideousNotesWalk, tick: Int64, rankAt: (_ column: Int, _ beat: Double) -> Int) -> Bool {
-    rankAt(euclideousNotesRiffColumn(buf: buf, w: w, tick: tick), Double(tick) * w.sub) < 1
-}
 
 /// 6.4: k for the hit with ordinal `h` on `tick` — the number of EARLIER hits since the melody origin that PLAYS and RESTS chose and CHANCE let through, whatever happened to
 /// them next (a LANES mute, the mask, FX TIE, an empty list, the riff taking the pitch). It is counted in blocks of 1024 hits: only the hits from `h − h mod 1024` to `h − 1`.
@@ -8809,12 +6888,6 @@ struct EuclideousNotesList: Equatable {
     mutating func append(pitch p: Int, position: Int, rank: Int) {
         guard count < EuclideousNotesList.capacity, !contains(pitch: p), p >= Int(Int16.min), p <= Int(Int16.max) else { return }
         pitches[count] = Int16(p); positions[count] = UInt8(position); ranks[count] = Int16(rank); count += 1
-    }
-    /// The list without `pitch` (for 7.2: the riff keeps its pitch).
-    func without(pitch p: Int) -> EuclideousNotesList {
-        var o = EuclideousNotesList()
-        for i in 0..<count where Int(pitches[i]) != p { o.append(pitch: Int(pitches[i]), position: Int(positions[i]), rank: Int(ranks[i])) }
-        return o
     }
 }
 /// 6.5: go through the lit order from first to last. A rank is the pool note at that rank (`resolve` = `riffResolve` against this hit's pool at the notes layer's octave); TOP is the
@@ -9387,8 +7460,6 @@ func euclideousStripChipFrame(column: CGRect, rank: Int) -> CGRect {
 func euclideousStripShowsChipLabel(columnWidth w: CGFloat) -> Bool { w >= EuclideousStripMetrics.chipLabelFloor }
 func euclideousStripShowsKeyLabel(keyWidth w: CGFloat) -> Bool { w >= EuclideousStripMetrics.keyLabelFloor }
 
-/// 5.1: a lane the LANES grid has muted draws its whole strip at 42% and makes no strikes.
-func euclideousStripMuteLook(muted: Bool) -> (opacity: Double, strikes: Bool) { (muted ? EuclideousStripMetrics.mutedAlpha : 1, !muted) }
 
 // ── the per-hit plan (7.3) ───────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -9397,10 +7468,6 @@ enum EuclideousStripColumnKind: Equatable {
     case hit          // the rhythm hits: a lane-coloured column with a floor bar (with a chip when the hit reads a riff note)
     case gap          // a hit on a riff REST under SKIP / TIE (or a REPEAT that finds no note): draws exactly like `.hit`, just with no chip
 }
-/// LANE STRIP readability ferry §6.3: whether a step's column draws lane-coloured (hit AND gap — REPEAT
-/// is encoded as `EuclideousStripChip.hollow`, not a fourth kind, so it's already covered here) vs a
-/// quiet rhythm rest. The one shared rule drawing and tests both call, so they can't disagree.
-func euclideousStripDrawsAsHit(_ kind: EuclideousStripColumnKind) -> Bool { kind != .rhythmRest }
 
 // ── CLARITY PASS (2026-10-23) §1.3: what a column is filled with ──────────────────────────────────────────────────────────
 
@@ -9676,9 +7743,6 @@ func euclideousStripAppendLive(_ hitsPhrase: String, onStep: Int?, muted: Bool) 
     if muted { out += ", silent at this step" }
     return out
 }
-func euclideousStripAccessibilityValue(hits: [EuclideousStripHit], spokenRank: (Int) -> String?, spokenPitch: (Int) -> String, onStep: Int?, muted: Bool) -> String {
-    euclideousStripAppendLive(euclideousStripHitsPhrase(hits: hits, spokenRank: spokenRank, spokenPitch: spokenPitch), onStep: onStep, muted: muted)
-}
 
 // MARK: - STEP-BOX GEOMETRY (moved here unchanged from EuclidLaneUI.swift by the LANE STRIP ferry, 2026-10-21, so the strip's layout is testable on macOS)
 
@@ -9782,26 +7846,14 @@ func euclidEvenBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGr
 @inline(__always) func euclideousLaneMayStrike(lane: Int, soloMask: UInt8, muteAudible: Bool, enabled: Bool) -> Bool {
     enabled && muteAudible && !euclideousSoloSilences(lane: lane, soloMask: soloMask)
 }
-/// §6: does a view that shows this lane draw it at the OFF-dim 42 %? A lane the LANES grid mutes at this beat OR the solo mask silences — ONE dim, never both multiplied. This is `euclideousLaneMayStrike` with the
-/// play state taken out (a stopped lane is shown by its play button, not greyed).
-@inline(__always) func euclideousLaneIsDimmed(lane: Int, soloMask: UInt8, muteAudible: Bool) -> Bool {
-    !euclideousLaneMayStrike(lane: lane, soloMask: soloMask, muteAudible: muteAudible, enabled: true)
-}
 /// The dimmed lanes' 0.42, in one place (the page's existing OFF-dim value) and the ease every dim uses (§6: 0.15 s both ways).
 enum EuclideousLaneDimStyle {
     static let opacity = 0.42
     static let easeSeconds = 0.15
 }
-/// The four lanes' dim flags for a given solo mask (LANES-mute is beat-derived and added by the caller where it applies).
-func euclideousSoloSilencedLanes(soloMask: UInt8) -> [Bool] { (0..<4).map { euclideousSoloSilences(lane: $0, soloMask: soloMask) } }
 
 // ── tap vs hold (§3) ────────────────────────────────────────────────────────────────────────────────────
 
-/// §3.2 / §3.3: the latched value AFTER a press of `pressSeconds`, from the latched value before. A tap (under 300 ms, the header rings' threshold) toggles it; a hold (300 ms or more) leaves it exactly as it was —
-/// a hold never toggles. Touch-down already counted the lane as soloed (§3.1), so the "off + tap → on" case changes nothing the touch hadn't already shown.
-func euclideousSoloLatchAfter(latchedBefore: Bool, pressSeconds: Double) -> Bool {
-    pressSeconds >= EuclideousRingPress.holdSeconds ? latchedBefore : !latchedBefore
-}
 /// One SOLO button's touch, as a pure state machine (the view owns the timer and the clock): down at once (the lane counts as soloed from touch-down, §3.1); after 300 ms the HELD look; whatever lifts it — wherever the
 /// finger is, a slide-off never cancels (§3.4) — decides tap or hold by DURATION; a touch the system cancels ends as a hold would (it never toggles). Unlike `EuclideousRingPress` there is no drag-cancel.
 struct EuclideousSoloPress: Equatable {
@@ -9865,52 +7917,6 @@ enum EuclideousRestartFlash {
     static let spinSeconds = 0.5      // the ↻ icon's one full turn
 }
 
-/// Seconds since the lane's last restart of `kind` at REAL beat `beat`, or nil when there has been none within `lifeSeconds` (so nothing to draw). `secondsPerBeat` is 60 ÷ tempo.
-func euclideousRestartSinceSeconds(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneConfig, beat: Double, secondsPerBeat spb: Double,
-                                   lifeSeconds: Double = EuclideousRestartFlash.life) -> Double? {
-    guard c.sub > 0, c.n > 0, spb > 0, beat.isFinite else { return nil }
-    let mNow = c.swingA == 1 ? beat : musicalOf(beat, stepBeats: c.swingStepBeats, a: c.swingA)
-    func realOfMusical(_ m: Double) -> Double { c.swingA == 1 ? m : realOf(m, stepBeats: c.swingStepBeats, a: c.swingA) }
-    /// `s` seconds since the real beat of a musical event; nil when it hasn't happened yet or is older than the flash's life.
-    func since(musicalEvent m: Double) -> Double? {
-        let s = (beat - realOfMusical(m)) * spb
-        return s >= -1e-9 && s <= lifeSeconds + 1e-9 ? max(0, s) : nil
-    }
-    let lifeTicks = Int64((lifeSeconds / spb / c.sub).rounded(.up)) + 2
-    let k0 = Int64((mNow / c.sub).rounded(.down))
-    let cycleLen = euclidCycleLen(c.dir, n: c.n)
-    switch kind {
-    case .rhythm:
-        if !c.chains.rhythm.isFree {
-            return since(musicalEvent: euclideousRhythmChainOrigin(beat: mNow, barBeats: c.chains.barBeats, chain: c.chains.rhythm))
-        }
-        var k = k0
-        while k >= k0 - lifeTicks {
-            if euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: k, chains: c.chains, legacySpanBeats: c.spanBeats).raw == 0 {
-                return since(musicalEvent: Double(k) * c.sub)
-            }
-            k -= 1
-        }
-        return nil
-    case .melody:
-        if !c.chains.melody.isFree {
-            return since(musicalEvent: euclideousMelodyChainOrigin(beat: mNow, lapBeats: c.chains.lapBeats, barBeats: c.chains.barBeats,
-                                                                    rhythmChain: c.chains.rhythm, melodyChain: c.chains.melody))
-        }
-        guard c.riffOn, c.playsRiff else { return nil }
-        let period = euclideousFXWalkPeriod(dir: c.riffDir, length: c.length, stride: c.stride)
-        guard period > 1 else { return nil }
-        let cyc = Int64(period) * Int64(max(1, c.every))
-        var k = k0
-        while k >= k0 - lifeTicks {
-            let w = euclideousWalkTick(c, tick: k)
-            // ADV HIT counts hits: the walk is back at its first step on the hit whose ordinal is a whole number of cycles. ADV STEP counts ticks: on the tick whose ordinal is.
-            if (c.advanceStep || w.isHit), w.advOrd >= 0, w.advOrd % cyc == 0 { return since(musicalEvent: Double(k) * c.sub) }
-            k -= 1
-        }
-        return nil
-    }
-}
 
 /// What one restart's flash looks like `seconds` after it, as plain numbers the painter draws (all 0…1 unless noted). `scale` is the page's PULSE level (0 OFF · 0.6 SUBTLE · 1 FULL); nil when off or over.
 /// Reduce Motion keeps the glow and drops the two moving parts (the sweep and the spin), as the other pulse effects do.
@@ -9922,19 +7928,6 @@ struct EuclideousRestartFlashLook: Equatable {
     var sweepAlpha: Double
     var spinDegrees: Double   // the ↻ icon's rotation, 0 … 360
     var hot: Double       // how white the icon reads
-}
-func euclideousRestartFlashLook(since seconds: Double, scale p: Double, reduceMotion: Bool) -> EuclideousRestartFlashLook? {
-    typealias F = EuclideousRestartFlash
-    guard p > 0, seconds >= 0, seconds <= F.life else { return nil }
-    let decay = exp(-seconds / F.glowTau) * p
-    guard decay >= 0.01 else { return nil }
-    func easeOut(_ x: Double) -> Double { let t = max(0, min(1, x)); return 1 - pow(1 - t, 3) }
-    let sweeping = !reduceMotion && seconds < F.sweepSeconds
-    return EuclideousRestartFlashLook(wash: decay, rim: decay, glow: decay,
-                                      sweep: sweeping ? easeOut(seconds / F.sweepSeconds) : nil,
-                                      sweepAlpha: sweeping ? p * (1 - seconds / F.sweepSeconds) : 0,
-                                      spinDegrees: reduceMotion ? 0 : 360 * easeOut(seconds / F.spinSeconds),
-                                      hot: decay)
 }
 
 // MARK: - RESTART TILES (RHYTHM POLISH ferry, 2026-10-22, §6; the MELODY track rebuilt by the RESTART TILES ferry, 2026-10-22)
@@ -10165,10 +8158,3 @@ func euclideousRestartTileCellWidth(count: Int, width: CGFloat) -> CGFloat {
     return max(1, (width - 2 * CGFloat(count - 1)) / CGFloat(count))
 }
 
-/// The restart tile's label for a tile `width` wide: "RHYTHM RESTART" / "MELODY RESTART" when it fits at 8 pt heavy mono (`EuclideousHeaderMetrics.monoAdvance` × 8 per character, 2 pt either side),
-/// else just "RHYTHM" / "MELODY" — never a word cut in the middle (the ↻ beside the value still says "restart").
-func euclideousRestartTileLabel(name: String, width: CGFloat) -> String {
-    let full = "\(name) RESTART"
-    let needed = CGFloat(full.count) * 8 * EuclideousHeaderMetrics.monoAdvance + 4
-    return width >= needed ? full : name
-}

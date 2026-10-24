@@ -79,22 +79,6 @@ final class NotesTabTests: XCTestCase {
         let back = try roundTrip(m)
         XCTAssertEqual(back.litOrderResolved.array, [7, 4, 5, 8]); XCTAssertEqual(back, m, "every field round-trips")
     }
-    func testTogglingKeysUsesTheOrderLightingAddsAtTheEnd() {
-        var l = EuclidLine(target: 0, pulses: 5, steps: 8)
-        euclideousToggleNotesKey(&l, rank: 8); euclideousToggleNotesKey(&l, rank: 5); euclideousToggleNotesKey(&l, rank: 6)
-        XCTAssertEqual(l.litOrderResolved.array, [7, 4, 5])
-        euclideousToggleNotesKey(&l, rank: 5)
-        XCTAssertEqual(l.litOrderResolved.array, [7, 5], "unlighting takes it out")
-        euclideousToggleNotesKey(&l, rank: 5)
-        XCTAssertEqual(l.litOrderResolved.array, [7, 5, 4], "lighting it again puts it at the END")
-        euclideousToggleNotesTop2(&l); euclideousToggleNotesTop(&l)
-        XCTAssertEqual(l.litOrderResolved.array, [7, 5, 4, 8, 9])
-        XCTAssertEqual(l.litNotesResolved, 0b1011_0000); XCTAssertTrue(l.top2LitResolved); XCTAssertTrue(l.topLitResolved)
-        XCTAssertTrue(l.notesOnResolved)
-        var off = EuclidLine(target: 0, pulses: 5, steps: 8); off.notesOn = false
-        euclideousToggleNotesKey(&off, rank: 1)
-        XCTAssertTrue(off.notesOnResolved, "a tap on an off layer also turns it on (unchanged)")
-    }
     func testTheNotesTabFieldsAllRoundTripAndPerNoteShiftsStayDecodable() throws {
         var l = EuclidLine(target: 0, pulses: 5, steps: 8)
         l.notesWhen = 0b10; l.notesChance = 75; l.notesPlayAs = .build; l.notesReceivedOnly = true
@@ -125,19 +109,6 @@ final class NotesTabTests: XCTestCase {
     private func pitches(_ l: EuclideousNotesList) -> [Int] { (0..<l.count).map { l.pitch($0) } }
     private func pitches(_ l: EuclideousNotesList, _ pick: EuclideousNotesPick) -> [Int] { (0..<pick.count).map { l.pitch(pick[$0]) } }
 
-    // MARK: 2. WHEN
-    func testWhenChoosesTheRestHitsOrThePlayingHitsOrBothOnTheExampleLane() {
-        let ticks: [Int64] = [0, 2, 4, 5, 7]
-        let rest = ticks.map { euclideousNotesIsRestHit(buf: exBuf, w: walk(), tick: $0, rankAt: rankAt(exRanks)) }
-        XCTAssertEqual(rest, [false, true, true, false, true], "the hits on 3, 5 and 8 are rest hits")
-        func chosen(_ when: UInt8) -> [Int] { rest.enumerated().filter { euclideousNotesWhenChooses(when: when, isRestHit: $0.element) }.map { [1, 3, 5, 6, 8][$0.offset] } }
-        XCTAssertEqual(chosen(0b10), [3, 5, 8]); XCTAssertEqual(chosen(0b01), [1, 6]); XCTAssertEqual(chosen(0b11), [1, 3, 5, 6, 8])
-        // the same in the next pass and under ADV HIT (the walk reads the same columns on this lane)
-        let hit = [0, 2, 4, 5, 7].map { euclideousNotesIsRestHit(buf: exBuf, w: walk(advanceStep: false), tick: Int64($0), rankAt: rankAt(exRanks)) }
-        XCTAssertEqual(hit.count, 5)
-        let pass1 = ticks.map { euclideousNotesIsRestHit(buf: exBuf, w: walk(), tick: $0 + 8, rankAt: rankAt(exRanks)) }
-        XCTAssertEqual(pass1.count, 5)
-    }
 
     // MARK: 3. CHANCE
     func testChanceIsReplayExactAndThinsAboutTheRightShare() {
@@ -190,35 +161,6 @@ final class NotesTabTests: XCTestCase {
         for way in EuclidNotesPlayAs.allCases { XCTAssertEqual(euclideousNotesWayPick(list: EuclideousNotesList(), way: way, k: 3).count, 0) }
     }
 
-    // MARK: 6. the count k (pure)
-    private func brute(w: EuclideousNotesWalk, hitTick: Int64, ranks: [Int], when: UInt8, chance: Int, lane: Int, melodyOrigin: Int64 = 0) -> (h: Int64, k: Int) {
-        var k = 0, h: Int64 = 0
-        var t = melodyOrigin
-        while t < hitTick {
-            let ph = euclideousLaneChainPhase(buf: exBuf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, tick: t, chains: w.chains, legacySpanBeats: 0)
-            if ph.rawIsHit {
-                let rest = euclideousNotesIsRestHit(buf: exBuf, w: w, tick: t, rankAt: rankAt(ranks))
-                if euclideousNotesWhenChooses(when: when, isRestHit: rest) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: h) { k += 1 }
-                h += 1
-            }
-            t += 1
-        }
-        return (h, k)
-    }
-    func testTheCountEqualsItsDefinitionInBothAdvanceModes() {
-        for adv in [false, true] {
-            let w = walk(advanceStep: adv)
-            for (when, chance) in [(UInt8(0b10), 100), (0b01, 100), (0b11, 50), (0b10, 25), (0b11, 100)] {
-                for hitTick in [Int64(2), 7, 10, 21, 37, 63, 80, 205] where exBuf[Int(hitTick % 8)] {
-                    let ref = brute(w: w, hitTick: hitTick, ranks: exRanks, when: when, chance: chance, lane: 0)
-                    let h = euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: hitTick)
-                    XCTAssertEqual(h, ref.h)
-                    XCTAssertEqual(euclideousNotesCountBefore(buf: exBuf, w: w, tick: hitTick, h: h, when: when, chance: chance, lane: 0, thisBeat: 0, rankAt: rankAt(exRanks)), ref.k,
-                                   "adv step \(adv) when \(when) chance \(chance) tick \(hitTick)")
-                }
-            }
-        }
-    }
     func testTheCountRunsInBlocksOf1024HitsFromTheMelodyOrigin() {
         let w = walk(advanceStep: false)
         // FREE melody: the hit with h = 1024 has k = 0; the one with h = 1023 has k equal to the count over hits 0-1022 (1023 when both are chosen, otherwise counted)

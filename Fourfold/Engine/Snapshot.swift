@@ -45,7 +45,6 @@ enum Snap {
     // §E 16-step: pad a per-COLUMN array up to maxCols (an old 8-col save decodes short) so 16-wide indexing is safe.
     static func padCols<T>(_ a: [T], _ fill: T) -> [T] { a.count >= maxCols ? a : a + Array(repeating: fill, count: maxCols - a.count) }
     // Ladders shared by builder and kernel. Order MUST match the enums' allCases (§8: stable).
-    static let arpRateBeats: [Double] = ArpRate.allCases.map(\.beats)
     static let stepRateBeats: [Double] = StepRate.allCases.map(\.beats)
 }
 
@@ -441,53 +440,6 @@ enum AutoParamField: Equatable {
     }
 }
 extension SnapParams {
-    /// Return a value-copy with the automated field set to `v`, clamped EXACTLY as applyProcessorValues clamps its key.
-    /// No heap (SnapParams is a value struct) → safe on the render path (invariant 3). (Paul 2026-09-04, Phase 2.)
-    func settingAuto(_ f: AutoParamField, _ v: Double) -> SnapParams {
-        var s = self
-        func ci(_ lo: Int, _ hi: Int) -> Int { max(lo, min(hi, Int(v.rounded()))) }
-        func cd(_ lo: Double, _ hi: Double) -> Double { max(lo, min(hi, v)) }
-        switch f {
-        case .gate:         s.gate = cd(0.05, 1)
-        case .ramp:         s.ramp = cd(0, 1)
-        case .spread:       s.spread = cd(0, 1)
-        case .curve:        s.curve = cd(-1, 1)
-        case .velTilt:      s.velTilt = cd(-1, 1)
-        case .probability:  s.probability = cd(0, 1)
-        case .harmVelScale: s.harmVelScale = cd(0.1, 1)
-        case .octaves:      s.octaves = UInt8(ci(1, 4))
-        case .count:        s.count = UInt8(ci(2, 8))
-        case .rtcChance:    s.rtcChance = cd(0, 1)
-        case .rtcCountLo:   s.rtcCountLo = ci(1, 8)
-        case .rtcCountHi:   s.rtcCountHi = ci(1, 8)
-        case .rtcRotate:    s.rtcRotate = ci(0, 7)
-        // EUCLID's flat fields are decode/legacy-only now — the render path reads euclidLines[0] exclusively (the
-        // 2026-09-29 fixed-4-row redesign). An AUTO lane still targets "euclidPulses" etc by name (authored before
-        // the redesign, and the redesign didn't touch AutoParamField), so mirror the write onto row 0 — the row the
-        // flat fields always fed — or the ramp would silently stop reaching the render path.
-        // RHYTHM fixes §4.3 (2026-10-21): this writes pulses/rotate directly, not through the STEPS setter
-        // (euclideousSliderCommit) — nil the matching requested field, same rule a randomise would follow,
-        // so a later STEPS change doesn't silently resurface a HITS/OFFSET value this ramp never asked for.
-        case .euclidPulses: s.euclidPulses = ci(1, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].pulses = s.euclidPulses; s.euclidLines[0].hitsRequested = nil }
-        case .euclidSteps:  s.euclidSteps = ci(2, 16); if !s.euclidLines.isEmpty { s.euclidLines[0].steps = s.euclidSteps }
-        case .euclidRot:    s.euclidRot = ci(0, 15); if !s.euclidLines.isEmpty { s.euclidLines[0].rotate = s.euclidRot; s.euclidLines[0].offsetRequested = nil; s.euclidLines[0].offsetFraction = nil }
-        case .glideRange:   s.glideRange = ci(1, 48)
-        case .modMin:       s.modMin = ci(0, 127)
-        case .modMax:       s.modMax = ci(0, 127)
-        case .lenShort:     s.lenShort = cd(0.05, 0.95)
-        case .lenLong:      s.lenLong = cd(0, 1)
-        case .lenRotate:    s.lenRotate = ci(0, 7)
-        case .weaveSpan:    s.weaveSpan = ci(1, 8)
-        case .weaveEuclidSteps: s.weaveEuclidSteps = ci(2, 16)
-        case .maskK:            s.maskK = ci(1, 16)          // the engine reads min(K, N) — K ≥ N just = mask OFF for that window
-        case .maskRotate:       s.maskRotate = ci(0, 15)
-        case .maskChordGate:    s.maskChordGate = cd(0.05, 1)
-        case .maskChordOct:     s.maskChordOct = ci(-2, 2)
-        case .arpVelocity:      s.arpVelocity = cd(1, 100)
-        case .arpVelTilt:       s.arpVelTilt = cd(-1, 1)
-        }
-        return s
-    }
 }
 extension AutoParamField {
     /// The param's full [lo, hi] range — the SAME numbers `settingAuto` clamps to. A PER-PARAM LFO's DEPTH swings a
@@ -535,7 +487,6 @@ struct MachineAuto: Equatable {
     var lo: Double                   // FROM
     var hi: Double                   // TO
     var startCol: Int                // the span start column
-    var spanCols: Int                // STEP-span length in columns (0 ⇒ default = the row loop width)
     var passes: Int                  // >0 ⇒ a PASS span: period = passes × the row loop width (resolved at render)
     var smooth: Bool                 // SMOOTH = sample at the note beat (continuous) · false = STEP (per column)
 }
@@ -761,38 +712,6 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
     return r
 }
 
-// MOD §2 INTERNAL TARGET (Paul 2026-08-20): the modulated range of each foldable param — the offset the MOD writes is
-// (its MIN/MAX-ranged unipolar value) × this span, so a full MIN..MAX sweep can traverse the param's whole range.
-func macroParamSpan(_ param: MacroParam) -> Double {
-    switch param {
-    case .curve, .velTilt:            return 2.0    // −1…1
-    case .modMin, .modMax:            return 127.0  // 0…127
-    case .harmVelScale, .lenShort:    return 0.9    // 0.1…1 · 0.05…0.95
-    default:                          return 1.0    // 0…1 (gate/ramp/spread/probability/tuttiBalance/lenLong/rtcChance)
-    }
-}
-// Add `offset` to `param`'s base, clamped to the param's valid range (same clamps as applyMacros — MOD + macros compose
-// on this one lane). Used by the render-time internal-MOD application (Router.applyInternalMods).
-func applyModChainOffset(_ p: SnapParams, param: MacroParam, offset: Double) -> SnapParams {
-    guard offset != 0 else { return p }
-    var r = p
-    switch param {
-    case .gate:         r.gate = clamp(r.gate + offset, 0.05, 1)
-    case .ramp:         r.ramp = clamp(r.ramp + offset, 0, 1)
-    case .spread:       r.spread = clamp(r.spread + offset, 0, 1)
-    case .curve:        r.curve = clamp(r.curve + offset, -1, 1)
-    case .velTilt:      r.velTilt = clamp(r.velTilt + offset, -1, 1)
-    case .probability:  r.probability = clamp(r.probability + offset, 0, 1)
-    case .harmVelScale: r.harmVelScale = clamp(r.harmVelScale + offset, 0.1, 1)
-    case .modMin:       r.modMin = clamp(r.modMin + Int(offset.rounded()), 0, 127)
-    case .modMax:       r.modMax = clamp(r.modMax + Int(offset.rounded()), 0, 127)
-    case .tuttiBalance: r.tuttiBalance = clamp(r.tuttiBalance + offset, 0, 1)
-    case .lenShort:     r.lenShort = clamp(r.lenShort + offset, 0.05, 0.95)
-    case .lenLong:      r.lenLong = clamp(r.lenLong + offset, 0, 1)
-    case .rtcChance:    r.rtcChance = clamp(r.rtcChance + offset, 0, 1)
-    }
-    return r
-}
 
 // MARK: - Effective params (render-side, §3.2: stepped fields quantize, never glide)
 
@@ -804,55 +723,14 @@ func applyModChainOffset(_ p: SnapParams, param: MacroParam, offset: Double) -> 
 @inline(__always)
 func effectiveType(_ c: SnapMachine) -> ProcessorType { c.a.type }
 
-@inline(__always)
-func effectiveRateBeats(_ c: SnapMachine) -> Double {
-    Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(c.a.rateIndex)))]
-}
 
 
 
-@inline(__always)
-func effectiveOctaves(_ c: SnapMachine) -> Int { max(1, min(4, Int(c.a.octaves))) }
 
 // RATCHET (§3): repeats per step — quantized to a LEGAL count (2/3/4/6/8).
 private let ratchetLegalRepeats = [2, 3, 4, 6, 8]   // file-scope so effectiveRepeats doesn't rebuild it every call (refactor 2026-09-03)
-@inline(__always)
-func effectiveRepeats(_ c: SnapMachine) -> Int {
-    let v = Double(c.a.count), legal = ratchetLegalRepeats
-    var best = legal[0], bestD = Double.greatestFiniteMagnitude
-    for L in legal { let d = abs(Double(L) - v); if d < bestD { bestD = d; best = L } }
-    return best
-}
 
-@inline(__always)
-func effectiveRamp(_ c: SnapMachine) -> Double { clamp(c.a.ramp, 0, 1) }
 
-@inline(__always)
-func effectiveSpread(_ c: SnapMachine) -> Double { clamp(c.a.spread, 0, 1) }
 
-@inline(__always)
-// CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE returns the one probability; PATTERN returns the odds for the given STEP
-// (the column index; the 8-slice figure, rotated). Beat-derived + replay-safe via chancePasses. `step` defaults to 0
-// (the SINGLE path + audition ignore it).
-func effectiveProbability(_ a: SnapParams, step: Int = 0) -> Double {
-    if a.chanceMode == .pattern {
-        let i = (((step + a.chanceRotate) % 8) + 8) % 8
-        let v = i < a.chanceSlices.count ? a.chanceSlices[i] : 100
-        return clamp(Double(v) / 100.0, 0, 1)
-    }
-    return clamp(a.probability, 0, 1)
-}
 
-@inline(__always)
-func effectiveHarmInterval(_ c: SnapMachine, voice: Int) -> Int {
-    let a: Int
-    switch voice {
-    case 0: a = Int(c.a.harmIntervals.0)
-    case 1: a = Int(c.a.harmIntervals.1)
-    default: a = Int(c.a.harmIntervals.2)
-    }
-    return clamp(a, -24, 24)
-}
 
-@inline(__always)
-func effectiveHarmVelScale(_ c: SnapMachine) -> Double { clamp(c.a.harmVelScale, 0.1, 1) }

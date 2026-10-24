@@ -234,66 +234,6 @@ final class Router {
     // WITH the lead's sound (1) or AGAINST its silences (2). A live query of the lead's voices, like FLATTEN/CLAIM.
     private var convLead: Int = -1
     private var convStance: [UInt8] = [0, 0, 0, 0]
-    // AVOID / LOCK (unified 2026-08-31): the 12-bit PITCH-CLASS set the voice table is sounding — `bus` nil = every
-    // emitter (ALL SOUNDING), else one wire. The live-query model of HOCKET/CONVERSATION: it sees what earlier rows have
-    // emitted SO FAR this render (the L1 caveat — put the avoider on a LATER row than its source). Excludes silent ghosts.
-    private func soundingPitchClassMask(bus: Int?) -> UInt16 {
-        var m: UInt16 = 0
-        for v in voices where v.active && !v.silent && (bus == nil || Int(v.bus) == bus!) { m |= UInt16(1) << UInt16(Int(v.note) % 12) }
-        return m
-    }
-    // AVOID DOOR reference: the live input pool this render, so a DOOR-referenced AVOID can read what ANOTHER receiver is
-    // playing RIGHT NOW (Paul's "listen to a different receiver"). A held reference to the render's NotePool (a class),
-    // valid only during process (where avoidRefMask runs). The door's own channel/cable/range filter selects its notes.
-    private weak var avoidLivePool: NotePool?
-    private func doorLivePitchClassMask(_ r: Int) -> UInt16 {
-        guard let pool = avoidLivePool, r >= 0, r < receiverChannels.count else { return 0 }
-        let filter = receiverChannels[r], cable = Int(receiverCables[r]), lo = r < receiverRangeLo.count ? receiverRangeLo[r] : 0, hi = r < receiverRangeHi.count ? receiverRangeHi[r] : 127
-        var m: UInt16 = 0
-        for k in 0..<pool.srcCount(filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi) {
-            m |= UInt16(1) << UInt16(Int(pool.srcAscending(k, filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)) % 12)
-        }
-        return m
-    }
-    // The pitch classes a DOOR contributes as a reference: its latched/SCALE pool if frozen, else its live THRU input.
-    @inline(__always) private func doorRefMask(_ d: Int) -> UInt16 {
-        let latched = d >= 0 && d < latchedPools.count ? latchedPools[d].pitchClassMaskAll() : 0
-        return latched != 0 ? latched : doorLivePitchClassMask(d)
-    }
-    /// The reference PITCH-CLASS set an AVOID/LOCK stage tests against: a declared KEY · another DOOR (its latched/SCALE
-    /// pool if present, else its LIVE input) · a WIRE's live output · EVERYTHING = every OTHER input door (never this
-    /// chain's own receiver — Paul 2026-08-31: "everything except its own receiver"; input-domain, so it MATCHES the
-    /// editor piano's prediction and can never avoid itself). `ownDoor` = the AVOID cell's receiver. Computed once per fold.
-    private func avoidRefMask(_ p: SnapParams, ownDoor: Int, ownBusMask: UInt8) -> UInt16 {
-        let base: UInt16
-        switch p.avoidRefKind {
-        case .key:      base = scalePitchClassMask(root: p.avoidRoot, scale: p.avoidScale)
-        case .door:     base = doorRefMask(max(0, min(3, p.avoidRefIndex)))
-        case .wire:     base = soundingPitchClassMask(bus: max(0, min(3, p.avoidRefIndex)))   // OUTPUT ▸A–D: a specific emitter's live output
-        case .sounding: var m: UInt16 = 0; for d in 0..<4 where d != ownDoor { m |= doorRefMask(d) }; base = m   // EVERYTHING IN = the union of every OTHER input door
-        case .soundingOut:                                                                    // §G EVERYTHING OUT = all emitter output EXCEPT this cell's OWN buses (self-exclude by BUS)
-            var m: UInt16 = 0; for b in 0..<4 where (ownBusMask >> UInt8(b)) & 1 == 0 { m |= soundingPitchClassMask(bus: b) }; base = m
-        }
-        // WHAT (AVOID mode only): widen the avoided sphere to the CLASHING neighbours (ic1/ic2). LOCK keeps the exact set.
-        return (!p.avoidLock && p.avoidClashSemis > 0) ? widenClashMask(base, semis: p.avoidClashSemis) : base
-    }
-    /// Apply an AVOID/LOCK stage to ONE note: keep it, remap it (MOVE), or drop it (REMOVE → nil).
-    /// LOCK keeps/snaps to the reference (musical — it IS the referenced key). AVOID drops notes in the blocked sphere;
-    /// MOVE snaps a blocked note to the nearest SURVIVING note in the INPUT SCALE (`survivorMask` = the pool's passing
-    /// classes) — never a chromatic note outside the pool (Paul 2026-08-31: this is a scale processor, so MOVE stays in key).
-    @inline(__always) private func avoidFilter(_ note: Int, _ p: SnapParams, refMask: UInt16, survivorMask: UInt16) -> Int? {
-        if p.avoidLock { return keyFilterNote(note, refMask: refMask, only: true, snap: p.avoidMove) }
-        let pc = ((note % 12) + 12) % 12
-        if (refMask >> UInt16(pc)) & 1 == 0 { return note }                 // not blocked → passes through
-        guard p.avoidMove, survivorMask != 0 else { return nil }            // DROP (or nothing survives to move onto)
-        return keyFilterNote(note, refMask: survivorMask, only: true, snap: true)   // snap to the nearest surviving scale note
-    }
-    /// The INPUT-scale classes that PASS an AVOID stage (a note's class ∉ the blocked sphere) — MOVE's legal landing set.
-    @inline(__always) private func avoidSurvivors(_ notes: (Int) -> Int, count: Int, refMask: UInt16) -> UInt16 {
-        var m: UInt16 = 0
-        for k in 0..<count { let pc = ((notes(k) % 12) + 12) % 12; if (refMask >> UInt16(pc)) & 1 == 0 { m |= UInt16(1) << UInt16(pc) } }
-        return m
-    }
     // HOCKET (wire-as-source v1): the sample of the most recent REAL note-on on each emitter (A–D) — the "when the wire
     // struck" edge that TRADE reads. Updated in openVoice; reset to a far-past sentinel on transport/flush edges so a
     // stale onset can't false-trigger. Read-only from HOCKET's tick (same live-query model as CONVERSATION's L1 caveat).
@@ -333,49 +273,12 @@ final class Router {
     // → libmalloc free-block corruption (device crash 2026-08-10 in drainEmitterSounding). A FLAT value array has no
     // inner-array ARC, so the only residual race is a torn value read (benign — a stale meter mark). (see memory)
     private var markCount = [Int](repeating: 0, count: 4)
-    // §6a THE WITHHELD TELL: a parallel bounded buffer of note-ons SUPPRESSED by CLAIM (leak 0) since the last
-    // drain — same (velocity, source machineIndex) shape. The UI renders these HOLLOW + a claim-hue tick so a
-    // suppressed note reads as "withheld here", not a silent bug. Only full CLAIM suppression records (a LEAK
-    // shadow already sounds as a dimmer mark; solo/mute/disabled are intentional silences, not withholdings).
-    private var withheldVel = [UInt8](repeating: 0, count: 32)   // FLAT 4×8 (index bus*8+i) — see markVel note (render↔main ARC-safe)
-    private var withheldCol = [Int8](repeating: -1, count: 32)
     private var withheldCount = [Int](repeating: 0, count: 4)
-    // §strips-done (the emitter twin of the receiver's recvHeld): the notes CURRENTLY SOUNDING per emitter — a
-    // live snapshot of the voice table sliced by bus, each carrying (velocity, source machineIndex) so the UI
-    // draws a hold-while-sounding tick in the SOURCE Machine (cargo tint) and fades it on release. Snapshotted on
-    // the render thread each window; read-and-copied by the UI poll (benign staleness race, like the meters).
-    private var soundVel = [UInt8](repeating: 0, count: 48)   // FLAT 4×12 (index bus*12+i) — see markVel note (render↔main ARC-safe)
-    private var soundCol = [Int8](repeating: -1, count: 48)
     private var soundCount = [Int](repeating: 0, count: 4)
     private var currentMachineIndex: Int16 = -1        // the emitting cell's machineIndex (for the SEAL comet feed) — CR-13a Int16
     private var curBox: SnapshotBox?                  // this render's box — so openVoice can read the sounding machine's DISPLAY hue to tag the reel (Paul 2026-08-19)
-    // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*Snap.rows+row) — the grid comet's
-    // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
-    // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
-    private var cellStrike = [UInt8](repeating: 0, count: Snap.cells)   // Snap.cells = 256 (maxCols·rows = 16·16; index col*rows+row)
-    // THE NOTE-SWEEP feed (Paul 2026-08-19): per-cell RECENT emitted note-ons (pitch + velocity), a small ring per cell.
-    // Drained read-and-clear like the strike feed → the piano-roll faces place marks at REAL pitch (not a hash), and the
-    // BUILD note-sweep CONTOUR axis gets its per-note pitch. Fixed storage; no allocation on the render path.
-    private var cellNotePitch = [UInt8](repeating: 0, count: Snap.cells * 6)
-    private var cellNoteVel   = [UInt8](repeating: 0, count: Snap.cells * 6)
-    private var cellNoteHead  = [Int](repeating: 0, count: Snap.cells)     // ring write cursor per cell
-    private var cellNoteNew   = [UInt8](repeating: 0, count: Snap.cells)   // note-ons written since the last drain (return capped at 6)
     private var currentCellIndex: Int = -1
-    // THE FOCUS-CELL note-EVENT feed (Paul 2026-08-31): for the ONE cell shown in the machine (focusCellIdx), a bigger ring of
-    // recent emitted note-ons WITH their musical BEAT — so the chain-flow comets animate the REAL notes at REAL timing (not an
-    // offline simulation). FLAT scalar arrays (invariant 3 crash-fix: never nested [[…]]); read-and-clear via drainFocusNotes.
-    private static let focusRing = 64
-    private var focusCellIdx: Int = -1
-    private var focusNotePitch = [UInt8](repeating: 0, count: Router.focusRing)
-    private var focusNoteVel   = [UInt8](repeating: 0, count: Router.focusRing)
-    private var focusNoteBeat  = [Double](repeating: 0, count: Router.focusRing)
-    private var focusNoteHead  = 0
-    private var focusNoteNew   = 0
     private var fBeatPos: Double = 0, fBeatsPerSample: Double = 0, fWindowStart: Int64 = 0   // this render's beat conversion (set in process)
-    // UTILITY (Paul 2026-08-22) — per-cell EMIT overrides, set right where currentCellIndex is set and read in emitOneBus.
-    // Both are byte-identical when unset (−1 / 0). Reset before drainEchoTails so echo tails use the wire defaults (v1).
-    private var chanOverride: Int16 = -1   // CHANNEL: output channel (−1 = the bus stamp · 0–15 = override)
-    private var nudgeSamples: Int64 = 0    // NUDGE: timing offset in samples (0 = none)
     private var dealE1 = 0, dealE2 = 1, dealN1 = 1, dealN2 = 1
     private var dealMode: DealMode = .overTime
     // RIFF DIRECTION = DRUNK (Paul 2026-09-28): the walk position persists per grid cell — same class as DEAL/ALT
@@ -384,7 +287,6 @@ final class Router {
     // seek/loop — rather than a blessed exception; this is a deliberate third instance, not a free pass). Keyed on
     // `tick` (never `raw`, which resets at every SPAN boundary) so the walk is SPAN-oblivious by construction. Reset
     // on a fresh play, same trigger as DEAL/ALT, never on panic. Fixed storage → no render-path allocation.
-    private var riffDrunkPos = [Int](repeating: -1, count: Snap.cells)           // −1 ⇒ not yet started (first strike parks at step 0)
     // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): each of Euclideous's 4 lines gets its OWN independent cursor into
     // the page's one shared riff pattern, advancing by exactly one step on that line's OWN hit (not on elapsed
     // time) — "each hit will progress riff by 1 step." Every direction needs ZERO new memory: the line's own
@@ -699,7 +601,6 @@ final class Router {
     // The per-cell SOUNDING gate is derived on the UI side from `cellSoundVel > 0` (256-wide, covers cols 8–15); the old
     // 128-bit lo/hi bitmask was retired (Paul 2026-09-08 housekeeping) — it couldn't represent indices ≥128 (a 16-wide
     // part's second half) and had no consumer left after the VC switched to the velocity feed.
-    private var cellSoundVel = [UInt8](repeating: 0, count: Snap.cells)   // per-cell SOUNDING velocity (max over the cell's active voices) — stays up while a note is HELD, unlike the strike feed. Feeds the emitter fader's per-machine floor (Paul 2026-09-07).
     private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
     // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
     // reconcile either keeps it (matched by the new column) or closes it (dropped). Sized to the pool, reused.
@@ -760,9 +661,6 @@ final class Router {
     private var glideVoices = [GlideVoice](repeating: GlideVoice(), count: Snap.cells)
     private var glideLastColumn = [Int32](repeating: -1, count: Snap.rows + 1)   // PER-ROW phrase-end on column exit (slot Snap.rows = the uniform/global call)
     private var modLastVal = [Int16](repeating: -1, count: 5 * 16 * 128)      // [cable*2048 + ch*128 + cc] → last CC value (-1 = none sent)
-    // EXTERN: the incoming controller VALUE STORE (cc → value, channel-agnostic v1) — the Kernel writes it each render
-    // (side rail, §7 READ-AT-SOURCE); a MOD stage in EXTERN mode reads + transforms it. -1 = never seen.
-    private var controllerIn = [Int16](repeating: -1, count: 128)
     private var prevFreezeActive = false      // ROW 8 FREEZE: the freeze→unfreeze edge (release the sustained notes + resume clean)
 
     @inline(__always)
@@ -788,8 +686,6 @@ final class Router {
     // chance/harmonize from the shaped source; arp head = its one note at m), so it is window-independent.
     // For N>2 slots, `composeChainSet` folds every stage before the tail into `chainScratch` via a ping-pong of
     // two working pools (chainA/chainB — no alloc). The tail sequencer reads the result each tick.
-    private let chainA = NotePool()
-    private let chainB = NotePool()
     // The driver emitters' SOURCE chord (note + inherited velocity), filled once per cell per window into a REUSED
     // fixed buffer (no render-path alloc — was a fresh `[(Int,UInt8)]` per generator/weave/tutti/length cell). The
     // emitters bind `srcNoteBuf[0..<srcNoteCount]` — a view whose 0-based indices match, so their reads are unchanged.
@@ -817,7 +713,6 @@ final class Router {
     // before it's remapped into DIRECTION/DELAY order — `euclidListenScratch` above already holds the
     // SOURCE's own raw pattern at that point, so COPY/FILL's own hit/rest flip needs a buffer of its own.
     private var euclidListenBorrowed = [Bool](repeating: false, count: 16)
-    private var tuttiRankBufB = [Int](repeating: 0, count: 128)
     // LISTEN REBUILT §4.2 (ECHO): per-lane, two cycles (current + the last COMPLETED one) of up to 16
     // strikes, each up to 9 pitches (matching the existing per-hit `pitches` struck-set's own cap) — pure
     // render-thread-owned state, mutated in place, never reassigned wholesale and never touched by any
@@ -985,11 +880,6 @@ final class Router {
     }
 
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
-    // AVOID+MOVE downstream ([driver→AVOID(move)]): the survivor pitch classes of the DRIVER's whole output pool, resolved
-    // once per cell in the row loop, so a blocked driven note snaps in-scale (like a standalone AVOID) instead of dropping.
-    // `Valid` is gated TRUE only around emitDriverNote's downstream fold — the upstream compose uses its own whole-set src.
-    private var avoidDriverSurvivor: UInt16 = 0
-    private var avoidDriverSurvivorValid = false
     private var prevForcedStep = Int.min   // last musical STEP seen while a column is HELD → re-arm strum each step (Paul 2026-08-15)
 
     // THE TAIL (AcceptanceCriteria-tail-era-delay-echo §0): ECHO repeats fire at FUTURE beats, so — unlike the pure
@@ -1009,37 +899,8 @@ final class Router {
         var feedDelay: Double = 0.7  // input send — first echo level
         var decay: Double = 0.5   // regeneration — decay ratio between echoes
         var offset: Double = 0       // ±0.33 nudge off the grid
-        var pitch: Int = 0           // semitones per successive echo (flat mode) — IN-KEY mode reads only its SIGN (direction)
-        // ECHO IN-KEY (Paul 2026-09-29, supersedes the old POOL-STEP field): PITCH STEP walks to the next in-key
-        // note instead of a flat semitone amount, live, from whichever ABCD receivers are selected.
-        var inKeyMode: Bool = false      // true ⇒ PITCH STEP walks to the next in-key note; captured once at registration.
-                                          // Kept as its OWN flag rather than inferred from inKeyReceivers != 0 — inferring
-                                          // it would make "IN-KEY mode with zero receivers ticked" indistinguishable from
-                                          // "mode not engaged," silently falling back to flat semitone math instead of the
-                                          // required "hold at last landed pitch" behaviour for an empty reference set.
-        var inKeyReceivers: UInt8 = 0    // bit i = receiver A..D contributing the live reference; the SELECTION is fixed
-                                          // for the tail's life (like every other echo param), only its CONTENT is live.
-        // WALK STATE: the previous repeat's actual landed note (−1 = not yet walked; repeat 1 starts from `note`). A
-        // sanctioned mutable-state exception, same class as riffDrunkPos (~line 332) — disclosed, not treated as a
-        // blanket precedent (see CLAUDE.md's RIFF DRUNK entry / Docs/codebase-review-2026-08-16.md finding A1).
-        // Lower risk than DRUNK though: this is PER-TAIL not per-cell, and structurally exempt from the seek/loop
-        // replay concern DRUNK carries, because a tail cannot survive a beat discontinuity at all (clearEchoTails
-        // fires first — see drainEchoTails' own discontinuity check). Reset is free, not a separate mechanism:
-        // pushEchoTail always fully RECONSTRUCTS the struct via a literal (never in-place field mutation), so a
-        // reused slot's inKeyLast silently defaults back to −1. Do not change pushEchoTail to partial mutation
-        // without re-zeroing this field explicitly.
-        var inKeyLast: Int8 = -1
+        var pitch: Int = 0           // semitones per successive echo
         var gateBeats: Double = 0.25
-        var spill: EchoSpill = .ring // RING = tail spills past the column · CUT = pending repeats die at column exit
-        // §7② ROUTE = CHAIN: re-fold each repeat through the chain stages AFTER the ECHO slot, at the repeat's own beat.
-        // cellIdx/echoSlot look up the LIVE cell in drainEchoTails; route == .direct → the flat path (v1, byte-identical).
-        var route: EchoRoute = .direct
-        var cellIdx: Int = -1        // the emitting cell's grid index (for the CHAIN re-fold's live-chain lookup)
-        var echoSlot: Int = -1       // the ECHO slot's position; the re-fold runs slots echoSlot+1 … tail
-        // UTILITY (2026-08-23): the source cell's CHANNEL/NUDGE override, captured at registration, so the repeats sound
-        // on the same channel + timing as the dry (a [CHANNEL→ECHO] cell echoes on its own channel, not the wire).
-        var chan: Int8 = -1          // output channel override (−1 = the bus stamp)
-        var nudge: Int64 = 0         // timing offset in samples
         var lane: Int8 = -1          // LANE SOLO (2026-10-21): the Euclideous lane that pushed this tail (−1 = none) — so a solo can drop ITS pending repeats
     }
     private static let echoTailCap = 256
@@ -1062,9 +923,7 @@ final class Router {
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
     private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, timeBeats: Double, repeats: Int,
-                              feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double,
-                              spill: EchoSpill = .ring, route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1,
-                              inKeyMode: Bool = false, inKeyReceivers: UInt8 = 0) {
+                              feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
         for i in echoTails.indices where !echoTails[i].active { slot = i; break }
@@ -1075,11 +934,8 @@ final class Router {
         }
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
-                                   decay: decay, offset: offset, pitch: pitch, inKeyMode: inKeyMode, inKeyReceivers: inKeyReceivers,
-                                   gateBeats: gateBeats, spill: spill,
-                                   route: route, cellIdx: cellIdx, echoSlot: echoSlot,
-                                   chan: Int8(max(-1, min(15, Int(chanOverride)))), nudge: nudgeSamples,
-                                   lane: euclideousStrikeLane)   // repeats inherit the registering cell's CHANNEL/NUDGE (set at every push site)
+                                   decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats,
+                                   lane: euclideousStrikeLane)
     }
 
     // reset() arrives on the CONTROL thread (the AU's @objc reset:, e.g. AUM disabling the plugin) — which can race
@@ -1288,119 +1144,13 @@ final class Router {
         return slot
     }
 
-    /// delta §6a metering: read-and-clear the per-emitter peak velocity + event count since the last
-    /// call. UI-poll side (main thread) vs render-side accumulation — the race is benign (a dropped
-    /// meter tick at worst), consistent with the diag being display-only.
-    func drainMeters() -> (peak: [UInt8], events: [UInt32]) {
-        // Build FRESH arrays (never capture the render-written buffers) so the render thread can't hit copy-on-write
-        // + a refcount race on a shared buffer — the _swift_release_dealloc crash class. The per-byte read/reset race
-        // vs the render is benign (a dropped meter tick at worst).
-        var peak = [UInt8](repeating: 0, count: 4), events = [UInt32](repeating: 0, count: 4)
-        for i in 0..<4 { peak[i] = meterPeakVel[i]; meterPeakVel[i] = 0; events[i] = meterEvents[i]; meterEvents[i] = 0 }
-        return (peak, events)
-    }
-    /// SEAL comet: read-and-clear the per-CELL peak strike velocity (index = col*Snap.rows+row) since the last poll.
-    /// Accumulates across render windows (never lost between polls); the UI stamps a hit time + owns the decay.
-    func drainCellStrikes() -> [UInt8] {
-        var out = [UInt8](repeating: 0, count: Snap.cells)   // FRESH copy — never share `cellStrike` with the poll (COW-on-render race)
-        for i in 0..<Snap.cells { out[i] = cellStrike[i]; cellStrike[i] = 0 }
-        return out
-    }
-
-    /// NOTE-SWEEP feed: per cell, the note-ons emitted SINCE the last drain (up to 6 most-recent, oldest→newest) as
-    /// pitch + velocity, plus a per-cell count. FRESH copies (never share render arrays with the poll). Read-and-clear.
-    func drainCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) {
-        var p = [UInt8](repeating: 0, count: Snap.cells * 6), vv = [UInt8](repeating: 0, count: Snap.cells * 6), cnt = [UInt8](repeating: 0, count: Snap.cells)
-        for c in 0..<Snap.cells {
-            let n = Int(cellNoteNew[c]); cnt[c] = cellNoteNew[c]; cellNoteNew[c] = 0
-            for k in 0..<n {
-                let idx = ((cellNoteHead[c] - n + k) % 6 + 6) % 6
-                p[c * 6 + k] = cellNotePitch[c * 6 + idx]; vv[c * 6 + k] = cellNoteVel[c * 6 + idx]
-            }
-        }
-        return (p, vv, cnt)
-    }
-    func setFocusCell(_ i: Int) { focusCellIdx = i }   // control-thread hint; process overwrites it each render from its param (torn read benign)
-    /// FOCUS note-event feed: the focus cell's note-ons emitted SINCE the last drain (up to focusRing, oldest→newest) as
-    /// pitch + velocity + musical BEAT. FRESH copies (never share render arrays). Read-and-clear.
-    func drainFocusNotes() -> (pitch: [UInt8], vel: [UInt8], beat: [Double], count: Int) {
-        let cap = Router.focusRing
-        let n = min(cap, max(0, focusNoteNew)); focusNoteNew = 0
-        var p = [UInt8](repeating: 0, count: n), vv = [UInt8](repeating: 0, count: n), bt = [Double](repeating: 0, count: n)
-        for k in 0..<n {
-            let idx = ((focusNoteHead - n + k) % cap + cap) % cap
-            p[k] = focusNotePitch[idx]; vv[k] = focusNoteVel[idx]; bt[k] = focusNoteBeat[idx]
-        }
-        return (p, vv, bt, n)
-    }
 
 
-    /// §strips-done: snapshot the notes CURRENTLY SOUNDING per emitter — the active (non-silent) voices bucketed
-    /// by originating bus, each a (velocity, source machineIndex). Called on the render thread once per window,
-    /// AFTER process reconciles the voice table. Overwrites the buffers (a live set, not an accumulate-clear).
-    func snapshotEmitterSounding() {
-        for b in 0..<4 { soundCount[b] = 0 }
-        for v in voices where v.active && !v.silent {
-            let b = Int(v.bus)
-            guard b >= 0, b < 4, soundCount[b] < 12 else { continue }
-            soundVel[b * 12 + soundCount[b]] = v.vel
-            soundCol[b * 12 + soundCount[b]] = Int8(clamping: v.machineIndex)   // CR-13a: the UI-tint feed stays Int8 (a machine ≥128 tints as 127 — cosmetic, no trap)
-            soundCount[b] += 1
-        }
-    }
 
-    /// SEAL comet: snapshot each of the 256 cells' SOUNDING velocity (≥1 active, non-silent voice) into `cellSoundVel`.
-    /// Render thread, once per window after reconciliation (like snapshotEmitterSounding). The UI polls `cellSoundingVel-
-    /// Snapshot` and derives the sounding GATE from `> 0` (covering all cols incl. 8–15) — the spark lives for the held duration.
-    func snapshotCellSounding() {
-        for i in 0..<Snap.cells { cellSoundVel[i] = 0 }                    // per-cell sounding VELOCITY: reset then take the max over each cell's active voices (256-wide; the UI derives the sounding GATE from this)
-        for v in voices where v.active && !v.silent && v.cellIndex >= 0 && v.cellIndex < Snap.cells {
-            if v.vel > cellSoundVel[Int(v.cellIndex)] { cellSoundVel[Int(v.cellIndex)] = v.vel }
-        }
-    }
-    /// UI-poll read of the per-cell SOUNDING velocity (0…127), element-copied into a FRESH array so the main thread never
-    /// shares the render buffer (a torn UInt8 read is benign — one stale bar). Feeds the emitter fader's per-machine floor.
-    func cellSoundingVelSnapshot() -> [UInt8] {
-        var out = [UInt8](repeating: 0, count: Snap.cells)
-        for i in 0..<Snap.cells { out[i] = cellSoundVel[i] }
-        return out
-    }
 
-    /// UI-poll read: the PITCHES currently sounding (active, non-silent voices) for ONE cell — a genuine held-note
-    /// snapshot (on until off, via `voices[].cellIndex`/`.active`), not an onset trail. Scanned on demand (128 voices,
-    /// no persistent state) — race-safe like `cellSoundingVelSnapshot` (a torn read is benign, one stale frame).
-    /// Feeds the processor editor's OUTPUT piano (Paul 2026-09-28: replaces the OUT mini-roll).
-    func cellSoundingNotes(_ cellIndex: Int) -> [UInt8] {
-        guard cellIndex >= 0 else { return [] }
-        var out: [UInt8] = []
-        for v in voices where v.active && !v.silent && Int(v.cellIndex) == cellIndex { out.append(v.note) }
-        return out
-    }
 
-    /// UI-poll read: every actively-sounding (non-silent) voice, bucketed by ENGINE ROW (index = cellIndex %
-    /// Snap.rows), each carrying its true onset beat (Voice.onBeat) — feeds the PART grid's live per-row piano-roll
-    /// overlay (Paul 2026-09-29). One scan of all 128 voices; race-safe like `cellSoundingNotes` (a torn read is
-    /// benign, one stale frame — no locking). BYPASS voices (cellIndex == -1) are naturally excluded, same as
-    /// `cellSoundingNotes`. Returns the WHOLE row range unscoped (like `cellSoundingVelSnapshot`), not caller-scoped
-    /// — the scan cost is voice-count-bound regardless, so there's no efficiency reason to narrow it.
-    func rowSoundingVoices() -> [[(note: UInt8, vel: UInt8, onBeat: Double)]] {
-        var out = [[(note: UInt8, vel: UInt8, onBeat: Double)]](repeating: [], count: Snap.rows)
-        for v in voices where v.active && !v.silent && v.cellIndex >= 0 {
-            out[Int(v.cellIndex) % Snap.rows].append((note: v.note, vel: v.vel, onBeat: v.onBeat))
-        }
-        return out
-    }
 
-    /// UI-poll read: a RIFF cell's own DRUNK walk position (Paul 2026-09-28, closing the last named sweep gap) —
-    /// −1 = not yet started / not a RIFF cell / out of range. A plain array read (no scanning), same shape as
-    /// `cellSoundingNotes` above. This is genuine accumulated render-thread state with no closed form the UI could
-    /// extrapolate between polls (unlike every other RIFF direction, which reads `riffStepAt` directly) — the editor
-    /// polls this at the diagnostic cadence and shows it as a discrete jump, not a smooth sweep. That ceiling is
-    /// real, not a shortcut: this IS the true position, just not continuously knowable off the render thread.
-    func riffDrunkPosAt(_ cellIndex: Int) -> Int {
-        guard cellIndex >= 0 && cellIndex < riffDrunkPos.count else { return -1 }
-        return riffDrunkPos[cellIndex]
-    }
+
 
 
     /// UI-poll read: each of Euclideous's 4 lines' own current riff-advance step index (−1 = not started / useRiff
@@ -1489,32 +1239,7 @@ final class Router {
         return out
     }
 
-    /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
-    /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source machine) set.
-    func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] {
-        var out = [[(vel: UInt8, col: Int8)]]()
-        for b in 0..<4 {
-            let cnt = min(12, max(0, soundCount[b]))   // clamp a possibly-torn count so the flat index stays in bounds
-            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(cnt)
-            for i in 0..<cnt { m.append((soundVel[b * 12 + i], soundCol[b * 12 + i])) }
-            out.append(m)
-        }
-        return out
-    }
 
-    /// §6a THE WITHHELD TELL: read-and-clear the per-emitter note-ons CLAIM fully suppressed (leak 0) since
-    /// the last poll — each a (would-be velocity, source machineIndex). The UI draws these hollow + a claim tick.
-    func drainWithheld() -> [[(vel: UInt8, col: Int8)]] {
-        var out = [[(vel: UInt8, col: Int8)]]()
-        for bus in 0..<4 {
-            let cnt = min(8, max(0, withheldCount[bus]))   // clamp a possibly-torn count so the flat index stays in bounds
-            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(cnt)
-            for i in 0..<cnt { m.append((withheldVel[bus * 8 + i], withheldCol[bus * 8 + i])) }
-            withheldCount[bus] = 0
-            out.append(m)
-        }
-        return out
-    }
 
     /// delta §6a: close every sounding voice that ORIGINATED from emitter `bus` — its own cable AND its
     /// copy on All. The refcount keeps a shared-channel note alive on All if another (enabled) emitter
@@ -1732,19 +1457,12 @@ final class Router {
 
 
 
-    // ECHO IN-KEY: union of the live pitch-classes of every SELECTED receiver (bit i = A..D) — mirrors avoidRefMask's
-    // .sounding union (line ~207), but user-selected rather than "every other door."
-    private func echoInKeyRefMask(_ mask: UInt8) -> UInt16 {
-        var m: UInt16 = 0
-        for d in 0..<4 where (mask >> UInt8(d)) & 1 != 0 { m |= doorRefMask(d) }
-        return m
-    }
     /// Emit every registered echo REPEAT whose musical time lands in this window [mStart, mEnd) — column-independent,
     /// so tails ring out after the playhead leaves the cell's column AND after the source chord releases. Each repeat
     /// opens a voice with a scheduled off (drainDue guarantees the off → no stuck note). Decay-floor + all-past retire
     /// the entry. A beat DISCONTINUITY (seek/loop/tempo jump) clears the ring — v1 drops tails on the jump (look-back
     /// preservation is v2). Runs BEFORE the empty-pool guard so a released chord's tail still sounds.
-    private func drainEchoTails(box: SnapshotBox, mStart: Double, mEnd: Double, beatPos: Double, beatsPerSample: Double,
+    private func drainEchoTails(mStart: Double, mEnd: Double, beatPos: Double, beatsPerSample: Double,
                                windowStart: Int64, windowEnd: Int64, S: Double, a: Double,
                                out: MIDIEmitter?, diag: inout KernelDiag) {
         if !echoPrevMEnd.isNaN && abs(mStart - echoPrevMEnd) > S { clearEchoTails() }   // seek/loop/tempo jump → drop tails
@@ -1757,109 +1475,24 @@ final class Router {
         for i in echoTails.indices where echoTails[i].active {
             let e = echoTails[i]
             euclideousStrikeLane = e.lane   // LANE SOLO: the repeat's voice is tagged with the lane that pushed it
-            chanOverride = Int16(e.chan); nudgeSamples = e.nudge   // repeats sound on the source cell's CHANNEL/NUDGE (captured at registration) — emitOneBus reads these
-            currentCellIndex = e.cellIdx >= 0 ? e.cellIdx : -1   // E6 fix 2026-08-27: attribute the repeat to its SOURCE cell (was a stale value from the prior loop → mis-keyed close-except-legato / SEAL / note-sweep)
-            // TAIL SPILL = CUT: once the playhead has crossed this tail's COLUMN boundary, stop scheduling repeats —
-            // the last one already emitted keeps its scheduled off, so the sounding note finishes its gate (no lurch).
-            if e.spill == .cut && mStart >= columnStart(e.onset, S) + S { echoTails[i].active = false; continue }
             if e.onset + (Double(e.repeats) + 1) * e.timeBeats < mStart { echoTails[i].active = false; continue }   // all past → retire
-            // ECHO IN-KEY: the walk cursor is seeded ONCE per tail per drain call, then read/written as a LOCAL var
-            // through the whole k-loop below — NOT through `e` (a value-type snapshot taken above, before this loop).
-            // If two repeats fire in the SAME render window (fast rate + large frameCount), reading the cursor
-            // through `e` would read the same stale value twice and break the chain; the local var lets k+1 see
-            // k's actual landed note within one drain call, while the array write-back (below) is what lets the
-            // NEXT render window's drain call continue from where this one left off.
-            var inKeyWalk = e.inKeyLast >= 0 ? Int(e.inKeyLast) : Int(e.note)
             for k in 1...e.repeats {
                 let tau = e.onset + (Double(k) + e.offset) * e.timeBeats     // OFFSET nudges each echo off the grid
                 if tau < lo || tau >= mEnd { continue }                     // half-open: fires in exactly one window (`lo`: windows tile exactly, see above)
                 // FEED DELAY = the first echo's send level · FEEDBACK = the per-echo decay ratio (tail length)
                 let v = Int((Double(e.vel) * e.feedDelay * pow(e.decay, Double(k - 1))).rounded())
                 if v < 1 { continue }                                       // level floor kills the tail
-                let n: Int
-                if e.inKeyMode {                                            // walk to the next in-key note, live, chained from the last landed pitch
-                    let dir = e.pitch > 0 ? 1 : (e.pitch < 0 ? -1 : 0)
-                    if let next = nextInKeyNote(inKeyWalk, refMask: echoInKeyRefMask(e.inKeyReceivers), dir: dir) { inKeyWalk = next }   // else: hold at the last landed note (empty mask / dir 0 / range exhausted)
-                    n = inKeyWalk
-                    echoTails[i].inKeyLast = Int8(clamping: inKeyWalk)       // persists for the NEXT render window's drain call
-                } else {
-                    n = Int(e.note) + k * e.pitch                           // PITCH: climb/descend each echo (flat semitones)
-                }
+                let n = Int(e.note) + k * e.pitch                           // PITCH: climb/descend each echo (flat semitones)
                 guard n >= 0 && n <= 127 else { continue }
                 let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)
                 let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                     windowStart: windowStart, S: S, a: a)
-                // §7② ROUTE = CHAIN: re-fold THIS repeat through the post-ECHO stages at beat tau (LENGTH gates/ties it,
-                // SPLIT thins by register/velocity, HARMONIZE dresses it, …). DIRECT → the flat v1 strike (byte-identical).
-                if e.route == .chain && e.cellIdx >= 0 {
-                    refoldEchoRepeat(e, n: n, v: min(127, v), tau: tau, S: S, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                     windowStart: windowStart, windowEnd: windowEnd, a: a, box: box, out: out, diag: &diag)
-                } else {
-                    emitArtic(note: UInt8(n), busMask: e.busMask, onSample: onT, offSample: offT,
-                              windowEnd: windowEnd, velocity: UInt8(min(127, v)), out: out, diag: &diag)
-                }
+                emitArtic(note: UInt8(n), busMask: e.busMask, onSample: onT, offSample: offT,
+                          windowEnd: windowEnd, velocity: UInt8(min(127, v)), out: out, diag: &diag)
             }
         }
-        chanOverride = -1; nudgeSamples = 0; currentCellIndex = -1   // clear the per-tail override so the MOD/GLIDE block + tick loop start clean
         euclideousStrikeLane = -1
-    }
-    /// §7② Emit ONE echo repeat (note `n`, vel `v`, beat `tau`) through the chain stages AFTER the ECHO slot, looked up
-    /// on the LIVE cell — LENGTH gates/ties it by the slice it lands in, SPLIT/CHANCE/HARMONIZE re-shape it, etc. Falls
-    /// back to a flat strike if the live chain changed (the ECHO slot is gone / no longer ECHO) or has no downstream
-    /// stages. Uses the chainA/chainB scratch (free here — drainEchoTails runs before the tick loop that also uses them).
-    private func refoldEchoRepeat(_ e: EchoTail, n: Int, v: Int, tau: Double, S: Double, beatPos: Double,
-                                  beatsPerSample: Double, windowStart: Int64, windowEnd: Int64, a: Double,
-                                  box: SnapshotBox, out: MIDIEmitter?, diag: inout KernelDiag) {
-        let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-        func flat() {
-            let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-            emitArtic(note: UInt8(n), busMask: e.busMask, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: UInt8(min(127, max(1, v))), out: out, diag: &diag)
-        }
-        guard e.cellIdx >= 0 && e.cellIdx < box.cells.count else { flat(); return }
-        let cell = box.cells[e.cellIdx]
-        guard e.echoSlot >= 0 && e.echoSlot < cell.procs.count, cell.procs[e.echoSlot].type == .echo else { flat(); return }
-        let cycleBeats = Double(Snap.cols) * S
-        let pass = cycleBeats > 0 ? Int((tau / cycleBeats).rounded(.down)) : 0   // the lap the repeat lands in (for chance seeds)
-        var cur = chainA, nxt = chainB
-        cur.reset(); cur.noteOn(UInt8(min(127, max(0, n))), velocity: UInt8(min(127, max(1, v))), channel: 0); cur.rebuildSorted()
-        var lenP: SnapParams? = nil
-        var j = e.echoSlot + 1
-        while j < cell.procs.count {
-            if !cell.slotBypass[j] {
-                let t = cell.procs[j].type
-                if t == .echo || t == .mod || t == .glide {         // no nested echo (v1); MOD/GLIDE are note-transparent
-                } else if t == .length {
-                    lenP = cell.procs[j]                            // gate override applied to the emit below (last-writer)
-                } else {
-                    let mode = cellMode(type: t, bypassed: false)
-                    nxt.reset()
-                    applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: tau, S: S, cycleBeats: cycleBeats)
-                    swap(&cur, &nxt)
-                }
-            }
-            j += 1
-        }
-        var offBeat = tau + e.gateBeats
-        if let lp = lenP {                                          // LENGTH downstream: gate THIS repeat by the slice at tau
-            // Match the DRY's gate width: a NON-DRIVER [ECHO→LENGTH] dry (emitLengthComposedRow) honors SPAN=ROW (the 8
-            // slices span the whole bar); the driver-fold dry (emitDriverNote) is per-column. Use the same so the repeats
-            // gate on the SAME pattern the dry does (else dry+echoes diverge for SPAN=ROW — the review's finding).
-            let lenColBeats = (chainDriverIndex(cell) < 0) ? spanLadderBeats(lp.lenSpanN, S: S, row: cycleBeats) : S   // SPAN LADDER (Paul 2026-08-22)
-            let sIdx = ((chopSlice(tau, columnBeats: lenColBeats) + lp.lenRotate) % 8 + 8) % 8
-            let st = sIdx < lp.lenSlices.count ? lp.lenSlices[sIdx] : .pass
-            switch lengthGateFor(st, onset: tau, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: lenColBeats) {
-            case .drop:                return                       // MUTE slice → this repeat is silent
-            case .keep:                break
-            case .overrideOff(let ob): offBeat = ob
-            }
-        }
-        let offT = sampleOf(musical: offBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-        for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-            let nn = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
-            emitArtic(note: nn, busMask: e.busMask, onSample: onT, offSample: offT, windowEnd: windowEnd,
-                      velocity: max(1, cur.velocity(nn)), out: out, diag: &diag)
-        }
     }
 
     /// The shared subdivision-tick scaffold for ARP and RATCHET. Walks every tick of length `sub`
@@ -2193,7 +1826,7 @@ final class Router {
         prevUniformFast = uniformFast   // CR-11: remember the clock mode so the next render detects a live uniform↔multi switch
 
         // ECHO tails ring out independent of the column and even after the source releases — BEFORE the empty-pool guard.
-        drainEchoTails(box: box, mStart: mNow, mEnd: musicalOf(beatPos + Double(frameCount) * beatsPerSample, stepBeats: S, a: a),
+        drainEchoTails(mStart: mNow, mEnd: musicalOf(beatPos + Double(frameCount) * beatsPerSample, stepBeats: S, a: a),
                        beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd,
                        S: S, a: a, out: out, diag: &diag)
 
@@ -2256,13 +1889,6 @@ final class Router {
         diag.distinctSounding = distinctSounding
     }
 
-    // EXTERN side-rail (§7 READ AT SOURCE): the Kernel reports an incoming CC value into the store the MOD EXTERN
-    // source reads + transforms. Never threads the note pipeline. CC121 (reset-all-controllers) clears it (Kernel).
-    func setControllerIn(cc: Int, value: Int) {
-        guard cc >= 0 && cc < 128 else { return }
-        controllerIn[cc] = Int16(max(0, min(127, value)))
-    }
-    func clearControllerIn() { for i in controllerIn.indices { controllerIn[i] = -1 } }
 
     // MARK: - THE MOD PROCESSOR (CC generator, delta) — a beat-derived shaped CC on the active column's MOD cells.
 
@@ -3858,19 +3484,19 @@ final class Router {
                                         if ratchShape == 0 {
                                             pushEchoTail(onset: mTickBeat + Double(k - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask,
                                                          timeBeats: repSpacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
-                                                         gateBeats: repGate, cellIdx: currentCellIndex)
+                                                         gateBeats: repGate)
                                         } else {
                                             for m in k...lastRegular {   // a shaped ratchet: one tail per strike, each at its own velocity
                                                 pushEchoTail(onset: mTickBeat + Double(m - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(m), busMask: repBusMask,
                                                              timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
-                                                             gateBeats: repGate, cellIdx: currentCellIndex)
+                                                             gateBeats: repGate)
                                             }
                                         }
                                     }
                                     if tieLast && k <= nRep - 1 {
                                         pushEchoTail(onset: mTickBeat + Double(nRep - 2) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(nRep - 1), busMask: repBusMask,
                                                      timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
-                                                     gateBeats: lastGate, cellIdx: currentCellIndex)
+                                                     gateBeats: lastGate)
                                     }
                                 }
                                 // NOTE VIEW covers strike 0 only — the deferred echo repeats don't push their
@@ -3922,7 +3548,7 @@ final class Router {
                                     } else if let fp = finalPitch(pitches[j], oct: 0) {   // a pitch outside MIDI 0…127 is dropped, as `strikeChord` drops it
                                         pushEchoTail(onset: mTickBeat, note: fp, vel: pitchVel[j], busMask: spreadBusMask,
                                                      timeBeats: start, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
-                                                     gateBeats: length, cellIdx: currentCellIndex)
+                                                     gateBeats: length)
                                     }
                                 } else {
                                     strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsWithTie(pitchGate[j], tieOf(j)), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOverride)
@@ -4181,7 +3807,7 @@ final class Router {
                                 if nRep > 1 {
                                     pushEchoTail(onset: mTickBeat, note: UInt8(clamping: note), vel: vel, busMask: repBusMask,
                                                  timeBeats: repSpacing, repeats: nRep - 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
-                                                 gateBeats: repGate, cellIdx: currentCellIndex)
+                                                 gateBeats: repGate)
                                 }
                                 // NOTE VIEW covers strike 0 only — the deferred echo repeats don't push their
                                 // own events, matching the existing, disclosed precedent for the sibling fold
@@ -4293,7 +3919,7 @@ final class Router {
                                 if nRep > 1 {
                                     pushEchoTail(onset: mTickBeat, note: UInt8(clamping: xf.note), vel: xf.vel, busMask: repBusMask,
                                                  timeBeats: repSpacing, repeats: nRep - 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
-                                                 gateBeats: repGate, cellIdx: currentCellIndex)
+                                                 gateBeats: repGate)
                                 }
                                 if nvSent, let p0 = finalPitch(xf.note, oct: 0) {
                                     nvScratch[0] = p0
@@ -4630,41 +4256,6 @@ final class Router {
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) stage-2 — the serial chain feed
 
-    /// The chain's TICK DRIVER — the index of the LAST non-bypassed rhythm-generating slot (arp/ratchet/strum + the
-    /// generators euclid/burst/cascade/drone/shift/humanize, user 2026-08-09). It sets the rhythm: slots BEFORE it
-    /// compose as its source; slots AFTER it FOLD onto each note it emits (a per-tick hold — a downstream stage gates the
-    /// pass, chance drops, harmonize expands). -1 = no tick generator (a hold/plain cell). This is what makes
-    /// `[arp → chance]` or `[euclid → harmonize]` keep generating (the driver drives, the tail folds).
-    private func chainDriverIndex(_ cell: SnapCell) -> Int {
-        guard cell.procs.count >= 2 else { return -1 }
-        // The driver = the LAST non-bypassed driver that ISN'T a foldable ratchet. A RATCHET PATTERN (always) or a COIN
-        // ratchet in PASS-THROUGH folds PER-NOTE downstream (emitDriverNote), so the UPSTREAM driver (e.g. the ARP) keeps its
-        // rhythm + note lengths and the ratchet re-shapes each note in place instead of re-pooling (Paul 2026-09-06). If EVERY
-        // driver here is a foldable ratchet — nothing upstream to fold ONTO (a lone [RATCHET PATTERN] in a chain, or
-        // [HARMONIZE → RATCHET PATTERN] where HARMONIZE isn't a driver) — the last one DRIVES (re-pools) as before.
-        var lastDriver = -1, lastNonFold = -1, i = 0
-        while i < cell.procs.count {
-            if !cell.slotBypass[i] && isDriverType(cell.procs[i].type) {
-                lastDriver = i
-                if !isRatchetFoldable(cell.procs[i]) && !isModifierFoldable(cell.procs[i]) { lastNonFold = i }
-            }
-            i += 1
-        }
-        return lastNonFold >= 0 ? lastNonFold : lastDriver
-    }
-    /// A ratchet that FOLDS per-note downstream instead of driving (Paul 2026-09-07): PATTERN (Model B — advances one matrix
-    /// column PER ARP NOTE: 0 = rest, 1 = passthrough, 2…8 = ratchet that note in place), or a COIN ratchet in PASS-THROUGH.
-    /// As the ONLY driver (standalone) the ratchet still DRIVES self-clocked (chainDriverIndex falls to lastDriver → emitRatchetModal).
-    private func isRatchetFoldable(_ p: SnapParams) -> Bool { p.type == .ratchet && (p.rtcMode == .pattern || (p.rtcMode == .coin && p.rtcFold)) }
-    /// SHIFT / HUMANIZE are per-note MODIFIERS (Paul 2026-09-06): downstream of a real driver they don't re-pool — they
-    /// jitter/push each driven note IN PLACE (emitDriverNote), so [ARP→HUMANIZE] humanizes the arp's notes + keeps its
-    /// rhythm. As the ONLY driver (standalone / [non-driver→SHIFT]) they still GENERATE (chainDriverIndex falls to lastDriver).
-    /// DEAD-CODE CLEANUP (code-review finding 2026-10-04): this used to also check `.velocity`/`.euclidMask`, but its
-    /// ONLY caller (chainDriverIndex, below) only ever evaluates it inside `isDriverType(...)==true`, and that switch's
-    /// exhaustive case list never includes `.velocity`/`.euclidMask` — those two arms could never fire. Both types'
-    /// real fold-eligibility is correctly handled elsewhere (`downstreamMaskFoldIndex` and VELOCITY's own dedicated
-    /// per-note fold in `emitDriverNote`), so removing the unreachable checks here changes nothing behaviourally.
-    private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize }
     /// CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26) — THE SOVEREIGN LAW, mechanically: the beat a
     /// downstream fold consumer at `target` should use for its OWN internal step/rate math, after composing every
     /// non-bypassed CLOCK stage strictly between `from` and `target` IN CHAIN ORDER (multiple CLOCKs compose — the
@@ -4707,146 +4298,10 @@ final class Router {
         }
         return beat
     }
-    private func isDriverType(_ t: ProcessorType) -> Bool {
-        switch t {
-        case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave, .riff, .hocket: return true
-        default: return false
-        }
-    }
 
 
 
 
-    /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent
-    /// derivation: identity/gate/ratchet/strum pass the set, a closed gate empties it, chance drops by
-    /// probability, harmonize expands to voices, an ARP mid-chain collapses the set to its one note at m.
-    // CLOCK (Paul 2026-09-26, Stage 3): `clockFrom`/`atSlot` — when both ≥0 (the emitDriverNote fold call site passes
-    // `driver + 1`/this slot's own index j) — let the ONE self-clocked case below (.tutti) read a CLOCK-transformed
-    // beat for its OWN step/rate math, same mechanism as RATCHET/VELOCITY/DEST. Every other mode here ignores them
-    // entirely (they don't read `m` as a self-clock at all — ARP/CHANCE/etc. still key off the raw beat, untouched);
-    // default -1 ⇒ byte-identical to every pre-existing call site (composeChainSet's upstream re-pooling, the echo-
-    // repeat refold — neither is "downstream of a driver", so CLOCK has nothing to transform there in this pass).
-    private func applyStage(_ p: SnapParams, mode: CellMode, src: NotePool, into dst: NotePool,
-                            cell: SnapCell, m: Double, S: Double, cycleBeats: Double, clockFrom: Int = -1, atSlot: Int = -1) {
-        switch mode {
-        case .silent:
-            break                                              // a silenced downstream stage → empty
-        case .arp:
-            var arpBeats = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
-            if arpBeats <= 0 { arpBeats = 0.25 }
-            let tick = Int64((m / arpBeats).rounded(.down))
-            let pIdx = phaseIndex(tick: tick, mTickBeat: Double(tick) * arpBeats, arpBeats: arpBeats, S: S,
-                                  cycleBeats: cycleBeats, phase: p.phase, runStartColumn: cell.runStartColumn)
-            let pick = arpPick(phaseIndex: pIdx, octaves: Int(p.octaves), pattern: p.patternIndex,
-                               pool: src, filter: 0, cableMask: 0b1111,
-                               octDown: p.arpOctDown, randomAnchor: p.arpRandomAnchor, seed: p.arpSeed)   // velocity inherited from the picked source note
-            if pick.note >= 0 && pick.note <= 127 { dst.noteOn(UInt8(pick.note), velocity: max(1, pick.vel), channel: 0) }
-        case .chance:
-            let colStart = columnStart(m, S)
-            let chanceBase = effectiveProbability(p, step: Int((colStart / S).rounded()))   // CHANCE PATTERN: per-step odds
-            let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
-            for k in 0..<cCnt {
-                let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                if chancePassesPool(beat: colStart, note: Int(n), rank: k, count: cCnt, probability: chanceBase, tilt: p.chanceTilt, constantDensity: p.chanceDensity) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
-            }
-        case .tutti:                                           // [TUTTI→ARP]: reshape the source pool per step/slice
-            let mClock = clockFrom >= 0 && atSlot >= 0 ? clockTransformedBeat(cell, from: clockFrom, to: atSlot, atBeat: m, S: S, cycleBeats: cycleBeats) : m
-            let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
-            if p.tuttiMode == .coin {
-                var solo = -1                                   // −1 = TUTTI (whole set passes)
-                let step = S > 0 ? Int((columnStart(mClock, S) / S).rounded()) : 0
-                if !tuttiIsTutti(step: step, balance: p.tuttiBalance) { solo = tuttiSoloRank(step: step, count: cCnt, pick: p.tuttiPick) }
-                for k in 0..<cCnt where solo < 0 || k == solo {
-                    let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                    dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0)
-                }
-            } else {                                            // PATTERN: the authored slice shape at beat m
-                let sub = max(0.03125, p.tuttiSliceBeats)
-                let idx = (((tuttiSliceOf(mClock, sliceBeats: sub) + p.tuttiRotate) % 8) + 8) % 8
-                let (rankCount, oct) = tuttiSliceRanksInto(&tuttiRankBufB, idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: cCnt)
-                for ri in 0..<rankCount {
-                    let rank = tuttiRankBufB[ri]; guard rank >= 0 && rank < cCnt else { continue }
-                    let n = src.srcAscending(rank, filter: 0, cableMask: 0b1111)
-                    let shifted = Int(n) + oct
-                    if shifted >= 0 && shifted <= 127 { dst.noteOn(UInt8(shifted), velocity: max(1, src.velocity(n)), channel: 0) }
-                }
-            }
-        case .harmonize:
-            let iv0 = p.harmIntervals.0, iv1 = p.harmIntervals.1, iv2 = p.harmIntervals.2   // unrolled — no per-stage array alloc (render path)
-            // §2 POOL-STEP: an interval is either semitones (base+iv) or pool DEGREES against the source pool (base stepped
-            // iv places up the scale/chord — the diatonic third, no inference). The pitch-class mask is computed ONCE (no alloc).
-            let harmPool = p.harmUnits == .pool
-            let harmMask: UInt16 = harmPool ? src.pitchClassMaskAll() : 0
-            @inline(__always) func harmVoice(_ base: Int, _ iv: Int8) -> Int { harmPool ? poolStepMask(base, steps: Int(iv), pcMask: harmMask) : base + Int(iv) }
-            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
-                let base = Int(src.srcAscending(k, filter: 0, cableMask: 0b1111))
-                let bv = max(1, src.velocity(UInt8(base)))                // the added voices inherit the base note's velocity
-                dst.noteOn(UInt8(base), velocity: bv, channel: 0)
-                if iv0 != 0 { let v = harmVoice(base, iv0); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
-                if iv1 != 0 { let v = harmVoice(base, iv1); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
-                if iv2 != 0 { let v = harmVoice(base, iv2); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
-            }
-        case .chords:                                          // HARMONY — a held note TRIGGERS; the derived diatonic chord for the current degree REPLACES the set
-            let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
-            if cCnt > 0 {                                       // no input = no trigger → silent
-                let lo = src.srcAscending(0, filter: 0, cableMask: 0b1111)   // the lowest input note (the trigger)
-                // STEPS+RATE (Paul 2026-09-01): the progression advances on its OWN clock (chordsRateBeats), NOT per grid
-                // column — so it steps at a musical tempo and plays THROUGH even on a frozen/pinned audition (m keeps
-                // advancing). `step` = the free-running rate-tick index; PATTERN loops it over chordsSteps.
-                // C2b (Paul 2026-09-01): CHORDS reads its KEY from the REFERENCED door — SCALE FROM ▸A–D, a receiver set to
-                // SCALE. The cell's OWN input is the TRIGGER (FOLLOW names the degree from the note you play); this separate
-                // door supplies root+scale. No valid scale reference ⇒ the C-major fallback (p.chordsRoot/Scale, default C).
-                let ref = p.chordsScaleRef   // −1 = none
-                let doorScale = (ref >= 0 && ref < receiverScaleRoot.count && receiverScaleRoot[ref] >= 0)
-                let root = doorScale ? receiverScaleRoot[ref] : p.chordsRoot
-                let scaleTones = doorScale ? receiverScaleType[ref].intervals : p.chordsScale.intervals
-                // The degree→chord derivation (STEPS/RATE/PATTERN/WALK/FOLLOW) is SHARED with the chord DOOR via chordSeqNotes
-                // — one source of truth so future CHORDS work reflects on both. `m` is the raw beat (steps on tempo, plays
-                // through a pinned audition); FOLLOW names the degree from the trigger `lo`.
-                let vel = max(1, src.velocity(lo))              // the trigger's velocity
-                for n in chordSeqNotes(beat: m, p, keyRoot: root, keyTones: scaleTones, followNote: Int(lo)) {
-                    dst.noteOn(UInt8(n), velocity: vel, channel: 0)
-                }
-            }
-        case .split:                                           // set-membership filter — RE-POOL when upstream of a driver
-            let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
-            let win = chordSplitWindow(count: cCnt, split: p.splitSet, noteAt: { Int(src.srcAscending($0, filter: 0, cableMask: 0b1111)) })
-            let vf = p.splitVel.floor, vc = p.splitVel.ceil
-            for k in max(0, win.start)..<min(cCnt, win.start + win.len) {
-                let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                let v = Int(src.velocity(n))
-                if v >= vf && v <= vc { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
-            }
-        case .avoid:                                           // per-note PITCH filter — RE-POOL upstream / hold-tail: drop or snap each note vs the reference
-            let refMask = avoidRefMask(p, ownDoor: Int(cell.resolvedReceiver), ownBusMask: cell.busMask)
-            let srcN = src.srcCount(filter: 0, cableMask: 0b1111)
-            // AVOID MOVE lands only on the input scale's SURVIVING notes (never a chromatic note outside the pool). The
-            // survivor pool is `src` (the whole set upstream/hold-tail), OR the DRIVER's whole output pool when AVOID sits
-            // DOWNSTREAM of a driver and `src` is a single note (avoidDriverSurvivor, resolved per column — B-1 fix, so
-            // [ARP→AVOID(move)] snaps in-scale like a standalone AVOID instead of degrading to DROP). Paul 2026-08-31.
-            let survivorMask: UInt16 = (!p.avoidLock && p.avoidMove)
-                ? (avoidDriverSurvivorValid ? avoidDriverSurvivor : avoidSurvivors({ Int(src.srcAscending($0, filter: 0, cableMask: 0b1111)) }, count: srcN, refMask: refMask))
-                : 0
-            for k in 0..<srcN {
-                let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                if let outN = avoidFilter(Int(n), p, refMask: refMask, survivorMask: survivorMask), outN >= 0, outN <= 127 { dst.noteOn(UInt8(outN), velocity: max(1, src.velocity(n)), channel: 0) }
-            }
-        case .octave, .transpose:                              // UTILITY — pitch shift (pitch-class preserved for OCTAVE); out-of-range notes drop
-            // §2 POOL-STEP: TRANSPOSE in POOL units steps each note by utilTranspose DEGREES up the source pool ("up a
-            // third in key"); OCTAVE stays ×12 semitones (an octave has no pool meaning). Mask computed once (no alloc).
-            let transPool = (mode == .transpose) && p.utilTransposeUnits == .pool
-            let transMask: UInt16 = transPool ? src.pitchClassMaskAll() : 0
-            let sh = (mode == .octave) ? 12 * Int(p.utilOctave) : Int(p.utilTranspose)
-            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
-                let sn = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                let n = transPool ? poolStepMask(Int(sn), steps: Int(p.utilTranspose), pcMask: transMask) : Int(sn) + sh
-                if n >= 0 && n <= 127 { dst.noteOn(UInt8(n), velocity: max(1, src.velocity(sn)), channel: 0) }
-            }
-        default:                                               // identity / ratchet / strum → pass through
-            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) { let n = src.srcAscending(k, filter: 0, cableMask: 0b1111); dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
-        }
-        dst.rebuildSorted()   // srcAscending reads `sorted`; noteOn doesn't maintain it
-    }
 
 
     /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).

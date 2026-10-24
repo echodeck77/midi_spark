@@ -167,30 +167,6 @@ final class LaneLockTests: XCTestCase {
         XCTAssertFalse(euclideousLockSnapsNow(deviated: true, held: false, running: true), "a running page waits for a line")
     }
 
-    // MARK: 4 — bars and beats left
-    func testBarsAndBeatsLeftEqualTheBarLinesToTheNextLine() {
-        for g in EuclideousLockGrid.allCases {
-            var x = 0.0
-            while x < 64 {
-                let line = next(g, x)
-                // an independent count of bar lines in (x, line]
-                var bars = 0, b = (x / 4).rounded(.down) * 4 + 4
-                while b <= line + 1e-9 { bars += 1; b += 4 }
-                let beats = max(1, Int((line - x - 1e-9).rounded(.up)))
-                let c = euclideousLockCountdown(grid: g, beat: x, barBeats: 4, marginBeats: m, held: false)
-                if g == .beat {
-                    XCTAssertEqual(c, .beats(beats), "BEAT at \(x)")
-                    XCTAssertEqual(euclideousLockBarsLeft(grid: g, beat: x, barBeats: 4, marginBeats: m), 0)
-                } else {
-                    let n = euclideousLockBarsLeft(grid: g, beat: x, barBeats: 4, marginBeats: m)
-                    XCTAssertEqual(n, max(1, bars), "\(g) at \(x)")
-                    XCTAssertEqual(c, n <= 1 ? .beats(beats) : .bars(n), "\(g) at \(x): bars until the last one, then beats")
-                }
-                x += 0.25
-            }
-        }
-        XCTAssertEqual(euclideousLockCountdown(grid: .bars4, beat: 3, barBeats: 4, marginBeats: m, held: true), .held, "held → no number, the lane waits for a lift")
-    }
     func testStatusLine() {
         XCTAssertEqual(euclideousLockStatusText(locked: false, deviated: true, grid: .bar1, countdown: .bars(2)), "UNLOCKED")
         XCTAssertEqual(euclideousLockStatusText(locked: true, deviated: false, grid: .bar1, countdown: nil), "LOCKED")
@@ -395,11 +371,6 @@ final class LaneLockTests: XCTestCase {
         XCTAssertFalse(euclideousLockChangeIsLockOnly(old: base, new: lockField, locks: []), "no lock array yet (a fresh document): same")
     }
 
-    func testRandomModeOnALockedLaneAllowsNoRollsAndSaysWhy() {
-        XCTAssertFalse(euclideousLockRandomAllowsRolls(laneLocked: true)); XCTAssertTrue(euclideousLockRandomAllowsRolls(laneLocked: false))
-        XCTAssertEqual(euclideousLockRandomIdleCaption(laneLocked: true), "LOCKED · UNLOCK TO ROLL")
-        XCTAssertEqual(euclideousLockRandomIdleCaption(laneLocked: false), "THROW A NEW ONE · TWEAK WHAT'S PLAYING")
-    }
     func testSnapBackWordsAreAppendedToAnOutlinedControlsValue() {
         XCTAssertEqual(euclideousLockAppendSnapWords("7 of 16", outlined: true), "7 of 16, will snap back")
         XCTAssertEqual(euclideousLockAppendSnapWords("", outlined: true), "will snap back")

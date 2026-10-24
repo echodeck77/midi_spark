@@ -73,13 +73,6 @@ func euclideousLockCountdown(grid: EuclideousLockGrid, beat: Double, barBeats: D
     let barsLeft = max(1, Int((line / bb + 1e-9).rounded(.down)) - Int((beat / bb + 1e-9).rounded(.down)))
     return barsLeft <= 1 ? .beats(beatsLeft) : .bars(barsLeft)
 }
-/// 6.6 / 4.2 — the number the status line shows ("BACK IN n BARS"): bar lines from now up to and including the lane's next line; 1 when that line ends the current bar. Built from the same next-line function.
-func euclideousLockBarsLeft(grid: EuclideousLockGrid, beat: Double, barBeats: Double, marginBeats: Double) -> Int {
-    guard grid != .beat else { return 0 }
-    let line = euclideousLockNextLine(grid: grid, beat: beat, barBeats: barBeats, marginBeats: marginBeats)
-    let bb = barBeats > 0 ? barBeats : 4
-    return max(1, Int((line / bb + 1e-9).rounded(.down)) - Int((beat / bb + 1e-9).rounded(.down)))
-}
 
 /// 4.2 — the card's status text.
 func euclideousLockStatusText(locked: Bool, deviated: Bool, grid: EuclideousLockGrid, countdown: EuclideousLockCountdown?) -> String {
@@ -524,8 +517,6 @@ func euclideousLockedLanesPhrase(_ lanes: [Int]) -> String {
     }
 }
 
-/// 9.1 — random mode on a locked lane: THROW and TWEAK are off (the card still shows its picture, selector and caption); the idle caption becomes "LOCKED · UNLOCK TO ROLL".
-func euclideousLockRandomAllowsRolls(laneLocked: Bool) -> Bool { !laneLocked }
 func euclideousLockRandomIdleCaption(laneLocked: Bool) -> String { laneLocked ? "LOCKED · UNLOCK TO ROLL" : "THROW A NEW ONE · TWEAK WHAT'S PLAYING" }
 
 /// 5.6 — "A control with an outline adds ', will snap back' to its value": the spoken value with the words appended (just the words when there is no value).

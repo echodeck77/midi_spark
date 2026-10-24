@@ -252,27 +252,6 @@ final class ListenTabTests: XCTestCase {
         XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: 4, n: 4, followerDirection: .pingpong, sourceDirection: .bkw), 3, "the turn")
         XCTAssertEqual(euclideousListenBorrowedIndex(followerRaw: 5, n: 4, followerDirection: .pingpong, sourceDirection: .bkw), 2, "bouncing back")
     }
-    func testFollowerPositionIsNilBeforeTheDelayedStepsHaveElapsed() {
-        // sourceStepBeats 1, DELAY 2, SPEED x1: the follower's own raw step 0 and 1 are "not yet" (rawAfterDelay < 0).
-        XCTAssertNil(euclideousListenFollowerPosition(beat: 0, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 0, delay: 2, direction: .fwd, sourceDirection: .fwd))
-        XCTAssertNil(euclideousListenFollowerPosition(beat: 1, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 0, delay: 2, direction: .fwd, sourceDirection: .fwd))
-        XCTAssertEqual(euclideousListenFollowerPosition(beat: 2, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 0, delay: 2, direction: .fwd, sourceDirection: .fwd), 0,
-                       "the DELAYth step is the first one that plays (position 0 of the borrowed pattern)")
-    }
-    func testFollowerPositionAtDefaultsTracksTheSourceStepForStep() {
-        for raw in 0..<8 {
-            let beat = Double(raw) * 1.0
-            XCTAssertEqual(euclideousListenFollowerPosition(beat: beat, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 0, delay: 0, direction: .fwd, sourceDirection: .fwd),
-                           raw % 4, "defaults (delay 0, speed x1, fwd): sample-for-sample with the source")
-        }
-    }
-    func testFollowerPositionSpeedHalvesOrDoublesTheEffectiveStepLength() {
-        // SPEED x2 (exponent 1): follower step length is sourceStepBeats/2 — twice as many follower steps per source step.
-        XCTAssertEqual(euclideousListenFollowerPosition(beat: 0.5, startBeat: 0, sourceStepBeats: 1, n: 4, speed: 1, delay: 0, direction: .fwd, sourceDirection: .fwd), 1)
-        // SPEED x1/2 (exponent -1): follower step length is sourceStepBeats*2 — half as many steps; beat 1 is still raw step 0.
-        XCTAssertEqual(euclideousListenFollowerPosition(beat: 1, startBeat: 0, sourceStepBeats: 1, n: 4, speed: -1, delay: 0, direction: .fwd, sourceDirection: .fwd), 0)
-        XCTAssertEqual(euclideousListenFollowerPosition(beat: 2, startBeat: 0, sourceStepBeats: 1, n: 4, speed: -1, delay: 0, direction: .fwd, sourceDirection: .fwd), 1)
-    }
     func testEchoIndexPlaysTheCurrentCycleWhileItHasReachedThatRankElseTheLastOneElseRest() {
         XCTAssertEqual(euclideousListenEchoIndex(j: 0, currentCount: 3, lastCount: 8), .current(0))
         XCTAssertEqual(euclideousListenEchoIndex(j: 2, currentCount: 3, lastCount: 8), .current(2))
@@ -305,11 +284,6 @@ final class ListenTabTests: XCTestCase {
         XCTAssertEqual(euclideousListenMoveByInterval(note: 3, interval: 0, octave: -3, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 3)
         // note 125, octave +3: 125 + 36 = 161 -> -12 three times -> 125 (NOT 127)
         XCTAssertEqual(euclideousListenMoveByInterval(note: 125, interval: 0, octave: 3, keyRoot: 0, scaleIntervals: ScaleType.major.intervals), 125)
-    }
-    func testAvoidMaskIsPitchClassOnlyOctaveIgnored() {
-        let mask = euclideousListenAvoidMask(strike: [60])   // C4
-        XCTAssertTrue(euclideousListenAvoidDrops(note: 60, mask: mask)); XCTAssertTrue(euclideousListenAvoidDrops(note: 72, mask: mask), "C5 — same pitch class, different octave")
-        XCTAssertFalse(euclideousListenAvoidDrops(note: 61, mask: mask), "C# is a different pitch class")
     }
     func testBorrowedTabsRhythmPausesUnderCopyOrFillRiffPausesUnderShadowOrEchoNotAvoid() {
         XCTAssertEqual(euclideousListenBorrowedTabs(rhythm: .copy, pitch: .own, notesReadsRiff: true), EuclideousListenBorrowedTabs(rhythm: true, riff: false, notes: false))

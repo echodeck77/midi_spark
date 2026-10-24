@@ -12,21 +12,6 @@ final class EffectiveParamsTests: XCTestCase {
 
     // MARK: M0 — the macro state model
 
-    /// A clean instrument (no macros persisted) resolves to 16 unset macros, correctly banked.
-    func testMacrosResolveToSixteenInTwoSpecies() {   // §K3 2026-09-01: 16 named movements = 8 SLIDER + 8 TOGGLE (timelines retired)
-        let doc = self.doc()
-        XCTAssertNil(doc.macros)                                   // nothing persisted on a clean instrument
-        let m = doc.macrosResolved
-        XCTAssertEqual(m.count, 16)
-        XCTAssertEqual(PluginState.macroBankCount, 16)
-        XCTAssertTrue(m.allSatisfy { $0.name.isEmpty && $0.value == 0 && !$0.fixed && $0.targets.isEmpty })
-        XCTAssertEqual(PluginState.macroKind(0), .slider)
-        XCTAssertEqual(PluginState.macroKind(7), .slider)
-        XCTAssertEqual(PluginState.macroKind(8), .button)
-        XCTAssertEqual(PluginState.macroKind(15), .button)
-        // 16+ still CLASSIFY as timeline (tolerance for an old-doc index) but the live bank is 16, so nothing resolves them.
-        XCTAssertEqual(PluginState.macroKind(16), .timeline)
-    }
 
     /// A short/partial macros array is padded (missing slots ⇒ unset) — forward/back compatible like the rack arrays.
     func testMacrosResolvedIsShortArraySafe() {
@@ -665,28 +650,6 @@ final class EffectiveParamsTests: XCTestCase {
 
     // MARK: M1 — end to end through the builder
 
-    /// A macro bound to a cell's chain-slot param shifts the RESOLVED param, while the document cell (and its seal)
-    /// are untouched — the whole point of the offset model (performance, not identity).
-    func testBuilderFoldsMacroOffsetIntoResolvedChainButNotTheDocument() {
-        var s = SceneState.empty()
-        var cell = Cell(machineID: "gold")
-        var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
-        cell.processors = [slot]
-        s.cells[0][0] = cell
-        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
-        doc.macros = doc.macrosResolved
-        doc.macros?[0] = Macro(name: "GATE", value: 0.5, fixed: false,
-                               targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4)])
-
-        let box = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(box.cells[0].procs[0].gate, 0.7, accuracy: 1e-9)   // 0.5 + 0.5×0.4, folded at build
-
-        // The base is untouched: the DOCUMENT slot param is still 0.5, and the seal (document-derived) is stable.
-        XCTAssertEqual(doc.scenes[0].cells[0][0]?.processors?[0].params.gate, 0.5)
-        let sealWith = sealHash(cell, machines: doc.machines)
-        var docNoMacro = doc; docNoMacro.macros = nil
-        XCTAssertEqual(sealHash(cell, machines: docNoMacro.machines), sealWith)   // macro presence never moves the seal
-    }
 
     /// M2 — the PER-CELL value store (§A2 PUNCH/SPAN): ONE macro targets TWO cells with the same delta; a per-cell
     /// override raises the DRIVING value on cell (0,0) only, so its param shifts while the neighbour (1,0) stays at
@@ -846,14 +809,6 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(box.cells[3 * Snap.rows + 5].procs[0].gate, 0.8, accuracy: 1e-9)
     }
 
-    /// A BUTTON-bank macro (index ≥ 8) folds identically to a slider — the builder iterates all 24 banks, so a
-    /// button snapped to B (value 1) reconstructs B just like M1. Locks that non-slider banks aren't excluded.
-    func testButtonBankMacroModulatesLikeSlider() {
-        XCTAssertEqual(PluginState.macroKind(8), .button)
-        var doc = chainCellDoc(gate: 0.5)
-        doc.macros?[8] = Macro(value: 1.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.3)])
-        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.8, accuracy: 1e-9)   // 0.5 + 1×0.3
-    }
 
     // MARK: OUTPUT — macros modulate the per-emitter role amounts (LEAK/DUCK/CURVE/POCKET)
 
@@ -928,59 +883,9 @@ final class EffectiveParamsTests: XCTestCase {
         var sc = SnapMachine(); mutate(&sc.a); return sc
     }
 
-    /// RATCHET repeats quantize to the nearest LEGAL count in [2,3,4,6,8], first-wins on a tie.
-    func testEffectiveRepeatsQuantizesToLegalCount() {
-        XCTAssertEqual(effectiveRepeats(snapMachine { $0.count = 2 }), 2)
-        XCTAssertEqual(effectiveRepeats(snapMachine { $0.count = 5 }), 4, "5 is equidistant 4/6 → first (4) wins")
-        XCTAssertEqual(effectiveRepeats(snapMachine { $0.count = 7 }), 6, "7 is equidistant 6/8 → first (6) wins")
-        XCTAssertEqual(effectiveRepeats(snapMachine { $0.count = 8 }), 8)
-    }
 
-    /// The scalar effective* helpers saturate at their native bounds — no trap, no off-by-one in the voice switch.
-    func testEffectiveScalarClamps() {
-        XCTAssertEqual(effectiveOctaves(snapMachine { $0.octaves = 9 }), 4, "octaves clamp 1…4")
-        XCTAssertEqual(effectiveOctaves(snapMachine { $0.octaves = 0 }), 1)
-        // harmIntervals voice select: 0/1 pick .0/.1, any other index picks .2; each clamps ±24.
-        let c = snapMachine { $0.harmIntervals = (100, -100, 7) }
-        XCTAssertEqual(effectiveHarmInterval(c, voice: 0), 24)
-        XCTAssertEqual(effectiveHarmInterval(c, voice: 1), -24)
-        XCTAssertEqual(effectiveHarmInterval(c, voice: 2), 7)
-        XCTAssertEqual(effectiveHarmInterval(c, voice: 99), 7, "an out-of-range voice falls to the 3rd interval")
-        // rateIndex saturates into the arpRateBeats ladder rather than trapping.
-        XCTAssertEqual(effectiveRateBeats(snapMachine { $0.rateIndex = 127 }), Snap.arpRateBeats.last!)
-        XCTAssertEqual(effectiveRateBeats(snapMachine { $0.rateIndex = -5 }), Snap.arpRateBeats.first!)
-    }
 
-    /// The unit-range render-side reads saturate at their floors/ceilings (the render thread's last line of defence
-    /// even though `resolve` already clamps on ingest): ramp/spread/probability ∈ [0,1], harmVelScale ∈ [0.1,1].
-    func testEffectiveUnitRangeScalarsClamp() {
-        XCTAssertEqual(effectiveRamp(snapMachine { $0.ramp = 2 }), 1)
-        XCTAssertEqual(effectiveRamp(snapMachine { $0.ramp = -1 }), 0)
-        XCTAssertEqual(effectiveSpread(snapMachine { $0.spread = 5 }), 1)
-        XCTAssertEqual(effectiveSpread(snapMachine { $0.spread = -0.5 }), 0)
-        XCTAssertEqual(effectiveProbability(snapMachine { $0.probability = 3 }.a), 1)
-        XCTAssertEqual(effectiveProbability(snapMachine { $0.probability = -2 }.a), 0)
-        XCTAssertEqual(effectiveHarmVelScale(snapMachine { $0.harmVelScale = 5 }), 1)
-        XCTAssertEqual(effectiveHarmVelScale(snapMachine { $0.harmVelScale = -1 }), 0.1, "the floor is 0.1, not 0")
-    }
 
-    // CHANCE PATTERN (Paul 2026-08-22 §5): effectiveProbability(step:) reads the rotated 8-slice odds; step wraps mod 8;
-    // a missing slice falls back to pass (100%); SINGLE mode ignores step. (Only the SINGLE clamp path was tested before.)
-    func testEffectiveProbabilityPatternReadsTheRotatedSlice() {
-        let slices = [100, 0, 70, 0, 100, 0, 70, 0]
-        let p = snapMachine { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = 0 }.a
-        XCTAssertEqual(effectiveProbability(p, step: 0), 1.0, "slice 0 = 100%")
-        XCTAssertEqual(effectiveProbability(p, step: 1), 0.0, "slice 1 = 0%")
-        XCTAssertEqual(effectiveProbability(p, step: 9), effectiveProbability(p, step: 1), "step wraps mod 8")
-        let pr = snapMachine { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = 1 }.a
-        XCTAssertEqual(effectiveProbability(pr, step: 0), 0.0, "rotate 1 → step 0 reads slice 1")
-        let pn = snapMachine { $0.chanceMode = .pattern; $0.chanceSlices = slices; $0.chanceRotate = -1 }.a
-        XCTAssertEqual(effectiveProbability(pn, step: 1), 1.0, "negative rotate wraps: step 1 → slice 0 = 100%")
-        let ps = snapMachine { $0.chanceMode = .pattern; $0.chanceSlices = [50]; $0.chanceRotate = 0 }.a
-        XCTAssertEqual(effectiveProbability(ps, step: 3), 1.0, "a missing slice falls back to pass (100%)")
-        let single = snapMachine { $0.probability = 0.5 }.a
-        XCTAssertEqual(effectiveProbability(single, step: 5), effectiveProbability(single, step: 0), "SINGLE ignores step")
-    }
 
 
 
@@ -1019,40 +924,6 @@ final class EffectiveParamsTests: XCTestCase {
         }
     }
 
-    /// `SnapParams.settingAuto` must clamp each field to the SAME bounds `applyProcessorValues` uses (its documented
-    /// contract). This locks all 28 bounds — a wrong bound would ship silently otherwise. The `readAuto` switch is
-    /// exhaustive, so a NEW AutoParamField case forces this table to be extended.
-    func testSettingAutoClampsEveryFieldToItsBound() {
-        // (field, expected low clamp, expected high clamp) — copied from applyProcessorValues (MacroAuthoring.swift).
-        let table: [(AutoParamField, Double, Double)] = [
-            (.gate, 0.05, 1), (.ramp, 0, 1), (.spread, 0, 1), (.curve, -1, 1), (.velTilt, -1, 1),
-            (.probability, 0, 1), (.harmVelScale, 0.1, 1), (.octaves, 1, 4), (.count, 2, 8),
-            (.rtcChance, 0, 1), (.rtcCountLo, 1, 8), (.rtcCountHi, 1, 8), (.rtcRotate, 0, 7),
-            (.euclidPulses, 1, 16), (.euclidSteps, 2, 16), (.euclidRot, 0, 15), (.glideRange, 1, 48),
-            (.modMin, 0, 127), (.modMax, 0, 127), (.lenShort, 0.05, 0.95), (.lenLong, 0, 1),
-            (.lenRotate, 0, 7), (.weaveSpan, 1, 8), (.weaveEuclidSteps, 2, 16),
-            (.maskK, 1, 16), (.maskRotate, 0, 15), (.maskChordGate, 0.05, 1), (.maskChordOct, -2, 2),
-            (.arpVelocity, 1, 100), (.arpVelTilt, -1, 1)]
-        XCTAssertEqual(table.count, 30, "every AutoParamField case is covered")
-        for (f, lo, hi) in table {
-            XCTAssertEqual(readAuto(SnapParams().settingAuto(f, -9_999), f), lo, accuracy: 1e-9, "\(f) clamps below to \(lo)")
-            XCTAssertEqual(readAuto(SnapParams().settingAuto(f, 9_999), f), hi, accuracy: 1e-9, "\(f) clamps above to \(hi)")
-        }
-    }
-    // RHYTHM fixes §4.3 (2026-10-21): .euclidPulses/.euclidRot write euclidLines[0].pulses/rotate directly,
-    // bypassing the STEPS setter — they must nil the matching hitsRequested/offsetRequested, same as any
-    // other writer that sets pulses/rotate "any other way," so a later STEPS change doesn't silently
-    // resurface a HITS/OFFSET value this automation ramp never asked for.
-    func testSettingAutoNilsTheMatchingRequestedField() {
-        var s = SnapParams()
-        s.euclidLines = [EuclidLine(pulses: 3, steps: 8, rotate: 2, noteSel: .all, hitsRequested: 3, offsetRequested: 2)]
-        let afterPulses = s.settingAuto(.euclidPulses, 6)
-        XCTAssertEqual(afterPulses.euclidLines[0].pulses, 6)
-        XCTAssertNil(afterPulses.euclidLines[0].hitsRequested, "euclidPulses writes pulses directly — hitsRequested must not survive stale")
-        let afterRot = s.settingAuto(.euclidRot, 5)
-        XCTAssertEqual(afterRot.euclidLines[0].rotate, 5)
-        XCTAssertNil(afterRot.euclidLines[0].offsetRequested, "euclidRot writes rotate directly — offsetRequested must not survive stale")
-    }
     /// Read one automatable field back out of a SnapParams as a Double (for the clamp assertions above).
     private func readAuto(_ s: SnapParams, _ f: AutoParamField) -> Double {
         switch f {

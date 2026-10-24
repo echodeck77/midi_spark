@@ -716,22 +716,14 @@ struct EuclidLine: Codable, Equatable {
         }
         return v
     }
-    var listenRhythmPartnerResolved: Int { max(0, min(3, listenRhythmPartner ?? 0)) }
-    var listenPitchPartnerResolved: Int { max(0, min(3, listenPitchPartner ?? 0)) }
     /// ANY is only meaningful for AVOID. The stored flag is REMEMBERED while the row is off or on SHADOW (so switching modes and
     /// back restores it), but it counts only while AVOID is the lit mode — every reader (loop graph, processing order, the
     /// engine, the picker) goes through this, so a remembered ANY can never make a SHADOW lane depend on every other lane.
-    var listenPitchPartnerAnyResolved: Bool { (listenPitchPartnerAny ?? false) && listenPitchMode == .avoid }
-    var listenLevelPartnerResolved: Int { max(0, min(3, listenLevelPartner ?? 0)) }
     var listenFollowMultResolved: Int { max(-3, min(2, listenFollowMult ?? 0)) }
     /// The actual multiplier applied to the partner's own rate (beats-per-step) to get this lane's own
     /// rate — the INVERSE power of 2, so ×2 (exponent 1, "twice as fast") HALVES the step length
     /// (0.5 = 2^−1), ÷2 (exponent −1, "half as fast") DOUBLES it (2 = 2^1), matching §5's own worked
     /// definition exactly: "×2 = twice as fast (half the partner's step length)."
-    var listenFollowRatioResolved: Double { pow(2.0, Double(-listenFollowMultResolved)) }
-    var listenShadowIntervalResolved: Int { max(-7, min(7, listenShadowInterval ?? 0)) }
-    var listenShadowOctaveResolved: Int { max(-2, min(2, listenShadowOctave ?? 0)) }
-    var listenAvoidActionResolved: EuclideousAvoidAction { listenAvoidAction ?? .mute }
     var listenLevelAmountResolved: Double {
         let raw = max(0, min(1, listenLevelAmount ?? 0.4))
         return (raw / 0.05).rounded() * 0.05
@@ -1385,7 +1377,6 @@ struct EuclideousLoopSlot: Codable, Equatable {
     var length: EuclideousLoopBars = .fourBars
     var startRanks: [Int]? = nil
     var events: [EuclideousLoopEvent]? = nil
-    var isFilled: Bool { startRanks != nil }
     static var empty: EuclideousLoopSlot { EuclideousLoopSlot() }
 }
 // EUCLID DIRECTION (Paul 2026-10-01): a DEDICATED enum, not a reuse of RIFF's own `RiffDir` — EUCLID needs only
@@ -1984,22 +1975,6 @@ struct Machine: Codable, Equatable {
     /// procB's transpose, nil-safe (missing ⇒ 0). Render-inert in v1; kept for COPY A→B + round-trip.
     var transposeBResolved: Int { transposeB ?? 0 }
 
-    /// Switch the processor type, giving each type its own TRANSPOSE. Stash the active transpose under the
-    /// old type, restore the new type's. Idempotent for a no-op switch. `morph` is a single per-Machine
-    /// scalar (the position toward the partner, delta §9 item 5) — NOT per-type — so a type switch leaves
-    /// it untouched. `transpose` remains the live (AUParameter- and snapshot-facing) value for this type.
-    mutating func switchType(to newType: ProcessorType) {
-        guard newType != type else { return }
-        let n = ProcessorType.allCases.count
-        func sized(_ a: [Int]?) -> [Int] { var v = a ?? []; if v.count < n { v += Array(repeating: 0, count: n - v.count) }; return v }
-        var tStash = sized(transposeByType)
-        let oldIdx = ProcessorType.allCases.firstIndex(of: type) ?? 0
-        let newIdx = ProcessorType.allCases.firstIndex(of: newType) ?? 0
-        tStash[oldIdx] = transpose      // save the active transpose under the old type
-        transpose = tStash[newIdx]      // restore the new type's own transpose
-        type = newType
-        transposeByType = tStash
-    }
 }
 
 // MARK: - ON trigger config (§9 item 1) — per-Machine; GUI iteration 1 stores it INERT (no engine yet).
@@ -3250,9 +3225,6 @@ struct PluginState: Codable, Equatable {
     static let macroBankCount = 16
     /// The live 16 macros, nil/short-array safe (missing ⇒ an unset `Macro`). Non-persisting read helper.
     var macrosResolved: [Macro] { let a = macros ?? []; return (0..<Self.macroBankCount).map { $0 < a.count ? a[$0] : Macro() } }
-    /// The species a macro index belongs to: 0–7 SLIDER · 8–15 TOGGLE (the `.button` kind). The `.timeline` case is
-    /// kept for tolerance (16+ classify as timeline) but the live bank is 16, so nothing in the render/UI asks past 15.
-    static func macroKind(_ i: Int) -> MacroKind { i < 8 ? .slider : (i < 16 ? .button : .timeline) }
     // master panel: MUTE — global emission kill (PERSISTED, document-level unlike the per-scene KEY). Optional
     // → old docs decode nil (not muted). The gate lives at the emission boundary (seam rule 3).
     var masterMute: Bool? = nil
@@ -3303,18 +3275,6 @@ struct PluginState: Codable, Equatable {
     /// The THRU-pip receiver index, nil-safe + clamped (missing ⇒ R1). Non-persisting read helper.
     var thruReceiverResolved: Int { min(3, max(0, thruReceiver ?? 0)) }
 
-    /// A copy with one ACTIVE-scene cell forced to `cell` (nil = empty). Used to STRIP the live staging
-    /// preview from the encoded preset: the preview is placed into the document transiently (so it sounds
-    /// in context), so a host autosave landing mid-hover must encode the RESTORED cell, never the preview.
-    /// Bounds-guarded → returns self unchanged for an out-of-range address.
-    func restoringCell(col: Int, row: Int, to cell: Cell?) -> PluginState {
-        let a = activeSceneResolved
-        guard a >= 0, a < scenes.count,
-              col >= 0, col < scenes[a].cells.count, row >= 0, row < scenes[a].cells[col].count else { return self }
-        var s = self
-        s.scenes[a].cells[col][row] = cell
-        return s
-    }
 
     // MARK: - MULTI-SCENE (2026-07-27) — the scene strip switches activeScene within one document
 
@@ -3331,48 +3291,9 @@ struct PluginState: Codable, Equatable {
         if scenes.isEmpty { scenes = [.empty()] }
         while scenes.count < n { scenes.append(.empty()) }
     }
-    /// SAVE-HERE: copy the ACTIVE scene into slot `i` (self-advertising save-as on an empty +), padding first.
-    /// Precious-scene law: this is the ONLY write onto a slot; drag SWAPs, never overwrites (see the strip).
-    mutating func saveCurrentScene(toSlot i: Int) {
-        guard i >= 0, i < Self.maxScenes else { return }
-        padScenes(to: max(i + 1, scenes.count))
-        scenes[i] = activeSceneState
-    }
-    /// Switch the active scene to a NON-EMPTY slot. Empty slots aren't playable (they're + save targets).
-    mutating func switchScene(to i: Int) {
-        guard i >= 0, i < scenes.count, !scenes[i].isEmpty else { return }
-        activeScene = i
-    }
 
     // MARK: - S3: drag on the strip = MOVE / SWAP / DELETE (never overwrite — the precious-scene law)
 
-    /// DRAG a scene onto another slot. The model decides: EMPTY target = MOVE (relocate; source empties);
-    /// OCCUPIED target = SWAP (exchange). Never an overwrite. The active (playing) scene follows its content.
-    mutating func dragScene(from a: Int, to b: Int) {
-        guard a != b, scenes.indices.contains(a), scenes.indices.contains(b), !scenes[a].isEmpty else { return }
-        if scenes[b].isEmpty { moveScene(from: a, to: b) } else { swapScenes(a, b) }
-    }
-    /// MOVE onto an empty slot: the scene relocates, the source becomes empty. The active index follows.
-    mutating func moveScene(from a: Int, to b: Int) {
-        guard a != b, scenes.indices.contains(a), scenes.indices.contains(b), scenes[b].isEmpty else { return }
-        let act = activeSceneResolved
-        scenes[b] = scenes[a]; scenes[a] = .empty()
-        if act == a { activeScene = b }
-    }
-    /// SWAP two slots (exchange — never overwrite). The active (playing) scene follows its content to its new slot.
-    mutating func swapScenes(_ a: Int, _ b: Int) {
-        guard a != b, scenes.indices.contains(a), scenes.indices.contains(b) else { return }
-        let act = activeSceneResolved
-        scenes.swapAt(a, b)
-        if act == a { activeScene = b } else if act == b { activeScene = a }
-    }
-    /// DELETE a scene (the trash). The ACTIVE scene REFUSES — the instrument always has a playing scene.
-    /// Returns false (rejected) when the slot is the active one, empty, or out of range — the UI shakes on false.
-    @discardableResult mutating func deleteScene(_ i: Int) -> Bool {
-        guard scenes.indices.contains(i), i != activeSceneResolved, !scenes[i].isEmpty else { return false }
-        scenes[i] = .empty()
-        return true
-    }
 
     /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
     /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /
@@ -3538,196 +3459,14 @@ struct PluginState: Codable, Equatable {
         return state
     }
 
-    /// §3b/3c THE DEFAULT ARC — the first-launch state: THREE musical scenes (arps → +elements → EPIC), all
-    /// SINGLE-EMITTER (everything → A, ch1) so the first-try one-synth rig is always audible (the minimum-rig
-    /// law). Each cell is an independent treatment of the held chord (MIDI-IN via R1/OMNI) summing to A — the
-    /// one-chord orchestra. Content is a sensible first cut; ear-tuning happens on device.
-    static func defaultArc() -> PluginState {
-        var machines = machineIDs.map { Machine(machineID: $0, type: .arp) }
-        func set(_ id: String, _ f: (inout Machine) -> Void) { f(&machines[machineIDs.firstIndex(of: id)!]) }
-        // The arc's palette: arps at different patterns/rates/octaves + a harmonize bloom + a chance shimmer + a bass.
-        set("gold")      { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_16; $0.paramsA.octaves = 1 }
-        set("cyan")      { $0.type = .arp; $0.paramsA.pattern = .upDown; $0.paramsA.rate = .r1_8 }
-        set("azure")     { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_16; $0.paramsA.octaves = 2 }  // sparkle up
-        set("slate")    { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_8;  $0.transpose = -12 }       // bass octave down
-        set("magenta")   { $0.type = .harmonize; $0.paramsA.harmIntervals = [4, 7, 0]; $0.paramsA.harmVelScale = 0.7 }        // + third + fifth bloom
-        set("teal")      { $0.type = .chance; $0.paramsA.probability = 0.6 }                                                  // shimmer
 
-        // Scene 1 — a series of arps, an interesting pattern
-        var s1 = SceneState.empty()
-        s1.cells[0][0] = Cell(machineID: "gold")
-        s1.cells[2][0] = Cell(machineID: "cyan")
-        s1.cells[4][0] = Cell(machineID: "gold")
-        s1.cells[6][0] = Cell(machineID: "azure")
 
-        // Scene 2 — adds elements (a bass octave + a harmonize bloom under the arps)
-        var s2 = s1
-        s2.cells[0][1] = Cell(machineID: "slate")
-        s2.cells[4][1] = Cell(machineID: "magenta")
 
-        // Scene 3 — EPIC: dense · OCT register spread · harmonize + chance shimmer · rhythmic interlock (all → A)
-        var s3 = SceneState.empty()
-        for c in [0, 2, 4, 6] { s3.cells[c][0] = Cell(machineID: "gold") }
-        for c in [1, 3, 5, 7] { s3.cells[c][0] = Cell(machineID: "azure") }
-        s3.cells[0][1] = Cell(machineID: "slate"); s3.cells[4][1] = Cell(machineID: "slate")
-        s3.cells[2][1] = Cell(machineID: "magenta"); s3.cells[6][1] = Cell(machineID: "magenta")
-        s3.cells[3][2] = Cell(machineID: "teal");   s3.cells[7][2] = Cell(machineID: "teal")
 
-        var state = PluginState(machines: machines, scenes: [s1, s2, s3])
-        state.formatVersion = 4
-        state.synthesizeReceiversIfNeeded()                         // point every MIDI-IN cell at a receiver (R1)
-        for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }   // A=OMNI, B/C/D=2/3/4
-        state.padScenes()                                           // slots 3…7 = +
-        state.markDefinedFromUsage()                                // D1: sparse palette — only the arc's Machines are defined
-        return state
-    }
 
-    // MARK: - THE LADDER family (factory presets, Docs/AcceptanceCriteria-ladder.md §PART 2). Each is a full 8×8
-    // "instrument": one machine per ROW, gentle (top) → intense (bottom), stamped as 8 twins per column; LADDER
-    // mode ON; 3 SCENES = intensity curves (the active rung per column) over the SAME grid; single emitter A · ch1
-    // (minimum rig); HARM (where present) is +12 octave only. Slot helpers:
-    private static func lArp(_ pat: ArpPattern, _ rate: ArpRate, oct: Int, gate: Double, legato: Bool = false) -> ProcessorSlot {
-        var p = MachineParams(); p.pattern = pat; p.rate = rate; p.octaves = oct; p.gate = gate
-        if legato { p.phase = .legato }
-        return ProcessorSlot(type: .arp, params: p)
-    }
-    private static func lPass(_ gate: Double, legato: Bool = true) -> ProcessorSlot {
-        var p = MachineParams(); p.gate = gate; if legato { p.phase = .legato }
-        return ProcessorSlot(type: .empty, params: p)
-    }
-    private static func lHarm12() -> ProcessorSlot { var p = MachineParams(); p.harmIntervals = [12, 0, 0]; return ProcessorSlot(type: .harmonize, params: p) }
-    private static func lRtc(_ count: Int) -> ProcessorSlot { var p = MachineParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }
-    private static func lChnc(_ prob: Double) -> ProcessorSlot { var p = MachineParams(); p.probability = prob; return ProcessorSlot(type: .chance, params: p) }
-    /// A configured ECHO (delay) slot — synced 16th-note divisions by default (user 2026-08-08 delay controls).
-    static func lEcho(div: Int = 4, repeats: Int = 4, feedDelay: Double = 0.7, decay: Double = 0.5,
-                      offset: Double = 0, pitch: Int = 0, thru: Bool = true, sync: Bool = true, ms: Double = 250) -> ProcessorSlot {
-        var p = MachineParams()
-        p.echoSync = sync; p.echoDelayDiv = div; p.echoDelayMs = ms; p.echoRepeats = repeats
-        p.echoFeedDelay = feedDelay; p.echoDecay = decay; p.echoOffset = offset; p.echoPitch = pitch; p.echoThru = thru
-        return ProcessorSlot(type: .echo, params: p)
-    }
 
-    /// Build a LADDER preset from 8 rung HUES (light→dark), 8 MACHINES (chains, row 0 = gentlest), and the scene
-    /// CURVES (each an 8-entry per-column active row). All rungs → Emit A on R1; the grid is identical per scene.
-    private static func ladderPreset(_ hues: [String], _ machines: [[ProcessorSlot]], _ curves: [[Int]]) -> PluginState {
-        var grid = SceneState.empty()
-        for col in 0..<8 { for row in 0..<8 {
-            var c = Cell(machineID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]
-            grid.cells[col][row] = c
-        } }
-        let scenes = curves.map { curve -> SceneState in var s = grid; s.activeRow = curve.map { Optional($0) }; return s }
-        var state = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: scenes)
-        state.ladderMode = true; state.formatVersion = 4
-        state.synthesizeReceiversIfNeeded()
-        for i in state.receivers!.indices { state.receivers![i].channel = 0 }   // OMNI in; output = Emit A · ch1
-        state.padScenes(); state.markDefinedFromUsage()
-        return state
-    }
 
-    /// THE LADDER — the flagship (§PART 2): R1 STILL → R8 STORM. Warm gold → deep indigo.
-    static func makeLadder() -> PluginState {
-        ladderPreset(
-            ["gold", "slate", "orange", "vermilion", "wine", "purple", "violet", "indigo"],
-            [[lPass(1.0)],                                                        // R1 STILL — the held-chord bed
-             [lArp(.up, .r1_4, oct: 1, gate: 0.92, legato: true)],               // R2 ROLL
-             [lArp(.up, .r1_8, oct: 1, gate: 0.70)],                             // R3 PULSE
-             [lArp(.upDown, .r1_8, oct: 2, gate: 0.65)],                         // R4 WEAVE
-             [lArp(.up, .r1_16, oct: 2, gate: 0.55)],                            // R5 CLIMB
-             [lHarm12(), lArp(.up, .r1_16, oct: 3, gate: 0.50)],                 // R6 SHINE
-             [lArp(.up, .r1_16, oct: 2, gate: 0.45), lRtc(4)],                   // R7 GATLING (RTC drives)
-             [lHarm12(), lArp(.random, .r1_32, oct: 4, gate: 0.30), lChnc(0.55)]],   // R8 STORM
-            [[0, 1, 0, 1, 0, 1, 0, 1], [2, 2, 3, 3, 4, 4, 3, 3], [7, 5, 6, 5, 7, 5, 6, 6]])
-    }
 
-    /// TIDE — a flowing UP-DOWN ladder, calm → churning. Cool mint → violet.
-    static func makeLadderTide() -> PluginState {
-        ladderPreset(
-            ["mint", "cyan", "green", "teal", "azure", "indigo", "purple", "violet"],
-            [[lPass(1.0)],
-             [lArp(.upDown, .r1_4, oct: 1, gate: 0.90, legato: true)],
-             [lArp(.upDown, .r1_8, oct: 1, gate: 0.72)],
-             [lArp(.upDown, .r1_8, oct: 2, gate: 0.62)],
-             [lArp(.upDown, .r1_16, oct: 2, gate: 0.55)],
-             [lArp(.upDown, .r1_16, oct: 3, gate: 0.50)],
-             [lArp(.upDown, .r1_16t, oct: 3, gate: 0.45)],
-             [lHarm12(), lArp(.upDown, .r1_32, oct: 4, gate: 0.35), lChnc(0.60)]],
-            [[0, 1, 1, 0, 0, 1, 1, 0], [3, 4, 3, 2, 3, 4, 3, 2], [5, 6, 7, 6, 5, 6, 7, 6]])
-    }
-
-    /// FORGE — mechanical RATCHET bursts, humming → hammering. Hot chartreuse → purple.
-    static func makeLadderForge() -> PluginState {
-        ladderPreset(
-            ["chartreuse", "gold", "slate", "orange", "vermilion", "wine", "magenta", "purple"],
-            [[lPass(1.0)],
-             [lArp(.up, .r1_8, oct: 1, gate: 0.62)],
-             [lArp(.up, .r1_8, oct: 1, gate: 0.55), lRtc(2)],
-             [lArp(.up, .r1_16, oct: 2, gate: 0.50), lRtc(3)],
-             [lArp(.down, .r1_16, oct: 2, gate: 0.48), lRtc(4)],
-             [lArp(.up, .r1_16, oct: 3, gate: 0.45), lRtc(4)],
-             [lArp(.up, .r1_16t, oct: 3, gate: 0.42), lRtc(6)],
-             [lArp(.random, .r1_32, oct: 3, gate: 0.32), lRtc(8), lChnc(0.55)]],
-            [[0, 0, 1, 1, 0, 0, 1, 1], [2, 3, 4, 3, 2, 3, 4, 3], [6, 7, 7, 6, 6, 7, 7, 6]])
-    }
-
-    /// CHIME — octave-doubled bells, sparse → radiant (HARM +12 on every rung). Mint → indigo.
-    static func makeLadderChime() -> PluginState {
-        ladderPreset(
-            ["mint", "chartreuse", "gold", "blush", "magenta", "purple", "violet", "indigo"],
-            [[lPass(1.0)],
-             [lHarm12(), lPass(0.95)],
-             [lHarm12(), lArp(.up, .r1_8, oct: 1, gate: 0.70)],
-             [lHarm12(), lArp(.up, .r1_8, oct: 2, gate: 0.62)],
-             [lHarm12(), lArp(.upDown, .r1_16, oct: 2, gate: 0.55)],
-             [lHarm12(), lArp(.up, .r1_16, oct: 3, gate: 0.50)],
-             [lHarm12(), lArp(.up, .r1_16, oct: 3, gate: 0.45), lChnc(0.70)],
-             [lHarm12(), lArp(.random, .r1_32, oct: 4, gate: 0.35), lChnc(0.55)]],
-            [[1, 0, 0, 0, 0, 0, 0, 1], [3, 4, 5, 4, 3, 4, 5, 4], [5, 6, 7, 7, 6, 5, 6, 7]])
-    }
-
-    /// SPARK — generative, CHANCE-thinned, sparse → chaotic. Electric mint → wine.
-    static func makeLadderSpark() -> PluginState {
-        ladderPreset(
-            ["mint", "cyan", "chartreuse", "azure", "magenta", "purple", "vermilion", "wine"],
-            [[lPass(1.0)],
-             [lArp(.up, .r1_8, oct: 1, gate: 0.65), lChnc(0.80)],
-             [lArp(.up, .r1_16, oct: 1, gate: 0.55), lChnc(0.70)],
-             [lArp(.upDown, .r1_16, oct: 2, gate: 0.50), lChnc(0.65)],
-             [lArp(.random, .r1_16, oct: 2, gate: 0.50), lChnc(0.60)],
-             [lArp(.random, .r1_16, oct: 3, gate: 0.45), lChnc(0.55)],
-             [lHarm12(), lArp(.random, .r1_16t, oct: 3, gate: 0.45), lChnc(0.55)],
-             [lHarm12(), lArp(.random, .r1_32, oct: 4, gate: 0.35), lChnc(0.45)]],
-            [[0, 2, 0, 1, 0, 2, 0, 1], [3, 5, 4, 2, 4, 5, 3, 4], [7, 4, 6, 7, 5, 7, 4, 6]])
-    }
-
-    /// MIDI DELAYS (user 2026-08-08) — eight delay flavours, one per ROW, placed in COLUMN 0 only so each rings out
-    /// across the empty columns. SINGLE mode: one flavour speaks at a time (switch with the row selectors); three
-    /// scenes preset SLAP · DUB · CANYON. Hold a chord and hear the delay; the flavours span slap → dub → pitch → wide.
-    static func makeDelays() -> PluginState {
-        let hues = ["gold", "orange", "vermilion", "wine", "magenta", "purple", "violet", "indigo"]
-        let machines: [[ProcessorSlot]] = [
-            [lEcho(div: 3, repeats: 1, feedDelay: 0.85, decay: 0)],                 // R1 SLAP — one quick echo
-            [lEcho(div: 2, repeats: 3, feedDelay: 0.8,  decay: 0.5)],               // R2 DOUBLE — 1/8, a few taps
-            [lEcho(div: 3, repeats: 4, feedDelay: 0.75, decay: 0.55)],              // R3 DOTTED — dotted-note swing
-            [lEcho(div: 4, repeats: 4, feedDelay: 0.75, decay: 0.6)],               // R4 QUARTER — one per beat
-            [lEcho(div: 4, repeats: 12, feedDelay: 0.7, decay: 0.85)],              // R5 DUB — long decay tail
-            [lEcho(div: 2, repeats: 6, feedDelay: 0.7,  decay: 0.6, pitch: 3)],     // R6 RISER — climbing +3
-            [lEcho(div: 2, repeats: 6, feedDelay: 0.7,  decay: 0.6, pitch: -3)],    // R7 FALLER — descending −3
-            [lEcho(div: 8, repeats: 3, feedDelay: 0.75, decay: 0.7, offset: 0.2)]]  // R8 CANYON — half-note, wide
-        var grid = SceneState.empty()
-        for row in 0..<8 {
-            var c = Cell(machineID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]
-            grid.cells[0][row] = c   // COLUMN 0 only — the delay tail rings out across the empty columns
-        }
-        let scenes = [0, 4, 7].map { pick -> SceneState in    // SLAP · DUB · CANYON
-            var s = grid; var ar = [Int?](repeating: nil, count: 8); ar[0] = pick; s.activeRow = ar; return s
-        }
-        var state = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: scenes)
-        state.ladderMode = true; state.formatVersion = 4
-        state.synthesizeReceiversIfNeeded()
-        for i in state.receivers!.indices { state.receivers![i].channel = 0 }   // OMNI in; output = Emit A · ch1
-        state.padScenes(); state.markDefinedFromUsage()
-        return state
-    }
 }
 
 // MARK: - MODELESS EDIT scope (2026-07-27) — scope-after-target: THIS · ALL IDENTICAL · ALL <MACHINE>
@@ -3735,65 +3474,13 @@ struct PluginState: Codable, Equatable {
 extension SceneState {
     enum EditScope { case thisOne, allIdentical, allMachine, twins }
 
-    /// The cells an EDIT at `(col,row)` should touch under `scope`, as encoded positions (col*8 + row), sorted.
-    /// ALL IDENTICAL = same Machine AND same routing (input source + emitter buses); ALL MACHINE = same Machine.
-    /// An empty exemplar ⇒ []. Pure — the counted-chip + flash-set truth behind "EDITING n · ALL GOLD".
-    func editScopeTargets(col: Int, row: Int, scope: EditScope) -> [Int] {
-        guard col >= 0, col < 8, row >= 0, row < 8, col < cells.count, row < cells[col].count,
-              let ex = cells[col][row] else { return [] }
-        var out: [Int] = []
-        for c in 0..<8 where c < cells.count {
-            for r in 0..<8 where r < cells[c].count {
-                guard let cell = cells[c][r] else { continue }
-                let hit: Bool
-                switch scope {
-                case .thisOne:      hit = c == col && r == row
-                case .allMachine:    hit = cell.machineID == ex.machineID
-                case .allIdentical: hit = cell.machineID == ex.machineID && cell.inputRow == ex.inputRow
-                                        && cell.inputReceiver == ex.inputReceiver && cell.buses == ex.buses
-                case .twins:        // TWINS: full editable config equal (machine + chain + input + output +
-                                    // source-shaping); transient perform state (alt/muted/bypassed) ignored.
-                                    hit = cell.machineID == ex.machineID && cell.processors == ex.processors
-                                        && cell.inputReceiver == ex.inputReceiver && cell.inputRow == ex.inputRow
-                                        && cell.buses == ex.buses && cell.chordSplit == ex.chordSplit
-                                        && cell.velWindow == ex.velWindow && cell.chop == ex.chop
-                }
-                if hit { out.append(c * 8 + r) }
-            }
-        }
-        return out.sorted()
-    }
 
-    /// Apply `edit` to every cell in the EDIT scope — the propagation multiplier the write-armed panel commits.
-    mutating func applyToScope(col: Int, row: Int, scope: EditScope, _ edit: (inout Cell) -> Void) {
-        for key in editScopeTargets(col: col, row: row, scope: scope) {
-            let c = key / 8, r = key % 8
-            if var cell = cells[c][r] { edit(&cell); cells[c][r] = cell }
-        }
-    }
 
     // MARK: - §11 VERB LOGIC (the testable model ops behind the round verbs; PLACE stamps a Cell directly)
 
-    /// DELETE — remove the cell at (col,row). (Grid-chaining retired: no cell reads another's row, so there are no
-    /// children to re-point — a plain removal. The name stays `deleteCellSever` for the live DELETE verb caller.)
-    mutating func deleteCellSever(col: Int, row: Int) {
-        guard cells.indices.contains(col), cells[col].indices.contains(row) else { return }
-        cells[col][row] = nil
-    }
 
     // MARK: - ROUTING (receiver in · emitters out; the UI projection lights + taps these)
 
-    /// ROUTE IN (single-select radio) — feed cell X from a RECEIVER door: inputRow = nil, inputReceiver = r (0–3).
-    mutating func routeInReceiver(col: Int, row: Int, receiver: Int) {
-        guard cells.indices.contains(col), cells[col].indices.contains(row), var c = cells[col][row] else { return }
-        c.inputRow = nil; c.inputReceiver = max(0, min(3, receiver)); cells[col][row] = c
-    }
-    /// ROUTE OUT emitters — toggle cell X's membership of an emitter bus (multi).
-    mutating func toggleEmitter(col: Int, row: Int, bus: Bus) {
-        guard cells.indices.contains(col), cells[col].indices.contains(row), var c = cells[col][row] else { return }
-        if c.buses.contains(bus) { c.buses.remove(bus) } else { c.buses.insert(bus) }
-        cells[col][row] = c
-    }
 }
 
 // MARK: - Session template / clipboard (delta §5) — one STAMP object
@@ -3807,18 +3494,8 @@ struct StampConfig: Equatable {
     var inputReceiver: Int = 0      // 0–3, used when inputRow == nil
     var buses: Set<Bus> = [.a]
 
-    static func bootstrap(machineID: String) -> StampConfig { StampConfig(machineID: machineID) }
     static func from(_ c: Cell) -> StampConfig {
         StampConfig(machineID: c.machineID, inputRow: c.inputRow, inputReceiver: c.inputReceiver ?? 0, buses: c.buses)
-    }
-    /// A fresh cell carrying this config (perform state defaulted).
-    func makeCell() -> Cell {
-        var c = Cell(machineID: machineID); applyRouting(to: &c); return c
-    }
-    /// Overwrite a cell's ROUTING (input source + output buses) from this config; machine + perform
-    /// state untouched. Shared by `makeCell` and the staging live-propagation to the placed cells.
-    func applyRouting(to c: inout Cell) {
-        c.inputRow = inputRow; c.inputReceiver = inputReceiver; c.buses = buses
     }
 }
 

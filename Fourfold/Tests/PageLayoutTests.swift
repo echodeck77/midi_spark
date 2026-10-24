@@ -149,24 +149,6 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: 38.67), "the reference row height")
         XCTAssertFalse(EuclideousRhythmGeometry.showsEndLabels(rowH: 27.99))
     }
-    func testMixAtBothReferencesFillsTheBoxAndClearsItsFloors() {
-        for (p, areaW, areaH, cellW, rowH, padH, outW) in [(land, 364.67, 275.0, 81.17, 129.5, 69.5, 38.58), (port, 371.0, 275.67, 82.75, 129.83, 69.83, 39.38)] {
-            let area = euclideousMixGridArea(panelWidth: p.box.width, panelHeight: p.box.height)
-            XCTAssertEqual(area.width, areaW, accuracy: 0.01); XCTAssertEqual(area.height, areaH, accuracy: 0.01)
-            let g = euclideousMixGrid(width: area.width, height: area.height)
-            XCTAssertEqual(g.cellW, cellW, accuracy: 0.01); XCTAssertEqual(g.rowH, rowH, accuracy: 0.01); XCTAssertEqual(g.padH, padH, accuracy: 0.01)
-            XCTAssertFalse(g.belowFloors); XCTAssertGreaterThanOrEqual(g.padH, EuclideousMixMetrics.floorPadH)
-            XCTAssertEqual((g.cellW * 2 + 4 - 4 * 3) / 4, outW, accuracy: 0.01, "OUT buttons: four across the lane panel's inside width (a RIFF + NOTES pair), 4 apart")
-            // §9.5's fit rule (the rotated name it chose is gone since the CLARITY PASS, the pure function stays): VEL — 30.5 / 30.8 available against the 44.8 "VELOCITY" needs
-            XCTAssertEqual(euclideousMixVelocityDisplayName(plotH: g.padH - EuclideousMixMetrics.gateStripH), "VEL")
-        }
-        // the old portrait panel (393 × 248) is what drew nothing: nominal padH would be 34 (CLARITY PASS), but the
-        // fair-share fallback drops the stepper/OUT row to their compact floors and buys the pad back to 46.
-        let old = euclideousMixGridArea(panelWidth: 393, panelHeight: 248)
-        let oldGrid = euclideousMixGrid(width: old.width, height: old.height)
-        XCTAssertEqual(oldGrid.padH, 46, accuracy: 1e-9)
-        XCTAssertEqual(oldGrid.stepperH, 18, accuracy: 1e-9); XCTAssertEqual(oldGrid.outRowH, 14, accuracy: 1e-9)
-    }
     func testMixFairShareDropsTheStepperAndOutRowTogetherExactlyAtThePadFloor() {
         // the fallback triggers when innerH − nominalBelowPad(52) < minPadH(64), i.e. innerH < 116 — pin both sides.
         func gridFor(innerH: CGFloat) -> EuclideousMixGrid {

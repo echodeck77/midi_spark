@@ -38,8 +38,6 @@ struct KernelDiag {
     var lastParamValue: Double = 0
     var ccCount: UInt64 = 0
     var ccStatus: UInt8 = 0, ccData1: UInt8 = 0, ccData2: UInt8 = 0
-    var effMorphGold: Double = 0
-    var effRateBeats: Double = 0
     var effSwing: Double = 50
     var emitCount: UInt64 = 0
     var floodDropped = 0               // FLOOD GOVERNOR: note-ons dropped this session (the cog HEALTH tell)
@@ -47,7 +45,6 @@ struct KernelDiag {
     var lastEmitChan: UInt8 = 0        // 0-based wire channel (bus stamp); panel shows +1 (human)
     var effColumn = 0                  // active grid column (0…7), derived (§7)
     var absoluteStep = 0               // global step counter — +1 each step, INCLUDING during a column LAP (LADDER arm commit)
-    var routedPath = false             // CHAOS oracle: ≥1 occupied, audible cell admits a held note AND has an enabled emitter
                                        // (a STRUCTURAL "should something sound?" — silence with no routed path is EXPECTED, not a bug)
     var pass: Int = 0                  // how many full 8-column cycles elapsed
     var activeCellRow = -1             // row of the sounding cell in effColumn, -1 = column empty
@@ -70,15 +67,7 @@ struct KernelDiag {
     // DOOR REPLAY diagnostic (2026-08-22): localize "loop animates but silent" — engaged mask → captured loop size →
     // frozen-pool size. engaged=0 ⇒ never engaged · loopN=0 ⇒ recording/capture empty · loopN>0 & poolN=0 ⇒ the
     // notesSoundingAt/fill isn't reaching the pool · poolN>0 & still silent ⇒ no grid cell reads the door (or emit gate).
-    var replayEngaged: UInt8 = 0       // which REPLAY doors are looping (bit i)
-    var replayLoopN = 0                // events in the ENGAGED door's captured loop (0 = nothing captured)
-    var replayPoolN = 0                // notes the engaged door's loop currently feeds into the frozen pool
     // HOLD BISECT (Paul 2026-08-31): while any door latch is armed, per armed door — the LIVE admitted note count and the
     // FROZEN (held) note count. If a new chord doesn't update FRZ, the live→frozen HOLD capture is the fault; if LIVE never
     // shows the new chord, the input isn't reaching the door (channel/cable/range). Shown in cog HEALTH while armed.
-    var holdArmed: UInt8 = 0           // which doors are latch-armed (bit i)
-    var holdKeysMask: UInt8 = 0        // which armed doors are in the KEYS/note-toggle branch (latchAddStep); clear bit = CHORD/mirror-and-freeze (2026-09-07)
-    var holdLiveN: [Int] = [0, 0, 0, 0]   // live admitted notes per door
-    var holdFrozenN: [Int] = [0, 0, 0, 0] // frozen (held) notes per door
-    var holdStruckN: [Int] = [0, 0, 0, 0] // notes STRUCK this block admitted per door (staccato-capture bisect, 2026-09-07)
 }

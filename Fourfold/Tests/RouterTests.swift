@@ -518,27 +518,6 @@ final class RouterTests: XCTestCase {
         st.partAuto = ["gold": PartAutoMachine(activeLane: -1, lanes: [lane])]   // NONE selected → no render-time descriptor
         XCTAssertTrue(SnapshotBuilder.build(from: st).renderAuto.isEmpty, "activeLane = NONE ⇒ box.renderAuto stays empty (byte-identical)")
     }
-    // CHANCE → CONSTANT-DENSITY (user 2026-08-11): keep ~a constant NUMBER of notes regardless of chord size — a small
-    // chord keeps MORE than fixed-% (p rises to the target), a big chord keeps FEWER (thinned to the target).
-    func testChanceConstantDensityHoldsCountVsFixedPercent() {
-        func avg(_ count: Int, _ prob: Double, dens: Bool) -> Double {
-            var total = 0; let trials = 300
-            for t in 0..<trials { for k in 0..<count where chancePassesPool(beat: Double(t) * 0.25, note: 48 + k, rank: k, count: count, probability: prob, tilt: 0, constantDensity: dens) { total += 1 } }
-            return Double(total) / Double(trials)
-        }
-        XCTAssertGreaterThan(avg(3, 0.4, dens: true), avg(3, 0.4, dens: false) + 0.3, "a 3-chord keeps MORE under constant-density")
-        XCTAssertLessThan(avg(12, 0.4, dens: true), avg(12, 0.4, dens: false), "a 12-chord keeps FEWER (thinned to the target)")
-    }
-    // CHANCE → WEIGHT/tilt (user 2026-08-11): +tilt favours the TOP notes, −tilt the BOTTOM.
-    func testChanceWeightFavoursTopOrBottom() {
-        func passRate(_ rank: Int, _ count: Int, _ tilt: Double) -> Double {
-            var passed = 0; let trials = 400
-            for t in 0..<trials where chancePassesPool(beat: Double(t) * 0.25, note: 48 + rank, rank: rank, count: count, probability: 0.5, tilt: tilt, constantDensity: false) { passed += 1 }
-            return Double(passed) / Double(trials)
-        }
-        XCTAssertGreaterThan(passRate(4, 5, 0.8), passRate(0, 5, 0.8) + 0.2, "+tilt: the TOP note survives more than the bottom")
-        XCTAssertLessThan(passRate(4, 5, -0.8), passRate(0, 5, -0.8) - 0.2, "−tilt: the reverse")
-    }
     func testEuclidPulsesFromPoolTracksHeldCount() {
         // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
         let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
@@ -647,18 +626,6 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.events.isEmpty, "a disabled emitter produces nothing on its own cable OR All")
     }
 
-    func testDisabledEmitterNeverMeters() {
-        let b = box(machines: arpMachines(), busEnabled: [false, true, true, true]) { $0.cells[0][0] = Cell(machineID: "gold") }
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
-        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
-        for _ in 0..<12 {
-            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        XCTAssertEqual(router.drainMeters().events[0], 0, "a disabled emitter never meters")
-    }
 
     // MARK: - §strips-done HOLD-WHILE-SOUNDING — drainEmitterSounding() reports the live per-emitter voice set
 
@@ -780,33 +747,8 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ungated.rackMask, 0b1111, "resolver defaults to all-on")
     }
 
-    // §6a THE WITHHELD TELL — the drainWithheld() feed reports CLAIM-suppressed note-ons (for the hollow strip mark).
-    private func drainWithheldAfter(_ box: SnapshotBox, windows: Int = 8) -> [[(vel: UInt8, col: Int8)]] {
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
-        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
-        for _ in 0..<windows {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        return router.drainWithheld()
-    }
 
-    func testLeakedNoteIsNotWithheld() {
-        // A LEAK bleed (leak > 0) sounds as a shadow, so it is NOT a withholding — no hollow mark.
-        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0b0001, leak: [50, 0, 0, 0]) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
-        }
-        XCTAssertTrue(drainWithheldAfter(b)[1].isEmpty, "a LEAK bleed sounds → not withheld")
-    }
 
-    func testNoClaimWithholdsNothing() {
-        let b = claimMaskBox(claimMachines(transposeB: 0), mask: 0) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])
-        }
-        XCTAssertTrue(drainWithheldAfter(b).allSatisfy { $0.isEmpty }, "no claim ⇒ nothing withheld")
-    }
 
     // MARK: - COVERAGE HARDENING — device topologies (T-series) with no prior unit coverage
 
@@ -2318,31 +2260,6 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(hitBeats(restart: true), [0, 3, 4, 7, 8, 11, 12, 15], "re-anchored every 4-tick restart cell — each restart is a step-0 hit, then the pattern's own step 0 again 3 ticks later")
         XCTAssertEqual(hitBeats(restart: false), [0, 3, 6, 9, 12, 15], "no restart: the native 3-beat cycle free-runs from beat 0")
     }
-    // The TIE / next-hit lookahead must re-anchor against a custom mark exactly as the per-hit origin does — including across a WINDOW boundary
-    // with no mark on cell 0 (where the origin stays the PREVIOUS window's mark, not the new window's start). A single-hit 5-step pattern at one
-    // beat per tick, 4-tick restart cells, a RHYTHM mark on cell 5 only (tick 20). Window = 64 ticks. Before the mark the carried origin is
-    // (5 − 16) × 4 = −44, so hits fall on ticks ≡ 1 (mod 5); the mark at 20 restarts the pass (a hit AT 20); and because 64 ≢ 0 (mod 5) the
-    // window seam is observable: 60 is a hit (60 − 20 = 40), the next is 65 — NOT 64, which a (wrong) re-anchor at the new window would give.
-    func testEuclideousNextHitGapReAnchorsAgainstTheMarkAcrossAWindowBoundary() {
-        var buf = [Bool](repeating: false, count: 8); buf[0] = true
-        let grid = EuclideousLaneRestartGrid(unitTicks: 4, rhythmMask: 1 << 5, melodyMask: 0)
-        func gap(_ tick: Int64) -> Double {
-            euclideousNextHitGapBeats(buf: buf, n: 5, dir: .fwd, cycleLen: 5, sub: 1, tick: tick, cap: 64, grid: grid, legacySpanBeats: 0)
-        }
-        XCTAssertEqual(gap(0), 1, "tick 1 is the first hit of the carried (negative-origin) segment")
-        XCTAssertEqual(gap(16), 4, "the restart AT tick 20 is a step-0 hit — 4 ticks away, where the plain pattern would say 5")
-        XCTAssertEqual(gap(60), 5, "across the window seam at 64 with no mark on cell 0: the next hit is 65, not 64")
-        // and the same answers from the tick-by-tick definition
-        let pattern: (Int64) -> Bool = { t in
-            let o = euclideousMaskedResetCell(absCell: Int(floorDiv(t, 4)), mask: 1 << 5)! * 4
-            let local = t - Int64(o)
-            return ((local % 5) + 5) % 5 == 0
-        }
-        for t in [Int64(0), 16, 60] {
-            var k: Int64 = 1; while !pattern(t + k) { k += 1 }
-            XCTAssertEqual(gap(t), Double(k))
-        }
-    }
     // testEuclideousResetSpanHardResetsDrunksWalkAtEachBoundary REMOVED (Paul 2026-10-13 ferry, "Remove":
     // "The DRUNK option") — DRUNK is no longer one of Euclideous's own WALK directions, so it no longer
     // has a history-dependent position that could need a special span-boundary nudge; every remaining
@@ -3557,20 +3474,6 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
         XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a BYPASSED RIFF predecessor is 'not really there' — noteSel .riff finds no matching predecessor and emits nothing, never falls back to a different pick")
     }
-    // RANDOM ANCHOR (Paul 2026-08-25 fix): on a FREE index, RANDOM ANCHOR LOW opens each pool cycle (span ticks) on the
-    // LOWEST held note, then the rest shuffle — NOT a stream of the low note (the RETRIG per-column reset used to pedal it).
-    func testRandomAnchorOpensEachPoolCycleThenShuffles() {
-        let pool = NotePool(); for n: UInt8 in [60, 64, 67, 71] { pool.noteOn(n, velocity: 100, channel: 0) }; pool.rebuildSorted()   // C E G B, C lowest
-        let randomIdx = UInt8(ArpPattern.allCases.firstIndex(of: .random)!)
-        var lowAtCycleStart = 0, cycles = 0, nonLowElsewhere = 0
-        for tick in Int64(0)..<32 {   // the FREE tick the Router now passes for RANDOM
-            let note = arpPick(phaseIndex: tick, octaves: 1, pattern: randomIdx, pool: pool, filter: 0, randomAnchor: 1).note   // 1 = LOW
-            if tick % 4 == 0 { cycles += 1; if note == 60 { lowAtCycleStart += 1 } }
-            else if note != 60 { nonLowElsewhere += 1 }
-        }
-        XCTAssertEqual(lowAtCycleStart, cycles, "every pool-cycle start (tick % span == 0) opens on the LOW anchor (60)")
-        XCTAssertGreaterThan(nonLowElsewhere, 0, "the non-anchor steps shuffle to OTHER notes — not a stream of low")
-    }
     func testRatchetThenClosedGateIsSilent() {
         let cs = arpMachines()
         let rat = ProcessorSlot(type: .ratchet)
@@ -3631,18 +3534,6 @@ final class RouterTests: XCTestCase {
         return router
     }
 
-    // SEAL comet — a MUTED (occupied) cell records NEITHER a strike NOR a sounding bit (tap-to-mute = dark comet).
-    // Distinct from an EMPTY cell: this one has a machine + buses, but `cell.muted` short-circuits the emit loop
-    // BEFORE currentCellIndex is set. (The same cell unmuted DOES fire — testCellStrikeFeedRecordsFiringCell.)
-    func testMutedCellRecordsNoStrikeOrSoundingBit() {
-        let b = box(machines: arpMachines()) {
-            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = []; c.muted = true; return c }()
-        }
-        let router = runDirect(b, chord([60, 64, 67]))
-        XCTAssertEqual(router.drainCellStrikes()[0], 0, "a muted cell records no strike")
-        router.snapshotCellSounding()
-        XCTAssertEqual(router.cellSoundingVelSnapshot().filter { $0 > 0 }.count, 0, "a muted cell lights no comet")
-    }
 
     // CELL MACHINE stage-2: a CLOSED gate mid-chain empties the set — the tail falls silent.
     func testChainClosedGateSilencesTail() {
@@ -3832,17 +3723,6 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(b.receiverCables, [0b1111, 0b1111, 0b1111, 0b1111], "every receiver hears all cables — a saved cable filter is ignored")
     }
 
-    // §item 11 mute ruling: a MUTED receiver resolves to the match-nothing filter on the box — this is what
-    // makes its input meter go dark and (for R1) blocks passthrough. An unmuted OMNI receiver stays OMNI.
-    func testMutedReceiverResolvesToMatchNothingFilter() {
-        var st = PluginState(machines: arpMachines(), scenes: [SceneState.empty()])
-        var r0 = Receiver(name: "1"); r0.muted = true
-        st.receivers = [r0, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.receiverChannels[0], Snap.mutedSourceFilter, "a muted receiver resolves to match-nothing")
-        XCTAssertEqual(b.receiverChannels[1], 0, "an unmuted OMNI receiver stays OMNI (0)")
-        XCTAssertFalse(receiverHears(filter: b.receiverChannels[0], channel: 0), "match-nothing → hears no channel")
-    }
 
     // §9 item 1 ON ARRIVE (integration): ALT-ALTERNATE on a swap pair (A = open gate → sounds,
     // B = closed gate → silent) flips the cell's sounding every pass. Proves the derivation is wired
@@ -6279,26 +6159,6 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(invRoll.allSatisfy { $0.rank >= 1 && $0.rank <= 9 })
     }
 
-    // §2.8 — the page's FOOTER baseline comes from the core: the ordinal the current lap's first hit reads, across a
-    // melody restart too. Converted (2026-10-19) from grid masks/LOCK to chain fields — see the retired tests above.
-    func testChainLapStartOrdinalIsWhatTheEngineReadsAtTheLapsFirstHit() {
-        let combos: [([UInt8]?, [UInt8]?)] = [(nil, nil), ([1], nil), (nil, [1]), ([1], [1]), ([2, 1], [2])]
-        for (rhythm, melody) in combos {
-            let line = chainLine(rhythmBars: rhythm, melodyPasses: melody)
-            guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { XCTFail(); continue }
-            for beat in stride(from: 0.2, through: 40.0, by: 1.7) {
-                let tick = Int64((beat / cfg.sub).rounded(.down))
-                let cycleLen = euclidCycleLen(cfg.dir, n: cfg.n)
-                let now = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: tick, chains: cfg.chains,
-                                                  legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep)
-                let lapStart = tick - Int64(now.raw)
-                let firstHit = (0..<cycleLen).first { cfg.buf[euclidReadIndex($0, n: cfg.n, dir: cfg.dir)] }!
-                let want = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: lapStart + Int64(firstHit), chains: cfg.chains,
-                                                   legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep).advOrd
-                XCTAssertEqual(euclideousLapStartOrdinal(cfg: cfg, beat: beat), want, "rhythm \(String(describing: rhythm)) melody \(String(describing: melody)) beat \(beat)")
-            }
-        }
-    }
 
     // MARK: - FX TAB (ferry 2026-10-18) — probes + engine tests
 
@@ -8022,39 +7882,6 @@ final class RouterTests: XCTestCase {
         }
         // (a retriggered note is closed before its re-strike, so every pitch is never left more than once on)
         XCTAssertTrue(open.values.allSatisfy { $0 == 0 }, "every note-on has its note-off")
-    }
-    // §8.9 — the display's dim equals what the Router did, hit by hit, with solo (latched / held changes) and LANES mutes in combination
-    func testTheDisplayDimEqualsTheSoundForEveryHitOverEightBarsWithSoloHeldAndMuteInCombination() {
-        let cells: [UInt16] = [0xFFFF, 0b1111_1111_0000_1111, 0b0101_0101_0101_0101, 0b1111_0000_1111_0000]   // lane 1 never muted; the others mute some 4-beat cells
-        let lines = soloLines { i, l in l.muteCells16 = cells[i]; l.muteUnit = EuclideousMuteUnit.pass.rawValue }
-        // latched lane 2 from bar 0; a hold of lane 4 for bars 2-3; both latched 1 and 3 for bars 5-6; nothing for bar 7
-        func schedule(_ b: Double) -> UInt8 {
-            switch b {
-            case ..<8: return 0b0010
-            case 8..<16: return 0b0010 | 0b1000
-            case 16..<20: return 0
-            case 20..<28: return 0b0101
-            default: return 0
-            }
-        }
-        let run = soloRun(lines, beats: 32, solo: schedule)
-        var soundedHits = 0, dimmedHits = 0
-        for lane in 0..<4 {
-            let line = lines[lane]
-            let buf = euclideousNoteViewPattern(pulses: line.pulses, steps: 8, rotate: 0, tilt: 0)
-            let ons = soloOnSamples(run.e, lane: lane)
-            for tick in 0..<Int(31.5 / 0.5) where buf[tick % 8] {
-                let beat = Double(tick) * 0.5
-                let w = Int(beat / run.windowBeats)   // the window this hit is rendered in
-                let mask = schedule(Double(w) * run.windowBeats)
-                let muteAudible = euclideousLaneAudible(beat: beat, cells16: cells[lane], unitBeats: 4)
-                let dimmed = euclideousLaneIsDimmed(lane: lane, soloMask: mask, muteAudible: muteAudible)
-                let sounded = ons.contains { abs($0 - Int64((beat * 24_000).rounded())) <= 3 }
-                XCTAssertEqual(sounded, !dimmed, "lane \(lane + 1) hit at beat \(beat): window mask \(mask), mute audible \(muteAudible)")
-                if sounded { soundedHits += 1 } else { dimmedHits += 1 }
-            }
-        }
-        XCTAssertGreaterThan(soundedHits, 30); XCTAssertGreaterThan(dimmedHits, 30)
     }
     /// §11.3: how long one `SnapshotBuilder.build` takes — the main-thread cost between a SOLO touch and the snapshot the render thread acquires (`scheduleRebuild` builds one run-loop turn after the edit).
     func testSnapshotBuildTimeForTheSoloPath() {

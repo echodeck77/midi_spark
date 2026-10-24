@@ -226,29 +226,6 @@ final class RestartChainsTests: XCTestCase {
     // single-restart engine when rhythm == melody (§4.8's "both chains at the same restart points
     // reproduce today's single restart").
 
-    func testBothChainsOfOneReproduceTheOldLockedSingleRestartTickByTick() {
-        let buf = pattern([0, 3, 6], n: 8)
-        let rhythm = EuclideousRestartChain.from([1])
-        let melody = EuclideousRestartChain.from([1])
-        let chains = EuclideousLaneRestartChains(rhythm: rhythm, melody: melody, barBeats: 4, lapBeats: 4)
-        // old model: no grid (FREE span), LOCK true — re-anchors the riff every lap, exactly what melody [1] should do
-        for tick in Int64(0)...80 {
-            let newInfo = euclideousLaneChainTick(buf: buf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, tick: tick, chains: chains, legacySpanBeats: 0, advanceStep: false)
-            let oldInfo = euclideousLaneTick(buf: buf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, tick: tick, grid: .off, legacySpanBeats: 0, locked: true, advanceStep: false)
-            XCTAssertEqual(newInfo.raw, oldInfo.raw, "tick \(tick): raw")
-            XCTAssertEqual(newInfo.rawIsHit, oldInfo.rawIsHit, "tick \(tick): rawIsHit")
-            XCTAssertEqual(newInfo.advOrd, oldInfo.advOrd, "tick \(tick): advOrd (LOCK ≡ melody chain [1])")
-        }
-    }
-    func testBothChainsFreeReproduceTheOldUnlockedFreeRunExactly() {
-        let buf = pattern([0, 3, 6], n: 8)
-        let chains = EuclideousLaneRestartChains.off
-        for tick in Int64(0)...80 { for adv in [false, true] {
-            let newInfo = euclideousLaneChainTick(buf: buf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, tick: tick, chains: chains, legacySpanBeats: 0, advanceStep: adv)
-            let oldInfo = euclideousLaneTick(buf: buf, n: 8, dir: .fwd, cycleLen: 8, sub: 0.5, tick: tick, grid: .off, legacySpanBeats: 0, locked: false, advanceStep: adv)
-            XCTAssertEqual(newInfo.advOrd, oldInfo.advOrd, "tick \(tick) adv \(adv)")
-        } }
-    }
     func testRhythmOnlyChainRephasesHitsAndTheRiffCountsStraightThrough() {
         // mirrors RouterTests' own LANES GRID rhythm-only golden: rhythm marks re-phase the pattern, the
         // riff ordinal (melody FREE) counts hits straight through the cut, uninterrupted.

@@ -20,37 +20,12 @@ final class LaneSoloTests: XCTestCase {
             }
         }
     }
-    func testSoloMaskZeroIsInertAndASoloedLaneIsNeverSilencedBySolo() {
-        for lane in 0..<4 { XCTAssertFalse(euclideousSoloSilences(lane: lane, soloMask: 0)) }
-        XCTAssertFalse(euclideousSoloSilences(lane: 1, soloMask: 0b0010)); XCTAssertTrue(euclideousSoloSilences(lane: 0, soloMask: 0b0010))
-        XCTAssertFalse(euclideousSoloSilences(lane: 0, soloMask: 0b1001)); XCTAssertFalse(euclideousSoloSilences(lane: 3, soloMask: 0b1001))
-        XCTAssertTrue(euclideousSoloSilences(lane: 1, soloMask: 0b1001)); XCTAssertTrue(euclideousSoloSilences(lane: 2, soloMask: 0b1001))
-        XCTAssertFalse(euclideousSoloSilences(lane: 7, soloMask: 0b0001), "a lane index outside 0…3 is never silenced by solo")
-        XCTAssertEqual(euclideousSoloSilencedLanes(soloMask: 0b0101), [false, true, false, true])
-    }
     func testTheEffectiveMaskIsLatchedOrHeldInFourBits() {
         XCTAssertEqual(euclideousSoloEffective(latched: 0b0001, held: 0b0100), 0b0101)
         XCTAssertEqual(euclideousSoloEffective(latched: 0, held: 0), 0)
         XCTAssertEqual(euclideousSoloEffective(latched: 0xF1, held: 0x10), 0b0001, "only the four lane bits count")
     }
-    /// The displays' question is the engine's with the play state taken out: a dimmed lane is exactly a lane that could not strike if it were playing — and one dim, however many reasons.
-    func testTheDisplayDimEqualsTheEnginesAnswerWithTheStopStateRemoved() {
-        for lane in 0..<4 { for solo in UInt8(0)...15 { for muteAudible in [true, false] {
-            let dim = euclideousLaneIsDimmed(lane: lane, soloMask: solo, muteAudible: muteAudible)
-            XCTAssertEqual(dim, !euclideousLaneMayStrike(lane: lane, soloMask: solo, muteAudible: muteAudible, enabled: true))
-            XCTAssertEqual(dim, euclideousSoloSilences(lane: lane, soloMask: solo) || !muteAudible, "one flag: muted OR solo-silenced, never a product")
-        } } }
-        XCTAssertEqual(EuclideousLaneDimStyle.opacity, 0.42); XCTAssertEqual(EuclideousLaneDimStyle.easeSeconds, 0.15)
-    }
 
-    // MARK: §8.8 — tap versus hold
-    func testTapVersusHoldAtDurations0And299And300Milliseconds() {
-        for (before, secs, after, why) in [(false, 0.0, true, "off + tap → on"), (true, 0.0, false, "on + tap → off"), (false, 0.299, true, "off + 299 ms is still a tap"), (true, 0.299, false, "on + 299 ms is a tap"),
-                                            (false, 0.300, false, "off + hold → off"), (true, 0.300, true, "on + hold → on"), (false, 2.5, false, "a long hold on an unlatched lane"), (true, 2.5, true, "a long hold on a latched lane")] {
-            XCTAssertEqual(euclideousSoloLatchAfter(latchedBefore: before, pressSeconds: secs), after, why)
-        }
-        XCTAssertEqual(EuclideousRingPress.holdSeconds, 0.3, "the header rings' threshold, shared")
-    }
     func testThePressMachineDecidesByDurationAndCountsASlideOffAndACancel() {
         var p = EuclideousSoloPress()
         XCTAssertEqual(p.touchEnded(at: 1), .none, "a lift with no touch is nothing")
