@@ -17,6 +17,37 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
+### ▶ FOURFOLD — THE iPAD PASS (one ordered session; written 2026-10-24 — the per-step Fourfold lines further down stay as the detail)
+Nothing in Fourfold has run on a device yet: everything so far is simulator + unit tests. Do these in order (an early failure makes the rest moot); report each as "step N.n: what I saw". Prefer a RELEASE build for judgement calls and a DEBUG run as a second opinion — Debug has crashed on the plugin's 1 MB main stack before (2026-10-21).
+
+**1 · INSTALL**
+- 1.1 Run the `Fourfold` scheme from Xcode onto the iPad (installs the app AND the plugin). Xcode must sign `com.outliermidi.Fourfold[.AU]` with the team in project.yml; if it complains about the team or bundle id, stop and report the message.
+- 1.2 Home screen: the Canon icon shows and the four lanes read as four rows at 60 pt; at Spotlight / Settings sizes (29–40 pt) it still reads as staggered bars, not a smudge; 8x8 State's own icon is unchanged.
+- 1.3 Launch it: the Fourfold page with the transport bar above it; rotate through all four orientations, nothing clipped.
+
+**2 · THE STANDALONE APP**
+- 2.1 Launched stopped it plays NOTHING. PLAY starts from the top; STOP silences it with nothing stuck; BPM − / + / the slider change tempo with no jump.
+- 2.2 In AUM (or a synth app) the sources **Fourfold All** and **Fourfold Out A–D** exist; route one to a synth: Out A carries the same notes as All; record a few bars somewhere and the notes sit exactly on the grid (the thing the simulator could not show).
+- 2.3 Switch to another app while it plays: it keeps playing in the background.
+- 2.4 MIDI IN: with the note source on MIDI IN, a keyboard (USB, Bluetooth or another app) plays into it; HOLD sustains after release, LATCH toggles notes in and out; no doubled notes (it must never hear its own output).
+- 2.5 Change something audible (a lane, the key), force-quit, relaunch: the change is still there.
+
+**3 · THE PLUGIN IN AUM** (the first time the extension is ever loaded by a real host)
+- 3.1 AUM lists **"Outlier MIDI: Fourfold"** as a MIDI processor, separate from "8x8 State"; adding it opens the REAL page (not a placeholder) at AUM's plugin window size; the AUM picker shows the Fourfold icon.
+- 3.2 Play (MIDI-in, or the key / chords source): notes on Out A–D, All carries everything. Load a few of the 20 factory presets: each is heard at once.
+- 3.3 AUM's transport start / stop: stop closes every note; the settings sheet's CLOCK tab KEEP PLAYING keeps going with the host stopped, STOP waits for the host.
+- 3.4 Settings (gear): there is NO workbench link. Change a MAIN OUT channel while a note is held: no stranded note.
+- 3.5 Lane lock (padlock, hold the big padlock 0.3 s to capture): edit a locked lane, it snaps back on its grid line. Dice: throw / tweak a roll and let it land.
+- 3.6 Reel (tape icon between SWING and the gear): opens ABOVE the page; play a few passes, open one, CLOSE returns to live sound with nothing stuck; SAVE offers a share sheet and the files are named `Fourfold-*.mid`.
+- 3.7 Mute or solo a lane while one of its notes is held: it ends cleanly.
+
+**4 · 8x8 STATE STILL WORKS** (the Fourfold work edited its files and it has not been on the iPad since)
+- 4.1 Still listed in AUM, separate from Fourfold, opens as before; play a preset, it sounds normal.
+- 4.2 Open the Euclideous page from its header icon: the settings sheet still has the WORKBENCH link and it returns to the workbench.
+- 4.3 Open the preset browser and the cell library; save and load one preset (those files were moved in Step 1).
+
+If something fails: which step, what you saw, and for a crash the line Xcode prints. Don't try to fix it on the device.
+
 ### LISTEN REBUILT (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM first (`listenPausedOverlay`/the RHYTHM-tab rate-grid rewrite are new/changed leaves on the 1 MB main stack).
 - The LISTEN tab's FOLLOW row chips, RHYTHM OWN/COPY/FILL row + its DELAY/FEEL/SPEED/DIRECTION panel, and PITCH OWN/SHADOW/ECHO/AVOID row + its INTERVAL/OCTAVE panel: legible and tappable at the real card width in all four lane colours; the panel's proportional shrink under pressure (down to its 30pt floor) actually looks acceptable rather than cramped.
