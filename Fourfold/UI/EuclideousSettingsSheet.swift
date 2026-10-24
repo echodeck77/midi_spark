@@ -106,6 +106,8 @@ struct EuclideousSettingsSheet: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1D23)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
         .shadow(color: .black.opacity(0.45), radius: 20, y: 16)
+        // `.contain` makes the card ONE labelled group around its children; without it SwiftUI stamps "Settings" over every child's own label (the tabs, the close button, the scroll view all read "Settings").
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Settings")
     }
 
@@ -119,7 +121,7 @@ struct EuclideousSettingsSheet: View {
             Image(systemName: "xmark").font(.system(size: 18, weight: .regular)).foregroundColor(Color(hex: 0x8A909A))
                 .frame(width: 44, height: 44).contentShape(Rectangle())
                 .onTapGesture { onCloseSheet() }
-                .accessibilityLabel("Close settings")
+                .accessibilityLabel("Close settings").accessibilityAddTraits(.isButton)
         }
         .padding(.leading, 8)
         .frame(height: 44)

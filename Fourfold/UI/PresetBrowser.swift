@@ -31,6 +31,7 @@ struct PresetBrowser: View {
                     Spacer()
                     Text("✕").font(.system(size: 18, weight: .heavy)).foregroundColor(ink.opacity(0.7))
                         .contentShape(Rectangle()).onTapGesture { onClose() }
+                        .accessibilityLabel("Close presets").accessibilityAddTraits(.isButton)   // a bare "✕" text with a tap gesture read as neither
                 }
                 .padding(.bottom, 12)
 
@@ -47,6 +48,7 @@ struct PresetBrowser: View {
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .background(RoundedRectangle(cornerRadius: 6).fill(trimmed.isEmpty ? ink.opacity(0.08) : (confirmOverwrite ? UI.red : amber)))
                         .contentShape(Rectangle())
+                        .accessibilityLabel(confirmOverwrite ? "Overwrite preset" : "Save preset").accessibilityAddTraits(.isButton)
                         .onTapGesture {
                             guard !trimmed.isEmpty else { return }
                             if !confirmOverwrite && PresetStore.exists(trimmed) { confirmOverwrite = true; return }   // first tap on an existing name arms the confirm
@@ -99,6 +101,8 @@ struct PresetBrowser: View {
         .padding(.horizontal, 10).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(isCurrent ? 0.08 : 0.03)))
         .contentShape(Rectangle()).onTapGesture { onLoadFactory(name) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name), factory preset").accessibilityAddTraits(.isButton).accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
     private func row(_ name: String) -> some View {
         let isCurrent = name == current
@@ -109,6 +113,7 @@ struct PresetBrowser: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture { onLoad(name) }
+                .accessibilityLabel(name).accessibilityAddTraits(.isButton).accessibilityAddTraits(isCurrent ? .isSelected : [])
             Text(arming ? "DELETE?" : "🗑")
                 .font(.system(size: arming ? 9 : 12, weight: .heavy, design: .monospaced))
                 .foregroundColor(arming ? .black : ink.opacity(0.5))
@@ -116,6 +121,7 @@ struct PresetBrowser: View {
                 .background(RoundedRectangle(cornerRadius: 4).fill(arming ? UI.red : .clear))
                 .contentShape(Rectangle())
                 .onTapGesture { if arming { onDelete(name); confirmDelete = nil } else { confirmDelete = name } }
+                .accessibilityLabel(arming ? "Confirm delete \(name)" : "Delete \(name)").accessibilityAddTraits(.isButton)
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(isCurrent ? 0.08 : 0.03)))

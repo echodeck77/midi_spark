@@ -5819,13 +5819,18 @@ struct EuclideousPage: View {
         // it. Routed through the shared `euclideousDisplayNoteName` dispatcher (2026-10-14 ferry §1: one name per note
         // everywhere, honouring the actual note source).
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(here == nil ? "" : {
+        .accessibilityLabel({
             let noteName = (rank >= 1 && rank <= riffLivePool.count) ? euclideousDisplayNoteName(riffLivePool[rank - 1], source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType) : nil
+            guard let here else { return noteName.map { "Step \(col + 1), \($0)" } ?? "Step \(col + 1), rank \(rank)" }   // a cell no lane sits on used to be blank (an unlabelled element); now it says which cell it is
             let stepPart = noteName.map { "Step \(col + 1), \($0)" } ?? "Step \(col + 1)"
             // RIFF PANEL ferry §7.1: after its label, the arrow's lanes and headings — ", lane 1 heading right" / ", lanes 2 and 3: 2 heading left, 3 heading right" /
             // ", lane 1 heading right, on a rest". (This replaces the tag's "lane 1 here, next up".)
-            return stepPart + euclideousArrowCellPhrase(members: here!.members.map { EuclideousArrowMember(lane: $0.lane, heading: $0.heading) }, onRest: here!.hollow)
+            return stepPart + euclideousArrowCellPhrase(members: here.members.map { EuclideousArrowMember(lane: $0.lane, heading: $0.heading) }, onRest: here.hollow)
         }())
+        // The grid is edited by ONE drag overlay (touch only), so a VoiceOver user had no way to set a note at all. Activating a cell does what a tap on it does: set this column to this rank, or clear it if it is already there.
+        .accessibilityValue(on ? "on" : "off")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { riffSetRank(col: col, rank: rank, n: n, toggle: true) }
     }
 
 

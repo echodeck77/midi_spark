@@ -24,11 +24,11 @@ final class FourfoldAppModel: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        tempo = FourfoldTransportClock.clamped((d.object(forKey: "fourfold.tempo") as? Double) ?? 120)
+        tempo = CommandLine.arguments.contains("--fresh") ? 120 : FourfoldTransportClock.clamped((d.object(forKey: "fourfold.tempo") as? Double) ?? 120)
         var built: FourfoldEngine?; var err: String?
         do { built = try FourfoldEngine() } catch { err = "AUDIO ENGINE: \(error.localizedDescription)" }
         engine = built; launchError = err
-        restoreState()
+        if !CommandLine.arguments.contains("--fresh") { restoreState() }   // `--fresh`: UI tests start from the factory document, never from the last session
         engine?.setTempo(tempo)
         linkEnabled = d.bool(forKey: "fourfold.linkEnabled")
         if let link = engine?.link {
