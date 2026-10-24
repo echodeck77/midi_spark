@@ -12,6 +12,36 @@ up from 2026-09-01 through 2026-10-14 — almost entirely Euclideous, since that
 project has been building this whole stretch.
 
 ## Current status (update this section as work lands)
+- **▶ FOURFOLD — ABLETON LINK sync (2026-10-24, branch `ableton-link-sync`; 1,114 FourfoldTests green, golden harness
+  byte-identical, `Fourfold`/`MidiSpark` both build, app-test.sh clean launch with the Link button visible).** Standalone
+  app only (confirmed with Paul) — LinkKit (the iOS-specific C SDK, `ABLLink.h`; NOT the GPL-licensed open-source
+  `Ableton/link` cross-platform repo, wrong for a closed-source app), tempo + transport start/stop depth, no phase
+  quantization. **Two external gates, not code defects:** real-device peer discovery needs Apple's restricted
+  `com.apple.developer.networking.multicast` entitlement, approved per App ID at developer.apple.com — Paul's own step,
+  cannot be requested from here; and LinkKit's license forbids redistributing the SDK, and this repo is public
+  (`echodeck77/midi_spark`, confirmed via the GitHub API) — so the framework is never committed, only fetched
+  (`Scripts/fetch-linkkit.sh`, sha256-verified, → gitignored `Fourfold/Vendor/LinkKit.xcframework`). **WIRING, refined
+  from the plan during build** (the C header's own documented contract decided these, not a judgment call): OUTGOING
+  (Fourfold → Link) runs inside `FourfoldEngine.pump` on the audio thread via the audio-thread-safe capture/set-if-
+  changed/commit pair (`ABLLinkCaptureAudioSessionState`/`SetTempo`/`SetIsPlaying`/`CommitAudioSessionState`) — ABLLink.h
+  itself says modifying session state should happen on the audio thread when one is "actively running," which Fourfold's
+  always-on silent source node is; gated on a THIRD atomic flag on the existing `FourfoldTransportMailbox` (`linkActive`),
+  so it's a complete no-op — confirmed byte-identical on the golden harness — when LINK is off. INCOMING (Link → Fourfold)
+  is four main-thread callbacks (`ABLLinkSetSessionTempoCallback`/`StartStopCallback`/`IsConnectedCallback`/
+  `NumPeersCallback`, context-free closures + `Unmanaged` per Ableton's own LinkHut sample) registered once in
+  `FourfoldAppModel.init`, calling the SAME `setTempo`/`setPlaying` the UI already uses — so a peer's tempo change rides
+  `FourfoldTransportClock.sync`'s existing re-anchor-on-change logic, no new beat math. **`ABLLinkSettingsViewController`
+  IS shown** (a `UIViewControllerRepresentable` wrapper, `FourfoldLinkSettingsView.swift`), reached by long-pressing the
+  transport bar's new LINK button (tap toggles on/off; filled + peer count when connected) — this isn't optional chrome:
+  `ABLLink.h` has no programmatic setter for "Start Stop Sync enabled," only that view can turn it on, so the plan's
+  original "skip Ableton's settings view, build a fully custom toggle" idea doesn't actually deliver the start/stop half
+  of what Paul asked for. Files: `project.yml` (Fourfold target only — framework dependency embed:false since LinkKit is
+  a static lib, bridging header, `-lc++`, the multicast entitlement, `NSLocalNetworkUsageDescription`/`ABLLinkStartStop
+  SyncSupported`/`ABLLinkPeerName` Info.plist keys), `Fourfold/App/{Fourfold-Bridging-Header.h, FourfoldLinkSettingsView.swift}`
+  (new), `FourfoldEngine.swift`/`FourfoldAppModel.swift`/`FourfoldAppView.swift` (edited). `FourfoldAU`/`FourfoldEngine`
+  template/`FourfoldTests`/`AUExtension` untouched — confirmed via a green `MidiSpark` scheme build (8x8 State unaffected)
+  and `FourfoldTests`' own explicit-allowlist sources (`Fourfold/App/**` was never in reach). DEVICE-OWED: see
+  `Docs/euclideous-device-verification-debt.md`'s new "ABLETON LINK" section — entirely blocked on the entitlement above.
 - **▶ FOURFOLD — CHORDS GRID ferry (2026-10-24, branch `chords-grid-ferry`; 1,114 FourfoldTests green, golden harness
   byte-identical, iOS builds).** Ratified spec: `claude/ferry-chords-grid.md`. Rebuilt the Euclideous CHORDS pop-up
   (`Fourfold/UI/EuclideousPage.swift`'s `chordsPopupCard`, `Fourfold/Engine/{Models,Derivations,Snapshot,

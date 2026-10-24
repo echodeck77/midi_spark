@@ -37,6 +37,7 @@
 		21A237E4460BF2277F6B5A03 /* FourfoldAppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */; };
 		23F778EA380308B2D22F1CE0 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */; };
 		23FDD91646D014E1346B617E /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */; };
+		251EEE0C781BF90AFBB9B99F /* FourfoldLinkSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CB15CBF16CD2853E91702B /* FourfoldLinkSettingsView.swift */; };
 		25B419195913DB1102E1FD61 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */; };
 		282189AB3D697A6FA80FB740 /* AcceptanceTuttiLengthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */; };
 		2862323D03259AC99DF87345 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
@@ -224,6 +225,7 @@
 		D2A032B560DA0D402529CB97 /* DiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */; };
 		D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */; };
 		D2F912D985A2AE74BF23B5A9 /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
+		D3AC064FF4D5EA269EEC19FD /* LinkKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 58B91D56BE029D457188429F /* LinkKit.xcframework */; };
 		D45C1A821793F49D844B14A5 /* RoomsLatticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */; };
 		D4BBF9E02862E0AD84905885 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */; };
 		D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */; };
@@ -332,6 +334,7 @@
 		009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
 		00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordsGridTests.swift; sourceTree = "<group>"; };
 		00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
+		02F746D9F92666A12823BADF /* Fourfold.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Fourfold.entitlements; sourceTree = "<group>"; };
 		0504D981DD4BF1856C773AA7 /* MidiFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFile.swift; sourceTree = "<group>"; };
 		0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
 		08530382AAA337959EA7983D /* SnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilder.swift; sourceTree = "<group>"; };
@@ -383,6 +386,7 @@
 		523B1AEB32CCEF31AA60CCA9 /* Router.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Router.swift; sourceTree = "<group>"; };
 		5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashTests.swift; sourceTree = "<group>"; };
 		56A2346CB2C876A900961902 /* Diag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diag.swift; sourceTree = "<group>"; };
+		58B91D56BE029D457188429F /* LinkKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = LinkKit.xcframework; path = Fourfold/Vendor/LinkKit.xcframework; sourceTree = "<group>"; };
 		59DF6CD888C95040E34660D5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
 		5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLayoutTests.swift; sourceTree = "<group>"; };
 		5B1FE1781AE0C4878A7935FE /* PulseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTests.swift; sourceTree = "<group>"; };
@@ -419,6 +423,7 @@
 		86B78244085974D781CC1A40 /* RestartChainsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartChainsTests.swift; sourceTree = "<group>"; };
 		88A51673FFDFE583B72F5DAE /* BuildSceneLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSceneLogic.swift; sourceTree = "<group>"; };
 		88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diag.swift; sourceTree = "<group>"; };
+		88CB15CBF16CD2853E91702B /* FourfoldLinkSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldLinkSettingsView.swift; sourceTree = "<group>"; };
 		8A9C65A7A6B7ACAE4F4E8194 /* RestartTilePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartTilePainter.swift; sourceTree = "<group>"; };
 		8BB6A38FE32EA7DF0350FFDB /* AcceptanceArpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceArpTests.swift; sourceTree = "<group>"; };
 		8BD8A7AD9DA57CA503786525 /* MixPadPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPadPainter.swift; sourceTree = "<group>"; };
@@ -471,6 +476,7 @@
 		BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTuttiLengthTests.swift; sourceTree = "<group>"; };
 		BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloTests.swift; sourceTree = "<group>"; };
 		BC6819599CED217146F91C04 /* ListenTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenTabTests.swift; sourceTree = "<group>"; };
+		BD247D9F8C873B8151A15B97 /* Fourfold-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Fourfold-Bridging-Header.h"; sourceTree = "<group>"; };
 		C08CEAAFF57F496AB60992D7 /* FourfoldTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTransportTests.swift; sourceTree = "<group>"; };
 		C1F4BE86660C760F3CD73866 /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
 		C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldRootView.swift; sourceTree = "<group>"; };
@@ -550,6 +556,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6857BAD7A3831FD984E990C8 /* Atomics in Frameworks */,
+				D3AC064FF4D5EA269EEC19FD /* LinkKit.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -631,6 +638,14 @@
 				0ABC3C574B84CA43665DE028 /* manual */,
 			);
 			path = Docs;
+			sourceTree = "<group>";
+		};
+		282A87C1389D1D3CA73568BD /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				58B91D56BE029D457188429F /* LinkKit.xcframework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		2974FA1F2F9619847B1BC9C0 /* Tests */ = {
@@ -718,6 +733,7 @@
 				250BFF109B5926B90E7E44CD /* Docs */,
 				385D8578FBFC4B31F2B43782 /* Fourfold */,
 				0DB60BF9F834AFCB1DEC8926 /* Tests */,
+				282A87C1389D1D3CA73568BD /* Frameworks */,
 				B15E07ABC43302C9284D7563 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -843,10 +859,13 @@
 			isa = PBXGroup;
 			children = (
 				D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */,
+				BD247D9F8C873B8151A15B97 /* Fourfold-Bridging-Header.h */,
+				02F746D9F92666A12823BADF /* Fourfold.entitlements */,
 				64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */,
 				29E016452526AE786D501E59 /* FourfoldAppModel.swift */,
 				7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */,
 				41C41DF4A68365DC33446B95 /* FourfoldEngine.swift */,
+				88CB15CBF16CD2853E91702B /* FourfoldLinkSettingsView.swift */,
 				4156E25D4881F600935CB6A5 /* FourfoldMIDI.swift */,
 				EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */,
 				5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */,
@@ -1125,6 +1144,7 @@
 				99988F247FD22A5143E99B8D /* FourfoldAudioUnit.swift in Sources */,
 				C3C3B35A98FEB15A880BEF2B /* FourfoldCompose.swift in Sources */,
 				58C0C039EB97E7DB0F167462 /* FourfoldEngine.swift in Sources */,
+				251EEE0C781BF90AFBB9B99F /* FourfoldLinkSettingsView.swift in Sources */,
 				773F692F8B836B1C245ED1F8 /* FourfoldMIDI.swift in Sources */,
 				AAC67FED0724903B425D060F /* FourfoldReel.swift in Sources */,
 				9380473CD41B52BD940490C1 /* FourfoldRootView.swift in Sources */,
@@ -1565,15 +1585,22 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Fourfold/App/Fourfold.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Fourfold/Vendor\"",
+				);
 				INFOPLIST_FILE = Fourfold/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				OTHER_LDFLAGS = "$(inherited) -lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
+				SWIFT_OBJC_BRIDGING_HEADER = "Fourfold/App/Fourfold-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -1701,15 +1728,22 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Fourfold/App/Fourfold.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Fourfold/Vendor\"",
+				);
 				INFOPLIST_FILE = Fourfold/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				OTHER_LDFLAGS = "$(inherited) -lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
+				SWIFT_OBJC_BRIDGING_HEADER = "Fourfold/App/Fourfold-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

@@ -17,6 +17,11 @@ import Atomics
 final class FourfoldTransportMailbox {
     private let playingFlag = ManagedAtomic<Bool>(false)
     private let tempoBits = ManagedAtomic<UInt64>(Double(120).bitPattern)
+    // ABLETON LINK (2026-10-24 ferry): whether `pump` should push `clock`'s tempo/isPlaying out to the
+    // Link session each buffer — a THIRD atomic flag on this same mailbox, not a plain stored Bool,
+    // for the identical reason `playing`/`tempo` already are: it's written from the main thread (the
+    // LINK toggle) and read every render callback.
+    private let linkActiveFlag = ManagedAtomic<Bool>(false)
     var playing: Bool {
         get { playingFlag.load(ordering: .relaxed) }
         set { playingFlag.store(newValue, ordering: .relaxed) }
@@ -24,6 +29,10 @@ final class FourfoldTransportMailbox {
     var tempo: Double {
         get { Double(bitPattern: tempoBits.load(ordering: .relaxed)) }
         set { tempoBits.store(newValue.bitPattern, ordering: .relaxed) }
+    }
+    var linkActive: Bool {
+        get { linkActiveFlag.load(ordering: .relaxed) }
+        set { linkActiveFlag.store(newValue, ordering: .relaxed) }
     }
 }
 
@@ -48,6 +57,15 @@ final class FourfoldEngine {
     private let scratch: UnsafeMutableAudioBufferListPointer
     private let scratchData: [UnsafeMutablePointer<Float>]
 
+    // ABLETON LINK (2026-10-24 ferry): one ABLLinkRef for the app's lifetime, created alongside the
+    // AVAudioEngine. `linkRef` is read/written from `pump` (the audio thread, via the audio-thread-safe
+    // ABLLinkCapture/CommitAudioSessionState pair — "lockfree" per ABLLink.h, consistent with this
+    // file's own no-locks/no-allocation render-path rule) AND exposed read-only to the app layer
+    // (`link`) for the main-thread callback registration and the settings view controller, which use
+    // the SEPARATE app-thread API (ABLLinkCapture/CommitAppSessionState) — never the audio-thread one.
+    private var linkRef: ABLLinkRef?
+    var link: ABLLinkRef? { linkRef }
+
     private(set) var startError: String?
 
     init() throws {
@@ -57,6 +75,7 @@ final class FourfoldEngine {
         let rate = Self.sessionSampleRate()
         sampleRate = rate
         clock = FourfoldTransportClock(sampleRate: rate)
+        linkRef = ABLLinkNew(clock.tempo)
         au = try FourfoldAudioUnit(componentDescription: FourfoldAudioUnit.componentDescription, options: [])
         scratch = AudioBufferList.allocate(maximumBuffers: 2)
         scratchData = (0..<2).map { _ in
@@ -76,10 +95,20 @@ final class FourfoldEngine {
         if au.renderResourcesAllocated { au.deallocateRenderResources() }
         scratchData.forEach { $0.deallocate() }
         free(scratch.unsafeMutablePointer)
+        if let linkRef { ABLLinkDelete(linkRef) }
     }
 
     func setPlaying(_ on: Bool) { mailbox.playing = on }
     func setTempo(_ bpm: Double) { mailbox.tempo = FourfoldTransportClock.clamped(bpm) }
+    /// ABLETON LINK: `ABLLinkSetActive` is a configuration call (advertise/connect), not a realtime
+    /// one — called here on the caller's thread (the UI), same as `ABLLinkNew`'s own "active by
+    /// default after init" is implicitly a main-thread-time call in every LinkKit sample. Also flips
+    /// the mailbox flag `pump` reads, so the audio thread stops/starts pushing Fourfold's own tempo/
+    /// isPlaying into the session the moment the user toggles LINK off/on.
+    func setLinkActive(_ on: Bool) {
+        mailbox.linkActive = on
+        if let linkRef { ABLLinkSetActive(linkRef, on) }
+    }
 
     // MARK: - the host blocks (what AUM supplies)
 
@@ -149,6 +178,19 @@ final class FourfoldEngine {
         clock.sync(desiredPlaying: mailbox.playing, desiredTempo: mailbox.tempo, at: t)
         bufferSample = t
         bufferHost = ts.mFlags.contains(.hostTimeValid) ? ts.mHostTime : mach_absolute_time()
+        // ABLETON LINK (2026-10-24 ferry): push Fourfold's OWN tempo/isPlaying out to the session —
+        // the audio-thread-safe capture/set-if-changed/commit dance ABLLink.h itself recommends
+        // ("modifying Link session state should be done in the audio thread for the most accurate
+        // timing"), gated on the mailbox flag so it's a complete no-op when LINK is off. The INCOMING
+        // direction (a peer's tempo/isPlaying pulling Fourfold along) is main-thread callbacks
+        // registered on `linkRef` by FourfoldAppModel, calling the SAME setTempo/setPlaying the UI
+        // uses — not read here, so this stays one-directional and allocation-free.
+        if let linkRef, mailbox.linkActive {
+            let state = ABLLinkCaptureAudioSessionState(linkRef)
+            if abs(ABLLinkGetTempo(state) - clock.tempo) > 0.0001 { ABLLinkSetTempo(state, clock.tempo, bufferHost) }
+            if ABLLinkIsPlaying(state) != clock.playing { ABLLinkSetIsPlaying(state, clock.playing, bufferHost) }
+            ABLLinkCommitAudioSessionState(linkRef, state)
+        }
         for i in 0..<2 { scratch[i].mDataByteSize = frameCount * 4 }
         var flags = AudioUnitRenderActionFlags()
         _ = render(&flags, &ts, frameCount, 0, scratch.unsafeMutablePointer, nil)

@@ -32,6 +32,7 @@ Nothing in Fourfold has run on a device yet: everything so far is simulator + un
 - 2.3 Switch to another app while it plays: it keeps playing in the background.
 - 2.4 MIDI IN: with the note source on MIDI IN, a keyboard (USB, Bluetooth or another app) plays into it; HOLD sustains after release, LATCH toggles notes in and out; no doubled notes (it must never hear its own output).
 - 2.5 Change something audible (a lane, the key), force-quit, relaunch: the change is still there.
+- 2.6 ABLETON LINK (2026-10-24 ferry) — see the dedicated section below for the full list; this needs Apple's multicast entitlement approved first (Paul's own step, not landable from a build).
 
 **3 · THE PLUGIN IN AUM** (the first time the extension is ever loaded by a real host)
 - 3.1 AUM lists **"Outlier MIDI: Fourfold"** as a MIDI processor, separate from "8x8 State"; adding it opens the REAL page (not a placeholder) at AUM's plugin window size; the AUM picker shows the Fourfold icon.
@@ -48,6 +49,16 @@ Nothing in Fourfold has run on a device yet: everything so far is simulator + un
 - 4.3 Open the preset browser and the cell library; save and load one preset (those files were moved in Step 1).
 
 If something fails: which step, what you saw, and for a crash the line Xcode prints. Don't try to fix it on the device.
+
+### ABLETON LINK (2026-10-24 ferry — standalone Fourfold app only)
+- BLOCKED on Paul's own step first: real-device peer discovery needs Apple's `com.apple.developer.networking.multicast` entitlement, a RESTRICTED entitlement Apple must approve per App ID (developer.apple.com) — not something landable from a build. Builds and Simulator runs work without it; nothing below is checkable until it's granted.
+- Discover a real peer (AUM's own Link toggle, Ableton Live, or another Link app on the same Wi-Fi) with LINK on in Fourfold: the peer count updates, and Fourfold adopts the peer's tempo within a beat or two.
+- Change Fourfold's own BPM (stepper or slider) while connected: the peer's tempo follows.
+- PLAY/STOP: starting the OTHER app's transport starts Fourfold (if the user has turned on "Start Stop Sync" in Fourfold's own Link settings screen — reachable by long-pressing the LINK button — since LinkKit has no programmatic setter for that, only its own settings view can turn it on); the reverse direction too.
+- Backgrounding: with LINK on and connected, background the app (or lock the screen) — confirm the peer connection survives, the same way audio already does (UIBackgroundModes).
+- A route change (headphones in/out, AirPlay) while connected: confirm Link doesn't drop the peer or glitch the tempo.
+- The LINK button's three states (dim outline off / lit outline on-no-peer / filled with a peer count) read clearly at a glance against the rest of the transport bar.
+- Toggling LINK off mid-session: Fourfold's own tempo/transport stop changing with the (former) peer immediately, with nothing stuck.
 
 ### GESTURE PREDICTABILITY (2026-10-24)
 - LAUNCH the DEBUG build from Xcode into AUM first (`EuclideousSlider`'s tilt branch gained a new ephemeral `@State`; the EDITED chip overlay was removed — a changed leaf on the 1 MB main stack).

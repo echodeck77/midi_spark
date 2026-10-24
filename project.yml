@@ -95,6 +95,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.outliermidi.Fourfold
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon   # Fourfold/App/Assets.xcassets (the Canon icon, Design/Brand/); separate from MidiSpark's App/Assets.xcassets. XcodeGen also defaults it; explicit so it cannot vanish
+        # ABLETON LINK (2026-10-24 ferry): LinkKit is a pure-C SDK with no Swift module, so every
+        # integration (including Ableton's own LinkHut sample) uses a bridging header. `-lc++` is
+        # required because Link's own implementation is C++ (per LinkKit's own integration notes),
+        # even though nothing in this app writes C++ directly. Scoped to the Fourfold APP target only —
+        # FourfoldAU/FourfoldEngine/FourfoldTests do not get Link (confirmed scope: standalone app only).
+        SWIFT_OBJC_BRIDGING_HEADER: Fourfold/App/Fourfold-Bridging-Header.h
+        OTHER_LDFLAGS: "$(inherited) -lc++"
     info:
       path: Fourfold/App/Info.plist
       properties:
@@ -114,9 +121,25 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # ABLETON LINK (2026-10-24 ferry): Link discovers peers over local-network UDP multicast —
+        # iOS requires a usage description for that, plus the ABLLink*Supported keys that make the
+        # corresponding toggles appear in Ableton's own ABLLinkSettingsViewController (there is no
+        # programmatic setter for "start/stop sync enabled"; only that view can turn it on — §ABLLink.h).
+        NSLocalNetworkUsageDescription: "Fourfold uses the local network to sync tempo and transport with other Ableton Link apps."
+        ABLLinkStartStopSyncSupported: true
+        ABLLinkPeerName: "Fourfold"
+    entitlements:
+      path: Fourfold/App/Fourfold.entitlements
+      properties:
+        # RESTRICTED entitlement — Apple must approve it per App ID (developer.apple.com, requested
+        # by Paul; cannot be done from here). Builds/Simulator runs work without approval; real-device
+        # peer discovery does not until it's granted. See Docs/euclideous-device-verification-debt.md.
+        com.apple.developer.networking.multicast: true
     dependencies:
       - target: FourfoldAU
         embed: true
+      - framework: Fourfold/Vendor/LinkKit.xcframework
+        embed: false   # static library (libLinkKit.a per slice) — nothing to embed at runtime
   FourfoldAU:
     type: app-extension
     platform: iOS

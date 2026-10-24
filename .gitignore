@@ -25,6 +25,11 @@ DerivedData/
 .swiftpm/
 Packages/
 
+# Ableton LinkKit (Fourfold's Link sync ferry, 2026-10-24): the SDK's own license forbids
+# redistributing it, and this repo is public — `sh Scripts/fetch-linkkit.sh` vendors it locally,
+# never committed.
+Fourfold/Vendor/
+
 # Playgrounds
 timeline.xctimeline
 playground.xcworkspace

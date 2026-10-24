@@ -11,6 +11,13 @@ final class FourfoldAppModel: ObservableObject {
     @Published var tempo: Double
     let launchError: String?
 
+    // ABLETON LINK (2026-10-24 ferry): `linkEnabled` is Fourfold's OWN on/off (ABLLinkSetActive) —
+    // persisted like `tempo` above. `linkConnected`/`linkPeerCount` mirror the session's live state,
+    // updated only from the main-thread callbacks registered in `init` below; nothing here is polled.
+    @Published var linkEnabled = false
+    @Published var linkConnected = false
+    @Published var linkPeerCount = 0
+
     private var lastSaved: Data?
     private let selfTest = FourfoldSelfTest()
     private let soak = FourfoldSoak()
@@ -23,6 +30,27 @@ final class FourfoldAppModel: ObservableObject {
         engine = built; launchError = err
         restoreState()
         engine?.setTempo(tempo)
+        linkEnabled = d.bool(forKey: "fourfold.linkEnabled")
+        if let link = engine?.link {
+            engine?.setLinkActive(linkEnabled)
+            // Context-free closure literals (per ABLLink.h's own convention, mirrored from Ableton's
+            // LinkHut sample) — Swift converts these to C function pointers; `self` travels via the
+            // opaque context pointer instead of a capture. All four fire on the main thread.
+            ABLLinkSetSessionTempoCallback(link, { tempo, context in
+                Unmanaged<FourfoldAppModel>.fromOpaque(context!).takeUnretainedValue().setTempo(tempo)
+            }, Unmanaged.passUnretained(self).toOpaque())
+            ABLLinkSetStartStopCallback(link, { isPlaying, context in
+                Unmanaged<FourfoldAppModel>.fromOpaque(context!).takeUnretainedValue().setPlaying(isPlaying)
+            }, Unmanaged.passUnretained(self).toOpaque())
+            ABLLinkSetIsConnectedCallback(link, { isConnected, context in
+                Unmanaged<FourfoldAppModel>.fromOpaque(context!).takeUnretainedValue().linkConnected = isConnected
+            }, Unmanaged.passUnretained(self).toOpaque())
+            ABLLinkSetNumPeersCallback(link, { numPeers, context in
+                Unmanaged<FourfoldAppModel>.fromOpaque(context!).takeUnretainedValue().linkPeerCount = Int(numPeers)
+            }, Unmanaged.passUnretained(self).toOpaque())
+            linkConnected = ABLLinkIsConnected(link)
+            linkPeerCount = Int(ABLLinkNumPeers(link))
+        }
         // `--autoplay`: start the transport at launch (the simulator harness and UI tests have no way to tap PLAY).
         if CommandLine.arguments.contains("--autoplay") { setPlaying(true) }
         // `--midi-selftest`: check the CoreMIDI shell in-process and print the result to stderr (FourfoldSelfTest).
@@ -38,6 +66,14 @@ final class FourfoldAppModel: ObservableObject {
         }
     }
 
+    /// ABLETON LINK: toggles Fourfold's own participation. Does NOT touch "Start Stop Sync enabled" —
+    /// per ABLLink.h there is no setter for that; only `FourfoldLinkSettingsView`'s real Link settings
+    /// screen can turn it on, which is why that screen is reachable from the LINK button, not optional.
+    func setLinkEnabled(_ on: Bool) {
+        linkEnabled = on
+        engine?.setLinkActive(on)
+        UserDefaults.standard.set(on, forKey: "fourfold.linkEnabled")
+    }
     func setPlaying(_ on: Bool) { playing = on; engine?.setPlaying(on) }
     func togglePlaying() { setPlaying(!playing) }
     func setTempo(_ bpm: Double) {
