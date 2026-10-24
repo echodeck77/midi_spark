@@ -13,6 +13,7 @@ final class FourfoldAppModel: ObservableObject {
 
     private var lastSaved: Data?
     private let selfTest = FourfoldSelfTest()
+    private let soak = FourfoldSoak()
 
     init() {
         let d = UserDefaults.standard
@@ -27,6 +28,14 @@ final class FourfoldAppModel: ObservableObject {
         // `--midi-selftest`: check the CoreMIDI shell in-process and print the result to stderr (FourfoldSelfTest).
         if CommandLine.arguments.contains("--midi-selftest"), let engine { selfTest.run(engine: engine) }
         if let engine { selfTest.stateTest(engine: engine) }
+        // `--soak <seconds> [--soak-seed N]`: a long randomised stress run of the live app that checks for stuck notes (FourfoldSoak; Scripts/fourfold-harness/soak.sh).
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--soak"), let engine {
+            let secs = (i + 1 < args.count ? Double(args[i + 1]) : nil) ?? 300
+            let seed = args.firstIndex(of: "--soak-seed").flatMap { $0 + 1 < args.count ? UInt64(args[$0 + 1]) : nil }
+            let fault = args.firstIndex(of: "--soak-fault").flatMap { $0 + 1 < args.count ? Int(args[$0 + 1]) : nil } ?? 0
+            soak.run(engine: engine, seconds: secs, seed: seed, faultEvery: fault)
+        }
     }
 
     func setPlaying(_ on: Bool) { playing = on; engine?.setPlaying(on) }

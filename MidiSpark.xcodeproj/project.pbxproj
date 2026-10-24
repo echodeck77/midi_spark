@@ -133,6 +133,7 @@
 		7BC45590A45ECF62AD2F08A1 /* AcceptanceRatchetStrumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8221885E2107EBA3F721C051 /* AcceptanceRatchetStrumTests.swift */; };
 		7BD70412B03E98F53058D7B1 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */; };
 		7BE01E23EE11445214726AD3 /* RestartFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */; };
+		7D18DC173F7A5A158D2BFBE0 /* FourfoldScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */; };
 		7D4F68EA5FCFB518C422FDAA /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
 		7DB4F2646E77BBDA02216FB1 /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EAB2358FE85A312490A1FF /* ReelHeaderIcon.swift */; };
 		7E76584B098A48CAE6F81A29 /* LaneLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16FA68D0E51F49F8F2A53556 /* LaneLockTests.swift */; };
@@ -248,6 +249,7 @@
 		E4A4FB320ACDA110C13DC8B5 /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */; };
 		E532C12BE0004C37412F9559 /* LaneStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2312CDF903FBE2ABB3E824E /* LaneStripTests.swift */; };
 		E6C108E83DC27EBB27958052 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */; };
+		E701FC442C61A2A5B667E2CE /* FourfoldSoak.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */; };
 		E7784ECA8F44A813DF1AB6BE /* SnapshotBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */; };
 		E79F969969D54DA2CB4B2287 /* FourfoldReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E30016BB623E045246A0488 /* FourfoldReel.swift */; };
 		E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */; };
@@ -277,6 +279,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		21AF577BF08888000782E7CD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 547172202D8231C244548AE4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E7F4737909F98C5204F4F9D7;
+			remoteInfo = Fourfold;
+		};
 		5F925EA15FB6B756400D1685 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 547172202D8231C244548AE4 /* Project object */;
@@ -375,6 +384,9 @@
 		59DF6CD888C95040E34660D5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
 		5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLayoutTests.swift; sourceTree = "<group>"; };
 		5B1FE1781AE0C4878A7935FE /* PulseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTests.swift; sourceTree = "<group>"; };
+		5B858B91950A98DA4EC31ED3 /* FourfoldUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FourfoldUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldScreenshotTests.swift; sourceTree = "<group>"; };
+		5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldSoak.swift; sourceTree = "<group>"; };
 		61A29EBC243C8C44F0013668 /* FXTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXTabTests.swift; sourceTree = "<group>"; };
 		61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceTests.swift; sourceTree = "<group>"; };
 		64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldApp.swift; sourceTree = "<group>"; };
@@ -662,6 +674,7 @@
 				92FFB2337E7FDB7ECC093A8E /* Shared */,
 				2974FA1F2F9619847B1BC9C0 /* Tests */,
 				579DBC9CBF245449D69C3E27 /* UI */,
+				F10A8EBAE6227367DFD1E926 /* UITests */,
 			);
 			path = Fourfold;
 			sourceTree = "<group>";
@@ -791,6 +804,7 @@
 				413AA8A736E0947140F27A4E /* Fourfold.app */,
 				32B0370916996785351E85CE /* FourfoldAU.appex */,
 				ECFE8D7BE003B21267B1EE96 /* FourfoldTests.xctest */,
+				5B858B91950A98DA4EC31ED3 /* FourfoldUITests.xctest */,
 				1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */,
 				D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */,
 				B049851538F9CC0979176A1D /* MidiSparkTests.xctest */,
@@ -832,6 +846,7 @@
 				41C41DF4A68365DC33446B95 /* FourfoldEngine.swift */,
 				4156E25D4881F600935CB6A5 /* FourfoldMIDI.swift */,
 				EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */,
+				5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */,
 				D7FF4747235BE7D3D8815C2A /* Info.plist */,
 			);
 			path = App;
@@ -843,6 +858,14 @@
 				B505AD7C314653CD2DB395CD /* FourfoldViewController.swift */,
 			);
 			path = AU;
+			sourceTree = "<group>";
+		};
+		F10A8EBAE6227367DFD1E926 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */,
+			);
+			path = UITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -921,6 +944,24 @@
 			productReference = ECFE8D7BE003B21267B1EE96 /* FourfoldTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		CC00D8B5E1165FFE59C195AB /* FourfoldUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FD852326B9C9E1CFFB736478 /* Build configuration list for PBXNativeTarget "FourfoldUITests" */;
+			buildPhases = (
+				1FBB96E313A2D1ECD7678C0A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				38D08424D48827C5BD05A264 /* PBXTargetDependency */,
+			);
+			name = FourfoldUITests;
+			packageProductDependencies = (
+			);
+			productName = FourfoldUITests;
+			productReference = 5B858B91950A98DA4EC31ED3 /* FourfoldUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		D6902684FD04DF004696DCC4 /* MidiSpark */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 4645653E49AACC9666E394A6 /* Build configuration list for PBXNativeTarget "MidiSpark" */;
@@ -988,6 +1029,11 @@
 						DevelopmentTeam = U9LCUSTWSQ;
 						ProvisioningStyle = Automatic;
 					};
+					CC00D8B5E1165FFE59C195AB = {
+						DevelopmentTeam = U9LCUSTWSQ;
+						ProvisioningStyle = Automatic;
+						TestTargetID = E7F4737909F98C5204F4F9D7;
+					};
 					D6902684FD04DF004696DCC4 = {
 						DevelopmentTeam = U9LCUSTWSQ;
 						ProvisioningStyle = Automatic;
@@ -1021,6 +1067,7 @@
 				389262595F7A832626CEDBE3 /* FourfoldAU */,
 				2DB83F7449E6960EC4CDD98E /* MidiSparkTests */,
 				AC6F8E7643F6532E15761ED1 /* FourfoldTests */,
+				CC00D8B5E1165FFE59C195AB /* FourfoldUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -1079,6 +1126,7 @@
 				AAC67FED0724903B425D060F /* FourfoldReel.swift in Sources */,
 				9380473CD41B52BD940490C1 /* FourfoldRootView.swift in Sources */,
 				CB94FD3868B139E13FADBBE0 /* FourfoldSelfTest.swift in Sources */,
+				E701FC442C61A2A5B667E2CE /* FourfoldSoak.swift in Sources */,
 				76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */,
 				A7CDEB9BFEA39A8E05477A8E /* FourfoldTransportClock.swift in Sources */,
 				6B98CD09D9D422991069BB57 /* Kernel.swift in Sources */,
@@ -1105,6 +1153,14 @@
 				E6C108E83DC27EBB27958052 /* SnapshotStore.swift in Sources */,
 				461FEB25F66378A168BACD53 /* TabGlyphPainter.swift in Sources */,
 				7A16BFD5D61928B1E76A6DB0 /* WalkTagPainter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1FBB96E313A2D1ECD7678C0A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7D18DC173F7A5A158D2BFBE0 /* FourfoldScreenshotTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1362,6 +1418,11 @@
 			target = 389262595F7A832626CEDBE3 /* FourfoldAU */;
 			targetProxy = 5F925EA15FB6B756400D1685 /* PBXContainerItemProxy */;
 		};
+		38D08424D48827C5BD05A264 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E7F4737909F98C5204F4F9D7 /* Fourfold */;
+			targetProxy = 21AF577BF08888000782E7CD /* PBXContainerItemProxy */;
+		};
 		7DF127141ABB279E81F58D92 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 1D0B3E83C3495583749AF302 /* MidiSparkAU */;
@@ -1513,6 +1574,24 @@
 			};
 			name = Debug;
 		};
+		986A9B549F5498B9D2B7ACBA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.FourfoldUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Fourfold;
+			};
+			name = Debug;
+		};
 		9A63EC8E37782ED7AAF6A804 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1628,6 +1707,24 @@
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DEB1EF6EB3880534AD08D8EA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.FourfoldUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Fourfold;
 			};
 			name = Release;
 		};
@@ -1759,6 +1856,15 @@
 			buildConfigurations = (
 				9A63EC8E37782ED7AAF6A804 /* Debug */,
 				0A2685FDE9357F6A1B920884 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FD852326B9C9E1CFFB736478 /* Build configuration list for PBXNativeTarget "FourfoldUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				986A9B549F5498B9D2B7ACBA /* Debug */,
+				DEB1EF6EB3880534AD08D8EA /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
