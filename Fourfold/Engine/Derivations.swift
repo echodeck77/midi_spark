@@ -623,12 +623,6 @@ func modUnipolar(_ shape: ModShape, phase: Double, column: Int, cc: Int, cycleIn
         return Double(splitmix64Mix(seed) >> 11) / Double(UInt64(1) << 53)   // [0,1)
     }
 }
-/// Map a unipolar [0,1] onto [min,max] as a CC value (0…127). MIN > MAX inverts. The universal row-3 mapping every
-/// MOD source runs through (SHAPE · FOLLOW · STEPS · STRIKE · EXTERN). Pure.
-@inline(__always)
-func modMap(_ s: Double, min lo: Int, max hi: Int) -> Int {
-    max(0, min(127, Int((Double(lo) + max(0, min(1, s)) * Double(hi - lo)).rounded())))
-}
 /// QUANTIZE (design-cc-stage §14①): snap a 0…127 CC value to `levels` evenly-spaced steps — bit-crush for control
 /// (stepped filter sweeps from any source). levels ≤ 1 = off (identity). Pure. (Paul 2026-09-09.)
 @inline(__always)
@@ -2134,20 +2128,6 @@ func chancePassesPool(beat: Double, note: Int, rank: Int, count: Int, probabilit
     return chancePasses(beat: beat, note: note, probability: p)
 }
 
-// MARK: - RIFF DIRECTION = DRUNK (Paul 2026-09-28): the per-tick random-walk delta. Pure — a hash of (seed, tick), NOT
-// a live RNG — so the SAME tick always draws the SAME delta (replay-safe at the draw level; only the WALK POSITION
-// that accumulates these deltas needs render-side memory, kept in Router.swift alongside DEAL's own counters).
-// `bias` (−1…1, 0 = neutral) tilts the {−1,0,+1} weights via a squared tilt: bias=0 → uniform 1/3 each ("wanders
-// evenly"); bias=+1 → weights (0,1,4) → 0%/20%/80% (forward-dominant but never deterministic — "Forward with
-// stumbles", never plain Forward); bias=−1 mirrors exactly. Continuous, no branching beyond the two thresholds.
-@inline(__always)
-func riffDrunkDelta(tick: Int64, bias: Double, seed: UInt64) -> Int {
-    let b = clamp(bias, -1, 1)
-    let wLo = max(0, 1 - b) * max(0, 1 - b), wHi = max(0, 1 + b) * max(0, 1 + b)
-    let h = splitmix64Mix(seed &+ UInt64(bitPattern: tick) &* 0x9E3779B97F4A7C15)
-    let u = Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) * (wLo + 1 + wHi)
-    return u < wLo ? -1 : (u < wLo + 1 ? 0 : 1)
-}
 
 /// RIFF TIE LOOKAHEAD FIX (Paul 2026-09-28): the stencil step a non-DRUNK direction mode plays at absolute tick
 /// `raw` — the SAME formula `emitRiffRow` uses for the CURRENT tick, factored out so a caller can also ask about
@@ -2220,24 +2200,6 @@ func euclideousRiffStepRanks(ranks: [Int], invert: Bool, transpose: Int) -> [Int
     }
 }
 
-/// RIFF TIE LOOKAHEAD FIX, the DRUNK case: a NON-MUTATING simulation of the walk `aheadBy` ticks past `fromPos`
-/// (the already-resolved CURRENT position) — lets TIE ask "what does DRUNK actually play next" without touching
-/// the real persisted walk state (`riffDrunkPos`/`riffDrunkLastTick` in Router.swift). Exact, not approximate:
-/// since `riffDrunkDelta` is itself a pure function of `tick`, replaying it for `tick+1…tick+aheadBy` from the
-/// walk's own current position reproduces PRECISELY the steps the real walk will take when it actually reaches
-/// those ticks (holding bias/steps/seed constant, which TIE's own short lookahead window always does in practice).
-@inline(__always)
-func riffDrunkPeek(fromPos: Int, tick: Int64, aheadBy: Int, steps: Int, bias: Double, seed: UInt64) -> Int {
-    var pos = fromPos
-    guard aheadBy > 0 else { return pos }
-    for k in 1...aheadBy {
-        var np = pos + riffDrunkDelta(tick: tick &+ Int64(k), bias: bias, seed: seed)
-        if np < 0 { np = -np }
-        if np > steps - 1 { np = 2 * (steps - 1) - np }
-        pos = max(0, min(steps - 1, np))
-    }
-    return pos
-}
 
 /// EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): applies a lane's own HORIZONTAL offset to an already-resolved riff
 /// step index — mirrors `euclidPatternInto`'s own rotation convention exactly (`buf[i] = pattern[(i + rot) % n]`,

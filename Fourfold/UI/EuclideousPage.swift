@@ -702,7 +702,6 @@ enum EuclideousLaneTab: Int, CaseIterable {
 
 struct EuclideousPage: View {
     let lines: [EuclidLine]
-    let lineReady: UInt8
     // FOUR RIFFS (2026-10-18 ferry, "drop the loop functionality in favour of four riff tabs... with a
     // glyph of the grid showing how it's populated... setup multiple riffs and switch between them") —
     // RESTORES the pre-looper "four riffs, picked by tabs" model (2026-10-14 sequencer-panel ferry),

@@ -261,7 +261,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     /// poll — Euclideous's page can be open (and its beacon needs updating) whether or not BuildPage's own
     /// processor editor happens to be open at the same time. Its cell always sits at column 0 of its own
     /// reserved row, so the cell index IS the row index (col 0 × Snap.rows contributes nothing).
-    func pollEuclideousLineReady() -> UInt8 { kernel.euclidLineReadyAt(Snap.euclideousRow) }
     /// NOTE VIEW (Paul 2026-10-10 ferry): each lane's queued hit/miss/rest-flash events since the last poll —
     /// same fast ~30fps cadence as the riff positions/beacon above (a per-tick feed, not config). A true
     /// drain (read-and-clear): each call only ever returns events posted SINCE the previous call.
@@ -515,6 +514,16 @@ public class FourfoldAudioUnit: AUAudioUnit {
         currentPresetName = name
         seedLatchArm()                                       // restore the persisted door-arm intent
         suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree (else host automation snaps a fresh note back to the OLD morph/transpose/macros)
+    }
+    /// The fresh-instance default document (`PluginState.makeInit()`); the harness's "(default)" golden entry loads it.
+    func resetToFreshInit() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        kernel.flushVoices()
+        editDocument { $0 = PluginState.makeInit() }
+        clearPendingBuild()
+        currentPresetName = ""
+        seedLatchArm()
+        suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()
     }
     /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
     func loadFactoryPreset(named name: String) {

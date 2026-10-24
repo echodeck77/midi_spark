@@ -487,7 +487,6 @@ final class Kernel {
     func cellSoundingNotes(_ cellIndex: Int) -> [UInt8] { router.cellSoundingNotes(cellIndex) }   // the processor editor's OUTPUT piano (Paul 2026-09-28)
     func rowSoundingVoices() -> [[(note: UInt8, vel: UInt8, onBeat: Double)]] { router.rowSoundingVoices() }   // PART grid's live per-row piano-roll (Paul 2026-09-29)
     func riffDrunkPosAt(_ cellIndex: Int) -> Int { router.riffDrunkPosAt(cellIndex) }   // RIFF's DRUNK sweep, polled (Paul 2026-09-28)
-    func euclidLineReadyAt(_ cellIndex: Int) -> UInt8 { router.euclidLineReadyAt(cellIndex) }   // EUCLID beacon readiness bits, polled (Paul 2026-10-05)
     func euclideousRiffPositions() -> [Int] { router.euclideousRiffPositions() }   // each of Euclideous's 4 lanes' own riff-advance step, polled (Paul 2026-10-06)
     func euclideousRiffWalkState() -> [Int64] { router.euclideousRiffWalkState() }   // the live hit-ordinal each lane's walk last advanced on, for the main-thread cycle prediction (Paul 2026-10-12; simplified from a 3-field tuple once DRUNK was removed, 2026-10-13)
     func euclideousMaskPositions() -> [Int] { router.euclideousMaskPositions() }   // each lane's own mask position, polled — hit-driven, not a self-clock (Paul 2026-10-11 bugfix)

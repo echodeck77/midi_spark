@@ -8,6 +8,7 @@ set -e
 cd "$(dirname "$0")/../.."
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 OUT="$PWD/build/fourfold-harness"; mkdir -p "$OUT"
+rm -f "$OUT/golden.txt" "$OUT/console.log"   # never diff a stale result against the baseline
 UDID=$(xcrun simctl list devices available | grep -m1 "iPad Pro 11-inch" | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
 [ -n "$UDID" ] || { echo "no 'iPad Pro 11-inch' simulator found"; exit 1; }
 python3 - "$PWD" "$OUT" <<'PY'

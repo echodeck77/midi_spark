@@ -489,23 +489,6 @@ extension SnapParams {
         }
         return s
     }
-    /// The current value of an automatable field, as a Double (for a PER-PARAM LFO to swing around). Mirrors the fields
-    /// `settingAuto` writes. (Docs/PLAN-param-lfo.md, Paul 2026-09-15.)
-    func autoValue(_ f: AutoParamField) -> Double {
-        switch f {
-        case .gate: return gate;              case .ramp: return ramp;                case .spread: return spread
-        case .curve: return curve;            case .velTilt: return velTilt;          case .probability: return probability
-        case .harmVelScale: return harmVelScale; case .octaves: return Double(octaves); case .count: return Double(count)
-        case .rtcChance: return rtcChance;    case .rtcCountLo: return Double(rtcCountLo); case .rtcCountHi: return Double(rtcCountHi)
-        case .rtcRotate: return Double(rtcRotate); case .euclidPulses: return Double(euclidPulses); case .euclidSteps: return Double(euclidSteps)
-        case .euclidRot: return Double(euclidRot); case .glideRange: return Double(glideRange); case .modMin: return Double(modMin)
-        case .modMax: return Double(modMax);  case .lenShort: return lenShort;        case .lenLong: return lenLong
-        case .lenRotate: return Double(lenRotate); case .weaveSpan: return Double(weaveSpan); case .weaveEuclidSteps: return Double(weaveEuclidSteps)
-        case .maskK: return Double(maskK); case .maskRotate: return Double(maskRotate)
-        case .maskChordGate: return maskChordGate; case .maskChordOct: return Double(maskChordOct)
-        case .arpVelocity: return arpVelocity; case .arpVelTilt: return arpVelTilt
-        }
-    }
 }
 extension AutoParamField {
     /// The param's full [lo, hi] range — the SAME numbers `settingAuto` clamps to. A PER-PARAM LFO's DEPTH swings a
@@ -827,13 +810,7 @@ func effectiveRateBeats(_ c: SnapMachine) -> Double {
     Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(c.a.rateIndex)))]
 }
 
-@inline(__always)
-func effectiveGate(_ c: SnapMachine) -> Double { c.a.gate }
 
-@inline(__always)
-func effectiveArpVelocity(_ c: SnapMachine) -> Double { c.a.arpVelocity }
-@inline(__always)
-func effectiveArpVelTilt(_ c: SnapMachine) -> Double { c.a.arpVelTilt }
 
 @inline(__always)
 func effectiveOctaves(_ c: SnapMachine) -> Int { max(1, min(4, Int(c.a.octaves))) }

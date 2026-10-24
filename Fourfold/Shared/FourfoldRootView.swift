@@ -45,7 +45,6 @@ struct FourfoldRootView: View {
     var registeredChain: [ProcessorSlot] { get { m.registeredChain } nonmutating set { m.registeredChain = newValue } }
     var euclideousLines: [EuclidLine] { get { m.euclideousLines } nonmutating set { m.euclideousLines = newValue } }
     var euclideousUndo: UndoStack<EuclideousUndoSnapshot> { get { m.euclideousUndo } nonmutating set { m.euclideousUndo = newValue } }
-    var euclideousLineReady: UInt8 { get { m.euclideousLineReady } nonmutating set { m.euclideousLineReady = newValue } }
     var euclideousRiff: EuclideousRiff { get { m.euclideousRiff } nonmutating set { m.euclideousRiff = newValue } }
     var euclideousRiffs: [EuclideousRiff] { get { m.euclideousRiffs } nonmutating set { m.euclideousRiffs = newValue } }
     var euclideousActiveRiff: Int { get { m.euclideousActiveRiff } nonmutating set { m.euclideousActiveRiff = newValue } }
@@ -124,7 +123,6 @@ struct FourfoldRootView: View {
     func pageView(_ geo: GeometryProxy) -> AnyView {
         AnyView(
             EuclideousPage(lines: euclideousLines,
-                                               lineReady: euclideousLineReady,
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
@@ -622,8 +620,6 @@ struct FourfoldRootView: View {
     @_optimize(speed)
     func fastPoll() {
         guard uiAppeared, let au else { return }
-    let er = au.pollEuclideousLineReady()
-    if er != euclideousLineReady { euclideousLineReady = er }
     let rp = au.pollEuclideousRiffPositions()
     if rp != euclideousRiffPositions { euclideousRiffPositions = rp }
     let rws = au.pollEuclideousRiffWalkState()
@@ -807,7 +803,6 @@ final class FourfoldModel: ObservableObject {
     @Published var registeredChain: [ProcessorSlot] = []
     @Published var euclideousLines: [EuclidLine] = Array(repeating: EuclidLine(noteSel: .all), count: 4)
     @Published var euclideousUndo: UndoStack<EuclideousUndoSnapshot> = UndoStack<EuclideousUndoSnapshot>()   // a SEPARATE stack from the AU's whole-document undo (usability ferry §7); in-memory, cleared per instance
-    @Published var euclideousLineReady: UInt8 = 0
     @Published var euclideousRiff: EuclideousRiff = EuclideousRiff()
     @Published var euclideousRiffs: [EuclideousRiff] = [EuclideousRiff(), EuclideousRiff.empty, EuclideousRiff.empty, EuclideousRiff.empty]
     @Published var euclideousActiveRiff: Int = 0

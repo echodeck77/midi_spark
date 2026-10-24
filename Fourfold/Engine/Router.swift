@@ -756,16 +756,6 @@ final class Router {
         nvHead[lane] = (nvHead[lane] + 1) % Router.noteViewRing
         if nvNew[lane] < Router.noteViewRing { nvNew[lane] &+= 1 }
     }
-    // EUCLID BEACON READINESS (Paul 2026-10-05, closing the beacon's own disclosed gap — "doesn't walk RIFF/ARP's
-    // own resolved note... reads the door's raw held notes, not the fully-resolved upstream-chain pool"). Bit
-    // (lineIndex*2 + (isMiss?1:0)) is set when that line's resolved noteSel/missNoteSel currently has a genuine
-    // target to strike — computed from the SAME real guards runEuclidLine's hit/miss closures apply (see the
-    // computation site in `case .euclid:`), not approximated from a door's raw note count. NOT accumulated state
-    // (unlike riffDrunkPos above) — fully recomputed every render for every cell currently dispatching as EUCLID,
-    // and explicitly zeroed at the pool-empty guard in `process()` so "nothing held" reads as "nothing can play"
-    // promptly rather than going stale. UI-poll read via `euclidLineReadyAt`, same plain-array-read safety as
-    // `riffDrunkPosAt`/`cellSoundVel` (a torn UInt8 is benign — one stale frame).
-    private var euclidLineReady = [UInt8](repeating: 0, count: Snap.cells)
     // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18) — the looper-in-a-chain. STAGE 1: LOOP · PASSES|STEPS ·
     // ON PLAY|AFTER N · REPLACE|LAYER · CAPTURE ONCE, fed by an UPSTREAM DRIVER (captured in the driver fold). Per-cell
     // render-side buffer (persistence + FREEZE/CANON/REFRESH/CLEAR are later stages). Sanctioned accumulated-state
@@ -791,33 +781,6 @@ final class Router {
     private func resetRecorderCapture(full: Bool) {
         for i in recCapN.indices { recCapN[i] = 0; recWindowIdx[i] = Int.min; recArmUnit[i] = Int.min; recCycleBase[i] = 0 }
         if full { for i in recCaptured.indices { recCaptured[i] = false; recBufN[i] = 0 } }
-    }
-    // The non-bypassed RECORDER proc downstream of `driver` (the capture stage), or nil.
-    private func downstreamRecorder(_ cell: SnapCell, after driver: Int) -> Int? {
-        var j = driver + 1
-        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .recorder { return j }; j += 1 }
-        return nil
-    }
-    // The cell's first non-bypassed RECORDER proc (any slot), or nil — for the playback pass.
-    private func recorderSlot(_ cell: SnapCell) -> Int? {
-        var j = 0
-        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .recorder { return j }; j += 1 }
-        return nil
-    }
-    // RECORDER window geometry (a pure fn of the grain/len/arm + the clock): unitBeats = the grain unit, window = N units,
-    // and the record window spans units [startUnit, endUnit). The PASS/STEP number decides record vs playback.
-    private func recWindow(_ p: SnapParams, passBeats: Double, stepBeats: Double) -> (unitBeats: Double, window: Double, startUnit: Int, endUnit: Int) {
-        let unitBeats = max(0.03125, p.recGrain == .passes ? passBeats : stepBeats)
-        let n = max(1, min(32, p.recLen))
-        let armDelay = p.recArm == .afterN ? max(0, min(32, p.recArmN)) : 0
-        return (unitBeats, unitBeats * Double(n), armDelay, armDelay + n)
-    }
-    private func dealSetup(_ cell: SnapCell) {   // find this cell's DEAL proc (last wins, like chopMask's DEST scan); set the emit-side state
-        dealActive = false
-        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .deal {
-            let p = cell.procs[j]
-            dealActive = true; dealE1 = p.dealE1 & 3; dealE2 = p.dealE2 & 3; dealN1 = max(1, p.dealN1); dealN2 = max(1, p.dealN2); dealMode = p.dealMode
-        }
     }
     // THE SEAL COMET (note-on/off gate): a bitmask of the cells CURRENTLY SOUNDING (≥1 active non-silent voice).
     // Snapshotted on the render thread each window (a live set, like snapshotEmitterSounding); the UI polls it so the
@@ -886,31 +849,6 @@ final class Router {
         var stepRunStart = 0.0     // beat the run began
         var stepVel: UInt8 = 100   // the run's velocity (captured when the run was set up — used by both glide paths)
         var mode: GlideMode = .bend   // the voice's glide mode (set at anchor) — phrase-end centres the bend ONLY for BEND
-    }
-    /// Emit the pending STEP chromatic run's strikes that fall in this window (shared by the single-slot + driven paths).
-    /// Intermediate steps are short zipper notes; the final step is the TARGET, held (offSample .max) until the next
-    /// transition. Idempotent across windows via `stepsDone`. (Paul 2026-08-26 — [driver→GLIDE] STEP awareness.)
-    private func emitGlideStepRun(_ gv: inout GlideVoice, cable: UInt8, ch: UInt8, bus: Int, glideTime: Double,
-                                  beatPos: Double, bEnd: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
-        guard gv.stepTotal > 0, gv.stepsDone < gv.stepTotal else { return }
-        let N = Int(gv.stepTotal), from = Int(gv.stepFrom), tgt = Int(gv.stepTarget)
-        let dir = tgt >= from ? 1 : -1
-        let stepBeat = max(0.00005, glideTime) / Double(N)
-        var i = Int(gv.stepsDone) + 1
-        while i <= N {
-            let onBeat = gv.stepRunStart + Double(i) * stepBeat
-            if onBeat >= bEnd { break }                          // a later window carries this step
-            let onS = windowStart + Int64((max(0, onBeat - beatPos) / beatsPerSample).rounded())
-            let sn = max(0, min(127, from + dir * i))
-            if i < N {                                           // intermediate zipper note (short)
-                let offS = onS + Int64(max(1, (stepBeat * 0.9 / beatsPerSample).rounded()))
-                _ = openVoice(note: UInt8(sn), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: offS, velocity: gv.stepVel, out: out, meter: true)
-            } else {                                             // final = the TARGET, held until the next transition
-                let slot = openVoice(note: UInt8(max(0, min(127, tgt))), chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: gv.stepVel, out: out, meter: true)
-                gv.slot = Int16(slot)
-            }
-            gv.stepsDone = Int16(i); i += 1
-        }
     }
     private var glideVoices = [GlideVoice](repeating: GlideVoice(), count: Snap.cells)
     private var glideLastColumn = [Int32](repeating: -1, count: Snap.rows + 1)   // PER-ROW phrase-end on column exit (slot Snap.rows = the uniform/global call)
@@ -1032,14 +970,6 @@ final class Router {
     /// §4.2/§9.6: how many hits THIS lane (as a follower) has struck under ECHO so far this transport run —
     /// "j, 0 for the first hit." Reset on every transport edge alongside the cycle buffers above.
     private var euclideousEchoFollowerJ = [Int](repeating: 0, count: 4)
-    private func fillSrcFromScratch() {
-        srcNoteCount = 0
-        let c = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
-        for k in 0..<c where srcNoteCount < srcNoteBuf.count {
-            let n = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)
-            srcNoteBuf[srcNoteCount] = (Int(n), chainScratch.velocity(n)); srcNoteCount += 1
-        }
-    }
     private func fillSrcFromPool(_ cell: SnapCell, _ pool: NotePool) {
         srcNoteCount = 0
         let c = pool.srcCount(for: cell)
@@ -1127,12 +1057,6 @@ final class Router {
     // audition). A note pushed past 0…127 by the sum is dropped by the per-emit guard (intended).
     private var inputOctave: UInt32 = 0
     private var inputSemitone: UInt32 = 0                    // receiver strip: per-receiver ±semitone NOTE nudge (composes with octave)
-    private func octaveShift(_ recv: Int8) -> Int {          // total input transpose = octave×12 + semitone
-        guard recv >= 0 else { return 0 }
-        let oct = Int(Int8(bitPattern: UInt8((inputOctave >> (UInt32(recv) * 8)) & 0xFF)))
-        let semi = Int(Int8(bitPattern: UInt8((inputSemitone >> (UInt32(recv) * 8)) & 0xFF)))
-        return oct * 12 + semi
-    }
     // receiver strip: the momentary-absolute INPUT-velocity override (the slider's ride), packed byte per
     // receiver (0 = none). Flattens a receiver's subscribers at the wire. `currentInputRecv` is the receiver
     // of the cell being articulated (render is single-threaded, so one field suffices) — read in emitOneBus.
@@ -1689,13 +1613,6 @@ final class Router {
         return riffDrunkPos[cellIndex]
     }
 
-    /// UI-poll read: this cell's EUCLID beacon readiness bits (see `euclidLineReady`'s own declaration for the
-    /// bit layout and what "ready" means) — 0 for a cell that isn't currently dispatching as EUCLID, or that
-    /// hasn't rendered since its pool last went empty.
-    func euclidLineReadyAt(_ cellIndex: Int) -> UInt8 {
-        guard cellIndex >= 0 && cellIndex < euclidLineReady.count else { return 0 }
-        return euclidLineReady[cellIndex]
-    }
 
     /// UI-poll read: each of Euclideous's 4 lines' own current riff-advance step index (−1 = not started / useRiff
     /// off). Plain array read, same shape as `riffDrunkPosAt` above — unlike that one, this reports ALL 6
@@ -1863,7 +1780,7 @@ final class Router {
     func externalFlush(box: SnapshotBox, atSample time: Int64, out: MIDIEmitter?, includeBypass: Bool = false) {
         allNotesOff(atSample: time, out: out, includeBypass: includeBypass)
         flushGlide(atSample: time, out: out)
-        flushMod(box: box, atSample: time, out: out)
+        
         flushEuclideousLegato()   // 2026-10-13 GATE/legato ferry: same reason as flushGlide/flushMod — allNotesOff just closed every immortal legato voice, forget the stale bookkeeping
     }
     /// PANIC belt-and-braces (incident 2026-08-08 §3): beyond our own tracked note-offs, blast CC120 (all-sound-off)
@@ -1895,34 +1812,6 @@ final class Router {
         }
     }
 
-    /// §2 CONTINUITY: ADOPT a legato hold. Scan the transition's candidate voices for the ones matching this
-    /// re-held identity — same wire NOTE + EMITTER (bus) + MACHINE-AND-FACE — and un-mark them (keep alive:
-    /// own cable + its All copy, both cleared). Returns true iff ≥1 matched, in which case the caller does
-    /// NOT re-emit on this bus: the existing voices flow through the boundary with no off/on (the drone).
-    private func adoptLegatoBus(wire: UInt8, bus: UInt8, ci: Int16, alt: Bool) -> Bool {
-        // Adopt exactly ONE strike's worth — one own-cable copy + one All-cable copy (a strike opens exactly those two
-        // per bus). Un-marking EVERY match would break a SELF-COLLIDING harmonize (two source notes fanning to the same
-        // wire on one bus, e.g. {60,67}+7 → 60's +7 == 67's root): the first voice's call would un-mark BOTH pairs, the
-        // second source's call would then find none, and it would re-strike a fresh immortal voice EVERY window — a
-        // per-window voice/refcount leak that machine-guns and grows to the voice cap under PLAY: THIS CELL. Pairing
-        // one-per-cable adopts each colliding pair separately. Prefer a real (non-silent) voice over a CLAIM ghost so a
-        // ghost is never adopted in a real voice's place and then stranded. Byte-identical for the non-colliding case
-        // (one own + one All exist → both un-marked → found) and the identity/drone path (never self-collides).
-        var ownIdx = -1, allIdx = -1
-        for i in voices.indices where holdCandidate[i]
-            && voices[i].note == wire && voices[i].bus == bus
-            && voices[i].machineIndex == ci && voices[i].alt == alt {
-            if voices[i].cable == 0 {
-                if allIdx < 0 || (voices[allIdx].silent && !voices[i].silent) { allIdx = i }
-            } else {
-                if ownIdx < 0 || (voices[ownIdx].silent && !voices[i].silent) { ownIdx = i }
-            }
-        }
-        var found = false
-        if ownIdx >= 0 { holdCandidate[ownIdx] = false; found = true }
-        if allIdx >= 0 { holdCandidate[allIdx] = false; found = true }
-        return found
-    }
 
     private func anyVoiceActive() -> Bool {
         for v in voices where v.active { return true }
@@ -1931,12 +1820,6 @@ final class Router {
     /// PER-PART CLOCK: any active voice belonging to ROW `r` (cellIndex row = index % Snap.rows) — the per-row transition gate.
     private func anyVoiceActiveInRow(_ r: Int) -> Bool {
         for v in voices where v.active && v.cellIndex >= 0 && Int(v.cellIndex) % Snap.rows == r { return true }
-        return false
-    }
-    /// Any active IMMORTAL legato GRID hold (a sustained drone) — offSample .max, not a BYPASS voice. Used by the
-    /// single-column-lap release fix (audit B2): a pinned effColumn never fires the column-change reconcile.
-    private func anyLegatoHold() -> Bool {
-        for v in voices where v.active && v.offSample == .max && v.bypassRecv < 0 { return true }
         return false
     }
 
@@ -2269,613 +2152,34 @@ final class Router {
         return Int(ch)
     }
 
-    /// HOLD content, emitted ONCE per column at the transition: an identity cell whose input is MIDI
-    /// IN articulates the whole (filtered) source chord and holds it to the column boundary (identity
-    /// = sample-and-hold of its input pool). Arp cells and referencing mirrors have no hold.
-    /// HARMONIZE emit (§3): expand `base` (post-transpose) into root + up to 3 interval voices and
-    /// emit each with its velocity (root full, added voices scaled). Optionally stores artics so a
-    /// downstream mirror sees the full expanded set. Shared by the MIDI-IN hold and the mirror path.
-    private func emitHarmony(base: Int, machine: SnapMachine, baseVel: UInt8, row: Int,
-                             storeArtics: Bool, busMask: UInt8,
-                             on: Int64, off: Int64, beat: Double,
-                             windowEnd: Int64, sustain: Bool = false, poolMask: UInt16 = 0, out: MIDIEmitter?,
-                             diag: inout KernelDiag) {
-        let iv = (Int8(effectiveHarmInterval(machine, voice: 0)),
-                  Int8(effectiveHarmInterval(machine, voice: 1)),
-                  Int8(effectiveHarmInterval(machine, voice: 2)))
-        let scale = effectiveHarmVelScale(machine)
-        let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
-                                  vel: baseVel, velScale: scale, vels: &harmVels, poolMask: poolMask)
-        for i in 0..<cnt {
-            if storeArtics { storeArtic(row: row, on: on, off: off, note: UInt8(harmNotes[i]), beat: beat) }
-            guard busMask != 0 else { continue }
-            if sustain {
-                // PLAY: THIS CELL — under a frozen column each harmony voice is IMMORTAL + ADOPTED (per-bus, mirrors
-                // the identity legato branch), so the every-window re-run reconciles the same harmonized set instead
-                // of re-striking. Voices carry currentMachineIndex/currentAlt so adoptLegatoBus matches on re-run.
-                var emitMask: UInt8 = 0
-                for b in UInt8(0)..<4 where busMask & (1 << b) != 0 {
-                    let sw = Int(harmNotes[i]) + emitterOctaveShift(Int(b)) + masterKey
-                    guard sw >= 0 && sw <= 127 else { continue }
-                    guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }
-                    if !adoptLegatoBus(wire: w, bus: b, ci: currentMachineIndex, alt: currentAlt) { emitMask |= (1 << b) }
-                }
-                if emitMask != 0 {
-                    emitArtic(note: UInt8(harmNotes[i]), busMask: emitMask, onSample: on, offSample: .max,
-                              windowEnd: windowEnd, velocity: harmVels[i], out: out, diag: &diag)
-                }
-            } else {
-                emitArtic(note: UInt8(harmNotes[i]), busMask: busMask, onSample: on, offSample: off,
-                          windowEnd: windowEnd, velocity: harmVels[i], out: out, diag: &diag)
-            }
-        }
-    }
 
-    // PER-PART CLOCK (Paul 2026-08-19): ONE row's per-window TICK content at `effColumn`, on `S`/`cycleBeats`. Extracted
-    // from the process() row loop so BOTH the uniform fast-path AND the per-row multi-clock path share it verbatim.
-    // Reads `diag.pass` (the caller sets it to the ROW's pass in the per-row path). No behaviour change vs the old inline loop.
-    // PHASE 2 render-time AUTO (Paul 2026-09-04): a ×N-passes / SMOOTH lane overrides one scalar param on this cell's proc,
-    // computed from the beat. STEP = per-column (integer rank, endpoint-inclusive, matches the Phase-1 bake). SMOOTH =
-    // a continuous sawtooth across the span, SAMPLED ONCE PER RENDER WINDOW (block-start beat, like applyInternalMods) —
-    // so a SMOOTH value is quantized to block boundaries, not strictly block-size-invariant (deterministic per host
-    // schedule; STEP flips only at column boundaries, which are per-block, so STEP is invariant). Derived from the beat →
-    // replay-exact for a given schedule. No render-path alloc UNLESS a lane is active (the settingAuto SnapParams is a
-    // value copy, but the `cell.procs[slot] =` write-back below is a COW of the procs array — feature-gated: the
-    // byte-identical default writes nothing). ra.slot is resolved against the machine TEMPLATE; a per-cell chain override
-    // of a different type at that slot would get a harmless ignored field (never a trap — slot bound-guarded).
-    private func applyRenderAuto(_ cell: inout SnapCell, box: SnapshotBox, r: Int, musicalBeat mb: Double, S: Double) {
-        let ci = Int(cell.machineIndex)
-        guard ci >= 0, ci < box.renderAuto.count, let ra = box.renderAuto[ci],
-              ra.slot >= 0, ra.slot < cell.procs.count, S > 0 else { return }
-        let W = max(1, box.rowLength.indices.contains(r) ? box.rowLength[r] : Snap.cols)
-        let period = ra.passes >= 2 ? ra.passes * W : (ra.spanCols > 0 ? ra.spanCols : W)
-        guard period >= 1 else { return }
-        let posCols = mb / S - Double(ra.startCol)   // continuous column position past the span start
-        guard posCols >= 0 else { return }           // before the span → leave the base param
-        let m = Double(period)
-        let frac: Double
-        if ra.smooth { frac = posCols.truncatingRemainder(dividingBy: m) / m }                     // continuous sawtooth 0…1
-        else { let rank = Int(posCols) % period; frac = period > 1 ? Double(rank) / Double(period - 1) : 1 }   // stepped, endpoint-inclusive
-        cell.procs[ra.slot] = cell.procs[ra.slot].settingAuto(ra.field, ra.lo + frac * (ra.hi - ra.lo))
-    }
-    /// PER-PARAM LFO (Docs/PLAN-param-lfo.md): oscillate scalar params around their base value. Beat-derived → replay-safe
-    /// (invariant 2); the `cell.procs[si] = …` write-back is a COW of the procs array (same accepted render-path alloc as
-    /// applyRenderAuto — feature-gated on box.hasParamLFO, so byte-identical + alloc-free when no LFO is active); reshapes a scalar only, opens/closes no voices
-    /// (invariant 4). Sampled at the window beat, like SMOOTH renderAuto / applyInternalMods (block-start, deterministic per
-    /// schedule). Runs AFTER renderAuto + internal MOD, so it swings around a base that already includes those (the ratified
-    /// "sum" behaviour). Called only when box.hasParamLFO (else byte-identical). (Paul 2026-09-15.)
-    private func applyParamLFO(_ cell: inout SnapCell, box: SnapshotBox, r: Int, beat mb: Double, S: Double, column: Int) {
-        guard S > 0 else { return }
-        let W = max(1, box.rowLength.indices.contains(r) ? box.rowLength[r] : Snap.cols)
-        let gridBeats = Double(W) * S
-        for si in cell.procs.indices where !cell.procs[si].paramLFOs.isEmpty {
-            for lfo in cell.procs[si].paramLFOs {
-                // BASE → TO sweep (Paul 2026-09-16 two-views): FROM ≡ the processor's own param (its authored base value),
-                // so the LFO stores only TO. The shape's 0…1 maps BASE→TO→BASE. Inactive when TO == the base (guarded).
-                guard let to = lfo.to else { continue }
-                // DURATION: grid STEPS (stepSpan, re-syncs to the grid) or a fixed musical subdivision (period).
-                let periodBeats = (lfo.stepSpan ?? 0) > 0 ? spanLadderBeats(lfo.stepSpan!, S: S, row: gridBeats) : lfo.period.periodBeats
-                guard periodBeats > 0 else { continue }
-                let cyc = Int((mb / periodBeats).rounded(.down))
-                let u = modUnipolar(lfo.shape, phase: mb / periodBeats, column: column, cc: 0, cycleIndex: cyc)   // 0…1
-                if lfo.target == "arpRate" {                                       // rate = the discrete ladder index (0…17); FROM = the base rate, TO = a rate pick
-                    let from = Double(max(0, min(17, Int(cell.procs[si].rateIndex))))   // the authored base rate IS the FROM endpoint
-                    guard from != to else { continue }
-                    // IGNORE families (Paul 2026-09-16): sweep over the ALLOWED-rate ladder only, so ignored families are
-                    // never visited (snap FROM/TO to the nearest kept rung, interpolate over ladder POSITIONS).
-                    let ladder = arpRateAllowedLadder(ignore: lfo.rateIgnoreResolved)
-                    let fp = nearestLadderPos(ladder, Int(from.rounded())), tp = nearestLadderPos(ladder, Int(to.rounded()))
-                    let pos = Int((Double(fp) + u * Double(tp - fp)).rounded())
-                    cell.procs[si].rateIndex = Int8(ladder[max(0, min(ladder.count - 1, pos))])
-                } else if let field = AutoParamField(key: lfo.target) {
-                    let from = cell.procs[si].autoValue(field)                     // the authored base param IS the FROM endpoint
-                    guard from != to else { continue }
-                    cell.procs[si] = cell.procs[si].settingAuto(field, from + u * (to - from))   // sweep base→TO; settingAuto clamps
-                }
-            }
-        }
-    }
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, heldCell: Int, tempo: Double,
                              euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(), euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                              out: MIDIEmitter?, diag: inout KernelDiag) {
-            var cell = box.cells[effColumn * Snap.rows + r]
-            if cell.machineIndex < 0 || cell.muted || cell.dormant { return }   // LADDER dormant
-            applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, cycleBeats: cycleBeats, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
-            if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: musicalOf(beatPos, stepBeats: S, a: a), S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp
-            if box.hasParamLFO { applyParamLFO(&cell, box: box, r: r, beat: musicalOf(beatPos, stepBeats: S, a: a), S: S, column: effColumn) }   // PER-PARAM LFO (Docs/PLAN-param-lfo.md): swing scalar params around their base
-            if soloSilenced(cell) { return }   // receiver strip: input SOLO excludes this cell's receiver
-            currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
-            currentMachineIndex = cell.machineIndex      // item 4 marks: this cell's Machine, for the source tint
-            currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
-            chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: effColumn)   // UTILITY CHANNEL/NUDGE emit overrides for this cell
-            dealSetup(cell)   // DEAL: this cell's emitter-deal state (Paul 2026-09-16)
-            let ci = Int(cell.machineIndex)
-            let machine = box.machines[ci]
-            if !onSceneAudible(machine.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
-            // §9 item 1 ON HOLD (3a): while THIS cell is press-held, its ALT/OCT treatment overlays momentarily.
-            let held = heldCell >= 0 && heldCell == effColumn * Snap.rows + r
-            var transpose = machineTranspose(ci, machine)
-                          + holdOctaveShift(on: machine.on, held: held)   // ON HOLD = OCT
-                          + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
-            // CELL MACHINE: the per-cell HEAD treatment (cell.proc) drives the render (morph + grid-chaining retired).
-            var treat = machine; treat.a = cell.proc
-            let mode = cellMode(type: effectiveType(treat), bypassed: cell.bypassed)
-            let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
-            // DRONE = a legato chord-hold (user 2026-08-10): a SINGLE-SLOT drone sustains via emitColumnHolds (adopts
-            // across adjacent drone columns, closes where no drone re-holds it), NOT the per-tick generator — skip it
-            // here so it doesn't strike per step. A drone inside a multi-slot CHAIN keeps the generator path (v1).
-            if mode == .drone && cell.procs.count <= 1 { return }
-
-            // CELL MACHINE stage-2: a covered chain (arp/ratchet/strum TAIL) runs the tail over the composed
-            // upstream set; only the tail emits, and emitColumnHolds skips it.
-            let driver = chainDriverIndex(cell)
-            if driver >= 0 {
-                let driveP = cell.procs[driver]                // the tick DRIVER (last tick-gen); slots before it compose, after it fold
-                var treatDrive = machine; treatDrive.a = driveP
-                // SPLIT downstream ([driver→SPLIT] = PUNCH HOLES): resolve its keep-window as NOTE bounds from the
-                // driver's SOURCE POOL (the held chord), so each driven note outside the subset becomes a rest.
-                splitGateActive = false
-                if let si = downstreamSplitIndex(cell, after: driver) {
-                    let ep = effectivePool(for: cell, live: pool)
-                    let cnt = ep.srcCount(for: cell)
-                    if cnt > 0 {
-                        let sp = cell.procs[si]
-                        let win = chordSplitWindow(count: cnt, split: sp.splitSet, noteAt: { Int(ep.srcAscending($0, for: cell)) })
-                        if win.len > 0 {
-                            splitGateLo = Int(ep.srcAscending(win.start, for: cell)); splitGateHi = Int(ep.srcAscending(win.start + win.len - 1, for: cell))
-                        } else { splitGateLo = 1; splitGateHi = 0 }   // empty subset → nothing passes
-                        splitGateVF = sp.splitVel.floor; splitGateVC = sp.splitVel.ceil
-                        splitGateActive = true
-                    }
-                }
-                // AVOID+MOVE downstream ([driver→AVOID(move)]): resolve the driver's whole output pool's SURVIVING classes
-                // (pool classes ∉ the avoided sphere), so a blocked driven note snaps to an in-scale survivor instead of
-                // dropping (B-1). Applied in emitDriverNote's fold (gated by avoidDriverSurvivorValid there). Paul 2026-08-31.
-                avoidDriverSurvivor = 0
-                if let ai = downstreamAvoidMoveIndex(cell, after: driver) {
-                    let ap = cell.procs[ai]
-                    let ep = effectivePool(for: cell, live: pool)
-                    let cnt = ep.srcCount(for: cell)
-                    let refMask = avoidRefMask(ap, ownDoor: Int(cell.resolvedReceiver), ownBusMask: cell.busMask)
-                    avoidDriverSurvivor = avoidSurvivors({ Int(ep.srcAscending($0, for: cell)) }, count: cnt, refMask: refMask)
-                }
-                switch driveP.type {
-                case .arp:
-                    emitArpRow(cell: cell, row: r, machine: treatDrive, transpose: transpose,
-                               emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
-                               windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                               beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
-                               chainDriver: driver, out: out, diag: &diag)
-                case .ratchet:
-                    emitRatchetRow(cell: cell, row: r, machine: treatDrive, transpose: transpose,
-                                   emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
-                                   windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                                   beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
-                                   chainDriver: driver, out: out, diag: &diag)
-                case .strum:
-                    emitStrumRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
-                                 pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                                 beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
-                case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:   // GENERATORS as chain drivers (user 2026-08-09; HOCKET 2026-08-27)
-                    let dm = cellMode(type: driveP.type, bypassed: false)
-                    emitGeneratorRow(mode: dm, cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
-                                     pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                                     windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
-                case .weave:
-                    emitWeaveRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
+        // FOURFOLD (Step 4c): the Fourfold scene holds exactly one cell — a one-slot EUCLID chain on the reserved row (`FourfoldCompose`; `FourfoldComposeTests`). Everything the 8x8 grid did here for other processors (internal MOD / AUTO /
+        // LFO modulation, input SOLO, UTILITY channel / nudge, DEAL, ON HOLD, the covered-chain drivers arp / ratchet / strum / weave / riff, LENGTH, TUTTI, the hold-tail chains) is a no-op or unreachable for that cell and is gone.
+        let cell = box.cells[effColumn * Snap.rows + r]
+        if cell.machineIndex < 0 || cell.muted || cell.dormant { return }   // LADDER dormant
+        currentInputRecv = cell.resolvedReceiver      // this cell's receiver, for the input-vel override
+        currentMachineIndex = cell.machineIndex       // item 4 marks: this cell's Machine, for the source tint
+        currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
+        let ci = Int(cell.machineIndex)
+        let machine = box.machines[ci]
+        if !onSceneAudible(machine.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
+        let transpose = machineTranspose(ci, machine)
+        var treat = machine; treat.a = cell.proc
+        let mode = cellMode(type: effectiveType(treat), bypassed: cell.bypassed)
+        guard mode == .euclid else { return }
+        let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
+        emitGeneratorRow(mode: mode, cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
-                case .riff:
-                    emitRiffRow(cell: cell, row: r, machine: treatDrive, transpose: transpose, emits: emits,
-                                box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                                windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
-                default: break
-                }
-                return
-            }
-            if let li = composableLengthTailIndex(cell) {   // [<composable upstream> → LENGTH]: LENGTH re-articulates the composed set (no driver to fold it per-note)
-                emitLengthComposedRow(cell: cell, row: r, machine: machine, transpose: transpose, emits: emits,
-                                      lenIdx: li, pool: pool, beatPos: beatPos, windowBeats: windowBeats,
-                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                      S: S, a: a, out: out, diag: &diag)
-                return
-            }
-            if isHoldTailChain(cell) { return }   // CELL MACHINE: a hold-tail chain emits at column boundaries (emitColumnHolds), not here
-
-            switch mode {
-            case .arp:
-                emitArpRow(cell: cell, row: r, machine: treat, transpose: transpose,
-                           emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
-                           windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                           beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .ratchet:
-                emitRatchetRow(cell: cell, row: r, machine: treat, transpose: transpose,
-                               emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
-                               windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                               beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .strum:
-                emitStrumRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
-                             pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                             beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .euclid, .burst, .cascade, .drone, .shift, .humanize, .hocket:
-                // PART GRID × GENERATOR interaction bug (Paul 2026-10-04, "it feels more like a problem with the
-                // part grid than the euclid, or it may be in the way they interact"): this STANDALONE-driver branch
-                // (chainDriverIndex(cell) < 0 — no multi-slot chain to fold) used to omit cycleBeats entirely, so
-                // emitGeneratorRow's `cyc = cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S` silently fell back
-                // to the hardcoded 8-column default — on a 16-wide part (or any row whose per-part RATE/LENGTH
-                // differs from the scene default, forcing the multi-clock path), the generator's own SPAN re-anchor
-                // and its `columns:` wraparound both derived from that wrong, too-short cycle, permanently capping
-                // it to the FIRST HALF of a 16-column pass (or more generally, Snap.cols worth of it) — reproduced
-                // in testEuclidFreshRowOnA16WidePartPlaysThroughAllSixteenColumns. The sibling ARP/RATCHET/RIFF
-                // cases a few lines above already pass cycleBeats correctly; this was the one gap.
-                emitGeneratorRow(mode: mode, cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
-                                 pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                                 windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
-            case .weave:
-                emitWeaveRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
-                             pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                             S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
-            case .riff:                            // DRIVER — the stored rank stencil, derived against the held chord
-                emitRiffRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
-                            box: box, pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                            windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                            S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .echo, .identity, .chance, .harmonize, .split, .avoid, .chords, .octave, .transpose:
-                break   // echo's dry fired at the transition (repeats drain per-window); the set-shapers (CHANCE/HARMONIZE/SPLIT/AVOID/CHORDS · OCTAVE/TRANSPOSE shift) emit via the compose/hold path, not per-tick
-            case .tutti:
-                if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
-                    emitTuttiPatternRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
-                                        pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                                        windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-                }
-            case .length:                          // standalone LENGTH re-articulates the held chord per the painted gate
-                emitLengthRow(cell: cell, row: r, machine: treat, transpose: transpose, emits: emits,
-                              pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                              windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .silent:
-                break   // a silenced downstream stage → nothing this window
-            }
+                                 S: S, a: a, cycleBeats: cycleBeats, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
     }
 
-    private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool, pass: Int,
-                                 S: Double, a: Double, mNow: Double, beatPos: Double,
-                                 beatsPerSample: Double, windowStart: Int64,
-                                 windowEnd: Int64, tempo: Double, out: MIDIEmitter?,
-                                 // PART GRID × GENERATOR interaction bug (Paul 2026-10-05, same root cause as the
-                                 // EUCLID 16-wide-part fix the day before): STRIKE PER SPAN and the CHORDS-hold
-                                 // composeChainSet pass counter used to hardcode Double(Snap.cols) * S instead of
-                                 // the row's REAL cycle length — correct only by coincidence on a default 8-column,
-                                 // default-rate row. Required (no default): this function has no business guessing
-                                 // a row's length when every caller already has the right value in scope (the
-                                 // uniform fast path's own global cycleBeats, or the multi-clock path's per-row cycR).
-                                 cycleBeats: Double,
-                                 reconcileOnly: Bool = false,   // PLAY: THIS CELL frozen-column re-run — adopt/close the immortal holds only, never re-strike
-                                 auditionSustain: Bool = false, // PINNED continuous row (the SELECT/PLAY audition): sustain EVERY hold like forceColumnHold, so a frozen single-column preview rings continuously
-                                 onlyRow: Int? = nil,           // PER-PART CLOCK: scope the hold reconcile + emit to ONE row
-                                 diag: inout KernelDiag) {
-        let colStart = columnStart(mNow, S)
-        let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                windowStart: windowStart, S: S, a: a)
-        let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                 windowStart: windowStart, S: S, a: a)
-        // §2 CONTINUITY: every audible IMMORTAL (legato) voice from the previous column is a candidate for
-        // ADOPTION. The reconcile below un-marks each one this column re-holds identically; any still marked
-        // at the end were dropped (a different chord, a changed emitter/face, or an empty column) and close
-        // at the boundary. An empty pool → no cell emits → all candidates close (close-at-first-empty-column,
-        // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
-        // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+machine+face), so
-        // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
-        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 && !voices[i].glideAnchor && !voices[i].rtcHold && !voices[i].euclideousLegato
-            && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) }   // BYPASS + GLIDE + EUCLIDEOUS-LEGATO voices are immortal but NOT grid holds — never adopt/close them here; per-part clock scopes to the row
-        // Proceed while the LIVE pool has notes OR any receiver is latch-armed: an armed receiver's FROZEN pool
-        // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
-        // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
-        // emptied the live pool and the whole hold loop was skipped — the latch "did nothing".)
-        if pool.count > 0 || latchMask != 0 {
-        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {   // PER-PART CLOCK: one row, or all (no per-call allocation)
-            var cell = box.cells[column * Snap.rows + r]
-            if cell.machineIndex < 0 || cell.busMask == 0 || cell.muted || cell.dormant { continue }   // LADDER dormant
-            if cell.passthrough && cell.resolvedReceiver >= 0 { continue }   // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected passthrough passes its input straight through in REALTIME (reconcileBypass), NOT on the grid's step clock. (A door-less passthrough — no receiver to source from in the per-door bypass pass — stays a gridded hold.)
-            if !box.renderAuto.isEmpty { applyRenderAuto(&cell, box: box, r: r, musicalBeat: mNow, S: S) }   // PHASE 2: ×N/SMOOTH render-time param ramp (a hold samples the value at the column-entry beat)
-            applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, cycleBeats: cycleBeats, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
-            if box.hasParamLFO { applyParamLFO(&cell, box: box, r: r, beat: mNow, S: S, column: column) }   // PER-PARAM LFO (Docs/PLAN-param-lfo.md): swing scalar params around their base
-            if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
-            if composableLengthTailIndex(cell) != nil { continue }   // [→ LENGTH] re-articulates the composed set in the tick loop (emitLengthComposedRow), never a plain hold here
-            if isEchoTail(cell) { continue }       // ECHO: an echo-tail cell fires its dry + tail in emitEchoColumn, never a hold here
-            if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
-            currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
-            currentMachineIndex = cell.machineIndex      // item 4 marks: this cell's Machine, for the source tint
-            currentCellIndex = column * Snap.rows + r  // SEAL comet: this cell's grid index
-            chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // UTILITY CHANNEL/NUDGE emit overrides for this hold cell
-            dealSetup(cell)   // DEAL: this cell's emitter-deal state (Paul 2026-09-16)
-            let ci = Int(cell.machineIndex)
-            let machine = box.machines[ci]
-            // Cells that chord-hold their MIDI-IN source: identity, CHANCE
-            // (drops each note by probability), and HARMONIZE (expands each note to voices).
-            // Arp/ratchet/strum do not chord-hold.
-            if !onSceneAudible(machine.on, pass: pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
-            let altFlag = cell.alt                                   // this cell's voice-identity face
-            currentAlt = altFlag                                     // §2 stamp fresh voices' face identity
-            // CELL MACHINE: a HOLD-TAIL chain holds the TAIL slot's transform of every upstream stage's composed
-            // set; a plain cell holds its head-only treatment of the source.
-            let holdChain = isHoldTailChain(cell)
-            let holdEchoMute = holdChain && (chainEchoIndex(cell).map { !cell.procs[$0].echoThru } ?? false)   // ECHO MUTE in a hold chain (Paul 2026-08-26): echoes only — suppress the dry (the tails register below); THRU keeps the dry
-            let tailIdx = cell.procs.count - 1
-            var treat = machine; let treatP = holdChain ? cell.procs[tailIdx] : cell.proc
-            treat.a = treatP
-            let mode = cellMode(type: effectiveType(treat),
-                                bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed)
-            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split || mode == .avoid || mode == .octave || mode == .transpose || mode == .chords else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT/AVOID = SET/pitch filters; OCTAVE/TRANSPOSE = pitch SHIFTS (Paul 2026-08-22); CHORDS = a diatonic SET-REPLACE (a lone/tail hold sounds the derived chord — Paul 2026-09-01)
-            if mode == .tutti && !holdChain && treat.a.tuttiMode == .pattern { continue }   // PATTERN standalone re-articulates per slice in the tick loop, not here
-            // CHORDS (Paul 2026-09-01): the stage REPLACES the set with a derived diatonic chord. Compose it INTO
-            // chainScratch (upto the CHORDS slot INCLUSIVE) and read the emission source from chainScratch — so a lone
-            // [CHORDS] and a [X→CHORDS] tail both SOUND the chord as a plain (legato-adoptable) hold, no per-rank map.
-            let chordsHold = (mode == .chords)
-            let readScratch = holdChain || chordsHold
-            let transpose = machineTranspose(ci, machine)
-                          + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
-                          + holdShift(treatP, mode: mode)                // UTILITY: OCTAVE (±12·n) / TRANSPOSE (±semitones) shift the held (composed) set
-            let prob = (mode == .chance) ? effectiveProbability(treat.a, step: Int((colStart / S).rounded())) : 1   // CHANCE PATTERN: per-step odds (Paul 2026-08-22)
-            let droneScale = mode == .drone ? max(0.05, min(1.0, treatP.gate)) : 1.0   // DRONE: GATE = the pad's velocity level (relative to the source)
-            let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
-            // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
-            // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
-            // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
-            // PLAY: THIS CELL (forceColumnHold) freezes the column, so this can't re-fire on a boundary to sustain a
-            // gated hold — the cell would sound one column then die. Treat EVERY hold mode (identity / chance /
-            // harmonize) as immortal+adopted so the machine plays CONTINUOUSLY; the frozen colStart makes the chance
-            // dice + harmony stable, so the every-window re-run (reconcileOnly) adopts the identical set (no re-strike).
-            // A FROZEN-COLUMN preview sustains EVERY hold (Paul device 2026-09-01): PLAY THIS CELL (forceColumnHold) AND the
-            // continuous SELECT/PLAY audition (a row PINNED to one column → no re-firing transition, `auditionSustain`) treat
-            // every hold mode (identity / chance / harmonize / SPLIT / AVOID / OCTAVE / TRANSPOSE / CHORDS, incl. a bypassed-
-            // driver identity tail like [CHORDS→bypassed ARP]) as immortal+adopted, so the preview RINGS instead of striking
-            // once and gating off. The every-window reconcile below re-derives + adopts (tracks a late latch / a changing
-            // note). On a SWEEPING row nothing here fires — holds re-strike per column boundary as before (byte-identical).
-            let soloSustain = (forceColumnHold || auditionSustain) && (bm & altMask) == 0
-            let legato = (bm & altMask) == 0 && ((mode == .identity && treat.a.phase == .legato) || mode == .drone || soloSustain)
-            if reconcileOnly && !legato { continue }   // frozen-column re-run: only the immortal holds reconcile
-            // STRIKE PER SPAN (Paul 2026-08-27, the span ladder's other half): a legato hold (v1: DRONE) fires ONCE at
-            // each span origin and HOLDS (adopts) through the rest — the multi-column pad. Off the same span-ladder
-            // re-anchor: at a span origin we DISABLE adoption below, so the old immortal stays a holdCandidate (closed at
-            // the loop end, refcount-safe → NO wire off) while the fresh strike restrikes the same wire (openVoice off→on)
-            // — a clean re-attack. Between origins we adopt (no re-strike). Key-up (empty pool) closes as usual. Skipped
-            // under reconcileOnly (PLAY: THIS CELL freezes the column → would re-articulate every window). nil ⇒ off ⇒ today's drone.
-            let spsSpanBeats = (legato && treat.a.strikePerSpan && !reconcileOnly)
-                ? spanLadderBeats(treat.a.strikeSpanN, S: S, row: cycleBeats) : 0
-            let spsReArticulate = spsSpanBeats > 0 && abs(colStart - columnStart(colStart, spsSpanBeats)) < 1e-9
-            // §cell-edit F CHOP: a hold is ONE articulation (at colStart = slice 0), so route it by that slice's
-            // chop — MAIN adds the cell's own emitters, ALT adds altDest, MUTE silences. `chopMask` returns `bm`
-            // unchanged when the cell has no chop, so this is a no-op for ordinary holds. (Tick cells chop per-tick.)
-            let hbm = chopMask(cell, m: colStart, S: S, base: bm)
-            let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
-            // CHORDS reads its progression clock from the RAW beat (mNow), NOT the grid-quantized colStart — else the rate
-            // step is sampled only at column boundaries and aliases to one degree (Paul 2026-09-01). Other holds keep colStart.
-            let composeM = chordsHold ? mNow : colStart
-            if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: chordsHold ? tailIdx : tailIdx - 1, m: composeM, S: S, cycleBeats: cycleBeats) }   // CHORDS tail: include the stage so chainScratch holds the derived chord
-            else if chordsHold { composeChainSet(cell: cell, pool: cellPool, upto: 0, m: composeM, S: S, cycleBeats: cycleBeats) }   // lone [CHORDS]: fold the single stage
-            let srcN = readScratch ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter (CHORDS reads the composed chord)
-            // §2 POOL-STEP UNITS (standalone/hold): TRANSPOSE steps the note by pool DEGREES; HARMONIZE voices in degrees.
-            // The pool mask = the SOURCE set's pitch classes (the scale/chord feeding the cell). procShift = the processor's
-            // own shift (register offsets stay semitone). Mask computed once per hold (no render alloc).
-            let poolTrans = mode == .transpose && treat.a.utilTransposeUnits == .pool
-            let poolHarm = mode == .harmonize && treat.a.harmUnits == .pool
-            let holdPoolMask: UInt16 = (poolTrans || poolHarm) ? (holdChain ? chainScratch.pitchClassMaskAll() : cellPool.pitchClassMaskAll()) : 0
-            let procShift = holdShift(treatP, mode: mode), regShift = transpose - procShift
-            // TUTTI: one seeded roll per STEP decides the whole set — TUTTI (−1 = every rank passes) or SOLO (only the
-            // PICK-chosen rank). The step index is derived from musical position (colStart/S) so it's loop-consistent.
-            let tuttiSolo: Int = {
-                guard mode == .tutti, treat.a.tuttiMode == .coin else { return -1 }   // PATTERN (phase 2) passes through
-                let step = S > 0 ? Int((colStart / S).rounded()) : 0
-                return tuttiIsTutti(step: step, balance: treat.a.tuttiBalance) ? -1 : tuttiSoloRank(step: step, count: srcN, pick: treat.a.tuttiPick)
-            }()
-            // SPLIT (standalone/hold): the subset window of the held set to keep (TOP/BOTTOM re-rank the live pool; RANGE absolute).
-            let splitWin: (start: Int, len: Int) = (mode == .split)
-                ? chordSplitWindow(count: srcN, split: treat.a.splitSet,
-                                   noteAt: { holdChain ? Int(chainScratch.srcAscending($0, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending($0, for: cell)) })
-                : (0, srcN)
-            let avoidHoldMask: UInt16 = mode == .avoid ? avoidRefMask(treatP, ownDoor: Int(cell.resolvedReceiver), ownBusMask: cell.busMask) : 0   // AVOID/LOCK (standalone / hold-tail): the reference set, once per hold
-            // The FINAL emitted note for rank k (base + the register/pool shift) — also the survivor scan's input.
-            let holdFinalNote: (Int) -> Int = { k in
-                let b = holdChain ? Int(self.chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
-                return poolTrans ? poolStepMask(b, steps: procShift, pcMask: holdPoolMask) + regShift : b + transpose
-            }
-            let avoidSurvivorMask: UInt16 = (mode == .avoid && !treatP.avoidLock && treatP.avoidMove && avoidHoldMask != 0)
-                ? avoidSurvivors(holdFinalNote, count: srcN, refMask: avoidHoldMask) : 0   // AVOID MOVE lands only on the input scale's surviving notes
-            for k in 0..<srcN where !holdEchoMute {                  // ECHO MUTE: the dry is suppressed (echoes-only); tails still register below
-                let base = readScratch ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
-                var n = poolTrans ? poolStepMask(base, steps: procShift, pcMask: holdPoolMask) + regShift : base + transpose
-                if mode == .avoid {                                   // AVOID/LOCK filter (standalone/hold-tail): drop (REMOVE) or remap (MOVE)
-                    guard let f = avoidFilter(n, treatP, refMask: avoidHoldMask, survivorMask: avoidSurvivorMask) else { continue }
-                    n = f
-                }
-                guard n >= 0 && n <= 127 else { continue }
-                let vel0 = max(1, readScratch ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
-                let vel = droneScale < 1.0 ? clampVel(Int((Double(vel0) * droneScale).rounded())) : vel0   // DRONE scales by GATE
-                if mode == .chance && !chancePassesPool(beat: colStart, note: n, rank: k, count: srcN, probability: prob, tilt: treat.a.chanceTilt, constantDensity: treat.a.chanceDensity) { continue }   // POOL-AWARE chance (user 2026-08-11)
-                if mode == .tutti && tuttiSolo >= 0 && k != tuttiSolo { continue }   // TUTTI SOLO step: only the PICK-chosen rank sounds
-                if mode == .split && (k < splitWin.start || k >= splitWin.start + splitWin.len || Int(vel0) < treat.a.splitVel.floor || Int(vel0) > treat.a.splitVel.ceil) { continue }   // SPLIT: keep the subset + vel band
-                if mode == .harmonize {
-                    emitHarmony(base: n, machine: treat, baseVel: vel, row: r, storeArtics: false,
-                                busMask: hbm, on: onSample, off: offSample, beat: colStart,
-                                windowEnd: windowEnd, sustain: soloSustain, poolMask: poolHarm ? holdPoolMask : 0, out: out, diag: &diag)   // PLAY: THIS CELL — harmonize holds sustain + adopt too
-                } else if legato {
-                    // §2 per-bus reconcile: ADOPT the buses a matching drone already sounds (no off/on);
-                    // STRIKE only the buses that are new — each opened IMMORTAL (offSample .max) so drainDue
-                    // never truncates it and only the next boundary's reconcile can close it.
-                    var emitMask: UInt8 = 0
-                    for b in UInt8(0)..<4 where hbm & (1 << b) != 0 {
-                        let sw = n + emitterOctaveShift(Int(b)) + masterKey  // the octave/key-shifted pitch…
-                        guard sw >= 0 && sw <= 127 else { continue }         // out of range → emitOneBus would drop it
-                        guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }  // …then FENCE — the exact wire pitch emitOneBus will open (DROP → no bus)
-                        // STRIKE PER SPAN: at a span origin, skip adoption (|| short-circuits adoptLegatoBus away) so the
-                        // old immortal is NOT un-marked — it closes at the loop end (refcount-safe) while the fresh strike re-attacks.
-                        if spsReArticulate || !adoptLegatoBus(wire: w, bus: b, ci: Int16(ci), alt: altFlag) { emitMask |= (1 << b) }
-                    }
-                    if emitMask != 0 {
-                        emitArtic(note: UInt8(n), busMask: emitMask,
-                                  onSample: onSample, offSample: .max, windowEnd: windowEnd,
-                                  velocity: vel, out: out, diag: &diag)
-                    }
-                } else {
-                    emitArtic(note: UInt8(n), busMask: hbm,
-                              onSample: onSample, offSample: offSample, windowEnd: windowEnd,
-                              velocity: vel, out: out, diag: &diag)
-                }
-            }
-            // TAP in a HOLD-tail chain (Paul 2026-08-26, [X→TAP] / [X→TAP→Y] with no tick driver): mirror each TAP slot's
-            // INPUT set to its wire (LEVEL-scaled), once per column entry — the parallel send, matching the driver-path TAP
-            // (emitDriverNote). THIS WIRE (0) layers on the cell's chopped output; A–D goes to that emitter; MUTE = no dry
-            // effect (TAP is note-transparent, so the dry hold already played the passing stream).
-            if !reconcileOnly, holdChain {
-                for t in 0..<cell.procs.count where cell.procs[t].type == .tap && !cell.slotBypass[t] {
-                    let tp = cell.procs[t]
-                    if tp.tapMute { continue }
-                    composeChainSet(cell: cell, pool: cellPool, upto: t - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)
-                    let tapBM: UInt8 = tp.tapTo == 0 ? hbm : (UInt8(1) << UInt8(max(0, min(3, tp.tapTo - 1))))
-                    for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
-                        let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
-                        let tn = base + transpose; guard tn >= 0 && tn <= 127 else { continue }
-                        let tv = clampVel(Int((Double(max(1, chainScratch.velocity(UInt8(base)))) * tp.tapLevel).rounded()))
-                        emitArtic(note: UInt8(tn), busMask: tapBM, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: tv, out: out, diag: &diag)
-                    }
-                }
-            }
-            // ECHO in a HOLD-tail chain ([ECHO→HARMONIZE], [ECHO→SPLIT], …): register tails. DIRECT (default) repeats the
-            // FULLY-PROCESSED final set (position-blind, v1 — without this the echo is dropped, composeChainSet folds it
-            // as pass-through; user 2026-08-10 bug). CHAIN (§7②, Paul 2026-08-22) seeds from ECHO's INPUT set and
-            // drainEchoTails re-folds each repeat through the stages AFTER the ECHO slot (so [ECHO→SPLIT] thins each repeat).
-            if !reconcileOnly, holdChain, let ei = chainEchoIndex(cell) {
-                let ep = cell.procs[ei]
-                let chainRoute = ep.echoRoute == .chain && ei < tailIdx     // CHAIN only when a downstream stage exists
-                composeChainSet(cell: cell, pool: cellPool, upto: chainRoute ? ei - 1 : tailIdx, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)
-                for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
-                    let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
-                    let n = base + transpose; guard n >= 0 && n <= 127 else { continue }
-                    pushEchoForNote(n, vel: max(1, chainScratch.velocity(UInt8(base))), bm: hbm, p: ep, onset: colStart, S: S, tempo: tempo,
-                                    route: chainRoute ? .chain : .direct, cellIdx: chainRoute ? currentCellIndex : -1, echoSlot: chainRoute ? ei : -1)
-                }
-            }
-        }
-        }
-        // §2 CONTINUITY: close the drones this column did NOT re-hold (dropped notes / empty column), at the
-        // boundary. Adopted voices were un-marked above and flow through untouched.
-        for i in voices.indices where holdCandidate[i] { closeVoice(i, atSample: onSample, out: out) }
-    }
 
-    /// ECHO (tail-era §2) — at a column ENTRY, strike each echo cell's DRY chord (short, so every repeat retriggers
-    /// on the synth) and REGISTER a tail per struck note. Single-slot `[ECHO]` cells only (v1): a multi-slot chain's
-    /// echo folds as pass-through (mode is taken from the head). Called once per column transition; the repeats
-    /// themselves emit from `drainEchoTails` every window.
-    private func emitEchoColumn(box: SnapshotBox, column: Int, pool: NotePool, pass: Int, S: Double, a: Double, tempo: Double,
-                               mNow: Double, beatPos: Double, beatsPerSample: Double, windowStart: Int64,
-                               windowEnd: Int64, out: MIDIEmitter?, onlyRow: Int? = nil, diag: inout KernelDiag) {
-        guard pool.count > 0 || latchMask != 0 else { return }
-        let colStart = columnStart(mNow, S)
-        let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                windowStart: windowStart, S: S, a: a)
-        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
-            let cell = box.cells[column * Snap.rows + r]
-            if cell.machineIndex < 0 || cell.busMask == 0 || cell.muted || cell.dormant { continue }
-            if soloSilenced(cell) { continue }
-            let ci = Int(cell.machineIndex)
-            let machine = box.machines[ci]
-            if !onSceneAudible(machine.on, pass: pass) { continue }
-            if isEchoTail(cell) {   // single-slot [ECHO] OR a hold-upstream chain tail (…→ECHO)
-                let tailIdx = cell.procs.count - 1
-                let p = cell.procs[tailIdx]                 // the ECHO slot's own controls (user 2026-08-08)
-                registerEcho(p, cell: cell, machine: machine, ci: ci, column: column, r: r, pool: pool, tempo: tempo,
-                             colStart: colStart, onSample: onSample, S: S, a: a, beatPos: beatPos,
-                             beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
-            } else if composableLengthTailIndex(cell) != nil, let ei = chainEchoIndex(cell) {
-                // §7② [ECHO→…→LENGTH]: LENGTH re-articulates in the tick loop (emitLengthComposedRow), which SWALLOWS the
-                // echo (composeChainSet folds it as passthrough) — so this is the ONLY place its tails register. Column
-                // entry, once. DIRECT = echo the composed set flat; CHAIN = re-fold each repeat through LENGTH (choked/tied).
-                registerLengthChainEcho(cell: cell, echoIdx: ei, machine: machine, ci: ci, column: column, r: r, pool: pool, tempo: tempo, beatsPerSample: beatsPerSample, colStart: colStart, S: S)
-            }
-        }
-    }
-    /// §7② Register the echo tails for a non-driver [ECHO→…→LENGTH] chain (LENGTH's re-articulator swallows the echo).
-    /// Once per column entry (from emitEchoColumn). NO dry strike — the length-gated dry is emitted by emitLengthComposedRow
-    /// (which suppresses it when the echo is MUTE). CHAIN re-folds each repeat through LENGTH at drain; DIRECT echoes flat.
-    private func registerLengthChainEcho(cell: SnapCell, echoIdx ei: Int, machine: SnapMachine, ci: Int, column: Int, r: Int,
-                                         pool: NotePool, tempo: Double, beatsPerSample: Double, colStart: Double, S: Double) {
-        let ep = cell.procs[ei]
-        var last = -1, i = cell.procs.count - 1
-        while i >= 0 { if !cell.slotBypass[i] { last = i; break }; i -= 1 }
-        let chainRoute = ep.echoRoute == .chain && ei < last
-        // Compute the delay the SAME way registerEcho does — synced (div/16ths) OR free (ms→beats at tempo). pushEchoForNote
-        // is synced-only, so pushing directly here is what keeps a FREE-delay MUTE echo audible (else dry-suppressed + no
-        // tails = silence, the review's regression). (Paul 2026-08-23)
-        let timeBeats = ep.echoSync ? Double(ep.echoDelayDiv) / 4.0 : max(0.001, ep.echoDelayMs / 1000.0 * tempo / 60.0)
-        guard timeBeats > 0 else { return }
-        let repeats = max(1, min(16, ep.echoRepeats))
-        let gateBeats = min(timeBeats * 0.9, S * 0.9)
-        let transpose = machineTranspose(ci, machine) + octaveShift(cell.resolvedReceiver)
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: 0)
-        currentInputRecv = cell.resolvedReceiver; currentMachineIndex = cell.machineIndex; currentCellIndex = column * Snap.rows + r
-        chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // the tails inherit THIS cell's CHANNEL/NUDGE (captured by pushEchoTail)
-        let cellPool = effectivePool(for: cell, live: pool)
-        composeChainSet(cell: cell, pool: cellPool, upto: chainRoute ? ei - 1 : last, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)   // CHAIN = ECHO's INPUT · DIRECT = the composed set (LENGTH is passthrough in composeChainSet)
-        let chopped = chopMask(cell, m: colStart, S: S, base: bm)
-        for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
-            let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
-            let n = base + transpose; guard n >= 0 && n <= 127 else { continue }
-            pushEchoTail(onset: colStart, note: UInt8(n), vel: max(1, chainScratch.velocity(UInt8(base))), busMask: chopped,
-                         timeBeats: timeBeats, repeats: repeats, feedDelay: ep.echoFeedDelay, decay: ep.echoDecay,
-                         offset: ep.echoOffset, pitch: ep.echoPitch, gateBeats: gateBeats, spill: ep.echoSpill,
-                         route: chainRoute ? .chain : .direct, cellIdx: chainRoute ? currentCellIndex : -1, echoSlot: chainRoute ? ei : -1)
-        }
-    }
-    /// Strike the DRY note (only when THRU) + register the echo tail for each source note of an echo-tail cell —
-    /// shared by the single/hold-tail path (emitEchoColumn) and the tick-driven path ([ARP→ECHO], per driver tick).
-    private func registerEcho(_ p: SnapParams, cell: SnapCell, machine: SnapMachine, ci: Int, column: Int, r: Int,
-                              pool: NotePool, tempo: Double, colStart: Double, onSample: Int64, S: Double, a: Double,
-                              beatPos: Double, beatsPerSample: Double, windowStart: Int64, windowEnd: Int64,
-                              out: MIDIEmitter?, diag: inout KernelDiag) {
-        // DELAY TIME: synced = 16th-notes (div/4 beats; 4 = one beat) · free = ms → beats at the live tempo.
-        let timeBeats = p.echoSync ? Double(p.echoDelayDiv) / 4.0 : max(0.001, p.echoDelayMs / 1000.0 * tempo / 60.0)
-        guard timeBeats > 0 else { return }
-        let repeats = max(1, min(16, p.echoRepeats))
-        let gateBeats = min(timeBeats * 0.9, S * 0.9)
-        let offSample = sampleOf(musical: colStart + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                 windowStart: windowStart, S: S, a: a)
-        let transpose = machineTranspose(ci, machine) + octaveShift(cell.resolvedReceiver)
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: 0)
-        currentInputRecv = cell.resolvedReceiver; currentMachineIndex = cell.machineIndex
-        currentCellIndex = column * Snap.rows + r
-        chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // the echo DRY uses THIS cell's UTILITY CHANNEL/NUDGE (not a stale neighbour's); tails reset to wire before drain (review 2026-08-23)
-        // SOURCE: a hold-upstream chain echoes its upstream stages' composed set ([HARMONIZE→ECHO] the widened chord,
-        // [HARMONIZE→ECHO] the harmonised set); a single [ECHO] echoes the cell's source directly.
-        let cellPool = effectivePool(for: cell, live: pool)
-        let multi = cell.procs.count >= 2
-        if multi { composeChainSet(cell: cell, pool: cellPool, upto: cell.procs.count - 2, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
-        let srcN = multi ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)
-        let echoInKey = p.echoPitchMode == .inKey
-        for k in 0..<srcN {
-            let srcNote = multi ? chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111) : cellPool.srcAscending(k, for: cell)
-            let n = Int(srcNote) + transpose
-            guard n >= 0 && n <= 127 else { continue }
-            let vel = max(1, multi ? chainScratch.velocity(srcNote) : cellPool.velocity(srcNote))   // inherit the source velocity (user 2026-08-09)
-            // §cell-edit F CHOP: the dry AND the tail route through the per-slice split (was raw `bm` — echo bypassed
-            // it). Both take the source note's slice destination, so a muted slice silences the note and its echoes.
-            let chopped = chopMask(cell, m: colStart, S: S, base: bm)   // (user 2026-08-09)
-            if p.echoThru && chopped != 0 {               // THRU passes the dry note; MUTE = echoes only
-                emitArtic(note: UInt8(n), busMask: chopped, onSample: onSample, offSample: offSample,
-                          windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
-            }
-            pushEchoTail(onset: colStart, note: UInt8(n), vel: vel, busMask: chopped, timeBeats: timeBeats, repeats: repeats,
-                         feedDelay: p.echoFeedDelay, decay: p.echoDecay, offset: p.echoOffset, pitch: p.echoPitch,
-                         gateBeats: gateBeats, spill: p.echoSpill,
-                         inKeyMode: echoInKey, inKeyReceivers: echoInKey ? p.echoInKeyReceivers : 0)
-        }
-    }
 
     // ECHO IN-KEY: union of the live pitch-classes of every SELECTED receiver (bit i = A..D) — mirrors avoidRefMask's
     // .sounding union (line ~207), but user-selected rather than "every other door."
@@ -3028,7 +2332,6 @@ final class Router {
     private func iterateTicks(row: Int, effColumn: Int, sub: Double, gateFraction: Double,
                               beatPos: Double, windowBeats: Double, windowStart: Int64,
                               beatsPerSample: Double, S: Double, a: Double, columns: Int = Snap.cols,
-                              clockCell: SnapCell? = nil, clockFrom: Int = 0, clockTo: Int = 0, cycleBeats: Double = 0,
                               lineIndex: Int = 0,   // which of this row's up-to-tickDedupSlotsPerRow lines this call is (EUCLID only; every other caller keeps the default, landing on slot 0 — byte-identical to the old single-scalar-per-row dedup)
                               tickFrom: Double = -Double.infinity, tickBefore: Double = Double.infinity,   // LANE LOCK: a window split at a lock line runs the lane twice — ticks before the line, then ticks from it (the default is every tick: byte-identical)
                               // RHYTHM POLISH (2026-10-22): how many STEPS into its tick cell this tick's hit sounds (0 for no hit / no timing ⇒ byte-identical). A delay is always < 1 step, so a hit stays inside its own cell; the
@@ -3037,13 +2340,11 @@ final class Router {
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
-        let hasClock = clockCell != nil && clockTo > clockFrom
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         // `originRef: mStartReal` throughout this call — a single stable span-anchor reference for the whole
         // window, so every tick discovered below agrees on the same origin regardless of how many are found.
-        let mStart = hasClock ? driverClockBeat(clockCell!, from: clockFrom, to: clockTo, atBeat: mStartReal, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mStartReal
-        let mEnd = hasClock ? driverClockBeat(clockCell!, from: clockFrom, to: clockTo, atBeat: mEndReal, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mEndReal
+        let mStart = mStartReal, mEnd = mEndReal
         // floor, not ceil: a tick AT a column boundary sits between render windows — the previous
         // column's window rejects it (wrong column) and ceil would round past it, dropping the
         // column's first note. floor + the == dedup catches it once (fired slightly late, clamped).
@@ -3053,7 +2354,7 @@ final class Router {
 
         for tick in firstTick...lastT {
             let mTickBeat = Double(tick) * sub   // LOCAL beat — feeds body() for note-selection only, never scheduling
-            let mTickBeatReal = hasClock ? driverClockBeatInverse(clockCell!, from: clockFrom, to: clockTo, atLocalBeat: mTickBeat, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mTickBeat
+            let mTickBeatReal = mTickBeat
             if mTickBeatReal + 1e-9 < tickFrom || mTickBeatReal + 1e-9 >= tickBefore { continue }   // LANE LOCK: before the dedup, so the other segment still gets this tick
             // Which column is EFFECTIVE at this tick's step (lap-aware, §5b) — REAL time, since columns stay
             // upstream of CLOCK — so a held column's ticks fire during the current window even though the tick's
@@ -3076,8 +2377,7 @@ final class Router {
             // so the local off-beat is computed, inverted back to real time, THEN clamped to the real column end.
             let colEnd = columnStart(mTickBeatReal, S) + S
             let mOffLocal = mTickBeat + sub * gateFraction
-            let mOffReal = hasClock ? driverClockBeatInverse(clockCell!, from: clockFrom, to: clockTo, atLocalBeat: mOffLocal, S: S, cycleBeats: cycleBeats, originRef: mStartReal) : mOffLocal
-            let mOff = min(mOffReal, colEnd)
+            let mOff = min(mOffLocal, colEnd)
             let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)
             body(tick, mTickBeat + delayBeats, onTime, offTime)
@@ -3112,26 +2412,7 @@ final class Router {
             }
             if let rr = onlyRow { resetTickDedup(row: rr); strumProgress[rr] = 0; lastGenStep[rr] = Int64.min }
             else { resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0; lastGenStep[r] = Int64.min } }
-            emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
-                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, cycleBeats: cycleBeats, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)   // pinned → strike immortal so the preview rings
-            emitEchoColumn(box: box, column: effCol, pool: pool, pass: pass,   // ECHO: strike the dry + register the tail
-                           S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                           windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
             return effCol
-        } else if forceColumnHold || pinned {
-            // PLAY: THIS CELL (forceColumnHold) OR a PINNED continuous row (the SELECT/PLAY audition, a single-column
-            // loop that never re-transitions) — re-run the holds every window to SUSTAIN the legato ones (adopt when
-            // unchanged, re-strike when the derived set CHANGES). This is what makes a legato CHORDS follow a late-armed
-            // latch / a changing FOLLOW note on the audition instead of striking once and gating off (Paul 2026-09-01).
-            emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
-                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, cycleBeats: cycleBeats, reconcileOnly: true, auditionSustain: pinned, onlyRow: onlyRow, diag: &diag)
-        } else if heldActive && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
-            // AUDIT B2: a single-column lap pins the column so no edge fires — reconcile now to close orphaned drones.
-            emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
-                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, tempo: tempo, out: out, cycleBeats: cycleBeats, onlyRow: onlyRow, diag: &diag)
         }
         return prevEdge
     }
@@ -3324,7 +2605,7 @@ final class Router {
             for i in 0..<4 { euclideousEchoCurrent[i].reset(); euclideousEchoLast[i].reset(); euclideousEchoCycleNum[i] = Int64.min; euclideousEchoFollowerJ[i] = 0 }
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
             resetRecorderCapture(full: false)            // RECORDER: keep the committed loop across a stop→start; discard any partial capture
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: reset the CC on transport edges
+            flushEuclideousLegato()   // MOD: reset the CC on transport edges
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
@@ -3334,7 +2615,7 @@ final class Router {
             diag.panics &+= 1
             clearEchoTails()                             // ECHO: panic drops every pending tail
             resetRecorderCapture(full: true)             // RECORDER: panic clears the loops too
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: reset the CC on panic
+            flushEuclideousLegato()   // MOD: reset the CC on panic
         }
         // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): a NARROWER flush than panic — only
         // Euclideous's own row's sounding voices (the same `cellIndex % Snap.rows` row filter
@@ -3363,7 +2644,7 @@ final class Router {
             prevEffColumn = -1
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
             resetRecorderCapture(full: true)             // RECORDER: the old scene's loops die on the switch
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // MOD: the old scene's CC state resets on the switch
+            flushEuclideousLegato()   // MOD: the old scene's CC state resets on the switch
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
@@ -3373,7 +2654,7 @@ final class Router {
             prevLatchMask = latchMask
             clearEchoTails()                             // ECHO: the pool swapped — drop tails from the old chord
             resetRecorderCapture(full: false)            // RECORDER: keep the loop across a latch edge; discard partial capture
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
+            flushEuclideousLegato()   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
         }
 
         pool.rebuildSorted()
@@ -3391,7 +2672,7 @@ final class Router {
                 for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 }
                 clearEchoTails()
                 resetRecorderCapture(full: false)             // RECORDER: unfreeze keeps the loop
-                flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()
+                flushEuclideousLegato()
             }
             prevFreezeActive = frozen
         }
@@ -3422,7 +2703,7 @@ final class Router {
             resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             clearEchoTails()                             // ECHO: a pass restart drops the old pass's tails
             resetRecorderCapture(full: false)             // RECORDER: a pass restart keeps the loop (it IS the loop)
-            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide(atSample: renderSampleImmediate, out: out); flushEuclideousLegato()   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
+            flushEuclideousLegato()   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
         }
         let beatPos = beatPos - passAnchor
 
@@ -3460,19 +2741,6 @@ final class Router {
         let anyLaunchAnchor = box.rowLaunchAnchor.contains { $0 != 0 }   // PLAY-FERRY LAUNCH: an anchored ferry needs the per-row clock (its own phase offset), so it can't ride the uniform fast path
         let uniformFast = uniformClock && !perRowLap && !anyLaunchAnchor   // a per-row lap (BUILD's two grids) or a launch anchor forces the per-row path too
 
-        // CLOCK-MODE SWITCH stuck-note fix (Paul 2026-09-01 bug-hunt): a LIVE uniform↔multi flip (a per-part-rate edit,
-        // or entering/leaving a per-row lap) moves glide/mod's per-row tracker slot (onlyRow r ↔ nil → glideLastColumn/
-        // modLastColumn), orphaning an IMMORTAL glide anchor / a mod-reset leave-disposition at its OLD column → the glide
-        // never phrase-ends (a stuck drone) / the CC hangs. The per-row reconcile below (prevEffColumnRow re-seed) keeps
-        // HOLDS seamless across the switch; glide/mod need their own close. So on a genuine mode CHANGE (not a flush edge —
-        // those already flushed + returned), phrase-END every glide voice (emits its note-off) + send the mod leave-resets
-        // + clear the glide trackers, so both re-establish cleanly on the new clock this same window. Covers BOTH directions
-        // (the line-2440 prevEffColumnRow re-seed only handles uniform→multi).
-        if prevEffColumn != -1 && uniformFast != prevUniformFast {
-            for i in 0..<Snap.cells { glidePhraseEnd(i, atSample: windowStart, out: out) }
-            flushMod(box: box, atSample: windowStart, out: out)
-            for i in glideLastColumn.indices { glideLastColumn[i] = -1 }
-        }
         // ---- column transition (§7): active column changed → truncate all voices at the boundary
         //      (truncate-at-boundary tails), then emit the new column's HELD content once. A
         //      relocation/loop is the same edge, no special case. ----
@@ -3527,43 +2795,6 @@ final class Router {
                        beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd,
                        S: S, a: a, out: out, diag: &diag)
 
-        // THE MOD PROCESSOR (CC, no keys) + GLIDE (mono bend) — BEFORE the pool guard. On the uniform fast path they run
-        // once at the global column; on the multi-clock path each row's MOD/GLIDE cells fire at that ROW's own column
-        // (per-part clock), with per-row leave-disposition. (Paul 2026-08-19)
-        let modWindowBeats = Double(frameCount) * beatsPerSample
-        if uniformFast {
-            emitColumnMod(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
-                          beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, S: S, cycleBeats: cycleBeats)
-            emitColumnGlide(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
-                            beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
-            emitColumnRecorder(box: box, column: effColumn, beatPos: beatPos, windowBeats: modWindowBeats,
-                               passBeats: cycleBeats, S: S, a: a, beatsPerSample: beatsPerSample,
-                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
-        } else {
-            for r in 0..<Snap.rows {
-                if rowLaunchArmed[r] { continue }   // PLAY-FERRY LAUNCH: armed-not-started rows emit nothing (rowEffColBuf = -1)
-                let rowBeat = beatPos - box.rowLaunchAnchor[r]   // PLAY-FERRY LAUNCH: anchored beat (anchor cancels in the offset math; 0 ⇒ raw)
-                emitColumnMod(box: box, column: rowEffColBuf[r], pool: pool, beatPos: rowBeat, windowBeats: modWindowBeats,
-                              beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r,
-                              S: box.rowStep[r], cycleBeats: Double(box.rowLength[r]) * box.rowStep[r])
-                emitColumnGlide(box: box, column: rowEffColBuf[r], pool: pool, beatPos: rowBeat, windowBeats: modWindowBeats,
-                                beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
-                let recSr = box.rowStep[r]; let recPass = Double(box.rowLength[r]) * recSr
-                emitColumnRecorder(box: box, column: rowEffColBuf[r], beatPos: rowBeat, windowBeats: modWindowBeats,
-                                   passBeats: recPass, S: recSr, a: a, beatsPerSample: beatsPerSample,
-                                   windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag, onlyRow: r)
-            }
-        }
-        // FREE / LFO CELL (design-cc-stage §16, Paul 2026-09-09): MOD cells marked FREE emit every window regardless of
-        // the playhead — the grid as a mod-matrix. Scans all cells (active-column FREE slots skipped in emitColumnMod).
-        emitFreeMod(box: box, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
-                    beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
-        // STANDALONE RATCHET PATTERN (Paul 2026-09-08): a per-window pass-through subsystem (scans all cells, owns its
-        // immortal sustains) — BEFORE the pool guard so it closes on release. One call handles uniform + per-row clocks.
-        emitColumnRatchetPattern(box: box, uniformFast: uniformFast, effColumn: effColumn, pool: pool,
-                                 beatPos: beatPos, windowBeats: modWindowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                                 beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
-
         // CHORDS BUTTON (Paul 2026-10-08): a real gap found while testing, not by inspection — this guard
         // predates CHORDS mode and was always safe before it: EVERY processor type in this engine has always
         // needed SOME held/latched input to produce sound, so "nothing held anywhere ⇒ nothing can play" was a
@@ -3591,7 +2822,6 @@ final class Router {
         // persistent frozen/latched notes) instead of an algorithmic generator.
         let euclideousHoldLatchActive = box.cells[Snap.euclideousRow].procs.first?.euclideousHoldLatchMode != nil && euclideousHoldLatchPool.count > 0
         guard pool.count > 0 || latchMask != 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
-            for i in euclidLineReady.indices { euclidLineReady[i] = 0 }   // nothing held/latched ⇒ nothing can play; case .euclid: won't run below to refresh this itself
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
@@ -3600,7 +2830,6 @@ final class Router {
         //      output (mirror model). ARP cells produce ticks; identity-fed cells mirror the feeder;
         //      identity-unfed cells have no tick content (their hold was emitted at the transition). ----
         for r in 0..<Snap.rows { articCount[r] = 0 }
-        for i in 0..<Snap.cells { glideDrivenCount[i] = 0 }   // §7① [driver→GLIDE]: fresh per-window target buffer (emitDriverNote fills it, emitGlideDriven drains it)
         let windowBeats = Double(frameCount) * beatsPerSample
 
         if uniformFast {
@@ -3608,8 +2837,6 @@ final class Router {
                 emitTickRow(r: r, effColumn: effColumn, S: S, cycleBeats: cycleBeats, windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                             beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
-                emitGlideDriven(box: box, column: effColumn, row: r, beatPos: beatPos, windowBeats: windowBeats,   // §7① [driver→GLIDE]: drain the driver's targets into the mono glide voice
-                                beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, out: out)
             }
         } else {
             let globalPass = diag.pass   // per-row ticks run on each row's OWN clock (buffers filled in the transition loop)
@@ -3620,8 +2847,6 @@ final class Router {
                 emitTickRow(r: r, effColumn: rowEffColBuf[r], S: rowSBuf[r], cycleBeats: rowCycBuf[r], windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: rowBeat, windowStart: windowStart, windowEnd: windowEnd,
                             beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, tempo: tempo, euclideousPendingRolls: euclideousPendingRolls, euclideousHoldOverrides: euclideousHoldOverrides, out: out, diag: &diag)
-                emitGlideDriven(box: box, column: rowEffColBuf[r], row: r, beatPos: rowBeat, windowBeats: windowBeats,   // §7① per-row clock
-                                beatsPerSample: beatsPerSample, windowStart: windowStart, S: rowSBuf[r], a: a, out: out)
             }
             diag.pass = globalPass
         }
@@ -3639,176 +2864,9 @@ final class Router {
 
     // MARK: - THE MOD PROCESSOR (CC generator, delta) — a beat-derived shaped CC on the active column's MOD cells.
 
-    /// The unipolar [0,1] a MOD slot's SOURCE produces at beat `b` — SHAPE (LFO) · FOLLOW (sounding material) ·
-    /// STEPS (8-step pattern) · STRIKE (per-entry AR) · EXTERN (incoming CC). Row-3 MIN/MAX maps it to a CC value.
-    private func modSourceUnipolar(_ p: SnapParams, cell: SnapCell, pool: NotePool, b: Double, period: Double, column: Int, entryBeat: Double) -> Double {
-        switch p.modSource {
-        case .shape:
-            return modUnipolar(p.modShape, phase: b / period + p.modPhase, column: column, cc: p.modCC, cycleIndex: Int((b / period).rounded(.down)))   // §14② PHASE offset
-        case .steps:
-            return modStepsUnipolar(p.modSteps, phase: b / period, smooth: p.modSmooth)
-        case .strike:
-            return modStrikeUnipolar(t: b - entryBeat, attack: p.modAttack, release: p.modRelease)
-        case .follow:
-            let src = effectivePool(for: cell, live: pool)
-            let n = src.srcCount(for: cell)
-            var sumN = 0.0, sumV = 0.0
-            for k in 0..<n { let note = src.srcAscending(k, for: cell); sumN += Double(note); sumV += Double(src.velocity(note)) }
-            return modFollowUnipolar(p.modFollow, count: n, meanNote: n > 0 ? sumN / Double(n) : 0, meanVel: n > 0 ? sumV / Double(n) : 0)
-        case .extern:
-            let raw = controllerIn[p.modExternCC & 127]                       // channel-agnostic v1
-            let ext = raw < 0 ? 0 : Double(raw) / 127.0                        // never seen → rest at 0
-            if p.modExternMode == .scale {                                    // §6 SCALE: the wheel scales the SHAPE's depth (rhythm from us, amount from the hand)
-                let sh = modUnipolar(p.modShape, phase: b / period + p.modPhase, column: column, cc: p.modCC, cycleIndex: Int((b / period).rounded(.down)))
-                return sh * ext
-            }
-            return ext                                                        // RE-EMIT (re-ranged by MIN/MAX below)
-        }
-    }
 
-    // SPAN — SHAPE: CELL = the modRate period · ROW = the whole bar. STEPS: PERIOD = the rate period · ROW/×2/×4 =
-    // 1/2/4 bars. Shared by the CC emit path and the §2 internal-target sampler.
-    // S/cycleBeats (Paul 2026-10-05) are now the CALLER's real per-row step/pass length, not Double(Snap.cols)*
-    // box.stepBeats — same bug class as the EUCLID 16-wide-part fix, here affecting MOD's ROW/ROW2/ROW4 span
-    // modes and its GRID STEPS duration ladder. `box` is no longer needed now that both quantities are passed in.
-    private func modPeriodBeats(_ p: SnapParams, S: Double, cycleBeats: Double) -> Double {
-        if p.modStepSpanN > 0 { return max(0.03125, spanLadderBeats(p.modStepSpanN, S: S, row: cycleBeats)) }   // GRID STEPS duration (Paul 2026-09-16, the arp-LFO ladder) — supersedes modRate/modSpan when set
-        if p.modSource == .steps {
-            switch p.modStepSpan {
-            case .period: return max(0.03125, p.modRate.periodBeats)
-            case .row:    return max(0.03125, cycleBeats)
-            case .row2:   return max(0.03125, 2 * cycleBeats)
-            case .row4:   return max(0.03125, 4 * cycleBeats)
-            }
-        }
-        return (p.modSpan == .row) ? max(0.03125, cycleBeats) : max(0.03125, p.modRate.periodBeats)
-    }
 
-    // §2 INTERNAL TARGET (Paul 2026-08-20): apply each internal-target MOD's BOUNDARY value (sampled once at the column
-    // start — boundary-deferred) to the cell's chain params, on the offset lane. Byte-identical when no MOD targets the
-    // chain (the loop finds none → cell untouched). Applied to EVERY slot (harmless where the param is unused) + the head.
-    private func applyInternalMods(_ cell: inout SnapCell, column: Int, pool: NotePool, mNow: Double, S: Double, cycleBeats: Double, box: SnapshotBox) {
-        let boundary = columnStart(mNow, S)   // no render-path allocation — apply each internal MOD's offset inline (invariant 3)
-        for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modTarget == .chain {
-            let mp = cell.procs[si]
-            let u = modSourceUnipolar(mp, cell: cell, pool: pool, b: boundary, period: modPeriodBeats(mp, S: S, cycleBeats: cycleBeats), column: column, entryBeat: boundary)
-            let out = Double(mp.modMin) / 127 + u * Double(mp.modMax - mp.modMin) / 127   // MIN/MAX re-range (MIN>MAX inverts)
-            let off = out * macroParamSpan(mp.modChainParam)                               // scale to the param's span (approved v1 mapping)
-            if off == 0 { continue }
-            let param = mp.modChainParam
-            for sj in 0..<cell.procs.count { cell.procs[sj] = applyModChainOffset(cell.procs[sj], param: param, offset: off) }   // every slot (harmless where unused); `proc` = procs[0]
-        }
-    }
 
-    /// Emit each active-column MOD slot's CC over this window at a control grid (block-size invariant, replay-safe),
-    /// on every ENABLED bus's cable + All, on the bus's stamp channel. Runs BEFORE the held-note guard — MOD needs no
-    /// keys down. When the playhead LEAVES a column, the departed column's MOD cells (modReset) send their default (0).
-    private func emitColumnMod(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
-                               beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?, onlyRow: Int? = nil,
-                               S: Double = 0, cycleBeats: Double = 0) {
-        let slot = onlyRow ?? Snap.rows                           // PER-ROW LEAVE-DISPOSITION: one slot per row, or the global slot
-        if modLastColumn[slot] != Int32(column) {                 // LEAVE-DISPOSITION: reset the column we just left
-            if modLastColumn[slot] >= 0 { emitModResets(box: box, column: Int(modLastColumn[slot]), atSample: windowStart, out: out, onlyRow: onlyRow) }
-            modLastColumn[slot] = Int32(column)
-            modColumnEntryBeat[slot] = beatPos                    // STRIKE: the AR envelope re-triggers on column entry
-        }
-        let entryBeat = modColumnEntryBeat[slot]
-        if masterMute { return }                  // master MUTE kills all output
-        guard column >= 0 && column < Snap.maxCols else { return }
-        let bEnd = beatPos + windowBeats
-        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
-            let cell = box.cells[column * Snap.rows + r]
-            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) { continue }
-            if cell.muted || cell.dormant { continue }
-            for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
-                let p = cell.procs[si]
-                if p.modFree { continue }   // FREE / LFO cell (§16): emitted every window by emitFreeMod, regardless of the active column — skip here to avoid double-emit
-                // TARGET CHANGED (the CC# knob swept): revert the ABANDONED cc to its STANDARD value so sweeping past
-                // e.g. VOLUME (CC7) doesn't leave it knocked down. (user 2026-08-10.)
-                let tkey = (column * Snap.rows + r) * 8 + si
-                if tkey >= 0 && tkey < modPrevTarget.count {
-                    let prev = Int(modPrevTarget[tkey])
-                    if prev >= 0 && prev != p.modCC { emitModCC(cc: prev, value: ccDefault(prev), busMask: cell.busMask, atSample: windowStart, out: out) }
-                    modPrevTarget[tkey] = Int16(p.modCC)
-                }
-                if p.modTarget == .chain { continue }   // §2 INTERNAL TARGET: emits NO CC — the offset is applied to the chain in emitTickRow/emitColumnHolds
-                let period = modPeriodBeats(p, S: S, cycleBeats: cycleBeats)
-                var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
-                while Double(k) * modCtrlBeats < bEnd {
-                    let b = Double(k) * modCtrlBeats
-                    if b >= beatPos {
-                        // CLOCK (Paul 2026-09-26, Stage 3): MOD has no driver — CLOCK reaches it whenever a CLOCK stage
-                        // sits ANYWHERE before MOD's own slot in THIS cell's chain (from chain-start, not driver-relative
-                        // like the fold consumers), transforming only the SHAPE read below; `sample` (when the CC is
-                        // actually sent) stays on the real beat `b` — CLOCK never touches real output timing.
-                        let bClock = S > 0 ? clockTransformedBeat(cell, from: 0, to: si, atBeat: b, S: S, cycleBeats: cycleBeats) : b
-                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: bClock, period: period, column: column, entryBeat: entryBeat)
-                        var value = modMap(s, min: p.modMin, max: p.modMax)
-                        if p.modQuantize > 1 { value = modQuantizeValue(value, levels: p.modQuantize) }   // §14① QUANTIZE
-                        let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
-                        emitModCC(cc: p.modCC, value: value, busMask: cell.busMask, atSample: sample, out: out)
-                    }
-                    k += 1
-                }
-            }
-        }
-    }
-    /// FREE / THE LFO CELL (design-cc-stage §16, Paul 2026-09-09): MOD slots with `modFree` speak EVERY window
-    /// regardless of the playhead — place a cell whose whole job is modulation and the grid becomes a mod-matrix.
-    /// Scans ALL cells (the active column's FREE slots are skipped by emitColumnMod → no double-emit). Beat-derived
-    /// (f(absolute beat) → replay-safe, block-invariant); NO leave-disposition (a FREE cell never exits), and a
-    /// transport/scene flush (flushMod) stops it. Runs once per window, before the pool guard. CC targets only
-    /// (a FREE chain-target has no active column to fold into — out of scope v1).
-    private func emitFreeMod(box: SnapshotBox, pool: NotePool, beatPos: Double, windowBeats: Double,
-                             beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
-        if masterMute { return }
-        let bEnd = beatPos + windowBeats
-        for idx in 0..<Snap.cells {
-            let cell = box.cells[idx]
-            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) { continue }
-            let col = idx / Snap.rows, row = idx % Snap.rows
-            if cell.muted || cell.dormant { continue }
-            let rowS = box.rowStep[row], rowCyc = Double(box.rowLength[row]) * rowS   // CLOCK (Stage 3): this row's own clock, for the transform below
-            for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modFree && cell.procs[si].modTarget == .cc {
-                let p = cell.procs[si]
-                let period = modPeriodBeats(p, S: rowS, cycleBeats: rowCyc)
-                var k = Int((beatPos / modCtrlBeats).rounded(.up))
-                while Double(k) * modCtrlBeats < bEnd {
-                    let b = Double(k) * modCtrlBeats
-                    if b >= beatPos {
-                        let bClock = rowS > 0 ? clockTransformedBeat(cell, from: 0, to: si, atBeat: b, S: rowS, cycleBeats: rowCyc) : b
-                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: bClock, period: period, column: col, entryBeat: 0)   // FREE ignores column entry → phase from the origin
-                        var value = modMap(s, min: p.modMin, max: p.modMax)
-                        if p.modQuantize > 1 { value = modQuantizeValue(value, levels: p.modQuantize) }
-                        let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
-                        emitModCC(cc: p.modCC, value: value, busMask: cell.busMask, atSample: sample, out: out)
-                    }
-                    k += 1
-                }
-            }
-        }
-    }
-    /// Reset every MOD cell in `column` whose modReset is ON to its default (0) — the CC-pollution guard. Stateless.
-    private func emitModResets(box: SnapshotBox, column: Int, atSample: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
-        guard column >= 0 && column < Snap.maxCols, !masterMute else { return }
-        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
-            let cell = box.cells[column * Snap.rows + r]
-            if cell.machineIndex < 0 || cell.busMask == 0 { continue }
-            for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modReset && cell.procs[si].modTarget == .cc {
-                emitModCC(cc: cell.procs[si].modCC, value: cell.procs[si].modMin, busMask: cell.busMask, atSample: atSample, out: out)   // RESET → MIN (CC targets only; internal has no CC)
-            }
-        }
-    }
-    /// Transport/scene/panic flush: reset the last MOD column (leave-disposition) + forget the dedup state.
-    private func flushMod(box: SnapshotBox, atSample: Int64, out: MIDIEmitter?) {
-        for slot in modLastColumn.indices {                       // reset EVERY row's last MOD column (+ the global slot)
-            let onlyRow = slot < Snap.rows ? slot : nil
-            if modLastColumn[slot] >= 0 { emitModResets(box: box, column: Int(modLastColumn[slot]), atSample: atSample, out: out, onlyRow: onlyRow) }
-            modLastColumn[slot] = -1
-        }
-        for i in modLastVal.indices { modLastVal[i] = -1 }
-        for i in modPrevTarget.indices { modPrevTarget[i] = -1 }
-    }
     /// Emit a CC on every ENABLED bus in `busMask` — the per-bus cable (bus+1) + All(0), on the bus's stamp channel.
     /// Deduped per (cable,ch,cc): a repeat of the same value is dropped so a held shape doesn't flood the wire.
     /// `force` (FX TAB, 2026-10-18): send even when the value equals the last one sent on that (cable, channel, controller) — MOD's dedup is right for a
@@ -3848,19 +2906,6 @@ final class Router {
         if gv.mode == .bend  { emitBend(cable: UInt8(gv.bus + 1), ch: ch, value: 8192, atSample: atSample, out: out) }   // SYNTH/STEP emit no bend (Paul 2026-08-26)
         if gv.mode == .synth { out?.emit(sampleTime: atSample, cable: UInt8(gv.bus + 1), 0xB0 | ch, 65, 0) }
     }
-    /// End a GLIDE cell's phrase: close its anchor voice + reset its controllers, and forget the voice.
-    private func glidePhraseEnd(_ cellIdx: Int, atSample: Int64, out: MIDIEmitter?) {
-        let gv = glideVoices[cellIdx]
-        if gv.anchor >= 0 {
-            if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: atSample, out: out) }
-            resetGlideControllers(gv, atSample: atSample, out: out)
-        }
-        glideVoices[cellIdx] = GlideVoice()
-    }
-    private func glidePhraseEndColumn(_ column: Int, atSample: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
-        guard column >= 0 && column < Snap.maxCols else { return }
-        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r { glidePhraseEnd(column * Snap.rows + r, atSample: atSample, out: out) }
-    }
     /// An EXTERNAL closer (MONO voice-steal) just closed the voice at `slot`. If that voice was a GLIDE anchor, the glide
     /// subsystem still holds `glideVoices[k].slot == slot` — a dangling reference to a now-freed (and possibly REUSED) slot,
     /// so a later glide update would wrong-close whatever voice took the slot (a spurious note-off). Forget the bookkeeping:
@@ -3880,488 +2925,14 @@ final class Router {
         }
         for i in glideLastColumn.indices { glideLastColumn[i] = -1 }
     }
-    /// The mono input note (+velocity) a GLIDE cell tracks — by PRIORITY over its filtered source pool.
-    private func glidePickPool(_ pool: NotePool, cell: SnapCell, priority: GlidePriority) -> (note: Int, vel: UInt8) {
-        let n = pool.srcCount(for: cell)
-        guard n > 0 else { return (-1, 0) }
-        let note: UInt8
-        switch priority {
-        case .low:  note = pool.srcAscending(0, for: cell)
-        case .high: note = pool.srcAscending(n - 1, for: cell)
-        case .last: note = pool.srcPlayed(n - 1, filter: cell.inputChannel, cableMask: 0b1111)
-        }
-        return (Int(note), max(1, pool.velocity(note)))
-    }
-    /// R2 (2026-08-30): the OUTPUT pitch a glide voice sounds — the SAME transform the grid applies in emitOneBus:
-    /// emitter OCT overlay + master KEY (per-scene transpose), range-guarded, then the RACK FENCE. nil ⇒ suppress
-    /// (out of range / fence DROP). So a glide plays IN KEY and honours per-emitter octave + FENCE, like every other
-    /// voice (was raw source pitch → glide diverged from the rest of the patch). previewMode bypasses KEY + FENCE
-    /// (a stopped audition, like emitOneBus). Safe: every glide close is by the stored voice SLOT, never a recomputed
-    /// note, so shifting the note at the open sites can never strand an off.
-    private func glideOutNote(_ inNote: Int, bus: Int) -> UInt8? {
-        let sn = inNote + emitterOctaveShift(bus) + masterKey
-        guard sn >= 0 && sn <= 127 else { return nil }
-        return fencedNote(UInt8(sn), bus: bus)
-    }
-    /// R2: whether a glide may sound on this emitter — the emitter ENABLE + output-SOLO gates emitOneBus applies. A
-    /// disabled or soloed-out emitter silences glide; a glide voice on a now-unavailable bus is PHRASE-ENDED at its
-    /// call sites (self-correcting each render → no stuck note). previewMode bypasses (a solo audition has no
-    /// other-emitter context — matches emitOneBus). CLAIM + CONVERSATION are intentionally NOT applied: their discrete
-    /// note-ghost / per-onset-stance models don't map onto a continuous mono bend (flagged as a future item).
-    private func glideBusAvailable(_ bus: Int) -> Bool {
-        return bit(busEnabledMask, bus) && (soloEmitterMask == 0 || bit(soloEmitterMask, bus))
-    }
-    /// Drive the mono glide voices for the active column's single-slot GLIDE cells: anchor on the first note, bend-ramp
-    /// to each in-range target (else RE-ANCHOR / CLAMP), phrase-end on rest or column exit. Runs before the pool guard.
-    // RECORDER (AcceptanceCriteria-recorder) — commit the capture at the record-window end, then play the committed loop.
-    // Runs per window BEFORE the tick loop (like emitColumnGlide), so a commit lands before this window's driver fold.
-    // The buffer is captured in emitDriverNote (upstream driver); REPLACE-suppression of the live note happens there.
-    private func emitColumnRecorder(box: SnapshotBox, column: Int, beatPos: Double, windowBeats: Double,
-                                    passBeats: Double, S: Double, a: Double, beatsPerSample: Double,
-                                    windowStart: Int64, windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag,
-                                    onlyRow: Int? = nil) {
-        if masterMute { return }
-        guard column >= 0 && column < Snap.maxCols else { return }
-        let mStart = musicalOf(beatPos, stepBeats: S, a: a)
-        let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
-            let ci = column * Snap.rows + r
-            let cell = box.cells[ci]
-            guard let rs = recorderSlot(cell) else { continue }
-            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cell.muted || cell.dormant { continue }
-            let rp = cell.procs[rs]
-            let w = recWindow(rp, passBeats: passBeats, stepBeats: S)
-            let unit = Int((mStart / w.unitBeats).rounded(.down))
-            // CANON (rolling self-delay): at each window boundary, the just-finished window's capture → the play buffer;
-            // play it back ONE WINDOW LATE. The live input keeps playing (LAYER in the capture hook), so the phrase
-            // chases itself a window later — a round. Never locks (keeps rolling).
-            if rp.recMode == .canon {
-                let win = max(0.03125, w.window)
-                let widx = Int((mStart / win).rounded(.down))
-                if recWindowIdx[ci] != widx {
-                    let base = ci * Router.recNoteCap, n = min(recCapN[ci], Router.recNoteCap)
-                    for i in 0..<n { recBufStart[base+i] = recCapStart[base+i]; recBufNote[base+i] = recCapNote[base+i]; recBufVel[base+i] = recCapVel[base+i]; recBufGate[base+i] = recCapGate[base+i] }
-                    recBufN[ci] = n; recCapN[ci] = 0; recWindowIdx[ci] = widx
-                }
-                if recBufN[ci] > 0 {
-                    currentCellIndex = ci; chanOverride = -1; nudgeSamples = 0
-                    for i in 0..<recBufN[ci] {
-                        let x = ci * Router.recNoteCap + i
-                        let sched = Double(widx) * win + recBufStart[x]
-                        if sched >= mStart && sched < mEnd {
-                            let onS = sampleOf(musical: sched, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                            let gate = max(0.01, recBufGate[x])
-                            let offS = min(windowEnd, sampleOf(musical: sched + gate, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
-                            emitArtic(note: recBufNote[x], busMask: cell.busMask, onSample: onS, offSample: max(onS + 1, offS), windowEnd: windowEnd, velocity: recBufVel[x], out: out, diag: &diag)
-                        }
-                    }
-                    currentCellIndex = -1
-                }
-                continue
-            }
-            // LOAD / authored buffer: a persisted (or hand-authored) recEvents seeds the loop directly — it plays
-            // immediately and the live capture is skipped (recEvents is AUTHORITATIVE when present; CLEAR empties it →
-            // live recording resumes). REFRESH still re-arms over it; ONCE plays it forever. (SAVE — draining a live
-            // capture back to recEvents — is a later stage; this is the read/CLEAR half.)
-            if !recCaptured[ci] && recBufN[ci] == 0 && !rp.recEvents.isEmpty {
-                let n = min(rp.recEvents.count, Router.recNoteCap), base = ci * Router.recNoteCap
-                for i in 0..<n {
-                    let ev = rp.recEvents[i]
-                    recBufStart[base+i] = max(0, ev.beat); recBufNote[base+i] = UInt8(max(0, min(127, ev.note)))
-                    recBufVel[base+i] = UInt8(max(1, min(127, ev.vel))); recBufGate[base+i] = max(0.01, ev.gate)
-                }
-                recBufN[ci] = n; recCaptured[ci] = true; recCycleBase[ci] = unit
-            }
-            // ARM: on first reaching the record window, set the rolling record-window origin (REFRESH re-arms it later).
-            let recN = max(1, w.endUnit - w.startUnit)
-            if !recCaptured[ci] && recArmUnit[ci] == Int.min && unit >= w.startUnit { recArmUnit[ci] = w.startUnit }
-            // COMMIT at the record-window end: build the loop buffer from the capture, per MODE.
-            if !recCaptured[ci] && recArmUnit[ci] != Int.min && unit >= recArmUnit[ci] + recN && recCapN[ci] > 0 {
-                let src = min(recCapN[ci], Router.recNoteCap)
-                let base = ci * Router.recNoteCap
-                if rp.recMode == .freeze && rp.recFreeze == .held {
-                    // FREEZE HELD: collapse to DISTINCT pitches, each held for the whole window (a frozen pad that
-                    // re-pulses per loop — a true legato sustain is a follow-up needing the immortal-hold reconcile).
-                    var n = 0
-                    for i in 0..<src {
-                        let note = recCapNote[base + i]
-                        var dup = false
-                        for j in 0..<n where recBufNote[base + j] == note { dup = true; break }
-                        if !dup && n < Router.recNoteCap {
-                            recBufStart[base + n] = 0; recBufNote[base + n] = note
-                            recBufVel[base + n] = recCapVel[base + i]; recBufGate[base + n] = w.window
-                            n += 1
-                        }
-                    }
-                    recBufN[ci] = n
-                } else {
-                    // LOOP · FREEZE REPEAT · (CANON plays as loop in v1): the captured notes verbatim.
-                    for i in 0..<src {
-                        recBufStart[base + i] = recCapStart[base + i]; recBufNote[base + i] = recCapNote[base + i]
-                        recBufVel[base + i] = recCapVel[base + i]; recBufGate[base + i] = recCapGate[base + i]
-                    }
-                    recBufN[ci] = src
-                }
-                recCaptured[ci] = true; recCycleBase[ci] = recArmUnit[ci] + recN
-            }
-            // REFRESH: every M cycles (M × N units) after the commit, re-arm to re-record the next window (the old loop
-            // pauses for that window while the live input is re-captured; ONCE/HOLD never re-arm here — HOLD's momentary
-            // grab needs a control signal, a later stage).
-            if recCaptured[ci] && rp.recCapture == .refresh {
-                let m2 = max(1, rp.recRefreshM)
-                if unit >= recCycleBase[ci] + m2 * recN { recCaptured[ci] = false; recCapN[ci] = 0; recArmUnit[ci] = unit }
-            }
-            guard recCaptured[ci], recBufN[ci] > 0, w.window > 0 else { continue }   // nothing to play yet (recording / re-recording)
-            // PLAYBACK: LOOP the buffer from beat 0. Emit due notes in [mStart, mEnd) (test this loop iteration + the next).
-            let kBase = Int((mStart / w.window).rounded(.down))
-            currentCellIndex = ci; chanOverride = -1; nudgeSamples = 0
-            for i in 0..<recBufN[ci] {
-                let x = ci * Router.recNoteCap + i
-                let st = recBufStart[x]
-                for k in [kBase, kBase + 1] where k >= 0 {
-                    let sched = Double(k) * w.window + st
-                    if sched >= mStart && sched < mEnd {
-                        let onS = sampleOf(musical: sched, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                        let gate = max(0.01, recBufGate[x])
-                        let offS = min(windowEnd, sampleOf(musical: sched + gate, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
-                        emitArtic(note: recBufNote[x], busMask: cell.busMask, onSample: onS, offSample: max(onS + 1, offS),
-                                  windowEnd: windowEnd, velocity: recBufVel[x], out: out, diag: &diag)
-                    }
-                }
-            }
-            currentCellIndex = -1
-        }
-    }
-    private func emitColumnGlide(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
-                                 beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
-        let slot = onlyRow ?? Snap.rows
-        if glideLastColumn[slot] != Int32(column) {                 // PHRASE END on column exit (spec)
-            if glideLastColumn[slot] >= 0 { glidePhraseEndColumn(Int(glideLastColumn[slot]), atSample: windowStart, out: out, onlyRow: onlyRow) }
-            glideLastColumn[slot] = Int32(column)
-        }
-        if masterMute { return }
-        guard column >= 0 && column < Snap.maxCols else { return }
-        let bEnd = beatPos + windowBeats
-        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
-            let cellIdx = column * Snap.rows + r
-            let cell = box.cells[cellIdx]
-            // §7① [driver→GLIDE] v2: a driven-glide cell's ACTIVE emission is post-tick (emitGlideDriven); this pass runs
-            // BEFORE the pool guard, so here we only phrase-end it on REST / mute (a key-release while the column is
-            // unchanged — column-exit is already handled by the glideLastColumn block above), then leave it to the tick.
-            let dr = chainDriverIndex(cell)
-            if dr >= 0, downstreamGlideIndex(cell, after: dr) != nil {
-                let inactive = cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cell.muted || cell.dormant
-                    || effectivePool(for: cell, live: pool).count == 0
-                    || (cell.busMask != 0 && !glideBusAvailable(Int(cell.busMask.trailingZeroBitCount)))   // R2: a disabled/soloed-out emitter silences the driven glide
-                if inactive { glidePhraseEnd(cellIdx, atSample: windowStart, out: out) }
-                continue
-            }
-            // SINGLE-SLOT GLIDE (the soloist): its mono voice is picked from the held pool below.
-            guard cell.procs.count == 1, cell.procs[0].type == .glide, !cell.slotBypass[0] else { continue }
-            if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cell.muted || cell.dormant {
-                glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue
-            }
-            let p = cell.procs[0]
-            let ci = Int(cell.machineIndex); let machine = box.machines[ci]
-            let transpose = machineTranspose(ci, machine) + octaveShift(cell.resolvedReceiver)
-            let pick = glidePickPool(effectivePool(for: cell, live: pool), cell: cell, priority: p.glidePriority)
-            guard pick.note >= 0 else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue }   // rest → phrase end
-            let inNote = pick.note + transpose
-            guard inNote >= 0 && inNote <= 127 else { continue }
-            let bus = Int(cell.busMask.trailingZeroBitCount)
-            let cable = UInt8(bus + 1)
-            let ch = (busChannels[bus] &- 1) & 15
-            // R2 (2026-08-30): route the glide through the SAME output gates emitOneBus applies — a disabled/soloed-out
-            // emitter silences it (phrase-ended → self-correcting, no stuck note), and the OUTPUT pitch adds the emitter
-            // OCT overlay + master KEY + RACK FENCE. Every anchor/bend/re-anchor below keys on `outN` (the output pitch),
-            // so the whole voice lives in output space (was: raw source pitch → glide played out of key / off a disabled bus).
-            guard glideBusAvailable(bus) else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue }
-            guard let outNote = glideOutNote(inNote, bus: bus) else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue }   // out of range / FENCE DROP → phrase-end (like a rest)
-            let outN = Int(outNote)
-            var gv = glideVoices[cellIdx]
-            switch p.glideMode {
-            case .bend:
-                if gv.anchor < 0 {                                      // ANCHOR: first note = note-on + centred bend
-                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN); gv.rampStart = beatPos
-                    emitBend(cable: cable, ch: ch, value: 8192, atSample: windowStart, out: out); gv.lastBend14 = 8192
-                } else if Int(gv.lastInput) != outN {                   // NEW TARGET
-                    let semis = outN - Int(gv.anchor)
-                    if p.glideReanchor && glideNeedsReanchor(target: outN, anchor: Int(gv.anchor), range: p.glideRange) {
-                        if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: windowStart, out: out) }
-                        emitBend(cable: cable, ch: ch, value: 8192, atSample: windowStart, out: out)
-                        let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                        gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = beatPos; gv.lastBend14 = 8192
-                    } else {                                            // GLIDE: capture the current bend, ramp to the new target (clamp if not re-anchoring)
-                        let tt = max(0.0001, p.glideTime)
-                        gv.bendFrom = gv.bendFrom + (gv.bendTo - gv.bendFrom) * min(1, p.glideTime > 0 ? (beatPos - gv.rampStart) / tt : 1)
-                        gv.bendTo = p.glideReanchor ? Double(semis) : Double(max(-p.glideRange, min(p.glideRange, semis)))
-                        gv.rampStart = beatPos
-                    }
-                    gv.lastInput = Int16(outN)
-                }
-                let tt = max(0.0001, p.glideTime)                       // emit the bend ramp across this window (control grid, deduped)
-                var k = Int((beatPos / modCtrlBeats).rounded(.up))
-                while Double(k) * modCtrlBeats < bEnd {
-                    let b = Double(k) * modCtrlBeats
-                    if b >= beatPos {
-                        let prog = p.glideTime > 0 ? min(1, (b - gv.rampStart) / tt) : 1
-                        let v14 = glideBend14(semitones: gv.bendFrom + (gv.bendTo - gv.bendFrom) * prog, range: p.glideRange)
-                        if gv.lastBend14 != Int16(v14) {
-                            emitBend(cable: UInt8(gv.bus + 1), ch: ch, value: v14, atSample: windowStart + Int64(((b - beatPos) / beatsPerSample).rounded()), out: out)
-                            gv.lastBend14 = Int16(v14)
-                        }
-                    }
-                    k += 1
-                }
-            case .synth:
-                // SYNTH: the synth glides itself — CC65 portamento ON + CC5 time at anchor, then LEGATO note transitions
-                // (open the new note BEFORE releasing the old so the synth portamentos between them). No pitch-bend, no range.
-                if gv.anchor < 0 {
-                    out?.emit(sampleTime: windowStart, cable: cable, 0xB0 | ch, 65, 127)                 // CC65 portamento ON
-                    out?.emit(sampleTime: windowStart, cable: cable, 0xB0 | ch, 5, UInt8(glideSynthCCTime(p.glideTime)))   // CC5 portamento time
-                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN)
-                } else if Int(gv.lastInput) != outN {
-                    let newSlot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                    if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: windowStart, out: out) }   // release old AFTER new = legato
-                    gv.anchor = Int16(outN); gv.slot = Int16(newSlot); gv.lastInput = Int16(outN)
-                }
-            case .step:
-                // STEP: a fast chromatic run source→target — each semitone a short note, the target held. Note-hungry:
-                // the zipper opens voices via openVoice (the glide-voice mechanism), so the PER-BEAT flood governor does
-                // NOT gate it — it's bounded only by |Δ| ≤ 127 steps and the 128-voice cap. The run is scheduled across
-                // windows (idempotent via stepsDone). (review 2026-08-26: corrected — governor doesn't apply here.)
-                if gv.anchor < 0 {
-                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN)
-                } else if Int(gv.lastInput) != outN {                   // NEW TARGET: start a run from the current note
-                    if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: windowStart, out: out) }
-                    gv.slot = -1
-                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(outN); gv.stepVel = pick.vel
-                    gv.stepTotal = Int16(abs(outN - Int(gv.anchor))); gv.stepsDone = 0; gv.stepRunStart = beatPos
-                    gv.anchor = Int16(outN); gv.lastInput = Int16(outN)   // the target becomes the anchor for the NEXT transition
-                }
-                emitGlideStepRun(&gv, cable: cable, ch: ch, bus: bus, glideTime: p.glideTime, beatPos: beatPos, bEnd: bEnd, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
-            }
-            gv.bus = Int8(bus); gv.mode = p.glideMode
-            glideVoices[cellIdx] = gv
-        }
-    }
 
-    /// §7① [driver→GLIDE] v2 (post-tick): consume the driver's recorded notes (glideDriven* buffer) into the cell's mono
-    /// gliding voice. The FIRST target opens a sustained anchor note; each in-range next target BENDS it over glideTime;
-    /// a leap beyond RANGE RE-ANCHORS (fresh note-on) or CLAMPS. Between ticks (no new target) the anchor sustains and
-    /// the bend keeps ramping. Column-exit + rest phrase-ends are done in emitColumnGlide (before the pool guard); this
-    /// only runs for the ACTIVE column's cell. Single-emitter (the cell's lowest bus) — fan-out stays a v2 item.
-    private func emitGlideDriven(box: SnapshotBox, column: Int, row r: Int, beatPos: Double, windowBeats: Double,
-                                 beatsPerSample: Double, windowStart: Int64, S: Double, a: Double, out: MIDIEmitter?) {
-        guard column >= 0 && column < Snap.maxCols else { return }
-        if masterMute { return }
-        let cellIdx = column * Snap.rows + r
-        let cell = box.cells[cellIdx]
-        let dr = chainDriverIndex(cell)
-        guard dr >= 0, let gi = downstreamGlideIndex(cell, after: dr), !cell.slotBypass[gi] else { return }
-        if cell.machineIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cell.muted || cell.dormant { return }   // inactive → emitColumnGlide already phrase-ended it
-        let p = cell.procs[gi]
-        let bus = Int(cell.busMask.trailingZeroBitCount)
-        guard glideBusAvailable(bus) else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); return }   // R2: a disabled/soloed-out emitter silences the driven glide (self-correcting → no stuck note)
-        let ch = (busChannels[bus] &- 1) & 15
-        var gv = glideVoices[cellIdx]
-        let cnt = glideDrivenCount[cellIdx]
-        let cable = UInt8(bus + 1)
-        let bEnd = beatPos + windowBeats
-        for i in 0..<cnt {                                        // apply each driver target in beat order
-            let inNote = Int(glideDrivenNote[cellIdx * Self.glideDrivenCap + i])
-            let vel = glideDrivenVel[cellIdx * Self.glideDrivenCap + i]
-            let tb = glideDrivenBeat[cellIdx * Self.glideDrivenCap + i]
-            let onS = sampleOf(musical: tb, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)   // swing-accurate (was a raw linear conversion that dropped the warp — review 2026-08-23)
-            guard let outNote = glideOutNote(inNote, bus: bus) else { continue }   // R2: OCT + KEY + FENCE; out of range / DROP → skip this target (keep the current anchor)
-            let outN = Int(outNote)
-            switch p.glideMode {
-            case .bend:
-                if gv.anchor < 0 {                                   // ANCHOR: first driver note = note-on + centred bend
-                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN); gv.rampStart = tb
-                    emitBend(cable: cable, ch: ch, value: 8192, atSample: onS, out: out); gv.lastBend14 = 8192
-                } else if Int(gv.lastInput) != outN {               // NEW TARGET
-                    let semis = outN - Int(gv.anchor)
-                    if p.glideReanchor && glideNeedsReanchor(target: outN, anchor: Int(gv.anchor), range: p.glideRange) {   // leap → RE-ANCHOR
-                        if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }
-                        emitBend(cable: cable, ch: ch, value: 8192, atSample: onS, out: out)
-                        let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                        gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = tb; gv.lastBend14 = 8192
-                    } else {                                         // in range → GLIDE (capture the current bend, ramp to the new target; clamp if not re-anchoring)
-                        let tt = max(0.0001, p.glideTime)
-                        gv.bendFrom = gv.bendFrom + (gv.bendTo - gv.bendFrom) * min(1, p.glideTime > 0 ? (tb - gv.rampStart) / tt : 1)
-                        gv.bendTo = p.glideReanchor ? Double(semis) : Double(max(-p.glideRange, min(p.glideRange, semis)))
-                        gv.rampStart = tb
-                    }
-                    gv.lastInput = Int16(outN)
-                }
-            case .synth:                                            // SYNTH: the synth glides itself — CC65 ON + CC5 time at anchor, then LEGATO transitions
-                if gv.anchor < 0 {
-                    out?.emit(sampleTime: onS, cable: cable, 0xB0 | ch, 65, 127)
-                    out?.emit(sampleTime: onS, cable: cable, 0xB0 | ch, 5, UInt8(glideSynthCCTime(p.glideTime)))
-                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN)
-                } else if Int(gv.lastInput) != outN {
-                    let newSlot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                    if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }   // release old AFTER new = legato
-                    gv.anchor = Int16(outN); gv.slot = Int16(newSlot); gv.lastInput = Int16(outN)
-                }
-            case .step:                                             // STEP: a fast chromatic run per transition (emitted after the loop; note-hungry, governed)
-                if gv.anchor < 0 {
-                    let slot = openVoice(note: outNote, chan: ch, cable: cable, bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out, meter: true)
-                    gv = GlideVoice(); gv.anchor = Int16(outN); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(outN)
-                } else if Int(gv.lastInput) != outN {
-                    if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: onS, out: out) }
-                    gv.slot = -1
-                    gv.stepFrom = gv.anchor; gv.stepTarget = Int16(outN); gv.stepVel = vel
-                    gv.stepTotal = Int16(abs(outN - Int(gv.anchor))); gv.stepsDone = 0; gv.stepRunStart = tb
-                    gv.anchor = Int16(outN); gv.lastInput = Int16(outN)
-                }
-            }
-        }
-        gv.bus = Int8(bus); gv.mode = p.glideMode
-        switch p.glideMode {
-        case .bend:
-            if gv.anchor >= 0 {                                  // emit the bend ramp across this window (control grid, deduped) — sustains between ticks
-                let tt = max(0.0001, p.glideTime)
-                var k = Int((beatPos / modCtrlBeats).rounded(.up))
-                while Double(k) * modCtrlBeats < bEnd {
-                    let b = Double(k) * modCtrlBeats
-                    if b >= beatPos {
-                        let prog = p.glideTime > 0 ? min(1, (b - gv.rampStart) / tt) : 1
-                        let v14 = glideBend14(semitones: gv.bendFrom + (gv.bendTo - gv.bendFrom) * prog, range: p.glideRange)
-                        if gv.lastBend14 != Int16(v14) {
-                            emitBend(cable: cable, ch: ch, value: v14, atSample: windowStart + Int64(((b - beatPos) / beatsPerSample).rounded()), out: out)
-                            gv.lastBend14 = Int16(v14)
-                        }
-                    }
-                    k += 1
-                }
-            }
-        case .synth: break
-        case .step:
-            emitGlideStepRun(&gv, cable: cable, ch: ch, bus: bus, glideTime: p.glideTime, beatPos: beatPos, bEnd: bEnd, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
-        }
-        glideVoices[cellIdx] = gv
-    }
 
-    // MARK: - GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE, single-slot tick emitters. Each computes its
-    // strike beats for the current column and emits those landing in this window (half-open, so each fires once).
-    /// WEAVE (Paul 2026-08-07): the rank-clocked polyrhythm DRIVER. Each held note (ascending rank) ticks on its OWN
-    /// clock — `weaveRate(mode, base, rank)` — so one chord becomes an interlocking ensemble (bass slow … top fast).
-    /// Modelled on emitGeneratorRow: compose the source at colStart, then window-scan EACH rank's clock from colStart
-    /// (RETRIG for free; no shared per-row tick state, so per-rank scans don't collide). SPAN ranks weave; extras join
-    /// the top (fastest weaving) clock. As a chain driver each struck note folds downstream via emitDriverNote.
-    private func emitWeaveRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
-                              emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
-                              windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
-                              cycleBeats: Double = 0, chainDriver: Int = -1, out: MIDIEmitter?, diag: inout KernelDiag) {
-        guard S > 0 else { return }
-        let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
-        let p = machine.a
-        let cyc = cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S
-        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
-        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        let colStart = columnStart(mWinStart, S), colEnd = colStart + S
-        let hasDownstream = chainDriver >= 0 && chainDriver < cell.procs.count - 1
-        if chainDriver > 0 {
-            composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cyc)
-            fillSrcFromScratch()
-        } else {
-            fillSrcFromPool(cell, pool)
-        }
-        let srcNotes = srcNoteBuf[0..<srcNoteCount]   // view, no alloc — 0-based indices match the old array
-        let count = srcNotes.count
-        guard count > 0 else { return }
-        let span = max(1, min(count, p.weaveSpan))
-        let gateFrac = max(0.05, min(1.0, p.gate))
-        // PHASE → the clock origin. RETRIG restarts each column (off capped at the boundary); FREE runs the global grid;
-        // LEGATO flows from the run's first column. EUCLID is a per-column cycle, so it's always RETRIG.
-        let phase: ArpPhase = (p.weaveMode == .euclid) ? .retrig : p.weavePhase
-        let origin: Double, capAtCol: Bool
-        switch phase {
-        case .retrig: origin = colStart; capAtCol = true
-        case .free:   origin = 0;        capAtCol = false
-        case .legato:
-            let passStart = (colStart / cyc).rounded(.down) * cyc
-            let rs = cell.runStartColumn >= 0 ? Int(cell.runStartColumn) : Int(((colStart - passStart) / S).rounded(.down))
-            origin = passStart + Double(rs) * S; capAtCol = false
-        }
-        // CLOCK (Paul 2026-09-26): WEAVE's per-rank clock is a hand-rolled window scan, not `iterateTicks` — so it
-        // gets the SAME treatment built directly into its own loop: the window bounds + this rank's own origin/
-        // column-cap all shift into local time ONCE (shared across every rank — none of them depend on rank), the
-        // EXISTING search math runs unchanged there, and each found local tick inverts back to real before
-        // scheduling. No-op (byte-identical) when this cell isn't a retimed driver.
-        let localWinStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: mWinStart, S: S, cycleBeats: cyc, originRef: mWinStart)
-        let localWinEnd = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: mWinEnd, S: S, cycleBeats: cyc, originRef: mWinStart)
-        let localColStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colStart, S: S, cycleBeats: cyc, originRef: mWinStart)
-        let localColEnd = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colEnd, S: S, cycleBeats: cyc, originRef: mWinStart)
-        let localOrigin = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: origin, S: S, cycleBeats: cyc, originRef: mWinStart)
-        for rank in 0..<count {
-            let clockRank = min(rank, span - 1)   // extras join the top clock
-            let n = srcNotes[rank].note + transpose
-            guard n >= 0 && n <= 127 else { continue }
-            let vel = srcNotes[rank].vel
-            if p.weaveMode == .euclid {            // each rank plays an interlocking euclidean pattern (bass sparse → top dense)
-                let M = max(2, min(16, p.weaveEuclidSteps))
-                euclidPatternInto(&euclidBuf, pulses: max(1, min(M, 2 * clockRank + 1)), steps: M, rotation: 0)
-                let sub = S / Double(M)
-                for stepI in 0..<M where euclidBuf[stepI] {
-                    let localTau = localColStart + Double(stepI) * sub
-                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: min(localColStart + S, localTau + sub * gateFrac), S: S, cycleBeats: cyc, originRef: mWinStart)
-                    guard tau >= mWinStart && tau < mWinEnd else { continue }
-                    emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: tau + gate, bm: bm,
-                                    emits: emits, hasDownstream: hasDownstream, chainDriver: chainDriver, windowEnd: windowEnd,
-                                    beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, cyc: cyc, out: out, diag: &diag)
-                }
-            } else {                               // a regular per-rank clock (LADDER/HARMONIC formula, or DRAWN's authored rate)
-                let sub = (p.weaveMode == .drawn) ? max(0.03125, p.weaveDrawnBeats[min(clockRank, p.weaveDrawnBeats.count - 1)])
-                                                  : weaveRate(mode: p.weaveMode, baseBeats: max(0.03125, p.weaveBaseBeats), rank: clockRank)
-                let localScanEnd = capAtCol ? min(localWinEnd, localColEnd) : localWinEnd
-                var j = Int(((localWinStart - localOrigin) / sub).rounded(.down)); if j < 0 { j = 0 }
-                while true {
-                    let localTau = localOrigin + Double(j) * sub
-                    if localTau >= localScanEnd { break }
-                    j += 1
-                    guard localTau >= localWinStart else { continue }
-                    let localOff = capAtCol ? min(localColEnd, localTau + sub * gateFrac) : (localTau + sub * gateFrac)
-                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: localOff, S: S, cycleBeats: cyc, originRef: mWinStart)
-                    emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: tau + gate, bm: bm,
-                                    emits: emits, hasDownstream: hasDownstream, chainDriver: chainDriver, windowEnd: windowEnd,
-                                    beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, cyc: cyc, out: out, diag: &diag)
-                }
-            }
-        }
-    }
 
-    /// One WEAVE strike: convert the musical on/off to samples, store the seal artic, and emit (folding downstream when
-    /// chained, else direct). A method (not a nested closure) so it can take `diag` inout cleanly.
-    private func emitWeaveStrike(cell: SnapCell, row r: Int, note n: Int, vel: UInt8, tau: Double, off: Double, bm: UInt8,
-                                 emits: Bool, hasDownstream: Bool, chainDriver: Int, windowEnd: Int64, beatPos: Double,
-                                 beatsPerSample: Double, windowStart: Int64, S: Double, a: Double, cyc: Double,
-                                 out: MIDIEmitter?, diag: inout KernelDiag) {
-        let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-        let offT = sampleOf(musical: off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-        let tbm = chopMask(cell, m: tau, S: S, base: bm)
-        storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
-        if !emits { return }
-        if hasDownstream {
-            emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT, windowEnd: windowEnd,
-                           velocity: max(1, vel), m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-        } else if tbm != 0 {
-            emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, vel), out: out, diag: &diag)
-        }
-    }
 
     private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
                                   emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
-                                  cycleBeats: Double = 0, chainDriver: Int = -1, tempo: Double = 120,
+                                  cycleBeats: Double = 0, tempo: Double = 120,
                                   euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(), euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                                   out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
@@ -4372,18 +2943,8 @@ final class Router {
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         let colStart = columnStart(mWinStart, S)
 
-        // CELL MACHINE: as a chain DRIVER, the source is the composed set of the stages BEFORE the driver; each note
-        // FOLDS through the stages AFTER it (emitDriverNote). A single-slot generator (chainDriver < 0) reads the
-        // cell's filtered pool directly and emits with emitArtic. `srcNotes` = the raw source notes (transpose added
-        // per-strike). Composed once at colStart — the source is stable across the column.
-        let hasDownstream = chainDriver >= 0 && chainDriver < cell.procs.count - 1
-        // each source note carries its VELOCITY (user 2026-08-09: generators inherit it) — filled into the reused buffer
-        if chainDriver > 0 {
-            composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cyc)
-            fillSrcFromScratch()
-        } else {
-            fillSrcFromPool(cell, pool)
-        }
+        // The cell's filtered pool, each note carrying its VELOCITY, into the reused buffer. `srcNotes` = the raw source notes (transpose added per-strike).
+        fillSrcFromPool(cell, pool)
         let srcNotes = srcNoteBuf[0..<srcNoteCount]   // view, no alloc — 0-based indices match the old array
 
         // ONE chord strike at musical beat `tau` (source notes, chop-routed / downstream-folded), gated `gateBeats`.
@@ -4424,10 +2985,7 @@ final class Router {
                 let vel = clampVel(Int((Double(max(1, rawVel)) * velScale).rounded()))   // inherited velocity × envelope
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
                 if !emits { return }
-                if hasDownstream {   // fold the post-driver stages onto each generated note (a downstream harmonize/chance/…)
-                    emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT,
-                                   windowEnd: windowEnd, velocity: vel, m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                } else if tbm != 0 {
+                if tbm != 0 {
                     emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag, onVoiceOpened: onVoiceOpened, euclideousLegato: euclideousLegato)
                 }
             }
@@ -4644,69 +3202,6 @@ final class Router {
             }
             func laneCount(_ li: Int) -> Int { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcCount : srcCount }
             func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcBuf[0..<globalSrcCount] : srcNotes }
-            // SEQUENTIAL SOURCES (Paul 2026-10-02): when the slot immediately before this EUCLID (chainDriver, the
-            // index of EUCLID's own slot since emitGeneratorRow only dispatches here for the chain's driver) is
-            // exactly RIFF or ARP, and NOT bypassed, a line set to the matching noteSel steps through that
-            // predecessor's own authored sequence instead of picking from the held chord — see runEuclidLine's hit
-            // closure below. Bypassed-predecessor excluded to match every other adjacency/scan helper in this file
-            // (chainDriverIndex, composeChainSet's fold loop, the downstream*Index helpers all treat a bypassed
-            // slot as "not really there") — testChainBypassedHeadArpsSourceOnly already locks in the analogous case.
-            let predIdx = chainDriver - 1
-            let predType: ProcessorType? = (chainDriver >= 1 && !cell.slotBypass[predIdx]) ? cell.procs[predIdx].type : nil
-            // EUCLID BEACON READINESS (Paul 2026-10-05): computed once per cell per render (not per tick — none of
-            // these conditions are tick-dependent), written into `euclidLineReady`, read by GridUI's beacon via
-            // `euclidLineReadyAt`. Mirrors the EXACT guards `runEuclidLine`'s hit/miss closures apply below, not an
-            // approximation: velocity>0 · for .riff/.arp, the predecessor TYPE matches AND has a genuine target
-            // (RIFF: at least one non-rest authored step, confirmed via the same bounded scan `runEuclidLine` uses,
-            // AND a non-empty pool feeding riff's own slot — `riffResolve` only ever fails for rank<1 or an empty
-            // pool, per its own doc comment, so "pool non-empty" is exactly sufficient, not an approximation; ARP:
-            // a non-empty pool feeding arp's own slot — `arpPick`/`arpPickSource` only ever return note<0 for an
-            // empty [chan/cable-filtered] pool, per their own doc comments) · for every other pick (ranked N1…N8 or
-            // aggregate ALL/LOW/HIGH/BOT2/TOP2/CYCLE/RANDOM), the TRUE upstream `srcCount` already composed for
-            // this cell's chain — not the door's raw held notes (the beacon's own disclosed gap before this fix).
-            // HONEST LIMIT, same posture as `riffDrunkPosAt`'s own doc comment: a CHANCE-style probabilistic stage
-            // between the door and this slot is read at THIS render's current beat (mWinStart), not the exact
-            // future tick the beacon is asking about — inherent to a probabilistic stage, not a shortcut taken.
-            if currentCellIndex >= 0 && currentCellIndex < euclidLineReady.count {
-                var ready: UInt8 = 0
-                for (li, L) in p.euclidLines.enumerated() where li < 4 {
-                    if L.velocityResolved > 0 {
-                        let sel = L.noteSelResolved
-                        var hitOK = false
-                        if sel == .riff {
-                            if predType == .riff {
-                                let rp = cell.procs[predIdx]
-                                let riffSteps = max(1, min(32, rp.riffSteps))
-                                var nonRest = 0
-                                for i in 0..<riffSteps {
-                                    let isRest = rp.riffPoly ? ((i < rp.riffMask.count ? rp.riffMask[i] : 0) == 0)
-                                                              : ((i < rp.riffRanks.count ? rp.riffRanks[i] : 0) < 1)
-                                    if !isRest { nonRest += 1 }
-                                }
-                                if nonRest > 0 {
-                                    composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mWinStart, S: S, cycleBeats: cyc)
-                                    hitOK = chainScratch.srcCount(filter: 0) > 0
-                                }
-                            }
-                        } else if sel == .arp {
-                            if predType == .arp {
-                                composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mWinStart, S: S, cycleBeats: cyc)
-                                hitOK = chainScratch.srcCount(filter: 0) > 0
-                            }
-                        } else if let rank = sel.specificRank {
-                            hitOK = laneCount(li) >= rank
-                        } else {
-                            hitOK = laneCount(li) > 0
-                        }
-                        if hitOK { ready |= UInt8(1 << (li * 2)) }
-                    }
-                    if let missSel = L.missNoteSel, missSel != .riff, missSel != .arp, L.missVelocityResolved > 0 {
-                        let missOK = missSel.specificRank.map { laneCount(li) >= $0 } ?? (laneCount(li) > 0)
-                        if missOK { ready |= UInt8(1 << (li * 2 + 1)) }
-                    }
-                }
-                euclidLineReady[currentCellIndex] = ready
-            }
             // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
             // DIRECTION (Paul 2026-10-01, 3-way redesign): `dir` replaces the old binary `reverse` — FWD/BKW read the
             // n-length buffer directly/mirrored (unchanged math, renamed); PING-PONG reuses RIFF's own `.pingpong`
@@ -4970,7 +3465,6 @@ final class Router {
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                              beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
-                             clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc,
                              lineIndex: lineIndex, tickFrom: tickFrom, tickBefore: tickBefore,
                              strikeDelaySteps: { t in
                                  // RHYTHM POLISH: the hit read at tick `t` sounds this many steps into its cell (0 for a lane with no timing, or a tick that isn't a hit)
@@ -6346,58 +4840,8 @@ final class Router {
                         // pool-index switch below. A stored .riff/.arp whose predecessor no longer matches (chain
                         // edited, now bypassed) emits nothing — same honest-non-guess contract as every other noteSel
                         // case that can't resolve (e.g. an aggregate pick against an empty pool).
-                        if noteSel == .riff || noteSel == .arp {
-                            guard (noteSel == .riff && predType == .riff) || (noteSel == .arp && predType == .arp) else { return }
-                            let rp = cell.procs[predIdx]
-                            if noteSel == .riff {
-                                let riffSteps = max(1, min(32, rp.riffSteps))
-                                func riffStepIsRest(_ i: Int) -> Bool {
-                                    rp.riffPoly ? ((i < rp.riffMask.count ? rp.riffMask[i] : 0) == 0) : ((i < rp.riffRanks.count ? rp.riffRanks[i] : 0) < 1)
-                                }
-                                // two bounded (≤32) scans, no allocation — mirrors this same function's own cycleHits/
-                                // hitsUpTo idiom above, just counting/locating non-rest steps instead of hit hits.
-                                var nonRestCount = 0
-                                for i in 0..<riffSteps where !riffStepIsRest(i) { nonRestCount += 1 }
-                                guard nonRestCount > 0 else { return }   // all-rest predecessor (POLY empty mask / all-zero MONO ranks) — silent, not a crash
-                                let wantedOrd = Int(((ord % Int64(nonRestCount)) + Int64(nonRestCount)) % Int64(nonRestCount))
-                                var seen = 0; var stepIdx = -1
-                                for i in 0..<riffSteps where !riffStepIsRest(i) {
-                                    if seen == wantedOrd { stepIdx = i; break }
-                                    seen += 1
-                                }
-                                guard stepIdx >= 0 else { return }
-                                let roct = stepIdx < rp.riffOct.count ? rp.riffOct[stepIdx] : 0        // RIFF's own per-step OCT lane — stacks additively with this line's own `octave` at strikeChord
-                                // ABSOLUTE VELOCITY (Paul 2026-10-09): RIFF's own per-step velocity formula
-                                // (accent lane + coinVelFactor) is no longer read — VELOCITY overrides it, same
-                                // as every other strike this lane makes.
-                                composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the riff's own slot (a no-op pass-through when riff is slot 0)
-                                func strikeRiffRank(_ rank: Int) {
-                                    guard rank >= 1 else { return }
-                                    guard let base = riffResolve(rank: rank, oct: roct, n: chainScratch.srcCount(filter: 0), wrap: rp.riffWrap, asc: { Int(chainScratch.srcAscending($0, filter: 0)) }) else { return }
-                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: base, explicitVel: UInt8(velocityAbsolute), busOverride: busOverride)
-                                }
-                                if rp.riffPoly {   // POLY: a step strikes the whole set rank mask as a simultaneous chord-stab
-                                    let polyMask = stepIdx < rp.riffMask.count ? rp.riffMask[stepIdx] : 0
-                                    for rank in 1...8 where (polyMask & (1 << (rank - 1))) != 0 { strikeRiffRank(rank) }
-                                } else {
-                                    strikeRiffRank(stepIdx < rp.riffRanks.count ? rp.riffRanks[stepIdx] : 0)
-                                }
-                            } else {   // .arp
-                                composeChainSet(cell: cell, pool: pool, upto: predIdx - 1, m: mTickBeat, S: S, cycleBeats: cyc)   // the pool feeding INTO the arp's own slot
-                                // `ord` becomes `phaseIndex` directly, unmodified — arpPick is fully pure/total in
-                                // phaseIndex (incl. RANDOM/RANDOM ONCE, both seeded hashes of phaseIndex alone).
-                                // ABSOLUTE VELOCITY (Paul 2026-10-09): the upstream ARP's own VELOCITY/VELOCITY
-                                // TILT-resolved pick velocity is no longer read — this line's own VELOCITY
-                                // overrides it, same as every other strike this lane makes.
-                                let pick = arpPick(phaseIndex: ord, octaves: max(1, min(4, Int(rp.octaves))), pattern: rp.patternIndex, pool: chainScratch,
-                                                   chanMask: 0xFFFF, cableMask: 0b1111,
-                                                   octDown: rp.arpOctDown, randomAnchor: rp.arpRandomAnchor, seed: rp.arpSeed,
-                                                   velocity: rp.arpVelocity, velTilt: rp.arpVelTilt)
-                                guard pick.note >= 0 else { return }   // empty predecessor-fed pool
-                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * gate, S * 0.95), octave: octave, explicitNote: pick.note, explicitVel: UInt8(velocityAbsolute), busOverride: busOverride)
-                            }
-                            return
-                        }
+                        // A RIFF/ARP "sequential source" needs a predecessor slot; Fourfold has none, so such a pick is silent.
+                        if noteSel == .riff || noteSel == .arp { return }
                         // GATE loosens the column-boundary safety clamp 0.9→0.95 so an aggressive per-lane GATE still
                         // can't bleed past its own column; OCTAVE threads straight to strikeChord (clamped there, like
                         // UTILITY/ARP). VELOCITY (Paul 2026-10-09) is a genuine absolute MIDI override — the
@@ -6788,144 +5232,6 @@ final class Router {
                 }
             }
             linesView = p.euclidLines   // release the scratch lines (so the next window rewrites them in place)
-        case .burst:
-            let count = Int(max(2, min(16, p.count)))
-            // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,
-            // no alloc). Shared by all three modes; ONCE reproduces the old inline loop → byte-identical. CLOCK
-            // (Paul 2026-09-26): the anchor shifts into local time, the roll's own shape is computed there
-            // unchanged, then each strike's onset+gate invert back to real — `clockLocalAnchor`/`clockDriverTiming`
-            // no-op (byte-identical) when this cell isn't a retimed driver.
-            func layBurst(anchor: Double, width: Double) {
-                let localAnchor = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: anchor, S: S, cycleBeats: cyc, originRef: mWinStart)
-                burstFractionsInto(&burstBuf, count: count, curve: p.curve)
-                let minGap = width / Double(count) * 0.9
-                for i in 0..<count {
-                    let localTau = localAnchor + burstBuf[i] * width
-                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: localTau + minGap, S: S, cycleBeats: cyc, originRef: mWinStart)
-                    if inWindow(tau) {
-                        let velScale = max(0.05, Double(100 - i * (60 / max(1, count))) / 100.0)   // fade across the roll (relative)
-                        strikeChord(tau: tau, velScale: velScale, gateBeats: gate)
-                    }
-                }
-            }
-            // SPAN LADDER (Paul 2026-08-22): the roll/pattern spans N columns (·16=×2 ·32=×4), anchored at the span origin;
-            // odd N = polymeter. CELL=1 (S) / ROW=8 (cyc) are byte-identical. The window gate keeps each cell to its column.
-            let bSpan = spanLadderBeats(p.burstSpanN, S: S, row: cyc)
-            switch p.burstMode {
-            case .once:
-                layBurst(anchor: columnStart(colStart, bSpan), width: bSpan)
-            case .coin:
-                // seeded chance-of-burst per column-step — the roll fills THIS column when it fires (replay-exact)
-                if burstCoinFires(step: Int((colStart / S).rounded()), chance: p.burstChance) { layBurst(anchor: colStart, width: S) }
-            case .pattern:
-                // At each BURST slice the roll STRETCHES over its carry-run; CARRY/REST launch nothing.
-                let patAnchor = columnStart(colStart, bSpan)
-                if p.burstRateOn {
-                    // RATE AXIS (Paul 2026-08-26): the span is divided into slices of width burstRateBeats; the 8-figure
-                    // WALKS/TILES (mod-8) across them — a fine rate packs many roll-slices, a coarse rate fewer than 8.
-                    let sliceW = max(0.001, p.burstRateBeats)
-                    let nSlices = max(1, min(64, Int((bSpan / sliceW).rounded())))
-                    for i in 0..<nSlices {
-                        let run = burstCarryRun(p.burstSlices, at: i, rotate: p.burstRotate, count: nSlices)
-                        if run > 0 { layBurst(anchor: patAnchor + Double(i) * sliceW, width: Double(run) * sliceW) }
-                    }
-                } else {
-                    let sliceW = bSpan / 8   // LEGACY fixed-8 (byte-identical)
-                    for i in 0..<8 {
-                        let run = burstCarryRun(p.burstSlices, at: i, rotate: p.burstRotate)
-                        if run > 0 { layBurst(anchor: patAnchor + Double(i) * sliceW, width: Double(run) * sliceW) }
-                    }
-                }
-            }
-        case .cascade:
-            let srcN = srcNotes.count
-            // SPAN: CELL reveals across the column at the arp rate; ROW spreads the reveal EVENLY across the whole BAR
-            // (one note per bar-slice), anchored at the bar start. (Paul 2026-08-19)
-            // SPAN LADDER (Paul 2026-08-22, RATE×ladder): cascadeSpanN>0 ⇒ RATE = the reveal spacing, SPAN N = the reveal
-            // WINDOW in columns (anchored at the span origin; re-anchors every N cols). cascadeSpanN==0 ⇒ LEGACY CELL|ROW.
-            let cLadder = p.cascadeSpanN > 0
-            let cRow = (p.cascadeSpan == .row)
-            let arpRateReveal = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
-            let cWidth = cLadder ? spanLadderBeats(p.cascadeSpanN, S: S, row: cyc) : (cRow ? cyc : S)
-            let cAnchor = cLadder ? columnStart(colStart, cWidth) : (cRow ? columnStart(colStart, cyc) : colStart)
-            let sub = cLadder ? arpRateReveal : (cRow ? (cWidth / Double(max(1, srcN))) : arpRateReveal)
-            guard sub > 0 else { break }
-            // CLOCK (Paul 2026-09-26): the anchor and the held-to-boundary point both shift into local time; each
-            // reveal's local tick then inverts back independently (a duration can't invert directly — only points
-            // can — so the gate is the REAL difference of two independently-inverted points, not a scaled width).
-            let localAnchor = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: cAnchor, S: S, cycleBeats: cyc, originRef: mWinStart)
-            for j in 0..<srcN {                                   // reveal note j at tick j, HELD to the boundary (accumulating)
-                let localTau = localAnchor + Double(j) * sub
-                if localTau >= localAnchor + cWidth { break }     // ran past the span — the rest reveal next entry
-                let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: localAnchor + cWidth, S: S, cycleBeats: cyc, originRef: mWinStart)
-                if inWindow(tau) {
-                    let idx = p.strumDir == .down ? (srcN - 1 - j) : j   // reveal order (UP default · DOWN top-first)
-                    strikeChord(tau: tau, velScale: 1.0, gateBeats: max(0.01, gate), onlyIndex: idx)
-                }
-            }
-        case .drone:
-            // PAD: strike the whole entry chord ONCE, held to the boundary; the GATE knob scales the inherited velocity.
-            // CLOCK (Paul 2026-09-26): the column's local start anchors the strike; held-to-boundary is the local
-            // column's own end, both inverted back to real for scheduling.
-            let droneLocalStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colStart, S: S, cycleBeats: cyc, originRef: mWinStart)
-            let (droneTau, droneGate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: droneLocalStart, localOff: droneLocalStart + S, S: S, cycleBeats: cyc, originRef: mWinStart)
-            if inWindow(droneTau) {
-                strikeChord(tau: droneTau, velScale: max(0.05, min(1, p.gate)), gateBeats: droneGate)
-            }
-        case .shift:
-            // GROOVE: push the chord's onset LATE by up to ~40% of the step (spread 0…1), held to the boundary.
-            let push = max(0, min(1, p.spread)) * 0.4 * S
-            let shiftLocalStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colStart, S: S, cycleBeats: cyc, originRef: mWinStart)
-            let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: shiftLocalStart + push, localOff: shiftLocalStart + S, S: S, cycleBeats: cyc, originRef: mWinStart)
-            if inWindow(tau) { strikeChord(tau: tau, velScale: 1.0, gateBeats: gate) }
-        case .humanize:
-            // THE DETERMINISTIC HUMAN: each note strikes at a seeded late offset (0…~15% step) with a seeded velocity
-            // duck — replay-safe (seed = column · note · index). AMOUNT (spread) scales both. Held to the boundary.
-            // The duck is RELATIVE, so it ducks the inherited source velocity (user 2026-08-09).
-            let amt = max(0, min(1, p.spread))
-            let col = UInt64(bitPattern: Int64((colStart / S).rounded()))
-            let humanizeLocalStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: colStart, S: S, cycleBeats: cyc, originRef: mWinStart)
-            for (k, sn) in srcNotes.enumerated() {
-                let note = sn.note + transpose
-                guard note >= 0 && note <= 127 else { continue }
-                let h = splitmix64Mix(col &* 2_654_435_761 &+ UInt64(note) &* 131 &+ UInt64(k) &* 17)
-                let tFrac = Double(h & 0xFFFF) / 65535.0                     // 0…1 → late offset
-                let vFrac = Double((h >> 16) & 0xFFFF) / 65535.0             // 0…1 → velocity duck
-                let velScale = max(0.05, (100.0 - vFrac * amt * 45.0) / 100.0)
-                let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: humanizeLocalStart + tFrac * amt * 0.15 * S, localOff: humanizeLocalStart + S, S: S, cycleBeats: cyc, originRef: mWinStart)
-                if inWindow(tau) { strikeChord(tau: tau, velScale: velScale, gateBeats: gate, onlyIndex: k) }
-            }
-        case .hocket:
-            // HOCKET (v1, AcceptanceCriteria-hocket-processor): play the pool (WHAT) timed by LISTENING to another wire
-            // (WHEN). Each decision tick queries the listened emitter — GAPS strikes only in its SILENCES (call-and-
-            // response), TRADE answers just AFTER it strikes (hit-for-hit). The pool is walked ascending, one note per
-            // strike → a line split across two synths by listening. Live query of the wire's voices/onset (the
-            // CONVERSATION L1 caveat: what it has emitted SO FAR this render is visible — put the listener downstream).
-            let srcCount = srcNotes.count
-            let listenBus = max(0, min(3, p.hocketSource))
-            // THE CYCLE LAW (wire-grain): a HOCKET that OUTPUTS on the wire it LISTENS to is a loop — it falls SILENT
-            // (the standing "loops fall silent" rule). Cross-cell cycles aren't detected in v1 (they ping-pong at one
-            // block's latency); the direct self-cycle is the footgun this guards.
-            if srcCount > 0 && (bm & (UInt8(1) << UInt8(listenBus))) == 0 {
-                let sub = max(0.03125, p.hocketRateBeats)
-                iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
-                             beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                             beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
-                             clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cyc) { tick, mTickBeat, onTime, _ in
-                    let pass: Bool
-                    switch p.hocketMode {
-                    case .gaps:
-                        pass = !emitterSounding(listenBus)                               // speak only in the wire's silence
-                    case .trade:
-                        let last = emitterLastOnsetSample[listenBus]                     // the wire's most recent onset
-                        let subSamples = Int64((sub / max(1e-9, beatsPerSample)).rounded())
-                        pass = last != .min && last < onTime && last >= onTime - subSamples   // it struck within the last tick → answer now
-                    }
-                    guard pass else { return }
-                    let idx = Int(((tick % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))   // walk the pool ascending (a line)
-                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: idx)
-                }
-            }
         default:
             break
         }
@@ -6968,19 +5274,6 @@ final class Router {
     /// real fold-eligibility is correctly handled elsewhere (`downstreamMaskFoldIndex` and VELOCITY's own dedicated
     /// per-note fold in `emitDriverNote`), so removing the unreachable checks here changes nothing behaviourally.
     private func isModifierFoldable(_ p: SnapParams) -> Bool { p.type == .shift || p.type == .humanize }
-    /// The FIRST non-bypassed foldable RATCHET slot after `driver` — PATTERN (per-slice REST/pass/burst) or COIN PASS-THROUGH.
-    private func downstreamRatchetFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
-        var j = driver + 1
-        while j < cell.procs.count { if !cell.slotBypass[j] && isRatchetFoldable(cell.procs[j]) { return j }; j += 1 }
-        return nil
-    }
-    /// The FIRST non-bypassed EUCLID MASK slot after `driver` (Paul 2026-09-27) — the arp-only euclid mask, pulled out
-    /// as its own downstream fold so it gates ANY driver's notes, not just ARP's own.
-    private func downstreamMaskFoldIndex(_ cell: SnapCell, after driver: Int) -> Int? {
-        var j = driver + 1
-        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .euclidMask { return j }; j += 1 }
-        return nil
-    }
     /// CLOCK (AcceptanceCriteria-clock-processor, Paul 2026-09-26) — THE SOVEREIGN LAW, mechanically: the beat a
     /// downstream fold consumer at `target` should use for its OWN internal step/rate math, after composing every
     /// non-bypassed CLOCK stage strictly between `from` and `target` IN CHAIN ORDER (multiple CLOCKs compose — the
@@ -7023,391 +5316,15 @@ final class Router {
         }
         return beat
     }
-    /// Driver retiming (Paul 2026-09-26, final spec: "a grid with a variable number of steps, each step a mutually
-    /// exclusive speed, and another row on the same grid for glide"). `clockTransformedBeat` above is for
-    /// DOWNSTREAM fold consumers that only ever READ a beat — for a DRIVER's own tick generation, the tick must be
-    /// SCHEDULED too, which needs an exact inverse. CLOCK's grid IS this spec: its per-column ratio picks
-    /// (`clockDrawnRatios`) ARE the mutually-exclusive-speed-per-step, and `clockDrawnGlide` IS the second row on
-    /// that same grid — no separate glide mechanism needed, its own ramping is stateless (purely a function of
-    /// where you are in the current column, never a remembered "previous session" value). `originRef` is the
-    /// window's own REAL start beat, threaded through unchanged from `iterateTicks`; every CLOCK slot recomputes
-    /// its OWN span-origin from it (each slot may carry its own SPAN), pinned to this ONE reference for the whole
-    /// tick search so the forward window-bound transforms and every later tick inversion agree on the same
-    /// span-anchor (see `clockDrawnPhase`'s `originOverride` doc comment for why that matters).
-    private func driverClockBeat(_ cell: SnapCell, from: Int, to target: Int, atBeat: Double, S: Double, cycleBeats: Double, originRef: Double) -> Double {
-        guard target > from else { return atBeat }
-        var beat = atBeat
-        var j = from
-        while j < target {
-            if !cell.slotBypass[j] {
-                let p = cell.procs[j]
-                if p.type == .clock {
-                    let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
-                    let origin = period > 0 ? columnStart(originRef, period) : 0
-                    beat = clockDrawnPhase(beat, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                           steps: p.clockDrawnSteps, rateBeats: S, periodBeats: period,
-                                           originOverride: origin)
-                } else if p.type == .killStep {
-                    let rate = p.killStepRateBeats
-                    let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
-                    let origin = period > 0 ? columnStart(originRef, period) : 0
-                    beat = killStepPhase(beat, columnMap: p.killStepColumnMap, columnsPerLap: p.killStepColumnsPerLap, steps: p.killStepCount, rateBeats: rate,
-                                         periodBeats: period, originOverride: origin)
-                }
-            }
-            j += 1
-        }
-        return beat
-    }
-    /// The exact inverse of `driverClockBeat` — walks the SAME range in REVERSE order (undo the last-applied
-    /// transform first, since inverting a composition reverses order), used to convert a LOCAL tick a retimed
-    /// driver found back to the REAL beat it must schedule its note-on/off at. `originRef` must be the SAME value
-    /// passed to `driverClockBeat` for this window, so every slot's origin agrees between the forward and inverse
-    /// passes.
-    private func driverClockBeatInverse(_ cell: SnapCell, from: Int, to target: Int, atLocalBeat: Double, S: Double, cycleBeats: Double, originRef: Double) -> Double {
-        guard target > from else { return atLocalBeat }
-        var beat = atLocalBeat
-        var j = target - 1
-        while j >= from {
-            if !cell.slotBypass[j] {
-                let p = cell.procs[j]
-                if p.type == .clock {
-                    let period = p.clockSpanN > 0 ? spanLadderBeats(p.clockSpanN, S: S, row: cycleBeats) : 0
-                    let origin = period > 0 ? columnStart(originRef, period) : 0
-                    beat = clockDrawnPhaseInverse(beat, originBeat: origin, ratios: p.clockDrawnRatios, glide: p.clockDrawnGlide,
-                                                  steps: p.clockDrawnSteps, rateBeats: S)
-                } else if p.type == .killStep {
-                    let rate = p.killStepRateBeats
-                    let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
-                    let origin = period > 0 ? columnStart(originRef, period) : 0
-                    beat = killStepPhaseInverse(beat, originBeat: origin, columnMap: p.killStepColumnMap, columnsPerLap: p.killStepColumnsPerLap, firstSlot: p.killStepFirstSlot, steps: p.killStepCount, rateBeats: rate)
-                }
-            }
-            j -= 1
-        }
-        return beat
-    }
-    /// KILL STEP MUTE (Paul 2026-09-27): unlike DROP/PAUSE (which are TRANSFORM behaviors — they change what local
-    /// beat a downstream driver reads, above), MUTE changes nothing about time — a muted step counts exactly like ON
-    /// for `killStepPhase`. Its whole effect is "this note doesn't sound," decided independently, at the note's own
-    /// REAL onset — the same per-note-fold shape EUCLID MASK's REST just shipped with. Mirrors `driverClockBeat`'s
-    /// own `0..<target` scan (so it composes across more than one preceding KILL STEP the same way the transform
-    /// already does), computing each one's OWN real step index directly from `m` (no inversion needed — MUTE doesn't
-    /// touch the transform, so the note's real onset already tells us which real step it fell in).
-    private func precedingKillStepMuted(_ cell: SnapCell, before target: Int, atRealBeat m: Double, cycleBeats: Double) -> Bool {
-        var j = 0
-        while j < target {
-            if !cell.slotBypass[j], cell.procs[j].type == .killStep {
-                let p = cell.procs[j]
-                let rate = p.killStepRateBeats
-                let period = p.killStepSpanN > 0 ? spanLadderBeats(p.killStepSpanN, S: rate, row: cycleBeats) : 0
-                let origin = period > 0 ? columnStart(m, period) : 0
-                let stepIdx = posMod(Int(((m - origin) / rate).rounded(.down)), max(1, p.killStepCount))
-                if stepIdx < p.killStepMode.count && p.killStepMode[stepIdx] == .mute { return true }
-            }
-            j += 1
-        }
-        return false
-    }
-    /// Widening driver retiming beyond ARP/RIFF/RATCHET-ALL (Paul 2026-09-26: "shouldn't all downstream processors
-    /// read an upstream clock, defaulting to the real one if none is present?" — yes). Those three share
-    /// `iterateTicks`, which does "shift the search window forward, walk in local time, invert each discovered
-    /// tick back" internally. EUCLID and HOCKET already route through `iterateTicks` too (just needed the same 3
-    /// arguments wired in) — but BURST/CASCADE/DRONE/SHIFT/HUMANIZE/WEAVE and RATCHET's PATTERN/COIN modes each
-    /// compute their OWN one-shot/loop timing directly, with no shared helper to hook into. These two functions
-    /// factor out the same pattern for THEM: `clockLocalAnchor` shifts a real anchor point forward into the
-    /// clock's local time (so a generator's existing internal math — unchanged — runs relative to where the clock
-    /// says "now" is); `clockDriverTiming` takes the resulting local onset/off pair and inverts BOTH back to real
-    /// beats, returning a real onset + a real gate length (computed as a difference of two independently-inverted
-    /// points, never by "converting a duration" — durations don't invert correctly under a non-uniform transform,
-    /// only points do). Both are no-ops (chainDriver < 0, i.e. no driver context at all) or CLOCK-absent (the
-    /// underlying `driverClockBeat`/Inverse already no-op when no `.clock` slot is in range) — so every existing
-    /// call site that doesn't yet pass through these two functions is unaffected, and every generator's own
-    /// column-membership/window-search bounds keep reading the untransformed real beat (the sovereign law: only a
-    /// driver's own onset/gate — not which grid column it's active in — should ever see the clock's time).
-    private func clockLocalAnchor(_ cell: SnapCell, chainDriver: Int, realAnchor: Double, S: Double, cycleBeats: Double, originRef: Double) -> Double {
-        guard chainDriver >= 0 else { return realAnchor }
-        return driverClockBeat(cell, from: 0, to: chainDriver, atBeat: realAnchor, S: S, cycleBeats: cycleBeats, originRef: originRef)
-    }
-    private func clockDriverTiming(_ cell: SnapCell, chainDriver: Int, localOnset: Double, localOff: Double, S: Double, cycleBeats: Double, originRef: Double) -> (onset: Double, gateBeats: Double) {
-        guard chainDriver >= 0 else { return (localOnset, max(0.001, localOff - localOnset)) }
-        let onset = driverClockBeatInverse(cell, from: 0, to: chainDriver, atLocalBeat: localOnset, S: S, cycleBeats: cycleBeats, originRef: originRef)
-        let off = driverClockBeatInverse(cell, from: 0, to: chainDriver, atLocalBeat: localOff, S: S, cycleBeats: cycleBeats, originRef: originRef)
-        return (onset, max(0.001, off - onset))
-    }
-    /// The LAST non-bypassed SPLIT slot after `driver` (last-writer wins), or nil.
-    private func downstreamSplitIndex(_ cell: SnapCell, after driver: Int) -> Int? {
-        var found: Int? = nil, j = driver + 1
-        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .split { found = j }; j += 1 }
-        return found
-    }
-    /// The FIRST non-bypassed AVOID slot after `driver` that is in AVOID+MOVE mode (the only downstream case that needs the
-    /// driver's whole pool as its in-scale MOVE survivor set — B-1 fix), or nil.
-    private func downstreamAvoidMoveIndex(_ cell: SnapCell, after driver: Int) -> Int? {
-        var j = driver + 1
-        while j < cell.procs.count {
-            if !cell.slotBypass[j], cell.procs[j].type == .avoid, !cell.procs[j].avoidLock, cell.procs[j].avoidMove { return j }
-            j += 1
-        }
-        return nil
-    }
-    /// The FIRST non-bypassed GLIDE slot after `driver` (§7①: [driver→GLIDE] v2), or nil. When present, the driver's
-    /// notes feed GLIDE's mono voice (emitGlideDriven) rather than sounding — the 303 line. v1: GLIDE is mono, so it
-    /// consumes the driver's note directly; set-shapers between driver and GLIDE are ignored (a separate v2 concern).
-    private func downstreamGlideIndex(_ cell: SnapCell, after driver: Int) -> Int? {
-        var j = driver + 1
-        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .glide { return j }; j += 1 }
-        return nil
-    }
     private func isDriverType(_ t: ProcessorType) -> Bool {
         switch t {
         case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave, .riff, .hocket: return true
         default: return false
         }
     }
-    private func isCoveredChain(_ cell: SnapCell) -> Bool { chainDriverIndex(cell) >= 0 }
-    /// A multi-slot chain whose TAIL holds at column boundaries via `emitColumnHolds` (holding the tail's
-    /// transform of the composed upstream set): a bypassed tail (passthrough of the upstream set), or a
-    /// gate/chance/harmonize tail. A non-bypassed STRUM tail is NOT covered yet → falls back to head-only.
-    /// UTILITY (Paul 2026-08-22): the pitch shift a held OCTAVE/TRANSPOSE stage adds to the composed set — folded into
-    /// the hold's `transpose`. Other modes = 0 (a no-op for every existing hold type).
-    private func holdShift(_ p: SnapParams, mode: CellMode) -> Int {
-        switch mode {
-        case .octave:    return 12 * Int(p.utilOctave)
-        case .transpose: return Int(p.utilTranspose)
-        default:         return 0
-        }
-    }
-    /// UTILITY CHANNEL (Paul 2026-08-22): the per-cell output-channel override — the LAST non-bypassed CHANNEL stage's
-    /// channel (0-based), or −1 for WIRE (the bus stamp). Whole-cell + position-independent (the chain exits on one channel).
-    private func cellChanOverride(_ cell: SnapCell) -> Int16 {
-        var out: Int16 = -1
-        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .channel {
-            let c = cell.procs[j].utilChannel; if c >= 1 && c <= 16 { out = Int16(c - 1) }   // 0 = WIRE (no override)
-        }
-        return out
-    }
-    /// UTILITY NUDGE: the per-cell timing offset in SAMPLES — the sum of non-bypassed NUDGE stages (sixteenths of a
-    /// beat), at the live block's beatsPerSample. Applied like the RACK POCKET (shift on/off equally, clamped — no stuck notes).
-    private func cellNudgeSamples(_ cell: SnapCell, beatsPerSample: Double, step: Int = 0) -> Int64 {
-        guard beatsPerSample > 0 else { return 0 }
-        // TIMING LANE (Paul 2026-08-22 §5): a LANE-mode NUDGE reads the offset for THIS step (the cell's column) — the
-        // pocket drawn per column; FIXED reads the single offset (byte-identical).
-        var ticks = 0
-        let s = ((step % 8) + 8) % 8
-        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .nudge {
-            let p = cell.procs[j]
-            if p.utilNudgeMode == .lane { ticks += s < p.utilNudgeLane.count ? p.utilNudgeLane[s] : 0 }
-            else { ticks += p.utilNudge }
-        }
-        guard ticks != 0 else { return 0 }
-        return Int64(((Double(ticks) / 16.0) / beatsPerSample).rounded())
-    }
-    private func isHoldTailChain(_ cell: SnapCell) -> Bool {
-        guard cell.procs.count >= 2, let last = cell.procs.last else { return false }
-        if cell.slotBypass.last ?? false { return true }                 // bypassed tail = held passthrough
-        switch last.type {
-        case .empty, .chance, .harmonize: return true
-        case .split: return true                                         // SPLIT tail = a set-membership FILTER over the composed hold ([HARMONIZE → SPLIT] keeps a subset)
-        case .avoid: return true                                         // AVOID/LOCK tail = a per-note pitch FILTER over the composed hold ([HARMONIZE → AVOID] drops/snaps clashes)
-        case .octave, .transpose: return true                            // UTILITY pitch-shift tail = a per-note SHIFT of the composed hold ([HARMONIZE → OCTAVE])
-        case .chords: return true                                        // CHORDS tail = a diatonic SET-REPLACE over the composed hold ([SPLIT → CHORDS] etc.); emitColumnHolds composes it in and sounds the chord
-        case .tutti: return last.tuttiMode == .coin                      // TUTTI COIN tail = a per-step SET roll over the composed hold; PATTERN re-articulates (tick loop)
-        case .tap: return chainDriverIndex(cell) < 0                     // TAP tail = a held passthrough + its parallel send, but ONLY with no driver ([HARMONIZE→TAP]); [ARP→TAP] stays driver-folded (Paul 2026-08-26)
-        default: return false
-        }
-    }
-    /// A NO-DRIVER chain whose last non-bypassed slot is LENGTH, sitting after a composable (hold) upstream —
-    /// `[TUTTI COIN → LENGTH]`, `[HARMONIZE → LENGTH]`, `[CHANCE → LENGTH]`, `[SPLIT → LENGTH]`.
-    /// Returns the LENGTH slot index; such a cell re-articulates its composed upstream set through LENGTH's gate
-    /// (emitLengthComposedRow), so BOTH the standalone tick-loop switch and emitColumnHolds must defer to it. LENGTH
-    /// re-articulates, so it can't be a plain hold-tail (isHoldTailChain). A TUTTI-PATTERN head is EXCLUDED —
-    /// emitTuttiPatternRow already folds a downstream LENGTH per slice, preserving PATTERN's own rhythm. (Paul 2026-08-17)
-    private func composableLengthTailIndex(_ cell: SnapCell) -> Int? {
-        guard chainDriverIndex(cell) < 0 else { return nil }             // a driver already folds LENGTH per-note (emitDriverNote)
-        var last = -1, i = cell.procs.count - 1
-        while i >= 0 { if !cell.slotBypass[i] { last = i; break }; i -= 1 }
-        guard last >= 1, cell.procs[last].type == .length else { return nil }
-        var head = -1, h = 0
-        while h < cell.procs.count { if !cell.slotBypass[h] { head = h; break }; h += 1 }
-        if head >= 0, head != last, cell.procs[head].type == .tutti, cell.procs[head].tuttiMode == .pattern { return nil }
-        var hasUpstream = false, k = 0
-        while k < last { if !cell.slotBypass[k] && cell.procs[k].type != .length { hasUpstream = true; break }; k += 1 }
-        return hasUpstream ? last : nil
-    }
-    /// A cell whose chain TAIL is ECHO and is NOT tick-driven: single-slot `[ECHO]`, or a hold-upstream chain like
-    /// `[HARMONIZE→ECHO]` / `[CHANCE→ECHO]`. `emitEchoColumn` registers its tail from the composed upstream set;
-    /// `emitColumnHolds` + the tick loop leave it alone. (An `[ARP→ECHO]` tick echo stays Phase-2 — isCoveredChain.)
-    private func isEchoTail(_ cell: SnapCell) -> Bool {
-        guard !isCoveredChain(cell), let last = cell.procs.last, !(cell.slotBypass.last ?? false) else { return false }
-        return last.type == .echo
-    }
-    /// The first non-bypassed ECHO slot's params in a chain, or nil — for registering echo tails when echo is an
-    /// EARLIER slot of a hold-tail chain (e.g. [ECHO→HARMONIZE]), which the tail/driver echo paths don't cover.
-    private func chainEchoParams(_ cell: SnapCell) -> SnapParams? {
-        for i in 0..<cell.procs.count where !cell.slotBypass[i] && cell.procs[i].type == .echo { return cell.procs[i] }
-        return nil
-    }
-    /// The first non-bypassed ECHO slot's INDEX (or nil) — §7② the non-driver CHAIN-echo path needs the slot position
-    /// so `drainEchoTails`/`refoldEchoRepeat` can re-fold each repeat through the stages AFTER it.
-    private func chainEchoIndex(_ cell: SnapCell) -> Int? {
-        for i in 0..<cell.procs.count where !cell.slotBypass[i] && cell.procs[i].type == .echo { return i }
-        return nil
-    }
 
-    /// TUTTI PATTERN (standalone): render the held set as an authored SHAPE per slice, clocked at the slice rate — a
-    /// per-slice re-articulator. TUTTI is not a driver; only a single-slot PATTERN cell reaches here (a chain routes
-    /// its driver/hold instead). The 8-slice pattern walks GLOBALLY (ROTATE offsets it) so it strides the bar. No stuck
-    /// notes: every strike carries an explicit off sample through emitArtic, the same lifecycle the generators use.
-    private func emitTuttiPatternRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int, emits: Bool,
-                                     pool: NotePool, beatPos: Double, windowBeats: Double, windowStart: Int64,
-                                     windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
-                                     out: MIDIEmitter?, diag: inout KernelDiag) {
-        let p = machine.a
-        // SPAN LADDER (Paul 2026-08-22, RATE×ladder): when tuttiSpanN>0, the RATE is the slice width and SPAN N sets the
-        // loop PERIOD in columns (the pattern re-anchors every N columns → polymeter). tuttiSpanN==0 keeps the LEGACY
-        // CELL|ROW path (byte-identical): CELL strides the 8-slice pattern at the RATE; ROW spans the 8 slices over the bar.
-        // cycleBeats (Paul 2026-10-05) is the row's REAL pass length, not a hardcoded Double(Snap.cols) * S — matters
-        // the moment this row's part is wider than 8 columns or runs a custom rate (same bug class as the EUCLID fix).
-        let tuttiLadder = p.tuttiSpanN > 0
-        let tuttiSpanBeats = tuttiLadder ? spanLadderBeats(p.tuttiSpanN, S: S, row: cycleBeats) : 0
-        let sub = tuttiLadder ? max(0.03125, p.tuttiSliceBeats)
-                              : ((p.tuttiSpan == .row) ? max(0.03125, cycleBeats / 8.0) : max(0.03125, p.tuttiSliceBeats))
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
-        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
-        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        fillSrcFromPool(cell, pool)
-        let srcNotes = srcNoteBuf[0..<srcNoteCount]   // view, no alloc — 0-based indices match the old array
-        let count = srcNotes.count
-        guard count > 0 else { return }
-        // [TUTTI PATTERN → LENGTH]: TUTTI PATTERN isn't a note-DRIVER, so a downstream LENGTH never reached the
-        // per-note fold (emitDriverNote) — it was silently dropped. Resolve the last non-bypassed LENGTH after the
-        // head here and fold its gate onto each slice hit below (same MUTE-drops / PASS-keeps / SHORT·LONG-override
-        // rule as emitDriverNote). (Paul 2026-08-17)
-        var lenP: SnapParams? = nil
-        var lj = 1
-        while lj < cell.procs.count { if !cell.slotBypass[lj] && cell.procs[lj].type == .length { lenP = cell.procs[lj] }; lj += 1 }
-        let gStart = Int((mWinStart / sub).rounded(.down)), gEnd = Int((mWinEnd / sub).rounded(.down))
-        guard gEnd >= gStart else { return }
-        for g in gStart...gEnd {
-            let tau = Double(g) * sub
-            guard tau >= mWinStart && tau < mWinEnd else { continue }
-            let idx: Int
-            if tuttiLadder {   // re-anchor the slice walk every N columns (the loop period) → polymeter
-                let localG = Int(((tau - columnStart(tau, tuttiSpanBeats)) / sub).rounded(.down))
-                idx = (((localG + p.tuttiRotate) % 8) + 8) % 8
-            } else {
-                idx = (((g + p.tuttiRotate) % 8) + 8) % 8
-            }
-            let (rankCount, oct) = tuttiSliceRanksInto(&tuttiRankBufA, idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: count)
-            guard rankCount > 0 else { continue }                  // REST → silent slice
-            var offBeat = tau + sub * 0.9                           // TUTTI's own ~90%-of-slice gate
-            if let lp = lenP {                                     // downstream LENGTH overrides THIS slice's gate
-                let sIdx = ((chopSlice(tau, columnBeats: S) + lp.lenRotate) % 8 + 8) % 8
-                let st = sIdx < lp.lenSlices.count ? lp.lenSlices[sIdx] : .pass
-                switch lengthGateFor(st, onset: tau, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: S) {
-                case .drop:                continue                 // MUTE → the slice rests
-                case .keep:                break                    // PASS → keep TUTTI's own gate
-                case .overrideOff(let ob): offBeat = ob             // SHORT/LONG → capped at the step end
-                }
-            }
-            let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-            let offT = sampleOf(musical: offBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-            let tbm = chopMask(cell, m: tau, S: S, base: bm)
-            for ri in 0..<rankCount {
-                let rank = tuttiRankBufA[ri]; guard rank >= 0 && rank < count else { continue }
-                let n = srcNotes[rank].note + transpose + oct
-                guard n >= 0 && n <= 127 else { continue }
-                storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
-                if emits && tbm != 0 { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, srcNotes[rank].vel), out: out, diag: &diag) }
-            }
-        }
-    }
 
-    /// LENGTH (standalone): re-articulate the held chord per the painted 8-slice gate. Events (on/off beats) are the
-    /// pure `lengthColumnEvents` (PASS ties, MUTE rests + cuts, SHORT staccato, LONG rings) — this just strikes ALL
-    /// source notes at each event with its off. Not a driver; single-slot LENGTH reaches here via the tick loop.
-    /// No stuck notes: finite offs capped at the step end, through the same emitArtic lifecycle the generators use.
-    private func emitLengthRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int, emits: Bool,
-                               pool: NotePool, beatPos: Double, windowBeats: Double, windowStart: Int64,
-                               windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
-                               out: MIDIEmitter?, diag: inout KernelDiag) {
-        guard S > 0 else { return }
-        let p = machine.a
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
-        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
-        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        fillSrcFromPool(cell, pool)
-        let srcNotes = srcNoteBuf[0..<srcNoteCount]   // view, no alloc — 0-based indices match the old array
-        guard !srcNotes.isEmpty else { return }
-        // SPAN: CELL fits the 8 slices in each column; ROW stretches them across the whole BAR (slice i = column i) → a
-        // whole-bar trance-gate phrase. Only the span width changes; the window gate keeps each cell to its own slice.
-        // cycleBeats (Paul 2026-10-05) is the row's REAL pass length, not a hardcoded Double(Snap.cols) * S.
-        let span = spanLadderBeats(p.lenSpanN, S: S, row: cycleBeats)   // SPAN LADDER (Paul 2026-08-22)
-        var col = columnStart(mWinStart, span)
-        while col < mWinEnd {
-            let evN = lengthColumnEventsInto(&lenEventBuf, slices: p.lenSlices, rotate: p.lenRotate, shortFrac: p.lenShort, longFrac: p.lenLong, colStart: col, S: span)
-            for ei in 0..<evN {
-                let e = lenEventBuf[ei]
-                guard e.on >= mWinStart && e.on < mWinEnd else { continue }
-                let onT = sampleOf(musical: e.on, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                let offT = sampleOf(musical: e.off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                let tbm = chopMask(cell, m: e.on, S: S, base: bm)
-                for sn in srcNotes {
-                    let n = sn.note + transpose
-                    guard n >= 0 && n <= 127 else { continue }
-                    storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: e.on)
-                    if emits && tbm != 0 { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, sn.vel), out: out, diag: &diag) }
-                }
-            }
-            col += span
-        }
-    }
 
-    /// LENGTH after a non-driver, composable upstream — `[TUTTI COIN → LENGTH]`, `[HARMONIZE → LENGTH]`,
-    /// `[CHANCE → LENGTH]`, `[SPLIT → LENGTH]`. LENGTH isn't a note-DRIVER, so its gate never
-    /// reached the per-note fold (emitDriverNote) and was silently dropped. Re-articulate the COMPOSED upstream set
-    /// (composeChainSet up to the slot before LENGTH) through LENGTH's 8-slice gate — recomposed at each column start
-    /// so per-step-seeded upstreams (TUTTI COIN / CHANCE) stay loop-consistent. Same emitArtic lifecycle + step-capped
-    /// offs as emitLengthRow → no stuck notes. (Paul 2026-08-17)
-    private func emitLengthComposedRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int, emits: Bool,
-                                       lenIdx: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
-                                       windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double,
-                                       a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
-        guard S > 0, lenIdx >= 1, lenIdx < cell.procs.count else { return }
-        let lp = cell.procs[lenIdx]
-        let echoMuteDry = (chainEchoParams(cell)?.echoThru == false)   // §7② [ECHO→…→LENGTH] MUTE: echoes only — suppress the length-gated dry (the tails register in emitEchoColumn)
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
-        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
-        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
-        let cycleBeats = Double(Snap.cols) * S
-        let span = spanLadderBeats(lp.lenSpanN, S: S, row: cycleBeats)   // SPAN LADDER (Paul 2026-08-22)
-        var col = columnStart(mWinStart, span)
-        while col < mWinEnd {
-            composeChainSet(cell: cell, pool: cellPool, upto: lenIdx - 1, m: col, S: S, cycleBeats: cycleBeats)   // the upstream set at this span-unit start
-            let cnt = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
-            if cnt > 0 {
-                let evN = lengthColumnEventsInto(&lenEventBuf, slices: lp.lenSlices, rotate: lp.lenRotate, shortFrac: lp.lenShort, longFrac: lp.lenLong, colStart: col, S: span)
-                for ei in 0..<evN {
-                    let e = lenEventBuf[ei]
-                    guard e.on >= mWinStart && e.on < mWinEnd else { continue }
-                    let onT = sampleOf(musical: e.on, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    let offT = sampleOf(musical: e.off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    let tbm = chopMask(cell, m: e.on, S: S, base: bm)
-                    for k in 0..<cnt {
-                        let src = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)
-                        let n = Int(src) + transpose
-                        guard n >= 0 && n <= 127 else { continue }
-                        let v = max(1, chainScratch.velocity(src))
-                        storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: e.on)
-                        if emits && tbm != 0 && !echoMuteDry { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: v, out: out, diag: &diag) }
-                    }
-                }
-            }
-            col += span
-        }
-    }
 
     /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent
     /// derivation: identity/gate/ratchet/strum pass the set, a closed gate empties it, chance drops by
@@ -7540,406 +5457,7 @@ final class Router {
         dst.rebuildSorted()   // srcAscending reads `sorted`; noteOn doesn't maintain it
     }
 
-    /// Compose stages [0…upto] of the chain into `chainScratch` at beat m — the TAIL reads this each tick. Seeds
-    /// from the SHAPED source (the cell's channel/split/vel filter applies only at the head), then folds each
-    /// non-bypassed stage through a ping-pong of the two working pools. Fixed pools → no render-thread alloc.
-    private func composeChainSet(cell: SnapCell, pool: NotePool, upto: Int, m: Double, S: Double, cycleBeats: Double) {
-        let pass = Int((m / cycleBeats).rounded(.down))
-        var cur = chainA, nxt = chainB
-        cur.reset()
-        for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); cur.noteOn(n, velocity: max(1, pool.velocity(n)), channel: 0) }   // seed carries the source velocity
-        cur.rebuildSorted()
-        var j = 0
-        while j <= upto {
-            if !cell.slotBypass[j] && cell.procs[j].type != .mod && cell.procs[j].type != .glide {   // true-bypass + MOD/GLIDE (their output is separate) pass untouched
-                let mode = cellMode(type: cell.procs[j].type, bypassed: false)
-                nxt.reset()
-                applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
-                swap(&cur, &nxt)
-            }
-            j += 1
-        }
-        chainScratch.reset()
-        for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) { let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111); chainScratch.noteOn(n, velocity: max(1, cur.velocity(n)), channel: 0) }   // carry velocity to the tail's source
-        chainScratch.rebuildSorted()
-    }
 
-    /// Emit one note that the chain's DRIVER produced (at tick beat `m`), routed through the chain's POST-driver
-    /// stages: when the driver is the tail it emits directly; otherwise the note is folded through slots
-    /// driver+1…tail (chance drops, harmonize expands, bypassed passes) and
-    /// each surviving note is emitted. Reuses chainA/chainB (fixed pools — no render-thread alloc); safe to call
-    /// after composeChainSet has produced the driver's source (chainScratch is no longer needed by this tick).
-    private func emitDriverNote(_ note: Int, cell: SnapCell, driver: Int, bm: UInt8,
-                                onSample: Int64, offSample: Int64, windowEnd: Int64, velocity: UInt8,
-                                m: Double, S: Double, cycleBeats: Double, beatsPerSample: Double, pass: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
-        guard note >= 0 && note <= 127 else { return }
-        // KILL STEP MUTE (Paul 2026-09-27): checked FIRST, before even the driver-is-tail shortcut below — a bare
-        // [KILL STEP→ARP] chain (nothing after the driver) takes that shortcut straight to emitChop, so a fold check
-        // placed any later (alongside EUCLID MASK's, further down) would never see it.
-        if precedingKillStepMuted(cell, before: driver, atRealBeat: m, cycleBeats: cycleBeats) { return }
-        // §7① [driver→GLIDE] v2: a downstream GLIDE slot consumes the driver's note as a target for its mono gliding
-        // voice — RECORD it (post-tick emitGlideDriven anchors/bends) and SUPPRESS the note-on here. Keyed by the
-        // emitting cell's grid index (currentCellIndex, set per-cell in emitTickRow). Multi-emitter fan-out is v2.
-        if currentCellIndex >= 0 && currentCellIndex < Snap.cells, downstreamGlideIndex(cell, after: driver) != nil {   // was < 64 (dropped [driver→GLIDE] for cols 4–7)
-            let ci = currentCellIndex, k = glideDrivenCount[ci]
-            if k < Self.glideDrivenCap {
-                glideDrivenNote[ci * Self.glideDrivenCap + k] = Int16(note)
-                glideDrivenBeat[ci * Self.glideDrivenCap + k] = m
-                glideDrivenVel[ci * Self.glideDrivenCap + k] = velocity
-                glideDrivenCount[ci] = k + 1
-            }
-            return
-        }
-        // RECORDER capture (AcceptanceCriteria-recorder): a downstream RECORDER records the driver's notes during its
-        // record window (transparent — the note still plays); once its loop is committed it plays back separately in
-        // emitColumnRecorder, and REPLACE suppresses the live note here. Phase = a pure fn of the pass/step number.
-        if currentCellIndex >= 0 && currentCellIndex < Snap.cells, let rs = downstreamRecorder(cell, after: driver) {
-            let ci = currentCellIndex, rp = cell.procs[rs]
-            if rp.recMode == .canon {
-                // CANON: always record into the current window's ring (reset at boundaries in emitColumnRecorder); LAYER
-                // (never suppress — the live note keeps playing while its recording chases it one window later).
-                let k = recCapN[ci]
-                if k < Router.recNoteCap {
-                    let w = recWindow(rp, passBeats: cycleBeats, stepBeats: S)
-                    let win = max(0.03125, w.window)
-                    let x = ci * Router.recNoteCap + k
-                    recCapStart[x] = m - (m / win).rounded(.down) * win
-                    recCapNote[x] = UInt8(note); recCapVel[x] = velocity
-                    recCapGate[x] = max(0.01, Double(offSample - onSample) * beatsPerSample)
-                    recCapN[ci] = k + 1
-                }
-                // fall through — LAYER
-            } else if recCaptured[ci] {
-                if rp.recMix == .replace { return }               // committed loop → the live note is suppressed (the loop plays in emitColumnRecorder)
-            } else if recArmUnit[ci] != Int.min {
-                // RECORDING: the record window is [recArmUnit, recArmUnit + N) (rolls on a REFRESH re-arm). Capture the
-                // note (start relative to the window origin), then pass through (transparent). recArmUnit is set in
-                // emitColumnRecorder on (re)arm; Int.min = not yet armed (pre-arm on ARM AFTER-N) → pass through.
-                let w = recWindow(rp, passBeats: cycleBeats, stepBeats: S)
-                let unit = Int((m / w.unitBeats).rounded(.down))
-                let n = max(1, w.endUnit - w.startUnit)
-                if unit >= recArmUnit[ci] && unit < recArmUnit[ci] + n {
-                    let k = recCapN[ci]
-                    if k < Router.recNoteCap {
-                        let base = Double(recArmUnit[ci]) * w.unitBeats
-                        let x = ci * Router.recNoteCap + k
-                        recCapStart[x] = m - base
-                        recCapNote[x] = UInt8(note)
-                        recCapVel[x] = velocity
-                        recCapGate[x] = max(0.01, Double(offSample - onSample) * beatsPerSample)
-                        recCapN[ci] = k + 1
-                    }
-                }
-            }
-        }
-        if driver >= cell.procs.count - 1 {                       // driver IS the tail → no post-stages
-            emitChop(note, cell: cell, bm: bm, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, m: m, S: S, out: out, diag: &diag)
-            return
-        }
-        // `pass` is the authoritative lap counter (diag.pass) — the SAME one a stand-alone chance gate reads, so a
-        // downstream gate opens/closes on the lap the user sees (not a beat-derived recomputation that can drift).
-        var cur = chainA, nxt = chainB
-        cur.reset(); cur.noteOn(UInt8(note), velocity: velocity, channel: 0); cur.rebuildSorted()
-        // ECHO in a chain repeats the cell's FULLY-PROCESSED output (user 2026-08-09): it passes through the fold as
-        // identity and registers its tails AFTER every downstream stage has run — so a stage after it (HARMONIZE,
-        // GATE, …) shapes the echoes too, honouring "each stage receives its parent's output". THRU keeps the dry,
-        // MUTE drops it (echoes only). (v1: echo's chain POSITION no longer changes the tail's content — it always
-        // echoes the final set; per-repeat-as-it-fires processing is the deeper "hand the tails" work.)
-        var echoP: SnapParams? = nil
-        var lenP: SnapParams? = nil   // LENGTH downstream (last-writer wins): overrides each onset's gate by its slice
-        var shiftP: SnapParams? = nil   // SHIFT downstream (Paul 2026-09-06): a fixed late push per note
-        var humanP: SnapParams? = nil   // HUMANIZE downstream: seeded per-note timing + velocity jitter
-        var velP: SnapParams? = nil     // VELOCITY downstream (Paul 2026-09-07): a per-step velocity OVERRIDE; note-transparent, applied at the final emit
-        var velIdx = -1                 // its slot index (Paul 2026-09-26, CLOCK Stage 3) — so its own rate math can read a CLOCK-transformed beat
-        var j = driver + 1
-        avoidDriverSurvivorValid = true   // downstream fold: a [driver→AVOID(move)] snaps onto the driver's whole-pool survivors (resolved above), not the single driven note (B-1)
-        defer { avoidDriverSurvivorValid = false }
-        while j < cell.procs.count {
-            if !cell.slotBypass[j] {   // true-bypass passes untouched
-                if cell.procs[j].type == .echo {
-                    echoP = cell.procs[j]   // hold the params; DIRECT registers over the final folded set (below)
-                    if cell.procs[j].echoRoute == .chain {   // §7② CHAIN: seed from the set reaching ECHO's INPUT (cur so far); drainEchoTails re-folds each repeat through slots j+1…tail
-                        let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
-                        for kk in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-                            let sn = cur.srcAscending(kk, filter: 0, cableMask: 0b1111)
-                            pushEchoForNote(Int(sn), vel: max(1, cur.velocity(sn)), bm: echoBM, p: cell.procs[j], onset: m, S: S,
-                                            route: .chain, cellIdx: currentCellIndex, echoSlot: j)
-                        }
-                    }
-                } else if cell.procs[j].type == .mod || cell.procs[j].type == .glide {
-                    // MOD/GLIDE are note-transparent in the fold — their output is emitted separately (v1: [driver→GLIDE] plays the driver).
-                } else if cell.procs[j].type == .length {
-                    lenP = cell.procs[j]   // note-transparent SET-wise; its gate override lands on the final emit (below)
-                } else if cell.procs[j].type == .split {
-                    // SPLIT downstream is a per-note MEMBERSHIP filter against the driver's pool — applied at the final emit
-                    // via the row-loop-resolved gate (splitGate*), not as a set transform here (src is a single note).
-                } else if cell.procs[j].type == .tap {
-                    // TAP (AcceptanceCriteria-tap-processor): emit the stream AS-IT-STANDS here to the tap wire (LEVEL-scaled)
-                    // AND pass it on unchanged — [ARP→TAP→HARM] = the straight walk + the harmonized walk, simultaneously.
-                    // THIS WIRE (0) layers on the cell's output; A–D emits on that emitter (the parallel out). No cur change.
-                    let tp = cell.procs[j]
-                    if !tp.tapMute {
-                        let tapBM: UInt8 = tp.tapTo == 0 ? bm : (UInt8(1) << UInt8(max(0, min(3, tp.tapTo - 1))))
-                        for kk in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-                            let tn = cur.srcAscending(kk, filter: 0, cableMask: 0b1111)
-                            let tv = clampVel(Int((Double(max(1, cur.velocity(tn))) * tp.tapLevel).rounded()))
-                            emitArtic(note: tn, busMask: tapBM, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: tv, out: out, diag: &diag)
-                        }
-                    }
-                } else if cell.procs[j].type == .ratchet {
-                    // COIN PASS-THROUGH fold (Paul 2026-09-06): note-TRANSPARENT in the set fold — its burst-or-pass is applied
-                    // at the FINAL emit (below), so the note reaches it unchanged. (A ratchet is only downstream if it's a fold;
-                    // a driving ratchet would BE the driver.)
-                } else if cell.procs[j].type == .shift {
-                    shiftP = cell.procs[j]   // GROOVE (Paul 2026-09-06): a per-note late PUSH; applied at the final emit (note-transparent to the set)
-                } else if cell.procs[j].type == .humanize {
-                    humanP = cell.procs[j]   // GROOVE: seeded per-note timing + velocity jitter; applied at the final emit
-                } else if cell.procs[j].type == .velocity {
-                    velP = cell.procs[j]; velIdx = j   // per-step velocity OVERRIDE; note-transparent to the set, applied at the final emit
-                } else {
-                    let mode = cellMode(type: cell.procs[j].type, bypassed: false)
-                    nxt.reset()
-                    // CLOCK (Paul 2026-09-26, Stage 3): threads into applyStage's ONE self-clocked case (.tutti) —
-                    // every other mode here ignores clockFrom/atSlot entirely, so this is a no-op elsewhere.
-                    applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats, clockFrom: driver + 1, atSlot: j)
-                    swap(&cur, &nxt)
-                }
-            }
-            j += 1
-        }
-        // EUCLID MASK fold (Paul 2026-09-27): the arp-only euclid mask pulled out as its own downstream stage — a
-        // K-of-N Bjorklund pattern gates THIS driver's notes, whichever driver it is. Ordinal `g` keys off the
-        // driver's own nominal step (driverStep, the SAME derivation VELOCITY's NOTE clock uses below) — "1 mask
-        // column = 1 driven note" — so it can never disagree with what's actually driving. REST/TIE drop the note on
-        // a gap (TIE's gate-extension happened at the PRECEDING hit, mirrored below — exactly like the ARP-embedded
-        // mask); CHORD replaces it with a stab off the composed input pool (chainScratch, already populated by the
-        // driver's own composeChainSet call just before it invoked this function — no separate pool needed here).
-        var maskDropAll = false
-        var maskChordP: SnapParams? = nil
-        var maskChordPickRange: (lo: Int, hi: Int)? = nil   // nil ⇒ ALL (strike everyone); else an INCLUSIVE range of chainScratch indices (BOTTOM2/TOP2 span two; everything else collapses to lo==hi, one note)
-        var maskTieOffBeats = 0.0
-        var maskAccentBoost = 0
-        if let mi = downstreamMaskFoldIndex(cell, after: driver) {
-            let mp = cell.procs[mi]
-            let mN = max(2, min(16, mp.maskN ?? 8)), mK = max(1, min(mN, mp.maskK ?? mN))
-            let driverStep = max(0.03125, Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))])
-            // SPAN (Paul 2026-09-28): re-anchor the pattern's own ordinal to 0 every N notes, sized by the DRIVER's
-            // own step (mirrors KILL STEP sizing its own span ladder by its own rate, not the cell's grid step).
-            // FREE (0, default) ⇒ g is the raw absolute tick count, byte-identical to before this feature.
-            let spanBeats = mp.maskSpanN > 0 ? spanLadderBeats(mp.maskSpanN, S: driverStep, row: cycleBeats) : 0
-            let origin = spanBeats > 0 ? columnStart(m, spanBeats) : 0
-            let g = Int(((m - origin) / driverStep).rounded(.down))
-            let rot = mp.maskRotate ?? 0
-            if mK < mN {
-                // INVERT (Paul 2026-09-28): play the N−K rests instead — mirrors EUCLID's own euclidInvert exactly.
-                var hit = euclidMaskHit(g, k: mK, n: mN, rotate: rot)
-                if mp.maskInvert { hit = !hit }
-                // FILL (Paul 2026-09-28): every Nth pass overrides the mask entirely — everything plays, no
-                // exceptions (bypasses INVERT's own result too, and CHANCE below). `pass` is the SAME authoritative
-                // lap counter a stand-alone chance gate reads.
-                let isFill = mp.maskFillEvery > 0 && pass % mp.maskFillEvery == 0
-                if isFill { hit = true }
-                // CHANCE (Paul 2026-09-28): a coin-flip that can only DEMOTE a hit to a gap, never promote a gap to
-                // a hit — the deterministic skeleton keeps its shape, chance just thins it (an Elektron-style trig
-                // condition). Skipped on a fill pass (fill means "everything, no exceptions"). Seeded on `g` alone —
-                // replay-exact, no accumulated state — mirroring HUMANIZE's own inline splitmix64Mix idiom.
-                if !isFill && hit && mp.maskChance < 1 {
-                    let roll = Double(splitmix64Mix(UInt64(bitPattern: Int64(g)) &+ 0xC2B2AE3D27D4EB4F) & 0xFFFF) / 65535.0
-                    if roll >= mp.maskChance { hit = false }
-                }
-                if !hit {                                                          // GAP
-                    if (mp.maskGap ?? .rest) == .chord {
-                        maskChordP = mp
-                        // CHORD PICK (Paul 2026-09-28): which note(s) of the composed chord this gap strikes —
-                        // mirrors the sibling EUCLID driver's own PICK resolution, keyed on "gaps before g" (derived
-                        // from the already-tested euclidMaskHitsBefore — no new pure function needed).
-                        let count = chainScratch.srcCount(filter: 0)
-                        if count > 0 {
-                            switch mp.maskChordPick {
-                            case .all: maskChordPickRange = nil
-                            case .low: maskChordPickRange = (0, 0)
-                            case .high: maskChordPickRange = (count - 1, count - 1)
-                            // BOTTOM2/TOP2 (Paul 2026-09-28): the two lowest/highest chord tones. Collapses to a
-                            // single note when the composed pool is too small (a 1-note "chord") rather than
-                            // repeating it or reading out of range.
-                            case .bottom2: maskChordPickRange = (0, min(1, count - 1))
-                            case .top2: maskChordPickRange = (max(0, count - 2), count - 1)
-                            case .cycle, .random:
-                                let gapsBefore = g - euclidMaskHitsBefore(g, k: mK, n: mN, rotate: rot)
-                                let idx = mp.maskChordPick == .cycle
-                                    ? posMod(gapsBefore, count)
-                                    : Int(splitmix64Mix(UInt64(bitPattern: Int64(gapsBefore)) &+ 0x9E3779B97F4A7C15) % UInt64(count))
-                                maskChordPickRange = (idx, idx)
-                            }
-                        }
-                    } else { maskDropAll = true }                                  // REST or TIE
-                } else if (mp.maskGap ?? .rest) == .tie {                          // HIT, TIE: cover the following gap run
-                    maskTieOffBeats = Double(euclidMaskTieRun(g, k: mK, n: mN, rotate: rot)) * driverStep
-                }
-            }
-            // ACCENT LAYER (Paul 2026-09-28): fully independent of the gate above — a second K/N/ROTATE test
-            // sharing the SAME g (so a SPAN re-anchor keeps both patterns' relative phase stable). K=N (default)
-            // ⇒ off, matching the gate's own no-op convention. Applied to the surviving note in the final emit loop.
-            if mp.maskAccentK < mp.maskAccentN && euclidMaskHit(g, k: mp.maskAccentK, n: mp.maskAccentN, rotate: mp.maskAccentRotate) {
-                maskAccentBoost = mp.maskAccentAmount
-            }
-        }
-        if maskDropAll { return }
-        if let mp = maskChordP {
-            let cOct = (mp.maskChordOct ?? 0) * 12
-            let cVelScale = mp.maskChordVel ?? 1
-            let chordGateBeats = max(0.01, mp.maskChordGate ?? 0.6) * S
-            let offC = onSample + Int64((chordGateBeats / beatsPerSample).rounded())
-            let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
-            func stab(_ b: Int) {
-                let nv = b + cOct
-                guard nv >= 0 && nv <= 127 else { return }
-                let cvel = UInt8(max(1, min(127, Int(Double(max(1, chainScratch.velocity(UInt8(b)))) * cVelScale))))
-                emitChop(nv, cell: cell, bm: echoBM, onSample: onSample, offSample: offC, windowEnd: windowEnd, velocity: cvel, m: m, S: S, out: out, diag: &diag, clockFrom: driver + 1, cycleBeats: cycleBeats)
-            }
-            if let range = maskChordPickRange {
-                let count = chainScratch.srcCount(filter: 0)
-                if count > 0 {   // guard BEFORE constructing the ClosedRange — it traps if lo > hi (e.g. count somehow 0 here)
-                    for idx in max(0, range.lo)...min(count - 1, range.hi) { stab(Int(chainScratch.srcAscending(idx, filter: 0))) }
-                }
-            } else {
-                for k in 0..<chainScratch.srcCount(filter: 0) { stab(Int(chainScratch.srcAscending(k, filter: 0))) }
-            }
-            return
-        }
-        // RATCHET fold (Paul 2026-09-07): the ratchet is a PASS-THROUGH with its OWN CLOCK — NOT a driver, NOT per arp-note.
-        // PATTERN: the ratchet's playhead runs on its OWN RATE (rtcRate, SPAN re-anchors); a note passing through reads
-        // whichever column that playhead is on AT THE NOTE'S TIME (col = floor(noteBeat ÷ rtcRate) mod STEPS). 1 = PASS THROUGH
-        // (the note as-is) · 2…8 = ratchet it N over the ratchet's own rate slot (spacing rtcRate ÷ N) · never silent. So two
-        // 1/8 notes inside one 1/4 column BOTH read that column → both ratchet. COIN: seeded fire over the driver step. Bursts
-        // ride the ECHO ring so the copies emit across render blocks.
-        var foldBurst = 0; var foldSpacingBeats = 0.0; var foldDecay = 1.0
-        if let fi = downstreamRatchetFoldIndex(cell, after: driver) {
-            let rp = cell.procs[fi]
-            // CLOCK (Paul 2026-09-26, Stage 1 flagship consumer): if a CLOCK stage sits between the driver and this
-            // ratchet fold — e.g. [EUCLID→CLOCK 3:2→RATCHET] — the ratchet's OWN rate/slice math below reads the
-            // TRANSFORMED beat, not the raw one; note pitch/velocity/gate timing (everything else in this function)
-            // still key off the real `m`. No CLOCK in range ⇒ mClock == m (byte-identical, the sovereign law).
-            let mClock = clockTransformedBeat(cell, from: driver + 1, to: fi, atBeat: m, S: S, cycleBeats: cycleBeats)
-            var slotBeats = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]   // COIN: subdivide the driver (arp) step
-            if rp.rtcMode == .pattern {
-                let steps = max(1, min(32, rp.rtcSteps))
-                // CLOCK (Paul 2026-09-07): TIME = the ratchet's OWN RATE grid (col = floor(beat ÷ rtcRate)); NOTE = advance one
-                // column PER NOTE through (col = this note's ordinal). NOTE's ordinal is derived from the driver's step (exact
-                // for a uniform arp; approximate for a variable-timing driver), and a ratchet burst spreads over the note gap.
-                let advBeats = rp.rtcClock == .note ? slotBeats : max(0.03125, rp.rtcRateBeats)   // slotBeats = the driver (arp) step
-                let spanBeats = rp.rtcSpanN > 0 ? Double(rp.rtcSpanN) * advBeats : 0  // SPAN = re-anchor every N MATRIX columns; 0 = free-run
-                let localBeat = spanBeats > 0 ? (mClock - columnStart(mClock, spanBeats)) : mClock   // re-anchor the playhead phase; else free-run
-                let g = Int((localBeat / advBeats).rounded(.down))                    // TIME: which column at this note's time · NOTE: this note's ordinal
-                let col = (((g + rp.rtcRotate) % steps) + steps) % steps
-                let raw = col < rp.rtcSlices.count ? rp.rtcSlices[col] : 1
-                if raw == 0 { cur.reset(); cur.rebuildSorted() }                      // OFF column → MUTE this driven note (unselect-to-mute, Paul 2026-09-08)
-                else if raw >= 2 { foldBurst = min(8, raw); slotBeats = advBeats }    // active column → ratchet N over the advance slot (own rate, or the note gap in NOTE mode) · 1 = passthrough
-            } else {   // COIN pass-through (velFactor 1.0 in fold mode)
-                let step = Int((mClock / S).rounded())
-                if rtcCoinFires(step: step, chance: rp.rtcChance, gap: rp.rtcGap, quota: rp.rtcQuota, velFactor: 1.0) {
-                    foldBurst = rp.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: rp.rtcCountLo, hi: rp.rtcCountHi)
-                                                          : rtcCoinSize(step: step, weights: rp.rtcSizeWeights)
-                }
-            }
-            if foldBurst > 1 { foldSpacingBeats = slotBeats / Double(foldBurst); foldDecay = max(0.2, 1.0 - rp.ramp * 0.6) }   // BURST FADE ≈ echo decay taper
-        }
-        // LENGTH downstream: replace THIS onset's gate by the slice it lands in — MUTE drops the note (+ its echoes),
-        // PASS keeps the driver's own gate, SHORT/LONG override the off. The off-beat → sample conversion is linear
-        // in `beatsPerSample` (gate offs, not onsets, so intra-column swing warp is negligible here).
-        var offOut = offSample
-        if let lp = lenP {
-            let sIdx = ((chopSlice(m, columnBeats: S) + lp.lenRotate) % 8 + 8) % 8
-            let st = sIdx < lp.lenSlices.count ? lp.lenSlices[sIdx] : .pass
-            switch lengthGateFor(st, onset: m, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: S) {
-            case .drop:                cur.reset(); cur.rebuildSorted()   // MUTE → no note, no echoes
-            case .keep:                break
-            case .overrideOff(let ob): offOut = onSample + Int64((max(0, ob - m) / beatsPerSample).rounded())
-            }
-        }
-        if let ep = echoP {
-            if ep.echoRoute != .chain {   // DIRECT (v1): echo the fully-processed final set (all downstream stages applied)
-                // §cell-edit F CHOP: the tail routes through the per-slice split too — it inherits the source note's
-                // slice destination, so echoes follow the note (a muted slice → mask 0 → no tail). (user 2026-08-09.)
-                let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
-                for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-                    let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
-                    pushEchoForNote(Int(n), vel: max(1, cur.velocity(n)), bm: echoBM, p: ep, onset: m, S: S)   // each echo inherits its note's velocity
-                }
-            }   // CHAIN tails were already registered at the ECHO slot (from its INPUT set); drainEchoTails re-folds them.
-            if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry) — both routes
-        }
-        // VELOCITY fold (Paul 2026-09-07): a downstream VELOCITY reads its per-step lane at THIS driver note's time and
-        // sets the emitted velocity (or PASSTHROUGH = leave the inherited value). CLOCK TIME = col by wall-beat over its
-        // own RATE grid; NOTE = advance one column per driver note (col = the driver step's ordinal). SPAN re-anchors the
-        // lane every N columns. Computed once (same onset for the whole folded set → every note this step shares it).
-        var velOverride: Int? = nil
-        if let vp = velP {
-            // CLOCK (Paul 2026-09-26, Stage 3): a CLOCK stage between the driver and this VELOCITY fold retimes its
-            // OWN lane-step math, same mechanism as RATCHET's fold above — note pitch/timing here is untouched.
-            let mClock = velIdx >= 0 ? clockTransformedBeat(cell, from: driver + 1, to: velIdx, atBeat: m, S: S, cycleBeats: cycleBeats) : m
-            let steps = max(1, min(32, vp.velSteps))
-            let driverStep = Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(cell.procs[driver].rateIndex)))]
-            let advBeats = vp.velClock == .note ? max(0.03125, driverStep) : max(0.03125, vp.velRateBeats)
-            let spanBeats = vp.velSpanN > 0 ? Double(vp.velSpanN) * advBeats : 0
-            let localBeat = spanBeats > 0 ? (mClock - columnStart(mClock, spanBeats)) : mClock
-            let g = Int((localBeat / advBeats).rounded(.down))
-            velOverride = velLaneStep(lane: vp.velLane, pass: vp.velPass, steps: steps, col: g)
-        }
-        for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-            let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
-            if splitGateActive && (Int(n) < splitGateLo || Int(n) > splitGateHi || Int(cur.velocity(n)) < splitGateVF || Int(cur.velocity(n)) > splitGateVC) { continue }   // SPLIT punch-hole → rest
-            var baseVel = velOverride ?? max(1, Int(cur.velocity(n)))   // VELOCITY override (nil = passthrough) wins the base; HUMANIZE below can still jitter it
-            var onN = onSample, offN = offOut
-            // GROOVE MODIFIERS (Paul 2026-09-06): a downstream SHIFT / HUMANIZE re-shapes THIS driver note IN PLACE — the ARP
-            // keeps its rhythm, each note is pushed / jittered (SHIFT = a fixed late push · HUMANIZE = seeded per-note timing +
-            // velocity jitter, replay-safe by seed = column·note·index). On/off shift together (length preserved), clamped into
-            // the window like NUDGE/POCKET. So [ARP→HUMANIZE] humanizes the arp's notes instead of re-pooling the chord.
-            if shiftP != nil || humanP != nil {
-                var offB: Int64 = 0; var vScale = 1.0
-                if let sp = shiftP { offB += Int64((max(0, min(1, sp.spread)) * 0.4 * S / max(1e-9, beatsPerSample)).rounded()) }
-                if let hp = humanP {
-                    let amt = max(0, min(1, hp.spread))
-                    let colu = UInt64(bitPattern: Int64((m / S).rounded()))
-                    let h = splitmix64Mix(colu &* 2_654_435_761 &+ UInt64(n) &* 131 &+ UInt64(k) &* 17)
-                    offB += Int64((Double(h & 0xFFFF) / 65535.0 * amt * 0.15 * S / max(1e-9, beatsPerSample)).rounded())
-                    vScale *= max(0.05, (100.0 - Double((h >> 16) & 0xFFFF) / 65535.0 * amt * 45.0) / 100.0)
-                }
-                if offB != 0 { let len = max(1, offN - onN); onN = min(windowEnd, onSample + offB); offN = onN + len }   // shift both → length preserved, clamped to the block
-                baseVel = max(1, Int((Double(baseVel) * vScale).rounded()))
-            }
-            // EUCLID MASK TIE (Paul 2026-09-27): a hit note covers the following gap run — extend its own gate,
-            // mirroring the ARP-embedded mask's identical `off = on + (ties+1)×step×gate` shape.
-            if maskTieOffBeats > 0 { offN += Int64((maskTieOffBeats / beatsPerSample).rounded()) }
-            // EUCLID MASK ACCENT (Paul 2026-09-28): an additive boost on the surviving note, exactly like RIFF's own ACCENT lane.
-            if maskAccentBoost != 0 { baseVel = Int(clampVel(baseVel + maskAccentBoost)) }
-            // STRIKE 0 = the driver note itself, at its OWN length (offOut = LENGTH-overridden gate). Then, if the fold
-            // ratchet calls for N>1, register N−1 more COPIES spaced over the gap to the next note — via the ECHO ring so
-            // they spread across render blocks (each copy keeps the note's own length; overlaps re-articulate cleanly).
-            emitChop(Int(n), cell: cell, bm: bm, onSample: onN, offSample: offN, windowEnd: windowEnd, velocity: UInt8(baseVel), m: m, S: S, out: out, diag: &diag, clockFrom: driver + 1, cycleBeats: cycleBeats)
-            if foldBurst > 1 && foldSpacingBeats > 0 {
-                let noteLenBeats = max(0.01, Double(max(1, offOut - onSample)) * beatsPerSample)
-                let echoBM = chopMask(cell, m: m, S: S, base: bm, clockFrom: driver + 1, cycleBeats: cycleBeats)
-                pushEchoTail(onset: m, note: n, vel: UInt8(baseVel), busMask: echoBM, timeBeats: foldSpacingBeats, repeats: foldBurst - 1,
-                             feedDelay: 1.0, decay: foldDecay, offset: 0, pitch: 0, gateBeats: noteLenBeats)
-            }
-        }
-    }
-    /// Register an echo tail for ONE note at beat `onset`. SYNCED delay always works; FREE (ms) works when `tempo > 0`
-    /// (the hold-tail path threads it — Paul 2026-08-26). The tick-driver path ([ARP→ECHO]) passes tempo 0, so FREE tick
-    /// echo stays deferred there (the tick emitters don't thread tempo).
-    private func pushEchoForNote(_ note: Int, vel: UInt8, bm: UInt8, p: SnapParams, onset: Double, S: Double,
-                                 tempo: Double = 0, route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1) {
-        guard note >= 0 && note <= 127 else { return }
-        let timeBeats: Double
-        if p.echoSync { timeBeats = Double(p.echoDelayDiv) / 4.0 }
-        else if tempo > 0 { timeBeats = max(0.001, p.echoDelayMs / 1000.0 * tempo / 60.0) }   // FREE (ms → beats) — needs tempo
-        else { return }   // FREE with no tempo (tick-driver path) — deferred
-        pushEchoTail(onset: onset, note: UInt8(note), vel: vel, busMask: bm, timeBeats: timeBeats,
-                     repeats: max(1, min(16, p.echoRepeats)), feedDelay: p.echoFeedDelay, decay: p.echoDecay,
-                     offset: p.echoOffset, pitch: p.echoPitch, gateBeats: min(timeBeats * 0.9, S * 0.9), spill: p.echoSpill,
-                     route: route, cellIdx: cellIdx, echoSlot: echoSlot)
-    }
     /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).
     /// CLOCK (Paul 2026-09-26, Stage 3): `clockFrom` — when ≥0 (the driver-fold call sites pass `driver + 1`) — is the
     /// slot a CLOCK stage between it and DEST's own slot would retime; DEST is the ONLY reader (CHOP's `chopSlice` and
@@ -7999,543 +5517,12 @@ final class Router {
 
     // MARK: - per-row tick emitters (the process() per-window content, one method per processor)
 
-    /// ARP (§3): index the input each tick — MIDI IN → filtered source pool; referencing → the parent's
-    /// CURRENT sounding note by derivation, octave-arped by this cell (delta §1 "arpeggiate the arpeggio").
-    /// RIFF (SPEC-riff-processor): a DRIVER that plays a stored RANK STENCIL against the held chord — the chord-following
-    /// 303. Per tick (at riffRate), the step's RANK resolves to a pool note (`riffResolve` — chord-following), REST for
-    /// rank 0; WRAP/OCT applied; ACCENT boosts the played-chord's peak velocity. Mirrors emitArpRow's tick lifecycle so it
-    /// composes as a chain driver + folds through CHOP/downstream stages. v1: no TIE/SLIDE (the §5 lanes are stage 2).
-    /// RIFF DIRECTION = DRUNK: the stateful step lookup. Advances the per-cell walk AT MOST ONCE per distinct `tick`
-    /// (so a render window spanning several new ticks advances once per tick, in order — not once per render call),
-    /// reflecting at the walls (a single reflection always suffices since the delta is always ±1/0 and position is
-    /// always kept in range). `steps` is a LIVE 1…32 param, so a stored position from a wider stencil is defensively
-    /// re-clamped if it's since shrunk. Gated on `!previewMode`, matching DEAL's own "auditioning must not perturb
-    /// persisted playback state" convention — an audition reads the current position without advancing it.
-    private func riffDrunkStep(ci: Int, tick: Int64, steps: Int, bias: Double, seed: UInt64) -> Int {
-        guard ci >= 0, ci < riffDrunkPos.count else { return 0 }
-        if riffDrunkPos[ci] < 0 { riffDrunkPos[ci] = 0; riffDrunkPrevPos[ci] = -1; riffDrunkLastTick[ci] = tick; return 0 }
-        if tick != riffDrunkLastTick[ci] {
-            riffDrunkPrevPos[ci] = riffDrunkPos[ci]   // SLIDE's lookback (Paul 2026-09-28): where the walk was before THIS move
-            riffDrunkLastTick[ci] = tick
-            var np = riffDrunkPos[ci] + riffDrunkDelta(tick: tick, bias: bias, seed: seed)
-            if np < 0 { np = -np }
-            if np > steps - 1 { np = 2 * (steps - 1) - np }
-            riffDrunkPos[ci] = max(0, min(steps - 1, np))
-        }
-        return riffDrunkPos[ci]
-    }
-    private func emitRiffRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
-                             emits: Bool, box: SnapshotBox, pool: NotePool,
-                             effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
-                             windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
-                             chainDriver: Int = -1,
-                             out: MIDIEmitter?, diag: inout KernelDiag) {
-        let pool = effectivePool(for: cell, live: pool)
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
-        let p = machine.a
-        let steps = max(1, min(32, p.riffSteps))   // variable length (Paul 2026-08-26): 1…32, so odd lengths give polymeter (was locked to ≤16)
-        var riffBeats = p.riffRateBeats; if riffBeats <= 0 { riffBeats = 0.25 }
-        let gate = effectiveGate(machine)
-        let baseVel = max(1, Int(coinVelFactor(pool) * 127))   // inherit the held chord's peak velocity (accent boosts it)
-        if r == diag.activeCellRow { diag.effMorphGold = 0; diag.effRateBeats = riffBeats }
-        iterateTicks(row: r, effColumn: effColumn, sub: riffBeats, gateFraction: gate,
-                     beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                     beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded())),
-                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cycleBeats) { tick, mTickBeat, onTime, offTime in
-            // SPAN RE-ANCHOR (Paul 2026-08-27, the universal re-sync model — riff is the first card): FREE (spanN 0) runs
-            // the global grid (today, byte-identical); spanN > 0 re-syncs the stencil to step 0 every N columns, so an odd
-            // `steps` against an aligning span DRIFTS then SNAPS BACK (polymeter). Pure (derived from the absolute beat +
-            // the span constant — no accumulated phase), so replay-exact.
-            let phaseBeat = p.riffSpanN > 0 ? (mTickBeat - columnStart(mTickBeat, spanLadderBeats(p.riffSpanN, S: S, row: cycleBeats))) : mTickBeat
-            let raw = Int((phaseBeat / riffBeats).rounded(.down))
-            // DIRECTION (Paul 2026-09-16, widened to 6 modes Paul 2026-09-28): the stencil playback order. DRUNK is
-            // the one stateful mode (keyed on `tick`, NOT `raw` — SPAN-oblivious by construction, see riffDrunkPos);
-            // every other mode is `riffStepAt`, the SAME pure formula the TIE lookahead below calls for `raw+k` —
-            // one formula, so the current step and "what plays next" can never disagree.
-            let riffCi = effColumn * Snap.rows + r   // this cell's grid index — shared by the DRUNK step lookup below and its SLIDE lookback
-            let step: Int = p.riffDir == .drunk
-                ? riffDrunkStep(ci: riffCi, tick: tick, steps: steps, bias: p.riffDirBias, seed: p.riffDirSeed)
-                : riffStepAt(p.riffDir, raw: raw, steps: steps, seed: p.riffDirSeed)
-            if step < p.riffTie.count && p.riffTie[step] { return }   // §5 TIE — no new attack; the striking step's off was EXTENDED to cover this step (a held ⌒)
-            // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask bits) — a chord that follows the held chord;
-            // MONO strikes the single riffRanks[step]. Both share the per-step §5 modifiers.
-            let polyMask = p.riffPoly ? (step < p.riffMask.count ? p.riffMask[step] : 0) : 0
-            let monoRank = p.riffPoly ? 0 : (step < p.riffRanks.count ? p.riffRanks[step] : 0)
-            if p.riffPoly { if polyMask == 0 { return } } else if monoRank < 1 { return }   // REST
-            let oct = step < p.riffOct.count ? p.riffOct[step] : 0        // §5 OCT lane (−1·0·+1) — per step (all ranks)
-            let accent = step < p.riffAccent.count ? p.riffAccent[step] : 0   // §5 ACCENT lane
-            let vel = clampVel(baseVel + accent)
-            // §5 TIE: extend the off through the following TIE steps (they skip their own strike above). DIRECTION-
-            // AWARE lookahead (Paul 2026-09-28, fixing a bug that predates the 6-mode widening): "the following
-            // step" means whatever this RIFF actually plays next — `step+1` only for FORWARD; REVERSE's true next
-            // step is `step-1`, and PENDULUM/PING-PONG alternate depending which leg of the bounce we're on. Asking
-            // `riffStepAt`/`riffDrunkPeek` for `raw+k`/`tick+k` (the SAME formula the current step above just used,
-            // one tick further on) is exact for every mode, not a direction-specific patch bolted onto FORWARD's.
-            var tieRun = 0
-            while tieRun < steps {
-                let ss = p.riffDir == .drunk
-                    ? riffDrunkPeek(fromPos: step, tick: tick, aheadBy: tieRun + 1, steps: steps, bias: p.riffDirBias, seed: p.riffDirSeed)
-                    : riffStepAt(p.riffDir, raw: raw + tieRun + 1, steps: steps, seed: p.riffDirSeed)
-                if ss < p.riffTie.count && p.riffTie[ss] { tieRun += 1 } else { break }
-            }
-            var effOff = offTime + Int64((Double(tieRun) * riffBeats / beatsPerSample).rounded())
-            // §5 SLIDE: glide LEGATO into the next → arm the synth's portamento (CC65) + overlap the boundary so the next
-            // note opens before this closes (the 303 slide; feeds a synth in portamento, or a downstream GLIDE SYNTH).
-            // Non-slide AFTER a slide clears CC65. Per-step, derived (replay-safe) — emitted once on the lowest bus.
-            let isSlide = step < p.riffSlide.count && p.riffSlide[step]
-            if isSlide { effOff += Int64((riffBeats * 0.12 / beatsPerSample).rounded()) }
-            if emits {
-                let sbus = bm.trailingZeroBitCount
-                if sbus < 4 {
-                    let sch = (busChannels[sbus] &- 1) & 15
-                    // DIRECTION-AWARE (Paul 2026-09-28, the TIE-lookahead fix's mirror image): "the PREVIOUS step" means
-                    // whatever this RIFF actually played immediately before — `step-1` only for FORWARD. Same fix shape
-                    // as TIE: `riffStepAt(raw-1)` is the identical pure formula one tick EARLIER, so it agrees with the
-                    // current step by construction. DRUNK can't be algebraically un-walked (a reflected random walk
-                    // isn't invertible from its current position alone), so its previous position is simply REMEMBERED
-                    // (riffDrunkPrevPos, set in riffDrunkStep) rather than recomputed; −1 ⇒ this is the walk's very
-                    // first strike, so there's nothing to have slid from.
-                    let prevStep = p.riffDir == .drunk ? riffDrunkPrevPos[riffCi] : riffStepAt(p.riffDir, raw: raw - 1, steps: steps, seed: p.riffDirSeed)
-                    let prevSlide = prevStep >= 0 && prevStep < p.riffSlide.count && p.riffSlide[prevStep]
-                    if isSlide { out?.emit(sampleTime: onTime, cable: UInt8(sbus + 1), 0xB0 | sch, 65, 127) }
-                    else if prevSlide { out?.emit(sampleTime: onTime, cable: UInt8(sbus + 1), 0xB0 | sch, 65, 0) }
-                }
-            }
-            func strikeRank(_ rank: Int) {   // resolve ONE rank against the held/composed chord and emit it (shared by MONO + POLY)
-                guard rank >= 1 else { return }
-                let base: Int?
-                if chainDriver >= 0 {   // [X → RIFF]: derive against the composed upstream set (re-pooled per tick, OMNI)
-                    composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
-                    base = riffResolve(rank: rank, oct: oct, n: chainScratch.srcCount(filter: 0), wrap: p.riffWrap) { Int(chainScratch.srcAscending($0, filter: 0)) }
-                } else {
-                    base = riffNote(rank: rank, oct: oct, pool: pool, for: cell, wrap: p.riffWrap)
-                }
-                guard let b = base else { return }
-                let noteValue = b + transpose
-                guard noteValue >= 0 && noteValue <= 127 else { return }
-                storeArtic(row: r, on: onTime, off: effOff, note: UInt8(noteValue), beat: mTickBeat)
-                if emits {
-                    if chainDriver >= 0 {
-                        emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: effOff,
-                                       windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                    } else {
-                        emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: effOff, windowEnd: windowEnd,
-                                 velocity: vel, m: mTickBeat, S: S, out: out, diag: &diag)
-                    }
-                }
-            }
-            if p.riffPoly {
-                for rank in 1...8 where (polyMask & (1 << (rank - 1))) != 0 { strikeRank(rank) }
-            } else {
-                strikeRank(monoRank)
-            }
-        }
-    }
-    private func emitArpRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
-                            emits: Bool, box: SnapshotBox, pool: NotePool,
-                            effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
-                            windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
-                            chainDriver: Int = -1,
-                            out: MIDIEmitter?, diag: inout KernelDiag) {
-        let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        var arpBeats = effectiveRateBeats(machine)
-        let gate = effectiveGate(machine)
-        let octaves = effectiveOctaves(machine)
-        let velocity = effectiveArpVelocity(machine)   // ARP VELOCITY (Paul 2026-09-30, revised same day): an ABSOLUTE value 1…100 — the input note's own velocity is ignored entirely
-        let velTilt = effectiveArpVelTilt(machine)     // ARP VELOCITY TILT −1…1: favours top (+) / bottom (−) of the pool
-        if arpBeats <= 0 { arpBeats = 0.25 }
-        // SPAN (Paul 2026-09-13, the universal re-anchor model — replaces FIT): FREE (spanN 0) runs the global grid
-        // (byte-identical to before); spanN > 0 re-syncs the pattern to index 0 every N columns. Pure (derived from the
-        // absolute beat + the span constant, no accumulated phase → replay-exact). Subtracting the span origin from the
-        // tick/beat leaves RETRIG unchanged (it already resets per column) and re-anchors FREE per span window.
-        let arpSpanBeats = machine.a.arpSpanN > 0 ? spanLadderBeats(machine.a.arpSpanN, S: S, row: cycleBeats) : 0
-        if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = arpBeats }
-        // RANDOM is FREE-running (Paul 2026-08-25 fix): a random walk gains nothing from RETRIG's per-column reset — it just
-        // re-anchors + repeats the same shuffle every column (so RANDOM ANCHOR pedalled the low note instead of "anchor then
-        // shuffle until the next pool cycle"). Using the free `tick` makes the anchor fire once per pool traversal + the
-        // shuffle never repeat. Other patterns keep their NEW-CHORD phase.
-        let arpIsRandom = arpPatternAt(Int(machine.a.patternIndex)) == .random   // cached cases — no per-tick allocation
 
-        iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
-                     beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                     beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded())),
-                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cycleBeats) { tick, mTickBeat, onTime, offTime in
-            // SPAN re-anchor: shift the tick + beat back to the span-window origin so the pattern re-syncs to index 0
-            // every N columns (spanN 0 ⇒ no shift ⇒ byte-identical). RETRIG cancels out (its per-column reset is
-            // preserved); FREE counts from the span origin; RANDOM re-shuffles from the span origin.
-            var pTick = tick, pBeat = mTickBeat
-            if arpSpanBeats > 0 {
-                let origin = columnStart(mTickBeat, arpSpanBeats)
-                pTick = tick - Int64((origin / arpBeats).rounded())
-                pBeat = mTickBeat - origin
-            }
-            let pIdx = arpIsRandom ? pTick : phaseIndex(tick: pTick, mTickBeat: pBeat, arpBeats: arpBeats, S: S,
-                                  cycleBeats: cycleBeats, phase: machine.a.phase,
-                                  runStartColumn: cell.runStartColumn)
-            let base: Int
-            let srcVel: UInt8   // ARP VELOCITY (Paul 2026-09-30, revised same day): NO LONGER inherited from the picked source note — arpPick now derives this from the VELOCITY/VELOCITY TILT controls directly, ignoring the source's own velocity
-            if chainDriver >= 0 {
-                // CELL MACHINE: this ARP is the chain DRIVER — arp the composed SET of the stages BEFORE it at this
-                // tick (OMNI, past the input filter). Derived per tick → pool-correct (arps ALL upstream voices).
-                composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
-                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: machine.a.patternIndex,
-                                   pool: chainScratch, filter: 0, cableMask: 0b1111,
-                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed,
-                                   velocity: velocity, velTilt: velTilt)
-                guard pick.note >= 0 else { return }
-                base = pick.note; srcVel = max(1, pick.vel)
-            } else {
-                let pick = arpPick(phaseIndex: pIdx, octaves: octaves,
-                                   pattern: machine.a.patternIndex, pool: pool, for: cell,
-                                   octDown: machine.a.arpOctDown, randomAnchor: machine.a.arpRandomAnchor, seed: machine.a.arpSeed,   // §7 source filter
-                                   velocity: velocity, velTilt: velTilt)
-                guard pick.note >= 0 else { return }
-                base = pick.note; srcVel = max(1, pick.vel)
-            }
-            let noteValue = base + transpose
-            guard noteValue >= 0 && noteValue <= 127 else { return }
-            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
-            if emits {
-                // §cell-edit F CHOP + the chain's post-driver stages fold onto each arp note (e.g. a downstream chance/harmonize).
-                if chainDriver >= 0 {
-                    emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
-                                   windowEnd: windowEnd, velocity: srcVel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                } else {
-                    emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
-                             velocity: srcVel, m: mTickBeat, S: S, out: out, diag: &diag)
-                }
-            }
-        }
-    }
 
-    /// COIN — ODDS FROM VELOCITY (Paul 2026-08-26 ④): the representative velocity of the held pool (its PEAK, 0…1) — play
-    /// harder, more rolls. 1.0 (unity) when the pool is empty (no scaling). Bounded scan of the small held pool; no alloc.
-    private func coinVelFactor(_ pool: NotePool) -> Double {
-        let n = pool.srcCount(filter: 0); guard n > 0 else { return 1.0 }
-        var peak: UInt8 = 0
-        for k in 0..<n { let v = pool.velocity(pool.srcAscending(k, filter: 0)); if v > peak { peak = v } }
-        return peak == 0 ? 1.0 : Double(peak) / 127.0
-    }
-    /// RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato (0.6), velocity ramp.
-    /// Not an arp (no index cycling) — every stab is the pool (or the parent's sounding note, when referenced).
-    private func emitRatchetRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
-                                emits: Bool, box: SnapshotBox, pool livePool: NotePool,
-                                effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
-                                windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
-                                chainDriver: Int = -1,
-                                out: MIDIEmitter?, diag: inout KernelDiag) {
-        let pool = effectivePool(for: cell, live: livePool)   // receiver strip LATCH: read the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        let ramp = effectiveRamp(machine)
-        let p = machine.a
-        if p.rtcMode != .all {   // COIN / PATTERN — strikes-per-step vary, so window-scan (not the fixed-sub iterateTicks)
-            emitRatchetModal(mode: p.rtcMode, cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm,
-                             ramp: ramp, chainDriver: chainDriver, beatPos: beatPos, windowBeats: windowBeats,
-                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a,
-                             cycleBeats: cycleBeats, p: p, out: out, diag: &diag)
-            return
-        }
-        let repeats = effectiveRepeats(machine)
-        let sub = S / Double(repeats)                          // one repeat every `sub` beats
-        if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = sub }
-        iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
-                     beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                     beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded())),
-                     clockCell: chainDriver >= 0 ? cell : nil, clockFrom: 0, clockTo: chainDriver, cycleBeats: cycleBeats) { _, mTickBeat, onTime, offTime in
-            let colStart = columnStart(mTickBeat, S)
-            let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
-            let tbm = chopMask(cell, m: mTickBeat, S: S, base: bm)         // §cell-edit F CHOP: routes by the 8-slice
-            if emits && tbm == 0 { return }                               // MUTE slice → this repeat is silent
-            ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
-                            onTime: onTime, offTime: offTime, m: mTickBeat, repIdx: repIdx, count: repeats, ramp: ramp,
-                            chainDriver: chainDriver, windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
-        }
-    }
 
-    /// ONE ratchet strike of the whole (composed-upstream, or held) chord at [onTime, offTime) with the velocity ramp.
-    /// Shared by ALL (iterateTicks) and the COIN/PATTERN window-scan. Chain-driver notes fold downstream via emitDriverNote.
-    private func ratchetStrikeAt(cell: SnapCell, row r: Int, transpose: Int, emits: Bool, pool: NotePool, bm: UInt8, tbm: UInt8,
-                                 onTime: Int64, offTime: Int64, m: Double, repIdx: Int, count: Int, ramp: Double,
-                                 chainDriver: Int, windowEnd: Int64, S: Double, cycleBeats: Double, beatsPerSample: Double,
-                                 out: MIDIEmitter?, diag: inout KernelDiag) {
-        if chainDriver >= 0 {
-            composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: m, S: S, cycleBeats: cycleBeats)
-            for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
-                let sn = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111); let n = Int(sn) + transpose
-                guard n >= 0 && n <= 127 else { continue }
-                storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: m)
-                if emits {
-                    let vel = ratchetVelocity(base: max(1, Int(chainScratch.velocity(sn))), ramp: ramp, index: repIdx, count: count)
-                    emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
-                                   windowEnd: windowEnd, velocity: vel, m: m, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                }
-            }
-        } else {
-            for k in 0..<pool.srcCount(for: cell) {
-                let sn = pool.srcAscending(k, for: cell); let n = Int(sn) + transpose
-                guard n >= 0 && n <= 127 else { continue }
-                storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: m)
-                if emits && tbm != 0 {
-                    let vel = ratchetVelocity(base: max(1, Int(pool.velocity(sn))), ramp: ramp, index: repIdx, count: count)
-                    emitArtic(note: UInt8(n), busMask: tbm, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
-                }
-            }
-        }
-    }
 
-    /// RATCHET COIN / PATTERN. COIN: per grid column, a seeded chance to ratchet (a count in [lo,hi]) vs a plain single hit
-    /// (window-scanned per column). PATTERN (Paul 2026-09-07, RIFF-shaped): a SELF-CLOCKED step MATRIX — the playhead sweeps
-    /// STEPS columns at RATE (its own clock, SPAN re-anchors); each column's COUNT decides passthrough (1) or ratchet (2…8),
-    /// subdividing that column's RATE slot. Window-scanned over the absolute beat so it spreads across blocks + free-runs.
-    private func emitRatchetModal(mode: RatchetMode, cell: SnapCell, row r: Int, transpose: Int, emits: Bool, pool: NotePool,
-                                  bm: UInt8, ramp: Double, chainDriver: Int, beatPos: Double, windowBeats: Double,
-                                  windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
-                                  cycleBeats: Double, p: SnapParams, out: MIDIEmitter?, diag: inout KernelDiag) {
-        guard S > 0 else { return }
-        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a), mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        if mode == .pattern {
-            // STANDALONE RATCHET PATTERN (Paul 2026-09-08): a SINGLE-SLOT ratchet-pattern cell is a PASS-THROUGH PROCESSOR
-            // of the input, not a generator — handled entirely by emitColumnRatchetPattern (sustain on count-1, ratchet on
-            // 2…8, gap on 0, gated on live input). So DON'T generate here. Multi-slot chains ([RATCHET PATTERN→X]) keep the
-            // self-clocked generator below for now (flagged follow-up).
-            if cell.procs.count <= 1 { return }
-            // PATTERN — a SELF-CLOCKED step MATRIX (Paul 2026-09-07, RIFF-shaped): the playhead sweeps STEPS columns at RATE
-            // (the ratchet's OWN clock, re-anchored by SPAN — FREE = free-run); each column holds a COUNT — 1 = passthrough
-            // (one hit), 2…8 = RATCHET that many (subdividing the column's RATE slot into count staccato sub-strikes). Window-
-            // scanned over the ABSOLUTE beat so it spreads across render blocks + free-runs independent of the global grid.
-            // Feeds the upstream note (re-clocks the arp). BURST FADE (ramp) tapers velocity across a column's sub-strikes.
-            let rate = max(0.03125, p.rtcRateBeats)
-            let steps = max(1, min(32, p.rtcSteps))
-            let spanBeats = p.rtcSpanN > 0 ? Double(p.rtcSpanN) * rate : 0   // SPAN = re-anchor every N MATRIX columns (N × RATE); 0 = free-run (Paul 2026-09-07)
-            // CLOCK (Paul 2026-09-26): the same iterateTicks pattern, built into this hand-rolled loop directly —
-            // the window bounds shift into local time, the tick search (which matrix column, which count) runs
-            // there unchanged, each sub-strike inverts back to real before the REAL half-open window check.
-            let localWinStart = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: mWinStart, S: S, cycleBeats: cycleBeats, originRef: mWinStart)
-            let localWinEnd = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: mWinEnd, S: S, cycleBeats: cycleBeats, originRef: mWinStart)
-            var tk = Int((localWinStart / rate).rounded(.down)) - 1          // one tick early (a sub-strike can spill into this window)
-            while true {
-                let tickStart = Double(tk) * rate   // LOCAL
-                if tickStart >= localWinEnd { break }
-                // which matrix column is the playhead on? re-anchored by SPAN (like RIFF), else free-running; + ROTATE
-                let localTick = spanBeats > 0 ? Int(((tickStart - columnStart(tickStart, spanBeats)) / rate).rounded(.down)) : tk
-                let col = (((localTick + p.rtcRotate) % steps) + steps) % steps
-                let count = max(1, min(8, col < p.rtcSlices.count ? p.rtcSlices[col] : 1))   // 1 = single hit · 2…8 = ratchet · NO REST (Paul 2026-09-07: every column sounds)
-                let sub = rate / Double(count)
-                for j in 0..<count {
-                    let localTau = tickStart + Double(j) * sub
-                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: localTau + sub * 0.6, S: S, cycleBeats: cycleBeats, originRef: mWinStart)
-                    if tau < mWinStart || tau >= mWinEnd { continue }   // half-open: fires in exactly one render window (REAL)
-                    let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
-                    let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    let offT = sampleOf(musical: tau + gate, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
-                                    onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
-                                    windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
-                }
-                tk += 1
-            }
-            return
-        }
-        var col = columnStart(mWinStart, S)
-        while col < mWinEnd {
-            if mode == .coin {
-                let step = Int((col / S).rounded())
-                // COIN — SHAPING THE DICE (Paul 2026-08-26): ①④ fire decision (gap/quota/velocity-gated), then ① size pick.
-                let ratchets = rtcCoinFires(step: step, chance: p.rtcChance, gap: p.rtcGap, quota: p.rtcQuota,
-                                            velFactor: p.rtcOddsVel ? coinVelFactor(pool) : 1.0)
-                let count = ratchets ? (p.rtcSizeWeights.isEmpty ? rtcCoinCount(step: step, lo: p.rtcCountLo, hi: p.rtcCountHi)
-                                                                 : rtcCoinSize(step: step, weights: p.rtcSizeWeights)) : 1
-                let sub = S / Double(max(1, count))
-                // CLOCK (Paul 2026-09-26): the COIN decision itself stays keyed to the REAL grid column (`step`,
-                // above — column membership is the sovereign law) — only the sub-strikes WITHIN a firing column
-                // retime: shift this column's start into local time, run the existing spacing math there, invert
-                // each sub-strike back.
-                let localCol = clockLocalAnchor(cell, chainDriver: chainDriver, realAnchor: col, S: S, cycleBeats: cycleBeats, originRef: mWinStart)
-                for j in 0..<count {
-                    let localTau = localCol + Double(j) * sub
-                    let (tau, gate) = clockDriverTiming(cell, chainDriver: chainDriver, localOnset: localTau, localOff: min(localCol + S, localTau + sub * 0.6), S: S, cycleBeats: cycleBeats, originRef: mWinStart)
-                    guard tau >= mWinStart && tau < mWinEnd else { continue }
-                    let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
-                    let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    let offT = sampleOf(musical: tau + gate, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
-                                    onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
-                                    windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
-                }
-            }
-            col += S
-        }
-    }
 
-    /// Is any RATCHET PATTERN standalone sustain voice active? (fast-path guard, mirrors anyBypassVoiceActive)
-    private func anyRtcHoldVoiceActive() -> Bool {
-        for i in voices.indices where voices[i].active && voices[i].rtcHold { return true }
-        return false
-    }
-    private func rtcHoldVoiceExists(note: UInt8, bus: UInt8, ci: Int16) -> Bool {
-        for i in voices.indices where voices[i].active && voices[i].rtcHold && voices[i].note == note && voices[i].bus == bus && voices[i].machineIndex == ci { return true }
-        return false
-    }
 
-    /// STANDALONE RATCHET PATTERN (Paul 2026-09-08) — a PROCESSOR of the input, NOT a generator. Called EVERY window
-    /// (before the pool guard, like emitColumnMod/Glide). Scans every SINGLE-SLOT ratchet-pattern cell; the ratchet's OWN
-    /// clock (rtcRate·STEPS·SPAN·rotate) decides the treatment, the INPUT decides whether anything sounds:
-    ///   • count 1 (PASS)      → sustain the held chord as an IMMORTAL legato hold (adopted across windows + grid columns).
-    ///   • count 2…8 (RATCHET) → close the sustain + window-scan N staccato sub-strikes over the column's rate slot.
-    ///   • count 0 (OFF)       → close the sustain (a gap — unselect-to-mute).
-    ///   • cell not the active column for its row / no input → close its sustains.
-    /// Stateless diff-reconcile (like reconcileBypass): the immortal rtcHold voices are owned entirely here (excluded from
-    /// the grid hold-reconcile); allNotesOff closes them on every transport/scene edge → no stuck notes. v1: single-slot
-    /// cells only (a [RATCHET PATTERN → X] chain keeps the old self-clocked generator — flagged follow-up).
-    private func emitColumnRatchetPattern(box: SnapshotBox, uniformFast: Bool, effColumn: Int, pool livePool: NotePool,
-                                          beatPos: Double, windowBeats: Double, windowStart: Int64, windowEnd: Int64,
-                                          beatsPerSample: Double, S: Double, a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
-        var hasCell = false
-        for i in 0..<Snap.cells {
-            let c = box.cells[i]
-            if c.machineIndex >= 0 && c.procs.count <= 1 && c.proc.type == .ratchet && c.proc.rtcMode == .pattern { hasCell = true; break }
-        }
-        guard hasCell || anyRtcHoldVoiceActive() else { return }
-        let savedCI = currentMachineIndex, savedCell = currentCellIndex, savedAlt = currentAlt
-        defer { currentMachineIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
-
-        // PHASE 1 — across ALL active single-slot ratchet-pattern cells: gather the GLOBAL desired PASS sustain set
-        // (deduped by wire+bus+machine, so a row of same-machine cells sustains SEAMLESSLY — cell N+1 adopts cell N's
-        // voice), and emit the RATCHET (count 2…8) staccato sub-strikes immediately (non-immortal).
-        var nDes = 0
-        for idx in 0..<Snap.cells {
-            let cell = box.cells[idx]
-            guard cell.machineIndex >= 0 && cell.procs.count <= 1 && cell.proc.type == .ratchet && cell.proc.rtcMode == .pattern else { continue }
-            let row = idx % Snap.rows, col = idx / Snap.rows
-            let effCol = uniformFast ? effColumn : rowEffColBuf[row]
-            let sRow = uniformFast ? S : rowSBuf[row]
-            let ci = Int(cell.machineIndex)
-            let machine = box.machines[ci]
-            let p = cell.proc   // the RESOLVED ratchet-pattern params (templateChain/processors head), NOT machine.a (which is the machine's own face — moot for a chain cell)
-            let audible = !(cell.busMask == 0 || cell.muted || cell.dormant || soloSilenced(cell) || !onSceneAudible(machine.on, pass: diag.pass))
-            guard (col == effCol) && audible else { continue }
-            currentMachineIndex = Int16(ci); currentCellIndex = idx; currentAlt = false
-            let cellPool = effectivePool(for: cell, live: livePool)
-            let srcN = cellPool.srcCount(for: cell)
-            guard srcN > 0 else { continue }
-            let rate = max(0.03125, p.rtcRateBeats)
-            let steps = max(1, min(32, p.rtcSteps))
-            let spanBeats = p.rtcSpanN > 0 ? Double(p.rtcSpanN) * rate : 0
-            let mWinStart = musicalOf(beatPos, stepBeats: sRow, a: a)
-            let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: sRow, a: a)
-            func columnCount(atTick tickStart: Double) -> Int {   // the ratchet's OWN-clock column count at a tick start
-                let localTick = spanBeats > 0 ? Int(((tickStart - columnStart(tickStart, spanBeats)) / rate).rounded(.down)) : Int((tickStart / rate).rounded(.down))
-                let cc = (((localTick + p.rtcRotate) % steps) + steps) % steps
-                return max(0, min(8, cc < p.rtcSlices.count ? p.rtcSlices[cc] : 1))
-            }
-            let transpose = machineTranspose(ci, machine) + octaveShift(cell.resolvedReceiver)
-            let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)
-            // PASS (count 1 at the window start) → contribute this cell's held chord to the global desired sustain.
-            if columnCount(atTick: Double(Int((mWinStart / rate).rounded(.down))) * rate) == 1 {
-                for k in 0..<srcN {
-                    let sn = cellPool.srcAscending(k, for: cell)
-                    let n = Int(sn) + transpose
-                    guard n >= 0 && n <= 127 else { continue }
-                    let vel = max(1, cellPool.velocity(sn))
-                    for b in UInt8(0)..<4 where bm & (1 << b) != 0 {
-                        let sw = n + emitterOctaveShift(Int(b)) + masterKey
-                        guard sw >= 0 && sw <= 127, let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }
-                        var dup = false
-                        for d in 0..<nDes where rtcDesWire[d] == w && rtcDesBus[d] == b && rtcDesCI[d] == Int16(ci) { dup = true; break }
-                        if !dup && nDes < rtcDesWire.count { rtcDesWire[nDes] = w; rtcDesBus[nDes] = b; rtcDesVel[nDes] = vel; rtcDesCI[nDes] = Int16(ci); rtcDesCell[nDes] = Int16(idx); nDes += 1 }
-                    }
-                }
-            }
-            // RATCHET columns (count 2…8) in the window → staccato sub-strikes (non-immortal, gated on live input).
-            let ramp = p.ramp
-            let cycleBeats = Double(Snap.cols) * sRow
-            var tk = Int((mWinStart / rate).rounded(.down)) - 1
-            while true {
-                let tickStart = Double(tk) * rate
-                if tickStart >= mWinEnd { break }
-                let ct = columnCount(atTick: tickStart)
-                if ct >= 2 {
-                    let sub = rate / Double(ct)
-                    for j in 0..<ct {
-                        let tau = tickStart + Double(j) * sub
-                        if tau < mWinStart || tau >= mWinEnd { continue }
-                        let tbm = chopMask(cell, m: tau, S: sRow, base: bm); if tbm == 0 { continue }
-                        let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: sRow, a: a)
-                        let offT = sampleOf(musical: tau + sub * 0.6, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: sRow, a: a)
-                        ratchetStrikeAt(cell: cell, row: row, transpose: transpose, emits: true, pool: cellPool, bm: bm, tbm: tbm,
-                                        onTime: onT, offTime: offT, m: tau, repIdx: j, count: ct, ramp: ramp, chainDriver: -1,
-                                        windowEnd: windowEnd, S: sRow, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
-                    }
-                }
-                tk += 1
-            }
-        }
-        // PHASE 2 — reconcile ALL rtcHold voices vs the global desired set: close those no longer wanted (released /
-        // gap / RATCHET column / playhead left), open the missing (own cable + All copy, both IMMORTAL).
-        for i in voices.indices where voices[i].active && voices[i].rtcHold {
-            var keep = false
-            for d in 0..<nDes where rtcDesWire[d] == voices[i].note && rtcDesBus[d] == voices[i].bus && rtcDesCI[d] == voices[i].machineIndex { keep = true; break }
-            if !keep { closeVoice(i, atSample: windowStart, out: out) }
-        }
-        for d in 0..<nDes {
-            let w = rtcDesWire[d], b = rtcDesBus[d], ci = rtcDesCI[d]
-            if rtcHoldVoiceExists(note: w, bus: b, ci: ci) { continue }
-            currentMachineIndex = ci; currentCellIndex = Int(rtcDesCell[d]); currentAlt = false
-            let ch = (busChannels[Int(b)] &- 1) & 15
-            _ = openVoice(note: w, chan: ch, cable: b + 1, bus: b, onSample: windowStart, offSample: .max, velocity: rtcDesVel[d], out: out, meter: true, rtcHold: true)
-            _ = openVoice(note: w, chan: ch, cable: 0,     bus: b, onSample: windowStart, offSample: .max, velocity: rtcDesVel[d], out: out, meter: false, rtcHold: true)
-        }
-    }
-
-    /// STRUM (§3): stagger the source chord's onsets over `spread` beats from the column start, held to the
-    /// boundary. Emitted per-window as each onset arrives (strumProgress, reset per column) — each note fires once.
-    private func emitStrumRow(cell: SnapCell, row r: Int, machine: SnapMachine, transpose: Int,
-                              emits: Bool, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
-                              beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double, chainDriver: Int = -1,
-                              out: MIDIEmitter?, diag: inout KernelDiag) {
-        let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: machine.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        let spread = effectiveSpread(machine)
-        let curve = machine.a.curve, tilt = machine.a.velTilt, dir = machine.a.strumDir
-        let colStart = columnStart(musicalOf(beatPos, stepBeats: S, a: a), S)
-        // cycleBeats (Paul 2026-10-05) is now the CALLER's real per-row pass length, not a local Double(Snap.cols)*S —
-        // same bug class as the EUCLID 16-wide-part fix, here affecting STRUM's own upstream compose + downstream fold.
-        // CELL MACHINE: a STRUM chain DRIVER staggers the composed set of the stages BEFORE it (derived once at colStart).
-        if chainDriver >= 0 { composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cycleBeats) }
-        let count = chainDriver >= 0 ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : pool.srcCount(for: cell)   // §7 source filter
-        if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = spread }
-        guard count > 0 else { return }
-
-        let offSample = sampleOf(musical: colStart + S, beatPos: beatPos,       // held to boundary
-                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-        while strumProgress[r] < count {
-            let j = strumProgress[r]
-            let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve, normalize: machine.a.strumSpreadNorm)
-            let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos,
-                                       beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-            if onsetSample >= windowEnd { break }        // onset lands in a later window
-            strumProgress[r] += 1
-
-            let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
-            let srcNote = chainDriver >= 0 ? chainScratch.srcAscending(sortedIdx, filter: 0, cableMask: 0b1111) : pool.srcAscending(sortedIdx, for: cell)
-            let n = Int(srcNote) + transpose
-            guard n >= 0 && n <= 127 else { continue }
-            let srcVel = chainDriver >= 0 ? chainScratch.velocity(srcNote) : pool.velocity(srcNote)   // inherit + tilt
-            let vel = strumVelocity(index: j, count: count, tilt: tilt, base: max(1, Int(srcVel)))
-            let onT = max(onsetSample, windowStart)
-            storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), beat: onsetMusical)
-            if emits {
-                if chainDriver >= 0 {   // fold each strummed note through the stages AFTER the strum (e.g. a downstream chance/harmonize)
-                    emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offSample,
-                                   windowEnd: windowEnd, velocity: vel, m: onsetMusical, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                } else {
-                    emitArtic(note: UInt8(n), busMask: bm, onSample: onT, offSample: offSample,
-                              windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
-                }
-            }
-        }
-    }
 
     // (grid-chaining retired: `emitMirrorRow` — the referenced-parent mirror — is gone.)
 
