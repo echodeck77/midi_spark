@@ -1628,6 +1628,10 @@ struct MachineParams: Codable, Equatable {
     var chordsStepsResolved: Int { max(1, min(16, chordsSteps ?? 8)) }
     var chordsVoicingResolved: ChordVoicing { chordsVoicing ?? .triad }
     var chordsSpreadResolved: ChordSpread { chordsSpread ?? .close }
+    // CHORDS GRID ferry (Paul 2026-10-24) §1.4: per-column chord COLOUR — 0 none · 1...6 = `ChordColour`'s raw
+    // value (7·9·6·ADD9·SUS2·SUS4). Stored as plain `[Int]?` (not `[ChordColour]?`) to mirror `chordsDegrees`'s
+    // own raw-int convention. nil ⇒ no colour anywhere, byte-identical to every document before this ferry.
+    var chordsColours: [Int]? = nil
     /// The 8-step degree matrix, resolved — defaults to a I–vi–IV–V loop (0,0,5,5,3,3,4,4) so a fresh CHORDS plays.
     // SIZED TO THE MATRIX WIDTH (Paul 2026-09-16 fix): pad/truncate the degrees to EXACTLY `steps`, so chordsDegreeAt (which
     // loops on degrees.count) plays every authored column of a 9…16-wide matrix — the old fixed-8 truncation dropped columns
@@ -1637,6 +1641,29 @@ struct MachineParams: Codable, Equatable {
         let d = chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]
         let n = max(1, min(16, steps))
         return d.count == n ? d : (d.count > n ? Array(d.prefix(n)) : d + [Int](repeating: -1, count: n - d.count))
+    }
+    // CHORDS GRID ferry §1.2: ALWAYS 16 entries, independent of the live `steps` count — the columns beyond
+    // `steps` are hidden, not cleared. `chordsDegreesResolved(steps:)` above still resolves/truncates AT `steps`
+    // for SnapshotBuilder's per-render read (the only reader that ever wants the currently-audible width); every
+    // EDIT (cell taps, STEPS changes) reads/writes THESE instead, or a shrink→edit→grow would silently lose the
+    // hidden columns — which is exactly what `chordsDegreesResolved(steps:)` does today when used for a write.
+    // §1.2, literal: "a padded column takes the chord ... of the last stored column" — repeat the LAST entry,
+    // not a CARRY (-1) sentinel, so a legacy 8-entry document's columns 9-16 start out as plain copies of column
+    // 8 (spec test 2), not as carries-that-happen-to-resolve-the-same-way. An empty/never-touched array has no
+    // "last" to copy, so it falls back to CARRY (matches today's behaviour exactly, since there's nothing to copy).
+    func chordsDegreesResolved16() -> [Int] {
+        let d = chordsDegrees ?? [0, 0, 5, 5, 3, 3, 4, 4]
+        if d.count >= 16 { return Array(d.prefix(16)) }
+        guard let last = d.last else { return [Int](repeating: -1, count: 16) }
+        return d + [Int](repeating: last, count: 16 - d.count)
+    }
+    /// Mirrors `chordsDegreesResolved16()` for the colour row (§1.4): a padded column copies the last stored
+    /// column's colour too. An empty/never-touched array pads with 0 (no colour).
+    func chordsColoursResolved16() -> [Int] {
+        let c = chordsColours ?? []
+        if c.count >= 16 { return Array(c.prefix(16)) }
+        guard let last = c.last else { return [Int](repeating: 0, count: 16) }
+        return c + [Int](repeating: last, count: 16 - c.count)
     }
     /// The four EUCLID rows for editing/rendering — ALWAYS exactly 4 (the 2026-09-29 fixed-row redesign; SHARED
     /// by the GridUI editor and SnapshotBuilder's resolve so the two can't independently derive this differently).
@@ -2845,6 +2872,33 @@ struct PluginState: Codable, Equatable {
     // I-I-V-V-IV-IV-V-V loop — a fresh, never-touched grid is audible immediately, not silent.
     var euclideousChords: MachineParams? = nil
     var euclideousChordsResolved: MachineParams { euclideousChords ?? MachineParams() }
+    // CHORDS GRID ferry (Paul 2026-10-24): four independently-stored progressions ("tabs") replace the single
+    // grid above. `euclideousChords` stays decodable forever (a legacy document's set 0 resolves FROM it, below)
+    // but is never written again — the standard decode-only-sentinel pattern this codebase already uses
+    // elsewhere (`riffLock`, the restart masks). `activeChordSet` is which tab is PLAYING; the popup may be
+    // showing/editing a different tab at the same time (§4.4's queued switch) — "shown" and "playing" differ.
+    // Deliberately a lazy/computed migration (no eager mutating pass at load): a legacy document that's never
+    // touched never materializes `euclideousChordSets` at all and reads byte-identically through
+    // `euclideousChordsResolved`; the FIRST edit (`setEuclideousChordSet`) is what "migrates" it, in place.
+    var euclideousChordSets: [MachineParams]? = nil
+    var activeChordSet: Int? = nil
+    var euclideousChordSetsResolved: [MachineParams] {
+        guard let sets = euclideousChordSets else {
+            return [euclideousChordsResolved, MachineParams(), MachineParams(), MachineParams()]
+        }
+        var s = sets
+        while s.count < 4 { s.append(MachineParams()) }
+        return Array(s.prefix(4))
+    }
+    var activeChordSetResolved: Int { max(0, min(3, activeChordSet ?? 0)) }
+    /// Writes `params` into chord-set `idx` (0...3), materializing `euclideousChordSets` on first use if the
+    /// document hasn't been touched since the CHORDS GRID ferry — the ONE write path every chord-tab edit uses.
+    mutating func setEuclideousChordSet(_ idx: Int, _ params: MachineParams) {
+        guard idx >= 0, idx < 4 else { return }
+        var sets = euclideousChordSetsResolved
+        sets[idx] = params
+        euclideousChordSets = sets
+    }
     // SOURCE MODE, riff and lanes independently: nil ⇒ MIDI (true), NOT key — a fresh/never-touched doc, and
     // every EXISTING session saved before this rework, must keep sounding exactly as it did (its receiver-fed
     // MIDI pool), not go silent the instant this update lands (KEY mode currently resolves to an empty pool,

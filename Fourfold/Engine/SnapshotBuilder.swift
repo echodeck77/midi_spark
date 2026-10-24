@@ -158,16 +158,18 @@ enum SnapshotBuilder {
                         FileHandle.standardError.write("Fourfold: Euclideous lane \(i + 1) had an unexpected legacy noteSel — migrating to 1 lit\n".data(using: .utf8) ?? Data())
                     }
                 }
-                // EUCLIDEOUS CHORDS (Paul 2026-10-08): resolve the page's own chord grid into the SHARED
-                // chords* fields (see Snapshot.swift's own doc comment on euclideousChordKeyRoot/KeyTones for
-                // why reusing them, not a parallel set, is the right call) — PATTERN mode only, unconditionally
-                // (there's no MODE picker on this page; the popup only ever authors PATTERN-shaped content).
-                // keyRoot/keyTones come from Euclideous's own page-level KEY, not a receiver door.
+                // EUCLIDEOUS CHORDS (Paul 2026-10-08; CHORDS GRID ferry 2026-10-24 repointed this at the ACTIVE
+                // of 4 progressions): resolve the page's own chord grid into the SHARED chords* fields (see
+                // Snapshot.swift's own doc comment on euclideousChordKeyRoot/KeyTones for why reusing them, not
+                // a parallel set, is the right call) — PATTERN mode only, unconditionally (there's no MODE
+                // picker on this page; the popup only ever authors PATTERN-shaped content). keyRoot/keyTones
+                // come from Euclideous's own page-level KEY, not a receiver door.
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
-                    let chordCfg = doc.euclideousChordsResolved
+                    let chordCfg = doc.euclideousChordSetsResolved[doc.activeChordSetResolved]
                     let steps = chordCfg.chordsStepsResolved
                     sc.procs[0].chordsMode = .pattern
                     sc.procs[0].chordsDegrees = chordCfg.chordsDegreesResolved(steps: steps)
+                    sc.procs[0].chordsColours = Array(chordCfg.chordsColoursResolved16().prefix(steps))
                     sc.procs[0].chordsSteps = steps
                     sc.procs[0].chordsRateBeats = max(0.03125, chordCfg.chordsRateResolved.beats)
                     sc.procs[0].chordsRotate = chordCfg.chordsRotate ?? 0

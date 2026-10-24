@@ -669,6 +669,13 @@ enum HoldCapture { case replace, union, keep }
 enum ChordVoicing: String, Codable, CaseIterable { case triad, seventh, add9 }
 enum ChordSpread: String, Codable, CaseIterable { case close, open }
 
+/// CHORDS GRID ferry (Paul 2026-10-24) §1.4/§5.3: a per-column chord colour on the Euclideous CHORDS popup —
+/// independent of (and, when set, takes over from) `ChordVoicing`, which the popup never exposes a control for.
+/// Stored on `MachineParams.chordsColours`/`SnapParams.chordsColours` as this enum's raw `Int` (0...6).
+enum ChordColour: Int, Codable, CaseIterable {
+    case none = 0, seventh = 1, ninth = 2, sixth = 3, add9 = 4, sus2 = 5, sus4 = 6
+}
+
 /// A DIATONIC chord on `degree` (0=I … 6=vii) as STACKED THIRDS over a scale — pool-steps {deg, deg+2, deg+4} (+deg+6 for a
 /// 7th · +deg+8 for add9). No chord is stored: quality falls out of the key (SPEC-chords-stage). `scaleTones` = the scale's
 /// intervals from the root, ascending (e.g. major [0,2,4,5,7,9,11] = `ScaleType.intervals`); `rootNote` = the key-root MIDI

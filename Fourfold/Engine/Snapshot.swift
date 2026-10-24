@@ -209,6 +209,10 @@ struct SnapParams {
     var chordsWalkSeed: Int = 0
     var chordsRateBeats: Double = 4                       // the progression clock in beats (default 1/1 = 4 = one chord per bar)
     var chordsSteps: Int = 8                              // the PATTERN matrix length (1…16); the progression loops every N
+    // CHORDS GRID ferry (Paul 2026-10-24) §1.4: per-column colour, 0...`chordsSteps`-1 — 0 none · 1...6 = `ChordColour`.
+    // [] (the default) ⇒ no colour anywhere, so every caller that never resolves this (the regular CHORDS processor,
+    // the chord door) pays zero extra cost and is byte-identical to before this ferry.
+    var chordsColours: [Int] = []
 }
 
 
