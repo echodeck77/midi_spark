@@ -40,14 +40,14 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ### FOURFOLD STEP 2 — the page in the extension (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM FIRST (the root view's frames were measured, not run on the iPad: `pageView` 214 → 9.7 KB, `slowPoll` 36.9 KB; the old 1 MB-stack crash was on a Debug launch).
-- "Fourfold: Fourfold" in AUM opens the real page (not the placeholder), in AUM's plugin window size; edit a lane, play: notes on the routed Out A–D ports (All carries everything); the 20 factory presets load AND are heard at once (`publish()` after load).
+- "Outlier MIDI: Fourfold" in AUM opens the real page (not the placeholder), in AUM's plugin window size; edit a lane, play: notes on the routed Out A–D ports (All carries everything); the 20 factory presets load AND are heard at once (`publish()` after load).
 - Settings sheet (gear): the footer has NO WORKBENCH link; 8x8 State's Fourfold settings sheet still has it and still returns to the workbench.
 - REEL: tap the tape icon → the browser opens above the page (landscape; portrait shows the rotate prompt), passes appear after a few bars of the host playing, tap a pass to hear it, SAVE opens the share sheet over the browser (the sheet is now presented by the browser itself, not by a hidden workbench view — check it appears), CLOSE resumes live.
 - Undo / redo, lane LOCK, SOLO, RANDOM, the key pop-up, SWING, the output rings: all copied code — exercise each once.
 - The pulse level starts at FULL (a new storage key), and the settings sheet's STRIKE PULSE row still changes it.
 
 ### FOURFOLD STEP 1 — targets (2026-10-23)
-- Install the `Fourfold` scheme from Xcode: AUM lists "Fourfold: Fourfold" as a MIDI processor (separately from "8x8 State"), it opens to the placeholder, and its MIDI outputs are named All / Out A–D. 8x8 State must still be listed and unchanged.
+- Install the `Fourfold` scheme from Xcode: AUM lists "Outlier MIDI: Fourfold" as a MIDI processor (separately from "8x8 State"), it opens to the placeholder, and its MIDI outputs are named All / Out A–D. 8x8 State must still be listed and unchanged.
 
 ### FOURFOLD REEL LINK (2026-10-23)
 - LAUNCH the DEBUG build from Xcode into AUM first (`headerUtilities` gained a child; `Scripts/debug-frame-sizes.py` against the FX-ferry build: its closure 3264 → 3344 B (+80 B) with the reel button as its own `AnyView` leaf (inline it was +624 B); the icon's own TimelineView body closure is 2.8 KB at render — the 1 MB stack only really answers on the iPad).
@@ -461,3 +461,4 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 - Presets
 - Engine/audio (anything that passed its tests but needs an ear, not an eye)
 - **Fourfold Step 4 (engine copy-and-trim, 2026-10-24):** the Fourfold AU in AUM and the standalone app on the iPad must sound EXACTLY as before the trim — the golden proves 21 documents byte-identical, but it has no MIDI input, host transport edges, reel, lane lock or HOLD/LATCH: play a chord through MIDI IN, start/stop the host, toggle HOLD and LATCH, lock a lane, record + replay a reel pass, change a MAIN OUT channel mid-note and mute a lane mid-hold, and listen for a stuck or missing note.
+- **Fourfold identity change (2026-10-24):** the app and extension now carry `com.outliermidi.Fourfold[.AU]` and the AU manufacturer `OutM`. A build installed under the OLD ids (`com.paulbarrett.Fourfold`) is a different app — delete it from the iPad, and re-add the plugin in AUM (it appears as "Outlier MIDI: Fourfold"). Confirm Xcode can sign the new ids with the team in project.yml.

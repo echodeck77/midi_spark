@@ -30,9 +30,9 @@
 					<key>description</key>
 					<string>Four Euclidean lanes of notes</string>
 					<key>manufacturer</key>
-					<string>MSPK</string>
+					<string>OutM</string>
 					<key>name</key>
-					<string>Fourfold: Fourfold</string>
+					<string>Outlier MIDI: Fourfold</string>
 					<key>sandboxSafe</key>
 					<true/>
 					<key>subtype</key>

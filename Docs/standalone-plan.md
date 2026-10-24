@@ -9,8 +9,8 @@ not aspirational: a second host is being built on top of them.
 ## PLAN OF RECORD (2026-10-23)
 
 ### Decisions (made)
-- **Name / ids.** App `com.paulbarrett.Fourfold`, extension `com.paulbarrett.Fourfold.AU` (same pattern as `com.paulbarrett.MidiSpark[.AU]`; Paul accepted the recommendation).
-  AU component: type `aumi`, subtype `Frfd`, manufacturer `MSPK` (same developer). **ONE-WAY DOOR** — AUM keys saved sessions on (type, subtype, manufacturer); never change `Frfd` once anyone has saved a session.
+- **Name / ids.** Company **Outlier MIDI** (Paul, 2026-10-24). App `com.outliermidi.Fourfold`, extension `com.outliermidi.Fourfold.AU` (was `com.paulbarrett.Fourfold[.AU]` until 2026-10-24; MidiSpark keeps `com.paulbarrett.MidiSpark[.AU]`). The reverse-domain `outliermidi` is a default, not a confirmed domain; the signing team (`DEVELOPMENT_TEAM` in project.yml) is unchanged — check it is the team that owns Outlier MIDI before the first TestFlight.
+  AU component: type `aumi`, subtype `Frfd`, manufacturer `OutM` (Outlier MIDI; was `MSPK` until 2026-10-24, changed while no session could exist), AUM listing name "Outlier MIDI: Fourfold". **ONE-WAY DOOR** — AUM keys saved sessions on (type, subtype, manufacturer); never change `Frfd` once anyone has saved a session.
   MidiSpark's `MSpk`/`MSPK` are untouched. MIDI port names "All", "Out A"…"Out D" (the page already says MAIN OUT); exported files `Fourfold-*.mid`.
 - **The one link back to 8x8 State goes:** the settings sheet's WORKBENCH footer (`EuclideousSettingsSheet.swift`, wired through `EuclideousPage.onClose`). 8x8 State keeps its own Fourfold overlay until Paul says otherwise.
 - **Engine: share first, then copy-and-trim.** Trimming the shared engine in place would change 8x8 State (the product Paul runs in AUM today), so: Fourfold starts on the SAME `AUExtension/` engine files (target membership); once the LISTEN rebuild has landed and the

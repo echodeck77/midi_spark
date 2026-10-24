@@ -13,18 +13,18 @@ xcodebuild -project MidiSpark.xcodeproj -scheme Fourfold -configuration Debug -d
 xcrun simctl boot "$UDID" 2>/dev/null || true
 sleep 3
 APP="$OUT/appdd/Build/Products/Debug-iphonesimulator/Fourfold.app"
-xcrun simctl terminate "$UDID" com.paulbarrett.Fourfold 2>/dev/null || true
-xcrun simctl uninstall "$UDID" com.paulbarrett.Fourfold 2>/dev/null || true   # a clean session each run
+xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || true
+xcrun simctl uninstall "$UDID" com.outliermidi.Fourfold 2>/dev/null || true   # a clean session each run
 xcrun simctl install "$UDID" "$APP"
-(xcrun simctl launch --console "$UDID" com.paulbarrett.Fourfold --autoplay --midi-selftest --midi-selftest-transport > "$OUT/app-console.log" 2>&1 &)
+(xcrun simctl launch --console "$UDID" com.outliermidi.Fourfold --autoplay --midi-selftest --midi-selftest-transport > "$OUT/app-console.log" 2>&1 &)
 sleep 16
 xcrun simctl io "$UDID" screenshot "$OUT/app-shot.png" >/dev/null 2>&1
-xcrun simctl terminate "$UDID" com.paulbarrett.Fourfold 2>/dev/null || true
+xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || true
 grep -a "^SELFTEST" "$OUT/app-console.log" || echo "no SELFTEST lines (see $OUT/app-console.log)"
 # SESSION: launch 1 changes the key root and the app's 3 s autosave writes it; launch 2 (same install) must read it back.
-xcrun simctl launch --console "$UDID" com.paulbarrett.Fourfold --state-test-write > "$OUT/state-write.log" 2>&1 &
-sleep 7; xcrun simctl terminate "$UDID" com.paulbarrett.Fourfold 2>/dev/null || true; wait 2>/dev/null || true
-(xcrun simctl launch --console "$UDID" com.paulbarrett.Fourfold --state-test-read > "$OUT/state-read.log" 2>&1 &)
-sleep 5; xcrun simctl terminate "$UDID" com.paulbarrett.Fourfold 2>/dev/null || true
+xcrun simctl launch --console "$UDID" com.outliermidi.Fourfold --state-test-write > "$OUT/state-write.log" 2>&1 &
+sleep 7; xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || true; wait 2>/dev/null || true
+(xcrun simctl launch --console "$UDID" com.outliermidi.Fourfold --state-test-read > "$OUT/state-read.log" 2>&1 &)
+sleep 5; xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || true
 grep -ah "^SELFTEST STATE" "$OUT/state-write.log" "$OUT/state-read.log" || echo "no STATE lines"
 echo "screenshot: $OUT/app-shot.png"

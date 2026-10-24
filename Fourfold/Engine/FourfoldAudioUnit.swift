@@ -299,9 +299,9 @@ public class FourfoldAudioUnit: AUAudioUnit {
     }
 
     /// IDENTITY — keep in step with `Fourfold/AU/Info.plist` (type / subtype / manufacturer) and `project.yml` (bundle ids). The standalone app never registers this description (it builds the AU directly); it only needs to be well-formed.
-    /// `Frfd` / `MSPK` is a one-way door once anyone has saved an AUM session (plan: "Decisions").
+    /// `Frfd` / `OutM` (Outlier MIDI) is a one-way door once anyone has saved an AUM session (plan: "Decisions").
     static let componentDescription = AudioComponentDescription(componentType: kAudioUnitType_MIDIProcessor,
-                                                                componentSubType: fourCC("Frfd"), componentManufacturer: fourCC("MSPK"),
+                                                                componentSubType: fourCC("Frfd"), componentManufacturer: fourCC("OutM"),
                                                                 componentFlags: 0, componentFlagsMask: 0)
     private static func fourCC(_ s: String) -> FourCharCode { s.utf8.prefix(4).reduce(0) { ($0 << 8) | FourCharCode($1) } }
 
@@ -616,7 +616,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     }
 
     // MARK: - fullState = the host-level Preset (§1: the only thing called a preset)
-    private static let stateKey = "com.paulbarrett.fourfold.document"   // a NEW product: its sessions are its own (the 8x8 key stays in the frozen original)
+    private static let stateKey = "com.outliermidi.fourfold.document"   // a NEW product: its sessions are its own (the 8x8 key stays in the frozen original)
 
     // Staging live-preview overlay (main thread): while a staged cell is transiently placed on the grid
     // for the in-context preview, this records where + the cell it displaced, so fullState encodes the

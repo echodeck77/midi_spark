@@ -93,7 +93,7 @@ targets:
     sources: [Fourfold/App]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.Fourfold
+        PRODUCT_BUNDLE_IDENTIFIER: com.outliermidi.Fourfold
     info:
       path: Fourfold/App/Info.plist
       properties:
@@ -126,7 +126,7 @@ targets:
     # NOTE: no `info:` block here, for the same reason as MidiSparkAU.
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.Fourfold.AU
+        PRODUCT_BUNDLE_IDENTIFIER: com.outliermidi.Fourfold.AU
         INFOPLIST_FILE: Fourfold/AU/Info.plist
         GENERATE_INFOPLIST_FILE: NO
 
@@ -190,7 +190,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.FourfoldTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.outliermidi.FourfoldTests
         CODE_SIGNING_ALLOWED: NO
 
 # Shared schemes (written to xcshareddata → tracked, always present). Without this, XcodeGen

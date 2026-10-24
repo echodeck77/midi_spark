@@ -18,7 +18,7 @@ struct FourfoldRootView: View {
     init(au: FourfoldAudioUnit?, internalTransport: Bool = false) { self.au = au; self.internalTransport = internalTransport }
 
     // ── host / display state ──
-    static let hangLog = OSLog(subsystem: "com.paulbarrett.Fourfold", category: "hang")
+    static let hangLog = OSLog(subsystem: "com.outliermidi.Fourfold", category: "hang")
     @AppStorage("fourfold.pulseLevel") var pulseLevel = 2   // a device preference, not the document (PULSE ferry §7.1)
     /// The host stopped after playing: free-run off until the host starts again (8x8's `buildHostHalted`, kept so Fourfold behaves as it does in 8x8 State).
 
