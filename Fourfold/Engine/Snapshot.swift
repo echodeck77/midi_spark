@@ -26,7 +26,6 @@ enum Snap {
     // use maxCols; a part whose rowLength > cols is non-uniform → the proven multi-clock per-row path plays its 16 columns.
     static let cols = 8, machines = 16, maxCols = 16
     static let ferries = 8, rowsPerFerry = 4
-    static func ferryRowBase(_ t: Int) -> Int { t * rowsPerFerry }   // ferry t's own dedicated row block — the PERMANENT addressing
     // EUCLIDEOUS (Paul 2026-10-05): ONE further reserved row, past the last ferry's own block — the standalone
     // 4-lane instrument page's one EuclidMachine cell lives here, PINNED (its rowLane set to a single-column lap
     // mask), always live, independent of which ferry is open on the BUILD-page bench. Deliberately NOT reused

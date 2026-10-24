@@ -358,65 +358,6 @@ final class ReelDeckTests: XCTestCase {
 
 // THE PART ROLL (Paul 2026-09-02): the live per-part-cycle note capture for the part-page piano roll.
 final class PartRollDeckTests: XCTestCase {
-    func testPairsOnOffIntoNotesWithRealDurations() {
-        let d = PartRollDeck()
-        d.record(beat: 0.0, cable: 1, machine: 0xAABBCC, 0x90, 60, 100)   // C on at beat 0
-        d.record(beat: 1.0, cable: 1, machine: 0,         0x80, 60, 0)     // C off at beat 1
-        d.record(beat: 2.0, cable: 2, machine: 0x112233, 0x90, 67, 80)    // G on at beat 2 (emitter B), left open
-        d.endCycle()                                                     // the cycle completes → becomes the drawn roll
-        let notes = d.roll(cycleBeats: 4.0).sorted { $0.start < $1.start }
-        XCTAssertEqual(notes.count, 2)
-        XCTAssertEqual(notes[0].note, 60); XCTAssertEqual(notes[0].cable, 1)
-        XCTAssertEqual(notes[0].start, 0.0, accuracy: 1e-9); XCTAssertEqual(notes[0].end, 1.0, accuracy: 1e-9, "real duration")
-        XCTAssertEqual(notes[0].machine, 0xAABBCC, "the note carries the sounding cell's machine")
-        XCTAssertEqual(notes[1].note, 67); XCTAssertEqual(notes[1].cable, 2)
-        XCTAssertEqual(notes[1].end, 4.0, accuracy: 1e-9, "a note open at cycle end holds to cycleBeats")
-    }
-    func testEmptyCycleKeepsThePreviousRollAsAGhost() {
-        let d = PartRollDeck()
-        d.record(beat: 0.0, cable: 1, machine: 0, 0x90, 60, 100); d.record(beat: 1.0, cable: 1, machine: 0, 0x80, 60, 0)
-        d.endCycle()                                                     // pattern captured
-        XCTAssertEqual(d.roll(cycleBeats: 4.0).count, 1)
-        d.endCycle()                                                     // an EMPTY cycle (no input) → keep the ghost
-        XCTAssertEqual(d.roll(cycleBeats: 4.0).count, 1, "no input keeps the last pattern as a dim ghost, not blank")
-    }
-    // JOB 3 (bug-hunt B-1): the render↔main race fix double-buffers the published cycle (render writes the inactive
-    // buffer, flips pubSel; main reads the active one). Verify the flip works across ≥2 cycles — roll() always reads
-    // the LATEST completed cycle, not a stale or mixed one (the A↔B alternation is the whole point).
-    func testDoubleBufferPublishReadsTheLatestCycleAcrossFlips() {
-        let d = PartRollDeck()
-        // cycle 1 → note 60
-        d.record(beat: 0, cable: 1, machine: 0, 0x90, 60, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 60, 0); d.endCycle()
-        XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [60])
-        // cycle 2 → note 62 (flips to the other buffer)
-        d.record(beat: 0, cable: 1, machine: 0, 0x90, 62, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 62, 0); d.endCycle()
-        XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [62], "reads the latest cycle after the first flip")
-        // cycle 3 → note 64 (flips BACK to the first buffer — proves both directions)
-        d.record(beat: 0, cable: 1, machine: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 64, 0); d.endCycle()
-        XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [64], "reads the latest cycle after flipping back")
-        d.clear(); XCTAssertTrue(d.roll(cycleBeats: 4).isEmpty, "clear blanks both buffers")
-    }
-    // HOUSEKEEPING (2026-09-03): the race-hardened ownership — clear() (MAIN) blanks only the PUBLISHED buffers; the
-    // render scratch is reset by beginRecording() on the recording rising edge (so MAIN never writes curN). Verify a
-    // partial pre-edge cycle is DISCARDED by beginRecording and doesn't bleed into the next published cycle.
-    func testBeginRecordingDiscardsPartialCycleAfterClear() {
-        let d = PartRollDeck()
-        d.record(beat: 0, cable: 1, machine: 0, 0x90, 60, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 60, 0); d.endCycle()
-        d.clear()
-        XCTAssertTrue(d.roll(cycleBeats: 4).isEmpty, "clear blanks the published roll")
-        d.record(beat: 0, cable: 1, machine: 0, 0x90, 62, 100)   // a PARTIAL in-progress cycle (an orphaned in-flight record)
-        d.beginRecording()                                       // the rising edge → discard the scratch
-        d.record(beat: 0, cable: 1, machine: 0, 0x90, 64, 100); d.record(beat: 1, cable: 1, machine: 0, 0x80, 64, 0); d.endCycle()
-        XCTAssertEqual(d.roll(cycleBeats: 4).map { $0.note }, [64], "beginRecording discarded the pre-edge 62; only the fresh cycle publishes")
-    }
-    // (Paul 2026-09-03): each note carries its emitting CELL index through record→roll, so the part roll can filter to the
-    // selected rung per column (the display filter lives in the UI; here we lock the plumbing that feeds it).
-    func testRollCarriesTheEmittingCellIndex() {
-        let d = PartRollDeck()
-        d.record(beat: 0, cable: 1, machine: 0, cell: 37, 0x90, 60, 100); d.record(beat: 1, cable: 1, machine: 0, cell: 37, 0x80, 60, 0)
-        d.endCycle()
-        XCTAssertEqual(d.roll(cycleBeats: 4).first?.cell, 37, "the note keeps the cell it was emitted from")
-    }
 }
 
 // The OFFLINE PART ROLL (Paul 2026-09-03) — the deterministic, no-lag feed that replaces the live audio capture.

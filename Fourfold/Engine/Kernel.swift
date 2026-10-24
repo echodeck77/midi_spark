@@ -688,29 +688,6 @@ final class Kernel {
     // one-shot toggle from the UI (consumed on the render thread — same cross-thread pattern as panicRequested).
     let reel = ReelDeck()
     private let reelTap = ReelTap()
-    // PART ROLL (Paul 2026-09-02): the live per-part-cycle emitted-note capture, tapped in FRONT of the reel tap, for the
-    // part-page piano roll. Active + cycle set by the VC (setPartRoll) while the PART audition is on. NOT gated on host-play.
-    let partDeck = PartRollDeck()
-    private let partTap = PartTap()
-    private var partRollActive = false
-    private var partRollCycle = 4.0
-    private var prevPartCycleIdx = Int.min
-    /// VC control: the PART audition is on the screen + playing (active), and the PART's cycle in beats (buildPartCols ×
-    /// the part's step). Off ⇒ the tap just forwards + the deck clears (a stale roll from another part never lingers).
-    func setPartRoll(active: Bool, cycleBeats: Double) {
-        partRollActive = active
-        partRollCycle = max(0.01, cycleBeats)
-        if !active { partDeck.clear(); prevPartCycleIdx = Int.min }
-    }
-    func pollPartRoll() -> [PartRollDeck.Note] { partDeck.roll(cycleBeats: partRollCycle) }
-    /// OFFLINE PART ROLL (Paul 2026-09-03): the DETERMINISTIC, no-lag feed — replaces the live capture. Snapshot the input
-    /// (clone the live + latched pools; a benign torn read of value arrays, the 2026-08-10 class) and run the CURRENT box
-    /// for one pass. Main-thread control call (heavier than a poll — the VC recomputes only when the input/selection changes).
-    func offlinePartRoll(cyc: Double) -> [PartRollDeck.Note] {
-        guard let box = store?.acquire() else { return [] }
-        return renderOfflinePartRoll(box: box, pool: pool.clone(), latched: latchedPools.map { $0.clone() },
-                                     latchMask: effectiveLatchMask, cyc: cyc)
-    }
     private var reelToggle = false
     private var reelExitFlush = false
     private var reelLastPass = Int.min
@@ -1038,17 +1015,6 @@ final class Kernel {
         }
         diag.beat = rBeat            // EFFECTIVE beat (host OR free-run) → UI beat-driven playheads work while the host is stopped (Paul 2026-08-29)
         diag.effectivePlaying = rPlaying   // host OR free-run actually running → the UI shows "playing" only when sound is really happening (Paul 2026-09-04)
-        // PART ROLL: tap in front of the reel tap, recording pass-relative to the PART's cycle at the EFFECTIVE beat (so the
-        // free-run audition is captured). At each part-cycle boundary, promote the completed cycle to the drawn roll.
-        partTap.out = reelTap; partTap.deck = partDeck
-        let wasRecording = partTap.recording
-        partTap.recording = partRollActive
-        if partRollActive && !wasRecording { partDeck.beginRecording() }   // RENDER resets its own scratch on the rising edge (main never writes curN → no clear()/record() race)
-        partTap.base = rBeat; partTap.beatsPerSample = reelBps; partTap.cycleBeats = partRollCycle; partTap.windowStart = reelWinStart
-        if partRollActive, partRollCycle > 0, rPlaying {
-            let idx = Int((rBeat / partRollCycle).rounded(.down))
-            if idx != prevPartCycleIdx { if prevPartCycleIdx != Int.min { partDeck.endCycle() }; prevPartCycleIdx = idx }
-        }
         if reel.state == .replaying, reel.hasLoop {               // REPLACE the live output with the recorded loop
             reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reel.loopCycle,   // loop at the SELECTED pass's own length, not the live rate
                         beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
@@ -1064,19 +1030,14 @@ final class Kernel {
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
                         frameCount: frameCount, laneMask: laneMask,
-                        velOverride: velOverride, heldCell: Int(heldCell), soloEmitterMask: soloEmitterMask,
-                        soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputSemitone: inputSemitone, inputVelOverride: inputVelOverride,
-                        emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
-                        velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
+                        panic: panicRequested,
                         euclideousAllNotesOff: euclideousAllNotesOffRequested,
                         euclideousSoloLive: euclideousSoloLive,
                         euclideousPendingRolls: euclideousPendingRolls,
                         euclideousHoldOverrides: euclideousHoldOverrides,
                         euclideousLockLive: euclideousLockLive,
-                        sceneFlush: flushRequested, sceneRestart: restartRequested,
-                        latchMask: effectiveLatchMask, latchedPools: latchedPools,
-                        focusCell: Int(focusCell),
-                        out: partTap, diag: &diag)   // → partTap (part roll) → reelTap (reel) → liveEmitter
+                        sceneFlush: flushRequested,
+                        out: reelTap, diag: &diag)   // → reelTap (reel) → liveEmitter
         router.snapshotEmitterSounding()   // §strips-done: capture the currently-sounding set (voices now reconciled)
         router.snapshotCellSounding()      // SEAL comet: capture which cells are sounding (note-on/off gate)
         }

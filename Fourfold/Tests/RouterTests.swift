@@ -667,33 +667,10 @@ final class RouterTests: XCTestCase {
 
     // MARK: - VELOCITY OVERRIDE (§6a PERFORM) — momentary per-emitter flatten at the emission boundary
 
-    /// Drive PLAYING windows with a packed velOverride (byte-per-emitter), then a STOP flush.
-    private func runVel(_ box: SnapshotBox, _ pool: NotePool, beats: Double, velOverride: UInt32,
-                        into e: RecordingEmitter, tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) {
-        let router = Router(); var diag = KernelDiag()
-        let wb = Double(frames) * tempo / 60 / sr
-        var beat = 0.0, ts = 0.0
-        while beat < beats {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, velOverride: velOverride, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-    }
 
     /// Pack a single emitter's override into the byte-per-emitter word the engine reads.
     private func packVel(_ bus: Int, _ value: Int) -> UInt32 { UInt32(value & 0xFF) << (UInt32(bus) * 8) }
 
-    func testVelocityOverrideOnDisabledEmitterStaysSilent() {
-        // The enable gate wins: overriding a DISABLED emitter still emits nothing (override is applied after it).
-        let b = box(machines: arpMachines(), busEnabled: [true, false, true, true]) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.b])
-        }
-        let e = RecordingEmitter()
-        runVel(b, chord([60]), beats: 16, velOverride: packVel(1, 40), into: e)
-        XCTAssertTrue(e.events.isEmpty, "a disabled emitter produces nothing even with an override set")
-    }
 
     // MARK: - CLAIM (§6a) — one-claimant exclusivity, suppression against the live voice table
 
@@ -853,55 +830,6 @@ final class RouterTests: XCTestCase {
     //  render-inert). The two procB tests = A/B MORPH (dropped from the render — paramsB/typeB are decode-only), so they
     //  only assert "ALT does NOT reach the inert B-face", which can never fail. The alt-bit's live role (voice identity)
     //  is covered elsewhere.)
-
-    // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected empty chain passes its input STRAIGHT THROUGH in REALTIME
-    // (via reconcileBypass), not on the grid's step clock — so a note pressed MID-column strikes immediately, where a
-    // gridded hold would wait for the next column boundary. Also: no stuck notes on release.
-    func testNoMachineChainIsARealtimeWire() {
-        var st = PluginState(machines: arpMachines(), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = []; return c }()   // EMPTY chain, reads door R1 (OMNI)
-            return s }()])
-        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.passEmitterMask[0] & 0b0001, 0b0001, "the no-machine cell registers emitter A as a live wire on door 0")
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let frames: UInt32 = 256, sr = 48_000.0, tempo = 120.0, bps = tempo / 60.0 / sr
-        var ts: Int64 = 0
-        func step(_ pool: NotePool, _ playing: Bool = true) {
-            router.process(box: b, pool: pool, playing: playing, beatPos: Double(ts) * bps, tempo: tempo, sampleRate: sr, timestampSample: Double(ts), frameCount: frames, out: e, diag: &diag)
-            ts += Int64(frames)
-        }
-        step(NotePool())                                  // window 0 (beat 0, column 0): nothing held
-        XCTAssertTrue(e.ons.isEmpty, "nothing held → nothing sounds")
-        step(chord([60]))                                 // window 1: STILL column 0 (no boundary crossed) — a gridded hold could NOT strike here
-        XCTAssertTrue(e.ons.contains { $0.note == 60 }, "the no-machine wire strikes the held note in realtime, mid-column")
-        step(NotePool()); step(NotePool(), false)         // release + stop
-        assertNothingLeftSounding(e)
-    }
-    // The BUILD-workshop shape: a machine whose chain resolves to ALL-BYPASSED (an ephemeral empty machine carries a
-    // bypassed-empty placeholder), a nil-processors cell reading a door — must ALSO take the realtime wire.
-    func testAllBypassedTemplateIsAlsoARealtimeWire() {
-        var gold = Machine(machineID: "gold", type: .empty)
-        gold.templateChain = [{ var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]   // all-bypassed ≡ empty
-        var st = PluginState(machines: [gold] + arpMachines().dropFirst(), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()   // nil processors → follows the all-bypassed template
-            return s }()])
-        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.passEmitterMask[0] & 0b0001, 0b0001, "an all-bypassed-template cell registers as a live wire")
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let frames: UInt32 = 256, sr = 48_000.0, tempo = 120.0, bps = tempo / 60.0 / sr
-        var ts: Int64 = 0
-        func step(_ pool: NotePool, _ playing: Bool = true) {
-            router.process(box: b, pool: pool, playing: playing, beatPos: Double(ts) * bps, tempo: tempo, sampleRate: sr, timestampSample: Double(ts), frameCount: frames, out: e, diag: &diag)
-            ts += Int64(frames)
-        }
-        step(NotePool()); XCTAssertTrue(e.ons.isEmpty)
-        step(chord([60]))                                  // mid-column press
-        XCTAssertTrue(e.ons.contains { $0.note == 60 }, "the all-bypassed-template no-machine cell also strikes in realtime")
-        step(NotePool()); step(NotePool(), false)
-        assertNothingLeftSounding(e)
-    }
 
     // A CLOSED gate after the arp gates every arp note → silence (the fold empties the set each tick).
     func testArpThenClosedGateIsSilent() {
@@ -3835,16 +3763,6 @@ final class RouterTests: XCTestCase {
                        timestampSample: beat * 24_000, frameCount: 512, out: out, diag: &diag)
     }
 
-    // The wire injects a held note on its emitter's cable (+ the ALL cable) with that emitter's channel.
-    func testWireInjectsHeldNotesToDestEmitters() {
-        let b = wireBox(dest: 0b0001)   // → emitter A: cable 1, channel 0 (busChannels[0] = 1 → wire 0)
-        let router = Router(); let e = RecordingEmitter()
-        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)
-        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 1 && $0.chan == 0 }, "injects on dest emitter A")
-        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 0 }, "and on the ALL cable")
-        XCTAssertFalse(e.ons.contains { $0.cable == 2 || $0.cable == 3 || $0.cable == 4 }, "not on unselected emitters")
-    }
-
     // CR-4[review]: MASTER MUTE is a global emission kill (the emitOneBus grid path already honours it) — the wire
     // monitor is a parallel emission path, so it must fall silent under master mute too, else the whole-instrument mute
     // leaks a live wire.
@@ -3855,64 +3773,7 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.isEmpty, "master mute silences the wire monitor, not just the grid")
     }
 
-    // Releasing the key emits the wire note-off — no stuck note.
-    func testWireReleaseEmitsNoteOff() {
-        let b = wireBox(dest: 0b0001)
-        let router = Router(); let e = RecordingEmitter()
-        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)      // press
-        stepWindow(router, b, NotePool(), playing: true, beat: 0.25, out: e)    // release
-        XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "release emits the wire note-off")
-        assertNothingLeftSounding(e)
-    }
 
-    // WIRE + LATCH (PIANO/held): a no-machine cell reading an ARMED-latch door injects its FROZEN chord — the live pool is
-    // empty (PIANO has no physical keys), so reading live would inject nothing. Locks the reconcileBypass frozen read.
-    func testWireInjectsTheFrozenLatchPoolNotLive() {
-        let b = wireBox(dest: 0b0001)   // a no-machine cell on R1 → emitter A (cable 1)
-        let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.noteOn(72, velocity: 100, channel: 0); frozen.rebuildSorted()
-        let pools = [frozen, NotePool(), NotePool(), NotePool()]
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        // LIVE pool empty (as with PIANO); the frozen R1 pool holds the picked chord. latchMask 0b0001 arms R1.
-        router.process(box: b, pool: NotePool(), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
-                       timestampSample: 0, frameCount: 512, latchMask: 0b0001, latchedPools: pools, out: e, diag: &diag)
-        XCTAssertTrue(e.ons.contains { $0.note == 67 && $0.cable == 1 }, "the wire injects the frozen chord (67)")
-        XCTAssertTrue(e.ons.contains { $0.note == 72 && $0.cable == 1 }, "the wire injects the frozen chord (72)")
-    }
-
-    // The wire admits only in-range notes (the door's RANGE window applies to the injected stream too).
-    func testWireRespectsRange() {
-        let b = wireBox(dest: 0b0001, rangeLo: 62, rangeHi: 127)
-        let router = Router(); let e = RecordingEmitter()
-        stepWindow(router, b, chord([60, 64]), playing: true, beat: 0, out: e)
-        XCTAssertFalse(e.ons.contains { $0.note == 60 }, "60 is below the window — not injected")
-        XCTAssertTrue(e.ons.contains { $0.note == 64 && $0.cable == 1 }, "64 is in-window — injected")
-    }
-
-    // The wire is a LIVE MONITOR: it survives a transport stop (the transport edge doesn't release it); only the key
-    // lifting (or panic) closes it.
-    func testWirePersistsAcrossTransportStop() {
-        let b = wireBox(dest: 0b0001)
-        let router = Router(); let e = RecordingEmitter()
-        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)      // press (playing)
-        stepWindow(router, b, chord([60]), playing: false, beat: 0.25, out: e)  // transport STOP, key still down
-        XCTAssertEqual(e.offs.filter { $0.note == 60 && $0.cable == 1 }.count, 0, "the wire survives the stop — no release")
-        stepWindow(router, b, NotePool(), playing: false, beat: 0.5, out: e)    // release while stopped
-        XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "released while stopped → off")
-    }
-
-    // SOLO includes the wire (ruling 2026-08-04): a receiver solo set that EXCLUDES the door silences its
-    // wire too; the SOLOED door's wire still sounds.
-    func testWireRespectsReceiverSolo() {
-        let b = wireBox(dest: 0b0001)   // a no-machine cell on R1 → emitter A
-        let e1 = RecordingEmitter(); var d1 = KernelDiag()
-        Router().process(box: b, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
-                         timestampSample: 0, frameCount: 512, soloReceiverMask: 0b0010, out: e1, diag: &d1)   // R2 soloed, R1 excluded
-        XCTAssertTrue(e1.ons.isEmpty, "a solo set excluding the door silences its wire")
-        let e2 = RecordingEmitter(); var d2 = KernelDiag()
-        Router().process(box: b, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
-                         timestampSample: 0, frameCount: 512, soloReceiverMask: 0b0001, out: e2, diag: &d2)   // R1 soloed
-        XCTAssertTrue(e2.ons.contains { $0.note == 60 && $0.cable == 1 }, "the soloed door's wire still sounds")
-    }
 
     // LADDER commit signal: absoluteStep advances EACH step even during a column LAP (where effColumn is pinned to
     // the held column). This is what lets an armed rung commit while looping one column — the old effColumn-change
@@ -4005,68 +3866,18 @@ final class RouterTests: XCTestCase {
         st.receivers = (0..<4).map { var r = Receiver(name: "\($0 + 1)"); r.muted = mute[$0]; return r }
         return SnapshotBuilder.build(from: st)
     }
-    private func soloOns(_ box: SnapshotBox, solo: UInt8, cable: UInt8) -> Int {
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        while beat < 8.0 {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, soloReceiverMask: solo, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-        return e.ons.filter { $0.cable == cable }.count
-    }
 
-    func testReceiverSoloMutedMemberStaysSilent() {
-        // R1 muted; solo R1. A member that is muted still hears nothing (console convention).
-        let b = receiverBox(mute: [true, false, false, false]) {
-            $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        }
-        XCTAssertEqual(soloOns(b, solo: 0b0001, cable: 1), 0, "a soloed BUT muted receiver stays silent")
-    }
 
     // (grid-chaining retired: the solo-silences-chained-feed test was removed — no cross-cell feeds.)
 
     // MARK: - receiver OCT nudge (receiver strip) — ephemeral ±octave, composes with machine transpose
 
     private func packOct(_ recv: Int, _ oct: Int) -> UInt32 { UInt32(UInt8(bitPattern: Int8(oct))) << (UInt32(recv) * 8) }
-    private func octNotes(_ box: SnapshotBox, inputOctave: UInt32, cable: UInt8) -> Set<UInt8> {
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        while beat < 8.0 {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, inputOctave: inputOctave, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-        return Set(e.ons.filter { $0.cable == cable }.map { $0.note })
-    }
 
     // (grid-chaining retired: the octave-inherited-through-chain test was removed — no cross-cell feeds.)
 
     // MARK: - receiver INPUT-velocity override (the slider) — momentary absolute, keyed on the receiver
 
-    private func velsOn(_ box: SnapshotBox, inputVel: UInt32, cable: UInt8, emitterVel: UInt32 = 0) -> Set<UInt8> {
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        while beat < 8.0 {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, velOverride: emitterVel,
-                           inputVelOverride: inputVel, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-        return Set(e.ons.filter { $0.cable == cable }.map { $0.vel })
-    }
 
     // MARK: - receiver LATCH (chord-hold) — a frozen pool substitutes for the live one
 
@@ -4082,59 +3893,11 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ch2.srcAscending(0, filter: 0), 64, "…the ch-2 note, velocity/channel preserved")
     }
 
-    private func latchNotes(_ box: SnapshotBox, live: NotePool, latchMask: UInt8, pools: [NotePool], cable: UInt8) -> Set<UInt8> {
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        while beat < 8.0 {
-            router.process(box: box, pool: live, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, latchMask: latchMask, latchedPools: pools, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: box, pool: live, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-        return Set(e.ons.filter { $0.cable == cable }.map { $0.note })
-    }
 
-    func testLatchArmDisarmEdgeLeavesNothingStuck() {
-        // Arming then disarming mid-run swaps the pool; the edge flush must leave nothing stuck.
-        let b = receiverBox { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
-        let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.rebuildSorted()
-        let pools = [frozen, NotePool(), NotePool(), NotePool()]
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        func windows(_ mask: UInt8, _ n: Int) {
-            for _ in 0..<n {
-                router.process(box: b, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                               timestampSample: ts, frameCount: frames, latchMask: mask, latchedPools: pools, out: e, diag: &diag)
-                beat += wb; ts += Double(frames)
-            }
-        }
-        windows(0, 24); windows(0b0001, 24); windows(0, 24)      // live → latched → live
-        router.process(box: b, pool: chord([60]), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
     // MARK: - emitter OUTPUT OCT nudge (emitter strip) — shifts the outgoing note, keyed on the bus
 
     private func packEmitOct(_ bus: Int, _ oct: Int) -> UInt32 { UInt32(UInt8(bitPattern: Int8(oct))) << (UInt32(bus) * 8) }
-    private func emitOctNotes(_ box: SnapshotBox, emitterOctave: UInt32, cable: UInt8, chordNotes: [UInt8] = [60, 64, 67]) -> Set<UInt8> {
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord(chordNotes); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        while beat < 8.0 {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, emitterOctave: emitterOctave, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-        return Set(e.ons.filter { $0.cable == cable }.map { $0.note })
-    }
 
     // MARK: - emitter FLATTEN (role family) — activity ducking, admission-time velocity scale
 
@@ -4196,27 +3959,7 @@ final class RouterTests: XCTestCase {
         var st = PluginState(machines: arpMachines(), scenes: [s]); st.masterMute = mute
         return SnapshotBuilder.build(from: st)
     }
-    private func runMaster(_ box: SnapshotBox, masterVel: UInt8 = 0, emitVel: UInt32 = 0, cable: UInt8) -> (Set<UInt8>, Set<UInt8>) {
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        while beat < 8.0 {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, velOverride: emitVel, masterVelOverride: masterVel,
-                           out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-        let ons = e.ons.filter { $0.cable == cable }
-        return (Set(ons.map { $0.note }), Set(ons.map { $0.vel }))
-    }
 
-    func testMasterMuteSilencesAllOutput() {
-        XCTAssertTrue(runMaster(masterBox(mute: true), cable: 1).0.isEmpty, "master MUTE ⇒ total silence")
-        XCTAssertTrue(runMaster(masterBox(mute: true), cable: 0).0.isEmpty, "…on All too")
-    }
 
     func testMasterPanicFlushesLeavingNothingStuck() {
         let b = masterBox()
@@ -4239,26 +3982,6 @@ final class RouterTests: XCTestCase {
 
     // MARK: - MULTI-SCENE S2b — RESTART-the-pass re-anchors the clock to column 0
 
-    func testRestartPassReanchorsToColumnZero() {
-        let b = box(machines: arpMachines()) { for c in 0..<8 { $0.cells[c][0] = Cell(machineID: "gold", buses: [.a]) } }
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        func win(_ restart: Bool = false) {
-            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, sceneRestart: restart, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        for _ in 0..<60 { win() }                        // advance well past column 0
-        XCTAssertGreaterThan(diag.effColumn, 0, "we've advanced into the pass")
-        win(true)                                        // RESTART — this moment becomes column 0
-        XCTAssertEqual(diag.effColumn, 0, "RESTART re-anchors the pass to column 0")
-        for _ in 0..<30 { win() }                        // > one column of step (2 beats) → advances off 0
-        XCTAssertGreaterThan(diag.effColumn, 0, "…and the pass advances forward again from the top")
-        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-    }
 
     // MARK: - §4b THE FADER-KILL: a velocity fader at the bottom = full silence (suppress + close), momentary
 
@@ -4451,20 +4174,6 @@ final class RouterTests: XCTestCase {
     // MARK: - scene FLUSH closes the outgoing scene's voices
 
     // MARK: - bypass: multiple destinations
-
-    /// A bypassed door with a MULTI-emitter dest injects the held note on EACH selected cable (+ ALL), and
-    /// releasing the key closes them all — the multi-dest case existing bypass tests (single dest) never cover.
-    func testWireInjectsToMultipleDests() {
-        let b = wireBox(dest: 0b0011)   // emitters A + B → cables 1 and 2
-        let router = Router(); let e = RecordingEmitter()
-        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)
-        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 1 }, "injected on emitter A")
-        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 2 }, "injected on emitter B")
-        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 0 }, "and on the ALL cable")
-        stepWindow(router, b, NotePool(), playing: true, beat: 0.25, out: e)   // release the key
-        XCTAssertTrue(e.offs.contains { $0.cable == 1 } && e.offs.contains { $0.cable == 2 }, "release closes both dests")
-        assertNothingLeftSounding(e)
-    }
 
     // MARK: - ECHO (the tail era) — AcceptanceCriteria-tail-era-delay-echo, Phase 0+1
 

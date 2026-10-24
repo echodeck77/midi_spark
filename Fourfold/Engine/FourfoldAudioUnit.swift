@@ -175,9 +175,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setFocusCell(_ cell: Int) { kernel.setFocusCell(cell) }   // FOCUS note-event feed: the machine's cell
     func pollCellSoundingVel() -> [UInt8] { kernel.pollCellSoundingVel() }   // per-cell SOUNDING velocity — the emitter fader's per-machine held floor (Paul 2026-09-07)
     // PART ROLL (Paul 2026-09-02): the live per-part-cycle emitted-note capture for the part-page piano roll.
-    func setPartRoll(active: Bool, cycleBeats: Double) { kernel.setPartRoll(active: active, cycleBeats: cycleBeats) }
-    func pollPartRoll() -> [PartRollDeck.Note] { kernel.pollPartRoll() }
-    func offlinePartRoll(cyc: Double) -> [PartRollDeck.Note] { kernel.offlinePartRoll(cyc: cyc) }   // the deterministic no-lag feed
     func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes (latch-aware meter)
     func pollReceiverSoundingNotes() -> [[UInt8]] { kernel.pollReceiverSoundingNotes() }   // PITCHES held per door (REPLAY roll)
     func pollReceiverLiveHeld() -> UInt8 { kernel.pollReceiverLiveHeld() }       // the header dot: bit i = a LIVE accepted note is held (scalar, race-safe)
