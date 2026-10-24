@@ -186,9 +186,6 @@ final class Router {
     private var distinctSounding = 0   // number of (cable,ch,note) with refcount > 0 (diag; kept incrementally)
 
     private var busChannels: [UInt8] = [1, 2, 3, 4]   // per-bus stamp channels, refreshed each process
-    private var busRemap: [UInt8] = [0, 1, 2, 3]      // ROW 8 REDIRECT/SWAP: per-bus output-wire remap (identity = no redirect), refreshed each process
-    private var broadcastActive = false               // ROW 8 BROADCAST: mirror every emitted note to all 4 wires, refreshed each process
-    private var broadcastAll16 = false                // ROW 8 BROADCAST (Paul 2026-08-26): also fan the ALL-cable copy across all 16 channels
     private var heldColumns: UInt16 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
@@ -865,7 +862,6 @@ final class Router {
     private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
     private var receiverScaleRoot: [Int] = [-1, -1, -1, -1]       // CHORDS C2b#1: per-receiver declared scale root (−1 = not a scale door), this render
     private var receiverScaleType: [ScaleType] = [.major, .major, .major, .major]
-    private var passEmitterMask: [UInt8] = [0, 0, 0, 0]   // NO-MACHINE WIRE: per door, the union of passthrough cells' emitters (reconcileBypass injects the door's input to them in realtime)
     /// The pool a cell reads: its receiver's frozen LATCH pool when armed (which STILL feeds while the door is
     /// disabled — the point of "close the door, keep the room"); else, if the door is DISABLED (not listening),
     /// nothing; else the live pool. A row-fed cell (recv −1) always reads live (its root's latch reaches it via

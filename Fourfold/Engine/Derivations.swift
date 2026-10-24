@@ -346,39 +346,6 @@ func clockDrawnPhase(_ beat: Double, ratios: [Double], glide: [Bool], steps: Int
 // Unlike CLOCK's ratio warp (a continuous, everywhere-invertible speed change), this is a DISCRETE remap: within a
 // kept real column, local time runs at ORDINARY rate (no speed change) — only WHICH column comes next changes.
 
-/// Construction (Paul 2026-09-27, generalized for MUTE/PAUSE): `columnMap`/`columnsPerLap` are a PRECOMPUTED table
-/// (SnapshotBuilder, off the render thread — see its KILL STEP resolve comment) replacing the live onIdx/k scan this
-/// function used to do itself. At the n-th real column since the span origin (n = ⌊(beat − origin) / rateBeats⌋, can
-/// be negative before the origin), the value fed downstream is `lap·steps + columnMap[n mod columnsPerLap]` where
-/// `lap = ⌊n / columnsPerLap⌋` — so `value mod steps` cycles through the table in order (e.g. steps=8, ON={0,1,2,3}
-/// → 0,1,2,3,0,1,2,3,… over one pass — "the first half plays twice"). `value` is STRICTLY increasing in `n` (each
-/// lap adds a full `steps`, always greater than any value within a lap) — exactly what the shared tick-search
-/// machinery needs: a monotonic local beat it can walk forward through and invert discovered ticks back from. A
-/// MUTE step occupies exactly one table slot, same as ON (MUTE affects only whether a note SOUNDS — Router.
-/// emitDriverNote's own fold — never this table); a PAUSE step occupies `1 + pauseLen` CONSECUTIVE slots holding the
-/// SAME value (a true freeze — no new tick can be discovered until the value changes); a DROP step occupies none
-/// (columnsPerLap is table.count, not steps — the length already reflects every hold/skip). When nothing is
-/// MUTE/PAUSE this is BYTE-IDENTICAL to the original ON/DROP-only formula (`columnMap`≡the old `onIdx`,
-/// `columnsPerLap`≡the old `k`) — including the "nothing switched off ⇒ value ≡ n, a true no-op" case.
-/// `originOverride`, mirroring `clockDrawnPhase`, lets a driver's whole tick-search window pin every candidate to
-/// ONE shared span-origin (see that function's own doc comment for why).
-/// KILL STEP's precomputed transform table (Paul 2026-09-27) — shared by SnapshotBuilder (the render resolve) and
-/// GridUI (the editor's live-playhead preview), so the two can never independently drift (the RATCHET PATTERN/DEST
-/// lesson: never derive a matrix's own clock separately from the one the render side actually reads). `modes` must
-/// already be padded to the row's step count (the caller's own concern, mirroring `clockDrawnResolveRatios`'s
-/// contract). See `killStepPhase`'s doc comment below for what the returned table means.
-func killStepResolveTable(_ modes: [KillStepMode], pauseLen: Int) -> (columnMap: [Int], columnsPerLap: Int, firstSlot: [Int]) {
-    var onIdx = (0..<modes.count).filter { modes[$0] != .drop }
-    if onIdx.isEmpty { onIdx = Array(0..<modes.count) }   // all-DROP falls back to all-steps (never silent/undefined)
-    var map: [Int] = []
-    var firstSlot = Array(repeating: -1, count: modes.count)
-    for i in onIdx {
-        if firstSlot[i] < 0 { firstSlot[i] = map.count }
-        let reps = modes[i] == .pause ? 1 + max(0, pauseLen) : 1
-        for _ in 0..<reps { map.append(i) }
-    }
-    return (map, map.count, firstSlot)
-}
 func killStepPhase(_ beat: Double, columnMap: [Int], columnsPerLap: Int, steps: Int, rateBeats: Double, periodBeats P: Double, originOverride: Double? = nil) -> Double {
     guard steps > 0, rateBeats > 0, columnsPerLap > 0, columnsPerLap <= columnMap.count else { return beat }
     let originBeat = originOverride ?? (P > 0 ? columnStart(beat, P) : 0)
@@ -694,23 +661,6 @@ final class NotePool {
 
 enum HoldCapture { case replace, union, keep }
 
-/// THE SCALE DOOR pool (ratified spec §1): every note of `type` rooted at `root` (0=C…11=B), realized ascending across
-/// `octaves` octaves from the home octave `baseOct` (baseOct 3 → C3 = MIDI 48, the C-1 convention). Out-of-MIDI notes
-/// drop. Pure/testable — the derived KEYS pool for a SCALE door (fed exactly like tapped piano notes). No allocation
-/// concern (called off the render path, in the snapshot build).
-func scaleNotes(root: Int, type: ScaleType, baseOct: Int, octaves: Int) -> [Int] {
-    let r = (root % 12 + 12) % 12
-    let base = max(0, min(8, baseOct)) * 12 + 12                 // C-1 convention: octave 3 → MIDI 48 (C3)
-    let oct = max(1, min(4, octaves))
-    var out: [Int] = []
-    for o in 0..<oct {
-        for i in type.intervals {
-            let n = base + r + o * 12 + i
-            if n >= 0 && n <= 127 { out.append(n) }
-        }
-    }
-    return out                                                  // already ascending + distinct (intervals rise within an octave; octaves step by 12)
-}
 
 
 // MARK: - CHORDS (ratified 2026-09-01) — diatonic progressions DERIVED from a key by rank arithmetic. Pure core.
@@ -2812,8 +2762,6 @@ func euclideousStepsPickerPreview(_ line: EuclidLine, length n: Int) -> [Bool] {
 private struct SealChopKey: Encodable { let m: UInt8; let a: UInt8; let mu: UInt8; let alt: [UInt8] }
 private struct SealKey: Encodable {
     let p: [ProcessorSlot]?    // the chain (slots + params + per-slot bypass)
-    let ir: Int?               // input receiver
-    let irow: Int?             // input row (inert now; kept for twin-parity)
     let b: [UInt8]             // output emitters (sorted bus cables)
     let cs: ChordSplit?        // source-shaping: chord split
     let vw: VelWindow?         // source-shaping: velocity window
@@ -2838,9 +2786,6 @@ private struct SealRNG {
 /// rect (pitch = half the drawable side) and draws the wire (quarter-arc or sharp mitre per corner), an optional
 /// coil, and the terminals (filled start dot + end arrowhead). Pure/testable; twins share it.
 struct SealGeometry: Equatable {
-    var nodes: [SIMD2<Double>]     // route nodes, lattice coords 0…2 (≥2 by construction)
-    var arcAtNode: [Bool]          // per node: true = QUARTER-ARC corner, false = sharp mitre (ends always false)
-    var coilNode: Int              // index of the node the coil straddles, or −1 for no coil (≤1 coil, ever)
 }
 
 
@@ -2849,9 +2794,6 @@ struct SealGeometry: Equatable {
 /// side. A zero-range axis (a straight run) centres at 0.5. Also carries the lattice ranges (the drawer scales
 /// its corner-arc radius by them). Pure/testable; the SwiftUI layer maps fractions → the padded rect. Twins share it.
 struct SealFit: Equatable {
-    var fractions: [SIMD2<Double>]   // per node, each component in [0,1] (0.5 on a zero-range axis)
-    var rangeX: Double               // lattice x-extent (maxX − minX), 0…2
-    var rangeY: Double               // lattice y-extent
 }
 
 
@@ -2863,9 +2805,6 @@ struct SealFit: Equatable {
 // is: [pad][▲PLAY door @ ch·nf][gap][header row @ ch][gap][8 interior rows @ ch, gap-separated][pad].
 struct RoomsLatticeGeom: Equatable {
     var ch: Double          // one grid-row height (also the header/RECORD band height)
-    var navH: Double        // the ▲PLAY door-bar band height (= ch · nf)
-    var interiorTop: Double // y where the 8 interior rows begin (below the ▲PLAY door + header row)
-    var interiorH: Double   // total height of the 8 interior rows (8 rows, 7 gaps)
 }
 
 
@@ -2884,19 +2823,7 @@ struct RoomsLatticeGeom: Equatable {
 // latency/lead); otherwise the tag simply sits on the polled step with no thread.
 
 enum EuclideousTagMetrics {
-    static let refBlockW: CGFloat = 42.5
-    static let refBlockH: CGFloat = 29
-    static let tagW: CGFloat = 18
-    static let tagH: CGFloat = 11
-    static let bodyW: CGFloat = 13
-    static let pointW: CGFloat = 5
-    static let insetX: CGFloat = 2
-    static let insetY: CGFloat = 2.5
-    static let wrapOvershoot: CGFloat = 2
     /// Longest a flight may take; a short interval caps it at half the time since the lane's previous advance.
-    static let flightMaxSeconds: Double = 0.080
-    static let turnDelaySeconds: Double = 0.020
-    static let turnSeconds: Double = 0.100
     /// How long the polled step may trail the predicted landing before the prediction is distrusted.
     static let pollLagGraceSeconds: Double = 0.150
 }
@@ -3334,17 +3261,13 @@ struct EuclideousThreadSegment: Equatable { var from: CGPoint; var to: CGPoint }
 struct EuclideousThreadGeometry: Equatable {
     var segments: [EuclideousThreadSegment]   // one straight line, or [exit piece, entry piece] for a wrap
     var dot: CGPoint
-    var hollowDot: Bool
     var isWrap: Bool
 }
 
 struct EuclideousTagDrawing: Equatable {
     var centre: CGPoint
     var hollow: Bool
-    var pointsRight: Bool
-    var scaleX: Double                           // 1 normally; sweeps 1 → 0 → −1 across a turn
     var opacity: Double
-    var thread: EuclideousThreadGeometry?        // only while seated with a move scheduled
 }
 
 // MARK: - FOURFOLD HEADER (ferry "Fourfold header", approved by Paul 2026-10-15)
@@ -3697,11 +3620,7 @@ enum EuclideousFlipHits {
 /// Every number the RHYTHM tab's new arrangement needs, as pure functions of the lane card's size — in CARD coordinates (the reference card is 358.5 × 312: upper zone y 94–218, lower zone y 222–302) — so the views and the
 /// tests read the same figures. The views take their row heights and widths from the small functions below; `euclideousRhythmTabLayout` composes them into frames.
 struct EuclideousRhythmTabLayout: Equatable {
-    var offsetRow: CGRect, tiltRow: CGRect, directionRow: CGRect       // the right half, sp4 apart
     var directionButtonW: CGFloat                                      // four equal buttons across `directionRow`, sp4 apart
-    var hitsTile: CGRect, stepsTile: CGRect                            // the left half's two columns (unchanged)
-    var rhythmTile: CGRect, melodyTile: CGRect                         // the lower zone's right group: two full-width rows of 38, sp4 apart
-    var rateGroup: CGRect                                              // the lower zone's left group (unchanged), for reference
 }
 enum EuclideousRhythmGeometry {
     static let gap: CGFloat = 4, controlRowH: CGFloat = 38, controlBlockH: CGFloat = 80, dividerFootprint: CGFloat = 17
@@ -4742,8 +4661,6 @@ struct EuclideousLanePhase: Equatable {
     var raw: Int
     var rawIsHit: Bool
     var gridOn: Bool
-    var cellO: Int          // rhythm origin cell (0 when the rhythm mask is empty: it free-runs from beat 0)
-    var cellM: Int          // melody origin cell (0 when the melody mask is empty)
 }
 
 /// Hits in the first `m` ticks of the lane's cyclic pattern (any integer `m`; the pattern repeats every `cycleLen` ticks and extends
@@ -7390,7 +7307,7 @@ enum EuclideousStripMetrics {
     static let trackH: CGFloat = 27, keyRowH: CGFloat = 14, rowGap: CGFloat = 3
     static let columnRadius: CGFloat = 4, keyRadius: CGFloat = 3
     static let chipH: CGFloat = 9, chipInset: CGFloat = 2, chipRadius: CGFloat = 2
-    static let chipLabelLine: CGFloat = 9, keyLabelLine: CGFloat = 8
+    static let keyLabelLine: CGFloat = 8
     static let chipLabelSize: CGFloat = 7, keyLabelSize: CGFloat = 7
     /// §1.2 / §3.2: a column narrower than this draws no chip label, a key narrower than this no key label.
     static let chipLabelFloor: CGFloat = 12, keyLabelFloor: CGFloat = 16
@@ -7407,7 +7324,6 @@ enum EuclideousStripMetrics {
     /// The distance a playhead slides past the last column before the next pass starts it on the first: one column plus the 2 pt gap inside a group (the strip clips it to the step area).
     static let slideGap: CGFloat = 2
     /// LANE STRIP readability ferry §1.1: a hit (or gap) column's lane-coloured fill/border.
-    static let hitFillAlpha = 0.24, hitBorderAlpha = 0.70, hitBorderW: CGFloat = 1.5
     /// §1.1/§6.2: the floor bar — lane100 (opaque), 2 tall, inset 2 each side (full width under 6 pt wide),
     /// its top 24 down from the column's own top (1 pt above the track's 27pt bottom edge).
     static let floorBarH: CGFloat = 2, floorBarInset: CGFloat = 2, floorBarMinWidth: CGFloat = 6
@@ -7424,9 +7340,6 @@ enum EuclideousStripMetrics {
 /// RESTART TILES ferry §4.1 (restoring the LANE STRIP ferry's §1.1 after the readability ferry's dot): a rhythm rest column is #1A1C21 with a 1 pt dashed #3A3E47 INNER border (3 on, 2 off) at the column's full size. That is the
 /// whole look — there is no other mark, so there is nothing for a dot to be. Holds for every lane, every tab and every OFFSET: a column is a rest when no hit's start falls in it (polish §3.1).
 struct EuclideousStripRestLook: Equatable {
-    var fillHex: UInt32 = 0x1A1C21
-    var borderHex: UInt32 = 0x3A3E47
-    var borderWidth: CGFloat = 1
     var dash: [CGFloat] = [3, 2]
 }
 let euclideousStripRestLook = EuclideousStripRestLook()
@@ -7911,10 +7824,6 @@ enum EuclideousRestartKind: Equatable { case rhythm, melody }
 
 /// How long a restart's flash lives, and what each part of it does (seconds since the restart).
 enum EuclideousRestartFlash {
-    static let life = 0.7
-    static let glowTau = 0.2          // the wash / rim / glow decay e^(−t ÷ τ)
-    static let sweepSeconds = 0.42    // the light band crossing the tile
-    static let spinSeconds = 0.5      // the ↻ icon's one full turn
 }
 
 
@@ -7926,8 +7835,6 @@ struct EuclideousRestartFlashLook: Equatable {
     var glow: Double      // the outer glow's strength
     var sweep: Double?    // the light band's position across the tile, 0 (left) … 1 (right); nil once it has crossed
     var sweepAlpha: Double
-    var spinDegrees: Double   // the ↻ icon's rotation, 0 … 360
-    var hot: Double       // how white the icon reads
 }
 
 // MARK: - RESTART TILES (RHYTHM POLISH ferry, 2026-10-22, §6; the MELODY track rebuilt by the RESTART TILES ferry, 2026-10-22)

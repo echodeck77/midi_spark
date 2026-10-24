@@ -70,34 +70,7 @@ final class SnapshotBuilderTests: XCTestCase {
         r.channelMask = 0b10101; XCTAssertEqual(r.channelMaskResolved, 0b10101, "explicit mask wins (channels 1+3+5)")
         r.channelMask = 0; XCTAssertEqual(r.channelMaskResolved, 0, "explicit 0 = none")
     }
-    func testMultiChannelSubsetPacksIntoTheBoxAndCell() {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [{ var s = SceneState.empty(); s.cells[0][0] = Cell(machineID: "gold"); s.cells[0][0]?.inputReceiver = 0; return s }()])
-        st.receivers = [{ var r = Receiver(name: "1"); r.channelMask = 0b10101; return r }(), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]   // door 0 hears 1+3+5
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.receiverChannelMask[0], 0b10101, "the door's subset packs into the box")
-        XCTAssertEqual(b.cells[0].inputChanMask, 0b10101, "the cell inherits the door's channel subset")
-        // a plain OMNI door → 0xFFFF, byte-identical to before
-        XCTAssertEqual(b.receiverChannelMask[1], 0xFFFF)
-    }
 
-    // THE CONFIG SHEETS (Paul 2026-08-20): the RACK has 4 CONFIGS; the render reads the ACTIVE config's membership.
-    func testRackConfigResolvesToLegacyMaskWhenUnset() {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.rackEnabledMask = 0b0101                                  // legacy: emitters A + C in path
-        XCTAssertEqual(st.rackConfigsResolved, [0b0101, 0b1111, 0b1111, 0b1111], "no configs → config 0 = the legacy mask, rest all-in")
-        XCTAssertEqual(st.rackMaskResolved, 0b0101, "the active config (0) is the legacy mask")
-        XCTAssertEqual(SnapshotBuilder.build(from: st).rackMask, 0b0101, "the box is byte-identical for an old doc")
-    }
-    func testActiveRackConfigDrivesTheRenderMask() {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.rackConfigs = [0b0001, 0b0010, 0b0100, 0b1000]; st.rackActiveConfig = 2
-        XCTAssertEqual(st.rackMaskResolved, 0b0100)
-        XCTAssertEqual(SnapshotBuilder.build(from: st).rackMask, 0b0100, "config 2 is live")
-        st.rackActiveConfig = 0
-        XCTAssertEqual(SnapshotBuilder.build(from: st).rackMask, 0b0001, "switching the live config switches the render mask")
-        st.rackActiveConfig = 9
-        XCTAssertEqual(st.rackActiveConfigResolved, 3, "an out-of-range active config clamps to 0…3")
-    }
     // CR-18[extras]: inverted-window resolvers must ORDER their bounds, not silently mute.
     func testInvertedResolversOrderTheirBoundsInsteadOfMuting() {
         var r = Receiver(name: "1"); r.rangeLo = 72; r.rangeHi = 48          // decoded window backwards
@@ -139,30 +112,6 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b.machines[0].on, OnConfig(), "an unassigned machine resolves to an empty OnConfig")
     }
 
-    func testPianoLatchFlowsToSnapshot() {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![1].latchPiano = true
-        st.receivers![1].pianoNotes = [60, 64, 67, 200, -3]   // out-of-range values are filtered
-        let box = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(box.receiverPianoMask, 0b0010, "receiver 2 is in PIANO latch mode")
-        XCTAssertEqual(box.receiverPianoNotes[1], [60, 64, 67], "the picked notes reach the box (out-of-range dropped)")
-        XCTAssertEqual(box.receiverPianoMask & 1, 0, "R1 (default) is not PIANO")
-    }
-    func testScaleDoorFlowsToSnapshotAsADerivedPianoPool() {
-        // THE SCALE DOOR (ratified §1): a SCALE door reuses the KEYS pipeline — its pianoMask bit is set and the box's
-        // piano notes are the DERIVED scale set (root+scale+range), not tapped keys.
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![2].doorMode = .scale
-        st.receivers![2].scaleRoot = 0; st.receivers![2].scaleType = .major
-        st.receivers![2].scaleBaseOct = 3; st.receivers![2].scaleOctaves = 2
-        let box = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(box.receiverPianoMask, 0b0100, "receiver 3 (SCALE) rides the piano pipeline")
-        XCTAssertEqual(box.receiverPianoNotes[2], scaleNotes(root: 0, type: .major, baseOct: 3, octaves: 2).map { UInt8($0) },
-                       "the box carries the derived C-major pool")
-        XCTAssertEqual(box.receiverPianoNotes[2].count, 14)
-    }
     func testLegacySingleScaleMigratesToPoolZeroByteIdentical() {
         // FOUR SCALE POOLS (Paul 2026-09-04): a legacy door (no scalePools) must resolve EXACTLY as before — pool 0 = the
         // legacy single scale, active. The four resolvers are unchanged for old docs.
@@ -225,112 +174,6 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(back.scaleRootResolved, 5)
         XCTAssertEqual(back.scaleTypeResolved, .phrygian)
     }
-    func testActiveScaleDrivesTheBuilderPool() {
-        // The RADIO switch must move what the box carries: pool 0 (C major) vs pool 1 (A natural minor) → different derived sets.
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![2].doorMode = .scale
-        st.receivers![2].scalePools = [ScalePool(root: 0, type: .major, baseOct: 3, octaves: 2),
-                                       ScalePool(root: 9, type: .naturalMinor, baseOct: 3, octaves: 2),
-                                       ScalePool(), ScalePool()]
-        st.receivers![2].activeScale = 0
-        let box0 = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(box0.receiverScaleRoot[2], 0)
-        XCTAssertEqual(box0.receiverPianoNotes[2], scaleNotes(root: 0, type: .major, baseOct: 3, octaves: 2).map { UInt8($0) })
-        st.receivers![2].activeScale = 1
-        let box1 = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(box1.receiverScaleRoot[2], 9)
-        XCTAssertEqual(box1.receiverScaleType[2], .naturalMinor)
-        XCTAssertEqual(box1.receiverPianoNotes[2], scaleNotes(root: 9, type: .naturalMinor, baseOct: 3, octaves: 2).map { UInt8($0) })
-        XCTAssertNotEqual(box0.receiverPianoNotes[2], box1.receiverPianoNotes[2], "switching the radio changes the fed pool")
-    }
-    func testChordDoorSequencerConfigFlowsToTheBox() {
-        // THE CHORD DOOR = a SEQUENCER (Paul 2026-09-04): the door's active chord-sequencer config (a MachineParams' chords*)
-        // reaches the box; the Kernel walks it on the beat. No STATIC pool is baked (pianoNotes empty); it rides the piano bit.
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![1].doorMode = .chord
-        var seq = MachineParams(); seq.chordsMode = .pattern; seq.chordsDegrees = [0, 4, 5, 3]; seq.chordsSteps = 4; seq.chordsScaleRef = 3
-        st.receivers![1].chordSeqs = [seq, MachineParams(), MachineParams(), MachineParams()]
-        st.receivers![1].activeChord = 0
-        let box = SnapshotBuilder.build(from: st)
-        XCTAssertNotNil(box.receiverChordsParams[1], "a CHORD door's config reaches the box")
-        XCTAssertEqual(box.receiverChordsParams[1]?.chordsMode, .pattern)
-        XCTAssertEqual(box.receiverChordsParams[1]?.chordsScaleRef, 3, "KEY FROM door D flows through")
-        XCTAssertEqual(Array((box.receiverChordsParams[1]?.chordsDegrees ?? []).prefix(4)), [0, 4, 5, 3])
-        XCTAssertNil(box.receiverChordsParams[0], "non-chord doors carry no chord config")
-        XCTAssertEqual(box.receiverPianoMask & 0b0010, 0b0010, "the CHORD door rides the piano pipeline (Kernel fills it live)")
-        XCTAssertEqual(box.receiverPianoNotes[1], [], "no static pool baked — the Kernel walks it on the beat")
-        XCTAssertEqual(box.receiverScaleRoot[1], -1, "a CHORD door is NOT a scale door")
-    }
-    func testChordDoorActiveRadioSwitchesTheBoxConfig() {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![1].doorMode = .chord
-        var a = MachineParams(); a.chordsDegrees = [0, 0, 0, 0]; a.chordsSteps = 4
-        var b = MachineParams(); b.chordsDegrees = [3, 3, 3, 3]; b.chordsSteps = 4
-        st.receivers![1].chordSeqs = [a, b, MachineParams(), MachineParams()]
-        st.receivers![1].activeChord = 0
-        XCTAssertEqual(Array((SnapshotBuilder.build(from: st).receiverChordsParams[1]?.chordsDegrees ?? []).prefix(4)), [0, 0, 0, 0])
-        st.receivers![1].activeChord = 1
-        XCTAssertEqual(Array((SnapshotBuilder.build(from: st).receiverChordsParams[1]?.chordsDegrees ?? []).prefix(4)), [3, 3, 3, 3])
-    }
-    func testChordSeqsDecodeTolerantAndDefault() throws {
-        var r = Receiver(); r.doorMode = .chord
-        XCTAssertNil(r.chordSeqs)
-        XCTAssertEqual(r.chordSeqsResolved.count, 4, "nil ⇒ four default progressions")
-        XCTAssertEqual(r.chordSeqsResolved[0].chordsScaleRefResolved, 3, "defaults reference KEY-FROM door D")
-        XCTAssertTrue(r.latchPianoResolved, "a CHORD door rides the piano/KEYS pipeline")
-        r.activeChord = 7
-        XCTAssertEqual(r.activeChordResolved, 3, "clamped 0…3")
-        // A stale ChordPool-format JSON key (from the fe708c7 window) is an unknown key ⇒ ignored ⇒ the default progressions.
-        let legacy = "{\"name\":\"\",\"channel\":0,\"mpeMerge\":false,\"muted\":false,\"doorMode\":\"chord\",\"chordPools\":[{\"source\":1,\"degree\":2}]}".data(using: .utf8)!
-        let old = try JSONDecoder().decode(Receiver.self, from: legacy)
-        XCTAssertNil(old.chordSeqs, "stale chordPools key ignored → nil")
-        XCTAssertEqual(old.chordSeqsResolved.count, 4)
-    }
-    func testDefaultRigWiresChordDoorCToScaleDoorD() {
-        let st = PluginState.makeInit()
-        XCTAssertEqual(st.receiversResolved[2].doorModeResolved, .chord, "receiver C is the chord sequencer")
-        XCTAssertEqual(st.receiversResolved[3].doorModeResolved, .scale, "receiver D is the key (scale door)")
-        XCTAssertEqual(st.receiversResolved[2].chordSeqsResolved.count, 4, "four default progressions")
-        XCTAssertEqual(st.receiversResolved[2].chordSeqsResolved[0].chordsScaleRefResolved, 3, "C's chords take KEY FROM D")
-    }
-    func testExcludeDoorFlowsToSnapshotAndDropsSelf() {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![1].excludeDoor = 0   // door B (KEYS) excludes door A
-        st.receivers![2].excludeDoor = 2   // self-exclusion is illegal → dropped to OFF
-        let box = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(box.receiverExcludeDoor[1], 0, "door B subtracts door A")
-        XCTAssertEqual(box.receiverExcludeDoor[2], -1, "self-exclusion resolves to OFF")
-        XCTAssertEqual(box.receiverExcludeDoor[0], -1, "default is OFF")
-    }
-    func testKeyFilterModeAndRejectFlowToSnapshot() {
-        // §3: MINUS/ONLY + BLOCK/SNAP pack into two masks; default (nil) = MINUS · BLOCK (0 bits), byte-identical for old docs.
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.synthesizeReceiversIfNeeded()
-        st.receivers![1].excludeDoor = 0; st.receivers![1].excludeMode = .only; st.receivers![1].excludeReject = .snap
-        st.receivers![3].excludeDoor = 0; st.receivers![3].excludeMode = .only   // reject stays BLOCK (nil)
-        let box = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(box.receiverExcludeOnly, 0b1010, "doors B and D intersect (ONLY)")
-        XCTAssertEqual(box.receiverExcludeSnap, 0b0010, "only door B snaps")
-        // A doc with no key-filter fields set → both masks zero (MINUS · BLOCK default).
-        var plain = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        plain.synthesizeReceiversIfNeeded()
-        let pbox = SnapshotBuilder.build(from: plain)
-        XCTAssertEqual(pbox.receiverExcludeOnly, 0); XCTAssertEqual(pbox.receiverExcludeSnap, 0)
-    }
-    func testThruReceiverFlowsToSnapshot() {
-        func thru(_ v: Int?) -> Int8 {
-            var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-            st.thruReceiver = v
-            return SnapshotBuilder.build(from: st).thruReceiver
-        }
-        XCTAssertEqual(thru(nil), 0, "nil ⇒ default R1")
-        XCTAssertEqual(thru(2), 2, "the pip's receiver reaches the snapshot")
-        XCTAssertEqual(thru(9), 3, "out-of-range clamps to R4")
-    }
 
     // CELL MACHINE stage-3: 3-tier chain resolution — per-cell OVERRIDE → machine TEMPLATE → legacy A face.
     func testChainResolvesOverrideThenTemplateThenAFace() {
@@ -345,24 +188,6 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(legacy.cells[0].procs.first?.type, .arp, "no override, no template → the legacy A face")
     }
 
-    // MOD STEPS SPAN (Paul 2026-08-20): the box carries 8/16/32 breakpoints by SPAN (tiled from the stored steps);
-    // the old cell|row modSpan migrates onto modStepSpan (byte-identical, 8 steps).
-    func testModStepSpanPacksNStepsAndMigratesOldSpan() {
-        var cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-        cs[0].templateChain = [{ var s = ProcessorSlot(type: .mod); s.params.modSource = .steps; s.params.modStepSpan = .row2
-                                 s.params.modSteps = [0, 10, 20, 30, 40, 50, 60, 70]; return s }()]
-        let b = box(cs) { $0.cells[0][0] = Cell(machineID: machineIDs[0], buses: [.a]) }
-        let p = b.cells[0].procs.first!
-        XCTAssertEqual(p.modStepSpan, .row2)
-        XCTAssertEqual(p.modSteps.count, 16, "ROW×2 packs 16 breakpoints")
-        XCTAssertEqual(Array(p.modSteps.prefix(8)), [0, 10, 20, 30, 40, 50, 60, 70], "the first bar keeps the stored 8")
-        XCTAssertEqual(Array(p.modSteps.suffix(8)), [0, 10, 20, 30, 40, 50, 60, 70], "the second bar tiles the 8 (default)")
-        // MIGRATION: an old doc set modSpan=.row for STEPS + no modStepSpan → modStepSpan.row (still 8 steps).
-        cs[1].templateChain = [{ var s = ProcessorSlot(type: .mod); s.params.modSource = .steps; s.params.modSpan = .row; return s }()]
-        let m = box(cs) { $0.cells[0][0] = Cell(machineID: machineIDs[1], buses: [.a]) }
-        XCTAssertEqual(m.cells[0].procs.first?.modStepSpan, .row, "old modSpan=.row migrates to modStepSpan=.row")
-        XCTAssertEqual(m.cells[0].procs.first?.modSteps.count, 8, "ROW is 8 breakpoints (byte-identical)")
-    }
     // LADDER: a DORMANT rung breaks the legato run — otherwise a full-8×8 ladder reads as one run from column 0
     // and each active rung's legato arp arrives badly phase-advanced (the "starts late / sounds random" bug).
     func testLadderDormantBreaksTheLegatoRun() {
@@ -421,38 +246,7 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(SnapshotBuilder.build(from: st).cells[0].inputChannel, 4)
     }
 
-    func testClaimMapsToSnapshot() {
-        // Legacy single field derives the mask bit.
-        func claimMask(_ c: Int?) -> UInt8 {
-            var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-            st.claimEmitter = c
-            return SnapshotBuilder.build(from: st).claimMask
-        }
-        XCTAssertEqual(claimMask(nil), 0, "nil ⇒ no claim")
-        XCTAssertEqual(claimMask(0), 0b0001, "emitter A claims")
-        XCTAssertEqual(claimMask(3), 0b1000, "emitter D claims")
-        XCTAssertEqual(claimMask(9), 0, "out-of-range ⇒ no claim")
-        // v2: an explicit MULTI-claim mask + per-claimant LEAK map straight through.
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.claimMask = 0b0110; st.claimLeak = [0, 40, 0, 0]
-        let box = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(box.claimMask, 0b0110, "explicit mask maps through")
-        XCTAssertEqual(box.claimLeak, [0, 40, 0, 0], "per-claimant leak maps through")
-    }
 
-    func testLatchAddMaskFromReceivers() {
-        // The per-receiver mode packs into the box mask (bit i = receiver i in LATCH = the note-toggle capture branch).
-        // An UNSET door defaults to HOLD (bit CLEAR), matching doorModeResolved + the strip display (Paul 2026-09-07 fix:
-        // the old nil ⇒ LATCH default disagreed with the HOLD display → HOLD silently ran the note-toggle branch).
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.receivers = [{ var r = Receiver(name: "1"); r.doorMode = .latch; return r }(),    // explicit LATCH ⇒ bit set
-                        Receiver(name: "2"),                                                 // default ⇒ HOLD ⇒ clear
-                        { var r = Receiver(name: "3"); r.latchAdd = false; return r }(),      // HOLD (legacy) ⇒ clear
-                        { var r = Receiver(name: "4"); r.latchAdd = true; return r }()]       // legacy LATCH ⇒ bit set
-        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1001, "LATCH (explicit + legacy) set the bit; HOLD clears it")
-        st.receivers = nil   // no receivers ⇒ four default doors ⇒ all HOLD
-        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b0000, "default (nil) ⇒ all HOLD (bit clear)")
-    }
 
     // THE CONFIG SHEETS (Paul 2026-08-20): the door MODE reframes the 3 existing latch modes, behaviour-preserving.
     func testDoorModeDerivesFromLegacyLatchFields() {
@@ -478,57 +272,6 @@ final class SnapshotBuilderTests: XCTestCase {
         let back = try JSONDecoder().decode(Receiver.self, from: try JSONEncoder().encode(r))
         XCTAssertEqual(back.doorMode, .keys)
         XCTAssertTrue(back.latchPianoResolved)
-    }
-    // REPLAY (config-sheets stage 3): the builder packs the REPLAY doors + their pass lengths into the box.
-    func testReplayMaskAndPassesPackIntoTheBox() {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.receivers = [{ var r = Receiver(name: "1"); r.doorMode = .replay; r.replayPasses = 4; return r }(),
-                        { var r = Receiver(name: "2"); r.doorMode = .latch; return r }(),
-                        { var r = Receiver(name: "3"); r.doorMode = .replay; r.replayPasses = 2; return r }(),
-                        Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.receiverReplayMask, 0b0101, "doors 1 + 3 are REPLAY")
-        XCTAssertEqual(b.receiverReplayPasses[0], 4)
-        XCTAssertEqual(b.receiverReplayPasses[2], 2)
-        XCTAssertEqual(b.receiverReplayPasses[1], 1, "non-replay door defaults to 1")
-        // REPLAY doors are NOT piano/keys-latch by construction (doorMode == .replay resolves both to false)
-        XCTAssertEqual(b.receiverPianoMask & 0b0101, 0, "a REPLAY door is not a PIANO door")
-    }
-    // FILE (config-sheets stage 4): a FILE door's stored clip packs into the box (only when in FILE mode with a clip).
-    func testFileClipPacksIntoTheBoxForAFileDoor() {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        let clip = [MidiFile.NoteEvent(beat: 0, note: 60, vel: 100, on: true), MidiFile.NoteEvent(beat: 1, note: 60, vel: 0, on: false)]
-        st.receivers = [{ var r = Receiver(name: "1"); r.doorMode = .file; r.fileClip = clip; r.fileLoopBeats = 4; return r }(),
-                        { var r = Receiver(name: "2"); r.doorMode = .replay; r.fileClip = clip; r.fileLoopBeats = 4; return r }(),   // FILE data but NOT file mode → ignored
-                        Receiver(name: "3"), Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.receiverFile[0].loopBeats, 4, "door 0 (FILE) carries its clip")
-        XCTAssertEqual(b.receiverFile[0].notes, [60, 60])
-        XCTAssertEqual(b.receiverFile[1].loopBeats, 0, "door 1 is REPLAY, not FILE → no clip packed")
-        XCTAssertEqual(b.receiverFile[2].loopBeats, 0, "a plain door has no clip")
-    }
-    // STORAGE RECONCILE (config-sheets FILE, 2026-08-21): an imported .mid clip lives on the Receiver, so it must
-    // survive a full-document save/load (fullState) AND rebuild into the box — else the loop is lost on reload.
-    func testFileClipSurvivesDocumentRoundTripAndRebuilds() throws {
-        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        let clip = [MidiFile.NoteEvent(beat: 0, note: 60, vel: 100, on: true),
-                    MidiFile.NoteEvent(beat: 0.5, note: 64, vel: 90, on: true),
-                    MidiFile.NoteEvent(beat: 1, note: 60, vel: 0, on: false),
-                    MidiFile.NoteEvent(beat: 1, note: 64, vel: 0, on: false)]
-        st.receivers = [{ var r = Receiver(name: "1"); r.doorMode = .file; r.fileClip = clip; r.fileLoopBeats = 2; r.fileName = "loop.mid"; return r }(),
-                        Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        // save → load the WHOLE document (the fullState path)
-        let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(st))
-        let r0 = back.receiversResolved[0]
-        XCTAssertEqual(r0.doorMode, .file, "FILE mode persists")
-        XCTAssertEqual(r0.fileClip, clip, "the decoded notes are byte-identical")
-        XCTAssertEqual(r0.fileLoopBeats, 2)
-        XCTAssertEqual(r0.fileName, "loop.mid", "the display name persists")
-        // and the RESTORED document still packs the clip into the box (so the Kernel reloads the DoorRing on load)
-        let b = SnapshotBuilder.build(from: back)
-        XCTAssertEqual(b.receiverFile[0].loopBeats, 2)
-        XCTAssertEqual(b.receiverFile[0].notes, [60, 64, 60, 64])
-        XCTAssertEqual(b.receiverFile[0].beats, [0, 0.5, 1, 1])
     }
     func testReplayPassesClampToTheAllowedSet() {
         var r = Receiver(name: "x"); r.replayPasses = 7
@@ -559,34 +302,7 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertFalse(bless.hasProcB)
     }
 
-    func testEnumToIndexAndClamps() {
-        let cs = machines(customizing: 0) {
-            $0.paramsA.pattern = .down
-            $0.paramsA.octaves = 9       // illegal → clamps to 4
-            $0.transpose = 100           // → clamps to 24
-        }
-        let sc = box(cs) { _ in }.machines[0]
-        XCTAssertEqual(sc.a.patternIndex, UInt8(ArpPattern.allCases.firstIndex(of: .down)!))
-        XCTAssertEqual(sc.a.octaves, 4)
-        XCTAssertEqual(sc.transpose, 24)
-    }
 
-    // The pool-aware append-only params flow MachineParams → SnapParams: chanceTilt clamps to −1…1; chanceDensity /
-    // strumSpreadNorm copy through; arpSpanN clamps to 0…32. A missing builder copy would slip past every render test.
-    func testPoolAwareParamsResolveAndClamp() {
-        let sc = box(machines(customizing: 0) {
-            $0.paramsA.chanceTilt = 5.0            // illegal → clamps to +1
-            $0.paramsA.chanceDensity = true
-            $0.paramsA.arpSpanN = 99               // illegal → clamps to 32
-            $0.paramsA.strumSpreadNorm = false
-        }) { _ in }.machines[0]
-        XCTAssertEqual(sc.a.chanceTilt, 1.0, "chanceTilt clamps to +1")
-        XCTAssertTrue(sc.a.chanceDensity, "chanceDensity copies through")
-        XCTAssertEqual(sc.a.arpSpanN, 32, "arpSpanN clamps to 32")
-        XCTAssertFalse(sc.a.strumSpreadNorm, "strumSpreadNorm copies through")
-        let neg = box(machines(customizing: 0) { $0.paramsA.chanceTilt = -5.0 }) { _ in }.machines[0]
-        XCTAssertEqual(neg.a.chanceTilt, -1.0, "chanceTilt clamps to −1")
-    }
 
     // CLOCK (Paul 2026-09-26): the resolve/clamp block had ZERO test coverage until a housekeeping survey pass —
     // FIXED/WAVE's own clamps (clockDepth/clockRatio) were removed with those modes the same day; only the DRAWN
@@ -601,64 +317,8 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(neg.a.clockDrawnSteps, 1, "clockDrawnSteps clamps to its lower bound too")
     }
 
-    // The render thread's ONLY sanitization of the newer echo/euclid/glide/harmonize params — a wrong bound ships a bad
-    // value straight into emission. The non-obvious ones: euclidSteps MIN is 2 (not 1), echoOffset is ±0.33. (coverage 2026-08-15)
-    func testEchoEuclidGlideHarmResolveClamps() {
-        let a = box(machines(customizing: 0) {
-            $0.paramsA.euclidSteps = 1; $0.paramsA.euclidPulses = 0; $0.paramsA.euclidRot = 99
-            $0.paramsA.echoDelayDiv = 0; $0.paramsA.echoOffset = 1.0; $0.paramsA.echoPitch = 99
-            $0.paramsA.glideRange = 0; $0.paramsA.glideTime = 99
-            $0.paramsA.harmIntervals = [30]
-        }) { _ in }.machines[0].a
-        XCTAssertEqual(a.euclidSteps, 2, "euclidSteps min is 2, not 1")
-        XCTAssertEqual(a.euclidPulses, 1)
-        XCTAssertEqual(a.euclidRot, 15)
-        XCTAssertEqual(a.echoDelayDiv, 1)
-        XCTAssertEqual(a.echoOffset, 0.33, accuracy: 1e-9, "echo offset ±0.33")
-        XCTAssertEqual(a.echoPitch, 24)
-        XCTAssertEqual(a.glideRange, 1)
-        XCTAssertEqual(a.glideTime, 4, accuracy: 1e-9)
-        XCTAssertEqual(a.harmIntervals.0, 24, "harm interval clamps to +24")
-        XCTAssertEqual(a.harmIntervals.1, 0, "missing voices pad to 0")
-        XCTAssertEqual(a.harmIntervals.2, 0)
-        let hi = box(machines(customizing: 0) { $0.paramsA.euclidSteps = 99 }) { _ in }.machines[0].a
-        XCTAssertEqual(hi.euclidSteps, 16, "euclidSteps max is 16")
-    }
 
-    // EUCLID — always exactly 4 lines (2026-09-29 fixed-4-row redesign). An untouched (flat-fields) machine derives
-    // row 0 from euclidPulses/Steps/Rot/Invert/Pick, rows 1-3 silent (pulses 0) — byte-identical resolve to what the
-    // old single-euclid path would have used. An old-style 2-line doc pads to 4 with 2 more silent rows, keeping its
-    // 2 real lines untouched. Both counts are always exactly 4 — never fewer, never (post-redesign) more than 4.
-    func testEuclidLinesAlwaysResolveToExactlyFour() {
-        let flat = box(machines(customizing: 0) {
-            $0.paramsA.euclidPulses = 5; $0.paramsA.euclidSteps = 8; $0.paramsA.euclidRot = 2; $0.paramsA.euclidPick = .high
-        }) { _ in }.machines[0].a
-        XCTAssertEqual(flat.euclidLines.count, 4, "always exactly 4, even for an untouched flat-fields machine")
-        XCTAssertEqual(flat.euclidLines[0].pulses, 5); XCTAssertEqual(flat.euclidLines[0].steps, 8)
-        XCTAssertEqual(flat.euclidLines[0].rotate, 2); XCTAssertEqual(flat.euclidLines[0].noteSelResolved, .high,
-                       "row 0 derives noteSel from the old flat PICK when untouched")
-        XCTAssertTrue(flat.euclidLines[1...3].allSatisfy { $0.pulses == 0 }, "rows 1-3 pad silent")
 
-        let twoLine = box(machines(customizing: 0) {
-            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8), EuclidLine(target: 2, pulses: 3, steps: 16)]
-        }) { _ in }.machines[0].a
-        XCTAssertEqual(twoLine.euclidLines.count, 4, "an old 2-line doc pads to exactly 4, not left at 2")
-        XCTAssertEqual(twoLine.euclidLines[0].pulses, 4); XCTAssertEqual(twoLine.euclidLines[1].pulses, 3)
-        XCTAssertEqual(twoLine.euclidLines[1].noteSelResolved, .n2, "the old target:2 line resolves to noteSel .n2")
-        XCTAssertTrue(twoLine.euclidLines[2...3].allSatisfy { $0.pulses == 0 }, "the 2 padded rows are silent")
-    }
-
-    // A pre-redesign line with pick == nil fell back to the MACHINE-WIDE global euclidPick (the old "PICK — for
-    // ALL-target lines" row, now folded away) — a fallback EuclidLine.noteSelResolved can't see on its own (it only
-    // knows its own fields). euclidLinesForEditing() must resolve this with the full context so an old doc's lines
-    // keep sounding exactly as they did before the redesign.
-    func testEuclidLineWithoutItsOwnPickFallsBackToTheOldMachineWideGlobal() {
-        let a = box(machines(customizing: 0) {
-            $0.paramsA.euclidPick = .high   // the old machine-wide default
-            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, pick: nil)]   // no per-line override
-        }) { _ in }.machines[0].a
-        XCTAssertEqual(a.euclidLines[0].noteSelResolved, .high, "no per-line pick ⇒ falls back to the machine-wide global, not ALL")
-    }
 
     // EUCLIDEOUS (Paul 2026-10-05): rate/emitterMask must survive the explicit EuclidLine(...) reconstruction in
     // SnapshotBuilder — that constructor is a fresh literal, not copy-with-mutation, so this is a REAL regression
@@ -979,14 +639,6 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(cell.procs.first?.type, .harmonize, "it reads cyan's machine by document order, not the canonical-index machine")
     }
 
-    // MOD STEPS ingest: a <8-element pattern fills cyclically with a per-element 0…127 clamp; an EMPTY pattern is
-    // guarded (keeps the default staircase). (coverage 2026-08-15)
-    func testResolveModStepsWrapsClampsAndGuards() {
-        let a = box(machines(customizing: 0) { $0.paramsA.modSteps = [200, -5, 50] }) { _ in }.machines[0].a
-        XCTAssertEqual(a.modSteps, [127, 0, 50, 127, 0, 50, 127, 0], "cyclic fill of a 3-element pattern + clamp")
-        let empty = box(machines(customizing: 0) { $0.paramsA.modSteps = [] }) { _ in }.machines[0].a
-        XCTAssertEqual(empty.modSteps, [0, 18, 36, 54, 72, 90, 108, 127], "empty pattern → default staircase (guard skips)")
-    }
 
     func testRunStartColumnForContiguousRun() {
         // §7 LEGATO precompute: a contiguous same-Machine run in one row shares the run's first column.

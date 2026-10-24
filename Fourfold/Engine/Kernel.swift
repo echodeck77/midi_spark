@@ -192,7 +192,6 @@ final class Kernel {
     private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // §item 11: cable bitmasks (for metering)
     private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]                       // RANGE (§2): note window for the latch capture (upstream of latch)
     private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
-    private var receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // CONTROLLER ROUTING (v1): per-door emitter forward mask
     private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-emitter stamp channels (for the re-stamp forward)
     private var pianoNotes: [[UInt8]] = [[], [], [], []]                      // PIANO LATCH: per-door chosen notes
     private var receiverExcludeDoor: [Int8] = [-1, -1, -1, -1]                // KEY FILTER: per door, the reference door whose pitch classes filter its pool (-1 = OFF)

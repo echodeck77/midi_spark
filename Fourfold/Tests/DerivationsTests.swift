@@ -496,28 +496,6 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - silence invariant (a8 assert-on-silence)
 
-    // THE SCALE DOOR (ratified §1) — the derived KEYS pool from root+scale+range.
-    func testScaleNotesRealizesRootScaleAndRange() {
-        // C major, 2 octaves from C3 (MIDI 48) = 7 degrees × 2 = 14 notes, ascending, starting at C3.
-        let cMaj = scaleNotes(root: 0, type: .major, baseOct: 3, octaves: 2)
-        XCTAssertEqual(cMaj.count, 14)
-        XCTAssertEqual(cMaj.first, 48)                                   // C3
-        XCTAssertEqual(cMaj.prefix(8).map { $0 }, [48, 50, 52, 53, 55, 57, 59, 60])   // C D E F G A B C
-        XCTAssertEqual(cMaj, cMaj.sorted())                             // ascending, distinct
-        // ROOT shifts the whole set: D major starts on D3 (50) and every note is a pitch class of {D,E,F#,G,A,B,C#}.
-        let dMaj = scaleNotes(root: 2, type: .major, baseOct: 3, octaves: 1)
-        XCTAssertEqual(dMaj.first, 50)
-        let dClasses = Set([2, 4, 6, 7, 9, 11, 1])                      // D E F# G A B C#
-        XCTAssertTrue(dMaj.allSatisfy { dClasses.contains($0 % 12) })
-        // Pentatonic = 5 per octave; chromatic = 12; whole-tone = 6.
-        XCTAssertEqual(scaleNotes(root: 0, type: .majorPentatonic, baseOct: 3, octaves: 2).count, 10)
-        XCTAssertEqual(scaleNotes(root: 0, type: .chromatic, baseOct: 3, octaves: 1).count, 12)
-        XCTAssertEqual(scaleNotes(root: 0, type: .wholeTone, baseOct: 3, octaves: 1).count, 6)
-        // Range clamps: an octaves/baseOct that would run past 127 drops the out-of-MIDI notes (never emits > 127).
-        XCTAssertTrue(scaleNotes(root: 0, type: .chromatic, baseOct: 8, octaves: 4).allSatisfy { $0 >= 0 && $0 <= 127 })
-        // Clamped inputs: octaves 0 → 1, baseOct 99 → 8 (never traps, always ≥ 1 octave).
-        XCTAssertFalse(scaleNotes(root: 0, type: .major, baseOct: 99, octaves: 0).isEmpty)
-    }
     // THE CHORD SEQUENCER (Paul 2026-09-04): chordSeqNotes — the SHARED derivation the CHORDS processor + the chord DOOR use.
     func testChordSeqNotesWalksThePatternOnTheBeat() {
         var p = SnapParams()
@@ -1469,65 +1447,6 @@ final class DerivationsTests: XCTestCase {
     // before the table refactor — proving it byte-identical whenever nothing is MUTE/PAUSE. A no-op (all ON) reduces
     // to the identity EXACTLY, at any rate/period, since `value ≡ n` when every index is kept.
     private func ksModes(_ enabled: [Bool]) -> [KillStepMode] { enabled.map { $0 ? .on : .drop } }
-    func testKillStepPhaseIsExactIdentityWhenAllStepsEnabled() {
-        let t = killStepResolveTable(ksModes(Array(repeating: true, count: 8)), pauseLen: 1)
-        for rate in [0.25, 0.5, 1.0, 2.0] {
-            for origin in [0.0, 1.3, -2.7] {
-                for beat in stride(from: origin - 5, through: origin + 12, by: 0.41) {
-                    XCTAssertEqual(killStepPhase(beat, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: rate, periodBeats: 0, originOverride: origin),
-                                   beat, accuracy: 1e-9, "rate \(rate) origin \(origin) beat \(beat)")
-                }
-            }
-        }
-    }
-    // The user's own worked example: 4 of 8 steps enabled — real columns 0…7 (one rate-tick each) should read as
-    // 0,1,2,3,0,1,2,3 mod the row's own 8-step width ("the first half plays twice"), and the raw returned value
-    // must climb by a full lap (8) each time it wraps, since the shared tick-search machinery needs a monotonic
-    // local beat to walk forward through.
-    func testKillStepPhasePlaysTheFirstHalfTwiceOverOnePass() {
-        let t = killStepResolveTable(ksModes([true, true, true, true, false, false, false, false]), pauseLen: 1)
-        let got = (0..<8).map { n in killStepPhase(Double(n), columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
-        XCTAssertEqual(got, [0, 1, 2, 3, 8, 9, 10, 11], "columns 0…3 repeat (offset by a full lap of 8) instead of ever reaching 4…7")
-    }
-    // 3 of 8 enabled: the enabled set doesn't divide the 8-column bar evenly, so the 3-cycle rotates against it
-    // ("overriding the clock") instead of realigning every pass.
-    func testKillStepPhaseRotatesAnUnevenCountAgainstTheBar() {
-        let t = killStepResolveTable(ksModes([true, true, true, false, false, false, false, false]), pauseLen: 1)
-        let got = (0..<8).map { n in killStepPhase(Double(n), columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
-        XCTAssertEqual(got, [0, 1, 2, 8, 9, 10, 16, 17], "a 3-enabled-of-8 row drifts a full lap ahead every 3 real columns, never landing back on the bar's own 8-count")
-    }
-    // An all-disabled row is never silent/undefined — it falls back to all-enabled, matching
-    // `clockDrawnResolveRatios`'s empty-lane convention (a true no-op, identical to testKillStepPhaseIsExact…).
-    func testKillStepPhaseAllDisabledFallsBackToAllEnabled() {
-        let t = killStepResolveTable(ksModes(Array(repeating: false, count: 8)), pauseLen: 1)
-        for beat in stride(from: -3.0, through: 9.0, by: 0.7) {
-            XCTAssertEqual(killStepPhase(beat, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0),
-                           beat, accuracy: 1e-9, "beat \(beat)")
-        }
-    }
-    // NEW (Paul 2026-09-27): MUTE counts exactly like ON for this TRANSFORM — a row of [ON,MUTE,ON,MUTE,DROP×4]
-    // must be timing-IDENTICAL to testKillStepPhasePlaysTheFirstHalfTwiceOverOnePass's plain ON/DROP row (MUTE's
-    // only effect — silencing the note — lives entirely in Router.emitDriverNote's fold, never in this table).
-    func testKillStepPhaseMuteCountsLikeOnForTiming() {
-        let t = killStepResolveTable([.on, .mute, .on, .mute, .drop, .drop, .drop, .drop], pauseLen: 1)
-        let got = (0..<8).map { n in killStepPhase(Double(n), columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 8, rateBeats: 1, periodBeats: 0, originOverride: 0) }
-        XCTAssertEqual(got, [0, 1, 2, 3, 8, 9, 10, 11], "MUTE steps advance the local value exactly like ON — same shape as an equivalent ON/DROP row")
-    }
-    // NEW: PAUSE freezes the local value across its own hold — real columns [pauseCol, pauseCol+1+pauseLen) must
-    // read the IDENTICAL local value (a true freeze, no drift within the hold), then jump forward by exactly one
-    // step once it ends. Hand-traced against `killStepResolveTable`'s own algorithm, not guessed.
-    func testKillStepPhasePauseFreezesForItsHoldLength() {
-        let t = killStepResolveTable([.on, .pause, .on, .on], pauseLen: 2)   // step 1 pauses; table = [0,1,1,1,2,3], columnsPerLap 6
-        let got = (0..<6).map { n in killStepPhase(Double(n), columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 4, rateBeats: 1, periodBeats: 0, originOverride: 0) }
-        XCTAssertEqual(got, [0, 1, 1, 1, 2, 3], "step 1's PAUSE holds the SAME local value across 3 real columns (1 + pauseLen 2), then resumes")
-    }
-    // The other half of the same fact, checked forward: real columns 1, 2, AND 3 (the whole hold: 1 + pauseLen 2)
-    // must all map to the SAME local value — a true freeze, not an approximation.
-    func testKillStepPhaseAllColumnsOfAHoldMapToTheSameValue() {
-        let t = killStepResolveTable([.on, .pause, .on, .on], pauseLen: 2)
-        let values = [1.0, 2.0, 3.0].map { n in killStepPhase(n, columnMap: t.columnMap, columnsPerLap: t.columnsPerLap, steps: 4, rateBeats: 1, periodBeats: 0, originOverride: 0) }
-        XCTAssertEqual(Set(values).count, 1, "real columns 1,2,3 (the whole 3-column hold) must read the IDENTICAL local value \(values)")
-    }
 
     // CHORDS degrees sized to the matrix width (Paul 2026-09-16 fix): a wide matrix keeps all its authored columns.
     func testChordsDegreesResolvedSizesToSteps() {

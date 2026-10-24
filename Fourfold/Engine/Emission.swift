@@ -356,7 +356,6 @@ final class DoorRing {
     func clearLoop() { loopN = 0; loopLen = 0 }
     /// The oldest recorded event's beat (+∞ if empty) — so a capture can CLAMP its length to the history actually
     /// available and not prepend silent passes when < N passes have been played (Paul 2026-08-23).
-    var oldestBeat: Double { count > 0 ? ordered(0).beat : .infinity }
 
 
     /// The captured loop as drawable NOTES WITH DURATION (Paul 2026-08-23): pair each note-on with its next off; a note

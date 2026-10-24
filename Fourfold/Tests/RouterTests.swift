@@ -128,51 +128,6 @@ final class RouterTests: XCTestCase {
 
     // MARK: tests
 
-    // GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE render integration.
-    func testEuclidStrikesChordOnEuclideanPulses() {
-        // 4-of-8 euclid over a 3-note chord in one column (S = 2 beats): 4 pulses × 3 notes = 12 note-ons, no stuck.
-        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 2, into: e)
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "4 euclid pulses × the 3-note chord")
-        assertNothingLeftSounding(e)
-    }
-    func testEuclidDownbeatFiresOnAnUnalignedColumnBoundary() {
-        // REGRESSION (Paul 2026-08-18): the euclid cell sits in COLUMN 1, whose start (beat S=2) falls MID render-block,
-        // not on a block boundary — the case the old window-scan dropped, losing every column's step-0 pulse (K→K−1;
-        // K=1 silent). Existing euclid tests hid it by starting the run exactly on column 0's boundary. All 4 pulses
-        // (incl. the downbeat at 2.0) must sound: 4 × 3 = 12.
-        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[1][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 4, into: e)   // column 1 is active over [2,4); its downbeat at 2.0 is mid-block
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "the column-1 downbeat must not be dropped (was 9 = K−1 per cycle)")
-        assertNothingLeftSounding(e)
-    }
-    // SPAN RE-ANCHOR (Paul 2026-08-27, RATE×ladder — replaces the old WIDTH model): GRID = the grain, SPAN re-syncs the
-    // pattern to step 0 every N columns. A 4-of-8 euclid (hits at steps 0·2·4·6) at ONE step per column (rate == stepRate
-    // == 1/8): FREE walks the pattern across the row → columns 0·2·4·6 fire = 4 × 3 notes = 12 onsets; SPAN=1 re-anchors
-    // EVERY column to step 0 (always a hit) → all 8 columns fire = 8 × 3 = 24. Proves SPAN re-syncs, not scales speed.
-    func testEuclidSpanReAnchorsThePattern() {
-        func ons(spanN: Int?) -> Int {
-            let b = box(machines: machineIDs.map { id -> Machine in
-                guard id == "gold" else { return Machine(machineID: id, type: .arp) }
-                var c = Machine(machineID: "gold", type: .euclid)
-                c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidRate = .r1_8; c.paramsA.euclidSpanN = spanN
-                return c
-            }) { s in
-                s.stepRate = .r1_8                                       // 0.5-beat columns == the euclid rate → one step per column
-                for col in 0..<8 { s.cells[col][0] = Cell(machineID: "gold", buses: [.a]) }   // the whole row → the pattern plays continuously
-            }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 3.9, into: e)   // exactly 8 columns (no pass-2 edge)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.count
-        }
-        XCTAssertEqual(ons(spanN: nil), 12, "FREE: the 4-of-8 pattern walks the row — hits at steps 0·2·4·6 = 4 columns × 3 notes")
-        XCTAssertEqual(ons(spanN: 1), 24, "SPAN=1: re-anchored EVERY column to step 0 (always a hit) → all 8 columns fire × 3 notes")
-        XCTAssertGreaterThan(ons(spanN: 1), ons(spanN: nil), "the re-anchor changes the sequenced pattern")
-    }
     // PART GRID × GENERATOR interaction bug, ROUND 2 (Paul 2026-10-05): the same hardcoded-8-column defect found
     // in the EUCLID fix above turned out to be systemic — STRIKE PER SPAN, CHORDS-hold, TUTTI PATTERN, LENGTH,
     // STRUM, and MOD all independently hardcoded Double(Snap.cols)*S instead of the row's real pass length. Each
@@ -192,62 +147,6 @@ final class RouterTests: XCTestCase {
             return e.ons.filter { $0.cable == 1 }
         }
         XCTAssertEqual(ons([arp, mask]), ons([arp]), "K = N is OFF — byte-identical to the arp alone")
-    }
-    // EUCLID MASK options (Paul 2026-09-28): INVERT/SPAN/PROBABILITY/ACCENT/FILL/CHORD PICK, all additive on the
-    // same standalone fold processor.
-    // INVERT plays the COMPLEMENT of the base pattern — every tick is either a hit under the normal pattern OR
-    // under its invert, never both, and together they cover every tick the arp alone would produce.
-    func testEuclidMaskInvertPlaysTheComplementSteps() {
-        func onsetTicks(_ invert: Bool?) -> Set<Int64> {
-            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
-            var procs = [arp]
-            if let invert { var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 3; mask.params.maskInvert = invert; procs.append(mask) }
-            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
-            assertNothingLeftSounding(e)
-            return Set(e.ons.filter { $0.cable == 1 }.map { $0.sample })
-        }
-        let normal = onsetTicks(false), inverted = onsetTicks(true), all = onsetTicks(nil)
-        XCTAssertTrue(normal.isDisjoint(with: inverted), "INVERT plays the COMPLEMENT steps — never the same tick as the non-inverted run")
-        XCTAssertEqual(normal.union(inverted), all, "together, a pattern and its invert cover every tick the arp alone would")
-    }
-    // BOTTOM2/TOP2 must degrade gracefully (one note, not a crash or an out-of-range read) against a single-note
-    // "chord" — this is exactly the kind of off-by-one a ClosedRange(lo > hi) would trap on if unguarded.
-    func testEuclidMaskChordPickBottomTopTwoCollapseToOneNoteOnASingleHeldNote() {
-        func notes(_ pick: MaskChordPick) -> [UInt8] {
-            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_16
-            var mask = ProcessorSlot(type: .euclidMask); mask.params.maskN = 8; mask.params.maskK = 4; mask.params.maskGap = .chord; mask.params.maskChordPick = pick
-            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, mask]; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.map { $0.note }
-        }
-        XCTAssertTrue(notes(.bottom2).allSatisfy { $0 == 60 }, "BOTTOM2 against a single held note is just that one note, no crash")
-        XCTAssertTrue(notes(.top2).allSatisfy { $0 == 60 }, "TOP2 against a single held note is just that one note, no crash")
-    }
-    // Test #4 (composition): two CLOCK stages in one chain must compose IN ORDER — [×2 → ×3] must behave exactly like
-    // a single ×6 stage, proving clockTransformedBeat folds multiple CLOCKs correctly through the real fold pipeline
-    // (not just the pure function in isolation — DerivationsTests already locks that algebraically).
-    func testTwoClockStagesComposeLikeTheirProductRatio() {
-        func strikeCount(_ ratios: [Int]) -> Int {
-            let cs = machineIDs.map { Machine(machineID: $0, type: .arp) }
-            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
-            var procs = [arp]
-            for r in ratios { procs.append(drawnClock(ratioIndex: r)) }
-            var rat = ProcessorSlot(type: .ratchet); rat.params.rtcMode = .pattern
-            rat.params.rtcSteps = 8; rat.params.rtcSlices = [3, 1, 1, 1, 1, 1, 1, 1]; rat.params.ramp = 0
-            procs.append(rat)
-            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = procs; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.count
-        }
-        let two = clockRatioLadder.firstIndex(of: 2)!, three = clockRatioLadder.firstIndex(of: 3)!
-        // clockRatioLadder has no literal ×6 rung — compose it via two single-step DRAWN clocks on each side of the
-        // comparison instead: [×2→×3] must equal [×3→×2] (multiplication commutes, and both equal the same product).
-        XCTAssertEqual(strikeCount([two, three]), strikeCount([three, two]), "two CLOCK stages compose as a product — order between two ratios doesn't matter")
     }
     // CLOCK driver retiming (Paul 2026-09-26, final spec: "a grid with a variable number of steps, each step a
     // mutually exclusive speed, and another row on the same grid for glide" — DRAWN mode's own grid): a CLOCK
@@ -299,90 +198,6 @@ final class RouterTests: XCTestCase {
         let modern = onsets { $0.params.killStepMode = [.on, .on, .on, .on, .drop, .drop, .drop, .drop] }
         XCTAssertEqual(legacy, modern, "an old killStepEnabled row and the equivalent new killStepMode row must resolve identically")
     }
-    // EUCLID PICK (Paul 2026-08-22): LOW strikes only the pool's lowest note on every hit.
-    func testEuclidPickLowStrikesOnlyTheLowestNote() {
-        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .low; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 2, into: e)
-        let ons = e.ons.filter { $0.cable == 1 }
-        XCTAssertEqual(ons.count, 4, "4 pulses × 1 picked note")
-        XCTAssertTrue(ons.allSatisfy { $0.note == 60 }, "PICK LOW strikes only the lowest pool note")
-        assertNothingLeftSounding(e)
-    }
-    // EUCLID INVERT — REMOVED, now a NO-OP (Paul 2026-10-02: "remove the hits button and functionality" — the
-    // per-line HITS/REST tap-pill in euclidSettingsPanel drove this). `euclidInvert`/`EuclidLine.invert` both
-    // still exist (decode-only — an old doc that had INVERT engaged doesn't factory-reset), but `runEuclidLine`
-    // no longer reads either, so a pattern no longer flips to its N−K rests regardless of the stored value.
-    // Locked in as a regression guard rather than deleting the test outright — was
-    // testEuclidInvertPlaysTheRests, asserting 9 vs 15 ons; now both read 9.
-    func testEuclidInvertIsNowANoOp() {
-        func count(_ inv: Bool) -> Int {
-            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-                c.paramsA.euclidPulses = 3; c.paramsA.euclidSteps = 8; c.paramsA.euclidInvert = inv; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.count
-        }
-        XCTAssertEqual(count(false), 9, "3 hits × 3 notes — unaffected by the removal")
-        XCTAssertEqual(count(true), 9, "INVERT no longer flips to the N−K rests — same 3 hits, not 15")
-    }
-    // EUCLID PICK CYCLE (Paul 2026-08-22): the euclid-arp — one note per pulse, walking the chord.
-    func testEuclidPickCycleWalksTheChordOneNotePerPulse() {
-        func mk(_ pick: EuclidPick) -> (Int, Set<UInt8>) {
-            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-                c.paramsA.euclidPulses = 5; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = pick; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
-            assertNothingLeftSounding(e)
-            let ons = e.ons.filter { $0.cable == 1 }
-            return (ons.count, Set(ons.map { $0.note }))
-        }
-        let (allC, _) = mk(.all)
-        let (cycC, cycNotes) = mk(.cycle)
-        XCTAssertEqual(cycC * 3, allC, "CYCLE strikes one note per pulse; ALL strikes all three")
-        XCTAssertEqual(cycNotes, [60, 64, 67], "CYCLE walks through every chord note")
-    }
-    // EUCLID PICK HIGH (Paul 2026-08-22): every hit strikes only the pool's HIGHEST note (the counterpart to LOW).
-    func testEuclidPickHighStrikesOnlyTheHighestNote() {
-        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .high; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
-        let ons = e.ons.filter { $0.cable == 1 }
-        XCTAssertEqual(ons.count, 4, "4 pulses × 1 picked note")
-        XCTAssertTrue(ons.allSatisfy { $0.note == 67 }, "PICK HIGH strikes only the highest pool note")
-        assertNothingLeftSounding(e)
-    }
-    // EUCLID PICK RANDOM (Paul 2026-08-22): a seeded scatter — replay-EXACT (same stream twice) and always in the held pool.
-    func testEuclidPickRandomIsReplayExactAndInPool() {
-        func notes() -> [UInt8] {
-            let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-                c.paramsA.euclidPulses = 5; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .random; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
-            assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.map { $0.note }
-        }
-        let a = notes(), b = notes()
-        XCTAssertEqual(a, b, "PICK RANDOM is replay-exact (seeded by the pulse ordinal)")
-        XCTAssertFalse(a.isEmpty, "it strikes")
-        XCTAssertTrue(a.allSatisfy { [60, 64, 67].contains(Int($0)) }, "every struck note is one of the held pool")
-    }
-    // PER-PART LENGTH (Paul 2026-08-19): a row with a loop length < 8 loops over only its first Lr columns — a cell
-    // placed beyond the length is never visited and stays silent, while a cell inside sounds. (Stage D: parts shorter
-    // than the bar.) Row 0 loops columns 0–3; its column-1 cell sounds, its column-5 cell never does.
-    func testPerRowLengthLoopsShorterThanTheBar() {
-        let cs = machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }
-        let b = box(machines: cs) { s in
-            s.cells[1][0] = Cell(machineID: "gold", buses: [.a])       // column 1 — INSIDE the length-4 loop
-            s.cells[5][0] = Cell(machineID: "orange", buses: [.b])     // column 5 — BEYOND it
-            s.rowLen = [4, nil, nil, nil, nil, nil, nil, nil]         // row 0 loops columns 0–3 only
-        }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "column 1 is inside the 4-column loop — it sounds")
-        XCTAssertEqual(e.ons.filter { $0.cable == 2 }.count, 0, "column 5 is beyond the loop length — never visited, silent")
-        assertNothingLeftSounding(e)
-    }
     // REPRO the REAL select/ferry audition (Paul device 2026-09-01): a lone cell parked at col 0 of a row PINNED to
     // column 0 (rowLane bit 0) — the continuous 1-step pass. A legato drone sustains here; the question is whether a
     // non-legato set-shaper (CHORDS) sustains or dies after one column. Compares CHORDS against HARMONIZE on the SAME path.
@@ -415,75 +230,10 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         return (e.ons.filter { $0.cable == 1 }.count, stillOpen > 0)
     }
-    // STEPS + RATE (Paul device 2026-09-01): the progression advances on its OWN clock (chordsRate), not per grid column, so
-    // it plays THROUGH even on the frozen/pinned audition. Drives a pinned CHORDS and returns every emitted note pitch-class.
-    private func chordsPinnedPCs(steps: Int?, rate: StepRate, degrees: [Int]) -> Set<Int> {
-        var cs = arpMachines(); let ci = machineIDs.firstIndex(of: "gold")!
-        cs[ci].type = .chords
-        let b = box(machines: cs) { s in
-            var lane = [UInt16](repeating: 0, count: Snap.rows); lane[0] = 0b0000_0001; s.rowLane = lane   // pinned audition
-            s.cells[0][0] = { var x = Cell(machineID: "gold", buses: [.a])
-                var ch = ProcessorSlot(type: .chords); ch.params.chordsMode = .pattern; ch.params.chordsRoot = 0; ch.params.chordsScale = .major
-                ch.params.chordsDegrees = degrees; ch.params.chordsRate = rate; ch.params.chordsSteps = steps
-                x.processors = [ch]; return x }()
-        }
-        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
-        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        let pool = chord([60])
-        while beat < 16.0 {   // several bars → the rate clock steps the progression through
-            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        assertNothingLeftSounding(e)
-        return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 })
-    }
-    // A single-slot GENERATOR also uses its own VELOCITY control now (Paul 2026-10-09, XY pad redesign) —
-    // SUPERSEDES the old "euclid strikes each note at its own source velocity" inheritance behaviour this
-    // test used to assert, mirroring the ARP precedent (`testAuditionUsesVelocityControlIgnoringSource`'s
-    // own naming) exactly: VELOCITY is now a genuine absolute override, not a scale on inherited dynamics.
-    func testEuclidGeneratorUsesVelocityControlIgnoringSource() {
-        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter(); run(b, velChord([(60, 50), (64, 110)]), beats: 2, into: e)
-        let a = e.ons.filter { $0.cable == 1 }
-        XCTAssertFalse(a.isEmpty)
-        XCTAssertTrue(a.allSatisfy { $0.vel == 100 }, "euclid strikes at its own default VELOCITY control (100), ignoring the source chord's own 50/110 dynamics entirely")
-        assertNothingLeftSounding(e)
-    }
-    // THE PER-MACHINE MACHINE (user 2026-08-09, GLOBAL): a machine's `templateChain` drives EVERY cell of that machine
-    // that has no per-cell override — the machine lives on the (document-global) MACHINE, not the cell.
-    func testMachineTemplateChainDrivesAllItsCells() {
-        var cs = arpMachines()                                   // gold head = arp…
-        let gi = machineIDs.firstIndex(of: "gold")!
-        var tmpl = ProcessorSlot(type: .euclid); tmpl.params.euclidPulses = 4; tmpl.params.euclidSteps = 8
-        cs[gi].templateChain = [tmpl]                           // …but the MACHINE owns a euclid machine
-        let b = box(machines: cs) {
-            $0.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // processors == nil → inherit the machine template
-            $0.cells[0][1] = Cell(machineID: "gold", buses: [.a])
-        }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 24, "both gold cells render the MACHINE's euclid template (2 cells × 4-of-8 × 3 notes)")
-        assertNothingLeftSounding(e)
-    }
     // MARK: - PHASE 2 render-time part automation (Paul 2026-09-04)
     // A ×N-passes / SMOOTH AUTO lane overrides ONE scalar proc param FROM the beat (not compile-time baked). These drive
     // the REAL Router via box.renderAuto. Observable: euclid HITS ramp with the automated euclidPulses.
 
-    /// A part with `gold` (a euclid machine) on every column of row 0, plus an active render-time AUTO lane.
-    private func renderAutoBox(pulsesBase: Int, lane: AutoLane) -> SnapshotBox {
-        var cs = arpMachines()
-        let gi = machineIDs.firstIndex(of: "gold")!
-        var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = pulsesBase; eu.params.euclidSteps = 8
-        cs[gi].templateChain = [eu]
-        var s = SceneState.empty()
-        for c in 0..<8 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }   // gold on every column → the ramp shows column-by-column
-        var st = PluginState(machines: cs, scenes: [s])
-        st.partAuto = ["gold": PartAutoMachine(activeLane: 0, lanes: [lane])]
-        return SnapshotBuilder.build(from: st)
-    }
     /// Emit-A (cable 1) note-ons that fall in BAR `bar` (8 cols × S=2 beats × 24000 samples/beat = 384000 samples/bar).
     private func onsInBar(_ e: RecordingEmitter, _ bar: Int) -> Int {
         let lo = Int64(bar) * 384_000, hi = Int64(bar + 1) * 384_000
@@ -492,85 +242,6 @@ final class RouterTests: XCTestCase {
     private func passSpanLane() -> AutoLane {
         var lane = AutoLane(); lane.slot = 0; lane.param = "euclidPulses"; lane.lo = 1; lane.hi = 8; lane.spanStart = 0; lane.spanPasses = 2
         return lane
-    }
-    func testRenderAutoPassSpanRepeatsAfterItsPeriod() {
-        let box = renderAutoBox(pulsesBase: 1, lane: passSpanLane())
-        let e = RecordingEmitter(); run(box, chord([60]), beats: 48, into: e)   // 3 bars → after the 2-bar period the ramp repeats
-        let b0 = onsInBar(e, 0), b2 = onsInBar(e, 2)
-        XCTAssertEqual(b2, b0, "after one ×2 period (2 bars) the ramp re-anchors — bar2 == bar0 (\(b2) vs \(b0))")
-        assertNothingLeftSounding(e)
-    }
-    func testRenderAutoStepLaneMakesNoRenderDescriptor() {
-        var lane = AutoLane(); lane.slot = 0; lane.param = "euclidPulses"; lane.lo = 1; lane.hi = 8; lane.spanStart = 0; lane.spanLen = 4
-        let box = renderAutoBox(pulsesBase: 1, lane: lane)   // a STEP-length span (no ×N / no SMOOTH)
-        XCTAssertTrue(box.renderAuto.isEmpty, "a STEP-length span is compile-time baked (composeScene), never a render-time descriptor")
-    }
-    func testRenderAutoIsReplayExact() {
-        let box = renderAutoBox(pulsesBase: 1, lane: passSpanLane())
-        let e1 = RecordingEmitter(); run(box, chord([60]), beats: 32, into: e1)
-        let e2 = RecordingEmitter(); run(box, chord([60]), beats: 32, into: e2)
-        XCTAssertEqual(e1.events, e2.events, "render-time AUTO is derived from the beat → byte-identical on replay")
-    }
-    func testRenderAutoNoActiveLaneIsInert() {
-        var lane = passSpanLane()
-        var st = PluginState(machines: { var cs = arpMachines(); var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; cs[machineIDs.firstIndex(of: "gold")!].templateChain = [eu]; return cs }(),
-                             scenes: [{ var s = SceneState.empty(); for c in 0..<8 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }; return s }()])
-        st.partAuto = ["gold": PartAutoMachine(activeLane: -1, lanes: [lane])]   // NONE selected → no render-time descriptor
-        XCTAssertTrue(SnapshotBuilder.build(from: st).renderAuto.isEmpty, "activeLane = NONE ⇒ box.renderAuto stays empty (byte-identical)")
-    }
-    func testEuclidPulsesFromPoolTracksHeldCount() {
-        // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
-        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidSteps = 8; c.paramsA.euclidPulsesFromPool = true; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e3 = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e3)          // 3 held → 3 pulses × 3 notes
-        XCTAssertEqual(e3.ons.filter { $0.cable == 1 }.count, 9, "POOL: 3 held → E(3,8)")
-        let e4 = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 2, into: e4)      // 4 held → 4 pulses × 4 notes
-        XCTAssertEqual(e4.ons.filter { $0.cable == 1 }.count, 16, "POOL: 4 held → E(4,8)")
-        assertNothingLeftSounding(e3); assertNothingLeftSounding(e4)
-    }
-    // GENERATORS AS CHAIN DRIVERS (user 2026-08-09): the driver drives, downstream slots fold; upstream composes.
-    func testEuclidThenOpenGateStillGenerates() {
-        let b = box(machines: arpMachines()) {
-            var c = Cell(machineID: "gold", buses: [.a])
-            var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
-            var gate = ProcessorSlot(type: .chance); gate.params.probability = 1.0   // deterministic full pass (PASSGATE removed 2026-09-28)
-            c.processors = [eu, gate]; $0.cells[0][0] = c
-        }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "euclid drives; the open gate folds through → 4 pulses × 3 notes")
-        assertNothingLeftSounding(e)
-    }
-    // THE FLOOD (incident 2026-08-08) — the range-drop guard, the governor, and the panic controllers.
-    func testEchoPitchClimbNeverEncodesAboveMidi127() {
-        // ECHO +12/repeat from a high note climbs out of MIDI range; those repeats must be DROPPED at the ring
-        // drain, NEVER encoded as a byte ≥128 (which a synth reads as a status → parser desync → every synth mutes).
-        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .echo)
-            c.paramsA.echoDelayDiv = 1; c.paramsA.echoRepeats = 12; c.paramsA.echoFeedDelay = 1
-            c.paramsA.echoDecay = 1; c.paramsA.echoPitch = 12; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter()
-        run(b, chord([100]), beats: 3, into: e)             // 100 → 112 → 124 → 136 (out of range → dropped) …
-        XCTAssertTrue(e.events.allSatisfy { $0.note <= 127 }, "no wire byte encodes a note above 127")
-        assertNothingLeftSounding(e)
-    }
-    func testFloodGovernorCapsAndCountsDrops() {
-        // Pathological flood: 8 dense euclid cells in column 0, all on emitter A, over a big chord — far past the
-        // per-beat cap. The governor drops the overflow (counted, surfaced to HEALTH) and leaves nothing stuck.
-        let cs = machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 16; c.paramsA.euclidSteps = 16; return c }
-        let b = box(machines: cs) { for r in 0..<8 { $0.cells[0][r] = Cell(machineID: machineIDs[r], buses: [.a]) } }
-        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0, wb = Double(2048) * 120.0 / 60.0 / 48_000.0
-        var beat = 0.0, ts = 0.0
-        for _ in 0..<40 {
-            router.process(box: b, pool: chord([48, 50, 52, 55, 57, 60, 62, 64]), playing: true, beatPos: beat, tempo: tempo,
-                           sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-            beat += wb; ts += Double(frames)
-        }
-        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop flush
-        XCTAssertGreaterThan(router.floodDropped, 0, "the flood tripped the governor")
-        XCTAssertEqual(diag.floodDropped, router.floodDropped, "the drop total is surfaced to HEALTH")
-        assertNothingLeftSounding(e)
     }
 
     func testPanicBlastsAllNotesOffAndAllSoundOffOnEveryChannel() {
@@ -730,22 +401,6 @@ final class RouterTests: XCTestCase {
         return SnapshotBuilder.build(from: st)
     }
 
-    func testRackGatePreAndsTreatmentMasksIntoTheBox() {
-        // The builder pre-ANDs the rack gate into every treatment mask; a missing gate ⇒ all-on (old-doc safe).
-        var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [SceneState.empty()])
-        st.claimMask = 0b0011; st.flattenMask = 0b0011; st.altMask = 0b0011
-        st.rackEnabledMask = 0b0001                                  // only emitter A's rack is in path
-        let gated = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(gated.claimMask, 0b0001, "claim gated to A")
-        XCTAssertEqual(gated.flattenMask, 0b0001, "duck gated to A")
-        XCTAssertEqual(gated.altMask, 0b0001, "alt gated to A")
-        XCTAssertEqual(gated.rackMask, 0b0001, "box carries the raw gate for future treatments")
-
-        st.rackEnabledMask = nil                                    // old doc / clean instrument ⇒ all racks in path
-        let ungated = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(ungated.claimMask, 0b0011, "nil rack ⇒ no gating (0b1111)")
-        XCTAssertEqual(ungated.rackMask, 0b1111, "resolver defaults to all-on")
-    }
 
 
 
@@ -773,40 +428,12 @@ final class RouterTests: XCTestCase {
     //  only assert "ALT does NOT reach the inert B-face", which can never fail. The alt-bit's live role (voice identity)
     //  is covered elsewhere.)
 
-    // A CLOSED gate after the arp gates every arp note → silence (the fold empties the set each tick).
-    func testArpThenClosedGateIsSilent() {
-        let cs = arpMachines()
-        let arp = ProcessorSlot(type: .arp)
-        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
-        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "a closed gate after the arp gates every arp note → silence")
-        assertNothingLeftSounding(e)
-    }
-    // AVOID/LOCK (unified 2026-08-31): a per-note pitch filter placeable anywhere. It works the SAME before or after a
-    // driver (remove/move, no re-pick) — the position only changes whether it thins the POOL (before) or punches holes
-    // in the LINE (after). Uses a declared-KEY reference (deterministic, no live state).
-    private func avoidSlot(kind: AvoidRefKind, root: Int = 0, scale: ScaleType = .major, lock: Bool, move: Bool) -> ProcessorSlot {
-        var s = ProcessorSlot(type: .avoid)
-        s.params.avoidRefKind = kind; s.params.avoidRoot = root; s.params.avoidScale = scale
-        s.params.avoidMode = lock ? .lock : .avoid; s.params.avoidAction = move ? .move : .remove
-        return s
-    }
 
     // ═══ AVOID / LOCK — the COMPREHENSIVE end-to-end acceptance suite (Paul 2026-08-31) ═══════════════════════════════
     // Every expectation is reasoned from the CONCEPT (a per-pitch-class filter), then checked against the REAL engine
     // end-to-end: a held INPUT chord on door 0 → the AVOID chain → the emitted MIDI-out notes. The REFERENCE is played
     // LIVE on another door's channel (at octave 7, note 84+pc, so it never collides with the input's own MIDI numbers).
 
-    /// A configured AVOID/LOCK slot.
-    private func mkAvoid(kind: AvoidRefKind = .door, refIndex: Int = 1, lock: Bool = false, move: Bool = false,
-                         what: AvoidWhat = .same, root: Int = 0, scale: ScaleType = .major) -> ProcessorSlot {
-        var s = ProcessorSlot(type: .avoid)
-        s.params.avoidRefKind = kind; s.params.avoidRefIndex = refIndex
-        s.params.avoidMode = lock ? .lock : .avoid; s.params.avoidAction = move ? .move : .remove
-        s.params.avoidWhat = what; s.params.avoidRoot = root; s.params.avoidScale = scale
-        return s
-    }
     /// Run `chain` over `input` (door 0, channel 0) with `refs` = live reference classes per door (door d = channel d,
     /// notes at 84+pc so they never collide with the input). Returns the recording emitter (for stuck-note checks).
     private func avoidRunE(_ chain: [ProcessorSlot], input: [Int], refs: [(door: Int, classes: [Int])] = []) -> RecordingEmitter {
@@ -827,149 +454,16 @@ final class RouterTests: XCTestCase {
         Set(avoidRunE(chain, input: input, refs: refs).ons.filter { $0.cable == 1 }.map { ((Int($0.note) % 12) + 12) % 12 })
     }
 
-    func testLockEmptyReferenceSilences() {   // C2
-        XCTAssertTrue(avoidPCs([mkAvoid(lock: true)], input: [60, 62, 64], refs: []).isEmpty, "empty reference · LOCK → silence (nothing to lock to)")
-        XCTAssertTrue(avoidPCs([mkAvoid(lock: true, move: true)], input: [60, 62, 64], refs: []).isEmpty, "empty reference · LOCK MOVE → still silence")
-    }
-    func testAvoidMoveWithNoSurvivorsDrops() {   // C6
-        XCTAssertTrue(avoidPCs([mkAvoid(move: true)], input: [62], refs: [(1, [2])]).isEmpty, "MOVE with a single blocked note & no survivor → drops (= REMOVE)")
-    }
 
-    func testReferenceIsOctaveAgnostic() {   // C12
-        XCTAssertTrue(avoidPCs([mkAvoid()], input: [48], refs: [(1, [0])]).isEmpty, "a C in octave 7 (the reference) blocks a C in octave 3 (the input) — pitch-class match")
-    }
-    func testMoveNeverEmitsOutOfRange() {   // C14
-        let out = avoidRunE([mkAvoid(move: true)], input: [1, 3], refs: [(1, [1])]).ons.filter { $0.cable == 1 }.map { Int($0.note) }
-        XCTAssertTrue(out.allSatisfy { $0 >= 0 && $0 <= 127 }, "MOVE near note 0 never emits an out-of-range note")
-    }
 
-    // ── Invariants ─────────────────────────────────────────────────────────────
-    func testAvoidNeverLeavesAStuckNote() {   // C24/C25
-        // A spread of configs, each must end with every voice released.
-        assertNothingLeftSounding(avoidRunE([mkAvoid()], input: [60, 62, 64], refs: [(1, [2])]))
-        assertNothingLeftSounding(avoidRunE([mkAvoid(move: true)], input: [60, 64, 67], refs: [(1, [4])]))
-        assertNothingLeftSounding(avoidRunE([mkAvoid(lock: true, move: true)], input: [60, 62], refs: [(1, [0, 7])]))
-        assertNothingLeftSounding(avoidRunE([ProcessorSlot(type: .arp), mkAvoid(move: true)], input: [60, 64, 67], refs: [(1, [4])]))
-        assertNothingLeftSounding(avoidRunE([mkAvoid(kind: .sounding, what: .clash2)], input: [60, 61, 62], refs: [(1, [0]), (2, [5])]))
-    }
 
-    // RECORDER persistence — the recEvents buffer + config round-trip through Codable; an old doc missing the keys
-    // decodes to an empty buffer (CR-8 decode-tolerance).
-    func testRecorderBufferPersistRoundTrip() throws {
-        var m = Machine(machineID: "gold", type: .recorder)
-        m.paramsA.recEvents = [RecEvent(beat: 0.5, note: 64, vel: 80, gate: 0.3)]
-        m.paramsA.recMode = .canon; m.paramsA.recGrain = .steps
-        let back = try JSONDecoder().decode(Machine.self, from: JSONEncoder().encode(m))
-        XCTAssertEqual(back.paramsA.recEvents?.count, 1)
-        XCTAssertEqual(back.paramsA.recEvents?.first?.note, 64)
-        XCTAssertEqual(back.paramsA.recEvents?.first?.gate, 0.3)
-        XCTAssertEqual(back.paramsA.recMode, .canon)
-        let bare = try JSONDecoder().decode(Machine.self, from: JSONEncoder().encode(Machine(machineID: "gold", type: .arp)))
-        XCTAssertNil(bare.paramsA.recEvents, "an old doc without recorder keys decodes to an empty buffer")
-    }
 
     // MARK: - THE MOD PROCESSOR (CC generator, delta)
 
     private func modCC74Events(_ e: RecordingEmitter) -> [RecordingEmitter.Ev] {
         e.events.filter { $0.status == 0xB0 && $0.cable == 1 && $0.note == 74 }   // CC 74 on Emit A
     }
-    /// Beat-derived + replay-safe: the same beats produce a byte-identical CC stream (incl. seeded S&H).
-    func testModCCStreamIsReplaySafe() {
-        func ccStream() -> [RecordingEmitter.Ev] {
-            let cs = arpMachines()
-            var mod = ProcessorSlot(type: .mod); mod.params.modShape = .sampleHold; mod.params.modCC = 74; mod.params.modRate = .r1
-            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
-            return e.events.filter { $0.status == 0xB0 }
-        }
-        XCTAssertEqual(ccStream(), ccStream(), "the MOD CC stream is replay-safe (same beats → identical)")
-    }
 
-    // RIFF DIRECTION widened to 6 modes (Paul 2026-09-28): an 8-step, 8-note stencil so the played RANK is
-    // directly readable off the emitted note (rank r → note 59+r).
-    private func riffDirNotes(_ dir: RiffDir, seed: Int? = nil, bias: Double? = nil, spanN: Int? = nil,
-                              steps: Int = 8, beats: Double = 6) -> [Int] {
-        var c = Machine(machineID: "gold", type: .riff)
-        c.paramsA.riffRanks = Array(1...steps); c.paramsA.riffSteps = steps; c.paramsA.riffRate = .r1_16
-        c.paramsA.riffWrap = .clamp; c.paramsA.riffDir = dir; c.paramsA.riffDirSeed = seed; c.paramsA.riffDirBias = bias
-        c.paramsA.riffSpanN = spanN
-        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let notes = (0..<steps).map { UInt8(60 + $0) }
-        // forceColumn: 0 — a bare test cell only ticks within its OWN grid column's real-time span otherwise (the
-        // "PLAY: THIS CELL" bypass, needed here because these tests run many beats to capture a full bounce period).
-        let e = RecordingEmitter(); run(b, chord(notes), beats: beats, into: e, forceColumn: 0)
-        assertNothingLeftSounding(e)
-        return e.ons.filter { $0.cable == 1 }.map { Int($0.note) - 59 }   // → rank 1...steps
-    }
-    func testRiffPendulumWithTwoStepsDegeneratesToForward() {
-        XCTAssertEqual(riffDirNotes(.pendulum, steps: 2, beats: 4), riffDirNotes(.forward, steps: 2, beats: 4),
-                       "PENDULUM with n=2 behaves exactly like FORWARD")
-    }
-    // NOTE (Paul 2026-09-28): a SPAN-obliviousness regression test (comparing DRUNK's sequence across riffSpanN
-    // values, guarding the tick-vs-raw design decision) was attempted here and dropped — riffSpanN produced no
-    // observable effect on ANY direction mode (including FORWARD, which the span mechanism unambiguously affects
-    // in production) under this test's forceColumn:0 harness, an interaction not tracked down in this pass. Not a
-    // gap in the feature itself (the engine code correctly keys the walk on `tick`, never `raw` — see riffDrunkStep/
-    // the switch case in Router.swift) — a gap in this test's coverage of it, flagged rather than shipped vacuous.
-    func testRiffDrunkResetsOnATransportStopStartEdge() {
-        var c = Machine(machineID: "gold", type: .riff)
-        c.paramsA.riffRanks = Array(1...8); c.paramsA.riffSteps = 8; c.paramsA.riffRate = .r1_16
-        c.paramsA.riffWrap = .clamp; c.paramsA.riffDir = .drunk; c.paramsA.riffDirBias = 0; c.paramsA.riffDirSeed = 55
-        let cs = machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let pool = chord((0..<8).map { UInt8(60 + $0) })
-        let tempo = 120.0, sr = 48_000.0; let frames: UInt32 = 2048
-        let windowBeats = Double(frames) * tempo / 60.0 / sr
-
-        // ONE router: play a while, STOP (the reset edge), then play again — capture only the SECOND play's notes.
-        let router = Router(); var diag = KernelDiag(); let scratch = RecordingEmitter(); let e2 = RecordingEmitter()
-        var beat = 0.0, ts = 0.0
-        for _ in 0..<8 {
-            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, forceColumn: 0, out: scratch, diag: &diag)
-            beat += windowBeats; ts += Double(frames)
-        }
-        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, forceColumn: 0, out: scratch, diag: &diag)   // STOP → resets the walk
-        beat = 0; ts = 0   // a real replay restarts the transport clock too
-        for _ in 0..<4 {
-            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, forceColumn: 0, out: e2, diag: &diag)
-            beat += windowBeats; ts += Double(frames)
-        }
-        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, forceColumn: 0, out: e2, diag: &diag)
-
-        // A totally fresh session, the same 4-window play — must match if the stop/start edge truly restarted the walk.
-        let e1 = RecordingEmitter(); run(b, pool, beats: 4 * windowBeats, into: e1, forceColumn: 0)
-
-        let seq1 = e1.ons.filter { $0.cable == 1 }.map { Int($0.note) }
-        let seq2 = e2.ons.filter { $0.cable == 1 }.map { Int($0.note) }
-        XCTAssertEqual(seq1, seq2, "a transport stop/start restarts DRUNK's walk from the same fresh state as a brand-new play")
-    }
-    // EUCLID LINES (§10): up to 8 lines from ONE chord — one ALL line = the single euclid (byte-identical); a second line
-    // adds its own pulses (polyrhythm); a NOTE-target line strikes only that pool rank. Nothing left sounding.
-    func testEuclidLinesPolyrhythmAndNoteTargets() {
-        func run4(_ lines: [EuclidLine]?, _ measure: (RecordingEmitter) -> Void) {
-            var c = Machine(machineID: "gold", type: .euclid); c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8
-            if let lines { c.paramsA.euclidLines = lines }
-            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e); measure(e)
-        }
-        func aCount(_ e: RecordingEmitter) -> Int { e.ons.filter { $0.cable == 1 }.count }
-        var single = 0, oneLine = 0, two = 0; var n2: Set<UInt8> = []
-        run4(nil) { single = aCount($0) }
-        run4([EuclidLine(target: 0, pulses: 4, steps: 8, rotate: 0, invert: false)]) { oneLine = aCount($0) }
-        run4([EuclidLine(target: 0, pulses: 4, steps: 8), EuclidLine(target: 1, pulses: 3, steps: 16)]) { two = aCount($0) }
-        run4([EuclidLine(target: 2, pulses: 4, steps: 8)]) { n2 = Set($0.ons.filter { $0.cable == 1 }.map { $0.note }) }
-        var beyond = -1
-        run4([EuclidLine(target: 6, pulses: 4, steps: 8)]) { beyond = aCount($0) }   // rank 6 of a 3-note chord — absent
-        XCTAssertEqual(oneLine, single, "one ALL line = the single euclid (byte-identical)")
-        XCTAssertGreaterThan(two, oneLine, "a second line adds its own pulses (polyrhythm)")
-        XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
-        XCTAssertEqual(beyond, 0, "a TARGET past the held chord (rank 6 of 3 notes) strikes NOTHING — correctly silent, never wraps")
-    }
     // EUCLIDEOUS RIFF ADVANCE (Paul 2026-10-06): "each hit will progress riff by 1 step" — a line with useRiff on
     // reads the page's ONE shared riff pattern instead of noteSel on every hit ("replaces it entirely," Paul's own
     // ratified answer), using its own stateless hit-ordinal for 5 of 6 directions (needs zero new persisted state)
@@ -1710,19 +1204,6 @@ final class RouterTests: XCTestCase {
         let onsets = laneEvents.map { $0.onsetBeat }
         XCTAssertEqual(onsets, onsets.sorted(), "surviving events stay oldest→newest")
         XCTAssertGreaterThan(onsets.first ?? 0, 2, "the oldest SURVIVING event must be well past tick 0 — the ring dropped the earliest ticks, not the latest")
-    }
-    func testEuclideousNoteViewNeverFiresForANonEuclideousRowCell() {
-        // The SAME shared `runEuclidLine` also drives every ordinary EUCLID processor anywhere else in the
-        // grid (confirmed by reading — `p.euclidLines` is populated even for a plain single-EUCLID cell).
-        // A cell at ROW 0 (not Snap.euclideousRow) must NEVER write into this queue — otherwise an unrelated
-        // EUCLID processor elsewhere in the user's grid would corrupt Euclideous's own NOTE VIEW display.
-        let b = box(machines: machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 1; c.paramsA.euclidSteps = 1; return c }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        let e = RecordingEmitter()
-        let router = runKeepingRouter(b, chord([60]), beats: 1, into: e, forceColumn: 0)
-        XCTAssertGreaterThan(e.ons.count, 0, "sanity check — this cell really is striking notes on the wire")
-        let events = router.drainEuclideousNoteViewEvents()
-        XCTAssertTrue(events.allSatisfy { $0.isEmpty }, "a row-0 EUCLID cell must never post to the NOTE VIEW queue, which is reserved for Snap.euclideousRow")
     }
     func testEuclideousNoteViewRespectsMainOutGating() {
         var c = Machine(machineID: "gold", type: .euclid)
@@ -3444,55 +2925,6 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)   // the actual claim under test: nothing is left stuck, whatever the exact onset timing
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "sanity: the lines are actually sounding, not accidentally silent")
     }
-    func testEuclidRiffAllRestPredecessorIsSilentNotACrash() {
-        func onCount(poly: Bool) -> Int {
-            var riff = ProcessorSlot(type: .riff)
-            riff.params.riffSteps = 8
-            if poly { riff.params.riffPoly = true; riff.params.riffMask = Array(repeating: 0, count: 8) }
-            else { riff.params.riffRanks = Array(repeating: 0, count: 8) }
-            var euclid = ProcessorSlot(type: .euclid)
-            euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff)]
-            let cs = arpMachines()
-            let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
-            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.count
-        }
-        XCTAssertEqual(onCount(poly: false), 0, "an all-rest MONO RIFF predecessor (riffRanks all 0) must emit nothing, not crash/hang")
-        XCTAssertEqual(onCount(poly: true), 0, "a POLY RIFF predecessor with an empty mask must emit nothing, not crash/hang")
-    }
-    func testEuclidRiffBypassedPredecessorIsSilent() {
-        // Directly modeled on testChainBypassedHeadArpsSourceOnly: a bypassed slot is "not really there" — the
-        // SAME convention chainDriverIndex/composeChainSet already apply everywhere else in this file.
-        var riff = ProcessorSlot(type: .riff)
-        riff.params.riffSteps = 8
-        riff.params.riffRanks = [1, 2, 3, 1, 2, 3, 1, 2]
-        riff.bypassed = true
-        var euclid = ProcessorSlot(type: .euclid)
-        euclid.params.euclidLines = [EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .riff)]
-        let cs = arpMachines()
-        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [riff, euclid]; return c }() }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e); assertNothingLeftSounding(e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a BYPASSED RIFF predecessor is 'not really there' — noteSel .riff finds no matching predecessor and emits nothing, never falls back to a different pick")
-    }
-    func testRatchetThenClosedGateIsSilent() {
-        let cs = arpMachines()
-        let rat = ProcessorSlot(type: .ratchet)
-        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
-        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "a closed gate after the ratchet gates every re-strike")
-        assertNothingLeftSounding(e)
-    }
-    // …and STRUM as a non-tail driver: a closed gate after the strum silences every strummed note.
-    func testStrumThenClosedGateIsSilent() {
-        let cs = arpMachines()
-        let strum = ProcessorSlot(type: .strum)
-        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
-        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [strum, gate]; return c }() }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "a closed gate after the strum gates every strummed note")
-        assertNothingLeftSounding(e)
-    }
     // §cell-edit F CHOP render path: a cell whose every slice is MUTED emits nothing (the render reads muteMask).
     func testChopMuteMaskSilencesEveryNote() {
         let cs = arpMachines()
@@ -3502,20 +2934,6 @@ final class RouterTests: XCTestCase {
             return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertTrue(e.ons.isEmpty, "chop muteMask over every slice → the whole column is silent")
-        assertNothingLeftSounding(e)
-    }
-    // A MUTED slice silences the note AND its echoes — the tail resolves to mask 0, so no repeats are scheduled.
-    func testChopMuteSilencesTheEchoesToo() {
-        let cs = arpMachines()
-        let b = box(machines: cs) { $0.cells[0][0] = {
-            var c = Cell(machineID: "gold", buses: [.a])
-            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
-            var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 4; e.params.echoThru = true
-            c.processors = [arp, e]
-            c.chop = Chop(mainMask: 0xFF, altMask: 0, muteMask: 0xFF, altDest: [])   // every slice muted
-            return c }() }
-        let e = RecordingEmitter(); run(b, chord([60]), beats: 8, into: e)
-        XCTAssertTrue(e.ons.isEmpty, "a muted slice silences the note and its echoes — no tail escapes the split")
         assertNothingLeftSounding(e)
     }
 
@@ -3535,27 +2953,7 @@ final class RouterTests: XCTestCase {
     }
 
 
-    // CELL MACHINE stage-2: a CLOSED gate mid-chain empties the set — the tail falls silent.
-    func testChainClosedGateSilencesTail() {
-        let cs = arpMachines()
-        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
-        let arp = ProcessorSlot(type: .arp)
-        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [gate, arp]; return c }() }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a closed gate head → the arp tail is silent")
-        assertNothingLeftSounding(e)
-    }
 
-    // CELL MACHINE stage-2: a CLOSED gate as the hold TAIL yields nothing.
-    func testChainHoldTailClosedGateSilent() {
-        let cs = arpMachines()
-        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
-        var gate = ProcessorSlot(type: .chance); gate.params.probability = 0.0   // deterministic closed gate (PASSGATE removed 2026-09-28)
-        let b = box(machines: cs) { $0.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.processors = [harm, gate]; return c }() }
-        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a closed gate TAIL → the chain is silent")
-        assertNothingLeftSounding(e)
-    }
 
     // MARK: - COLUMN-SUBSET LAP (§5b) — the held set warps which column is effective
 
@@ -3593,35 +2991,7 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.count, 0, "a disabled door with no latch hears nothing — no live pass-through")
     }
 
-    // Builder: a disabled door meters dark & seals its latch (match-nothing filter) and flags the Router mask,
-    // while its CELL keeps the real channel so an armed latch's frozen chord can still read.
-    func testDisabledReceiverSealsMeteringButCellKeepsChannel() {
-        var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(machines: arpMachines(), scenes: [s])
-        var r1 = Receiver(name: "1"); r1.channel = 3; r1.inputEnabled = false
-        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.receiverChannels[0], Snap.mutedSourceFilter, "disabled → match-nothing meter/capture filter (latch sealed)")
-        XCTAssertEqual(b.receiverDisabledMask & 0b0001, 0b0001, "disabled bit set for the Router's live-read block")
-        XCTAssertEqual(b.cells[0].inputChannel, 3, "the cell keeps its REAL channel so an armed frozen chord still reads")
-        XCTAssertEqual(b.receiverChannels[1], 0, "an enabled OMNI neighbour keeps its channel filter")
-        XCTAssertEqual(b.receiverDisabledMask & 0b0010, 0, "the enabled neighbour is not flagged disabled")
-    }
 
-    // RANGE resolves onto the cell (grid feed) AND the box (latch capture, upstream of latch).
-    func testReceiverRangeResolvesOntoCellAndBox() {
-        var s = SceneState.empty()
-        s.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-        var st = PluginState(machines: arpMachines(), scenes: [s])
-        var r1 = Receiver(name: "1"); r1.rangeLo = 36; r1.rangeHi = 96
-        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.cells[0].inputRangeLo, 36); XCTAssertEqual(b.cells[0].inputRangeHi, 96)
-        XCTAssertEqual(b.receiverRangeLo[0], 36, "the box carries the window for the latch capture")
-        XCTAssertEqual(b.receiverRangeHi[0], 96)
-        XCTAssertEqual(b.receiverRangeLo[1], 0); XCTAssertEqual(b.receiverRangeHi[1], 127, "a default door is full-range")
-    }
 
     // RANGE is UPSTREAM of the latch: captureFiltered admits only in-window notes into the frozen pool.
     func testLatchCaptureExcludesOutOfRangeNotes() {
@@ -3710,18 +3080,6 @@ final class RouterTests: XCTestCase {
 
 
 
-    // COG SIMPLIFICATION (2026-08-03): cables are RETIRED — the render ALWAYS hears every cable (union), even if a
-    // saved receiver still carries a restricted `cable` field (kept for decode-compat but ignored by the builder).
-    func testInputCablesAlwaysAcceptAllAfterRetirement() {
-        var s = SceneState.empty()
-        var cell = Cell(machineID: "gold", buses: [.a]); cell.inputReceiver = 1
-        s.cells[0][0] = cell
-        var st = PluginState(machines: arpMachines(), scenes: [s])
-        st.receivers = [Receiver(name: "1"), Receiver(name: "2", cable: 0b0101), Receiver(name: "3"), Receiver(name: "4")]
-        let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.cells[0 * Snap.rows + 0].inputCableMask, 0b1111, "a subscriber cell hears ALL cables (cables retired)")
-        XCTAssertEqual(b.receiverCables, [0b1111, 0b1111, 0b1111, 0b1111], "every receiver hears all cables — a saved cable filter is ignored")
-    }
 
 
     // §9 item 1 ON ARRIVE (integration): ALT-ALTERNATE on a swap pair (A = open gate → sounds,
@@ -4057,77 +3415,9 @@ final class RouterTests: XCTestCase {
 
     // MARK: - ECHO (the tail era) — AcceptanceCriteria-tail-era-delay-echo, Phase 0+1
 
-    private func echoMachines(div: Int = 1, repeats: Int = 4, feedDelay: Double = 0.5, decay: Double = 0.5,
-                             thru: Bool = true, pitch: Int = 0, offset: Double = 0) -> [Machine] {
-        machineIDs.map { var c = Machine(machineID: $0, type: .echo)
-            c.paramsA.echoSync = true; c.paramsA.echoDelayDiv = div; c.paramsA.echoRepeats = repeats
-            c.paramsA.echoFeedDelay = feedDelay; c.paramsA.echoDecay = decay
-            c.paramsA.echoThru = thru; c.paramsA.echoPitch = pitch; c.paramsA.echoOffset = offset; return c }
-    }
 
-    // ECHO IN-KEY (Paul 2026-09-29): PITCH STEP can walk to the next in-key note, live, from whichever ABCD
-    // receivers are selected — replaces the old POOL-STEP mode (removed). Mirrors
-    // testAvoidDoorReferenceReadsAnotherLiveReceiverAndItsClashes' shape: door 0 (ch1) feeds the ECHO cell
-    // itself, door 1 (ch2) is the live IN-KEY reference (bit 1 = receiver B). SCOPE, confirmed by tracing
-    // emitEchoColumn/isEchoTail: IN-KEY mode only reaches registerEcho (single-slot [ECHO], or an upstream-
-    // then-ECHO tail like [HARMONIZE→ECHO]) — the SAME scope the old POOL mode had (neither ever threaded
-    // through pushEchoForNote's hold-chain path, e.g. [ECHO→HARMONIZE], or registerLengthChainEcho's
-    // [ECHO→…→LENGTH] path). CHAIN route is architecturally inapplicable here too: registerEcho never passes
-    // a route to pushEchoTail (always the .direct default), since when ECHO is the chain's own tail there is
-    // nothing downstream to re-fold repeats through.
-    private func echoInKeyBox(receivers: UInt8, pitch: Int, repeats: Int, div: Int, upstream: [ProcessorSlot] = []) -> SnapshotBox {
-        var s = ProcessorSlot(type: .echo)
-        s.params.echoSync = true; s.params.echoDelayDiv = div; s.params.echoRepeats = repeats
-        s.params.echoFeedDelay = 1.0; s.params.echoDecay = 0.95   // slow decay so late repeats still clear the velocity floor
-        s.params.echoThru = true; s.params.echoPitchMode = .inKey; s.params.echoPitch = pitch
-        s.params.echoInKeyReceivers = receivers
-        var st = PluginState(machines: [Machine(machineID: "gold", type: .empty)], scenes: [{ var sc = SceneState.empty()
-            sc.cells[0][0] = { var c = Cell(machineID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = upstream + [s]; return c }()
-            return sc }()])
-        st.busChannels = [1, 2, 3, 4]
-        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3"), Receiver(name: "4")]
-        return SnapshotBuilder.build(from: st)
-    }
 
-    /// The echo schedule is a pure function of musical time → the SAME strike count at any render block size (a
-    /// repeat due mid-window lands in exactly the window that contains it, never bunched at the block head).
-    func testEchoIsBlockSizeInvariant() {
-        let b = box(machines: echoMachines(div: 1, repeats: 4, feedDelay: 0.6, decay: 0.6)) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
-        func strikeCount(_ frames: UInt32) -> Int {
-            let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e, frames: frames)
-            return e.ons.filter { $0.note == 60 && $0.cable == 1 }.count
-        }
-        XCTAssertEqual(strikeCount(2048), strikeCount(256), "echo is block-size invariant")
-    }
 
-    // HOCKET (v1): a wire-listening driver. Two cells in column 0 — a sustained DRONE on emitter A (row 0, the wire),
-    // and a HOCKET on emitter B (row 1) reading its pool but timed by LISTENING to wire A in GAPS. When A is held it is
-    // (near-)continuously sounding → HOCKET is suppressed; remove A and HOCKET fills the silence with its pool line.
-    private func hocketScene(wireOnA: Bool) -> SnapshotBox {
-        let cs = machineIDs.map { id -> Machine in
-            if id == "gold" { return Machine(machineID: id, type: .drone) }
-            if id == "orange" { var c = Machine(machineID: id, type: .hocket)
-                c.paramsA.hocketSource = 0; c.paramsA.hocketMode = .gaps; c.paramsA.hocketRate = .r1_8; return c }
-            return Machine(machineID: id, type: .arp)
-        }
-        return box(machines: cs) {
-            if wireOnA { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // the DRONE wire on emitter A
-            $0.cells[0][1] = Cell(machineID: "orange", buses: [.b])                // HOCKET on emitter B, listening to A
-        }
-    }
-    func testHocketSelfCycleFallsSilent() {
-        // THE CYCLE LAW: a HOCKET that OUTPUTS on the wire it LISTENS to is a loop → silent.
-        let cs = machineIDs.map { id -> Machine in
-            if id == "gold" { var c = Machine(machineID: id, type: .hocket)
-                c.paramsA.hocketSource = 0; c.paramsA.hocketMode = .gaps; c.paramsA.hocketRate = .r1_8; return c }
-            return Machine(machineID: id, type: .arp)
-        }
-        let b = box(machines: cs) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }   // listens to A, emits on A
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 8, into: e)
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "a self-listening loop falls silent")
-        assertNothingLeftSounding(e)
-    }
 
     /// EUCLID MASK — RATCHET within the Euclideous `isEuclideousRow` pipeline specifically (Paul: "ratchet on
     /// Euclid mask... still not working in any perceptible way"). CONFIRMED REAL GAP, not a guess: every
@@ -6379,83 +5669,9 @@ final class RouterTests: XCTestCase {
     }
     // MARK: - FOURFOLD REEL LINK (2026-10-23): Fourfold's output on the tape
 
-    /// Router → `ReelTap` → `ReelDeck` driven exactly as the Kernel drives them (`Kernel.swift` reel block): a pass is `8 × stepBeats × clockScale` beats, the deck files a pass when the next one starts, and the
-    /// tap stamps every EMITTED message pass-relative. `perPass` counts what the render emitted in each pass's windows (the Kernel's own attribution), so a test can ask "did the deck keep all of it".
-    private func fourfoldReel(_ box: SnapshotBox, beats: Double, frames: UInt32 = 512, tempo: Double = 120) -> (deck: ReelDeck, live: RecordingEmitter, perPass: [Int: Int], cycle: Double) {
-        let live = RecordingEmitter(), deck = ReelDeck(), tap = ReelTap(), router = Router(); var diag = KernelDiag()
-        let sr = 48_000.0, bps = tempo / 60.0 / sr
-        let cycle = Double(Snap.cols) * box.stepBeats * box.clockScale
-        let pool = chord(fxPoolNotes)
-        tap.out = live; tap.deck = deck
-        var lastPass = Int.min, fromStart = false, ts = 0.0
-        var perPass: [Int: Int] = [:]
-        while ts * bps < beats {
-            let beat = ts * bps
-            let pass = Int((beat / cycle).rounded(.down))
-            deck.cycleBeats = cycle
-            if pass != lastPass {
-                if fromStart { deck.promote() }
-                deck.startPass(pass: pass); lastPass = pass; fromStart = true
-            }
-            tap.recording = true; tap.base = beat; tap.beatsPerSample = bps; tap.cycleBeats = cycle; tap.windowStart = Int64(ts)
-            let before = live.events.count
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: tap, diag: &diag)
-            perPass[pass, default: 0] += live.events.count - before
-            ts += Double(frames)
-        }
-        return (deck, live, perPass, cycle)
-    }
 
-    func testFourfoldOutputIsFiledOnTheCablesItWasRoutedTo() {
-        // lane 1 → MAIN OUT A, lane 2 → MAIN OUT C; 1/8 scene rate ⇒ a 4-beat pass. 13 beats = three filed passes + the one in progress.
-        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0100)
-        let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
-        XCTAssertEqual(r.cycle, 4, accuracy: 1e-9)
-        let passes = r.deck.passNumbers().filter { $0 >= 0 }
-        XCTAssertEqual(passes, [0, 1, 2], "every completed pass is filed — the one still being played is not")
-        for p in passes {
-            XCTAssertTrue(r.deck.selectPass(p))
-            let roll = r.deck.selectedRoll()
-            XCTAssertFalse(roll.isEmpty, "pass \(p + 1) has notes")
-            XCTAssertEqual(Set(roll.map { Int($0.cable) }), [1, 3], "lane 1's notes sit on A (cable 1), lane 2's on C (cable 3), nothing on B or D")
-            let ex = r.deck.exportRangeEvents(fromPass: p, toPass: p, cables: [1, 2, 3, 4])
-            let ons = ex.events.filter { $0.b0 & 0xF0 == 0x90 }.count, offs = ex.events.filter { $0.b0 & 0xF0 == 0x80 }.count
-            XCTAssertEqual(ons, offs, "pass \(p + 1) exports every note-ON with its note-OFF — nothing stuck in the file")
-            XCTAssertEqual(ex.totalBeats, 4, accuracy: 1e-9)
-        }
-    }
 
-    func testFourfoldPassExportsOnlyTheSelectedOutputsAndConcatenatesAPassRange() {
-        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0010)
-        let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
-        let a = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [1])
-        let b = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [2])
-        XCTAssertFalse(a.events.isEmpty); XCTAssertFalse(b.events.isEmpty)
-        XCTAssertEqual(a.totalBeats, 8, accuracy: 1e-9, "two passes of four beats, concatenated")
-        XCTAssertTrue(a.events.allSatisfy { $0.b0 & 0x0F == 0 && $0.b1 >= 48 && $0.b1 <= 60 }, "only lane 1's notes (the pool's range) in A's file")
-        XCTAssertEqual(a.events.count, b.events.count, "two identical lanes on two outputs ⇒ two files of the same length")
-        let beats = a.events.map { $0.beat }
-        XCTAssertEqual(beats, beats.sorted(), "events come out in time order across the pass boundary")
-        XCTAssertGreaterThan(beats.last ?? 0, 4, "the second pass sits after the first")
-    }
 
-    func testABusyFourfoldPassKeepsEveryEventTheRenderEmitted() {
-        // four lanes, each on its own output, 1/32 hits (8 a beat), three lit notes on top of the riff note, every column ratcheted ×3: far more than one pass of the 8×8 ever sounds.
-        var lines: [EuclidLine] = []
-        for i in 0..<4 {
-            var l = fxLine(gate: 0.5, litNotes: 0b0000_0111); l.rate = .r1_32; l.steps = 16; l.pulses = 16; l.emitterMask = UInt8(1 << i)
-            lines.append(l)
-        }
-        let fx = fxCells((0..<8).map { (0, $0, 3) })
-        let r = fourfoldReel(fxBoxScene(lines, fx: fx, stepRate: .r1_8), beats: 13)
-        let passes = r.deck.passNumbers().filter { $0 >= 0 }
-        XCTAssertEqual(passes, [0, 1, 2])
-        let emitted = r.perPass[1] ?? 0
-        XCTAssertGreaterThan(emitted, 4096, "this load is past the old per-pass cap — the case the larger history exists for")
-        XCTAssertLessThanOrEqual(emitted, ReelDeck.histCap, "and still inside the new one, so the whole pass is kept")
-        let kept = r.deck.exportRangeEvents(fromPass: 1, toPass: 1, cables: [0, 1, 2, 3, 4]).events.count
-        XCTAssertEqual(kept, emitted, "the filed pass holds every event the render emitted in it — no tail lost")
-    }
 
     func testFXRatchStrikesAreCompleteAndEvenlySpacedAtEveryBufferSizeEvenWhenASlotIsShorterThanTheBuffer() {
         // all 8 columns hit (8 steps, 8 pulses); RATCH on column 0 only = note 48, once every 8 steps. The slot (rate ÷ n) drops under the buffer length long before 4096 frames.
@@ -8431,5 +7647,122 @@ final class RouterTests: XCTestCase {
         let ms = Date().timeIntervalSince(t0) / 20 * 1000
         print("LANE LOCK: SnapshotBuilder.build ≈ \(String(format: "%.2f", ms)) ms (macOS, release-ish test build) — the UI margin is \(EuclideousLockMargin.seconds * 1000) ms")
         XCTAssertLessThan(ms, EuclideousLockMargin.seconds * 1000)
+    }
+    // EUCLID LINES (§10): up to 8 lines from ONE chord — one ALL line = the single euclid (byte-identical); a second line
+    // adds its own pulses (polyrhythm); a NOTE-target line strikes only that pool rank. Nothing left sounding.
+    func testEuclidLinesPolyrhythmAndNoteTargets() {
+        func run4(_ lines: [EuclidLine]?, _ measure: (RecordingEmitter) -> Void) {
+            var c = Machine(machineID: "gold", type: .euclid)
+            if let lines { c.paramsA.euclidLines = lines }
+            let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 4, into: e); assertNothingLeftSounding(e); measure(e)
+        }
+        func aCount(_ e: RecordingEmitter) -> Int { e.ons.filter { $0.cable == 1 }.count }
+        var single = 0, oneLine = 0, two = 0; var n2: Set<UInt8> = []
+        run4([EuclidLine(target: 0, pulses: 4, steps: 8)]) { single = aCount($0) }
+        run4([EuclidLine(target: 0, pulses: 4, steps: 8, rotate: 0, invert: false)]) { oneLine = aCount($0) }
+        run4([EuclidLine(target: 0, pulses: 4, steps: 8), EuclidLine(target: 1, pulses: 3, steps: 16)]) { two = aCount($0) }
+        run4([EuclidLine(target: 2, pulses: 4, steps: 8)]) { n2 = Set($0.ons.filter { $0.cable == 1 }.map { $0.note }) }
+        var beyond = -1
+        run4([EuclidLine(target: 6, pulses: 4, steps: 8)]) { beyond = aCount($0) }   // rank 6 of a 3-note chord — absent
+        XCTAssertEqual(oneLine, single, "one ALL line = the single euclid (byte-identical)")
+        XCTAssertGreaterThan(two, oneLine, "a second line adds its own pulses (polyrhythm)")
+        XCTAssertEqual(n2, [64], "TARGET N2 strikes only the 2nd pool note (64)")
+        XCTAssertEqual(beyond, 0, "a TARGET past the held chord (rank 6 of 3 notes) strikes NOTHING — correctly silent, never wraps")
+    }
+    func testFloodGovernorCapsAndCountsDrops() {
+        // Pathological flood: 8 dense euclid cells in column 0, all on emitter A, over a big chord — far past the
+        // per-beat cap. The governor drops the overflow (counted, surfaced to HEALTH) and leaves nothing stuck.
+        let cs = machineIDs.map { var c = Machine(machineID: $0, type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 16, steps: 16)]; return c }
+        let b = box(machines: cs) { for r in 0..<8 { $0.cells[0][r] = Cell(machineID: machineIDs[r], buses: [.a]) } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0, wb = Double(2048) * 120.0 / 60.0 / 48_000.0
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<40 {
+            router.process(box: b, pool: chord([48, 50, 52, 55, 57, 60, 62, 64]), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop flush
+        XCTAssertGreaterThan(router.floodDropped, 0, "the flood tripped the governor")
+        XCTAssertEqual(diag.floodDropped, router.floodDropped, "the drop total is surfaced to HEALTH")
+        assertNothingLeftSounding(e)
+    }
+    /// Router → `ReelTap` → `ReelDeck` driven exactly as the Kernel drives them (`Kernel.swift` reel block): a pass is `8 × stepBeats` beats, the deck files a pass when the next one starts, and the
+    /// tap stamps every EMITTED message pass-relative. `perPass` counts what the render emitted in each pass's windows (the Kernel's own attribution), so a test can ask "did the deck keep all of it".
+    private func fourfoldReel(_ box: SnapshotBox, beats: Double, frames: UInt32 = 512, tempo: Double = 120) -> (deck: ReelDeck, live: RecordingEmitter, perPass: [Int: Int], cycle: Double) {
+        let live = RecordingEmitter(), deck = ReelDeck(), tap = ReelTap(), router = Router(); var diag = KernelDiag()
+        let sr = 48_000.0, bps = tempo / 60.0 / sr
+        let cycle = Double(Snap.cols) * box.stepBeats 
+        let pool = chord(fxPoolNotes)
+        tap.out = live; tap.deck = deck
+        var lastPass = Int.min, fromStart = false, ts = 0.0
+        var perPass: [Int: Int] = [:]
+        while ts * bps < beats {
+            let beat = ts * bps
+            let pass = Int((beat / cycle).rounded(.down))
+            deck.cycleBeats = cycle
+            if pass != lastPass {
+                if fromStart { deck.promote() }
+                deck.startPass(pass: pass); lastPass = pass; fromStart = true
+            }
+            tap.recording = true; tap.base = beat; tap.beatsPerSample = bps; tap.cycleBeats = cycle; tap.windowStart = Int64(ts)
+            let before = live.events.count
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: tap, diag: &diag)
+            perPass[pass, default: 0] += live.events.count - before
+            ts += Double(frames)
+        }
+        return (deck, live, perPass, cycle)
+    }
+
+    func testFourfoldOutputIsFiledOnTheCablesItWasRoutedTo() {
+        // lane 1 → MAIN OUT A, lane 2 → MAIN OUT C; 1/8 scene rate ⇒ a 4-beat pass. 13 beats = three filed passes + the one in progress.
+        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0100)
+        let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
+        XCTAssertEqual(r.cycle, 4, accuracy: 1e-9)
+        let passes = r.deck.passNumbers().filter { $0 >= 0 }
+        XCTAssertEqual(passes, [0, 1, 2], "every completed pass is filed — the one still being played is not")
+        for p in passes {
+            XCTAssertTrue(r.deck.selectPass(p))
+            let roll = r.deck.selectedRoll()
+            XCTAssertFalse(roll.isEmpty, "pass \(p + 1) has notes")
+            XCTAssertEqual(Set(roll.map { Int($0.cable) }), [1, 3], "lane 1's notes sit on A (cable 1), lane 2's on C (cable 3), nothing on B or D")
+            let ex = r.deck.exportRangeEvents(fromPass: p, toPass: p, cables: [1, 2, 3, 4])
+            let ons = ex.events.filter { $0.b0 & 0xF0 == 0x90 }.count, offs = ex.events.filter { $0.b0 & 0xF0 == 0x80 }.count
+            XCTAssertEqual(ons, offs, "pass \(p + 1) exports every note-ON with its note-OFF — nothing stuck in the file")
+            XCTAssertEqual(ex.totalBeats, 4, accuracy: 1e-9)
+        }
+    }
+    func testFourfoldPassExportsOnlyTheSelectedOutputsAndConcatenatesAPassRange() {
+        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0010)
+        let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
+        let a = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [1])
+        let b = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [2])
+        XCTAssertFalse(a.events.isEmpty); XCTAssertFalse(b.events.isEmpty)
+        XCTAssertEqual(a.totalBeats, 8, accuracy: 1e-9, "two passes of four beats, concatenated")
+        XCTAssertTrue(a.events.allSatisfy { $0.b0 & 0x0F == 0 && $0.b1 >= 48 && $0.b1 <= 60 }, "only lane 1's notes (the pool's range) in A's file")
+        XCTAssertEqual(a.events.count, b.events.count, "two identical lanes on two outputs ⇒ two files of the same length")
+        let beats = a.events.map { $0.beat }
+        XCTAssertEqual(beats, beats.sorted(), "events come out in time order across the pass boundary")
+        XCTAssertGreaterThan(beats.last ?? 0, 4, "the second pass sits after the first")
+    }
+    func testABusyFourfoldPassKeepsEveryEventTheRenderEmitted() {
+        // four lanes, each on its own output, 1/32 hits (8 a beat), three lit notes on top of the riff note, every column ratcheted ×3: far more than one pass of the 8×8 ever sounds.
+        var lines: [EuclidLine] = []
+        for i in 0..<4 {
+            var l = fxLine(gate: 0.5, litNotes: 0b0000_0111); l.rate = .r1_32; l.steps = 16; l.pulses = 16; l.emitterMask = UInt8(1 << i)
+            lines.append(l)
+        }
+        let fx = fxCells((0..<8).map { (0, $0, 3) })
+        let r = fourfoldReel(fxBoxScene(lines, fx: fx, stepRate: .r1_8), beats: 13)
+        let passes = r.deck.passNumbers().filter { $0 >= 0 }
+        XCTAssertEqual(passes, [0, 1, 2])
+        let emitted = r.perPass[1] ?? 0
+        XCTAssertGreaterThan(emitted, 4096, "this load is past the old per-pass cap — the case the larger history exists for")
+        XCTAssertLessThanOrEqual(emitted, ReelDeck.histCap, "and still inside the new one, so the whole pass is kept")
+        let kept = r.deck.exportRangeEvents(fromPass: 1, toPass: 1, cables: [0, 1, 2, 3, 4]).events.count
+        XCTAssertEqual(kept, emitted, "the filed pass holds every event the render emitted in it — no tail lost")
     }
 }

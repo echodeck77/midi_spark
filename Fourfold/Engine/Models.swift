@@ -1418,7 +1418,6 @@ enum PatternSpan: String, Codable, CaseIterable { case cell = "CELL", row = "ROW
 // ROW×2 / ROW×4 = 16 / 32 breakpoints across 2 / 4 bars (the sequence longer than the row). `stepCount` = the # of breakpoints.
 enum ModStepSpan: String, Codable, CaseIterable {
     case period = "PERIOD", row = "ROW", row2 = "ROW×2", row4 = "ROW×4"
-    var stepCount: Int { switch self { case .period, .row: return 8; case .row2: return 16; case .row4: return 32 } }
 }
 enum StepRate: String, Codable, CaseIterable {
     case r2_1 = "2/1", r1_1 = "1/1", r1_2 = "1/2", r1_2d = "1/2.", r1_4 = "1/4", r1_8 = "1/8"
@@ -1533,23 +1532,7 @@ struct MachineParams: Codable, Equatable {
     var phase: ArpPhase? = .legato   // FLOW default (Paul 2026-09-14): LEGATO (was RETRIG) — arps sit connected by default
     var count: Int? = 3            // ratchet
     var ramp: Double? = 0.5        // ratchet
-    var strumDir: StrumDir? = .up  // strum
     var spread: Double? = 0.1      // strum: chord stagger in BEATS (0…1)
-    var curve: Double? = 0         // strum: timing curve −1…1 (0 = linear)
-    var velTilt: Double? = 0       // strum: velocity tilt −1…1 (0 = flat)
-    var strumSpreadNorm: Bool? = true  // strum: rake spans a constant `spread` width (true) vs a per-note gap that widens with the pool (false)
-    var probability: Double? = 1   // chance: pass-through probability 0…1 per note-on
-    var chanceTilt: Double? = 0    // chance WEIGHT −1…1 (user 2026-08-11): +favours TOP notes, −favours BOTTOM
-    var chanceDensity: Bool? = false // chance CONSTANT-DENSITY: keep ~a constant NUMBER of notes regardless of chord size
-    var chanceMode: ChanceMode? = nil   // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE (one probability, default) | PATTERN (8 per-step odds). nil ⇒ SINGLE
-    var chanceSlices: [Int]? = nil      // PATTERN: 8 per-step odds 0…100% (the Elektron trig-condition, drawn). nil ⇒ the default figure
-    var chanceRotate: Int? = 0          // PATTERN: rotate the odds figure (0…7)
-    var arpSpanN: Int? = nil       // arp SPAN (Paul 2026-09-13, replaces FIT): nil/0 ⇒ FREE (phase forever, byte-identical) · 1·2·3·4·6·8·16(×2)·32(×4) ⇒ re-anchor the pattern to index 0 every N columns (polymeter) — the universal span-ladder model, same as riff/euclid.
-    var arpOctDown: Bool? = false  // OCT DIRECTION (Paul 2026-08-22): laps descend the octaves (top octave first) — "up the chord, down the octaves". Orthogonal to PATTERN (which orders WITHIN a lap).
-    var arpRandomAnchor: Int? = 0  // RANDOM ANCHOR (Paul 2026-08-22): 0 OFF · 1 LOW-first · 2 HIGH-first — when PATTERN=RANDOM, each cycle (a full pool×oct traversal) OPENS on the lowest/highest note, the rest shuffle (seeded).
-    var arpSeed: Int? = nil        // RANDOM ONCE seed (Paul 2026-09-16): additive-Optional; PERSISTED with the machine so its fixed shuffled order survives save/load. Rolled fresh each time RANDOM ONCE is picked; unused by every other pattern.
-    var arpVelocity: Double? = 100   // ARP VELOCITY (Paul 2026-09-30, revised same day): an ABSOLUTE value 1…100 — the picked note's own input velocity is IGNORED entirely; every arp note plays at exactly this level (then VELOCITY TILT below shapes it further). Distinct from the standalone VELOCITY processor's per-step lane.
-    var arpVelTilt: Double? = 0    // ARP VELOCITY TILT −1…1 (0 = flat): favours the TOP of the held pool (+) or the BOTTOM (−), by the note's ascending-pool rank — the same convention as strum's velTilt / chance's chanceTilt (Derivations.strumVelocity, reused verbatim).
     // EUCLID MASK, standalone processor (Paul 2026-09-27): the SAME Bjorklund K-of-N idea once embedded directly on
     // the arp (now removed, Paul 2026-09-28 — fully superseded by this), pulled out as its own downstream FOLD stage
     // (isModifierFoldable) so it gates ANY driver's notes, not just ARP's own — reuses euclidMaskHit/euclidMaskTieRun
@@ -1557,58 +1540,12 @@ struct MachineParams: Codable, Equatable {
     // own phase-index, which a downstream fold can't reach; see pending-tasks.md).
     var maskN: Int? = nil             // the mask window (steps). nil ⇒ 8
     var maskK: Int? = nil             // hits (K of N). nil ⇒ = N (OFF/pass-through)
-    var maskRotate: Int? = 0          // rotate the Bjorklund figure (0…N−1)
-    var maskGap: ArpMaskGap? = nil    // non-hit steps: REST | TIE | CHORD (reuses the arp mask's enum as-is). nil ⇒ REST
-    var maskChordOct: Int? = nil      // the gap stab's OCTAVE shift −2…+2; nil ⇒ 0
-    var maskChordGate: Double? = nil  // the gap stab's own LENGTH (fraction of the driver's own step); nil ⇒ 0.6
-    var maskChordVel: Double? = nil   // the gap stab's VELOCITY scale 0…1; nil ⇒ 1
-    // EUCLID MASK options (Paul 2026-09-28): six additions to the same standalone processor, all additive-Optional,
-    // nil ⇒ today's exact behaviour. See Router.swift's fold block for the ordering (SPAN re-anchors g → INVERT
-    // flips the base pattern → FILL overrides everything for the whole pass → CHANCE can only demote a hit to a
-    // gap → GAP/HIT resolves as before → ACCENT is independent, sharing the same g).
-    var maskInvert: Bool? = nil          // play the N−K rests instead of the K hits (mirrors EUCLID's own euclidInvert). nil ⇒ false
-    var maskSpanN: Int? = nil            // re-anchor the K-of-N pattern to ordinal 0 every N notes (spanLadderValues). nil/0 ⇒ FREE
-    var maskChance: Double? = nil        // 0…1 probability a HIT survives; a GAP is never promoted to a hit. nil ⇒ 1 (no-op)
-    var maskAccentK: Int? = nil          // ACCENT LAYER: a second, independent K-of-N boosting velocity on ITS OWN hits. nil ⇒ = accentN (OFF)
-    var maskAccentN: Int? = nil          // accent layer window. nil ⇒ 8
-    var maskAccentRotate: Int? = nil     // accent layer rotate. nil ⇒ 0
-    var maskAccentAmount: Int? = nil     // velocity BOOST on an accent hit — additive, like RIFF's ACCENT lane. nil ⇒ 20
-    var maskFillEvery: Int? = nil        // every Nth pass plays every step, ignoring the mask entirely (a euclidean turnaround). nil/0 ⇒ off
-    var maskChordPick: MaskChordPick? = nil // which note(s) of the composed chord a GAPS=CHORD stab strikes. nil ⇒ ALL (today)
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]
-    var harmVelScale: Double? = 0.8
-    // POOL-STEP UNITS (ratified scale-door §2, 2026-08-27): the offset-bearing processors count in SEMITONES (today) or
-    // POOL DEGREES (against the pool feeding the chain — a SCALE door ⇒ diatonic, a chord ⇒ chord-tone stacking). Additive-
-    // Optional — nil ⇒ semitones (byte-identical for old docs). HARMONIZE intervals · TRANSPOSE · GLIDE step.
-    var harmUnits: PitchUnits? = nil
-    var utilTransposeUnits: PitchUnits? = nil
-    var glideStepUnits: PitchUnits? = nil
-    // ECHO (the TAIL era, user 2026-08-08): the delay-echo controls. Append-only Optional (old docs decode nil →
-    // defaults). SUPERSEDES echo's earlier reuse of rate/count/ramp; those keys are ignored for echo now.
-    var echoSync: Bool? = true          // ON = beat divisions · OFF = milliseconds
-    var echoDelayDiv: Int? = 4          // synced: delay in 16th-notes (1…16; 4 = one beat)
-    var echoDelayMs: Double? = 250      // free: delay in ms
-    var echoRepeats: Int? = 3           // number of echoes 1…16
-    var echoOffset: Double? = 0         // ±0.33 — nudge echoes ahead of / behind the grid (fraction of the interval)
-    var echoFeedDelay: Double? = 0.7    // 0…1 — input send: how loud the FIRST echo is
-    var echoDecay: Double? = 0.5        // 0…1 — per-echo velocity FALLOFF (was FEEDBACK; removed per design 2026-08-07)
-    var echoPitch: Int? = 0             // semitones transposed per successive echo (climbing / descending) — IN-KEY mode reads only its SIGN (direction)
-    var echoPitchMode: EchoPitchMode? = nil       // SEMITONES (default, nil) or IN-KEY (walk to the next in-key note; sign of echoPitch = direction)
-    var echoInKeyReceivers: UInt8? = nil          // IN-KEY mode: bit i = receiver A..D feeds the live reference (0 ⇒ none selected → holds)
-    var echoThru: Bool? = true          // THRU = pass the dry note · MUTE = echoes only
-    var echoSpill: EchoSpill? = .ring   // TAIL SPILL (design 2026-08-07): RING past the bar · CUT inside it · HAND (birthstone, deferred)
-    var echoRoute: EchoRoute? = .direct // ROUTE (§7②, ratified 2026-08-22): DIRECT = echo the final set (v1) · CHAIN = each repeat flows THROUGH the stages after ECHO ([ECHO→LENGTH] chokes repeats, [ECHO→SPLIT] thins to a register)
-    // EUCLID generator (user 2026-08-08). BURST reuses count+curve; CASCADE reuses rate+strumDir — no new fields.
-    var euclidPulses: Int? = 1          // K — hits per cycle (1…16) when PULSES = FIXED (Paul 2026-10-02: a fresh lane defaults to 1 of 8)
-    var euclidSteps: Int? = 8           // N — steps in the cycle (2…16); K hits spread evenly across N
-    var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
-    var euclidSpan: PatternSpan? = nil        // DEAD (the WIDTH model) — decode-only. Superseded by euclidRate + euclidSpanN (RATE×ladder, 2026-08-27).
     var euclidRate: ArpRate? = .r1_16         // GRID: the step grain (Paul 2026-08-27) — density lives HERE (+ K of N). Absolute, decoupled from SPAN (like riff/arp).
     var euclidSpanN: Int? = nil               // SPAN RE-ANCHOR (Paul 2026-08-27, RATE×ladder): nil/0 ⇒ FREE (phase forever) · 1·2·3·4·6·8·16(×2)·32(×4) ⇒ re-sync the pattern to step 0 every N columns. Was the WIDTH-span (n steps across the span, which just scaled the speed).
-    var euclidPick: EuclidPick? = nil         // PICK: ALL (today) | CYCLE | LOW | HIGH | RANDOM — what each hit strikes (Paul 2026-08-22)
     var euclidLines: [EuclidLine]? = nil      // EUCLID LINES (§10, ratified): up to 8 lines (each K·N·ROTATE·INVERT·TARGET). nil ⇒ the single euclid above (byte-identical)
     var euclideousRiff: EuclideousRiff? = nil // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06) — only meaningful for Euclideous's cell; nil ⇒ the struct's own plain defaults
     // FOUR RIFFS (2026-10-14 ferry §7) — mirrors `PluginState.riffs`/`activeRiff` exactly (same name, same
@@ -1620,10 +1557,6 @@ struct MachineParams: Codable, Equatable {
     // THE RIFF (ferry "looper tabs replace the riff tabs") — mirrors `PluginState`'s own copy exactly
     // (same name, same migration): this is what `BuildPage.swift`'s publish line feeds the render engine.
     var euclideousLiveGrid: EuclideousRiff? = nil
-    // RETIRED (loop-slots, superseded same-day) — decode-only, never written again; see this file's own
-    // `EuclideousLoopSlot` doc comment.
-    var euclideousLoopSlots: [EuclideousLoopSlot]? = nil
-    var euclideousManualSlot: Int? = nil
     // THE LOOPER (§6/§8.5) — NEVER saved (no `PluginState` field at all): purely a live, ephemeral mirror
     // of `AudioUnitViewController`'s own @State, republished on every edit exactly like every other live
     // Euclideous control. `active == true` is the only thing that matters to the render engine — Off/
@@ -1637,117 +1570,6 @@ struct MachineParams: Codable, Equatable {
     var soloMask: UInt8? = nil    // LANE SOLO (2026-10-21): the EFFECTIVE solo mask (latched | held), composed at publish — only meaningful for Euclideous's cell; nil ⇒ 0 (no solo, byte-identical for every other chain)
     var euclideousLocks: [EuclideousLaneLock]? = nil   // LANE LOCK (2026-10-21): the four lanes' locks, composed at publish — only meaningful for Euclideous's cell; nil ⇒ nothing locked (byte-identical for every other chain)
     var lockRevs: UInt32? = nil   // LANE LOCK: the per-lane document revisions this snapshot was built from (one byte per lane) — the render thread compares them with the live word to know an edit is on its way (6.4)
-    var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
-    var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
-    var burstSpanN: Int? = nil                // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from burstSpan)
-    var burstMode: BurstMode? = nil           // BURST family: ONCE (default) | COIN | PATTERN — Paul 2026-08-19
-    var burstSlices: [BurstSlice]? = nil      // PATTERN: 8 slices (B/C/R), pick-then-paint (nil ⇒ a default figure)
-    var burstRate: ArpRate? = .r1_8           // PATTERN: the slice WIDTH when burstRateOn (the 8-figure walks/tiles the span at this rate)
-    var burstRateOn: Bool? = nil              // RATE AXIS (Paul 2026-08-26): PATTERN divides the span by burstRate (not a fixed 8); nil/false ⇒ legacy fixed-8, byte-identical
-    var burstRotate: Int? = 0                 // PATTERN: rotate the slice figure (0…7)
-    var burstChance: Double? = 0.5            // COIN: seeded chance-of-burst per step (0…1)
-    var cascadeSpan: PatternSpan? = nil       // CASCADE: CELL (reveal per column) | ROW (the reveal spans the bar) — Paul 2026-08-19
-    var cascadeSpanN: Int? = nil              // SPAN LADDER (Paul 2026-08-22, RATE×ladder): RATE = reveal spacing · SPAN N = the reveal window in columns. nil ⇒ LEGACY CELL|ROW (byte-identical)
-    // THE MOD PROCESSOR (CC generator, delta). Append-only Optional. Reuses `rate` as the LFO PERIOD (one full shape
-    // cycle per rate-beats). modReset = the LEAVE-DISPOSITION: true = reset the CC to 0 on column exit, false = leave-as-landed.
-    var modCC: Int? = 74                // target controller number 0…127 (74 = filter cutoff, a common default)
-    var modSource: ModSource? = .shape  // the SOURCE spine (SHAPE · FOLLOW · STEPS · STRIKE · EXTERN)
-    var modShape: ModShape? = .sine     // WAVE — SINE · TRI · SQR · RAMP · S&H  (SHAPE)
-    var modRate: ModRate? = .r2         // LFO PERIOD (beats per cycle) — SHAPE · STEPS (steps span one period)
-    var modSpan: PatternSpan? = nil     // SHAPE: CELL (the modRate period, default) | ROW (one cycle spans the whole bar) — Paul 2026-08-19
-    var modStepSpan: ModStepSpan? = nil // STEPS: PERIOD (rate period, default) | ROW | ROW×2 | ROW×4 (16/32 breakpoints) — Paul 2026-08-20
-    var modStepSpanN: Int? = nil        // DURATION as GRID STEPS (Paul 2026-09-16): 1·2·3·4·6·8·×2·×4·×8 (16/32/64), via spanLadderBeats — the arp-LFO duration model. nil ⇒ use modRate/modSpan (byte-identical). Supersedes modSpan/modStepSpan for display.
-    var modFollow: ModFollow? = .register   // FOLLOW: which sounding property drives the CC
-    var modSteps: [Int]? = nil          // STEPS: 8 values 0…127 (nil → a rising staircase)
-    var modSmooth: Bool? = true         // STEPS: SMOOTH (interpolate) vs STEP (hold)
-    var modAttack: Double? = 0.15       // STRIKE: attack, beats (rise to MAX on entry)
-    var modRelease: Double? = 0.6       // STRIKE: release, beats (fall back to MIN)
-    var modExternCC: Int? = 1           // EXTERN: the incoming CC# read + transformed (1 = mod wheel)
-    // MIN/MAX (CC-stage §1 row 3): the shape maps 0…1 → [min, max]. RANGE is depth AND polarity — MIN > MAX inverts
-    // (no invert chip). RESET leaves the CC to MIN on column exit. (Supersedes the interim `depth`.)
-    var modMin: Int? = 0                // the shape's floor (0…127)
-    var modMax: Int? = 127              // the shape's ceiling (0…127)
-    var modReset: Bool? = true          // ON LEAVE: reset to MIN on column exit · OFF = leave-as-landed
-    var modTarget: ModTarget? = nil     // SEND: CC (emit a controller, default) | CHAIN (modulate a chain param, no CC) — Paul 2026-08-20
-    var modChainParam: MacroParam? = nil    // CHAIN target: which param (gate · spread · curve · …) the offset lands on
-    // MOD finishing (design-cc-stage, Paul 2026-09-09) — all additive-Optional (nil ⇒ today's behaviour):
-    var modFree: Bool? = nil            // FREE / the LFO cell (§16): speak continuously regardless of the playhead — the grid becomes a mod-matrix. nil/false = schedule-gated (today).
-    var modPhase: Double? = nil         // SHAPE PHASE offset 0…1 = 0–360° (§14②) — two cells' sines in quadrature. nil = 0.
-    var modQuantize: Int? = nil         // QUANTIZE (§14①): snap the output to N levels (0/1 = off · 2…32 = stepped control). nil = off.
-    var modExternMode: ModExternMode? = nil   // EXTERN (§6): RE-EMIT (re-range the incoming CC, today) | SCALE (the incoming CC scales the SHAPE's depth). nil = RE-EMIT.
-    // PER-PARAM LFOs (Docs/PLAN-param-lfo.md): the ∿ LFO button per param — one entry per modulated setting. nil/[] ⇒ none, byte-identical.
-    var paramLFOs: [ParamLFO]? = nil
-    // GLIDE (notes→pitch-bend translator). Append-only Optional.
-    var glideTime: Double? = 0.25       // slide duration per transition, beats (0 = instant pitch-jump)
-    var glideRange: Int? = 2            // ± bend range in semitones (1…48) — must match the synth
-    var glidePriority: GlidePriority? = .last   // which held note the mono voice tracks
-    var glideReanchor: Bool? = true     // out-of-range target → RE-ANCHOR (fresh note-on) · false = CLAMP to the range (BEND only)
-    var glideMode: GlideMode? = .bend   // BEND (today) | SYNTH (synth portamento) | STEP (chromatic zipper) — Paul 2026-08-22
-    // TUTTI (working name; Paul 2026-08-13) — set-level chance. ONE processor, a MODE radio. COIN: per step a seeded
-    // roll (BALANCE = P(TUTTI)) → SOLO (one PICK-chosen note) or TUTTI (the whole set). PATTERN (phase 2): 8 authored
-    // slice states render the held set as a shape per slice. Append-only Optional (old docs decode nil → defaults).
-    var tuttiMode: TuttiMode? = .coin
-    var tuttiBalance: Double? = 0.5     // COIN: P(TUTTI) per step 0…1 (0 = always SOLO, 1 = always the full chord)
-    var tuttiPick: TuttiPick? = .low    // COIN: which note carries a SOLO step, by rank
-    var tuttiSlices: [TuttiSlice]? = [.all, .all, .all, .all, .all, .all, .all, .all]  // PATTERN: 8 slice set-shapes
-    var tuttiRate: ArpRate? = .r1_8     // PATTERN: slices per window (reuses the arp rate divisions)
-    var tuttiRotate: Int? = 0           // PATTERN: rotate the slice pattern along the bar (0…7)
-    var tuttiSpan: PatternSpan? = nil   // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
-    var tuttiSpanN: Int? = nil          // SPAN LADDER (Paul 2026-08-22, RATE×ladder): RATE = slice width · SPAN N = the loop PERIOD in columns (re-anchor every N). nil ⇒ LEGACY CELL|ROW (byte-identical); 1·2·3·4·6·8·16(×2)·32(×4)
-    // LENGTH (Paul 2026-08-05) — 8 slices of the STEP (like CHOP), each PASS/MUTE/SHORT/LONG, plus two gate lengths +
-    // ROTATE. Default all-PASS = the chord sustains. Append-only Optional (old docs decode nil → defaults).
-    var lenSlices: [LenState]? = [.pass, .pass, .pass, .pass, .pass, .pass, .pass, .pass]
-    var lenShort: Double? = 0.4         // SHORT gate = 5…95% of ONE slice (staccato)
-    var lenLong: Double? = 0.7          // LONG length 0…1 → 25% of a slice … the STEP end (rings across slices)
-    var lenRotate: Int? = 0             // rotate the slice pattern (0…7)
-    var lenSpan: PatternSpan? = nil     // CELL (per-column, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
-    var lenSpanN: Int? = nil            // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from lenSpan)
-    // WEAVE (Paul 2026-08-07) — the rank-clocked polyrhythm driver. BASE = the slowest (bass) clock; MODE = the ratio
-    // law; SPAN = how many ranks weave (extras join the top clock); GATE (reused) is shared. Append-only Optional.
-    var weaveMode: WeaveMode? = .ladder
-    var weaveBaseStep: StepRate? = .r1_4   // the slowest / bass rank's clock (slow range 2/1…1/8). Was weaveBase:ArpRate — renamed for the slower range (old docs default)
-    var weaveSpan: Int? = 4             // how many ranks get their own clock; notes beyond this join the top clock
-    var weavePhase: ArpPhase? = .retrig // RETRIG = restart each step · FREE = free-run the grid · LEGATO = the interlock flows from the run's start
-    var weaveDrawn: [StepRate]? = [.r1_2, .r1_4, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8]  // DRAWN: one rate per rank (0…7)
-    var weaveEuclidSteps: Int? = 8      // EUCLID: the cycle length M; rank r fills 2r+1 of M pulses (bass sparse → top dense)
-    // SPLIT (Paul 2026-08-05) — a set-membership filter, reusing the chord-split + velocity-window model. Append-only.
-    var splitSet: ChordSplit? = ChordSplit()   // ALL · TOP n · BOTTOM n · RANGE (pool-relative except RANGE)
-    var splitVel: VelWindow? = VelWindow()     // pass only notes with velocity in [floor, ceil]
-    // RATCHET MODE (Paul 2026-08-16, ferry) — ALL (uses `count`/`ramp` above) · COIN · PATTERN. Append-only Optional.
-    var rtcMode: RatchetMode? = .all
-    var rtcChance: Double? = 0.5               // COIN: P(ratchet) per step (else plain single hit)
-    var rtcCountLo: Int? = 2                   // COIN: the burst count range low (when it ratchets)
-    var rtcCountHi: Int? = 4                   // COIN: the burst count range high
-    // COIN — SHAPING THE DICE (Paul 2026-08-26, `SPEC-ratchet-coin-randomness`): ① SIZE WEIGHTS over 2·3·4·6·8 (nil/empty
-    // ⇒ fall back to LO/HI, byte-identical) · ② REFIRE GAP 0–4 steps · ③ QUOTA 0=FREE|2|3|4 per row · ④ ODDS FROM velocity.
-    var rtcSizeWeights: [Int]? = nil           // ① 5 weights for sizes 2·3·4·6·8 (the drawn distribution); nil ⇒ LO/HI uniform
-    var rtcGap: Int? = nil                     // ② after a fire, suppress for N steps (0…4; nil/0 ⇒ off)
-    var rtcQuota: Int? = nil                   // ③ rough fires-per-row budget (0 = FREE · 2/3/4; nil/0 ⇒ off)
-    var rtcOddsVel: Bool? = nil                // ④ fire-odds scale with the incoming note velocity (nil/false ⇒ FIXED)
-    var rtcFold: Bool? = nil                   // COIN "PASS THROUGH" (Paul 2026-09-06): downstream of a driver, RATCHET stops being the driver — the upstream (e.g. ARP) drives, and each note either PASSES THROUGH unchanged or (per the COIN chance) is REPLACED by a ratchet burst. nil/false ⇒ RATCHET drives (legacy).
-    var rtcSlices: [Int]? = [2, 1, 2, 1, 2, 1, 2, 1]   // PATTERN: per-column STRIKE COUNTS (1 = passthrough · 2…8 = ratchet), up to 32 columns — the step matrix (Paul 2026-09-07)
-    var rtcSteps: Int? = 8                     // PATTERN (Paul 2026-09-07, RIFF-shaped): the matrix LENGTH (1…32). The playhead sweeps this many columns at RATE (its own clock); SPAN re-anchors.
-    var rtcRate: ArpRate? = .r1_8              // PATTERN: slice rate (slices per window, walks the bar)
-    var rtcClock: RatchetClock? = nil          // PATTERN clock (Paul 2026-09-07): nil/TIME ⇒ own RATE grid · NOTE ⇒ advance one column per note through (chain-only)
-    var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)
-    var rtcSpan: PatternSpan? = nil            // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
-    var rtcSpanN: Int? = nil                   // SPAN LADDER (Paul 2026-08-22, RATE×ladder): RATE = slice width · SPAN N = the loop period in columns. nil ⇒ LEGACY CELL|ROW (byte-identical)
-    // VELOCITY (Paul 2026-09-07): a per-step velocity SEQUENCER — a note-transparent MODIFIER. Each step either OVERRIDES the
-    // emitted velocity (velLane[step], 0…127) or PASSES THROUGH (velPass[step] != 0 ⇒ keep the note's own velocity). Sequenced
-    // like RATCHET PATTERN: RATE·STEPS·SPAN, TIME clock (own rate grid) or NOTE clock (advance one column per note through).
-    var velLane: [Int]? = [100, 80, 92, 80, 112, 80, 92, 80]   // per-step override velocity 0…127 (a gentle default accent)
-    var velPass: [Int]? = nil                  // per-step PASSTHROUGH flag (0 = override · non-0 = keep the note's velocity); nil/short ⇒ that step overrides
-    var velSteps: Int? = 8                     // the step-matrix LENGTH (1…32)
-    var velRate: ArpRate? = .r1_8              // TIME clock: step spacing (slices per window)
-    var velSpanN: Int? = nil                   // SPAN: re-anchor every N matrix columns (nil/0 ⇒ free-run)
-    var velClock: RatchetClock? = nil          // nil/TIME ⇒ own RATE grid · NOTE ⇒ advance one column per note through (chain-only), like RATCHET PATTERN
-    // UTILITY SET (Paul 2026-08-22) — simple per-chain transforms. Append-only Optionals.
-    var utilOctave: Int? = 0                    // OCTAVE: shift ±3 octaves (×12 semitones), pitch-class preserved
-    var utilTranspose: Int? = 0                 // TRANSPOSE: shift ±24 semitones
-    var utilChannel: Int? = 0                   // CHANNEL: output channel — 0 = WIRE (the bus stamp) · 1–16 = override
-    var utilNudge: Int? = 0                     // NUDGE: time offset in sixteenths of a beat (−8…+8)
-    var utilNudgeMode: NudgeMode? = nil         // TIMING LANE (Paul 2026-08-22 §5): FIXED (one offset, default) | LANE (8 per-column offsets — the pocket drawn). nil ⇒ FIXED
-    var utilNudgeLane: [Int]? = nil             // LANE: 8 per-step time offsets (−8…+8 sixteenths); the cell's COLUMN picks the slot
     var destSlices: [Int]? = nil                // DEST MATRIX (Paul 2026-08-22 §5): 8 per-step emitters (−1=NONE·0=A…3=D) — hocket painted. nil ⇒ a rotating default
     var destRate: ArpRate? = nil                 // DEST's OWN CLOCK (Paul 2026-09-26, RATCHET-PATTERN-shaped): the matrix sweeps this rate, free-running — decoupled from whatever drives the notes through it. nil ⇒ 1/8
     // DEAL (Paul 2026-09-16): the simple output dealer — override the emitters, deal N1 → emitter 1, N2 → emitter 2 (repeat). All additive-Optional.
@@ -1756,17 +1578,6 @@ struct MachineParams: Codable, Equatable {
     var dealN1: Int? = nil                       // notes to emitter 1; nil ⇒ 1
     var dealN2: Int? = nil                       // notes to emitter 2; nil ⇒ 1
     var dealMode: DealMode? = nil                // when the deal advances; nil ⇒ OVER TIME
-    // RECORDER (AcceptanceCriteria-recorder, ratified 2026-09-18): the looper-in-a-chain. All additive-Optional; the buffer PERSISTS on the machine.
-    var recGrain: RecGrain? = nil                // STEPS | PASSES; nil ⇒ PASSES
-    var recLen: Int? = nil                       // window length in grain units 1…32; nil ⇒ 1
-    var recArm: RecArm? = nil                    // ON PLAY | AFTER N; nil ⇒ ON PLAY
-    var recArmN: Int? = nil                      // AFTER N: units to wait before capture; nil ⇒ 1
-    var recMode: RecMode? = nil                  // LOOP | FREEZE | CANON; nil ⇒ LOOP
-    var recFreeze: RecFreeze? = nil              // FREEZE style: HELD | REPEAT; nil ⇒ HELD
-    var recMix: RecMix? = nil                    // REPLACE | LAYER; nil ⇒ REPLACE
-    var recCapture: RecCapture? = nil            // ONCE | REFRESH | HOLD; nil ⇒ ONCE
-    var recRefreshM: Int? = nil                  // REFRESH EVERY M cycles; nil ⇒ 1
-    var recEvents: [RecEvent]? = nil             // the PERSISTED captured buffer (beat-offset · pitch · vel · on/off); nil ⇒ empty
     // CLOCK (AcceptanceCriteria-clock-processor, ratified 2026-09-26; FIXED/WAVE modes REMOVED same day — Paul's
     // own spec describes one grid, not a mode choice — CLOCK is now always the DRAWN lane below). Note-transparent —
     // the transform reaches only a downstream fold consumer's OWN internal step machinery
@@ -1796,71 +1607,25 @@ struct MachineParams: Codable, Equatable {
                                                   // wrote this after killStepMode landed): per-step ON/OFF. When killStepMode is
                                                   // absent, resolved as true→.on/false→.drop (byte-identical to before).
     var killStepMode: [KillStepMode]? = nil      // per-step ON·MUTE·DROP·PAUSE (Paul 2026-09-27); nil ⇒ derive from killStepEnabled, else all ON
-    var killStepPauseLen: Int? = nil             // PAUSE hold length, in EXTRA steps beyond the one it already occupies; nil ⇒ 1
     var killStepRate: ArpRate? = nil             // this stage's OWN clock; nil ⇒ 1/8
     var killStepSpanN: Int? = nil                // SPAN re-anchor (spanLadderValues, 0 = FREE); nil ⇒ ROW (8)
     var muteSlices: [Int]? = nil                // MUTE MATRIX (Paul 2026-08-25 §5): 8 per-onset-slice MUTED-emitter masks (bit i = emitter i muted; 0…15). nil ⇒ nothing muted (byte-identical)
-    // RIFF (SPEC-riff-processor, ratified 2026-08-22): a stored STENCIL of RANK choices — the chord-following 303. The
-    // rank matrix is the editor (rows = pool ranks 1–8 · cols = steps · empty column = rest); the modifier lanes ride under.
-    var riffSteps: Int? = 16                    // stencil steps 1…32 (odd lengths ⇒ polymeter — Paul 2026-08-26, was 8|16)
-    var riffPoly: Bool? = nil                   // POLY (Paul 2026-08-26): a step strikes a SET of ranks (riffMask) — a chord that follows the held chord; nil/false ⇒ MONO (riffRanks)
-    var riffMask: [Int]? = nil                  // POLY: per-step 8-bit rank MASK (bit r-1 set ⇒ strike rank r); nil ⇒ empty (all rest until authored)
-    var riffRate: ArpRate? = .r1_16             // the step rate
     var riffRanks: [Int]? = nil                 // MONO per-step: 0 = REST · 1–8 = the pool rank to strike (nil ⇒ a default ascending figure)
-    var riffOct: [Int]? = nil                   // per-step octave nudge −1·0·+1
-    var riffAccent: [Int]? = nil                // per-step velocity accent (0 = normal · >0 louder) — v1b
-    var riffTie: [Bool]? = nil                  // per-step: extend the previous note (a held ⌒) — v1b
-    var riffSlide: [Bool]? = nil                // per-step: legato → GLIDE SYNTH slide (§5 interlock) — v2
-    var riffWrap: RiffWrap? = nil               // rank > held count → FOLD (default) | CLAMP | WRAP
     var riffDir: RiffDir? = nil                 // DIRECTION (Paul 2026-09-16): FWD (default) | REV | PENDULUM | PING-PONG | RANDOM | DRUNK — the order the stencil steps play
     var riffDirSeed: Int? = nil                 // RANDOM + DRUNK share one seed (mirrors arpSeed): nil until first rolled, rolled fresh whenever RANDOM or DRUNK is picked
     var riffDirBias: Double? = 0                // DRUNK only: −1…1, 0 = wanders evenly, +1 = forward-biased ("stumbles"), −1 = reverse-biased
-    // SPAN RE-ANCHOR (Paul 2026-08-27, the universal re-sync model): how often the free-running stencil snaps back to
-    // step 0 — nil/0 ⇒ FREE (the today behaviour: the stencil runs on the global grid, an odd length phases forever) ·
-    // 1·2·3·4·6·8 cols · 16=×2 · 32=×4 ⇒ re-anchor every N columns. An odd length against an aligning span = drift then
-    // resync (polymeter). RATE (grain) and SPAN (loop) are now independent — the first card of the standardised model.
-    var riffSpanN: Int? = nil
-    // STRIKE PER SPAN (Paul 2026-08-27, the span ladder's missing half): a legato hold (v1: DRONE) re-articulates
-    // ONLY at each span origin and HOLDS (adopts) through the rest — the multi-column pad. nil ⇒ off ⇒ today's
-    // continuous drone (byte-identical). strikeSpanN = the re-articulation cadence in columns (spanLadder, ≥1).
-    var strikePerSpan: Bool? = nil
-    var strikeSpanN: Int? = nil
-    // HOCKET (AcceptanceCriteria-hocket-processor, v1): a driver that plays its pool timed by LISTENING to a wire.
-    // Additive-Optional (a new type — no old-doc effect). SOURCE = the listened emitter (0…3 = wire A–D); MODE = GAPS
-    // (answer in its silences) | TRADE (hit-for-hit); RATE = the tick grid it decides on.
-    var hocketSource: Int? = nil                // 0…3 = the wire (emitter A–D) this hocket listens to
-    var hocketMode: HocketMode? = nil           // GAPS | TRADE
-    var hocketRate: ArpRate? = nil              // the decision tick rate (nil ⇒ 1/8)
-    // AVOID / LOCK (unified 2026-08-31): the per-note pitch filter. nil ⇒ inert defaults (byte-identical for old docs).
-    var avoidRefKind: AvoidRefKind? = nil       // KEY (declared root+scale) · DOOR 0–3 (a receiver's pool) · WIRE 0–3 (an emitter's live output) · ALL SOUNDING
-    var avoidRefIndex: Int? = nil               // 0…3 = which DOOR / WIRE
-    var avoidRoot: Int? = nil                   // 0…11 = the declared KEY root (kind = key)
-    var avoidScale: ScaleType? = nil            // the declared KEY scale (kind = key)
-    var avoidMode: AvoidMode? = nil             // LOCK (only) | AVOID (minus)
-    var avoidAction: AvoidAction? = nil         // REMOVE (block/drop) | MOVE (snap-nearest)
-    var avoidWhat: AvoidWhat? = nil             // AVOID mode: SAME the exact class | CLASH ±1 semitone | CLASH+ ±2 — how wide the "clash" sphere is
-    // TAP (AcceptanceCriteria-tap-processor, ratified): a mid-chain SEND — emits the stream as it stands at this slot AND passes it on.
-    var tapLevel: Double? = 1.0                 // velocity scale on the tapped copy (the send fader; 0…1+)
-    var tapTo: Int? = 0                         // 0 = THIS WIRE (layer on the cell's output) · 1–4 = emitter A–D (a parallel out)
-    var tapMute: Bool? = false                  // silence the tap without removing it (A/B the layers)
     // CHORDS (ratified 2026-09-01): derive a diatonic progression from a key. v1 (C2) = PATTERN — the drawn degree matrix,
     // in a stage-declared key. C2b reads the SCALE door's declared key; C3 FOLLOW · C4 WALK. See SPEC-chords-stage.md.
     var chordsMode: ChordsMode? = nil           // PATTERN (the drawn matrix) · FOLLOW (door note → degree) · WALK (gravity dice)
-    var chordsRoot: Int? = nil                  // 0…11 = the declared KEY root (v1; C2b prefers a SCALE door's root)
-    var chordsScale: ScaleType? = nil           // the declared KEY scale
     var chordsDegrees: [Int]? = nil             // the 8-step PATTERN matrix: per step −1 = CARRY (empty) · 0…6 = degree I…vii · 7 = REST
     var chordsVoicing: ChordVoicing? = nil      // TRIAD | 7TH | ADD9
     var chordsSpread: ChordSpread? = nil        // CLOSE | OPEN
     var chordsRotate: Int? = nil                // rotate the PATTERN matrix ◀n▶
     var chordsWalkSeed: Int? = nil              // WALK: the base seed (RE-ROLL = new seed) — C4
-    var chordsScaleRef: Int? = nil              // C2b (Paul 2026-09-01): SCALE FROM ▸ 0…3 = the receiver door (A–D) that declares the key; nil/-1 = none → C-major fallback. The cell's OWN input stays the TRIGGER (FOLLOW reads it); this door supplies the KEY.
-    var chordsScaleRefResolved: Int { let r = chordsScaleRef ?? -1; return (r >= 0 && r <= 3) ? r : -1 }
     var chordsRate: StepRate? = nil             // STEPS+RATE (Paul 2026-09-01): the PROGRESSION clock — a chord per rate-tick (PATTERN/WALK advance on this, NOT per grid column). Default 1/1 = one chord per bar.
     var chordsSteps: Int? = nil                 // the PATTERN matrix length 1…16 (the progression loops every N); default 8. FOLLOW ignores it.
     var chordsRateResolved: StepRate { chordsRate ?? .r1_1 }
     var chordsStepsResolved: Int { max(1, min(16, chordsSteps ?? 8)) }
-    var chordsRootResolved: Int { let r = chordsRoot ?? 0; return (r % 12 + 12) % 12 }
-    var chordsScaleResolved: ScaleType { chordsScale ?? .major }
     var chordsVoicingResolved: ChordVoicing { chordsVoicing ?? .triad }
     var chordsSpreadResolved: ChordSpread { chordsSpread ?? .close }
     /// The 8-step degree matrix, resolved — defaults to a I–vi–IV–V loop (0,0,5,5,3,3,4,4) so a fresh CHORDS plays.
@@ -1880,16 +1645,13 @@ struct MachineParams: Codable, Equatable {
     /// row 0 from the flat single-euclid fields it always had; rows 1–3 are silent — so an old doc resolves and
     /// sounds byte-identical to before this shipped.
     func euclidLinesForEditing() -> [EuclidLine] {
-        // MIGRATION NOTE: a pre-redesign line with `pick == nil` fell back to the MACHINE-WIDE global `euclidPick`
-        // (the old "PICK — for ALL-target lines" row, now folded away) — a fallback `EuclidLine.noteSelResolved`
-        // can't see on its own (it only knows its own fields). Resolved HERE, once, with the full context, so an
-        // old doc's lines keep sounding exactly as they did before this shipped.
+        // A pre-redesign line with `noteSel == nil` takes its pick from its own `target` / `pick`; resolved HERE, once, so every reader sees a concrete selector.
         func resolved(_ L: EuclidLine) -> EuclidLine {
             guard L.noteSel == nil else { return L }   // already touched under the new UI — leave as authored
             var out = L
             if L.target >= 1 { out.noteSel = EuclidNoteSel(rawValue: "N\(min(8, L.target))") ?? .all }
             else {
-                switch L.pick ?? (euclidPick ?? .all) {
+                switch L.pick ?? .all {
                 case .all: out.noteSel = .all
                 case .cycle: out.noteSel = .cycle
                 case .low: out.noteSel = .low
@@ -1902,10 +1664,7 @@ struct MachineParams: Codable, Equatable {
         let pad: ([EuclidLine]) -> [EuclidLine] = { a in
             Array((a.map(resolved) + Array(repeating: EuclidLine(pulses: 0, noteSel: .all), count: 4)).prefix(4))
         }
-        if let L = euclidLines, !L.isEmpty { return pad(L) }
-        let row0 = EuclidLine(target: 0, pulses: euclidPulses ?? 1, steps: euclidSteps ?? 8, rotate: euclidRot ?? 0,
-                               invert: euclidInvert ?? false, pick: euclidPick, die: nil, noteSel: nil, reverse: nil)
-        return pad([row0])
+        return pad(euclidLines ?? [])
     }
 }
 // CHORDS mode (SPEC-chords-stage §1): where the degree comes from.
@@ -2405,7 +2164,6 @@ struct Receiver: Codable, Equatable {
     // which stops the FEED into the grid entirely. Optional so old docs decode nil ⇒ enabled. Persisted, like mute.
     var inputEnabled: Bool? = nil
     /// The listen state, nil-safe: missing ⇒ enabled (listening). Non-persisting read helper.
-    var inputEnabledResolved: Bool { inputEnabled ?? true }
     // RANGE (2026-08-03, redesign §2): the door's note WINDOW — it admits only notes with lo ≤ note ≤ hi. UPSTREAM
     // of the latch and the grid feed (a note outside the window is as if unplayed, for this door). Optional so old
     // docs decode nil ⇒ ALL (0…127). Persisted rig config. `rangeLo`/`rangeHi` are MIDI note numbers (0…127).
@@ -2499,13 +2257,11 @@ struct Receiver: Codable, Equatable {
         guard let s = chordSeqs else { return Receiver.defaultChordSeqs }
         var out = Array(s.prefix(4)); while out.count < 4 { out.append(MachineParams()) }; return out
     }
-    var activeChordSeq: MachineParams { chordSeqsResolved[activeChordResolved] }
     /// FOUR interesting default progressions (all reference the KEY-FROM door D per the default rig; PATTERN, one chord/bar).
     static let defaultChordSeqs: [MachineParams] = {
         func seq(_ degrees: [Int], steps: Int, voicing: ChordVoicing = .triad) -> MachineParams {
             var p = MachineParams()
             p.chordsMode = .pattern; p.chordsDegrees = degrees; p.chordsSteps = steps
-            p.chordsRate = .r1_1; p.chordsVoicing = voicing; p.chordsSpread = .close; p.chordsScaleRef = 3   // KEY FROM = door D
             return p
         }
         return [
@@ -2518,7 +2274,6 @@ struct Receiver: Codable, Equatable {
     /// KEYS-style derived pool: on for an explicit KEYS **or SCALE** door (a scale is a pre-typed pool); else the legacy
     /// field EXACTLY (byte-identical for old docs). The note SOURCE differs (tapped keys vs the derived scale set).
     var latchPianoResolved: Bool { doorMode.map { $0 == .keys || $0 == .scale || $0 == .chord } ?? (latchPiano ?? false) }
-    var pianoNotesResolved: [Int] { (pianoNotes ?? []).filter { $0 >= 0 && $0 <= 127 } }
     // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE. Additive-Optional — nil ⇒ derive from the legacy latch fields
     // (LATCH/HOLD/KEYS), so old docs are unchanged. When the door sheet sets it explicitly, it drives the resolvers above.
     var doorMode: DoorMode? = nil
@@ -2548,8 +2303,6 @@ struct Receiver: Codable, Equatable {
     // Optional — nil ⇒ MINUS · BLOCK (today's ratified nature; byte-identical for old docs).
     var excludeMode: ExcludeMode? = nil
     var excludeReject: ExcludeReject? = nil
-    var excludeModeResolved: ExcludeMode { excludeMode ?? .minus }
-    var excludeRejectResolved: ExcludeReject { excludeReject ?? .block }
 }
 
 // §3: the two key-filter axes. MINUS = subtract the reference (the complement door) · ONLY = intersect (the key/chord lock).
@@ -2988,8 +2741,6 @@ struct PluginState: Codable, Equatable {
     var euclideousLiveGrid: EuclideousRiff? = nil
     var euclideousLiveGridResolved: EuclideousRiff { euclideousLiveGrid ?? riffsResolved[activeRiffResolved] }
     // RETIRED (loop-slots, superseded same-day) — decode-only.
-    var euclideousLoopSlots: [EuclideousLoopSlot]? = nil
-    var euclideousManualSlot: Int? = nil
     // EUCLIDEOUS PAGE REWORK (Paul/design-channel, 2026-10-07, ratified — Docs/SPEC-euclideous-rework.md):
     // global controls. `euclideousReceiver`/`euclideousReceiverResolved` above are now UNREACHABLE from any
     // UI (the single IN A/B/C/D selector was removed) but left in place inert, matching how `riffDirBias`

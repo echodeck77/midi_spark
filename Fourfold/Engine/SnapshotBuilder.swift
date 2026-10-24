@@ -11,8 +11,6 @@ enum SnapshotBuilder {
     /// processor's per-cell build AND the chord DOOR's per-door build — so a future `chords*` field reflects on both. (Paul 2026-09-04)
     static func applyChords(_ p: MachineParams, into out: inout SnapParams) {
         if let v = p.chordsMode { out.chordsMode = v }
-        out.chordsRoot = p.chordsRootResolved
-        out.chordsScale = p.chordsScaleResolved
         let cSteps = p.chordsStepsResolved
         out.chordsSteps = cSteps
         out.chordsDegrees = p.chordsDegreesResolved(steps: cSteps).map { clamp($0, -1, 7) }   // sized to the matrix width so cols 8–15 of a wide matrix play (Paul 2026-09-16)
@@ -20,7 +18,6 @@ enum SnapshotBuilder {
         out.chordsSpread = p.chordsSpreadResolved
         if let v = p.chordsRotate { out.chordsRotate = ((v % cSteps) + cSteps) % cSteps }   // rotate strides the FULL matrix (was mod 8, capping rotate on a 16-wide matrix)
         if let v = p.chordsWalkSeed { out.chordsWalkSeed = v }
-        out.chordsScaleRef = p.chordsScaleRefResolved
         out.chordsRateBeats = p.chordsRateResolved.beats
     }
 
@@ -46,29 +43,6 @@ enum SnapshotBuilder {
 
         // ---- cells ----
         let ladderOn = doc.ladderModeResolved                       // LADDER: exclusive columns (resolved here so render stays LADDER-unaware)
-        // MACRO MODULATION (macro-panel spec): fold each macro's A→B deltas into its target slots' resolved params
-        // below — effective = base + Σ value×delta (Snapshot.applyMacros). Bases (the document, and the seals that
-        // read it) are NEVER touched; value 0 = home. Grouped by (col,row,slot) so a slot folds every macro pointing
-        // at it in ONE clamp (overlaps sum). v1: values bake at publish → a macro move rebuilds; the render-time
-        // path (needed for TIMELINE lanes' per-column f(column)) lands with that bank.
-        let macroVals = doc.macrosResolved.map { max(0, min(1, $0.value)) }
-        var macroMods: [Int: [MacroMod]] = [:]
-        for (mi, macro) in doc.macrosResolved.enumerated() {
-            for t in macro.targets {
-                guard let param = MacroParam(rawValue: t.param), t.delta != 0,
-                      t.col >= 0, t.col < Snap.maxCols, t.row >= 0, t.row < Snap.rows, t.slot >= 0, t.slot < 64 else { continue }
-                macroMods[(t.col * Snap.rows + t.row) * 64 + t.slot, default: []].append(MacroMod(macro: mi, param: param, delta: t.delta))
-            }
-        }
-        // PER-CELL macro VALUES (§A2 PUNCH/SPAN): a sparse map (col·row) → [macro: value]. A cell with an override
-        // uses `override[macro] ?? global` as the DRIVING value in its macro fold — so a PUNCH-drawn cell shifts its
-        // OWN params without touching its neighbours. Empty (old/clean doc) ⇒ the map is empty ⇒ byte-identical.
-        var macroCellVals: [Int: [Int: Double]] = [:]
-        for v in doc.macroCellValues ?? [] {
-            guard v.col >= 0, v.col < Snap.maxCols, v.row >= 0, v.row < Snap.rows,
-                  v.macro >= 0, v.macro < PluginState.macroBankCount else { continue }
-            macroCellVals[v.col * Snap.rows + v.row, default: [:]][v.macro] = max(0, min(1, v.value))
-        }
         var cells = [SnapCell](repeating: SnapCell(), count: Snap.maxCols * Snap.rows)   // §E: allocate the full 16-col storage (col 8–15 stay empty until a part is 16-wide → byte-identical)
         for c in 0..<Snap.maxCols {
             let ladderActive = ladderOn ? scene.ladderActiveRow(c) : nil   // the one speaking rung this column (topmost-occupied default)
@@ -232,20 +206,6 @@ enum SnapshotBuilder {
                     sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // legacy / no receivers
                     let f = sc.inputChannel; sc.inputChanMask = f == 0 ? 0xFFFF : (f >= 1 && f <= 16 ? (UInt16(1) << UInt16(f - 1)) : 0)
                 }
-                // MACRO MODULATION: fold any macro offsets targeting this cell's slots into the resolved chain. When
-                // this cell has PER-CELL values (§A2 PUNCH/SPAN), the driving value is `override ?? global` per macro
-                // (a fresh 16-vector, main-thread build → alloc is fine); else the shared global vector.
-                if !macroMods.isEmpty {
-                    let cellVals: [Double] = {
-                        guard let ov = macroCellVals[c * Snap.rows + r] else { return macroVals }
-                        return (0..<macroVals.count).map { ov[$0] ?? macroVals[$0] }
-                    }()
-                    for k in sc.procs.indices {
-                        if let mods = macroMods[(c * Snap.rows + r) * 64 + k] {
-                            sc.procs[k] = applyMacros(sc.procs[k], mods: mods, values: cellVals)
-                        }
-                    }
-                }
                 cells[c * Snap.rows + r] = sc
             }
         }
@@ -269,15 +229,6 @@ enum SnapshotBuilder {
             }
         }
 
-        // NO-MACHINE WIRE (Paul 2026-08-23): per DOOR, the UNION of the emitters of every empty-chain (passthrough) cell
-        // reading it, EXCLUDING muted cells. The Router passes each door's input straight to these emitters in realtime
-        // (reconcileBypass), and skips these cells in the grid's step clock — so a no-machine chain plays LIVE, not quantized.
-        var passEmit = [UInt8](repeating: 0, count: 4)
-        for idx in 0..<cells.count where cells[idx].passthrough && !cells[idx].muted {
-            let r = Int(cells[idx].resolvedReceiver)
-            if r >= 0 && r < 4 { passEmit[r] |= cells[idx].busMask }
-        }
-
         // v3.0 (delta §7): per-bus stamp channels A–D, clamped 1–16, defaulted if the doc is short.
         var busCh = [UInt8](repeating: 0, count: 4)
         for i in 0..<4 {
@@ -291,100 +242,6 @@ enum SnapshotBuilder {
         // (adopted across columns) rather than re-struck every step. (A .retrig identity re-attacked the chord at each
         // column boundary = "why does it restrike?".) emitColumnHolds sustains an identity only when its phase == .legato.
         func markPassthrough(_ sc: inout SnapCell) { var sp = SnapParams(); sp.phase = .legato; sc.procs = [sp]; sc.slotBypass = [true]; sc.bypassed = true; sc.passthrough = true }
-        let busEnabledMask = packMask(doc.busEnabledResolved)
-        // THE RACK (design-the-rack §3, the two-tier law): pre-AND the per-emitter "board in the signal path"
-        // gate into every treatment mask. A rack-off emitter drops out of claim/duck/alt entirely → its output is
-        // the raw wire regardless of the matrix (no claim ghost/reservation, no duck, no alt turn). The raw doc
-        // masks stay the "armed" truth the matrix UI reads directly; only the RENDER sees the gated masks. nil/old
-        // docs ⇒ 0b1111 (all racks in path) so existing claim/duck/alt keep applying unchanged.
-        let rackMask = doc.rackMaskResolved   // THE CONFIG SHEETS: the ACTIVE rack config's membership (== rackEnabledResolved for old docs)
-        func gated(_ m: UInt8?) -> UInt8 { (m ?? 0) & rackMask }   // the two-tier law: a treatment mask is off wherever its emitter's rack is out of path
-        // delta §6a CLAIM v2: the claim MASK (from claimMask, or derived from the legacy single field) + the
-        // per-claimant LEAK % (0 = full suppression = v1). Gated by the rack.
-        let claimMask = doc.claimMaskResolved & rackMask
-        // MACRO OUTPUT (macro-panel spec §3): fold each macro's A→B deltas into the per-emitter role AMOUNTS —
-        // effective = base + Σ value×delta, summed then clamped ONCE per amount (the offset law). Bases (the
-        // document) untouched. These amounts are per-emitter, so they fold HERE (not through applyMacros, which is
-        // per-slot). Same v1 bake-at-publish boundary as M1.
-        var leakOff = [0.0, 0, 0, 0], duckOff = [0.0, 0, 0, 0], curveOff = [0.0, 0, 0, 0], pocketOff = [0.0, 0, 0, 0]
-        for (mi, macro) in doc.macrosResolved.enumerated() {
-            for t in macro.emitterTargets where t.emitter >= 0 && t.emitter < 4 && t.delta != 0 {
-                let off = macroVals[mi] * t.delta
-                switch MacroEmitterParam(rawValue: t.param) {
-                case .leak:   leakOff[t.emitter] += off
-                case .duck:   duckOff[t.emitter] += off
-                case .curve:  curveOff[t.emitter] += off
-                case .pocket: pocketOff[t.emitter] += off
-                case .none:   break
-                }
-            }
-        }
-        func modAmount(_ base: [Int], _ off: [Double], _ lo: Int, _ hi: Int) -> [Int] {
-            base.enumerated().map { clamp(Int((Double($1) + off[$0]).rounded()), lo, hi) }
-        }
-        let claimLeakM  = modAmount(doc.claimLeakResolved, leakOff, 0, 100)      // LEAK %
-        let flattenM    = modAmount(doc.flattenAmountResolved, duckOff, 0, 100)  // DUCK %
-        let curveM      = modAmount(doc.curveAmountResolved, curveOff, -100, 100)
-        let pocketM     = modAmount(doc.pocketMsResolved, pocketOff, -50, 50)
-        let claimLeak = claimLeakM.map { UInt8($0) }
-        // delta §9 item 11: receiver channel filters (0 = OMNI, 1–16) — for input metering attribution.
-        // A MUTED receiver resolves to the match-nothing filter (like a muted cell) so metering goes dark AND
-        // the R1 passthrough gate blocks it (mute ruling 2026-07-26) — one representation, both consumers.
-        // A MUTED or DISABLED receiver resolves to the match-nothing filter: metering goes dark AND the latch
-        // capture (which reads this filter) admits nothing, so a disabled door's frozen pool is SEALED (no
-        // re-capture). Muted goes further — its CELLS also read match-nothing (line ~78), killing the grid feed;
-        // a disabled door's cells keep their real channel so an ARMED latch's frozen chord still feeds (effectivePool).
-        let recvCh = doc.receiversResolved.map {
-            ($0.muted || !$0.inputEnabledResolved) ? Snap.mutedSourceFilter : UInt8(max(0, min(16, $0.channel)))
-        }
-        let recvChMask = doc.receiversResolved.map { UInt16($0.muted || !$0.inputEnabledResolved ? 0 : $0.channelMaskResolved) }   // MULTI-CHANNEL: the door's admission subset (0 = muted/disabled)
-        let recvCable = doc.receiversResolved.map { _ in UInt8(0b1111) }   // COG SIMPLIFICATION: always accept ALL input cables (union)
-        // TWO LATCH MODES: pack the per-receiver ADD flag into a mask (bit i = receiver i toggles, not replaces).
-        let latchAddMask = packMask(doc.receiversResolved.map { $0.latchAddResolved })
-        // INPUT ENABLE: bit i = receiver i is NOT listening (door closed) — the Router blocks its cells' LIVE read.
-        let receiverDisabledMask = packMask(doc.receiversResolved.map { !$0.inputEnabledResolved })
-        // RANGE (§2): the 4 receivers' note windows, for the latch capture (upstream of latch — the grid feed reads
-        // the per-cell window resolved above).
-        let receiverRangeLo = doc.receiversResolved.map { $0.rangeLoResolved }
-        let receiverRangeHi = doc.receiversResolved.map { $0.rangeHiResolved }
-        // CHORDS C2b#1: a SCALE-mode door DECLARES the key; CHORDS reads it (root −1 ⇒ not a scale door → CHORDS uses its own card key).
-        let receiverScaleRoot = doc.receiversResolved.map { $0.doorModeResolved == .scale ? $0.scaleRootResolved : -1 }
-        let receiverScaleType = doc.receiversResolved.map { $0.scaleTypeResolved }
-        let receiverControllerMask = doc.receiversResolved.map { $0.controllerMaskResolved }   // CONTROLLER ROUTING: per-door emitter forward mask
-        let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH + SCALE: doors whose frozen pool is a derived set (keyboard-tapped OR scale-picked)
-        // THE SCALE DOOR (ratified §1): a SCALE door feeds the KEYS pipeline, but its notes are DERIVED from root+scale+range
-        // (scaleNotes) rather than tapped — otherwise identical (self-arm · EXCLUDE · play-along all reused).
-        let recvsForPool = doc.receiversResolved
-        let receiverPianoNotes = recvsForPool.map { r -> [UInt8] in
-            let notes: [Int]
-            switch r.doorModeResolved {
-            case .scale:
-                notes = scaleNotes(root: r.scaleRootResolved, type: r.scaleTypeResolved, baseOct: r.scaleBaseOctResolved, octaves: r.scaleOctavesResolved)
-            case .chord:
-                // THE CHORD DOOR = a SEQUENCER: its pool is TIME-VARYING (walked on the beat by the Kernel via chordSeqNotes),
-                // so nothing is pre-baked here. The pianoMask bit is still set (latchPianoResolved) so the Kernel fills it live.
-                notes = []
-            default:
-                notes = r.pianoNotesResolved
-            }
-            return notes.map { UInt8(max(0, min(127, $0))) }
-        }
-        // THE CHORD DOOR config → the box (per door): the active chord-sequencer's SnapParams, nil unless a CHORD door. The
-        // Kernel reads this + the KEY-FROM door's scale to walk the progression on the beat. (Paul 2026-09-04)
-        let receiverChordsParams: [SnapParams?] = recvsForPool.map { r in
-            guard r.doorModeResolved == .chord else { return nil }
-            var sp = SnapParams(); SnapshotBuilder.applyChords(r.activeChordSeq, into: &sp); return sp
-        }
-        let receiverExcludeDoor = doc.receiversResolved.enumerated().map { (i, r) -> Int8 in let d = r.excludeDoorResolved; return d == i ? -1 : Int8(d) }   // never exclude self
-        let receiverExcludeOnly = packMask(doc.receiversResolved.map { $0.excludeModeResolved == .only })    // §3: INTERSECT vs subtract
-        let receiverExcludeSnap = packMask(doc.receiversResolved.map { $0.excludeRejectResolved == .snap })  // §3: SNAP vs block
-        let receiverReplayMask = packMask(doc.receiversResolved.map { $0.doorModeResolved == .replay })   // REPLAY doors
-        let receiverFile: [SnapFileClip] = doc.receiversResolved.map { r in   // FILE clips — only for a door in FILE mode with a loaded clip
-            guard r.doorModeResolved == .file, let clip = r.fileClip, !clip.isEmpty, let lb = r.fileLoopBeats, lb > 0 else { return SnapFileClip() }
-            return SnapFileClip(beats: clip.map { $0.beat }, notes: clip.map { $0.note }, vels: clip.map { $0.vel }, ons: clip.map { $0.on }, loopBeats: lb)
-        }
-        let receiverReplayPasses = doc.receiversResolved.map { UInt8($0.replayPassesResolved) }
-
         // PER-PART CLOCK (Paul 2026-08-19): resolve each row's step + loop length from the scene's per-row overrides
         // (nil ⇒ the scene default / a full 8 → uniform = today).
         let rowStepBeats: [Double] = (0..<Snap.rows).map { r in
@@ -399,153 +256,34 @@ enum SnapshotBuilder {
         // PLAY-FERRY LAUNCH (Paul 2026-09-09): per-engine-row launch anchor (0 ⇒ no anchor). Empty on any doc without one → byte-identical.
         let rowLaunchAnchorResolved: [Double] = (scene.rowLaunchAnchor?.count == Snap.rows) ? scene.rowLaunchAnchor! : []
 
-        // ROW 8 (Paul 2026-08-22): the toggle cells that flow through the box. A cell counts as ACTIVE when its scene
-        // toggle (row8On) is lit. FREEZE ⇒ sustain + pause; HALFTIME ⇒ scale the play-grid clock (÷2 = 2.0 = slower).
-        let row8 = doc.row8Resolved, row8On = scene.row8OnResolved
-        var freezeActive = false, clockScale = 1.0, broadcastActive = false, broadcastAll16 = false
-        var busRemap: [UInt8] = [0, 1, 2, 3]   // REDIRECT/SWAP: the per-bus output remap
-        func wire(_ v: Int?) -> Int { max(0, min(3, v ?? 0)) }
-        for i in 0..<min(8, row8.count) where row8On[i] {
-            switch row8[i].type {
-            case .freeze:    freezeActive = true
-            case .halftime:  clockScale = [2.0, 1.0, 0.5][max(0, min(2, row8[i].halftimeMode ?? 1))]   // 0 ÷2 · 1 ×1 · 2 ×2
-            case .redirect:  let f = wire(row8[i].wireFrom), t = wire(row8[i].wireTo); busRemap[f] = UInt8(t)          // A→B
-            case .swap:      let f = wire(row8[i].wireFrom), t = wire(row8[i].wireTo); busRemap[f] = UInt8(t); busRemap[t] = UInt8(f)   // A↔B
-            case .broadcast: broadcastActive = true; if row8[i].broadcastAllChannels ?? false { broadcastAll16 = true }   // all-16 opt-in (nil ⇒ 4-wire, byte-identical)
-            default: break
-            }
-        }
-
-        let box = SnapshotBox(generation: generation,
+        return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
                            machines: machines,
                            cells: cells,
                            busChannels: busCh,
-                           busEnabledMask: busEnabledMask,
-                           claimMask: claimMask,
-                           claimLeak: claimLeak,
-                           flattenMask: gated(doc.flattenMask),
-                           flattenAmount: flattenM.map { UInt8($0) },
-                           altMask: gated(doc.altMask),
-                           altCount: doc.altCountResolved.map { UInt8($0) },
-                           turnsPerNote: doc.turnsPerNoteResolved,
-                           curveMask: gated(doc.curveMask),
-                           curveAmount: curveM.map { Int8($0) },
-                           fenceMask: gated(doc.fenceMask),
-                           fencePolicy: doc.fencePolicyResolved.map { UInt8($0) },
-                           fenceLo: doc.fenceLoResolved.map { UInt8($0) },
-                           fenceHi: doc.fenceHiResolved.map { UInt8($0) },
-                           monoMask: gated(doc.monoMask),
-                           monoPriority: doc.monoPriorityResolved.map { UInt8($0) },
-                           pocketMask: gated(doc.pocketMask),
-                           pocketMs: pocketM.map { Int8($0) },
-                           convLead: Int8(doc.convLeadResolved),
-                           convStance: doc.convStanceResolved.enumerated().map { (i, s) in (rackMask & (1 << UInt8(i)) != 0) ? UInt8(s) : 0 },
-                           rackMask: rackMask,
-                           masterKey: Int8(scene.masterKeyResolved),
-                           masterMute: doc.masterMute ?? false,
+                           busEnabledMask: packMask(doc.busEnabledResolved),
                            ignoreAllNotesOff: doc.ignoreAllNotesOffResolved,
-                           thruReceiver: Int8(doc.thruReceiverResolved),
-                           receiverChannels: recvCh,
-                           receiverChannelMask: recvChMask,
-                           receiverCables: recvCable,
-                           latchAddMask: latchAddMask,
-                           receiverDisabledMask: receiverDisabledMask,
-                           receiverRangeLo: receiverRangeLo,
-                           receiverRangeHi: receiverRangeHi,
-                           receiverScaleRoot: receiverScaleRoot,
-                           receiverScaleType: receiverScaleType,
-                           receiverChordsParams: receiverChordsParams,
-                           passEmitterMask: passEmit,
-                           receiverControllerMask: receiverControllerMask,
-                           receiverPianoMask: receiverPianoMask,
-                           receiverPianoNotes: receiverPianoNotes,
-                           receiverExcludeDoor: receiverExcludeDoor,
-                           receiverExcludeOnly: receiverExcludeOnly, receiverExcludeSnap: receiverExcludeSnap,
-                           receiverReplayMask: receiverReplayMask,
-                           receiverReplayPasses: receiverReplayPasses,
-                           receiverFile: receiverFile,
-                           macroValues: macroVals,
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
-                           rowLaunchAnchor: rowLaunchAnchorResolved,
-                           freezeActive: freezeActive, clockScale: clockScale, busRemap: busRemap,
-                           broadcastActive: broadcastActive, broadcastAll16: broadcastAll16)
-        // PHASE 2 (Paul 2026-09-04): render-time AUTO descriptors — one per machine with an ACTIVE ×N-passes or SMOOTH
-        // lane whose param is render-supported (scalar). STEP/default spans are compile-time baked upstream (not here).
-        var ra = [MachineAuto?](repeating: nil, count: machines.count)
-        if ra.contains(where: { $0 != nil }) { box.renderAuto = ra }
-        // PER-PARAM LFO (Docs/PLAN-param-lfo.md): the render pass runs only when a resolved cell proc actually carries one.
-        box.hasParamLFO = box.cells.contains { $0.procs.contains { !$0.paramLFOs.isEmpty } }
-        return box
+                           rowLaunchAnchor: rowLaunchAnchorResolved)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
     private static func resolve(_ p: MachineParams, type: ProcessorType, fallback: SnapParams?) -> SnapParams {
         var out = fallback ?? SnapParams()
         out.type = type
-        if let v = p.pattern { out.patternIndex = UInt8(ArpPattern.allCases.firstIndex(of: v) ?? 0) }
-        if let v = p.rate { out.rateIndex = Int8(ArpRate.allCases.firstIndex(of: v) ?? 3) }
         if let v = p.octaves { out.octaves = UInt8(clamp(v, 1, 4)) }
         if let v = p.gate { out.gate = clamp(v, 0.05, 1) }
         if let v = p.phase { out.phase = v }
         if let v = p.count { out.count = UInt8(clamp(v, 2, 16)) }   // CR-6: BURST reads up to 16 (Router min(16,·)); RATCHET re-snaps ≤8 via effectiveRepeats, so widening the clamp only unlocks BURST's HITS 12/16 (were both silently = 8)
         if let v = p.ramp { out.ramp = clamp(v, 0, 1) }
-        if let v = p.strumDir { out.strumDir = v }
         if let v = p.spread { out.spread = clamp(v, 0, 1) }
-        if let v = p.curve { out.curve = clamp(v, -1, 1) }
-        if let v = p.velTilt { out.velTilt = clamp(v, -1, 1) }
-        if let v = p.strumSpreadNorm { out.strumSpreadNorm = v }
-        if let v = p.probability { out.probability = clamp(v, 0, 1) }
-        if let v = p.chanceTilt { out.chanceTilt = clamp(v, -1, 1) }
-        if let v = p.chanceDensity { out.chanceDensity = v }
-        if let v = p.chanceMode { out.chanceMode = v }
-        if let v = p.chanceSlices { out.chanceSlices = v.map { max(0, min(100, $0)) } }
-        if let v = p.chanceRotate { out.chanceRotate = ((v % 8) + 8) % 8 }
-        if let v = p.tuttiMode { out.tuttiMode = v }
-        if let v = p.tuttiBalance { out.tuttiBalance = clamp(v, 0, 1) }
-        if let v = p.tuttiPick { out.tuttiPick = v }
-        if let v = p.tuttiSlices { var s = v; while s.count < 8 { s.append(.all) }; out.tuttiSlices = Array(s.prefix(8)) }
-        if let v = p.tuttiRate { out.tuttiSliceBeats = max(0.03125, v.beats) }
-        if let v = p.tuttiRotate { out.tuttiRotate = ((v % 8) + 8) % 8 }
-        if let v = p.tuttiSpan { out.tuttiSpan = v }
-        out.tuttiSpanN = p.tuttiSpanN ?? 0   // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW; >0 = the loop period in columns
-        if let v = p.lenSlices { var s = v; while s.count < 8 { s.append(.pass) }; out.lenSlices = Array(s.prefix(8)) }
-        if let v = p.lenShort { out.lenShort = clamp(v, 0.05, 0.95) }
-        if let v = p.lenLong { out.lenLong = clamp(v, 0, 1) }
-        if let v = p.lenRotate { out.lenRotate = ((v % 8) + 8) % 8 }
-        if let v = p.lenSpan { out.lenSpan = v }
-        out.lenSpanN = p.lenSpanN ?? (out.lenSpan == .row ? 8 : 1)   // SPAN LADDER: explicit N wins; else migrate CELL→1 / ROW→8
-        if let v = p.weaveMode { out.weaveMode = v }
-        if let v = p.weaveBaseStep { out.weaveBaseBeats = max(0.03125, v.beats) }
-        if let v = p.weaveSpan { out.weaveSpan = clamp(v, 1, 8) }
-        if let v = p.weavePhase { out.weavePhase = v }
-        if let v = p.weaveDrawn { var s = v; while s.count < 8 { s.append(.r1_8) }; out.weaveDrawnBeats = Array(s.prefix(8)).map { max(0.03125, $0.beats) } }
-        if let v = p.weaveEuclidSteps { out.weaveEuclidSteps = clamp(v, 2, 16) }
-        if var v = p.splitSet { v.n = clamp(v.n, 1, 8); v.note = clamp(v.note, 0, 127); out.splitSet = v }
-        if var v = p.splitVel { v.floor = clamp(v.floor, 1, 127); v.ceil = clamp(v.ceil, v.floor, 127); out.splitVel = v }
-        if let v = p.utilOctave { out.utilOctave = clamp(v, -3, 3) }         // UTILITY (Paul 2026-08-22)
-        if let v = p.utilTranspose { out.utilTranspose = clamp(v, -24, 24) }
-        if let v = p.utilChannel { out.utilChannel = clamp(v, 0, 16) }       // 0 = WIRE · 1–16 override
-        if let v = p.utilNudge { out.utilNudge = clamp(v, -8, 8) }           // ± sixteenths
-        if let v = p.utilNudgeMode { out.utilNudgeMode = v }                 // TIMING LANE (Paul 2026-08-22 §5)
-        if let v = p.utilNudgeLane { out.utilNudgeLane = v.map { clamp($0, -8, 8) } }
         if let v = p.destSlices { out.destSlices = v.map { clamp($0, -1, 3) } }   // DEST MATRIX (Paul 2026-08-22 §5): −1 = NONE (Paul 2026-09-26)
         if let v = p.destRate { out.destRateBeats = max(0.03125, v.beats) }       // DEST's OWN CLOCK (Paul 2026-09-26)
         out.dealE1 = clamp(p.dealE1 ?? 0, 0, 3); out.dealE2 = clamp(p.dealE2 ?? 1, 0, 3)   // DEAL (Paul 2026-09-16)
         out.dealN1 = max(1, min(16, p.dealN1 ?? 1)); out.dealN2 = max(1, min(16, p.dealN2 ?? 1))
         if let v = p.dealMode { out.dealMode = v }
         // RECORDER (AcceptanceCriteria-recorder, 2026-09-18): resolve config + carry the persisted buffer.
-        if let v = p.recGrain { out.recGrain = v }
-        out.recLen = clamp(p.recLen ?? 1, 1, 32)
-        if let v = p.recArm { out.recArm = v }
-        out.recArmN = clamp(p.recArmN ?? 1, 1, 32)
-        if let v = p.recMode { out.recMode = v }
-        if let v = p.recFreeze { out.recFreeze = v }
-        if let v = p.recMix { out.recMix = v }
-        if let v = p.recCapture { out.recCapture = v }
-        out.recRefreshM = clamp(p.recRefreshM ?? 1, 1, 32)
-        if let v = p.recEvents { out.recEvents = v }
         // CLOCK (Paul 2026-09-26; FIXED/WAVE removed same day): only the DRAWN lane resolves now.
         if let v = p.clockSpanN { out.clockSpanN = v }
         // DRAWN (Stage 2): resolve the lane ONCE here — carries −1/empty columns forward into real ratio VALUES
@@ -567,136 +305,36 @@ enum SnapshotBuilder {
         } else {
             ksModes = Array(repeating: .on, count: out.killStepCount)
         }
-        out.killStepMode = ksModes
-        out.killStepPauseLen = clamp(p.killStepPauseLen ?? 1, 1, 16)
         // The TABLE (shared with GridUI's live-playhead preview via killStepResolveTable, Derivations.swift, so the
         // two can never independently drift): walk the non-DROP steps in order; a PAUSE step repeats its own index
         // (1 + pauseLen) times, so downstream's local clock reads the SAME value across every real column of the
         // hold (a true freeze). ON and MUTE both consume exactly one column each — MUTE affects only whether a note
         // SOUNDS (a separate fold, Router.emitDriverNote), never this table. When no step is MUTE/PAUSE this reduces
         // to EXACTLY today's onIdx/k — same length, same contents, same order.
-        let ksTable = killStepResolveTable(ksModes, pauseLen: out.killStepPauseLen)
-        out.killStepColumnMap = ksTable.columnMap
-        out.killStepColumnsPerLap = ksTable.columnsPerLap
-        out.killStepFirstSlot = ksTable.firstSlot
         if let v = p.killStepRate { out.killStepRateBeats = max(0.03125, v.beats) }
         if let v = p.killStepSpanN { out.killStepSpanN = v }
         if let v = p.muteSlices { out.muteSlices = v.map { clamp($0, 0, 15) } }   // MUTE MATRIX (Paul 2026-08-25 §5): 4-bit muted-emitter mask per slice
         // RIFF (SPEC-riff-processor): resolve the stencil. riffRanks nil ⇒ keeps the default figure. rate → beats.
-        if let v = p.riffSteps { out.riffSteps = clamp(v, 1, 32) }   // variable length (Paul 2026-08-26): up to 32
-        out.riffPoly = p.riffPoly ?? false
-        if let v = p.riffMask { out.riffMask = v.map { clamp($0, 0, 255) } }   // POLY: 8-bit rank mask per step
-        if let v = p.riffRate { out.riffRateBeats = max(0.03125, v.beats) }
         if let v = p.riffRanks { out.riffRanks = v.map { clamp($0, 0, 8) } }
-        if let v = p.riffOct { out.riffOct = v.map { clamp($0, -1, 1) } }
-        if let v = p.riffAccent { out.riffAccent = v.map { clamp($0, 0, 127) } }
-        if let v = p.riffTie { out.riffTie = v }
-        if let v = p.riffSlide { out.riffSlide = v }
-        if let v = p.riffWrap { out.riffWrap = v }
         if let v = p.riffDir { out.riffDir = v }
         if let v = p.riffDirSeed { out.riffDirSeed = UInt64(bitPattern: Int64(v)) }   // RANDOM/DRUNK shared seed (mirrors arpSeed, line 566)
         if let v = p.riffDirBias { out.riffDirBias = clamp(v, -1, 1) }                // DRUNK bias
-        if let v = p.riffSpanN { out.riffSpanN = max(0, min(32, v)) }   // SPAN re-anchor: 0 = FREE, else re-sync every N columns
-        if let v = p.strikePerSpan { out.strikePerSpan = v }            // STRIKE PER SPAN (Paul 2026-08-27): DRONE re-articulates per span
-        out.strikeSpanN = max(1, min(32, p.strikeSpanN ?? 8))           // re-articulation cadence in columns (≥1; 8 = once per row lap)
         // HOCKET (AcceptanceCriteria-hocket-processor, v1): the wire-listening driver.
-        if let v = p.hocketSource { out.hocketSource = clamp(v, 0, 3) }
-        if let v = p.hocketMode { out.hocketMode = v }
-        if let v = p.hocketRate { out.hocketRateBeats = max(0.03125, v.beats) }
         // AVOID / LOCK (unified 2026-08-31): the per-note pitch filter.
-        if let v = p.avoidRefKind { out.avoidRefKind = v }
-        if let v = p.avoidRefIndex { out.avoidRefIndex = clamp(v, 0, 3) }
-        if let v = p.avoidRoot { out.avoidRoot = ((v % 12) + 12) % 12 }
-        if let v = p.avoidScale { out.avoidScale = v }
-        if let v = p.avoidMode { out.avoidLock = (v == .lock) }
-        if let v = p.avoidAction { out.avoidMove = (v == .move) }
-        if let v = p.avoidWhat { out.avoidClashSemis = (v == .same ? 0 : (v == .clash ? 1 : 2)) }
         // TAP (AcceptanceCriteria-tap-processor): the mid-chain send.
-        if let v = p.tapLevel { out.tapLevel = max(0, min(2, v)) }
-        if let v = p.tapTo { out.tapTo = clamp(v, 0, 4) }
-        if let v = p.tapMute { out.tapMute = v }
         SnapshotBuilder.applyChords(p, into: &out)   // CHORDS (ratified 2026-09-01) — SHARED with the chord DOOR (below)
-        if let v = p.rtcMode { out.rtcMode = v }
-        if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
-        if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }
-        if let v = p.rtcCountHi { out.rtcCountHi = clamp(v, out.rtcCountLo, 8) }
         // COIN — SHAPING THE DICE (Paul 2026-08-26): weights kept only if any is >0 (else EMPTY ⇒ LO/HI fallback, byte-identical)
-        if let w = p.rtcSizeWeights, w.contains(where: { $0 > 0 }) { out.rtcSizeWeights = w.map { max(0, min(100, $0)) } }
-        if let v = p.rtcGap { out.rtcGap = clamp(v, 0, 4) }
-        if let v = p.rtcQuota { out.rtcQuota = clamp(v, 0, 4) }
-        if let v = p.rtcOddsVel { out.rtcOddsVel = v }
-        if let v = p.rtcFold { out.rtcFold = v }
-        if let v = p.rtcSlices { var s = v; while s.count < 32 { s.append(1) }; out.rtcSlices = Array(s.prefix(32)).map { clamp($0, 0, 8) } }   // PATTERN: per-column strike counts, up to 32 (0 = OFF/mute · 1 = passthrough · 2…8 = ratchet — Paul 2026-09-08)
-        out.rtcSteps = clamp(p.rtcSteps ?? 8, 1, 32)   // PATTERN: the matrix length (playhead sweeps this many columns at RATE)
-        if let v = p.rtcRate { out.rtcRateBeats = max(0.03125, v.beats) }
-        out.rtcClock = p.rtcClock ?? .time   // PATTERN clock: TIME (own RATE) · NOTE (advance per note through) — Paul 2026-09-07
-        if let v = p.rtcRotate { out.rtcRotate = ((v % 32) + 32) % 32 }   // rotate up to STEPS-1 (was mod-8 — broke rotate past column 8 for a wide matrix; Paul 2026-09-07)
-        if let v = p.rtcSpan { out.rtcSpan = v }
-        out.rtcSpanN = p.rtcSpanN ?? 0   // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW; >0 = loop period in columns
         // VELOCITY (Paul 2026-09-07): per-step override lane + passthrough flags, padded to 32; clamps mirror the rtc PATTERN copy.
-        out.velSteps = clamp(p.velSteps ?? 8, 1, 32)
-        if let v = p.velLane { var s = v; while s.count < 32 { s.append(100) }; out.velLane = Array(s.prefix(32)).map { clamp($0, 0, 127) } }
-        if let v = p.velPass { var s = v; while s.count < 32 { s.append(0) }; out.velPass = Array(s.prefix(32)) }
-        if let v = p.velRate { out.velRateBeats = max(0.03125, v.beats) }
-        out.velSpanN = p.velSpanN ?? 0
-        out.velClock = p.velClock ?? .time
-        out.arpSpanN = max(0, min(32, p.arpSpanN ?? 0))   // SPAN re-anchor: nil ⇒ FREE (0), else re-sync every N columns
-        if let v = p.arpOctDown { out.arpOctDown = v }
-        if let v = p.arpRandomAnchor { out.arpRandomAnchor = max(0, min(2, v)) }
-        if let v = p.arpSeed { out.arpSeed = UInt64(bitPattern: Int64(v)) }   // RANDOM ONCE persisted seed → render-side (Paul 2026-09-16)
-        if let v = p.arpVelocity { out.arpVelocity = clamp(v, 1, 100) }   // ARP VELOCITY (Paul 2026-09-30): an ABSOLUTE value, 1…100 — ignores input velocity
-        if let v = p.arpVelTilt { out.arpVelTilt = clamp(v, -1, 1) }      // ARP VELOCITY TILT: favours top (+) / bottom (−) of the pool
         // EUCLID MASK, standalone processor: the same resolve shape (Bjorklund K-of-N), no WALK.
         out.maskN = max(1, min(64, p.maskN ?? 8))
         out.maskK = max(1, min(out.maskN, p.maskK ?? out.maskN))
-        if let v = p.maskGap { out.maskGap = v }
-        out.maskRotate = (((p.maskRotate ?? 0) % out.maskN) + out.maskN) % out.maskN
-        out.maskChordGate = clamp(p.maskChordGate ?? 0.6, 0.05, 1)
-        out.maskChordOct = clamp(p.maskChordOct ?? 0, -2, 2)
-        out.maskChordVel = clamp(p.maskChordVel ?? 1, 0, 1)
         // EUCLID MASK options (Paul 2026-09-28): all additive-Optional, nil ⇒ today's exact behaviour.
-        out.maskInvert = p.maskInvert ?? false
-        out.maskSpanN = max(0, p.maskSpanN ?? 0)
-        out.maskChance = clamp(p.maskChance ?? 1, 0, 1)
-        out.maskAccentN = max(1, min(64, p.maskAccentN ?? 8))
-        out.maskAccentK = max(1, min(out.maskAccentN, p.maskAccentK ?? out.maskAccentN))
-        out.maskAccentRotate = (((p.maskAccentRotate ?? 0) % out.maskAccentN) + out.maskAccentN) % out.maskAccentN
-        out.maskAccentAmount = clamp(p.maskAccentAmount ?? 20, 0, 127)
-        out.maskFillEvery = max(0, p.maskFillEvery ?? 0)
-        out.maskChordPick = p.maskChordPick ?? .all   // MaskChordPick (Paul 2026-09-28) — a dedicated enum, not EuclidPick
         if let v = p.harmIntervals {
-            func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
-            out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),
-                                 clampInt(v.count > 1 ? v[1] : 0),
-                                 clampInt(v.count > 2 ? v[2] : 0))
         }
-        if let v = p.harmVelScale { out.harmVelScale = clamp(v, 0.1, 1) }
-        if let v = p.harmUnits { out.harmUnits = v }                       // §2 POOL-STEP UNITS
-        if let v = p.utilTransposeUnits { out.utilTransposeUnits = v }
-        if let v = p.glideStepUnits { out.glideStepUnits = v }
         // ECHO (user 2026-08-08)
-        if let v = p.echoSync { out.echoSync = v }
-        if let v = p.echoDelayDiv { out.echoDelayDiv = clamp(v, 1, 16) }
-        if let v = p.echoDelayMs { out.echoDelayMs = clamp(v, 1, 5000) }
-        if let v = p.echoRepeats { out.echoRepeats = clamp(v, 1, 16) }
-        if let v = p.echoOffset { out.echoOffset = clamp(v, -0.33, 0.33) }
-        if let v = p.echoFeedDelay { out.echoFeedDelay = clamp(v, 0, 1) }
-        if let v = p.echoDecay { out.echoDecay = clamp(v, 0, 1) }
-        if let v = p.echoPitch { out.echoPitch = clamp(v, -24, 24) }
-        if let v = p.echoPitchMode { out.echoPitchMode = v }
-        if let v = p.echoInKeyReceivers { out.echoInKeyReceivers = v & 0x0F }   // defensive — only bits 0-3 are meaningful
-        if let v = p.echoThru { out.echoThru = v }
-        if let v = p.echoSpill { out.echoSpill = v }
-        if let v = p.echoRoute { out.echoRoute = v }
-        if let v = p.euclidSteps { out.euclidSteps = clamp(v, 2, 16) }
-        if let v = p.euclidPulses { out.euclidPulses = clamp(v, 1, 16) }
-        if let v = p.euclidRot { out.euclidRot = clamp(v, 0, 15) }
         if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
-        if let v = p.euclidSpan { out.euclidSpan = v }                       // decode-only legacy (round-trip)
         if let v = p.euclidRate { out.euclidRateBeats = max(0.03125, v.beats) }   // GRID: the step grain (RATE×ladder, 2026-08-27)
         out.euclidSpanN = max(0, min(32, p.euclidSpanN ?? 0))                // SPAN re-anchor: nil ⇒ FREE (0), else re-sync every N cols
-        if let v = p.euclidPick { out.euclidPick = v }
-        if let v = p.euclidInvert { out.euclidInvert = v }
         // EUCLID LINES (2026-09-29 redesign): ALWAYS resolves to exactly 4 rows via the shared
         // `euclidLinesForEditing()` helper (Models.swift, also used by the GridUI editor so the two can't
         // independently derive this differently) — an untouched machine derives row 0 from the flat fields
@@ -849,57 +487,14 @@ enum SnapshotBuilder {
             out.euclideousLocks = locks.prefix(4).map { EuclideousLockSnap(on: $0.isLocked, grid: $0.gridResolved, state: $0.state) }
         }
         out.lockRevs = p.lockRevs ?? 0
-        if let v = p.burstSpan { out.burstSpan = v }
-        out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
-        if let v = p.burstMode { out.burstMode = v }
-        if let v = p.burstSlices { var s = v; while s.count < 8 { s.append(.rest) }; out.burstSlices = Array(s.prefix(8)) }
-        if let v = p.burstRotate { out.burstRotate = ((v % 8) + 8) % 8 }
-        if let v = p.burstChance { out.burstChance = clamp(v, 0, 1) }
-        out.burstRateBeats = (p.burstRate ?? .r1_8).beats           // RATE AXIS (Paul 2026-08-26)
-        out.burstRateOn = p.burstRateOn ?? false
-        if let v = p.cascadeSpan { out.cascadeSpan = v }
-        out.cascadeSpanN = p.cascadeSpanN ?? 0   // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW; >0 = reveal window in columns
         // THE MOD PROCESSOR (CC generator / CC-stage §1)
-        if let v = p.modCC { out.modCC = clamp(v, 0, 127) }
-        if let v = p.modSource { out.modSource = v }
-        if let v = p.modShape { out.modShape = v }
-        if let v = p.modRate { out.modRate = v }
         // PER-PARAM LFOs (Docs/PLAN-param-lfo.md): keep only ACTIVE (depth > 0) entries on a KNOWN target — so a
         // depth-0 / unknown-key LFO resolves away → paramLFOs empty → hasParamLFO false → byte-identical.
-        if let v = p.paramLFOs { out.paramLFOs = v.filter { l in   // FROM ≡ the base param now (Paul 2026-09-16 two-views); keep any LFO with a TO endpoint on a known target — the engine's from(base)!=to guard makes a to==base LFO a byte-identical no-op. "arpRate" is engine-special (rung sweep).
-            guard l.to != nil else { return false }
-            return l.target == "arpRate" || AutoParamField(key: l.target) != nil
-        } }
-        if let v = p.modSpan { out.modSpan = v }
         // MIGRATE the old cell|row STEPS span onto modStepSpan when unset: row→ROW, cell→PERIOD (both 8 steps → byte-
         // identical). A doc that never touched STEPS is unaffected (modStepSpan only reshapes the STEPS source).
-        if let v = p.modStepSpan { out.modStepSpan = v } else { out.modStepSpan = (out.modSpan == .row) ? .row : .period }
-        out.modStepSpanN = max(0, min(64, p.modStepSpanN ?? 0))   // GRID STEPS duration (Paul 2026-09-16); 0 = use modRate/modSpan
-        if let v = p.modMin { out.modMin = clamp(v, 0, 127) }
-        if let v = p.modMax { out.modMax = clamp(v, 0, 127) }
-        if let v = p.modReset { out.modReset = v }
-        if let v = p.modTarget { out.modTarget = v }
-        if let v = p.modChainParam { out.modChainParam = v }
-        if let v = p.modFollow { out.modFollow = v }
         // STEPS SPAN (Paul 2026-08-20): the box carries EXACTLY `stepCount` (8/16/32) breakpoints — tile the source
         // (custom or the 8-default) up to N. N=8 (PERIOD/ROW) reproduces the old exactly-8 pack → byte-identical.
-        let stepN = out.modStepSpan.stepCount
-        let stepSrc = { () -> [Int] in if let v = p.modSteps, !v.isEmpty { return v }; return out.modSteps }()
-        out.modSteps = (0..<stepN).map { clamp(stepSrc[$0 % stepSrc.count], 0, 127) }
-        if let v = p.modSmooth { out.modSmooth = v }
-        if let v = p.modAttack { out.modAttack = clamp(v, 0.01, 4) }
-        if let v = p.modRelease { out.modRelease = clamp(v, 0.01, 4) }
-        if let v = p.modExternCC { out.modExternCC = clamp(v, 0, 127) }
-        if let v = p.modFree { out.modFree = v }                       // FREE / LFO cell (§16)
-        if let v = p.modPhase { out.modPhase = v }                     // SHAPE phase offset (§14②)
-        if let v = p.modQuantize { out.modQuantize = clamp(v, 0, 32) } // QUANTIZE output levels (§14①)
-        if let v = p.modExternMode { out.modExternMode = v }           // EXTERN RE-EMIT | SCALE (§6)
         // GLIDE
-        if let v = p.glideTime { out.glideTime = clamp(v, 0, 4) }
-        if let v = p.glideRange { out.glideRange = clamp(v, 1, 48) }
-        if let v = p.glidePriority { out.glidePriority = v }
-        if let v = p.glideReanchor { out.glideReanchor = v }
-        if let v = p.glideMode { out.glideMode = v }
         return out
     }
 }

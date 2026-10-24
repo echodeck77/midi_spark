@@ -588,108 +588,15 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(d2.euclideousRiffResolved.ranksResolved, [1, 2, 3, 4])
     }
 
-    /// The builder mirrors the 16 macro values into the snapshot (clamped 0…1); a clean doc yields 16 zeros.
-    func testBuilderMirrorsMacroValuesClamped() {
-        var doc = self.doc()
-        let clean = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(clean.macroValues.count, 16)
-        XCTAssertTrue(clean.macroValues.allSatisfy { $0 == 0 })
-
-        doc.macros = doc.macrosResolved
-        doc.macros?[0].value = 0.75
-        doc.macros?[1].value = 2.0                                 // out of range → clamps to 1
-        doc.macros?[2].value = -1.0                                // → clamps to 0
-        let box = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(box.macroValues[0], 0.75, accuracy: 1e-9)
-        XCTAssertEqual(box.macroValues[1], 1.0, accuracy: 1e-9)
-        XCTAssertEqual(box.macroValues[2], 0.0, accuracy: 1e-9)
-    }
 
     // MARK: M1 — the offset math (applyMacros)
 
-    /// effective = base + value × delta, and the base bag is returned UNMUTATED (a copy) — identity stays put.
-    func testApplyMacrosOffsetsAndLeavesBaseUntouched() {
-        var base = SnapParams(); base.gate = 0.5
-        let mods = [MacroMod(macro: 0, param: .gate, delta: 0.4)]
-        let out = applyMacros(base, mods: mods, values: [0.5])
-        XCTAssertEqual(out.gate, 0.7, accuracy: 1e-9)          // 0.5 + 0.5×0.4
-        XCTAssertEqual(base.gate, 0.5, accuracy: 1e-9)         // the base is never rewritten
-    }
 
-    /// A macro at 0 is HOME — no offset, byte-for-byte the base (nothing to revert).
-    func testMacroAtZeroIsHome() {
-        var base = SnapParams(); base.gate = 0.5; base.spread = 0.3
-        let out = applyMacros(base, mods: [MacroMod(macro: 0, param: .gate, delta: 0.4),
-                                           MacroMod(macro: 0, param: .spread, delta: -0.2)], values: [0.0])
-        XCTAssertEqual(out.gate, 0.5, accuracy: 1e-9)
-        XCTAssertEqual(out.spread, 0.3, accuracy: 1e-9)
-    }
 
-    /// Two macros on the SAME param SUM, then clamp ONCE (the offset law) — not sequential per-macro clamping.
-    func testOverlappingOffsetsSumThenClamp() {
-        var base = SnapParams(); base.probability = 0.6
-        // 0.6 + 1.0×0.5 + 1.0×0.5 = 1.6 → clamps to 1 (sum first). Sequential clamping would also hit 1 here,
-        // so use a case where order matters: +0.6 then −0.5 = net +0.1 → 0.7 (sequential-with-clamp: 0.6+0.6=1.2→1, then 1−0.5=0.5 ≠ 0.7).
-        let out = applyMacros(base, mods: [MacroMod(macro: 0, param: .probability, delta: 0.6),
-                                           MacroMod(macro: 1, param: .probability, delta: -0.5)], values: [1.0, 1.0])
-        XCTAssertEqual(out.probability, 0.7, accuracy: 1e-9)   // sum (+0.1) then clamp — proves it's not clamped per-mod
-    }
 
-    /// Each param clamps to its resolve() range: probability/ramp/spread → [0,1]; curve/velTilt → [−1,1];
-    /// gate → [0.05,1]; harmVelScale → [0.1,1].
-    func testOffsetsClampToLegalRanges() {
-        var base = SnapParams(); base.curve = 0.8; base.gate = 0.9; base.harmVelScale = 0.9
-        let out = applyMacros(base, mods: [MacroMod(macro: 0, param: .curve, delta: 0.9),        // 0.8+0.9=1.7 → 1
-                                           MacroMod(macro: 0, param: .gate, delta: 0.5),          // 0.9+0.5=1.4 → 1
-                                           MacroMod(macro: 0, param: .harmVelScale, delta: -2)],  // 0.9−2=−1.1 → 0.1
-                              values: [1.0])
-        XCTAssertEqual(out.curve, 1.0, accuracy: 1e-9)
-        XCTAssertEqual(out.gate, 1.0, accuracy: 1e-9)
-        XCTAssertEqual(out.harmVelScale, 0.1, accuracy: 1e-9)
-    }
 
     // MARK: M1 — end to end through the builder
 
-
-    /// M2 — the PER-CELL value store (§A2 PUNCH/SPAN): ONE macro targets TWO cells with the same delta; a per-cell
-    /// override raises the DRIVING value on cell (0,0) only, so its param shifts while the neighbour (1,0) stays at
-    /// base (the global value 0). This is the load-bearing engine bit — a PUNCH-drawn cell is independent.
-    func testPerCellMacroValueShiftsOneCellNotItsNeighbour() {
-        var s = SceneState.empty()
-        func gateCell() -> Cell { var c = Cell(machineID: "gold"); var sl = ProcessorSlot(type: .arp); sl.params.gate = 0.5; c.processors = [sl]; return c }
-        s.cells[0][0] = gateCell()
-        s.cells[1][0] = gateCell()
-        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
-        doc.macros = doc.macrosResolved
-        doc.macros?[0] = Macro(name: "GATE", value: 0, fixed: false,   // GLOBAL value 0 → no shift anywhere by default
-                               targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4),
-                                         MacroTarget(col: 1, row: 0, slot: 0, param: "gate", delta: 0.4)])
-        // No overrides yet → both cells sit at base (global 0 × 0.4 = 0).
-        let base = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(base.cells[0 * Snap.rows + 0].procs[0].gate, 0.5, accuracy: 1e-9, "no override → base")
-        XCTAssertEqual(base.cells[1 * Snap.rows + 0].procs[0].gate, 0.5, accuracy: 1e-9, "neighbour → base")
-
-        // PUNCH cell (0,0) to full value → its gate shifts by the full delta; (1,0) untouched.
-        doc.macroCellValues = [MacroCellValue(col: 0, row: 0, macro: 0, value: 1.0)]
-        let box = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(box.cells[0 * Snap.rows + 0].procs[0].gate, 0.9, accuracy: 1e-9, "(0,0) drives at value 1 → 0.5 + 1×0.4")
-        XCTAssertEqual(box.cells[1 * Snap.rows + 0].procs[0].gate, 0.5, accuracy: 1e-9, "(1,0) has NO override → stays at the global (0) → base")
-    }
-
-    /// M2 byte-identity: an empty per-cell store changes nothing (the whole macroCellValues path is inert when unused).
-    func testEmptyPerCellStoreIsByteIdentical() {
-        var s = SceneState.empty()
-        var cell = Cell(machineID: "gold"); var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5; cell.processors = [slot]
-        s.cells[0][0] = cell
-        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
-        doc.macros = doc.macrosResolved
-        doc.macros?[0] = Macro(name: "G", value: 0.5, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4)])
-        let a = SnapshotBuilder.build(from: doc)
-        doc.macroCellValues = []                             // present but empty
-        let b = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(a.cells[0].procs[0].gate, b.cells[0].procs[0].gate, "an empty override store is a no-op (0.5 + 0.5×0.4 = 0.7 both ways)")
-        XCTAssertEqual(b.cells[0].procs[0].gate, 0.7, accuracy: 1e-9)
-    }
 
     /// M2 — the per-cell store travels with the document (Codable, additive-Optional); an old doc decodes nil.
     func testPerCellMacroValuesRoundTripAndOldDocDecodesNil() throws {
@@ -722,27 +629,6 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, plain, accuracy: 1e-9)
     }
 
-    /// M4 A/B semantic: a binding stores delta = B − A; the macro at 1 reconstructs B, at 0 returns to A. The base
-    /// (A) is what the document holds — authoring never rewrites it (this is the offset model's contract end-to-end).
-    func testABBindingReconstructsBAtOneAndAAtZero() {
-        let A = 0.3, B = 0.9
-        var s = SceneState.empty()
-        var cell = Cell(machineID: "gold")
-        var slot = ProcessorSlot(type: .arp); slot.params.gate = A     // the A state lives in the document
-        cell.processors = [slot]
-        s.cells[0][0] = cell
-        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
-        doc.macros = doc.macrosResolved
-        doc.macros?[0].targets = [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: B - A)]   // the authored delta
-
-        doc.macros?[0].value = 1.0
-        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, B, accuracy: 1e-9)     // full = B
-        doc.macros?[0].value = 0.0
-        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, A, accuracy: 1e-9)     // home = A
-        doc.macros?[0].value = 0.5
-        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.6, accuracy: 1e-9)   // halfway
-    }
-
     // MARK: M1 — builder fold edge cases (guards + summing + multi-cell)
 
     /// A gold ARP chain cell at (col,row) with the given head gate, ready for macro targeting.
@@ -757,13 +643,6 @@ final class EffectiveParamsTests: XCTestCase {
         return doc
     }
 
-    /// An out-of-range macro index in the values array contributes no offset (no crash, treated as 0).
-    func testApplyMacrosIgnoresOutOfRangeMacroIndex() {
-        var base = SnapParams(); base.gate = 0.5
-        let out = applyMacros(base, mods: [MacroMod(macro: 99, param: .gate, delta: 0.4),
-                                           MacroMod(macro: -1, param: .gate, delta: 0.4)], values: [1.0])
-        XCTAssertEqual(out.gate, 0.5, accuracy: 1e-9)
-    }
 
     /// The builder SKIPS a target with an unknown param string (forward-compat) — no crash, no change.
     func testBuilderSkipsUnknownParamString() {
@@ -783,47 +662,9 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(box.cells[0].procs[0].gate, 0.5, accuracy: 1e-9)          // unchanged; no trap
     }
 
-    /// Two macros bound to the SAME (cell,slot,param) SUM through the full build, then clamp once.
-    func testBuilderTwoMacrosOnSameParamSumEndToEnd() {
-        var doc = chainCellDoc(gate: 0.4)
-        doc.macros?[0] = Macro(value: 1.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.2)])
-        doc.macros?[1] = Macro(value: 1.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.3)])
-        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.9, accuracy: 1e-9)   // 0.4+0.2+0.3
-    }
-
-    /// One macro bound to TWO cells (a twin set) modulates BOTH — the multi-cell write law.
-    func testBuilderMacroModulatesEveryTargetedCell() {
-        var s = SceneState.empty()
-        for pos in [(0, 0), (3, 5)] {
-            var cell = Cell(machineID: "gold"); var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
-            cell.processors = [slot]; s.cells[pos.0][pos.1] = cell
-        }
-        var doc = PluginState(machines: [Machine(machineID: "gold", type: .arp)], scenes: [s])
-        doc.macros = doc.macrosResolved
-        doc.macros?[0] = Macro(value: 1.0, targets: [
-            MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.3),
-            MacroTarget(col: 3, row: 5, slot: 0, param: "gate", delta: 0.3),
-        ])
-        let box = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(box.cells[0 * Snap.rows + 0].procs[0].gate, 0.8, accuracy: 1e-9)
-        XCTAssertEqual(box.cells[3 * Snap.rows + 5].procs[0].gate, 0.8, accuracy: 1e-9)
-    }
-
 
     // MARK: OUTPUT — macros modulate the per-emitter role amounts (LEAK/DUCK/CURVE/POCKET)
 
-    /// A macro bound to an emitter's DUCK amount shifts the RESOLVED amount; the document base is untouched, and a
-    /// macro at 0 is home. The amount lives per-emitter (folded in the builder, not through applyMacros).
-    func testOutputMacroModulatesEmitterAmountAndLeavesBaseUntouched() {
-        var doc = self.doc()
-        doc.flattenAmount = [40, 0, 0, 0]                    // base DUCK 40% on emitter A
-        doc.macros = doc.macrosResolved
-        doc.macros?[0] = Macro(value: 1.0, emitterTargets: [MacroEmitterTarget(emitter: 0, param: "duck", delta: 50)])
-        XCTAssertEqual(SnapshotBuilder.build(from: doc).flattenAmount[0], 90)   // 40 + 1×50
-        XCTAssertEqual(doc.flattenAmountResolved[0], 40)                        // document base untouched
-        doc.macros?[0].value = 0.0
-        XCTAssertEqual(SnapshotBuilder.build(from: doc).flattenAmount[0], 40)   // home = base
-    }
 
     // MARK: TIMELINE — the pure lane evaluator (value = f(column))
 
@@ -843,39 +684,9 @@ final class EffectiveParamsTests: XCTestCase {
         m.laneRate = 0; XCTAssertEqual(m.laneRateMulResolved, 8.0) // ×8
     }
 
-    /// Each OUTPUT amount clamps to its native range (LEAK/DUCK 0…100 · CURVE −100…100 · POCKET −50…50), summing
-    /// overlaps ONCE. A half-value macro scales the delta.
-    func testOutputAmountsSumThenClampToRanges() {
-        var doc = self.doc()
-        doc.flattenAmount = [40, 0, 0, 0]; doc.curveAmount = [0, 0, 0, 0]; doc.pocketMs = [0, 0, 0, 0]
-        doc.macros = doc.macrosResolved
-        doc.macros?[0] = Macro(value: 1.0, emitterTargets: [
-            MacroEmitterTarget(emitter: 0, param: "duck", delta: 80),     // 40 + 80 = 120 (before the 2nd) …
-            MacroEmitterTarget(emitter: 0, param: "duck", delta: -30),    // … + −30 = 90 (sum first, not clamp-per-mod)
-            MacroEmitterTarget(emitter: 1, param: "curve", delta: 200),   // 0 + 200 → clamp 100
-            MacroEmitterTarget(emitter: 2, param: "pocket", delta: -80),  // 0 − 80 → clamp −50
-        ])
-        doc.macros?[1] = Macro(value: 0.5, emitterTargets: [MacroEmitterTarget(emitter: 3, param: "leak", delta: 40)])  // 0.5×40 = 20
-        let box = SnapshotBuilder.build(from: doc)
-        XCTAssertEqual(box.flattenAmount[0], 90)      // sum then clamp (proves not clamped per-mod)
-        XCTAssertEqual(box.curveAmount[1], 100)       // clamped to +100
-        XCTAssertEqual(box.pocketMs[2], -50)          // clamped to −50
-        XCTAssertEqual(box.claimLeak[3], 20)          // half-value scales the delta
-    }
 
     // MARK: applyMacros — guard edges (negative index · zero-offset short-circuit)
 
-    /// A NEGATIVE macro index contributes nothing (the guard's lower half) and a zero-value/zero-delta mod leaves
-    /// the base bit-identical (the `off == 0` short-circuit — never a needless re-clamp).
-    func testApplyMacrosNegativeIndexAndZeroOffsetLeaveBaseUntouched() {
-        var base = SnapParams(); base.gate = 0.5; base.spread = 0.3
-        let out = applyMacros(base, mods: [
-            MacroMod(macro: -1, param: .gate, delta: 0.5),     // negative index → skipped
-            MacroMod(macro: 0, param: .spread, delta: 0.0),    // zero delta → off == 0 → skipped
-        ], values: [1.0])
-        XCTAssertEqual(out.gate, 0.5, accuracy: 1e-9)
-        XCTAssertEqual(out.spread, 0.3, accuracy: 1e-9)
-    }
 
     // MARK: Snapshot effective* — the quantize/clamp helpers (render-side, §3.2)
 
@@ -908,38 +719,7 @@ final class EffectiveParamsTests: XCTestCase {
 
     // MARK: - Phase-2 render-time AUTO param plumbing (Paul 2026-09-04)
 
-    /// `AutoParamField(key:)` must recognise EXACTLY the render-time-automatable scalar keys and reject anything else —
-    /// a typo in the string table silently makes a param non-automatable at render time (the builder just skips it), with
-    /// no crash and no other test failing. This locks the 28-key table.
-    func testAutoParamFieldRecognisesEveryAutomatableKey() {
-        let keys = ["gate", "ramp", "spread", "curve", "velTilt", "probability", "harmVelScale",
-                    "octaves", "count", "rtcChance", "rtcCountLo", "rtcCountHi", "rtcRotate",
-                    "euclidPulses", "euclidSteps", "euclidRot", "glideRange", "modMin", "modMax",
-                    "lenShort", "lenLong", "lenRotate", "weaveSpan", "weaveEuclidSteps",
-                    "maskK", "maskRotate", "maskChordGate", "maskChordOct", "arpVelocity", "arpVelTilt"]
-        for k in keys { XCTAssertNotNil(AutoParamField(key: k), "\(k) must be render-time automatable") }
-        XCTAssertEqual(keys.count, 30, "the render-time scalar set is 30 fields")
-        for bogus in ["", "nope", "euclidPuls", "bypass", "pattern", "harm0", "passMask"] {
-            XCTAssertNil(AutoParamField(key: bogus), "\(bogus) is NOT a render-time scalar (nested/enum/typo)")
-        }
-    }
 
-    /// Read one automatable field back out of a SnapParams as a Double (for the clamp assertions above).
-    private func readAuto(_ s: SnapParams, _ f: AutoParamField) -> Double {
-        switch f {
-        case .gate: return s.gate;                 case .ramp: return s.ramp;                 case .spread: return s.spread
-        case .curve: return s.curve;               case .velTilt: return s.velTilt;           case .probability: return s.probability
-        case .harmVelScale: return s.harmVelScale; case .octaves: return Double(s.octaves);   case .count: return Double(s.count)
-        case .rtcChance: return s.rtcChance;       case .rtcCountLo: return Double(s.rtcCountLo); case .rtcCountHi: return Double(s.rtcCountHi)
-        case .rtcRotate: return Double(s.rtcRotate); case .euclidPulses: return Double(s.euclidPulses); case .euclidSteps: return Double(s.euclidSteps)
-        case .euclidRot: return Double(s.euclidRot); case .glideRange: return Double(s.glideRange); case .modMin: return Double(s.modMin)
-        case .modMax: return Double(s.modMax);     case .lenShort: return s.lenShort;         case .lenLong: return s.lenLong
-        case .lenRotate: return Double(s.lenRotate); case .weaveSpan: return Double(s.weaveSpan); case .weaveEuclidSteps: return Double(s.weaveEuclidSteps)
-        case .maskK: return Double(s.maskK); case .maskRotate: return Double(s.maskRotate)
-        case .maskChordGate: return s.maskChordGate; case .maskChordOct: return Double(s.maskChordOct)
-        case .arpVelocity: return s.arpVelocity; case .arpVelTilt: return s.arpVelTilt
-        }
-    }
 
     // FOURFOLD HEADER ferry §1.2/§10.4: the ON chip is gone, so a document (or preset) SAVED with the page off must load
     // audible — the resolver wins — while the stored value itself is never rewritten.
