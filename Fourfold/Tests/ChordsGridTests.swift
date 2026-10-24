@@ -265,3 +265,90 @@ final class ChordsGridChordToneTests: XCTestCase {
         XCTAssertEqual(viaShared, expected)
     }
 }
+
+final class ChordsGridLayoutTests: XCTestCase {
+
+    // Paul's own two reference screenshots (PageLayoutTests.swift) -- the popup's `size` parameter is the
+    // page's geo.size, so these are the right numbers to test the popup's layout against too.
+    private let landscapeRef = CGSize(width: 1190, height: 726)
+    private let portraitRef = CGSize(width: 814, height: 1102)
+
+    private func contentBox(_ pageSize: CGSize) -> CGSize {
+        let maxW = min(640, pageSize.width - 32)
+        let maxH = pageSize.height - 60
+        return CGSize(width: maxW - 40, height: maxH - 40)   // the card's own 20pt padding, each side
+    }
+
+    // MARK: - §10 test 4: frames at n = 1, 8, 16; floor flags below §2.5/§2.6
+
+    func testLandscapeAtEachStepsCountStaysAboveBothFloors() {
+        let box = contentBox(landscapeRef)
+        for n in [1, 8, 16] {
+            let l = euclideousChordsPopupLayout(box: box, steps: n)
+            XCTAssertFalse(l.belowRowFloor, "n=\(n) landscape rowH=\(l.rowH)")
+            XCTAssertFalse(l.belowCellFloor, "n=\(n) landscape cellW=\(l.cellW)")
+        }
+    }
+
+    func testPortraitAtEachStepsCountStaysAboveBothFloors() {
+        let box = contentBox(portraitRef)
+        for n in [1, 8, 16] {
+            let l = euclideousChordsPopupLayout(box: box, steps: n)
+            XCTAssertFalse(l.belowRowFloor, "n=\(n) portrait rowH=\(l.rowH)")
+            XCTAssertFalse(l.belowCellFloor, "n=\(n) portrait cellW=\(l.cellW)")
+        }
+    }
+
+    func testRowHIsTheSpec25Formula() {
+        let box = contentBox(landscapeRef)
+        let l = euclideousChordsPopupLayout(box: box, steps: 8)
+        let expectedRowH = (l.gridH - (16 * 4 + 10)) / 18
+        XCTAssertEqual(l.rowH, expectedRowH, accuracy: 1e-9)
+    }
+
+    func testCellWIsTheSpec26FormulaAndScalesWithSteps() {
+        let box = contentBox(landscapeRef)
+        for n in [1, 8, 16] {
+            let l = euclideousChordsPopupLayout(box: box, steps: n)
+            let expectedCellW = (box.width - EuclideousChordsPopupMetrics.labelW - 4 - CGFloat(n - 1) * 4) / CGFloat(n)
+            XCTAssertEqual(l.cellW, expectedCellW, accuracy: 1e-9, "n=\(n)")
+        }
+    }
+
+    func testStepsClampsToOneSixteenRangeInsideTheLayoutFunction() {
+        let box = contentBox(landscapeRef)
+        XCTAssertEqual(euclideousChordsPopupLayout(box: box, steps: 0).steps, 1)
+        XCTAssertEqual(euclideousChordsPopupLayout(box: box, steps: 99).steps, 16)
+    }
+
+    // MARK: - Row/column frame geometry
+
+    func testEighteenRowsFitExactlyWithinGridHIncludingTheWiderDividerGap() {
+        let box = contentBox(landscapeRef)
+        let l = euclideousChordsPopupLayout(box: box, steps: 8)
+        // rowTop() is absolute from the CARD's top (matches EuclideousRiffPanelLayout's own precedent), so
+        // the last row's bottom lands at gridTop + gridH, not bare gridH.
+        let lastRowBottom = l.rowTop(17) + l.rowH
+        XCTAssertEqual(lastRowBottom, l.gridTop + l.gridH, accuracy: 1e-9)
+    }
+
+    func testDividerSitsBetweenRowElevenAndRowTwelveWithTheWiderGap() {
+        let box = contentBox(landscapeRef)
+        let l = euclideousChordsPopupLayout(box: box, steps: 8)
+        let gapBefore12 = l.rowTop(12) - (l.rowTop(11) + l.rowH)
+        XCTAssertEqual(gapBefore12, EuclideousChordsPopupMetrics.dividerGap, accuracy: 1e-9)
+        let gapBefore11 = l.rowTop(11) - (l.rowTop(10) + l.rowH)
+        XCTAssertEqual(gapBefore11, EuclideousChordsPopupMetrics.rowGap, accuracy: 1e-9, "every OTHER gap is the normal 4pt")
+        XCTAssertGreaterThan(l.dividerY, l.rowTop(11) + l.rowH)
+        XCTAssertLessThan(l.dividerY, l.rowTop(12))
+    }
+
+    func testColumnsFillExactlyToTheGridsRightEdge() {
+        let box = contentBox(landscapeRef)
+        for n in [1, 8, 16] {
+            let l = euclideousChordsPopupLayout(box: box, steps: n)
+            let lastColumnRight = l.columnLeft(n - 1) + l.cellW
+            XCTAssertEqual(lastColumnRight, l.gridWidth, accuracy: 1e-9, "n=\(n)")
+        }
+    }
+}

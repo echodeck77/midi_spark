@@ -2440,7 +2440,9 @@ struct EuclideousPage: View {
         }
         .padding(20)
         .frame(width: maxW)
-        .frame(maxHeight: size.height - 60)
+        // CHORDS GRID ferry §2.2: top-align — a `.frame(maxHeight:)` with no `alignment:` defaults to .center,
+        // which is what pushed the title down inside the near-full-height box (Paul's screenshot).
+        .frame(maxHeight: size.height - 60, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)

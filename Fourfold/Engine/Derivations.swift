@@ -932,6 +932,72 @@ func euclideousChordName(tones: [Int], rootNote: Int, flatSpelling: Bool) -> Str
     return letter + euclideousChordNameSuffix(tones: tones, rootNote: rootNote)
 }
 
+// MARK: - CHORDS GRID ferry §2: the pop-up's layout — ONE pure function every view in §2-4/§6/§7 reads.
+
+/// Fixed row heights this ferry doesn't resize (§2.1/§2.3, "today's height" — the title row's own content size,
+/// the STEPS/RATE row's tallest sub-control) — reasoned estimates, not measured on a device; flagged in the
+/// ferry report. `labelW` is likewise a REASONED estimate of "♭VII"/"ADD9"/"SUS4" at 10pt heavy monospaced
+/// (Derivations.swift is Foundation-only — no real text measurement here, matching the riff panel's own
+/// `EuclideousRiffPanelMetrics.labelW` precedent of a fixed nominal constant, not a live measurement).
+enum EuclideousChordsPopupMetrics {
+    static let titleRowH: CGFloat = 22
+    static let tabRowH: CGFloat = 20
+    static let stepsRateRowH: CGFloat = 26
+    static let playheadBarH: CGFloat = 3
+    static let poolStripH: CGFloat = 32
+    static let rowGap: CGFloat = 4
+    static let dividerGap: CGFloat = 10
+    static let gridRowCount = 18
+    static let dividerAfterRow = 11       // 0-indexed: rows 0...11 are the 12 chord rows (7 diatonic + 4 borrowed + REST)
+    static let rowFloor: CGFloat = 20
+    static let cellFloor: CGFloat = 14
+    static let labelW: CGFloat = 36       // widest of "♭VII"/"ADD9"/"SUS4" at the row-label face — see doc comment above
+    static let sp4: CGFloat = 4, sp8: CGFloat = 8
+    /// Everything but the grid's own height: title + sp8 + tabs + sp8 + steps/rate + sp8 + [grid] + 3 + playhead + sp8 + pool.
+    static let chromeH: CGFloat = titleRowH + sp8 + tabRowH + sp8 + stepsRateRowH + sp8 + 3 + playheadBarH + sp8 + poolStripH
+    /// §2.5, literal: the 16 normal row-gaps plus the one wider divider gap.
+    static let gridGapTotal: CGFloat = CGFloat(gridRowCount - 1) * rowGap + (dividerGap - rowGap)
+}
+
+/// §2/§6/§7: the CHORDS pop-up's entire inside, from its own content box (inside the card's own padding).
+/// `steps` is the live STEPS count (1...16) — the grid always draws 18 ROWS, but only `steps` COLUMNS.
+struct EuclideousChordsPopupLayout: Equatable {
+    typealias M = EuclideousChordsPopupMetrics
+    var box: CGSize
+    var steps: Int
+    var gridH: CGFloat
+    var rowH: CGFloat
+    var cellW: CGFloat
+
+    var belowRowFloor: Bool { rowH < M.rowFloor }
+    var belowCellFloor: Bool { cellW < M.cellFloor }
+
+    var tabRowTop: CGFloat { M.titleRowH + M.sp8 }
+    var stepsRateRowTop: CGFloat { tabRowTop + M.tabRowH + M.sp8 }
+    var gridTop: CGFloat { stepsRateRowTop + M.stepsRateRowH + M.sp8 }
+    var playheadBarTop: CGFloat { gridTop + gridH + 3 }
+    var poolStripTop: CGFloat { playheadBarTop + M.playheadBarH + M.sp8 }
+
+    /// Row `r` (0...17) counted from the top; rows 12...17 are the 6 colour rows, past the divider.
+    func rowTop(_ r: Int) -> CGFloat {
+        let extra = r > M.dividerAfterRow ? (M.dividerGap - M.rowGap) : 0
+        return gridTop + CGFloat(r) * (rowH + M.rowGap) + extra
+    }
+    /// The 1pt divider line's own y, centred in its 10pt gap, across the cell columns only (not the label column).
+    var dividerY: CGFloat { gridTop + CGFloat(M.dividerAfterRow + 1) * rowH + CGFloat(M.dividerAfterRow) * M.rowGap + M.dividerGap / 2 }
+    func columnLeft(_ c: Int) -> CGFloat { M.labelW + M.sp4 + CGFloat(c) * (cellW + M.sp4) }
+    func cellFrame(row: Int, column: Int) -> CGRect { CGRect(x: columnLeft(column), y: rowTop(row), width: cellW, height: rowH) }
+    var gridWidth: CGFloat { M.labelW + M.sp4 + CGFloat(steps) * cellW + CGFloat(max(0, steps - 1)) * M.sp4 }
+}
+
+func euclideousChordsPopupLayout(box: CGSize, steps: Int) -> EuclideousChordsPopupLayout {
+    typealias M = EuclideousChordsPopupMetrics
+    let n = max(1, min(16, steps))
+    let gridH = max(1, box.height - M.chromeH)
+    let rowH = (gridH - M.gridGapTotal) / CGFloat(M.gridRowCount)
+    let cellW = (box.width - M.labelW - M.sp4 - CGFloat(n - 1) * M.sp4) / CGFloat(n)
+    return EuclideousChordsPopupLayout(box: box, steps: n, gridH: gridH, rowH: rowH, cellW: cellW)
+}
 
 
 
