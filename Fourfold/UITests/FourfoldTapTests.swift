@@ -73,7 +73,7 @@ final class FourfoldTapTests: XCTestCase {
     func testEveryLaneTabOpensItsOwnContent() {
         let app = XCUIApplication.fresh()
         app.els(prefix: "Riff, ").element(boundBy: 0).tap()
-        need(app.otherElements["Walk"], "the RIFF tab's WALK strip")
+        need(app.el("Advance every"), "the RIFF tab's ADVANCE EVERY row")   // (the WALK strip above it is dropped on a card too short for it — the iPad mini — so it is not the thing to look for)
         app.els(prefix: "Notes").element(boundBy: 0).tap()
         need(app.el("Notes layer, off, 0 notes lit"), "the NOTES tab's layer switch")
         app.els(prefix: "Listen, ").element(boundBy: 0).tap()
