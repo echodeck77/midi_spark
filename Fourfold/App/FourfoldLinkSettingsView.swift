@@ -7,6 +7,8 @@
 
 import SwiftUI
 
+#if FOURFOLD_LINK   // ABLETON LINK is OFF until after release — this file compiles to nothing without the flag
+
 struct FourfoldLinkSettingsView: UIViewControllerRepresentable {
     let link: ABLLinkRef
 
@@ -15,3 +17,4 @@ struct FourfoldLinkSettingsView: UIViewControllerRepresentable {
     }
     func updateUIViewController(_ uiViewController: ABLLinkSettingsViewController, context: Context) {}
 }
+#endif

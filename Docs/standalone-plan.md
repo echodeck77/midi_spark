@@ -58,8 +58,19 @@ the app. It looks simpler but creates a second way of driving the Kernel —
 two integration paths = behavioural drift, the disease this architecture
 exists to prevent. One engine artifact; the app is just another host.
 
-Later carrots that live here (not before): Ableton Link, background audio
-session, files/document browser for Presets.
+Later carrots that live here (not before): background audio session,
+files/document browser for Presets, and Ableton Link (below).
+
+### Ableton Link — built, switched OFF until after release (Paul, 2026-10-24)
+The standalone app's Link sync (tempo + transport start/stop; `FourfoldEngine` owns the `ABLLinkRef`, `FourfoldAppModel` registers the callbacks, a LINK button
+in the transport bar, long-press → Ableton's own settings screen) was built and tested, then parked: it is compiled out of the default build behind
+`#if FOURFOLD_LINK`, and the default build carries none of its footprint — no LinkKit SDK (a ~105 MB, licence-restricted download, never committed), no bridging
+header, no `-lc++`, no `NSLocalNetworkUsageDescription` / `ABLLink*` plist keys (so no local-network permission prompt), no LINK button, and — the release
+blocker — no RESTRICTED `com.apple.developer.networking.multicast` entitlement (Apple must approve it per App ID, so a device / TestFlight build would otherwise
+depend on that approval). Turn it on after release with `sh Scripts/link-switch.sh on` (then `off` to put it away again; no argument says which it is); the `#LINK `
+lines in `project.yml` between the `# LINK-BEGIN` / `# LINK-END` markers are the whole project-side switch. Before shipping it: the multicast entitlement approved,
+the device list in `Docs/euclideous-device-verification-debt.md` ("ABLETON LINK"), and `Fourfold/Vendor/` fetched (`Scripts/fetch-linkkit.sh`). `FourfoldAU` and 8x8
+State never had Link.
 
 ## The three seam rules (ENFORCED DURING THE MIGRATION — they are the entire
 ## "early support" cost, and they are nearly free while everything is open)

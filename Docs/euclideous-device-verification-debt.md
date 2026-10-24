@@ -33,7 +33,7 @@ Nothing in Fourfold has run on a device yet: everything so far is simulator + un
 - 2.3 Switch to another app while it plays: it keeps playing in the background.
 - 2.4 MIDI IN: with the note source on MIDI IN, a keyboard (USB, Bluetooth or another app) plays into it; HOLD sustains after release, LATCH toggles notes in and out; no doubled notes (it must never hear its own output).
 - 2.5 Change something audible (a lane, the key), force-quit, relaunch: the change is still there.
-- 2.6 ABLETON LINK (2026-10-24 ferry) — see the dedicated section below for the full list; this needs Apple's multicast entitlement approved first (Paul's own step, not landable from a build).
+- 2.6 ABLETON LINK — **ON HOLD, Link is switched off until after release (2026-10-24); skip this line and the ABLETON LINK section below until `sh Scripts/link-switch.sh on`.** (2026-10-24 ferry) — see the dedicated section below for the full list; this needs Apple's multicast entitlement approved first (Paul's own step, not landable from a build).
 
 **3 · THE PLUGIN IN AUM** (the first time the extension is ever loaded by a real host)
 - 3.1 AUM lists **"Outlier MIDI: Fourfold"** as a MIDI processor, separate from "8x8 State"; adding it opens the REAL page (not a placeholder) at AUM's plugin window size; the AUM picker shows the Fourfold icon.
@@ -51,7 +51,7 @@ Nothing in Fourfold has run on a device yet: everything so far is simulator + un
 
 If something fails: which step, what you saw, and for a crash the line Xcode prints. Don't try to fix it on the device.
 
-### ABLETON LINK (2026-10-24 ferry — standalone Fourfold app only)
+### ABLETON LINK (2026-10-24 ferry — standalone Fourfold app only) — ON HOLD: switched OFF until after release; nothing here applies to the current build
 - BLOCKED on Paul's own step first: real-device peer discovery needs Apple's `com.apple.developer.networking.multicast` entitlement, a RESTRICTED entitlement Apple must approve per App ID (developer.apple.com) — not something landable from a build. Builds and Simulator runs work without it; nothing below is checkable until it's granted.
 - Discover a real peer (AUM's own Link toggle, Ableton Live, or another Link app on the same Wi-Fi) with LINK on in Fourfold: the peer count updates, and Fourfold adopts the peer's tempo within a beat or two.
 - Change Fourfold's own BPM (stepper or slider) while connected: the peer's tempo follows.

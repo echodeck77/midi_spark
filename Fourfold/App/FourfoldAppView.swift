@@ -7,10 +7,12 @@ struct FourfoldAppView: View {
     @StateObject private var model = FourfoldAppModel()
     @Environment(\.scenePhase) private var scenePhase
     private let autosave = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+    #if FOURFOLD_LINK   // ABLETON LINK is OFF until after release — see `Docs/standalone-plan.md` "Ableton Link" for the switch
     // ABLETON LINK (2026-10-24 ferry): tap the LINK button toggles it like PLAY; a long-press opens
     // Ableton's own settings screen (the only place "Start Stop Sync" can be turned on) — tap-vs-
     // long-press for toggle-vs-menu is this codebase's established convention (e.g. the riff tabs).
     @State private var showLinkSettings = false
+    #endif
 
     private let bg = Color(red: 0.066, green: 0.075, blue: 0.094)
     private let panel = Color(red: 0.10, green: 0.11, blue: 0.14)
@@ -35,6 +37,7 @@ struct FourfoldAppView: View {
         .preferredColorScheme(.dark)
         .onChange(of: scenePhase) { phase in if phase != .active { model.saveState() } }
         .onReceive(autosave) { _ in model.saveState() }
+        #if FOURFOLD_LINK
         .sheet(isPresented: $showLinkSettings) {
             if let link = model.engine?.link {
                 NavigationView {
@@ -44,6 +47,7 @@ struct FourfoldAppView: View {
                 }
             }
         }
+        #endif
     }
 
     private var transportBar: some View {
@@ -73,7 +77,9 @@ struct FourfoldAppView: View {
                 .tint(accent).frame(maxWidth: 260)
                 .accessibilityHidden(true)
 
+            #if FOURFOLD_LINK
             linkButton
+            #endif
 
             Spacer(minLength: 0)
 
@@ -87,6 +93,7 @@ struct FourfoldAppView: View {
         .background(panel.opacity(0.6))
     }
 
+    #if FOURFOLD_LINK
     /// ABLETON LINK: tap toggles `linkEnabled` (same gesture as PLAY); long-press opens the real
     /// settings screen. OFF = dim outline; ON but no peer yet = lit outline, no count; connected =
     /// filled, showing the peer count — three states, one glance, same visual language as PLAY's own
@@ -109,6 +116,7 @@ struct FourfoldAppView: View {
         .accessibilityLabel(on ? (connected ? "Link, connected to \(model.linkPeerCount) peers" : "Link, on, no peers") : "Link, off")
         .accessibilityHint("Double-tap to turn Link on or off. Long-press for Link settings.")
     }
+    #endif
 
     private func stepButton(_ symbol: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {

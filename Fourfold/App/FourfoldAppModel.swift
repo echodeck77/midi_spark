@@ -11,12 +11,14 @@ final class FourfoldAppModel: ObservableObject {
     @Published var tempo: Double
     let launchError: String?
 
+    #if FOURFOLD_LINK   // ABLETON LINK is OFF until after release — see `Docs/standalone-plan.md` "Ableton Link" for the switch
     // ABLETON LINK (2026-10-24 ferry): `linkEnabled` is Fourfold's OWN on/off (ABLLinkSetActive) —
     // persisted like `tempo` above. `linkConnected`/`linkPeerCount` mirror the session's live state,
     // updated only from the main-thread callbacks registered in `init` below; nothing here is polled.
     @Published var linkEnabled = false
     @Published var linkConnected = false
     @Published var linkPeerCount = 0
+    #endif
 
     private var lastSaved: Data?
     private let selfTest = FourfoldSelfTest()
@@ -30,6 +32,7 @@ final class FourfoldAppModel: ObservableObject {
         engine = built; launchError = err
         if !CommandLine.arguments.contains("--fresh") { restoreState() }   // `--fresh`: UI tests start from the factory document, never from the last session
         engine?.setTempo(tempo)
+        #if FOURFOLD_LINK
         linkEnabled = d.bool(forKey: "fourfold.linkEnabled")
         if let link = engine?.link {
             engine?.setLinkActive(linkEnabled)
@@ -51,6 +54,7 @@ final class FourfoldAppModel: ObservableObject {
             linkConnected = ABLLinkIsConnected(link)
             linkPeerCount = Int(ABLLinkNumPeers(link))
         }
+        #endif
         // `--autoplay`: start the transport at launch (the simulator harness and UI tests have no way to tap PLAY).
         if CommandLine.arguments.contains("--autoplay") { setPlaying(true) }
         // `--midi-selftest`: check the CoreMIDI shell in-process and print the result to stderr (FourfoldSelfTest).
@@ -66,6 +70,7 @@ final class FourfoldAppModel: ObservableObject {
         }
     }
 
+    #if FOURFOLD_LINK
     /// ABLETON LINK: toggles Fourfold's own participation. Does NOT touch "Start Stop Sync enabled" —
     /// per ABLLink.h there is no setter for that; only `FourfoldLinkSettingsView`'s real Link settings
     /// screen can turn it on, which is why that screen is reachable from the LINK button, not optional.
@@ -74,6 +79,7 @@ final class FourfoldAppModel: ObservableObject {
         engine?.setLinkActive(on)
         UserDefaults.standard.set(on, forKey: "fourfold.linkEnabled")
     }
+    #endif
     func setPlaying(_ on: Bool) { playing = on; engine?.setPlaying(on) }
     func togglePlaying() { setPlaying(!playing) }
     func setTempo(_ bpm: Double) {
