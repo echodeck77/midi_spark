@@ -27,7 +27,8 @@ Euclideous need is normal and expected; building new 8×8-grid-workbench UI is n
   `Docs/claude-playbook.md` (how to work effectively on this codebase — the loop, the recurring
   bug class, the testing split, named plainly) · `Docs/fourstep-design-tokens.md` (the real
   palette/lane-accents/spacing, each tagged \[verified] from source or \[consolidated] from the
-  log — read before picking a colour or a gap value for new UI). Each of these three has a
+  log — read before picking a colour or a gap value for new UI). **The REEL redesign plan** is `Docs/reel-redesign-plan.md` (+ an interactive mockup page beside it) — read it before touching the reel.
+  Each of these three has a
   browsable, nicer-looking twin published as a Claude artifact (linked from inside the file) —
   the `Docs/` file is the one Claude actually reads; the artifact is for handing to a person.
 - **ON HOLD (8x8 State's own UI/feature docs — don't start new work from these without asking)**:
