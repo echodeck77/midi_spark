@@ -2743,7 +2743,8 @@ final class DerivationsTests: XCTestCase {
             var p = SnapParams()
             p.chordsMode = .pattern
             p.chordsSteps = Int.random(in: 1...16, using: &g)
-            p.chordsDegrees = (0..<Int.random(in: 0...16, using: &g)).map { _ in Int.random(in: -1...7, using: &g) }
+            p.chordsDegrees = (0..<Int.random(in: 0...16, using: &g)).map { _ in Int.random(in: -1...11, using: &g) }   // -1 carry · 0…6 diatonic · 7 rest · 8…11 the borrowed chords
+            p.chordsColours = Bool.random(using: &g) ? [] : (0..<Int.random(in: 0...16, using: &g)).map { _ in Int.random(in: 0...6, using: &g) }
             p.chordsVoicing = ChordVoicing.allCases.randomElement(using: &g)!; p.chordsSpread = ChordSpread.allCases.randomElement(using: &g)!
             p.chordsRotate = Int.random(in: -20...20, using: &g); p.chordsRateBeats = [0, 1, 2, 4, 0.5].randomElement(using: &g)!
             let tones = scales.randomElement(using: &g)!, root = Int.random(in: -12...23, using: &g), beat = Double.random(in: -8...400, using: &g)

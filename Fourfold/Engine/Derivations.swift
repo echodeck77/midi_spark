@@ -758,8 +758,55 @@ func diatonicChordInto(_ out: inout [Int], degree deg: Int, scaleTones: [Int], r
     }
     return count
 }
+/// `euclideousChordTones` for the render thread: the same notes written into `out` (room for 5), the count returned — no arrays (the borrowed-triad tables were `[[Int]]` literals built on every call). `ListenTabTests`/`DerivationsTests`
+/// fuzz it against the array form over every degree, colour, spread, scale and key.
+func euclideousChordTonesInto(_ out: inout [Int], degree deg: Int, colour: Int, scaleTones: [Int], rootNote: Int, minorKey: Bool, spread: ChordSpread) -> Int {
+    guard out.count >= 5 else { return 0 }
+    var root: Int, third: Int, fifth: Int, seventh: Int
+    if deg >= 8 && deg <= 11 {
+        let row = deg - 8
+        let t: (Int, Int, Int), sv: Int
+        switch (minorKey, row) {                                          // §5.2 / §5.3's literal tables (see `euclideousBorrowedTriad` / `euclideousBorrowedSeventh`)
+        case (true, 0): t = (7, 11, 14); sv = 10
+        case (true, 1): t = (5, 9, 12);  sv = 10
+        case (true, 2): t = (1, 5, 8);   sv = 11
+        case (true, 3): t = (11, 14, 17); sv = 9
+        case (false, 0): t = (10, 14, 17); sv = 11
+        case (false, 1): t = (5, 8, 12);  sv = 10
+        case (false, 2): t = (8, 12, 15); sv = 11
+        default: t = (2, 6, 9); sv = 10
+        }
+        root = rootNote + t.0; third = rootNote + t.1; fifth = rootNote + t.2
+        seventh = root + sv
+    } else {
+        let n = scaleTones.count
+        guard n > 0 else { return 0 }
+        func tone(_ k: Int) -> Int {
+            let idx = ((k % n) + n) % n
+            let oct = Int(floor(Double(k) / Double(n)))
+            return rootNote + scaleTones[idx] + 12 * oct
+        }
+        root = tone(deg); third = tone(deg + 2); fifth = tone(deg + 4); seventh = tone(deg + 6)
+    }
+    var count: Int
+    switch ChordColour(rawValue: colour) ?? .none {
+    case .none:    out[0] = root; out[1] = third; out[2] = fifth; count = 3
+    case .seventh: out[0] = root; out[1] = third; out[2] = fifth; out[3] = seventh; count = 4
+    case .ninth:   out[0] = root; out[1] = third; out[2] = fifth; out[3] = seventh; out[4] = root + 14; count = 5
+    case .sixth:   out[0] = root; out[1] = third; out[2] = fifth; out[3] = root + 9; count = 4
+    case .add9:    out[0] = root; out[1] = third; out[2] = fifth; out[3] = root + 14; count = 4
+    case .sus2:    out[0] = root; out[1] = root + 2; out[2] = root + 7; count = 3
+    case .sus4:    out[0] = root; out[1] = root + 5; out[2] = root + 7; count = 3
+    }
+    func sortOut() { for i in 1..<count { let x = out[i]; var j = i - 1; while j >= 0 && out[j] > x { out[j + 1] = out[j]; j -= 1 }; out[j + 1] = x } }
+    if spread == .open && count >= 3 { sortOut(); out[1] += 12 }
+    for i in 0..<count { out[i] = max(0, min(127, out[i])) }
+    sortOut()
+    return count
+}
 /// `chordSeqNotes` for the render thread: the same notes written into `out` (room for at least 5), the count returned — 0 on a REST. It runs once per render window under the CHORDS note source, and the array form made about six heap
-/// allocations each time. PATTERN mode (the only one Fourfold's CHORDS source ever builds) is allocation-free; WALK / FOLLOW, which it never reaches, go through the array form.
+/// allocations each time. PATTERN mode (the only one Fourfold's CHORDS source ever builds) is allocation-free; WALK / FOLLOW, which it never reaches, go through the array form. MUST follow `chordSeqNotes` line for line (the CHORDS GRID
+/// ferry's borrowed degrees and colours included) — the fuzz in `DerivationsTests` fails if they drift.
 func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?) -> Int {
     guard p.chordsMode == .pattern else {
         let a = chordSeqNotes(beat: m, p, keyRoot: root, keyTones: scaleTones, followNote: followNote)
@@ -767,11 +814,19 @@ func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyR
         return c
     }
     let rateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
-    let step = Int((m / rateBeats).rounded(.down))
+    let step = euclideousChordsPlayingColumn(beat: m, rateBeats: rateBeats)
     let steps = max(1, min(16, p.chordsSteps))
-    let (deg, rest) = chordsDegreeAt(step: step, count: steps, rotate: p.chordsRotate) { $0 < p.chordsDegrees.count ? p.chordsDegrees[$0] : -1 }
+    let column = { (i: Int) -> Int in i < p.chordsDegrees.count ? p.chordsDegrees[i] : -1 }
+    let (deg, rest) = chordsDegreeAt(step: step, count: steps, rotate: p.chordsRotate, element: column)
     guard !rest else { return 0 }
-    return diatonicChordInto(&out, degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread)   // already clamped to 0…127, so `chordSeqNotes`'s final filter removes nothing
+    var colour = 0
+    if !p.chordsColours.isEmpty, let src = chordsSourceStepAt(step: step, count: steps, rotate: p.chordsRotate, element: column), src < p.chordsColours.count {
+        colour = p.chordsColours[src]
+    }
+    if deg >= 8 || colour != 0 {
+        return euclideousChordTonesInto(&out, degree: deg, colour: colour, scaleTones: scaleTones, rootNote: 48 + root, minorKey: euclideousScaleIsMinor(scaleTones), spread: p.chordsSpread)
+    }
+    return diatonicChordInto(&out, degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread)
 }
 
 /// The next degree in a functional random WALK (SPEC-chords-stage §1 WALK — "the gravity dice"): SEEDED (replay-exact, no
@@ -1587,16 +1642,19 @@ func chordsDegreeAt(step: Int, count n: Int, rotate: Int, element: (Int) -> Int)
 /// signature — every existing caller of `chordsDegreeAt` is untouched by this ferry. `nil` on REST (nothing
 /// plays, so no column's colour applies) or an unreachable step.
 func chordsSourceStepAt(step: Int, degrees: [Int], rotate: Int) -> Int? {
-    let n = degrees.count
+    chordsSourceStepAt(step: step, count: degrees.count, rotate: rotate) { degrees[$0] }
+}
+/// The rule itself over an `n`-column matrix read through `element` (the render thread's form: no array of the matrix to build — see `chordSeqNotesInto`).
+func chordsSourceStepAt(step: Int, count n: Int, rotate: Int, element: (Int) -> Int) -> Int? {
     guard n > 0 else { return nil }
     func idx(_ s: Int) -> Int { ((s + rotate) % n + n) % n }
     let here = idx(step)
-    if degrees[here] == 7 { return nil }                    // explicit REST — no source column
-    if degrees[here] >= 0 { return here }                   // authored degree — this IS the source
+    if element(here) == 7 { return nil }                    // explicit REST — no source column
+    if element(here) >= 0 { return here }                   // authored degree — this IS the source
     for back in 1...n {
         let d = idx(step - back)
-        if degrees[d] == 7 { return nil }
-        if degrees[d] >= 0 { return d }
+        if element(d) == 7 { return nil }
+        if element(d) >= 0 { return d }
     }
     return nil
 }

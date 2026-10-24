@@ -184,7 +184,7 @@ extension Host {
         timer?.invalidate()
         guard AllocWatch.install() else { fputs("ALLOC UNAVAILABLE: no malloc_logger symbol in this process\n", stderr); exit(2) }
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
-        let sourceRuns = ["(default) CHORDS", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH"]
+        let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -198,6 +198,15 @@ extension Host {
             if name.hasPrefix("(default)") {
                 au.resetToFreshInit()
                 if name.contains("CHORDS") { au.editDocument { $0.euclideousNoteSource = .chords } }
+                if name.contains("colours") {   // the CHORDS GRID ferry's 16-step progression with every colour and the four borrowed chords
+                    au.editDocument {
+                        var cfg = $0.euclideousChordSetsResolved[$0.activeChordSetResolved]
+                        cfg.chordsSteps = 16
+                        cfg.chordsDegrees = [0, 9, 3, 11, 4, 8, 10, 5, 0, 2, 7, 6, 1, 8, 9, 10]
+                        cfg.chordsColours = [1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 0, 1, 2]
+                        $0.setEuclideousChordSet($0.activeChordSetResolved, cfg)
+                    }
+                }
                 if name.contains("MIDI IN") { au.editDocument { $0.euclideousNoteSource = .midi } }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }
