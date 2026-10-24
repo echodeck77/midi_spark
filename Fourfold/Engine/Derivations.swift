@@ -698,25 +698,44 @@ func diatonicChord(degree deg: Int, scaleTones: [Int], rootNote: Int,
     return notes.map { max(0, min(127, $0)) }.sorted()
 }
 
+/// The PATTERN-mode playing column at beat `m` (CHORDS GRID ferry §6.1): the ONE formula `chordSeqNotes` and
+/// the CHORDS popup's UI both read, so the UI can never re-derive a different "what column is playing" than
+/// the engine actually uses (this codebase's own named recurring bug class). `rateBeats <= 0` floors to 4,
+/// matching `chordSeqNotes`'s own guard.
+func euclideousChordsPlayingColumn(beat m: Double, rateBeats: Double) -> Int {
+    let r = rateBeats > 0 ? rateBeats : 4
+    return Int((m / r).rounded(.down))
+}
+
 /// THE CHORD SEQUENCER derivation (Paul 2026-09-04): the diatonic chord at beat `m` for a CHORDS config, in a resolved key.
 /// SHARED by the CHORDS PROCESSOR stage (Router.applyStage) AND the chord DOOR pool-fill (Kernel) so they can NEVER diverge —
 /// this is the "future processor work reflects on the door" contract in one function. `step = floor(m / chordsRateBeats)`;
 /// PATTERN reads the drawn matrix (active length = chordsSteps, CARRY/REST honoured), WALK the seeded gravity dice, FOLLOW
 /// names the degree from `followNote` (nil ⇒ the tonic — a door with no play-along input sits on I). `root`/`scaleTones` are
 /// the ALREADY-RESOLVED key (the caller reads the SCALE-FROM door or the card key). Returns ascending MIDI notes, [] on REST.
+/// CHORDS GRID ferry (2026-10-24) extended this for Euclideous's own popup: `p.chordsDegrees` may carry the 4 BORROWED
+/// degree codes (8...11, never written by the regular CHORDS processor/door UI) and `p.chordsColours` may be non-empty
+/// (ditto) — gated so a caller that never resolves either (every pre-ferry caller; `p.chordsColours` defaults to `[]`,
+/// `applyChords` clamps degrees to 0...7) takes the OLD `diatonicChord(voicing:spread:)` path, byte-identical.
 func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?) -> [Int] {
     let rateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
-    let step = Int((m / rateBeats).rounded(.down))
-    var deg = 0, rest = false
+    let step = euclideousChordsPlayingColumn(beat: m, rateBeats: rateBeats)
+    var deg = 0, rest = false, colour = 0
     switch p.chordsMode {
     case .pattern:
         let steps = max(1, min(16, p.chordsSteps))
         let degs = (0..<steps).map { $0 < p.chordsDegrees.count ? p.chordsDegrees[$0] : -1 }
         (deg, rest) = chordsDegreeAt(step: step, degrees: degs, rotate: p.chordsRotate)
+        if !rest, !p.chordsColours.isEmpty, let src = chordsSourceStepAt(step: step, degrees: degs, rotate: p.chordsRotate), src < p.chordsColours.count {
+            colour = p.chordsColours[src]
+        }
     case .follow: deg = scaleDegreeOf(followNote ?? root, root: root, scaleTones: scaleTones)
     case .walk:   deg = chordsWalkDegreeAt(step: step, seed: UInt64(bitPattern: Int64(p.chordsWalkSeed)))
     }
     guard !rest else { return [] }
+    if deg >= 8 || colour != 0 {
+        return euclideousChordTones(degree: deg, colour: colour, scaleTones: scaleTones, rootNote: 48 + root, minorKey: euclideousScaleIsMinor(scaleTones), spread: p.chordsSpread).filter { $0 >= 0 && $0 <= 127 }
+    }
     return diatonicChord(degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread).filter { $0 >= 0 && $0 <= 127 }
 }
 
@@ -765,6 +784,152 @@ func degreeLabel(degree deg: Int, scaleTones: [Int]) -> String {
     case (4, 8): return base + "+"              // augmented
     default:     return base                    // exotic scale → default to the numeral
     }
+}
+
+// MARK: - CHORDS GRID ferry (Paul 2026-10-24) §5: borrowed rows + chord colours (7/9/6/ADD9/SUS2/SUS4)
+
+/// §3.2/§5.2: whether the KEY's own third (scale degree 0 → degree 2, same arithmetic `degreeLabel` uses for
+/// degree 0) reads minor (3 semitones) — decides which 4 BORROWED rows show. The 5 non-heptatonic `ScaleType`s
+/// (pentatonic ×2, blues, wholeTone, chromatic) have no scale-stepped third in this sense; they fall through to
+/// `false` (the major-key table) — a judgment call flagged in the ferry report, not a literal spec answer. The
+/// borrowed chords' own TONES (§5.2's fixed semitone table) are unaffected either way; only which 4 rows are
+/// offered depends on this.
+func euclideousScaleIsMinor(_ scaleTones: [Int]) -> Bool {
+    let n = scaleTones.count
+    guard n > 2 else { return false }
+    let third = (((scaleTones[2] - scaleTones[0]) % 12) + 12) % 12
+    return third == 3
+}
+
+/// §5.2, literal: the 4 BORROWED triads as semitone offsets [root, third, fifth] above the KEY root — minor-key
+/// table V·IV·♭II·vii° (row 0...3), major-key table ♭VII·iv·♭VI·II. Out-of-range `row` returns a plain triad.
+func euclideousBorrowedTriad(row: Int, minorKey: Bool) -> [Int] {
+    let minorOffsets: [[Int]] = [[7, 11, 14], [5, 9, 12], [1, 5, 8], [11, 14, 17]]   // V · IV · ♭II · vii°
+    let majorOffsets: [[Int]] = [[10, 14, 17], [5, 8, 12], [8, 12, 15], [2, 6, 9]]   // ♭VII · iv · ♭VI · II
+    let table = minorKey ? minorOffsets : majorOffsets
+    guard row >= 0, row < table.count else { return [0, 4, 7] }
+    return table[row]
+}
+
+/// §5.3, literal: the BORROWED 7th-tone's semitone offset above ITS OWN root (not the key root) — minor-key
+/// sevenths for V·IV·♭II·vii°, major-key sevenths for ♭VII·iv·♭VI·II. "The 7 follows the scale on the diatonic
+/// rows; on the borrowed rows it's fixed per row" (Paul, chat).
+func euclideousBorrowedSeventh(row: Int, minorKey: Bool) -> Int {
+    let minorSevenths = [10, 10, 11, 9]
+    let majorSevenths = [11, 10, 11, 10]
+    let table = minorKey ? minorSevenths : majorSevenths
+    guard row >= 0, row < table.count else { return 10 }
+    return table[row]
+}
+
+/// §3.2/§5.2: the 4 BORROWED row labels — fixed text, not derived from `degreeLabel`'s third/fifth math (these
+/// rows are DEFINED by the table above, not discovered from the scale).
+func euclideousBorrowedRowLabel(row: Int, minorKey: Bool) -> String {
+    let minorLabels = ["V", "IV", "\u{266D}II", "vii\u{00B0}"]
+    let majorLabels = ["\u{266D}VII", "iv", "\u{266D}VI", "II"]
+    let labels = minorKey ? minorLabels : majorLabels
+    guard row >= 0, row < labels.count else { return "" }
+    return labels[row]
+}
+
+/// Whether BORROWED row `row` forces FLAT spelling for its own root letter regardless of the general key bias
+/// — true only for the rows whose label itself carries "♭" (♭II in the minor table; ♭VII/♭VI in the major
+/// table). The plain rows (V/IV/vii°, iv/II) fall back to the general key-flat bias like every diatonic row —
+/// the spec's worked examples (§5.6) never land one of THOSE on a black key, so this is the smallest rule
+/// consistent with every given case (flagged in the ferry report).
+func euclideousBorrowedRowForcesFlat(row: Int, minorKey: Bool) -> Bool {
+    minorKey ? row == 2 : (row == 0 || row == 2)
+}
+
+/// CHORDS GRID ferry §5.1-§5.4: the full chord-tone builder for ONE column — diatonic (degree 0...6) or
+/// BORROWED (degree 8...11, §5.2's fixed table), either with a COLOUR (§5.3) layered on. With `colour == 0`
+/// (none) on a DIATONIC degree this is NOT called — `chordSeqNotes` keeps calling the existing `diatonicChord`
+/// unchanged for that case (preserving its VOICING/SPREAD handling byte-for-byte for every pre-ferry caller).
+/// Colour tones join BEFORE spread (§5.4, literal); the popup exposes no VOICING control, so a colour simply
+/// decides the chord's full shape once chosen. Absolute MIDI notes, ascending, clamped 0...127.
+func euclideousChordTones(degree deg: Int, colour: Int, scaleTones: [Int], rootNote: Int, minorKey: Bool, spread: ChordSpread) -> [Int] {
+    var root: Int, third: Int, fifth: Int, seventh: Int
+    if deg >= 8 && deg <= 11 {
+        let row = deg - 8
+        let t = euclideousBorrowedTriad(row: row, minorKey: minorKey)
+        root = rootNote + t[0]; third = rootNote + t[1]; fifth = rootNote + t[2]
+        seventh = root + euclideousBorrowedSeventh(row: row, minorKey: minorKey)
+    } else {
+        let n = scaleTones.count
+        guard n > 0 else { return [] }
+        func tone(_ k: Int) -> Int {
+            let idx = ((k % n) + n) % n
+            let oct = Int(floor(Double(k) / Double(n)))
+            return rootNote + scaleTones[idx] + 12 * oct
+        }
+        root = tone(deg); third = tone(deg + 2); fifth = tone(deg + 4); seventh = tone(deg + 6)
+    }
+    var notes: [Int]
+    switch ChordColour(rawValue: colour) ?? .none {
+    case .none:    notes = [root, third, fifth]
+    case .seventh: notes = [root, third, fifth, seventh]
+    case .ninth:   notes = [root, third, fifth, seventh, root + 14]
+    case .sixth:   notes = [root, third, fifth, root + 9]
+    case .add9:    notes = [root, third, fifth, root + 14]
+    case .sus2:    notes = [root, root + 2, root + 7]
+    case .sus4:    notes = [root, root + 5, root + 7]
+    }
+    if spread == .open && notes.count >= 3 {
+        notes.sort()
+        notes[1] += 12
+    }
+    return notes.map { max(0, min(127, $0)) }.sorted()
+}
+
+/// §5.5: names the ACTUAL intervals in `tones` above `rootNote` — not which colour produced them, so an
+/// enharmonic coincidence (a diminished triad plus a tone at +9, the SAME pitch whether built as the "6" colour
+/// or as a diatonic/borrowed "7") always names "°7" per the spec's own explicit rule, regardless of path.
+func euclideousChordNameSuffix(tones: [Int], rootNote: Int) -> String {
+    guard !tones.isEmpty else { return "" }
+    let ivs = Set(tones.map { ((($0 - rootNote) % 12) + 12) % 12 }).subtracting([0])
+    let hasMinor3 = ivs.contains(3), hasMajor3 = ivs.contains(4)
+    let hasDim5 = ivs.contains(6), hasAug5 = ivs.contains(8)
+    let has6 = ivs.contains(9), hasMin7 = ivs.contains(10), hasMaj7 = ivs.contains(11), has9 = ivs.contains(2)
+    if ivs == [2, 7] { return "sus2" }
+    if ivs == [5, 7] { return "sus4" }
+    let diminished = hasMinor3 && hasDim5
+    let augmented = hasMajor3 && hasAug5
+    let major = hasMajor3 && !hasMinor3
+    let minor = hasMinor3 && !hasMajor3
+    if diminished {
+        if has6 && !hasMin7 && !hasMaj7 { return "\u{00B0}7" }       // §5.5's own override — same pitch as a dim7
+        if hasMin7 && has9 { return "m9\u{266D}5" }
+        if hasMin7 { return "m7\u{266D}5" }
+        return "\u{00B0}"
+    }
+    if augmented { return "+" }
+    if major {
+        if hasMaj7 && has9 { return "maj9" }
+        if hasMaj7 { return "maj7" }
+        if hasMin7 && has9 { return "9" }
+        if hasMin7 { return "7" }
+        if has6 { return "6" }
+        if has9 { return "add9" }
+        return ""
+    }
+    if minor {
+        if hasMin7 && has9 { return "m9" }
+        if hasMin7 { return "m7" }
+        if has6 { return "m6" }
+        if has9 { return "madd9" }
+        return "m"
+    }
+    return ""
+}
+
+/// §5.5: the full chord name ("Dm7♭5", "G7", "B♭"), or "REST" for an empty `tones`. `flatSpelling` is the
+/// caller's choice of accidental for the ROOT letter — the general key bias for a diatonic root, or
+/// `euclideousBorrowedRowForcesFlat`'s override for a borrowed one.
+func euclideousChordName(tones: [Int], rootNote: Int, flatSpelling: Bool) -> String {
+    guard !tones.isEmpty else { return "REST" }
+    let pc = ((rootNote % 12) + 12) % 12
+    let letter = flatSpelling ? euclideousNoteNamesFlat[pc] : euclideousNoteNamesSharp[pc]
+    return letter + euclideousChordNameSuffix(tones: tones, rootNote: rootNote)
 }
 
 
@@ -1269,6 +1434,26 @@ func chordsDegreeAt(step: Int, degrees: [Int], rotate: Int) -> (degree: Int, res
         if d >= 0 { return (d, false) }
     }
     return (0, true)                                        // all-carry ⇒ nothing to hold → rest
+}
+
+/// CHORDS GRID ferry §1.4/§3.3: the SOURCE column a chord step actually carries from — ADDITIVE, so a carried
+/// column plays the SAME colour as the chord it carries, not its own (usually unset) stored colour. Mirrors
+/// `chordsDegreeAt`'s own CARRY walk exactly (so the two can never diverge) without touching that function's
+/// signature — every existing caller of `chordsDegreeAt` is untouched by this ferry. `nil` on REST (nothing
+/// plays, so no column's colour applies) or an unreachable step.
+func chordsSourceStepAt(step: Int, degrees: [Int], rotate: Int) -> Int? {
+    let n = degrees.count
+    guard n > 0 else { return nil }
+    func idx(_ s: Int) -> Int { ((s + rotate) % n + n) % n }
+    let here = idx(step)
+    if degrees[here] == 7 { return nil }                    // explicit REST — no source column
+    if degrees[here] >= 0 { return here }                   // authored degree — this IS the source
+    for back in 1...n {
+        let d = idx(step - back)
+        if degrees[d] == 7 { return nil }
+        if degrees[d] >= 0 { return d }
+    }
+    return nil
 }
 
 /// What the CHORDS degree MATRIX should show at column `c` (Bugfix Paul 2026-09-15): `bright` = an AUTHORED degree /
