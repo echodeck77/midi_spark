@@ -61,6 +61,9 @@ exists to prevent. One engine artifact; the app is just another host.
 Later carrots that live here (not before): background audio session,
 files/document browser for Presets, and Ableton Link (below).
 
+### Minimum OS: iOS 15 (2026-10-24)
+Fourfold deploys to iOS 15.0 (app, AU extension, UI tests; 8x8 State is unchanged at 16). Why 15 and not lower: every painter is a SwiftUI `Canvas` inside a `TimelineView` (both iOS 15) — below that the page's drawing would have to be rewritten in UIKit / Core Graphics. Why not just stay at 16: iPadOS 16 drops the iPad Air 2 and iPad mini 4; musicians keep old iPads precisely because they will not update. Cost of the floor: one fallback — on iOS 15 the lane tab cannot choose between "RHYTHM 5/16" and "RHY 5/16" (`ViewThatFits` is iOS 16), so a tab too narrow for the long form cuts the count; and VoiceOver's hold action is one named action instead of the iOS 16 builder (same behaviour). NOT verified on any iOS 15 device or runtime (only iOS 26.5 is installed here); an A8 iPad has 1–2 GB of RAM and an AUv3 extension's memory budget is small, so the first real check is whether the AU loads and the page holds 60 fps on the oldest iPad available.
+
 ### Ableton Link — built, switched OFF until after release (Paul, 2026-10-24)
 The standalone app's Link sync (tempo + transport start/stop; `FourfoldEngine` owns the `ABLLinkRef`, `FourfoldAppModel` registers the callbacks, a LINK button
 in the transport bar, long-press → Ableton's own settings screen) was built and tested, then parked: it is compiled out of the default build behind

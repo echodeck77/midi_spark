@@ -89,6 +89,7 @@ targets:
   Fourfold:
     type: application
     platform: iOS
+    deploymentTarget: "15.0"   # FOURFOLD floor (2026-10-24): iOS 15 is the oldest SwiftUI Canvas / TimelineView / GraphicsContext allow — the painters are the page. Musicians' iPads sit on old iPadOS; 8x8 State stays at the project default (16).
     templates: [FourfoldEngine]
     sources: [Fourfold/App]
     settings:
@@ -151,6 +152,7 @@ targets:
   FourfoldAU:
     type: app-extension
     platform: iOS
+    deploymentTarget: "15.0"   # FOURFOLD floor (2026-10-24): iOS 15 is the oldest SwiftUI Canvas / TimelineView / GraphicsContext allow — the painters are the page. Musicians' iPads sit on old iPadOS; 8x8 State stays at the project default (16).
     templates: [FourfoldEngine]
     sources:
       - path: Fourfold/AU
@@ -232,6 +234,7 @@ targets:
   FourfoldUITests:
     type: bundle.ui-testing
     platform: iOS
+    deploymentTarget: "15.0"   # FOURFOLD floor (2026-10-24): iOS 15 is the oldest SwiftUI Canvas / TimelineView / GraphicsContext allow — the painters are the page. Musicians' iPads sit on old iPadOS; 8x8 State stays at the project default (16).
     sources:
       - Fourfold/UITests
     dependencies:

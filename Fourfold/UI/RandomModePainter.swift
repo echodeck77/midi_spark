@@ -77,15 +77,7 @@ struct EuclideousRandomCardView: View {
                     // §5.7/§5.8: VoiceOver can't long-press, so the hold becomes two explicit named actions.
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(pictureAccessibilityLabel)
-                    .accessibilityActions {
-                        if state.isUndecided {
-                            if holding {
-                                Button("Play the new one") { onHoldEnded() }
-                            } else {
-                                Button("Play the original") { onHoldBegan() }
-                            }
-                        }
-                    }
+                    .modifier(EuclideousRandomHoldAction(undecided: state.isUndecided, holding: holding, onBegan: onHoldBegan, onEnded: onHoldEnded))
                 caption.frame(height: 14).padding(.top, 6)
                 HStack(spacing: 0) { hintRow; Spacer(minLength: 0); progressDots(beat: beat) }.frame(height: 10).padding(.top, 2)
                 Spacer(minLength: 2)
@@ -553,5 +545,19 @@ struct EuclideousRandomNotesPicture: View {
             }
         }
         .frame(height: CGFloat(rows) * rowH)
+    }
+}
+
+/// §5.7/§5.8 for VoiceOver: the hold as ONE named action ("Play the original" / "Play the new one") while the tab has an undecided roll. `accessibilityActions { }` (the builder form) is iOS 16;
+/// `accessibilityAction(named: Text)` is iOS 13, so the app can deploy to iOS 15.
+private struct EuclideousRandomHoldAction: ViewModifier {
+    let undecided: Bool, holding: Bool
+    let onBegan: () -> Void, onEnded: () -> Void
+    func body(content: Content) -> some View {
+        if undecided {
+            content.accessibilityAction(named: Text(holding ? "Play the new one" : "Play the original")) { if holding { onEnded() } else { onBegan() } }
+        } else {
+            content
+        }
     }
 }

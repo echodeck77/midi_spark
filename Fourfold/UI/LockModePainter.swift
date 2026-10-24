@@ -70,10 +70,8 @@ struct EuclideousLockPressable: View {
             .accessibilityAddTraits(.isButton)
             .ringToggleTrait()
             .accessibilityAction { onTap() }
-            .accessibilityActions {
-                if let n = extraTapName { Button(n) { onTap() } }
-                Button(holdActionName) { onHold() }
-            }
+            .modifier(EuclideousOptionalNamedAction(name: extraTapName, action: onTap))
+            .accessibilityAction(named: Text(holdActionName)) { onHold() }   // (`accessibilityActions { }` is iOS 16; the named form is iOS 13 — the app deploys to iOS 15)
     }
 
     private func finish(cancelled: Bool) {
@@ -398,5 +396,14 @@ struct EuclideousLockBadgeView: View {
             }
         }
         .frame(width: 34, height: 44)
+    }
+}
+
+/// One VoiceOver action, named, present only when `name` is non-nil (the iOS 13 form of what `accessibilityActions { if let … }` did on iOS 16).
+struct EuclideousOptionalNamedAction: ViewModifier {
+    let name: String?
+    let action: () -> Void
+    func body(content: Content) -> some View {
+        if let name { content.accessibilityAction(named: Text(name), action) } else { content }
     }
 }

@@ -3319,12 +3319,12 @@ struct EuclideousPage: View {
         }()
         return AnyView(
             HStack(spacing: 5) {
-                if let shortTitle {
+                if let shortTitle, #available(iOS 16.0, *) {
                     ViewThatFits(in: .horizontal) {
                         title.lineLimit(1).fixedSize(horizontal: true, vertical: false)
                         shortTitle.lineLimit(1).truncationMode(.tail)
                     }
-                } else {
+                } else {   // (`ViewThatFits` is iOS 16: on iOS 15 a tab too narrow for "RHYTHM 5/16" cuts the count again, as it did before the mini fix)
                     title.lineLimit(1).truncationMode(.tail)
                 }
                 if glyph.shape != .none { EuclideousTabGlyphView(shape: glyph.shape, on: glyph.on, fill: fill) }
@@ -3441,9 +3441,9 @@ struct EuclideousPage: View {
     private func flipHitsButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         let on = line.patternMissResolved
         return AnyView(VStack(spacing: 1) {
-            Text(EuclideousFlipHits.lines[0]); Text(EuclideousFlipHits.lines[1])
+            Text(EuclideousFlipHits.lines[0]).tracking(0.64); Text(EuclideousFlipHits.lines[1]).tracking(0.64)   // per Text: `View.tracking` on the stack is iOS 16, `Text.tracking` is iOS 13
         }
-        .font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64)
+        .font(.system(size: 8, weight: .heavy, design: .monospaced))
         .foregroundColor(on ? patternSelectedText : patternUnselectedText)
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
@@ -4360,10 +4360,10 @@ struct EuclideousPage: View {
     private func euclideousWalkReadoutText(_ text: String) -> some View {
         let parts = text.components(separatedBy: " · ")
         return HStack(spacing: 0) {
-            Text(parts[0]).foregroundColor(Color(hex: 0x8A909A))
-            if parts.count > 1 { Text(" · " + parts[1]).foregroundColor(Color(hex: 0xFFB454)) }
+            Text(parts[0]).foregroundColor(Color(hex: 0x8A909A)).kerning(0.32)   // per Text: `View.kerning` on the stack is iOS 16, `Text.kerning` is iOS 13
+            if parts.count > 1 { Text(" · " + parts[1]).foregroundColor(Color(hex: 0xFFB454)).kerning(0.32) }
         }
-        .font(.system(size: 8, weight: .heavy, design: .monospaced)).kerning(0.32).lineLimit(1)
+        .font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1)
     }
     /// §9.2's VoiceOver value text for the WALK strip.
     private func euclideousWalkVoiceOverValue(cfg: EuclideousWalkLaneConfig?, len: Int, every: Int, P: Int, stepRanks: [Int], readoutText: String) -> String {
