@@ -258,6 +258,26 @@ struct EuclidLine: Codable, Equatable {
     // at the call site for the one disclosed consequence of this field being shared with the chainable BUILD-page
     // EUCLID processor too.
     var emitterMask: UInt8? = nil
+    // PER-LAYER EMITTER ROUTING (Paul 2026-10-25): a lane's RIFF and its NOTES route to outputs separately —
+    // `riffOutMask` for the riff layer, `notesOutMask` for the notes layer. Same bit convention as `emitterMask`
+    // above (bit i = A…D). nil ⇒ inherit `emitterMask`'s own resolved value (see `riffOutMaskResolved` /
+    // `notesOutMaskResolved`), so EVERY existing lane — which has neither field — resolves BOTH to its current
+    // `emitterMask` and is byte-identical (ferry §3.1/§3.6). `emitterMask` stays decodable (ferry §3.3): the
+    // encoder writes it as the UNION of the two so an older build opening a newer document sends both parts
+    // everywhere either went; after this ferry nothing but that encoder and the two resolvers reads it.
+    var riffOutMask: UInt8? = nil
+    var notesOutMask: UInt8? = nil
+    // ferry §3.1: nil ⇒ inherit `emitterMask` (itself Optional — nil there ⇒ the Router inherits the cell bus, as
+    // today). So an existing lane with only `emitterMask` resolves BOTH parts to it, byte-identical.
+    var riffOutMaskResolved: UInt8? { riffOutMask ?? emitterMask }
+    var notesOutMaskResolved: UInt8? { notesOutMask ?? emitterMask }
+    // ferry §3.3: what the legacy `emitterMask` is ENCODED as — the union of the two parts, so an older build sends
+    // both parts everywhere either went. An UNTOUCHED lane (neither part set) writes `emitterMask` verbatim (incl.
+    // nil = inherit), so an existing document re-saved is byte-identical.
+    var emitterMaskForEncode: UInt8? {
+        if riffOutMask == nil, notesOutMask == nil { return emitterMask }
+        return (riffOutMaskResolved ?? 0) | (notesOutMaskResolved ?? 0)
+    }
     // RIFF ADVANCE (Paul 2026-10-06, EUCLIDEOUS): when on, this lane's hits step through the page's shared
     // EuclideousRiff pattern instead of noteSel/octave — REPLACES them entirely, not layered on top. riffRotate/
     // riffOctave are this lane's own INDEPENDENT offsets into that one shared pattern (driven by the same
@@ -863,6 +883,9 @@ extension EuclidLine {
         patternMiss = try c.decodeIfPresent(Bool.self, forKey: .patternMiss)
         rate = try c.decodeIfPresent(ArpRate.self, forKey: .rate)
         emitterMask = try c.decodeIfPresent(UInt8.self, forKey: .emitterMask)
+        // ferry §3.1: drop any bit above the four outputs at decode (test 2).
+        riffOutMask = (try c.decodeIfPresent(UInt8.self, forKey: .riffOutMask)).map { $0 & 0x0F }
+        notesOutMask = (try c.decodeIfPresent(UInt8.self, forKey: .notesOutMask)).map { $0 & 0x0F }
         useRiff = try c.decodeIfPresent(Bool.self, forKey: .useRiff)
         melodyMode = try c.decodeIfPresent(EuclideousMelodyMode.self, forKey: .melodyMode)
         litNotes = try c.decodeIfPresent(UInt8.self, forKey: .litNotes)

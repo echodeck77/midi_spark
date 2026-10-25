@@ -117,6 +117,42 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(back.emitterMask, 0b0101)
     }
 
+    // PER-LAYER ROUTING ferry (2026-10-25) §3, test 2: riffOutMask / notesOutMask split the single emitterMask.
+    func testPerLayerOutMasksDecodeTolerantAndResolveToEmitterMask() throws {
+        // A pre-feature document (no riff/notesOutMask keys) decodes with both resolving to its old emitterMask.
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"emitterMask":5}"#.utf8)
+        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertNil(line.riffOutMask); XCTAssertNil(line.notesOutMask)
+        XCTAssertEqual(line.riffOutMaskResolved, 0b0101, "nil ⇒ inherit emitterMask")
+        XCTAssertEqual(line.notesOutMaskResolved, 0b0101)
+        // A lane that never had emitterMask either: both resolve to nil (⇒ the Router inherits the cell bus, today's behaviour).
+        var bare = EuclidLine(pulses: 3, steps: 8)
+        XCTAssertNil(bare.riffOutMaskResolved); XCTAssertNil(bare.notesOutMaskResolved)
+        _ = bare
+    }
+    func testPerLayerOutMasksRoundTripAndDropBitsAboveFour() throws {
+        var line = EuclidLine(pulses: 3, steps: 8)
+        line.riffOutMask = 0b0001   // A
+        line.notesOutMask = 0b0010  // B
+        let back = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(line))
+        XCTAssertEqual(back.riffOutMask, 0b0001); XCTAssertEqual(back.notesOutMask, 0b0010)
+        // A corrupt value with bits above the four outputs is masked to 0x0F at decode.
+        let dirty = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"riffOutMask":241,"notesOutMask":255}"#.utf8)
+        let d = try JSONDecoder().decode(EuclidLine.self, from: dirty)
+        XCTAssertEqual(d.riffOutMask, 0b0001, "241 = 0xF1 → low nibble 0x01"); XCTAssertEqual(d.notesOutMask, 0b1111)
+    }
+    func testEmitterMaskForEncodeIsTheUnionButUntouchedIsVerbatim() throws {
+        // §3.3: a split lane's emitterMask (what an older build reads) is the union of the two parts.
+        var split = EuclidLine(pulses: 3, steps: 8)
+        split.riffOutMask = 0b0001; split.notesOutMask = 0b0010
+        XCTAssertEqual(split.emitterMaskForEncode, 0b0011, "A | B")
+        // An untouched lane keeps emitterMask verbatim (incl. nil = inherit), so an existing doc re-saved is byte-identical.
+        var untouched = EuclidLine(pulses: 3, steps: 8); untouched.emitterMask = 0b0101
+        XCTAssertEqual(untouched.emitterMaskForEncode, 0b0101)
+        var inheriting = EuclidLine(pulses: 3, steps: 8)
+        XCTAssertNil(inheriting.emitterMaskForEncode, "neither part nor emitterMask set ⇒ still inherit"); _ = inheriting
+    }
+
     // RIFF ADVANCE (Paul 2026-10-06): useRiff/riffRotate/riffOctave are the newest three EuclidLine fields — same
     // CR-8 contract as rate/emitterMask above, a doc saved before they existed must still decode without throwing.
     func testEuclidLineDecodesWithoutRiffAdvanceKeys() throws {
@@ -798,7 +834,7 @@ final class EffectiveParamsTests: XCTestCase {
         var l = EuclidLine(target: 3, pulses: 7, steps: 11, rotate: 4, invert: true)
         l.pick = .cycle; l.die = 3; l.noteSel = .n3; l.reverse = true; l.gate = 0.61; l.octave = 2; l.direction = .bkw; l.enabled = false
         l.velocity = 1.5; l.velocityAbsolute = 73; l.missNoteSel = .high; l.missGate = 0.4; l.missOctave = -1; l.missVelocity = 0.5
-        l.patternMiss = true; l.rate = .r1_8; l.emitterMask = 0b0110; l.useRiff = true; l.melodyMode = .riff; l.litNotes = 0b0101_0101
+        l.patternMiss = true; l.rate = .r1_8; l.emitterMask = 0b0110; l.riffOutMask = 0b0001; l.notesOutMask = 0b1000; l.useRiff = true; l.melodyMode = .riff; l.litNotes = 0b0101_0101
         l.topLit = true; l.top2Lit = true; l.riffOn = false; l.riffRotate = 2; l.riffOctave = -2; l.riffDir = .pendulum; l.riffDirSeed = 9
         l.riffDirBias = 0.25; l.mask = EuclidLineMask(); l.sourceMode = .midi; l.tilt = -0.3; l.riffLock = true; l.riffInvert = true
         l.riffOnRest = .repeatLast; l.riffStride = 3; l.riffLength = 5; l.riffAdvanceStep = true; l.melodyTranspose = -2

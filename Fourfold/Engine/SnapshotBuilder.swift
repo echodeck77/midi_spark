@@ -357,6 +357,9 @@ enum SnapshotBuilder {
                                                                       patternMiss: $0.patternMiss,
                                                                       rate: $0.rate,
                                                                       emitterMask: $0.emitterMask.map { $0 & 0x0F },
+                                                                      // PER-LAYER ROUTING ferry (2026-10-25): both parts threaded here too, each clamped to the four
+                                                                      // outputs — miss this spot and they silently reset every render (this call's own gotcha, below).
+                                                                      riffOutMask: $0.riffOutMask.map { $0 & 0x0F }, notesOutMask: $0.notesOutMask.map { $0 & 0x0F },
                                                                       useRiff: $0.useRiff, melodyMode: $0.melodyMode,
                                                                       litNotes: $0.litNotes, topLit: $0.topLit, top2Lit: $0.top2Lit, riffOn: $0.riffOn,
                                                                       // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, 2nd same-day ferry) — `melodyMode`
