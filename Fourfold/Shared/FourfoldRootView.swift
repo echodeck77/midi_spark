@@ -142,6 +142,7 @@ struct FourfoldRootView: View {
                                                swing: swing, onSetSwing: { au?.setSwing($0); refreshTiming() },
                                                noteSource: euclideousNoteSource,
                                                onSetNoteSource: { v in
+                                                   guard v != euclideousNoteSource else { return }   // UNDO-6: choosing what is already chosen is not an edit
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousNoteSource = v
                                                    au?.editDocument { $0.euclideousNoteSource = v }
@@ -149,6 +150,7 @@ struct FourfoldRootView: View {
                                                },
                                                holdLatchMode: euclideousHoldLatchMode,
                                                onSetHoldLatchMode: { v in
+                                                   guard v != euclideousHoldLatchMode else { return }
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousHoldLatchMode = v
                                                    au?.editDocument { $0.euclideousHoldLatchMode = v }
@@ -164,10 +166,11 @@ struct FourfoldRootView: View {
                                                soloMask: euclideousSoloMask, soloHeld: euclideousSoloHeld,
                                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
                                                onEditChordSet: { idx, mutate in
-                                                   euclideousRecordUndo(coalesceKey: "euclideousChordSet\(idx)")
                                                    var sets = euclideousChordSets
                                                    guard idx >= 0, idx < sets.count else { return }
                                                    mutate(&sets[idx])
+                                                   guard sets != euclideousChordSets else { return }   // UNDO-6
+                                                   euclideousRecordUndo(coalesceKey: gestureKey("euclideousChordSet\(idx)"))   // UNDO-2: a run lasts only while the edits keep arriving
                                                    euclideousChordSets = sets
                                                    au?.editDocument(coalesceKey: "euclideousChordSet\(idx)") { $0.setEuclideousChordSet(idx, sets[idx]) }
                                                    publish()
@@ -185,12 +188,18 @@ struct FourfoldRootView: View {
                                                    var lines = euclideousLines
                                                    mutate(&lines)
                                                    // LANE LOCK §9.2: a change that is only lock fields of locked lanes records no undo step (so one that would record at touch-down doesn't either)
-                                                   if !euclideousLockChangeIsLockOnly(old: euclideousLines, new: lines, locks: euclideousLocks) { euclideousRecordUndo(coalesceKey: "euclideous") }
+                                                   guard lines != euclideousLines else { return }   // UNDO-6: an edit that changed nothing is not an edit (no step, redo stays)
+                                                   var recorded = false
+                                                   if !euclideousLockChangeIsLockOnly(old: euclideousLines, new: lines, locks: euclideousLocks) {
+                                                       // UNDO-2: one run per (set of lanes touched, burst of edits) — never one shared key for everything
+                                                       euclideousRecordUndo(coalesceKey: gestureKey("euclideous.\(laneBits(euclideousLines, lines))")); recorded = true
+                                                   }
                                                    setEuclideousLines(lines)
                                                    au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
+                                                   if recorded { euclideousUndo.dropOpenRunIfUnchanged(current: euclideousSnapshot()) }   // UNDO-6: a drag that wandered off and came back is not a step
                                                    publish()
-                                               },
-                                               pendingRolls: euclideousPendingRolls,
+                                                   },
+                                                   pendingRolls: euclideousPendingRolls,
                                                onSetPendingRolls: { rolls in
                                                    euclideousPendingRolls = rolls
                                                    au?.setEuclideousPendingRolls(rolls)
@@ -203,6 +212,7 @@ struct FourfoldRootView: View {
                                                // RANDOM MODE ferry §7.2: one undo step per kept card-tab, in the order given —
                                                // `euclideousRandomUndoSequence` builds S0...S_{N-1} from the CURRENT (already
                                                // settled) snapshot; each push uses `coalesceKey: nil` so none coalesce away.
+                                               historyEpoch: m.historyEpoch,
                                                onRandomFinish: { entries in
                                                    guard !entries.isEmpty else { return }
                                                    let settled = euclideousSnapshot()
@@ -220,29 +230,35 @@ struct FourfoldRootView: View {
                                                    applyLandedLockSnaps()
                                                    var lines = euclideousLines
                                                    mutate(&lines)
-                                                   if newStep && !euclideousLockChangeIsLockOnly(old: euclideousLines, new: lines, locks: euclideousLocks) { euclideousRecordUndo(coalesceKey: nil) }
+                                                   // UNDO-1/6/8: the checkpoint is taken at the first write of a burst that CHANGES something, and again after any undo / redo / reset (`EuclideousCheckpoint`)
+                                                   if newStep { m.checkpoint.newBurst() }
+                                                   guard lines != euclideousLines else { return }
+                                                   if m.checkpoint.take(changed: true) && !euclideousLockChangeIsLockOnly(old: euclideousLines, new: lines, locks: euclideousLocks) { euclideousRecordUndo(coalesceKey: nil) }
                                                    setEuclideousLines(lines)
                                                    au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
                                                    publish()
-                                               },
-                                               onEditRiffs: { mutate in
-                                                   euclideousRecordUndo(coalesceKey: "euclideousRiffs")
+                                                   },
+                                                   onEditRiffs: { mutate in
                                                    var riffs = euclideousRiffs
                                                    mutate(&riffs)
+                                                   guard riffs != euclideousRiffs else { return }
+                                                   euclideousRecordUndo(coalesceKey: gestureKey("euclideousRiffs"))
                                                    euclideousRiffs = riffs
                                                    au?.editDocument(coalesceKey: "euclideousRiffs") { $0.riffs = riffs }
                                                    publish()
                                                },
                                                onSetActiveRiff: { v in
+                                                   guard v != euclideousActiveRiff else { return }
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousActiveRiff = v
                                                    au?.editDocument { $0.activeRiff = v }
                                                    publish()
                                                },
                                                onEditLanesSeq: { mutate in
-                                                   euclideousRecordUndo(coalesceKey: "euclideousLanesSeq")
                                                    var s = euclideousLanesSeq
                                                    mutate(&s)
+                                                   guard s != euclideousLanesSeq else { return }
+                                                   euclideousRecordUndo(coalesceKey: gestureKey("euclideousLanesSeq"))
                                                    euclideousLanesSeq = s
                                                    au?.editDocument(coalesceKey: "euclideousLanesSeq") {
                                                        $0.euclideousLanesSeqOn = s.on; $0.euclideousLanesSeqRate = s.rate
@@ -253,18 +269,21 @@ struct FourfoldRootView: View {
                                                // FX TAB (2026-10-18): one document write + one republish per edit; `newStep` takes a `coalesceKey: nil` undo checkpoint (a tap, a
                                                // stroke's first change, a value drag's first change, a lane toggle, a stepper tap) and the rest of that gesture writes into it.
                                                onEditFX: { newStep, mutate in
-                                                   if newStep { euclideousRecordUndo(coalesceKey: nil) }
                                                    var f = euclideousFX
                                                    mutate(&f)
                                                    f = f.normalized()
+                                                   if newStep { m.checkpoint.newBurst() }
+                                                   guard f != euclideousFX else { return }
+                                                   if m.checkpoint.take(changed: true) { euclideousRecordUndo(coalesceKey: nil) }
                                                    euclideousFX = f
                                                    au?.editDocument(coalesceKey: "euclideousFX") { $0.euclideousFX = f }
                                                    publish()
                                                },
                                                onEditRiffsSeq: { mutate in
-                                                   euclideousRecordUndo(coalesceKey: "euclideousRiffsSeq")
                                                    var s = euclideousRiffsSeq
                                                    mutate(&s)
+                                                   guard s != euclideousRiffsSeq else { return }
+                                                   euclideousRecordUndo(coalesceKey: gestureKey("euclideousRiffsSeq"))
                                                    euclideousRiffsSeq = s
                                                    au?.editDocument(coalesceKey: "euclideousRiffsSeq") {
                                                        $0.euclideousRiffsSeqOn = s.on; $0.euclideousRiffsSeqRate = s.rate
@@ -278,8 +297,8 @@ struct FourfoldRootView: View {
                                                // euclideous-line edit happened immediately before it (the generic onEdit
                                                // funnel's shared "euclideous" key would have let that happen).
                                                onSetRestartMask: { lane, mask in
+                                                   guard lane >= 0, lane < euclideousLines.count, euclideousLines[lane].restartMask != mask else { return }
                                                    euclideousRecordUndo(coalesceKey: nil)
-                                                   guard lane >= 0, lane < euclideousLines.count else { return }
                                                    var lines = euclideousLines
                                                    lines[lane].restartMask = mask
                                                    setEuclideousLines(lines)
@@ -287,18 +306,21 @@ struct FourfoldRootView: View {
                                                    publish()
                                                },
                                                onSetResetSpanBars: { v in
+                                                   guard v != euclideousResetSpanBars else { return }
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousResetSpanBars = v
                                                    au?.editDocument { $0.euclideousResetSpanBars = v }
                                                    publish()
                                                },
                                                onSetKeyRoot: { v in
+                                                   guard v != euclideousKeyRoot else { return }
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousKeyRoot = v
                                                    au?.editDocument { $0.euclideousKeyRoot = v }
                                                    publish()
                                                },
                                                onSetKeyType: { v in
+                                                   guard v != euclideousKeyType else { return }
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousKeyType = v
                                                    au?.editDocument { $0.euclideousKeyType = v }
@@ -453,16 +475,17 @@ struct FourfoldRootView: View {
         currentPreset = au?.uiCurrentPreset() ?? ""
     }
     func loadPreset(_ name: String) {
-        euclideousRecordUndo(coalesceKey: nil)   // usability ferry §7.2: "loading a preset" is undoable
+        euclideousRecordPresetUndo()   // usability ferry §7.2: "loading a preset" is undoable
         au?.loadPreset(named: name)
         presetLoaded()
     }
     func loadFactoryPreset(_ name: String) {
-        euclideousRecordUndo(coalesceKey: nil)
+        euclideousRecordPresetUndo()
         au?.loadFactoryPreset(named: name)
         presetLoaded()
     }
     private func presetLoaded() {
+        historyMoved(clearStack: false)   // the random session, a queued roll and any open run belong to the document just replaced
         refreshFromDocument()
         refreshTiming()
         currentPreset = au?.uiCurrentPreset() ?? ""
@@ -491,15 +514,43 @@ struct FourfoldRootView: View {
     func euclideousRecordUndo(coalesceKey: String?) {
         euclideousUndo.record(euclideousSnapshot(), coalesceKey: coalesceKey)
     }
+    /// A preset load is undoable AND replaces the lanes' PLAY/STOP (UNDO-5): its step carries the flags it has to put back.
+    func euclideousRecordPresetUndo() {
+        var s = euclideousSnapshot()
+        s.presetPlay = euclideousPlayFlags(of: euclideousLines)
+        euclideousUndo.record(s, coalesceKey: nil)
+    }
+    /// UNDO-2: a coalescing key that stays valid only while the edits keep arriving.
+    func gestureKey(_ base: String) -> String { m.gestures.key(base, at: CACurrentMediaTime()) }
+    /// Which lanes differ between two line arrays, as a bit mask (the funnel's key says which lanes an edit touched).
+    func laneBits(_ a: [EuclidLine], _ b: [EuclidLine]) -> Int {
+        var bits = 0
+        for i in 0..<min(a.count, b.count) where a[i] != b[i] { bits |= 1 << i }
+        return bits
+    }
+    /// The history moved (↶ ↷), or the document it described is gone (a preset, a host project or preset change): end every run, make the next burst take a checkpoint, cancel a random roll or hold that was still queued for the
+    /// document just left (UNDO-4), and tell the page (`historyEpoch`) so it drops the random session's baselines. `clearStack` empties the history — for a document replaced behind the page's back (UNDO-3).
+    func historyMoved(clearStack: Bool) {
+        if clearStack { euclideousUndo = UndoStack<EuclideousUndoSnapshot>() }
+        m.gestures.historyMoved(); m.checkpoint.historyMoved()
+        let none = EuclideousPendingRollSlots()
+        if euclideousPendingRolls.contains(where: { $0 != nil }) { euclideousPendingRolls = none; au?.setEuclideousPendingRolls(none) }
+        if euclideousHoldOverrides.contains(where: { $0 != nil }) { euclideousHoldOverrides = none; au?.setEuclideousHoldOverrides(none) }
+        m.historyEpoch &+= 1
+    }
     /// Apply a restored snapshot. §7.3 ("play/stop... not undoable") is enforced HERE, not at record time —
     /// every per-lane PLAY/STOP and per-mask PLAY/STOP flows through the SAME generic `onEdit` funnel as every
     /// other (undoable) lane setting, so recording can't distinguish them; restoring can, by re-merging the
     /// CURRENT live values for exactly those two sub-fields back over whatever the snapshot itself carries.
     func euclideousApply(_ s: EuclideousUndoSnapshot) {
         var lines = s.lines
-        for i in lines.indices where i < euclideousLines.count {
-            lines[i].enabled = euclideousLines[i].enabled
-            if var m = lines[i].mask { m.enabled = euclideousLines[i].mask?.enabled ?? m.enabled; lines[i].mask = m }
+        if let play = s.presetPlay {
+            euclideousApplyPlayFlags(play, to: &lines)       // UNDO-5: a step that is a preset load puts the lanes' PLAY/STOP back too
+        } else {
+            for i in lines.indices where i < euclideousLines.count {
+                lines[i].enabled = euclideousLines[i].enabled
+                if var m = lines[i].mask { m.enabled = euclideousLines[i].mask?.enabled ?? m.enabled; lines[i].mask = m }
+            }
         }
         // LANE LOCK §9.2: restoring a step never moves a locked lane's lock fields (and the locks themselves are not in a step at all)
         lines = euclideousLockMergeForUndo(restored: lines, current: euclideousLines, locked: euclideousLocks.map { $0.isLocked })
@@ -530,14 +581,19 @@ struct FourfoldRootView: View {
             $0.euclideousFX = s.fx
             $0.euclideousHoldLatchMode = s.holdLatchMode
         }
+        historyMoved(clearStack: false)
         publish()
     }
     func euclideousUndoAction() {
-        guard let prev = euclideousUndo.undo(current: euclideousSnapshot()) else { return }
+        var current = euclideousSnapshot()
+        if euclideousUndo.past.last?.presetPlay != nil { current.presetPlay = euclideousPlayFlags(of: euclideousLines) }   // ↷ must be able to put the preset's flags back
+        guard let prev = euclideousUndo.undo(current: current) else { return }
         euclideousApply(prev)
     }
     func euclideousRedoAction() {
-        guard let next = euclideousUndo.redo(current: euclideousSnapshot()) else { return }
+        var current = euclideousSnapshot()
+        if euclideousUndo.future.last?.presetPlay != nil { current.presetPlay = euclideousPlayFlags(of: euclideousLines) }
+        guard let next = euclideousUndo.redo(current: current) else { return }
         euclideousApply(next)
     }
 
@@ -708,7 +764,7 @@ struct FourfoldRootView: View {
         let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
         let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
         let efx = au.uiEuclideousFX(); if efx != euclideousFX { euclideousFX = efx; euclideousResynced = true }
-        if euclideousResynced { m.probeResyncs &+= 1; publish() }   // (`probeResyncs`: UNDO AUDIT — how often the page found itself out of step with the document)
+        if euclideousResynced { m.probeResyncs &+= 1; historyMoved(clearStack: true); publish() }   // UNDO-3: every funnel writes the page AND the document, so a difference here means the document was replaced behind the page's back (host preset menu, project load): the history described a document that is gone   // (`probeResyncs`: UNDO AUDIT — how often the page found itself out of step with the document)
         let nd = au.kernelDiagnostics()
         if nd.panics != lastStuckPanics {   // a8 STUCK-NOTE: the render thread healed since the last poll — log it ONCE here, off the audio thread (was an os_log PER BLOCK on the render path = crackle; Paul 2026-09-12)
             lastStuckPanics = nd.panics
@@ -803,6 +859,11 @@ struct FourfoldRootView: View {
 
 /// The Fourfold root view's mutable state (see the note in `FourfoldRootView`). Defaults are the ones the 8x8 host's @State declarations had.
 final class FourfoldModel: ObservableObject {
+    // UNDO fixes (2026-10-25): what makes an edit an undo step — see `EuclideousEditGestures` / `EuclideousCheckpoint` in Models.swift. `historyEpoch` moves on every ↶ ↷, preset and replaced document, so the page can drop
+    // anything that belonged to the document that was just left (the random session's baselines).
+    var gestures = EuclideousEditGestures()
+    var checkpoint = EuclideousCheckpoint()
+    @Published var historyEpoch = 0
     var probeResyncs = 0   // UNDO AUDIT: counted by the 4 Hz poll, read by `FourfoldUndoProbe`; not published
     @Published var d: KernelDiag = KernelDiag()      // polled for playing / tempo / pass
     @Published var lastStuckPanics: UInt64 = 0   // a8 STUCK-NOTE: last-seen heal count — the poll logs a heal ONCE (off the render thread) when this rises

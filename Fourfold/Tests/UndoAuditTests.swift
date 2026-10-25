@@ -1,7 +1,7 @@
 //  UndoAuditTests.swift — the UNDO / REDO adversarial audit, layer 1 (pure; no simulator). Docs/pending-tasks.md "UNDO AUDIT".
 //  What is here: (1) a model-based fuzz of `UndoStack` against a reference written as a TIMELINE of states with a cursor (a different shape from the stack's past/future arrays, so a shared slip is unlikely);
 //  (2) fuzz + properties for the lock merge, the random-finish step builder and the pad burst; (3) a source tripwire that fails when the undo snapshot, `euclideousSnapshot()` and `euclideousApply` stop agreeing;
-//  (4) tests named `testBREAK_…` that pin a REAL break as it behaves today inside `XCTExpectFailure` — they stay green, and fail loudly the day the break is fixed (delete the wrapper then).
+//  (4) the policy that FIXED the breaks the audit found (UNDO-1…8, Docs/pending-tasks.md): gesture-scoped keys, no-op edits recording nothing, burst checkpoints that survive an undo, a no-op run handing redo back.
 
 import XCTest
 
@@ -235,18 +235,22 @@ final class UndoAuditTests: XCTestCase {
             }
         }
     }
-    func testBREAK_KeepingTheSameTabTwiceMakesAnUndoStepThatDoesNothing() {
-        // `euclideousRandomKeep` appends to `euclideousRandomKeepOrder` on EVERY KEEP press (EuclideousPage.swift:1171) and the finish builder only deduplicates the second loop (:1305-1309), so roll → KEEP → roll → KEEP
-        // on one tab gives two entries with the same (lane, tab) and the same session baseline.
+    func testKeepingTheSameTabTwiceStillMakesOneRealUndoStep() {
+        // UNDO-7: `euclideousRandomKeep` appends to the KEEP order on EVERY press, so roll → KEEP → roll → KEEP on one tab hands the builder two entries with the same (lane, tab) and baseline.
         var settled = (0..<4).map { _ in EuclidLine() }
         settled[0].steps = 16; settled[0].pulses = 5
         var baseline = EuclidLine(); baseline.steps = 8; baseline.pulses = 2
         let entries = [EuclideousRandomUndoEntry(lane: 0, tab: .rhythm, original: baseline), EuclideousRandomUndoEntry(lane: 0, tab: .rhythm, original: baseline)]
         let seq = euclideousRandomUndoSequence(settled: snapshot(settled), entries: entries)
-        XCTAssertEqual(seq.count, 2)
-        XCTExpectFailure("a duplicate KEEP entry pushes a step identical to the live state: the first ↶ looks dead", strict: true) {
-            XCTAssertNotEqual(seq[1].lines[0].steps, settled[0].steps, "every pushed step should differ from the live state")
-        }
+        XCTAssertEqual(seq.count, 1, "one step per kept tab")
+        XCTAssertNotEqual(seq[0].lines[0].steps, settled[0].steps, "and it changes something")
+        XCTAssertEqual(seq[0].lines[0].steps, 8)
+    }
+    func testEntriesThatChangeNothingOrNameNoLaneMakeNoStep() {
+        var settled = (0..<4).map { _ in EuclidLine() }; settled[1].steps = 12
+        let same = EuclideousRandomUndoEntry(lane: 1, tab: .rhythm, original: settled[1])
+        let outOfRange = EuclideousRandomUndoEntry(lane: 7, tab: .rhythm, original: EuclidLine())
+        XCTAssertEqual(euclideousRandomUndoSequence(settled: snapshot(settled), entries: [same, outOfRange]).count, 0)
     }
 
     // MARK: 4 — the snapshot, `euclideousSnapshot()` and `euclideousApply` must stay in step (a source tripwire)
@@ -265,11 +269,15 @@ final class UndoAuditTests: XCTestCase {
         let capture = try body(of: src, from: "func euclideousSnapshot()", to: "func euclideousRecordUndo")
         let apply = try body(of: src, from: "func euclideousApply(", to: "func euclideousUndoAction")
         let labels = Mirror(reflecting: snapshot([])).children.compactMap { $0.label }
-        XCTAssertEqual(Set(labels), ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode"],
+        XCTAssertEqual(Set(labels), ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "presetPlay"],
                        "the undo snapshot changed shape: update `euclideousSnapshot()`, `euclideousApply` and this list together")
         for l in labels {
-            XCTAssertTrue(capture.contains("\(l):"), "euclideousSnapshot() never captures `\(l)`")
             let uses = apply.components(separatedBy: "s.\(l)").count - 1
+            if l == "presetPlay" {      // only a preset-load step carries it (`euclideousRecordPresetUndo`); apply puts it back onto the lines
+                XCTAssertGreaterThanOrEqual(uses, 1, "euclideousApply never restores `presetPlay`")
+                continue
+            }
+            XCTAssertTrue(capture.contains("\(l):"), "euclideousSnapshot() never captures `\(l)`")
             XCTAssertGreaterThanOrEqual(uses, l == "lines" ? 1 : 2, "euclideousApply restores `\(l)` \(uses)× — it must write BOTH the page's mirror and the document")
         }
     }
@@ -290,58 +298,118 @@ final class UndoAuditTests: XCTestCase {
         XCTAssertEqual(written.subtracting(restored), [], "an undoable funnel writes document fields that ↶ does not put back")
         XCTAssertFalse(written.isEmpty, "the tripwire found no funnel writes — its anchors moved")
     }
-    func testBREAK_HistoryHasNoWayToBeInvalidatedWhenTheDocumentIsReplacedUnderIt() throws {
-        // S3: nothing ever resets `euclideousUndo` — a host `fullState` load, a host-menu preset change or a user-preset delete leaves ↶ pointing at snapshots of the PREVIOUS document.
+    func testAReplacedDocumentClearsTheHistory() throws {
+        // UNDO-3: every funnel writes the page AND the document, so the 4 Hz poll finding them different means the document was replaced behind the page's back (host preset menu, project load).
         let src = try rootViewSource()
-        let resets = src.components(separatedBy: "euclideousUndo = ").count - 1
-        XCTExpectFailure("no code path clears the undo history when the document changes outside the page's own funnels (S3)", strict: true) {
-            XCTAssertGreaterThan(resets, 1, "the history is only ever assigned by the property's own declaration/setter")
-        }
+        let poll = try body(of: src, from: "if euclideousResynced {", to: "let nd = au.kernelDiagnostics()")
+        XCTAssertTrue(poll.contains("historyMoved(clearStack: true)"), "the resync must clear the undo history")
+        let moved = try body(of: src, from: "func historyMoved(clearStack: Bool)", to: "func euclideousApply(")
+        XCTAssertTrue(moved.contains("euclideousUndo = UndoStack<EuclideousUndoSnapshot>()"), "…and `historyMoved(clearStack: true)` must really empty the stack")
+        XCTAssertTrue(moved.contains("setEuclideousPendingRolls") && moved.contains("setEuclideousHoldOverrides"), "…and cancel a queued roll / hold (UNDO-4)")
+    }
+    func testEveryUndoableFunnelRefusesAnEditThatChangesNothing() throws {
+        // UNDO-6, as a tripwire over the source: each funnel that records must have an equality guard between "compute the new value" and "record" — a new funnel added without one fails here.
+        let src = try rootViewSource()
+        let funnels = try body(of: src, from: "onSetNoteSource:", to: "onSetMainOutMask:")
+        let parts = funnels.components(separatedBy: "\n").filter { $0.contains("euclideousRecordUndo(") || $0.contains("m.checkpoint.take(") }
+        XCTAssertGreaterThan(parts.count, 8)
+        let withoutGuard = funnels.components(separatedBy: ": { ").dropFirst().filter { $0.contains("euclideousRecordUndo(") && !($0.contains("guard ") && $0.range(of: "guard ")!.lowerBound < $0.range(of: "euclideousRecordUndo(")!.lowerBound) }
+        XCTAssertEqual(withoutGuard.count, 0, "a recording funnel has no guard before its record: \(withoutGuard.first.map { String($0.prefix(160)) } ?? "")")
     }
 
-    // MARK: 5 — pinned breaks that are facts about the stack's policy
+    // MARK: 5 — the policy that replaced the breaks
 
-    func testBREAK_OneKeyMergesEditsToDifferentControlsIntoOneStep() {
-        // The page's `onEdit` records EVERY lane edit under the one key "euclideous" (FourfoldRootView.swift:187): three different controls, minutes apart, are one step.
-        var s = UndoStack<Int>(); var live = 0
-        func edit() { s.record(live, coalesceKey: "euclideous"); live += 1 }
-        edit()      // lane 1 HITS      0→1
-        edit()      // lane 2 STEPS     1→2
-        edit()      // lane 3 OFFSET    2→3
-        let afterFirstUndo = s.undo(current: live)
-        XCTExpectFailure("S1: one ↶ is expected to undo only the last control's edit (→ 2)", strict: true) {
-            XCTAssertEqual(afterFirstUndo, 2)
-        }
-        XCTAssertEqual(afterFirstUndo, 0, "today it jumps all the way back to before the first edit")
+    func testGestureKeysLastOnlyWhileEditsKeepArriving() {
+        var g = EuclideousEditGestures()
+        let k0 = g.key("euclideous.1", at: 0.0)
+        XCTAssertEqual(g.key("euclideous.1", at: 0.2), k0, "a drag: events keep arriving")
+        XCTAssertEqual(g.key("euclideous.1", at: 0.65), k0, "…up to the gap between two events")
+        XCTAssertNotEqual(g.key("euclideous.1", at: 1.4), k0, "a pause longer than the gap closes the run")
+        let k1 = g.key("euclideous.1", at: 1.5)
+        XCTAssertNotEqual(g.key("euclideous.4", at: 1.6), k1, "a different set of lanes is a different run")
+        g.historyMoved()
+        XCTAssertNotEqual(g.key("euclideous.1", at: 1.7), k1, "an undo / redo / reset ends the run")
     }
-    func testBREAK_AnEditThatChangesNothingStillEndsTheRedoBranch() {
-        // S2: `onEdit` records BEFORE it knows whether `mutate` changed anything; `record` clears the redo branch first thing.
+
+    /// The lane funnel's decisions written as plain code over the real types — the same expressions `onEdit` uses (FourfoldRootView.swift).
+    private struct FunnelSim {
+        var stack = UndoStack<Int>()
+        var gestures = EuclideousEditGestures()
+        var live: [Int] = [0, 0, 0, 0]                     // one value per lane
+        var snapshot: Int { live.reduce(0) { $0 * 31 + $1 } }
+        mutating func edit(lane: Int, to v: Int, at t: Double) {
+            var new = live; new[lane] = v
+            guard new != live else { return }                                         // UNDO-6
+            let bits = (0..<4).reduce(0) { new[$1] != live[$1] ? $0 | (1 << $1) : $0 }
+            stack.record(snapshot, coalesceKey: gestures.key("euclideous.\(bits)", at: t))
+            live = new
+            stack.dropOpenRunIfUnchanged(current: snapshot)                           // a drag that came back
+        }
+        mutating func undo() { if let p = stack.undo(current: snapshot) { live = [p / 29791 % 31, p / 961 % 31, p / 31 % 31, p % 31]; gestures.historyMoved() } }
+    }
+    func testDifferentLanesAndPausedEditsAreSeparateStepsADragIsOne() {
+        var f = FunnelSim()
+        f.edit(lane: 0, to: 1, at: 0.0); f.edit(lane: 0, to: 2, at: 0.1); f.edit(lane: 0, to: 3, at: 0.2)      // one drag on lane 1
+        f.edit(lane: 0, to: 9, at: 5.0)                                                                           // another control, seconds later
+        f.edit(lane: 2, to: 4, at: 5.1)                                                                           // another lane at once
+        XCTAssertEqual(f.stack.past.count, 3, "drag + a later edit + another lane: three steps, not one")
+    }
+    func testAnEditThatChangesNothingRecordsNothingAndLeavesRedo() {
+        var f = FunnelSim()
+        f.edit(lane: 0, to: 1, at: 0.0)
+        f.undo()
+        XCTAssertTrue(f.stack.canRedo)
+        f.edit(lane: 0, to: 0, at: 3.0)                                            // the lane is already 0: the user touched it and left it
+        XCTAssertTrue(f.stack.canRedo, "UNDO-6: a touch that changed nothing must not end the redo branch")
+        XCTAssertEqual(f.stack.past.count, 0, "…and must not push an empty step")
+    }
+    func testADragThatReturnsToItsStartIsNotAStepAndGivesRedoBack() {
+        var f = FunnelSim()
+        f.edit(lane: 1, to: 5, at: 0.0)
+        f.undo()                                                                    // redo holds the 5
+        f.edit(lane: 1, to: 7, at: 3.0); f.edit(lane: 1, to: 8, at: 3.05)          // a drag starts…
+        XCTAssertFalse(f.stack.canRedo, "a real change ends the redo branch")
+        f.edit(lane: 1, to: 0, at: 3.1)                                             // …and comes back to where it began
+        XCTAssertEqual(f.stack.past.count, 0, "the wandering drag is not a step")
+        XCTAssertTrue(f.stack.canRedo, "and the redo branch it cleared is handed back")
+        var five = FunnelSim(); five.edit(lane: 1, to: 5, at: 0.0)
+        XCTAssertEqual(f.stack.redo(current: f.snapshot), five.snapshot, "…intact: ↷ still goes to the 5")
+    }
+    func testADropRunStillRestoresNothingAfterAnUndoMovedOn() {
         var s = UndoStack<Int>()
-        s.record(0); s.record(1)                                       // live 2
-        _ = s.undo(current: 2)                                         // live 1, redo has 2
-        XCTAssertTrue(s.canRedo)
-        s.record(1, coalesceKey: "euclideous")                        // the user touches a control and leaves it where it was
-        XCTExpectFailure("S2: touching a control without changing it should not destroy redo", strict: true) {
-            XCTAssertTrue(s.canRedo)
-        }
+        s.record(0, coalesceKey: "a")                       // live 1
+        _ = s.undo(current: 1)                              // live 0, redo has 1
+        s.record(0, coalesceKey: "b")                       // new run, redo cleared and stashed
+        _ = s.undo(current: 2)                              // an undo ends the run: the stash is gone
+        XCTAssertFalse(s.dropOpenRunIfUnchanged(current: 0), "no open run any more")
     }
-    func testBREAK_APadBurstSurvivesAnUndoSoTheNextEditIsNeverRecorded() {
-        // S6: the pad opens its burst on the first value-changing write and the burst has no way to hear about an undo. ↶ inside the 0.35 s continue window, then a drag:
-        var s = UndoStack<Int>(); var live = 0
-        var burst = EuclideousPadUndoBurst()
-        burst.touchDown(at: 0.0)
-        if burst.nextWriteNeedsNewStep() { s.record(live, coalesceKey: nil) }; live = 1       // pad write #1: recorded
-        burst.touchEnd(at: 0.1)
-        if let p = s.undo(current: live) { live = p }                                          // the user taps ↶ (live 0, redo has 1)
-        burst.touchDown(at: 0.25)                                                              // …and drags the pad again within 0.35 s of lifting
-        var recorded = false
-        if burst.nextWriteNeedsNewStep() { s.record(live, coalesceKey: nil); recorded = true }
-        live = 2                                                                               // pad write #2
-        XCTExpectFailure("S6: the edit after an undo must start a new step (and end the redo branch)", strict: true) {
-            XCTAssertTrue(recorded)
-            XCTAssertFalse(s.canRedo)
-        }
-        XCTAssertTrue(s.canRedo, "today redo still offers the pre-undo value over the new edit")
-        XCTAssertEqual(s.redo(current: live), 1, "…and ↷ resurrects it, discarding the pad edit")
+
+    func testABurstCheckpointIsTakenAtTheFirstWriteThatChangesSomethingAndAgainAfterAnUndo() {
+        var c = EuclideousCheckpoint()
+        c.newBurst()
+        XCTAssertFalse(c.take(changed: false), "UNDO-1: a first write that changes nothing takes no checkpoint…")
+        XCTAssertTrue(c.take(changed: true), "…the first one that does takes it")
+        XCTAssertFalse(c.take(changed: true), "later writes of the burst join it")
+        c.historyMoved()                                    // ↶ with a second finger / inside the pad's 0.35 s window
+        XCTAssertTrue(c.take(changed: true), "UNDO-8: after an undo the next write is a new step (and ends the redo branch)")
+        XCTAssertFalse(c.take(changed: true))
+    }
+    func testAFreshCheckpointStateTakesNothingUntilABurstBegins() {
+        var c = EuclideousCheckpoint()
+        XCTAssertFalse(c.take(changed: true), "a write that claims to continue a burst nobody started records nothing (the page's own newStep:false)")
+        c.newBurst(); XCTAssertTrue(c.take(changed: true))
+    }
+
+    func testPlayFlagsRoundTripThroughASnapshotLikeAPresetLoadNeedsThem() {
+        var lines = (0..<4).map { _ in EuclidLine() }
+        lines[2].enabled = false; lines[3].enabled = false
+        var withMask = lines; withMask[0].mask = EuclidLineMask(); withMask[0].mask?.enabled = true
+        let flags = euclideousPlayFlags(of: withMask)
+        var other = (0..<4).map { _ in EuclidLine() }; other[0].mask = EuclidLineMask()
+        euclideousApplyPlayFlags(flags, to: &other)
+        XCTAssertEqual(other.map { $0.enabled }, withMask.map { $0.enabled })
+        XCTAssertEqual(other[0].mask?.enabled, true)
+        XCTAssertNil(other[1].mask, "a lane without a mask gets none invented")
+        XCTAssertEqual(euclideousPlayFlags(of: other), flags)
     }
 }

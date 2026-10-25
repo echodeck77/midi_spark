@@ -1,8 +1,7 @@
 //  FourfoldUndoAuditTests.swift — UNDO AUDIT layer 2 (Docs/pending-tasks.md "UNDO AUDIT"): the REAL app — real funnels, real model, real AU — attacked through the glass, with a read-out of the page's undo state, the document and the render input
 //  after every operation. Launched `--fresh --undo-probe` (Fourfold/Shared/FourfoldUndoProbe.swift adds one hidden element, "Undo probe", whose value looks like
 //    snap=… doc=… agree=1 stage=1 box=1 undo=3 redo=0 resyncs=0 pend=0 lanes=8/3r0,16/5r0,8/0r0,8/0r0
-//  and two 8 pt buttons that do what an AUv3 HOST does behind the page's back). Tests that assert the IDEAL behaviour and currently fail are named `testBREAK_…` and wrapped in XCTExpectFailure (strict), so they stay green and
-//  flip loudly the day the break is fixed; `testPOLICY_…` checks the app against the key policy as it is written today (everything but that policy must hold).
+//  and two 8 pt buttons that do what an AUv3 HOST does behind the page's back). The scenarios named `testUNDO_n_…` are the breaks the audit found (UNDO-1…8, Docs/pending-tasks.md), now FIXED and asserting the ideal behaviour; `testPOLICY_…` is a seeded fuzz against the undo contract.
 
 import XCTest
 
@@ -48,8 +47,6 @@ private struct Timeline {
         moments.append(after); cursor += 1; openKey = key
         if cursor > cap { moments.removeFirst(); cursor -= 1 }
     }
-    /// A change that never reached an undo checkpoint (see S11): the live moment is replaced; nothing is recorded and the redo branch is NOT ended.
-    mutating func silent(after: String) { moments[cursor] = after }
     mutating func undo() { if cursor > 0 { cursor -= 1; openKey = nil } }
     mutating func redo() { if cursor < moments.count - 1 { cursor += 1; openKey = nil } }
 }
@@ -140,62 +137,59 @@ final class FourfoldUndoAuditTests: XCTestCase {
 
     // MARK: S1 — different controls, one key
 
-    func testBREAK_S1_OneUndoWipesEditsToThreeDifferentControls() {
+    func testUNDO2_EditsToDifferentControlsAreSeparateSteps() {
         let p0 = launch()
         stepsUp(); let p1 = settled()          // lane 1 STEPS
         dragHits(up: true); let p2 = settled() // lane 1 HITS
         dragOffset(); let p3 = settled()       // lane 1 OFFSET
         XCTAssertNotEqual(p0.snap, p1.snap); XCTAssertNotEqual(p1.snap, p2.snap); XCTAssertNotEqual(p2.snap, p3.snap, "three real edits: \(p0.lanes) → \(p1.lanes) → \(p2.lanes) → \(p3.lanes)")
+        XCTAssertEqual(p3.undo, 3, "one step per control: \(p3.raw)")
         undo(); let u = settled()
-        print("UNDOAUDIT S1 steps=\(p1.undo) after-undo lanes=\(u.lanes) undoDepthBefore=\(p3.undo) (ideal one step back to \(p2.lanes); got \(u.snap == p0.snap ? "ALL THE WAY BACK to launch" : u.snap == p1.snap ? "back to after STEPS" : "?"))")
-        XCTExpectFailure("S1: one ↶ should undo only the last control's edit", strict: true) {
-            XCTAssertEqual(u.snap, p2.snap)
-        }
+        XCTAssertEqual(u.snap, p2.snap, "one ↶ undoes only the OFFSET edit")
+        undo(); XCTAssertEqual(settled().snap, p1.snap)
+        undo(); XCTAssertEqual(settled().snap, p0.snap)
     }
 
     // MARK: S2 — a no-op touch
 
-    func testBREAK_S2_TouchingAControlWithoutChangingItEndsTheRedoBranch() {
+    func testUNDO6_TouchingAControlWithoutChangingItLeavesRedoAlone() {
         launch()
         stepsUp(); _ = settled()
         undo(); let afterUndo = settled()
         XCTAssertEqual(afterUndo.redo, 1)
-        // riff 1 is already the one being edited: tapping it again changes nothing
-        riffSwitch(1); let p = settled()
-        print("UNDOAUDIT S2 snapChanged=\(p.snap != afterUndo.snap) redoBefore=\(afterUndo.redo) redoAfter=\(p.redo) undoDepth=\(p.undo)")
+        riffSwitch(1); let p = settled()           // riff 1 is already the one being edited: tapping it again changes nothing
         XCTAssertEqual(p.snap, afterUndo.snap, "the tap really was a no-op")
-        XCTExpectFailure("S2: touching a control without changing it should not destroy redo", strict: true) {
-            XCTAssertEqual(p.redo, 1)
-        }
+        XCTAssertEqual(p.redo, 1, "…so redo is still there: \(p.raw)")
+        XCTAssertEqual(p.undo, 0, "…and no empty step was pushed")
+        redo(); XCTAssertEqual(settled().lanes, "9/3r0,16/5r0,8/0r0,8/0r0")
     }
+    // (A slider drag that returns to its start is covered in UndoAuditTests: in the app that gesture also stores `hitsRequested`, which IS a change, so it cannot be staged through the glass.)
 
     // MARK: S3 — the document changes under the history
 
-    func testBREAK_S3a_AHostPresetChangeLeavesTheHistoryPointingAtTheOldDocument() {
+    func testUNDO3_AHostPresetChangeClearsTheHistory() {
         let p0 = launch()
         stepsUp(); let edited = settled()
         XCTAssertEqual(edited.undo, 1)
         hostLoadsPreset(); let after = settled()
         XCTAssertNotEqual(after.lanes, edited.lanes, "the host's preset really replaced the lanes: \(edited.lanes) → \(after.lanes)")
         XCTAssertTrue(after.consistent, "after the host's change the page, the document and the engine agree: \(after.raw)")
-        print("UNDOAUDIT S3a undoDepthAfterHostLoad=\(after.undo) resyncs=\(after.resyncs)")
+        XCTAssertEqual(after.undo, 0, "↶ must not be offered a step from the previous document: \(after.raw)")
+        XCTAssertEqual(after.redo, 0)
         undo(); let u = settled()
-        print("UNDOAUDIT S3a after Undo lanes=\(u.lanes) (preset's were \(after.lanes), launch's were \(p0.lanes))")
-        XCTExpectFailure("S3: a host-side document change should invalidate the history", strict: true) {
-            XCTAssertEqual(after.undo, 0, "↶ must not be offered a step from the previous document")
-        }
+        XCTAssertEqual(u.lanes, after.lanes, "↶ does nothing (launch's were \(p0.lanes))")
     }
-    func testBREAK_S3b_AHostStateRestoreLeavesTheHistoryPointingAtTheOldDocument() {
+    func testUNDO3_AHostStateRestoreClearsTheHistory() {
         launch()
         loadPreset("FIVE AGAINST EIGHT"); let loaded = settled()
         XCTAssertEqual(loaded.undo, 1)
         hostRestoresLaunchState(); let after = settled()
         XCTAssertNotEqual(after.lanes, loaded.lanes, "the restore changed the document: \(loaded.lanes) → \(after.lanes)")
         XCTAssertTrue(after.consistent, after.raw)
-        print("UNDOAUDIT S3b undoDepthAfterHostRestore=\(after.undo)")
-        XCTExpectFailure("S3: a host project load should invalidate the history", strict: true) {
-            XCTAssertEqual(after.undo, 0)
-        }
+        XCTAssertEqual(after.undo, 0, after.raw)
+        undo(); XCTAssertEqual(settled().lanes, after.lanes)
+        stepsUp(); let edited = settled()
+        XCTAssertEqual(edited.undo, 1, "…and the new document starts its own history")
     }
 
     // MARK: S4 / S5a — a preset load
@@ -209,17 +203,17 @@ final class FourfoldUndoAuditTests: XCTestCase {
         redo(); let r = settled()
         XCTAssertEqual(r.snap, loaded.snap, "redo returns to exactly the loaded state (after the poll's own pin): \(r.lanes) vs \(loaded.lanes)"); XCTAssertTrue(r.consistent, r.raw)
     }
-    func testBREAK_S4b_UndoingAPresetLoadLeavesTheLanesPlayStopFlagsAsThePresetSetThem() {
+    func testUNDO5_UndoingAPresetLoadPutsTheLanesPlayStopFlagsBackAndRedoRestoresThePresets() {
         let p0 = launch()
         XCTAssertEqual(p0.play, "1111")
         loadPreset("FIVE AGAINST EIGHT"); let loaded = settled()
-        print("UNDOAUDIT S4b play flags launch=\(p0.play) afterLoad=\(loaded.play)")
-        XCTAssertNotEqual(loaded.play, p0.play, "the preset turns some lanes off")
+        XCTAssertNotEqual(loaded.play, p0.play, "the preset turns some lanes off: launch \(p0.play) → \(loaded.play)")
         undo(); let u = settled()
-        print("UNDOAUDIT S4b play flags after Undo=\(u.play)")
-        XCTExpectFailure("S4b: ↶ of a preset load should put the lanes back as they were, play/stop included", strict: true) {
-            XCTAssertEqual(u.play, p0.play)
-        }
+        XCTAssertEqual(u.play, p0.play, "↶ of a preset load puts the lanes back as they were, play/stop included")
+        redo(); let r = settled()
+        XCTAssertEqual(r.play, loaded.play, "↷ brings the preset's flags back too")
+        XCTAssertEqual(r.snap, loaded.snap)
+        undo(); XCTAssertEqual(settled().play, p0.play, "and ↶ again")
     }
     func testUndoTappedInstantlyAfterAPresetLoadStillRetracesExactly() {
         let p0 = launch()
@@ -294,36 +288,34 @@ final class FourfoldUndoAuditTests: XCTestCase {
 
     // MARK: S11 — the STEPS + / − buttons stop recording after the first tap
 
-    func testBREAK_S11_OnlyTheFirstTapOnTheStepsButtonsEverMakesAnUndoStep() {
+    func testUNDO1_EveryTapOnTheStepsButtonsIsItsOwnUndoStep() {
         let p0 = launch()
         stepsUp(); let p1 = settled()
         stepsUp(); let p2 = settled()
         stepsUp(); let p3 = settled()
         XCTAssertEqual([p1.lanes, p2.lanes, p3.lanes], ["9/3r0,16/5r0,8/0r0,8/0r0", "10/3r0,16/5r0,8/0r0,8/0r0", "11/3r0,16/5r0,8/0r0,8/0r0"], "three real edits")
-        print("UNDOAUDIT S11 three STEPS taps → undo depth \(p3.undo)")
-        undo(); let u = settled()
-        print("UNDOAUDIT S11 after one Undo: \(u.lanes) (launch \(p0.lanes)) depth \(u.undo)")
-        XCTExpectFailure("S11: every tap on + / − should be its own undo step (one ↶ → 10 steps)", strict: true) {
-            XCTAssertEqual(u.lanes, p2.lanes)
-        }
+        XCTAssertEqual(p3.undo, 3, "three taps, three steps: \(p3.raw)")
+        undo(); XCTAssertEqual(settled().lanes, p2.lanes)
+        undo(); XCTAssertEqual(settled().lanes, p1.lanes)
+        undo(); XCTAssertEqual(settled().lanes, p0.lanes)
     }
-    func testBREAK_S11b_AStepsTapAfterAnUndoIsNotRecordedAndRedoThenDiscardsIt() {
+    func testUNDO1_AStepsTapAfterAnUndoEndsTheRedoBranchSoRedoCannotDiscardIt() {
         launch()
         stepsUp(); _ = settled()                 // 9 steps — recorded
         undo(); let u = settled()                // 8 steps, redo has the 9
         XCTAssertEqual(u.redo, 1)
         stepsDown(); let edited = settled()      // the user now chooses 7
         XCTAssertEqual(edited.lanes, "7/3r0,16/5r0,8/0r0,8/0r0")
+        XCTAssertEqual(edited.undo, 1, "the new edit is a step: \(edited.raw)")
+        XCTAssertEqual(edited.redo, 0, "…and it ended the redo branch")
         redo(); let r = settled()
-        print("UNDOAUDIT S11b after undo, '−', redo: edited=\(edited.lanes) undoDepth=\(edited.undo) redoDepth=\(edited.redo) → redo gave \(r.lanes)")
-        XCTExpectFailure("S11b: a fresh edit ends the redo branch — ↷ must not throw the user's 7 away for the old 9", strict: true) {
-            XCTAssertEqual(r.lanes, edited.lanes)
-        }
+        XCTAssertEqual(r.lanes, edited.lanes, "↷ has nothing to do — the user's 7 stays")
+        undo(); XCTAssertEqual(settled().lanes, "8/3r0,16/5r0,8/0r0,8/0r0")
     }
 
     // MARK: S5b — a queued random roll outlives an undo
 
-    func testBREAK_S5b_ARollQueuedBeforeAnUndoStillLandsOnTheRestoredLane() {
+    func testUNDO4_ARollQueuedBeforeAnUndoIsCancelledByIt() {
         let p0 = launch()
         app.buttons["Play"].tap()                  // a roll waits for the next bar line, which only comes while the transport runs
         Thread.sleep(forTimeInterval: 0.5)
@@ -334,20 +326,36 @@ final class FourfoldUndoAuditTests: XCTestCase {
         XCTAssertTrue(throwBtn.waitForExistence(timeout: 5), "random mode shows THROW")
         throwBtn.tap()
         let queued = read()
-        undo(); let u = read()
-        print("UNDOAUDIT S5b queued pend=\(queued.pend) lanes=\(queued.lanes) → right after Undo: pend=\(u.pend) lanes=\(u.lanes) (launch \(p0.lanes))")
+        XCTAssertEqual(queued.pend, 1, "the roll is queued: \(queued.raw)")
+        undo(); let u = settled()
+        XCTAssertEqual(u.pend, 0, "↶ cancels what was still queued for the document it left: \(u.raw)")
+        XCTAssertEqual(u.lanes, p0.lanes)
         Thread.sleep(forTimeInterval: 8)          // past the next bar line
         let later = settled()
-        print("UNDOAUDIT S5b 8 s later: pend=\(later.pend) lanes=\(later.lanes) undoDepth=\(later.undo) redoDepth=\(later.redo)")
-        XCTAssertTrue(later.consistent, later.raw)
-        app.buttons["Random mode"].tap()            // finish the random session: kept tabs become undo steps
+        XCTAssertEqual(later.lanes, u.lanes, "nothing lands on the restored lane")
+        XCTAssertEqual(later.undo, 0, later.raw)
+        app.buttons["Random mode"].tap()            // finish the random session
         let finished = settled()
-        print("UNDOAUDIT S5b after finishing random mode: lanes=\(finished.lanes) undoDepth=\(finished.undo)")
-        undo(); let afterUndo = settled()
-        print("UNDOAUDIT S5b ↶ after finishing: lanes=\(afterUndo.lanes) (edited lanes were \(edited.lanes), launch \(p0.lanes))")
-        XCTExpectFailure("S5b: ↶ of the roll must return the lane to where it was before the roll — never to a state the user had already undone (9 steps)", strict: true) {
-            XCTAssertEqual(afterUndo.lanes, p0.lanes)
-        }
+        XCTAssertEqual(finished.undo, 0, "the cancelled roll leaves no step behind: \(finished.raw)")
+        XCTAssertTrue(finished.consistent, finished.raw)
+        undo(); XCTAssertEqual(settled().lanes, p0.lanes, "↶ has nothing left to undo — in particular it never brings back the 9 steps the user had undone")
+        app.buttons["Stop"].tap()
+    }
+    func testUNDO4_ARandomSessionStillWorksAfterAnUndo() {
+        launch()
+        app.buttons["Play"].tap(); Thread.sleep(forTimeInterval: 0.5)
+        stepsUp(); _ = settled()
+        app.buttons["Random mode"].tap()
+        undo(); _ = settled()
+        let throwBtn = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Throw a new'")).firstMatch
+        XCTAssertTrue(throwBtn.waitForExistence(timeout: 5)); throwBtn.tap()
+        Thread.sleep(forTimeInterval: 8)
+        let rolled = settled()
+        XCTAssertNotEqual(rolled.lanes, "8/3r0,16/5r0,8/0r0,8/0r0", "a new throw after the undo lands: \(rolled.raw)")
+        app.buttons["Random mode"].tap()
+        let finished = settled()
+        XCTAssertEqual(finished.undo, 1, "…and finishing records it as ONE step: \(finished.raw)")
+        undo(); XCTAssertEqual(settled().lanes, "8/3r0,16/5r0,8/0r0,8/0r0", "↶ returns to what the lane was before THIS roll")
         app.buttons["Stop"].tap()
     }
 
@@ -381,14 +389,6 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case .preset(let p): return "preset:\(p)"; case .undo: return "UNDO"; case .redo: return "REDO"
             }
         }
-        /// The coalesce key the page's funnel records this under (FourfoldRootView.swift): nil = a discrete step.
-        var key: String? {
-            switch self {
-            case .hits, .offset: return "euclideous"                       // STEPS goes through `editStep` (a nil-key checkpoint per tap), HITS / OFFSET through `onEdit`
-            case .riffCell: return "euclideousRiffs"                      // the riff grid's one write path (`onEditRiffs`)
-            default: return nil
-            }
-        }
         var isEdit: Bool { switch self { case .undo, .redo: return false; default: return true } }
     }
 
@@ -397,7 +397,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         var rng = SplitMix(seed)
         let first = launch()
         var oracle = Timeline(start: first.snap)
-        var upCount = 0, lastSource = "Key", keyIsMinor = true, stepsRecordedOnce = false      // S11: the STEPS buttons only ever record their FIRST tap (until the value box is touched or the tab is left)
+        var upCount = 0, lastSource = "Key", keyIsMinor = true
         var log: [String] = []
         for i in 0..<length {
             let op: Op
@@ -434,18 +434,12 @@ final class FourfoldUndoAuditTests: XCTestCase {
             switch op {
             case .undo: oracle.undo()
             case .redo: oracle.redo()
-            case .stepsUp, .stepsDown:
-                if stepsRecordedOnce { oracle.silent(after: p.snap) } else { oracle.edit(after: p.snap, key: nil); stepsRecordedOnce = true }
-            case .source:
-                // the note-source control ignores a tap on the segment that is already selected (nothing reaches `onSetNoteSource`), and the test cannot always know which one that is after an undo
-                let evidence = p.undo > oracle.past || (oracle.future > 0 && p.redo == 0)
-                if p.snap != oracle.live || evidence { oracle.edit(after: p.snap, key: nil) }
-            case .hits, .offset:
-                // a slider commits whenever its value changes DURING the gesture — a drag that wanders off and comes back to where it began (HITS: the press lands on 7, the finger ends on 3) still records, and ends the redo branch; one
-                // that never moves records nothing. The probe can't see inside the gesture, so the evidence is the page's own counters: a deeper undo, or a redo branch that vanished.
-                let evidence = p.undo > oracle.past || (oracle.future > 0 && p.redo == 0)
-                if p.snap != oracle.live || evidence { oracle.edit(after: p.snap, key: op.key) }
-            default: oracle.edit(after: p.snap, key: op.key)       // a tap on a button reaches its funnel whether or not the value changes; what it produced is whatever the app says — the claim under test is what undo/redo do with it
+            case .preset:
+                oracle.edit(after: p.snap, key: nil)   // always a step: a preset arrives un-pinned, so loading the one that is already there looks like a change until the poll pins it (residual of UNDO-6)
+            default:
+                // every edit funnel records exactly when it CHANGED something (a tap on what is already chosen, a drag that returned to its start: no step), and the fuzz leaves ≥ 0.8 s between operations,
+                // so no two edits ever share a gesture key
+                if p.snap != oracle.live { oracle.edit(after: p.snap, key: nil) }
             }
             let ctx = "seed \(seed) op \(i) [\(op)] — history: \(log.joined(separator: ", "))\n  probe: \(p.raw)"
             XCTAssertEqual(p.snap, oracle.live, "the page's state is not what the history says it should be\n  \(ctx)")

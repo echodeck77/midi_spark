@@ -591,6 +591,11 @@ struct EuclideousStepsStepper: View {
         onCommit(!firstWriteDone) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(target)) }
         firstWriteDone = true
     }
+    /// UNDO-1: a tap on + / − is ONE undo step of its own. (`firstWriteDone` belongs to the value-box DRAG and is only ever reset by it, so the buttons used to record their first tap and none after.)
+    private func tapSteps(_ target: Int) {
+        guard target != line.steps else { return }
+        onCommit(true) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(target)) }
+    }
 
     var body: some View {
         let plusEnabled = line.steps < 16
@@ -599,7 +604,7 @@ struct EuclideousStepsStepper: View {
         let btnH: CGFloat = 36, gap: CGFloat = 4
         let valueBoxH = max(1, height - btnH * 2 - gap * 2)
         VStack(spacing: gap) {
-            stepButton("plus", enabled: plusEnabled, height: btnH) { commitSteps(line.steps < 2 ? 2 : min(16, line.steps + 1)) }
+            stepButton("plus", enabled: plusEnabled, height: btnH) { tapSteps(line.steps < 2 ? 2 : min(16, line.steps + 1)) }
                 .accessibilityLabel("More steps, now \(line.steps)")
             VStack(spacing: 2) {
                 Text("\(line.steps)").font(.system(size: 18, weight: .heavy, design: .monospaced))
@@ -645,7 +650,7 @@ struct EuclideousStepsStepper: View {
                 guard target != line.steps else { return }
                 onCommit(true) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(target)) }
             }
-            stepButton("minus", enabled: minusEnabled, height: btnH) { commitSteps(line.steps > 16 ? 16 : max(2, line.steps - 1)) }
+            stepButton("minus", enabled: minusEnabled, height: btnH) { tapSteps(line.steps > 16 ? 16 : max(2, line.steps - 1)) }
                 .accessibilityLabel("Fewer steps, now \(line.steps)")
         }
         .frame(width: width, height: height)
@@ -797,6 +802,8 @@ struct EuclideousPage: View {
     // §7.2: random mode finished — the ordered, already-filtered list of kept card-tabs to record as undo
     // steps (one each). Only AVC owns `euclideousUndo`/`euclideousSnapshot`, so it builds the actual
     // `EuclideousUndoSnapshot` sequence and pushes it.
+    /// Moves on every ↶ ↷, preset load and replaced document (FourfoldModel.historyMoved): the random session's baselines and keeps describe a document that is gone.
+    var historyEpoch = 0
     var onRandomFinish: ([EuclideousRandomUndoEntry]) -> Void = { _ in }
     // LANE LOCK ferry (2026-10-21): the four lanes' locks (the document's, mirrored by the VC), when each card last rang (a snap landed / a capture), which lanes a finger is on, and the two ways back to the VC —
     // a lock command (lock / capture / unlock / grid: document writes, no undo) and a finger down / up on a lock-field control (the HELD word the render thread reads). Defaults leave the page exactly as before.
@@ -1297,6 +1304,15 @@ struct EuclideousPage: View {
         if anyLanded, euclideousRandomAwaitingFinishSlots != nil { euclideousRandomCheckAwaitingFinish() }
     }
 
+    /// UNDO-4: ↶ / ↷ / a preset / a replaced document happened. Random mode stays on, but everything it remembered — each tab's original, the session baselines, the KEEP order, a hold — described a document that is gone; the model
+    /// already cancelled the queued rolls. Starting over means the next throw takes its baseline from what is there now, and finishing never pushes a step that would take a lane back to a state the user had undone.
+    private func euclideousRandomHistoryMoved() {
+        if let held = euclideousRandomHeldLane { euclideousRandomHoldEnded(lane: held) }
+        euclideousRandomRolls = Array(repeating: Array(repeating: EuclideousRandomRollState(), count: 3), count: 4)
+        euclideousRandomKeepOrder = []
+        euclideousRandomAwaitingFinishSlots = nil
+    }
+
     /// §7.2's own ordered kept-tab list — KEEP's press order, then every other touched tab (lane, then
     /// RHYTHM/RIFF/NOTES), each kept only if its final state still differs from the session baseline (a
     /// landed BACK records nothing). Reads live state, so it's safe to call either at finish time (for
@@ -1510,6 +1526,7 @@ struct EuclideousPage: View {
                     // `waiting` and, for a landed BACK, decide the tab (§6.6/§5.2); and §6.8, an external
                     // write deciding an undecided tab. Both triggers share ONE idempotent reconciliation
                     // function — see its own doc comment for why.
+                    .onChange(of: historyEpoch) { _ in euclideousRandomHistoryMoved() }
                     .onChange(of: pendingRolls) { _ in euclideousRandomReconcile() }
                     .onChange(of: lines) { _ in euclideousRandomReconcile() }
                     // §1.4: the view closing (or the host tearing it down) ends random mode as if finished,

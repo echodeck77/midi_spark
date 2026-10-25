@@ -854,7 +854,15 @@ func euclideousRandomTabFieldsEqual(_ a: EuclidLine, _ b: EuclidLine, tab: Eucli
 /// §7.2: builds `[S0, ..., S_{N-1}]` to push (in order, each with `coalesceKey: nil`) so one undo restores
 /// exactly one kept card-tab, latest first, ending at `settled` (the live document — already correct,
 /// nothing further to push for it). `entries` must already be in §7.2's own push order.
-func euclideousRandomUndoSequence(settled: EuclideousUndoSnapshot, entries: [EuclideousRandomUndoEntry]) -> [EuclideousUndoSnapshot] {
+func euclideousRandomUndoSequence(settled: EuclideousUndoSnapshot, entries rawEntries: [EuclideousRandomUndoEntry]) -> [EuclideousUndoSnapshot] {
+    // UNDO-7: KEEP can be pressed more than once on one tab (roll, KEEP, roll, KEEP), so the list may name a (lane, tab) twice with the same session baseline: one step per tab (the first entry's baseline is the one
+    // that matters), and never a step that changes nothing.
+    var seen: Set<String> = []
+    let entries = rawEntries.filter { e in
+        guard e.lane >= 0, e.lane < settled.lines.count else { return false }
+        guard seen.insert("\(e.lane)/\(e.tab.rawValue)").inserted else { return false }
+        return !euclideousRandomTabFieldsEqual(e.original, settled.lines[e.lane], tab: e.tab)
+    }
     guard !entries.isEmpty else { return [] }
     var sequence: [EuclideousUndoSnapshot] = []
     var acc = settled

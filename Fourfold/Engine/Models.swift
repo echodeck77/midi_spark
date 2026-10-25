@@ -3371,6 +3371,56 @@ struct EuclideousUndoSnapshot: Equatable {
     var riffsSeq: EuclideousRiffsSeq
     var fx: EuclideousFX = EuclideousFX()   // FX TAB (2026-10-18): cells, lane sets, PASSES, CC number, BASE — undoable page-level state (selection/brush/bubble are not)
     var holdLatchMode: EuclideousHoldLatchMode? = nil   // HOLD/LATCH (2026-10-20): undoable like noteSource above, no §7.3-style exclusion
+    /// UNDO-5 (2026-10-25): lanes' PLAY/STOP are never undoable (§7.3) — EXCEPT across a preset load, which is itself a step and replaces them: only such a step carries the flags it must put back (`nil` = every other step, which
+    /// keeps the live flags as always). Captured by `loadPreset` / `loadFactoryPreset`, and re-stamped on the opposite side when that step is undone or redone so ↶ and ↷ both land on the right flags.
+    var presetPlay: [EuclideousLanePlay]? = nil
+}
+
+/// A lane's two play/stop flags (the lane's own and its mask's) — what `EuclideousUndoSnapshot.presetPlay` carries.
+struct EuclideousLanePlay: Equatable {
+    var enabled: Bool?
+    var maskEnabled: Bool?
+}
+func euclideousPlayFlags(of lines: [EuclidLine]) -> [EuclideousLanePlay] {
+    lines.map { EuclideousLanePlay(enabled: $0.enabled, maskEnabled: $0.mask?.enabled) }
+}
+func euclideousApplyPlayFlags(_ flags: [EuclideousLanePlay], to lines: inout [EuclidLine]) {
+    for i in lines.indices where i < flags.count {
+        lines[i].enabled = flags[i].enabled
+        if var m = lines[i].mask { m.enabled = flags[i].maskEnabled; lines[i].mask = m }
+    }
+}
+
+// MARK: - what becomes an undo step (UNDO audit, 2026-10-25)
+
+/// UNDO-2: the page's lane funnel used to record every edit under ONE key, so edits to different controls merged into a single step for as long as nothing else was recorded in between. A key now lives only as long as the
+/// EDITS KEEP ARRIVING: a pause longer than `gap` closes the run (a drag emits continuously; a person who lets go and starts again is making another edit), and the funnel adds which lanes the edit touched, so two
+/// lanes never share a step either.
+struct EuclideousEditGestures: Equatable {
+    static let gap = 0.5
+    private var epoch = 0
+    private var last: Double? = nil
+    mutating func key(_ base: String, at t: Double) -> String {
+        if let l = last, t - l > Self.gap { epoch += 1 }
+        last = t
+        return "\(base)#\(epoch)"
+    }
+    /// An undo, a redo, a preset or a replaced document ends whatever run was open.
+    mutating func historyMoved() { epoch += 1; last = nil }
+}
+
+/// UNDO-1 / UNDO-8: the funnels that take an explicit checkpoint ("newStep": the MIX pad, the FX tab, the STEPS drag) rely on the caller saying "a new burst begins here" — and used to take the checkpoint on that write even
+/// when it changed nothing, and never again after an undo. `wanted` is raised by a new burst and by anything that moves the history; the checkpoint is taken at the first write that really CHANGES something.
+struct EuclideousCheckpoint: Equatable {
+    private var wanted = false
+    mutating func newBurst() { wanted = true }
+    mutating func historyMoved() { wanted = true }
+    /// Call for every write of a burst, after the funnel knows whether it changed anything. True ⇒ record the undo step BEFORE applying this write.
+    mutating func take(changed: Bool) -> Bool {
+        guard changed, wanted else { return false }
+        wanted = false
+        return true
+    }
 }
 
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack
@@ -3385,6 +3435,8 @@ struct UndoStack<T: Equatable>: Equatable {
     private(set) var past: [T] = []
     private(set) var future: [T] = []
     private var lastKey: String? = nil
+    /// The redo branch the run that is still open threw away when it began — handed back if that run turns out to be a no-op (`dropOpenRunIfUnchanged`).
+    private var stashedFuture: [T]? = nil
     let cap: Int
 
     init(cap: Int = 50) { self.cap = max(1, cap) }
@@ -3393,18 +3445,36 @@ struct UndoStack<T: Equatable>: Equatable {
     var canRedo: Bool { !future.isEmpty }
 
     mutating func record(_ current: T, coalesceKey: String? = nil) {
+        let continuesRun = coalesceKey != nil && coalesceKey == lastKey && !past.isEmpty
+        if !continuesRun { stashedFuture = future.isEmpty ? nil : future }
         future.removeAll()                                   // a fresh edit invalidates the redo branch
-        if let k = coalesceKey, k == lastKey, !past.isEmpty { return }   // same ongoing gesture → don't re-push
+        if continuesRun { return }                           // same ongoing gesture → don't re-push
         past.append(current)
         if past.count > cap { past.removeFirst() }
         lastKey = coalesceKey
+    }
+
+    /// UNDO-6: a coalesced run that ended exactly where it began (a drag that wandered off and came back) is not a step — drop it. Only ever the run that is still open.
+    @discardableResult
+    mutating func dropOpenRunIfUnchanged(current: T) -> Bool {
+        guard lastKey != nil else { return false }
+        return dropLastStepIfUnchanged(current: current)
+    }
+    /// The same for a discrete step (a preset load that turned out to change nothing): the step just recorded is removed when the live value equals what it holds, and the redo branch it cleared comes back.
+    @discardableResult
+    mutating func dropLastStepIfUnchanged(current: T) -> Bool {
+        guard let last = past.last, last == current else { return false }
+        past.removeLast(); lastKey = nil
+        if let back = stashedFuture { future = back }        // the redo branch the step cleared comes back: nothing happened
+        stashedFuture = nil
+        return true
     }
 
     /// Returns the value to restore (and stashes `current` for redo), or nil if there is nothing to undo.
     mutating func undo(current: T) -> T? {
         guard let prev = past.popLast() else { return nil }
         future.append(current)
-        lastKey = nil                                        // the next record starts a fresh coalesce run
+        lastKey = nil; stashedFuture = nil                                        // the next record starts a fresh coalesce run
         return prev
     }
 
@@ -3412,7 +3482,7 @@ struct UndoStack<T: Equatable>: Equatable {
     mutating func redo(current: T) -> T? {
         guard let next = future.popLast() else { return nil }
         past.append(current)
-        lastKey = nil
+        lastKey = nil; stashedFuture = nil
         return next
     }
 }

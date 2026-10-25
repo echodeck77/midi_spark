@@ -94,12 +94,13 @@ final class FourfoldTapTests: XCTestCase {
         need(app.el("Lane 1 riff"), "the MIX pads again")
     }
 
-    func testAnOutputButtonOnTheMixPanelTogglesItsRouting() {
+    func testAnOutputCircleOnTheRiffTabTogglesItsRouting() {
         let app = XCUIApplication.fresh()
-        need(app.buttons["Lane 1, output B, off"], "lane 1's OUT B, off").tap()
-        need(app.buttons["Lane 1, output B, on"], "lane 1's OUT B, on after a tap")
-        app.buttons["Lane 1, output B, on"].tap()
-        need(app.buttons["Lane 1, output B, off"], "lane 1's OUT B, off after a second tap")
+        app.els(prefix: "Riff, ").element(boundBy: 0).tap()           // the per-layer routing ferry moved the OUT buttons off MIX onto each lane's RIFF and NOTES tabs
+        need(app.el("Riff to output B, off"), "lane 1's riff OUT B, off").tap()        // (a toggle-trait control reports as a switch, so ask for it by label, not by type)
+        need(app.el("Riff to output B, on"), "lane 1's riff OUT B, on after a tap")
+        app.el("Riff to output B, on").tap()
+        need(app.el("Riff to output B, off"), "lane 1's riff OUT B, off after a second tap")
     }
 
     func testTheNoteSourceHoldAndLatchControlsSelect() {
