@@ -3414,6 +3414,7 @@ struct EuclideousPage: View {
                     // §1.6: the STEPS picker and the restart editor both close when the card switches tab.
                     if stepsPickerLane == idx { stepsPickerLane = nil }
                     if restartEditorLane == idx { restartEditorLane = nil }
+                    if altPanelOpen?.lane == idx { altPanelOpen = nil }   // ALT §2.4: switching the card's tab closes its panel
                 }
             }
             // LANE LOCK 5.1: a locked lane's badge sits at the trailing end (drawn over the card); the tabs share what is left by the same rule (equal width, spacing 4)
@@ -3464,9 +3465,20 @@ struct EuclideousPage: View {
                 if borrowed { listenPausedOverlay(idx, line, label: "RHYTHM", width: fullWidth, height: contentAreaH) { $0.listenRhythm = .own } }
             }
         case .riff:
-            riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+            ZStack(alignment: .topLeading) {
+                riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+                // ALT §2.1: the panel covers the tab's content (x 10–312.5), leaving the OUT column live beside it.
+                if altPanelOpen == AltPanelKey(lane: idx, part: .riff) {
+                    altPanel(idx, line, accent, part: .riff, width: max(1, fullWidth - EuclideousOutColumnLayout.width - sp4), height: contentAreaH)
+                }
+            }
         case .notes:
-            notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+            ZStack(alignment: .topLeading) {
+                notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+                if altPanelOpen == AltPanelKey(lane: idx, part: .notes) {
+                    altPanel(idx, line, accent, part: .notes, width: max(1, fullWidth - EuclideousOutColumnLayout.width - sp4), height: contentAreaH)
+                }
+            }
         case .listen:
             listenTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         }
@@ -3968,6 +3980,184 @@ struct EuclideousPage: View {
             .accessibilityValue(altButtonAccessibilityValue(idx, part: part))
             .accessibilityHint("Double-tap to open")
             .accessibilityAddTraits(look == .open ? [.isButton, .isSelected] : .isButton)
+    }
+    /// ALT ROUTING ferry §2–§3: the panel over the tab's content (the column stays live beside it). Its SOURCE is
+    /// `part`; it shows the EFFECTIVE routing (a follower shows the leader's) and every edit writes `editPart`'s stored
+    /// fields (§4.4). All frames from the one pure `euclideousAltPanelLayout`; nothing previews (§7.3).
+    private func altPanel(_ idx: Int, _ line: EuclidLine, _ accent: Color, part: EuclideousOutPart, width: CGFloat, height: CGFloat) -> some View {
+        let lay = euclideousAltPanelLayout(panel: CGRect(x: 0, y: 0, width: width, height: height))
+        let eff = euclideousEffectiveRouting(line)
+        let pr = part == .riff ? eff.riff : eff.notes
+        let follows = euclideousPartFollows(part, outLink: line.outLink)
+        let leadsHere = part == .riff ? line.outLink == .riff : line.outLink == .notes
+        let editPart: EuclideousOutPart = follows ? (line.outLink == .riff ? .riff : .notes) : part
+        let a = pr.alt                                   // the effective ALT params shown
+        let sourceName = part == .riff ? "RIFF" : "NOTES", otherName = part == .riff ? "NOTES" : "RIFF"
+        let isRiff = part == .riff
+        func place<V: View>(_ r: CGRect, @ViewBuilder _ v: () -> V) -> some View { v().frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY) }
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x1B1D23))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(hex: 0x2E3138), lineWidth: 1))
+                .shadow(color: .black.opacity(0.6), radius: 11, x: 0, y: 8)
+            // §3.1 HEADER
+            place(lay.header) {
+                ZStack(alignment: .leading) {
+                    (Text("ALT").font(.system(size: 11, weight: .heavy, design: .monospaced)).kerning(0.1 * 11).foregroundColor(Color(hex: 0xF2F4F7))
+                        + Text("  \(sourceName)").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.08 * 10).foregroundColor(lane100(accent)))
+                        .padding(.leading, 2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }.accessibilityHidden(true)
+            place(lay.applyControl) { altApplyControl(idx, source: part, sourceName: sourceName, otherName: otherName, follows: follows, leadsHere: leadsHere) }
+            place(lay.closeButton) { altCloseButton(idx) }
+            // §3.2 GROUPS
+            place(lay.groupsWell) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)).overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x262930), lineWidth: 1)) }
+            altGroupRow(idx, label: "MAIN", bar: lay.mainBar, labelRect: lay.mainLabel, circles: lay.mainCircles, mask: pr.mainMask ?? 0, accent: accent, altRow: false, dimmed: false, editPart: editPart)
+            altGroupRow(idx, label: "ALT", bar: lay.altBar, labelRect: lay.altLabel, circles: lay.altCircles, mask: a.altMask, accent: accent, altRow: true, dimmed: !a.mode.usesAlt, editPart: editPart)
+            // §3.4 MODE SELECTOR
+            place(lay.selectorWell) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)) }
+            ForEach(0..<min(10, lay.modeSegments.count), id: \.self) { i in
+                let mode = EuclideousAltMode.allCases[i]
+                let disabled = isRiff && (mode == .rests || mode == .spread)   // §3.4 notes-only modes greyed on the riff
+                place(lay.modeSegments[i]) { altModeSegment(idx, mode: mode, selected: a.mode == mode, disabled: disabled, editPart: editPart) }
+            }
+            // §3.5 SETTINGS
+            place(lay.settings) { altSettingsRow(idx, a: a, accent: accent, editPart: editPart) }
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Alternate routing for the \(sourceName.lowercased())")
+        .accessibilityAddTraits(.isModal)
+    }
+    private func altCloseButton(_ idx: Int) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+            Path { p in p.move(to: CGPoint(x: 1, y: 1)); p.addLine(to: CGPoint(x: 7, y: 7)); p.move(to: CGPoint(x: 7, y: 1)); p.addLine(to: CGPoint(x: 1, y: 7)) }
+                .stroke(Color(hex: 0xAAB0BA), style: StrokeStyle(lineWidth: 1.5, lineCap: .round)).frame(width: 8, height: 8)
+        }
+        .frame(width: 24, height: 24).contentShape(Rectangle()).onTapGesture { altPanelOpen = nil }
+        .accessibilityElement(children: .ignore).accessibilityLabel("Close").accessibilityAddTraits(.isButton)
+    }
+    /// §3.1 APPLY: two segments — the source ("RIFF"/"NOTES") and "BOTH" (or "= RIFF"/"= NOTES", selected, while following).
+    private func altApplyControl(_ idx: Int, source: EuclideousOutPart, sourceName: String, otherName: String, follows: Bool, leadsHere: Bool) -> some View {
+        func seg(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.06 * 10)
+                .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+                .padding(.horizontal, 9).frame(maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color.clear))
+                .contentShape(Rectangle()).onTapGesture(perform: action)
+                .accessibilityElement(children: .ignore).accessibilityLabel("Apply to \(label == sourceName ? "the \(sourceName.lowercased()) only" : label)").accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        }
+        let bothSelected = leadsHere || follows
+        return HStack(spacing: 0) {
+            Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.06 * 10).foregroundColor(Color(hex: 0x6E727B)).padding(.trailing, 8).accessibilityHidden(true)
+            HStack(spacing: 2) {
+                seg(sourceName, selected: !bothSelected) { edit(idx) { $0.setOutLink(apply: false, source: source) } }
+                seg(follows ? "= \(otherName)" : "BOTH", selected: bothSelected) { edit(idx) { $0.setOutLink(apply: true, source: source) } }
+            }
+            .padding(2).background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34)))
+        }
+    }
+    /// §3.2 one group row: a live bar (step 6 makes it live; static #2A2D34 here), a label, and four A–D circles.
+    private func altGroupRow(_ idx: Int, label: String, bar: CGRect, labelRect: CGRect, circles: [CGRect], mask: UInt8, accent: Color, altRow: Bool, dimmed: Bool, editPart: EuclideousOutPart) -> some View {
+        let names = ["A", "B", "C", "D"]
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 1.5).fill(Color(hex: 0x2A2D34)).frame(width: bar.width, height: bar.height).offset(x: bar.minX, y: bar.minY)
+            Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).kerning(0.08 * 11).foregroundColor(Color(hex: 0xF2F4F7))
+                .frame(width: labelRect.width, height: labelRect.height, alignment: .leading).offset(x: labelRect.minX, y: labelRect.minY).accessibilityHidden(true)
+            ForEach(0..<4, id: \.self) { b in
+                let routed = (mask >> UInt8(b)) & 1 != 0, mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
+                altPanelCircle(name: names[b], state: euclideousOutCircleState(routed: routed, mainOn: mainOn), accent: accent, altFilled: altRow && routed)
+                    .frame(width: circles[b].width, height: circles[b].height).offset(x: circles[b].minX, y: circles[b].minY)
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit(idx) { altRow ? $0.toggleAltOutput(editPart, bit: 1 << UInt8(b)) : $0.toggleOutput(editPart, bit: 1 << UInt8(b)) } }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(label == "MAIN" ? "Main" : "Alt") to output \(names[b]), \(routed ? "on" : "off")\(dimmed ? ", not used by this mode" : "")")
+                    .accessibilityAddTraits(.isButton)
+            }
+        }
+        .opacity(dimmed ? 0.42 : 1)   // §3.2: the ALT row dims while the mode doesn't use ALT, but stays live
+    }
+    /// §3.2 a 26 pt panel circle (radius 12): the column circle's look; a routed ALT circle adds a lane20 disc.
+    private func altPanelCircle(name: String, state: EuclideousOutCircleState, accent: Color, altFilled: Bool) -> some View {
+        let ringColor: Color = state == .unrouted ? Color(hex: 0x3A3E47) : lane100(accent)
+        let letterColor: Color = state == .routed ? Color(hex: 0xF2F4F7) : (state == .routedMainOff ? lane100(accent) : Color(hex: 0x8A909A))
+        let dashed = state == .routedMainOff
+        return ZStack {
+            Circle().inset(by: 1).fill(Color(hex: state == .routedMainOff ? 0x131519 : 0x2A2D34))
+            if altFilled { Circle().inset(by: 1).fill(lane20(accent)) }
+            Circle().inset(by: 1).stroke(ringColor, style: dashed ? StrokeStyle(lineWidth: 2, lineCap: .butt, dash: [3, 3]) : StrokeStyle(lineWidth: 2))
+            Text(name).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(letterColor)
+        }
+        .frame(width: 26, height: 26).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    /// §3.4 one mode segment.
+    private func altModeSegment(_ idx: Int, mode: EuclideousAltMode, selected: Bool, disabled: Bool, editPart: EuclideousOutPart) -> some View {
+        Text(mode.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.04 * 10)
+            .foregroundColor(disabled ? Color(hex: 0x4A4E57) : (selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color.clear))
+            .contentShape(Rectangle())
+            .onTapGesture { if !disabled { edit(idx) { $0.setAltMode(editPart, mode) } } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(euclideousAltModeAccessibilityLabel(mode))
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityHidden(disabled)
+    }
+    /// §3.5 the settings row for the current mode.
+    @ViewBuilder private func altSettingsRow(_ idx: Int, a: EuclideousAltParams, accent: Color, editPart: EuclideousOutPart) -> some View {
+        switch a.mode {
+        case .off:    altNote("EVERY HIT GOES TO MAIN")
+        case .rests:  altNote("HITS ON RIFF RESTS GO TO ALT")
+        case .robin:  altNote("EACH HIT TO THE NEXT LIT MAIN")
+        case .spread: altNote("CHORD NOTES SHARED ACROSS MAIN")
+        case .hits, .steps:
+            let unitOne = a.mode == .hits ? "HIT" : "STEP"
+            HStack(spacing: sp4) {
+                melodyStepper("SWAP EVERY", value: a.every, range: 1...8, width: 143.25, height: 40, valueText: "\(a.every) \(unitOne)\(a.every == 1 ? "" : "S")", lowDisabled: a.every == 1, highDisabled: a.every == 8) { v in edit(idx) { $0.editAlt(editPart) { $0.every = v } } }
+                melodyStepper("OFFSET", value: a.offset, range: 0...(2 * a.every - 1), width: 143.25, height: 40, valueText: "\(a.offset)", wraps: true) { v in edit(idx) { $0.editAlt(editPart) { $0.offset = v } } }
+            }
+        case .passes:
+            HStack(spacing: sp4) {
+                melodyStepper("SWAP EVERY", value: a.passes, range: 1...8, width: 143.25, height: 40, valueText: "\(a.passes) PASS\(a.passes == 1 ? "" : "ES")", lowDisabled: a.passes == 1, highDisabled: a.passes == 8) { v in edit(idx) { $0.editAlt(editPart) { $0.passes = v } } }
+                melodyStepper("OFFSET", value: a.passOffset, range: 0...(2 * a.passes - 1), width: 143.25, height: 40, valueText: "\(a.passOffset)", wraps: true) { v in edit(idx) { $0.editAlt(editPart) { $0.passOffset = v } } }
+            }
+        case .chance:
+            melodyStepper("CHANCE OF ALT", value: a.chance / 10, range: 1...9, width: 290.5, height: 40, valueText: "\(a.chance)%", lowDisabled: a.chance <= 10, highDisabled: a.chance >= 90) { v in edit(idx) { $0.editAlt(editPart) { $0.chance = v * 10 } } }
+        case .strip:
+            altStripCells(idx, strip: a.strip, accent: accent, editPart: editPart)
+        case .split:
+            melodyStepper("ALT ABOVE", value: a.splitRank, range: 0...7, width: 290.5, height: 40, valueText: a.splitLowest ? "LOWEST" : altSplitRankName(rank: a.splitRank), lowDisabled: a.splitLowest, highDisabled: a.splitRank == 7) { v in edit(idx) { $0.editAlt(editPart) { $0.split = v } } }
+        }
+    }
+    private func altNote(_ text: String) -> some View {
+        Text(text).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1).truncationMode(.tail)
+            .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)).overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x262930), lineWidth: 1)))
+    }
+    /// §3.6 eight STRIP cells (MAIN/ALT, with the cell number), 3 pt apart; a tap flips one.
+    private func altStripCells(_ idx: Int, strip: UInt8, accent: Color, editPart: EuclideousOutPart) -> some View {
+        HStack(spacing: 3) {
+            ForEach(0..<8, id: \.self) { i in
+                let alt = (strip >> UInt8(i)) & 1 != 0
+                VStack(spacing: 1) {
+                    Text(alt ? "ALT" : "MAIN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(alt ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)).lineLimit(1).minimumScaleFactor(1)
+                    Text("\(i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x5C6069))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 6).fill(alt ? lane20(accent) : Color(hex: 0x2A2D34)))
+                .overlay(alt ? RoundedRectangle(cornerRadius: 6).strokeBorder(lane100(accent), lineWidth: 1) : nil)
+                .contentShape(Rectangle())
+                .onTapGesture { edit(idx) { $0.editAlt(editPart) { $0.strip ^= (1 << UInt8(i)) } } }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Step \(i + 1), \(alt ? "alt" : "main")").accessibilityAddTraits(.isButton)
+            }
+        }
+    }
+    /// §3.5 SPLIT's rank name — the riff grid's own row name for that rank (nothing held ⇒ the bare number), the same
+    /// `riffLivePool` + `euclideousDisplayNoteName` pairing the riff-grid labels use.
+    private func altSplitRankName(rank: Int) -> String {
+        guard rank >= 1 else { return "LOWEST" }
+        return (rank <= riffLivePool.count) ? euclideousDisplayNoteName(riffLivePool[rank - 1], source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType) : "\(rank)"
     }
     /// §10.1: the ALT button's spoken value — the effective part's mode + settings (so a follower reads the leader's).
     private func altButtonAccessibilityValue(_ idx: Int, part: EuclideousOutPart) -> String {
@@ -5052,7 +5242,7 @@ struct EuclideousPage: View {
                                 .equatable()
                                 .contentShape(Rectangle())
                                 .modifier(lockOutlineMod(idx, .notesPlayAs, accent))
-                                .onTapGesture { notesPickerOpen.insert(idx) }
+                                .onTapGesture { altPanelOpen = nil; notesPickerOpen.insert(idx) }   // §2.6: opening the picker closes the ALT panel
                                 .euclideousHelp("How the lit notes play on each hit it chooses.")
                                 .accessibilityElement(children: .ignore)
                                 .accessibilityLabel(euclideousNotesPlayAsButtonLabel(way))
@@ -5098,7 +5288,7 @@ struct EuclideousPage: View {
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         // §4.5: switching the tab, a layout change or the card going away closes the picker
         .onDisappear { notesPickerOpen.remove(idx) }
-        .onChange(of: contentAreaH) { _ in notesPickerOpen.remove(idx) }
+        .onChange(of: contentAreaH) { _ in notesPickerOpen.remove(idx); altPanelOpen = nil }   // §2.4: a layout change closes both pop-ups
         .onChange(of: fullWidth) { _ in notesPickerOpen.remove(idx) }
     }
 

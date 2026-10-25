@@ -86,6 +86,30 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(l.notesOutMask, 0b0010, "the notes' own mask is untouched and returns when the link clears")
     }
 
+    // §2.1–§3.6 (test 9): the panel's frames at the 302.5 × 208 reference, and §2.2's short-panel floors.
+    func testAltPanelLayoutAtReference() {
+        let p = euclideousAltPanelLayout(panel: CGRect(x: 0, y: 0, width: 302.5, height: 208))
+        // §2.1 rows (panel-local; add the panel's card y 94 for the card coords in §2.1): header 100–124, groups 128–197,
+        // selector 201–251, settings 255–295.
+        XCTAssertEqual(p.header.minY, 6, accuracy: 0.01); XCTAssertEqual(p.header.height, 24, accuracy: 0.01)
+        XCTAssertEqual(p.groupsWell.minY, 34, accuracy: 0.01); XCTAssertEqual(p.groupsWell.height, 69, accuracy: 0.01)
+        XCTAssertEqual(p.selectorWell.minY, 107, accuracy: 0.01); XCTAssertEqual(p.selectorWell.height, 50, accuracy: 0.01)
+        XCTAssertEqual(p.settings.minY, 161, accuracy: 0.01); XCTAssertEqual(p.settings.height, 40, accuracy: 0.01)
+        // content width 290.5 → mode segments 55.3, the two HITS/STEPS steppers 143.25, STRIP cells 33.7
+        XCTAssertEqual(p.modeSegments.count, 10)
+        XCTAssertEqual(p.modeSegments[0].width, 55.3, accuracy: 0.01)
+        XCTAssertEqual((p.settings.width - 4) / 2, 143.25, accuracy: 0.01, "the two steppers are sp4 apart")
+        XCTAssertEqual((p.settings.width - 7 * 3) / 8, 33.69, accuracy: 0.1, "eight STRIP cells 3 pt apart")
+        XCTAssertEqual(p.mainCircles.count, 4); XCTAssertEqual(p.altCircles.count, 4)
+        XCTAssertFalse(p.underFloor)
+    }
+    // §2.2: a short panel shrinks the group rows to a 28 floor, then the settings row to 36, and flags.
+    func testAltPanelShortLayoutFlagsItsFloors() {
+        let short = euclideousAltPanelLayout(panel: CGRect(x: 0, y: 0, width: 302.5, height: 150))
+        XCTAssertTrue(short.underFloor)
+        XCTAssertLessThanOrEqual(short.mainRow.height, 32); XCTAssertGreaterThanOrEqual(short.mainRow.height, 28)
+    }
+
     // §1.2/§1.4/§1.5/§10.1 (test 8): the ALT button's three looks, the dots, LINK, and the spoken value.
     func testAltButtonLooksDotsLinkAndVoice() {
         XCTAssertEqual(euclideousAltButtonLook(modeOn: false, panelOpen: false), .off)

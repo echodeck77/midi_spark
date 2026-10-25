@@ -2637,6 +2637,91 @@ func euclideousAltButtonVoiceValue(_ a: EuclideousAltParams, splitName: String? 
     }
 }
 
+/// §10.5: the spoken label for a mode segment (button + selected trait at the call site).
+func euclideousAltModeAccessibilityLabel(_ mode: EuclideousAltMode) -> String {
+    switch mode {
+    case .off:    return "Off: every hit goes to main"
+    case .hits:   return "Hits: swap every few hits"
+    case .steps:  return "Steps: swap every few steps"
+    case .strip:  return "Strip: main or alt on each step"
+    case .passes: return "Passes: swap every few passes"
+    case .chance: return "Chance: some hits go to alt"
+    case .rests:  return "Rests: hits on riff rests go to alt"
+    case .split:  return "Split: higher notes go to alt"
+    case .robin:  return "Robin: each hit to the next main output"
+    case .spread: return "Spread: chord notes shared across the main outputs"
+    }
+}
+
+// ── ALT ROUTING ferry §2–§3: the panel's layout (ONE pure function, §2.7, test 9) ────────────────────────
+struct EuclideousAltPanelLayout: Equatable {
+    // all rects in PANEL-LOCAL coordinates (origin = the panel's top-leading corner)
+    var header: CGRect, applyControl: CGRect, closeButton: CGRect
+    var groupsWell: CGRect, mainRow: CGRect, altRow: CGRect
+    var mainCircles: [CGRect], altCircles: [CGRect]        // A–D targets in each row (the 26 pt circle centres in them)
+    var mainBar: CGRect, altBar: CGRect, mainLabel: CGRect, altLabel: CGRect
+    var selectorWell: CGRect, modeSegments: [CGRect]        // the 5×2 grid, row-major OFF…PASSES then CHANCE…SPREAD
+    var settings: CGRect
+    var underFloor: Bool, floorFlags: [String]
+}
+/// §2.1–§3.6: every frame inside the panel, from the panel rect. `panel` is the panel's card-space rect; the returned
+/// rects are panel-local. Rows (header 24 / groups 69 / selector 50 / settings 40, sp4 apart) shrink per §2.2 when the
+/// panel is short: the group rows to a 28 floor, then the settings row to 36. Content width 290.5 at the 302.5 reference
+/// gives mode segments 55.3, the two HITS/STEPS steppers 143.25, STRIP cells 33.7 (test 9).
+func euclideousAltPanelLayout(panel: CGRect, sp4: CGFloat = 4, sp8: CGFloat = 8) -> EuclideousAltPanelLayout {
+    typealias R = EuclideousAltPanelLayout
+    let pad: CGFloat = 6
+    let cx = pad, cw = max(1, panel.width - 2 * pad)        // content x / width (290.5 at the reference)
+    let headerH: CGFloat = 24, selH: CGFloat = 50
+    // §2.2 fair-share: the group rows (2×32 + a 1pt rule + 2pt top/bottom pad = 69) shrink to a 28-tall row floor, then
+    // the settings row (40) to 36. nominal total = 24 + 69 + 50 + 40 + 3·sp4.
+    let avail = panel.height - 2 * pad
+    let nominal = headerH + 69 + selH + 40 + 3 * sp4
+    var groupRowH: CGFloat = 32, settingsH: CGFloat = 40
+    var flags: [String] = []
+    if avail < nominal {
+        // first take it out of the two 32-tall group rows down to 28
+        let overflow = nominal - avail
+        groupRowH = max(28, 32 - overflow / 2)
+        if groupRowH <= 28 { flags.append("group rows \(groupRowH)") }
+        let stillOver = (headerH + (groupRowH * 2 + 1 + 4) + selH + 40 + 3 * sp4) - avail
+        if stillOver > 0 { settingsH = max(36, 40 - stillOver); if settingsH <= 36 { flags.append("settings \(settingsH)") } }
+    }
+    let groupsH = groupRowH * 2 + 1 + 4                      // two rows + the 1pt rule + 2pt top/bottom pad
+    var y = pad
+    let header = CGRect(x: cx, y: y, width: cw, height: headerH); y += headerH + sp4
+    let well = CGRect(x: cx, y: y, width: cw, height: groupsH)
+    let mainRow = CGRect(x: cx + 1, y: y + 2, width: cw - 2, height: groupRowH)
+    let altRow = CGRect(x: cx + 1, y: y + 2 + groupRowH + 1, width: cw - 2, height: groupRowH)
+    y += groupsH + sp4
+    let selWell = CGRect(x: cx, y: y, width: cw, height: selH); y += selH + sp4
+    let settings = CGRect(x: cx, y: y, width: cw, height: settingsH)
+    // §3.2 each group row: a 3×22 live bar (5 pt from the well edge), 7 pt, a 40-wide label, then four equal circle targets.
+    func rowPieces(_ row: CGRect) -> (bar: CGRect, label: CGRect, circles: [CGRect]) {
+        let bar = CGRect(x: row.minX + 5, y: row.midY - 11, width: 3, height: 22)
+        let labelX = bar.maxX + 7, labelW: CGFloat = 40
+        let label = CGRect(x: labelX, y: row.minY, width: labelW, height: row.height)
+        let circlesX = labelX + labelW, circW = max(1, (row.maxX - circlesX) / 4)
+        let circles = (0..<4).map { CGRect(x: circlesX + CGFloat($0) * circW, y: row.minY, width: circW, height: row.height) }
+        return (bar, label, circles)
+    }
+    let m = rowPieces(mainRow), a = rowPieces(altRow)
+    // §3.1 header: "ALT RIFF" at the left; APPLY label + the APPLY control + the 24×24 close at the trailing edge.
+    let close = CGRect(x: header.maxX - 24, y: header.minY, width: 24, height: 24)
+    let applyControl = CGRect(x: close.minX - sp8 - 92, y: header.minY + 2, width: 92, height: 20)   // the two-segment container (sized to its labels in the view; 92 is the reference width of "RIFF | BOTH")
+    // §3.4 mode selector: #22252C container, 3 pt inset, a 5×2 grid 2 pt apart, 21 tall.
+    let gi: CGFloat = 3, gGap: CGFloat = 2, segH: CGFloat = 21
+    let gx = selWell.minX + gi, gw = max(1, (selWell.width - 2 * gi - 4 * gGap) / 5)
+    var segs: [CGRect] = []
+    for r in 0..<2 { for c in 0..<5 { segs.append(CGRect(x: gx + CGFloat(c) * (gw + gGap), y: selWell.minY + gi + CGFloat(r) * (segH + gGap), width: gw, height: segH)) } }
+    if groupRowH < 28 || settingsH < 36 { flags.append("panel \(panel.height)") }
+    return R(header: header, applyControl: applyControl, closeButton: close,
+             groupsWell: well, mainRow: mainRow, altRow: altRow,
+             mainCircles: m.circles, altCircles: a.circles, mainBar: m.bar, altBar: a.bar, mainLabel: m.label, altLabel: a.label,
+             selectorWell: selWell, modeSegments: segs, settings: settings,
+             underFloor: !flags.isEmpty, floorFlags: flags)
+}
+
 
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
 /// without a live `EuclideousPage` render. Deliberately mirrors the REAL render path's own hit-test exactly
