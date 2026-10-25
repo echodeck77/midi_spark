@@ -5,7 +5,10 @@ import SwiftUI
 
 @main
 struct FourfoldApp: App {
-    init() { PresetStore.useDocumentsFolder = true }   // before anything reads the preset list — see `PresetStore.useDocumentsFolder`
+    init() {
+        PresetStore.useDocumentsFolder = true
+        if CommandLine.arguments.contains("--soak") { SessionTape.defaultChunkEvents = 256; SessionTape.defaultPoolSize = 48; SessionTape.defaultResidentChunks = 3 }   // a soak is minutes long: shrink the tape so it spills to its file and reads back many times
+    }   // before anything reads the preset list — see `PresetStore.useDocumentsFolder`
     var body: some Scene {
         WindowGroup { FourfoldAppView() }
     }

@@ -133,7 +133,8 @@ final class FourfoldSoak {
             lock.lock(); let o = totalOns, f = totalOffs, u = unmatchedOffs, d = doubleOns, mh = maxHoldMs; lock.unlock()
             log("SOAK TOTALS: note-ons=\(o) note-offs=\(f) re-strikes-of-a-sounding-key=\(d) unmatched-offs=\(u) stops=\(stops) balance-checks=\(checks) longest note=\(Int(mh)) ms")
             let tape = engine.au.tapeStats()
-            log("SOAK TAPE: events=\(tape.events) dropped=\(tape.dropped) passes=\(tape.passes) whole=\(tape.completePasses) resident=\(tape.residentBytes / 1024) KiB; replays=\(replays) (tape kept growing in \(replaysTapeGrew)); all-notes-off CCs=\(blanketOffs)")
+            log("SOAK TAPE: events=\(tape.events) dropped=\(tape.dropped) passes=\(tape.passes) whole=\(tape.completePasses) resident=\(tape.residentBytes / 1024) KiB evicted chunks=\(tape.evictedChunks) file errors=\(tape.storeErrors); replays=\(replays) (tape kept growing in \(replaysTapeGrew)); all-notes-off CCs=\(blanketOffs)")
+            if tape.storeErrors > 0 { failures += 1; log("SOAK FAIL: the tape's file reported \(tape.storeErrors) error(s)") }
             if tape.dropped > 0 { failures += 1; log("SOAK FAIL: the session tape dropped \(tape.dropped) record(s) — the render thread ran out of chunks") }
             if replays >= 3, replaysTapeGrew == 0 { failures += 1; log("SOAK FAIL: the session tape did not grow during any of \(replays) replays — the engine froze under replay") }
             log("SOAK ACTIONS: " + counts.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))

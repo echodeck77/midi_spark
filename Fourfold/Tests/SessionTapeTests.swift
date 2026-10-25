@@ -162,7 +162,7 @@ final class SessionTapeTests: XCTestCase {
         tape.drain()
         XCTAssertEqual(tape.eventCount + tape.droppedEvents, 80)
         // every chunk allocated is either sealed, being written, or in the pool
-        XCTAssertEqual(tape.residentBytes, (tape.sealed.count + 1 + 3) * 8 * stride)
+        XCTAssertEqual(tape.residentBytes, (tape.sealedCount + 1 + 3) * 8 * stride)
     }
 
     // MARK: range queries

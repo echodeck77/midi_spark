@@ -234,6 +234,7 @@ targets:
       - path: Fourfold/Engine/FourfoldCompose.swift
       - path: Fourfold/Engine/SessionTape.swift
       - path: Fourfold/Engine/ReelTapeAdapter.swift
+      - path: Fourfold/Engine/TapeStore.swift
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:
       - package: Atomics

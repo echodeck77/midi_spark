@@ -97,6 +97,7 @@ final class FourfoldAppModel: ObservableObject {
 
     /// Write the AU's full state if it changed since the last write.
     func saveState() {
+        engine?.au.flushTape()                                   // REEL PHASE 1d: the tape's open chunk goes to disk with the document
         guard let state = engine?.au.fullState,
               let data = try? NSKeyedArchiver.archivedData(withRootObject: state, requiringSecureCoding: false), data != lastSaved else { return }
         let url = stateURL

@@ -206,6 +206,33 @@ final class FourfoldTapTests: XCTestCase {
         need(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'pass'")).firstMatch, "the reel browser (something about passes)")
     }
 
+    func testTheReelKeepsItsPassesAcrossAForceQuitAndRelaunch() {
+        var app = XCUIApplication.fresh()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 1.5)
+        app.buttons["Play"].tap()
+        Thread.sleep(forTimeInterval: 22)                // 120 BPM and a 16-beat pass is 8 s: two whole passes are on the tape
+        app.buttons["Stop"].tap()
+        XCUIDevice.shared.press(.home); Thread.sleep(forTimeInterval: 1.5)
+        app.terminate()
+        app = XCUIApplication(); app.launchArguments = []; app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 1.5)
+        app.buttons["Reel"].tap()
+        need(app.staticTexts["Tap a pass to choose what to save."], "passes on the tape, recorded before the relaunch (the reel says so only once there is something to save)")
+        XCTAssertFalse(app.staticTexts["Nothing recorded yet."].exists)
+    }
+
+    func testAFreshLaunchStartsWithAnEmptyReel() {                       // the control for the test above: its text only shows up when there is a recorded pass
+        let app = XCUIApplication.fresh()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 1.5)
+        app.buttons["Reel"].tap()
+        need(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'pass'")).firstMatch, "the reel browser")
+        need(app.staticTexts["Nothing recorded yet."], "an empty tape says so")
+        XCTAssertFalse(app.staticTexts["Tap a pass to choose what to save."].exists)
+    }
+
     func testAnEditSurvivesAForceQuitAndRelaunch() {
         var app = XCUIApplication.fresh()
         app.buttons["More steps, now 8"].firstMatch.tap()

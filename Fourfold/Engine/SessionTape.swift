@@ -161,11 +161,14 @@ final class TapeWriter {
     var droppedEvents: Int { dropped.load(ordering: .relaxed) }
 }
 
-/// A chunk handed back by the writer: all `chunkEvents` records are valid and will never change.
+/// One finished run of records the tape keeps: a chunk the writer filled, or a block restored from the file. `base` is nil once it has been evicted to the store and must be read back to be looked at.
 struct TapeChunk {
-    let base: UnsafeMutablePointer<TapeEvent>
-    let minTick: UInt32
-    let maxTick: UInt32
+    var first: Int            // index (in the tape's one running numbering) of its first record
+    var count: Int
+    var minTick: UInt32
+    var maxTick: UInt32
+    var base: UnsafeMutablePointer<TapeEvent>?
+    var block: Int?           // its block in the store, once written
 }
 
 /// One pass the tape knows about: where it starts, how long a complete one is, and whether it ran its whole length uninterrupted.
@@ -178,19 +181,36 @@ struct TapePass: Equatable {
 }
 
 /// The main-thread side: owns the memory, keeps the writer supplied, and answers questions about what was played. Not thread-safe by itself — call it from the main thread (or one test thread).
+///
+/// Records are numbered by ONE running index: first any restored from the store (`writerBase` of them), then what the writer has produced since. A finished chunk is a `TapeChunk` in `segs`; the chunks the writer still holds
+/// (`inFlight`) follow. With a store attached every finished chunk is also written to it, and only the newest `residentChunks` stay in memory — older ones are read back through a small cache when a query needs them.
 final class SessionTape {
     static let ppq = 960
-    static let defaultChunkEvents = 8192          // 64 KiB
-    static let defaultPoolSize = 8
+    // `var` only so the soak can shrink them (FourfoldApp.init, `--soak`) and force eviction and read-back within a few minutes; nothing else changes them.
+    static var defaultChunkEvents = 8192          // 64 KiB
+    static var defaultPoolSize = 8
+    static var defaultResidentChunks = 128        // 8 MiB of finished chunks kept in memory once a store is attached
+    static let tailFlushSeconds = 10.0
 
     let writer: TapeWriter
     let chunkEvents: Int
+    var residentChunks = SessionTape.defaultResidentChunks
     private let poolSize: Int
     private let free: TapeChunkRing, full: TapeChunkRing
     private var inFlight: [UnsafeMutablePointer<TapeEvent>] = []   // chunks the writer holds or will hold, oldest first: finished-but-not-drained, then the one being written, then the pool
-    private(set) var sealed: [TapeChunk] = []                       // chunks taken back, in order
-    private var allocated: [UnsafeMutablePointer<TapeEvent>] = []   // everything ever allocated, for deinit
-    private var indexed = 0                                         // events [0, indexed) are in the marker index below
+    private var segs: [TapeChunk] = []                              // finished chunks and restored blocks, in order
+    private var sealedTotal = 0                                     // records in `segs` = the index of the first record in `inFlight`
+    private var writerBase = 0                                      // records restored from the store: the writer's own numbering starts after them
+    private var restoredSegs = 0
+    private var allocated: [UnsafeMutablePointer<TapeEvent>] = []   // every chunk buffer ever allocated, for deinit
+    private var spare: [UnsafeMutablePointer<TapeEvent>] = []       // evicted buffers, reused for the next chunk
+    private var store: TapeStore?
+    private var cache: [(seg: Int, used: Int, ptr: UnsafeMutablePointer<TapeEvent>)] = []   // chunks read back from the store, least recently used replaced
+    private var cacheClock = 0
+    private static let cacheSlots = 8
+    private var lastTailFlush = Date.distantPast
+    private var lastTailCount = -1
+    private var indexed = 0                                         // records [0, indexed) are in the marker index below
     private var passMarkers: [(tick: Int, cycle: Int)] = []
     private var segmentTicks: [Int] = []                            // ascending: the clock never runs backwards
     private var finals: [TapePass] = []                             // passes whose end is known (the next pass has started), final the moment they are made
@@ -209,9 +229,14 @@ final class SessionTape {
         inFlight.append(first); writer.adopt(first)
         topUp()
     }
-    deinit { allocated.forEach { $0.deallocate() } }
+    deinit {
+        flushTail(force: true)
+        allocated.forEach { $0.deallocate() }
+        cache.forEach { $0.ptr.deallocate() }
+    }
 
     private func newChunk() -> UnsafeMutablePointer<TapeEvent> {
+        if let p = spare.popLast() { return p }
         let p = UnsafeMutablePointer<TapeEvent>.allocate(capacity: chunkEvents)
         p.initialize(repeating: TapeEvent(tick: 0, d1: 0, d2: 0, meta: 0, aux: 0), count: chunkEvents)
         allocated.append(p)
@@ -220,9 +245,64 @@ final class SessionTape {
     private func topUp() {
         while free.count < poolSize {
             let c = newChunk()
-            guard free.push(c) else { break }
+            guard free.push(c) else { spare.append(c); break }
             inFlight.append(c)
         }
+    }
+
+    // MARK: the store
+
+    /// Attach the file. Call before anything is recorded (the standalone app does, before its engine starts): what the file holds is restored and the tape picks up after it — the caller then moves the recorder's clock to
+    /// `endTick()` (`TapeRecorder.setOrigin`). If records have already been made, the file's old content is discarded (the live session wins) and what is already finished is written to it. Returns the number of records restored.
+    @discardableResult
+    func attach(store s: TapeStore) -> Int {
+        guard store == nil, s.chunkEvents == chunkEvents else { return 0 }
+        let pristine = published().total == 0 && segs.isEmpty
+        var restored = 0
+        if pristine {
+            s.load { blockIndex, b, p in
+                segs.append(TapeChunk(first: sealedTotal, count: b.count, minTick: b.minTick, maxTick: b.maxTick, base: nil, block: blockIndex))
+                sealedTotal += b.count; restored += b.count
+                for j in 0..<b.count { note(p[j]) }
+            }
+            restoredSegs = segs.count; writerBase = sealedTotal; indexed = sealedTotal
+        } else {
+            s.reset()
+            for i in segs.indices where segs[i].block == nil { if let base = segs[i].base { segs[i].block = s.appendBlock(from: base, count: segs[i].count, minTick: segs[i].minTick, maxTick: segs[i].maxTick) } }
+        }
+        store = s.isUsable ? s : nil
+        evictIfNeeded()
+        return restored
+    }
+    var hasStore: Bool { store != nil }
+    var storeErrors: Int { store?.ioErrors ?? 0 }
+    /// Write everything not yet on disk — the chunk still being filled included. Call when the app is about to go to the background.
+    func flushNow() { drain(); flushTail(force: true) }
+
+    private func evictIfNeeded() {
+        guard store != nil else { return }
+        var resident = 0
+        for s in segs where s.base != nil { resident += 1 }
+        var i = 0
+        while resident > residentChunks, i < segs.count {
+            if let b = segs[i].base, segs[i].block != nil { segs[i].base = nil; spare.append(b); resident -= 1 }
+            i += 1
+        }
+    }
+    private func flushTail(force: Bool = false) {
+        guard let store else { return }
+        let now = Date()
+        if !force, now.timeIntervalSince(lastTailFlush) < SessionTape.tailFlushSeconds { return }
+        let (total, gen) = published()
+        let n = total - writerBase - gen * chunkEvents
+        let k = gen - (segs.count - restoredSegs)
+        guard n > 0, k >= 0, k < inFlight.count else { lastTailFlush = now; return }
+        if n == lastTailCount { lastTailFlush = now; return }
+        let p = inFlight[k]
+        var lo = UInt32.max, hi: UInt32 = 0
+        for i in 0..<n { let t = p[i].tick; if t < lo { lo = t }; if t > hi { hi = t } }
+        store.writeTail(from: p, count: n, minTick: lo, maxTick: hi)
+        lastTailFlush = now; lastTailCount = n
     }
 
     /// Main thread: take back the chunks the writer filled, refill the pool, and index what arrived. Call this from the UI's poll (a few times a second); every reading call also does it.
@@ -232,49 +312,77 @@ final class SessionTape {
             inFlight.removeFirst()
             var lo = UInt32.max, hi: UInt32 = 0
             for i in 0..<chunkEvents { let t = p[i].tick; if t < lo { lo = t }; if t > hi { hi = t } }
-            sealed.append(TapeChunk(base: p, minTick: lo, maxTick: hi))
+            var c = TapeChunk(first: sealedTotal, count: chunkEvents, minTick: lo, maxTick: hi, base: p, block: nil)
+            if let store { c.block = store.appendBlock(from: p, count: chunkEvents, minTick: lo, maxTick: hi); lastTailCount = -1 }
+            segs.append(c); sealedTotal += chunkEvents
         }
+        evictIfNeeded()
         topUp()
         index()
+        flushTail()
     }
 
-    /// One consistent snapshot of how much the writer has published: (total events, chunks the writer has finished).
+    /// One consistent snapshot of how much the writer has published: (total records in the tape's numbering, chunks the writer has finished).
     private func published() -> (total: Int, finished: Int) {
         let p = writer.published.load(ordering: .acquiring)
         let gen = Int(p >> 32), n = Int(p & 0xFFFF_FFFF)
-        return (gen * chunkEvents + n, gen)
+        return (writerBase + gen * chunkEvents + n, gen)
     }
-    private func chunkBase(_ c: Int) -> UnsafeMutablePointer<TapeEvent>? {
-        if c < sealed.count { return sealed[c].base }
-        let k = c - sealed.count
-        return k < inFlight.count ? inFlight[k] : nil
+
+    /// The records of finished chunk `i`, reading them back from the store if they were evicted.
+    private func records(of i: Int) -> UnsafePointer<TapeEvent>? {
+        if let b = segs[i].base { return UnsafePointer(b) }
+        guard let store, let blk = segs[i].block else { return nil }
+        cacheClock += 1
+        if let hit = cache.firstIndex(where: { $0.seg == i }) { cache[hit].used = cacheClock; return UnsafePointer(cache[hit].ptr) }
+        let slot: Int
+        if cache.count < SessionTape.cacheSlots {
+            cache.append((i, cacheClock, UnsafeMutablePointer<TapeEvent>.allocate(capacity: chunkEvents))); slot = cache.count - 1
+        } else { slot = cache.indices.min { cache[$0].used < cache[$1].used }! }
+        guard store.read(block: blk, into: cache[slot].ptr) else { cache[slot].seg = -1; return nil }
+        cache[slot].seg = i; cache[slot].used = cacheClock
+        return UnsafePointer(cache[slot].ptr)
     }
-    /// Visit events [start, end) in the order they were appended.
+    /// The finished chunk holding record `index` (binary search on `first`).
+    private func segIndex(containing index: Int) -> Int {
+        var lo = 0, hi = segs.count
+        while lo < hi { let mid = (lo + hi) / 2; if segs[mid].first <= index { lo = mid + 1 } else { hi = mid } }
+        return lo - 1
+    }
+    /// Visit records [start, end) in the order they were appended.
     private func forEachEvent(from start: Int, to end: Int, _ body: (TapeEvent) -> Void) {
         var i = start
+        while i < end, i < sealedTotal {
+            let s = segIndex(containing: i)
+            guard s >= 0, let p = records(of: s) else { return }
+            let o = i - segs[s].first, stop = min(end, segs[s].first + segs[s].count)
+            for j in 0..<(stop - i) { body(p[o + j]) }
+            i = stop
+        }
         while i < end {
-            let c = i / chunkEvents, o = i % chunkEvents
-            guard let b = chunkBase(c) else { return }
-            let stop = min(end, (c + 1) * chunkEvents)
-            for j in 0..<(stop - i) { body(b[o + j]) }
+            let k = (i - sealedTotal) / chunkEvents, o = (i - sealedTotal) % chunkEvents
+            guard k < inFlight.count else { return }
+            let stop = min(end, sealedTotal + (k + 1) * chunkEvents)
+            for j in 0..<(stop - i) { body(inFlight[k][o + j]) }
             i = stop
         }
     }
 
+    private func note(_ e: TapeEvent) {
+        switch e.kind {
+        case .pass:
+            if let m = passMarkers.last { finalize(m, end: Int(e.tick)) }
+            passMarkers.append((Int(e.tick), e.cycleTicks))
+        case .segment: segmentTicks.append(Int(e.tick))
+        case .tempo: tempoChanges.append((Int(e.tick), e.bpm))
+        case .note, .control: break
+        }
+        lastTick = max(lastTick, Int(e.tick))
+    }
     private func index() {
         let total = published().total
         guard total > indexed else { return }
-        forEachEvent(from: indexed, to: total) { e in
-            switch e.kind {
-            case .pass:
-                if let m = passMarkers.last { finalize(m, end: Int(e.tick)) }
-                passMarkers.append((Int(e.tick), e.cycleTicks))
-            case .segment: segmentTicks.append(Int(e.tick))
-            case .tempo: tempoChanges.append((Int(e.tick), e.bpm))
-            case .note, .control: break
-            }
-            lastTick = max(lastTick, Int(e.tick))
-        }
+        forEachEvent(from: indexed, to: total) { note($0) }
         indexed = total
     }
 
@@ -282,7 +390,12 @@ final class SessionTape {
 
     var eventCount: Int { published().total }
     var droppedEvents: Int { writer.droppedEvents }
-    var residentBytes: Int { allocated.count * chunkEvents * MemoryLayout<TapeEvent>.stride }
+    /// Memory the tape holds: every chunk buffer (finished, being written, pooled, spare) and the read-back cache.
+    var residentBytes: Int { (allocated.count + cache.count) * chunkEvents * MemoryLayout<TapeEvent>.stride }
+    /// Finished chunks and restored blocks (not the ones the writer still holds).
+    var sealedCount: Int { segs.count }
+    /// How many of them are out of memory, on disk only.
+    var evictedCount: Int { segs.reduce(0) { $0 + ($1.base == nil ? 1 : 0) } }
     /// Where the tape ends, in ticks (the latest record seen so far).
     func endTick() -> Int { drain(); return lastTick }
 
@@ -291,17 +404,17 @@ final class SessionTape {
         drain()
         let total = published().total
         var out: [(e: TapeEvent, seq: Int)] = []
-        var c = 0
-        while c * chunkEvents < total {
-            let startIdx = c * chunkEvents, count = min(chunkEvents, total - startIdx)
-            if c < sealed.count, Int(sealed[c].maxTick) < lo || Int(sealed[c].minTick) >= hi { c += 1; continue }   // a sealed chunk that cannot hold anything in range
-            if let b = chunkBase(c) {
-                for j in 0..<count {
-                    let e = b[j], t = Int(e.tick)
-                    if t >= lo && t < hi && kinds.contains(e.kind) { out.append((e, startIdx + j)) }
-                }
-            }
-            c += 1
+        for (si, s) in segs.enumerated() where Int(s.maxTick) >= lo && Int(s.minTick) < hi {     // a finished chunk whose ticks cannot reach the range is not even read
+            guard let p = records(of: si) else { continue }
+            for j in 0..<s.count { let e = p[j], t = Int(e.tick); if t >= lo && t < hi && kinds.contains(e.kind) { out.append((e, s.first + j)) } }
+        }
+        var g = sealedTotal
+        while g < total {
+            let k = (g - sealedTotal) / chunkEvents
+            guard k < inFlight.count else { break }
+            let stop = min(total, sealedTotal + (k + 1) * chunkEvents)
+            for j in 0..<(stop - g) { let e = inFlight[k][(g - sealedTotal) % chunkEvents + j], t = Int(e.tick); if t >= lo && t < hi && kinds.contains(e.kind) { out.append((e, g + j)) } }
+            g = stop
         }
         out.sort { $0.e.tick != $1.e.tick ? $0.e.tick < $1.e.tick : $0.seq < $1.seq }
         return out.map { $0.e }
@@ -372,6 +485,9 @@ final class TapeRecorder {
         laneOfNote.initialize(repeating: -1, count: 5 * 16 * 128)
     }
     deinit { laneOfNote.deallocate() }
+
+    /// Start the session clock at `tick` instead of 0 — after a session was restored from disk, so the new run follows the old one. Only before the first window.
+    func setOrigin(tick: Int) { if !isOpen { lastTick = max(0, tick) } }
 
     private func tick(forBeat b: Double) -> Int { max(baseTick, baseTick + Int(((b - startBeat) * Double(SessionTape.ppq)).rounded())) }
 

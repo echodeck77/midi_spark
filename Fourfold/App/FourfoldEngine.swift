@@ -85,6 +85,9 @@ final class FourfoldEngine {
         linkRef = ABLLinkNew(clock.tempo)
         #endif
         au = try FourfoldAudioUnit(componentDescription: FourfoldAudioUnit.componentDescription, options: [])
+        let tapeURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Fourfold/Session/session.tape")
+        if CommandLine.arguments.contains("--fresh") { try? FileManager.default.removeItem(at: tapeURL) }   // UI tests start from an empty reel, like the factory document
+        au.useDurableTape(at: tapeURL)                                                                        // REEL PHASE 1d: the session survives a relaunch (before the engine starts)
         scratch = AudioBufferList.allocate(maximumBuffers: 2)
         scratchData = (0..<2).map { _ in
             let p = UnsafeMutablePointer<Float>.allocate(capacity: Int(Self.maxFrames)); p.initialize(repeating: 0, count: Int(Self.maxFrames)); return p

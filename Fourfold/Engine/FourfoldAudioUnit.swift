@@ -94,6 +94,37 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiReelState() -> Int { kernel.reelStateValue() }   // 0 off · 1 armed · 2 replaying
     // THE PASS BROWSER (Paul 2026-08-19) reads the SESSION TAPE since REEL PHASE 1c (2026-10-25, Fourfold/Engine/ReelTapeAdapter.swift): every pass played whole since the first play, not the newest 64. All of these are MAIN THREAD.
     var sessionTape: SessionTape { kernel.tape }                // the session tape (main thread only)
+    /// REEL PHASE 1d — THE STANDALONE APP keeps its session on disk: one file, restored here before the engine starts, so a relaunch carries on where the last run left off (the tape's clock continues after it). Returns how many
+    /// records came back. A file past `tapeFileCapBytes` (about 11 hours of dense music) is set aside as `….previous` and a fresh one started: a stopgap until the reel has a "New session" button.
+    @discardableResult
+    func useDurableTape(at url: URL) -> Int {
+        let tape = kernel.tape
+        guard !tape.hasStore else { return 0 }
+        var store = TapeStore(url: url, chunkEvents: tape.chunkEvents)
+        if let s = store, s.lengthBytes() > FourfoldAudioUnit.tapeFileCapBytes {
+            let previous = url.appendingPathExtension("previous")
+            s.close()
+            try? FileManager.default.removeItem(at: previous); try? FileManager.default.moveItem(at: url, to: previous)
+            store = TapeStore(url: url, chunkEvents: tape.chunkEvents)
+        }
+        guard let store else { return 0 }
+        let restored = tape.attach(store: store)
+        if restored > 0 { kernel.tapeSetOrigin(tape.endTick()) }
+        return restored
+    }
+    static let tapeFileCapBytes: UInt64 = 96 * 1024 * 1024
+    /// Write every record not yet on disk (the app calls this as it leaves the foreground).
+    func flushTape() { kernel.tape.flushNow() }
+    /// THE EXTENSION (AUM) has no durable session yet — which instance's tape a relaunched host session should bring back needs an id carried in the host's saved state, and how hosts treat that is not something to guess at (REEL
+    /// phase 1d, open item). It still needs the file: older chunks spill to a temporary one so the tape stays inside its 8 MiB, and the file goes when the unit does.
+    private func attachSpillTapeIfNeeded() {
+        let tape = kernel.tape
+        guard !tape.hasStore else { return }
+        let dir = FileManager.default.temporaryDirectory
+        if !FourfoldAudioUnit.sweptSpills { FourfoldAudioUnit.sweptSpills = true; TapeStore.removeStale(in: dir, prefix: "fourfold-tape-") }
+        if let s = TapeStore(url: dir.appendingPathComponent("fourfold-tape-\(UUID().uuidString).tape"), chunkEvents: tape.chunkEvents, deleteOnClose: true) { tape.attach(store: s) }
+    }
+    private static var sweptSpills = false
     func reelExportRangeFiles(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] { kernel.tape.reelExportFiles(from: lo, to: hi, emitterMask: emitterMask) }   // pass RANGE × emitter selection
     func reelRangeRoll(fromPass lo: Int, toPass hi: Int) -> (notes: [ReelDeck.Note], cycle: Double) { let r = kernel.tape.reelRangeRoll(from: lo, to: hi); return (r.notes, r.totalBeats) }   // the concatenated roll for a multi-pass selection
     func reelPassNumbers() -> [Int] { Array(0..<kernel.tape.filedPasses().count) }   // the passes played whole, oldest→newest (shown 1-based)
@@ -117,9 +148,9 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let events = t.reelPassEvents(p)
         for _ in 0..<8 { if kernel.reelStageLoop(events, cycle: cycle, pass: p) { break }; usleep(500) }   // the render thread holds the buffer for microseconds; give up after a few tries
     }
-    func tapeStats() -> (events: Int, dropped: Int, passes: Int, completePasses: Int, endTick: Int, residentBytes: Int) {   // main thread: the session tape's size and shape (diagnostics, the harness)
+    func tapeStats() -> (events: Int, dropped: Int, passes: Int, completePasses: Int, endTick: Int, residentBytes: Int, evictedChunks: Int, storeErrors: Int) {   // main thread: the session tape's size and shape (diagnostics, the harness)
         let t = kernel.tape; t.drain(); let ps = t.passes()
-        return (t.eventCount, t.droppedEvents, ps.count, t.filed.count, t.endTick(), t.residentBytes)
+        return (t.eventCount, t.droppedEvents, ps.count, t.filed.count, t.endTick(), t.residentBytes, t.evictedCount, t.storeErrors)
     }
     func reelStopReplay() { kernel.reelStopReplay() }                    // stop replay → resume live
     func reelCycleBeats() -> Double { kernel.tape.reelPassCycleBeats(reelFocusPass()) ?? 4 }   // the focus pass's length (piano-roll x-axis)
@@ -690,6 +721,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         kernel.musicalContext = musicalContextBlock
         kernel.transportState = transportStateBlock
         kernel.reset()
+        attachSpillTapeIfNeeded()
         startTapeDrain()
     }
 

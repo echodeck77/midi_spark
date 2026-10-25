@@ -186,6 +186,7 @@ final class Kernel {
     private let tapeRecorder: TapeRecorder
     // REEL PHASE 1c (REEL-2): while a pass replays, the live engine keeps RUNNING — its output goes to `reelSilentTap` (the tape hears it, the host does not) so the session tape has no hole and the engine is exactly where it
     // would have been when the user hands back to live. `reelFlushTap` is for the flush at the moment replay starts: the host DOES get those note-offs (the live notes must end), and so does the tape. Neither touches the deck.
+    func tapeSetOrigin(_ tick: Int) { tapeRecorder.setOrigin(tick: tick) }   // main thread, before the first window: continue a restored session's clock
     private let reelSilentTap = ReelTap()
     private let reelFlushTap = ReelTap()
     init() {
@@ -326,10 +327,13 @@ final class Kernel {
         // ---- event list: MIDI + parameter events ----
         var ev = events
         while let e = ev {
-            let head = e.pointee.head
+            // Read each event as the one struct it is, NOT through `e.pointee.<member>`: AURenderEvent is a union, and Swift copies the WHOLE union (296 bytes) to read any member — more than the host allocated for a 24-byte MIDI event, so
+            // the copy ran off the end of the event (AddressSanitizer: heap-buffer-overflow READ of 296, found 2026-10-25 by the soak). Every event begins with the same header.
+            let raw = UnsafeRawPointer(e)
+            let head = raw.assumingMemoryBound(to: AURenderEventHeader.self).pointee
             switch head.eventType {
             case .MIDI:
-                let midi = e.pointee.MIDI
+                let midi = raw.assumingMemoryBound(to: AUMIDIEvent.self).pointee
                 withUnsafeBytes(of: midi.data) { raw in
                     let bytes = raw.bindMemory(to: UInt8.self)
                     let length = Int(midi.length)
@@ -347,7 +351,7 @@ final class Kernel {
                 // protocol deliver events here instead of .MIDI; the UMP GROUP is the cable equivalent.
                 // Walk the list IN PLACE (never copy — MIDIEventList is variable-length; a value copy
                 // would drop trailing packets), decode each Channel-Voice message to legacy bytes.
-                let ts = e.pointee.MIDIEventsList.eventSampleTime
+                let ts = head.eventSampleTime
                 if let listPtr = e.pointer(to: \.MIDIEventsList.eventList) {
                     var pkt = listPtr.pointer(to: \.packet)!
                     for _ in 0..<Int(listPtr.pointee.numPackets) {
@@ -356,7 +360,7 @@ final class Kernel {
                     }
                 }
             case .parameter, .parameterRamp:
-                let pe = e.pointee.parameter
+                let pe = raw.assumingMemoryBound(to: AUParameterEvent.self).pointee
                 router.applyParamEvent(pe.parameterAddress, Double(pe.value), atSample: pe.eventSampleTime,
                                        rampDurationSampleFrames: pe.rampDurationSampleFrames, diag: &diag)
             default:
