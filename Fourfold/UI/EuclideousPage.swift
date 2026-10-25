@@ -3063,6 +3063,7 @@ struct EuclideousPage: View {
     // SwiftUI — every one of these call sites already draws directly over that background, so the
     // composited result reads exactly as a blend with it, matching every other tint already in this file.
     private func lane100(_ c: Color) -> Color { c }
+    private func lane40(_ c: Color) -> Color { c.opacity(0.4) }
     private func lane20(_ c: Color) -> Color { c.opacity(0.2) }
 
     // PATTERN CONTROL BLOCK's own button styling (ratified PATTERN-tab-layout ferry, 2026-10-12, §6,
@@ -3876,6 +3877,83 @@ struct EuclideousPage: View {
         .frame(width: width, height: height)
     }
 
+    /// PER-LAYER EMITTER ROUTING ferry §1–§2: the slim A–D OUT column down the right edge of the RIFF / NOTES tab.
+    /// `part` picks which layer's mask it edits and flares on (`riffOutMask` on RIFF, `notesOutMask` on NOTES). It
+    /// spans the tab's whole content height (`height` = `contentAreaH`), 32 wide, laid out by `euclideousOutColumnLayout`.
+    /// §1.7: it is part of the tab body — while that layer is off it draws at 42% WITH the rest of the body and stays
+    /// live (the caller wraps it in that opacity). One TimelineView drives all four circles' strike flare (§2.4), the
+    /// page's standing one-timeline rule; it ticks only while `pulseLive`. No new polling, no engine path (§2.4/§2.6).
+    private func outColumn(_ idx: Int, _ line: EuclidLine, _ accent: Color, part: EuclideousOutPart, height: CGFloat) -> some View {
+        let lay = euclideousOutColumnLayout(height: height)
+        let mask = (part == .riff ? line.riffOutMaskResolved : line.notesOutMaskResolved) ?? 0
+        let names = ["A", "B", "C", "D"]
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(Color(hex: 0x262930))
+                .frame(width: lay.rule.width, height: lay.rule.height).offset(x: lay.rule.minX, y: lay.rule.minY)
+            Text("OUT").font(.system(size: 9, weight: .bold, design: .monospaced)).kerning(0.14 * 9)
+                .foregroundColor(Color(hex: 0x8A909A))
+                .frame(width: lay.caption.width, height: lay.caption.height, alignment: .center)
+                .offset(x: lay.caption.minX, y: lay.caption.minY)
+                .accessibilityHidden(true)
+            // §2.4: the strike flare. One TimelineView for all four circles (never one per circle).
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+                let now = tl.date.timeIntervalSinceReferenceDate
+                let flares = outColumnFlares(idx, part: part, now: now)
+                ZStack(alignment: .topLeading) {
+                    ForEach(0..<4, id: \.self) { b in
+                        let routed = (mask >> UInt8(b)) & 1 != 0
+                        let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
+                        outCircle(idx, part: part, output: b, name: names[b], accent: accent,
+                                  state: euclideousOutCircleState(routed: routed, mainOn: mainOn), flare: flares[b])
+                            .frame(width: lay.targets[b].width, height: lay.targets[b].height)
+                            .offset(x: lay.targets[b].minX, y: lay.targets[b].minY)
+                    }
+                }
+            }
+        }
+        .frame(width: EuclideousOutColumnLayout.width, height: height, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(part == .riff ? "Riff outputs" : "Notes outputs")
+    }
+    /// §2.4: for each output A–D, this lane's `part` layer struck a note that leaves on it — f = the flash envelope of
+    /// that strike's own-layer velocity, `now` seconds after onset, scaled by P. 0 when the part doesn't route there,
+    /// the main out is off, this layer didn't strike, or PULSE is off. Mirrors `ringFlare` but uses ONE layer's velocity.
+    private func outColumnFlares(_ idx: Int, part: EuclideousOutPart, now: Double) -> [Double] {
+        let p = euclideousPulseScale(level: pulseLevel)
+        let mask = (part == .riff ? (idx < lines.count ? lines[idx].riffOutMaskResolved : nil) : (idx < lines.count ? lines[idx].notesOutMaskResolved : nil)) ?? 0
+        guard p > 0, let s = pulseFeed.latest(lane: idx, where: { $0.onsetAt <= now }) else { return [0, 0, 0, 0] }
+        let vel = part == .riff ? Int(s.riffVel) : Int(s.notesVel)
+        guard vel > 0 else { return [0, 0, 0, 0] }
+        let f = euclideousPulseEnvelopes(velocity: vel, seconds: now - s.onsetAt, scale: p).f
+        return (0..<4).map { b in ((mask >> UInt8(b)) & 1 != 0 && (mainOutMask >> UInt8(b)) & 1 != 0) ? f : 0 }
+    }
+    /// §2.2–§2.5: one output circle — the header rings' disc and letter at radius 13, with a single lane-colour ring in
+    /// place of the header's four quarters. Tap toggles this output's bit in this part's mask through the `edit` undo
+    /// funnel (`toggleOutput`). §2.4 flare: the ring thickens 2→3 pt over a 6 pt lane40 glow and the disc washes to lane20.
+    private func outCircle(_ idx: Int, part: EuclideousOutPart, output b: Int, name: String, accent: Color,
+                           state: EuclideousOutCircleState, flare f: Double) -> some View {
+        let discFill = Color(hex: state == .routedMainOff ? 0x1B1D23 : 0x2A2D34)   // §2.3: routed+main-off disc is hollow, the card fill shows
+        let ringColor: Color = state == .unrouted ? Color(hex: 0x3A3E47) : lane100(accent)
+        let letterColor: Color = state == .routed ? Color(hex: 0xF2F4F7) : (state == .routedMainOff ? lane100(accent) : Color(hex: 0x8A909A))
+        let dashed = state == .routedMainOff
+        return ZStack {
+            if f > 0 { Circle().inset(by: 1).stroke(lane40(accent), lineWidth: 6).opacity(f) }   // §2.4 glow
+            Circle().inset(by: 1).fill(discFill)
+            if f > 0 { Circle().inset(by: 1).fill(lane20(accent)).opacity(f) }                   // §2.4 disc wash
+            Circle().inset(by: 1).stroke(ringColor, style: dashed ? StrokeStyle(lineWidth: 2, lineCap: .butt, dash: [3, 3]) : StrokeStyle(lineWidth: 2 + f))
+            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(letterColor)
+        }
+        .frame(width: 28, height: 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)   // centre the 28 pt circle in its 32 × 44 target
+        .contentShape(Rectangle())
+        .onTapGesture { edit(idx) { $0.toggleOutput(part, bit: 1 << UInt8(b)) } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(part == .riff ? "Riff" : "Notes") to output \(name), \(state == .unrouted ? "off" : "on")\(state == .routedMainOff ? ", main out \(name) is off" : "")")
+        .accessibilityHint("Double-tap to route or unroute")
+        .accessibilityAddTraits(.isButton)
+        .ringToggleTrait()
+    }
+
     /// Draws one feel glyph — ♩ (U+2669 QUARTER NOTE) for straight, ♩+"." for dotted, ♩+a raised "3" for
     /// triplet (ferry §3, literal). Deliberately NOT `design: .monospaced` — JetBrains Mono (this page's
     /// own monospaced font elsewhere) has no glyph for U+2669; the ferry's own explicit warning is "it
@@ -4568,22 +4646,30 @@ struct EuclideousPage: View {
     /// reported, not hand-fitted), so the header row and tab row stop moving between tabs. Upper zone: Row A
     /// (card + WALK strip + direction row) + Row B (ADVANCE EVERY). Lower zone: ON REST row + values row.
     private func riffTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
+        // PER-LAYER EMITTER ROUTING ferry §1.2/§1.3: the content loses the OUT column's 32 pt and the sp4 gap to it (36 total).
+        let contentW = max(1, fullWidth - EuclideousOutColumnLayout.width - sp4)
+        let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: contentW, sp4: sp4)
         // LISTEN REBUILT (2026-10-23): RIFF pauses whole under SHADOW or ECHO now (§9.9's `borrowedTabs`), not SHADOW alone.
         let paused = line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo
-        return ZStack {
-            VStack(spacing: sp4) {
-                riffTopRow(idx, line, accent, layout: layout)
-                riffAdvanceRow(idx, line, accent, layout: layout).frame(height: layout.rowBHeight)
-                riffOnRestRow(idx, line, accent, layout: layout).frame(height: layout.lowerRowHeight)
-                melodyValuesRow(idx, line, accent, fullWidth: fullWidth, stepperWidth: layout.valueStepperWidth)
-                    .frame(height: layout.lowerRowHeight)
+        return ZStack(alignment: .topLeading) {
+            HStack(spacing: sp4) {
+                VStack(spacing: sp4) {
+                    riffTopRow(idx, line, accent, layout: layout)
+                    riffAdvanceRow(idx, line, accent, layout: layout).frame(height: layout.rowBHeight)
+                    riffOnRestRow(idx, line, accent, layout: layout).frame(height: layout.lowerRowHeight)
+                    melodyValuesRow(idx, line, accent, fullWidth: contentW, stepperWidth: layout.valueStepperWidth)
+                        .frame(height: layout.lowerRowHeight)
+                        .opacity(line.riffOnResolved ? 1.0 : 0.42)
+                }
+                .frame(width: contentW)
+                // §1.7: the column dims to 42% with the body while the riff is off, but stays live.
+                outColumn(idx, line, accent, part: .riff, height: contentAreaH)
                     .opacity(line.riffOnResolved ? 1.0 : 0.42)
             }
             .opacity(paused ? EuclideousListenPauseMetrics.dimOpacity : 1)
             .allowsHitTesting(!paused)
             .accessibilityHidden(paused)
-            if paused { listenPausedOverlay(idx, line, label: "RIFF", width: fullWidth, height: contentAreaH) { $0.listenPitch = .own } }
+            if paused { listenPausedOverlay(idx, line, label: "RIFF", width: contentW, height: contentAreaH) { $0.listenPitch = .own } }
         }
     }
     /// §7 (LISTEN REBUILT, 2026-10-23): the opacity a borrowed tab's own content dims to underneath its
@@ -4788,7 +4874,11 @@ struct EuclideousPage: View {
         // LISTEN REBUILT (2026-10-23): NOTES pauses whole under SHADOW or ECHO (§9.9's `borrowedTabs`, NOTES
         // reads the riff far beyond one pitch, so it always pauses alongside RIFF — confirmed, not assumed).
         let shadowing = line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo
-        let lay = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
+        // PER-LAYER EMITTER ROUTING ferry §1.2/§1.3: the content loses the OUT column (32) + its sp4 gap (36 total);
+        // §1.6: the PLAY AS picker alone still covers the WHOLE content box (column included), so it uses `layFull`.
+        let contentW = max(1, fullWidth - EuclideousOutColumnLayout.width - sp4)
+        let lay = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: contentW, sp4: sp4)
+        let layFull = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
         let data = notesTabData(line)
         let way = line.notesPlayAsResolved
         let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
@@ -4802,7 +4892,7 @@ struct EuclideousPage: View {
         // one VoiceOver group per row (§11.2): the group spans the content width at the row's own y, its children keep their layout x
         func group<V: View>(_ row: CGRect, label: String, @ViewBuilder _ v: () -> V) -> some View {
             ZStack(alignment: .topLeading) { v() }
-                .frame(width: fullWidth, height: row.height, alignment: .topLeading)
+                .frame(width: contentW, height: row.height, alignment: .topLeading)
                 .offset(x: 0, y: row.minY)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(label)
@@ -4907,13 +4997,18 @@ struct EuclideousPage: View {
                     }
                 }
                 .opacity(isOn ? 1.0 : 0.42)
+                // PER-LAYER ROUTING ferry §1.7: the OUT column is part of the body — it dims to 42% with the rest while
+                // the notes are off and stays live; it pauses (0.18, no hits, a11y hidden) with the body under SHADOW/ECHO.
+                outColumn(idx, line, accent, part: .notes, height: contentAreaH)
+                    .opacity(isOn ? 1.0 : 0.42)
+                    .offset(x: contentW + sp4, y: 0)
             }
             .opacity(shadowing ? EuclideousListenPauseMetrics.dimOpacity : 1)
             .allowsHitTesting(!shadowing)
             .accessibilityHidden(shadowing)
-            if shadowing { listenPausedOverlay(idx, line, label: "NOTES", width: fullWidth, height: contentAreaH) { $0.listenPitch = .own } }
+            if shadowing { listenPausedOverlay(idx, line, label: "NOTES", width: contentW, height: contentAreaH) { $0.listenPitch = .own } }
             if notesPickerOpen.contains(idx) {
-                EuclideousNotesPickerView(layout: lay, current: way, list: data.list, accent: lane100(accent),
+                EuclideousNotesPickerView(layout: layFull, current: way, list: data.list, accent: lane100(accent),
                                           onChoose: { w in
                                               if w != way { edit(idx) { $0.notesPlayAs = w } }
                                               notesPickerOpen.remove(idx)

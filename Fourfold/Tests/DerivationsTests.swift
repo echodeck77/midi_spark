@@ -7,6 +7,42 @@ import XCTest
 
 final class DerivationsTests: XCTestCase {
 
+    // MARK: PER-LAYER EMITTER ROUTING ferry (2026-10-25) §2 — the OUT column
+
+    // §2.3 / test 6: the four (routed, main-out) combinations give three looks; "not routed, main out off" == "not routed".
+    func testPerLayerOutCircleStateFourCombinations() {
+        XCTAssertEqual(euclideousOutCircleState(routed: true,  mainOn: true),  .routed)
+        XCTAssertEqual(euclideousOutCircleState(routed: true,  mainOn: false), .routedMainOff)
+        XCTAssertEqual(euclideousOutCircleState(routed: false, mainOn: true),  .unrouted)
+        XCTAssertEqual(euclideousOutCircleState(routed: false, mainOn: false), .unrouted, "not routed is one look regardless of the main out")
+    }
+
+    // §1.2/§2.1 + test 9: at the reference the 32-wide column over a 208-tall content area puts the caption on a 12 pt
+    // line at the top, sp4, then four 44-tall targets at local y 16 / 60 / 104 / 148 (= card y 110 / 154 / 198 / 242 once
+    // the column's own card-y-94 origin is added). The 1 pt rule is inset 4 pt top and bottom (card y 98–298).
+    func testPerLayerOutColumnLayoutAtReference() {
+        let c = euclideousOutColumnLayout(height: 208)
+        XCTAssertEqual(c.caption, CGRect(x: 0, y: 0, width: 32, height: 12))
+        XCTAssertEqual(c.targetH, 44, accuracy: 0.01)
+        XCTAssertEqual(c.targets.map { $0.minY }, [16, 60, 104, 148])
+        XCTAssertTrue(c.targets.allSatisfy { $0.width == 32 && $0.height == 44 })
+        XCTAssertEqual(c.rule, CGRect(x: 0, y: 4, width: 1, height: 200))
+        XCTAssertFalse(c.underFloor)
+    }
+
+    // §2.1: in a short column the targets shrink equally to a 36 pt floor, then flag.
+    func testPerLayerOutColumnTargetsShrinkToTheFloor() {
+        // avail/4 == 36 exactly (height = 16 + 4*36 = 160): at the floor, not under it.
+        let atFloor = euclideousOutColumnLayout(height: 160)
+        XCTAssertEqual(atFloor.targetH, 36, accuracy: 0.01); XCTAssertFalse(atFloor.underFloor)
+        // shorter still: the targets can't shrink below 36, so they'd overflow — flagged.
+        let under = euclideousOutColumnLayout(height: 150)
+        XCTAssertEqual(under.targetH, 36, accuracy: 0.01); XCTAssertTrue(under.underFloor)
+        // a mid height between floor and the 44 cap scales linearly: height 120 → avail 104 → 26 but floored to 36.
+        let tall = euclideousOutColumnLayout(height: 300)
+        XCTAssertEqual(tall.targetH, 44, accuracy: 0.01, "capped at 44 however tall the column")
+    }
+
     // MARK: swing warp (§4)
 
     func testSwingIdentityAt50() {

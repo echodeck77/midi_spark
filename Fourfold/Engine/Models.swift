@@ -278,6 +278,18 @@ struct EuclidLine: Codable, Equatable {
         if riffOutMask == nil, notesOutMask == nil { return emitterMask }
         return (riffOutMaskResolved ?? 0) | (notesOutMaskResolved ?? 0)
     }
+    // ferry §2.5/§3.4: a circle tap on the RIFF/NOTES tab toggles one output bit of one part. It PINS BOTH parts to
+    // their resolved value first (so the UNtapped part stops inheriting `emitterMask` and can't be dragged along when
+    // `emitterMask` is rewritten below), flips this part's bit, then keeps `emitterMask` = the two parts' union
+    // (`emitterMaskForEncode`, now that both are explicit) so the synthesized encoder persists the §3.3 forward-compat
+    // value with no fragile hand-written `encode(to:)`. A part routed nowhere sounds nowhere, as a lane does today.
+    mutating func toggleOutput(_ part: EuclideousOutPart, bit: UInt8) {
+        var riff = riffOutMaskResolved ?? 0, notes = notesOutMaskResolved ?? 0
+        if part == .riff { riff ^= (bit & 0x0F) } else { notes ^= (bit & 0x0F) }
+        riffOutMask = riff & 0x0F
+        notesOutMask = notes & 0x0F
+        emitterMask = emitterMaskForEncode      // both parts explicit now ⇒ exactly riff | notes
+    }
     // RIFF ADVANCE (Paul 2026-10-06, EUCLIDEOUS): when on, this lane's hits step through the page's shared
     // EuclideousRiff pattern instead of noteSel/octave — REPLACES them entirely, not layered on top. riffRotate/
     // riffOctave are this lane's own INDEPENDENT offsets into that one shared pattern (driven by the same

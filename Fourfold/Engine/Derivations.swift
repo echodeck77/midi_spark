@@ -2485,6 +2485,54 @@ func euclideousLaneOutChipStyle(routed: Bool, mainOn: Bool) -> EuclideousLaneOut
 }
 
 
+// ── PER-LAYER EMITTER ROUTING ferry (2026-10-25) §1–§2: the OUT column on the RIFF and NOTES tabs ──────────
+/// Which layer of a lane a routing applies to (ferry §2.5): the RIFF tab edits `riffOutMask`, the NOTES tab `notesOutMask`.
+enum EuclideousOutPart: Equatable { case riff, notes }
+
+/// §2.3: one output circle's look, from this part's routing bit for the output and the output's `euclideousMainOutMask`
+/// bit. Four input combinations, three looks — "not routed, main out off" is the same as "not routed" (§2.3). The
+/// lane colour is applied at the view; this enum is the pure, testable decision (ferry test 6). Looks (§2.2–§2.3):
+/// `.routed` ring lane100 + letter #F2F4F7 (solid); `.unrouted` ring #3A3E47 + letter #8A909A (solid);
+/// `.routedMainOff` hollow disc (card fill shows) + a 2 pt DASHED lane100 ring (dash 3, gap 3, butt) + letter lane100.
+enum EuclideousOutCircleState: Equatable { case routed, unrouted, routedMainOff }
+func euclideousOutCircleState(routed: Bool, mainOn: Bool) -> EuclideousOutCircleState {
+    guard routed else { return .unrouted }
+    return mainOn ? .routed : .routedMainOff
+}
+
+/// §1–§2: the OUT column's own internal layout, in column-LOCAL coordinates (y from 0 at the column's top). The
+/// column is 32 wide and spans the tab's whole content height (both zones and the gap between them, §1.2). Top to
+/// bottom: the "OUT" caption on a 12 pt line, sp4, then four A–D targets stacked, each 44 tall but SHRINKING equally
+/// to a 36 pt floor when the column is too short (§2.1). At the reference (height 208) this yields targets at local
+/// y 16 / 60 / 104 / 148 — i.e. card y 110 / 154 / 198 / 242 once the column's own card-y-94 origin is added (ferry
+/// test 9). NOTE a spec-internal discrepancy, reported in §12: §2.1 calls the block "centred in 208 (8 pt above and
+/// below)", but test 9's explicit y 110… is reproduced only by TOP-aligning the caption at the column top and capping
+/// targets at 44 (16 pt of slack falls at the bottom). Test 9's concrete coordinates win over §2.1's loose adjective.
+struct EuclideousOutColumnLayout: Equatable {
+    static let width: CGFloat = 32
+    static let captionH: CGFloat = 12
+    static let targetMaxH: CGFloat = 44
+    static let targetFloorH: CGFloat = 36
+    var caption: CGRect
+    var targets: [CGRect]          // A, B, C, D top to bottom
+    var rule: CGRect               // the 1 pt leading-edge rule, inset 4 pt top and bottom (§1.2: card y 98–298)
+    var targetH: CGFloat
+    var underFloor: Bool
+}
+func euclideousOutColumnLayout(height: CGFloat, width: CGFloat = EuclideousOutColumnLayout.width, sp4: CGFloat = 4) -> EuclideousOutColumnLayout {
+    typealias L = EuclideousOutColumnLayout
+    let avail = max(1, height - L.captionH - sp4)
+    let th = min(L.targetMaxH, max(L.targetFloorH, avail / 4))
+    let top = L.captionH + sp4
+    var targets: [CGRect] = []
+    for i in 0..<4 { targets.append(CGRect(x: 0, y: top + CGFloat(i) * th, width: width, height: th)) }
+    return L(caption: CGRect(x: 0, y: 0, width: width, height: L.captionH),
+             targets: targets,
+             rule: CGRect(x: 0, y: 4, width: 1, height: max(1, height - 8)),
+             targetH: th, underFloor: avail / 4 < L.targetFloorH)
+}
+
+
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
 /// without a live `EuclideousPage` render. Deliberately mirrors the REAL render path's own hit-test exactly
 /// (`euclidPatternInto`+`euclidTiltPattern`+`euclidReadIndex`, the SAME pair/order `Router.runEuclidLine`

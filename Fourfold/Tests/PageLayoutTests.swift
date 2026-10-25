@@ -127,6 +127,20 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(rp.onRestButtonWidth, 98.33, accuracy: 0.01); XCTAssertEqual(rp.valueStepperWidth, 88.75, accuracy: 0.01)
     }
     /// Floors ferry (2026-10-23): the WALK strip (read-only) drops out exactly when showing it would leave
+    /// PER-LAYER EMITTER ROUTING ferry (2026-10-25) §1.3 + test 9: the RIFF tab's content is now laid out at
+    /// fullWidth 302.5 (= 338.5 − the OUT column's 36). The riff card stays 90 wide (four-button direction row,
+    /// §0.1(f)); the ferry's own "expect" numbers follow: right column 208.5, direction buttons 49.125, ADVANCE
+    /// HIT/STEP 77.25, ON REST 76.83, value steppers 72.625.
+    func testPerLayerNarrowedRiffTabFramesMatchTheFerrysExpectedNumbers() {
+        let r = euclideousRiffTabLayout(contentAreaH: 208, fullWidth: 302.5)
+        XCTAssertEqual(r.rightColumnWidth, 208.5, accuracy: 0.01, "right column 208.5 (card stays 90)")
+        XCTAssertEqual(r.directionButtonWidth, 49.125, accuracy: 0.01, "four direction buttons 49.125")
+        XCTAssertEqual(r.hitStepButtonWidth, 77.25, accuracy: 0.01, "ADVANCE HIT/STEP 77.25")
+        XCTAssertEqual(r.onRestButtonWidth, 76.8333, accuracy: 0.01, "ON REST SKIP/TIE/REPEAT 76.83")
+        XCTAssertEqual(r.valueStepperWidth, 72.625, accuracy: 0.01, "value steppers 72.625")
+        XCTAssertFalse(r.underFloor, "nothing under floor at the reference")
+    }
+
     /// the direction row (real controls) under its own 32pt floor — never above, never below.
     func testRiffTabWalkStripDropsExactlyAtTheDirectionRowFloor() {
         // rowAHeight computed so that (rowAHeight - 4 - 38) lands exactly 1pt either side of the 32pt floor.

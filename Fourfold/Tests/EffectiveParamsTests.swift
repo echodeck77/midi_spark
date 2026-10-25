@@ -152,6 +152,22 @@ final class EffectiveParamsTests: XCTestCase {
         var inheriting = EuclidLine(pulses: 3, steps: 8)
         XCTAssertNil(inheriting.emitterMaskForEncode, "neither part nor emitterMask set ⇒ still inherit"); _ = inheriting
     }
+    // §2.5/§3.4: a circle tap (`toggleOutput`) pins BOTH parts to their resolved value, flips the tapped part's bit,
+    // and keeps emitterMask = the union — so the UNtapped part is NOT dragged along and the synthesized encoder persists
+    // the §3.3 forward-compat union with no custom encode. This is exactly the leak the "pin both first" rule prevents.
+    func testToggleOutputPinsBothPartsFlipsOneAndKeepsEmitterMaskTheUnion() throws {
+        var l = EuclidLine(pulses: 3, steps: 8); l.emitterMask = 0b0001   // fresh default: A, both parts nil (inheriting)
+        l.toggleOutput(.riff, bit: 0b0010)                                // tap riff B
+        XCTAssertEqual(l.riffOutMask, 0b0011, "riff now A+B")
+        XCTAssertEqual(l.notesOutMask, 0b0001, "notes PINNED to its old resolved A — NOT dragged to B")
+        XCTAssertEqual(l.emitterMask, 0b0011, "emitterMask = riff | notes")
+        // The on-disk emitterMask (read by an older build) equals the union, via the SYNTHESIZED encoder.
+        let back = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(l))
+        XCTAssertEqual(back.emitterMask, 0b0011); XCTAssertEqual(back.riffOutMask, 0b0011); XCTAssertEqual(back.notesOutMask, 0b0001)
+        // Tapping the same bit again un-routes it; a part routed nowhere is mask 0 (sounds nowhere).
+        l.toggleOutput(.riff, bit: 0b0001); l.toggleOutput(.riff, bit: 0b0010)
+        XCTAssertEqual(l.riffOutMask, 0b0000, "riff routed nowhere"); XCTAssertEqual(l.emitterMask, 0b0001, "still carries notes' A")
+    }
 
     // RIFF ADVANCE (Paul 2026-10-06): useRiff/riffRotate/riffOctave are the newest three EuclidLine fields — same
     // CR-8 contract as rate/emitterMask above, a doc saved before they existed must still decode without throwing.
