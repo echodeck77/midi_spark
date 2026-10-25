@@ -6126,6 +6126,54 @@ final class RouterTests: XCTestCase {
         if !captured.isEmpty { XCTFail("CAPTURE:\n" + captured) }
     }
 
+    // PER-LAYER ROUTING ferry (2026-10-25) test 1: the example lane with C4/G3/A♭3 lit, under ON REST SKIP/TIE/REPEAT,
+    // each of the seven PLAY AS ways, at GATE 50 and 100 — the per-cable stream hashed. Captured on this branch BEFORE
+    // the per-layer-routing engine change; after it, with riffOutMask == notesOutMask (every existing lane resolves
+    // both to its old emitterMask), every hash must still match (spec §4.6 / acceptance "sounds exactly as before").
+    private let notesWaysGolden: [String: (UInt64, Int)] = [
+        "CHORD/SKIP/50": (10054848013082510981, 984), "CHORD/SKIP/100": (3200313633293787309, 24),
+        "CHORD/TIE/50": (17629362488232197917, 792), "CHORD/TIE/100": (48661647883158169, 152),
+        "CHORD/REPEAT/50": (15807986313069577477, 984), "CHORD/REPEAT/100": (3200313633293787309, 24),
+        "ROLL/SKIP/50": (14567783607294242325, 984), "ROLL/SKIP/100": (13226157152018472061, 24),
+        "ROLL/TIE/50": (14198707387006728741, 792), "ROLL/TIE/100": (2994495042814497737, 152),
+        "ROLL/REPEAT/50": (15618083038872147325, 984), "ROLL/REPEAT/100": (13226157152018472061, 24),
+        "RUN/SKIP/50": (736639228304322141, 984), "RUN/SKIP/100": (6709164085346647821, 984),
+        "RUN/TIE/50": (13953679457953526837, 792), "RUN/TIE/100": (2130036519675944641, 792),
+        "RUN/REPEAT/50": (10511754416665526173, 984), "RUN/REPEAT/100": (15401347499590931105, 792),
+        "CYCLE/SKIP/50": (4748095973841926533, 416), "CYCLE/SKIP/100": (8179424858457907782, 192),
+        "CYCLE/TIE/50": (11236128383869476541, 352), "CYCLE/TIE/100": (4590776896499000073, 186),
+        "CYCLE/REPEAT/50": (5496063334470539525, 544), "CYCLE/REPEAT/100": (2281279816838394877, 180),
+        "BOUNCE/SKIP/50": (5258866803760872717, 432), "BOUNCE/SKIP/100": (16343498192574806973, 194),
+        "BOUNCE/TIE/50": (7487573829174149277, 384), "BOUNCE/TIE/100": (8833938039741147518, 184),
+        "BOUNCE/REPEAT/50": (7364660405557152253, 576), "BOUNCE/REPEAT/100": (2783199097459551762, 184),
+        "SPLIT/SKIP/50": (5597775636958076885, 560), "SPLIT/SKIP/100": (4676173967520636334, 198),
+        "SPLIT/TIE/50": (12411348924136901669, 464), "SPLIT/TIE/100": (17982277185042415146, 200),
+        "SPLIT/REPEAT/50": (13825109542956489373, 656), "SPLIT/REPEAT/100": (111842766493665773, 190),
+        "BUILD/SKIP/50": (1237790500967678749, 696), "BUILD/SKIP/100": (2586430327853252826, 176),
+        "BUILD/TIE/50": (996027076392409301, 592), "BUILD/TIE/100": (11221681539064863537, 172),
+        "BUILD/REPEAT/50": (752240821409610333, 784), "BUILD/REPEAT/100": (3663768266286976269, 170),
+    ]
+    func testNotesExampleWaysGoldensBeforePerLayerRouting() {
+        var captured = ""
+        for way in EuclidNotesPlayAs.allCases {
+            for onRest in [EuclidRiffOnRest.skip, .tie, .repeatLast] {
+                for gate in [0.5, 1.0] {
+                    let key = "\(way.rawValue)/\(onRest.rawValue)/\(Int(gate * 100))"
+                    // Rendered DIRECTLY (not legacy-decoded): the notes-tab features (the way, the lit order) must be
+                    // ACTIVE so the seven ways actually differ — this golden proves per-layer routing leaves TODAY's
+                    // behaviour intact, not the pre-notes-tab behaviour the other golden captures.
+                    let e = fxRun(fxBox([notesLine(way, onRest: onRest, gate: gate)], ranks: notesExRanks), beats: 8 * 4.0 + 0.5, pool: notesExPool)
+                    assertNothingLeftSounding(e)
+                    let got = notesStreamHash(e)
+                    guard let want = notesWaysGolden[key] else { captured += "        \"\(key)\": (\(got.hash), \(got.ons)),\n"; continue }
+                    XCTAssertEqual(got.hash, want.0, "\(key): per-cable stream must match the pre-change golden")
+                    XCTAssertEqual(got.ons, want.1, "\(key): note-on count")
+                }
+            }
+        }
+        if !captured.isEmpty { XCTFail("CAPTURE:\n" + captured) }
+    }
+
     // MARK: NOTES TAB engine (ferry 2026-10-19) — §13 tests 2, 6, 7, 8, 9, 13, 14 (the pure ones live in NotesTabTests)
     // The example lane (above): its hits, in order within a pass, are on steps 1, 3, 5, 6, 8 = ticks 0, 2, 4, 5, 7. The hits on 1 and 6 play the riff (A♭3 = 56, C4 = 60); the hits on
     // 3, 5 and 8 (hit indices 1, 2, 4) are rests. Lit in this order: rank 8 (C4 60), rank 5 (G3 55), rank 6 (A♭3 56). 120 BPM / 48 kHz: one beat = 24 000 samples, one step = 12 000.
