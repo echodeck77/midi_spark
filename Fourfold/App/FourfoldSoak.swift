@@ -15,7 +15,7 @@ final class FourfoldSoak {
     private static let ports = 5, channels = 16, notes = 128
     private var sounding = [Bool](repeating: false, count: ports * channels * notes)   // what a synth listening to that port would be doing: the key is ON or OFF
     private var onTime = [UInt64](repeating: 0, count: ports * channels * notes)
-    private var totalOns = 0, totalOffs = 0, unmatchedOffs = 0, doubleOns = 0
+    private var totalOns = 0, totalOffs = 0, unmatchedOffs = 0, doubleOns = 0, blanketOffs = 0
     private var maxHoldMs = 0.0
     private var faultEvery = 0   // `--soak-fault N`: pretend every Nth note-off never arrived — a CONTROL: the run must then report a stuck note, proving the checker can fail
     private let timebase: mach_timebase_info_data_t = { var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return t }()
@@ -27,6 +27,8 @@ final class FourfoldSoak {
     private var stops = 0, checks = 0, failures = 0
     private var onsAtLastStop = -1
     private var counts: [String: Int] = [:]
+    private var replayStartEvents = -1          // the session tape's size when the current replay began (-1 = none running)
+    private var replays = 0, replaysTapeGrew = 0
 
     private func next() -> UInt64 { rng &+= 0x9E37_79B9_7F4A_7C15; var z = rng; z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9; z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB; return z ^ (z >> 31) }
     private func rand(_ r: ClosedRange<Int>) -> Int { r.lowerBound + Int(next() % UInt64(r.upperBound - r.lowerBound + 1)) }
@@ -87,6 +89,22 @@ final class FourfoldSoak {
         }
         add("solo", 5, 12) { [self] in engine.au.setEuclideousSoloLive([0, 0, 1, 2, 4, 8, 3][rand(0...6)]) }
         add("all-notes-off", 12, 30) { engine.au.euclideousAllNotesOff() }
+        // REEL PHASE 1c: start replaying a random recorded pass, or hand back to live. The engine must keep running underneath (the session tape keeps growing), and a stop / hand-back must leave no key on.
+        add("reel", 5, 11) { [self] in
+            let au = engine.au
+            if replayStartEvents >= 0, au.uiReelState() != 2 {                     // a replay ended (hand-back, or the transport stopped): did the tape keep growing?
+                replays += 1; if au.tapeStats().events > replayStartEvents { replaysTapeGrew += 1 }
+                replayStartEvents = -1
+            }
+            if au.uiReelState() == 2 {
+                au.reelStopReplay()
+            } else if playing {
+                let nums = au.reelPassNumbers().filter { $0 >= 0 }
+                guard !nums.isEmpty else { return }
+                replayStartEvents = au.tapeStats().events
+                au.reelSelectPass(nums[rand(0...(nums.count - 1))])
+            }
+        }
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         var lastProgress = start
@@ -114,6 +132,10 @@ final class FourfoldSoak {
             check("final stop")
             lock.lock(); let o = totalOns, f = totalOffs, u = unmatchedOffs, d = doubleOns, mh = maxHoldMs; lock.unlock()
             log("SOAK TOTALS: note-ons=\(o) note-offs=\(f) re-strikes-of-a-sounding-key=\(d) unmatched-offs=\(u) stops=\(stops) balance-checks=\(checks) longest note=\(Int(mh)) ms")
+            let tape = engine.au.tapeStats()
+            log("SOAK TAPE: events=\(tape.events) dropped=\(tape.dropped) passes=\(tape.passes) whole=\(tape.completePasses) resident=\(tape.residentBytes / 1024) KiB; replays=\(replays) (tape kept growing in \(replaysTapeGrew)); all-notes-off CCs=\(blanketOffs)")
+            if tape.dropped > 0 { failures += 1; log("SOAK FAIL: the session tape dropped \(tape.dropped) record(s) — the render thread ran out of chunks") }
+            if replays >= 3, replaysTapeGrew == 0 { failures += 1; log("SOAK FAIL: the session tape did not grow during any of \(replays) replays — the engine froze under replay") }
             log("SOAK ACTIONS: " + counts.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
             let unmatchedBad = u > 0; if unmatchedBad { log("SOAK NOTE: \(u) note-off(s) arrived with no matching note-on (harmless to a synth, but worth knowing)") }
             log(failures == 0 && o > 0 ? "SOAK RESULT: PASS" : "SOAK RESULT: FAIL (failures=\(failures), note-ons=\(o))")
@@ -155,6 +177,13 @@ final class FourfoldSoak {
                         let kind = status & 0xF0
                         let len = (kind == 0xC0 || kind == 0xD0) ? 2 : (status >= 0xF0 ? 1 : 3)
                         if i + len > n { break }
+                        if kind == 0xB0, len == 3, b[i + 1] == 120 || b[i + 1] == 123 {   // All Sound Off / All Notes Off: a synth drops every key on that channel (the reel sends these when a replay ends)
+                            lock.lock()
+                            let base = (source * Self.channels + Int(status & 0x0F)) * Self.notes
+                            for k in 0..<Self.notes { sounding[base + k] = false }
+                            blanketOffs += 1
+                            lock.unlock()
+                        }
                         if kind == 0x80 || kind == 0x90, len == 3 {
                             let key = (source * Self.channels + Int(status & 0x0F)) * Self.notes + Int(b[i + 1] & 0x7F)
                             lock.lock()

@@ -92,22 +92,37 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setLaneMask(_ mask: UInt16) { kernel.setLaneMask(mask) }
     func reelTouch() { kernel.reelTouch() }                 // THE REEL-TO-REEL: toggle record→replay / resume (Paul 2026-08-18)
     func uiReelState() -> Int { kernel.reelStateValue() }   // 0 off · 1 armed · 2 replaying
-    func reelExportRangeFiles(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] { kernel.reelExportRange(fromPass: lo, toPass: hi, emitterMask: emitterMask) }   // pass RANGE × emitter selection
-    func reelRangeRoll(fromPass lo: Int, toPass hi: Int) -> (notes: [ReelDeck.Note], cycle: Double) { kernel.reelRangeRoll(fromPass: lo, toPass: hi) }   // the concatenated roll for a multi-pass selection
-    // THE PASS BROWSER (Paul 2026-08-19): the pop-up's 8×8 grid + piano roll.
-    func reelPassNumbers() -> [Int] { kernel.reelPassNumbers() }          // 32 ring slots, oldest→newest (−1 = empty)
-    func reelPassSignatures() -> [UInt64] { kernel.reelPassSignatures() } // per-pass content hash (aligned with passNumbers) → REMOVE DUPLICATES toggle
-    func reelPassCounter() -> Int { kernel.reelPassCounter() }            // monotone completed-pass count → per-pass STATE capture (Paul #5)
-    func reelSelectedRoll() -> [ReelDeck.Note] { kernel.reelSelectedRoll() }   // the selected pass's notes (A–D lanes)
-    func reelSelectedPassNo() -> Int { kernel.reelSelectedPassNo() }     // the currently pinned/selected pass (−1 = auto latest)
-    func reelSelectPass(_ p: Int) { kernel.reelSelectPass(p) }           // tap a pass → select + replay now
+    // THE PASS BROWSER (Paul 2026-08-19) reads the SESSION TAPE since REEL PHASE 1c (2026-10-25, Fourfold/Engine/ReelTapeAdapter.swift): every pass played whole since the first play, not the newest 64. All of these are MAIN THREAD.
     var sessionTape: SessionTape { kernel.tape }                // the session tape (main thread only)
+    func reelExportRangeFiles(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] { kernel.tape.reelExportFiles(from: lo, to: hi, emitterMask: emitterMask) }   // pass RANGE × emitter selection
+    func reelRangeRoll(fromPass lo: Int, toPass hi: Int) -> (notes: [ReelDeck.Note], cycle: Double) { let r = kernel.tape.reelRangeRoll(from: lo, to: hi); return (r.notes, r.totalBeats) }   // the concatenated roll for a multi-pass selection
+    func reelPassNumbers() -> [Int] { Array(0..<kernel.tape.filedPasses().count) }   // the passes played whole, oldest→newest (shown 1-based)
+    func reelPassSignatures() -> [UInt64] { kernel.tape.reelSignatures() }   // per-pass content hash (aligned with passNumbers) → REMOVE DUPLICATES toggle
+    func reelPassCounter() -> Int { kernel.tape.filedPasses().count }        // monotone count of passes played whole
+    /// The pass the browser is "on": the pinned one, else the newest.
+    private func reelFocusPass() -> Int { let n = kernel.tape.filedPasses().count; let sel = kernel.reelSelectedPassNo(); return sel >= 0 && sel < n ? sel : n - 1 }
+    private var reelRollCache: (pass: Int, notes: [ReelDeck.Note])?
+    func reelSelectedRoll() -> [ReelDeck.Note] {                        // the focus pass's notes (A–D lanes); a whole pass never changes, so it is computed once
+        let p = reelFocusPass()
+        guard p >= 0 else { return [] }
+        if let c = reelRollCache, c.pass == p { return c.notes }
+        let notes = kernel.tape.reelRangeRoll(from: p, to: p).notes
+        reelRollCache = (p, notes)
+        return notes
+    }
+    func reelSelectedPassNo() -> Int { kernel.reelSelectedPassNo() }     // the currently pinned/selected pass (−1 = auto latest)
+    func reelSelectPass(_ p: Int) {                                      // tap a pass → pin it and replay it now (the render thread adopts the staged loop at its next window)
+        let t = kernel.tape
+        guard let cycle = t.reelPassCycleBeats(p) else { return }
+        let events = t.reelPassEvents(p)
+        for _ in 0..<8 { if kernel.reelStageLoop(events, cycle: cycle, pass: p) { break }; usleep(500) }   // the render thread holds the buffer for microseconds; give up after a few tries
+    }
     func tapeStats() -> (events: Int, dropped: Int, passes: Int, completePasses: Int, endTick: Int, residentBytes: Int) {   // main thread: the session tape's size and shape (diagnostics, the harness)
         let t = kernel.tape; t.drain(); let ps = t.passes()
-        return (t.eventCount, t.droppedEvents, ps.count, ps.filter { $0.complete }.count, t.endTick(), t.residentBytes)
+        return (t.eventCount, t.droppedEvents, ps.count, t.filed.count, t.endTick(), t.residentBytes)
     }
     func reelStopReplay() { kernel.reelStopReplay() }                    // stop replay → resume live
-    func reelCycleBeats() -> Double { kernel.reelCycleValue() }          // the pass length (piano-roll x-axis)
+    func reelCycleBeats() -> Double { kernel.tape.reelPassCycleBeats(reelFocusPass()) ?? 4 }   // the focus pass's length (piano-roll x-axis)
     func reelSetBrowsing(_ on: Bool) { kernel.reelSetBrowsing(on) }      // pop-up open → freeze the history tape
 
     /// BUILD: when the STAGING voice is playing, the engine renders THIS scene (the staging grid) in place of the

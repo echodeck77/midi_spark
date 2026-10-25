@@ -190,7 +190,7 @@ extension Host {
         timer?.invalidate()
         guard AllocWatch.install() else { fputs("ALLOC UNAVAILABLE: no malloc_logger symbol in this process\n", stderr); exit(2) }
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
-        let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH"]
+        let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -224,7 +224,13 @@ extension Host {
                 hold([60, 64, 67]); playing = true
                 if i == 0 { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // the unwatched warm-up lap
                 eventCount = 0; AllocWatch.reset(); watching = true
-                for _ in 0..<6400 { render(480) }
+                for w in 0..<6400 {
+                    if name.contains("REPLAY") {   // a pass replays from the middle of the run to three-quarters of it: the replay itself, the live engine running silently underneath, and the hand-back
+                        if w == 3200, let p = au.reelPassNumbers().last(where: { $0 >= 0 }) { au.reelSelectPass(p) }
+                        if w == 4800 { au.reelStopReplay() }
+                    }
+                    render(480)
+                }
                 playing = false; for _ in 0..<8 { render(480) }
                 watching = false
                 let (a, f) = AllocWatch.counts

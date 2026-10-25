@@ -184,15 +184,21 @@ final class Kernel {
     // THE SESSION TAPE (reel phase 1b, 2026-10-25): everything the output sends since the first play, alongside the deck's 64-pass ring. The render thread writes through `tapeRecorder`; the main thread drains and reads `tape`.
     let tape = SessionTape()
     private let tapeRecorder: TapeRecorder
+    // REEL PHASE 1c (REEL-2): while a pass replays, the live engine keeps RUNNING — its output goes to `reelSilentTap` (the tape hears it, the host does not) so the session tape has no hole and the engine is exactly where it
+    // would have been when the user hands back to live. `reelFlushTap` is for the flush at the moment replay starts: the host DOES get those note-offs (the live notes must end), and so does the tape. Neither touches the deck.
+    private let reelSilentTap = ReelTap()
+    private let reelFlushTap = ReelTap()
     init() {
         tapeRecorder = TapeRecorder(writer: tape.writer)
         reelTap.recorder = tapeRecorder
+        reelSilentTap.recorder = tapeRecorder
+        reelFlushTap.recorder = tapeRecorder
+        reelFlushTap.out = liveEmitter
     }
     private var reelToggle = false
     private var reelExitFlush = false
     private var reelLastPass = Int.min
     private var reelTempoStored = 120.0
-    private var reelSelectRequest = Int.min                         // control thread: a pass to select+replay (Int.min = none)
     private var reelStopRequest = false                             // control thread: stop replay → resume live
     private var reelBrowsing = false                                // the PASS BROWSER pop-up is open → freeze the history tape
     private var reelRecordFromStart = false                         // was the in-progress pass recorded from its start? (only such passes file)
@@ -205,7 +211,7 @@ final class Kernel {
     func reelPassCounter() -> Int { reel.passCounter }                // monotone completed-pass count → per-pass STATE capture (Paul #5)
     func reelSelectedRoll() -> [ReelDeck.Note] { reel.selectedRoll() }   // read-only value copy — safe off the render thread (see BUILD reel note)
     func reelSelectedPassNo() -> Int { reel.selectedPassNo }
-    func reelSelectPass(_ p: Int) { reelSelectRequest = p }
+    func reelStageLoop(_ events: [ReelDeck.Ev], cycle: Double, pass: Int) -> Bool { reel.stageLoop(events, cycle: cycle, pass: pass) }   // main thread: pin + replay this pass (adopted by the next render window)
     func reelStopReplay() { reelStopRequest = true }
     func reelCycleValue() -> Double { reel.loopCycle }              // the SELECTED pass's length in beats (piano-roll x-axis + export) — not the live rate
     /// EXPORT (step 2): the recorded pass as SMF files — the A–D "sum" plus a per-emitter stem for each that has events.
@@ -375,9 +381,8 @@ final class Kernel {
             }
         }
         if !playing, reel.state != .off { reel.state = .off; reelExitFlush = true }   // transport stop → resume live
-        if reelSelectRequest != Int.min {                          // the pop-up tapped a pass: pin it + REPLAY NOW (replace live output)
-            let p = reelSelectRequest; reelSelectRequest = Int.min
-            if reel.selectPass(p) { reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter) }   // reel REPLACES live output (externalFlush also clears glide/mod — Finding 1: no process() edge here) → flush the live WIRE/bypass monitor too (reconcileBypass is skipped during replay, so it can't close them → hung notes, Paul 2026-08-24)
+        if reel.adoptStagedLoop() {                                // the pop-up tapped a pass (REEL PHASE 1c: built from the session tape on the main thread and staged): it is pinned now — REPLAY NOW (replace live output)
+            reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: reelFlushTap)   // reel REPLACES live output (externalFlush also clears glide/mod — Finding 1: no process() edge here) → flush the live WIRE/bypass monitor too (reconcileBypass is skipped during replay, so it can't close them → hung notes, Paul 2026-08-24)
         }
         if reelStopRequest {                                       // the pop-up stopped replay: resume live, drop the pin
             reelStopRequest = false
@@ -392,7 +397,7 @@ final class Kernel {
         let reelPass = playing ? Int((beatPos / max(0.0001, reelCycleBeats)).rounded(.down)) : Int.min
         if playing, reelPass != reelLastPass {                     // pass boundary
             if reelRecordFromStart && !reelFrozen { reel.promote() }   // file ONLY a pass recorded start→finish, uninterrupted by reel mode
-            if reel.state == .armed { reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: liveEmitter) }   // armed→replaying (externalFlush also clears glide/mod — Finding 1: no process() edge here): flush the live WIRE/bypass monitor too (see above)
+            if reel.state == .armed { reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: reelFlushTap) }   // armed→replaying (externalFlush also clears glide/mod — Finding 1: no process() edge here): flush the live WIRE/bypass monitor too (see above)
             reel.startPass(pass: reelPass); reelLastPass = reelPass
             reelRecordFromStart = playing && !reelFrozen           // will the NEW pass record from its start? (partial/frozen passes never file)
         }
@@ -434,10 +439,13 @@ final class Kernel {
         }
         diag.beat = rBeat            // EFFECTIVE beat (host OR free-run) → UI beat-driven playheads work while the host is stopped (Paul 2026-08-29)
         diag.effectivePlaying = rPlaying   // host OR free-run actually running → the UI shows "playing" only when sound is really happening (Paul 2026-09-04)
-        if reel.state == .replaying, reel.hasLoop {               // REPLACE the live output with the recorded loop
+        // REPLACE the live output with the recorded loop — but keep the live engine running underneath, silently (REEL PHASE 1c): the session tape goes on recording what it plays.
+        let replayingLoop = reel.state == .replaying && reel.hasLoop
+        if replayingLoop {
             reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reel.loopCycle,   // loop at the SELECTED pass's own length, not the live rate
                         beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
-        } else {
+        }
+        do {
         // ---- hand off to the router (columns, arp, emission, note tracker) — output through the recording tap ----
         #if DEBUG
         // DEVICE LOG (walk-tags ferry 2026-10-15): stamp the window's first sample on the CACurrentMediaTime timeline so
@@ -456,7 +464,7 @@ final class Kernel {
                         euclideousHoldOverrides: euclideousHoldOverrides,
                         euclideousLockLive: euclideousLockLive,
                         sceneFlush: flushRequested,
-                        out: reelTap, diag: &diag)   // → reelTap (reel) → liveEmitter
+                        out: replayingLoop ? reelSilentTap : reelTap, diag: &diag)   // → reelTap (reel + session tape) → liveEmitter; or, while a pass replays, the silent tap (session tape only)
         }
         diag.reelState = reelStateValue()
         panicRequested = false          // master panel PANIC is a one-shot — consumed by this render's flush

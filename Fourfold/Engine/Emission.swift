@@ -9,6 +9,7 @@
 //  recording double and assert on the exact (sample, cable, bytes) stream.
 
 import Foundation
+import Atomics
 
 /// Every MidiSpark MIDI message is a 3-byte channel-voice message (note-on / note-off). The cable
 /// (0 = ALL, 1–4 = A–D, delta §7b) and the absolute sample time are chosen by the engine; the stamp
@@ -179,6 +180,36 @@ final class ReelDeck {
         return true
     }
     func clearSelection() { selectedPassNo = -1 }                 // resume auto: `loop` tracks the latest again
+
+    // REEL PHASE 1c — REPLAY OF A PASS FROM THE SESSION TAPE. The tape lives on the main thread, so the pass to replay is built there (`SessionTape.reelPassEvents`) and handed to the render thread through this one staging buffer:
+    // main writes only while the state is "free" or "ready" (taking it to "main writing" first), the render thread reads only after taking "ready" to "render reading" — the compare-exchanges make the two exclusive without a lock,
+    // and a request that finds the render thread mid-copy gives up (the caller may ask again). Allocated once, here; the render thread's side is one memcpy-sized loop, no allocation.
+    private let staged = UnsafeMutablePointer<Ev>.allocate(capacity: ReelDeck.cap)
+    private var stagedN = 0, stagedCycle = 4.0, stagedPass = -1
+    private let stagedState = ManagedAtomic<Int>(0)                // 0 free · 1 ready · 2 render thread reading · 3 main thread writing
+    deinit { staged.deallocate() }
+    /// MAIN THREAD. Stage `events` (pass-relative beats) as the next loop, of length `cycle` beats, labelled as pass `pass`. False if the render thread was reading at that instant.
+    func stageLoop(_ events: [Ev], cycle: Double, pass: Int) -> Bool {
+        var ok = stagedState.compareExchange(expected: 0, desired: 3, ordering: .acquiring).exchanged
+        if !ok { ok = stagedState.compareExchange(expected: 1, desired: 3, ordering: .acquiring).exchanged }
+        guard ok else { return false }
+        let n = min(events.count, ReelDeck.cap)
+        for i in 0..<n { staged[i] = events[i] }
+        stagedN = n; stagedCycle = cycle; stagedPass = pass
+        stagedState.store(1, ordering: .releasing)
+        return true
+    }
+    /// RENDER THREAD, once a window. Adopt a staged loop as `loop` (pinning it like `selectPass`). True if one was adopted.
+    func adoptStagedLoop() -> Bool {
+        guard stagedState.compareExchange(expected: 1, desired: 2, ordering: .acquiring).exchanged else { return false }
+        loopN = stagedN
+        for i in 0..<loopN { loop[i] = staged[i] }
+        loopCycle = stagedCycle
+        selectedPassNo = stagedPass
+        stagedState.store(0, ordering: .releasing)
+        closeOpenLoopNotes()
+        return true
+    }
 
     /// One drawable note per (cable,note) on/off pair in the SELECTED pass — for the pop-up piano roll. Cables 1–4
     /// only (0 = the All duplicate). A note still open at the pass end closes at `cycleBeats`; an unmatched off is dropped.

@@ -192,7 +192,10 @@ final class SessionTape {
     private var allocated: [UnsafeMutablePointer<TapeEvent>] = []   // everything ever allocated, for deinit
     private var indexed = 0                                         // events [0, indexed) are in the marker index below
     private var passMarkers: [(tick: Int, cycle: Int)] = []
-    private var segmentTicks: [Int] = []
+    private var segmentTicks: [Int] = []                            // ascending: the clock never runs backwards
+    private var finals: [TapePass] = []                             // passes whose end is known (the next pass has started), final the moment they are made
+    var reelSignatureCache: [UInt64] = []                       // the browser's REMOVE DUPLICATES hash per filed pass (ReelTapeAdapter.swift); a whole pass never changes, so each is computed once
+    private(set) var filed: [TapePass] = []                         // the whole ones among them, in order: what the reel browser lists as passes 1, 2, 3 …
     private(set) var tempoChanges: [(tick: Int, bpm: Double)] = []
     private var lastTick = 0
 
@@ -263,7 +266,9 @@ final class SessionTape {
         guard total > indexed else { return }
         forEachEvent(from: indexed, to: total) { e in
             switch e.kind {
-            case .pass: passMarkers.append((Int(e.tick), e.cycleTicks))
+            case .pass:
+                if let m = passMarkers.last { finalize(m, end: Int(e.tick)) }
+                passMarkers.append((Int(e.tick), e.cycleTicks))
             case .segment: segmentTicks.append(Int(e.tick))
             case .tempo: tempoChanges.append((Int(e.tick), e.bpm))
             case .note, .control: break
@@ -302,28 +307,38 @@ final class SessionTape {
         return out.map { $0.e }
     }
 
+    /// A pass is WHOLE if it ran its full length and no stop or jump fell inside it (one at its very end, on the next pass's own tick, does not count).
+    private func finalize(_ m: (tick: Int, cycle: Int), end: Int) {
+        var complete = abs((end - m.tick) - m.cycle) <= 1
+        if complete {
+            var lo = 0, hi = segmentTicks.count                       // first segment marker after the pass start
+            while lo < hi { let mid = (lo + hi) / 2; if segmentTicks[mid] > m.tick { hi = mid } else { lo = mid + 1 } }
+            complete = !(lo < segmentTicks.count && segmentTicks[lo] < end)
+        }
+        let p = TapePass(number: finals.count, startTick: m.tick, cycleTicks: m.cycle, endTick: end, complete: complete)
+        finals.append(p)
+        if complete { filed.append(p) }
+    }
+
     /// The tempo in force at `tick` (120 until the tape says otherwise).
     func bpm(at tick: Int) -> Double {
         drain()
-        var b = 120.0
-        for t in tempoChanges { if t.tick <= tick { b = t.bpm } else { break } }
-        return b
+        var lo = 0, hi = tempoChanges.count                           // the last change at or before `tick`
+        while lo < hi { let mid = (lo + hi) / 2; if tempoChanges[mid].tick <= tick { lo = mid + 1 } else { hi = mid } }
+        return lo == 0 ? 120.0 : tempoChanges[lo - 1].bpm
     }
 
     /// The passes in the order they started, each with its length and whether it ran uninterrupted. The newest (still being played) has no end yet and is never complete.
     func passes() -> [TapePass] {
         drain()
-        var out: [TapePass] = []
-        for (i, m) in passMarkers.enumerated() {
-            let end = i + 1 < passMarkers.count ? passMarkers[i + 1].tick : nil
-            var complete = false
-            if let e = end, abs((e - m.tick) - m.cycle) <= 1 {
-                complete = !segmentTicks.contains { $0 > m.tick && $0 < e }   // a stop or jump inside the pass breaks it (one at the very end, on the next pass's own tick, does not)
-            }
-            out.append(TapePass(number: i, startTick: m.tick, cycleTicks: m.cycle, endTick: end, complete: complete))
+        var out = finals
+        if passMarkers.count > finals.count, let m = passMarkers.last {
+            out.append(TapePass(number: finals.count, startTick: m.tick, cycleTicks: m.cycle, endTick: nil, complete: false))
         }
         return out
     }
+    /// The whole passes (see `filed`), after bringing the tape up to date.
+    func filedPasses() -> [TapePass] { drain(); return filed }
 }
 
 /// The render-thread side of the session clock: turns what the Kernel knows each window (is the transport playing, where is the beat, what tempo, how long is a pass) into the tape's markers, and turns each emitted message

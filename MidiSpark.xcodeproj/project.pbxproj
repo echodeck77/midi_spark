@@ -59,6 +59,7 @@
 		359665078124DA148FE39039 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */; };
 		35CB6DD7FC7A5B6F80092961 /* BuildSelfTestMetaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */; };
 		368706B54B23A18EAE705127 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9093C469F102E1F2CCC6DF7D /* MidiFile.swift */; };
+		36A6BA14474235FA1AA36E3B /* ReelTapeAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */; };
 		36AE872430F7852DAEE6C3E0 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */; };
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
 		37D78CF29446E0E2853F8732 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2E5E0509868140ED8AECD5 /* OutputRingPainter.swift */; };
@@ -85,6 +86,7 @@
 		4D1ED5A783E864704FEFF3A6 /* ListenTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC6819599CED217146F91C04 /* ListenTabTests.swift */; };
 		4F1866D5173CD9DDB623E9A8 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */; };
 		4F7BB6013CA868EE5B545EEE /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C260460EAF19255196447 /* NotesTabTests.swift */; };
+		4FD44873F80293DB68DA9E67 /* ReelTapeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */; };
 		50D3FB0F2FD2D19D2F42B5F8 /* ChordsGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */; };
 		51142768E24F20693A5BFF40 /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
@@ -100,7 +102,9 @@
 		59AB6964C8403D8ECB724041 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */; };
 		5A1ECD0A184CC6B215ED8EFD /* FourfoldApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */; };
 		5A8A8BD8E9DBBC7033433590 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9400D76881E4F5F6EFFF6BF3 /* Emission.swift */; };
+		5ABD56A8428921E9D40CD132 /* ReelTapeAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */; };
 		5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D181AD808BD18E8D2F085F /* FuzzTests.swift */; };
+		5B0BECCA9EE233272181562B /* ReelTapeAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */; };
 		5B182C150ACB6B3B81425BB0 /* SceneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D364D224C3D245B4D5AE548 /* SceneFactory.swift */; };
 		5C648CAB6448DD80453069B0 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
 		5CD10BE7CE98FDD633F57ACB /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
@@ -410,6 +414,7 @@
 		5B858B91950A98DA4EC31ED3 /* FourfoldUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FourfoldUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldScreenshotTests.swift; sourceTree = "<group>"; };
 		5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldSoak.swift; sourceTree = "<group>"; };
+		5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelTapeAdapterTests.swift; sourceTree = "<group>"; };
 		61A29EBC243C8C44F0013668 /* FXTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXTabTests.swift; sourceTree = "<group>"; };
 		61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceTests.swift; sourceTree = "<group>"; };
 		64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldApp.swift; sourceTree = "<group>"; };
@@ -418,6 +423,7 @@
 		678E167D4A16C39447DC29C1 /* RouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouterTests.swift; sourceTree = "<group>"; };
 		688828AD8E02A3FA163D3656 /* RouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouterTests.swift; sourceTree = "<group>"; };
 		688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "manual-skeleton.md"; sourceTree = "<group>"; };
+		68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelTapeAdapter.swift; sourceTree = "<group>"; };
 		6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
 		6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClarityPassTests.swift; sourceTree = "<group>"; };
 		6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
@@ -695,6 +701,7 @@
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
 				CD57513582FB79CA7D0105B1 /* ReelDeckTests.swift */,
 				FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */,
+				5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */,
 				86B78244085974D781CC1A40 /* RestartChainsTests.swift */,
 				5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */,
 				9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */,
@@ -871,6 +878,7 @@
 				0504D981DD4BF1856C773AA7 /* MidiFile.swift */,
 				CD9084051F44A6CAA1CFDFA9 /* Models.swift */,
 				E074C5873A3072DF6841935F /* PresetStore.swift */,
+				68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */,
 				523B1AEB32CCEF31AA60CCA9 /* Router.swift */,
 				9F916631CD0B4974C26CB893 /* SessionTape.swift */,
 				7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */,
@@ -1211,6 +1219,7 @@
 				FDC4CCB5FA83EBBCF5518EFE /* PresetStore.swift in Sources */,
 				0C924EDD62DA8F1C8070ADC3 /* RandomModePainter.swift in Sources */,
 				7DB4F2646E77BBDA02216FB1 /* ReelHeaderIcon.swift in Sources */,
+				5B0BECCA9EE233272181562B /* ReelTapeAdapter.swift in Sources */,
 				C5FAA70DAA2123BDE08E7E23 /* RestartFlashPainter.swift in Sources */,
 				A606DB40A2135BB2DAB67042 /* RestartTilePainter.swift in Sources */,
 				6FF9F3666DE68AB22E088D88 /* RiffArrowPainter.swift in Sources */,
@@ -1343,6 +1352,8 @@
 				692A1708CCCE988100850092 /* PulseTests.swift in Sources */,
 				4B21837C9071EE11D566D760 /* ReelDeckTests.swift in Sources */,
 				C4B21D64133FF65C1D73F27A /* ReelExportTests.swift in Sources */,
+				36A6BA14474235FA1AA36E3B /* ReelTapeAdapter.swift in Sources */,
+				4FD44873F80293DB68DA9E67 /* ReelTapeAdapterTests.swift in Sources */,
 				F5391EF8DBE567DE296CEB8D /* RestartChainsTests.swift in Sources */,
 				7BE01E23EE11445214726AD3 /* RestartFlashTests.swift in Sources */,
 				DDF0A418083AE1978744004D /* RhythmPolishTests.swift in Sources */,
@@ -1396,6 +1407,7 @@
 				20646456AFE103561CB819CE /* PresetStore.swift in Sources */,
 				8208BB44A8037D26B215F5F0 /* RandomModePainter.swift in Sources */,
 				6F87BEE1EB3257DD5CC2B374 /* ReelHeaderIcon.swift in Sources */,
+				5ABD56A8428921E9D40CD132 /* ReelTapeAdapter.swift in Sources */,
 				BBF942FAE6FEC457D0351322 /* RestartFlashPainter.swift in Sources */,
 				EA0F411C0669D4E76F8D4771 /* RestartTilePainter.swift in Sources */,
 				999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */,

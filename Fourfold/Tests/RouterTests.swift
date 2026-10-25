@@ -7627,6 +7627,50 @@ final class RouterTests: XCTestCase {
         assertTapeMatchesDeck(fourfoldReel(fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 1.0, emitter: 0b0010)], fx: fxCells([(5, 0, 64), (5, 2, 100), (5, 5, 10)]), stepRate: .r1_8), beats: 13), "a CC row")
         assertTapeMatchesDeck(fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_4), beats: 25, frames: 333, tempo: 97.3), "odd window size and tempo, an 8-beat pass")
     }
+    /// REEL PHASE 1c — the browser's view of the tape matches its view of the ring: the same passes, the same notes, the same files' worth of events.
+    func testTheTapeShowsTheBrowserWhatTheDeckDid() {
+        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0100)
+        var busy: [EuclidLine] = []
+        for i in 0..<4 { var l = fxLine(gate: 0.5, litNotes: 0b0000_0111); l.rate = .r1_32; l.steps = 16; l.pulses = 16; l.emitterMask = UInt8(1 << i); busy.append(l) }
+        let scenes: [(String, SnapshotBox)] = [("two lanes", fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8)),
+                                               ("four dense lanes", fxBoxScene(busy, fx: fxCells((0..<8).map { (0, $0, 3) }), stepRate: .r1_8)),
+                                               ("a CC row", fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 1.0, emitter: 0b0010)], fx: fxCells([(5, 0, 64), (5, 2, 100)]), stepRate: .r1_8))]
+        for (what, box) in scenes {
+            let r = fourfoldReel(box, beats: 13)
+            let deckPasses = r.deck.passNumbers().filter { $0 >= 0 }
+            let tapePasses = r.tape.filedPasses()
+            XCTAssertEqual(tapePasses.count, deckPasses.count, "\(what): the same passes are listed")
+            func key(_ b: Double, _ a: UInt8, _ c: UInt8, _ d: UInt8) -> [Double] { [(b * 960).rounded(), Double(a), Double(c), Double(d)] }
+            for p in deckPasses {
+                let d = r.deck.rangeRoll(fromPass: p, toPass: p), t = r.tape.reelRangeRoll(from: p, to: p)
+                XCTAssertEqual(t.totalBeats, d.totalBeats, accuracy: 1e-9, "\(what) pass \(p)")
+                func norm(_ ns: [ReelDeck.Note]) -> [[Double]] { ns.map { [Double($0.cable), Double($0.note), Double($0.vel), ($0.start * 960).rounded(), ($0.end * 960).rounded()] }.sorted { $0.lexicographicallyPrecedes($1) } }
+                XCTAssertEqual(norm(t.notes), norm(d.notes), "\(what): pass \(p + 1)'s roll is the same notes")
+            }
+            for cables in [Set<UInt8>([1, 2, 3, 4]), [0], [1], [3]] {
+                let d = r.deck.exportRangeEvents(fromPass: deckPasses.first!, toPass: deckPasses.last!, cables: cables), t = r.tape.reelExportEvents(from: 0, to: tapePasses.count - 1, cables: cables)
+                XCTAssertEqual(t.totalBeats, d.totalBeats, accuracy: 1e-9, "\(what)")
+                func norm(_ es: [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)]) -> [[Double]] { es.map { key($0.beat, $0.b0, $0.b1, $0.b2) }.sorted { $0.lexicographicallyPrecedes($1) } }
+                XCTAssertEqual(norm(t.events), norm(d.events), "\(what): the export of \(cables.sorted()) holds the same messages")
+            }
+            // REMOVE DUPLICATES: the tape groups passes the way the deck does
+            let ds = r.deck.passSignatures().filter { $0 != 0 }, ts = r.tape.reelSignatures()
+            XCTAssertEqual(ds.count, ts.count, "\(what)")
+            for i in 0..<ts.count { for j in 0..<ts.count { XCTAssertEqual(ts[i] == ts[j], ds[i] == ds[j], "\(what): passes \(i + 1) and \(j + 1) are duplicates on one and not the other") } }
+        }
+    }
+    func testTheTapeKeepsThePassesTheRingForgets() {
+        // REEL-1: 75 passes of 4 beats. The ring keeps the newest 64; the tape keeps all 74 that were played whole (the 75th is still going), and the first is still there to be replayed or saved.
+        let r = fourfoldReel(fxBoxScene([fxLine(gate: 0.5, emitter: 0b0001), fxLine(gate: 0.5, emitter: 0b0100)], fx: EuclideousFX(), stepRate: .r1_8), beats: 300, tempo: 240)
+        XCTAssertEqual(r.deck.passNumbers().filter { $0 >= 0 }.count, ReelDeck.histCount, "the ring is full and has dropped the oldest")
+        XCTAssertGreaterThan(r.deck.passCounter, ReelDeck.histCount)
+        let filed = r.tape.filedPasses()
+        XCTAssertEqual(filed.count, r.deck.passCounter, "the tape holds every pass the ring ever filed")
+        XCTAssertNil(reelDroppedPassesNotice(passNumbers: Array(0..<filed.count)), "so there is nothing to apologise for")
+        XCTAssertFalse(r.tape.reelRangeRoll(from: 0, to: 0).notes.isEmpty, "pass 1 is still there")
+        XCTAssertEqual(r.tape.reelRangeRoll(from: 0, to: filed.count - 1).totalBeats, Double(filed.count) * 4, accuracy: 1e-9, "and a range across the whole session lays out end to end")
+        XCTAssertEqual(r.tape.droppedEvents, 0)
+    }
     func testTheSessionTapeNamesTheLaneThatPlayedEachNote() {
         let r = fourfoldReel(fxBoxScene([fxLine(gate: 0.5, emitter: 0b0001), fxLine(gate: 0.5, emitter: 0b0100)], fx: EuclideousFX(), stepRate: .r1_8), beats: 9)
         let notes = r.tape.events(from: 0, to: Int.max)
