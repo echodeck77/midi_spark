@@ -69,10 +69,12 @@
 		3E9FF95A517649C43ED0D955 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */; };
 		3FEBDAA999631F93DD5B17E7 /* FourfoldAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */; };
 		41875BF40905DAC179B9C3EF /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */; };
+		41A2CB83CC4492FD4F601599 /* SessionTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F916631CD0B4974C26CB893 /* SessionTape.swift */; };
 		4261A727230CC73522219D98 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */; };
 		45EA80F454F84483E68A9DC2 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */; };
 		461FEB25F66378A168BACD53 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */; };
 		47C29EACF7E0D356CD7DADDF /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */; };
+		47CA95171F41A3546DCBCD6D /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = C40FFEC9C51764F0A2A53F81 /* Atomics */; };
 		48945756C07AD7AD3107E51D /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
 		4A2F4629204778337D64903F /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
 		4AAAD0D744835419AF120580 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FBCA687DA3D7C57F31B353 /* Derivations.swift */; };
@@ -126,6 +128,7 @@
 		705EB0F4C1F70D29C64AF28B /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523B1AEB32CCEF31AA60CCA9 /* Router.swift */; };
 		7258783B60191EF8E5A237BD /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
 		7415FBCBB571F428C4987AF5 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */; };
+		746D078B5FCA81085A898B77 /* SessionTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F916631CD0B4974C26CB893 /* SessionTape.swift */; };
 		746E24079B190777EFA7AF96 /* RiffGridArrowFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FC04EA80539F56545C2F422 /* RiffGridArrowFuzzTests.swift */; };
 		76200A32A504EA152B5EE00C /* FXTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */; };
 		76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */; };
@@ -152,11 +155,13 @@
 		85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2C4528E7A184FABB7EF270 /* EditPage.swift */; };
 		86DBDA072FBE5381278BC901 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
+		895F99D3F9F1BE1F2238EE20 /* SessionTapeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */; };
 		8B36597661635D9024755192 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9C65A7A6B7ACAE4F4E8194 /* RestartTilePainter.swift */; };
 		8B711DFECF2BE4E0473A0396 /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
 		8BE64CF7DD07214318F1CA08 /* RhythmPolishTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408AF07FF1C6D11373D00D64 /* RhythmPolishTests.swift */; };
 		8C0A79D7C15CDA8D43AC7760 /* LanesGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A732F956AC8A9961E6F346F /* LanesGridTests.swift */; };
 		8CC40A50AE903C00870E629A /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
+		8DC3AA73114BE6ECD1E1D9BC /* SessionTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F916631CD0B4974C26CB893 /* SessionTape.swift */; };
 		8EAA21037E4D1C26EABF952F /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F380ACB5AA7EF62B0F677A8A /* SharedUIHelpers.swift */; };
 		8F80DB58E5F66881A3E64023 /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */; };
 		90976F2400C14A53375B151D /* EuclideousRandomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D5FD8318A130F2A8C70369A /* EuclideousRandomTests.swift */; };
@@ -462,6 +467,7 @@
 		9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTransportClock.swift; sourceTree = "<group>"; };
 		9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTelemetry.swift; sourceTree = "<group>"; };
 		9F4D4A126C52BC03C659EC8C /* LaneStripFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripFuzzTests.swift; sourceTree = "<group>"; };
+		9F916631CD0B4974C26CB893 /* SessionTape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTape.swift; sourceTree = "<group>"; };
 		A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildGridSelector.swift; sourceTree = "<group>"; };
 		A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelHeaderIcon.swift; sourceTree = "<group>"; };
 		A54B806162177B626AC22A5D /* WalkTagPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkTagPainter.swift; sourceTree = "<group>"; };
@@ -511,6 +517,7 @@
 		D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGatesSpecialTests.swift; sourceTree = "<group>"; };
 		D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockModePainter.swift; sourceTree = "<group>"; };
+		D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTapeTests.swift; sourceTree = "<group>"; };
 		D4B004FB0FED39A5E1961BD8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D67906574F7AC7903958AF3B /* RiffPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffPanelTests.swift; sourceTree = "<group>"; };
 		D7FF4747235BE7D3D8815C2A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -564,6 +571,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				ED3B41CB67B5883BFE0F07E1 /* Atomics in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		54CE70EB3E993A77AE4B194D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				47CA95171F41A3546DCBCD6D /* Atomics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -686,6 +701,7 @@
 				42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */,
 				D67906574F7AC7903958AF3B /* RiffPanelTests.swift */,
 				678E167D4A16C39447DC29C1 /* RouterTests.swift */,
+				D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */,
 				BAA9A1C1F8528FD067B3F6CF /* SmallWindowTests.swift */,
 				CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */,
 			);
@@ -856,6 +872,7 @@
 				CD9084051F44A6CAA1CFDFA9 /* Models.swift */,
 				E074C5873A3072DF6841935F /* PresetStore.swift */,
 				523B1AEB32CCEF31AA60CCA9 /* Router.swift */,
+				9F916631CD0B4974C26CB893 /* SessionTape.swift */,
 				7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */,
 				DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */,
 				EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */,
@@ -970,6 +987,7 @@
 			buildConfigurationList = 9B5078B691B6743E8F6440E9 /* Build configuration list for PBXNativeTarget "FourfoldTests" */;
 			buildPhases = (
 				379BB2191E46150D3FCDFE49 /* Sources */,
+				54CE70EB3E993A77AE4B194D /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -977,6 +995,7 @@
 			);
 			name = FourfoldTests;
 			packageProductDependencies = (
+				C40FFEC9C51764F0A2A53F81 /* Atomics */,
 			);
 			productName = FourfoldTests;
 			productReference = ECFE8D7BE003B21267B1EE96 /* FourfoldTests.xctest */;
@@ -1196,6 +1215,7 @@
 				A606DB40A2135BB2DAB67042 /* RestartTilePainter.swift in Sources */,
 				6FF9F3666DE68AB22E088D88 /* RiffArrowPainter.swift in Sources */,
 				705EB0F4C1F70D29C64AF28B /* Router.swift in Sources */,
+				8DC3AA73114BE6ECD1E1D9BC /* SessionTape.swift in Sources */,
 				8EAA21037E4D1C26EABF952F /* SharedUIHelpers.swift in Sources */,
 				A5CDA0DEF652E37DAD464472 /* Snapshot.swift in Sources */,
 				BDE29B3A43C5B4464DF6F208 /* SnapshotBuilder.swift in Sources */,
@@ -1330,6 +1350,8 @@
 				5E970B6C60B8B0AF78C866B7 /* RiffPanelTests.swift in Sources */,
 				CBBC295B11E91C7833E213C7 /* Router.swift in Sources */,
 				7A38F150DFE99F651004F657 /* RouterTests.swift in Sources */,
+				41A2CB83CC4492FD4F601599 /* SessionTape.swift in Sources */,
+				895F99D3F9F1BE1F2238EE20 /* SessionTapeTests.swift in Sources */,
 				6F1D77AA7FBFF46117E4E73E /* SmallWindowTests.swift in Sources */,
 				23F778EA380308B2D22F1CE0 /* Snapshot.swift in Sources */,
 				A30E4B4E80A4AAA15D91D659 /* SnapshotBuilder.swift in Sources */,
@@ -1378,6 +1400,7 @@
 				EA0F411C0669D4E76F8D4771 /* RestartTilePainter.swift in Sources */,
 				999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */,
 				E47ADB076660841D3EF573BD /* Router.swift in Sources */,
+				746D078B5FCA81085A898B77 /* SessionTape.swift in Sources */,
 				52285FEB6BDCD4E6215D40FA /* SharedUIHelpers.swift in Sources */,
 				7415FBCBB571F428C4987AF5 /* Snapshot.swift in Sources */,
 				C09B7A16E54595BA2D6D5A3D /* SnapshotBuilder.swift in Sources */,
@@ -1964,6 +1987,11 @@
 			productName = Atomics;
 		};
 		651E122AE1C1D347649F79D7 /* Atomics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 85B19CF34D2CBABE22DF126A /* XCRemoteSwiftPackageReference "swift-atomics" */;
+			productName = Atomics;
+		};
+		C40FFEC9C51764F0A2A53F81 /* Atomics */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 85B19CF34D2CBABE22DF126A /* XCRemoteSwiftPackageReference "swift-atomics" */;
 			productName = Atomics;

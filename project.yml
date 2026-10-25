@@ -232,7 +232,11 @@ targets:
       - path: Fourfold/Engine/EuclideousLock.swift
       - path: Fourfold/Engine/EuclideousPresets.swift
       - path: Fourfold/Engine/FourfoldCompose.swift
+      - path: Fourfold/Engine/SessionTape.swift
       - path: Fourfold/Shared/FourfoldTransportClock.swift
+    dependencies:
+      - package: Atomics
+        product: Atomics
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
