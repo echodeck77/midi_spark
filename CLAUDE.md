@@ -159,7 +159,11 @@ Euclideous has no receiver/door graph, no cables beyond a flat A–D toggle, no 
 - **FX** = the sequencer panel's third tab: six fixed page-level rows (RATCH, GATE, TIE, VEL, NOTE, CC) over the riff's eight columns, each with its
   own lane set; a cell holds a value or nothing and acts only on a hit that plays the riff, through the column it reads, never on a written rest.
 - **Emitters A–D** here are a flat per-lane output toggle (`MAIN OUT`), not the full 8×8-State
-  bus/cable/channel-stamp model above.
+  bus/cable/channel-stamp model above. **Since the per-layer-routing ferry (2026-10-25, Fourfold only) a lane's
+  RIFF and its NOTES route INDEPENDENTLY: `EuclidLine.riffOutMask`/`notesOutMask` (both Optional, nil ⇒ inherit
+  `emitterMask`, which is kept = their union for forward-compat); the toggles are the A–D OUT column down the
+  right of the RIFF and NOTES tabs. The Router picks the per-pitch mask by `notesPitchMask` at its one gate;
+  collisions drop only on the shared outputs. `AUExtension/` (8x8 State) keeps the single `emitterMask`.**
 
 ## Architecture invariants (violating these = bug, regardless of tests passing)
 These bind BOTH products — Euclideous's row is composed, rendered, and emitted through exactly
@@ -284,9 +288,9 @@ the same pipeline as any other row; it is not a special-cased render path.
   REPEAT/CHORD/OCT/MIRROR/LEAP/CLIMB/ACCENT/SWELL — gated by CHANCE).
 - **Sequencer panel** (replaced an earlier "NOTE VIEW" telemetry panel entirely): tabs are MIX (the default —
   eight XY pads, gate × velocity, + a 24pt OCT stepper per layer (shrunk from 28pt, restart-chains ferry
-  2026-10-19) and, new in that same ferry, a 20pt OUT A–D row under each lane's pad pair (`mixOutRow`,
-  moved here from the RHYTHM tab's old OUT circles — reuses `euclideousLaneOutChipStyle` verbatim as a
-  rounded rect); **since the CLARITY PASS (2026-10-23) each lane's pair sits in its own tinted lane PANEL, a 2×2 grid, see that bullet**: each lane's RIFF and NOTES; RIFF = the lane's GATE/VEL,
+  2026-10-19); **the OUT A–D row is GONE from MIX (per-layer-routing ferry, 2026-10-25 — `mixOutRow` kept but
+  unused): output routing now lives on each lane's own RIFF and NOTES tabs (see the Header/routing note below),
+  and the pads took the row's room (padH = panelH − 36)**; **since the CLARITY PASS (2026-10-23) each lane's pair sits in its own tinted lane PANEL, a 2×2 grid, see that bullet**: each lane's RIFF and NOTES; RIFF = the lane's GATE/VEL,
   NOTES = its own `notesGate`/`notesVelocity`, which PART from GATE/VEL at the first edit), then LANES
   (mute-only since the restart-chains ferry, 2026-10-19 — `LanesPanelPainter.swift`: no sub-tabs, just a
   static hint line; four 16-cell lane blocks each with a RATE box that edits that lane's MUTE unit, a roll
@@ -431,9 +435,12 @@ the same pipeline as any other row; it is not a special-cased render path.
 - **Header (Fourfold, 2026-10-15).** Four groups: BRAND (mark, FOURFOLD, undo/redo — ↶/↷ bounded 50-deep, scoped to
   Euclideous's own fields only) · OUTPUTS (four output RINGS = MAIN OUT A–D, 75% scale since 2026-10-20 —
   `EuclideousHeaderMetrics.outputRingScale`, rendered at natural size then `.scaleEffect`-shrunk, same technique as
-  the Settings Sheet's own 0.8× mini rings, so the hardcoded radius-17 Canvas circle never clips: each quarter
-  lights in the colour of a lane routed to it, tap pulses those lanes, hold traces them, a quarter flares on a real
-  strike) · NOTES (MIDI IN · CHORDS · KEY control + a key pill that opens the key pop-up + HOLD/LATCH, added
+  the Settings Sheet's own 0.8× mini rings, so the hardcoded radius-17 Canvas circle never clips: **since the
+  per-layer-routing ferry (2026-10-25) a quarter lights when that lane's RIFF routes there AND the riff is on, OR
+  its NOTES route there AND the notes are on (`euclideousLaneMasks` is now that per-part OUTPUT-LIT mask); a pulse/
+  trace targets the lane's own RIFF/NOTES OUT circle when that tab shows, else its RIFF/NOTES tab cell
+  (`euclideousOutputRingTargets`); the sounding flare counts either layer**. tap pulses those lanes, hold traces
+  them · NOTES (MIDI IN · CHORDS · KEY control + a key pill that opens the key pop-up + HOLD/LATCH, added
   2026-10-20: two mutually-exclusive chips — a behavioural port of the 8x8-State door graph's `DoorMode.hold`/
   `.latch` onto Euclideous's own page-level MIDI IN pool, since Euclideous has no receiver/door graph to reuse the
   original mechanism from; HOLD mirrors live input and sustains the last chord once every key releases, replacing

@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — PER-LAYER EMITTER ROUTING: a lane's RIFF and NOTES route to separate outputs (2026-10-25; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the six new "Per-layer routing" lines in `Docs/euclideous-device-verification-debt.md` — chiefly the real goal (riff → A / notes → B on two synths in AUM) and the circles' legibility/flare in all four lane colours. Nothing here has run on a device yet.
+- [ ] (noted) Fourfold-only — `AUExtension/` (8x8 State, frozen) is untouched; its lane still has one shared emitter mask.
+- [ ] (noted) Judgment calls flagged in code, raise if wrong on-device: the FX CC row follows the RIFF layer's routing; §2.1's "centred" column reads top-aligned (test 9's exact y 110/154/198/242); the riff card did NOT narrow (the direction row has four buttons, §0.1(f)).
+- [ ] (noted) No custom `encode(to:)` — `emitterMask` is kept = the two parts' union in memory (`toggleOutput`) so the synthesized encoder persists §3.3's forward-compat value; the Mirror reflection guard is what de-risks that choice.
+
 ## ★ FOURFOLD — CHORDS GRID: four progression tabs, borrowed chords, chord colours, playhead, pool strip (2026-10-24; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the new "CHORDS GRID" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] DECIDE (Paul): confirmed mid-build — §4.4's queue-to-next-column-boundary switch was dropped for immediate/manual switching only; say if you'd rather have the sample-accurate queued version after all (it would need a new Kernel-level mechanism, modelled on the RANDOM MODE ferry's apply-at-a-beat plumbing).

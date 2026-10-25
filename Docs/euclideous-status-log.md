@@ -10567,6 +10567,50 @@ project has been building this whole stretch.
   its neighbour, empty-store byte-identity, round-trip + old-doc-nil). **NEXT: M3–M6 — the 4-tab band (BIND · PLAY · PUNCH ·
   SPAN) as the bottom HALF of the PART grid (interior −50% height; ferry/▲▼/STOP unchanged), PART-PAGE-ONLY. Device-owed UI over
   the proven M1/M2 fold — held for Paul's device eye (band chrome / tab collapse / STOP placement have real interpretation room).**
+- **PER-LAYER EMITTER ROUTING ferry (2026-10-25, Fourfold only) — a lane's RIFF and its NOTES route to
+  separate outputs.** Approved by Paul from chat mockups (a column of A–D circles down the right of the RIFF and
+  NOTES tabs). Built in the spec's own seven steps, committing green at each; the golden harness stayed
+  byte-identical throughout (`793a8fe5479c4f1e`, unchanged since before the engine step), which is the whole
+  ferry's load-bearing proof that every existing lane and factory preset sounds exactly as before.
+  - **Model (§3, `EuclidLine`):** two additive-Optional fields `riffOutMask`/`notesOutMask` beside `emitterMask`,
+    decode-tolerant (`decodeIfPresent` + `& 0x0F`); resolvers `riffOutMaskResolved`/`notesOutMaskResolved` fall
+    back to `emitterMask` so an untouched lane is unchanged. NO custom `encode(to:)` (a ~90-field data-loss
+    hazard): instead `toggleOutput(part:bit:)` (the circle tap's one writer) PINS both parts to their resolved
+    value, flips the tapped part's bit, and keeps `emitterMask` = the union (`emitterMaskForEncode`), so the
+    synthesized encoder persists §3.3's forward-compat union. The pre-existing Mirror reflection guard
+    (`testEveryStoredEuclidLineField…`) de-risks the no-custom-encode choice. Threaded through SnapshotBuilder's
+    memberwise rebuild; everything else `EuclidLine` travels through (undo/resync/preset/randomise/locks) carries
+    both fields free.
+  - **Engine (§4, Router):** the lane-wide `busOverride` at the per-pitch gate becomes a PER-PITCH choice —
+    `notesPitchMask` selects `notesOutMask` else `riffOutMask`, each ∩ cell bus ∩ `mainOutMask`, carried through
+    the per-tick closure on a fixed-size `hitPitchBus` scratch (no allocation — Release `--alloc` audit is ZERO
+    across all 27 scenarios). Deferred strikes (ratchet/ROLL/RUN) resolve per-pitch at the `pushEchoTail` site;
+    REPEAT-HOLD and MASK-REPEAT are riff-layer (§4.1). §4.2 collisions are now PER-OUTPUT: a shared pitch is
+    dropped only on `riffOutMask ∩ notesOutMask` and still sounds on `notesOutMask − riffOutMask`. Note-offs and
+    legato ride the EXISTING per-(cable,channel,note) refcount, so §4.3/§4.4 (a note ends where it began; legato
+    per output) hold with no note-off/panic change — the ferry's single biggest risk, clear from §0.1(c).
+    Judgment calls (flagged): FX CC follows the riff layer; the `nvSent` gate unions both masks.
+  - **UI (§1–§2, §5–§7):** a slim 32 pt OUT column down the right of the RIFF and NOTES tabs (`euclideousOutColumnLayout`
+    + `euclideousOutCircleState`, pure/tested) — the header rings' disc + letter at radius 13 with one lane-colour
+    ring, four §2.3 looks (routed / unrouted / routed-main-off dashed), a §2.4 strike flare from the existing pulse
+    feed. Each tab's content narrows by 36 (column 32 + sp4); the riff card stays 90 (four-button direction row,
+    §0.1(f)); the PLAY AS picker still spans the full box (§1.6). Header (§6): `euclideousLaneMasks` becomes the
+    per-part OUTPUT-LIT mask (riff-on∧routes | notes-on∧routes) feeding the quarter-lit + settings-sheet rings +
+    trace dim; `ringFlare` is per-part; `euclideousOutputRingTargets(output:lines:laneTabs:)` points a pulse/trace
+    at a lane's showing-tab OUT circle else its RIFF/NOTES tab cell (the old MIX-button/MIX-tab targeting gone);
+    ring VoiceOver names parts (`euclideousOutputRingAccessibilityLabel`). MIX (§5): the OUT row leaves MIX
+    (`mixOutRow` kept, unused), the pad grows by it — padH = panelH − 36 (was − 60), 81.17 × 93.5 at the landscape
+    reference; a knock-on is that several cramped windowed/mini panels now clear the pad-height floor. VoiceOver
+    (§7): one "Riff outputs"/"Notes outputs" group per tab, each circle a toggle-trait button.
+  - **Reported spec-vs-reality differences (§12):** §1.3's direction row is FOUR buttons not five (§0.1(f)) so the
+    riff card did not narrow; §2.1's "centred, 8 pt above and below" is loose — test 9's explicit y 110/154/198/242
+    come only from top-aligning the caption and capping targets at 44 (built to test 9); §5.2's "pads 79 × 98 at
+    348 × 280" was mix-tidy's pre-CLARITY geometry, the real formula gives 90.25 × 88 at the 401 × 264 reference.
+  - **Tests:** RouterTests (split routing, per-output collision, mid-note mask+main-out stress leaves nothing
+    sounding), the 7-ways per-cable golden fixture (byte-identical after the change), EffectiveParams (decode/
+    round-trip/union-encode/toggleOutput), Derivations (circle state, column layout + floor, header quarter-lit +
+    ring VoiceOver + targets), NotesTab/PageLayout (narrowed frames), ClarityPass/PageLayout/Pulse (MIX padH + OUT
+    row gone). Full suite green; golden identical; Release alloc audit zero. Device-owed: see the debt file's §11.
 - **Older entries (2026-09-01 and before) archived to `Docs/status-log-archive.md`** — moved out
   2026-09-26 to keep this file inside the context char limit; nothing was deleted, just relocated.
   Read that file for build history predating the entries above; `Docs/pending-tasks.md` stays the
