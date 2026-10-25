@@ -25,6 +25,14 @@ ARGS="--soak $SECS"; [ -n "$SEED" ] && ARGS="$ARGS --soak-seed $SEED"; [ -n "$3"
 # wait for the result line (or give up well after the run should have ended)
 for i in $(seq 1 $((SECS + 60))); do grep -aq "SOAK RESULT" "$OUT/soak-console.log" 2>/dev/null && break; sleep 1; done
 xcrun simctl io "$UDID" screenshot "$OUT/soak-shot.png" >/dev/null 2>&1 || true
+# RETROSPECTIVE CAPTURE (2026-10-25): pull the .mid the run wrote (the All output's note stream), for offline analysis
+# (analyze-midi.py) and for a person to open in a DAW. The app writes it to its Documents container at finish.
+CONTAINER=$(xcrun simctl get_app_container "$UDID" com.outliermidi.Fourfold data 2>/dev/null || true)
+if [ -n "$CONTAINER" ] && [ -f "$CONTAINER/Documents/soak-session.mid" ]; then
+  cp "$CONTAINER/Documents/soak-session.mid" "$OUT/soak-session.mid"
+  echo "SOAK MIDI pulled: $OUT/soak-session.mid"
+  command -v python3 >/dev/null 2>&1 && python3 "$(dirname "$0")/analyze-midi.py" "$OUT/soak-session.mid" || true
+fi
 xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || true
 SANLINES=$(grep -a -c -E "ThreadSanitizer|AddressSanitizer|runtime error:" "$OUT/soak-console.log" || true)
 if [ "${SANLINES:-0}" -gt 0 ]; then echo "SANITIZER: $SANLINES report line(s) in $OUT/soak-console.log:"; grep -a -E "ThreadSanitizer|AddressSanitizer|runtime error:" "$OUT/soak-console.log" | sort | uniq -c | sort -rn | head -12; fi

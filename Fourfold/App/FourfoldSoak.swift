@@ -19,6 +19,13 @@ final class FourfoldSoak {
     private var maxHoldMs = 0.0
     private var faultEvery = 0   // `--soak-fault N`: pretend every Nth note-off never arrived — a CONTROL: the run must then report a stuck note, proving the checker can fail
     private let timebase: mach_timebase_info_data_t = { var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return t }()
+    // RETROSPECTIVE CAPTURE (2026-10-25): record the "All" output's own note stream to a real .mid at the end,
+    // so the run can be "listened to" after the fact — analysed offline (Scripts/fourfold-harness/analyze-midi.py)
+    // AND opened in a DAW. Captured in WALL-CLOCK time (the soak's tempo varies), written at a nominal 120 BPM so
+    // playback timing equals real time. The All port carries every emitted note, so one stream is the whole run.
+    private var startHost: UInt64 = 0
+    private var captured: [(sec: Double, b0: UInt8, b1: UInt8, b2: UInt8)] = []
+    private static let captureCap = 400_000
 
     // driver state (main queue only)
     private var rng: UInt64 = 0xF0F0_F0F0
@@ -46,6 +53,7 @@ final class FourfoldSoak {
         let presets = engine.au.factoryPresetNames()
         engine.setPlaying(true); playing = true
         let start = Date()
+        startHost = mach_absolute_time()
 
         // every action: (name, next due, min/max seconds between runs, what it does). One 40 ms tick runs whichever are due.
         struct Act { var name: String; var due: Date; var lo: Double; var hi: Double; var fire: () -> Void }
@@ -139,8 +147,25 @@ final class FourfoldSoak {
             if replays >= 3, replaysTapeGrew == 0 { failures += 1; log("SOAK FAIL: the session tape did not grow during any of \(replays) replays — the engine froze under replay") }
             log("SOAK ACTIONS: " + counts.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
             let unmatchedBad = u > 0; if unmatchedBad { log("SOAK NOTE: \(u) note-off(s) arrived with no matching note-on (harmless to a synth, but worth knowing)") }
+            writeCapturedMidi()
             log(failures == 0 && o > 0 ? "SOAK RESULT: PASS" : "SOAK RESULT: FAIL (failures=\(failures), note-ons=\(o))")
         }
+    }
+
+    /// RETROSPECTIVE CAPTURE: write the captured All-port note stream to `Documents/soak-session.mid` (pulled off the
+    /// simulator by soak.sh, analysed by analyze-midi.py). Wall-clock seconds → beats at a nominal 120 BPM (1 beat =
+    /// 0.5 s) so the file plays back at real-world timing; the BPM label is cosmetic. Reuses the engine's own
+    /// `MidiFile.encode` — the SAME writer the reel SAVE uses, so the file is a standard format-0 SMF.
+    private func writeCapturedMidi() {
+        lock.lock(); let evs = captured; lock.unlock()
+        guard !evs.isEmpty else { log("SOAK MIDI: nothing captured"); return }
+        let beatsPerSecond = 120.0 / 60.0
+        let events = evs.map { (beat: $0.sec * beatsPerSecond, b0: $0.b0, b1: $0.b1, b2: $0.b2) }
+        let total = (evs.last!.sec + 0.5) * beatsPerSecond
+        let data = MidiFile.encode(events: events, bpm: 120, ppq: 480, loopBeats: total)
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("soak-session.mid")
+        do { try data.write(to: url, options: .atomic); log("SOAK MIDI: wrote \(evs.count) events (\(data.count) bytes) to \(url.lastPathComponent)") }
+        catch { log("SOAK MIDI: write failed — \(error.localizedDescription)") }
     }
 
     /// Every (port, channel, note) must be balanced; report any that are not.
@@ -183,11 +208,22 @@ final class FourfoldSoak {
                             let base = (source * Self.channels + Int(status & 0x0F)) * Self.notes
                             for k in 0..<Self.notes { sounding[base + k] = false }
                             blanketOffs += 1
+                            // RETROSPECTIVE CAPTURE: the all-notes-off CCs close notes too, so the .mid must carry
+                            // them or a note they close looks like it never ended (analyze-midi.py honours them).
+                            if source == 0 && captured.count < Self.captureCap {
+                                let sec = Double(now &- startHost) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000
+                                captured.append((sec: sec, b0: status, b1: b[i + 1], b2: b[i + 2]))
+                            }
                             lock.unlock()
                         }
                         if kind == 0x80 || kind == 0x90, len == 3 {
                             let key = (source * Self.channels + Int(status & 0x0F)) * Self.notes + Int(b[i + 1] & 0x7F)
                             lock.lock()
+                            // RETROSPECTIVE CAPTURE: the All port's own note stream, in wall-clock seconds.
+                            if source == 0 && captured.count < Self.captureCap {
+                                let sec = Double(now &- startHost) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000
+                                captured.append((sec: sec, b0: status, b1: b[i + 1], b2: b[i + 2]))
+                            }
                             if kind == 0x90 && b[i + 2] > 0 {
                                 if sounding[key] { doubleOns += 1 }   // a re-strike of a key that is already on (a synth just retriggers it)
                                 sounding[key] = true; totalOns += 1; onTime[key] = now
