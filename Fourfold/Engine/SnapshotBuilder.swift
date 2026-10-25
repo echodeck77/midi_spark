@@ -360,6 +360,8 @@ enum SnapshotBuilder {
                                                                       // PER-LAYER ROUTING ferry (2026-10-25): both parts threaded here too, each clamped to the four
                                                                       // outputs — miss this spot and they silently reset every render (this call's own gotcha, below).
                                                                       riffOutMask: $0.riffOutMask.map { $0 & 0x0F }, notesOutMask: $0.notesOutMask.map { $0 & 0x0F },
+                                                                      // ALT ferry §4.6: thread the three fields into the fresh literal too — miss this and they silently reset every render.
+                                                                      riffAlt: $0.riffAlt, notesAlt: $0.notesAlt, outLink: $0.outLink,
                                                                       useRiff: $0.useRiff, melodyMode: $0.melodyMode,
                                                                       litNotes: $0.litNotes, topLit: $0.topLit, top2Lit: $0.top2Lit, riffOn: $0.riffOn,
                                                                       // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, 2nd same-day ferry) — `melodyMode`

@@ -193,6 +193,69 @@ final class EffectiveParamsTests: XCTestCase {
         var half = EuclidLine(pulses: 3, steps: 8); half.riffOutMask = 0b0001
         XCTAssertEqual(half.emitterMaskForEncode, 0b1111)
     }
+    // ── ALT ROUTING ferry (2026-10-25) §4 / test 2 + test 10 ──────────────────────────────────────────
+    // §4.2/§4.7: a pre-feature document (no riffAlt/notesAlt/outLink keys) decodes with mode OFF, the defaults, and
+    // no link — so every existing lane and preset is unchanged.
+    func testAltDecodesOffWithDefaultsAndNoLink() throws {
+        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
+        let l = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
+        XCTAssertNil(l.riffAlt); XCTAssertNil(l.notesAlt); XCTAssertNil(l.outLink)
+        let r = l.riffAltResolved, n = l.notesAltResolved
+        XCTAssertEqual(r.mode, .off); XCTAssertEqual(n.mode, .off)
+        XCTAssertEqual(r.every, 1); XCTAssertEqual(r.offset, 0); XCTAssertEqual(r.strip, 0b1111_0000)
+        XCTAssertEqual(r.passes, 1); XCTAssertEqual(r.passOffset, 0); XCTAssertEqual(r.chance, 50); XCTAssertEqual(r.altMask, 0)
+        // §4.2 part-aware SPLIT default: rank 4 for the riff, LOWEST for the notes.
+        XCTAssertEqual(r.splitRank, 4); XCTAssertFalse(r.splitLowest)
+        XCTAssertTrue(n.splitLowest); XCTAssertEqual(n.splitRank, 0)
+        // an UNKNOWN mode decodes OFF
+        let dirty = try JSONDecoder().decode(EuclidLine.self, from: Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"riffAlt":{"mode":"ZZZ","altMask":2}}"#.utf8))
+        XCTAssertEqual(dirty.riffAltResolved.mode, .off, "unknown mode ⇒ OFF"); XCTAssertEqual(dirty.riffAltResolved.altMask, 0b0010)
+    }
+    // §4.2 clamps, via the resolver.
+    func testAltResolverClampsEveryValueIntoRange() {
+        var a = EuclideousAltRouting()
+        a.every = 99; a.offset = 99; a.passes = 0; a.passOffset = 99; a.chance = 37; a.split = 42; a.altMask = 0xFF
+        let r = a.resolved(forRiff: true)
+        XCTAssertEqual(r.every, 8, "every clamps to 1…8"); XCTAssertEqual(r.offset, 2 * 8 - 1, "offset into 0…2·every−1")
+        XCTAssertEqual(r.passes, 1, "passes clamps to 1…8"); XCTAssertEqual(r.passOffset, 2 * 1 - 1, "passOffset into 0…2·passes−1")
+        XCTAssertEqual(r.chance, 40, "chance to the nearest multiple of 10"); XCTAssertEqual(r.splitRank, 7, "split 8+ → 7")
+        XCTAssertEqual(r.altMask, 0x0F, "mask bits above the four outputs dropped")
+        XCTAssertEqual(EuclideousAltRouting().resolved(forRiff: true).chance, 50)
+        // chance clamps into 10…90 at the ends
+        var lo = EuclideousAltRouting(); lo.chance = 0; XCTAssertEqual(lo.resolved(forRiff: false).chance, 10)
+    }
+    // §4 round-trip (incl. the link) + §4.5 seed + SnapshotBuilder carry.
+    func testAltRoundTripsSeedsAndTravelsThroughTheSnapshot() throws {
+        var l = EuclidLine(pulses: 3, steps: 8); l.emitterMask = 0b0001
+        // §4.5 seed: mode OFF → HITS with an empty ALT mask seeds ALT to the output after MAIN's lowest.
+        l.setAltMode(.riff, .hits)
+        XCTAssertEqual(l.riffAlt?.altMask, 0b0010, "MAIN A ⇒ seed ALT = B (test 10 / §4.5)")
+        XCTAssertEqual(l.riffAlt?.mode, .hits)
+        l.editAlt(.riff) { $0.every = 2; $0.offset = 1 }
+        l.setOutLink(apply: true, source: .riff)
+        XCTAssertEqual(l.outLink, .riff, "BOTH from the riff ⇒ the riff leads")
+        // round-trip
+        let back = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(l))
+        XCTAssertEqual(back.riffAlt, l.riffAlt); XCTAssertEqual(back.outLink, .riff)
+        // SnapshotBuilder's fresh literal carries all three (miss the spot ⇒ they reset): build a snapshot through the
+        // euclid machine (the SnapshotBuilder:346 source) and read them back.
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [l]
+        var sc = SceneState.empty()
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+        let built = SnapshotBuilder.build(from: PluginState(machines: [c], scenes: [sc]))
+        let rebuilt = built.machines.first { $0.a.euclidLines.count == 4 }?.a.euclidLines.first
+        XCTAssertEqual(rebuilt?.riffAlt, l.riffAlt, "riffAlt survives the SnapshotBuilder rebuild")
+        XCTAssertEqual(rebuilt?.outLink, .riff, "outLink survives the SnapshotBuilder rebuild")
+    }
+    // §4.5 seed, the three other MAIN cases (test 10).
+    func testAltSeedPicksTheOutputAfterMainsLowest() {
+        XCTAssertEqual(euclideousSeedAltMask(main: 0b0001), 0b0010, "A → B")
+        XCTAssertEqual(euclideousSeedAltMask(main: 0b0100), 0b1000, "C → D")
+        XCTAssertEqual(euclideousSeedAltMask(main: 0b1000), 0b0001, "D → A")
+        XCTAssertEqual(euclideousSeedAltMask(main: 0), 0b0001, "MAIN empty → A")
+        XCTAssertEqual(euclideousSeedAltMask(main: 0b0110), 0b0100, "lowest of B+C is B → C")
+    }
 
     // RIFF ADVANCE (Paul 2026-10-06): useRiff/riffRotate/riffOctave are the newest three EuclidLine fields — same
     // CR-8 contract as rate/emitterMask above, a doc saved before they existed must still decode without throwing.
@@ -893,6 +956,10 @@ final class EffectiveParamsTests: XCTestCase {
         // NOTES TAB (2026-10-19). riffOnRest is `.repeatLast` above, not `.fill`: FILL leaves ON REST and decodes as SKIP by design (§9).
         l.notesWhen = 0b01; l.notesChance = 50; l.notesPlayAs = .split; l.notesReceivedOnly = true
         l.offsetFraction = 0.35; l.tiltFine = -0.3   // RHYTHM POLISH (2026-10-22)
+        // ALT ROUTING (2026-10-25): populate all three new Optionals so this guard keeps covering them
+        var ra = EuclideousAltRouting(); ra.mode = .hits; ra.altMask = 0b0010; ra.every = 3; ra.offset = 2; ra.strip = 0b1010_1010; ra.passes = 4; ra.passOffset = 1; ra.chance = 70; ra.split = 5
+        var na = EuclideousAltRouting(); na.mode = .split; na.altMask = 0b0100; na.split = 0
+        l.riffAlt = ra; l.notesAlt = na; l.outLink = .notes
         var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {
