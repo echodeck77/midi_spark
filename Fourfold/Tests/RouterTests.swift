@@ -6307,6 +6307,85 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: ALT ROUTING ferry (2026-10-25) §11 tests 4, 5, 7 (Router)
+    private func altLine(_ base: EuclidLine, riffMode: EuclideousAltMode = .off, riffAlt: UInt8 = 0, notesMode: EuclideousAltMode = .off, notesAlt: UInt8 = 0, notesSplitLowest: Bool = false) -> EuclidLine {
+        var l = base
+        if riffMode != .off { var a = EuclideousAltRouting(); a.mode = riffMode; a.altMask = riffAlt; l.riffAlt = a }
+        if notesMode != .off { var a = EuclideousAltRouting(); a.mode = notesMode; a.altMask = notesAlt; if notesSplitLowest { a.split = 0 }; l.notesAlt = a }
+        return l
+    }
+    // §11 test 4: riff HITS 1 with MAIN A, ALT B — the riff's notes alternate A/B by the pattern-hit ordinal q (even→A,
+    // odd→B); the riff sounds on hit positions 0 and 3, so over two passes q = 0,3 | 5,8. Notes off here to isolate the riff.
+    func testAltRiffHitsAlternatesAandBByHit() {
+        var l = altLine(notesExLine(riffOn: true), riffMode: .hits, riffAlt: 0b0010)
+        l.riffOutMask = 0b0001; l.notesOn = false
+        let e = fxRun(fxBox([l], ranks: notesExRanks), beats: 2 * 4.0 + 0.5, pool: notesExPool)
+        assertNothingLeftSounding(e)
+        let onA = notesByHit(e, passes: 2, cable: 1), onB = notesByHit(e, passes: 2, cable: 2)
+        XCTAssertFalse(onA[0].isEmpty, "q0 even → A"); XCTAssertTrue(onB[0].isEmpty)
+        XCTAssertFalse(onB[3].isEmpty, "q3 odd → B"); XCTAssertTrue(onA[3].isEmpty)
+        XCTAssertFalse(onB[5].isEmpty, "q5 odd → B"); XCTAssertTrue(onA[5].isEmpty)
+        XCTAssertFalse(onA[8].isEmpty, "q8 even → A"); XCTAssertTrue(onB[8].isEmpty)
+        XCTAssertTrue(onsOnCable(e, 3).isEmpty && onsOnCable(e, 4).isEmpty, "the riff never leaks to C or D")
+        // (main-out-off: nothing leaves on a disabled output — covered by the main-out cycling in the stress test below.)
+    }
+    // §11 test 5: notes SPLIT LOWEST on A (MAIN) and B (ALT), riff OFF on A. On the hit on 1 the riff plays A♭3 and the
+    // notes chord is G3/A♭3/C4. SPLIT-LOWEST's threshold is the notes' own lowest (G3): G3 stays MAIN (A), A♭3 and C4 go
+    // ALT (B). The notes' A♭3 collides with the riff's A♭3 (on A) → it sounds on B only (B & ~A). Exercises the post-pass
+    // AND the pending-collision path.
+    func testAltNotesSplitLowestCollidesPerOutput() {
+        var l = altLine(notesLine(.chord, when: 0b11), notesMode: .split, notesAlt: 0b0010, notesSplitLowest: true)
+        l.riffOutMask = 0b0001; l.notesOutMask = 0b0001   // riff MAIN A, notes MAIN A, notes ALT B
+        let e = fxRun(fxBox([l], ranks: notesExRanks), beats: 2 * 4.0 + 0.5, pool: notesExPool)
+        assertNothingLeftSounding(e)
+        let onA = notesByHit(e, passes: 2, cable: 1), onB = notesByHit(e, passes: 2, cable: 2)
+        XCTAssertEqual(onA[0], [G3, Ab3], "hit 1, cable A: the riff's A♭3 + the notes' G3 (MAIN, the lowest)")
+        XCTAssertEqual(onB[0], [Ab3, C4], "hit 1, cable B: the notes' A♭3 (collision → B only) + C4 (above the split)")
+    }
+    // §11 test 7: a stress run cycling every ALT mode + settings + the link + the main outs, over ties/ratchets/ROLL/RUN/
+    // GATE 100/transport restarts, leaves nothing sounding on any output (mirrors the per-layer GATE stress).
+    func testAltModeCyclingMidNoteLeavesNothingSounding() {
+        let ways: [EuclidNotesPlayAs] = [.chord, .roll, .run]
+        let modes = EuclideousAltMode.allCases   // all ten, incl. OFF/SPREAD/SPLIT/ROBIN/RESTS
+        let onRests: [EuclidRiffOnRest] = [.skip, .tie, .repeatLast]
+        func lineFor(_ tick: Int) -> EuclidLine {
+            var l = notesLine(ways[tick % ways.count], when: 0b11, onRest: onRests[tick % onRests.count], gate: tick % 2 == 0 ? 1.0 : 0.5)
+            l.riffOutMask = UInt8((tick % 4) + 1); l.notesOutMask = UInt8(((tick / 2) % 4) + 1)
+            var ra = EuclideousAltRouting(); ra.mode = modes[tick % modes.count]; ra.altMask = UInt8(((tick / 3) % 4) + 1)
+            ra.every = (tick % 4) + 1; ra.offset = tick % 3; ra.strip = UInt8(truncatingIfNeeded: tick * 37); ra.passes = (tick % 3) + 1; ra.chance = 10 * ((tick % 9) + 1); ra.split = tick % 8
+            l.riffAlt = ra
+            var na = ra; na.mode = modes[(tick / 2) % modes.count]; na.altMask = UInt8(((tick / 5) % 4) + 1); l.notesAlt = na
+            l.outLink = [nil, .riff, .notes][tick % 3]
+            return l
+        }
+        let fx = fxCells([(row: 0, col: 0, v: 3), (row: 0, col: 5, v: 2)])
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: notesExRanks)
+        func boxWith(_ l: EuclidLine, _ mainOut: UInt8) -> SnapshotBox {
+            c.paramsA.euclidLines = [l]
+            var sc = SceneState.empty(); sc.stepRate = .r1_8
+            sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+            st.euclideousNoteSource = .midi; st.euclideousFX = fx; st.euclideousMainOutMask = mainOut
+            return SnapshotBuilder.build(from: st)
+        }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for tick in 0..<150 {
+            if tick % 23 == 22 {
+                router.process(box: boxWith(lineFor(tick), 0x0F), pool: chord(notesExPool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                ts += Double(frames); beat = 0.0
+            }
+            let mainOut: UInt8 = [0x0F, 0x0F, 0x03, 0x0C, 0x05][tick % 5]
+            router.process(box: boxWith(lineFor(tick), mainOut), pool: chord(notesExPool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: boxWith(lineFor(0), 0x0F), pool: chord(notesExPool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
     // MARK: NOTES TAB engine (ferry 2026-10-19) — §13 tests 2, 6, 7, 8, 9, 13, 14 (the pure ones live in NotesTabTests)
     // The example lane (above): its hits, in order within a pass, are on steps 1, 3, 5, 6, 8 = ticks 0, 2, 4, 5, 7. The hits on 1 and 6 play the riff (A♭3 = 56, C4 = 60); the hits on
     // 3, 5 and 8 (hit indices 1, 2, 4) are rests. Lit in this order: rank 8 (C4 60), rank 5 (G3 55), rank 6 (A♭3 56). 120 BPM / 48 kHz: one beat = 24 000 samples, one step = 12 000.

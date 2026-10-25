@@ -2538,6 +2538,76 @@ func euclideousOutColumnLayout(height: CGFloat, width: CGFloat = EuclideousOutCo
 }
 
 
+// ── ALT ROUTING ferry (2026-10-25) §5–§6: the group function (pure, allocation-free, render-thread-safe) ──
+/// §5.2 CHANCE: a salt of its own (distinct from the NOTES / mask / RATCHET salts) so the ALT roll never repeats them.
+let euclideousAltChanceSalt: UInt64 = 0x414C_5452_4F55_5445   // "ALTROUTE"
+/// §5.2 CHANCE: 0…99, replay-exact, seeded with the lane, the LEADING part (riff 0 / notes 1) and `h` — a pure
+/// function of (lane, part, h), the same splitmix64 idiom the NOTES/mask CHANCE rolls use.
+@inline(__always) func euclideousAltChanceRoll(lane: Int, part: Int, h: Int64) -> Int {
+    let x = UInt64(bitPattern: h) &* 0x9E37_79B9_7F4A_7C15
+          &+ UInt64(truncatingIfNeeded: lane) &* 0xBF58_476D_1CE4_E5B9
+          &+ UInt64(truncatingIfNeeded: part) &* 0xD6E8_FEB8_6659_FD93
+          &+ euclideousAltChanceSalt
+    return Int(splitmix64Mix(x) % 100)
+}
+/// "floor((x + o) ÷ n) is odd" — §5.2's `swap(x, n, o)`. `floorDiv` floors negatives correctly.
+@inline(__always) func euclideousAltSwap(_ x: Int64, _ n: Int, _ o: Int) -> Bool { floorDiv(x + Int64(o), Int64(max(1, n))) & 1 != 0 }
+/// The `index`-th set bit of `m` scanning A→D (bit 0 = A). Caller guarantees `index < m.nonzeroBitCount`.
+@inline(__always) func euclideousNthSetBit(_ m: UInt8, _ index: Int) -> Int {
+    var seen = -1
+    for b in 0..<4 where (m >> UInt8(b)) & 1 != 0 { seen += 1; if seen == index { return b } }
+    return 0
+}
+/// §5.2: the outputs ONE note of one part leaves on THIS hit, BEFORE `euclideousMainOutMask`. Returns MAIN, ALT, or
+/// (ROBIN/SPREAD) ONE of the MAIN outputs; nil ⇒ inherit (the Router's `pitchBus` -1 convention, so OFF is byte-
+/// identical to the part's own mask). `splitThreshold` is the pitch SPLIT compares against (rank- or lowest-resolved
+/// by the caller, which has the pool/pitches); `spreadPlace` is the note's place in this part's low→high order.
+func euclideousAltGroup(_ a: EuclideousAltParams, mainMask: UInt8?, altMask: UInt8?,
+                        q: Int64, s: Int64, p: Int, h: Int64, lane: Int, leadPartId: Int,
+                        isRestHit: Bool, notePitch: Int, splitThreshold: Int, spreadPlace: Int) -> UInt8? {
+    switch a.mode {
+    case .off:    return mainMask
+    case .hits:   return euclideousAltSwap(q, a.every, a.offset) ? altMask : mainMask
+    case .steps:  return euclideousAltSwap(s, a.every, a.offset) ? altMask : mainMask
+    case .strip:  return (a.strip >> UInt8(((Int(s) % 8) + 8) % 8)) & 1 != 0 ? altMask : mainMask
+    case .passes: return euclideousAltSwap(Int64(p), a.passes, a.passOffset) ? altMask : mainMask
+    case .chance: return euclideousAltChanceRoll(lane: lane, part: leadPartId, h: h) < a.chance ? altMask : mainMask
+    case .rests:  return isRestHit ? altMask : mainMask
+    case .split:  return notePitch > splitThreshold ? altMask : mainMask       // §5.2: ALT if above T, else MAIN
+    case .robin:                                                               // one MAIN output, index q mod count
+        let m = mainMask ?? 0, n = m.nonzeroBitCount
+        return n == 0 ? 0 : UInt8(1 << euclideousNthSetBit(m, Int(((q % Int64(n)) + Int64(n)) % Int64(n))))
+    case .spread:                                                              // this note's place → one MAIN output
+        let m = mainMask ?? 0, n = m.nonzeroBitCount
+        return n == 0 ? 0 : UInt8(1 << euclideousNthSetBit(m, ((spreadPlace % n) + n) % n))
+    }
+}
+/// §4.4 the effective routing after the link: a part that FOLLOWS uses the leader's MAIN mask + ALT routing, and its
+/// `leadPartId` becomes the leader's (so its CHANCE rolls with the leader). The ONE function the Router AND every
+/// display call, so the UI can never disagree with the engine about where a part routes.
+struct EuclideousPartRouting: Equatable {
+    var mainMask: UInt8?
+    var alt: EuclideousAltParams
+    var leadPartId: Int    // 0 riff / 1 notes — the leader's id (a follower adopts the leader's)
+}
+struct EuclideousEffectiveRouting: Equatable { var riff: EuclideousPartRouting; var notes: EuclideousPartRouting }
+func euclideousEffectiveRouting(_ l: EuclidLine) -> EuclideousEffectiveRouting {
+    let rMain = l.riffOutMaskResolved, nMain = l.notesOutMaskResolved
+    let rAlt = l.riffAltResolved, nAlt = l.notesAltResolved
+    switch l.outLink {
+    case .riff:   // the riff leads; the notes follow it (adopt its main + alt), leadPartId 0 for both
+        let lead = EuclideousPartRouting(mainMask: rMain, alt: rAlt, leadPartId: 0)
+        return EuclideousEffectiveRouting(riff: lead, notes: lead)
+    case .notes:  // the notes lead; the riff follows
+        let lead = EuclideousPartRouting(mainMask: nMain, alt: nAlt, leadPartId: 1)
+        return EuclideousEffectiveRouting(riff: lead, notes: lead)
+    case nil:     // no link — each part is its own, leading itself
+        return EuclideousEffectiveRouting(riff: EuclideousPartRouting(mainMask: rMain, alt: rAlt, leadPartId: 0),
+                                          notes: EuclideousPartRouting(mainMask: nMain, alt: nAlt, leadPartId: 1))
+    }
+}
+
+
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
 /// without a live `EuclideousPage` render. Deliberately mirrors the REAL render path's own hit-test exactly
 /// (`euclidPatternInto`+`euclidTiltPattern`+`euclidReadIndex`, the SAME pair/order `Router.runEuclidLine`

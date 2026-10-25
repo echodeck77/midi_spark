@@ -308,6 +308,11 @@ final class Router {
     private var euclideousLegatoPitch = [Int8](repeating: -1, count: 4 * 9)
     private var euclideousLegatoOwnSlot = [Int16](repeating: -1, count: 4 * 9)
     private var euclideousLegatoAllSlot = [Int16](repeating: -1, count: 4 * 9)
+    // ALT ROUTING ferry §6.3: the group OUTPUT a tracked legato note was opened on, so a hit whose group changed
+    // (an ALT switch) does NOT reuse the old voice — the match becomes output-aware and the old voice closes/the new
+    // strikes fresh. -1 ⇒ inherit (matches the `pitchBus` convention). For every lane with ALT OFF a pitch's group is
+    // constant hit-to-hit, so the extra predicate is always true and the match is byte-identical.
+    private var euclideousLegatoBus = [Int8](repeating: -1, count: 4 * 9)
     private var euclideousLegatoCount = [Int](repeating: 0, count: 4)
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
     // immediately") — checked in its OWN unconditional loop (NOT nested inside the per-line dispatch
@@ -738,12 +743,19 @@ final class Router {
     // Optional was nil: the Router falls back to the cell bus, as today), else the concrete A–D mask. A riff pitch
     // gets `riffOutMaskResolved`, a notes pitch `notesOutMaskResolved`; a §4.2 collision slot gets notesOnly.
     private var hitPitchBus = [Int](repeating: -1, count: 9)
+    // ALT ROUTING ferry (2026-10-25): the pending-collision scratch (a notes slot colliding with a riff slot whose
+    // group is SPREAD/SPLIT-LOWEST, resolved in the post-pass). SPREAD's place is counted inline (≤9), no sort buffer.
+    private var hitPendColRiffSlot = [Int](repeating: -1, count: 9)
+    private var hitPendColPitch = [Int](repeating: 0, count: 9)
+    private var hitPendColVel = [UInt8](repeating: 0, count: 9)
+    private var hitPendColGate = [Double](repeating: 0, count: 9)
     private var hitCachedPitches = [Int](repeating: 0, count: 9)
     private var hitCachedVels = [UInt8](repeating: 0, count: 9)
     private var hitCachedGates = [Double](repeating: 0, count: 9)
     private var hitMaskBuf = [Bool](repeating: false, count: 16)
     private var legatoMatched = [Int](repeating: -1, count: 9)
     private var legatoNewPitch = [Int8](repeating: -1, count: 9)
+    private var legatoNewBus = [Int8](repeating: -1, count: 9)   // ALT §6.3: the group each newly-tracked legato pitch opened on
     private var legatoNewOwn = [Int16](repeating: -1, count: 9)
     private var legatoNewAll = [Int16](repeating: -1, count: 9)
     @inline(__always) private func takeScratch<T>(_ store: inout [T], count: Int, filledWith value: T) -> [T] {
@@ -2014,9 +2026,14 @@ final class Router {
                 let ownSlot = Int(euclideousLegatoOwnSlot[base + i]), allSlot = Int(euclideousLegatoAllSlot[base + i])
                 let ownValid = ownSlot >= 0 && ownSlot < voices.count && voices[ownSlot].active && Int(voices[ownSlot].note) == trackedPitch
                 let allValid = allSlot >= 0 && allSlot < voices.count && voices[allSlot].active && Int(voices[allSlot].note) == trackedPitch
+                let trackedBus = Int(euclideousLegatoBus[base + i])
                 var heldAsJ = -1
                 if ownValid || allValid {
-                    for j in 0..<pitchCount where matchedOldIndexForNew[j] < 0 && isLegatoPitch(j) && pitches[j] == trackedPitch { heldAsJ = j; matchedOldIndexForNew[j] = i; break }
+                    // ALT §6.3: an output-aware match — the same pitch on a DIFFERENT group (an ALT switch between two
+                    // hits) is NOT a carry-on; `i` goes unmatched → it closes below and `j` strikes fresh on the new
+                    // output. For ALT OFF the group is constant, so `(busOf(j)) == trackedBus` is always true here.
+                    for j in 0..<pitchCount where matchedOldIndexForNew[j] < 0 && isLegatoPitch(j) && pitches[j] == trackedPitch
+                        && (busOf(j).map(Int.init) ?? -1) == trackedBus { heldAsJ = j; matchedOldIndexForNew[j] = i; break }
                 }
                 if heldAsJ < 0 && (ownValid || allValid) {
                     // FX TAB §4.2: a pitch this hit STRIKES AGAIN (it isn't carried on — its new gate is below 100%, or the hit ratchets) closes at the hit's OWN sample,
@@ -2032,11 +2049,13 @@ final class Router {
 
             var legatoMask: UInt16 = 0
             var newPitch = takeScratch(&legatoNewPitch, count: 9, filledWith: -1), newOwn = takeScratch(&legatoNewOwn, count: 9, filledWith: -1), newAll = takeScratch(&legatoNewAll, count: 9, filledWith: -1)
-            defer { legatoNewPitch = newPitch; legatoNewOwn = newOwn; legatoNewAll = newAll }
+            var newBus = takeScratch(&legatoNewBus, count: 9, filledWith: -1)
+            defer { legatoNewPitch = newPitch; legatoNewOwn = newOwn; legatoNewAll = newAll; legatoNewBus = newBus }
             var tracked = 0
             for j in 0..<pitchCount where isLegatoPitch(j) {
                 legatoMask |= UInt16(1) << UInt16(j)
                 newPitch[tracked] = Int8(clamping: pitches[j])
+                newBus[tracked] = Int8(busOf(j).map(Int.init) ?? -1)   // ALT §6.3: remember the group this voice opened on
                 if matchedOldIndexForNew[j] >= 0 {
                     let i = matchedOldIndexForNew[j]
                     newOwn[tracked] = euclideousLegatoOwnSlot[base + i]; newAll[tracked] = euclideousLegatoAllSlot[base + i]
@@ -2048,7 +2067,7 @@ final class Router {
                 }
                 tracked += 1
             }
-            for k in 0..<tracked { euclideousLegatoPitch[base + k] = newPitch[k]; euclideousLegatoOwnSlot[base + k] = newOwn[k]; euclideousLegatoAllSlot[base + k] = newAll[k] }
+            for k in 0..<tracked { euclideousLegatoPitch[base + k] = newPitch[k]; euclideousLegatoOwnSlot[base + k] = newOwn[k]; euclideousLegatoAllSlot[base + k] = newAll[k]; euclideousLegatoBus[base + k] = newBus[k] }
             euclideousLegatoCount[lineIndex] = tracked
             return legatoMask
         }
@@ -2228,10 +2247,15 @@ final class Router {
             var linesView = p.euclidLines
             func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, velocityAbsolute: Int, rate: Double, busOverride: UInt8?,
                                 // PER-LAYER ROUTING ferry (2026-10-25): the riff layer's and notes layer's own resolved output
-                                // masks. Read ONLY inside the `isEuclideousRow` branch; the call site passes `L.riffOutMaskResolved`
-                                // / `L.notesOutMaskResolved`, which equal `busOverride` (= emitterMask) for every existing lane, so
-                                // this is byte-identical until a user splits them. nil default ⇒ the legacy fork never reads them.
+                                // masks (MAIN). Read ONLY inside the `isEuclideousRow` branch; the call site passes the EFFECTIVE
+                                // MAIN masks (`eff.riff.mainMask` / `eff.notes.mainMask` — a follower adopts the leader's, §4.4),
+                                // which equal `busOverride` (= emitterMask) for every existing lane, so this is byte-identical until
+                                // a user splits them. nil default ⇒ the legacy fork never reads them.
                                 riffBus: UInt8? = nil, notesBus: UInt8? = nil,
+                                // ALT ROUTING ferry (2026-10-25): the effective per-part ALT routing (mode + masks + leadPartId),
+                                // after the §4.4 link. nil ⇒ no ALT (the legacy fork, or a build with every mode OFF never reads
+                                // past `groupOf`'s OFF short-circuit). The group decision rides this, not a second derivation.
+                                alt: EuclideousEffectiveRouting? = nil,
                                 missNoteSel: EuclidNoteSel? = nil, missGate: Double = 0.9, missOctave: Int = 0, missVelocity: Double = 1.0,
                                 patternMiss: Bool = false,
                                 useRiff: Bool = false, riffRotate: Int = 0, riffOctave: Int = 0,
@@ -2860,6 +2884,39 @@ final class Router {
                             var pitchBus = takeScratch(&hitPitchBus, count: 9, filledWith: -1)
                             defer { hitPitchBus = pitchBus }
                             func busOf(_ j: Int) -> UInt8? { j < 9 && pitchBus[j] >= 0 ? UInt8(pitchBus[j]) : nil }
+                            // ── ALT ROUTING ferry (2026-10-25) §5–§6 ──────────────────────────────────────────────
+                            // Hoist the group function's per-hit inputs (only computed when some ALT mode is on, so the
+                            // golden path pays nothing). q = ord, s = localT, p = altPass, h = altH, the rest-hit flag and
+                            // the two SPLIT-by-rank thresholds (SPLIT-LOWEST / SPREAD are set-dependent — `groupOf` defers
+                            // them with -2 to the post-pass).
+                            let altActive = alt.map { $0.riff.alt.mode != .off || $0.notes.alt.mode != .off } ?? false
+                            let altPass = altActive ? euclideousFXNotePass(advOrd: advOrd, every: riffAdvanceEvery, riffDir: riffDir, length: riffLength, stride: riffStride, melodyEveryPass: chains.melody.isSingleLink1, lapsSinceRhythmOrigin: cy) : 0
+                            let altH = altActive ? euclideousLaneChainTick(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: ladderSpanBeats, advanceStep: false).advOrd : 0
+                            let altIsRestHit = ranks[playedStep] < 1
+                            let riffSplitT: Int = { guard let a = alt?.riff.alt, a.mode == .split, !a.splitLowest else { return Int.max }
+                                return riffResolve(rank: a.splitRank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) ?? Int.max }()
+                            let notesSplitT: Int = { guard let a = alt?.notes.alt, a.mode == .split, !a.splitLowest else { return Int.max }
+                                return riffResolve(rank: a.splitRank, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) ?? Int.max }()
+                            // the pending-collision scratch (a notes pitch colliding with a riff slot whose group is SPREAD/
+                            // SPLIT-LOWEST and so unknown until the post-pass); dedicated ivars, no allocation.
+                            var pendColCount = 0
+                            var pendColPitch = takeScratch(&hitPendColPitch, count: 9, filledWith: 0)
+                            var pendColVel = takeScratch(&hitPendColVel, count: 9, filledWith: 0)
+                            var pendColGate = takeScratch(&hitPendColGate, count: 9, filledWith: 0)
+                            var pendColRiff = takeScratch(&hitPendColRiffSlot, count: 9, filledWith: -1)
+                            defer { hitPendColPitch = pendColPitch; hitPendColVel = pendColVel; hitPendColGate = pendColGate; hitPendColRiffSlot = pendColRiff }
+                            /// §5.2 the per-note group output as a `pitchBus` value: -1 inherit, -2 pending (SPREAD/SPLIT-LOWEST,
+                            /// resolved in the post-pass), else the concrete A–D mask. For ALT OFF this is exactly the part MAIN
+                            /// mask, so `addPitch`'s collision decision is made with the same values at the same time → byte-identical.
+                            func groupOf(_ part: EuclideousOutPart, pitch: Int, spreadPlace: Int) -> Int {
+                                guard let alt = alt else { return (part == .riff ? riffBus : notesBus).map(Int.init) ?? -1 }
+                                let pr = part == .riff ? alt.riff : alt.notes
+                                if pr.alt.mode == .spread || (pr.alt.mode == .split && pr.alt.splitLowest) { return -2 }
+                                let m = euclideousAltGroup(pr.alt, mainMask: part == .riff ? riffBus : notesBus, altMask: pr.alt.altMask,
+                                                           q: ord, s: localT, p: altPass, h: altH, lane: lineIndex, leadPartId: pr.leadPartId,
+                                                           isRestHit: altIsRestHit, notePitch: pitch, splitThreshold: part == .riff ? riffSplitT : notesSplitT, spreadPlace: spreadPlace)
+                                return m.map(Int.init) ?? -1
+                            }
                             // NOTES TAB (2026-10-19, §8.3-§8.4): the per-pitch TIE extension — the riff note carries on through every tied rest (`tieExt`), the notes layer's notes only up to
                             // the first tied rest the notes layer strikes on (`tieNotesExt`). `notesPitchMask` bit j marks a pitch the notes layer added (no allocation); `tieOf(j)` is what
                             // every strike below reads.
@@ -2868,12 +2925,21 @@ final class Router {
                             func addPitch(_ v: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false) {
                                 guard pitchCount < 9 else { return }
                                 for j in 0..<pitchCount where pitches[j] == v {
-                                    // ferry §4.2 per-OUTPUT collision: a NOTES pitch colliding with an earlier RIFF pitch still
-                                    // sounds on the outputs the notes route to but the riff does NOT (notesBus & ~riffBus), as a
-                                    // SECOND notes-layer slot. When the two parts route the same — every existing lane, both resolve
-                                    // to emitterMask — notesOnly is 0 and this dedups, exactly today's first-insertion-wins behaviour.
-                                    guard notesLayer, (notesPitchMask >> UInt16(j)) & 1 == 0, let rb = riffBus, let nb = notesBus else { return }
-                                    let notesOnly = Int(nb & ~rb)
+                                    // ALT §6.2 per-OUTPUT collision, now on each note's GROUP output: a NOTES pitch equal to an
+                                    // earlier RIFF pitch still sounds on notesGroup & ~riffGroup as a SECOND notes slot. Equal
+                                    // groups (every ALT-OFF lane, both the part MAIN masks) ⇒ notesOnly 0 ⇒ dedup, byte-identical.
+                                    guard notesLayer, (notesPitchMask >> UInt16(j)) & 1 == 0 else { return }
+                                    let gr = pitchBus[j], gn = groupOf(.notes, pitch: v, spreadPlace: 0)
+                                    if gr == -2 || gn == -2 {
+                                        // a SPREAD / SPLIT-LOWEST side — the groups aren't known until the post-pass, so record the
+                                        // collision (the notes note + the riff slot it hit) and add no slot yet.
+                                        guard pendColCount < 9 else { return }
+                                        pendColPitch[pendColCount] = v; pendColVel[pendColCount] = vel; pendColGate[pendColCount] = g; pendColRiff[pendColCount] = j
+                                        pendColCount += 1
+                                        return
+                                    }
+                                    guard gr >= 0, gn >= 0 else { return }   // either side inherits the cell bus ⇒ dedup (as the per-layer ferry did)
+                                    let notesOnly = gn & ~gr
                                     guard notesOnly != 0, pitchCount < 9 else { return }
                                     pitches[pitchCount] = v; pitchVel[pitchCount] = vel; pitchGate[pitchCount] = g
                                     notesPitchMask |= UInt16(1) << UInt16(pitchCount); pitchBus[pitchCount] = notesOnly
@@ -2881,8 +2947,8 @@ final class Router {
                                     return
                                 }
                                 pitches[pitchCount] = v; pitchVel[pitchCount] = vel; pitchGate[pitchCount] = g
-                                if notesLayer { notesPitchMask |= UInt16(1) << UInt16(pitchCount); pitchBus[pitchCount] = notesBus.map(Int.init) ?? -1 }
-                                else { pitchBus[pitchCount] = riffBus.map(Int.init) ?? -1 }
+                                if notesLayer { notesPitchMask |= UInt16(1) << UInt16(pitchCount); pitchBus[pitchCount] = groupOf(.notes, pitch: v, spreadPlace: 0) }
+                                else { pitchBus[pitchCount] = groupOf(.riff, pitch: v, spreadPlace: 0) }
                                 pitchCount += 1
                             }
                             // RIFF LAYER — unchanged mechanics (walk→rank→LEAP→INVERT→TRANSPOSE→MIRROR/CLIMB→
@@ -3361,6 +3427,44 @@ final class Router {
                                 let shifted = pitches[i] + noteDelta
                                 if shifted >= 0 && shifted <= 127 { pitches[i] = shifted }
                                 pitchVel[i] = UInt8(max(1, min(127, Int(pitchVel[i]) + velDelta)))
+                            }
+                            // ── ALT §5 post-pass (SPREAD / SPLIT-LOWEST only, gated — never runs on the golden/common path) ──
+                            // These two modes need the FINAL per-part pitch set (SPLIT-LOWEST the part's lowest pitch; SPREAD
+                            // the note's low→high place). Resolve every slot `groupOf` deferred (-2) and every pending collision
+                            // (§6.2) into a concrete `pitchBus`, so `busOf(j)` is authoritative for the strikes/reconcile below.
+                            if altActive, let eff = alt,
+                               eff.riff.alt.mode == .spread || eff.notes.alt.mode == .spread
+                               || (eff.riff.alt.mode == .split && eff.riff.alt.splitLowest) || (eff.notes.alt.mode == .split && eff.notes.alt.splitLowest) {
+                                func isNotes(_ i: Int) -> Bool { (notesPitchMask >> UInt16(i)) & 1 != 0 }
+                                func partMin(_ wantNotes: Bool) -> Int { var m = Int.max; for i in 0..<pitchCount where isNotes(i) == wantNotes { m = min(m, pitches[i]) }; return m }
+                                let riffMin = partMin(false), notesMin = partMin(true)
+                                // the note's place among its part's pitches, low→high (stable by slot index on a tie)
+                                func placeOf(pitch v: Int, slot j: Int, wantNotes: Bool) -> Int {
+                                    var pl = 0
+                                    for i in 0..<pitchCount where isNotes(i) == wantNotes && (pitches[i] < v || (pitches[i] == v && i < j)) { pl += 1 }
+                                    return pl
+                                }
+                                func resolve(pitch v: Int, slot j: Int, wantNotes: Bool) -> UInt8? {
+                                    let pr = wantNotes ? eff.notes : eff.riff
+                                    let thr = pr.alt.splitLowest ? (wantNotes ? notesMin : riffMin) : (wantNotes ? notesSplitT : riffSplitT)
+                                    return euclideousAltGroup(pr.alt, mainMask: wantNotes ? notesBus : riffBus, altMask: pr.alt.altMask,
+                                                              q: ord, s: localT, p: altPass, h: altH, lane: lineIndex, leadPartId: pr.leadPartId,
+                                                              isRestHit: altIsRestHit, notePitch: v, splitThreshold: thr, spreadPlace: placeOf(pitch: v, slot: j, wantNotes: wantNotes))
+                                }
+                                for j in 0..<pitchCount where pitchBus[j] == -2 { pitchBus[j] = resolve(pitch: pitches[j], slot: j, wantNotes: isNotes(j)).map(Int.init) ?? -1 }
+                                // §6.2 pending collisions: the riff slot's group is concrete now; the notes twin sounds on gn & ~gr.
+                                for k in 0..<pendColCount where pitchCount < 9 {
+                                    let v = pendColPitch[k]
+                                    var gr = -1
+                                    for i in 0..<pitchCount where pitches[i] == v && !isNotes(i) { gr = pitchBus[i]; break }
+                                    guard let gnM = resolve(pitch: v, slot: 9, wantNotes: true) else { continue }   // §11 flag 3: the twin takes a notes-part place
+                                    let gn = Int(gnM)
+                                    let notesOnly = gr >= 0 ? (gn & ~gr) : gn
+                                    guard notesOnly != 0, pitchCount < 9 else { continue }
+                                    pitches[pitchCount] = v; pitchVel[pitchCount] = pendColVel[k]; pitchGate[pitchCount] = pendColGate[k]
+                                    notesPitchMask |= UInt16(1) << UInt16(pitchCount); pitchBus[pitchCount] = notesOnly
+                                    pitchCount += 1
+                                }
                             }
                             // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): the below-100%/REPEAT-cache gate is
                             // now `gate * nextHitGapBeats` (the gap to the lane's OWN next real pattern hit),
@@ -4177,11 +4281,14 @@ final class Router {
                 // reading `GridUI.swift`'s `-3...3` control before deciding this) — the tighter range is applied
                 // right here instead, gated on the SAME `isEuclideousRow` this per-row loop already computed.
                 let euclideousOct = isEuclideousRow ? max(-2, min(2, L.octaveResolved)) : L.octaveResolved
+                // ALT ferry §4.4: resolve the link once — a follower's MAIN mask + ALT routing become the leader's.
+                // Value types only (no heap), so this is allocation-free on the render thread.
+                let eff = euclideousEffectiveRouting(L)
                 runEuclidLine(lineIndex: lineIndex, pulses: rhythmRoll?.pulses ?? L.pulses, steps: rhythmRoll?.steps ?? L.steps, rotate: rhythmRoll?.rotate ?? L.rotate, dir: L.directionResolved,
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: euclideousOct, velocity: L.velocityResolved,
                               velocityAbsolute: L.velocityAbsoluteResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats, busOverride: L.emitterMask,
-                              riffBus: L.riffOutMaskResolved, notesBus: L.notesOutMaskResolved,
+                              riffBus: eff.riff.mainMask, notesBus: eff.notes.mainMask, alt: eff,
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
                               patternMiss: L.patternMissResolved,
                               useRiff: L.useRiffResolved, riffRotate: riffRoll?.riffRotate ?? L.riffRotateResolved, riffOctave: L.riffOctaveResolved,

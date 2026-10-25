@@ -7,6 +7,85 @@ import XCTest
 
 final class DerivationsTests: XCTestCase {
 
+    // MARK: ALT ROUTING ferry (2026-10-25) §5 — the group function (test 3)
+    private func altP(_ mode: EuclideousAltMode, every: Int = 1, offset: Int = 0, strip: UInt8 = 0b1111_0000,
+                      passes: Int = 1, passOffset: Int = 0, chance: Int = 50, splitLowest: Bool = false, splitRank: Int = 0,
+                      altMask: UInt8 = 0b0010) -> EuclideousAltParams {
+        EuclideousAltParams(mode: mode, every: every, offset: offset, strip: strip, passes: passes, passOffset: passOffset,
+                            chance: chance, splitLowest: splitLowest, splitRank: splitRank, altMask: altMask)
+    }
+    /// "M" if the note leaves on MAIN, "A" on ALT, else "·" (ROBIN/SPREAD letters A–D for their chosen output).
+    private func g(_ p: EuclideousAltParams, main: UInt8 = 0b0001, q: Int64 = 0, s: Int64 = 0, pass: Int = 0, h: Int64 = 0,
+                   lane: Int = 0, lead: Int = 0, rest: Bool = false, pitch: Int = 60, splitT: Int = 0, place: Int = 0) -> String {
+        let m = euclideousAltGroup(p, mainMask: main, altMask: p.altMask, q: q, s: s, p: pass, h: h, lane: lane, leadPartId: lead,
+                                   isRestHit: rest, notePitch: pitch, splitThreshold: splitT, spreadPlace: place)
+        switch m { case 0b0001: return "M"; case 0b0010: return "A"; default: break }
+        if let m, m != 0 { return ["A", "B", "C", "D"][m.trailingZeroBitCount] }   // ROBIN/SPREAD single output
+        return "·"   // nowhere
+    }
+    /// ROBIN/SPREAD decode to the output LETTER (A–D), since their outputs are MAIN bits, not the M/ALT pair.
+    private func gL(_ p: EuclideousAltParams, main: UInt8, q: Int64 = 0, place: Int = 0) -> String {
+        guard let m = euclideousAltGroup(p, mainMask: main, altMask: p.altMask, q: q, s: 0, p: 0, h: 0, lane: 0, leadPartId: 0,
+                                         isRestHit: false, notePitch: 60, splitThreshold: 0, spreadPlace: place), m != 0 else { return "·" }
+        return ["A", "B", "C", "D"][m.trailingZeroBitCount]
+    }
+    func testAltGroupFunctionMatchesTheFerrysTable() {
+        // the example lane's 5 pattern hits/pass are at step indices 0,2,4,5,7 (s), their pattern-hit ordinal q counts all 5.
+        let hitS: [Int64] = [0, 2, 4, 5, 7]
+        func seq(_ p: EuclideousAltParams, pass: Int, by: (Int, Int64) -> String) -> String {
+            (0..<5).map { by($0, hitS[$0]) }.joined()   // the five hits of one pass
+        }
+        // HITS 1: M A M A M | A M A M A (swap on q, every 1)
+        XCTAssertEqual((0..<10).map { g(altP(.hits), q: Int64($0)) }.joined(), "MAMAMAMAMA")
+        // HITS 2, OFFSET 1: M A A M M | A A M M A
+        XCTAssertEqual((0..<10).map { g(altP(.hits, every: 2, offset: 1), q: Int64($0)) }.joined(), "MAAMMAAMMA")
+        // STEPS 2: M A M M A every pass (swap on s). pass 2's steps are +8, same result.
+        XCTAssertEqual(hitS.map { g(altP(.steps, every: 2), s: $0) }.joined(), "MAMMA")
+        XCTAssertEqual(hitS.map { g(altP(.steps, every: 2), s: $0 + 8) }.joined(), "MAMMA")
+        // STRIP, default cells (5–8 ALT): M M A A A every pass (strip bit s mod 8)
+        XCTAssertEqual(hitS.map { g(altP(.strip), s: $0) }.joined(), "MMAAA")
+        // PASSES 1: a whole pass to one group, alternating: M | A | M
+        XCTAssertEqual([0, 1, 2].map { g(altP(.passes), pass: $0) }.joined(), "MAM")
+        // RESTS (notes): the example lane's hits are play,rest,rest,play,rest within a pass → M A A M A
+        let restByHit = [false, true, true, false, true]
+        XCTAssertEqual((0..<5).map { g(altP(.rests), rest: restByHit[$0]) }.joined(), "MAAMA")
+        // SPLIT by rank/threshold: ALT only above T. Below/equal → MAIN.
+        XCTAssertEqual(g(altP(.split), pitch: 55, splitT: 55), "M", "equal to T is MAIN")
+        XCTAssertEqual(g(altP(.split), pitch: 56, splitT: 55), "A", "above T is ALT")
+        // ROBIN over MAIN A,B,C: A B C A B | C A B C A (index q mod 3)
+        XCTAssertEqual((0..<10).map { gL(altP(.robin), main: 0b0111, q: Int64($0)) }.joined(), "ABCABCABCA")
+        // ROBIN over MAIN A,C: A C A C A | C A C A C
+        XCTAssertEqual((0..<10).map { gL(altP(.robin), main: 0b0101, q: Int64($0)) }.joined(), "ACACACACAC")
+        // SPREAD over MAIN A,B,C: note at place j → the j-th MAIN output (A,B,C,A,…)
+        XCTAssertEqual((0..<4).map { gL(altP(.spread), main: 0b0111, place: $0) }.joined(), "ABCA")
+        // CHANCE is replay-exact and ~uniform: over 10,000 h the ALT share is 48–52% at CHANCE 50, 8–12% at 10, 88–92% at 90.
+        func altShare(_ chance: Int) -> Double {
+            var a = 0; for h in 0..<10_000 where euclideousAltChanceRoll(lane: 2, part: 0, h: Int64(h)) < chance { a += 1 }
+            return Double(a) / 100.0
+        }
+        XCTAssertEqual(altShare(50), 50, accuracy: 2); XCTAssertEqual(altShare(10), 10, accuracy: 2); XCTAssertEqual(altShare(90), 90, accuracy: 2)
+        // replay-exact: the same (lane, part, h) always rolls the same
+        XCTAssertEqual(euclideousAltChanceRoll(lane: 1, part: 0, h: 7), euclideousAltChanceRoll(lane: 1, part: 0, h: 7))
+        XCTAssertNotEqual(euclideousAltChanceRoll(lane: 1, part: 0, h: 7), euclideousAltChanceRoll(lane: 1, part: 1, h: 7), "riff and notes roll apart")
+        _ = seq   // (helper kept for readability of the pass structure above)
+    }
+    // §4.4 the effective routing: a follower adopts the leader's MAIN + ALT; leadPartId becomes the leader's.
+    func testAltEffectiveRoutingResolvesTheLink() {
+        var l = EuclidLine(pulses: 3, steps: 8); l.riffOutMask = 0b0001; l.notesOutMask = 0b0010
+        l.setAltMode(.riff, .hits)   // riff ALT on (seeds ALT); notes own
+        // no link: each part its own, leading itself
+        var e = euclideousEffectiveRouting(l)
+        XCTAssertEqual(e.riff.mainMask, 0b0001); XCTAssertEqual(e.notes.mainMask, 0b0010)
+        XCTAssertEqual(e.riff.leadPartId, 0); XCTAssertEqual(e.notes.leadPartId, 1)
+        XCTAssertEqual(e.riff.alt.mode, .hits); XCTAssertEqual(e.notes.alt.mode, .off)
+        // riff leads (BOTH from the riff): the notes adopt the riff's MAIN + ALT + leadPartId 0; the notes' OWN stay stored.
+        l.setOutLink(apply: true, source: .riff)
+        e = euclideousEffectiveRouting(l)
+        XCTAssertEqual(e.notes.mainMask, 0b0001, "the notes follow the riff's MAIN (A)")
+        XCTAssertEqual(e.notes.alt.mode, .hits, "and the riff's ALT"); XCTAssertEqual(e.notes.leadPartId, 0)
+        XCTAssertEqual(l.notesOutMask, 0b0010, "the notes' own mask is untouched and returns when the link clears")
+    }
+
     // MARK: PER-LAYER EMITTER ROUTING ferry (2026-10-25) §2 — the OUT column
 
     // §2.3 / test 6: the four (routed, main-out) combinations give three looks; "not routed, main out off" == "not routed".
