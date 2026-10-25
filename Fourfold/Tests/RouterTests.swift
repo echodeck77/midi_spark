@@ -6174,6 +6174,103 @@ final class RouterTests: XCTestCase {
         if !captured.isEmpty { XCTFail("CAPTURE:\n" + captured) }
     }
 
+    // MARK: PER-LAYER ROUTING ferry (2026-10-25) — §4 tests 3, 4, 5. The riff and the notes layer of ONE lane
+    // route to DIFFERENT outputs. Cable map: bus A→cable 1, B→2, C→3, D→4, plus the All cable 0 (emitOneBus).
+
+    /// Every note-on of `cable`, as (sample, note), sorted — the raw per-cable on stream.
+    private func onsOnCable(_ e: RecordingEmitter, _ cable: UInt8) -> [(Int64, UInt8)] {
+        e.ons.filter { $0.cable == cable }.map { ($0.sample, $0.note) }.sorted { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }
+    }
+
+    // §4 test 3: riff → A, notes → B. With WHEN = RESTS the notes play ONLY on the example lane's rest hits
+    // (positions 1, 2, 4) and the riff ONLY on its play hits (0, 3) — a disjoint split — so every note-on on
+    // A (cable 1) is a riff note and every one on B (cable 2) is a notes-layer note, and neither cable carries
+    // the other's hits. §4.3: each sounds, and ends, on its own output (assertNothingLeftSounding covers all cables).
+    func testPerLayerRiffToANotesToBLandOnSeparateOutputs() {
+        var l = notesLine(.chord, when: 0b10)            // notes on REST hits only
+        l.riffOutMask = 0b0001; l.notesOutMask = 0b0010  // riff → A, notes → B
+        let e = fxRun(fxBox([l], ranks: notesExRanks), beats: 2 * 4.0 + 0.5, pool: notesExPool)
+        assertNothingLeftSounding(e)
+        let onA = notesByHit(e, passes: 2, cable: 1), onB = notesByHit(e, passes: 2, cable: 2)
+        for p in 0..<2 {
+            for pos in [0, 3] {   // the two play hits: riff on A, silent on B
+                XCTAssertFalse(onA[p * 5 + pos].isEmpty, "pass \(p) play-hit \(pos): the riff must sound on A")
+                XCTAssertTrue(onB[p * 5 + pos].isEmpty, "pass \(p) play-hit \(pos): nothing routes to B here")
+            }
+            for pos in [1, 2, 4] {   // the three rest hits: notes on B, silent on A
+                XCTAssertFalse(onB[p * 5 + pos].isEmpty, "pass \(p) rest-hit \(pos): the notes layer must sound on B")
+                XCTAssertTrue(onA[p * 5 + pos].isEmpty, "pass \(p) rest-hit \(pos): nothing routes to A here")
+            }
+        }
+        XCTAssertTrue(onsOnCable(e, 3).isEmpty && onsOnCable(e, 4).isEmpty, "neither part routes to C or D")
+    }
+
+    // §4 test 4: the collision drop becomes PER-OUTPUT. The riff and the notes-layer chord collide on a pitch at
+    // a play hit (WHEN = both). Rendered twice: notes → A (today — the colliding pitch's notes copy is dropped,
+    // riff wins) and notes → A + B. The output on A is BYTE-IDENTICAL between the two (adding B changes nothing on
+    // A); B is silent in the first render and carries the notes (incl. the formerly-dropped collision pitch) in
+    // the second. That is exactly §4.2: "drop only on riffOutMask ∩ notesOutMask; the pitch still sounds on the rest."
+    func testPerLayerCollisionDropsOnlyOnTheSharedOutput() {
+        func render(_ notesMask: UInt8) -> RecordingEmitter {
+            var l = notesLine(.chord, when: 0b11)        // notes on every hit → collides with the riff on play hits
+            l.riffOutMask = 0b0001; l.notesOutMask = notesMask
+            let e = fxRun(fxBox([l], ranks: notesExRanks), beats: 2 * 4.0 + 0.5, pool: notesExPool)
+            assertNothingLeftSounding(e); return e
+        }
+        let both = render(0b0001)          // riff A, notes A  (today's single-mask behaviour)
+        let split = render(0b0011)         // riff A, notes A+B
+        // A is unchanged: routing the notes ALSO to B does not add, drop, or move a single note-on on A.
+        XCTAssertEqual(onsOnCable(both, 1).map { "\($0.0):\($0.1)" }, onsOnCable(split, 1).map { "\($0.0):\($0.1)" },
+                       "output on A must be identical whether or not the notes also go to B")
+        XCTAssertTrue(onsOnCable(both, 2).isEmpty, "notes → A only: nothing on B")
+        XCTAssertFalse(onsOnCable(split, 2).isEmpty, "notes → A+B: the notes layer (incl. the dropped collision pitch) sounds on B")
+        // The split render really does collide: at some play hit a pitch sounds on BOTH A (riff) and B (notes copy).
+        let aByHit = notesByHit(split, passes: 2, cable: 1), bByHit = notesByHit(split, passes: 2, cable: 2)
+        let collided = (0..<10).contains { h in [0, 3].contains(h % 5) && !Set(aByHit[h]).isDisjoint(with: Set(bByHit[h])) }
+        XCTAssertTrue(collided, "a riff pitch and the notes' copy of it must sound together — the riff's on A, the copy on B")
+    }
+
+    // §4 test 5 (mid-note stress, mirrors testEuclideousStuckNoteStressRapidLitOctaveRiffToggling): toggle both
+    // output masks AND the main outs through one Router across many renders, over a lane running ties, ratchets,
+    // ROLL/RUN, GATE 100 and transport restarts. Nothing may be left sounding on ANY output.
+    func testPerLayerRoutingMidNoteToggleLeavesNothingSounding() {
+        let ways: [EuclidNotesPlayAs] = [.chord, .roll, .run]
+        let onRests: [EuclidRiffOnRest] = [.skip, .tie, .repeatLast]
+        func lineFor(_ tick: Int) -> EuclidLine {
+            var l = notesLine(ways[tick % ways.count], when: 0b11, onRest: onRests[tick % onRests.count], gate: tick % 2 == 0 ? 1.0 : 0.5)
+            l.riffOutMask = UInt8((tick % 4) + 1)          // A, B, C, D cycling
+            l.notesOutMask = UInt8(((tick / 2) % 4) + 1)   // a different phase so the two masks disagree often
+            return l
+        }
+        let fx = fxCells([(row: 0, col: 0, v: 3), (row: 0, col: 5, v: 2)])   // RATCH on two riff columns
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: notesExRanks)
+        func boxWith(_ l: EuclidLine, _ mainOut: UInt8) -> SnapshotBox {
+            c.paramsA.euclidLines = [l]
+            var sc = SceneState.empty(); sc.stepRate = .r1_8
+            sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+            st.euclideousNoteSource = .midi; st.euclideousFX = fx; st.euclideousMainOutMask = mainOut
+            return SnapshotBuilder.build(from: st)
+        }
+        let e = RecordingEmitter()
+        let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for tick in 0..<120 {
+            if tick % 23 == 22 {   // a transport restart: stop window, then back to beat 0
+                router.process(box: boxWith(lineFor(tick), 0x0F), pool: chord(notesExPool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                ts += Double(frames); beat = 0.0
+            }
+            let mainOut: UInt8 = [0x0F, 0x0F, 0x03, 0x0C, 0x05][tick % 5]   // the main outs move under the lane masks too
+            router.process(box: boxWith(lineFor(tick), mainOut), pool: chord(notesExPool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: boxWith(lineFor(0), 0x0F), pool: chord(notesExPool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
     // MARK: NOTES TAB engine (ferry 2026-10-19) — §13 tests 2, 6, 7, 8, 9, 13, 14 (the pure ones live in NotesTabTests)
     // The example lane (above): its hits, in order within a pass, are on steps 1, 3, 5, 6, 8 = ticks 0, 2, 4, 5, 7. The hits on 1 and 6 play the riff (A♭3 = 56, C4 = 60); the hits on
     // 3, 5 and 8 (hit indices 1, 2, 4) are rests. Lit in this order: rank 8 (C4 60), rank 5 (G3 55), rank 6 (A♭3 56). 120 BPM / 48 kHz: one beat = 24 000 samples, one step = 12 000.
