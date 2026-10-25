@@ -86,6 +86,30 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(l.notesOutMask, 0b0010, "the notes' own mask is untouched and returns when the link clears")
     }
 
+    // §1.2/§1.4/§1.5/§10.1 (test 8): the ALT button's three looks, the dots, LINK, and the spoken value.
+    func testAltButtonLooksDotsLinkAndVoice() {
+        XCTAssertEqual(euclideousAltButtonLook(modeOn: false, panelOpen: false), .off)
+        XCTAssertEqual(euclideousAltButtonLook(modeOn: true, panelOpen: false), .modeOn)
+        XCTAssertEqual(euclideousAltButtonLook(modeOn: false, panelOpen: true), .open)
+        XCTAssertEqual(euclideousAltButtonLook(modeOn: true, panelOpen: true), .open, "panel open wins over the mode")
+        // dots only while the mode USES ALT, on the ALT-mask outputs; OFF/ROBIN/SPREAD none
+        XCTAssertTrue(euclideousAltDotShows(mode: .hits, altMask: 0b0010, output: 1))
+        XCTAssertFalse(euclideousAltDotShows(mode: .hits, altMask: 0b0010, output: 0))
+        XCTAssertFalse(euclideousAltDotShows(mode: .off, altMask: 0b0010, output: 1))
+        XCTAssertFalse(euclideousAltDotShows(mode: .robin, altMask: 0b1111, output: 1), "ROBIN shows no dots")
+        XCTAssertFalse(euclideousAltDotShows(mode: .spread, altMask: 0b1111, output: 1), "SPREAD shows no dots")
+        // LINK: a part follows when the OTHER leads
+        XCTAssertTrue(euclideousPartFollows(.notes, outLink: .riff)); XCTAssertFalse(euclideousPartFollows(.riff, outLink: .riff))
+        XCTAssertTrue(euclideousPartFollows(.riff, outLink: .notes)); XCTAssertFalse(euclideousPartFollows(.riff, outLink: nil))
+        // §10.1 spoken value
+        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.off)), "off")
+        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.hits, every: 2, offset: 1)), "swap every 2 hits, offset 1")
+        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.hits, every: 1, offset: 0)), "swap every 1 hit")
+        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.chance, chance: 50)), "chance of alt 50 percent")
+        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.split, splitLowest: true)), "split above the lowest note")
+        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.split, splitLowest: false, splitRank: 4), splitName: "G3"), "split above G3")
+    }
+
     // MARK: PER-LAYER EMITTER ROUTING ferry (2026-10-25) §2 — the OUT column
 
     // §2.3 / test 6: the four (routed, main-out) combinations give three looks; "not routed, main out off" == "not routed".

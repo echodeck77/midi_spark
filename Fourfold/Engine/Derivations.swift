@@ -2606,6 +2606,36 @@ func euclideousEffectiveRouting(_ l: EuclidLine) -> EuclideousEffectiveRouting {
                                           notes: EuclideousPartRouting(mainMask: nMain, alt: nAlt, leadPartId: 1))
     }
 }
+/// §1.2 the ALT button's three looks (test 8): OFF + panel closed, a mode on + panel closed, or panel open (any mode).
+/// The view resolves the colours (lane20/lane100 need the accent); this enum is the pure decision.
+enum EuclideousAltButtonLook: Equatable { case off, modeOn, open }
+func euclideousAltButtonLook(modeOn: Bool, panelOpen: Bool) -> EuclideousAltButtonLook { panelOpen ? .open : (modeOn ? .modeOn : .off) }
+/// §1.4 whether a column circle for `output` carries an ALT dot: only while the effective mode USES the ALT group
+/// (HITS/STEPS/STRIP/PASSES/CHANCE/RESTS/SPLIT) and the effective ALT mask contains that output. OFF/ROBIN/SPREAD: none.
+func euclideousAltDotShows(mode: EuclideousAltMode, altMask: UInt8, output: Int) -> Bool { mode.usesAlt && (altMask >> UInt8(output)) & 1 != 0 }
+/// §1.5 / §4.4: does this part FOLLOW the other (so its column reads "LINK" and shows the leader's settings)?
+func euclideousPartFollows(_ part: EuclideousOutPart, outLink: EuclideousOutLinkEnd?) -> Bool {
+    guard let l = outLink else { return false }
+    return part == .riff ? l == .notes : l == .riff
+}
+/// §10.1 the ALT button's VoiceOver value: "off", or the mode and its settings ("swap every 2 hits, offset 1";
+/// "split above the lowest note" / "split above G3"; "chance of alt 50 percent"). `splitName` resolves the rank → a
+/// spoken note (nil ⇒ a bare number). Pure (tested with the other VoiceOver strings).
+func euclideousAltButtonVoiceValue(_ a: EuclideousAltParams, splitName: String? = nil) -> String {
+    func plural(_ n: Int, _ one: String) -> String { "\(n) \(one)\(n == 1 ? "" : "s")" }
+    switch a.mode {
+    case .off:    return "off"
+    case .hits:   return "swap every \(plural(a.every, "hit"))" + (a.offset != 0 ? ", offset \(a.offset)" : "")
+    case .steps:  return "swap every \(plural(a.every, "step"))" + (a.offset != 0 ? ", offset \(a.offset)" : "")
+    case .strip:  return "main or alt on each step"
+    case .passes: return "swap every \(plural(a.passes, "pass"))" + (a.passOffset != 0 ? ", offset \(a.passOffset)" : "")
+    case .chance: return "chance of alt \(a.chance) percent"
+    case .rests:  return "hits on riff rests go to alt"
+    case .split:  return "split above " + (a.splitLowest ? "the lowest note" : (splitName ?? "rank \(a.splitRank)"))
+    case .robin:  return "each hit to the next main output"
+    case .spread: return "chord notes shared across the main outputs"
+    }
+}
 
 
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable

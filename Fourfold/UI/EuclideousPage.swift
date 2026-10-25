@@ -897,6 +897,10 @@ struct EuclideousPage: View {
     @State private var lanesRollCache = EuclideousLanesRollCache()
     @State private var pulseSettleTick = 0   // PULSE §9.1: see `pulseLive`
     @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step
+    // ALT ROUTING ferry §2.4: the ONE open ALT panel (lane + source part), or nil. Not saved, not an undo step; mutually
+    // exclusive with the PLAY AS picker (§2.6). One at a time, like every other page pop-up.
+    @State private var altPanelOpen: AltPanelKey? = nil
+    struct AltPanelKey: Equatable { var lane: Int; var part: EuclideousOutPart }
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
     // opens, changed only by value drags), the NOTE cell touched last (the strip's preview), the double-tap memory, and whether this touch has opened its undo step.
@@ -3898,14 +3902,25 @@ struct EuclideousPage: View {
     /// page's standing one-timeline rule; it ticks only while `pulseLive`. No new polling, no engine path (§2.4/§2.6).
     private func outColumn(_ idx: Int, _ line: EuclidLine, _ accent: Color, part: EuclideousOutPart, height: CGFloat) -> some View {
         let lay = euclideousOutColumnLayout(height: height)
-        let mask = part == .riff ? line.riffOutMaskDisplay : line.notesOutMaskDisplay
+        // ALT §1.5 / §4.4: a part that FOLLOWS shows the LEADER's effective settings; its circles/dots/ALT button read
+        // the leader's, and every tap edits the LEADER's stored fields (`editPart`).
+        let eff = euclideousEffectiveRouting(line)
+        let pr = part == .riff ? eff.riff : eff.notes
+        let follows = euclideousPartFollows(part, outLink: line.outLink)
+        let editPart: EuclideousOutPart = follows ? (line.outLink == .riff ? .riff : .notes) : part
+        // OUT-MASK-NIL (2026-10-25): a part with no stored mask (nil) DISPLAYS as A–D — the engine inherits the cell bus
+        // and plays all four — so the column shows the effective MAIN mask with nil ⇒ 0b1111 (the `…Display` semantics).
+        let mask = pr.mainMask ?? 0b1111
+        let altMode = pr.alt.mode, altMask = pr.alt.altMask
         let names = ["A", "B", "C", "D"]
         let ring = outputRingTargets()   // §6.2: a pulse/trace may ring this tab's own X circle
+        let panelOpen = altPanelOpen == AltPanelKey(lane: idx, part: part)
         return ZStack(alignment: .topLeading) {
             Rectangle().fill(Color(hex: 0x262930))
                 .frame(width: lay.rule.width, height: lay.rule.height).offset(x: lay.rule.minX, y: lay.rule.minY)
-            Text("OUT").font(.system(size: 9, weight: .bold, design: .monospaced)).kerning(0.14 * 9)
-                .foregroundColor(Color(hex: 0x8A909A))
+            // §1.5: "LINK" (lane100) while following, else "OUT" (#8A909A).
+            Text(follows ? "LINK" : "OUT").font(.system(size: 9, weight: .bold, design: .monospaced)).kerning(0.14 * 9)
+                .foregroundColor(follows ? lane100(accent) : Color(hex: 0x8A909A))
                 .frame(width: lay.caption.width, height: lay.caption.height, alignment: .center)
                 .offset(x: lay.caption.minX, y: lay.caption.minY)
                 .accessibilityHidden(true)
@@ -3918,18 +3933,47 @@ struct EuclideousPage: View {
                         let routed = (mask >> UInt8(b)) & 1 != 0
                         let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
                         let ringed = ring?.output == b && ring?.targets.contains(part == .riff ? .riffCircle(lane: idx) : .notesCircle(lane: idx)) == true
-                        outCircle(idx, part: part, output: b, name: names[b], accent: accent,
+                        outCircle(idx, part: editPart, output: b, name: names[b], accent: accent,
                                   state: euclideousOutCircleState(routed: routed, mainOn: mainOn), flare: flares[b],
-                                  cue: ringed ? ring : nil)
+                                  cue: ringed ? ring : nil, dot: euclideousAltDotShows(mode: altMode, altMask: altMask, output: b), dotDashed: !mainOn)
                             .frame(width: lay.targets[b].width, height: lay.targets[b].height)
                             .offset(x: lay.targets[b].minX, y: lay.targets[b].minY)
                     }
                 }
             }
+            // §1.2 the ALT button under D, centred in the 32×32 ALT target.
+            altButton(idx, part: part, accent: accent, look: euclideousAltButtonLook(modeOn: altMode != .off, panelOpen: panelOpen), modeOn: altMode != .off)
+                .frame(width: lay.alt.width, height: lay.alt.height).offset(x: lay.alt.minX, y: lay.alt.minY)
         }
         .frame(width: EuclideousOutColumnLayout.width, height: height, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(part == .riff ? "Riff outputs" : "Notes outputs")
+    }
+    /// §1.2 the ALT button: 30 × 28, radius 7, "ALT" 10 pt heavy 0.06 em, three looks (`euclideousAltButtonLook`). A tap
+    /// opens the panel for this (lane, part), or closes it if already open (§1.3, not an undo step; closes the picker §2.6).
+    private func altButton(_ idx: Int, part: EuclideousOutPart, accent: Color, look: EuclideousAltButtonLook, modeOn: Bool) -> some View {
+        let fill: Color = { switch look { case .off: return Color(hex: 0x2A2D34); case .modeOn: return lane20(accent); case .open: return Color(hex: 0xDFE3EA) } }()
+        let text: Color = { switch look { case .off: return Color(hex: 0x8A909A); case .modeOn: return Color(hex: 0xF2F4F7); case .open: return Color(hex: 0x0D0F14) } }()
+        let key = AltPanelKey(lane: idx, part: part)
+        return Text("ALT").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.06 * 10)
+            .foregroundColor(text)
+            .frame(width: 30, height: 28)
+            .background(RoundedRectangle(cornerRadius: 7).fill(fill))
+            .overlay(look == .modeOn ? RoundedRectangle(cornerRadius: 7).strokeBorder(lane100(accent), lineWidth: 1) : nil)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)   // centre the 30×28 button in its 32×32 target
+            .contentShape(Rectangle())
+            .onTapGesture { notesPickerOpen.remove(idx); altPanelOpen = (altPanelOpen == key) ? nil : key }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Alternate routing")
+            .accessibilityValue(altButtonAccessibilityValue(idx, part: part))
+            .accessibilityHint("Double-tap to open")
+            .accessibilityAddTraits(look == .open ? [.isButton, .isSelected] : .isButton)
+    }
+    /// §10.1: the ALT button's spoken value — the effective part's mode + settings (so a follower reads the leader's).
+    private func altButtonAccessibilityValue(_ idx: Int, part: EuclideousOutPart) -> String {
+        guard idx < lines.count else { return "off" }
+        let pr = part == .riff ? euclideousEffectiveRouting(lines[idx]).riff : euclideousEffectiveRouting(lines[idx]).notes
+        return euclideousAltButtonVoiceValue(pr.alt)
     }
     /// §2.4: for each output A–D, this lane's `part` layer struck a note that leaves on it — f = the flash envelope of
     /// that strike's own-layer velocity, `now` seconds after onset, scaled by P. 0 when the part doesn't route there,
@@ -3948,7 +3992,8 @@ struct EuclideousPage: View {
     /// funnel (`toggleOutput`). §2.4 flare: the ring thickens 2→3 pt over a 6 pt lane40 glow and the disc washes to lane20.
     private func outCircle(_ idx: Int, part: EuclideousOutPart, output b: Int, name: String, accent: Color,
                            state: EuclideousOutCircleState, flare f: Double,
-                           cue: (output: Int, held: Bool, token: Int, targets: [EuclideousOutputRingTarget])?) -> some View {
+                           cue: (output: Int, held: Bool, token: Int, targets: [EuclideousOutputRingTarget])?,
+                           dot: Bool = false, dotDashed: Bool = false) -> some View {
         let discFill = Color(hex: state == .routedMainOff ? 0x1B1D23 : 0x2A2D34)   // §2.3: routed+main-off disc is hollow, the card fill shows
         let ringColor: Color = state == .unrouted ? Color(hex: 0x3A3E47) : lane100(accent)
         let letterColor: Color = state == .routed ? Color(hex: 0xF2F4F7) : (state == .routedMainOff ? lane100(accent) : Color(hex: 0x8A909A))
@@ -3959,6 +4004,18 @@ struct EuclideousPage: View {
             if f > 0 { Circle().inset(by: 1).fill(lane20(accent)).opacity(f) }                   // §2.4 disc wash
             Circle().inset(by: 1).stroke(ringColor, style: dashed ? StrokeStyle(lineWidth: 2, lineCap: .butt, dash: [3, 3]) : StrokeStyle(lineWidth: 2 + f))
             Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(letterColor)
+            // §1.4 ALT dot: a 7 pt lane100 disc with a 2 pt card-fill ring (11 pt overall) on the circle's ring at its
+            // bottom-right (135° clockwise from 12 o'clock); dashed (a hollow lane100 ring) when its main out is off.
+            if dot {
+                Group {
+                    if dotDashed {
+                        Circle().inset(by: 1).stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, lineCap: .butt, dash: [3, 3])).frame(width: 11, height: 11)
+                    } else {
+                        Circle().fill(lane100(accent)).frame(width: 7, height: 7).overlay(Circle().stroke(Color(hex: 0x1B1D23), lineWidth: 2).frame(width: 9, height: 9))
+                    }
+                }
+                .offset(x: 14 * 0.7071, y: 14 * 0.7071)   // 135° on the radius-14 ring, from the circle's centre
+            }
         }
         .frame(width: 28, height: 28)
         // §6.2: the header's pulse/trace ring sits 2 pt #DFE3EA with its inner edge sp4 outside the 28 pt circle.
