@@ -163,7 +163,12 @@ Euclideous has no receiver/door graph, no cables beyond a flat A–D toggle, no 
   RIFF and its NOTES route INDEPENDENTLY: `EuclidLine.riffOutMask`/`notesOutMask` (both Optional, nil ⇒ inherit
   `emitterMask`, which is kept = their union for forward-compat); the toggles are the A–D OUT column down the
   right of the RIFF and NOTES tabs. The Router picks the per-pitch mask by `notesPitchMask` at its one gate;
-  collisions drop only on the shared outputs. `AUExtension/` (8x8 State) keeps the single `emitterMask`.**
+  collisions drop only on the shared outputs. `AUExtension/` (8x8 State) keeps the single `emitterMask`.** **ALT
+  ROUTING ferry (2026-10-25, Fourfold): each part also has a SECOND group + a MODE (`EuclidLine.riffAlt`/`notesAlt`,
+  10 modes OFF/HITS/STEPS/STRIP/PASSES/CHANCE/RESTS/SPLIT/ROBIN/SPREAD) that decides per hit whether a note leaves
+  on MAIN or ALT — `euclideousAltGroup` (the one pure decision, Router + displays call it), `euclideousEffectiveRouting`
+  resolves the `outLink` (BOTH makes one part follow the other). Every lane starts OFF ⇒ byte-identical. The ALT
+  button + panel sit on the RIFF/NOTES tabs (`altPanel`). See the status log.**
 
 ## Architecture invariants (violating these = bug, regardless of tests passing)
 These bind BOTH products — Euclideous's row is composed, rendered, and emitted through exactly

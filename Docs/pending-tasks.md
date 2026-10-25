@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — ALT ROUTING: a second emitter group per part + ten modes to switch to it (2026-10-25; `Docs/euclideous-status-log.md`)
+- [ ] DEVICE: see the new "ALT routing" lines in `Docs/euclideous-device-verification-debt.md` — chiefly the hocket/split SOUND in AUM (HITS across two synths, SPLIT LOWEST a bass/upper split), LINK reading as "following", and the §0.3 fixes (INV label, the column rule).
+- [ ] DECIDE (Paul): §7.1/§7.2 — the exact per-hit MAIN↔ALT flash + per-hit live bar are NOT built (they show group membership). To make them exact I'd add a per-hit riff/notes GROUP byte to the NOTE VIEW telemetry (no golden impact) and read it in the flares/bars — say if you want that follow-up.
+- [ ] DECIDE (Paul): MASK-REPEAT and REPEAT-HOLD replay on the riff MAIN group, not the per-hit ALT switch (a frozen repeat). Say if a held/mask repeat should re-evaluate the ALT mode instead.
+- [ ] (noted) Fourfold-only; `AUExtension/` untouched. Every lane starts OFF, so sessions/presets are byte-identical (golden confirms).
+
 ## ★ FOURFOLD — PER-LAYER EMITTER ROUTING: a lane's RIFF and NOTES route to separate outputs (2026-10-25; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the six new "Per-layer routing" lines in `Docs/euclideous-device-verification-debt.md` — chiefly the real goal (riff → A / notes → B on two synths in AUM) and the circles' legibility/flare in all four lane colours. Nothing here has run on a device yet.
 - [ ] (noted) Fourfold-only — `AUExtension/` (8x8 State, frozen) is untouched; its lane still has one shared emitter mask.

@@ -10615,6 +10615,43 @@ project has been building this whole stretch.
     ring VoiceOver + targets), NotesTab/PageLayout (narrowed frames), ClarityPass/PageLayout/Pulse (MIX padH + OUT
     row gone). Full suite green; golden identical; Release alloc audit zero. Device-owed: see the debt file's §11.
 - **▶ FOURFOLD — OUT-MASK-NIL-1 fixed: a lane with no stored output mask now SHOWS as routed to A-D (2026-10-25, branch `fix/nil-out-mask-display`; display only — golden identical, 1,262 unit tests + the 23 tap tests green).** Found by reading the landed per-layer-routing ferry: a lane with no `emitterMask`, `riffOutMask` or `notesOutMask` (all 20 factory presets, any older session) sounds on all four outputs (the Router passes nil and inherits the cell's open bus), but the header rings, the settings sheet's mini rings and the new RIFF / NOTES OUT circles all read nil as `?? 0` = nothing lit, and the first circle tap started from 0, collapsing "all four" to just the tapped output. Fix: `EuclidLine.riffOutMaskDisplay` / `notesOutMaskDisplay` (non-Optional, nil ⇒ 0x0F) used by `euclideousLaneMasks`, the output-lit / ring-target functions, `outColumn`, its strike flare, the pulse-velocity read, `toggleOutput` and `emitterMaskForEncode`; the Optional `…Resolved` pair is untouched, so the Router still sees nil and the sound is byte-identical. Tests: the stale "nil ⇒ routed nowhere" assertion flipped; EffectiveParams (display vs resolved, tap on a no-mask lane turns off ONE output and keeps the other part A-D); RouterTests (a no-mask lane really sounds on cables 1-4 and the page shows exactly that); a tap test (load FIVE AGAINST EIGHT, riff circles read on, tap A, only A goes off). Left alone: the old unused `mixOutRow` (still `emitterMask ?? 0`; nothing mounts it). Device-owed: load a factory preset and see all four header rings lit and each lane's RIFF / NOTES circles A-D on.
+- **ALT ROUTING ferry (2026-10-25, Fourfold only) — a second emitter group per part + ten modes to switch to it.**
+  Built on the emitter-circles ferry in the spec's own 8 steps (0 fixes · 1 golden · 2 model · 3 engine · 4 column ·
+  5 panel · 6 displays/header · 7 VoiceOver/docs), committing green each step; the golden stayed byte-identical the
+  whole way (`793a8fe5…`) and the Release `--alloc` audit stayed ZERO — the whole ferry is inert until a mode leaves OFF.
+  - **§0.3 fixes to the emitter-circles build (own first commit), from Paul's AUM screenshot:** the RIFF direction
+    row's 4th button read a truncating "Invert melody" → back to **"INV"** in the chevrons' own 13pt type (the
+    2026-10-22 "Invert melody" rename is superseded; VoiceOver stays "Invert the riff"); `euclideousOutColumnLayout`
+    rebuilt to §1.1 so the column FILLS (caption + four 32×40 targets + a 32×32 ALT target, no slack under D) and the
+    1pt #262930 rule is drawn; the WALK readout was REPORTED as intentionally reduced to " · n NEVER PLAY" on
+    2026-10-22 (lane 1 has 0 never-play ⇒ empty, not a regression); MIX was REPORTED governed by the CLARITY PASS (no
+    "MIX tidy" ferry landed — its sp16 gaps + bottom readouts are intended), left unchanged.
+  - **Model (§4):** `EuclidLine.riffAlt`/`notesAlt` (`EuclideousAltRouting`: altMask, mode `EuclideousAltMode`,
+    every/offset/strip/passes/passOffset/chance/split) + `outLink` (`EuclideousOutLinkEnd?`), all additive-Optional,
+    decode-tolerant (unknown mode → OFF). `resolved(forRiff:)` clamps + fills the part-aware SPLIT default (rank 4
+    riff / LOWEST notes). Writers `setAltMode` (with the §4.5 seed A→B→C→D→A), `toggleAltOutput`, `editAlt`,
+    `setOutLink`. No custom encode (the Mirror round-trip guard covers it). Travels free (snapshot/undo/preset).
+  - **Engine (§5–6):** `euclideousAltGroup` decides each note's outputs (10 modes); 8 are set-independent and resolve
+    INLINE in `addPitch` (byte-identical when OFF), SPREAD + SPLIT-LOWEST defer to a GATED post-pass that resolves the
+    -2 slots and the §6.2 per-output collisions on the final per-part set. `euclideousEffectiveRouting` resolves the
+    §4.4 link (a follower adopts the leader's MAIN + ALT). §6.3 legato is output-aware (a group switch closes the old
+    voice, strikes the new) via a per-entry `euclideousLegatoBus` — no stuck notes. New CHANCE salt
+    `0x414C54524F555445`. The RIFF on-rest REPEAT flows through the group (RESTS routes it to ALT); MASK-REPEAT /
+    REPEAT-HOLD stay frozen on riff MAIN (judgment call, reported).
+  - **UI (§1–3, §7–8, §10):** the OUT column gains the ALT button (3 looks) + per-output ALT dots + a "LINK" caption
+    while following (showing/editing the leader); the panel (`altPanel` + the pure `euclideousAltPanelLayout`) over the
+    tab content holds APPLY RIFF|BOTH, the MAIN/ALT groups, the 5×2 mode selector (RESTS/SPREAD greyed on the riff)
+    and the per-mode settings row; the header rings/pulse/trace/flare count the effective ALT outputs while the mode
+    uses alt (`euclideousLaneMasks`/`ringFlare` now link- and ALT-aware); full VoiceOver.
+  - **Reported (per §14):** §7.1/§7.2 — the EXACT per-hit MAIN↔ALT flash + per-hit live bar are device-owed/a
+    follow-up (the hit feed carries no per-hit group/indices, and the pitch/set modes can't be re-mirrored UI-side —
+    §7.1's escape clause); the flare/bars show group membership. Everything else (the audio routing) is exact and
+    tested. §11 flags resolved with the recommended reading (REPEAT-HOLD frozen, collision strike-order under SPREAD
+    = post-pass order, the collision twin takes a notes-part place, multi-bit legato tracks like a multi-bit mask).
+  - **Tests:** model (test 2 + §4.5 seed), the group table (test 3), effective-routing/link, routing (test 4),
+    per-output collision under SPLIT-LOWEST exercising the post-pass + pending path (test 5), the mode-cycling
+    mid-note stress (test 7), the column/panel layouts + looks (tests 8, 9), the §8.1 header mask. Golden identical,
+    alloc zero, full suite green; device-owed in `Docs/euclideous-device-verification-debt.md`.
 - **Older entries (2026-09-01 and before) archived to `Docs/status-log-archive.md`** — moved out
   2026-09-26 to keep this file inside the context char limit; nothing was deleted, just relocated.
   Read that file for build history predating the entries above; `Docs/pending-tasks.md` stays the

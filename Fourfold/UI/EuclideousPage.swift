@@ -3962,7 +3962,8 @@ struct EuclideousPage: View {
         }
         .frame(width: EuclideousOutColumnLayout.width, height: height, alignment: .topLeading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(part == .riff ? "Riff outputs" : "Notes outputs")
+        // §10.2: while following, the group reads "Riff outputs, following the notes" (or the reverse).
+        .accessibilityLabel((part == .riff ? "Riff outputs" : "Notes outputs") + (follows ? ", following the \(part == .riff ? "notes" : "riff")" : ""))
     }
     /// §1.2 the ALT button: 30 × 28, radius 7, "ALT" 10 pt heavy 0.06 em, three looks (`euclideousAltButtonLook`). A tap
     /// opens the panel for this (lane, part), or closes it if already open (§1.3, not an undo step; closes the picker §2.6).
@@ -4224,7 +4225,7 @@ struct EuclideousPage: View {
         .contentShape(Rectangle())
         .onTapGesture { edit(idx) { $0.toggleOutput(part, bit: 1 << UInt8(b)) } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(part == .riff ? "Riff" : "Notes") to output \(name), \(state == .unrouted ? "off" : "on")\(state == .routedMainOff ? ", main out \(name) is off" : "")")
+        .accessibilityLabel("\(part == .riff ? "Riff" : "Notes") to output \(name), \(state == .unrouted ? "off" : "on")\(state == .routedMainOff ? ", main out \(name) is off" : "")\(dot ? ", also in alt" : "")")
         .accessibilityHint("Double-tap to route or unroute")
         .accessibilityAddTraits(.isButton)
         .ringToggleTrait()
