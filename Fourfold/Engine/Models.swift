@@ -271,12 +271,17 @@ struct EuclidLine: Codable, Equatable {
     // today). So an existing lane with only `emitterMask` resolves BOTH parts to it, byte-identical.
     var riffOutMaskResolved: UInt8? { riffOutMask ?? emitterMask }
     var notesOutMaskResolved: UInt8? { notesOutMask ?? emitterMask }
+    // What the PAGE shows and edits: a lane with no stored mask at all (every factory preset, an older session) is
+    // not "routed nowhere" — the Router inherits the cell's open bus and it sounds on A–D — so the page reads nil as
+    // all four. The `…Resolved` pair above stays Optional on purpose: the Router must keep seeing nil there.
+    var riffOutMaskDisplay: UInt8 { (riffOutMaskResolved ?? 0x0F) & 0x0F }
+    var notesOutMaskDisplay: UInt8 { (notesOutMaskResolved ?? 0x0F) & 0x0F }
     // ferry §3.3: what the legacy `emitterMask` is ENCODED as — the union of the two parts, so an older build sends
     // both parts everywhere either went. An UNTOUCHED lane (neither part set) writes `emitterMask` verbatim (incl.
     // nil = inherit), so an existing document re-saved is byte-identical.
     var emitterMaskForEncode: UInt8? {
         if riffOutMask == nil, notesOutMask == nil { return emitterMask }
-        return (riffOutMaskResolved ?? 0) | (notesOutMaskResolved ?? 0)
+        return riffOutMaskDisplay | notesOutMaskDisplay
     }
     // ferry §2.5/§3.4: a circle tap on the RIFF/NOTES tab toggles one output bit of one part. It PINS BOTH parts to
     // their resolved value first (so the UNtapped part stops inheriting `emitterMask` and can't be dragged along when
@@ -284,7 +289,7 @@ struct EuclidLine: Codable, Equatable {
     // (`emitterMaskForEncode`, now that both are explicit) so the synthesized encoder persists the §3.3 forward-compat
     // value with no fragile hand-written `encode(to:)`. A part routed nowhere sounds nowhere, as a lane does today.
     mutating func toggleOutput(_ part: EuclideousOutPart, bit: UInt8) {
-        var riff = riffOutMaskResolved ?? 0, notes = notesOutMaskResolved ?? 0
+        var riff = riffOutMaskDisplay, notes = notesOutMaskDisplay
         if part == .riff { riff ^= (bit & 0x0F) } else { notes ^= (bit & 0x0F) }
         riffOutMask = riff & 0x0F
         notesOutMask = notes & 0x0F

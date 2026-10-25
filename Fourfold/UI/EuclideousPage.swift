@@ -2031,8 +2031,8 @@ struct EuclideousPage: View {
             guard lane < lines.count, let s = pulseFeed.latest(lane: lane, where: { $0.onsetAt <= now }) else { return 0 }
             let l = lines[lane]
             var vel = 0
-            if l.riffOnResolved, ((l.riffOutMaskResolved ?? 0) >> UInt8(b)) & 1 != 0 { vel = max(vel, Int(s.riffVel)) }
-            if l.notesOnResolved, ((l.notesOutMaskResolved ?? 0) >> UInt8(b)) & 1 != 0 { vel = max(vel, Int(s.notesVel)) }
+            if l.riffOnResolved, (l.riffOutMaskDisplay >> UInt8(b)) & 1 != 0 { vel = max(vel, Int(s.riffVel)) }
+            if l.notesOnResolved, (l.notesOutMaskDisplay >> UInt8(b)) & 1 != 0 { vel = max(vel, Int(s.notesVel)) }
             guard vel > 0 else { return 0 }
             return euclideousPulseEnvelopes(velocity: vel, seconds: now - s.onsetAt, scale: p).f
         }
@@ -3898,7 +3898,7 @@ struct EuclideousPage: View {
     /// page's standing one-timeline rule; it ticks only while `pulseLive`. No new polling, no engine path (§2.4/§2.6).
     private func outColumn(_ idx: Int, _ line: EuclidLine, _ accent: Color, part: EuclideousOutPart, height: CGFloat) -> some View {
         let lay = euclideousOutColumnLayout(height: height)
-        let mask = (part == .riff ? line.riffOutMaskResolved : line.notesOutMaskResolved) ?? 0
+        let mask = part == .riff ? line.riffOutMaskDisplay : line.notesOutMaskDisplay
         let names = ["A", "B", "C", "D"]
         let ring = outputRingTargets()   // §6.2: a pulse/trace may ring this tab's own X circle
         return ZStack(alignment: .topLeading) {
@@ -3936,7 +3936,7 @@ struct EuclideousPage: View {
     /// the main out is off, this layer didn't strike, or PULSE is off. Mirrors `ringFlare` but uses ONE layer's velocity.
     private func outColumnFlares(_ idx: Int, part: EuclideousOutPart, now: Double) -> [Double] {
         let p = euclideousPulseScale(level: pulseLevel)
-        let mask = (part == .riff ? (idx < lines.count ? lines[idx].riffOutMaskResolved : nil) : (idx < lines.count ? lines[idx].notesOutMaskResolved : nil)) ?? 0
+        let mask: UInt8 = idx < lines.count ? (part == .riff ? lines[idx].riffOutMaskDisplay : lines[idx].notesOutMaskDisplay) : 0
         guard p > 0, let s = pulseFeed.latest(lane: idx, where: { $0.onsetAt <= now }) else { return [0, 0, 0, 0] }
         let vel = part == .riff ? Int(s.riffVel) : Int(s.notesVel)
         guard vel > 0 else { return [0, 0, 0, 0] }

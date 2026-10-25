@@ -2274,10 +2274,11 @@ final class DerivationsTests: XCTestCase {
     }
     func testFourfoldLaneMasksResolveBothPartsFromEmitterMaskForAnUntouchedLane() {
         // PER-LAYER ROUTING ferry §6.1: an untouched lane inherits emitterMask in both parts; with the notes layer on
-        // by default, its lit mask is emitterMask. nil emitterMask ⇒ routed nowhere. (Padded to 4.)
+        // by default, its lit mask is emitterMask. nil emitterMask ⇒ the Router inherits the cell's open bus, so the
+        // lane sounds on A-D and the page lights all four (OUT-MASK-NIL-1, 2026-10-25; it used to light none). (Padded to 4.)
         var a = EuclidLine(); a.emitterMask = 0b0101
         var b = EuclidLine(); b.emitterMask = nil
-        XCTAssertEqual(euclideousLaneMasks([a, b]), [0b0101, 0, 0, 0])
+        XCTAssertEqual(euclideousLaneMasks([a, b]), [0b0101, 0b1111, 0, 0])
     }
     func testFourfoldKeySpokenNameSpellsOutEveryScale() {
         XCTAssertEqual(euclideousKeySpokenName(root: 0, type: .naturalMinor), "C minor")

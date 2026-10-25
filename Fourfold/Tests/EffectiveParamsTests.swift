@@ -169,6 +169,31 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(l.riffOutMask, 0b0000, "riff routed nowhere"); XCTAssertEqual(l.emitterMask, 0b0001, "still carries notes' A")
     }
 
+    // OUT-MASK-NIL-1 (2026-10-25): a lane with NO stored mask (every factory preset, an older session) sounds on A-D —
+    // the Router sees nil and inherits the cell's open bus — so the page must show it as all four, and the first circle
+    // tap must turn ONE output off, not collapse "all four" to just the tapped one. The Optional `…Resolved` pair stays
+    // nil for the Router; only the `…Display` pair reads nil as A-D.
+    func testALaneWithNoStoredMaskDisplaysAsAllFourAndStaysNilForTheRouter() {
+        let l = EuclidLine(pulses: 3, steps: 8)
+        XCTAssertNil(l.riffOutMaskResolved); XCTAssertNil(l.notesOutMaskResolved)
+        XCTAssertEqual(l.riffOutMaskDisplay, 0b1111); XCTAssertEqual(l.notesOutMaskDisplay, 0b1111)
+        XCTAssertEqual(euclideousLaneMasks([l]), [0b1111, 0, 0, 0])
+        var m = EuclidLine(pulses: 3, steps: 8); m.emitterMask = 0b0010
+        XCTAssertEqual(m.riffOutMaskDisplay, 0b0010, "a stored mask is shown as stored")
+    }
+    func testTappingACircleOnALaneWithNoStoredMaskTurnsOffOnlyThatOutput() throws {
+        var l = EuclidLine(pulses: 3, steps: 8)                       // no mask anywhere, as a factory preset leaves it
+        l.toggleOutput(.riff, bit: 0b0001)                            // tap riff A
+        XCTAssertEqual(l.riffOutMask, 0b1110, "riff was on A-D; A is now off")
+        XCTAssertEqual(l.notesOutMask, 0b1111, "notes keeps A-D — it is not dragged along")
+        XCTAssertEqual(l.emitterMask, 0b1111, "the legacy field is the union")
+        let back = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(l))
+        XCTAssertEqual(back.riffOutMask, 0b1110); XCTAssertEqual(back.notesOutMask, 0b1111)
+        // A hand-made document with only ONE part stored: the other part still inherits A-D in the legacy union.
+        var half = EuclidLine(pulses: 3, steps: 8); half.riffOutMask = 0b0001
+        XCTAssertEqual(half.emitterMaskForEncode, 0b1111)
+    }
+
     // RIFF ADVANCE (Paul 2026-10-06): useRiff/riffRotate/riffOctave are the newest three EuclidLine fields — same
     // CR-8 contract as rate/emitterMask above, a doc saved before they existed must still decode without throwing.
     func testEuclidLineDecodesWithoutRiffAdvanceKeys() throws {

@@ -6230,6 +6230,17 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(onsOnCable(e2, 3).isEmpty, "the riff sounds on C"); XCTAssertTrue(onsOnCable(e2, 1).isEmpty, "A is silent — the riff did not leak to the union")
     }
 
+    // OUT-MASK-NIL-1 (2026-10-25): the premise of the page showing a no-mask lane as A-D. A lane with NO stored output
+    // mask (the shape of every factory preset) really does sound on all four cables, riff and notes alike.
+    func testALaneWithNoStoredOutputMaskSoundsOnAllFourOutputs() {
+        let l = notesExLine(riffOn: true)
+        XCTAssertNil(l.emitterMask); XCTAssertNil(l.riffOutMask); XCTAssertNil(l.notesOutMask)
+        let e = fxRun(fxBox([l], ranks: notesExRanks), beats: 2 * 4.0 + 0.5, pool: notesExPool)
+        assertNothingLeftSounding(e)
+        for cable in UInt8(1)...4 { XCTAssertFalse(onsOnCable(e, cable).isEmpty, "a no-mask lane sounds on cable \(cable)") }
+        XCTAssertEqual(euclideousLaneMasks([l]), [0b1111, 0, 0, 0], "and the page shows exactly that")
+    }
+
     // §4 test 4: the collision drop becomes PER-OUTPUT. The riff and the notes-layer chord collide on a pitch at
     // a play hit (WHEN = both). Rendered twice: notes → A (today — the colliding pitch's notes copy is dropped,
     // riff wins) and notes → A + B. The output on A is BYTE-IDENTICAL between the two (adding B changes nothing on

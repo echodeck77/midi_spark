@@ -3795,8 +3795,8 @@ func euclideousLaneMasks(_ lines: [EuclidLine]) -> [UInt8] {
     (0..<4).map { i -> UInt8 in
         guard i < lines.count else { return 0 }
         let l = lines[i]
-        let riff: UInt8 = l.riffOnResolved ? (l.riffOutMaskResolved ?? 0) : 0
-        let notes: UInt8 = l.notesOnResolved ? (l.notesOutMaskResolved ?? 0) : 0
+        let riff: UInt8 = l.riffOnResolved ? l.riffOutMaskDisplay : 0
+        let notes: UInt8 = l.notesOnResolved ? l.notesOutMaskDisplay : 0
         return riff | notes
     }
 }
@@ -3834,8 +3834,8 @@ func euclideousOutputRingAccessibilityLabel(output: Int, lines: [EuclidLine], ma
     var feeders: [String] = []
     for lane in 0..<4 where lane < lines.count {
         let l = lines[lane]
-        let riff = l.riffOnResolved && ((l.riffOutMaskResolved ?? 0) >> UInt8(output)) & 1 != 0
-        let notes = l.notesOnResolved && ((l.notesOutMaskResolved ?? 0) >> UInt8(output)) & 1 != 0
+        let riff = l.riffOnResolved && (l.riffOutMaskDisplay >> UInt8(output)) & 1 != 0
+        let notes = l.notesOnResolved && (l.notesOutMaskDisplay >> UInt8(output)) & 1 != 0
         guard riff || notes else { continue }
         feeders.append("lane \(lane + 1) " + (riff && notes ? "riff and notes" : (riff ? "riff" : "notes")))
     }
@@ -3877,8 +3877,8 @@ func euclideousOutputRingTargets(output: Int, lines: [EuclidLine], laneTabs: [Eu
     for lane in 0..<4 {
         guard lane < lines.count else { continue }
         let l = lines[lane]
-        let riffRoutes = l.riffOnResolved && ((l.riffOutMaskResolved ?? 0) >> UInt8(output)) & 1 != 0
-        let notesRoutes = l.notesOnResolved && ((l.notesOutMaskResolved ?? 0) >> UInt8(output)) & 1 != 0
+        let riffRoutes = l.riffOnResolved && (l.riffOutMaskDisplay >> UInt8(output)) & 1 != 0
+        let notesRoutes = l.notesOnResolved && (l.notesOutMaskDisplay >> UInt8(output)) & 1 != 0
         guard riffRoutes || notesRoutes else { continue }   // §6.1 "counts for X"
         let tab = lane < laneTabs.count ? laneTabs[lane] : .rhythm
         if tab == .riff && riffRoutes { out.append(.riffCircle(lane: lane)) }

@@ -103,6 +103,20 @@ final class FourfoldTapTests: XCTestCase {
         need(app.el("Riff to output B, off"), "lane 1's riff OUT B, off after a second tap")
     }
 
+    /// OUT-MASK-NIL-1: a factory preset stores no output mask and sounds on A-D, so its circles must read ON, and the first
+    /// tap must switch off just that one output.
+    func testAFactoryPresetShowsItsOutputCirclesLitAndATapSwitchesOffOnlyThatOne() {
+        let app = XCUIApplication.fresh()
+        app.buttons["Presets"].tap()
+        need(app.buttons["FIVE AGAINST EIGHT, factory preset"], "a factory preset row").tap()
+        gone(app.staticTexts["PRESETS"], "the preset browser after choosing a preset")
+        app.els(prefix: "Riff, ").element(boundBy: 0).tap()
+        for o in ["A", "B", "C", "D"] { need(app.el("Riff to output \(o), on"), "a preset lane's riff OUT \(o) reads on") }
+        app.el("Riff to output A, on").tap()
+        need(app.el("Riff to output A, off"), "riff OUT A, off after one tap")
+        for o in ["B", "C", "D"] { need(app.el("Riff to output \(o), on"), "riff OUT \(o) still on after A was tapped") }
+    }
+
     func testTheNoteSourceHoldAndLatchControlsSelect() {
         let app = XCUIApplication.fresh()
         XCTAssertTrue(app.buttons["Key"].isSelected, "KEY is the default note source")
