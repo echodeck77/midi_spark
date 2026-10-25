@@ -172,7 +172,7 @@ struct FourfoldRootView: View {
                                                    guard sets != euclideousChordSets else { return }   // UNDO-6
                                                    euclideousRecordUndo(coalesceKey: gestureKey("euclideousChordSet\(idx)"))   // UNDO-2: a run lasts only while the edits keep arriving
                                                    euclideousChordSets = sets
-                                                   au?.editDocument(coalesceKey: "euclideousChordSet\(idx)") { $0.setEuclideousChordSet(idx, sets[idx]) }
+                                                   au?.editDocument { $0.setEuclideousChordSet(idx, sets[idx]) }
                                                    publish()
                                                },
                                                onSwitchChordSet: { idx in
@@ -195,7 +195,7 @@ struct FourfoldRootView: View {
                                                        euclideousRecordUndo(coalesceKey: gestureKey("euclideous.\(laneBits(euclideousLines, lines))")); recorded = true
                                                    }
                                                    setEuclideousLines(lines)
-                                                   au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
+                                                   au?.editDocument { $0.euclideousLines = lines }
                                                    if recorded { euclideousUndo.dropOpenRunIfUnchanged(current: euclideousSnapshot()) }   // UNDO-6: a drag that wandered off and came back is not a step
                                                    publish()
                                                    },
@@ -235,7 +235,7 @@ struct FourfoldRootView: View {
                                                    guard lines != euclideousLines else { return }
                                                    if m.checkpoint.take(changed: true) && !euclideousLockChangeIsLockOnly(old: euclideousLines, new: lines, locks: euclideousLocks) { euclideousRecordUndo(coalesceKey: nil) }
                                                    setEuclideousLines(lines)
-                                                   au?.editDocument(coalesceKey: "euclideous") { $0.euclideousLines = lines }
+                                                   au?.editDocument { $0.euclideousLines = lines }
                                                    publish()
                                                    },
                                                    onEditRiffs: { mutate in
@@ -244,7 +244,7 @@ struct FourfoldRootView: View {
                                                    guard riffs != euclideousRiffs else { return }
                                                    euclideousRecordUndo(coalesceKey: gestureKey("euclideousRiffs"))
                                                    euclideousRiffs = riffs
-                                                   au?.editDocument(coalesceKey: "euclideousRiffs") { $0.riffs = riffs }
+                                                   au?.editDocument { $0.riffs = riffs }
                                                    publish()
                                                },
                                                onSetActiveRiff: { v in
@@ -260,7 +260,7 @@ struct FourfoldRootView: View {
                                                    guard s != euclideousLanesSeq else { return }
                                                    euclideousRecordUndo(coalesceKey: gestureKey("euclideousLanesSeq"))
                                                    euclideousLanesSeq = s
-                                                   au?.editDocument(coalesceKey: "euclideousLanesSeq") {
+                                                   au?.editDocument {
                                                        $0.euclideousLanesSeqOn = s.on; $0.euclideousLanesSeqRate = s.rate
                                                        $0.euclideousLanesSeqLen = s.len; $0.euclideousLanesSeqCells = s.cells
                                                    }
@@ -276,7 +276,7 @@ struct FourfoldRootView: View {
                                                    guard f != euclideousFX else { return }
                                                    if m.checkpoint.take(changed: true) { euclideousRecordUndo(coalesceKey: nil) }
                                                    euclideousFX = f
-                                                   au?.editDocument(coalesceKey: "euclideousFX") { $0.euclideousFX = f }
+                                                   au?.editDocument { $0.euclideousFX = f }
                                                    publish()
                                                },
                                                onEditRiffsSeq: { mutate in
@@ -285,7 +285,7 @@ struct FourfoldRootView: View {
                                                    guard s != euclideousRiffsSeq else { return }
                                                    euclideousRecordUndo(coalesceKey: gestureKey("euclideousRiffsSeq"))
                                                    euclideousRiffsSeq = s
-                                                   au?.editDocument(coalesceKey: "euclideousRiffsSeq") {
+                                                   au?.editDocument {
                                                        $0.euclideousRiffsSeqOn = s.on; $0.euclideousRiffsSeqRate = s.rate
                                                        $0.euclideousRiffsSeqLen = s.len; $0.euclideousRiffsSeqCells = s.cells
                                                    }
@@ -426,6 +426,37 @@ struct FourfoldRootView: View {
         // FREE-RUN: KEEP PLAYING runs Fourfold on its own clock while the host is stopped — gated off after the host stopped following a play (8x8's `buildHostHalted`: resumes when the host starts again).
         au?.setFreeRunEnabled(!internalTransport && euclideousHostStopBehavior == .keepPlaying && !hostHalted)   // the standalone app's transport is authoritative: STOP is silent
     }
+    /// RESTART CHAINS stabilisation (see the long note in `slowPoll`): every lane whose chains are not yet pinned gets them pinned, in the page, the document and (for a locked lane) its lock state — an invisible stabilisation of what the lane
+    /// already sounded like, not an edit, never an undo step. The 4 Hz poll runs it; so does a preset load (UNDO-6: a preset used to arrive un-pinned for ~250 ms, which made "this load changed nothing" impossible to tell).
+    @discardableResult
+    func pinUnpinnedRestartChains(beatsPerBar: Double) -> Bool {
+        guard beatsPerBar > 0, let au else { return false }
+        var migratedAny = false
+        var lines = euclideousLines
+        for i in lines.indices where !lines[i].usesRestartChains {
+            let line = lines[i]
+            let n = max(2, min(16, line.steps))
+            let sub = line.rate?.beats ?? 0.5   // 1/8 note — the same machine-wide fallback every other reader of a possibly-nil `rate` ultimately resolves to
+            let migrated = migrateRestartChains(line: line, lane: i, legacyOn: euclideousLanesSeq.on, legacyRate: euclideousLanesSeq.rate,
+                                                legacyLen: euclideousLanesSeq.len, legacyCells: euclideousLanesSeq.cells,
+                                                sub: sub, n: n, dir: line.directionResolved, barBeats: beatsPerBar)
+            euclideousPinRestartChains(&lines[i], .from(migrated.rhythm), .from(migrated.melody))
+            // LANE LOCK: the pin is a main-thread stabilisation, not a user edit — if the lane is locked with its chains still unpinned in L, L is pinned the same way, so a pin is never "deviation"
+            if euclideousLocks[i].isLocked, var st = euclideousLocks[i].state, !(st.restartRhythmBars != nil || st.restartMelodyPasses != nil) {
+                st.restartRhythmBars = lines[i].restartRhythmBars; st.restartMelodyPasses = lines[i].restartMelodyPasses
+                var locks = euclideousLocks; locks[i].state = st
+                setEuclideousLocks(locks, persist: true)
+            }
+            migratedAny = true
+        }
+        if migratedAny {
+            setEuclideousLines(lines)
+            au.editDocument { $0.euclideousLines = lines }
+            publish()
+        }
+        return migratedAny
+    }
+
     /// HOST TRANSPORT (8x8's `buildTransportEdge`): STOP halts free-run, START resumes it.
     func transportEdge(_ playing: Bool) {
         if playing { if hostHalted { hostHalted = false; publish() } }
@@ -490,7 +521,11 @@ struct FourfoldRootView: View {
         refreshTiming()
         currentPreset = au?.uiCurrentPreset() ?? ""
         showPresets = false
+        pinUnpinnedRestartChains(beatsPerBar: au?.kernelDiagnostics().beatsPerBar ?? 0)   // a preset arrives un-pinned; pin it NOW, not at the next poll (UNDO-6)
         publish()   // the AU swapped the document; the staging scene still holds the OLD chain until it is composed again
+        // UNDO-6: loading what is already there changes nothing — no empty step, and the redo branch it cleared comes back
+        var now = euclideousSnapshot(); now.presetPlay = euclideousUndo.past.last?.presetPlay
+        euclideousUndo.dropLastStepIfUnchanged(current: now)
     }
     func deletePreset(_ name: String) {
         au?.deletePreset(named: name)
@@ -795,31 +830,7 @@ struct FourfoldRootView: View {
         // invisible stabilisation of what the lane already sounded like, not a user-authored change) —
         // mirrors how `euclideousApplyLaneGridOp`'s own first-touch pin works, just triggered by TIME
         // rather than by a touch.
-        if nd.beatsPerBar > 0 {
-            var migratedAny = false
-            var lines = euclideousLines
-            for i in lines.indices where !lines[i].usesRestartChains {
-                let line = lines[i]
-                let n = max(2, min(16, line.steps))
-                let sub = line.rate?.beats ?? 0.5   // 1/8 note — the same machine-wide fallback every other reader of a possibly-nil `rate` ultimately resolves to
-                let migrated = migrateRestartChains(line: line, lane: i, legacyOn: euclideousLanesSeq.on, legacyRate: euclideousLanesSeq.rate,
-                                                    legacyLen: euclideousLanesSeq.len, legacyCells: euclideousLanesSeq.cells,
-                                                    sub: sub, n: n, dir: line.directionResolved, barBeats: nd.beatsPerBar)
-                euclideousPinRestartChains(&lines[i], .from(migrated.rhythm), .from(migrated.melody))
-                // LANE LOCK: the pin is a main-thread stabilisation, not a user edit — if the lane is locked with its chains still unpinned in L, L is pinned the same way, so a pin is never "deviation"
-                if euclideousLocks[i].isLocked, var st = euclideousLocks[i].state, !(st.restartRhythmBars != nil || st.restartMelodyPasses != nil) {
-                    st.restartRhythmBars = lines[i].restartRhythmBars; st.restartMelodyPasses = lines[i].restartMelodyPasses
-                    var locks = euclideousLocks; locks[i].state = st
-                    setEuclideousLocks(locks, persist: true)
-                }
-                migratedAny = true
-            }
-            if migratedAny {
-                setEuclideousLines(lines)
-                au.editDocument { $0.euclideousLines = lines }
-                publish()   // `euclideousResynced`'s own publish (above) already ran this tick — this block lands after it, so it republishes directly
-            }
-        }
+        if nd.beatsPerBar > 0 { pinUnpinnedRestartChains(beatsPerBar: nd.beatsPerBar) }
         // RANDOM MODE ferry §6.3/§6.7: the render thread already switched exactly on time (its own per-tick
         // sample-accurate check, Router.swift); this main-thread commit is pure bookkeeping — write the
         // landed roll into the document so it's the live truth going forward, and clear its slot so Router

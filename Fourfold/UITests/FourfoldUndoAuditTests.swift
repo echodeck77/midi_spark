@@ -110,6 +110,14 @@ final class FourfoldUndoAuditTests: XCTestCase {
         row.tap()
         Thread.sleep(forTimeInterval: 0.3)
     }
+    /// An FX cell is "Note n, rank r, <row> <value>" — r is the riff's rank at that step, which edits change, so match on the note and the row only.
+    func fxCell(note: Int, row: String) { app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Note \(note), rank", ", \(row) ")).firstMatch.tap() }
+    func openFX() { app.buttons["FX"].tap(); Thread.sleep(forTimeInterval: 0.4) }
+    func openChordsPopup() {
+        noteSource("Chords"); Thread.sleep(forTimeInterval: 0.4)          // the first tap chooses CHORDS as the note source…
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Chords'")).firstMatch.tap(); Thread.sleep(forTimeInterval: 0.6)    // …a second tap on the chosen segment opens the progression popup
+    }
+    func chordColumn(_ col: Int, _ degree: String) { app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Column \(col), \(degree),")).firstMatch.tap() }
     func undo() { app.buttons["Undo"].tap() }
     func redo() { app.buttons["Redo"].tap() }
     private func post(_ name: String) { CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(name as CFString), nil, nil, true) }
@@ -359,6 +367,109 @@ final class FourfoldUndoAuditTests: XCTestCase {
         app.buttons["Stop"].tap()
     }
 
+    // MARK: the areas the first audit never reached — FX, chords, lane lock, user presets, a preset loaded twice
+
+    func testFX_EachCellTapIsItsOwnStepAndAnUndoThenAnEditEndsRedo() {
+        let p0 = launch()
+        openFX()
+        fxCell(note: 1, row: "ratchet"); let a = settled()
+        fxCell(note: 2, row: "gate"); let b = settled()
+        XCTAssertNotEqual(a.snap, p0.snap); XCTAssertNotEqual(b.snap, a.snap, "two real FX edits")
+        XCTAssertEqual(b.undo, 2, "each tap on an FX cell is a step: \(b.raw)")
+        XCTAssertTrue(b.consistent, b.raw)
+        undo(); XCTAssertEqual(settled().snap, a.snap)
+        undo(); XCTAssertEqual(settled().snap, p0.snap)
+        redo(); XCTAssertEqual(settled().snap, a.snap)
+        fxCell(note: 3, row: "tie"); let c = settled()          // a fresh edit after a redo: ends the redo branch
+        XCTAssertNotEqual(c.snap, a.snap); XCTAssertEqual(c.redo, 0, c.raw); XCTAssertEqual(c.undo, 2, c.raw)
+        XCTAssertTrue(c.consistent, c.raw); XCTAssertEqual(c.resyncs, 0, c.raw)
+    }
+
+    func testChords_EditsAndProgressionSwitchesAreStepsAndUndoRestoresThem() {
+        launch()
+        openChordsPopup()                                                      // choosing CHORDS as the note source is itself a step
+        let base = settled()
+        chordColumn(3, "V"); let a = settled()
+        chordColumn(4, "iv"); let b = settled()
+        XCTAssertNotEqual(a.snap, base.snap); XCTAssertNotEqual(b.snap, a.snap, "two real chord edits")
+        XCTAssertEqual(b.differingParts(from: base), ["chordSets"], "only the chord sets changed: \(b.raw)")
+        XCTAssertEqual(b.undo, base.undo + 2, "each column edit made while the popup stays open is its own step (a pause > 0.5 s closes a run): \(b.raw)")
+        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Progression 2'")).firstMatch.tap(); let c = settled()
+        XCTAssertEqual(c.undo, base.undo + 3, "switching progression is a step: \(c.raw)")
+        XCTAssertNotEqual(c.snap, b.snap)
+        undo()                                                                 // while the popup is open a tap on the header lands on its scrim and only closes it
+        var back = settled(); if back.snap == c.snap { undo(); back = settled() }
+        XCTAssertEqual(back.snap, b.snap, "↶ switches back to progression 1 with its edits intact")
+        undo(); XCTAssertEqual(settled().snap, a.snap)
+        undo(); XCTAssertEqual(settled().snap, base.snap)
+        redo(); redo(); redo(); let r = settled()
+        XCTAssertEqual(r.snap, c.snap); XCTAssertTrue(r.consistent, r.raw); XCTAssertEqual(r.resyncs, 0, r.raw)
+    }
+
+    func testLock_UndoNeverCreatesAnInconsistencyWithALockedLanePresent() {
+        launch()
+        app.switches["Lock mode"].tap()
+        tapLabel("Lock lane 1")                                               // lane 1 is now locked at what it is
+        app.switches["Lock mode"].tap()                                        // back to editing
+        _ = settled()
+        stepsUp()                                                              // lane 1's STEPS is a lock field of a locked lane: an edit the lock owns, no undo step
+        let afterLockEdit = settled()
+        print("UNDOAUDIT lock: after a lock-field edit on the locked lane: undo=\(afterLockEdit.undo) lanes=\(afterLockEdit.lanes)")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Fewer steps'")).element(boundBy: 1).tap()    // lane 2 STEPS: a normal step
+        let afterLane2 = settled()
+        XCTAssertGreaterThanOrEqual(afterLane2.undo, 1, afterLane2.raw)
+        for _ in 0..<6 { undo(); redo(); undo() }
+        let end = settled()
+        XCTAssertTrue(end.consistent, "page, document and engine agree after undo/redo with a locked lane: \(end.raw)")
+        XCTAssertEqual(end.resyncs, afterLane2.resyncs, "the poll never had to correct the page: \(end.raw)")
+        XCTAssertEqual(end.undo + end.redo, afterLane2.undo + afterLane2.redo, "no step appeared or vanished: \(afterLane2.raw) → \(end.raw)")
+    }
+
+    func testUserPresets_SaveLoadAndDeleteLeaveTheHistoryConsistent() {
+        let name = "UndoProbe\(Int(Date().timeIntervalSince1970) % 100000)"
+        let p0 = launch()
+        stepsUp(); let edited = settled()
+        XCTAssertEqual(edited.undo, 1)
+        app.buttons["Presets"].tap()
+        let field = app.textFields.firstMatch
+        need(field, "the preset name field").tap(); field.typeText(name + "\n")
+        app.buttons["Save preset"].tap()
+        let row = need(app.buttons[name], "the saved preset")
+        let afterSave = settled()
+        XCTAssertEqual(afterSave.undo, 1, "saving a preset is not an edit of the document: \(afterSave.raw)")
+        XCTAssertEqual(afterSave.snap, edited.snap)
+        row.tap(); Thread.sleep(forTimeInterval: 0.3)
+        let loaded = settled()
+        XCTAssertEqual(loaded.snap, edited.snap, "the preset holds exactly what was saved")
+        XCTAssertEqual(loaded.undo, 1, "loading what is already there is not a step: \(loaded.raw)")
+        XCTAssertTrue(loaded.consistent, loaded.raw)
+        loadPreset("FIVE AGAINST EIGHT"); let other = settled()
+        XCTAssertEqual(other.undo, 2)
+        app.buttons["Presets"].tap()
+        need(app.buttons["Delete \(name)"], "its delete button").tap()
+        need(app.buttons["Confirm delete \(name)"], "the confirmation").tap()
+        gone(app.buttons[name], "the deleted preset")
+        tapLabel("Close presets")
+        let afterDelete = settled()
+        XCTAssertEqual(afterDelete.snap, other.snap, "deleting a preset never touches the document: \(afterDelete.raw)")
+        XCTAssertEqual(afterDelete.undo, 2)
+        undo(); XCTAssertEqual(settled().snap, edited.snap)
+        undo(); XCTAssertEqual(settled().snap, p0.snap)
+    }
+
+    func testUNDO6_LoadingThePresetThatIsAlreadyLoadedIsNotAStep() {
+        launch()
+        loadPreset("FIVE AGAINST EIGHT"); let first = settled()
+        XCTAssertEqual(first.undo, 1)
+        stepsUp(); undo(); let beforeSecond = settled()                         // an undo leaves a redo branch behind
+        XCTAssertEqual(beforeSecond.redo, 1)
+        XCTAssertEqual(beforeSecond.snap, first.snap)
+        loadPreset("FIVE AGAINST EIGHT"); let second = settled()
+        XCTAssertEqual(second.snap, first.snap)
+        XCTAssertEqual(second.undo, 1, "the second load changed nothing, so it is no step: \(second.raw)")
+        XCTAssertEqual(second.redo, 1, "…and the redo branch is still there: \(second.raw)")
+    }
+
     // MARK: under the live engine
 
     func testUndoRedoStormWhilePlayingLeavesTheEngineConsistentAndSilent() {
@@ -381,11 +492,11 @@ final class FourfoldUndoAuditTests: XCTestCase {
     // MARK: the fuzz against the policy as written
 
     private enum Op: CustomStringConvertible {
-        case stepsUp, stepsDown, hits(Bool), offset, source(String), riff(Int), riffCell(Int, Int), keyScale, preset(String), undo, redo
+        case stepsUp, stepsDown, hits(Bool), offset, source(String), riff(Int), riffCell(Int, Int), keyScale, fxCell(Int, String), preset(String), undo, redo
         var description: String {
             switch self {
             case .stepsUp: return "steps+"; case .stepsDown: return "steps−"; case .hits(let u): return "hits\(u ? "↑" : "↓")"; case .offset: return "offset"
-            case .source(let s): return "source:\(s)"; case .riff(let n): return "riff\(n)"; case .riffCell(let st, let r): return "cell(step \(st) rank \(r))"; case .keyScale: return "key-scale"
+            case .source(let s): return "source:\(s)"; case .riff(let n): return "riff\(n)"; case .riffCell(let st, let r): return "cell(step \(st) rank \(r))"; case .keyScale: return "key-scale"; case .fxCell(let n, let r): return "fx(note \(n) \(r))"
             case .preset(let p): return "preset:\(p)"; case .undo: return "UNDO"; case .redo: return "REDO"
             }
         }
@@ -396,12 +507,13 @@ final class FourfoldUndoAuditTests: XCTestCase {
     private func runFuzz(seed: UInt64, length: Int) {
         var rng = SplitMix(seed)
         let first = launch()
+        openFX()                                                                // the sequencer panel shows its FX tab for the whole run (the lane cards and the riff panel stay where they are)
         var oracle = Timeline(start: first.snap)
         var upCount = 0, lastSource = "Key", keyIsMinor = true
         var log: [String] = []
         for i in 0..<length {
             let op: Op
-            switch rng.int(0...15) {
+            switch rng.int(0...17) {
             case 0, 1: op = upCount < 3 ? .stepsUp : .stepsDown
             case 2: op = .hits(rng.int(0...1) == 0)
             case 3: op = .offset
@@ -410,7 +522,8 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case 7: op = .preset("FIVE AGAINST EIGHT")
             case 8, 9: op = .riffCell(rng.int(1...8), rng.int(1...8))
             case 10: op = .keyScale
-            case 11, 12, 13: op = .undo
+            case 11, 12: op = .fxCell(rng.int(1...8), ["ratchet", "tie", "gate", "velocity", "note step"][rng.int(0...4)])
+            case 13, 14, 15: op = .undo
             default: op = .redo
             }
             log.append(op.description)
@@ -423,6 +536,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case .source(let s): noteSource(s); lastSource = s
             case .riff(let n): riffSwitch(n)
             case .riffCell(let st, let r): app.buttons["Step \(st), rank \(r)"].firstMatch.tap()
+            case .fxCell(let n, let row): fxCell(note: n, row: row)
             case .keyScale:
                 app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Key, '")).firstMatch.tap()
                 app.staticTexts[keyIsMinor ? "MAJOR" : "MINOR"].tap(); keyIsMinor.toggle()

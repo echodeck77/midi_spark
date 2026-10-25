@@ -56,21 +56,12 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
 
     /// Document-level edit path (busChannels, receivers, …) — same publish semantics as editScene.
-    func editDocument(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout PluginState) -> Void) {
-        if record && sessionBaseline == nil { undoStack.record(document, coalesceKey: coalesceKey) }
+    /// (The page's own undo lives in `FourfoldRootView` — `UndoStack<EuclideousUndoSnapshot>`. This path used to push every edit onto a second, 50-deep stack of whole `PluginState` copies that nothing ever undid from: ≈ 1.9 µs per edit and
+    /// ≈ 330 KB of old documents kept alive in the extension, measured 2026-10-25. Removed as UNDO-9.)
+    func editDocument(_ mutate: (inout PluginState) -> Void) {
         mutate(&document)
         scheduleRebuild()
     }
-
-    // MARK: - MODE ROW — transactional EDIT session (APPLY / CANCEL)
-    // The EDIT page stages edits + births + clears against a baseline captured when the selection set opens.
-    // Live edits publish for preview (see editScene above); CANCEL restores the baseline exactly; APPLY records
-    // the whole baseline→applied transition as ONE undoable step. MUTE toggles run OUTSIDE the session (immediate).
-
-    /// The document as it stood when the current session opened. Non-nil ⇒ a live session is staging.
-    private var sessionBaseline: PluginState? = nil
-
-    // (sessionActive / sessionDirty — the transactional-session status reads — were removed 2026-08-27, zero references.)
 
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) — per-cell processor CHAIN edits (cell-scoped, undoable via editScene)
@@ -79,10 +70,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     private func passthroughTemplateSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .empty); s.bypassed = true; return s }   // all-bypassed ≡ empty ≡ passthrough
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
 
-    // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
-    // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),
-    // and the continuous transpose AUParameter is excluded for v1 (it bypasses these paths; the morph params were removed 2026-09-16).
-    private var undoStack = UndoStack<PluginState>()
     /// The live document — for the EDIT page's SELECTION undo (which snapshots (selection, document) per select/
     /// deselect and restores both). Separate from the transactional undo stack above (which it never touches).
 
