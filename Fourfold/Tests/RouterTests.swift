@@ -6205,6 +6205,31 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(onsOnCable(e, 3).isEmpty && onsOnCable(e, 4).isEmpty, "neither part routes to C or D")
     }
 
+    // §4 (adversarial-review gap, 2026-10-25): the NOTES-LAYER-OFF, riff-only split case. This is the real-world config
+    // a user reaches by tapping riff → A, notes → B (so `emitterMask` is the union A|B, exactly what `toggleOutput`
+    // stores) and then switching the notes layer off. The riff must leave on A ONLY — never the union — proving the riff
+    // note is routed by `riffOutMaskResolved` (the `isEuclideousRow` path's per-pitch `busOf`), not the lane-wide
+    // `busOverride`/`emitterMask`. The golden can't catch a union-leak here (every factory lane has equal masks); this
+    // test is the guard against a future regression where a Euclideous riff-only hit falls through to the union path.
+    func testPerLayerRiffOnlyWithNotesLayerOffLeavesOnTheRiffMaskNotTheUnion() {
+        var l = notesExLine(riffOn: true)
+        l.notesOn = false                 // the notes layer is OFF — only the riff plays
+        l.riffOutMask = 0b0001            // riff → A
+        l.notesOutMask = 0b0010           // notes → B (irrelevant while notes are off)
+        l.emitterMask = 0b0011            // the union A|B, as toggleOutput maintains it — the value a leak would route to
+        let e = fxRun(fxBox([l], ranks: notesExRanks), beats: 2 * 4.0 + 0.5, pool: notesExPool)
+        assertNothingLeftSounding(e)
+        XCTAssertFalse(onsOnCable(e, 1).isEmpty, "the riff sounds on A")
+        XCTAssertTrue(onsOnCable(e, 2).isEmpty, "the riff must NOT leak onto B (the notes' output / the union)")
+        XCTAssertTrue(onsOnCable(e, 3).isEmpty && onsOnCable(e, 4).isEmpty, "and nowhere else")
+        // Mirror image: riff → C, notes → A, notes off → the riff is on C only, A silent (not accidentally always-A).
+        var m = notesExLine(riffOn: true); m.notesOn = false
+        m.riffOutMask = 0b0100; m.notesOutMask = 0b0001; m.emitterMask = 0b0101
+        let e2 = fxRun(fxBox([m], ranks: notesExRanks), beats: 2 * 4.0 + 0.5, pool: notesExPool)
+        assertNothingLeftSounding(e2)
+        XCTAssertFalse(onsOnCable(e2, 3).isEmpty, "the riff sounds on C"); XCTAssertTrue(onsOnCable(e2, 1).isEmpty, "A is silent — the riff did not leak to the union")
+    }
+
     // §4 test 4: the collision drop becomes PER-OUTPUT. The riff and the notes-layer chord collide on a pitch at
     // a play hit (WHEN = both). Rendered twice: notes → A (today — the colliding pitch's notes copy is dropped,
     // riff wins) and notes → A + B. The output on A is BYTE-IDENTICAL between the two (adding B changes nothing on
