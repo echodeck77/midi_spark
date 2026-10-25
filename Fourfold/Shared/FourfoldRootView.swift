@@ -119,6 +119,7 @@ struct FourfoldRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
         .overlay(alignment: .bottomLeading) { FourfoldUndoProbe(m: m, au: au) }   // UNDO AUDIT: draws nothing unless the app was launched with `--undo-probe`
+        .overlay(alignment: .bottomTrailing) { FourfoldStackProbeView() }   // STACK BUDGET GUARD: draws nothing unless the app was launched with `--stack-probe` (Debug builds)
     }
 
     /// The page. `body` frames it to the root `geo` on the view's FULL height (PAGE LAYOUT ferry 2026-10-19: the page ignores the bottom safe area and keeps a bottom margin of max(16, inset) itself); the modifiers sit OUTSIDE this function so the

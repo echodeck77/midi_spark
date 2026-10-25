@@ -12,6 +12,7 @@
 		0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */; };
 		02B414323ED3737F7469018B /* TapeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B187EF1F183D7FB9E3E25FE /* TapeStore.swift */; };
 		05DAA79479B5AE2D667435E8 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD093523154373C2AAE660A /* DesignKit.swift */; };
+		061D4BB40DA0FAF758D21370 /* FourfoldStackProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */; };
 		082EDD25118D30F089077601 /* CellBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F82B632EB1561C42D3E6FEA /* CellBrowser.swift */; };
 		0B0CC3EA63F8052C181868AE /* FourfoldUndoAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D7C93D75576EE5D4C9BF72E /* FourfoldUndoAuditTests.swift */; };
 		0C924EDD62DA8F1C8070ADC3 /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCBDE4866C54153107885AD8 /* RandomModePainter.swift */; };
@@ -209,6 +210,7 @@
 		B13A9536132FE6FC29F0FB14 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 195D20F3EE73A28BC7E22850 /* Atomics */; };
 		B38DC5D3B8ED2F5C5FB02F16 /* FourfoldUndoProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56273CD5B28C7640784AA413 /* FourfoldUndoProbe.swift */; };
 		B4C9115BCC69FB671BDEAAB0 /* ClarityPassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F83DE6BC106F7FAAF5034BAB /* ClarityPassTests.swift */; };
+		B64A1ED4BC582D4B5BE08990 /* FourfoldStackProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */; };
 		B6CE33CA239BE671207C2E10 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		BAAEAA2A082378363DDDE24B /* FourfoldTapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F27CCA1D229CE4863430480 /* FourfoldTapTests.swift */; };
 		BBF942FAE6FEC457D0351322 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE216B742656753132B6BF90 /* RestartFlashPainter.swift */; };
@@ -216,6 +218,7 @@
 		BE8C5FC00FE0F49C2EB7F07F /* FourfoldTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08CEAAFF57F496AB60992D7 /* FourfoldTransportTests.swift */; };
 		BEAA8CB5EC2ADCA841BE6066 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */; };
 		BFADB19C396460B7B42F4BC2 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A20C66088682B1B60A45B7C /* MidiFileTests.swift */; };
+		BFE4869E17DEFCAF14D9E1DF /* FourfoldStackBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */; };
 		C09B7A16E54595BA2D6D5A3D /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */; };
 		C1046A4F98893FE82DF94B09 /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */; };
 		C166DF5660C355F1056946B2 /* Row8Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */; };
@@ -417,6 +420,7 @@
 		5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashTests.swift; sourceTree = "<group>"; };
 		56273CD5B28C7640784AA413 /* FourfoldUndoProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldUndoProbe.swift; sourceTree = "<group>"; };
 		56A2346CB2C876A900961902 /* Diag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diag.swift; sourceTree = "<group>"; };
+		586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldStackProbe.swift; sourceTree = "<group>"; };
 		59DF6CD888C95040E34660D5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
 		5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLayoutTests.swift; sourceTree = "<group>"; };
 		5B1FE1781AE0C4878A7935FE /* PulseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTests.swift; sourceTree = "<group>"; };
@@ -532,6 +536,7 @@
 		CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXPanelPainter.swift; sourceTree = "<group>"; };
 		CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesPanelPainter.swift; sourceTree = "<group>"; };
 		CFD093523154373C2AAE660A /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
+		CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldStackBudgetTests.swift; sourceTree = "<group>"; };
 		D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CogPage.swift; sourceTree = "<group>"; };
 		D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGatesSpecialTests.swift; sourceTree = "<group>"; };
 		D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -857,6 +862,7 @@
 			children = (
 				3E30016BB623E045246A0488 /* FourfoldReel.swift */,
 				C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */,
+				586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */,
 				9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */,
 				9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */,
 				56273CD5B28C7640784AA413 /* FourfoldUndoProbe.swift */,
@@ -941,6 +947,7 @@
 				6FECA3302B50E7D4800DF132 /* FourfoldAccessibilityTests.swift */,
 				54A2360C33B73BDF7D5D05DD /* FourfoldMonkeyTests.swift */,
 				5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */,
+				CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */,
 				4F27CCA1D229CE4863430480 /* FourfoldTapTests.swift */,
 				0C2B1597D4FE5A642D881E53 /* FourfoldUIHelpers.swift */,
 				5D7C93D75576EE5D4C9BF72E /* FourfoldUndoAuditTests.swift */,
@@ -1221,6 +1228,7 @@
 				9380473CD41B52BD940490C1 /* FourfoldRootView.swift in Sources */,
 				CB94FD3868B139E13FADBBE0 /* FourfoldSelfTest.swift in Sources */,
 				E701FC442C61A2A5B667E2CE /* FourfoldSoak.swift in Sources */,
+				061D4BB40DA0FAF758D21370 /* FourfoldStackProbe.swift in Sources */,
 				76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */,
 				A7CDEB9BFEA39A8E05477A8E /* FourfoldTransportClock.swift in Sources */,
 				24FBAC22E0F946FA47ABD0EB /* FourfoldUndoProbe.swift in Sources */,
@@ -1261,6 +1269,7 @@
 				F00A3C3B78F764B6D950A2DA /* FourfoldAccessibilityTests.swift in Sources */,
 				126EFE2CA5202E0E11739F95 /* FourfoldMonkeyTests.swift in Sources */,
 				7D18DC173F7A5A158D2BFBE0 /* FourfoldScreenshotTests.swift in Sources */,
+				BFE4869E17DEFCAF14D9E1DF /* FourfoldStackBudgetTests.swift in Sources */,
 				BAAEAA2A082378363DDDE24B /* FourfoldTapTests.swift in Sources */,
 				D6E0D57CCCB98AFCD6A1245B /* FourfoldUIHelpers.swift in Sources */,
 				0B0CC3EA63F8052C181868AE /* FourfoldUndoAuditTests.swift in Sources */,
@@ -1414,6 +1423,7 @@
 				9ECB09C3718DCEDA6647C48C /* FourfoldCompose.swift in Sources */,
 				E79F969969D54DA2CB4B2287 /* FourfoldReel.swift in Sources */,
 				2DB0FD1A6F363FF7810DD7C8 /* FourfoldRootView.swift in Sources */,
+				B64A1ED4BC582D4B5BE08990 /* FourfoldStackProbe.swift in Sources */,
 				B0A256872F4F815905ADFEEF /* FourfoldTelemetry.swift in Sources */,
 				51142768E24F20693A5BFF40 /* FourfoldTransportClock.swift in Sources */,
 				B38DC5D3B8ED2F5C5FB02F16 /* FourfoldUndoProbe.swift in Sources */,

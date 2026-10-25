@@ -11,6 +11,13 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] DECIDE (Paul): MASK-REPEAT and REPEAT-HOLD replay on the riff MAIN group, not the per-hit ALT switch (a frozen repeat). Say if a held/mask repeat should re-evaluate the ALT mode instead.
 - [ ] (noted) Fourfold-only; `AUExtension/` untouched. Every lane starts OFF, so sessions/presets are byte-identical (golden confirms).
 
+## ★ FOURFOLD — STACK OVERFLOW #3 (2026-10-25, `FourfoldAU-2026-10-25-213535.ips`; `Docs/euclideous-status-log.md`)
+- [x] FIXED: `EuclideousStackBreak` around the lane cards, lane tab content, header, riff panel and sequencer panel — deepest point Debug 1,130 → 372 KB, Release 932 → 359 KB; guard `FourfoldStackBudgetTests` (600 KB budget; 888 KB without the fix).
+- [ ] DEVICE: relaunch the Debug build from Xcode, put every lane on NOTES, drag a MIX pad for a while (the crash scenario), then rotate and open the settings sheet / chords / presets; nothing should crash.
+- [ ] STACK-2 (not done, Paul to decide): SwiftUI re-renders the page SYNCHRONOUSLY inside a `@Published` setter when it is set from a gesture handler on iPadOS 27 (`Published.send` → `GraphHost.flushTransactions` → `body`), so a rebuild always sits on ≈ 320 KB of gesture + flush frames on the device. Deferring the publish (`DispatchQueue.main.async` + a coalescing flag, or `objectWillChange` sent manually) would take that off the stack, but changes WHEN every write is visible to the page (code that reads the model right after a write would see the new value but the view the old one for a runloop turn), so it needs its own pass.
+- [ ] STACK-3 (opportunistic): the biggest single frame left is the page `body` closure (≈ 19 KB static + 92 dynamic temporaries in Debug — every popup / HUD / sheet sibling is a stack temporary while `pageBody` builds). Wrapping the popups in `EuclideousStackBreak` too would shrink it; not needed now (budget has ≈ 250 KB spare).
+- [ ] (noted) The crashed build came from `/Users/paulbarrett/src/midi_spark` (branch `alt-routing`, 2 uncommitted files) — it needs `git merge --ff-only origin/main` (and the owner's uncommitted work kept) before it has this fix.
+
 ## ★ FOURFOLD — PER-LAYER EMITTER ROUTING: a lane's RIFF and NOTES route to separate outputs (2026-10-25; `Docs/euclideous-status-log.md`)
 - [ ] DEVICE: see the six new "Per-layer routing" lines in `Docs/euclideous-device-verification-debt.md` — chiefly the real goal (riff → A / notes → B on two synths in AUM) and the circles' legibility/flare in all four lane colours. Nothing here has run on a device yet.
 - [ ] (noted) Fourfold-only — `AUExtension/` (8x8 State, frozen) is untouched; its lane still has one shared emitter mask.

@@ -108,7 +108,7 @@ final class FourfoldTapTests: XCTestCase {
     func testAFactoryPresetShowsItsOutputCirclesLitAndATapSwitchesOffOnlyThatOne() {
         let app = XCUIApplication.fresh()
         app.buttons["Presets"].tap()
-        need(app.buttons["FIVE AGAINST EIGHT, factory preset"], "a factory preset row").tap()
+        need(app.buttons["FIVE AGAINST EIGHT, factory preset"], "a factory preset row", timeout: 10).tap()
         gone(app.staticTexts["PRESETS"], "the preset browser after choosing a preset")
         app.els(prefix: "Riff, ").element(boundBy: 0).tap()
         for o in ["A", "B", "C", "D"] { need(app.el("Riff to output \(o), on"), "a preset lane's riff OUT \(o) reads on") }

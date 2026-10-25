@@ -705,6 +705,16 @@ enum EuclideousLaneTab: Int, CaseIterable {
     var label: String { switch self { case .rhythm: "RHYTHM"; case .riff: "RIFF"; case .notes: "NOTES"; case .listen: "LISTEN" } }
 }
 
+/// STACK BREAK (2026-10-25, crash `FourfoldAU-2026-10-25-213535.ips`): the extension's main thread has a 1 MB stack and building the page eagerly nests
+/// `pageBody` → `laneCard` → `tabContent` → a tab's builder in ONE call chain, so every level's temporaries sat under the next. A view with its own `body` is
+/// evaluated in its OWN AttributeGraph update after its parent's body has returned, so wrapping a big builder here restarts the chain from a shallow stack
+/// (measured, Debug, every lane on NOTES: deepest point 1,130 KB → 372 KB; Release 932 KB → 359 KB). Use it around any new panel or tab; `FourfoldStackProbe` guards the result.
+struct EuclideousStackBreak: View {
+    let content: () -> AnyView
+    init(_ content: @escaping () -> AnyView) { self.content = content }
+    var body: some View { FourfoldStackProbe.note(); return content() }
+}
+
 struct EuclideousPage: View {
     let lines: [EuclidLine]
     // FOUR RIFFS (2026-10-18 ferry, "drop the loop functionality in favour of four riff tabs... with a
@@ -1770,17 +1780,17 @@ struct EuclideousPage: View {
         let g = pageGeometry(size)
         let page = g.page, box = page.box
         return ZStack(alignment: .topLeading) {
-            fourfoldHeader(g.hdr, containerW: g.containerW)
+            EuclideousStackBreak { AnyView(fourfoldHeader(g.hdr, containerW: g.containerW)) }
                 .offset(x: sp16, y: HM.topMargin)
             // The overlays go on BEFORE the `.offset` (a SwiftUI `.offset` moves only the drawing: an overlay added after it is laid out at the UN-offset position — the "RANDOM" badge and its border
             // appeared at the page's top-left, over the header, instead of on the riff grid; the lock dim had the same fault).
-            riffGridView(box: box)
+            EuclideousStackBreak { AnyView(riffGridView(box: box)) }
                 .frame(width: box.width, height: box.height)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
                 .overlay(euclideousRandomRiffGridOverlay(cornerRadius: 12))
                 .allowsHitTesting(!euclideousLockMode)
                 .offset(x: page.riff.minX, y: page.riff.minY)
-            sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)   // FX in portrait too: its columns match the riff grid's (same width)
+            EuclideousStackBreak { AnyView(sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)) }   // FX in portrait too: its columns match the riff grid's (same width)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
                 .allowsHitTesting(!euclideousLockMode)
                 .offset(x: page.seq.minX, y: page.seq.minY)
@@ -1791,10 +1801,10 @@ struct EuclideousPage: View {
             modeFinishLayer(size)
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
             // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
-            AnyView(laneCard(0, width: box.width, height: box.height)).offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
-            AnyView(laneCard(1, width: box.width, height: box.height)).offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
-            AnyView(laneCard(2, width: box.width, height: box.height)).offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
-            AnyView(laneCard(3, width: box.width, height: box.height)).offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
+            EuclideousStackBreak { AnyView(laneCard(0, width: box.width, height: box.height)) }.offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
+            EuclideousStackBreak { AnyView(laneCard(1, width: box.width, height: box.height)) }.offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
+            EuclideousStackBreak { AnyView(laneCard(2, width: box.width, height: box.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
+            EuclideousStackBreak { AnyView(laneCard(3, width: box.width, height: box.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
             modeHint(size)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -3002,7 +3012,7 @@ struct EuclideousPage: View {
             AnyView(laneTabRow(idx, line, accent, rowH: tabRowH))
                 .opacity(soloDimContent ? EuclideousLaneDimStyle.opacity : 1)
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDimContent)
-            AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth))
+            EuclideousStackBreak { AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth)) }
                 .opacity(soloDimContent ? EuclideousLaneDimStyle.opacity : 1)
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDimContent)
         }
@@ -3227,7 +3237,7 @@ struct EuclideousPage: View {
 
     // MARK: LANE LOCK — the normal card's side (§5, §6)
     private func lockOf(_ idx: Int) -> EuclideousLaneLock { idx < locks.count ? locks[idx] : EuclideousLaneLock() }
-    private func lockLocked(_ idx: Int) -> Bool { lockOf(idx).isLocked }
+    private func lockLocked(_ idx: Int) -> Bool { FourfoldStackProbe.note(); return lockOf(idx).isLocked }
     /// 6.9: a lane locked on the BEAT grid — its tap-controls act on touch-down. Everything else (an unlocked lane, a bar grid) behaves exactly as before.
     private func lockMomentary(_ idx: Int) -> Bool { let l = lockOf(idx); return l.isLocked && l.gridResolved == .beat }
     /// 5.4: the controls of lane `idx` whose value differs from its locked state — empty unless the lane is locked and has moved. One list (`euclideousLockChangedControls`), asked per control.
