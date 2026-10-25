@@ -118,6 +118,7 @@ struct FourfoldRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
+        .overlay(alignment: .bottomLeading) { FourfoldUndoProbe(m: m, au: au) }   // UNDO AUDIT: draws nothing unless the app was launched with `--undo-probe`
     }
 
     /// The page. `body` frames it to the root `geo` on the view's FULL height (PAGE LAYOUT ferry 2026-10-19: the page ignores the bottom safe area and keeps a bottom margin of max(16, inset) itself); the modifiers sit OUTSIDE this function so the
@@ -707,7 +708,7 @@ struct FourfoldRootView: View {
         let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
         let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
         let efx = au.uiEuclideousFX(); if efx != euclideousFX { euclideousFX = efx; euclideousResynced = true }
-        if euclideousResynced { publish() }
+        if euclideousResynced { m.probeResyncs &+= 1; publish() }   // (`probeResyncs`: UNDO AUDIT — how often the page found itself out of step with the document)
         let nd = au.kernelDiagnostics()
         if nd.panics != lastStuckPanics {   // a8 STUCK-NOTE: the render thread healed since the last poll — log it ONCE here, off the audio thread (was an os_log PER BLOCK on the render path = crackle; Paul 2026-09-12)
             lastStuckPanics = nd.panics
@@ -802,6 +803,7 @@ struct FourfoldRootView: View {
 
 /// The Fourfold root view's mutable state (see the note in `FourfoldRootView`). Defaults are the ones the 8x8 host's @State declarations had.
 final class FourfoldModel: ObservableObject {
+    var probeResyncs = 0   // UNDO AUDIT: counted by the 4 Hz poll, read by `FourfoldUndoProbe`; not published
     @Published var d: KernelDiag = KernelDiag()      // polled for playing / tempo / pass
     @Published var lastStuckPanics: UInt64 = 0   // a8 STUCK-NOTE: last-seen heal count — the poll logs a heal ONCE (off the render thread) when this rises
     @Published var uiAppeared: Bool = true     // §4c INVISIBLE=FROZEN: this view is on-screen

@@ -148,6 +148,16 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let events = t.reelPassEvents(p)
         for _ in 0..<8 { if kernel.reelStageLoop(events, cycle: cycle, pass: p) { break }; usleep(500) }   // the render thread holds the buffer for microseconds; give up after a few tries
     }
+    /// UNDO AUDIT probe (main thread, read-only): is the snapshot the render thread holds the one the AU would build from what it was given right now? Compares the Euclideous lanes of the published box with a fresh build.
+    func probeBoxAgreement() -> Bool {
+        func lanesHash(_ box: SnapshotBox?) -> UInt64 {
+            guard let box, Snap.euclideousRow < box.cells.count else { return 0 }
+            let cell = box.cells[Snap.euclideousRow]
+            guard cell.machineIndex >= 0, Int(cell.machineIndex) < box.machines.count else { return 0 }
+            return FourfoldUndoProbe.fnv(String(describing: box.machines[Int(cell.machineIndex)].a.euclidLines))
+        }
+        return lanesHash(store.acquire()) == lanesHash(SnapshotBuilder.build(from: renderDoc(), generation: 0))
+    }
     func tapeStats() -> (events: Int, dropped: Int, passes: Int, completePasses: Int, endTick: Int, residentBytes: Int, evictedChunks: Int, storeErrors: Int) {   // main thread: the session tape's size and shape (diagnostics, the harness)
         let t = kernel.tape; t.drain(); let ps = t.passes()
         return (t.eventCount, t.droppedEvents, ps.count, t.filed.count, t.endTick(), t.residentBytes, t.evictedCount, t.storeErrors)
