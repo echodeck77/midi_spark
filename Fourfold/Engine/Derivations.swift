@@ -4836,21 +4836,21 @@ struct EuclideousMixGrid: Equatable {
     }
 }
 /// CLARITY PASS §3.1/§3.2 (replacing §9.1's cellW = (W − 16) / 4, rowH = (H − 8) / 2): panelW = (W − 16) / 2 and panelH = (H − 16) / 2 (sp16 between panels), cellW = (panelW − 12) / 2 (sp4 padding both sides + sp4 between
-/// the pads), padH = panelH − 8 − 52 (the padding, then sp4 + the OCT stepper's 24 + sp4 + the OUT row's 20 under the pad). Against §9.1 that is exactly 6 pt narrower and 12 pt shorter, at any size.
+/// the pads). PER-LAYER EMITTER ROUTING ferry §5.2: the OUT row left MIX (routing lives on the RIFF/NOTES tabs now), so the pad took its room — padH = panelH − 8 − 28 (the padding, then sp4 + the OCT stepper's 24), i.e.
+/// panelH − 3·sp4 − 24 = panelH − 36 (was panelH − 60 with the row and its own sp4).
 func euclideousMixGrid(width: CGFloat, height: CGFloat) -> EuclideousMixGrid {
     let m = EuclideousMixMetrics.self
     let panelH = (height - m.sp16) / 2
     let panelW = (width - m.sp16) / 2
     let innerH = panelH - m.panelPad * 2
-    // Floors ferry: fair-share — if the nominal 52pt split would leave the pad under `minPadH`, the
-    // stepper and OUT row drop to their own compact floors together (buying the pad back 12pt) instead
-    // of staying fixed while the pad alone absorbs the whole loss.
-    let nominalBelowPad = m.sp4 + m.stepperH + m.sp4 + m.outRowH
+    // Floors ferry (fair-share): if the pad would fall under `minPadH`, the OCT stepper drops to its compact
+    // floor (buying the pad back) instead of the pad absorbing the whole loss. (The OUT row that used to shrink
+    // alongside it is gone — §5.2 — so only the stepper does now.)
+    let nominalBelowPad = m.sp4 + m.stepperH
     let useCompact = (innerH - nominalBelowPad) < m.minPadH
     let stepperH = useCompact ? m.stepperCompactH : m.stepperH
-    let outRowH = useCompact ? m.outRowCompactH : m.outRowH
-    let belowPad = m.sp4 + stepperH + m.sp4 + outRowH
-    return EuclideousMixGrid(cellW: (panelW - m.panelPad * 2 - m.sp4) / 2, rowH: panelH, padH: innerH - belowPad, stepperH: stepperH, outRowH: outRowH)
+    let belowPad = m.sp4 + stepperH
+    return EuclideousMixGrid(cellW: (panelW - m.panelPad * 2 - m.sp4) / 2, rowH: panelH, padH: innerH - belowPad, stepperH: stepperH, outRowH: 0)
 }
 
 /// The frame of one of a lane's four OUT A–D buttons, in the grid area's coordinates — the SAME numbers `mixOutRow` lays its HStack out with (the row's width, sp4 gaps, 20pt tall, under the OCT stepper), so the PULSE glow

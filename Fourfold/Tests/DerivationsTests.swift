@@ -2522,13 +2522,16 @@ final class DerivationsTests: XCTestCase {
 
     // MARK: - MIX TAB (ferry 2026-10-18) §9 tests 1–4 (pure)
 
-    // CLARITY PASS (2026-10-23) §3.1/§3.2, replacing RESTART CHAINS §9.1/§16 (cellW 96.25, rowH 128, padH 76 at 401 × 264): four lane PANELS in a 2×2 grid, sp16 apart both ways, each padded sp4 around the
-    // RIFF and NOTES pads (sp4 apart), their OCT steppers and the lane's OUT row. A 401 × 264 area now gives panelW 192.5, panelH 124, cellW 90.25, padH 64 (6 narrower and 12 shorter than before).
+    // PER-LAYER EMITTER ROUTING ferry §5.2 (over CLARITY PASS §3.1/§3.2): the OUT row left MIX, so the pad grew by it
+    // (20) + its sp4 gap — padH = innerH − sp4 − 24 = panelH − 36 (was panelH − 60 with the row). A 401 × 264 area now
+    // gives panelW 192.5, panelH 124, cellW 90.25, padH 88 (was 64). NOTE §5.2's "pads 79 × 98 at 348 × 280" was written
+    // against the mix-tidy ferry's own (pre-CLARITY) panel geometry; the real formula gives 90.25 × 88 here. Reported.
     func testMixGridAtTheReferenceSizeAndItsCellOrigins() {
         let g = euclideousMixGrid(width: 401, height: 264)
-        XCTAssertEqual(g.cellW, 90.25, accuracy: 1e-9); XCTAssertEqual(g.rowH, 124, accuracy: 1e-9); XCTAssertEqual(g.padH, 64, accuracy: 1e-9)
+        XCTAssertEqual(g.cellW, 90.25, accuracy: 1e-9); XCTAssertEqual(g.rowH, 124, accuracy: 1e-9); XCTAssertEqual(g.padH, 88, accuracy: 1e-9)
         XCTAssertEqual(g.panelW, 192.5, accuracy: 1e-9); XCTAssertEqual(g.panelH, 124, accuracy: 1e-9)
-        XCTAssertFalse(g.belowFloors, "padH 64 is exactly the (shifted) floor, not under it")
+        XCTAssertEqual(g.outRowH, 0, "the OUT row is gone from MIX (§5.1)")
+        XCTAssertFalse(g.belowFloors, "padH 88 is well above the 64 floor")
         let xs: [CGFloat] = [4, 98.25, 212.5, 306.75], ys: [CGFloat] = [4, 144]
         var want: [CGPoint] = []
         for row in 0..<2 { for col in 0..<2 { for notes in [false, true] { want.append(CGPoint(x: xs[col * 2 + (notes ? 1 : 0)], y: ys[row])) } } }
@@ -2536,10 +2539,10 @@ final class DerivationsTests: XCTestCase {
         for lane in 0..<4 { for notes in [false, true] { got.append(g.origin(lane: lane, notes: notes)) } }
         // order: lane 1 riff, lane 1 notes, lane 2 riff, lane 2 notes, then lanes 3 and 4
         for (i, (a, b)) in zip(got, want).enumerated() { XCTAssertEqual(a.x, b.x, accuracy: 1e-9, "cell \(i) x"); XCTAssertEqual(a.y, b.y, accuracy: 1e-9, "cell \(i) y") }
-        // the four panels exactly tile the area: last panel's trailing edge = W, bottom = H; the last pad ends one padding short of W, the last OUT row one padding short of H
+        // the four panels exactly tile the area: last panel's trailing edge = W, bottom = H; the last pad ends one padding short of W, the pad + OCT stepper one padding short of H (no OUT row below now)
         XCTAssertEqual(g.panelFrame(lane: 3).maxX, 401, accuracy: 1e-9); XCTAssertEqual(g.panelFrame(lane: 3).maxY, 264, accuracy: 1e-9)
         XCTAssertEqual(got[7].x + g.cellW, 401 - 4, accuracy: 1e-9)
-        XCTAssertEqual(got[7].y + g.padH + 4 + EuclideousMixMetrics.stepperH + 4 + EuclideousMixMetrics.outRowH, 264 - 4, accuracy: 1e-9)
+        XCTAssertEqual(got[7].y + g.padH + 4 + EuclideousMixMetrics.stepperH, 264 - 4, accuracy: 1e-9)
         // the panel → grid area: the ferry's 417 × 308 panel is 401 × 264 inside its padding, tab row and gap
         let area = euclideousMixGridArea(panelWidth: 417, panelHeight: 308)
         XCTAssertEqual(area.width, 401); XCTAssertEqual(area.height, 264)
@@ -2547,9 +2550,10 @@ final class DerivationsTests: XCTestCase {
     // §9.3 — the floors are REPORTED (never shrunk). PAGE LAYOUT ferry (2026-10-19) retired §9.3's STOP: below padH 60 MIX is still DRAWN at the
     // formula's values (the old 393 × 248 portrait panel, padH 46, is what used to draw nothing); the flags below are what the page's floor list raises.
     func testMixGridFlagsPanelsBelowTheLegibilityFloors() {
-        let portrait = euclideousMixGrid(width: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).width, height: euclideousMixGridArea(panelWidth: 393, panelHeight: 248).height)
-        // Floors ferry: nominal padH would be 34, but the fair-share fallback drops the stepper/OUT row
-        // to their compact floors and buys the pad back to 46 — still under minPadH 64.
+        // PER-LAYER ROUTING ferry §5.2: with the OUT row gone the pad has more room, so the old 393 × 248 portrait panel
+        // now clears the floor (padH 64). A smaller 393 × 212 panel still flags: nominal padH 40, the fair-share fallback
+        // drops the stepper to its compact floor (only the stepper now — the OUT row is gone) and buys the pad back to 46.
+        let portrait = euclideousMixGrid(width: euclideousMixGridArea(panelWidth: 393, panelHeight: 212).width, height: euclideousMixGridArea(panelWidth: 393, panelHeight: 212).height)
         XCTAssertEqual(portrait.padH, 46, accuracy: 1e-9); XCTAssertTrue(portrait.belowFloors, "portrait: padH 46 < 64")
         XCTAssertLessThan(portrait.padH, EuclideousMixMetrics.floorPadH, "…and below the 48pt flag too (no longer a stop)")
         let narrow = euclideousMixGridArea(panelWidth: 357.12, panelHeight: 333.5)

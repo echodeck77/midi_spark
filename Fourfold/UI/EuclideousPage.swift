@@ -6245,18 +6245,19 @@ struct EuclideousPage: View {
         .frame(width: width, height: height, alignment: .topLeading)
         .overlay(alignment: .topLeading) { mixPulseOverlay(grid: grid, width: width, height: height) }   // PULSE §5: ripple, fill flash, puck swell, OUT-button glow
     }
-    /// CLARITY PASS §3.2/§3.8: one lane's panel — lane100 at 6 % with a 1 pt inner border at 35 % (the lane card's radius, 12), its RIFF and NOTES cells (pad + OCT stepper), then its A–D row across the panel's inside width.
-    /// A solo-silenced lane's whole panel (tint, border, pads, steppers, OUT row) dims once to the page's 42 %.
+    /// CLARITY PASS §3.2/§3.8: one lane's panel — lane100 at 6 % with a 1 pt inner border at 35 % (the lane card's radius, 12) and its RIFF and NOTES cells (pad + OCT stepper).
+    /// PER-LAYER EMITTER ROUTING ferry §5.1: the lane's A–D OUT row is gone from MIX — routing lives on the RIFF/NOTES tabs now, and the pads take its room (§5.2). `mixOutRow` is kept (hidden), unused.
+    /// A solo-silenced lane's whole panel (tint, border, pads, steppers) dims once to the page's 42 %.
     private func mixLanePanel(lane: Int, grid: EuclideousMixGrid) -> AnyView {
         let accent = laneAccents[lane % laneAccents.count]
-        let panel = grid.panelFrame(lane: lane), out = grid.outRowFrame(lane: lane)
+        let panel = grid.panelFrame(lane: lane)
         let silenced = soloSilenced(lane)
         let radius = EuclideousMixMetrics.panelRadius
         return AnyView(
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: radius).fill(lane100(accent).opacity(0.06))
                 RoundedRectangle(cornerRadius: radius).strokeBorder(lane100(accent).opacity(0.35), lineWidth: 1)
-                // cell by cell, riff before notes, each pad before its stepper (handled by `mixCell`'s own internal VStack order), then the lane's A–D row
+                // cell by cell, riff before notes, each pad before its stepper (handled by `mixCell`'s own internal VStack order)
                 ForEach(0..<2, id: \.self) { n in
                     let notes = n == 1
                     let o = grid.origin(lane: lane, notes: notes)
@@ -6264,10 +6265,6 @@ struct EuclideousPage: View {
                         .offset(x: o.x - panel.minX, y: o.y - panel.minY)
                         .accessibilitySortPriority(Double(3 - n))
                 }
-                mixOutRow(lane: lane, width: out.width, height: grid.outRowH)
-                    .accessibilityValue(euclideousAppendSilencedBySolo("", silenced: silenced))
-                    .offset(x: out.minX - panel.minX, y: out.minY - panel.minY)
-                    .accessibilitySortPriority(1)
             }
             .frame(width: panel.width, height: panel.height, alignment: .topLeading)
             .opacity(silenced ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.3 / CLARITY PASS §3.8: the whole panel, once
@@ -6283,7 +6280,7 @@ struct EuclideousPage: View {
             let now = tl.date.timeIntervalSinceReferenceDate
             let p = euclideousPulseScale(level: pulseLevel)
             var pads: [EuclideousMixPulsePad] = []
-            var buttons: [EuclideousMixPulseButton] = []
+            let buttons: [EuclideousMixPulseButton] = []   // §5.1: the OUT row left MIX, so no OUT-button glows here any more
             if p > 0, grid.cellW > EuclideousMixMetrics.velStripW, grid.padH > EuclideousMixMetrics.gateStripH {
                 let geo = EuclideousMixPadGeometry(cellW: grid.cellW, padH: grid.padH)
                 for lane in 0..<min(4, lines.count) {
@@ -6299,13 +6296,7 @@ struct EuclideousPage: View {
                                                           fill: CGRect(x: geo.plot.minX, y: puck.y, width: max(0, puck.x - geo.plot.minX), height: max(0, geo.plotH - puck.y)),
                                                           colour: accent, velocity: Int(notes ? s.notesVel : s.riffVel), seconds: age))
                     }
-                    if let s = pulseFeed.latest(lane: lane, where: { $0.onsetAt <= now }), now - s.onsetAt <= euclideousPulseMaxAge {
-                        let mask = line.emitterMask ?? 0
-                        for b in 0..<4 where (mask >> UInt8(b)) & 1 != 0 && (mainOutMask >> UInt8(b)) & 1 != 0 {
-                            buttons.append(EuclideousMixPulseButton(rect: euclideousMixOutButtonFrame(grid: grid, lane: lane, button: b), colour: accent,
-                                                                    velocity: euclideousPulseRingVelocity(riffVel: Int(s.riffVel), notesVel: Int(s.notesVel)), seconds: now - s.onsetAt))
-                        }
-                    }
+                    // PER-LAYER EMITTER ROUTING ferry §5.1: the OUT row (and so its PULSE glow) left MIX — the output flare now lives on the RIFF/NOTES tabs' OUT circles (§2.4) and the header rings (§6.1).
                 }
             }
             return EuclideousMixPulseOverlay(pads: pads, buttons: buttons, scale: p, size: CGSize(width: width, height: height))

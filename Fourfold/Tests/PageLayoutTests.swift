@@ -164,19 +164,21 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertTrue(EuclideousRhythmGeometry.showsEndLabels(rowH: 38.67), "the reference row height")
         XCTAssertFalse(EuclideousRhythmGeometry.showsEndLabels(rowH: floor - 0.01))
     }
-    func testMixFairShareDropsTheStepperAndOutRowTogetherExactlyAtThePadFloor() {
-        // the fallback triggers when innerH − nominalBelowPad(52) < minPadH(64), i.e. innerH < 116 — pin both sides.
+    func testMixFairShareDropsTheStepperAtThePadFloor() {
+        // PER-LAYER ROUTING ferry §5.2: the OUT row left MIX, so nominalBelowPad is now sp4 + stepper = 28 (was 52) and
+        // only the OCT stepper can drop to its compact floor. The fallback triggers when innerH − 28 < minPadH(64), i.e.
+        // innerH < 92.
         func gridFor(innerH: CGFloat) -> EuclideousMixGrid {
             // innerH = (height − sp16)/2 − panelPad*2  ⇒  height = (innerH + panelPad*2) * 2 + sp16
             let height = (innerH + EuclideousMixMetrics.panelPad * 2) * 2 + EuclideousMixMetrics.sp16
             return euclideousMixGrid(width: 400, height: height)
         }
-        let atFloor = gridFor(innerH: 116)
-        XCTAssertEqual(atFloor.stepperH, 24, accuracy: 1e-9); XCTAssertEqual(atFloor.outRowH, 20, accuracy: 1e-9)
-        XCTAssertEqual(atFloor.padH, 64, accuracy: 1e-9, "innerH 116 − nominal 52 = 64, exactly minPadH — nominal, not compact")
-        let justUnder = gridFor(innerH: 115.99)
-        XCTAssertEqual(justUnder.stepperH, 18, accuracy: 1e-9); XCTAssertEqual(justUnder.outRowH, 14, accuracy: 1e-9)
-        XCTAssertEqual(justUnder.padH, 115.99 - 40, accuracy: 1e-9, "compact belowPad is 40 (4+18+4+14), buying 12pt back")
+        let atFloor = gridFor(innerH: 92)
+        XCTAssertEqual(atFloor.stepperH, 24, accuracy: 1e-9); XCTAssertEqual(atFloor.outRowH, 0, "the OUT row is gone from MIX")
+        XCTAssertEqual(atFloor.padH, 64, accuracy: 1e-9, "innerH 92 − nominal 28 = 64, exactly minPadH — nominal, not compact")
+        let justUnder = gridFor(innerH: 91.99)
+        XCTAssertEqual(justUnder.stepperH, 18, accuracy: 1e-9, "only the stepper drops now")
+        XCTAssertEqual(justUnder.padH, 91.99 - 22, accuracy: 1e-9, "compact belowPad is 22 (4 + 18), buying 6 pt back")
     }
     func testRiffGridAtBothReferences() {
         // RIFF PANEL ferry (2026-10-19) §1: the tabs are 20 tall, the grid starts at y 34, four 8pt rails (41) sit under it — rows (box − 119) / 8 = 25 / 25.08.
@@ -268,10 +270,10 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(mini.box.width, 355, accuracy: 1e-9); XCTAssertEqual(mini.box.height, 274, accuracy: 1e-9)
         let area = euclideousMixGridArea(panelWidth: 355, panelHeight: 274)
         let g = euclideousMixGrid(width: area.width, height: area.height)
-        // Floors ferry: the nominal 52pt split would leave padH 47 (< minPadH 64), so the stepper/OUT row
-        // drop to their compact floors (18/14), buying the pad back 12pt to 59 — cellW is untouched.
-        XCTAssertEqual(g.padH, 59, accuracy: 1e-9); XCTAssertEqual(g.cellW, 74.75, accuracy: 1e-9)
-        XCTAssertEqual(g.stepperH, 18, accuracy: 1e-9); XCTAssertEqual(g.outRowH, 14, accuracy: 1e-9)
+        // PER-LAYER ROUTING ferry §5.2: with the OUT row gone the pad has room here — nominal padH 71 (innerH 99 − 28)
+        // is above minPadH 64, so no compact fallback; the stepper stays 24 and cellW is untouched.
+        XCTAssertEqual(g.padH, 71, accuracy: 1e-9); XCTAssertEqual(g.cellW, 74.75, accuracy: 1e-9)
+        XCTAssertEqual(g.stepperH, 24, accuracy: 1e-9); XCTAssertEqual(g.outRowH, 0, accuracy: 1e-9)
         // Floors ferry: nominal rowH would be 19.375 (chrome 119) but that's under minRowH (24), so the tab
         // row drops to its compact floor (14) and chrome shrinks to 113, buying rowH back to 20.125.
         let miniRiffLayout = euclideousRiffPanelLayout(box: CGSize(width: 355, height: 274))
@@ -284,15 +286,18 @@ final class PageLayoutTests: XCTestCase {
         // .riffDirectionRow no longer flags here, exactly the fallback's intended effect.
         XCTAssertFalse(r.showWalkStrip); XCTAssertEqual(r.directionRowHeight, 44, accuracy: 1e-9)
         let f = Set(mini.floors)
-        XCTAssertTrue(f.isSuperset(of: [.mixCellW, .mixPadH, .rhythmZones, .riffRowA]), "\(f)")
+        XCTAssertTrue(f.isSuperset(of: [.mixCellW, .rhythmZones, .riffRowA]), "\(f)")
         XCTAssertFalse(f.contains(.riffDirectionRow), "the WALK-strip-drop fallback resolves this at 44pt, clear of the 32pt floor")
-        XCTAssertFalse(f.contains(.mixPadHStop), "the fair-share fallback buys padH back to 59, clear of the 48pt stop-floor")
+        // PER-LAYER ROUTING ferry §5.2: dropping the OUT row lifts this mini pad to 71pt — now clear of BOTH the 64 floor and the 48 stop.
+        XCTAssertFalse(f.contains(.mixPadH), "padH 71 ≥ minPadH 64 now the OUT row is gone"); XCTAssertFalse(f.contains(.mixPadHStop))
         XCTAssertTrue(f.contains(.riffRows), "20.1 (even after the tab-row fair-share gives it back 0.75) is still under 24"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
         // windowed AUM panels
         let wl = euclideousPageLayout(size: CGSize(width: 900, height: 600))
         XCTAssertEqual(wl.headerKind, .b, "868 wide: B, boxes start at 111")
         XCTAssertEqual(wl.box.width, 284, accuracy: 1e-9); XCTAssertEqual(wl.box.height, 232.5, accuracy: 1e-9)
-        XCTAssertTrue(Set(wl.floors).isSuperset(of: [.mixCellW, .mixPadHStop, .rhythmZones, .riffRows, .fxRows]), "\(wl.floors)")
+        // §5.2: at this windowed size the pad is 56.25 — under the 64 floor (`.mixPadH`) but no longer under the 48 stop (`.mixPadHStop`), the OUT row's room reclaimed.
+        XCTAssertTrue(Set(wl.floors).isSuperset(of: [.mixCellW, .mixPadH, .rhythmZones, .riffRows, .fxRows]), "\(wl.floors)")
+        XCTAssertFalse(Set(wl.floors).contains(.mixPadHStop))
         let wp = euclideousPageLayout(size: CGSize(width: 700, height: 900))   // 600 → 650 (LANE LOCK ferry §2.2): B's floor rose ≈564 → ≈616 · 650 → 700 (FOURFOLD REEL LINK 2026-10-23): → ≈660, so a 650-wide portrait view is layout C now
         XCTAssertEqual(wp.headerKind, .b); XCTAssertEqual(wp.box.width, 330, accuracy: 1e-9); XCTAssertEqual(wp.box.height, (900 - 111 - 32) / 3, accuracy: 1e-9)
         XCTAssertFalse(wp.floors.isEmpty)

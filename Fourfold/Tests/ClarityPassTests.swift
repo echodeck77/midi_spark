@@ -200,14 +200,9 @@ final class ClarityPassTests: XCTestCase {
                 XCTAssertEqual(notes.minX - riff.maxX, 4, accuracy: 1e-9, "RIFF then NOTES, sp4 apart")
                 XCTAssertEqual(riff.minX - panel.minX, 4, accuracy: 1e-9); XCTAssertEqual(panel.maxX - notes.maxX, 4, accuracy: 1e-9, "padding sp4")
                 XCTAssertEqual(riff.minY - panel.minY, 4, accuracy: 1e-9)
-                let out = g.outRowFrame(lane: lane)
-                XCTAssertEqual(out.minY, riff.maxY + 4 + EuclideousMixMetrics.stepperH + 4, accuracy: 1e-9, "pad, sp4, OCT stepper, sp4, OUT row")
-                XCTAssertEqual(out.maxY, panel.maxY - 4, accuracy: 1e-9, "the OUT row ends at the panel's bottom padding")
-                XCTAssertEqual(out.minX, panel.minX + 4, accuracy: 1e-9); XCTAssertEqual(out.width, panel.width - 8, accuracy: 1e-9, "across the panel's width")
-                XCTAssertEqual(out.height, 20)
-                let btns = (0..<4).map { euclideousMixOutButtonFrame(grid: g, lane: lane, button: $0) }
-                XCTAssertEqual(btns[0].minX, out.minX, accuracy: 1e-9); XCTAssertEqual(btns[3].maxX, out.maxX, accuracy: 1e-9)
-                for b in 0..<3 { XCTAssertEqual(btns[b + 1].minX - btns[b].maxX, 4, accuracy: 1e-9) }
+                // PER-LAYER ROUTING ferry §5.2: the OUT row is gone — the pad + sp4 + OCT stepper now fill down to the panel's bottom padding.
+                XCTAssertEqual(riff.maxY + 4 + EuclideousMixMetrics.stepperH, panel.maxY - 4, accuracy: 1e-9, "pad, sp4, OCT stepper, then the panel's bottom padding — no OUT row")
+                XCTAssertEqual(g.outRowH, 0, "the OUT row left MIX")
             }
         }
     }
@@ -219,25 +214,30 @@ final class ClarityPassTests: XCTestCase {
             let g = euclideousMixGrid(width: a.width, height: a.height)
             let oldCellW = (a.width - 16) / 4, oldPadH = (a.height - 8) / 2 - 52
             XCTAssertEqual(g.cellW, oldCellW - 6, accuracy: 1e-9, "exactly what sp4 padding + sp16 gaps cost in width")
-            XCTAssertEqual(g.padH, oldPadH - 12, accuracy: 1e-9, "… and in height")
+            // PER-LAYER ROUTING ferry §5.2: the CLARITY PASS's −12 height cost is more than repaid by dropping the OUT
+            // row (20) + its sp4, so the pad is now 12 pt TALLER than the old pre-CLARITY pad.
+            XCTAssertEqual(g.padH, oldPadH + 12, accuracy: 1e-9)
             let geo = EuclideousMixPadGeometry(cellW: g.cellW, padH: g.padH)
             XCTAssertGreaterThan(geo.plotW, oldCellW - 24, "removing the VEL strip gives the plot more width than the old pad's plot had")
             XCTAssertEqual(geo.plotW, g.cellW, "the plot spans the whole pad")
             XCTAssertFalse(g.belowFloors, "both references still clear the (shifted) floors")
         }
-        // the numbers the report quotes
+        // the numbers the report quotes (padH = 69.5/69.83 + 24, the OUT row's room reclaimed)
         let l = euclideousPageLayout(size: landscapeRef).box, a = euclideousMixGridArea(panelWidth: l.width, panelHeight: l.height)
         let g = euclideousMixGrid(width: a.width, height: a.height)
-        XCTAssertEqual(g.cellW, 81.17, accuracy: 0.01); XCTAssertEqual(g.padH, 69.5, accuracy: 0.01)
+        XCTAssertEqual(g.cellW, 81.17, accuracy: 0.01); XCTAssertEqual(g.padH, 93.5, accuracy: 0.01)
         let p = euclideousPageLayout(size: portraitRef).box, pa = euclideousMixGridArea(panelWidth: p.width, panelHeight: p.height)
         let pg = euclideousMixGrid(width: pa.width, height: pa.height)
-        XCTAssertEqual(pg.cellW, 82.75, accuracy: 0.01); XCTAssertEqual(pg.padH, 69.83, accuracy: 0.01)
+        XCTAssertEqual(pg.cellW, 82.75, accuracy: 0.01); XCTAssertEqual(pg.padH, 93.83, accuracy: 0.01)
     }
     func testTheFloorsMoveByTheSpacingCostSoTheReferencesStillClearAndSmallPanelsStillFlag() {
         XCTAssertEqual(EuclideousMixMetrics.minCellW, 79, "the pure −6 shift (78) plus the 1 pt \"OCT +1\" needs between 21 pt buttons"); XCTAssertEqual(EuclideousMixMetrics.minPadH, 64); XCTAssertEqual(EuclideousMixMetrics.floorPadH, 48)
         XCTAssertFalse(euclideousPageLayout(size: landscapeRef).floors.contains(.mixCellW)); XCTAssertFalse(euclideousPageLayout(size: portraitRef).floors.contains(.mixPadH))
         let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 636))
-        XCTAssertTrue(mini.floors.contains(.mixCellW) && mini.floors.contains(.mixPadH), "an 8.3-inch iPad mini's box still raises the flags")
+        // PER-LAYER ROUTING ferry §5.2: with the OUT row gone the mini pad clears the 64 floor (65.25), so only the
+        // narrow cellW still flags here — the mini's pad is no longer cramped in height.
+        XCTAssertTrue(mini.floors.contains(.mixCellW), "an 8.3-inch iPad mini's box still raises the width flag")
+        XCTAssertFalse(mini.floors.contains(.mixPadH), "its pad is tall enough now the OUT row is gone")
     }
 
     func testTheOctaveStepperStillFitsOctPlusItsValueBetweenItsButtonsAtEveryPadWidthTheFloorAllows() {
