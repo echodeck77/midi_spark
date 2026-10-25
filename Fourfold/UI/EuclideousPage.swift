@@ -2033,10 +2033,13 @@ struct EuclideousPage: View {
             // PER-LAYER ROUTING ferry §6.1: a quarter flares on output b only for a LAYER that both routes to b (and is on)
             // AND actually struck. Either layer counts — if both, the louder of the two that route here drives the envelope.
             guard lane < lines.count, let s = pulseFeed.latest(lane: lane, where: { $0.onsetAt <= now }) else { return 0 }
-            let l = lines[lane]
+            // ALT §8.3: a quarter flares when a struck layer routes to b through EITHER its MAIN or (mode-using) ALT mask.
+            let eff = euclideousEffectiveRouting(lines[lane])
+            // link-aware + ALT (mode-using) + the Display nil⇒A-D rule (a no-mask part plays A–D).
+            func lit(_ pr: EuclideousPartRouting) -> Bool { (((pr.mainMask ?? 0x0F) | (pr.alt.mode.usesAlt ? pr.alt.altMask : 0)) >> UInt8(b)) & 1 != 0 }
             var vel = 0
-            if l.riffOnResolved, (l.riffOutMaskDisplay >> UInt8(b)) & 1 != 0 { vel = max(vel, Int(s.riffVel)) }
-            if l.notesOnResolved, (l.notesOutMaskDisplay >> UInt8(b)) & 1 != 0 { vel = max(vel, Int(s.notesVel)) }
+            if lines[lane].riffOnResolved, lit(eff.riff) { vel = max(vel, Int(s.riffVel)) }
+            if lines[lane].notesOnResolved, lit(eff.notes) { vel = max(vel, Int(s.notesVel)) }
             guard vel > 0 else { return 0 }
             return euclideousPulseEnvelopes(velocity: vel, seconds: now - s.onsetAt, scale: p).f
         }
@@ -3994,6 +3997,9 @@ struct EuclideousPage: View {
         let a = pr.alt                                   // the effective ALT params shown
         let sourceName = part == .riff ? "RIFF" : "NOTES", otherName = part == .riff ? "NOTES" : "RIFF"
         let isRiff = part == .riff
+        // §7.2 the live bars: lit while the transport runs and this part plays (the exact per-hit MAIN/ALT split is
+        // device-owed, §7.1 — this shows which groups are in play).
+        let partPlays = clock.playing && (part == .riff ? line.riffOnResolved : line.notesOnResolved)
         func place<V: View>(_ r: CGRect, @ViewBuilder _ v: () -> V) -> some View { v().frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY) }
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x1B1D23))
@@ -4012,8 +4018,8 @@ struct EuclideousPage: View {
             place(lay.closeButton) { altCloseButton(idx) }
             // §3.2 GROUPS
             place(lay.groupsWell) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)).overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x262930), lineWidth: 1)) }
-            altGroupRow(idx, label: "MAIN", bar: lay.mainBar, labelRect: lay.mainLabel, circles: lay.mainCircles, mask: pr.mainMask ?? 0, accent: accent, altRow: false, dimmed: false, editPart: editPart)
-            altGroupRow(idx, label: "ALT", bar: lay.altBar, labelRect: lay.altLabel, circles: lay.altCircles, mask: a.altMask, accent: accent, altRow: true, dimmed: !a.mode.usesAlt, editPart: editPart)
+            altGroupRow(idx, label: "MAIN", bar: lay.mainBar, labelRect: lay.mainLabel, circles: lay.mainCircles, mask: pr.mainMask ?? 0, accent: accent, altRow: false, dimmed: false, barLit: partPlays, editPart: editPart)
+            altGroupRow(idx, label: "ALT", bar: lay.altBar, labelRect: lay.altLabel, circles: lay.altCircles, mask: a.altMask, accent: accent, altRow: true, dimmed: !a.mode.usesAlt, barLit: partPlays && a.mode.usesAlt, editPart: editPart)
             // §3.4 MODE SELECTOR
             place(lay.selectorWell) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)) }
             ForEach(0..<min(10, lay.modeSegments.count), id: \.self) { i in
@@ -4059,10 +4065,10 @@ struct EuclideousPage: View {
         }
     }
     /// §3.2 one group row: a live bar (step 6 makes it live; static #2A2D34 here), a label, and four A–D circles.
-    private func altGroupRow(_ idx: Int, label: String, bar: CGRect, labelRect: CGRect, circles: [CGRect], mask: UInt8, accent: Color, altRow: Bool, dimmed: Bool, editPart: EuclideousOutPart) -> some View {
+    private func altGroupRow(_ idx: Int, label: String, bar: CGRect, labelRect: CGRect, circles: [CGRect], mask: UInt8, accent: Color, altRow: Bool, dimmed: Bool, barLit: Bool, editPart: EuclideousOutPart) -> some View {
         let names = ["A", "B", "C", "D"]
         return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 1.5).fill(Color(hex: 0x2A2D34)).frame(width: bar.width, height: bar.height).offset(x: bar.minX, y: bar.minY)
+            RoundedRectangle(cornerRadius: 1.5).fill(barLit ? lane100(accent) : Color(hex: 0x2A2D34)).frame(width: bar.width, height: bar.height).offset(x: bar.minX, y: bar.minY)
             Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).kerning(0.08 * 11).foregroundColor(Color(hex: 0xF2F4F7))
                 .frame(width: labelRect.width, height: labelRect.height, alignment: .leading).offset(x: labelRect.minX, y: labelRect.minY).accessibilityHidden(true)
             ForEach(0..<4, id: \.self) { b in
@@ -4170,10 +4176,14 @@ struct EuclideousPage: View {
     /// the main out is off, this layer didn't strike, or PULSE is off. Mirrors `ringFlare` but uses ONE layer's velocity.
     private func outColumnFlares(_ idx: Int, part: EuclideousOutPart, now: Double) -> [Double] {
         let p = euclideousPulseScale(level: pulseLevel)
-        let mask: UInt8 = idx < lines.count ? (part == .riff ? lines[idx].riffOutMaskDisplay : lines[idx].notesOutMaskDisplay) : 0
-        guard p > 0, let s = pulseFeed.latest(lane: idx, where: { $0.onsetAt <= now }) else { return [0, 0, 0, 0] }
+        guard p > 0, idx < lines.count, let s = pulseFeed.latest(lane: idx, where: { $0.onsetAt <= now }) else { return [0, 0, 0, 0] }
         let vel = part == .riff ? Int(s.riffVel) : Int(s.notesVel)
         guard vel > 0 else { return [0, 0, 0, 0] }
+        // ALT §7.1: flare the part's EFFECTIVE lit outputs — MAIN (nil ⇒ A-D, the Display rule) plus the ALT group while
+        // the mode uses it — so an ALT output flashes when the layer strikes. (The exact per-hit MAIN-vs-ALT split is
+        // device-owed: the feed carries no per-hit group and the pitch/set modes can't be re-derived UI-side — §7.1.)
+        let pr = part == .riff ? euclideousEffectiveRouting(lines[idx]).riff : euclideousEffectiveRouting(lines[idx]).notes
+        let mask = (pr.mainMask ?? 0x0F) | (pr.alt.mode.usesAlt ? pr.alt.altMask : 0)
         let f = euclideousPulseEnvelopes(velocity: vel, seconds: now - s.onsetAt, scale: p).f
         return (0..<4).map { b in ((mask >> UInt8(b)) & 1 != 0 && (mainOutMask >> UInt8(b)) & 1 != 0) ? f : 0 }
     }

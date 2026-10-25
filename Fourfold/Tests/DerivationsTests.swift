@@ -69,6 +69,22 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNotEqual(euclideousAltChanceRoll(lane: 1, part: 0, h: 7), euclideousAltChanceRoll(lane: 1, part: 1, h: 7), "riff and notes roll apart")
         _ = seq   // (helper kept for readability of the pass structure above)
     }
+    // §8.1 (test 7): the header quarter-lit mask counts a part's effective MAIN plus its effective ALT while the mode
+    // uses alt — and nothing while the part is off or the mode is OFF/ROBIN/SPREAD.
+    func testAltHeaderLaneMasksCountTheAltGroupWhenTheModeUsesIt() {
+        var l = EuclidLine(pulses: 3, steps: 8); l.riffOutMask = 0b0001; l.notesOutMask = 0b0000; l.notesOn = false
+        // riff MAIN A, no ALT mode ⇒ just A
+        XCTAssertEqual(euclideousLaneMasks([l])[0], 0b0001)
+        // riff HITS with ALT B ⇒ A | B (the mode uses alt)
+        l.setAltMode(.riff, .hits); l.riffAlt?.altMask = 0b0010
+        XCTAssertEqual(euclideousLaneMasks([l])[0], 0b0011, "HITS lights MAIN A + ALT B")
+        // ROBIN does NOT add the ALT mask (it distributes across MAIN)
+        l.setAltMode(.riff, .robin)
+        XCTAssertEqual(euclideousLaneMasks([l])[0], 0b0001, "ROBIN lights only MAIN")
+        // riff OFF ⇒ nothing, whatever the ALT mode
+        l.setAltMode(.riff, .hits); l.riffOn = false
+        XCTAssertEqual(euclideousLaneMasks([l])[0], 0b0000, "a part that is off lights nothing")
+    }
     // §4.4 the effective routing: a follower adopts the leader's MAIN + ALT; leadPartId becomes the leader's.
     func testAltEffectiveRoutingResolvesTheLink() {
         var l = EuclidLine(pulses: 3, steps: 8); l.riffOutMask = 0b0001; l.notesOutMask = 0b0010

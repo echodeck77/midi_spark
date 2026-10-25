@@ -3976,18 +3976,20 @@ func euclideousKeySpokenName(root: Int, type: ScaleType) -> String {
     return "\(roots[((root % 12) + 12) % 12]) \(scale)"
 }
 
-/// PER-LAYER EMITTER ROUTING ferry §6.1: each lane's OUTPUT-LIT mask for the header rings (and the settings sheet's
-/// mini MAIN OUT rings, which mirror them). A quarter lights when the lane's RIFF routes there AND the riff is on
-/// (`riffOnResolved`), OR its NOTES route there AND the notes are on (`notesOnResolved`). Before this ferry this was
-/// the single raw `emitterMask`; the rings are per-part now, and §3.3 says nothing else surfaces that one mask.
-/// Padded/truncated to 4.
+/// Each lane's OUTPUT-LIT mask for the header rings (and the settings sheet's mini MAIN OUT rings). A quarter lights
+/// when a part is ON and its EFFECTIVE MAIN mask contains the output (per-layer ferry §6.1), OR — ALT ferry §8.1 —
+/// its EFFECTIVE ALT mask contains it while its effective mode USES alt. Link-aware (a follower counts the leader's
+/// routing, §4.4). ALT OFF ⇒ no ALT bits ⇒ byte-identical to the per-layer build. Padded/truncated to 4.
 func euclideousLaneMasks(_ lines: [EuclidLine]) -> [UInt8] {
     (0..<4).map { i -> UInt8 in
         guard i < lines.count else { return 0 }
-        let l = lines[i]
-        let riff: UInt8 = l.riffOnResolved ? l.riffOutMaskDisplay : 0
-        let notes: UInt8 = l.notesOnResolved ? l.notesOutMaskDisplay : 0
-        return riff | notes
+        // link-aware (a follower counts the leader's, §4.4) + the Display nil⇒A-D rule (a no-mask part plays A–D) + ALT.
+        let eff = euclideousEffectiveRouting(lines[i])
+        func lit(_ pr: EuclideousPartRouting, on: Bool) -> UInt8 {
+            guard on else { return 0 }
+            return (pr.mainMask ?? 0x0F) | (pr.alt.mode.usesAlt ? pr.alt.altMask : 0)
+        }
+        return lit(eff.riff, on: lines[i].riffOnResolved) | lit(eff.notes, on: lines[i].notesOnResolved)
     }
 }
 
