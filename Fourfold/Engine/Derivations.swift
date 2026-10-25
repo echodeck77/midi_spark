@@ -2500,34 +2500,39 @@ func euclideousOutCircleState(routed: Bool, mainOn: Bool) -> EuclideousOutCircle
     return mainOn ? .routed : .routedMainOff
 }
 
-/// §1–§2: the OUT column's own internal layout, in column-LOCAL coordinates (y from 0 at the column's top). The
-/// column is 32 wide and spans the tab's whole content height (both zones and the gap between them, §1.2). Top to
-/// bottom: the "OUT" caption on a 12 pt line, sp4, then four A–D targets stacked, each 44 tall but SHRINKING equally
-/// to a 36 pt floor when the column is too short (§2.1). At the reference (height 208) this yields targets at local
-/// y 16 / 60 / 104 / 148 — i.e. card y 110 / 154 / 198 / 242 once the column's own card-y-94 origin is added (ferry
-/// test 9). NOTE a spec-internal discrepancy, reported in §12: §2.1 calls the block "centred in 208 (8 pt above and
-/// below)", but test 9's explicit y 110… is reproduced only by TOP-aligning the caption at the column top and capping
-/// targets at 44 (16 pt of slack falls at the bottom). Test 9's concrete coordinates win over §2.1's loose adjective.
+/// ALT ferry §1.1: the OUT column's own internal layout, in column-LOCAL coordinates (y from 0 at the column's top).
+/// The column is 32 wide and spans the tab's whole content height. Top to bottom (§1.1, filling the column — the
+/// earlier emitter-circles layout left ~29 pt of slack under D, §0.3(c)): the "OUT" caption on a 12 pt line, a 2 pt
+/// gap, four A–D targets each 32 × 40 (SHRINKING equally to a 36 pt floor when the column is short), a 2 pt gap, then
+/// the ALT target 32 × 32. At the reference (height 208) this yields card y: caption 94–106, targets 108/148/188/228
+/// (40 tall), ALT 270–302 (test 9). The circles keep their 28 pt size centred in their 32×40 targets; the ALT button
+/// (30 × 28, §1.2) centres in the 32×32 ALT target.
 struct EuclideousOutColumnLayout: Equatable {
     static let width: CGFloat = 32
     static let captionH: CGFloat = 12
-    static let targetMaxH: CGFloat = 44
+    static let gap: CGFloat = 2            // §1.1: the 2 pt gaps above the A target and above the ALT target
+    static let targetMaxH: CGFloat = 40
     static let targetFloorH: CGFloat = 36
+    static let altH: CGFloat = 32
     var caption: CGRect
     var targets: [CGRect]          // A, B, C, D top to bottom
-    var rule: CGRect               // the 1 pt leading-edge rule, inset 4 pt top and bottom (§1.2: card y 98–298)
+    var alt: CGRect                // the ALT button's target, under D
+    var rule: CGRect               // the 1 pt leading-edge rule, inset 4 pt top and bottom (§1.2 / §0.3(b): card y 98–298)
     var targetH: CGFloat
     var underFloor: Bool
 }
-func euclideousOutColumnLayout(height: CGFloat, width: CGFloat = EuclideousOutColumnLayout.width, sp4: CGFloat = 4) -> EuclideousOutColumnLayout {
+func euclideousOutColumnLayout(height: CGFloat, width: CGFloat = EuclideousOutColumnLayout.width) -> EuclideousOutColumnLayout {
     typealias L = EuclideousOutColumnLayout
-    let avail = max(1, height - L.captionH - sp4)
+    // the four circle targets take whatever is left after the caption, the two 2 pt gaps and the 32 pt ALT target
+    let avail = max(1, height - L.captionH - L.gap - L.gap - L.altH)
     let th = min(L.targetMaxH, max(L.targetFloorH, avail / 4))
-    let top = L.captionH + sp4
+    let top = L.captionH + L.gap
     var targets: [CGRect] = []
     for i in 0..<4 { targets.append(CGRect(x: 0, y: top + CGFloat(i) * th, width: width, height: th)) }
+    let altY = top + 4 * th + L.gap
     return L(caption: CGRect(x: 0, y: 0, width: width, height: L.captionH),
              targets: targets,
+             alt: CGRect(x: 0, y: altY, width: width, height: L.altH),
              rule: CGRect(x: 0, y: 4, width: 1, height: max(1, height - 8)),
              targetH: th, underFloor: avail / 4 < L.targetFloorH)
 }

@@ -4572,15 +4572,15 @@ struct EuclideousPage: View {
                 .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
                 .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lit && lockOn(idx, .riffDirection)))
             }
-            // Paul, 2026-10-22: "Change INV to read Invert melody" — the visible label itself, not just
-            // the spoken value (which already said as much via its own descriptive phrase). 10pt (the
-            // house floor — "nothing under 10pt," §4.6) rather than the chevrons' 13: "Invert melody" is
-            // long for this row's now-four-way split; it truncates rather than shrinks if a card is
-            // narrow, the same house rule every other label on this tab already accepts.
-            melodyButton("Invert melody", on: line.riffInvertResolved, accent: accent, height: height, fontSize: 10, cornerRadius: 7,
+            // ALT ferry §0.3(a) (Paul, 2026-10-25) SUPERSEDES the 2026-10-22 "Change INV to read Invert melody":
+            // at the emitter-circles-narrowed width (49.125pt buttons) "Invert melody" at 10pt truncated to
+            // "Invert…" in a lighter mixed-case face. Back to "INV" in the chevrons' OWN type (13pt, the face/
+            // weight/case `<` `><` `>` use), as the RIFF ferry's 2.3 meant; VoiceOver stays "Invert the riff"
+            // (RIFF ferry 9.3). The setter/undo/selected state are unchanged.
+            melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: height, fontSize: 13, cornerRadius: 7,
                          help: "Flip the riff upside down in pitch", lane: idx, outline: lockOn(idx, .riffInvert)) { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Invert melody")
+                .accessibilityLabel("Invert the riff")
                 .accessibilityValue(lockSpoken(idx, .riffInvert, ""))
                 .accessibilityAddTraits(line.riffInvertResolved ? [.isButton, .isSelected] : .isButton)
         }
