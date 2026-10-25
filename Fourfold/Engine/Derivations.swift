@@ -3786,9 +3786,19 @@ func euclideousKeySpokenName(root: Int, type: ScaleType) -> String {
     return "\(roots[((root % 12) + 12) % 12]) \(scale)"
 }
 
-/// The four lanes' own emitter masks (the ones `laneOutRow` edits: nil = 0 = routed nowhere), padded/truncated to 4.
+/// PER-LAYER EMITTER ROUTING ferry §6.1: each lane's OUTPUT-LIT mask for the header rings (and the settings sheet's
+/// mini MAIN OUT rings, which mirror them). A quarter lights when the lane's RIFF routes there AND the riff is on
+/// (`riffOnResolved`), OR its NOTES route there AND the notes are on (`notesOnResolved`). Before this ferry this was
+/// the single raw `emitterMask`; the rings are per-part now, and §3.3 says nothing else surfaces that one mask.
+/// Padded/truncated to 4.
 func euclideousLaneMasks(_ lines: [EuclidLine]) -> [UInt8] {
-    (0..<4).map { $0 < lines.count ? (lines[$0].emitterMask ?? 0) : 0 }
+    (0..<4).map { i -> UInt8 in
+        guard i < lines.count else { return 0 }
+        let l = lines[i]
+        let riff: UInt8 = l.riffOnResolved ? (l.riffOutMaskResolved ?? 0) : 0
+        let notes: UInt8 = l.notesOnResolved ? (l.notesOutMaskResolved ?? 0) : 0
+        return riff | notes
+    }
 }
 
 // ── output rings ────────────────────────────────────────────────────────────────────────────────────
@@ -3815,6 +3825,29 @@ func euclideousOutputRingState(output: Int, laneMasks: [UInt8], mainOutMask: UIn
     return EuclideousOutputRingState(mode: on ? (lit.contains(true) ? .onRouted : .onUnrouted) : .off, lit: lit)
 }
 
+/// PER-LAYER ROUTING ferry §6.3 / test 7: the header ring's VoiceOver label, naming which PART of each lane feeds the
+/// output — "Main out A, on, fed by lane 1 riff and notes, and lane 4 riff" (or "…, fed by no lanes"). A part feeds the
+/// output when it routes there (§6.1: and its own layer is on).
+func euclideousOutputRingAccessibilityLabel(output: Int, lines: [EuclidLine], mainOutMask: UInt8) -> String {
+    let name = ["A", "B", "C", "D"][output]
+    let on = (mainOutMask >> UInt8(output)) & 1 != 0
+    var feeders: [String] = []
+    for lane in 0..<4 where lane < lines.count {
+        let l = lines[lane]
+        let riff = l.riffOnResolved && ((l.riffOutMaskResolved ?? 0) >> UInt8(output)) & 1 != 0
+        let notes = l.notesOnResolved && ((l.notesOutMaskResolved ?? 0) >> UInt8(output)) & 1 != 0
+        guard riff || notes else { continue }
+        feeders.append("lane \(lane + 1) " + (riff && notes ? "riff and notes" : (riff ? "riff" : "notes")))
+    }
+    let fed: String
+    switch feeders.count {
+    case 0: fed = "no lanes"
+    case 1: fed = feeders[0]
+    default: fed = feeders.dropLast().joined(separator: ", ") + ", and " + feeders[feeders.count - 1]
+    }
+    return "Main out \(name), \(on ? "on" : "off"), fed by \(fed)"
+}
+
 enum EuclideousOutputCue: Equatable { case none, dim }
 enum EuclideousOutputCueMode { case pulse, trace }
 /// What each LANE CARD shows for output `output` (RESTART CHAINS ferry §10: the RING half of this moved to
@@ -3828,16 +3861,32 @@ func euclideousOutputCues(output: Int, laneMasks: [UInt8], mode: EuclideousOutpu
         return mode == .trace ? .dim : .none
     }
 }
-/// §10.2/§10.3 — where the ring for output `output` goes, PULSE or TRACE alike: one ring per routed lane's
-/// OWN MIX OUT button when the bottom-right panel is showing MIX; otherwise ONE ring around the MIX tab
-/// itself (drawn once, however many lanes are routed) — never both. No lane routed to `output` ⇒ no ring at
-/// all (§10.2's own "if no lane is routed to X, there is no ring"); a layout where the panel isn't on screen
-/// ⇒ no ring either (§10.5 — the caller simply never calls this when the panel is absent).
-enum EuclideousOutputRingTarget: Equatable { case mixOutButton(lane: Int), mixTab }
-func euclideousOutputRingTargets(output: Int, laneMasks: [UInt8], panelShowsMix: Bool) -> [EuclideousOutputRingTarget] {
-    let routedLanes = (0..<4).filter { lane in lane < laneMasks.count && (laneMasks[lane] >> UInt8(output)) & 1 != 0 }
-    guard !routedLanes.isEmpty else { return [] }
-    return panelShowsMix ? routedLanes.map { .mixOutButton(lane: $0) } : [.mixTab]
+/// PER-LAYER EMITTER ROUTING ferry §6.2 (replaces the RESTART CHAINS ferry's §10.2/§10.3 MIX-button/MIX-tab
+/// targeting — pulse and trace now point at the RIFF/NOTES tabs' own OUT circles, where routing lives). For output
+/// `output`, one ring per lane that COUNTS for X (§6.1: riff routes X ∧ riff on, OR notes routes X ∧ notes on). Which
+/// target in that lane:
+///   • the lane card is showing RIFF and the riff routes to X → the RIFF tab's X circle;
+///   • showing NOTES and the notes route to X → the NOTES tab's X circle;
+///   • otherwise → the RIFF tab CELL if the riff routes to X, else the NOTES tab cell (§6.2's "tab cell" = that
+///     lane's tab-row chip). No lane counts ⇒ no ring.
+enum EuclideousOutputRingTarget: Equatable {
+    case riffCircle(lane: Int), notesCircle(lane: Int), riffTabCell(lane: Int), notesTabCell(lane: Int)
+}
+func euclideousOutputRingTargets(output: Int, lines: [EuclidLine], laneTabs: [EuclideousTabKind]) -> [EuclideousOutputRingTarget] {
+    var out: [EuclideousOutputRingTarget] = []
+    for lane in 0..<4 {
+        guard lane < lines.count else { continue }
+        let l = lines[lane]
+        let riffRoutes = l.riffOnResolved && ((l.riffOutMaskResolved ?? 0) >> UInt8(output)) & 1 != 0
+        let notesRoutes = l.notesOnResolved && ((l.notesOutMaskResolved ?? 0) >> UInt8(output)) & 1 != 0
+        guard riffRoutes || notesRoutes else { continue }   // §6.1 "counts for X"
+        let tab = lane < laneTabs.count ? laneTabs[lane] : .rhythm
+        if tab == .riff && riffRoutes { out.append(.riffCircle(lane: lane)) }
+        else if tab == .notes && notesRoutes { out.append(.notesCircle(lane: lane)) }
+        else if riffRoutes { out.append(.riffTabCell(lane: lane)) }
+        else { out.append(.notesTabCell(lane: lane)) }
+    }
+    return out
 }
 
 // ── ring flare ──────────────────────────────────────────────────────────────────────────────────────

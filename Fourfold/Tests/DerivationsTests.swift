@@ -1994,22 +1994,42 @@ final class DerivationsTests: XCTestCase {
         let all: [UInt8] = [0b1000, 0b1000, 0b1000, 0b1000]
         XCTAssertFalse(euclideousOutputCues(output: 3, laneMasks: all, mode: .trace).contains(.dim), "every lane routed: none dim")
     }
-    // §10.2/§18 — "Trace targets... each lane dims or not, and the ring goes on its MIX OUT button when MIX
-    // is showing, or once on the MIX tab otherwise." Cover no lane routed (no ring either) and every lane
-    // routed (one ring per lane when MIX shows, one ring total on the tab otherwise).
-    func testFourfoldRingTargetsGoOnMixButtonsWhenMixShowsOrOnceOnTheTabOtherwise() {
-        let masks: [UInt8] = [0b0001, 0b0010, 0b0010, 0b0001]   // lanes 0,3 → A; lanes 1,2 → B
-        XCTAssertEqual(euclideousOutputRingTargets(output: 0, laneMasks: masks, panelShowsMix: true),
-                       [.mixOutButton(lane: 0), .mixOutButton(lane: 3)], "MIX showing: one ring per routed lane's own button")
-        XCTAssertEqual(euclideousOutputRingTargets(output: 0, laneMasks: masks, panelShowsMix: false),
-                       [.mixTab], "another tab showing: ONE ring on the MIX tab, however many lanes are routed")
-        XCTAssertEqual(euclideousOutputRingTargets(output: 2, laneMasks: masks, panelShowsMix: true), [],
-                       "no lane routed to C: no ring at all, MIX showing")
-        XCTAssertEqual(euclideousOutputRingTargets(output: 2, laneMasks: masks, panelShowsMix: false), [],
-                       "no lane routed to C: no ring at all, another tab showing")
-        let all: [UInt8] = [0b1000, 0b1000, 0b1000, 0b1000]
-        XCTAssertEqual(euclideousOutputRingTargets(output: 3, laneMasks: all, panelShowsMix: true).count, 4, "every lane routed, MIX showing: 4 rings")
-        XCTAssertEqual(euclideousOutputRingTargets(output: 3, laneMasks: all, panelShowsMix: false), [.mixTab], "every lane routed, another tab showing: still just the one tab ring")
+    // PER-LAYER ROUTING ferry §6.2 / test 8 — pulse/trace targets: each lane that COUNTS for the output gets ONE ring,
+    // around its own RIFF/NOTES OUT circle if that tab is showing and that part routes, else its RIFF or NOTES tab cell.
+    private func routedLine(riff: UInt8?, notes: UInt8?, riffOn: Bool = true, notesOn: Bool = true) -> EuclidLine {
+        var l = EuclidLine(pulses: 3, steps: 8); l.riffOutMask = riff; l.notesOutMask = notes; l.riffOn = riffOn; l.notesOn = notesOn
+        return l
+    }
+    func testPerLayerRingTargetsPickTheShowingTabsCircleElseTheTabCell() {
+        let lines = [routedLine(riff: 0b0001, notes: 0),        // lane 0: riff → A, showing RIFF → RIFF circle
+                     routedLine(riff: 0, notes: 0b0001),        // lane 1: notes → A, showing NOTES → NOTES circle
+                     routedLine(riff: 0b0001, notes: 0),        // lane 2: riff → A, showing RHYTHM → RIFF tab cell
+                     routedLine(riff: 0, notes: 0b0001)]        // lane 3: notes → A, showing LISTEN → NOTES tab cell
+        let tabs: [EuclideousTabKind] = [.riff, .notes, .rhythm, .listen]
+        XCTAssertEqual(euclideousOutputRingTargets(output: 0, lines: lines, laneTabs: tabs),
+                       [.riffCircle(lane: 0), .notesCircle(lane: 1), .riffTabCell(lane: 2), .notesTabCell(lane: 3)])
+        // Output B: no lane routes there → no ring.
+        XCTAssertEqual(euclideousOutputRingTargets(output: 1, lines: lines, laneTabs: tabs), [])
+        // A part that routes to A but whose LAYER is off does NOT count (§6.1).
+        let off = [routedLine(riff: 0b0001, notes: 0, riffOn: false)]
+        XCTAssertEqual(euclideousOutputRingTargets(output: 0, lines: off, laneTabs: [.riff]), [], "riff routes A but riff is off ⇒ no ring")
+        // Showing RIFF but only the NOTES routes to A → the NOTES tab cell (not the RIFF circle).
+        let notesOnly = [routedLine(riff: 0, notes: 0b0001)]
+        XCTAssertEqual(euclideousOutputRingTargets(output: 0, lines: notesOnly, laneTabs: [.riff]), [.notesTabCell(lane: 0)])
+    }
+    // §6.1 / test 7 — the header quarter-lit mask: a quarter lights for a lane only when a part routes there AND that
+    // part's layer is on; and the VoiceOver names which parts feed the output (§6.3).
+    func testPerLayerHeaderQuarterLitAndVoiceOverNameParts() {
+        let lines = [routedLine(riff: 0b0001, notes: 0b0010),                 // lane 1: riff A, notes B (both on)
+                     routedLine(riff: 0b0001, notes: 0b0001, notesOn: false), // lane 2: riff A on, notes A OFF
+                     routedLine(riff: 0, notes: 0)]
+        XCTAssertEqual(euclideousLaneMasks(lines), [0b0011, 0b0001, 0, 0], "lane 1 lit A+B; lane 2 lit A only (notes off)")
+        XCTAssertEqual(euclideousOutputRingAccessibilityLabel(output: 0, lines: lines, mainOutMask: 0b1111),
+                       "Main out A, on, fed by lane 1 riff, and lane 2 riff")
+        XCTAssertEqual(euclideousOutputRingAccessibilityLabel(output: 1, lines: lines, mainOutMask: 0b1101),
+                       "Main out B, off, fed by lane 1 notes")
+        XCTAssertEqual(euclideousOutputRingAccessibilityLabel(output: 2, lines: lines, mainOutMask: 0b1111),
+                       "Main out C, on, fed by no lanes")
     }
 
     // §10.3 — the layout ladder.
@@ -2252,10 +2272,12 @@ final class DerivationsTests: XCTestCase {
         b.touchDown(); XCTAssertEqual(b.touchEnded(), .tap)
         XCTAssertEqual(a.touchEnded(), .holdEnded)
     }
-    func testFourfoldLaneMasksReadTheSameFieldLaneOutRowEdits() {
+    func testFourfoldLaneMasksResolveBothPartsFromEmitterMaskForAnUntouchedLane() {
+        // PER-LAYER ROUTING ferry §6.1: an untouched lane inherits emitterMask in both parts; with the notes layer on
+        // by default, its lit mask is emitterMask. nil emitterMask ⇒ routed nowhere. (Padded to 4.)
         var a = EuclidLine(); a.emitterMask = 0b0101
         var b = EuclidLine(); b.emitterMask = nil
-        XCTAssertEqual(euclideousLaneMasks([a, b]), [0b0101, 0, 0, 0], "nil = routed nowhere (as laneOutRow reads it); padded to 4")
+        XCTAssertEqual(euclideousLaneMasks([a, b]), [0b0101, 0, 0, 0])
     }
     func testFourfoldKeySpokenNameSpellsOutEveryScale() {
         XCTAssertEqual(euclideousKeySpokenName(root: 0, type: .naturalMinor), "C minor")

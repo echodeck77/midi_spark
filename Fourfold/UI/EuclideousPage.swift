@@ -2005,13 +2005,19 @@ struct EuclideousPage: View {
 
     /// PULSE §6: a quarter's flash f — its lane routes to this output, the output is ON, and that lane's latest strike of EITHER layer (riff or notes) has happened: f = the flash envelope of the velocity it
     /// played (the louder layer), `now` seconds after its onset, scaled by P. Nothing animates when nothing strikes, and the strike decays by itself after a stop.
-    private func ringFlare(_ b: Int, masks: [UInt8], now: Double) -> [Double] {
+    private func ringFlare(_ b: Int, now: Double) -> [Double] {
         let p = euclideousPulseScale(level: pulseLevel)
         guard p > 0, (mainOutMask >> UInt8(b)) & 1 != 0 else { return [0, 0, 0, 0] }
         return (0..<4).map { lane -> Double in
-            guard (masks[lane] >> UInt8(b)) & 1 != 0, let s = pulseFeed.latest(lane: lane, where: { $0.onsetAt <= now }) else { return 0 }
-            let env = euclideousPulseEnvelopes(velocity: euclideousPulseRingVelocity(riffVel: Int(s.riffVel), notesVel: Int(s.notesVel)), seconds: now - s.onsetAt, scale: p)
-            return env.f
+            // PER-LAYER ROUTING ferry §6.1: a quarter flares on output b only for a LAYER that both routes to b (and is on)
+            // AND actually struck. Either layer counts — if both, the louder of the two that route here drives the envelope.
+            guard lane < lines.count, let s = pulseFeed.latest(lane: lane, where: { $0.onsetAt <= now }) else { return 0 }
+            let l = lines[lane]
+            var vel = 0
+            if l.riffOnResolved, ((l.riffOutMaskResolved ?? 0) >> UInt8(b)) & 1 != 0 { vel = max(vel, Int(s.riffVel)) }
+            if l.notesOnResolved, ((l.notesOutMaskResolved ?? 0) >> UInt8(b)) & 1 != 0 { vel = max(vel, Int(s.notesVel)) }
+            guard vel > 0 else { return 0 }
+            return euclideousPulseEnvelopes(velocity: vel, seconds: now - s.onsetAt, scale: p).f
         }
     }
 
@@ -2019,7 +2025,7 @@ struct EuclideousPage: View {
         let masks = euclideousLaneMasks(lines)
         let state = euclideousOutputRingState(output: b, laneMasks: masks, mainOutMask: mainOutMask)
         let held = heldOutput == b
-        let flare = ringFlare(b, masks: masks, now: now)
+        let flare = ringFlare(b, now: now)
         let ringDim = EuclideousLaneDimLevels((0..<4).map { heldOutput != nil && !held ? false : soloSilenced($0) })
         return EuclideousRingPressable(
             onTap: { toggleMainOut(b); pulseOutput(b) },
@@ -2040,23 +2046,13 @@ struct EuclideousPage: View {
                 .opacity(heldOutput != nil && !held ? 0.42 : 1)        // §4.7: while one is held, the other three sit at 42%
         }
         .accessibilityElement(children: .ignore)
-        // §4.9: "Main out A, on, fed by lanes 1 and 4" — the state is IN the label (spec string), so no separate value.
-        .accessibilityLabel(ringAccessibilityLabel(b, state: state))
+        // §6.3: "Main out A, on, fed by lane 1 riff and notes, and lane 4 riff" — names the PART each lane feeds with.
+        .accessibilityLabel(euclideousOutputRingAccessibilityLabel(output: b, lines: lines, mainOutMask: mainOutMask))
         .accessibilityHint("Hold to show its lanes")
         .accessibilityAddTraits(.isButton)
         .ringToggleTrait()
         .accessibilityAction { toggleMainOut(b); pulseOutput(b) }
         .accessibilityAction(named: "Show its lanes") { pulseOutput(b) }   // VoiceOver can't perform a hold
-    }
-    private func ringAccessibilityLabel(_ b: Int, state: EuclideousOutputRingState) -> String {
-        let fed = (0..<4).filter { state.lit[$0] }.map { $0 + 1 }
-        let lanes: String
-        switch fed.count {
-        case 0: lanes = "no lanes"
-        case 1: lanes = "lane \(fed[0])"
-        default: lanes = "lanes " + fed.dropLast().map(String.init).joined(separator: ", ") + " and \(fed[fed.count - 1])"
-        }
-        return "Main out \(["A", "B", "C", "D"][b]), \(state.mode == .off ? "off" : "on"), fed by \(lanes)"
     }
     private func toggleMainOut(_ b: Int) { onSetMainOutMask(mainOutMask ^ (1 << UInt8(b))) }   // unchanged action: no undo recorded
     /// PULSE (§7.1): one ring per routed lane, then gone. Visual only — no state worth keeping, no undo.
@@ -2284,15 +2280,16 @@ struct EuclideousPage: View {
         let cue = euclideousOutputCues(output: output, laneMasks: euclideousLaneMasks(lines), mode: mode)[lane]
         return cue == .none ? nil : EuclideousOutputCueInfo(output: output, held: mode == .trace, token: token, cue: cue)
     }
-    /// §10.2/§10.3/§10.5 — where the active output's ring goes, if any: the bottom-right panel's own MIX OUT
-    /// buttons (one per routed lane) when it's showing MIX, else once around the MIX tab chip — nil entirely
-    /// while the panel isn't on screen (the one caller that can't show the panel never calls this).
-    private func outputRingTargets(panelShowsMix: Bool) -> (output: Int, held: Bool, token: Int, targets: [EuclideousOutputRingTarget])? {
+    /// PER-LAYER ROUTING ferry §6.2 — where the active output's pulse/trace ring goes, if any: each counting lane's
+    /// RIFF/NOTES tab OUT circle (if that tab is showing and that part routes), else its RIFF or NOTES tab-row CELL.
+    /// Decided per lane by its own current tab; nil when no lane counts for the active output.
+    private func outputRingTargets() -> (output: Int, held: Bool, token: Int, targets: [EuclideousOutputRingTarget])? {
         let held: Bool, output: Int, token: Int
         if let h = heldOutput { held = true; output = h; token = 0 }
         else if let p = outputPulse { held = false; output = p.output; token = p.token }
         else { return nil }
-        let targets = euclideousOutputRingTargets(output: output, laneMasks: euclideousLaneMasks(lines), panelShowsMix: panelShowsMix)
+        let kinds = laneTab.map { EuclideousTabKind(rawValue: $0.rawValue) ?? .rhythm }
+        let targets = euclideousOutputRingTargets(output: output, lines: lines, laneTabs: kinds)
         return targets.isEmpty ? nil : (output, held, token, targets)
     }
 
@@ -3368,7 +3365,10 @@ struct EuclideousPage: View {
     }
 
     private func laneTabRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        HStack(spacing: 4) {
+        // PER-LAYER ROUTING ferry §6.2: when a pulse/trace targets this lane's RIFF/NOTES tab CELL (because that tab
+        // isn't the one showing), the ring goes around its chip here — radius 6, inset sp4, as 7.1 draws a tab ring.
+        let ring = outputRingTargets()
+        return HStack(spacing: 4) {
             ForEach(EuclideousLaneTab.allCases, id: \.rawValue) { t in
                 let sel = (idx < laneTab.count ? laneTab[idx] : .rhythm) == t
                 // CLARITY PASS (2026-10-23) §2: RIFF/NOTES/LISTEN each carry a GLYPH (a square / an upright bar / a circle) where the round status dot used to sit — filled in a lane's colour while that tab's thing is ON
@@ -3378,9 +3378,13 @@ struct EuclideousPage: View {
                 .frame(maxWidth: .infinity, alignment: .center).frame(height: rowH)
                 // LANE LOCK 5.4: the underline and — on a tab with a control that differs from L — a 6pt lane100 dot (6pt from its trailing edge, 5pt from its top), in ONE overlay
                 .overlay(tabDecor(idx, t, sel: sel, accent))
-                // RESTART CHAINS ferry §10.4: the RHYTHM tab chip no longer rings — lane cards have no OUT
-                // circles any more, so the pulse/trace now points at MIX (its OUT buttons, or the MIX tab
-                // chip), never at this per-lane tab row.
+                // PER-LAYER ROUTING ferry §6.2: a pulse/trace ring around this RIFF/NOTES tab cell when the active output
+                // routes through it on this lane and that tab isn't showing (so its own OUT circle isn't on screen).
+                .overlay {
+                    if let c = ring, (t == .riff && c.targets.contains(.riffTabCell(lane: idx))) || (t == .notes && c.targets.contains(.notesTabCell(lane: idx))) {
+                        EuclideousOutputCueRing(kind: .tab, held: c.held, reduceMotion: reduceMotion).id(c.token)
+                    }
+                }
                 .contentShape(Rectangle())
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(euclideousTabAccessibilityLabel(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, lines: lines, lane: idx))   // §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" · "Listen, on, following lane 2"
@@ -3832,7 +3836,6 @@ struct EuclideousPage: View {
         let mask = line.emitterMask ?? 0
         let names = ["A", "B", "C", "D"]
         let btnW = max(1, (width - sp4 * 3) / 4)
-        let ring = outputRingTargets(panelShowsMix: true)
         return HStack(spacing: sp4) {
             ForEach(0..<4, id: \.self) { b in
                 let routed = (mask >> UInt8(b)) & 1 != 0
@@ -3858,18 +3861,11 @@ struct EuclideousPage: View {
                             }
                         }
                     )
-                    .overlay {
-                        // §10.2: a ring around THIS button when the active output's pulse/trace is this one and this lane is routed to it.
-                        if let r = ring, r.output == b, r.targets.contains(.mixOutButton(lane: lane)) {
-                            EuclideousOutputCueRing(kind: .mixButton, held: r.held, reduceMotion: reduceMotion).id(r.token)
-                        }
-                    }
                     // RHYTHM fixes §5.3 (2026-10-21): drawn size stays btnW×height (height=outRowH=20); the
                     // hit area extends 2pt up/down only (to 24 tall) — there's exactly a 4pt gap (sp4) to the
                     // OCT stepper above, so this never reaches into it.
                     .contentShape(Rectangle().path(in: CGRect(x: 0, y: -2, width: btnW, height: height + 4)))
                     .onTapGesture { edit(lane) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
-                    .zIndex({ if let r = ring, r.output == b, r.targets.contains(.mixOutButton(lane: lane)) { return 1.0 }; return 0.0 }())
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel("Lane \(lane + 1), output \(names[b]), \(routed ? "on" : "off")\(style == .hollowDashed ? ", main out \(names[b]) is off" : "")")
             }
@@ -3887,6 +3883,7 @@ struct EuclideousPage: View {
         let lay = euclideousOutColumnLayout(height: height)
         let mask = (part == .riff ? line.riffOutMaskResolved : line.notesOutMaskResolved) ?? 0
         let names = ["A", "B", "C", "D"]
+        let ring = outputRingTargets()   // §6.2: a pulse/trace may ring this tab's own X circle
         return ZStack(alignment: .topLeading) {
             Rectangle().fill(Color(hex: 0x262930))
                 .frame(width: lay.rule.width, height: lay.rule.height).offset(x: lay.rule.minX, y: lay.rule.minY)
@@ -3903,8 +3900,10 @@ struct EuclideousPage: View {
                     ForEach(0..<4, id: \.self) { b in
                         let routed = (mask >> UInt8(b)) & 1 != 0
                         let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
+                        let ringed = ring?.output == b && ring?.targets.contains(part == .riff ? .riffCircle(lane: idx) : .notesCircle(lane: idx)) == true
                         outCircle(idx, part: part, output: b, name: names[b], accent: accent,
-                                  state: euclideousOutCircleState(routed: routed, mainOn: mainOn), flare: flares[b])
+                                  state: euclideousOutCircleState(routed: routed, mainOn: mainOn), flare: flares[b],
+                                  cue: ringed ? ring : nil)
                             .frame(width: lay.targets[b].width, height: lay.targets[b].height)
                             .offset(x: lay.targets[b].minX, y: lay.targets[b].minY)
                     }
@@ -3931,7 +3930,8 @@ struct EuclideousPage: View {
     /// place of the header's four quarters. Tap toggles this output's bit in this part's mask through the `edit` undo
     /// funnel (`toggleOutput`). §2.4 flare: the ring thickens 2→3 pt over a 6 pt lane40 glow and the disc washes to lane20.
     private func outCircle(_ idx: Int, part: EuclideousOutPart, output b: Int, name: String, accent: Color,
-                           state: EuclideousOutCircleState, flare f: Double) -> some View {
+                           state: EuclideousOutCircleState, flare f: Double,
+                           cue: (output: Int, held: Bool, token: Int, targets: [EuclideousOutputRingTarget])?) -> some View {
         let discFill = Color(hex: state == .routedMainOff ? 0x1B1D23 : 0x2A2D34)   // §2.3: routed+main-off disc is hollow, the card fill shows
         let ringColor: Color = state == .unrouted ? Color(hex: 0x3A3E47) : lane100(accent)
         let letterColor: Color = state == .routed ? Color(hex: 0xF2F4F7) : (state == .routedMainOff ? lane100(accent) : Color(hex: 0x8A909A))
@@ -3944,6 +3944,8 @@ struct EuclideousPage: View {
             Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(letterColor)
         }
         .frame(width: 28, height: 28)
+        // §6.2: the header's pulse/trace ring sits 2 pt #DFE3EA with its inner edge sp4 outside the 28 pt circle.
+        .overlay { if let c = cue { EuclideousOutputCueRing(kind: .circle, held: c.held, reduceMotion: reduceMotion).id(c.token).frame(width: 28 + 2 * (sp4 + 2), height: 28 + 2 * (sp4 + 2)) } }
         .frame(maxWidth: .infinity, maxHeight: .infinity)   // centre the 28 pt circle in its 32 × 44 target
         .contentShape(Rectangle())
         .onTapGesture { edit(idx) { $0.toggleOutput(part, bit: 1 << UInt8(b)) } }
@@ -6028,14 +6030,11 @@ struct EuclideousPage: View {
     private func sequencerTabRow(width: CGFloat, height: CGFloat, fxAvailable: Bool, selected: EuclideousSeqTab) -> some View {
         let tabs = EuclideousSeqTab.visible(fxAvailable: fxAvailable)
         let tabW = euclideousSeqTabWidth(count: tabs.count, contentWidth: width)
-        // §10.2: while the panel is showing a tab OTHER than MIX, a routed output's ring goes around the MIX
-        // tab chip itself instead of any per-lane button (`outputRingTargets(panelShowsMix:)` already decides
-        // this; the panel being on screen at all is this whole row's own precondition, so §10.5 is automatic).
-        let ring = selected == .mix ? nil : outputRingTargets(panelShowsMix: false)
+        // PER-LAYER ROUTING ferry §6.2: routing moved off MIX onto the RIFF/NOTES tabs, so a pulse/trace no longer
+        // rings the sequencer-panel MIX tab chip (the ring now goes to a lane's own RIFF/NOTES circle or tab cell).
         return HStack(spacing: sp4) {
             ForEach(tabs, id: \.rawValue) { tab in
                 let sel = selected == tab
-                let ringedHere = tab == .mix && ring?.targets.contains(.mixTab) == true
                 // The on/off ring beside LANES is gone with the ON switch (LANES GRID, 2026-10-18): the grid is always live.
                 ZStack(alignment: .bottom) {
                     HStack(spacing: 6) {
@@ -6047,8 +6046,6 @@ struct EuclideousPage: View {
                     Rectangle().fill(sel ? Color(hex: 0xFFFFFF) : Color(hex: 0x2A2D34)).frame(width: tabW, height: 2)
                 }
                 .frame(width: tabW, height: height)
-                .overlay { if ringedHere, let r = ring { EuclideousOutputCueRing(kind: .tab, held: r.held, reduceMotion: reduceMotion).id(r.token) } }
-                .zIndex(ringedHere ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     sequencerTab = tab
