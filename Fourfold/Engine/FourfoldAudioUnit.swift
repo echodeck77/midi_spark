@@ -101,6 +101,11 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func reelSelectedRoll() -> [ReelDeck.Note] { kernel.reelSelectedRoll() }   // the selected pass's notes (A–D lanes)
     func reelSelectedPassNo() -> Int { kernel.reelSelectedPassNo() }     // the currently pinned/selected pass (−1 = auto latest)
     func reelSelectPass(_ p: Int) { kernel.reelSelectPass(p) }           // tap a pass → select + replay now
+    var sessionTape: SessionTape { kernel.tape }                // the session tape (main thread only)
+    func tapeStats() -> (events: Int, dropped: Int, passes: Int, completePasses: Int, endTick: Int, residentBytes: Int) {   // main thread: the session tape's size and shape (diagnostics, the harness)
+        let t = kernel.tape; t.drain(); let ps = t.passes()
+        return (t.eventCount, t.droppedEvents, ps.count, ps.filter { $0.complete }.count, t.endTick(), t.residentBytes)
+    }
     func reelStopReplay() { kernel.reelStopReplay() }                    // stop replay → resume live
     func reelCycleBeats() -> Double { kernel.reelCycleValue() }          // the pass length (piano-roll x-axis)
     func reelSetBrowsing(_ on: Bool) { kernel.reelSetBrowsing(on) }      // pop-up open → freeze the history tape
@@ -670,9 +675,22 @@ public class FourfoldAudioUnit: AUAudioUnit {
         kernel.musicalContext = musicalContextBlock
         kernel.transportState = transportStateBlock
         kernel.reset()
+        startTapeDrain()
+    }
+
+    /// REEL PHASE 1b: the session tape's main-thread half — take back the chunks the render thread filled and top the pool up. Twice a second is far inside the pool's headroom (8 chunks ≈ 65 k records ≈ 100 s of the densest music measured).
+    private var tapeDrainTimer: DispatchSourceTimer?
+    private func startTapeDrain() {
+        guard tapeDrainTimer == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 0.5, repeating: 0.5, leeway: .milliseconds(100))
+        t.setEventHandler { [weak self] in self?.kernel.tape.drain() }
+        t.resume()
+        tapeDrainTimer = t
     }
 
     public override func deallocateRenderResources() {
+        tapeDrainTimer?.cancel(); tapeDrainTimer = nil
         kernel.midiOut = nil
         kernel.musicalContext = nil
         kernel.transportState = nil

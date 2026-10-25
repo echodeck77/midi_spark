@@ -181,6 +181,13 @@ final class Kernel {
     // one-shot toggle from the UI (consumed on the render thread — same cross-thread pattern as panicRequested).
     let reel = ReelDeck()
     private let reelTap = ReelTap()
+    // THE SESSION TAPE (reel phase 1b, 2026-10-25): everything the output sends since the first play, alongside the deck's 64-pass ring. The render thread writes through `tapeRecorder`; the main thread drains and reads `tape`.
+    let tape = SessionTape()
+    private let tapeRecorder: TapeRecorder
+    init() {
+        tapeRecorder = TapeRecorder(writer: tape.writer)
+        reelTap.recorder = tapeRecorder
+    }
     private var reelToggle = false
     private var reelExitFlush = false
     private var reelLastPass = Int.min
@@ -391,6 +398,7 @@ final class Kernel {
         }
         if reelExitFlush { reelExitFlush = false; reelBlanketOff(out: liveEmitter) }
         reelTap.out = liveEmitter; reelTap.deck = reel
+        tapeRecorder.beginWindow(playing: playing, beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, tempo: tempo, cycleBeats: reelCycleBeats, sampleStart: reelWinStart, beatsPerSample: reelBps)
         reelTap.recording = playing && !reelFrozen
         reelTap.base = beatPos; reelTap.beatsPerSample = reelBps; reelTap.cycleBeats = reelCycleBeats; reelTap.windowStart = reelWinStart
 
@@ -510,7 +518,7 @@ final class Kernel {
         diag.stuckEchoes = diag.passthroughHeld
         diag.silenceViolated = true
         diag.panics &+= 1
-        router.allNotesOff(atSample: now, out: liveEmitter)              // close any leaked sequenced voices (alloc-free)
+        router.allNotesOff(atSample: now, out: reelTap)                  // close any leaked sequenced voices (alloc-free). Through the reel tap, so the offs that really went out are on the tape too (reel phase 1b)
         if let out = midiOut {                                           // flush stranded echoes as offs on All + Emit A
             let drained = passthroughGate.drainActive()                  // fills a fixed-size scratch + returns a count — no allocation even when echoes are genuinely stranded (code-review finding 2026-10-04)
             for i in 0..<drained {

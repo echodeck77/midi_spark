@@ -21,8 +21,10 @@ protocol MIDIEmitter: AnyObject {
     /// CELL TAG (Paul 2026-09-03): the render calls this just before a note-ON with the emitting cell's grid index
     /// (col·Snap.rows+row), so the PART roll can filter STRICTLY to the selected rung per column. Default no-op.
     func markCell(_ idx: Int)
+    /// LANE TAG (reel phase 1b, 2026-10-25): the render calls this just before a note-ON with the Euclid lane (0…3) that is striking it, −1 when none, so the session tape can say which lane played what. Default no-op.
+    func markLane(_ lane: Int)
 }
-extension MIDIEmitter { func markHue(_ hue: UInt32) {} ; func markCell(_ idx: Int) {} }   // defaults: ignore the tags
+extension MIDIEmitter { func markHue(_ hue: UInt32) {} ; func markCell(_ idx: Int) {} ; func markLane(_ lane: Int) {} }   // defaults: ignore the tags
 
 /// "Render this as soon as possible in this cycle." Mirrors AudioToolbox's `AUEventSampleTimeImmediate`
 /// (`(AUEventSampleTime)0xffffffff00000000`, i.e. −(1<<32)); defined here so the pure engine never has
@@ -283,7 +285,12 @@ final class ReelTap: MIDIEmitter {
     var windowStart: Int64 = 0
     private var pendingMachine: UInt32 = 0            // set by the render right before each note-ON (markHue)
     func markHue(_ hue: UInt32) { pendingMachine = hue }
+    /// REEL PHASE 1b: the session tape's recorder. Every message the render emits is filed there too, whatever the deck's own `recording` says (the tape runs for the whole session; the deck freezes while the browser is open).
+    var recorder: TapeRecorder?
+    private var pendingLane = -1
+    func markLane(_ lane: Int) { pendingLane = lane }
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+        recorder?.record(sampleTime: sampleTime, cable: cable, b0, b1, b2, lane: pendingLane)
         if recording, cycleBeats > 0, let deck {
             var beat = base + Double(sampleTime - windowStart) * beatsPerSample
             // An event that sounds in the pass AFTER this window's (the window contains the boundary) belongs to that pass, not this one — see `ReelDeck.recordNext`.

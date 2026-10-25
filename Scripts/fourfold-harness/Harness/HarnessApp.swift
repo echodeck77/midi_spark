@@ -130,6 +130,12 @@ final class Host {
         timer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { [unowned self] _ in self.render(480) }
         Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [unowned self] _ in
             print("HOST beat=\(String(format: "%.1f", self.sampleTime * self.tempo / 60 / self.sr)) ons per cable [All,A,B,C,D]=\(self.onsPerCable) offs=\(self.offsPerCable) firstA=\(self.firstOns.prefix(6).map { "\($0.1)@\($0.0)" })")
+            let t = self.au.tapeStats()
+            var tOn = [Int](repeating: 0, count: 5), tOff = [Int](repeating: 0, count: 5)
+            for e in self.au.sessionTape.events(from: 0, to: Int.max) { if e.isOn { tOn[e.cable] += 1 } else { tOff[e.cable] += 1 } }
+            print("DIAG panics=\(self.au.kernelDiagnostics().panics) stuckReason=\(self.au.kernelDiagnostics().stuckReason)")   // the engine's stuck-note self-heal count (see the 2026-10-25 status-log entry)
+            print("TAPE notes ons per cable \(tOn) offs \(tOff)")
+            print("TAPE events=\(t.events) dropped=\(t.dropped) passes=\(t.passes) complete=\(t.completePasses) endTick=\(t.endTick) resident=\(t.residentBytes / 1024)KiB")
         }
     }
 }

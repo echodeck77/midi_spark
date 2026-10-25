@@ -19,36 +19,37 @@ final class SessionTapeTests: XCTestCase {
             let on = Bool.random(using: &rng)
             let note = UInt8.random(in: 0...127, using: &rng)
             let vel = UInt8.random(in: 1...127, using: &rng)
-            let out = Int.random(in: 0...3, using: &rng)
+            let cab = Int.random(in: 0...4, using: &rng)
             let lane: Int? = Bool.random(using: &rng) ? Int.random(in: 0...3, using: &rng) : nil
             let ch = UInt8.random(in: 0...15, using: &rng)
-            let e = TapeEvent.note(tick: tick, on: on, note: note, vel: vel, output: out, lane: lane, channel: ch)
+            let e = TapeEvent.note(tick: tick, on: on, note: note, vel: vel, cable: cab, lane: lane, channel: ch)
             XCTAssertEqual(e.kind, .note)
             XCTAssertEqual(e.tick, tick)
             XCTAssertEqual(e.isOn, on)
             XCTAssertEqual(e.note, note)
             XCTAssertEqual(e.vel, on ? vel : 0, "a note-off carries no velocity")
-            XCTAssertEqual(e.output, out)
+            XCTAssertEqual(e.cable, cab)
+            XCTAssertEqual(e.output, cab >= 1 ? cab - 1 : nil)
             XCTAssertEqual(e.lane, lane)
             XCTAssertEqual(e.channel, ch)
         }
     }
 
     func testLaneZeroIsNotLaneUnknown() {
-        let a = TapeEvent.note(tick: 0, on: true, note: 60, vel: 100, output: 0, lane: 0, channel: 0)
-        let b = TapeEvent.note(tick: 0, on: true, note: 60, vel: 100, output: 0, lane: nil, channel: 0)
+        let a = TapeEvent.note(tick: 0, on: true, note: 60, vel: 100, cable: 1, lane: 0, channel: 0)
+        let b = TapeEvent.note(tick: 0, on: true, note: 60, vel: 100, cable: 1, lane: nil, channel: 0)
         XCTAssertEqual(a.lane, 0)
         XCTAssertNil(b.lane)
     }
 
     func testNoteOnVelocityIsNeverZero() {
-        XCTAssertEqual(TapeEvent.note(tick: 0, on: true, note: 60, vel: 0, output: 0, lane: nil, channel: 0).vel, 1, "velocity 0 would read back as a note-off")
+        XCTAssertEqual(TapeEvent.note(tick: 0, on: true, note: 60, vel: 0, cable: 1, lane: nil, channel: 0).vel, 1, "velocity 0 would read back as a note-off")
     }
 
     func testOutOfRangeFieldsAreClamped() {
-        let e = TapeEvent.note(tick: 5, on: true, note: 200, vel: 255, output: 9, lane: 7, channel: 31)
+        let e = TapeEvent.note(tick: 5, on: true, note: 200, vel: 255, cable: 9, lane: 7, channel: 31)
         XCTAssertEqual(e.note, 200 & 0x7F)
-        XCTAssertEqual(e.output, 3)
+        XCTAssertEqual(e.cable, 4)
         XCTAssertEqual(e.lane, 3)
         XCTAssertEqual(e.channel, 15)
     }
@@ -91,7 +92,7 @@ final class SessionTapeTests: XCTestCase {
     // MARK: appending and draining
 
     private func note(_ i: Int, tick: Int? = nil) -> TapeEvent {
-        .note(tick: UInt32(tick ?? i), on: i % 2 == 0, note: UInt8(i % 100 + 20), vel: UInt8(i % 100 + 20), output: i % 4, lane: i % 3 == 0 ? nil : i % 4, channel: UInt8(i % 16))
+        .note(tick: UInt32(tick ?? i), on: i % 2 == 0, note: UInt8(i % 100 + 20), vel: UInt8(i % 100 + 20), cable: i % 5, lane: i % 3 == 0 ? nil : i % 4, channel: UInt8(i % 16))
     }
 
     func testEventsComeBackInOrderAcrossManyChunks() {
@@ -186,8 +187,8 @@ final class SessionTapeTests: XCTestCase {
 
     func testSameTickKeepsTheOrderItWasAppended() {
         let tape = SessionTape(chunkEvents: 4, poolSize: 8)
-        let a = TapeEvent.note(tick: 500, on: false, note: 60, vel: 0, output: 0, lane: 0, channel: 0)
-        let b = TapeEvent.note(tick: 500, on: true, note: 60, vel: 90, output: 0, lane: 0, channel: 0)
+        let a = TapeEvent.note(tick: 500, on: false, note: 60, vel: 0, cable: 1, lane: 0, channel: 0)
+        let b = TapeEvent.note(tick: 500, on: true, note: 60, vel: 90, cable: 1, lane: 0, channel: 0)
         tape.writer.append(note(0, tick: 10)); tape.writer.append(a); tape.writer.append(note(1, tick: 20)); tape.writer.append(b); tape.writer.append(note(2, tick: 30))
         let got = tape.events(from: 500, to: 501)
         XCTAssertEqual(got, [a, b], "off then on, as the Router filed them: a re-struck note must not be cut by its own old note-off")
@@ -303,7 +304,7 @@ final class SessionTapeTests: XCTestCase {
         let done = DispatchSemaphore(value: 0)
         let producer = Thread {
             for i in 0..<total {
-                tape.writer.append(.note(tick: UInt32(i), on: i % 2 == 0, note: UInt8(i % 100 + 20), vel: UInt8(i % 100 + 20), output: i % 4, lane: nil, channel: UInt8(i % 16)))
+                tape.writer.append(.note(tick: UInt32(i), on: i % 2 == 0, note: UInt8(i % 100 + 20), vel: UInt8(i % 100 + 20), cable: i % 5, lane: nil, channel: UInt8(i % 16)))
                 if i % 4096 == 4095 { usleep(200) }       // a render callback's gaps
             }
             done.signal()
@@ -321,7 +322,7 @@ final class SessionTapeTests: XCTestCase {
                     last = i
                     XCTAssertEqual(e.note, UInt8(i % 100 + 20) & 0x7F)
                     XCTAssertEqual(e.isOn, i % 2 == 0)
-                    XCTAssertEqual(e.output, i % 4)
+                    XCTAssertEqual(e.cable, i % 5)
                 }
             }
             reads += 1
@@ -338,5 +339,169 @@ final class SessionTapeTests: XCTestCase {
             XCTAssertEqual(e.note, UInt8(i % 100 + 20) & 0x7F)
             XCTAssertEqual(e.vel, i % 2 == 0 ? UInt8(i % 100 + 20) & 0x7F : 0)
         }
+    }
+
+    // MARK: channel-voice messages
+
+    func testMessagesRoundTripToTheSameWireBytes() {
+        let cases: [(UInt8, UInt8, UInt8)] = [(0x90, 60, 100), (0x93, 127, 1), (0x80, 60, 0), (0x8F, 0, 0), (0xB0, 74, 127), (0xB5, 1, 0), (0xE0, 0, 64), (0xE2, 127, 127)]
+        for (st, a, b) in cases {
+            for cable in 0...4 {
+                let e = TapeEvent.message(tick: 9, status: st, d1: a, d2: b, cable: cable, lane: 2)!
+                XCTAssertEqual(e.wire.status, st); XCTAssertEqual(e.wire.d1, a); XCTAssertEqual(e.wire.d2, b)
+                XCTAssertEqual(e.cable, cable); XCTAssertEqual(e.lane, 2); XCTAssertEqual(e.channel, st & 0x0F)
+            }
+        }
+    }
+    func testNoteOnWithVelocityZeroIsANoteOff() {
+        let e = TapeEvent.message(tick: 1, status: 0x91, d1: 60, d2: 0, cable: 1, lane: nil)!
+        XCTAssertFalse(e.isOn); XCTAssertEqual(e.kind, .note); XCTAssertEqual(e.wire.status, 0x81); XCTAssertEqual(e.wire.d2, 0)
+    }
+    func testControlMessagesAreControlNotNotes() {
+        XCTAssertEqual(TapeEvent.message(tick: 1, status: 0xB0, d1: 74, d2: 9, cable: 0, lane: nil)?.kind, .control)
+        XCTAssertEqual(TapeEvent.message(tick: 1, status: 0xE0, d1: 0, d2: 64, cable: 0, lane: nil)?.isPitchBend, true)
+        XCTAssertNil(TapeEvent.message(tick: 1, status: 0xC0, d1: 5, d2: 0, cable: 0, lane: nil), "program change is not something the engine sends, and not something the tape keeps")
+        XCTAssertNil(TapeEvent.message(tick: 1, status: 0xF8, d1: 0, d2: 0, cable: 0, lane: nil))
+    }
+
+    // MARK: the recorder (session clock)
+
+    private func recorder(chunk: Int = 256, pool: Int = 16) -> (SessionTape, TapeRecorder) {
+        let t = SessionTape(chunkEvents: chunk, poolSize: pool)
+        return (t, TapeRecorder(writer: t.writer))
+    }
+    /// 120 BPM at 48 kHz: 24 000 samples a beat. A 512-frame window = 0.021333 beats.
+    private let bps = 120.0 / 60.0 / 48_000.0
+    private func window(_ r: TapeRecorder, playing: Bool = true, beat: Double, frames: Int = 512, tempo: Double = 120, cycle: Double = 4) {
+        r.beginWindow(playing: playing, beatPos: beat, windowBeats: Double(frames) * bps, tempo: tempo, cycleBeats: cycle, sampleStart: Int64((beat / bps).rounded()), beatsPerSample: bps)
+    }
+    private func note(_ r: TapeRecorder, atBeat b: Double, on: Bool = true, cable: UInt8 = 1, key: UInt8 = 60, lane: Int = -1) {
+        r.record(sampleTime: Int64((b / bps).rounded()), cable: cable, on ? 0x90 : 0x80, key, on ? 100 : 0, lane: lane)
+    }
+
+    func testRecorderFilesAStartSegmentTempoAndPassMarker() {
+        let (tape, rec) = recorder()
+        window(rec, beat: 0)
+        let all = tape.events(from: 0, to: 10, kinds: [.segment, .tempo, .pass])
+        XCTAssertEqual(all.map { $0.kind }, [.segment, .tempo, .pass])
+        XCTAssertTrue(all[0].isSegmentStart)
+        XCTAssertEqual(all[1].bpm, 120, accuracy: 0.005)
+        XCTAssertEqual(all[2].cycleTicks, 3840)
+    }
+    func testRecorderMapsBeatsToTicks() {
+        let (tape, rec) = recorder()
+        window(rec, beat: 0)
+        note(rec, atBeat: 0.0)
+        note(rec, atBeat: 0.01)
+        let n = tape.events(from: 0, to: 100).map { Int($0.tick) }
+        XCTAssertEqual(n, [0, 10], "960 ticks a beat")
+    }
+    func testNothingIsRecordedWhileTheTransportIsStopped() {
+        let (tape, rec) = recorder()
+        window(rec, playing: false, beat: 0)
+        note(rec, atBeat: 0.0)
+        XCTAssertEqual(tape.eventCount, 0)
+    }
+    func testASecondRunContinuesFromWhereTheFirstEnded() {
+        let (tape, rec) = recorder()
+        var beat = 0.0
+        let wb = 512 * bps
+        for _ in 0..<94 { window(rec, beat: beat); beat += wb }           // ≈ 2 beats
+        let ended = Int((beat * 960).rounded())
+        window(rec, playing: false, beat: beat)                               // stop
+        window(rec, beat: 40)                                                 // play again somewhere else on the host's timeline
+        note(rec, atBeat: 40)
+        let segs = tape.events(from: 0, to: Int.max, kinds: [.segment])
+        XCTAssertEqual(segs.map { $0.isSegmentStart }, [true, false, true])
+        XCTAssertEqual(Int(segs[1].tick), ended, accuracy: 1)
+        XCTAssertEqual(segs[2].tick, segs[1].tick, "no gap on the tape for a stop of any length")
+        XCTAssertEqual(Int(tape.events(from: 0, to: Int.max).last!.tick), Int(segs[2].tick), "the new run's first note is at its start")
+    }
+    func testABeatJumpClosesTheRunAndOpensANewOne() {
+        let (tape, rec) = recorder()
+        var beat = 0.0
+        let wb = 512 * bps
+        for _ in 0..<10 { window(rec, beat: beat); beat += wb }
+        window(rec, beat: 1.0)                                                // a locate back to bar 1 beat 2 — nothing like the next window
+        XCTAssertEqual(tape.events(from: 0, to: Int.max, kinds: [.segment]).map { $0.isSegmentStart }, [true, false, true])
+    }
+    func testContinuousWindowsMakeOneRun() {
+        let (tape, rec) = recorder()
+        var beat = 3.0
+        let wb = 512 * bps
+        for _ in 0..<500 { window(rec, beat: beat); beat += wb }
+        XCTAssertEqual(tape.events(from: 0, to: Int.max, kinds: [.segment]).count, 1)
+    }
+    func testPassMarkersLandOnTheBoundaryAndFlagPartialFirstPass() {
+        let (tape, rec) = recorder(chunk: 4096)
+        var beat = 2.0                                                        // the run starts half way through pass 0
+        let wb = 512 * bps
+        while beat < 13 { window(rec, beat: beat); beat += wb }
+        let ps = tape.passes()
+        XCTAssertEqual(ps.map { $0.startTick }, [0, 1920, 5760, 9600], "the first marker is where the run began, then every 4 beats = 3840 ticks")
+        XCTAssertEqual(ps.map { $0.complete }, [false, true, true, false], "the first pass was only half played; the last is still running")
+    }
+    func testPassBoundaryTickIsExactEvenThoughWindowsDoNotLandOnIt() {
+        let (tape, rec) = recorder()
+        var beat = 0.0
+        let wb = 512 * bps
+        while beat < 9 { window(rec, beat: beat); beat += wb }
+        XCTAssertEqual(tape.passes().map { $0.startTick }, [0, 3840, 7680])
+    }
+    func testTempoChangesAreFiledAndRampsAreThinned() {
+        let (tape, rec) = recorder(chunk: 4096)
+        var beat = 0.0
+        let wb = 512 * bps
+        for i in 0..<400 { window(rec, beat: beat, tempo: 120 + Double(i) * 0.05); beat += wb }      // a slow ramp, a new hundredth almost every window
+        tape.drain()
+        let t = tape.tempoChanges
+        XCTAssertGreaterThan(t.count, 2)
+        XCTAssertLessThan(t.count, 200, "not one marker per window")
+        for (a, b) in zip(t, t.dropFirst()) { XCTAssertGreaterThanOrEqual(b.tick - a.tick, TapeRecorder.minTempoGapTicks) }
+        XCTAssertEqual(tape.bpm(at: 0), 120, accuracy: 0.01)
+        XCTAssertGreaterThan(tape.bpm(at: Int.max / 2), 130)
+    }
+    func testStopWindowKeepsTheFlushOffsAtTheStopTick() {
+        let (tape, rec) = recorder()
+        var beat = 0.0
+        let wb = 512 * bps
+        for _ in 0..<50 { window(rec, beat: beat); beat += wb }
+        note(rec, atBeat: beat - 0.001, on: true)
+        window(rec, playing: false, beat: beat)
+        rec.record(sampleTime: renderSampleImmediate, cable: 1, 0x80, 60, 0, lane: -1)         // the Router's stop flush
+        window(rec, playing: false, beat: beat)
+        rec.record(sampleTime: 0, cable: 1, 0x80, 61, 0, lane: -1)                               // nothing is recorded in later stopped windows
+        let n = tape.events(from: 0, to: Int.max)
+        XCTAssertEqual(n.map { $0.isOn }, [true, false])
+        let seg = tape.events(from: 0, to: Int.max, kinds: [.segment]).last!
+        XCTAssertFalse(seg.isSegmentStart)
+        XCTAssertEqual(n[1].tick, seg.tick, "the flush note-off sits exactly on the stop")
+    }
+    func testAnImmediateTimeIsFiledAtTheWindowStart() {
+        let (tape, rec) = recorder()
+        var beat = 0.0
+        while beat < 1.0 { window(rec, beat: beat); beat += 512 * bps }
+        rec.record(sampleTime: renderSampleImmediate, cable: 0, 0xB0, 123, 0, lane: -1)
+        XCTAssertEqual(Int(tape.events(from: 0, to: Int.max, kinds: [.control]).first!.tick), Int(((beat - 512 * bps) * 960).rounded()))
+    }
+    func testANoteOffTakesTheLaneOfItsNoteOn() {
+        let (tape, rec) = recorder()
+        window(rec, beat: 0)
+        note(rec, atBeat: 0.0, on: true, cable: 1, key: 60, lane: 2)
+        note(rec, atBeat: 0.0, on: true, cable: 0, key: 60, lane: 2)
+        note(rec, atBeat: 0.0, on: true, cable: 1, key: 64, lane: 0)
+        note(rec, atBeat: 0.25, on: false, cable: 1, key: 60)
+        note(rec, atBeat: 0.25, on: false, cable: 0, key: 60)
+        note(rec, atBeat: 0.5, on: false, cable: 1, key: 64)
+        let n = tape.events(from: 0, to: Int.max)
+        XCTAssertEqual(n.map { $0.lane }, [2, 2, 0, 2, 2, 0])
+    }
+    func testACCOnAnyCableIsRecordedAsControl() {
+        let (tape, rec) = recorder()
+        window(rec, beat: 0)
+        rec.record(sampleTime: 1000, cable: 0, 0xB2, 74, 99, lane: -1)
+        let c = tape.events(from: 0, to: Int.max, kinds: [.control])
+        XCTAssertEqual(c.count, 1)
+        XCTAssertEqual(c[0].wire.status, 0xB2); XCTAssertEqual(c[0].wire.d1, 74); XCTAssertEqual(c[0].wire.d2, 99); XCTAssertEqual(c[0].cable, 0)
     }
 }

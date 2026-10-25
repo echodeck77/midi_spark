@@ -7550,8 +7550,10 @@ final class RouterTests: XCTestCase {
     }
     /// Router → `ReelTap` → `ReelDeck` driven exactly as the Kernel drives them (`Kernel.swift` reel block): a pass is `8 × stepBeats` beats, the deck files a pass when the next one starts, and the
     /// tap stamps every EMITTED message pass-relative. `perPass` counts what the render emitted in each pass's windows (the Kernel's own attribution), so a test can ask "did the deck keep all of it".
-    private func fourfoldReel(_ box: SnapshotBox, beats: Double, frames: UInt32 = 512, tempo: Double = 120) -> (deck: ReelDeck, live: RecordingEmitter, perPass: [Int: Int], cycle: Double) {
+    private func fourfoldReel(_ box: SnapshotBox, beats: Double, frames: UInt32 = 512, tempo: Double = 120) -> (deck: ReelDeck, live: RecordingEmitter, perPass: [Int: Int], cycle: Double, tape: SessionTape) {
         let live = RecordingEmitter(), deck = ReelDeck(), tap = ReelTap(), router = Router(); var diag = KernelDiag()
+        let tape = SessionTape(chunkEvents: 4096, poolSize: 256), recorder = TapeRecorder(writer: tape.writer)   // REEL PHASE 1b: the session tape records beside the deck, fed by the same tap
+        tap.recorder = recorder
         let sr = 48_000.0, bps = tempo / 60.0 / sr
         let cycle = Double(Snap.cols) * box.stepBeats 
         let pool = chord(fxPoolNotes)
@@ -7567,12 +7569,71 @@ final class RouterTests: XCTestCase {
                 deck.startPass(pass: pass); lastPass = pass; fromStart = true
             }
             tap.recording = true; tap.base = beat; tap.beatsPerSample = bps; tap.cycleBeats = cycle; tap.windowStart = Int64(ts)
+            recorder.beginWindow(playing: true, beatPos: beat, windowBeats: Double(frames) * bps, tempo: tempo, cycleBeats: cycle, sampleStart: Int64(ts), beatsPerSample: bps)
             let before = live.events.count
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: tap, diag: &diag)
             perPass[pass, default: 0] += live.events.count - before
             ts += Double(frames)
         }
-        return (deck, live, perPass, cycle)
+        return (deck, live, perPass, cycle, tape)
+    }
+
+    /// REEL PHASE 1b — the differential test: whatever the deck filed, the tape holds too. Same Router, same tap, two recorders.
+    private struct TapeKey: Hashable { var cable: Int; var status: UInt8; var d1: UInt8; var d2: UInt8 }
+    private func assertTapeMatchesDeck(_ r: (deck: ReelDeck, live: RecordingEmitter, perPass: [Int: Int], cycle: Double, tape: SessionTape), _ what: String, file: StaticString = #filePath, line: UInt = #line) {
+        let filed = r.deck.passNumbers().filter { $0 >= 0 }
+        XCTAssertFalse(filed.isEmpty, "\(what): the scene must file passes for this to mean anything", file: file, line: line)
+        let complete = r.tape.passes().filter { $0.complete }
+        XCTAssertEqual(complete.count, filed.count, "\(what): the tape and the deck agree on how many passes were played whole", file: file, line: line)
+        XCTAssertEqual(r.tape.droppedEvents, 0, "\(what): the test tape is big enough", file: file, line: line)
+        let tapeMessages = r.tape.events(from: 0, to: Int.max, kinds: [.note, .control])
+        XCTAssertEqual(tapeMessages.count, r.live.events.count, "\(what): the tape holds every message the render emitted — the deck's own count of the same stream is the live emitter's", file: file, line: line)
+        var fromDeck: [TapeKey: [Int]] = [:], fromTape: [TapeKey: [Int]] = [:]
+        let lastEnd = complete.last?.endTick ?? 0
+        for (p, tp) in zip(filed, complete) {
+            XCTAssertEqual(tp.cycleTicks, Int((r.cycle * 960).rounded()), file: file, line: line)
+            for cable in 0...4 {
+                for e in r.deck.exportRangeEvents(fromPass: p, toPass: p, cables: [UInt8(cable)]).events {
+                    let status = (e.b0 & 0xF0) == 0x90 && e.b2 == 0 ? 0x80 | (e.b0 & 0x0F) : e.b0           // a note-on with velocity 0 is a note-off to the tape
+                    // The deck files a hit that the sample grid put a hair BEFORE a pass boundary (97.3 BPM puts a downbeat hit 1 sample early) at the END of the old pass; the tape rounds to 1/960 beat and files it at the
+                    // head of the new one. Same instant, so compare absolute ticks — and leave out what lands past the last whole pass, which is the tape's unfinished pass.
+                    let abs = tp.startTick + Int((e.beat * 960).rounded())
+                    guard abs < lastEnd else { continue }
+                    fromDeck[TapeKey(cable: cable, status: status, d1: e.b1, d2: (status & 0xF0) == 0x80 ? 0 : e.b2), default: []].append(abs)
+                }
+            }
+            for e in r.tape.events(from: tp.startTick, to: tp.endTick!, kinds: [.note, .control]) {
+                fromTape[TapeKey(cable: e.cable, status: e.wire.status, d1: e.wire.d1, d2: e.wire.d2), default: []].append(Int(e.tick))
+            }
+        }
+        XCTAssertEqual(Set(fromDeck.keys), Set(fromTape.keys), "\(what): the same kinds of message", file: file, line: line)
+        var worst = 0
+        for (k, d) in fromDeck {
+            let t = fromTape[k] ?? []
+            XCTAssertEqual(d.count, t.count, "\(what): \(k) occurs as often", file: file, line: line)
+            for (a, b) in zip(d.sorted(), t.sorted()) { worst = max(worst, abs(a - b)) }
+        }
+        XCTAssertLessThanOrEqual(worst, 1, "\(what): every message sits within one tick (1/960 beat) of where the deck put it", file: file, line: line)
+    }
+    func testTheSessionTapeHoldsWhatTheReelDeckFiled() {
+        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0100)
+        assertTapeMatchesDeck(fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13), "two lanes on A and C")
+        var busy: [EuclidLine] = []
+        for i in 0..<4 {
+            var l = fxLine(gate: 0.5, litNotes: 0b0000_0111); l.rate = .r1_32; l.steps = 16; l.pulses = 16; l.emitterMask = UInt8(1 << i)
+            busy.append(l)
+        }
+        assertTapeMatchesDeck(fourfoldReel(fxBoxScene(busy, fx: fxCells((0..<8).map { (0, $0, 3) }), stepRate: .r1_8), beats: 13), "four dense ratcheting lanes")
+        assertTapeMatchesDeck(fourfoldReel(fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 1.0, emitter: 0b0010)], fx: fxCells([(5, 0, 64), (5, 2, 100), (5, 5, 10)]), stepRate: .r1_8), beats: 13), "a CC row")
+        assertTapeMatchesDeck(fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_4), beats: 25, frames: 333, tempo: 97.3), "odd window size and tempo, an 8-beat pass")
+    }
+    func testTheSessionTapeNamesTheLaneThatPlayedEachNote() {
+        let r = fourfoldReel(fxBoxScene([fxLine(gate: 0.5, emitter: 0b0001), fxLine(gate: 0.5, emitter: 0b0100)], fx: EuclideousFX(), stepRate: .r1_8), beats: 9)
+        let notes = r.tape.events(from: 0, to: Int.max)
+        XCTAssertFalse(notes.isEmpty)
+        for e in notes where e.cable == 1 { XCTAssertEqual(e.lane, 0, "everything on A came from lane 1 — notes and their offs") }
+        for e in notes where e.cable == 3 { XCTAssertEqual(e.lane, 1, "everything on C came from lane 2") }
+        XCTAssertTrue(notes.contains { $0.cable == 0 && $0.lane == 0 } && notes.contains { $0.cable == 0 && $0.lane == 1 }, "the ALL cable carries both, each still labelled")
     }
 
     func testFourfoldOutputIsFiledOnTheCablesItWasRoutedTo() {
@@ -7650,3 +7711,4 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(bOff.ons.filter { $0.cable == 0 }.count, bOff.ons.filter { $0.cable == 1 }.count, "…and All carries ONLY what the enabled output played")
     }
 }
+

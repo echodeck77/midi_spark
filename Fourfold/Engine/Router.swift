@@ -1056,6 +1056,7 @@ final class Router {
             if let b = curBox, currentMachineIndex >= 0, Int(currentMachineIndex) < b.machines.count {
                 out.markHue(b.machines[Int(currentMachineIndex)].hue)
             }
+            out.markLane(Int(euclideousStrikeLane))   // LANE TAG (reel phase 1b): which Euclid lane is striking, for the session tape
             out.markCell(currentCellIndex)   // CELL TAG: the PART roll filters to the selected rung per column (Paul 2026-09-03)
             out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
             if refcount[idx] == 0 { distinctSounding += 1 }
