@@ -101,7 +101,14 @@ final class FourfoldUndoAuditTests: XCTestCase {
         o.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 0.05, thenDragTo: o.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
     }
     func tapLabel(_ label: String) { app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch.tap() }
-    func noteSource(_ name: String) { app.buttons[name].tap() }
+    // SOURCES STACK ferry (2026-10-26): the note-source radio became a SOURCES pop-up of CHORDS/KEY toggle cells.
+    // Toggling a cell is ONE undoable step (opening/closing the pop-up is not), so the step accounting is unchanged.
+    // Close by tapping outside the card (the bottom of the screen is the pop-up's full-screen tap-catcher).
+    func noteSource(_ cell: String) {
+        app.buttons["Sources"].tap(); Thread.sleep(forTimeInterval: 0.3)
+        app.buttons[cell].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap(); Thread.sleep(forTimeInterval: 0.2)
+    }
     func riffSwitch(_ n: Int) { app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Riff \(n)")).firstMatch.tap() }
     func loadPreset(_ name: String) {
         app.buttons["Presets"].tap()
@@ -113,9 +120,11 @@ final class FourfoldUndoAuditTests: XCTestCase {
     /// An FX cell is "Note n, rank r, <row> <value>" — r is the riff's rank at that step, which edits change, so match on the note and the row only.
     func fxCell(note: Int, row: String) { app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Note \(note), rank", ", \(row) ")).firstMatch.tap() }
     func openFX() { app.buttons["FX"].tap(); Thread.sleep(forTimeInterval: 0.4) }
+    // SOURCES STACK ferry (2026-10-26): the chord grid opens from the SOURCES pop-up's CHORDS label (was: select
+    // CHORDS as the note source, then tap the chosen segment).
     func openChordsPopup() {
-        noteSource("Chords"); Thread.sleep(forTimeInterval: 0.4)          // the first tap chooses CHORDS as the note source…
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Chords'")).firstMatch.tap(); Thread.sleep(forTimeInterval: 0.6)    // …a second tap on the chosen segment opens the progression popup
+        app.buttons["Sources"].tap(); Thread.sleep(forTimeInterval: 0.4)
+        app.buttons["Chords, edit chord grid"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.6)
     }
     func chordColumn(_ col: Int, _ degree: String) { app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Column \(col), \(degree),")).firstMatch.tap() }
     func undo() { app.buttons["Undo"].tap() }
@@ -241,7 +250,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         launch()
         var hashes = [read().snap]
         for i in 0..<52 {            // alternating note-source buttons: each tap is its own step (nil key)
-            noteSource(i % 2 == 0 ? "Chords" : "Key")
+            noteSource(i % 2 == 0 ? "CHORDS while MIDI plays" : "KEY with no MIDI")
             hashes.append(settledQuick().snap)
         }
         let full = settled()
@@ -259,7 +268,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
 
     func testSixtyRapidUndoRedoTapsLeaveEverythingConsistent() {
         launch()
-        noteSource("Chords"); noteSource("MIDI in"); stepsUp(); riffSwitch(2); noteSource("Key")
+        noteSource("CHORDS while MIDI plays"); noteSource("KEY while MIDI plays"); stepsUp(); riffSwitch(2); noteSource("CHORDS with no MIDI")
         let before = settled()
         for i in 0..<60 { if i % 2 == 0 { undo() } else { redo() } }
         let after = settled()
@@ -476,7 +485,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         launch()
         app.buttons["Play"].tap()
         Thread.sleep(forTimeInterval: 0.6)
-        noteSource("Chords"); noteSource("Key"); riffSwitch(2); stepsUp(); noteSource("MIDI in"); noteSource("Key")
+        noteSource("CHORDS while MIDI plays"); noteSource("KEY with no MIDI"); riffSwitch(2); stepsUp(); noteSource("CHORDS with no MIDI"); noteSource("KEY while MIDI plays")
         let before = settled()
         for i in 0..<40 { if i % 3 == 2 { redo() } else { undo() }; if i % 10 == 9 { let m = read(); XCTAssertTrue(m.consistent, "mid-storm: \(m.raw)") } }
         let mid = settled()
@@ -509,7 +518,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         let first = launch()
         openFX()                                                                // the sequencer panel shows its FX tab for the whole run (the lane cards and the riff panel stay where they are)
         var oracle = Timeline(start: first.snap)
-        var upCount = 0, lastSource = "Key", keyIsMinor = true
+        var upCount = 0, keyIsMinor = true
         var log: [String] = []
         for i in 0..<length {
             let op: Op
@@ -517,7 +526,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case 0, 1: op = upCount < 3 ? .stepsUp : .stepsDown
             case 2: op = .hits(rng.int(0...1) == 0)
             case 3: op = .offset
-            case 4, 5: op = .source(["Chords", "Key", "MIDI in"].filter { $0 != lastSource }[rng.int(0...1)])
+            case 4, 5: op = .source(["CHORDS while MIDI plays", "CHORDS with no MIDI", "KEY with no MIDI"][rng.int(0...2)])   // each toggle flips one SOURCES cell — always a change, always one step
             case 6: op = .riff(rng.int(2...4))
             case 7: op = .preset("FIVE AGAINST EIGHT")
             case 8, 9: op = .riffCell(rng.int(1...8), rng.int(1...8))
@@ -533,7 +542,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case .stepsDown: stepsDown(); upCount -= 1
             case .hits(let u): dragHits(up: u)
             case .offset: dragOffset()
-            case .source(let s): noteSource(s); lastSource = s
+            case .source(let s): noteSource(s)
             case .riff(let n): riffSwitch(n)
             case .riffCell(let st, let r): app.buttons["Step \(st), rank \(r)"].firstMatch.tap()
             case .fxCell(let n, let row): fxCell(note: n, row: row)

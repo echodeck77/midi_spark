@@ -61,6 +61,27 @@ final class PageLayoutTests: XCTestCase {
 
     // MARK: 3. the sweep
 
+    // GRACEFUL SCALE-TO-FIT (small-window, 2026-10-26): at/above the minimum it's a no-op (the real size, scale 1);
+    // below, the page lays out at the reference size and scales down uniformly, centred.
+    func testScaleToFitIsANoOpAtOrAboveTheMinimumAndScalesCentredBelow() {
+        // big enough (landscape + portrait): no scaling, the real size.
+        for s in [CGSize(width: 1190, height: 726), CGSize(width: 814, height: 1102), CGSize(width: 760, height: 480), CGSize(width: 480, height: 760)] {
+            let f = euclideousScaleToFit(s)
+            XCTAssertFalse(f.scaled, "\(s) is at/above the minimum"); XCTAssertEqual(f.scale, 1); XCTAssertEqual(f.renderSize, s); XCTAssertEqual(f.origin, .zero)
+        }
+        // too small (landscape): lays out at the 1190×726 reference, scales to fit, centred.
+        let small = CGSize(width: 595, height: 363)   // exactly half the landscape reference
+        let f = euclideousScaleToFit(small)
+        XCTAssertTrue(f.scaled); XCTAssertEqual(f.renderSize, EuclideousScaleToFit.landscapeRef)
+        XCTAssertEqual(f.scale, 0.5, accuracy: 1e-9, "min(595/1190, 363/726) = 0.5")
+        XCTAssertEqual(f.origin.x, 0, accuracy: 1e-9); XCTAssertEqual(f.origin.y, 0, accuracy: 1e-9, "exactly half ⇒ fills, no centring gap")
+        // a width-constrained small size centres vertically.
+        let wide = euclideousScaleToFit(CGSize(width: 595, height: 400))
+        XCTAssertEqual(wide.scale, 0.5, accuracy: 1e-9, "width binds (595/1190 < 400/726)")
+        XCTAssertEqual(wide.origin.y, (400 - 726 * 0.5) / 2, accuracy: 1e-9, "centred in the leftover height")
+        // a zero/degenerate size never divides by zero.
+        XCTAssertFalse(euclideousScaleToFit(.zero).scaled)
+    }
     func testEveryFrameLiesInsideTheViewBoxesAreEightApartAndAllSixAreTheSameSize() {
         let kinds: [EuclideousHeaderLayout.Kind] = [.a, .b, .c]
         for w in stride(from: 600, through: 1400, by: 50) { for h in stride(from: 600, through: 1400, by: 50) {

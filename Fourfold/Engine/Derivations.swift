@@ -4862,6 +4862,37 @@ func euclideousPageLayout(size: CGSize, bottomInset: CGFloat = 0) -> EuclideousP
     return euclideousPageLayout(size: size, headerKind: kind, bottomInset: bottomInset)
 }
 
+// MARK: - GRACEFUL SCALE-TO-FIT (small-window, 2026-10-26)
+// Below a sensible minimum the page is laid out at a fixed REFERENCE size and the WHOLE thing (page + pop-ups +
+// HUD) is scaled down uniformly to fit, CENTRED — LIVE and interactive (SwiftUI's scaleEffect/offset carry hit
+// testing), with no overlay message. (Supersedes the 2026-10-24 "RESIZE TO CONTINUE" fallback, which scaled only
+// the page body, froze interaction and covered it with a card — Paul 2026-10-26: keep the graceful size-down, drop
+// the message and the freeze.) At or above the minimum this is a no-op (scale 1, the real size) — byte-identical.
+enum EuclideousScaleToFit {
+    static let landscapeMin = CGSize(width: 760, height: 480)
+    static let portraitMin = CGSize(width: 480, height: 760)
+    /// Paul's own two reference sizes — `PageLayoutTests` already pins the page's layout against these two.
+    static let landscapeRef = CGSize(width: 1190, height: 726)
+    static let portraitRef = CGSize(width: 814, height: 1102)
+}
+struct EuclideousScaleFit: Equatable {
+    var renderSize: CGSize   // the size the page lays out at (the real size, or — when small — the reference)
+    var scale: CGFloat       // 1 at/above the minimum, else < 1
+    var origin: CGPoint      // where to place the scaled page (centred when scaled; .zero otherwise)
+    var scaled: Bool
+}
+func euclideousScaleToFit(_ size: CGSize) -> EuclideousScaleFit {
+    let landscape = size.width > size.height
+    let minS = landscape ? EuclideousScaleToFit.landscapeMin : EuclideousScaleToFit.portraitMin
+    guard size.width > 0, size.height > 0, size.width < minS.width || size.height < minS.height else {
+        return EuclideousScaleFit(renderSize: size, scale: 1, origin: .zero, scaled: false)
+    }
+    let ref = landscape ? EuclideousScaleToFit.landscapeRef : EuclideousScaleToFit.portraitRef
+    let scale = max(0.05, min(size.width / ref.width, size.height / ref.height))
+    let origin = CGPoint(x: (size.width - ref.width * scale) / 2, y: (size.height - ref.height * scale) / 2)
+    return EuclideousScaleFit(renderSize: ref, scale: scale, origin: origin, scaled: true)
+}
+
 // MARK: - MIX TAB (ferry 2026-10-18): gate, velocity and octave for every layer
 //
 // Pure, Foundation-only support for the sequencer panel's MIX tab and the per-layer gate/velocity model: the legato predicate

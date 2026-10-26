@@ -786,8 +786,9 @@ struct EuclideousPage: View {
     let onToggleSourceCell: (WritableKeyPath<SourcePlan, Bool>) -> Void   // flip one of the four cells (undo like a source switch)
     let onSetNoteSource: (EuclideousLaneSource) -> Void
     // HOLD/LATCH (Paul 2026-10-20): two mutually-exclusive header buttons beside the key pill, same live-
-    // mirror/onSet convention as `noteSource` above. nil = off (plain live MIDI, today's behaviour). Only
-    // meaningful against MIDI IN — the buttons themselves dim when `noteSource != .midi`.
+    // mirror/onSet convention as `noteSource` above. nil = off (plain live MIDI). SOURCES STACK ferry
+    // (2026-10-26): always enabled now — MIDI IN always listens, so HOLD/LATCH always apply (they used to dim
+    // unless the source was MIDI).
     let holdLatchMode: EuclideousHoldLatchMode?
     let onSetHoldLatchMode: (EuclideousHoldLatchMode?) -> Void
     let mainOutMask: UInt8
@@ -1527,6 +1528,8 @@ struct EuclideousPage: View {
 
     var body: some View {
         GeometryReader { geo in
+            let fit = euclideousScaleToFit(geo.size)   // GRACEFUL SCALE-TO-FIT: lay out at the reference size when small, scale the whole page down
+            let box = fit.renderSize
             // ORIENTATION (Paul 2026-10-08, ferry §3): recomputed from the view's OWN live bounds every time
             // SwiftUI re-lays-out (host rotation, AUM windowed ↔ full-screen, split-view resize, …) — never a
             // cached/fixed assumption. Landscape = strictly wider than tall (`euclideousPageLayout` owns the chooser).
@@ -1546,7 +1549,7 @@ struct EuclideousPage: View {
                     // §1.4: the view closing (or the host tearing it down) ends random mode as if finished,
                     // keeping whatever's currently playing — the same path the dice-off tap uses.
                     .onDisappear { if euclideousRandomMode { euclideousRandomFinish() } }
-                pageBody(geo.size)
+                pageBody(box)
                 // THE DRAG HUD — same floating-card pattern as the existing EUCLID editor's own HUD
                 // (BuildPage.swift's buildEuclidDragHUD/AudioUnitViewController.swift's root-ZStack
                 // rendering): a top-level sibling so it can float anywhere over the lanes, converting
@@ -1556,7 +1559,7 @@ struct EuclideousPage: View {
                     let hudW: CGFloat = 230
                     let rawX = info.point.x - origin.x
                     let halfW = hudW / 2 + 8
-                    let x = min(max(rawX, halfW), max(halfW, geo.size.width - halfW))
+                    let x = min(max(rawX, halfW), max(halfW, box.width - halfW))
                     // TOP-EDGE FLOOR sized to the card's own HALF-HEIGHT, not an arbitrary smaller number
                     // (found during a legibility review, 2026-10-09): `euclideousDragHUD`'s own content —
                     // 3 stacked lines (10/22/12pt, ~5pt gaps) + 16pt vertical padding each side — comes to
@@ -1576,7 +1579,7 @@ struct EuclideousPage: View {
                     Color.black.opacity(0.55).ignoresSafeArea()
                         .onTapGesture { maskModePopupLane = nil }
                         .zIndex(3)
-                    maskModePopupCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                    maskModePopupCard(lane).position(x: box.width / 2, y: box.height / 2).zIndex(4)
                 }
                 // LISTEN REBUILT (2026-10-23): the old partner pop-up is gone — §2.1's FOLLOW row picks the
                 // one shared source inline (chips), no anchored popup needed.
@@ -1593,12 +1596,12 @@ struct EuclideousPage: View {
                     // ANCHORED, not centred (ferry §3: "anchored near the tapped reset box") — same
                     // non-dimming full-screen tap-catcher idiom as the KEY popup just above.
                     Color.clear.contentShape(Rectangle()).onTapGesture { resetPopupLane = nil }
-                        .frame(width: geo.size.width, height: geo.size.height)
+                        .frame(width: box.width, height: box.height)
                         .zIndex(3)
                     let frame = resetChipFrames[lane]
-                    let anchorX = frame.map { max(110, $0.midX) } ?? geo.size.width / 2
-                    let anchorY = frame.map { $0.maxY + 70 } ?? geo.size.height / 2
-                    resetPopupCard(lane).position(x: min(anchorX, geo.size.width - 110), y: min(max(90, anchorY), geo.size.height - 90)).zIndex(4)
+                    let anchorX = frame.map { max(110, $0.midX) } ?? box.width / 2
+                    let anchorY = frame.map { $0.maxY + 70 } ?? box.height / 2
+                    resetPopupCard(lane).position(x: min(anchorX, box.width - 110), y: min(max(90, anchorY), box.height - 90)).zIndex(4)
                 }
                 // FOUR RIFFS (restored 2026-10-18): long-press a riff tab opens COPY/PASTE/CLEAR, same
                 // dimming scrim+centred-card shape as the old riff-tab menu it's restoring.
@@ -1606,14 +1609,14 @@ struct EuclideousPage: View {
                     Color.black.opacity(0.55).ignoresSafeArea()
                         .onTapGesture { riffTabMenuLane = nil }
                         .zIndex(3)
-                    riffTabMenuCard(lane).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                    riffTabMenuCard(lane).position(x: box.width / 2, y: box.height / 2).zIndex(4)
                 }
                 // CHORDS GRID ferry §4.6: the chord-set tabs' own long-press menu, same shape as the riff tabs'.
                 if let idx = chordsTabMenuIndex {
                     Color.black.opacity(0.55).ignoresSafeArea()
                         .onTapGesture { chordsTabMenuIndex = nil }
                         .zIndex(3)
-                    chordsTabMenuCard(idx).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                    chordsTabMenuCard(idx).position(x: box.width / 2, y: box.height / 2).zIndex(4)
                 }
                 if keyPopupOpen {
                     // ANCHORED POPOVER, now UNDER THE KEY PILL (Fourfold header ferry §6.2): a non-dimming full-screen
@@ -1622,14 +1625,14 @@ struct EuclideousPage: View {
                     // mid-page tab, wrong for a header pill (it would hang ~50pt off the top). Falls back to centre if the
                     // pill hasn't published a frame yet.
                     Color.clear.contentShape(Rectangle()).onTapGesture { keyPopupOpen = false }
-                        .frame(width: geo.size.width, height: geo.size.height)
+                        .frame(width: box.width, height: box.height)
                         .zIndex(3)
                     if let f = riffKeyTabFrame {
                         keyPopupCard
-                            .offset(x: min(max(f.minX, sp8), max(sp8, geo.size.width - 260 - sp8)), y: f.maxY + sp4)
+                            .offset(x: min(max(f.minX, sp8), max(sp8, box.width - 260 - sp8)), y: f.maxY + sp4)
                             .zIndex(4)
                     } else {
-                        keyPopupCard.position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                        keyPopupCard.position(x: box.width / 2, y: box.height / 2).zIndex(4)
                     }
                 }
                 // THE CHORDS POP-UP — same dimming scrim as before (content unchanged), now ANCHORED under the SOURCES
@@ -1640,12 +1643,12 @@ struct EuclideousPage: View {
                         .onTapGesture { chordsPopupOpen = false }
                         .zIndex(3)
                     if let f = sourceControlFrame {
-                        let cardW = min(640, geo.size.width - 32)
-                        chordsPopupCard(geo.size)
-                            .offset(x: min(max(f.minX, sp8), max(sp8, geo.size.width - cardW - sp8)), y: f.maxY + sp4)
+                        let cardW = min(640, box.width - 32)
+                        chordsPopupCard(box)
+                            .offset(x: min(max(f.minX, sp8), max(sp8, box.width - cardW - sp8)), y: f.maxY + sp4)
                             .zIndex(4)
                     } else {
-                        chordsPopupCard(geo.size).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                        chordsPopupCard(box).position(x: box.width / 2, y: box.height / 2).zIndex(4)
                     }
                 }
                 // THE SOURCES POP-UP (SOURCES STACK ferry §5): presented like the key pop-up — a non-dimming tap-catcher
@@ -1653,15 +1656,15 @@ struct EuclideousPage: View {
                 // slid left if it would cross the trailing edge. Falls back to centre until the control has a frame.
                 if sourcesPopupOpen {
                     Color.clear.contentShape(Rectangle()).onTapGesture { sourcesPopupOpen = false }
-                        .frame(width: geo.size.width, height: geo.size.height)
+                        .frame(width: box.width, height: box.height)
                         .zIndex(3)
-                    let cardW = euclideousSourcesPopupLayout(containerW: geo.size.width).width
+                    let cardW = euclideousSourcesPopupLayout(containerW: box.width).width
                     if let f = sourceControlFrame {
-                        sourcesPopupCard(geo.size)
-                            .offset(x: min(max(f.minX, sp8), max(sp8, geo.size.width - cardW - sp8)), y: f.maxY + sp8)
+                        sourcesPopupCard(box)
+                            .offset(x: min(max(f.minX, sp8), max(sp8, box.width - cardW - sp8)), y: f.maxY + sp8)
                             .zIndex(4)
                     } else {
-                        sourcesPopupCard(geo.size).position(x: geo.size.width / 2, y: geo.size.height / 2).zIndex(4)
+                        sourcesPopupCard(box).position(x: box.width / 2, y: box.height / 2).zIndex(4)
                     }
                 }
                 // THE XY PAD VALUE BUBBLE is RETIRED along with the pads themselves (usability ferry,
@@ -1678,21 +1681,21 @@ struct EuclideousPage: View {
                 // width are already the ONE formula every other header view draws from.
                 if swingPopupOpen {
                     Color.clear.contentShape(Rectangle()).onTapGesture { swingPopupOpen = false }
-                        .frame(width: geo.size.width, height: geo.size.height)
+                        .frame(width: box.width, height: box.height)
                         .zIndex(3)
-                    let hdr = pageGeometry(geo.size).hdr
+                    let hdr = pageGeometry(box).hdr
                     let target = hdr.compact ? HM.compactTarget : HM.target
                     let anchorX = sp16 + hdr.utilities.x + target
                     let anchorY = HM.topMargin + hdr.height
                     swingPopupCard
-                        .offset(x: min(max(anchorX, sp8), max(sp8, geo.size.width - 200 - sp8)), y: anchorY + sp4)
+                        .offset(x: min(max(anchorX, sp8), max(sp8, box.width - 200 - sp8)), y: anchorY + sp4)
                         .zIndex(4)
                 }
                 if settingsOpen {
-                    let pg = pageGeometry(geo.size)
+                    let pg = pageGeometry(box)
                     let containerW = pg.containerW, hdr = pg.hdr
                     EuclideousSettingsSheet(
-                        tab: $settingsTab, containerW: containerW, containerH: geo.size.height,
+                        tab: $settingsTab, containerW: containerW, containerH: box.height,
                         headerBottomY: HM.topMargin + hdr.height,
                         onCloseSheet: { settingsOpen = false },
                         midiInMask: midiInChannelMask, onSetMidiInMask: onSetMidiInChannelMask,
@@ -1709,6 +1712,9 @@ struct EuclideousPage: View {
                 }
             }
             .coordinateSpace(name: "euclideousXY")
+            .frame(width: box.width, height: box.height, alignment: .topLeading)
+            .scaleEffect(fit.scale, anchor: .topLeading)   // GRACEFUL SCALE-TO-FIT: interactive (scaleEffect carries hit testing), no overlay message
+            .offset(x: fit.origin.x, y: fit.origin.y)
             #if DEBUG
             .onAppear {
                 let pg = euclideousPageLayout(size: geo.size, bottomInset: pageBottomInset)
@@ -2096,10 +2102,12 @@ struct EuclideousPage: View {
     /// HOLD/LATCH (Paul 2026-10-20): two fixed-width chips, mutually exclusive by construction (one optional
     /// field) — tapping the active one again turns it off; tapping the other switches. Only meaningful
     /// against MIDI IN (CHORDS/KEY already generate a fixed algorithmic pool with no physical note-on/off to
-    /// freeze or toggle) — dimmed and non-interactive otherwise, same "visible but inert" treatment as every
-    /// other source-gated control on this page.
+    /// freeze or toggle). SOURCES STACK ferry (2026-10-26): always enabled — MIDI always listens.
     private func headerHoldLatch() -> some View {
-        let enabled = noteSource == .midi
+        // SOURCES STACK ferry (2026-10-26): MIDI IN ALWAYS listens now, so HOLD/LATCH always apply — the old
+        // `noteSource == .midi` gate is stale (the source selector is gone; `noteSource` is decode-only), which
+        // left the chips permanently dimmed. Always enabled now.
+        let enabled = true
         return HStack(spacing: HM.sp4) {
             headerHoldLatchChip(.hold, label: "HOLD", width: HM.holdLatchChipWidths[0], enabled: enabled)
             headerHoldLatchChip(.latch, label: "LATCH", width: HM.holdLatchChipWidths[1], enabled: enabled)

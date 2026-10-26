@@ -144,18 +144,22 @@ final class FourfoldTapTests: XCTestCase {
         }
     }
 
-    func testTheNoteSourceHoldAndLatchControlsSelect() {
+    // SOURCES STACK ferry (2026-10-26): the note-source radio became a 3-light SOURCES control opening a pop-up of
+    // CHORDS/KEY toggle cells. HOLD/LATCH are unchanged header chips.
+    func testTheSourcesControlAndHoldLatchSelect() {
         let app = XCUIApplication.fresh()
-        XCTAssertTrue(app.buttons["Key"].isSelected, "KEY is the default note source")
-        app.buttons["Chords"].tap()
-        XCTAssertTrue(app.buttons["Chords"].isSelected); XCTAssertFalse(app.buttons["Key"].isSelected)
-        app.buttons["MIDI in"].tap()
-        XCTAssertTrue(app.buttons["MIDI in"].isSelected)
+        // HOLD / LATCH header chips — always enabled now (MIDI always listens; they used to need a MIDI source).
         app.buttons["Hold"].tap()
         XCTAssertTrue(app.buttons["Hold"].isSelected, "HOLD should read as on")
         app.buttons["Latch"].tap()
         XCTAssertTrue(app.buttons["Latch"].isSelected, "LATCH should read as on")
         XCTAssertFalse(app.buttons["Hold"].isSelected, "HOLD and LATCH are mutually exclusive")
+        // the SOURCES control + its pop-up of CHORDS/KEY toggle cells.
+        need(app.buttons["Sources"], "the header SOURCES control").tap()
+        XCTAssertEqual(need(app.buttons["KEY while MIDI plays"], "KEY-while-MIDI cell").value as? String, "plays", "a fresh instance derives KEY ⇒ its cells play")
+        XCTAssertEqual(need(app.buttons["CHORDS while MIDI plays"], "CHORDS-while-MIDI cell").value as? String, "off", "CHORDS off by default")
+        app.buttons["CHORDS while MIDI plays"].tap()
+        XCTAssertEqual(app.buttons["CHORDS while MIDI plays"].value as? String, "plays", "tapping a SOURCES cell turns it on")
     }
 
     func testTheKeyPopupChangesTheScale() {
