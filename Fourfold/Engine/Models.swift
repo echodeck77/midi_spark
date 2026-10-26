@@ -267,91 +267,8 @@ struct EuclidLine: Codable, Equatable {
     // (byte-identical for every existing doc, incl. the BUILD-page EUCLID processor, which has no UI for this and
     // will never set it). Lets each of Euclideous's 4 lanes run its own tempo-relative rate.
     var rate: ArpRate? = nil
-    // PER-LINE EMITTER OVERRIDE (Paul 2026-10-05, EUCLIDEOUS): bit i = emitter A…D — mirrors `echoInKeyReceivers`'s
-    // exact convention (same bit layout, same nil-means-unset semantics). nil ⇒ inherit the cell's own resolved
-    // bus mask, byte-identical for every existing doc. Only reaches Router.swift's `strikeChord` when EUCLID is
-    // the chain's own tail (true by construction for Euclideous's one-slot cell) — see Router.swift's own comment
-    // at the call site for the one disclosed consequence of this field being shared with the chainable BUILD-page
-    // EUCLID processor too.
-    var emitterMask: UInt8? = nil
-    // PER-LAYER EMITTER ROUTING (Paul 2026-10-25): a lane's RIFF and its NOTES route to outputs separately —
-    // `riffOutMask` for the riff layer, `notesOutMask` for the notes layer. Same bit convention as `emitterMask`
-    // above (bit i = A…D). nil ⇒ inherit `emitterMask`'s own resolved value (see `riffOutMaskResolved` /
-    // `notesOutMaskResolved`), so EVERY existing lane — which has neither field — resolves BOTH to its current
-    // `emitterMask` and is byte-identical (ferry §3.1/§3.6). `emitterMask` stays decodable (ferry §3.3): the
-    // encoder writes it as the UNION of the two so an older build opening a newer document sends both parts
-    // everywhere either went; after this ferry nothing but that encoder and the two resolvers reads it.
-    var riffOutMask: UInt8? = nil
-    var notesOutMask: UInt8? = nil
-    // ferry §3.1: nil ⇒ inherit `emitterMask` (itself Optional — nil there ⇒ the Router inherits the cell bus, as
-    // today). So an existing lane with only `emitterMask` resolves BOTH parts to it, byte-identical.
-    var riffOutMaskResolved: UInt8? { riffOutMask ?? emitterMask }
-    var notesOutMaskResolved: UInt8? { notesOutMask ?? emitterMask }
-    // What the PAGE shows and edits: a lane with no stored mask at all (every factory preset, an older session) is
-    // not "routed nowhere" — the Router inherits the cell's open bus and it sounds on A–D — so the page reads nil as
-    // all four. The `…Resolved` pair above stays Optional on purpose: the Router must keep seeing nil there.
-    var riffOutMaskDisplay: UInt8 { (riffOutMaskResolved ?? 0x0F) & 0x0F }
-    var notesOutMaskDisplay: UInt8 { (notesOutMaskResolved ?? 0x0F) & 0x0F }
-    // ferry §3.3: what the legacy `emitterMask` is ENCODED as — the union of the two parts, so an older build sends
-    // both parts everywhere either went. An UNTOUCHED lane (neither part set) writes `emitterMask` verbatim (incl.
-    // nil = inherit), so an existing document re-saved is byte-identical.
-    var emitterMaskForEncode: UInt8? {
-        if riffOutMask == nil, notesOutMask == nil { return emitterMask }
-        return riffOutMaskDisplay | notesOutMaskDisplay
-    }
-    // ferry §2.5/§3.4: a circle tap on the RIFF/NOTES tab toggles one output bit of one part. It PINS BOTH parts to
-    // their resolved value first (so the UNtapped part stops inheriting `emitterMask` and can't be dragged along when
-    // `emitterMask` is rewritten below), flips this part's bit, then keeps `emitterMask` = the two parts' union
-    // (`emitterMaskForEncode`, now that both are explicit) so the synthesized encoder persists the §3.3 forward-compat
-    // value with no fragile hand-written `encode(to:)`. A part routed nowhere sounds nowhere, as a lane does today.
-    mutating func toggleOutput(_ part: EuclideousOutPart, bit: UInt8) {
-        var riff = riffOutMaskDisplay, notes = notesOutMaskDisplay
-        if part == .riff { riff ^= (bit & 0x0F) } else { notes ^= (bit & 0x0F) }
-        riffOutMask = riff & 0x0F
-        notesOutMask = notes & 0x0F
-        emitterMask = emitterMaskForEncode      // both parts explicit now ⇒ exactly riff | notes
-    }
-    // ── ALT ROUTING ferry (Paul 2026-10-25) ──────────────────────────────────────────────────────────
-    // §4.1: per part, a SECOND emitter group (ALT) + a MODE that decides, hit by hit, whether a note leaves on
-    // the part's MAIN mask (riffOutMask/notesOutMask) or this ALT routing. Two additive-Optional, decode-tolerant
-    // fields; nil / a fresh lane ⇒ mode OFF (§4.2/§4.7), so every existing lane and preset is byte-identical.
-    var riffAlt: EuclideousAltRouting? = nil
-    var notesAlt: EuclideousAltRouting? = nil
-    // §4.3 the link: which part LEADS (the other FOLLOWS its whole routing until cleared). nil ⇒ no link.
-    var outLink: EuclideousOutLinkEnd? = nil
-    // §4.2 resolvers: a nil field ⇒ the part's defaults; `resolved(forRiff:)` clamps every value and fills the
-    // part-aware SPLIT default (rank 4 riff / LOWEST notes). The engine and every display read these, not the raw field.
-    var riffAltResolved: EuclideousAltParams { (riffAlt ?? EuclideousAltRouting()).resolved(forRiff: true) }
-    var notesAltResolved: EuclideousAltParams { (notesAlt ?? EuclideousAltRouting()).resolved(forRiff: false) }
-    /// §3.4/§4.5: set a part's mode. Leaving OFF with an EMPTY ALT mask SEEDS it (A→B→C→D→A, or A if MAIN empty)
-    /// in the SAME mutation (one undo step). A no-op if the mode is unchanged.
-    mutating func setAltMode(_ part: EuclideousOutPart, _ mode: EuclideousAltMode) {
-        var alt = (part == .riff ? riffAlt : notesAlt) ?? EuclideousAltRouting()
-        guard alt.mode != mode else { return }
-        let wasOff = alt.mode == .off
-        alt.mode = mode
-        if wasOff, mode != .off, (alt.altMask & 0x0F) == 0 {
-            let main = (part == .riff ? riffOutMaskResolved : notesOutMaskResolved) ?? 0
-            alt.altMask = euclideousSeedAltMask(main: main)
-        }
-        if part == .riff { riffAlt = alt } else { notesAlt = alt }
-    }
-    /// §3.3: a tap on an ALT-group circle toggles one output bit of this part's ALT mask (no minimum).
-    mutating func toggleAltOutput(_ part: EuclideousOutPart, bit: UInt8) {
-        var alt = (part == .riff ? riffAlt : notesAlt) ?? EuclideousAltRouting()
-        alt.altMask = (alt.altMask ^ (bit & 0x0F)) & 0x0F
-        if part == .riff { riffAlt = alt } else { notesAlt = alt }
-    }
-    /// §3.5: edit one of a part's ALT settings (every/offset/strip/passes/passOffset/chance/split) through a closure.
-    mutating func editAlt(_ part: EuclideousOutPart, _ f: (inout EuclideousAltRouting) -> Void) {
-        var alt = (part == .riff ? riffAlt : notesAlt) ?? EuclideousAltRouting()
-        f(&alt)
-        if part == .riff { riffAlt = alt } else { notesAlt = alt }
-    }
-    /// §4.3: APPLY segment. `.both` makes `source` the leader (the other part follows); the source's own segment clears.
-    mutating func setOutLink(apply both: Bool, source: EuclideousOutPart) {
-        outLink = both ? (source == .riff ? .riff : .notes) : nil
-    }
+    // THE NINE PORTS (Paul 2026-10-26): a lane has no output setting — its RIFF leaves on its Riff port and its NOTES on its Notes port, always (`FourfoldPorts`). The per-lane emitter mask, the per-layer
+    // routing masks and the ALT groups that lived here are gone; an older document's keys for them are ignored at decode.
     // RIFF ADVANCE (Paul 2026-10-06, EUCLIDEOUS): when on, this lane's hits step through the page's shared
     // EuclideousRiff pattern instead of noteSel/octave — REPLACES them entirely, not layered on top. riffRotate/
     // riffOctave are this lane's own INDEPENDENT offsets into that one shared pattern (driven by the same
@@ -956,14 +873,6 @@ extension EuclidLine {
         missVelocity = try c.decodeIfPresent(Double.self, forKey: .missVelocity)
         patternMiss = try c.decodeIfPresent(Bool.self, forKey: .patternMiss)
         rate = try c.decodeIfPresent(ArpRate.self, forKey: .rate)
-        emitterMask = try c.decodeIfPresent(UInt8.self, forKey: .emitterMask)
-        // ferry §3.1: drop any bit above the four outputs at decode (test 2).
-        riffOutMask = (try c.decodeIfPresent(UInt8.self, forKey: .riffOutMask)).map { $0 & 0x0F }
-        notesOutMask = (try c.decodeIfPresent(UInt8.self, forKey: .notesOutMask)).map { $0 & 0x0F }
-        // ALT ferry §4.6: additive-Optional + decode-tolerant — a corrupt or absent value ⇒ nil ⇒ the §4.2 defaults.
-        riffAlt = (try? c.decodeIfPresent(EuclideousAltRouting.self, forKey: .riffAlt)) ?? nil
-        notesAlt = (try? c.decodeIfPresent(EuclideousAltRouting.self, forKey: .notesAlt)) ?? nil
-        outLink = (try? c.decodeIfPresent(EuclideousOutLinkEnd.self, forKey: .outLink)) ?? nil
         useRiff = try c.decodeIfPresent(Bool.self, forKey: .useRiff)
         melodyMode = try c.decodeIfPresent(EuclideousMelodyMode.self, forKey: .melodyMode)
         litNotes = try c.decodeIfPresent(UInt8.self, forKey: .litNotes)
@@ -1137,79 +1046,6 @@ enum EuclideousListenPitchMode: String, Codable, CaseIterable { case own = "OWN"
 // note again (Derivations.swift's REPEAT lookback). Swift reserves `repeat`, hence `repeatLast`; the raw
 // value "REPEAT" is what persists. Old documents never hold it (only ever skip/fill/tie decode old).
 enum EuclidRiffOnRest: String, Codable, CaseIterable { case skip = "SKIP", fill = "FILL", tie = "TIE", repeatLast = "REPEAT" }
-// ── ALT ROUTING ferry (Paul 2026-10-25) types ────────────────────────────────────────────────────────
-// §4.1 the switching mode. String-raw, UNKNOWN-TOLERANT (§4.2 "an unknown mode is OFF") — mirrors
-// EuclidNotesPlayAs's custom decoder. The ordering here is the §3.4 selector grid (top row OFF…PASSES,
-// bottom CHANCE…SPREAD). RESTS and SPREAD are notes-only (§5.2 / §3.4 grey them for the riff).
-enum EuclideousAltMode: String, Codable, CaseIterable {
-    case off = "OFF", hits = "HITS", steps = "STEPS", strip = "STRIP", passes = "PASSES"
-    case chance = "CHANCE", rests = "RESTS", split = "SPLIT", robin = "ROBIN", spread = "SPREAD"
-    init(from decoder: Decoder) throws {
-        let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
-        self = EuclideousAltMode(rawValue: raw) ?? .off
-    }
-    /// §1.4/§5.2: the seven modes that actually route a note to the ALT group (OFF/ROBIN/SPREAD do not — ROBIN/
-    /// SPREAD distribute across MAIN). Drives the ALT dots, the ALT-row 42% dim, and the header's ALT quarter-lit.
-    var usesAlt: Bool { switch self { case .off, .robin, .spread: return false; default: return true } }
-}
-// §4.3 which part LEADS the link (the other follows). Stored decode-tolerantly at the EuclidLine level.
-enum EuclideousOutLinkEnd: String, Codable, CaseIterable { case riff = "RIFF", notes = "NOTES" }
-/// §4.1 one part's ALT routing, as stored on `EuclidLine` (additive-Optional). Decode-tolerant: every field
-/// `decodeIfPresent`s to its §4.2 default, so a partial/old struct fills in. `split` is Optional so a nil means
-/// "use the part default" (rank 4 riff / LOWEST notes) distinct from an explicit 0 = LOWEST. Read via
-/// `resolved(forRiff:)`, never raw — the resolver clamps everything (§4.2).
-struct EuclideousAltRouting: Codable, Equatable {
-    var altMask: UInt8 = 0
-    var mode: EuclideousAltMode = .off
-    var every: Int = 1            // HITS/STEPS SWAP EVERY (1–8); shared by HITS and STEPS
-    var offset: Int = 0           // HITS/STEPS OFFSET (0 … 2·every−1, wraps)
-    var strip: UInt8 = 0b1111_0000 // STRIP cells 5–8 ALT by default; bit i = cell i+1
-    var passes: Int = 1           // PASSES SWAP EVERY (1–8)
-    var passOffset: Int = 0       // PASSES OFFSET (0 … 2·passes−1)
-    var chance: Int = 50          // CHANCE of ALT (10–90, steps of 10)
-    var split: Int? = nil         // SPLIT: nil ⇒ part default; 0 = LOWEST; 1–7 = a pool rank
-    init() {}
-    init(from d: Decoder) throws {
-        let c = try d.container(keyedBy: CodingKeys.self)
-        altMask = (try c.decodeIfPresent(UInt8.self, forKey: .altMask)) ?? 0
-        mode = (try c.decodeIfPresent(EuclideousAltMode.self, forKey: .mode)) ?? .off
-        every = (try c.decodeIfPresent(Int.self, forKey: .every)) ?? 1
-        offset = (try c.decodeIfPresent(Int.self, forKey: .offset)) ?? 0
-        strip = (try c.decodeIfPresent(UInt8.self, forKey: .strip)) ?? 0b1111_0000
-        passes = (try c.decodeIfPresent(Int.self, forKey: .passes)) ?? 1
-        passOffset = (try c.decodeIfPresent(Int.self, forKey: .passOffset)) ?? 0
-        chance = (try c.decodeIfPresent(Int.self, forKey: .chance)) ?? 50
-        split = try c.decodeIfPresent(Int.self, forKey: .split)
-    }
-    /// §4.2: the clamped, part-aware bundle the engine and displays read. Fills the SPLIT part default and clamps
-    /// every value into range (offset into 0…2·every−1, passOffset into 0…2·passes−1, chance to the nearest 10 in
-    /// 10…90, split 8+→7, mask to the four outputs).
-    func resolved(forRiff: Bool) -> EuclideousAltParams {
-        let e = max(1, min(8, every)), pa = max(1, min(8, passes))
-        let s = max(0, min(7, split ?? (forRiff ? 4 : 0)))
-        return EuclideousAltParams(mode: mode, every: e, offset: max(0, min(2 * e - 1, offset)), strip: strip,
-                                   passes: pa, passOffset: max(0, min(2 * pa - 1, passOffset)),
-                                   chance: max(10, min(90, Int((Double(chance) / 10).rounded()) * 10)),
-                                   splitLowest: s == 0, splitRank: s, altMask: altMask & 0x0F)
-    }
-}
-/// §4.2 the RESOLVED (clamped, part-aware) ALT routing the group function and displays read — never the raw struct.
-struct EuclideousAltParams: Equatable {
-    var mode: EuclideousAltMode
-    var every: Int, offset: Int
-    var strip: UInt8
-    var passes: Int, passOffset: Int
-    var chance: Int
-    var splitLowest: Bool, splitRank: Int
-    var altMask: UInt8
-}
-/// §4.5: the ALT mask to seed when a part's mode leaves OFF with an empty ALT mask — the output AFTER the lowest in
-/// MAIN (A→B→C→D→A), or A if MAIN is empty. Pure (test 10).
-func euclideousSeedAltMask(main: UInt8) -> UInt8 {
-    let m = main & 0x0F
-    guard m != 0 else { return 0b0001 }
-    return UInt8(1 << ((m.trailingZeroBitCount + 1) % 4))
-}
 // EUCLID MASK MODES (Paul 2026-10-10 ferry, "Euclid mask, modes and settings" — gives the per-lane mask
 // a real musical effect for the first time). 11 modes, grouped exactly as the MODE picker UI groups them
 // (§4: Thinning · Thickening · Pitch · Dynamics). String-raw, matching every sibling enum on this page.
@@ -1740,7 +1576,6 @@ struct MachineParams: Codable, Equatable {
     var euclideousLooperPasses: EuclideousLooperPasses? = nil   // N
     var euclideousLooperStartRanks: [Int]? = nil      // 8, frozen at B
     var euclideousLooperEvents: [EuclideousLoopEvent]? = nil    // capped 128/column at the write site (§3.4)
-    var mainOutMask: UInt8? = nil // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07) — only meaningful for Euclideous's cell; nil ⇒ 0b1111 (all open, byte-identical for every other chain)
     var soloMask: UInt8? = nil    // LANE SOLO (2026-10-21): the EFFECTIVE solo mask (latched | held), composed at publish — only meaningful for Euclideous's cell; nil ⇒ 0 (no solo, byte-identical for every other chain)
     var euclideousLocks: [EuclideousLaneLock]? = nil   // LANE LOCK (2026-10-21): the four lanes' locks, composed at publish — only meaningful for Euclideous's cell; nil ⇒ nothing locked (byte-identical for every other chain)
     var lockRevs: UInt32? = nil   // LANE LOCK: the per-lane document revisions this snapshot was built from (one byte per lane) — the render thread compares them with the live word to know an edit is on its way (6.4)
@@ -2814,14 +2649,6 @@ struct PluginState: Codable, Equatable {
         let r = row8 ?? Row8Cell.factoryDeck
         return (0..<8).map { $0 < r.count ? r[$0] : Row8Cell() }
     }
-    // delta §6a: per-emitter enable (the per-output performance mute). Optional so v2/old docs decode as
-    // nil → all-enabled (the loader default); the gate lives ONLY at the emission boundary (seam rule 3).
-    var busEnabled: [Bool]? = nil
-    /// The four enable flags, nil/short-array safe (missing ⇒ enabled). Non-persisting read helper.
-    var busEnabledResolved: [Bool] {
-        let e = busEnabled ?? []
-        return (0..<4).map { $0 < e.count ? e[$0] : true }
-    }
     // delta §6a CLAIM: LEGACY single-claimant field (0–3), kept for lossless decode/downgrade. v2 supersedes
     // it with `claimMask`; a doc written by v2 also stamps this to the lowest claimed bus so an OLDER build
     // still reads one claimant. Suppression lives at the emission boundary against the live voice table.
@@ -2847,7 +2674,7 @@ struct PluginState: Codable, Equatable {
     /// only row 0 is meant active there), a short/missing array here pads with a PER-INDEX default (ferry
     /// 2026-10-09 §5): lane 1 (index 0) opens at 1 hit of 8 steps (the struct's own plain default — "a fresh
     /// lane defaults to 1 of 8"); lanes 2-4 open at 0 hits of 8 steps (deliberately silent until raised —
-    /// DIFFERENT from lane 1, not a copy-paste); every lane defaults to its own output (lane 1 → A … lane 4 → D, `emitterMask = 1 << i`) and
+    /// DIFFERENT from lane 1, not a copy-paste); every lane's riff and notes leave on its own ports (`FourfoldPorts`) and
     /// riff ON with direction FWD (`useRiff = true`, `riffDir` left nil so it resolves to `.forward`) — see
     /// `euclideousDefaultLine(_:)` below. SUPERSEDES an earlier "every lane identical, pulses floored to ≥1"
     /// design (2026-10-06, fixing a since-resolved "no sound at all" bug from a stale pulses:0 default) — that
@@ -2859,11 +2686,10 @@ struct PluginState: Codable, Equatable {
     private static func euclideousDefaultLine(_ i: Int) -> EuclidLine {
         // NEW DEFAULT STATE (usability ferry §8.2, 2026-10-11, literal): "riff R1 [see EuclideousRiff.
         // ranksResolved's own default above]; lane 1: riff FWD, 3/8, rate 1/8; lane 2: riff FWD, 5/16,
-        // rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A [CHANGED 2026-10-26: lane i → output i], source KEY." SUPERSEDES the prior ferry's
+        // rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A [CHANGED 2026-10-26: each lane has its own ports], source KEY." SUPERSEDES the prior ferry's
         // own "lane 1 = 1 of 8, lanes 2-4 = 0 hits" default entirely — a fresh/never-touched Euclideous
         // instance now opens on this musical shape instead.
         var x = EuclidLine(noteSel: .low)
-        x.emitterMask = UInt8(1) << UInt8(min(max(i, 0), 3))   // lane 1 → A, lane 2 → B, lane 3 → C, lane 4 → D (Paul 2026-10-26; it was every lane → A)
         x.sourceMode = .key           // "source KEY" — set explicitly rather than relying on the shared
                                        // nil->.key fallback, so this default reads correctly even if that
                                        // fallback is ever revised for an unrelated reason.
@@ -3111,11 +2937,7 @@ struct PluginState: Codable, Equatable {
     var euclideousRiffSourceMidiResolved: Bool { euclideousRiffSourceMidi ?? true }
     var euclideousLanesSourceMidi: Bool? = nil
     var euclideousLanesSourceMidiResolved: Bool { euclideousLanesSourceMidi ?? true }
-    // MAIN OUT: a global master gate over every lane's own per-lane `emitterMask` routing. nil ⇒ 0b1111
-    // (all open, byte-identical to every doc saved before this field existed).
-    var euclideousMainOutMask: UInt8? = nil
-    var euclideousMainOutMaskResolved: UInt8 { (euclideousMainOutMask ?? 0b1111) & 0x0F }
-    // LANE SOLO (ferry 2026-10-21, §4.1): the LATCHED solo mask — bit i = lane i soloed. Stored, saved and handed to the render thread exactly as `euclideousMainOutMask` is (a document field → the AVC's @State →
+    // LANE SOLO (ferry 2026-10-21, §4.1): the LATCHED solo mask — bit i = lane i soloed. Stored, saved and handed to the render thread exactly as the document's other page fields are (a document field → the AVC's @State →
     // `MachineParams.soloMask` → `SnapParams.soloMask`; no undo; a preset load replaces it with the preset's own). nil ⇒ 0 = no solo, so every pre-feature document sounds as before. The HELD solo is UI state only and
     // is deliberately not a field of anything saved.
     var euclideousSoloMask: UInt8? = nil
@@ -3209,7 +3031,7 @@ struct PluginState: Codable, Equatable {
     var rackConfigsResolved: [UInt8] {
         let dflt: [UInt8] = [rackEnabledResolved, 0b1111, 0b1111, 0b1111]
         guard let c = rackConfigs, !c.isEmpty else { return dflt }
-        return (0..<4).map { $0 < c.count ? (c[$0] & 0b1111) : dflt[$0] }   // CR-9: PAD short / TRUNCATE long — don't discard user configs when the array isn't exactly length 4 (matches resolved4/busEnabledResolved)
+        return (0..<4).map { $0 < c.count ? (c[$0] & 0b1111) : dflt[$0] }   // CR-9: PAD short / TRUNCATE long — don't discard user configs when the array isn't exactly length 4 (matches resolved4)
     }
     /// Which config is live (0…3, clamped).
     var rackActiveConfigResolved: Int { max(0, min(3, rackActiveConfig ?? 0)) }
@@ -3508,7 +3330,7 @@ struct StampConfig: Equatable {
 
 /// EUCLIDEOUS UNDO (usability ferry §7, 2026-10-11): the bundle of fields §7.2 lists as undoable — riff grid
 /// edits, any lane setting (card/pads/tabs/mask/melody pop-up), RESET MELODY, and a preset load. Deliberately
-/// EXCLUDES `mainOutMask` (§7.3: "main outputs" is explicitly NOT undoable) and the page's own master ON/OFF
+/// EXCLUDES the page's own master ON/OFF
 /// (not a field here at all — `enabled`/`EuclideousPage.enabled` stays outside this snapshot). `lines` is
 /// captured whole (simplest to construct/compare) even though it also carries each line's own PLAY/STOP
 /// (`enabled`) and its mask's own play/stop (`mask?.enabled`) — both of which §7.3 ALSO excludes

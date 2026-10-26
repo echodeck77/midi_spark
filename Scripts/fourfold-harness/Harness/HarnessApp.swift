@@ -145,7 +145,7 @@ extension Host {
     /// Publish the document the way FourfoldRootView.publish() does (from the AU's own getters).
     func publishDocument() {
         let input = FourfoldCompose.Input(lines: au.uiEuclideousLines(), riff: au.uiEuclideousRiff(), riffs: au.uiEuclideousRiffs(), activeRiff: au.uiEuclideousActiveRiff(),
-                                          mainOutMask: au.uiEuclideousMainOutMask(), soloMask: au.uiEuclideousSoloMask(), locks: au.uiEuclideousLocks(), lockRevs: 0)
+                                          soloMask: au.uiEuclideousSoloMask(), locks: au.uiEuclideousLocks(), lockRevs: 0)
         let chain = FourfoldCompose.chain(input)
         au.setBuildEphemeralMachines([(id: FourfoldCompose.machineID, machine: chain, transpose: 0)])
         au.setBuildStagingScene(FourfoldCompose.scene(chain: chain))

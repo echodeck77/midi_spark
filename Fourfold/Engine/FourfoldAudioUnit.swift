@@ -241,7 +241,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiEuclideousNoteSource() -> EuclideousLaneSource { document.euclideousNoteSourceResolved }
     func uiEuclideousSourcePlan() -> SourcePlan? { document.euclideousSourcePlan }   // SOURCES STACK: the raw optional (nil ⇒ UI shows the derived plan)
     func uiEuclideousHoldLatchMode() -> EuclideousHoldLatchMode? { document.euclideousHoldLatchMode }   // HOLD/LATCH (2026-10-20): nil = off, no Resolved coercion needed
-    func uiEuclideousMainOutMask() -> UInt8 { document.euclideousMainOutMaskResolved }
     func uiEuclideousSoloMask() -> UInt8 { document.euclideousSoloMaskResolved }
     /// LANE SOLO: the effective mask (latched | held) straight to the render thread — no snapshot in the way. Main thread.
     func setEuclideousSoloLive(_ mask: UInt8) { kernel.setEuclideousSoloLive(mask) }   // LANE SOLO (2026-10-21): the LATCHED mask

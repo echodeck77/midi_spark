@@ -2645,19 +2645,6 @@ func euclideousAccessibleDisplayNoteName(_ n: UInt8, source: EuclideousLaneSourc
 }
 
 
-// ── FERRY §4: LANE OUTPUT CHIP WHEN MAIN OUT IS OFF ─────────────────────────────────────────────────────
-enum EuclideousLaneOutChipStyle: Equatable { case filled, hollowDashed, plain }
-/// Ratified 7 Oct: "a lane chip routed to an emitter whose main toggle is off is drawn dashed/hollow" — the
-/// drawing never implemented it; `laneOutRow` collapsed routed-but-main-off to the exact same look as
-/// not-routed (both read the one boolean `routed && mainOn`). The ROUTING itself was always kept (confirmed
-/// by Paul: the chip turns green again the instant main A comes back on) — only the drawing had no third
-/// state to show it. `routed` alone decides the SHAPE; `mainOn` only matters once routed.
-func euclideousLaneOutChipStyle(routed: Bool, mainOn: Bool) -> EuclideousLaneOutChipStyle {
-    guard routed else { return .plain }
-    return mainOn ? .filled : .hollowDashed
-}
-
-
 // ── THE NINE PORTS (Paul 2026-10-26, replaces the emitter toggles) ─────────────────────────────────────────
 /// Which layer of a lane a note belongs to. A lane's RIFF and its NOTES each leave on their OWN port, always.
 enum EuclideousOutPart: Equatable { case riff, notes }
@@ -2689,245 +2676,6 @@ enum FourfoldPorts {
         return (lp.part == .riff ? "RIFF " : "NOTES ") + laneLetters[lp.lane]
     }
 }
-
-// ── PER-LAYER EMITTER ROUTING ferry (2026-10-25) §1–§2: the OUT column on the RIFF and NOTES tabs ──────────
-
-/// §2.3: one output circle's look, from this part's routing bit for the output and the output's `euclideousMainOutMask`
-/// bit. Four input combinations, three looks — "not routed, main out off" is the same as "not routed" (§2.3). The
-/// lane colour is applied at the view; this enum is the pure, testable decision (ferry test 6). Looks (§2.2–§2.3):
-/// `.routed` ring lane100 + letter #F2F4F7 (solid); `.unrouted` ring #3A3E47 + letter #8A909A (solid);
-/// `.routedMainOff` hollow disc (card fill shows) + a 2 pt DASHED lane100 ring (dash 3, gap 3, butt) + letter lane100.
-enum EuclideousOutCircleState: Equatable { case routed, unrouted, routedMainOff }
-func euclideousOutCircleState(routed: Bool, mainOn: Bool) -> EuclideousOutCircleState {
-    guard routed else { return .unrouted }
-    return mainOn ? .routed : .routedMainOff
-}
-
-/// ALT ferry §1.1: the OUT column's own internal layout, in column-LOCAL coordinates (y from 0 at the column's top).
-/// The column is 32 wide and spans the tab's whole content height. Top to bottom (§1.1, filling the column — the
-/// earlier emitter-circles layout left ~29 pt of slack under D, §0.3(c)): the "OUT" caption on a 12 pt line, a 2 pt
-/// gap, four A–D targets each 32 × 40 (SHRINKING equally to a 36 pt floor when the column is short), a 2 pt gap, then
-/// the ALT target 32 × 32. At the reference (height 208) this yields card y: caption 94–106, targets 108/148/188/228
-/// (40 tall), ALT 270–302 (test 9). The circles keep their 28 pt size centred in their 32×40 targets; the ALT button
-/// (30 × 28, §1.2) centres in the 32×32 ALT target.
-struct EuclideousOutColumnLayout: Equatable {
-    static let width: CGFloat = 32
-    static let captionH: CGFloat = 12
-    static let gap: CGFloat = 2            // §1.1: the 2 pt gaps above the A target and above the ALT target
-    static let targetMaxH: CGFloat = 40
-    static let targetFloorH: CGFloat = 36
-    static let altH: CGFloat = 32
-    var caption: CGRect
-    var targets: [CGRect]          // A, B, C, D top to bottom
-    var alt: CGRect                // the ALT button's target, under D
-    var rule: CGRect               // the 1 pt leading-edge rule, inset 4 pt top and bottom (§1.2 / §0.3(b): card y 98–298)
-    var targetH: CGFloat
-    var underFloor: Bool
-}
-func euclideousOutColumnLayout(height: CGFloat, width: CGFloat = EuclideousOutColumnLayout.width) -> EuclideousOutColumnLayout {
-    typealias L = EuclideousOutColumnLayout
-    // the four circle targets take whatever is left after the caption, the two 2 pt gaps and the 32 pt ALT target
-    let avail = max(1, height - L.captionH - L.gap - L.gap - L.altH)
-    let th = min(L.targetMaxH, max(L.targetFloorH, avail / 4))
-    let top = L.captionH + L.gap
-    var targets: [CGRect] = []
-    for i in 0..<4 { targets.append(CGRect(x: 0, y: top + CGFloat(i) * th, width: width, height: th)) }
-    let altY = top + 4 * th + L.gap
-    return L(caption: CGRect(x: 0, y: 0, width: width, height: L.captionH),
-             targets: targets,
-             alt: CGRect(x: 0, y: altY, width: width, height: L.altH),
-             rule: CGRect(x: 0, y: 4, width: 1, height: max(1, height - 8)),
-             targetH: th, underFloor: avail / 4 < L.targetFloorH)
-}
-
-
-// ── ALT ROUTING ferry (2026-10-25) §5–§6: the group function (pure, allocation-free, render-thread-safe) ──
-/// §5.2 CHANCE: a salt of its own (distinct from the NOTES / mask / RATCHET salts) so the ALT roll never repeats them.
-let euclideousAltChanceSalt: UInt64 = 0x414C_5452_4F55_5445   // "ALTROUTE"
-/// §5.2 CHANCE: 0…99, replay-exact, seeded with the lane, the LEADING part (riff 0 / notes 1) and `h` — a pure
-/// function of (lane, part, h), the same splitmix64 idiom the NOTES/mask CHANCE rolls use.
-@inline(__always) func euclideousAltChanceRoll(lane: Int, part: Int, h: Int64) -> Int {
-    let x = UInt64(bitPattern: h) &* 0x9E37_79B9_7F4A_7C15
-          &+ UInt64(truncatingIfNeeded: lane) &* 0xBF58_476D_1CE4_E5B9
-          &+ UInt64(truncatingIfNeeded: part) &* 0xD6E8_FEB8_6659_FD93
-          &+ euclideousAltChanceSalt
-    return Int(splitmix64Mix(x) % 100)
-}
-/// "floor((x + o) ÷ n) is odd" — §5.2's `swap(x, n, o)`. `floorDiv` floors negatives correctly.
-@inline(__always) func euclideousAltSwap(_ x: Int64, _ n: Int, _ o: Int) -> Bool { floorDiv(x + Int64(o), Int64(max(1, n))) & 1 != 0 }
-/// The `index`-th set bit of `m` scanning A→D (bit 0 = A). Caller guarantees `index < m.nonzeroBitCount`.
-@inline(__always) func euclideousNthSetBit(_ m: UInt8, _ index: Int) -> Int {
-    var seen = -1
-    for b in 0..<4 where (m >> UInt8(b)) & 1 != 0 { seen += 1; if seen == index { return b } }
-    return 0
-}
-/// §5.2: the outputs ONE note of one part leaves on THIS hit, BEFORE `euclideousMainOutMask`. Returns MAIN, ALT, or
-/// (ROBIN/SPREAD) ONE of the MAIN outputs; nil ⇒ inherit (the Router's `pitchBus` -1 convention, so OFF is byte-
-/// identical to the part's own mask). `splitThreshold` is the pitch SPLIT compares against (rank- or lowest-resolved
-/// by the caller, which has the pool/pitches); `spreadPlace` is the note's place in this part's low→high order.
-func euclideousAltGroup(_ a: EuclideousAltParams, mainMask: UInt8?, altMask: UInt8?,
-                        q: Int64, s: Int64, p: Int, h: Int64, lane: Int, leadPartId: Int,
-                        isRestHit: Bool, notePitch: Int, splitThreshold: Int, spreadPlace: Int) -> UInt8? {
-    switch a.mode {
-    case .off:    return mainMask
-    case .hits:   return euclideousAltSwap(q, a.every, a.offset) ? altMask : mainMask
-    case .steps:  return euclideousAltSwap(s, a.every, a.offset) ? altMask : mainMask
-    case .strip:  return (a.strip >> UInt8(((Int(s) % 8) + 8) % 8)) & 1 != 0 ? altMask : mainMask
-    case .passes: return euclideousAltSwap(Int64(p), a.passes, a.passOffset) ? altMask : mainMask
-    case .chance: return euclideousAltChanceRoll(lane: lane, part: leadPartId, h: h) < a.chance ? altMask : mainMask
-    case .rests:  return isRestHit ? altMask : mainMask
-    case .split:  return notePitch > splitThreshold ? altMask : mainMask       // §5.2: ALT if above T, else MAIN
-    case .robin:                                                               // one MAIN output, index q mod count
-        // nil MAIN ⇒ A-D (the Display nil⇒0x0F rule the header/circles/`euclideousLaneMasks` and OFF all use), so ROBIN
-        // on an untouched lane (every factory preset inherits A-D) cycles A→B→C→D instead of routing to a 0 mask (silent)
-        // while the UI shows A-D lit. An EXPLICIT empty MAIN (0, non-nil) still returns 0 — a part routed nowhere is silent.
-        let m = (mainMask ?? 0x0F) & 0x0F, n = m.nonzeroBitCount
-        return n == 0 ? 0 : UInt8(1 << euclideousNthSetBit(m, Int(((q % Int64(n)) + Int64(n)) % Int64(n))))
-    case .spread:                                                              // this note's place → one MAIN output
-        let m = (mainMask ?? 0x0F) & 0x0F, n = m.nonzeroBitCount    // nil MAIN ⇒ A-D, as ROBIN above (Display/OFF convention)
-        return n == 0 ? 0 : UInt8(1 << euclideousNthSetBit(m, ((spreadPlace % n) + n) % n))
-    }
-}
-/// §4.4 the effective routing after the link: a part that FOLLOWS uses the leader's MAIN mask + ALT routing, and its
-/// `leadPartId` becomes the leader's (so its CHANCE rolls with the leader). The ONE function the Router AND every
-/// display call, so the UI can never disagree with the engine about where a part routes.
-struct EuclideousPartRouting: Equatable {
-    var mainMask: UInt8?
-    var alt: EuclideousAltParams
-    var leadPartId: Int    // 0 riff / 1 notes — the leader's id (a follower adopts the leader's)
-}
-struct EuclideousEffectiveRouting: Equatable { var riff: EuclideousPartRouting; var notes: EuclideousPartRouting }
-func euclideousEffectiveRouting(_ l: EuclidLine) -> EuclideousEffectiveRouting {
-    let rMain = l.riffOutMaskResolved, nMain = l.notesOutMaskResolved
-    let rAlt = l.riffAltResolved, nAlt = l.notesAltResolved
-    switch l.outLink {
-    case .riff:   // the riff leads; the notes follow it (adopt its main + alt), leadPartId 0 for both
-        let lead = EuclideousPartRouting(mainMask: rMain, alt: rAlt, leadPartId: 0)
-        return EuclideousEffectiveRouting(riff: lead, notes: lead)
-    case .notes:  // the notes lead; the riff follows
-        let lead = EuclideousPartRouting(mainMask: nMain, alt: nAlt, leadPartId: 1)
-        return EuclideousEffectiveRouting(riff: lead, notes: lead)
-    case nil:     // no link — each part is its own, leading itself
-        return EuclideousEffectiveRouting(riff: EuclideousPartRouting(mainMask: rMain, alt: rAlt, leadPartId: 0),
-                                          notes: EuclideousPartRouting(mainMask: nMain, alt: nAlt, leadPartId: 1))
-    }
-}
-/// §1.2 the ALT button's three looks (test 8): OFF + panel closed, a mode on + panel closed, or panel open (any mode).
-/// The view resolves the colours (lane20/lane100 need the accent); this enum is the pure decision.
-enum EuclideousAltButtonLook: Equatable { case off, modeOn, open }
-func euclideousAltButtonLook(modeOn: Bool, panelOpen: Bool) -> EuclideousAltButtonLook { panelOpen ? .open : (modeOn ? .modeOn : .off) }
-/// §1.4 whether a column circle for `output` carries an ALT dot: only while the effective mode USES the ALT group
-/// (HITS/STEPS/STRIP/PASSES/CHANCE/RESTS/SPLIT) and the effective ALT mask contains that output. OFF/ROBIN/SPREAD: none.
-func euclideousAltDotShows(mode: EuclideousAltMode, altMask: UInt8, output: Int) -> Bool { mode.usesAlt && (altMask >> UInt8(output)) & 1 != 0 }
-/// §1.5 / §4.4: does this part FOLLOW the other (so its column reads "LINK" and shows the leader's settings)?
-func euclideousPartFollows(_ part: EuclideousOutPart, outLink: EuclideousOutLinkEnd?) -> Bool {
-    guard let l = outLink else { return false }
-    return part == .riff ? l == .notes : l == .riff
-}
-/// §10.1 the ALT button's VoiceOver value: "off", or the mode and its settings ("swap every 2 hits, offset 1";
-/// "split above the lowest note" / "split above G3"; "chance of alt 50 percent"). `splitName` resolves the rank → a
-/// spoken note (nil ⇒ a bare number). Pure (tested with the other VoiceOver strings).
-func euclideousAltButtonVoiceValue(_ a: EuclideousAltParams, splitName: String? = nil) -> String {
-    func plural(_ n: Int, _ one: String) -> String { "\(n) \(one)\(n == 1 ? "" : "s")" }
-    switch a.mode {
-    case .off:    return "off"
-    case .hits:   return "swap every \(plural(a.every, "hit"))" + (a.offset != 0 ? ", offset \(a.offset)" : "")
-    case .steps:  return "swap every \(plural(a.every, "step"))" + (a.offset != 0 ? ", offset \(a.offset)" : "")
-    case .strip:  return "main or alt on each step"
-    case .passes: return "swap every \(plural(a.passes, "pass"))" + (a.passOffset != 0 ? ", offset \(a.passOffset)" : "")
-    case .chance: return "chance of alt \(a.chance) percent"
-    case .rests:  return "hits on riff rests go to alt"
-    case .split:  return "split above " + (a.splitLowest ? "the lowest note" : (splitName ?? "rank \(a.splitRank)"))
-    case .robin:  return "each hit to the next main output"
-    case .spread: return "chord notes shared across the main outputs"
-    }
-}
-
-/// §10.5: the spoken label for a mode segment (button + selected trait at the call site).
-func euclideousAltModeAccessibilityLabel(_ mode: EuclideousAltMode) -> String {
-    switch mode {
-    case .off:    return "Off: every hit goes to main"
-    case .hits:   return "Hits: swap every few hits"
-    case .steps:  return "Steps: swap every few steps"
-    case .strip:  return "Strip: main or alt on each step"
-    case .passes: return "Passes: swap every few passes"
-    case .chance: return "Chance: some hits go to alt"
-    case .rests:  return "Rests: hits on riff rests go to alt"
-    case .split:  return "Split: higher notes go to alt"
-    case .robin:  return "Robin: each hit to the next main output"
-    case .spread: return "Spread: chord notes shared across the main outputs"
-    }
-}
-
-// ── ALT ROUTING ferry §2–§3: the panel's layout (ONE pure function, §2.7, test 9) ────────────────────────
-struct EuclideousAltPanelLayout: Equatable {
-    // all rects in PANEL-LOCAL coordinates (origin = the panel's top-leading corner)
-    var header: CGRect, applyControl: CGRect, closeButton: CGRect
-    var groupsWell: CGRect, mainRow: CGRect, altRow: CGRect
-    var mainCircles: [CGRect], altCircles: [CGRect]        // A–D targets in each row (the 26 pt circle centres in them)
-    var mainBar: CGRect, altBar: CGRect, mainLabel: CGRect, altLabel: CGRect
-    var selectorWell: CGRect, modeSegments: [CGRect]        // the 5×2 grid, row-major OFF…PASSES then CHANCE…SPREAD
-    var settings: CGRect
-    var underFloor: Bool, floorFlags: [String]
-}
-/// §2.1–§3.6: every frame inside the panel, from the panel rect. `panel` is the panel's card-space rect; the returned
-/// rects are panel-local. Rows (header 24 / groups 69 / selector 50 / settings 40, sp4 apart) shrink per §2.2 when the
-/// panel is short: the group rows to a 28 floor, then the settings row to 36. Content width 290.5 at the 302.5 reference
-/// gives mode segments 55.3, the two HITS/STEPS steppers 143.25, STRIP cells 33.7 (test 9).
-func euclideousAltPanelLayout(panel: CGRect, sp4: CGFloat = 4, sp8: CGFloat = 8) -> EuclideousAltPanelLayout {
-    typealias R = EuclideousAltPanelLayout
-    let pad: CGFloat = 6
-    let cx = pad, cw = max(1, panel.width - 2 * pad)        // content x / width (290.5 at the reference)
-    let headerH: CGFloat = 24, selH: CGFloat = 50
-    // §2.2 fair-share: the group rows (2×32 + a 1pt rule + 2pt top/bottom pad = 69) shrink to a 28-tall row floor, then
-    // the settings row (40) to 36. nominal total = 24 + 69 + 50 + 40 + 3·sp4.
-    let avail = panel.height - 2 * pad
-    let nominal = headerH + 69 + selH + 40 + 3 * sp4
-    var groupRowH: CGFloat = 32, settingsH: CGFloat = 40
-    var flags: [String] = []
-    if avail < nominal {
-        // first take it out of the two 32-tall group rows down to 28
-        let overflow = nominal - avail
-        groupRowH = max(28, 32 - overflow / 2)
-        if groupRowH <= 28 { flags.append("group rows \(groupRowH)") }
-        let stillOver = (headerH + (groupRowH * 2 + 1 + 4) + selH + 40 + 3 * sp4) - avail
-        if stillOver > 0 { settingsH = max(36, 40 - stillOver); if settingsH <= 36 { flags.append("settings \(settingsH)") } }
-    }
-    let groupsH = groupRowH * 2 + 1 + 4                      // two rows + the 1pt rule + 2pt top/bottom pad
-    var y = pad
-    let header = CGRect(x: cx, y: y, width: cw, height: headerH); y += headerH + sp4
-    let well = CGRect(x: cx, y: y, width: cw, height: groupsH)
-    let mainRow = CGRect(x: cx + 1, y: y + 2, width: cw - 2, height: groupRowH)
-    let altRow = CGRect(x: cx + 1, y: y + 2 + groupRowH + 1, width: cw - 2, height: groupRowH)
-    y += groupsH + sp4
-    let selWell = CGRect(x: cx, y: y, width: cw, height: selH); y += selH + sp4
-    let settings = CGRect(x: cx, y: y, width: cw, height: settingsH)
-    // §3.2 each group row: a 3×22 live bar (5 pt from the well edge), 7 pt, a 40-wide label, then four equal circle targets.
-    func rowPieces(_ row: CGRect) -> (bar: CGRect, label: CGRect, circles: [CGRect]) {
-        let bar = CGRect(x: row.minX + 5, y: row.midY - 11, width: 3, height: 22)
-        let labelX = bar.maxX + 7, labelW: CGFloat = 40
-        let label = CGRect(x: labelX, y: row.minY, width: labelW, height: row.height)
-        let circlesX = labelX + labelW, circW = max(1, (row.maxX - circlesX) / 4)
-        let circles = (0..<4).map { CGRect(x: circlesX + CGFloat($0) * circW, y: row.minY, width: circW, height: row.height) }
-        return (bar, label, circles)
-    }
-    let m = rowPieces(mainRow), a = rowPieces(altRow)
-    // §3.1 header: "ALT RIFF" at the left; APPLY label + the APPLY control + the 24×24 close at the trailing edge.
-    let close = CGRect(x: header.maxX - 24, y: header.minY, width: 24, height: 24)
-    let applyControl = CGRect(x: close.minX - sp8 - 92, y: header.minY + 2, width: 92, height: 20)   // the two-segment container (sized to its labels in the view; 92 is the reference width of "RIFF | BOTH")
-    // §3.4 mode selector: #22252C container, 3 pt inset, a 5×2 grid 2 pt apart, 21 tall.
-    let gi: CGFloat = 3, gGap: CGFloat = 2, segH: CGFloat = 21
-    let gx = selWell.minX + gi, gw = max(1, (selWell.width - 2 * gi - 4 * gGap) / 5)
-    var segs: [CGRect] = []
-    for r in 0..<2 { for c in 0..<5 { segs.append(CGRect(x: gx + CGFloat(c) * (gw + gGap), y: selWell.minY + gi + CGFloat(r) * (segH + gGap), width: gw, height: segH)) } }
-    if groupRowH < 28 || settingsH < 36 { flags.append("panel \(panel.height)") }
-    return R(header: header, applyControl: applyControl, closeButton: close,
-             groupsWell: well, mainRow: mainRow, altRow: altRow,
-             mainCircles: m.circles, altCircles: a.circles, mainBar: m.bar, altBar: a.bar, mainLabel: m.label, altLabel: a.label,
-             selectorWell: selWell, modeSegments: segs, settings: settings,
-             underFloor: !flags.isEmpty, floorFlags: flags)
-}
-
 
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
 /// without a live `EuclideousPage` render. Deliberately mirrors the REAL render path's own hit-test exactly
@@ -4182,111 +3930,6 @@ func euclideousKeySpokenName(root: Int, type: ScaleType) -> String {
     return "\(roots[((root % 12) + 12) % 12]) \(scale)"
 }
 
-/// Each lane's OUTPUT-LIT mask for the header rings (and the settings sheet's mini MAIN OUT rings). A quarter lights
-/// when a part is ON and its EFFECTIVE MAIN mask contains the output (per-layer ferry §6.1), OR — ALT ferry §8.1 —
-/// its EFFECTIVE ALT mask contains it while its effective mode USES alt. Link-aware (a follower counts the leader's
-/// routing, §4.4). ALT OFF ⇒ no ALT bits ⇒ byte-identical to the per-layer build. Padded/truncated to 4.
-func euclideousLaneMasks(_ lines: [EuclidLine]) -> [UInt8] {
-    (0..<4).map { i -> UInt8 in
-        guard i < lines.count else { return 0 }
-        // link-aware (a follower counts the leader's, §4.4) + the Display nil⇒A-D rule (a no-mask part plays A–D) + ALT.
-        let eff = euclideousEffectiveRouting(lines[i])
-        func lit(_ pr: EuclideousPartRouting, on: Bool) -> UInt8 {
-            guard on else { return 0 }
-            return (pr.mainMask ?? 0x0F) | (pr.alt.mode.usesAlt ? pr.alt.altMask : 0)
-        }
-        return lit(eff.riff, on: lines[i].riffOnResolved) | lit(eff.notes, on: lines[i].notesOnResolved)
-    }
-}
-
-// ── output rings ────────────────────────────────────────────────────────────────────────────────────
-
-/// An output ring's quarters are LANES by where the lanes sit on screen: lane 0 top-left, 1 top-right, 2 bottom-left,
-/// 3 bottom-right. Each arc is centred on these angles, measured CLOCKWISE FROM 12 O'CLOCK (so the 24° gaps sit at 12,
-/// 3, 6 and 9) — NOT in lane-index order. SwiftUI measures from 3 o'clock; the painter converts.
-let euclideousRingQuarterCentreDegrees: [Double] = [315, 45, 225, 135]
-let euclideousRingArcDegrees: Double = 66
-
-enum EuclideousOutputRingMode: Equatable {
-    case onRouted      // output on, at least one lane routed to it
-    case onUnrouted    // output on, no lane routed
-    case off           // MAIN OUT bit off (dashed quarters)
-}
-struct EuclideousOutputRingState: Equatable {
-    var mode: EuclideousOutputRingMode
-    var lit: [Bool]    // index = lane 0…3: this lane's own emitter mask contains this output
-    var dashed: Bool { mode == .off }
-}
-func euclideousOutputRingState(output: Int, laneMasks: [UInt8], mainOutMask: UInt8) -> EuclideousOutputRingState {
-    let lit = (0..<4).map { lane in lane < laneMasks.count && (laneMasks[lane] >> UInt8(output)) & 1 != 0 }
-    let on = (mainOutMask >> UInt8(output)) & 1 != 0
-    return EuclideousOutputRingState(mode: on ? (lit.contains(true) ? .onRouted : .onUnrouted) : .off, lit: lit)
-}
-
-/// PER-LAYER ROUTING ferry §6.3 / test 7: the header ring's VoiceOver label, naming which PART of each lane feeds the
-/// output — "Main out A, on, fed by lane 1 riff and notes, and lane 4 riff" (or "…, fed by no lanes"). A part feeds the
-/// output when it routes there (§6.1: and its own layer is on).
-func euclideousOutputRingAccessibilityLabel(output: Int, lines: [EuclidLine], mainOutMask: UInt8) -> String {
-    let name = ["A", "B", "C", "D"][output]
-    let on = (mainOutMask >> UInt8(output)) & 1 != 0
-    var feeders: [String] = []
-    for lane in 0..<4 where lane < lines.count {
-        let l = lines[lane]
-        let riff = l.riffOnResolved && (l.riffOutMaskDisplay >> UInt8(output)) & 1 != 0
-        let notes = l.notesOnResolved && (l.notesOutMaskDisplay >> UInt8(output)) & 1 != 0
-        guard riff || notes else { continue }
-        feeders.append("lane \(lane + 1) " + (riff && notes ? "riff and notes" : (riff ? "riff" : "notes")))
-    }
-    let fed: String
-    switch feeders.count {
-    case 0: fed = "no lanes"
-    case 1: fed = feeders[0]
-    default: fed = feeders.dropLast().joined(separator: ", ") + ", and " + feeders[feeders.count - 1]
-    }
-    return "Main out \(name), \(on ? "on" : "off"), fed by \(fed)"
-}
-
-enum EuclideousOutputCue: Equatable { case none, dim }
-enum EuclideousOutputCueMode { case pulse, trace }
-/// What each LANE CARD shows for output `output` (RESTART CHAINS ferry §10: the RING half of this moved to
-/// `euclideousOutputRingTargets`, below — the lane cards no longer have OUT circles to ring, §10.4). TRACE
-/// (while held) dims every lane that is NOT routed (so with no routed lane all four dim, §10.3, unchanged);
-/// PULSE leaves every lane card alone.
-func euclideousOutputCues(output: Int, laneMasks: [UInt8], mode: EuclideousOutputCueMode) -> [EuclideousOutputCue] {
-    (0..<4).map { lane in
-        let routed = lane < laneMasks.count && (laneMasks[lane] >> UInt8(output)) & 1 != 0
-        if routed { return .none }
-        return mode == .trace ? .dim : .none
-    }
-}
-/// PER-LAYER EMITTER ROUTING ferry §6.2 (replaces the RESTART CHAINS ferry's §10.2/§10.3 MIX-button/MIX-tab
-/// targeting — pulse and trace now point at the RIFF/NOTES tabs' own OUT circles, where routing lives). For output
-/// `output`, one ring per lane that COUNTS for X (§6.1: riff routes X ∧ riff on, OR notes routes X ∧ notes on). Which
-/// target in that lane:
-///   • the lane card is showing RIFF and the riff routes to X → the RIFF tab's X circle;
-///   • showing NOTES and the notes route to X → the NOTES tab's X circle;
-///   • otherwise → the RIFF tab CELL if the riff routes to X, else the NOTES tab cell (§6.2's "tab cell" = that
-///     lane's tab-row chip). No lane counts ⇒ no ring.
-enum EuclideousOutputRingTarget: Equatable {
-    case riffCircle(lane: Int), notesCircle(lane: Int), riffTabCell(lane: Int), notesTabCell(lane: Int)
-}
-func euclideousOutputRingTargets(output: Int, lines: [EuclidLine], laneTabs: [EuclideousTabKind]) -> [EuclideousOutputRingTarget] {
-    var out: [EuclideousOutputRingTarget] = []
-    for lane in 0..<4 {
-        guard lane < lines.count else { continue }
-        let l = lines[lane]
-        let riffRoutes = l.riffOnResolved && (l.riffOutMaskDisplay >> UInt8(output)) & 1 != 0
-        let notesRoutes = l.notesOnResolved && (l.notesOutMaskDisplay >> UInt8(output)) & 1 != 0
-        guard riffRoutes || notesRoutes else { continue }   // §6.1 "counts for X"
-        let tab = lane < laneTabs.count ? laneTabs[lane] : .rhythm
-        if tab == .riff && riffRoutes { out.append(.riffCircle(lane: lane)) }
-        else if tab == .notes && notesRoutes { out.append(.notesCircle(lane: lane)) }
-        else if riffRoutes { out.append(.riffTabCell(lane: lane)) }
-        else { out.append(.notesTabCell(lane: lane)) }
-    }
-    return out
-}
-
 // ── ring flare ──────────────────────────────────────────────────────────────────────────────────────
 
 /// The OLD comet-bar flare windows, in LANE STEPS since the strike — now read ONLY by the regular BUILD-page EUCLID editor's comet bar (no strike feed there). Every Euclideous strike effect uses PULSE's velocity-scaled
@@ -4371,22 +4014,7 @@ func euclideousSourcesPopupLayout(containerW: CGFloat) -> EuclideousSourcesPopup
                                         blockInnerW: blockInnerW)
 }
 
-// ── ring painting decisions + the press state machine ───────────────────────────────────────────────
-
-/// What sits behind an output ring's letter. Spec §4.5: OFF draws NO disc ("the ground shows through") — but HELD (§4.7)
-/// is "disc #DFE3EA, letter ink", unconditionally, so a held OFF output still gets its (light) disc; without it the ink
-/// letter would sit on the near-identical dark page ground and vanish.
-enum EuclideousRingDisc: Equatable { case none, base, held }
-func euclideousRingDisc(mode: EuclideousOutputRingMode, held: Bool) -> EuclideousRingDisc {
-    if held { return .held }
-    return mode == .off ? .none : .base
-}
-/// The letter's tone: ink only ever on the held (light) disc; otherwise by mode.
-enum EuclideousRingLetterTone: Equatable { case ink, on, unrouted, off }
-func euclideousRingLetterTone(mode: EuclideousOutputRingMode, held: Bool) -> EuclideousRingLetterTone {
-    if held { return .ink }
-    switch mode { case .onRouted: return .on; case .onUnrouted: return .unrouted; case .off: return .off }
-}
+// ── the press state machine (tap vs hold; the lane SOLO button and the lane LOCK padlock use it too) ──────────────────
 
 /// One output ring's tap-vs-hold decision (spec §4.6/§4.7), kept PURE so it can be tested and so each ring owns its own
 /// instance (a second finger on another ring can never disturb this one). Feed it the touch's events; it says what to do.
@@ -8273,8 +7901,6 @@ func euclideousPulseRipple(d0: CGFloat, vis: Double, progress q: Double, scale p
 
 /// 6.1: the sounding quarter's stroke 2.5 + 2.5 × f, and the letter's white while f > 0.35.
 func euclideousPulseRingStroke(f: Double) -> CGFloat { 2.5 + 2.5 * CGFloat(max(0, min(1, f))) }
-/// 6.1: the letter draws #FFFFFF while f > 0.35 — on a ring whose letter is the lit one (`.on`). A HELD ring keeps its ink letter on the light disc (6.3: held is unchanged), and an off / unrouted ring has no strike.
-func euclideousPulseRingLetterIsWhite(f: Double, tone: EuclideousRingLetterTone = .on) -> Bool { tone == .on && f > 0.35 }
 /// 4.3: the riff panel's note name lights in the lane's colour while f > 0.12.
 func euclideousPulseNameLit(f: Double) -> Bool { f > 0.12 }
 
@@ -8284,9 +7910,6 @@ func euclideousPulseIsGap(state: EuclidFooterState, onRest: EuclidRiffOnRest, ri
     guard riffOn, case .hitOnRest = state else { return false }
     return onRest == .skip || onRest == .tie || onRest == .fill
 }
-
-/// 6: a ring shows a strike of either layer — the louder one.
-func euclideousPulseRingVelocity(riffVel: Int, notesVel: Int) -> Int { max(riffVel, notesVel) }
 
 /// 7: what each strike effect does under the PULSE scale and Reduce Motion. OFF (P = 0): every strike effect is off. Reduce Motion: no chip dip (the lane strip's key dip move), no ripple, no puck
 /// swell, no arrow scale; glows, washes, overlays and the note name stay. (The comet's dot swell, tail, flare core and level mark were removed by the LANE STRIP ferry, 2026-10-21.)

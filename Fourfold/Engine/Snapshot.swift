@@ -110,9 +110,6 @@ struct SnapParams {
     var euclidSpanN: Int = 0                  // SPAN re-anchor: 0 = FREE (free-run) · >0 = re-sync the pattern every N columns
     var euclidLines: [EuclidLine] = []       // EUCLID LINES (§10): up to 8 lines; EMPTY ⇒ the single euclid above (byte-identical)
     var euclideousRiff: EuclideousRiff = EuclideousRiff()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved
-    // EUCLIDEOUS PAGE REWORK (2026-10-07): mainOutMask gates every chain's emission uniformly (default
-    // all-open, byte-identical for every non-Euclideous processor).
-    var mainOutMask: UInt8 = 0b1111
     // LANE SOLO (2026-10-21): bit i = Euclideous lane i is soloed (latched | held). 0 (the default, and every non-Euclideous cell) = no solo ⇒ the Router's output is unchanged.
     var soloMask: UInt8 = 0
     // LANE LOCK (2026-10-21): per Euclideous lane — on, snap-back grid, the locked state L — and the document revisions this snapshot was built from. Empty / 0 (the default, and every non-Euclideous cell) ⇒ the Router's

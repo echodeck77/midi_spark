@@ -355,12 +355,6 @@ enum SnapshotBuilder {
                                                                       missVelocity: $0.missVelocity.map { clamp($0, 0, 2) },
                                                                       patternMiss: $0.patternMiss,
                                                                       rate: $0.rate,
-                                                                      emitterMask: $0.emitterMask.map { $0 & 0x0F },
-                                                                      // PER-LAYER ROUTING ferry (2026-10-25): both parts threaded here too, each clamped to the four
-                                                                      // outputs — miss this spot and they silently reset every render (this call's own gotcha, below).
-                                                                      riffOutMask: $0.riffOutMask.map { $0 & 0x0F }, notesOutMask: $0.notesOutMask.map { $0 & 0x0F },
-                                                                      // ALT ferry §4.6: thread the three fields into the fresh literal too — miss this and they silently reset every render.
-                                                                      riffAlt: $0.riffAlt, notesAlt: $0.notesAlt, outLink: $0.outLink,
                                                                       useRiff: $0.useRiff, melodyMode: $0.melodyMode,
                                                                       litNotes: $0.litNotes, topLit: $0.topLit, top2Lit: $0.top2Lit, riffOn: $0.riffOn,
                                                                       // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, 2nd same-day ferry) — `melodyMode`
@@ -487,7 +481,6 @@ enum SnapshotBuilder {
         out.euclideousLooperPasses = (p.euclideousLooperPasses ?? .fourPasses).passes
         if let r = p.euclideousLooperStartRanks { out.euclideousLooperStartRanks = r.count == 8 ? r : (0..<8).map { $0 < r.count ? r[$0] : 0 } }
         out.euclideousLooperEvents = p.euclideousLooperEvents ?? []
-        out.mainOutMask = (p.mainOutMask ?? 0b1111) & 0x0F   // EUCLIDEOUS's own global MAIN OUT gate (2026-10-07); nil ⇒ all-open, byte-identical for every other chain
         out.soloMask = (p.soloMask ?? 0) & 0x0F               // LANE SOLO (2026-10-21): nil ⇒ no solo, byte-identical for every other chain
         if let locks = p.euclideousLocks, locks.contains(where: { $0.isLocked }) {   // LANE LOCK (2026-10-21): nil / nothing locked ⇒ [] ⇒ the Router takes its untouched path
             out.euclideousLocks = locks.prefix(4).map { EuclideousLockSnap(on: $0.isLocked, grid: $0.gridResolved, state: $0.state) }

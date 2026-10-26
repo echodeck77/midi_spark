@@ -19,7 +19,6 @@ enum FourfoldCompose {
         var riff: EuclideousRiff
         var riffs: [EuclideousRiff]
         var activeRiff: Int
-        var mainOutMask: UInt8
         /// The EFFECTIVE solo mask (latched | held) — `euclideousSoloEffective`; the render thread sees only the union.
         var soloMask: UInt8
         var locks: [EuclideousLaneLock]
@@ -33,7 +32,6 @@ enum FourfoldCompose {
         p.euclidLines = i.lines
         p.euclideousRiff = i.riff
         p.riffs = i.riffs; p.activeRiff = i.activeRiff
-        p.mainOutMask = i.mainOutMask
         p.soloMask = i.soloMask
         p.euclideousLocks = i.locks; p.lockRevs = i.lockRevs
         return [ProcessorSlot(type: .euclid, params: p)]
