@@ -168,15 +168,13 @@ final class MigrationTests: XCTestCase {
     }
 
     func testNewOptionalFieldsRoundTripThroughJSON() throws {
-        // busEnabled (§6a) + per-type transpose/morph stashes survive save/reload.
+        // per-type transpose/morph stashes survive save/reload.
         var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.formatVersion = 3
-        d.busEnabled = [true, false, true, false]
         d.machines[0].transposeByType = [1, 2, 3, 4, 5, 6]
         d.claimEmitter = 2                          // §6a CLAIM (a7) — persisted
         d.latchArmMask = 0b0101                      // doors A + C armed (Paul 2026-08-27) — the latch section is durable config
         let reloaded = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
-        XCTAssertEqual(reloaded.busEnabled, [true, false, true, false])
         XCTAssertEqual(reloaded.machines[0].transposeByType, [1, 2, 3, 4, 5, 6])
         XCTAssertEqual(reloaded.claimEmitter, 2, "CLAIM survives save/reload")
         XCTAssertEqual(reloaded.latchArmMask, 0b0101, "the door-arm mask survives save/reload")
@@ -298,13 +296,12 @@ final class MigrationTests: XCTestCase {
     }
 
     func testOldSchemaDocDecodesDefaultsNewFieldsAndIgnoresRemovedKeys() throws {
-        // Forward-compat guard for the refactor: an OLD save lacks busEnabled and still carries the
-        // now-removed rowBypass/stackMute/stackSolo scene keys — it must decode without error, default
-        // busEnabled to nil (⇒ all enabled), and simply ignore the dead keys.
+        // Forward-compat guard for the refactor: an OLD save still carries the now-removed rowBypass/stackMute/stackSolo
+        // scene keys (and, from before the nine ports, a `busEnabled` list) — it must decode without error and simply ignore the dead keys.
         var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
-        d.formatVersion = 3; d.busEnabled = [false, true, true, true]
+        d.formatVersion = 3
         var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
-        root.removeValue(forKey: "busEnabled")                       // old docs never had it
+        root["busEnabled"] = [false, true, true, true]               // a pre-nine-ports document: the per-output enable is gone and its key is ignored
         root.removeValue(forKey: "claimEmitter")                     // nor CLAIM (a7)
         root.removeValue(forKey: "receivers")                        // nor RECEIVERS (§9 item 11)
         var scene = (root["scenes"] as! [[String: Any]])[0]
@@ -313,8 +310,6 @@ final class MigrationTests: XCTestCase {
         root["scenes"] = [scene]
         let mutated = try JSONSerialization.data(withJSONObject: root)
         let reloaded = try JSONDecoder().decode(PluginState.self, from: mutated)   // must NOT throw
-        XCTAssertNil(reloaded.busEnabled, "missing busEnabled → nil")
-        XCTAssertEqual(reloaded.busEnabledResolved, [true, true, true, true], "nil ⇒ all enabled")
         XCTAssertNil(reloaded.claimEmitter, "missing claimEmitter → nil (no claim)")
         XCTAssertNil(reloaded.receivers, "missing receivers → nil (loader synthesizes on entry)")
         XCTAssertEqual(reloaded.receiversResolved.count, 4, "resolved helper is nil-safe ⇒ four OMNI")

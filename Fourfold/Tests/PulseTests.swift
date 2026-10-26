@@ -89,11 +89,7 @@ final class PulseTests: XCTestCase {
     // MARK: 7. the ring
     func testRingStrokeAndLetter() {
         XCTAssertEqual(euclideousPulseRingStroke(f: 1), 5); XCTAssertEqual(euclideousPulseRingStroke(f: 0), 2.5); XCTAssertEqual(euclideousPulseRingStroke(f: 0.5), 3.75); XCTAssertEqual(euclideousPulseRingStroke(f: 9), 5)
-        XCTAssertTrue(euclideousPulseRingLetterIsWhite(f: 0.36)); XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 0.35)); XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 0))
-        // 6.3: a HELD ring keeps its ink letter on the light disc, whatever strikes; an off / unrouted ring has no white letter either
-        XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 1, tone: .ink)); XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 1, tone: .off)); XCTAssertFalse(euclideousPulseRingLetterIsWhite(f: 1, tone: .unrouted))
         XCTAssertTrue(euclideousPulseNameLit(f: 0.13)); XCTAssertFalse(euclideousPulseNameLit(f: 0.12))
-        XCTAssertEqual(euclideousPulseRingVelocity(riffVel: 40, notesVel: 90), 90)
     }
 
     // MARK: 8. Reduce Motion / OFF

@@ -205,16 +205,21 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(on.cells[5 * Snap.rows + 1].runStartColumn, 5, "ladder: the active rung (col 5, row 1) runs from its OWN column")
     }
 
-    func testBusEnabledMaskFromDocument() {
-        func mask(_ e: [Bool]?) -> UInt8 {
-            var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-            st.busEnabled = e
-            return SnapshotBuilder.build(from: st).busEnabledMask
-        }
-        XCTAssertEqual(mask(nil), 0b1111, "nil ⇒ all enabled (loader default)")
-        XCTAssertEqual(mask([true, false, true, true]), 0b1101, "B disabled")
-        XCTAssertEqual(mask([false, false, false, false]), 0b0000, "all disabled")
-        XCTAssertEqual(mask([true, false]), 0b1101, "short array ⇒ missing entries enabled")
+    // THE NINE PORTS: every port is always enabled (the per-output enable was an emitter toggle and is gone) and there are eight stamp channels.
+    func testEveryPortIsEnabledAndThereAreEightStampChannels() {
+        let st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.busEnabledMask, 0xFF)
+        XCTAssertEqual(b.busChannels, [1, 2, 3, 4, 5, 6, 7, 8], "a fresh document stamps each port with its own channel")
+    }
+    func testAPreNinePortsDocumentsFourLaneChannelsFillBothPortsOfEachLane() {
+        var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.busChannels = [5, 6, 7, 8]
+        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [5, 5, 6, 6, 7, 7, 8, 8], "the lane's number is both its ports' number, so ALL is unchanged")
+        st.busChannels = [9, 8, 7, 6, 5, 4, 3, 2]
+        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [9, 8, 7, 6, 5, 4, 3, 2], "an eight-entry list is one per port")
+        st.busChannels = [0, 99, 3, 4, 5, 6, 7, 8]
+        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [1, 16, 3, 4, 5, 6, 7, 8], "clamped to 1…16")
     }
 
     // MARK: - RECEIVERS (delta §9 item 11) — cell → receiver → SnapCell filter resolution
@@ -320,20 +325,14 @@ final class SnapshotBuilderTests: XCTestCase {
 
 
 
-    // EUCLIDEOUS (Paul 2026-10-05): rate/emitterMask must survive the explicit EuclidLine(...) reconstruction in
+    // EUCLIDEOUS (Paul 2026-10-05): rate must survive the explicit EuclidLine(...) reconstruction in
     // SnapshotBuilder — that constructor is a fresh literal, not copy-with-mutation, so this is a REAL regression
     // guard (a prior RATE-automation feature was bitten by exactly this omission).
-    func testEuclidLineRateAndEmitterMaskSurviveSnapshotBuild() {
+    func testEuclidLineRateSurvivesSnapshotBuild() {
         let a = box(machines(customizing: 0) {
-            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, rate: .r1_8t, emitterMask: 0b1011)]
+            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, rate: .r1_8t)]
         }) { _ in }.machines[0].a
         XCTAssertEqual(a.euclidLines[0].rate, .r1_8t, "per-line rate must survive the resolve, not silently reset")
-        XCTAssertEqual(a.euclidLines[0].emitterMask, 0b1011, "per-line emitter override must survive the resolve")
-        // defensive masking, mirroring echoInKeyReceivers's own "only bits 0-3 are meaningful" guard
-        let masked = box(machines(customizing: 0) {
-            $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, emitterMask: 0xFF)]
-        }) { _ in }.machines[0].a
-        XCTAssertEqual(masked.euclidLines[0].emitterMask, 0x0F, "only the low 4 bits (A-D) are meaningful")
     }
 
     // MELODY POP-UP (Paul 2026-10-10 ferry): riffStride/riffLength/riffAdvanceStep/melodyTranspose must
@@ -509,14 +508,6 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(untouched.euclidLines[0].sourceModeResolved, .key, "and resolve to KEY, per the melody pop-up ferry's own §2.2")
     }
 
-    // EUCLIDEOUS PAGE REWORK: the new GLOBAL main-out mask, mirroring emitterMask's own "only 4 bits meaningful" guard.
-    func testEuclideousMainOutMaskResolvesAndMasksToFourBits() {
-        let b = box(machines(customizing: 0) { $0.paramsA.mainOutMask = 0xFF }) { _ in }
-        XCTAssertEqual(b.machines[0].a.mainOutMask, 0x0F, "only the low 4 bits (A-D) are meaningful")
-        let def = box(machines(customizing: 0) { _ in }) { _ in }
-        XCTAssertEqual(def.machines[0].a.mainOutMask, 0b1111, "unset ⇒ fully open — byte-identical for every non-Euclideous chain")
-    }
-
     // EUCLIDEOUS PAGE REWORK: a document that has never touched any of the new global fields must resolve
     // to MIDI for both source switches — flipping this default would silently mute every existing Euclideous
     // session the moment this feature ships. (These two RETIRED global switches are legacy decode-only fields
@@ -554,7 +545,6 @@ final class SnapshotBuilderTests: XCTestCase {
         let st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
         XCTAssertTrue(st.euclideousRiffSourceMidiResolved, "an untouched document must default to MIDI for the riff's own source")
         XCTAssertTrue(st.euclideousLanesSourceMidiResolved, "and for the lanes' own source")
-        XCTAssertEqual(st.euclideousMainOutMaskResolved, 0b1111, "main out starts fully open")
         XCTAssertEqual(st.euclideousResetSpanBarsResolved, 0, "reset span starts OFF")
     }
 

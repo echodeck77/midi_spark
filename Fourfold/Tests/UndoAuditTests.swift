@@ -163,7 +163,7 @@ final class UndoAuditTests: XCTestCase {
         l.steps = rng.int(2...16); l.pulses = rng.int(0...l.steps); l.rotate = rng.int(0...15)
         l.gate = rng.double(0.1, 0.95); l.velocityAbsolute = rng.int(20...127)
         l.riffDir = [.forward, .reverse, .pendulum, .pingpong][rng.int(0...3)]
-        l.riffOn = rng.bool(); l.notesOn = rng.bool(); l.emitterMask = UInt8(rng.int(0...15))
+        l.riffOn = rng.bool(); l.notesOn = rng.bool()
         l.rate = [ArpRate.r1_8, .r1_16, .r1_4][rng.int(0...2)]
         l.litNotes = UInt8(rng.int(0...255))
         return l

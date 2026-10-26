@@ -7,7 +7,7 @@ final class FourfoldComposeTests: XCTestCase {
 
     private func input(from doc: PluginState, solo: UInt8 = 0, revs: UInt32 = 0) -> FourfoldCompose.Input {
         FourfoldCompose.Input(lines: doc.euclideousLinesResolved, riff: doc.euclideousRiffResolved, riffs: doc.riffsResolved, activeRiff: doc.activeRiffResolved,
-                              mainOutMask: doc.euclideousMainOutMaskResolved, soloMask: solo, locks: doc.euclideousLocksResolved, lockRevs: revs)
+                              soloMask: solo, locks: doc.euclideousLocksResolved, lockRevs: revs)
     }
     func testOnlyTheReservedRowHoldsACellAndItIsAOneSlotEuclidChain() {
         let i = input(from: PluginState.makeInit())
@@ -29,16 +29,15 @@ final class FourfoldComposeTests: XCTestCase {
     }
     func testTheChainCarriesExactlyTheEightFieldsAndNothingElse() {
         var doc = PluginState.makeInit()
-        doc.euclideousMainOutMask = 0b0011
         let i = input(from: doc, solo: 0b0100, revs: 7)
         let p = try! XCTUnwrap(FourfoldCompose.chain(i).first?.params)
         XCTAssertEqual(p.euclidLines, i.lines); XCTAssertEqual(p.euclideousRiff, i.riff)
         XCTAssertEqual(p.riffs, i.riffs); XCTAssertEqual(p.activeRiff, i.activeRiff)
-        XCTAssertEqual(p.mainOutMask, 0b0011); XCTAssertEqual(p.soloMask, 0b0100)
+        XCTAssertEqual(p.soloMask, 0b0100)
         XCTAssertEqual(p.euclideousLocks, i.locks); XCTAssertEqual(p.lockRevs, 7)
         var blank = MachineParams()
         blank.euclidLines = i.lines; blank.euclideousRiff = i.riff; blank.riffs = i.riffs; blank.activeRiff = i.activeRiff
-        blank.mainOutMask = 0b0011; blank.soloMask = 0b0100; blank.euclideousLocks = i.locks; blank.lockRevs = 7
+        blank.soloMask = 0b0100; blank.euclideousLocks = i.locks; blank.lockRevs = 7
         XCTAssertEqual(p, blank, "no other MachineParams field is set")
     }
 }

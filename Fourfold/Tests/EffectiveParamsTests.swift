@@ -99,166 +99,31 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(line.pulses, 5)
     }
 
-    // EUCLIDEOUS (Paul 2026-10-05): rate/emitterMask are the newest two EuclidLine fields — same CR-8 contract as
-    // die/noteSel/gate/etc above, a doc saved before they existed must still decode without throwing.
-    func testEuclidLineDecodesWithoutRateOrEmitterMaskKeys() throws {
+    // EUCLIDEOUS (Paul 2026-10-05): rate is one of the newer EuclidLine fields — same CR-8 contract as
+    // die/noteSel/gate/etc above, a doc saved before it existed must still decode without throwing.
+    func testEuclidLineDecodesWithoutRateKey() throws {
         let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
         let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
         XCTAssertNil(line.rate, "nil ⇒ inherit the machine-wide rate")
-        XCTAssertNil(line.emitterMask, "nil ⇒ inherit the cell's own bus mask")
     }
-    func testEuclidLineRateAndEmitterMaskRoundTripThroughCodable() throws {
+    func testEuclidLineRateRoundTripsThroughCodable() throws {
         var line = EuclidLine(pulses: 3, steps: 8)
         line.rate = .r1_8t
-        line.emitterMask = 0b0101   // A + C
         let data = try JSONEncoder().encode(line)
         let back = try JSONDecoder().decode(EuclidLine.self, from: data)
         XCTAssertEqual(back.rate, .r1_8t)
-        XCTAssertEqual(back.emitterMask, 0b0101)
     }
-
-    // PER-LAYER ROUTING ferry (2026-10-25) §3, test 2: riffOutMask / notesOutMask split the single emitterMask.
-    func testPerLayerOutMasksDecodeTolerantAndResolveToEmitterMask() throws {
-        // A pre-feature document (no riff/notesOutMask keys) decodes with both resolving to its old emitterMask.
-        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"emitterMask":5}"#.utf8)
-        let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
-        XCTAssertNil(line.riffOutMask); XCTAssertNil(line.notesOutMask)
-        XCTAssertEqual(line.riffOutMaskResolved, 0b0101, "nil ⇒ inherit emitterMask")
-        XCTAssertEqual(line.notesOutMaskResolved, 0b0101)
-        // A lane that never had emitterMask either: both resolve to nil (⇒ the Router inherits the cell bus, today's behaviour).
-        var bare = EuclidLine(pulses: 3, steps: 8)
-        XCTAssertNil(bare.riffOutMaskResolved); XCTAssertNil(bare.notesOutMaskResolved)
-        _ = bare
-    }
-    func testPerLayerOutMasksRoundTripAndDropBitsAboveFour() throws {
-        var line = EuclidLine(pulses: 3, steps: 8)
-        line.riffOutMask = 0b0001   // A
-        line.notesOutMask = 0b0010  // B
-        let back = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(line))
-        XCTAssertEqual(back.riffOutMask, 0b0001); XCTAssertEqual(back.notesOutMask, 0b0010)
-        // A corrupt value with bits above the four outputs is masked to 0x0F at decode.
-        let dirty = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"riffOutMask":241,"notesOutMask":255}"#.utf8)
-        let d = try JSONDecoder().decode(EuclidLine.self, from: dirty)
-        XCTAssertEqual(d.riffOutMask, 0b0001, "241 = 0xF1 → low nibble 0x01"); XCTAssertEqual(d.notesOutMask, 0b1111)
-    }
-    func testEmitterMaskForEncodeIsTheUnionButUntouchedIsVerbatim() throws {
-        // §3.3: a split lane's emitterMask (what an older build reads) is the union of the two parts.
-        var split = EuclidLine(pulses: 3, steps: 8)
-        split.riffOutMask = 0b0001; split.notesOutMask = 0b0010
-        XCTAssertEqual(split.emitterMaskForEncode, 0b0011, "A | B")
-        // An untouched lane keeps emitterMask verbatim (incl. nil = inherit), so an existing doc re-saved is byte-identical.
-        var untouched = EuclidLine(pulses: 3, steps: 8); untouched.emitterMask = 0b0101
-        XCTAssertEqual(untouched.emitterMaskForEncode, 0b0101)
-        var inheriting = EuclidLine(pulses: 3, steps: 8)
-        XCTAssertNil(inheriting.emitterMaskForEncode, "neither part nor emitterMask set ⇒ still inherit"); _ = inheriting
-    }
-    // §2.5/§3.4: a circle tap (`toggleOutput`) pins BOTH parts to their resolved value, flips the tapped part's bit,
-    // and keeps emitterMask = the union — so the UNtapped part is NOT dragged along and the synthesized encoder persists
-    // the §3.3 forward-compat union with no custom encode. This is exactly the leak the "pin both first" rule prevents.
-    func testToggleOutputPinsBothPartsFlipsOneAndKeepsEmitterMaskTheUnion() throws {
-        var l = EuclidLine(pulses: 3, steps: 8); l.emitterMask = 0b0001   // fresh default: A, both parts nil (inheriting)
-        l.toggleOutput(.riff, bit: 0b0010)                                // tap riff B
-        XCTAssertEqual(l.riffOutMask, 0b0011, "riff now A+B")
-        XCTAssertEqual(l.notesOutMask, 0b0001, "notes PINNED to its old resolved A — NOT dragged to B")
-        XCTAssertEqual(l.emitterMask, 0b0011, "emitterMask = riff | notes")
-        // The on-disk emitterMask (read by an older build) equals the union, via the SYNTHESIZED encoder.
-        let back = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(l))
-        XCTAssertEqual(back.emitterMask, 0b0011); XCTAssertEqual(back.riffOutMask, 0b0011); XCTAssertEqual(back.notesOutMask, 0b0001)
-        // Tapping the same bit again un-routes it; a part routed nowhere is mask 0 (sounds nowhere).
-        l.toggleOutput(.riff, bit: 0b0001); l.toggleOutput(.riff, bit: 0b0010)
-        XCTAssertEqual(l.riffOutMask, 0b0000, "riff routed nowhere"); XCTAssertEqual(l.emitterMask, 0b0001, "still carries notes' A")
-    }
-
-    // OUT-MASK-NIL-1 (2026-10-25): a lane with NO stored mask (every factory preset, an older session) sounds on A-D —
-    // the Router sees nil and inherits the cell's open bus — so the page must show it as all four, and the first circle
-    // tap must turn ONE output off, not collapse "all four" to just the tapped one. The Optional `…Resolved` pair stays
-    // nil for the Router; only the `…Display` pair reads nil as A-D.
-    func testALaneWithNoStoredMaskDisplaysAsAllFourAndStaysNilForTheRouter() {
-        let l = EuclidLine(pulses: 3, steps: 8)
-        XCTAssertNil(l.riffOutMaskResolved); XCTAssertNil(l.notesOutMaskResolved)
-        XCTAssertEqual(l.riffOutMaskDisplay, 0b1111); XCTAssertEqual(l.notesOutMaskDisplay, 0b1111)
-        XCTAssertEqual(euclideousLaneMasks([l]), [0b1111, 0, 0, 0])
-        var m = EuclidLine(pulses: 3, steps: 8); m.emitterMask = 0b0010
-        XCTAssertEqual(m.riffOutMaskDisplay, 0b0010, "a stored mask is shown as stored")
-    }
-    func testTappingACircleOnALaneWithNoStoredMaskTurnsOffOnlyThatOutput() throws {
-        var l = EuclidLine(pulses: 3, steps: 8)                       // no mask anywhere, as a factory preset leaves it
-        l.toggleOutput(.riff, bit: 0b0001)                            // tap riff A
-        XCTAssertEqual(l.riffOutMask, 0b1110, "riff was on A-D; A is now off")
-        XCTAssertEqual(l.notesOutMask, 0b1111, "notes keeps A-D — it is not dragged along")
-        XCTAssertEqual(l.emitterMask, 0b1111, "the legacy field is the union")
-        let back = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(l))
-        XCTAssertEqual(back.riffOutMask, 0b1110); XCTAssertEqual(back.notesOutMask, 0b1111)
-        // A hand-made document with only ONE part stored: the other part still inherits A-D in the legacy union.
-        var half = EuclidLine(pulses: 3, steps: 8); half.riffOutMask = 0b0001
-        XCTAssertEqual(half.emitterMaskForEncode, 0b1111)
-    }
-    // ── ALT ROUTING ferry (2026-10-25) §4 / test 2 + test 10 ──────────────────────────────────────────
-    // §4.2/§4.7: a pre-feature document (no riffAlt/notesAlt/outLink keys) decodes with mode OFF, the defaults, and
-    // no link — so every existing lane and preset is unchanged.
-    func testAltDecodesOffWithDefaultsAndNoLink() throws {
-        let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
-        let l = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
-        XCTAssertNil(l.riffAlt); XCTAssertNil(l.notesAlt); XCTAssertNil(l.outLink)
-        let r = l.riffAltResolved, n = l.notesAltResolved
-        XCTAssertEqual(r.mode, .off); XCTAssertEqual(n.mode, .off)
-        XCTAssertEqual(r.every, 1); XCTAssertEqual(r.offset, 0); XCTAssertEqual(r.strip, 0b1111_0000)
-        XCTAssertEqual(r.passes, 1); XCTAssertEqual(r.passOffset, 0); XCTAssertEqual(r.chance, 50); XCTAssertEqual(r.altMask, 0)
-        // §4.2 part-aware SPLIT default: rank 4 for the riff, LOWEST for the notes.
-        XCTAssertEqual(r.splitRank, 4); XCTAssertFalse(r.splitLowest)
-        XCTAssertTrue(n.splitLowest); XCTAssertEqual(n.splitRank, 0)
-        // an UNKNOWN mode decodes OFF
-        let dirty = try JSONDecoder().decode(EuclidLine.self, from: Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"riffAlt":{"mode":"ZZZ","altMask":2}}"#.utf8))
-        XCTAssertEqual(dirty.riffAltResolved.mode, .off, "unknown mode ⇒ OFF"); XCTAssertEqual(dirty.riffAltResolved.altMask, 0b0010)
-    }
-    // §4.2 clamps, via the resolver.
-    func testAltResolverClampsEveryValueIntoRange() {
-        var a = EuclideousAltRouting()
-        a.every = 99; a.offset = 99; a.passes = 0; a.passOffset = 99; a.chance = 37; a.split = 42; a.altMask = 0xFF
-        let r = a.resolved(forRiff: true)
-        XCTAssertEqual(r.every, 8, "every clamps to 1…8"); XCTAssertEqual(r.offset, 2 * 8 - 1, "offset into 0…2·every−1")
-        XCTAssertEqual(r.passes, 1, "passes clamps to 1…8"); XCTAssertEqual(r.passOffset, 2 * 1 - 1, "passOffset into 0…2·passes−1")
-        XCTAssertEqual(r.chance, 40, "chance to the nearest multiple of 10"); XCTAssertEqual(r.splitRank, 7, "split 8+ → 7")
-        XCTAssertEqual(r.altMask, 0x0F, "mask bits above the four outputs dropped")
-        XCTAssertEqual(EuclideousAltRouting().resolved(forRiff: true).chance, 50)
-        // chance clamps into 10…90 at the ends
-        var lo = EuclideousAltRouting(); lo.chance = 0; XCTAssertEqual(lo.resolved(forRiff: false).chance, 10)
-    }
-    // §4 round-trip (incl. the link) + §4.5 seed + SnapshotBuilder carry.
-    func testAltRoundTripsSeedsAndTravelsThroughTheSnapshot() throws {
-        var l = EuclidLine(pulses: 3, steps: 8); l.emitterMask = 0b0001
-        // §4.5 seed: mode OFF → HITS with an empty ALT mask seeds ALT to the output after MAIN's lowest.
-        l.setAltMode(.riff, .hits)
-        XCTAssertEqual(l.riffAlt?.altMask, 0b0010, "MAIN A ⇒ seed ALT = B (test 10 / §4.5)")
-        XCTAssertEqual(l.riffAlt?.mode, .hits)
-        l.editAlt(.riff) { $0.every = 2; $0.offset = 1 }
-        l.setOutLink(apply: true, source: .riff)
-        XCTAssertEqual(l.outLink, .riff, "BOTH from the riff ⇒ the riff leads")
-        // round-trip
-        let back = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(l))
-        XCTAssertEqual(back.riffAlt, l.riffAlt); XCTAssertEqual(back.outLink, .riff)
-        // SnapshotBuilder's fresh literal carries all three (miss the spot ⇒ they reset): build a snapshot through the
-        // euclid machine (the SnapshotBuilder:346 source) and read them back.
-        var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclidLines = [l]
-        var sc = SceneState.empty()
-        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-        let built = SnapshotBuilder.build(from: PluginState(machines: [c], scenes: [sc]))
-        let rebuilt = built.machines.first { $0.a.euclidLines.count == 4 }?.a.euclidLines.first
-        XCTAssertEqual(rebuilt?.riffAlt, l.riffAlt, "riffAlt survives the SnapshotBuilder rebuild")
-        XCTAssertEqual(rebuilt?.outLink, .riff, "outLink survives the SnapshotBuilder rebuild")
-    }
-    // §4.5 seed, the three other MAIN cases (test 10).
-    func testAltSeedPicksTheOutputAfterMainsLowest() {
-        XCTAssertEqual(euclideousSeedAltMask(main: 0b0001), 0b0010, "A → B")
-        XCTAssertEqual(euclideousSeedAltMask(main: 0b0100), 0b1000, "C → D")
-        XCTAssertEqual(euclideousSeedAltMask(main: 0b1000), 0b0001, "D → A")
-        XCTAssertEqual(euclideousSeedAltMask(main: 0), 0b0001, "MAIN empty → A")
-        XCTAssertEqual(euclideousSeedAltMask(main: 0b0110), 0b0100, "lowest of B+C is B → C")
+    // THE NINE PORTS (2026-10-26): a document written while a lane had an emitter mask, per-layer masks or ALT routing still loads — those keys are ignored — and is never written back with them.
+    func testALaneSavedWithTheRetiredRoutingKeysStillDecodesAndTheKeysAreDropped() throws {
+        let json = #"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"emitterMask":5,"riffOutMask":1,"notesOutMask":2,"riffAlt":{"mode":"HITS","altMask":2},"notesAlt":{"mode":"SPLIT"},"outLink":"RIFF"}"#
+        let line = try JSONDecoder().decode(EuclidLine.self, from: Data(json.utf8))   // MUST NOT throw
+        XCTAssertEqual(line.pulses, 5, "everything else is read as before")
+        let back = String(decoding: try JSONEncoder().encode(line), as: UTF8.self)
+        for key in ["emitterMask", "riffOutMask", "notesOutMask", "riffAlt", "notesAlt", "outLink"] { XCTAssertFalse(back.contains(key), "\(key) is not written back") }
     }
 
     // RIFF ADVANCE (Paul 2026-10-06): useRiff/riffRotate/riffOctave are the newest three EuclidLine fields — same
-    // CR-8 contract as rate/emitterMask above, a doc saved before they existed must still decode without throwing.
+    // CR-8 contract as rate above, a doc saved before they existed must still decode without throwing.
     func testEuclidLineDecodesWithoutRiffAdvanceKeys() throws {
         let json = Data(#"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false}"#.utf8)
         let line = try JSONDecoder().decode(EuclidLine.self, from: json)   // MUST NOT throw
@@ -652,7 +517,6 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(lines[1].pulses, 5); XCTAssertEqual(lines[1].steps, 16); XCTAssertEqual(lines[1].rate, .r1_16)
         XCTAssertEqual(lines[1].riffOctaveResolved, 1)
         XCTAssertTrue(lines[2...3].allSatisfy { $0.pulses == 0 }, "lanes 3-4 open deliberately silent (0 hits)")
-        XCTAssertEqual(lines.map { $0.emitterMask }, [0b0001, 0b0010, 0b0100, 0b1000], "lane 1 defaults to output A, lane 2 to B, lane 3 to C, lane 4 to D")
         XCTAssertTrue(lines.allSatisfy { $0.sourceModeResolved == .key }, "every lane defaults to source KEY")
         // MELODY POP-UP (Paul 2026-10-10 ferry §2): NOTE defaults to LOWEST, MODE defaults to RIFF — found
         // on a plan self-re-audit that `euclideousDefaultLine`, not EuclidLine's own shared accessor
@@ -938,7 +802,7 @@ final class EffectiveParamsTests: XCTestCase {
         var l = EuclidLine(target: 3, pulses: 7, steps: 11, rotate: 4, invert: true)
         l.pick = .cycle; l.die = 3; l.noteSel = .n3; l.reverse = true; l.gate = 0.61; l.octave = 2; l.direction = .bkw; l.enabled = false
         l.velocity = 1.5; l.velocityAbsolute = 73; l.missNoteSel = .high; l.missGate = 0.4; l.missOctave = -1; l.missVelocity = 0.5
-        l.patternMiss = true; l.rate = .r1_8; l.emitterMask = 0b0110; l.riffOutMask = 0b0001; l.notesOutMask = 0b1000; l.useRiff = true; l.melodyMode = .riff; l.litNotes = 0b0101_0101
+        l.patternMiss = true; l.rate = .r1_8; l.useRiff = true; l.melodyMode = .riff; l.litNotes = 0b0101_0101
         l.topLit = true; l.top2Lit = true; l.riffOn = false; l.riffRotate = 2; l.riffOctave = -2; l.riffDir = .pendulum; l.riffDirSeed = 9
         l.riffDirBias = 0.25; l.mask = EuclidLineMask(); l.sourceMode = .midi; l.tilt = -0.3; l.riffLock = true; l.riffInvert = true
         l.riffOnRest = .repeatLast; l.riffStride = 3; l.riffLength = 5; l.riffAdvanceStep = true; l.melodyTranspose = -2
@@ -956,10 +820,6 @@ final class EffectiveParamsTests: XCTestCase {
         // NOTES TAB (2026-10-19). riffOnRest is `.repeatLast` above, not `.fill`: FILL leaves ON REST and decodes as SKIP by design (§9).
         l.notesWhen = 0b01; l.notesChance = 50; l.notesPlayAs = .split; l.notesReceivedOnly = true
         l.offsetFraction = 0.35; l.tiltFine = -0.3   // RHYTHM POLISH (2026-10-22)
-        // ALT ROUTING (2026-10-25): populate all three new Optionals so this guard keeps covering them
-        var ra = EuclideousAltRouting(); ra.mode = .hits; ra.altMask = 0b0010; ra.every = 3; ra.offset = 2; ra.strip = 0b1010_1010; ra.passes = 4; ra.passOffset = 1; ra.chance = 70; ra.split = 5
-        var na = EuclideousAltRouting(); na.mode = .split; na.altMask = 0b0100; na.split = 0
-        l.riffAlt = ra; l.notesAlt = na; l.outLink = .notes
         var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {
